@@ -6,6 +6,7 @@ import {
   taskEventSchema,
   taskQueryResultSchema,
   taskReadModelSchema,
+  taskScheduleReadModelSchema,
   type TaskCommand,
   type TaskCommandOutcome,
   type TaskCommandResponse,
@@ -15,6 +16,7 @@ import {
   type TaskQuery,
   type TaskQueryResponse,
   type TaskReadModel,
+  type TaskScheduleReadModel,
 } from "../../../../shared/contracts/task/public.ts";
 import {
   ApplicationCommandError,
@@ -70,17 +72,46 @@ function structuredConflictReason(error: ApplicationCommandError): TaskConflictR
   return "other_conflict";
 }
 
-function projectTask(entity: Entity): TaskReadModel {
+function projectSchedule(entity: Entity | null): TaskScheduleReadModel | null {
+  if (!entity) return null;
   const projection = Object.fromEntries(
-    Object.keys(taskReadModelSchema.shape)
+    Object.keys(taskScheduleReadModelSchema.shape)
       .filter((key) => Object.prototype.hasOwnProperty.call(entity, key))
       .map((key) => [key, entity[key]]),
   );
-  return taskReadModelSchema.parse(projection);
+  return taskScheduleReadModelSchema.parse({
+    ...projection,
+    start_date: entity.start_date || null,
+    end_date: entity.end_date || null,
+    range_semantics: entity.range_semantics || null,
+  });
 }
 
-function expectedVersion(command: Exclude<TaskCommand, { name: "CreateTask" }>) {
-  return [{ type: "task" as const, id: command.payload.task_id, version: command.payload.expected_version }];
+function projectTask(entity: Entity, schedule: Entity | null): TaskReadModel {
+  const projection = Object.fromEntries(
+    Object.keys(taskReadModelSchema.shape)
+      .filter((key) => key !== "schedule" && Object.prototype.hasOwnProperty.call(entity, key))
+      .map((key) => [key, entity[key]]),
+  );
+  return taskReadModelSchema.parse({ ...projection, schedule: projectSchedule(schedule) });
+}
+
+function expectedVersions(
+  command: Exclude<TaskCommand, { name: "CreateTask" }>,
+  currentSchedule: Entity | null,
+) {
+  const versions: Array<{ type: "task" | "schedule"; id: string; version: number }> = [
+    { type: "task", id: command.payload.task_id, version: command.payload.expected_version },
+  ];
+  if (command.name === "UpdateTask" && command.payload.schedule_change?.expected_version !== null
+    && command.payload.schedule_change?.expected_version !== undefined) {
+    versions.push({
+      type: "schedule",
+      id: String(currentSchedule?.id || command.command_id),
+      version: command.payload.schedule_change.expected_version,
+    });
+  }
+  return versions;
 }
 
 function materializedTask(
@@ -97,7 +128,24 @@ function materializedTask(
   };
 }
 
-function applicationEnvelope(command: TaskCommand, current: Entity | null): CommandEnvelope {
+function materializedSchedule(
+  command: Extract<TaskCommand, { name: "UpdateTask" }>,
+  current: Entity | null,
+): Entity | null {
+  const change = command.payload.schedule_change;
+  if (!change) return null;
+  return {
+    ...current,
+    ...change.changes,
+    id: current?.id || command.command_id,
+    owner_type: "task",
+    owner_id: command.payload.task_id,
+    version: change.expected_version || 0,
+    updated_at: command.issued_at,
+  };
+}
+
+function applicationEnvelope(command: TaskCommand, current: Entity | null, currentSchedule: Entity | null): CommandEnvelope {
   const base = {
     commandId: command.command_id,
     name: command.name,
@@ -108,10 +156,14 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null): Comm
 
   if (command.name === "CreateTask") return { ...base, payload: { task: command.payload.task } };
   if (command.name === "UpdateTask") {
+    const schedule = materializedSchedule(command, currentSchedule);
     return {
       ...base,
-      payload: { task: materializedTask(command, current, command.payload.changes) },
-      expectedVersions: expectedVersion(command),
+      payload: {
+        task: materializedTask(command, current, command.payload.changes || {}),
+        ...(schedule ? { schedule } : {}),
+      },
+      expectedVersions: expectedVersions(command, currentSchedule),
     };
   }
   if (command.name === "CompleteTask") {
@@ -122,7 +174,7 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null): Comm
         completionNote: command.payload.completion_note,
         ...(command.payload.changes ? { task: materializedTask(command, current, command.payload.changes) } : {}),
       },
-      expectedVersions: expectedVersion(command),
+      expectedVersions: expectedVersions(command, currentSchedule),
     };
   }
   if (command.name === "ReopenTask") {
@@ -132,23 +184,28 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null): Comm
         taskId: command.payload.task_id,
         ...(command.payload.changes ? { task: materializedTask(command, current, command.payload.changes) } : {}),
       },
-      expectedVersions: expectedVersion(command),
+      expectedVersions: expectedVersions(command, currentSchedule),
     };
   }
   return {
     ...base,
     payload: { taskId: command.payload.task_id },
-    expectedVersions: expectedVersion(command),
+    expectedVersions: expectedVersions(command, currentSchedule),
   };
 }
 
 function mergeNonOverlappingUpdate(command: TaskCommand, current: Entity | null): TaskCommand {
-  if (command.name !== "UpdateTask" || !current || !command.payload.base) return command;
+  if (command.name !== "UpdateTask" || !current) return command;
   if (Number(current.version) === command.payload.expected_version) return command;
-  const canMerge = Object.keys(command.payload.changes).every((key) => {
+  const changes = command.payload.changes;
+  if (!changes) {
+    return { ...command, payload: { ...command.payload, expected_version: Number(current.version) } };
+  }
+  if (!command.payload.base) return command;
+  const canMerge = Object.keys(changes).every((key) => {
     const currentValue = current[key];
     const baseValue = command.payload.base?.[key as keyof typeof command.payload.base];
-    const intendedValue = command.payload.changes[key as keyof typeof command.payload.changes];
+    const intendedValue = changes[key as keyof typeof changes];
     return JSON.stringify(currentValue) === JSON.stringify(baseValue)
       || JSON.stringify(currentValue) === JSON.stringify(intendedValue);
   });
@@ -176,7 +233,14 @@ function eventFor(command: TaskCommand, receipt: CommandReceipt, task: TaskReadM
   if (command.name === "DeleteTask") {
     return taskEventSchema.parse({ ...eventBase, name: "TaskDeleted", deleted_at: task.deleted_at || command.issued_at });
   }
-  return taskEventSchema.parse({ ...eventBase, name: "TaskUpdated", changed_fields: Object.keys(command.payload.changes) });
+  return taskEventSchema.parse({
+    ...eventBase,
+    name: "TaskUpdated",
+    changed_fields: [
+      ...Object.keys(command.payload.changes || {}),
+      ...(command.payload.schedule_change ? ["schedule"] : []),
+    ],
+  });
 }
 
 function mappedApplicationError(error: unknown): TaskError {
@@ -209,16 +273,33 @@ export class TaskCapabilityService {
     try {
       const current = this.queries.getTask(taskId, true);
       if (command.name === "UpdateTask" && !current) return { ok: false, error: taskError("NOT_FOUND", "更新対象のTaskがありません。") };
+      const currentSchedule = current ? this.queries.getTaskSchedule(taskId) : null;
+      if (
+        command.name === "UpdateTask"
+        && command.payload.schedule_change
+        && (command.payload.schedule_change.base !== null) !== (currentSchedule !== null)
+      ) {
+        return {
+          ok: false,
+          error: taskError(
+            "CONFLICT",
+            "Scheduleが更新されています。再読み込みしてください。",
+            current ? { current_task: projectTask(current, currentSchedule) } : undefined,
+            "version_conflict",
+          ),
+        };
+      }
       command = mergeNonOverlappingUpdate(command, current);
-      const receipt = this.executeApplicationCommand(applicationEnvelope(command, current));
+      const receipt = this.executeApplicationCommand(applicationEnvelope(command, current, currentSchedule));
       if (receipt.status === "conflict") {
         const currentTask = this.queries.getTask(taskId, true);
+        const latestSchedule = currentTask ? this.queries.getTaskSchedule(taskId) : null;
         return {
           ok: false,
           error: taskError(
             "CONFLICT",
             "Taskが更新されています。再読み込みしてください。",
-            currentTask ? { current_task: projectTask(currentTask) } : undefined,
+            currentTask ? { current_task: projectTask(currentTask, latestSchedule) } : undefined,
             "version_conflict",
           ),
         };
@@ -226,7 +307,7 @@ export class TaskCapabilityService {
       const changed = receipt.changes.find((change) => change.type === "task")?.entity
         || this.queries.getTask(taskId, true);
       if (!changed) return { ok: false, error: taskError("NOT_FOUND", "Taskが見つかりません。") };
-      const task = projectTask(changed);
+      const task = projectTask(changed, this.queries.getTaskSchedule(taskId));
       const outcome: TaskCommandOutcome = {
         schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
         command_id: command.command_id,
@@ -241,7 +322,10 @@ export class TaskCapabilityService {
       if (mapped.code === "CONFLICT" && mapped.conflict_reason === "version_conflict") {
         const currentTask = this.queries.getTask(taskId, true);
         if (currentTask) {
-          mapped.details = { ...mapped.details, current_task: projectTask(currentTask) };
+          mapped.details = {
+            ...mapped.details,
+            current_task: projectTask(currentTask, this.queries.getTaskSchedule(taskId)),
+          };
         }
       }
       return { ok: false, error: mapped };
@@ -266,7 +350,7 @@ export class TaskCapabilityService {
         schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
         query_id: query.query_id,
         name: "GetTask" as const,
-        task: task ? projectTask(task) : null,
+        task: task ? projectTask(task, this.queries.getTaskSchedule(task.id)) : null,
       };
     }
 
@@ -283,7 +367,7 @@ export class TaskCapabilityService {
         schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
         query_id: query.query_id,
         name: "ListTaskChanges" as const,
-        items: page.map(projectTask),
+        items: page.map((task) => projectTask(task, this.queries.getTaskSchedule(task.id))),
         next_cursor: nextCursor,
         has_more: filtered.length > page.length,
       };
@@ -304,7 +388,7 @@ export class TaskCapabilityService {
       query_id: query.query_id,
       name: query.name,
       ...(query.name === "ListTodayTasks" ? { date: query.parameters.date } : {}),
-      items: page.map(projectTask),
+      items: page.map((task) => projectTask(task, this.queries.getTaskSchedule(task.id))),
       next_cursor: start + page.length < filtered.length ? String(page.at(-1)?.id || "") : null,
     };
   }

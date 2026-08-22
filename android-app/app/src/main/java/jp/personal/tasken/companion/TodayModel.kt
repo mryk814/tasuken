@@ -26,10 +26,28 @@ data class MobileTask(
     val workState: String?,
     val updatedAt: String,
     val todayDate: String? = null,
+    val schedule: MobileTaskSchedule? = null,
     val pending: Boolean = false,
     val conflict: MobileTaskConflict? = null,
     val canChangePendingState: Boolean = false,
     val rejectedThemeUpdate: MobileRejectedThemeUpdate? = null,
+)
+
+data class MobileTaskSchedule(
+    val id: String?,
+    val version: Int?,
+    val startDate: String?,
+    val endDate: String?,
+    val dateKind: String,
+    val rangeSemantics: String?,
+    val confidence: String = "fixed",
+    val granularity: String = "day",
+)
+
+data class MobileTaskScheduleDraft(
+    val startDate: String?,
+    val endDate: String?,
+    val rangeSemantics: String?,
 )
 
 data class MobileRejectedThemeUpdate(
@@ -98,6 +116,9 @@ data class MobileTaskConflict(
     val serverThemeId: String? = null,
     val localThemeId: String? = null,
     val localThemeIdChanged: Boolean = false,
+    val serverSchedule: MobileTaskSchedule? = null,
+    val localSchedule: MobileTaskScheduleDraft? = null,
+    val localScheduleChanged: Boolean = false,
 )
 
 sealed interface MobileTodayResult {
@@ -306,6 +327,56 @@ class TodayViewModel(
         } catch (error: Exception) {
             TaskActionUiState.Error(task.id, error.message ?: "Taskの予定を変更できませんでした。")
         }
+    }
+
+    fun updateTaskSchedule(task: MobileTask, draft: MobileTaskScheduleDraft) {
+        viewModelScope.launch { updateTaskScheduleNow(task, draft) }
+    }
+
+    internal suspend fun updateTaskScheduleNow(task: MobileTask, draft: MobileTaskScheduleDraft) {
+        val normalized = try {
+            normalizeScheduleDraft(draft)
+        } catch (error: Exception) {
+            mutableTaskActionState.value = TaskActionUiState.Error(
+                task.id,
+                error.message ?: "予定の日付を確認してください。",
+            )
+            return
+        }
+        if (
+            task.schedule?.startDate == normalized.startDate &&
+            task.schedule?.endDate == normalized.endDate &&
+            task.schedule?.rangeSemantics == normalized.rangeSemantics
+        ) return
+        if (task.pending || task.conflict != null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "このTaskの同期を解決してから予定を変更してください。")
+            return
+        }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "この環境ではTaskの予定を変更できません。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            withContext(ioDispatcher) { offlineRepository.enqueueUpdateTaskSchedule(task.id, normalized) }
+            TaskActionUiState.Queued(task.id)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "Taskの予定を変更できませんでした。")
+        }
+    }
+
+    private fun normalizeScheduleDraft(draft: MobileTaskScheduleDraft): MobileTaskScheduleDraft {
+        val start = draft.startDate?.takeIf(String::isNotBlank)?.let(java.time.LocalDate::parse)
+        val end = draft.endDate?.takeIf(String::isNotBlank)?.let(java.time.LocalDate::parse)
+        require(start == null || end == null || !end.isBefore(start)) { "終了日は開始日以降にしてください。" }
+        require(draft.rangeSemantics == null || draft.rangeSemantics in setOf("once_within_window", "ongoing")) {
+            "期間の意味を選び直してください。"
+        }
+        require(draft.rangeSemantics == null || (start != null && end != null && end.isAfter(start))) {
+            "期間の意味は開始日と終了日が異なるときだけ設定できます。"
+        }
+        return MobileTaskScheduleDraft(start?.toString(), end?.toString(), draft.rangeSemantics)
     }
 
     fun updateTaskTheme(task: MobileTask, themeId: String) {
@@ -530,6 +601,8 @@ interface MobileOfflineTaskRepository {
     suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate? = java.time.LocalDate.now()): String
     suspend fun enqueueUpdateTaskTitle(taskId: String, title: String): String = error("この環境ではTaskを編集できません。")
     suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: java.time.LocalDate?): String =
+        error("この環境ではTaskの予定を変更できません。")
+    suspend fun enqueueUpdateTaskSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String =
         error("この環境ではTaskの予定を変更できません。")
     suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
         error("この環境ではTaskのThemeを変更できません。")

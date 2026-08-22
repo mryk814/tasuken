@@ -36,6 +36,36 @@ private fun themeIdPatch(themeId: String?): JsonObject = buildJsonObject {
     put("themeId", themeId?.let(::JsonPrimitive) ?: JsonNull)
 }
 
+private fun scheduleValue(schedule: MobileTaskScheduleDraft): JsonObject = buildJsonObject {
+    put("startDate", schedule.startDate?.let(::JsonPrimitive) ?: JsonNull)
+    put("endDate", schedule.endDate?.let(::JsonPrimitive) ?: JsonNull)
+    put("rangeSemantics", schedule.rangeSemantics?.let(::JsonPrimitive) ?: JsonNull)
+}
+
+private fun schedulePatch(schedule: MobileTaskScheduleDraft?): JsonObject = buildJsonObject {
+    put("schedule", schedule?.let(::scheduleValue) ?: JsonNull)
+}
+
+private fun TaskCacheEntity.scheduleDraftOrNull(): MobileTaskScheduleDraft? {
+    if (scheduleId == null && scheduleDateKind == null) return null
+    return MobileTaskScheduleDraft(scheduleStartDate, scheduleEndDate, scheduleRangeSemantics)
+}
+
+private fun TaskCacheEntity.withOptimisticSchedule(
+    schedule: MobileTaskScheduleDraft,
+    commandId: String,
+    updatedAt: String,
+): TaskCacheEntity = copy(
+    scheduleStartDate = schedule.startDate,
+    scheduleEndDate = schedule.endDate,
+    scheduleDateKind = deriveScheduleDateKind(schedule.startDate, schedule.endDate),
+    scheduleRangeSemantics = schedule.rangeSemantics,
+    scheduleConfidence = scheduleConfidence ?: "fixed",
+    scheduleGranularity = scheduleGranularity ?: "day",
+    updatedAt = updatedAt,
+    optimisticCommandId = commandId,
+)
+
 private fun structuredCommandError(code: String, message: String, retryable: Boolean): String =
     buildJsonObject {
         put("code", JsonPrimitive(code.trim()))
@@ -112,7 +142,7 @@ class MobileOutbox(
         val serverId = currentServerId()
         val envelope = MobileCreateTaskEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 1,
+            schemaVersion = 2,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -177,7 +207,7 @@ class MobileOutbox(
         val serverId = currentServerId()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 1,
+            schemaVersion = 2,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -226,7 +256,7 @@ class MobileOutbox(
         val serverId = currentServerId()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 1,
+            schemaVersion = 2,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -281,7 +311,7 @@ class MobileOutbox(
             .map(OutboxCommandEntity::commandId)
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 1,
+            schemaVersion = 2,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -319,6 +349,78 @@ class MobileOutbox(
         return commandId
     }
 
+    suspend fun enqueueUpdateSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String {
+        val normalized = normalizeScheduleDraft(schedule)
+        val task = requireNotNull(dao.task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
+        require(task.optimisticCommandId == null && task.conflictCommandId == null) { "Taskの同期を解決してから編集してください。" }
+        val expectedVersion = requireNotNull(task.serverVersion) { "Task作成の同期完了を待って編集してください。" }
+        val base = task.scheduleDraftOrNull()
+        require(base != normalized) { "予定は変更されていません。" }
+        require(base != null || normalized.startDate != null || normalized.endDate != null) {
+            "未設定の予定はこれ以上消去できません。"
+        }
+        val expectedScheduleVersion = if (base == null) {
+            null
+        } else {
+            requireNotNull(task.scheduleVersion) { "予定の同期情報がありません。再読み込みしてください。" }
+        }
+        val commandId = UUID.randomUUID().toString()
+        val requestId = UUID.randomUUID().toString()
+        val issuedAt = now().toString()
+        val serverId = currentServerId()
+        val envelope = MobileTaskUpdateEnvelopeDto(
+            apiVersion = 1,
+            schemaVersion = 2,
+            requestId = requestId,
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = deviceId(),
+            issuedAt = issuedAt,
+            command = MobileTaskUpdateCommandDto(
+                name = "UpdateTask",
+                taskId = taskId,
+                expectedVersion = expectedVersion,
+                expectedScheduleVersion = expectedScheduleVersion,
+                changes = schedulePatch(normalized),
+                base = schedulePatch(base),
+            ),
+        )
+        dao.enqueueStateAction(
+            task = task.withOptimisticSchedule(normalized, commandId, issuedAt),
+            command = OutboxCommandEntity(
+                commandId = commandId,
+                idempotencyKey = commandId,
+                requestId = requestId,
+                clientDeviceId = envelope.clientDeviceId,
+                issuedAt = issuedAt,
+                commandName = "UpdateTask",
+                envelopeJson = MobileTaskCommandContract.encode(envelope),
+                serverId = serverId,
+                state = OutboxState.Pending,
+                attemptCount = 0,
+                createdAt = issuedAt,
+                lastAttemptAt = null,
+                lastError = null,
+                taskId = taskId,
+            ),
+        )
+        schedule()
+        return commandId
+    }
+
+    private fun normalizeScheduleDraft(schedule: MobileTaskScheduleDraft): MobileTaskScheduleDraft {
+        val start = schedule.startDate?.takeIf(String::isNotBlank)?.let(LocalDate::parse)
+        val end = schedule.endDate?.takeIf(String::isNotBlank)?.let(LocalDate::parse)
+        require(start == null || end == null || !end.isBefore(start)) { "終了日は開始日以降にしてください。" }
+        require(schedule.rangeSemantics == null || schedule.rangeSemantics in setOf("once_within_window", "ongoing")) {
+            "期間の意味を選び直してください。"
+        }
+        require(schedule.rangeSemantics == null || (start != null && end != null && end.isAfter(start))) {
+            "期間の意味は開始日と終了日が異なるときだけ設定できます。"
+        }
+        return MobileTaskScheduleDraft(start?.toString(), end?.toString(), schedule.rangeSemantics)
+    }
+
     suspend fun acceptServer(commandId: String) {
         val conflict = requireNotNull(dao.conflict(commandId)) { "競合情報が見つかりません。再読み込みしてください。" }
         require(dao.task(conflict.taskId)?.conflictCommandId == commandId)
@@ -347,23 +449,34 @@ class MobileOutbox(
         val issuedAt = now().toString()
         val clientDeviceId = deviceId()
         val isUpdate = conflict.intendedAction == "UpdateTask"
+        val localSchedule = if (conflict.localScheduleChanged) {
+            MobileTaskScheduleDraft(
+                conflict.localScheduleStartDate,
+                conflict.localScheduleEndDate,
+                conflict.localScheduleRangeSemantics,
+            )
+        } else {
+            null
+        }
         val envelopeJson = if (isUpdate) {
             val changes = when {
                 conflict.localTitle != null -> titlePatch(conflict.localTitle)
                 conflict.localTodayDateChanged -> todayDatePatch(conflict.localTodayDate)
                 conflict.localThemeIdChanged -> themeIdPatch(conflict.localThemeId)
+                conflict.localScheduleChanged -> schedulePatch(requireNotNull(localSchedule))
                 else -> error("端末側の更新内容が競合情報にありません。")
             }
             val base = when {
                 conflict.localTitle != null -> titlePatch(conflict.serverTitle)
                 conflict.localTodayDateChanged -> todayDatePatch(conflict.serverTodayDate)
                 conflict.localThemeIdChanged -> themeIdPatch(conflict.serverThemeId)
+                conflict.localScheduleChanged -> schedulePatch(task.scheduleDraftOrNull())
                 else -> error("Desktop側の更新内容が競合情報にありません。")
             }
             MobileTaskCommandContract.encode(
                 MobileTaskUpdateEnvelopeDto(
                     apiVersion = 1,
-                    schemaVersion = 1,
+                    schemaVersion = 2,
                     requestId = requestId,
                     commandId = replacementId,
                     idempotencyKey = replacementId,
@@ -373,6 +486,7 @@ class MobileOutbox(
                         name = "UpdateTask",
                         taskId = conflict.taskId,
                         expectedVersion = conflict.serverVersion,
+                        expectedScheduleVersion = if (conflict.localScheduleChanged) task.scheduleVersion else null,
                         changes = changes,
                         base = base,
                     ),
@@ -382,7 +496,7 @@ class MobileOutbox(
             MobileTaskCommandContract.encode(
                 MobileTaskStateEnvelopeDto(
                     apiVersion = 1,
-                    schemaVersion = 1,
+                    schemaVersion = 2,
                     requestId = requestId,
                     commandId = replacementId,
                     idempotencyKey = replacementId,
@@ -401,18 +515,25 @@ class MobileOutbox(
             "ReopenTask" -> "todo"
             else -> task.state
         }
+        val optimisticTask = task.copy(
+            serverVersion = conflict.serverVersion,
+            title = conflict.localTitle ?: task.title,
+            todayDate = if (conflict.localTodayDateChanged) conflict.localTodayDate else task.todayDate,
+            themeId = if (conflict.localThemeIdChanged) conflict.localThemeId else task.themeId,
+            state = optimisticState,
+            updatedAt = issuedAt,
+            optimisticCommandId = replacementId,
+            conflictCommandId = null,
+        ).let { current ->
+            if (conflict.localScheduleChanged) {
+                current.withOptimisticSchedule(requireNotNull(localSchedule), replacementId, issuedAt)
+            } else {
+                current
+            }
+        }
         dao.replaceConflictWithCommand(
             oldCommandId = commandId,
-            task = task.copy(
-                serverVersion = conflict.serverVersion,
-                title = conflict.localTitle ?: task.title,
-                todayDate = if (conflict.localTodayDateChanged) conflict.localTodayDate else task.todayDate,
-                themeId = if (conflict.localThemeIdChanged) conflict.localThemeId else task.themeId,
-                state = optimisticState,
-                updatedAt = issuedAt,
-                optimisticCommandId = replacementId,
-                conflictCommandId = null,
-            ),
+            task = optimisticTask,
             command = OutboxCommandEntity(
                 commandId = replacementId,
                 idempotencyKey = replacementId,
@@ -474,7 +595,7 @@ class MobileOutbox(
         val issuedAt = now().toString()
         val envelope = MobileTaskStateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 1,
+            schemaVersion = 2,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -525,6 +646,8 @@ class MobileOutbox(
     private data class ReceiptExpectation(
         val taskId: String,
         val expectedVersion: Int?,
+        val scheduleUpdate: Boolean = false,
+        val expectedScheduleVersion: Int? = null,
     )
 
     private data class ThemeUpdateBase(val themeId: String?)
@@ -540,7 +663,12 @@ class MobileOutbox(
             val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(command.envelopeJson)
             require(envelope.commandId == command.commandId)
             require(envelope.command.taskId == command.taskId)
-            ReceiptExpectation(envelope.command.taskId, envelope.command.expectedVersion)
+            ReceiptExpectation(
+                taskId = envelope.command.taskId,
+                expectedVersion = envelope.command.expectedVersion,
+                scheduleUpdate = envelope.command.changes.keys == setOf("schedule"),
+                expectedScheduleVersion = envelope.command.expectedScheduleVersion,
+            )
         }
         "CompleteTask", "ReopenTask" -> {
             val envelope = MobileTaskCommandContract.decodeStateEnvelope(command.envelopeJson)
@@ -573,8 +701,23 @@ class MobileOutbox(
                     require(receipt.task.version >= expectedVersion) { "変更なしTaskのversionが後退しています。" }
                 }
             }
+            if (expectation.scheduleUpdate) {
+                val schedule = requireNotNull(receipt.task.schedule) { "予定更新のreceiptにScheduleがありません。" }
+                expectation.expectedScheduleVersion?.let { expectedVersion ->
+                    if (receipt.status == "applied") {
+                        require(schedule.version > expectedVersion) { "適用済みScheduleのversionが進んでいません。" }
+                    } else {
+                        require(schedule.version >= expectedVersion) { "変更なしScheduleのversionが後退しています。" }
+                    }
+                }
+            }
             dao.task(expectation.taskId)?.serverVersion?.let { cachedVersion ->
                 require(receipt.task.version >= cachedVersion) { "GatewayのTask versionがcacheより後退しています。" }
+            }
+            dao.task(expectation.taskId)?.scheduleVersion?.let { cachedVersion ->
+                receipt.task.schedule?.let { schedule ->
+                    require(schedule.version >= cachedVersion) { "GatewayのSchedule versionがcacheより後退しています。" }
+                }
             }
             null
         } catch (error: Exception) {
@@ -633,6 +776,14 @@ class MobileOutbox(
                             state = task.state,
                             workState = task.workState,
                             todayDate = task.todayDate,
+                            scheduleId = task.schedule?.id,
+                            scheduleVersion = task.schedule?.version,
+                            scheduleStartDate = task.schedule?.startDate,
+                            scheduleEndDate = task.schedule?.endDate,
+                            scheduleDateKind = task.schedule?.dateKind,
+                            scheduleRangeSemantics = task.schedule?.rangeSemantics,
+                            scheduleConfidence = task.schedule?.confidence,
+                            scheduleGranularity = task.schedule?.granularity,
                             updatedAt = task.updatedAt,
                             optimisticCommandId = null,
                         ),
@@ -687,6 +838,21 @@ class MobileOutbox(
                     val localThemeId = localPatch?.get("themeId")?.let {
                         if (it == JsonNull) null else it.jsonPrimitive.content
                     }
+                    val localScheduleChanged = localPatch?.containsKey("schedule") == true
+                    val localSchedule = localPatch?.get("schedule")?.let { value ->
+                        require(value is JsonObject)
+                        MobileTaskScheduleDraft(
+                            startDate = value.getValue("startDate").let {
+                                if (it == JsonNull) null else it.jsonPrimitive.content
+                            },
+                            endDate = value.getValue("endDate").let {
+                                if (it == JsonNull) null else it.jsonPrimitive.content
+                            },
+                            rangeSemantics = value.getValue("rangeSemantics").let {
+                                if (it == JsonNull) null else it.jsonPrimitive.content
+                            },
+                        )
+                    }
                     dao.recordConflict(
                         commandId = command.commandId,
                         canonicalTask = TaskCacheEntity(
@@ -697,6 +863,14 @@ class MobileOutbox(
                             state = current.state,
                             workState = current.workState,
                             todayDate = current.todayDate,
+                            scheduleId = current.schedule?.id,
+                            scheduleVersion = current.schedule?.version,
+                            scheduleStartDate = current.schedule?.startDate,
+                            scheduleEndDate = current.schedule?.endDate,
+                            scheduleDateKind = current.schedule?.dateKind,
+                            scheduleRangeSemantics = current.schedule?.rangeSemantics,
+                            scheduleConfidence = current.schedule?.confidence,
+                            scheduleGranularity = current.schedule?.granularity,
                             updatedAt = current.updatedAt,
                             optimisticCommandId = null,
                             conflictCommandId = command.commandId,
@@ -716,6 +890,10 @@ class MobileOutbox(
                             serverThemeId = current.themeId,
                             localThemeId = localThemeId,
                             localThemeIdChanged = localThemeIdChanged,
+                            localScheduleStartDate = localSchedule?.startDate,
+                            localScheduleEndDate = localSchedule?.endDate,
+                            localScheduleRangeSemantics = localSchedule?.rangeSemantics,
+                            localScheduleChanged = localScheduleChanged,
                             serverWorkState = current.workState,
                             serverUpdatedAt = current.updatedAt,
                             detectedAt = response.meta.generatedAt,

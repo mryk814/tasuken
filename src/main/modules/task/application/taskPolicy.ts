@@ -96,6 +96,18 @@ export function validateTaskScheduleWrite(
     throw new ApplicationCommandError("CONFLICT", "Scheduleのownerを別Taskへ変更できません。", { id: schedule.id });
   }
   const existing = repository.get("schedule", schedule.id, true);
+  const otherActiveSchedule = repository.list("schedule").find((candidate) => (
+    candidate.owner_type === "task"
+    && candidate.owner_id === taskId
+    && candidate.id !== schedule.id
+  ));
+  if (otherActiveSchedule) {
+    throw new ApplicationCommandError("CONFLICT", "Taskにはactive Scheduleを1件だけ保存できます。", {
+      type: "schedule",
+      id: otherActiveSchedule.id,
+      conflictReason: "other_conflict",
+    });
+  }
   if (existing) {
     if (isCreate) throw new ApplicationCommandError("CONFLICT", "CreateTaskで既存Schedule IDを再利用できません。", { id: schedule.id });
     if (existing.owner_type !== "task" || existing.owner_id !== taskId) {

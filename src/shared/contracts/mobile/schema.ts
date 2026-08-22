@@ -6,6 +6,10 @@ import {
   taskIntendedExecutorSchema,
   taskPrioritySchema,
   taskRequesterSchema,
+  taskScheduleConfidenceSchema,
+  taskScheduleDateKindSchema,
+  taskScheduleGranularitySchema,
+  taskScheduleRangeSemanticsSchema,
   taskStateSchema,
   taskWorkStateSchema,
 } from "../task/public.ts";
@@ -122,6 +126,33 @@ export const mobileTodayRequestSchema = z.object({
   limit: z.number().int().positive().max(TASKEN_MOBILE_MAX_ITEMS).default(20),
 }).strict();
 
+export const mobileTaskScheduleSchema = z.object({
+  id: entityIdSchema,
+  version: entityVersionSchema,
+  startDate: localDateSchema.nullable(),
+  endDate: localDateSchema.nullable(),
+  dateKind: taskScheduleDateKindSchema,
+  rangeSemantics: taskScheduleRangeSemanticsSchema.nullable(),
+  confidence: taskScheduleConfidenceSchema,
+  granularity: taskScheduleGranularitySchema,
+}).strict().superRefine((value, context) => {
+  validateMobileScheduleDates(value, context);
+  const expectedDateKind = !value.startDate && !value.endDate
+    ? "unknown"
+    : !value.startDate
+      ? "deadline"
+      : !value.endDate || value.startDate === value.endDate
+        ? "point"
+        : "range";
+  if (value.dateKind !== expectedDateKind) {
+    context.addIssue({
+      code: "custom",
+      path: ["dateKind"],
+      message: "dateKindはstartDate/endDateから導出した値と一致する必要があります。",
+    });
+  }
+});
+
 export const mobileTaskSummarySchema = z.object({
   id: taskIdSchema,
   version: entityVersionSchema,
@@ -130,6 +161,7 @@ export const mobileTaskSummarySchema = z.object({
   state: taskStateSchema,
   workState: taskWorkStateSchema.nullable(),
   todayDate: localDateSchema.nullable().optional(),
+  schedule: mobileTaskScheduleSchema.nullable(),
   updatedAt: isoTimestampSchema,
 }).strict();
 
@@ -275,10 +307,44 @@ const mobileCreateTaskCandidateSchema = z.object({
   todayDate: localDateSchema.nullable().optional(),
 }).strict();
 
+const mobileScheduleEditFields = {
+  startDate: localDateSchema.nullable(),
+  endDate: localDateSchema.nullable(),
+  rangeSemantics: taskScheduleRangeSemanticsSchema.nullable(),
+};
+
+function validateMobileScheduleDates(
+  value: { startDate: string | null; endDate: string | null; rangeSemantics: "once_within_window" | "ongoing" | null },
+  context: z.RefinementCtx,
+) {
+  if (value.startDate && value.endDate && value.endDate < value.startDate) {
+    context.addIssue({ code: "custom", path: ["endDate"], message: "endDateはstartDate以降にしてください。" });
+  }
+  const isRange = Boolean(value.startDate && value.endDate && value.endDate > value.startDate);
+  if (value.rangeSemantics !== null && !isRange) {
+    context.addIssue({
+      code: "custom",
+      path: ["rangeSemantics"],
+      message: "rangeSemanticsは開始日と終了日が異なる期間にだけ指定できます。",
+    });
+  }
+}
+
+const mobileScheduleEditSchema = z.object(mobileScheduleEditFields).strict().superRefine(validateMobileScheduleDates);
+const mobileScheduleBaseSchema = z.object(mobileScheduleEditFields).strict().superRefine(validateMobileScheduleDates);
+
 const mobileTaskUpdatePatchSchema = z.union([
   z.object({ title: z.string().trim().min(1).max(500) }).strict(),
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
+  z.object({ schedule: mobileScheduleEditSchema }).strict(),
+]);
+
+const mobileTaskUpdateBaseSchema = z.union([
+  z.object({ title: z.string().trim().min(1).max(500) }).strict(),
+  z.object({ todayDate: localDateSchema.nullable() }).strict(),
+  z.object({ themeId: entityIdSchema.nullable() }).strict(),
+  z.object({ schedule: mobileScheduleBaseSchema.nullable() }).strict(),
 ]);
 
 const mobileTaskCommandSchema = z.discriminatedUnion("name", [
@@ -290,13 +356,46 @@ const mobileTaskCommandSchema = z.discriminatedUnion("name", [
     name: z.literal("UpdateTask"),
     taskId: taskIdSchema,
     expectedVersion: entityVersionSchema,
+    expectedScheduleVersion: entityVersionSchema.nullable(),
     changes: mobileTaskUpdatePatchSchema,
-    base: mobileTaskUpdatePatchSchema,
+    base: mobileTaskUpdateBaseSchema,
   }).strict().superRefine((value, context) => {
     const changedKey = Object.keys(value.changes)[0];
     const baseKey = Object.keys(value.base)[0];
     if (changedKey !== baseKey) {
       context.addIssue({ code: "custom", path: ["base"], message: "baseはchangesと同じfieldを持つ必要があります。" });
+    }
+    if (changedKey !== "schedule") {
+      if (value.expectedScheduleVersion !== null) {
+        context.addIssue({
+          code: "custom",
+          path: ["expectedScheduleVersion"],
+          message: "Schedule以外の更新ではexpectedScheduleVersionをnullにしてください。",
+        });
+      }
+      return;
+    }
+    const changes = mobileTaskUpdatePatchSchema.options[3].parse(value.changes).schedule;
+    const base = mobileTaskUpdateBaseSchema.options[3].parse(value.base).schedule;
+    if (base === null) {
+      if (value.expectedScheduleVersion !== null) {
+        context.addIssue({
+          code: "custom",
+          path: ["expectedScheduleVersion"],
+          message: "新規ScheduleのexpectedScheduleVersionはnullにしてください。",
+        });
+      }
+      if (changes.startDate === null && changes.endDate === null) {
+        context.addIssue({ code: "custom", path: ["changes", "schedule"], message: "新規Scheduleには開始日または終了日が必要です。" });
+      }
+      return;
+    }
+    if (value.expectedScheduleVersion === null) {
+      context.addIssue({
+        code: "custom",
+        path: ["expectedScheduleVersion"],
+        message: "既存Scheduleの更新にはexpectedScheduleVersionが必要です。",
+      });
     }
   }),
   z.object({
@@ -369,6 +468,8 @@ export type MobileErrorCode = z.output<typeof mobileErrorCodeSchema>;
 export type MobileHealthResponse = z.output<typeof mobileHealthResponseSchema>;
 export type MobileTodayRequest = z.output<typeof mobileTodayRequestSchema>;
 export type MobileTodayResponse = z.output<typeof mobileTodayResponseSchema>;
+export type MobileTaskSchedule = z.output<typeof mobileTaskScheduleSchema>;
+export type MobileTaskSummary = z.output<typeof mobileTaskSummarySchema>;
 export type MobileThemeCatalogItem = z.output<typeof mobileThemeCatalogItemSchema>;
 export type MobileThemesRequest = z.output<typeof mobileThemesRequestSchema>;
 export type MobileThemesResponse = z.output<typeof mobileThemesResponseSchema>;

@@ -29,6 +29,14 @@ data class TaskCacheEntity(
     val updatedAt: String,
     val optimisticCommandId: String?,
     val conflictCommandId: String? = null,
+    val scheduleId: String? = null,
+    val scheduleVersion: Int? = null,
+    val scheduleStartDate: String? = null,
+    val scheduleEndDate: String? = null,
+    val scheduleDateKind: String? = null,
+    val scheduleRangeSemantics: String? = null,
+    val scheduleConfidence: String? = null,
+    val scheduleGranularity: String? = null,
 )
 
 @Entity(tableName = "theme_cache")
@@ -116,6 +124,10 @@ data class TaskConflictEntity(
     val serverWorkState: String?,
     val serverUpdatedAt: String,
     val detectedAt: String,
+    val localScheduleStartDate: String? = null,
+    val localScheduleEndDate: String? = null,
+    val localScheduleRangeSemantics: String? = null,
+    val localScheduleChanged: Boolean = false,
 )
 
 data class TaskCacheWithConflict(
@@ -721,7 +733,7 @@ abstract class MobileLocalDao {
         SyncStateEntity::class,
         TaskConflictEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -742,6 +754,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 MIGRATION_4_5,
                 MIGRATION_5_6,
                 MIGRATION_6_7,
+                MIGRATION_7_8,
             ).build().also { instance = it }
         }
     }
@@ -809,6 +822,23 @@ internal val MIGRATION_6_7 = object : Migration(6, 7) {
     }
 }
 
+internal val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN scheduleId TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN scheduleVersion INTEGER")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN scheduleStartDate TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN scheduleEndDate TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN scheduleDateKind TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN scheduleRangeSemantics TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN scheduleConfidence TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN scheduleGranularity TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleStartDate TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleEndDate TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleRangeSemantics TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleChanged INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
 fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     id = id,
     title = title,
@@ -816,6 +846,7 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     state = state,
     workState = workState,
     todayDate = todayDate,
+    schedule = toMobileTaskSchedule(),
     updatedAt = updatedAt,
     pending = optimisticCommandId != null,
 )
@@ -835,6 +866,17 @@ fun TaskCacheWithConflict.toMobileTask(activeServerId: String? = null): MobileTa
             serverThemeId = it.serverThemeId,
             localThemeId = it.localThemeId,
             localThemeIdChanged = it.localThemeIdChanged,
+            serverSchedule = task.toMobileTaskSchedule(),
+            localSchedule = if (it.localScheduleChanged) {
+                MobileTaskScheduleDraft(
+                    startDate = it.localScheduleStartDate,
+                    endDate = it.localScheduleEndDate,
+                    rangeSemantics = it.localScheduleRangeSemantics,
+                )
+            } else {
+                null
+            },
+            localScheduleChanged = it.localScheduleChanged,
             detectedAt = it.detectedAt,
         )
     },
@@ -848,3 +890,24 @@ fun TaskCacheWithConflict.toMobileTask(activeServerId: String? = null): MobileTa
         .mapNotNull(OutboxCommandEntity::toRejectedThemeUpdateOrNull)
         .maxByOrNull { it.rejectedAt },
 )
+
+fun TaskCacheEntity.toMobileTaskSchedule(): MobileTaskSchedule? {
+    if (scheduleId == null && scheduleDateKind == null) return null
+    return MobileTaskSchedule(
+        id = scheduleId,
+        version = scheduleVersion,
+        startDate = scheduleStartDate,
+        endDate = scheduleEndDate,
+        dateKind = scheduleDateKind ?: deriveScheduleDateKind(scheduleStartDate, scheduleEndDate),
+        rangeSemantics = scheduleRangeSemantics,
+        confidence = scheduleConfidence ?: "fixed",
+        granularity = scheduleGranularity ?: "day",
+    )
+}
+
+internal fun deriveScheduleDateKind(startDate: String?, endDate: String?): String = when {
+    startDate == null && endDate == null -> "unknown"
+    startDate == null -> "deadline"
+    endDate == null || startDate == endDate -> "point"
+    else -> "range"
+}

@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -25,7 +26,7 @@ class MobileTodayGoldenFixtureTest {
 
         assertTrue(response.ok)
         assertEquals(1, response.meta.apiVersion)
-        assertEquals(1, response.meta.schemaVersion)
+        assertEquals(2, response.meta.schemaVersion)
         assertFalse(response.meta.truncated)
         assertEquals("2026-08-21", response.data.date)
         assertEquals(null, response.data.nextCursor)
@@ -49,7 +50,7 @@ class MobileTodayGoldenFixtureTest {
         val invalidPayloads = listOf(
             mutateRoot { it + ("ok" to JsonPrimitive(false)) },
             mutateMeta { it + ("apiVersion" to JsonPrimitive(2)) },
-            mutateMeta { it + ("schemaVersion" to JsonPrimitive(2)) },
+            mutateMeta { it + ("schemaVersion" to JsonPrimitive(1)) },
             mutateMeta { it + ("serverRevision" to JsonPrimitive(-1)) },
             mutateMeta { it + ("generatedAt" to JsonPrimitive("not-a-timestamp")) },
             mutateData { it + ("date" to JsonPrimitive("2026-02-30")) },
@@ -59,6 +60,7 @@ class MobileTodayGoldenFixtureTest {
             mutateFirstItem { it + ("state" to JsonPrimitive("invalid")) },
             mutateFirstItem { it + ("workState" to JsonPrimitive("invalid")) },
             mutateFirstItem { it + ("updatedAt" to JsonPrimitive("not-a-timestamp")) },
+            mutateFirstItem { JsonObject(it - "schedule") },
             missingTitle,
             unknownField,
         )
@@ -97,6 +99,40 @@ class MobileTodayGoldenFixtureTest {
         assertEquals("Padded title", item.title)
         assertEquals("theme-contract-id", item.themeId)
         assertEquals("Padded title", response.toResult().tasks.first().title)
+    }
+
+    @Test
+    fun decodesCanonicalScheduleAndRejectsInvalidScheduleSemantics() {
+        val schedule = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive("schedule-1"),
+                "version" to JsonPrimitive(4),
+                "startDate" to JsonPrimitive("2026-08-23"),
+                "endDate" to JsonPrimitive("2026-08-25"),
+                "dateKind" to JsonPrimitive("range"),
+                "rangeSemantics" to JsonPrimitive("once_within_window"),
+                "confidence" to JsonPrimitive("fixed"),
+                "granularity" to JsonPrimitive("day"),
+            ),
+        )
+        val payload = mutateFirstItem { it + ("schedule" to schedule) }
+        val decoded = MobileTodayContract.decodeSuccess(payload.toString()).data.items.first().schedule
+        assertEquals("2026-08-23", decoded?.startDate)
+        assertEquals("once_within_window", decoded?.rangeSemantics)
+
+        val invalidEnd = JsonObject(schedule + ("endDate" to JsonPrimitive("2026-08-22")))
+        val invalidSemantics = JsonObject(
+            schedule + mapOf(
+                "endDate" to JsonNull,
+                "dateKind" to JsonPrimitive("point"),
+            ),
+        )
+        val invalidKind = JsonObject(schedule + ("dateKind" to JsonPrimitive("deadline")))
+        listOf(invalidEnd, invalidSemantics, invalidKind).forEach { invalid ->
+            assertThrows(MobileTodayContractException::class.java) {
+                MobileTodayContract.decodeSuccess(mutateFirstItem { it + ("schedule" to invalid) }.toString())
+            }
+        }
     }
 
     @Test

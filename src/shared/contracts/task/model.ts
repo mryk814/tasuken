@@ -23,11 +23,100 @@ export const taskWorkStateSchema = z.enum([
   "failed",
 ]);
 export const taskShelfSchema = z.enum(["maybe_today", "this_evening", "this_week", "someday", "backlog"]);
+export const taskScheduleDateKindSchema = z.enum(["point", "deadline", "range", "unknown"]);
+export const taskScheduleRangeSemanticsSchema = z.enum(["once_within_window", "ongoing"]);
+export const taskScheduleConfidenceSchema = z.enum(["rough", "tentative", "fixed"]);
+export const taskScheduleGranularitySchema = z.enum(["day", "week", "month"]);
 
 const optionalText = (maximum: number) => z.string().max(maximum).nullable().optional();
 const optionalEntityId = entityIdSchema.nullable().optional();
 const optionalTaskId = taskIdSchema.nullable().optional();
 const optionalTimestamp = isoTimestampSchema.nullable().optional();
+
+function expectedScheduleDateKind(startDate: string | null, endDate: string | null) {
+  if (!startDate && !endDate) return "unknown" as const;
+  if (!startDate && endDate) return "deadline" as const;
+  if (startDate && (!endDate || startDate === endDate)) return "point" as const;
+  return "range" as const;
+}
+
+const taskScheduleFields = {
+  id: entityIdSchema,
+  owner_type: z.literal("task"),
+  owner_id: taskIdSchema,
+  start_date: localDateSchema.nullable(),
+  end_date: localDateSchema.nullable(),
+  date_kind: taskScheduleDateKindSchema,
+  range_semantics: taskScheduleRangeSemanticsSchema.nullable(),
+  confidence: taskScheduleConfidenceSchema,
+  granularity: taskScheduleGranularitySchema,
+};
+
+function validateTaskScheduleDates(
+  value: z.output<z.ZodObject<typeof taskScheduleFields>>,
+  context: z.RefinementCtx,
+) {
+  if (value.start_date && value.end_date && value.end_date < value.start_date) {
+    context.addIssue({
+      code: "custom",
+      path: ["end_date"],
+      message: "end_dateはstart_date以降にしてください。",
+    });
+  }
+  const isRange = Boolean(value.start_date && value.end_date && value.end_date > value.start_date);
+  if (value.range_semantics !== null && !isRange) {
+    context.addIssue({
+      code: "custom",
+      path: ["range_semantics"],
+      message: "range_semanticsは開始日と終了日が異なる期間にだけ指定できます。",
+    });
+  }
+}
+
+function validateTaskSchedule(
+  value: z.output<z.ZodObject<typeof taskScheduleFields>>,
+  context: z.RefinementCtx,
+) {
+  validateTaskScheduleDates(value, context);
+  if (value.date_kind !== expectedScheduleDateKind(value.start_date, value.end_date)) {
+    context.addIssue({
+      code: "custom",
+      path: ["date_kind"],
+      message: "date_kindはstart_date/end_dateから導出した値と一致する必要があります。",
+    });
+  }
+}
+
+/** Canonical Schedule write carried beside the Task aggregate. */
+export const taskScheduleWriteSchema = z.object(taskScheduleFields).strict().superRefine(validateTaskSchedule);
+
+const taskScheduleEditFields = {
+  start_date: localDateSchema.nullable(),
+  end_date: localDateSchema.nullable(),
+  date_kind: taskScheduleDateKindSchema,
+  range_semantics: taskScheduleRangeSemanticsSchema.nullable(),
+  confidence: taskScheduleConfidenceSchema,
+  granularity: taskScheduleGranularitySchema,
+};
+
+export const taskScheduleEditSchema = z.object(taskScheduleEditFields).strict().superRefine((value, context) => {
+  validateTaskSchedule({
+    id: entityIdSchema.parse("schedule-contract-validation"),
+    owner_type: "task",
+    owner_id: taskIdSchema.parse("task-contract-validation"),
+    ...value,
+  }, context);
+});
+
+/** Public nested projection. Schedule remains an independently versioned entity. */
+export const taskScheduleReadModelSchema = z.object({
+  ...taskScheduleFields,
+  version: entityVersionSchema,
+  source: z.string().trim().min(1).max(100),
+  created_at: isoTimestampSchema,
+  updated_at: isoTimestampSchema,
+  deleted_at: optionalTimestamp,
+}).strict().superRefine(validateTaskScheduleDates);
 
 export const taskRepeatRuleSchema = z.object({
   frequency: z.enum(["daily", "weekly", "monthly"]),
@@ -110,6 +199,7 @@ const taskFields = {
 /** Public transport DTO. This is not a SQLite row or Renderer form state. */
 export const taskReadModelSchema = z.object({
   ...taskFields,
+  schedule: taskScheduleReadModelSchema.nullable(),
   version: entityVersionSchema,
   source: z.string().trim().min(1).max(100),
   created_at: isoTimestampSchema,
@@ -132,6 +222,13 @@ export type TaskRequester = z.output<typeof taskRequesterSchema>;
 export type TaskIntendedExecutor = z.output<typeof taskIntendedExecutorSchema>;
 export type TaskWorkState = z.output<typeof taskWorkStateSchema>;
 export type TaskShelf = z.output<typeof taskShelfSchema>;
+export type TaskScheduleDateKind = z.output<typeof taskScheduleDateKindSchema>;
+export type TaskScheduleRangeSemantics = z.output<typeof taskScheduleRangeSemanticsSchema>;
+export type TaskScheduleConfidence = z.output<typeof taskScheduleConfidenceSchema>;
+export type TaskScheduleGranularity = z.output<typeof taskScheduleGranularitySchema>;
+export type TaskScheduleWrite = z.output<typeof taskScheduleWriteSchema>;
+export type TaskScheduleEdit = z.output<typeof taskScheduleEditSchema>;
+export type TaskScheduleReadModel = z.output<typeof taskScheduleReadModelSchema>;
 export type TaskRepeatRule = z.output<typeof taskRepeatRuleSchema>;
 export type TaskChecklistItem = z.output<typeof taskChecklistItemSchema>;
 export type TaskReadModel = z.output<typeof taskReadModelSchema>;

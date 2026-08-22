@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -27,6 +28,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -37,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -46,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.currentWindowDpSize
@@ -362,6 +367,7 @@ private fun TodayApp(
                         onTitleUpdate = todayViewModel::updateTaskTitle,
                         onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                         onThemeUpdate = todayViewModel::updateTaskTheme,
+                        onScheduleUpdate = todayViewModel::updateTaskSchedule,
                         onRejectedThemeDiscard = todayViewModel::discardRejectedThemeUpdate,
                         onConflictResolution = todayViewModel::resolveConflict,
                     )
@@ -657,6 +663,7 @@ internal fun TodayDetailPane(
     onTitleUpdate: (MobileTask, String) -> Unit = { _, _ -> },
     onTodayDateUpdate: (MobileTask, LocalDate?) -> Unit = { _, _ -> },
     onThemeUpdate: (MobileTask, String) -> Unit = { _, _ -> },
+    onScheduleUpdate: (MobileTask, MobileTaskScheduleDraft) -> Unit = { _, _ -> },
     onRejectedThemeDiscard: (MobileTask) -> Unit = {},
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
 ) {
@@ -708,6 +715,9 @@ internal fun TodayDetailPane(
                             if (conflict.localThemeIdChanged) {
                                 Text("Desktop  Theme ${themeTitleForDisplay(themes, conflict.serverThemeId)}")
                                 Text("この端末  Theme ${themeTitleForDisplay(themes, conflict.localThemeId)}")
+                            } else if (conflict.localScheduleChanged) {
+                                Text("Desktop  予定 ${scheduleConflictLabel(conflict.serverSchedule)}")
+                                Text("この端末  予定 ${scheduleConflictLabel(conflict.localSchedule)}")
                             } else if (conflict.localTodayDateChanged) {
                                 Text("Desktop  日付 ${taskTodayDateLabel(conflict.serverTodayDate)}")
                                 Text("この端末  日付 ${taskTodayDateLabel(conflict.localTodayDate)}")
@@ -784,6 +794,18 @@ internal fun TodayDetailPane(
                 },
                 onThemeSelected = { onThemeUpdate(task, it) },
             )
+            TaskScheduleEditor(
+                task = task,
+                enabled = !task.pending && task.conflict == null &&
+                    actionState !is TaskActionUiState.Saving,
+                stateDescription = when {
+                    task.pending -> "同期後に変更"
+                    task.conflict != null -> "競合を解決してから変更"
+                    actionState is TaskActionUiState.Saving -> "保存中"
+                    else -> null
+                },
+                onSave = { onScheduleUpdate(task, it) },
+            )
             Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
             val today = LocalDate.now()
@@ -817,6 +839,288 @@ internal fun TodayDetailPane(
         }
     }
 }
+
+private enum class ScheduleDateTarget {
+    Start,
+    End,
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TaskScheduleEditor(
+    task: MobileTask,
+    enabled: Boolean,
+    stateDescription: String?,
+    onSave: (MobileTaskScheduleDraft) -> Unit,
+) {
+    val schedule = task.schedule
+    val scheduleFingerprint = listOf(
+        schedule?.id,
+        schedule?.version,
+        schedule?.startDate,
+        schedule?.endDate,
+        schedule?.rangeSemantics,
+    ).joinToString("|")
+    var startDraft by rememberSaveable(task.id, scheduleFingerprint) {
+        mutableStateOf(schedule?.startDate.orEmpty())
+    }
+    var endDraft by rememberSaveable(task.id, scheduleFingerprint) {
+        mutableStateOf(schedule?.endDate.orEmpty())
+    }
+    var rangeSemanticsDraft by rememberSaveable(task.id, scheduleFingerprint) {
+        mutableStateOf(schedule?.rangeSemantics.orEmpty())
+    }
+    var dateTarget by rememberSaveable(task.id) { mutableStateOf<ScheduleDateTarget?>(null) }
+
+    val startDate = startDraft.toLocalDateOrNull()
+    val endDate = endDraft.toLocalDateOrNull()
+    val isValid = startDate == null || endDate == null || !endDate.isBefore(startDate)
+    val isTrueRange = isTrueScheduleRange(startDate, endDate)
+    val draft = MobileTaskScheduleDraft(
+        startDate = startDate?.toString(),
+        endDate = endDate?.toString(),
+        rangeSemantics = rangeSemanticsDraft.takeIf { isTrueRange && it.isNotEmpty() },
+    )
+    val original = MobileTaskScheduleDraft(
+        startDate = schedule?.startDate,
+        endDate = schedule?.endDate,
+        rangeSemantics = schedule?.rangeSemantics,
+    )
+    val hasChanges = draft != original
+
+    fun updateDates(newStart: LocalDate?, newEnd: LocalDate?) {
+        val wasTrueRange = isTrueScheduleRange(startDate, endDate)
+        val becomesTrueRange = isTrueScheduleRange(newStart, newEnd)
+        startDraft = newStart?.toString().orEmpty()
+        endDraft = newEnd?.toString().orEmpty()
+        rangeSemanticsDraft = when {
+            !becomesTrueRange -> ""
+            wasTrueRange -> rangeSemanticsDraft
+            else -> "once_within_window"
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("task-schedule-editor"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("予定", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                scheduleDraftLabel(startDate, endDate, rangeSemanticsDraft),
+                modifier = Modifier.testTag("schedule-kind"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        ScheduleDateField(
+            label = "開始",
+            value = startDate,
+            enabled = enabled,
+            stateDescription = stateDescription,
+            fieldTag = "schedule-start-date",
+            clearTag = "schedule-start-clear",
+            onOpen = { dateTarget = ScheduleDateTarget.Start },
+            onClear = { updateDates(null, endDate) },
+        )
+        ScheduleDateField(
+            label = "期限",
+            value = endDate,
+            enabled = enabled,
+            stateDescription = stateDescription,
+            fieldTag = "schedule-end-date",
+            clearTag = "schedule-end-clear",
+            onOpen = { dateTarget = ScheduleDateTarget.End },
+            onClear = { updateDates(startDate, null) },
+        )
+        if (!isValid) {
+            Text(
+                "期限は開始以降を選んでください。",
+                modifier = Modifier.testTag("schedule-date-error"),
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        if (isTrueRange) {
+            Text("この期間の意味", fontWeight = FontWeight.SemiBold)
+            if (rangeSemanticsDraft.isEmpty()) {
+                Text(
+                    "期間未分類",
+                    modifier = Modifier.testTag("schedule-range-unspecified"),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().testTag("schedule-range-semantics"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(
+                    selected = rangeSemanticsDraft == "once_within_window",
+                    onClick = { rangeSemanticsDraft = "once_within_window" },
+                    enabled = enabled,
+                    label = { Text("期間内に一度") },
+                    modifier = Modifier.testTag("schedule-range-once"),
+                )
+                FilterChip(
+                    selected = rangeSemanticsDraft == "ongoing",
+                    onClick = { rangeSemanticsDraft = "ongoing" },
+                    enabled = enabled,
+                    label = { Text("期間中継続") },
+                    modifier = Modifier.testTag("schedule-range-ongoing"),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                onClick = { updateDates(null, null) },
+                enabled = enabled && (startDate != null || endDate != null || rangeSemanticsDraft.isNotEmpty()),
+                modifier = Modifier.testTag("schedule-clear"),
+            ) { Text("予定をクリア") }
+            Button(
+                onClick = { onSave(draft) },
+                enabled = enabled && isValid && hasChanges,
+                modifier = Modifier.testTag("schedule-save"),
+            ) { Text("予定を保存") }
+        }
+    }
+
+    dateTarget?.let { target ->
+        val currentDate = if (target == ScheduleDateTarget.Start) startDate else endDate
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = currentDate?.toPickerMillis(),
+        )
+        DatePickerDialog(
+            onDismissRequest = { dateTarget = null },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pickerState.selectedDateMillis?.toPickerLocalDate()?.let { selectedDate ->
+                            if (target == ScheduleDateTarget.Start) {
+                                updateDates(selectedDate, endDate)
+                            } else {
+                                updateDates(startDate, selectedDate)
+                            }
+                        }
+                        dateTarget = null
+                    },
+                    enabled = pickerState.selectedDateMillis != null,
+                ) { Text("決定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { dateTarget = null }) { Text("キャンセル") }
+            },
+        ) {
+            DatePicker(
+                state = pickerState,
+                title = {
+                    Text(
+                        if (target == ScheduleDateTarget.Start) "開始を選択" else "期限を選択",
+                        modifier = Modifier.padding(start = 24.dp, top = 16.dp),
+                    )
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScheduleDateField(
+    label: String,
+    value: LocalDate?,
+    enabled: Boolean,
+    stateDescription: String?,
+    fieldTag: String,
+    clearTag: String,
+    onOpen: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedButton(
+            onClick = onOpen,
+            enabled = enabled,
+            modifier = Modifier
+                .weight(1f)
+                .testTag(fieldTag)
+                .semantics {
+                    this.stateDescription = stateDescription ?: "$label: ${value ?: "未設定"}"
+                },
+        ) {
+            Text("$label  ${value ?: "未設定"}")
+        }
+        TextButton(
+            onClick = onClear,
+            enabled = enabled && value != null,
+            modifier = Modifier.testTag(clearTag),
+        ) { Text("解除") }
+    }
+}
+
+private fun String.toLocalDateOrNull(): LocalDate? = takeIf(String::isNotEmpty)?.let(LocalDate::parse)
+
+private fun isTrueScheduleRange(startDate: LocalDate?, endDate: LocalDate?): Boolean =
+    startDate != null && endDate != null && endDate.isAfter(startDate)
+
+private fun scheduleDraftLabel(
+    startDate: LocalDate?,
+    endDate: LocalDate?,
+    rangeSemantics: String,
+): String = when {
+    startDate == null && endDate == null -> "未設定"
+    startDate == null -> "期限"
+    endDate == null || startDate == endDate -> "実施日"
+    rangeSemantics == "once_within_window" -> "期間内に一度"
+    rangeSemantics == "ongoing" -> "期間中継続"
+    else -> "期間未分類"
+}
+
+private fun scheduleConflictLabel(schedule: MobileTaskSchedule?): String = scheduleConflictLabel(
+    startDate = schedule?.startDate,
+    endDate = schedule?.endDate,
+    rangeSemantics = schedule?.rangeSemantics,
+)
+
+private fun scheduleConflictLabel(schedule: MobileTaskScheduleDraft?): String = scheduleConflictLabel(
+    startDate = schedule?.startDate,
+    endDate = schedule?.endDate,
+    rangeSemantics = schedule?.rangeSemantics,
+)
+
+private fun scheduleConflictLabel(
+    startDate: String?,
+    endDate: String?,
+    rangeSemantics: String?,
+): String {
+    if (startDate == null && endDate == null) return "未設定"
+    return buildList {
+        startDate?.let { add("開始 $it") }
+        endDate?.let { add("期限 $it") }
+        if (startDate != null && endDate != null && endDate > startDate) {
+            add(
+                when (rangeSemantics) {
+                    "once_within_window" -> "期間内に一度"
+                    "ongoing" -> "期間中継続"
+                    else -> "期間未分類"
+                },
+            )
+        }
+    }.joinToString(" / ")
+}
+
+private const val MillisPerDay = 86_400_000L
+
+private fun LocalDate.toPickerMillis(): Long = toEpochDay() * MillisPerDay
+
+private fun Long.toPickerLocalDate(): LocalDate = LocalDate.ofEpochDay(Math.floorDiv(this, MillisPerDay))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

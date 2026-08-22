@@ -5,6 +5,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -177,6 +178,43 @@ class TodayViewModelTest {
 
         assertEquals(date, received)
         assertEquals(TaskActionUiState.Queued(sampleTask().id), viewModel.taskActionState.value)
+    }
+
+    @Test
+    fun canonicalScheduleActionValidatesDatesAndQueuesNormalizedDraft() {
+        var received: MobileTaskScheduleDraft? = null
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
+            override fun observePendingCount(): Flow<Int> = flowOf(0)
+            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueUpdateTaskSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String {
+                received = schedule
+                return "schedule-command"
+            }
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository)
+        val draft = MobileTaskScheduleDraft("2026-08-23", "2026-08-25", null)
+
+        runBlocking { viewModel.updateTaskScheduleNow(sampleTask(), draft) }
+
+        assertEquals(draft, received)
+        assertEquals(TaskActionUiState.Queued(sampleTask().id), viewModel.taskActionState.value)
+
+        received = null
+        runBlocking {
+            viewModel.updateTaskScheduleNow(
+                sampleTask(),
+                MobileTaskScheduleDraft("2026-08-25", "2026-08-23", null),
+            )
+        }
+        assertNull(received)
+        assertEquals(
+            TaskActionUiState.Error(sampleTask().id, "終了日は開始日以降にしてください。"),
+            viewModel.taskActionState.value,
+        )
     }
 
     @Test

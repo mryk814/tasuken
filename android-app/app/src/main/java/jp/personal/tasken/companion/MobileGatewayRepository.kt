@@ -214,6 +214,9 @@ class AndroidMobileTaskRepository(
     override suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: LocalDate?): String =
         outbox.enqueueUpdateTodayDate(taskId, todayDate)
 
+    override suspend fun enqueueUpdateTaskSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String =
+        outbox.enqueueUpdateSchedule(taskId, schedule)
+
     override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
         outbox.enqueueUpdateTheme(taskId, themeId)
 
@@ -272,7 +275,7 @@ class AndroidMobileTaskRepository(
         return try {
             val payload = buildJsonObject {
                 put("apiVersion", 1)
-                put("schemaVersion", 1)
+                put("schemaVersion", 2)
                 put("requestId", UUID.randomUUID().toString())
                 put("pairingCode", pairingCode)
                 put("clientDeviceId", store.deviceId())
@@ -370,7 +373,7 @@ class AndroidMobileTaskRepository(
             val encodedCursor = URLEncoder.encode(cursor, Charsets.UTF_8.name())
             val response = gatewayRequest(
                 origin = origin,
-                path = "/v1/sync?apiVersion=1&schemaVersion=1&requestId=$encodedRequestId&cursor=$encodedCursor&limit=50",
+                path = "/v1/sync?apiVersion=1&schemaVersion=2&requestId=$encodedRequestId&cursor=$encodedCursor&limit=50",
                 method = "GET",
                 body = null,
                 accessToken = accessToken,
@@ -398,7 +401,7 @@ class AndroidMobileTaskRepository(
         val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
         val response = gatewayRequest(
             origin = origin,
-            path = "/v1/bootstrap?apiVersion=1&schemaVersion=1&requestId=$requestId&limit=50",
+            path = "/v1/bootstrap?apiVersion=1&schemaVersion=2&requestId=$requestId&limit=50",
             method = "GET",
             body = null,
             accessToken = accessToken,
@@ -453,7 +456,7 @@ class AndroidMobileTaskRepository(
                 }.orEmpty()
                 val response = gatewayRequest(
                     origin = origin,
-                    path = "/v1/themes?apiVersion=1&schemaVersion=1&requestId=$requestId&limit=50$cursorQuery",
+                    path = "/v1/themes?apiVersion=1&schemaVersion=2&requestId=$requestId&limit=50$cursorQuery",
                     method = "GET",
                     body = null,
                     accessToken = accessToken,
@@ -539,6 +542,14 @@ class AndroidMobileTaskRepository(
         state = state,
         workState = workState,
         todayDate = todayDate,
+        scheduleId = schedule?.id,
+        scheduleVersion = schedule?.version,
+        scheduleStartDate = schedule?.startDate,
+        scheduleEndDate = schedule?.endDate,
+        scheduleDateKind = schedule?.dateKind,
+        scheduleRangeSemantics = schedule?.rangeSemantics,
+        scheduleConfidence = schedule?.confidence,
+        scheduleGranularity = schedule?.granularity,
         updatedAt = updatedAt,
         optimisticCommandId = null,
     )

@@ -33,6 +33,7 @@ function taskReadModel(overrides = {}) {
   return {
     ...taskDraft(),
     version: 3,
+    schedule: null,
     source: "manual",
     created_at: now,
     updated_at: now,
@@ -54,7 +55,7 @@ function createCommand(overrides = {}) {
   };
 }
 
-test("Task command schema validates a complete v1 create command", () => {
+test("Task command schema validates a complete v2 create command", () => {
   const parsed = parseTaskCommand(createCommand());
   assert.equal(parsed.ok, true);
   if (parsed.ok) {
@@ -73,12 +74,12 @@ test("Task command schema reports the nested path of an invalid required field",
 });
 
 test("Task contract rejects an unknown future schema version with a structured error", () => {
-  const parsed = parseTaskCommand(createCommand({ schemaVersion: 2 }));
+  const parsed = parseTaskCommand(createCommand({ schemaVersion: 3 }));
   assert.equal(parsed.ok, false);
   if (!parsed.ok) {
     assert.equal(parsed.error.code, "UNSUPPORTED_FUTURE_SCHEMA_VERSION");
     assert.deepEqual(parsed.error.issues[0].path, ["schemaVersion"]);
-    assert.deepEqual(parsed.error.details, { receivedVersion: 2, currentVersion: 1 });
+    assert.deepEqual(parsed.error.details, { receivedVersion: 3, currentVersion: 2 });
   }
 });
 
@@ -119,13 +120,13 @@ test("Desktop, Mobile, HTTP, and MCP serialize through the same Task command con
 
 test("Task query and public read model round-trip through JSON", () => {
   const query = {
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     query_id: "query-1",
     name: "ListTasks",
     parameters: { project_id: "project-1", states: ["todo", "doing"], limit: 50 },
   };
   const result = {
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     query_id: "query-1",
     name: "ListTasks",
     items: [taskReadModel()],
@@ -139,7 +140,7 @@ test("Task query and public read model round-trip through JSON", () => {
 
 test("Task event schema preserves the versioned read model", () => {
   const event = {
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     event_id: "event-1",
     task_id: "task-contract-1",
     task_version: 3,
@@ -152,4 +153,72 @@ test("Task event schema preserves the versioned read model", () => {
   const parsed = parseTaskEvent(JSON.parse(JSON.stringify(event)));
   assert.equal(parsed.ok, true);
   if (parsed.ok) assert.deepEqual(parsed.value.changed_fields, ["title", "state"]);
+});
+
+test("Task schedule change has no client-owned ID and keeps Schedule version separate", () => {
+  const parsed = parseTaskCommand({
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+    command_id: "command-schedule",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "actor-1" },
+    source: "mobile",
+    issued_at: now,
+    payload: {
+      task_id: "task-contract-1",
+      expected_version: 3,
+      schedule_change: {
+        expected_version: 7,
+        changes: {
+          start_date: "2026-08-22",
+          end_date: "2026-08-24",
+          date_kind: "range",
+          range_semantics: null,
+          confidence: "fixed",
+          granularity: "day",
+        },
+        base: {
+          start_date: null,
+          end_date: "2026-08-23",
+          date_kind: "deadline",
+          range_semantics: null,
+          confidence: "fixed",
+          granularity: "day",
+        },
+      },
+    },
+  });
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.equal(Object.hasOwn(parsed.value.payload.schedule_change.changes, "id"), false);
+    assert.equal(parsed.value.payload.schedule_change.expected_version, 7);
+  }
+});
+
+test("Task schedule change rejects reversed dates, stray range semantics, and an empty new schedule", () => {
+  const scheduleCommand = (schedule_change) => ({
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+    command_id: "command-invalid-schedule",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "actor-1" },
+    source: "mobile",
+    issued_at: now,
+    payload: { task_id: "task-contract-1", expected_version: 3, schedule_change },
+  });
+  for (const schedule_change of [
+    {
+      expected_version: null,
+      base: null,
+      changes: { start_date: "2026-08-24", end_date: "2026-08-22", date_kind: "range", range_semantics: null, confidence: "fixed", granularity: "day" },
+    },
+    {
+      expected_version: null,
+      base: null,
+      changes: { start_date: "2026-08-22", end_date: "2026-08-22", date_kind: "point", range_semantics: "ongoing", confidence: "fixed", granularity: "day" },
+    },
+    {
+      expected_version: null,
+      base: null,
+      changes: { start_date: null, end_date: null, date_kind: "unknown", range_semantics: null, confidence: "fixed", granularity: "day" },
+    },
+  ]) assert.equal(parseTaskCommand(scheduleCommand(schedule_change)).ok, false);
 });
