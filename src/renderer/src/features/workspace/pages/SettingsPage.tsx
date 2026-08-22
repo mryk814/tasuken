@@ -1034,7 +1034,7 @@ export function SettingsPage({ data, domain, themeMode, setThemeMode, activeGrou
                 {artifactDirectory && <Button variant="secondary" onClick={openArtifactDirectory}>フォルダを開く</Button>}
               </div>
             </section>
-+            <section className="panel settings-form" hidden={activeSection !== "mobile"}>
+            <section className="panel settings-form" hidden={activeSection !== "mobile"}>
               <div className="settings-section-heading">
                 <h2>Android Companion</h2>
                 <IntegrationStatus
