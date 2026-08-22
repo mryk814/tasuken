@@ -74,6 +74,7 @@ data class MobileTaskUpdateCommandDto(
     val name: String,
     val taskId: String,
     val expectedVersion: Int,
+    val expectedScheduleVersion: Int? = null,
     val changes: JsonObject,
     val base: JsonObject,
 )
@@ -150,14 +151,14 @@ object MobileTaskCommandContract {
     fun decodeReceipt(payload: String): MobileTaskCommandResponseDto {
         val response = json.decodeFromString<MobileTaskCommandResponseDto>(payload)
         require(response.ok)
-        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 1)
+        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 2)
         require(response.data.status in setOf("applied", "no_change"))
         require(response.data.commandId.isNotBlank())
-        require(response.data.task.version > 0)
+        validateTaskSummary(response.data.task)
         require(runCatching { OffsetDateTime.parse(response.meta.generatedAt) }.isSuccess)
         return response.copy(
             data = response.data.copy(
-                task = response.data.task.copy(themeId = normalizeThemeId(response.data.task.themeId)),
+                task = normalizeTaskSummary(response.data.task),
             ),
         )
     }
@@ -165,7 +166,7 @@ object MobileTaskCommandContract {
     fun decodeError(payload: String): MobileTaskCommandErrorResponseDto {
         val response = json.decodeFromString<MobileTaskCommandErrorResponseDto>(payload)
         require(!response.ok)
-        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 1)
+        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 2)
         require(response.error.code.isNotBlank() && response.error.message.isNotBlank())
         if (response.error.code != "version_conflict") {
             require(response.error.conflict == null)
@@ -176,19 +177,18 @@ object MobileTaskCommandContract {
         require(conflict.intendedAction in setOf("UpdateTask", "CompleteTask", "ReopenTask"))
         require(conflict.expectedVersion > 0)
         require(conflict.currentTask.version > conflict.expectedVersion)
+        validateTaskSummary(conflict.currentTask)
         return response.copy(
             error = response.error.copy(
                 conflict = conflict.copy(
-                    currentTask = conflict.currentTask.copy(
-                        themeId = normalizeThemeId(conflict.currentTask.themeId),
-                    ),
+                    currentTask = normalizeTaskSummary(conflict.currentTask),
                 ),
             ),
         )
     }
 
     private fun validateCreateEnvelope(envelope: MobileCreateTaskEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 1)
+        require(envelope.apiVersion == 1 && envelope.schemaVersion == 2)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name == "CreateTask")
         require(envelope.command.task.id.isNotBlank())
@@ -197,7 +197,7 @@ object MobileTaskCommandContract {
     }
 
     private fun validateStateEnvelope(envelope: MobileTaskStateEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 1)
+        require(envelope.apiVersion == 1 && envelope.schemaVersion == 2)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name in setOf("CompleteTask", "ReopenTask"))
         require(envelope.command.taskId.isNotBlank())
@@ -206,18 +206,32 @@ object MobileTaskCommandContract {
     }
 
     private fun validateUpdateEnvelope(envelope: MobileTaskUpdateEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 1)
+        require(envelope.apiVersion == 1 && envelope.schemaVersion == 2)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name == "UpdateTask")
         require(envelope.command.taskId.isNotBlank())
         require(envelope.command.expectedVersion > 0)
         require(envelope.command.changes.keys == envelope.command.base.keys)
-        validateTaskPatch(envelope.command.changes)
-        validateTaskPatch(envelope.command.base)
+        val field = envelope.command.changes.keys.singleOrNull()
+            ?: error("UpdateTask must change exactly one field")
+        validateTaskPatch(envelope.command.changes, allowNullSchedule = false)
+        validateTaskPatch(envelope.command.base, allowNullSchedule = true)
+        if (field == "schedule") {
+            val baseSchedule = envelope.command.base.getValue("schedule")
+            if (baseSchedule == JsonNull) {
+                require(envelope.command.expectedScheduleVersion == null)
+                val changes = envelope.command.changes.getValue("schedule") as JsonObject
+                require(changes.getValue("startDate") != JsonNull || changes.getValue("endDate") != JsonNull)
+            } else {
+                require((envelope.command.expectedScheduleVersion ?: 0) > 0)
+            }
+        } else {
+            require(envelope.command.expectedScheduleVersion == null)
+        }
         require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)
     }
 
-    private fun validateTaskPatch(patch: JsonObject) {
+    private fun validateTaskPatch(patch: JsonObject, allowNullSchedule: Boolean) {
         require(patch.size == 1)
         when (val field = patch.keys.single()) {
             "title" -> {
@@ -240,13 +254,81 @@ object MobileTaskCommandContract {
                         (value is JsonPrimitive && value.isString && isThemeId(value.content)),
                 )
             }
+            "schedule" -> validateSchedulePatch(patch[field], allowNullSchedule)
             else -> error("Unsupported Task patch field: $field")
         }
+    }
+
+    private fun validateSchedulePatch(value: Any?, allowNullSchedule: Boolean) {
+        if (value == JsonNull) {
+            require(allowNullSchedule)
+            return
+        }
+        require(value is JsonObject)
+        require(value.keys == setOf("startDate", "endDate", "rangeSemantics"))
+        val start = nullableDate(value.getValue("startDate"))
+        val end = nullableDate(value.getValue("endDate"))
+        require(start == null || end == null || !end.isBefore(start))
+        val semantics = value.getValue("rangeSemantics").let {
+            when (it) {
+                JsonNull -> null
+                is JsonPrimitive -> {
+                    require(it.isString && it.content in setOf("once_within_window", "ongoing"))
+                    it.content
+                }
+                else -> error("Invalid Schedule rangeSemantics")
+            }
+        }
+        require(semantics == null || (start != null && end != null && end.isAfter(start)))
+    }
+
+    private fun nullableDate(value: Any?): LocalDate? = when (value) {
+        JsonNull -> null
+        is JsonPrimitive -> {
+            require(value.isString)
+            LocalDate.parse(value.content)
+        }
+        else -> error("Invalid Schedule date")
+    }
+
+    private fun validateTaskSummary(task: MobileTaskSummaryDto) {
+        require(task.id.isNotBlank() && task.id.length <= 200)
+        require(task.version > 0)
+        require(task.title.isNotBlank() && task.title.length <= 500)
+        require(task.themeId == null || isThemeId(task.themeId))
+        require(task.state in setOf("todo", "doing", "waiting", "review", "done", "cancelled"))
+        require(task.todayDate == null || runCatching { LocalDate.parse(task.todayDate) }.isSuccess)
+        task.schedule?.let { schedule ->
+            require(schedule.id.isNotBlank() && schedule.id.length <= 200)
+            require(schedule.version > 0)
+            val start = schedule.startDate?.let(LocalDate::parse)
+            val end = schedule.endDate?.let(LocalDate::parse)
+            require(start == null || end == null || !end.isBefore(start))
+            val expectedKind = when {
+                start == null && end == null -> "unknown"
+                start == null -> "deadline"
+                end == null || start == end -> "point"
+                else -> "range"
+            }
+            require(schedule.dateKind == expectedKind)
+            require(schedule.rangeSemantics == null || schedule.rangeSemantics in setOf("once_within_window", "ongoing"))
+            require(schedule.rangeSemantics == null || (start != null && end != null && end.isAfter(start)))
+            require(schedule.confidence in setOf("rough", "tentative", "fixed"))
+            require(schedule.granularity in setOf("day", "week", "month"))
+        }
+        require(runCatching { OffsetDateTime.parse(task.updatedAt) }.isSuccess)
     }
 
     private fun normalizeThemeId(value: String?): String? = value?.trim()?.also {
         require(it.isNotEmpty() && it.length <= 200)
     }
+
+    private fun normalizeTaskSummary(task: MobileTaskSummaryDto): MobileTaskSummaryDto = task.copy(
+        id = task.id.trim(),
+        title = task.title.trim(),
+        themeId = normalizeThemeId(task.themeId),
+        schedule = task.schedule?.copy(id = task.schedule.id.trim()),
+    )
 
     private fun isThemeId(value: String): Boolean = value.isNotBlank() && value.length <= 200
 }

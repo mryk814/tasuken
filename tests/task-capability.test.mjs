@@ -14,6 +14,7 @@ const bundled = await build({
         createTaskMcpAdapter,
         registerTaskIpc,
       } from "./src/main/modules/task/public.ts";
+      export { TASK_CONTRACT_SCHEMA_VERSION } from "./src/shared/contracts/task/public.ts";
       export { createTaskClient } from "./src/renderer/src/features/task/api/taskClient.ts";
     `,
     resolveDir: process.cwd(),
@@ -27,6 +28,7 @@ const bundled = await build({
 
 const {
   ApplicationCommandService,
+  TASK_CONTRACT_SCHEMA_VERSION,
   TaskCapabilityService,
   createTaskHttpAdapter,
   createTaskMcpAdapter,
@@ -128,13 +130,14 @@ function capability() {
   const application = new ApplicationCommandService(repository);
   return {
     repository,
+    application,
     service: new TaskCapabilityService(repository, (command) => application.execute(command)),
   };
 }
 
 function createCommand(source, suffix) {
   return {
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     command_id: `command-${suffix}`,
     name: "CreateTask",
     actor: { kind: "user", id: "actor-1" },
@@ -159,7 +162,7 @@ test("UpdateTask three-way merges different fields and rejects a same-field race
   assert.equal(created.ok, true);
 
   const priorityUpdate = service.executeCommand({
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     command_id: "command-priority-update",
     name: "UpdateTask",
     actor: { kind: "user", id: "desktop-user" },
@@ -174,7 +177,7 @@ test("UpdateTask three-way merges different fields and rejects a same-field race
   assert.equal(priorityUpdate.ok, true);
 
   const mergedTitle = service.executeCommand({
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     command_id: "command-mobile-title",
     name: "UpdateTask",
     actor: { kind: "user", id: "mobile-device" },
@@ -193,7 +196,7 @@ test("UpdateTask three-way merges different fields and rejects a same-field race
   assert.equal(mergedTitle.value.task.version, 3);
 
   const desktopTitle = service.executeCommand({
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     command_id: "command-desktop-title",
     name: "UpdateTask",
     actor: { kind: "user", id: "desktop-user" },
@@ -208,7 +211,7 @@ test("UpdateTask three-way merges different fields and rejects a same-field race
   assert.equal(desktopTitle.ok, true);
 
   const conflict = service.executeCommand({
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     command_id: "command-mobile-title-conflict",
     name: "UpdateTask",
     actor: { kind: "user", id: "mobile-device" },
@@ -224,6 +227,150 @@ test("UpdateTask three-way merges different fields and rejects a same-field race
   assert.equal(conflict.ok, false);
   assert.equal(conflict.error.conflict_reason, "version_conflict");
   assert.equal(conflict.error.details.current_task.title, "Desktop title");
+});
+
+test("Task capability creates, edits, clears, and projects the separately versioned canonical Schedule", () => {
+  const { repository, service } = capability();
+  assert.equal(service.executeCommand(createCommand("mobile", "schedule-lifecycle")).ok, true);
+  const schedule = (overrides = {}) => ({
+    start_date: null,
+    end_date: "2026-08-24",
+    date_kind: "deadline",
+    range_semantics: null,
+    confidence: "fixed",
+    granularity: "day",
+    ...overrides,
+  });
+  const command = (command_id, expectedVersion, expectedScheduleVersion, changes, base) => ({
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+    command_id,
+    name: "UpdateTask",
+    actor: { kind: "user", id: "mobile-device" },
+    source: "mobile",
+    issued_at: now,
+    payload: {
+      task_id: "task-schedule-lifecycle",
+      expected_version: expectedVersion,
+      schedule_change: { expected_version: expectedScheduleVersion, changes, base },
+    },
+  });
+
+  const created = service.executeCommand(command("schedule-created", 1, null, schedule(), null));
+  assert.equal(created.ok, true);
+  assert.equal(created.value.task.version, 2);
+  assert.deepEqual(created.value.task.schedule, {
+    id: "schedule-created",
+    owner_type: "task",
+    owner_id: "task-schedule-lifecycle",
+    start_date: null,
+    end_date: "2026-08-24",
+    date_kind: "deadline",
+    range_semantics: null,
+    confidence: "fixed",
+    granularity: "day",
+    version: 1,
+    source: "manual",
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+  });
+
+  const unrelatedTaskUpdate = service.executeCommand({
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+    command_id: "task-priority-before-schedule",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "desktop",
+    issued_at: now,
+    payload: {
+      task_id: "task-schedule-lifecycle",
+      expected_version: 2,
+      changes: { priority: "high" },
+    },
+  });
+  assert.equal(unrelatedTaskUpdate.ok, true);
+  assert.equal(unrelatedTaskUpdate.value.task.version, 3);
+
+  const range = schedule({
+    start_date: "2026-08-22",
+    end_date: "2026-08-24",
+    date_kind: "range",
+    range_semantics: null,
+  });
+  // The Schedule base/current still match, so a stale Task version must rebase safely.
+  const edited = service.executeCommand(command("schedule-edited", 2, 1, range, schedule()));
+  assert.equal(edited.ok, true);
+  assert.equal(edited.value.task.version, 4);
+  assert.equal(edited.value.task.priority, "high");
+  assert.equal(edited.value.task.schedule.id, "schedule-created");
+  assert.equal(edited.value.task.schedule.version, 2);
+  assert.equal(edited.value.task.schedule.range_semantics, null);
+
+  const clearedValue = schedule({ start_date: null, end_date: null, date_kind: "unknown" });
+  const cleared = service.executeCommand(command("schedule-cleared", 4, 2, clearedValue, range));
+  assert.equal(cleared.ok, true);
+  assert.equal(cleared.value.task.schedule.id, "schedule-created");
+  assert.equal(cleared.value.task.schedule.version, 3);
+  assert.equal(cleared.value.task.schedule.start_date, null);
+  assert.equal(cleared.value.task.schedule.end_date, null);
+  assert.equal(repository.list("schedule").length, 1);
+
+  const stale = service.executeCommand(command("schedule-stale", 5, 2, schedule(), range));
+  assert.equal(stale.ok, false);
+  assert.equal(stale.error.conflict_reason, "version_conflict");
+  assert.equal(stale.error.details.current_task.schedule.version, 3);
+});
+
+test("Task application boundary rejects a second active Schedule for the same owner", () => {
+  const { application, repository, service } = capability();
+  assert.equal(service.executeCommand(createCommand("desktop", "one-schedule-owner")).ok, true);
+  const task = repository.get("task", "task-one-schedule-owner");
+  const first = application.execute({
+    commandId: "application-schedule-first",
+    name: "UpdateTask",
+    actor: { kind: "user" },
+    source: "main_ui",
+    issuedAt: now,
+    payload: {
+      task,
+      schedule: {
+        id: "schedule-first",
+        owner_type: "task",
+        owner_id: task.id,
+        start_date: "2026-08-22",
+        end_date: "2026-08-22",
+        date_kind: "point",
+        range_semantics: null,
+        confidence: "fixed",
+        granularity: "day",
+      },
+    },
+    expectedVersions: [{ type: "task", id: task.id, version: task.version }],
+  });
+  assert.equal(first.status, "applied");
+  const current = repository.get("task", task.id);
+  assert.throws(() => application.execute({
+    commandId: "application-schedule-second",
+    name: "UpdateTask",
+    actor: { kind: "user" },
+    source: "main_ui",
+    issuedAt: now,
+    payload: {
+      task: current,
+      schedule: {
+        id: "schedule-second",
+        owner_type: "task",
+        owner_id: task.id,
+        start_date: "2026-08-23",
+        end_date: "2026-08-23",
+        date_kind: "point",
+        range_semantics: null,
+        confidence: "fixed",
+        granularity: "day",
+      },
+    },
+    expectedVersions: [{ type: "task", id: task.id, version: current.version }],
+  }), /active Scheduleを1件だけ/);
 });
 
 test("Desktop, HTTP, and authorized MCP use the same Task application handler semantics", () => {
@@ -261,7 +408,7 @@ test("Task query returns a bounded public read model through HTTP and MCP adapte
   const { service } = capability();
   service.executeCommand(createCommand("desktop", "query"));
   const query = {
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     query_id: "query-1",
     name: "ListTodayTasks",
     parameters: { date: "2026-08-17", project_id: "theme-personal-default", limit: 10 },
@@ -314,7 +461,7 @@ test("Electron IPC registrar validates through the same service and publishes a 
   assert.deepEqual(changed, [["task"]]);
 
   const query = handlers.get("task:query")({}, {
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     query_id: "query-ipc",
     name: "GetTask",
     parameters: { task_id: "task-ipc" },
@@ -329,7 +476,7 @@ test("Task capability preserves create, update, complete, reopen, and delete ver
   assert.equal(created.ok, true);
 
   const context = {
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     actor: { kind: "user", id: "actor-1" },
     source: "desktop",
     issued_at: now,
@@ -405,6 +552,7 @@ test("Renderer Task client resyncs by query before delivering an event with a ta
     state: "todo",
     priority: "normal",
     today_date: "2026-08-17",
+    schedule: null,
     version: 1,
     source: "manual",
     created_at: now,
@@ -422,11 +570,11 @@ test("Renderer Task client resyncs by query before delivering an event with a ta
     reopen: async () => assert.fail("not used"),
     get: async () => {
       getCalls += 1;
-      return { ok: true, value: { schemaVersion: 1, query_id: "resync", name: "GetTask", task: taskV3 } };
+      return { ok: true, value: { schemaVersion: TASK_CONTRACT_SCHEMA_VERSION, query_id: "resync", name: "GetTask", task: taskV3 } };
     },
     listToday: async (query) => ({
       ok: true,
-      value: { schemaVersion: 1, query_id: query.query_id, name: "ListTodayTasks", date: "2026-08-17", items: [taskV1], next_cursor: null },
+      value: { schemaVersion: TASK_CONTRACT_SCHEMA_VERSION, query_id: query.query_id, name: "ListTodayTasks", date: "2026-08-17", items: [taskV1], next_cursor: null },
     }),
     subscribe: (listener) => { eventListener = listener; return () => {}; },
   };
@@ -434,7 +582,7 @@ test("Renderer Task client resyncs by query before delivering an event with a ta
   await client.listToday({ date: "2026-08-17", queryId: "initial" });
   const delivered = new Promise((resolve) => client.subscribe(resolve));
   eventListener({
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     event_id: "event-gap",
     name: "TaskUpdated",
     task_id: "task-gap",
@@ -458,6 +606,7 @@ test("Renderer Task client reports a failed gap resync instead of swallowing it"
     state: "todo",
     priority: "normal",
     today_date: "2026-08-17",
+    schedule: null,
     version: 1,
     source: "manual",
     created_at: now,
@@ -474,7 +623,7 @@ test("Renderer Task client reports a failed gap resync instead of swallowing it"
     get: async () => { throw new Error("resync unavailable"); },
     listToday: async (query) => ({
       ok: true,
-      value: { schemaVersion: 1, query_id: query.query_id, name: "ListTodayTasks", date: "2026-08-17", items: [taskV1], next_cursor: null },
+      value: { schemaVersion: TASK_CONTRACT_SCHEMA_VERSION, query_id: query.query_id, name: "ListTodayTasks", date: "2026-08-17", items: [taskV1], next_cursor: null },
     }),
     subscribe: (listener) => { eventListener = listener; return () => {}; },
   };
@@ -483,7 +632,7 @@ test("Renderer Task client reports a failed gap resync instead of swallowing it"
   let delivered = false;
   const reported = new Promise((resolve) => client.subscribe(() => { delivered = true; }, resolve));
   eventListener({
-    schemaVersion: 1,
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     event_id: "event-gap-error",
     name: "TaskUpdated",
     task_id: taskV1.id,

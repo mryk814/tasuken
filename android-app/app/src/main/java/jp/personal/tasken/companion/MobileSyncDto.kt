@@ -114,7 +114,7 @@ object MobileSyncContract {
 
     private fun validateMeta(ok: Boolean, meta: MobileResponseMetaDto) {
         requireContract(ok, "Sync success response requires ok=true.")
-        requireContract(meta.apiVersion == 1 && meta.schemaVersion == 1, "Unsupported mobile sync version.")
+        requireContract(meta.apiVersion == 1 && meta.schemaVersion == 2, "Unsupported mobile sync version.")
         requireContract(isEntityId(meta.serverId), "Invalid serverId.")
         requireContract(meta.serverRevision >= 0, "serverRevision must be non-negative.")
         requireContract(isTimestamp(meta.generatedAt), "Invalid generatedAt timestamp.")
@@ -128,8 +128,38 @@ object MobileSyncContract {
         requireContract(task.state in taskStates, "Invalid Task state.")
         requireContract(task.workState == null || task.workState in workStates, "Invalid work state.")
         requireContract(task.todayDate == null || runCatching { LocalDate.parse(task.todayDate) }.isSuccess, "Invalid todayDate.")
+        task.schedule?.let(::validateSchedule)
         requireContract(isTimestamp(task.updatedAt), "Invalid Task timestamp.")
     }
+
+    private fun validateSchedule(schedule: MobileTaskScheduleDto) {
+        requireContract(isEntityId(schedule.id), "Invalid Schedule ID.")
+        requireContract(schedule.version > 0, "Invalid Schedule version.")
+        requireContract(schedule.startDate == null || isDate(schedule.startDate), "Invalid Schedule startDate.")
+        requireContract(schedule.endDate == null || isDate(schedule.endDate), "Invalid Schedule endDate.")
+        val start = schedule.startDate?.let(LocalDate::parse)
+        val end = schedule.endDate?.let(LocalDate::parse)
+        requireContract(start == null || end == null || !end.isBefore(start), "Schedule endDate precedes startDate.")
+        val expectedKind = when {
+            start == null && end == null -> "unknown"
+            start == null -> "deadline"
+            end == null || start == end -> "point"
+            else -> "range"
+        }
+        requireContract(schedule.dateKind == expectedKind, "Schedule dateKind does not match its dates.")
+        requireContract(
+            schedule.rangeSemantics == null || schedule.rangeSemantics in setOf("once_within_window", "ongoing"),
+            "Invalid Schedule rangeSemantics.",
+        )
+        requireContract(
+            schedule.rangeSemantics == null || (start != null && end != null && end.isAfter(start)),
+            "Schedule rangeSemantics requires a true date range.",
+        )
+        requireContract(schedule.confidence in setOf("rough", "tentative", "fixed"), "Invalid Schedule confidence.")
+        requireContract(schedule.granularity in setOf("day", "week", "month"), "Invalid Schedule granularity.")
+    }
+
+    private fun isDate(value: String): Boolean = runCatching { LocalDate.parse(value) }.isSuccess
 
     private fun isEntityId(value: String?): Boolean = !value.isNullOrBlank() && value.length <= 200
 

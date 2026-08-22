@@ -410,7 +410,7 @@ class MobileOutboxDatabaseTest {
             syncState = SyncStateEntity(
                 serverId = "server-1",
                 apiVersion = 1,
-                schemaVersion = 1,
+                schemaVersion = 2,
                 cursor = "2026-08-22T02:00:00Z|bootstrap-task",
                 lastSuccessfulSyncAt = "2026-08-22T02:00:00Z",
                 lastAttemptAt = "2026-08-22T02:00:00Z",
@@ -610,6 +610,107 @@ class MobileOutboxDatabaseTest {
         assertEquals("2026-08-23", replacement.command.base.getValue("todayDate").jsonPrimitive.content)
         assertEquals("2026-08-22", replacement.command.changes.getValue("todayDate").jsonPrimitive.content)
         assertEquals("2026-08-22", dao.task(taskId)?.todayDate)
+    }
+
+    @Test
+    fun scheduleUpdatePersistsStrictPatchThenConvergesCanonicalReceipt() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000044"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 4, state = "todo"))
+        val draft = MobileTaskScheduleDraft("2026-08-23", "2026-08-25", null)
+
+        val commandId = outbox.enqueueUpdateSchedule(taskId, draft)
+        val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(commandId)).envelopeJson)
+        assertNull(envelope.command.expectedScheduleVersion)
+        assertEquals(JsonNull, envelope.command.base.getValue("schedule"))
+        val patch = envelope.command.changes.getValue("schedule").jsonObject
+        assertEquals(setOf("startDate", "endDate", "rangeSemantics"), patch.keys)
+        assertEquals("2026-08-23", patch.getValue("startDate").jsonPrimitive.content)
+        assertEquals("range", dao.task(taskId)?.scheduleDateKind)
+        assertNull(dao.task(taskId)?.scheduleId)
+        assertEquals(commandId, dao.task(taskId)?.optimisticCommandId)
+
+        val canonicalSchedule = scheduleDto(
+            id = "schedule-44",
+            version = 1,
+            startDate = "2026-08-23",
+            endDate = "2026-08-25",
+            rangeSemantics = null,
+        )
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Applied(
+                receipt(commandId, taskId, version = 5, schedule = canonicalSchedule),
+            )
+        })
+        assertNull(dao.outbox(commandId))
+        assertNull(dao.task(taskId)?.optimisticCommandId)
+        assertEquals("schedule-44", dao.task(taskId)?.scheduleId)
+        assertEquals(1, dao.task(taskId)?.scheduleVersion)
+        assertEquals("2026-08-25", dao.task(taskId)?.scheduleEndDate)
+    }
+
+    @Test
+    fun scheduleConflictSupportsAcceptServerThenKeepLocalWithLatestScheduleVersion() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000045"
+        dao.upsertTask(
+            canonicalCachedTask(taskId, version = 4, state = "todo").copy(
+                scheduleId = "schedule-45",
+                scheduleVersion = 2,
+                scheduleStartDate = null,
+                scheduleEndDate = "2026-08-24",
+                scheduleDateKind = "deadline",
+                scheduleConfidence = "fixed",
+                scheduleGranularity = "day",
+            ),
+        )
+        val localDraft = MobileTaskScheduleDraft("2026-08-23", "2026-08-25", "once_within_window")
+        val firstCommandId = outbox.enqueueUpdateSchedule(taskId, localDraft)
+        val firstEnvelope = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(firstCommandId)).envelopeJson)
+        assertEquals(2, firstEnvelope.command.expectedScheduleVersion)
+        assertEquals("2026-08-24", firstEnvelope.command.base.getValue("schedule").jsonObject.getValue("endDate").jsonPrimitive.content)
+
+        val serverSchedule = scheduleDto("schedule-45", 3, null, "2026-08-26", null)
+        outbox.drain("server-1") {
+            MobileCommandSendResult.Conflict(
+                conflict(
+                    taskId,
+                    serverVersion = 5,
+                    serverState = "todo",
+                    intendedAction = "UpdateTask",
+                    serverSchedule = serverSchedule,
+                ),
+            )
+        }
+        val firstConflict = requireNotNull(dao.conflict(firstCommandId))
+        assertTrue(firstConflict.localScheduleChanged)
+        assertEquals("2026-08-25", firstConflict.localScheduleEndDate)
+        assertEquals(3, dao.task(taskId)?.scheduleVersion)
+        assertEquals("2026-08-26", dao.task(taskId)?.scheduleEndDate)
+
+        outbox.acceptServer(firstCommandId)
+        assertNull(dao.conflict(firstCommandId))
+        assertEquals("2026-08-26", dao.task(taskId)?.scheduleEndDate)
+
+        val secondCommandId = outbox.enqueueUpdateSchedule(taskId, localDraft)
+        val latestServerSchedule = scheduleDto("schedule-45", 4, null, "2026-08-27", null)
+        outbox.drain("server-1") {
+            MobileCommandSendResult.Conflict(
+                conflict(
+                    taskId,
+                    serverVersion = 6,
+                    serverState = "todo",
+                    intendedAction = "UpdateTask",
+                    serverSchedule = latestServerSchedule,
+                ),
+            )
+        }
+        val replacementId = outbox.keepLocal(secondCommandId)
+        val replacement = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(replacementId)).envelopeJson)
+        assertEquals(6, replacement.command.expectedVersion)
+        assertEquals(4, replacement.command.expectedScheduleVersion)
+        assertEquals("2026-08-27", replacement.command.base.getValue("schedule").jsonObject.getValue("endDate").jsonPrimitive.content)
+        assertEquals("2026-08-25", replacement.command.changes.getValue("schedule").jsonObject.getValue("endDate").jsonPrimitive.content)
+        assertEquals("2026-08-25", dao.task(taskId)?.scheduleEndDate)
+        assertEquals(replacementId, dao.task(taskId)?.optimisticCommandId)
     }
 
     @Test
@@ -1001,11 +1102,12 @@ class MobileOutboxDatabaseTest {
         version: Int = 1,
         status: String = "applied",
         themeId: String? = null,
+        schedule: MobileTaskScheduleDto? = null,
     ) = MobileTaskCommandResponseDto(
         ok = true,
         meta = MobileResponseMetaDto(
             apiVersion = 1,
-            schemaVersion = 1,
+            schemaVersion = 2,
             serverId = "server-1",
             serverRevision = 10,
             generatedAt = "2026-08-22T01:04:00Z",
@@ -1021,6 +1123,7 @@ class MobileOutboxDatabaseTest {
                 themeId = themeId,
                 state = state,
                 workState = null,
+                schedule = schedule,
                 updatedAt = "2026-08-22T01:04:00Z",
             ),
         ),
@@ -1034,11 +1137,12 @@ class MobileOutboxDatabaseTest {
         serverTitle: String = "Desktop側Task",
         serverTodayDate: String? = null,
         serverThemeId: String? = null,
+        serverSchedule: MobileTaskScheduleDto? = null,
     ) = MobileTaskCommandErrorResponseDto(
         ok = false,
         meta = MobileResponseMetaDto(
             apiVersion = 1,
-            schemaVersion = 1,
+            schemaVersion = 2,
             serverId = "server-1",
             serverRevision = 11,
             generatedAt = "2026-08-22T01:05:00Z",
@@ -1057,12 +1161,30 @@ class MobileOutboxDatabaseTest {
                     state = serverState,
                     workState = null,
                     todayDate = serverTodayDate,
+                    schedule = serverSchedule,
                     updatedAt = "2026-08-22T01:05:00Z",
                 ),
                 intendedAction = intendedAction,
                 expectedVersion = serverVersion - 1,
             ),
         ),
+    )
+
+    private fun scheduleDto(
+        id: String,
+        version: Int,
+        startDate: String?,
+        endDate: String?,
+        rangeSemantics: String?,
+    ) = MobileTaskScheduleDto(
+        id = id,
+        version = version,
+        startDate = startDate,
+        endDate = endDate,
+        dateKind = deriveScheduleDateKind(startDate, endDate),
+        rangeSemantics = rangeSemantics,
+        confidence = "fixed",
+        granularity = "day",
     )
 
     private fun canonicalCachedTask(taskId: String, version: Int, state: String) = TaskCacheEntity(
@@ -1086,6 +1208,14 @@ class MobileOutboxDatabaseTest {
             state = response.data.task.state,
             workState = response.data.task.workState,
             todayDate = "2026-08-22",
+            scheduleId = response.data.task.schedule?.id,
+            scheduleVersion = response.data.task.schedule?.version,
+            scheduleStartDate = response.data.task.schedule?.startDate,
+            scheduleEndDate = response.data.task.schedule?.endDate,
+            scheduleDateKind = response.data.task.schedule?.dateKind,
+            scheduleRangeSemantics = response.data.task.schedule?.rangeSemantics,
+            scheduleConfidence = response.data.task.schedule?.confidence,
+            scheduleGranularity = response.data.task.schedule?.granularity,
             updatedAt = response.data.task.updatedAt,
             optimisticCommandId = null,
         )
@@ -1104,7 +1234,7 @@ class MobileOutboxDatabaseTest {
     private fun activeSyncState(serverId: String = "server-1") = SyncStateEntity(
         serverId = serverId,
         apiVersion = 1,
-        schemaVersion = 1,
+        schemaVersion = 2,
         cursor = "task-cursor",
         lastSuccessfulSyncAt = "2026-08-22T01:00:00Z",
         lastAttemptAt = "2026-08-22T01:00:00Z",

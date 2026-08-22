@@ -32,7 +32,7 @@ class MobileThemeCatalogRepositoryTest {
             SyncStateEntity(
                 serverId = "server-1",
                 apiVersion = 1,
-                schemaVersion = 1,
+                schemaVersion = 2,
                 cursor = "task-cursor",
                 lastSuccessfulSyncAt = "2026-08-22T01:00:00Z",
                 lastAttemptAt = "2026-08-22T01:00:00Z",
@@ -476,7 +476,7 @@ class MobileThemeCatalogRepositoryTest {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "serverId": "server-1",
                 "serverRevision": $revision,
                 "generatedAt": "2026-08-22T02:00:00Z",
@@ -495,7 +495,7 @@ class MobileThemeCatalogRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "serverId": "server-1",
             "serverRevision": 7,
             "generatedAt": "2026-08-22T02:00:00Z",
@@ -514,7 +514,7 @@ class MobileThemeCatalogRepositoryTest {
           "ok": false,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "serverId": "server-1",
             "serverRevision": 7,
             "generatedAt": "2026-08-22T02:00:00Z",
@@ -530,14 +530,14 @@ class MobileThemeCatalogRepositoryTest {
 
     private fun emptyTaskBootstrap(taskId: String? = null, serverId: String = "server-1"): String {
         val tasks = taskId?.let {
-            """[{"id":"$it","version":1,"title":"再pair後に送る","themeId":null,"state":"todo","workState":null,"todayDate":"2026-08-22","updatedAt":"2026-08-22T02:00:00Z"}]"""
+            """[{"id":"$it","version":1,"title":"再pair後に送る","themeId":null,"state":"todo","workState":null,"todayDate":"2026-08-22","schedule":null,"updatedAt":"2026-08-22T02:00:00Z"}]"""
         } ?: "[]"
         return """
             {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "serverId": "$serverId",
                 "serverRevision": 7,
                 "generatedAt": "2026-08-22T02:00:00Z",
@@ -557,7 +557,7 @@ class MobileThemeCatalogRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T02:00:00Z",
@@ -574,6 +574,7 @@ class MobileThemeCatalogRepositoryTest {
               "state": "todo",
               "workState": null,
               "todayDate": "2026-08-22",
+              "schedule": null,
               "updatedAt": "2026-08-22T02:00:00Z"
             }
           }
@@ -585,7 +586,7 @@ class MobileThemeCatalogRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "serverId": "$serverId",
             "serverRevision": 7,
             "generatedAt": "2026-08-22T02:00:00Z",

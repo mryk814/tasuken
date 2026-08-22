@@ -148,7 +148,7 @@ function gateway(service, overrides = {}, options = {}) {
 function todayQuery(overrides = {}) {
   return {
     apiVersion: "1",
-    schemaVersion: "1",
+    schemaVersion: "2",
     requestId: "request-today",
     date: "2026-08-21",
     limit: "20",
@@ -159,7 +159,7 @@ function todayQuery(overrides = {}) {
 function createRequest(overrides = {}) {
   return {
     apiVersion: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     requestId: "request-mobile-create",
     commandId: "command-mobile-create",
     idempotencyKey: "command-mobile-create",
@@ -186,7 +186,7 @@ function stateRequest(name, expectedVersion, overrides = {}) {
   const suffix = name === "CompleteTask" ? "complete" : "reopen";
   return {
     apiVersion: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     requestId: `request-mobile-${suffix}`,
     commandId: `command-mobile-${suffix}`,
     idempotencyKey: `command-mobile-${suffix}`,
@@ -221,7 +221,7 @@ test("canonical Today golden is accepted and malformed responses fail closed", (
   for (const invalid of [
     { ...structuredClone(todayGolden), ok: false },
     withMeta({ apiVersion: 2 }),
-    withMeta({ schemaVersion: 2 }),
+    withMeta({ schemaVersion: 3 }),
     withMeta({ generatedAt: "not-a-timestamp" }),
     withData({ date: "2026-02-30" }),
     withData({ items: Array.from({ length: 51 }, (_, index) => ({
@@ -301,7 +301,7 @@ test("canonical Theme catalog golden is narrow and malformed responses fail clos
 
   assert.equal(mobileThemesRequestSchema.safeParse({
     apiVersion: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     requestId: "request-themes",
     limit: 50,
   }).success, true);
@@ -313,21 +313,21 @@ test("canonical Theme catalog golden is narrow and malformed responses fail clos
   })).success, true);
   assert.equal(mobileThemesRequestSchema.safeParse({
     apiVersion: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     requestId: "request-themes-page-2",
     cursor,
     limit: 50,
   }).success, true);
   assert.equal(mobileThemesRequestSchema.safeParse({
     apiVersion: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     requestId: "request-themes-trimmed-cursor",
     cursor: ` ${cursor} `,
     limit: 50,
   }).success, false);
   assert.equal(mobileThemesRequestSchema.safeParse({
     apiVersion: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     requestId: "request-themes",
     limit: 51,
   }).success, false);
@@ -357,6 +357,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     command: {
       name: "UpdateTask",
       taskId: "task-mobile-create",
+      expectedScheduleVersion: null,
       expectedVersion: 1,
       changes: { todayDate: "2026-08-22" },
       base: { todayDate: null },
@@ -367,6 +368,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     command: {
       name: "UpdateTask",
       taskId: "task-mobile-create",
+      expectedScheduleVersion: null,
       expectedVersion: 1,
       changes: { themeId: "theme-research" },
       base: { themeId: null },
@@ -374,7 +376,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
   }).success, true);
   for (const invalid of [
     { ...valid, apiVersion: 2 },
-    { ...valid, schemaVersion: 2 },
+    { ...valid, schemaVersion: 3 },
     { ...valid, actor: { kind: "user", id: "forged" } },
     { ...valid, source: "android" },
     { ...valid, command: { name: "CompleteTask", taskId: "task-mobile-create" } },
@@ -383,6 +385,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
         expectedVersion: 1,
         changes: { todayDate: "2026-08-22" },
         base: { title: "Mobile Task" },
@@ -393,6 +396,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
         expectedVersion: 1,
         changes: { title: "Mixed", themeId: "theme-research" },
         base: { title: "Mobile Task", themeId: null },
@@ -403,6 +407,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
         expectedVersion: 1,
         changes: { themeId: "theme-research" },
         base: { title: "Mobile Task" },
@@ -414,7 +419,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
   }
   assert.equal(mobileTodayRequestSchema.safeParse({
     apiVersion: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     requestId: "request-today",
     date: "2026-08-21",
     limit: 51,
@@ -443,6 +448,7 @@ test("Mobile UpdateTask maps Today schedule to the canonical task field", async 
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
         expectedVersion: 1,
         changes: { todayDate: "2026-08-22" },
         base: { todayDate: null },
@@ -464,6 +470,7 @@ test("Mobile UpdateTask maps Today schedule to the canonical task field", async 
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
         expectedVersion: 2,
         changes: { todayDate: null },
         base: { todayDate: "2026-08-22" },
@@ -472,6 +479,94 @@ test("Mobile UpdateTask maps Today schedule to the canonical task field", async 
   });
   assert.equal(unscheduled.status, 200);
   assert.equal(unscheduled.body.data.task.todayDate, null);
+});
+
+test("Mobile Schedule update derives canonical semantics and keeps Schedule identity/version server-owned", async () => {
+  const { service } = capability();
+  const canonicalCommands = [];
+  const adapter = gateway(service, {
+    executeTaskCommand: (input) => {
+      canonicalCommands.push(input);
+      return service.executeCommand(input);
+    },
+  });
+  assert.equal((await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest(),
+  })).status, 200);
+
+  const update = async (commandId, expectedVersion, expectedScheduleVersion, changes, base) => adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: `request-${commandId}`,
+      commandId,
+      idempotencyKey: commandId,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion,
+        expectedScheduleVersion,
+        changes: { schedule: changes },
+        base: { schedule: base },
+      },
+    },
+  });
+
+  const deadline = { startDate: null, endDate: "2026-08-24", rangeSemantics: null };
+  const created = await update("command-mobile-schedule-create", 1, null, deadline, null);
+  assert.equal(created.status, 200);
+  assert.deepEqual(created.body.data.task.schedule, {
+    id: "command-mobile-schedule-create",
+    version: 1,
+    startDate: null,
+    endDate: "2026-08-24",
+    dateKind: "deadline",
+    rangeSemantics: null,
+    confidence: "fixed",
+    granularity: "day",
+  });
+  assert.deepEqual(canonicalCommands.at(-1).payload.schedule_change, {
+    expected_version: null,
+    changes: {
+      start_date: null,
+      end_date: "2026-08-24",
+      date_kind: "deadline",
+      range_semantics: null,
+      confidence: "fixed",
+      granularity: "day",
+    },
+    base: null,
+  });
+
+  const range = { startDate: "2026-08-22", endDate: "2026-08-24", rangeSemantics: null };
+  const edited = await update("command-mobile-schedule-edit", 2, 1, range, deadline);
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.data.task.schedule.id, "command-mobile-schedule-create");
+  assert.equal(edited.body.data.task.schedule.version, 2);
+  assert.equal(edited.body.data.task.schedule.dateKind, "range");
+  assert.equal(edited.body.data.task.schedule.rangeSemantics, null);
+
+  const clearedValue = { startDate: null, endDate: null, rangeSemantics: null };
+  const cleared = await update("command-mobile-schedule-clear", 3, 2, clearedValue, range);
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.data.task.schedule.id, "command-mobile-schedule-create");
+  assert.equal(cleared.body.data.task.schedule.version, 3);
+  assert.equal(cleared.body.data.task.schedule.dateKind, "unknown");
+
+  const invalid = await update(
+    "command-mobile-schedule-invalid",
+    4,
+    3,
+    { startDate: "2026-08-25", endDate: "2026-08-24", rangeSemantics: null },
+    clearedValue,
+  );
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.body.error.code, "validation_failed");
 });
 
 test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to Personal, and rejects deleted Themes", async () => {
@@ -506,6 +601,7 @@ test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to P
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
         expectedVersion: 1,
         changes: { themeId: "theme-research" },
         base: { themeId: "theme-personal-default" },
@@ -533,6 +629,7 @@ test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to P
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
         expectedVersion: 2,
         changes: { themeId: null },
         base: { themeId: "theme-research" },
@@ -557,6 +654,7 @@ test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to P
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
         expectedVersion: 3,
         changes: { themeId: "theme-research" },
         base: { themeId: "theme-personal-default" },
@@ -574,7 +672,7 @@ test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to P
 test("Phase 4A Today is scope-gated, Core-delegated, bounded, and path/secret free", async () => {
   const { service } = capability();
   service.executeCommand({
-    schemaVersion: 1,
+    schemaVersion: 2,
     command_id: "desktop-seed",
     name: "CreateTask",
     actor: { kind: "user", id: "desktop-user" },
@@ -608,12 +706,12 @@ test("Phase 4A Today is scope-gated, Core-delegated, bounded, and path/secret fr
   });
   assert.equal(response.status, 200);
   assert.deepEqual(coreQuery, {
-    schemaVersion: 1,
+    schemaVersion: 2,
     query_id: "request-today",
     name: "ListTodayTasks",
     parameters: { date: "2026-08-21", limit: 20 },
   });
-  assert.deepEqual(Object.keys(response.body.data.items[0]).sort(), ["id", "state", "themeId", "title", "updatedAt", "version", "workState"]);
+  assert.deepEqual(Object.keys(response.body.data.items[0]).sort(), ["id", "schedule", "state", "themeId", "title", "updatedAt", "version", "workState"]);
   assert.doesNotMatch(JSON.stringify(response.body), /C:\/private|secret|token\.txt|repository_subdirectory|ai_source_refs/);
 
   const forbidden = await adapter.handle({
@@ -662,7 +760,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal,
-    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-themes-1", limit: "2" },
+    query: { apiVersion: "1", schemaVersion: "2", requestId: "request-themes-1", limit: "2" },
   });
   assert.equal(first.status, 200);
   assert.equal(first.body.meta.truncated, true);
@@ -681,7 +779,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "1",
+      schemaVersion: "2",
       requestId: "request-themes-2",
       cursor: first.body.data.nextCursor,
       limit: "2",
@@ -698,7 +796,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal,
-    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-themes-stale", cursor: "theme-missing" },
+    query: { apiVersion: "1", schemaVersion: "2", requestId: "request-themes-stale", cursor: "theme-missing" },
   });
   assert.equal(invalidCursor.status, 400);
   assert.equal(invalidCursor.body.error.code, "validation_failed");
@@ -709,7 +807,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "1",
+      schemaVersion: "2",
       requestId: "request-themes-trimmed",
       cursor: ` ${first.body.data.nextCursor} `,
     },
@@ -724,7 +822,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "1",
+      schemaVersion: "2",
       requestId: "request-themes-changed",
       cursor: first.body.data.nextCursor,
       limit: "2",
@@ -742,7 +840,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal,
-    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-themes-duplicate" },
+    query: { apiVersion: "1", schemaVersion: "2", requestId: "request-themes-duplicate" },
   });
   assert.equal(duplicateCatalog.status, 500);
   assert.equal(duplicateCatalog.body.error.code, "internal_error");
@@ -751,7 +849,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal: { ...principal, scopes: ["mobile:task-write"] },
-    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-themes-forbidden" },
+    query: { apiVersion: "1", schemaVersion: "2", requestId: "request-themes-forbidden" },
   });
   assert.equal(forbidden.status, 403);
 
@@ -759,7 +857,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal,
-    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-themes-invalid", includeArchived: "true" },
+    query: { apiVersion: "1", schemaVersion: "2", requestId: "request-themes-invalid", includeArchived: "true" },
   });
   assert.equal(unknownQuery.status, 400);
   assert.equal(unknownQuery.body.error.code, "validation_failed");
@@ -806,7 +904,7 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
 
   const desktopCapability = capability();
   const desktop = desktopCapability.service.executeCommand({
-    schemaVersion: 1,
+    schemaVersion: 2,
     command_id: "command-desktop-create",
     name: "CreateTask",
     actor: { kind: "user", id: "desktop-user" },
@@ -875,7 +973,7 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
   );
 
   const stale = desktopCapability.service.executeCommand({
-    schemaVersion: 1,
+    schemaVersion: 2,
     command_id: "command-desktop-stale",
     name: "UpdateTask",
     actor: { kind: "user", id: "desktop-user" },
@@ -895,7 +993,7 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
   assert.equal(stale.error.details.current_task.state, "todo");
 
   const desktopDuplicate = desktopCapability.service.executeCommand({
-    schemaVersion: 1,
+    schemaVersion: 2,
     command_id: "command-desktop-duplicate",
     name: "CreateTask",
     actor: { kind: "user", id: "desktop-user" },
@@ -952,7 +1050,7 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
   delete brokenEvent.receipt_json;
   const brokenRestart = capability(broken.repository);
   const brokenCoreReplay = brokenRestart.service.executeCommand({
-    schemaVersion: 1,
+    schemaVersion: 2,
     command_id: brokenRequest.commandId,
     name: "CreateTask",
     actor: { kind: "user", id: principal.deviceId },
@@ -1148,7 +1246,7 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   ]);
   const themes = await client.listThemes({
     apiVersion: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     requestId: "request-client-themes",
     limit: 50,
   });
@@ -1179,7 +1277,7 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   });
   await assert.rejects(legacyDesktop.listThemes({
     apiVersion: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     requestId: "request-legacy-themes",
     limit: 50,
   }), (error) => error instanceof MobileGatewayClientError && error.code === "not_found");
@@ -1194,7 +1292,7 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   assert.equal(created.data.status, "applied");
   const today = await client.listToday({
     apiVersion: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     requestId: "request-client-today",
     date: "2026-08-21",
     limit: 20,
@@ -1260,7 +1358,7 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
     principal,
-    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-bootstrap", limit: "50" },
+    query: { apiVersion: "1", schemaVersion: "2", requestId: "request-bootstrap", limit: "50" },
   });
   assert.equal(bootstrap.status, 200);
   assert.deepEqual(bootstrap.body.data.tasks.map((task) => task.id).sort(), ["task-sync-a", "task-sync-b"]);
@@ -1283,7 +1381,7 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
     deleted_at: "2026-08-21T03:00:00.000Z",
   });
 
-  const syncQuery = { apiVersion: "1", schemaVersion: "1", requestId: "request-sync", cursor, limit: "1" };
+  const syncQuery = { apiVersion: "1", schemaVersion: "2", requestId: "request-sync", cursor, limit: "1" };
   const firstPage = await adapter.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.sync, principal, query: syncQuery });
   const retriedPage = await adapter.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.sync, principal, query: syncQuery });
   assert.deepEqual(retriedPage.body.data, firstPage.body.data);
@@ -1330,7 +1428,7 @@ test("Mobile UpdateTask auto-merges a different-field race and returns canonical
   })).status, 200);
 
   const priorityUpdate = service.executeCommand({
-    schemaVersion: 1,
+    schemaVersion: 2,
     command_id: "command-desktop-priority",
     name: "UpdateTask",
     actor: { kind: "user", id: "desktop-user" },
@@ -1352,6 +1450,7 @@ test("Mobile UpdateTask auto-merges a different-field race and returns canonical
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
         expectedVersion: 1,
         changes: { title: "Mobile title" },
         base: { title: "Mobile Task" },
@@ -1363,7 +1462,7 @@ test("Mobile UpdateTask auto-merges a different-field race and returns canonical
   assert.equal(merged.body.data.task.version, 3);
 
   const desktopTitle = service.executeCommand({
-    schemaVersion: 1,
+    schemaVersion: 2,
     command_id: "command-desktop-title-after-mobile",
     name: "UpdateTask",
     actor: { kind: "user", id: "desktop-user" },
@@ -1385,6 +1484,7 @@ test("Mobile UpdateTask auto-merges a different-field race and returns canonical
       command: {
         name: "UpdateTask",
         taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
         expectedVersion: 3,
         changes: { title: "Second mobile title" },
         base: { title: "Mobile title" },
@@ -1404,7 +1504,7 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
     accessToken,
     fetch: async () => new Response(JSON.stringify({
       ok: false,
-      meta: { apiVersion: 1, schemaVersion: 1, serverId: "desktop", serverRevision: 1, generatedAt: now, truncated: false },
+      meta: { apiVersion: 1, schemaVersion: 2, serverId: "desktop", serverRevision: 1, generatedAt: now, truncated: false },
       error: { code: "unauthorized", message: `leak ${accessToken}`, retryable: false },
     }), { status: 401, headers: { "x-tasken-mobile-api-version": "1" } }),
   });
@@ -1518,7 +1618,7 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
       method: "GET",
       path: TASKEN_MOBILE_ENDPOINTS.themes,
       principal,
-      query: { apiVersion: "1", schemaVersion: "1", requestId: "request-runtime-themes" },
+      query: { apiVersion: "1", schemaVersion: "2", requestId: "request-runtime-themes" },
     });
     assert.equal(themeCatalog.status, 200);
     assert.deepEqual(themeCatalog.body.data, {
@@ -1535,7 +1635,7 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
     assert.equal(created.status, 200);
 
     const query = {
-      schemaVersion: 1,
+    schemaVersion: 2,
       query_id: "query-shared-task",
       name: "GetTask",
       parameters: { task_id: "task-mobile-create", include_deleted: false },
@@ -1563,7 +1663,7 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
     );
 
     const update = {
-      schemaVersion: 1,
+    schemaVersion: 2,
       command_id: "command-core-http-update",
       name: "UpdateTask",
       actor: { kind: "user", id: "desktop-user" },

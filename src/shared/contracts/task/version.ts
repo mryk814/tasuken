@@ -3,11 +3,12 @@ import * as z from "zod/v4";
 import { parseVersionedWithSchema, type Result } from "../../kernel/public.ts";
 import { taskErrorCodeSchema, taskErrorSchema, type TaskError, type TaskErrorCode } from "./errors.ts";
 
-export const TASK_CONTRACT_SCHEMA_VERSION = 1 as const;
+export const TASK_CONTRACT_SCHEMA_VERSION = 2 as const;
 export const taskContractSchemaVersionSchema = z.literal(TASK_CONTRACT_SCHEMA_VERSION);
 
 /**
- * v1 is the first transport contract, so no legacy transport migration exists.
+ * v2 adds the independently versioned canonical Schedule projection.
+ * There is no legacy transport migration: all in-repository clients update in lockstep.
  * Persisted Workspace/SQLite migration remains outside this boundary.
  */
 export function parseTaskContract<TSchema extends z.ZodType>(

@@ -47,7 +47,7 @@ object MobileThemeContract {
     private fun validate(response: MobileThemesResponseDto) {
         requireContract(response.ok, "Theme success response requires ok=true.")
         requireContract(
-            response.meta.apiVersion == 1 && response.meta.schemaVersion == 1,
+            response.meta.apiVersion == 1 && response.meta.schemaVersion == 2,
             "Unsupported mobile Theme version.",
         )
         requireContract(isEntityId(response.meta.serverId), "Invalid serverId.")

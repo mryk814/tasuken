@@ -1,7 +1,12 @@
 import * as z from "zod/v4";
 
 import { entityIdSchema, entityVersionSchema, isoTimestampSchema, type Result } from "../../kernel/public.ts";
-import { taskDraftSchema, taskIdSchema, taskPatchSchema } from "./model.ts";
+import {
+  taskDraftSchema,
+  taskIdSchema,
+  taskPatchSchema,
+  taskScheduleEditSchema,
+} from "./model.ts";
 import { parseTaskContract, taskContractSchemaVersionSchema } from "./version.ts";
 import type { TaskError } from "./errors.ts";
 
@@ -28,20 +33,59 @@ export const createTaskCommandSchema = z.object({
   payload: z.object({ task: taskDraftSchema }).strict(),
 }).strict();
 
+export const taskScheduleChangeSchema = z.object({
+  changes: taskScheduleEditSchema,
+  base: taskScheduleEditSchema.nullable(),
+  expected_version: entityVersionSchema.nullable(),
+}).strict().superRefine((value, context) => {
+  if (value.base) {
+    if (value.expected_version === null) {
+      context.addIssue({
+        code: "custom",
+        path: ["expected_version"],
+        message: "既存Scheduleの更新にはexpected_versionが必要です。",
+      });
+    }
+  } else {
+    if (value.expected_version !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["expected_version"],
+        message: "新規Scheduleのexpected_versionはnullにしてください。",
+      });
+    }
+    if (value.changes.start_date === null && value.changes.end_date === null) {
+      context.addIssue({
+        code: "custom",
+        path: ["changes"],
+        message: "新規Scheduleには開始日または終了日が必要です。",
+      });
+    }
+  }
+});
+
 export const updateTaskCommandSchema = z.object({
   ...commandBase,
   name: z.literal("UpdateTask"),
   payload: z.object({
     task_id: taskIdSchema,
     expected_version: entityVersionSchema,
-    changes: taskPatchSchema,
+    changes: taskPatchSchema.optional(),
     base: taskPatchSchema.optional(),
+    schedule_change: taskScheduleChangeSchema.optional(),
   }).strict().superRefine((value, context) => {
-    if (!value.base) return;
-    const changedKeys = Object.keys(value.changes).sort();
-    const baseKeys = Object.keys(value.base).sort();
-    if (changedKeys.length !== baseKeys.length || changedKeys.some((key, index) => key !== baseKeys[index])) {
-      context.addIssue({ code: "custom", path: ["base"], message: "baseはchangesと同じfieldを持つ必要があります。" });
+    if (!value.changes && !value.schedule_change) {
+      context.addIssue({ code: "custom", path: ["changes"], message: "TaskまたはScheduleの変更を指定してください。" });
+    }
+    if (!value.changes && value.base) {
+      context.addIssue({ code: "custom", path: ["base"], message: "changesなしでbaseを指定できません。" });
+    }
+    if (value.changes && value.base) {
+      const changedKeys = Object.keys(value.changes).sort();
+      const baseKeys = Object.keys(value.base).sort();
+      if (changedKeys.length !== baseKeys.length || changedKeys.some((key, index) => key !== baseKeys[index])) {
+        context.addIssue({ code: "custom", path: ["base"], message: "baseはchangesと同じfieldを持つ必要があります。" });
+      }
     }
   }),
 }).strict();
@@ -89,6 +133,7 @@ export type TaskCommandSource = z.output<typeof taskCommandSourceSchema>;
 export type TaskCommandEntrypoint = z.output<typeof taskCommandEntrypointSchema>;
 export type CreateTaskCommand = z.output<typeof createTaskCommandSchema>;
 export type UpdateTaskCommand = z.output<typeof updateTaskCommandSchema>;
+export type TaskScheduleChange = z.output<typeof taskScheduleChangeSchema>;
 export type DeleteTaskCommand = z.output<typeof deleteTaskCommandSchema>;
 export type CompleteTaskCommand = z.output<typeof completeTaskCommandSchema>;
 export type ReopenTaskCommand = z.output<typeof reopenTaskCommandSchema>;

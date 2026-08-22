@@ -38,7 +38,20 @@ data class MobileTaskSummaryDto(
     val state: String,
     val workState: String?,
     val todayDate: String? = null,
+    val schedule: MobileTaskScheduleDto?,
     val updatedAt: String,
+)
+
+@Serializable
+data class MobileTaskScheduleDto(
+    val id: String,
+    val version: Int,
+    val startDate: String?,
+    val endDate: String?,
+    val dateKind: String,
+    val rangeSemantics: String?,
+    val confidence: String,
+    val granularity: String,
 )
 
 class MobileTodayContractException(message: String, cause: Throwable? = null) :
@@ -46,7 +59,7 @@ class MobileTodayContractException(message: String, cause: Throwable? = null) :
 
 object MobileTodayContract {
     private const val ApiVersion = 1
-    private const val SchemaVersion = 1
+    private const val SchemaVersion = 2
     private const val MaxItems = 50
     private val taskStates = setOf("todo", "doing", "waiting", "review", "done", "cancelled")
     private val workStates = setOf(
@@ -97,8 +110,36 @@ object MobileTodayContract {
             requireContract(item.state in taskStates, "Invalid Task state.")
             requireContract(item.workState == null || item.workState in workStates, "Invalid work state.")
             requireContract(item.todayDate == null || isDate(item.todayDate), "Invalid Task todayDate.")
+            item.schedule?.let(::validateSchedule)
             requireContract(isTimestamp(item.updatedAt), "Invalid Task updatedAt timestamp.")
         }
+    }
+
+    private fun validateSchedule(schedule: MobileTaskScheduleDto) {
+        requireContract(isEntityId(schedule.id), "Invalid Schedule ID.")
+        requireContract(schedule.version > 0, "Invalid Schedule version.")
+        requireContract(schedule.startDate == null || isDate(schedule.startDate), "Invalid Schedule startDate.")
+        requireContract(schedule.endDate == null || isDate(schedule.endDate), "Invalid Schedule endDate.")
+        val start = schedule.startDate?.let(LocalDate::parse)
+        val end = schedule.endDate?.let(LocalDate::parse)
+        requireContract(start == null || end == null || !end.isBefore(start), "Schedule endDate precedes startDate.")
+        val expectedKind = when {
+            start == null && end == null -> "unknown"
+            start == null -> "deadline"
+            end == null || start == end -> "point"
+            else -> "range"
+        }
+        requireContract(schedule.dateKind == expectedKind, "Schedule dateKind does not match its dates.")
+        requireContract(
+            schedule.rangeSemantics == null || schedule.rangeSemantics in setOf("once_within_window", "ongoing"),
+            "Invalid Schedule rangeSemantics.",
+        )
+        requireContract(
+            schedule.rangeSemantics == null || (start != null && end != null && end.isAfter(start)),
+            "Schedule rangeSemantics requires a true date range.",
+        )
+        requireContract(schedule.confidence in setOf("rough", "tentative", "fixed"), "Invalid Schedule confidence.")
+        requireContract(schedule.granularity in setOf("day", "week", "month"), "Invalid Schedule granularity.")
     }
 
     private fun isEntityId(value: String): Boolean = value.trim().isNotEmpty() && value.length <= 200
@@ -119,6 +160,7 @@ object MobileTodayContract {
                     id = item.id.trim(),
                     title = item.title.trim(),
                     themeId = item.themeId?.trim(),
+                    schedule = item.schedule?.copy(id = item.schedule.id.trim()),
                 )
             },
         ),
@@ -127,7 +169,27 @@ object MobileTodayContract {
 
 fun MobileTodayResponseDto.toResult(): MobileTodayResult.Available = MobileTodayResult.Available(
     tasks = data.items.map {
-        MobileTask(it.id.trim(), it.title.trim(), it.themeId?.trim(), it.state, it.workState, it.updatedAt)
+        MobileTask(
+            id = it.id.trim(),
+            title = it.title.trim(),
+            themeId = it.themeId?.trim(),
+            state = it.state,
+            workState = it.workState,
+            updatedAt = it.updatedAt,
+            todayDate = it.todayDate,
+            schedule = it.schedule?.toMobileTaskSchedule(),
+        )
     },
     generatedAt = meta.generatedAt,
+)
+
+fun MobileTaskScheduleDto.toMobileTaskSchedule(): MobileTaskSchedule = MobileTaskSchedule(
+    id = id,
+    version = version,
+    startDate = startDate,
+    endDate = endDate,
+    dateKind = dateKind,
+    rangeSemantics = rangeSemantics,
+    confidence = confidence,
+    granularity = granularity,
 )

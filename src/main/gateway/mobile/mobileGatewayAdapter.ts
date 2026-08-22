@@ -31,6 +31,7 @@ import {
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
 } from "../../../shared/contracts/core/public.mjs";
 import {
+  TASK_CONTRACT_SCHEMA_VERSION,
   taskReadModelSchema,
   type TaskCommandResponse,
   type TaskError,
@@ -102,7 +103,43 @@ function projectTask(task: TaskReadModel, includeTodayDate = false) {
     state: task.state,
     workState: task.work_state || null,
     ...(includeTodayDate ? { todayDate: task.today_date || null } : {}),
+    schedule: task.schedule
+      ? {
+          id: task.schedule.id,
+          version: task.schedule.version,
+          startDate: task.schedule.start_date,
+          endDate: task.schedule.end_date,
+          dateKind: task.schedule.date_kind,
+          rangeSemantics: task.schedule.range_semantics,
+          confidence: task.schedule.confidence,
+          granularity: task.schedule.granularity,
+        }
+      : null,
     updatedAt: task.updated_at,
+  };
+}
+
+type MobileScheduleEdit = {
+  startDate: string | null;
+  endDate: string | null;
+  rangeSemantics: "once_within_window" | "ongoing" | null;
+};
+
+function scheduleDateKind(schedule: MobileScheduleEdit) {
+  if (!schedule.startDate && !schedule.endDate) return "unknown" as const;
+  if (!schedule.startDate && schedule.endDate) return "deadline" as const;
+  if (schedule.startDate && (!schedule.endDate || schedule.startDate === schedule.endDate)) return "point" as const;
+  return "range" as const;
+}
+
+function canonicalSchedule(schedule: MobileScheduleEdit) {
+  return {
+    start_date: schedule.startDate,
+    end_date: schedule.endDate,
+    date_kind: scheduleDateKind(schedule),
+    range_semantics: schedule.rangeSemantics,
+    confidence: "fixed" as const,
+    granularity: "day" as const,
   };
 }
 
@@ -110,6 +147,27 @@ function taskUpdatePatch(patch: { title: string } | { todayDate: string | null }
   if ("todayDate" in patch) return { today_date: patch.todayDate };
   if ("themeId" in patch) return { project_id: patch.themeId };
   return patch;
+}
+
+function taskUpdatePayload(command: Extract<import("../../../shared/contracts/mobile/public.ts").MobileTaskCommandRequest["command"], { name: "UpdateTask" }>) {
+  if ("schedule" in command.changes) {
+    const base = command.base.schedule as MobileScheduleEdit | null;
+    return {
+      task_id: command.taskId,
+      expected_version: command.expectedVersion,
+      schedule_change: {
+        changes: canonicalSchedule(command.changes.schedule),
+        base: base ? canonicalSchedule(base) : null,
+        expected_version: command.expectedScheduleVersion,
+      },
+    };
+  }
+  return {
+    task_id: command.taskId,
+    expected_version: command.expectedVersion,
+    changes: taskUpdatePatch(command.changes),
+    base: taskUpdatePatch(command.base as { title: string } | { todayDate: string | null } | { themeId: string | null }),
+  };
 }
 
 function compareText(left: string, right: string): number {
@@ -238,7 +296,7 @@ export class MobileGatewayAdapter {
       }
       if (request.path === TASKEN_MOBILE_ENDPOINTS.today) {
         const result = await this.options.core.executeTaskQuery({
-          schemaVersion: 1,
+          schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
           query_id: today!.requestId,
           name: "ListTodayTasks",
           parameters: { date: today!.date, limit: today!.limit },
@@ -287,7 +345,7 @@ export class MobileGatewayAdapter {
         const active = new Map<string, TaskReadModel>();
         for (let page = 0; page < 100; page += 1) {
           const result = await this.options.core.executeTaskQuery({
-            schemaVersion: 1,
+            schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
             query_id: `${bootstrap!.requestId}-bootstrap-${page}`,
             name: "ListTaskChanges",
             parameters: { cursor, limit: 200 },
@@ -317,7 +375,7 @@ export class MobileGatewayAdapter {
       }
       if (request.path === TASKEN_MOBILE_ENDPOINTS.sync) {
         const result = await this.options.core.executeTaskQuery({
-          schemaVersion: 1,
+          schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
           query_id: sync!.requestId,
           name: "ListTaskChanges",
           parameters: { cursor: sync!.cursor, limit: sync!.limit },
@@ -357,18 +415,13 @@ export class MobileGatewayAdapter {
             },
           }
         : command.name === "UpdateTask"
-          ? {
-              task_id: command.taskId,
-              expected_version: command.expectedVersion,
-              changes: taskUpdatePatch(command.changes),
-              base: taskUpdatePatch(command.base),
-            }
+          ? taskUpdatePayload(command)
           : {
               task_id: command.taskId,
               expected_version: command.expectedVersion,
             };
       const result = await this.options.core.executeTaskCommand({
-        schemaVersion: 1,
+        schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
         command_id: parsed.data.commandId,
         name: command.name,
         actor: { kind: "user", id: request.principal.deviceId },

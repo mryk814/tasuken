@@ -43,6 +43,7 @@ import type { CommandReceipt } from "../shared/applicationCommand";
 import { IPC, type RootOpenRequest, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
 import { resolveAiVisibility } from "../shared/aiMetadata.mjs";
 import { DIRECT_SHORTCUT_DEFINITIONS } from "../shared/taskenRoot";
+import { TASK_CONTRACT_SCHEMA_VERSION } from "../shared/contracts/task/public";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
 const mcpPackageSmoke = readMcpPackageSmokeLaunchOptions(process.argv, process.env);
@@ -896,7 +897,7 @@ flowchart LR
         default_ai_visibility: ["m365"]
       });
       const smokeTaskReceipt = await window.api.task.create({
-        schemaVersion: 1, command_id: crypto.randomUUID(), name: "CreateTask",
+        schemaVersion: ${TASK_CONTRACT_SCHEMA_VERSION}, command_id: crypto.randomUUID(), name: "CreateTask",
         payload: { task: {
           id: ${JSON.stringify(smokeTaskId)},
           title: ${JSON.stringify(smokeTaskTitle)},

@@ -272,6 +272,66 @@ class MobileLocalDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrationSevenToEightPreservesOfflineStateAndAddsScheduleStorage() {
+        helper.createDatabase(DatabaseName, 7).apply {
+            execSQL(
+                "INSERT INTO task_cache " +
+                    "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, " +
+                    "optimisticCommandId, conflictCommandId) VALUES " +
+                    "('task-7', 5, '予定を保持する', 'theme-1', 'todo', NULL, '2026-08-22', " +
+                    "'2026-08-22T01:00:00Z', 'command-7', NULL)",
+            )
+            execSQL(
+                "INSERT INTO outbox_command " +
+                    "(commandId, idempotencyKey, requestId, clientDeviceId, issuedAt, commandName, " +
+                    "envelopeJson, serverId, state, attemptCount, createdAt, lastAttemptAt, lastError, " +
+                    "taskId, dependsOnCommandId) VALUES " +
+                    "('command-7', 'command-7', 'request-7', 'device-1', '2026-08-22T01:00:00Z', " +
+                    "'UpdateTask', '{\"schedule\":true}', 'server-1', 'pending', 0, " +
+                    "'2026-08-22T01:00:00Z', NULL, NULL, 'task-7', NULL)",
+            )
+            execSQL(
+                "INSERT INTO task_conflict " +
+                    "(commandId, taskId, intendedAction, expectedVersion, serverVersion, serverState, " +
+                    "serverTitle, localTitle, serverTodayDate, localTodayDate, localTodayDateChanged, " +
+                    "serverThemeId, localThemeId, localThemeIdChanged, serverWorkState, serverUpdatedAt, detectedAt) " +
+                    "VALUES ('conflict-7', 'task-conflict-7', 'UpdateTask', 4, 5, 'todo', " +
+                    "'Server Task', NULL, NULL, NULL, 0, NULL, NULL, 0, NULL, " +
+                    "'2026-08-22T01:00:00Z', '2026-08-22T01:01:00Z')",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 8, true, MIGRATION_7_8).use { db ->
+            db.query(
+                "SELECT title, optimisticCommandId, scheduleId, scheduleVersion, scheduleStartDate, " +
+                    "scheduleEndDate, scheduleDateKind, scheduleRangeSemantics, scheduleConfidence, " +
+                    "scheduleGranularity FROM task_cache WHERE id = 'task-7'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("予定を保持する", cursor.getString(0))
+                assertEquals("command-7", cursor.getString(1))
+                for (index in 2..9) assertTrue(cursor.isNull(index))
+            }
+            db.query("SELECT envelopeJson, state FROM outbox_command WHERE commandId = 'command-7'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("{\"schedule\":true}", cursor.getString(0))
+                assertEquals("pending", cursor.getString(1))
+            }
+            db.query(
+                "SELECT localScheduleStartDate, localScheduleEndDate, localScheduleRangeSemantics, " +
+                    "localScheduleChanged FROM task_conflict WHERE commandId = 'conflict-7'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertTrue(cursor.isNull(0))
+                assertTrue(cursor.isNull(1))
+                assertTrue(cursor.isNull(2))
+                assertEquals(0, cursor.getInt(3))
+            }
+        }
+    }
+
     private companion object {
         const val DatabaseName = "mobile-migration-test"
     }
