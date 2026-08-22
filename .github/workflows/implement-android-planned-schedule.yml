@@ -333,7 +333,6 @@ test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to P
 """,
           )
 
-          # Kotlin strict DTO and contract validation.
           replace_once(
               "android-app/app/src/main/java/jp/personal/tasken/companion/MobileTodayDto.kt",
               """    val workState: String?,
@@ -444,7 +443,6 @@ test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to P
           )
           command_path.write_text(command_text, encoding="utf-8")
 
-          # Room cache and conflict persistence.
           replace_once(
               "android-app/app/src/main/java/jp/personal/tasken/companion/MobileLocalStore.kt",
               """    val optimisticCommandId: String?,
@@ -540,7 +538,6 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
 """,
           )
 
-          # Repository projection and public offline boundary.
           replace_once(
               "android-app/app/src/main/java/jp/personal/tasken/companion/MobileGatewayRepository.kt",
               """    override suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: LocalDate?): String =
@@ -572,7 +569,6 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
 """,
           )
 
-          # Outbox intent, conflict, and receipt convergence.
           outbox_path = Path("android-app/app/src/main/java/jp/personal/tasken/companion/MobileOutbox.kt")
           outbox_text = outbox_path.read_text(encoding="utf-8")
           outbox_text = outbox_text.replace(
@@ -773,7 +769,6 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
           )
           outbox_path.write_text(outbox_text, encoding="utf-8")
 
-          # View model and public UI model.
           replace_once(
               "android-app/app/src/main/java/jp/personal/tasken/companion/TodayModel.kt",
               """    val todayDate: String? = null,
@@ -880,7 +875,6 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
 """,
           )
 
-          # UI wiring and conflict comparison.
           replace_once(
               "android-app/app/src/main/java/jp/personal/tasken/companion/MainActivity.kt",
               """                        onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
@@ -949,6 +943,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -963,7 +959,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.unit.dp
 
 internal data class PlannedScheduleDraft(
     val plannedStartTime: String?,
@@ -1020,11 +1016,11 @@ internal fun TaskScheduleEditor(
         (parsed.plannedStartTime != plannedStartTime ||
             parsed.plannedDurationMinutes != plannedDurationMinutes)
 
-    Column(verticalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.dp(8f))) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("予定時刻", style = MaterialTheme.typography.titleSmall)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.dp(8f)),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             OutlinedTextField(
                 value = startTimeDraft,
@@ -1056,11 +1052,9 @@ internal fun TaskScheduleEditor(
             )
         }
         parsed.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Row(horizontalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.dp(8f))) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = {
-                    onSave(parsed.plannedStartTime, parsed.plannedDurationMinutes)
-                },
+                onClick = { onSave(parsed.plannedStartTime, parsed.plannedDurationMinutes) },
                 enabled = enabled && changed,
                 modifier = Modifier.testTag("task-planned-schedule-save"),
             ) { Text("予定を保存") }
@@ -1076,7 +1070,6 @@ internal fun TaskScheduleEditor(
               encoding="utf-8",
           )
 
-          # Focused JVM tests for strict draft and command validation.
           Path("android-app/app/src/test/kotlin/jp/personal/tasken/companion/TaskScheduleEditorTest.kt").write_text(
               r'''package jp.personal.tasken.companion
 
@@ -1100,18 +1093,9 @@ class TaskScheduleEditorTest {
 
     @Test
     fun draftRejectsInvalidClockAndDuration() {
-        assertEquals(
-            "開始時刻はHH:mmで入力してください。",
-            parsePlannedScheduleDraft("24:00", "60").error,
-        )
-        assertEquals(
-            "所要時間は分単位の整数で入力してください。",
-            parsePlannedScheduleDraft("09:30", "1.5").error,
-        )
-        assertEquals(
-            "所要時間は1〜10080分で入力してください。",
-            parsePlannedScheduleDraft("09:30", "0").error,
-        )
+        assertEquals("開始時刻はHH:mmで入力してください。", parsePlannedScheduleDraft("24:00", "60").error)
+        assertEquals("所要時間は分単位の整数で入力してください。", parsePlannedScheduleDraft("09:30", "1.5").error)
+        assertEquals("所要時間は1〜10080分で入力してください。", parsePlannedScheduleDraft("09:30", "0").error)
     }
 
     @Test
@@ -1197,7 +1181,6 @@ class TaskScheduleEditorTest {
 """,
           )
 
-          # Room migration and optimistic/conflict integration tests.
           replace_once(
               "android-app/app/src/androidTest/java/jp/personal/tasken/companion/MobileLocalDatabaseMigrationTest.kt",
               """    private companion object {
@@ -1229,17 +1212,13 @@ class TaskScheduleEditorTest {
                 val columns = buildSet {
                     while (cursor.moveToNext()) add(cursor.getString(nameColumn))
                 }
-                assertTrue(
-                    columns.containsAll(
-                        setOf(
-                            "serverPlannedStartTime",
-                            "localPlannedStartTime",
-                            "serverPlannedDurationMinutes",
-                            "localPlannedDurationMinutes",
-                            "localPlannedScheduleChanged",
-                        ),
-                    ),
-                )
+                assertTrue(columns.containsAll(setOf(
+                    "serverPlannedStartTime",
+                    "localPlannedStartTime",
+                    "serverPlannedDurationMinutes",
+                    "localPlannedDurationMinutes",
+                    "localPlannedScheduleChanged",
+                )))
             }
         }
     }
@@ -1474,3 +1453,5 @@ On the Fold 7, verify time and duration editing while folded and unfolded, draft
           git add -A
           git commit -m "feat(android): edit planned task schedule offline"
           git push origin HEAD:codex/400-android-planned-schedule-v2
+
+# Triggered after the workflow file was present on the branch.
