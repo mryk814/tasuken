@@ -394,6 +394,34 @@ class MobileLocalDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrationNineToTenPreservesCacheAndAddsReceiptSummaryStorage() {
+        helper.createDatabase(DatabaseName, 9).apply {
+            execSQL(
+                "INSERT INTO task_cache " +
+                    "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, " +
+                    "optimisticCommandId, conflictCommandId, scheduleId, scheduleVersion, " +
+                    "scheduleStartDate, scheduleEndDate, scheduleDateKind, scheduleRangeSemantics, " +
+                    "scheduleConfidence, scheduleGranularity, plannedStartTime, plannedDurationMinutes) VALUES " +
+                    "('task-9', 6, 'Receiptを保持する', 'theme-1', 'todo', 'in_progress', '2026-08-22', " +
+                    "'2026-08-22T01:00:00Z', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 10, true, MIGRATION_9_10).use { db ->
+            db.query(
+                "SELECT title, workState, latestReceiptId, latestReceiptSummary FROM task_cache WHERE id = 'task-9'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("Receiptを保持する", cursor.getString(0))
+                assertEquals("in_progress", cursor.getString(1))
+                assertTrue(cursor.isNull(2))
+                assertTrue(cursor.isNull(3))
+            }
+        }
+    }
+
     private companion object {
         const val DatabaseName = "mobile-migration-test"
     }

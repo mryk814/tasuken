@@ -64,6 +64,7 @@ export interface MobileGatewayResponse {
 export interface MobileGatewayCorePort {
   status(): Promise<{ apiVersion: string; capabilities: readonly string[] }>;
   listThemes(): Promise<readonly MobileGatewayThemeRecord[]> | readonly MobileGatewayThemeRecord[];
+  listWorkReceipts(): Promise<readonly MobileGatewayWorkReceiptRecord[]> | readonly MobileGatewayWorkReceiptRecord[];
   executeTaskQuery(input: unknown): Promise<TaskQueryResponse> | TaskQueryResponse;
   executeTaskCommand(input: unknown): Promise<TaskCommandResponse> | TaskCommandResponse;
 }
@@ -71,6 +72,14 @@ export interface MobileGatewayCorePort {
 export interface MobileGatewayThemeRecord {
   id: string;
   name: string;
+}
+
+export interface MobileGatewayWorkReceiptRecord {
+  id: string;
+  taskId: string;
+  reportedAt: string;
+  executorLabel: string;
+  summary: string;
 }
 
 export interface MobileGatewayStatePort {
@@ -94,7 +103,30 @@ export interface MobileGatewayOptions {
   logger?: MobileGatewayLoggerPort;
 }
 
-function projectTask(task: TaskReadModel, includeTodayDate = false) {
+function projectLatestWorkReceipt(
+  taskId: string,
+  receipts: readonly MobileGatewayWorkReceiptRecord[],
+) {
+  const latest = receipts
+    .filter((receipt) => receipt.taskId === taskId && receipt.reportedAt && receipt.summary.trim())
+    .sort((left, right) => String(right.reportedAt).localeCompare(String(left.reportedAt)) || left.id.localeCompare(right.id))[0];
+  if (!latest) return null;
+  const executorLabel = latest.executorLabel.trim().slice(0, 200) || "agent";
+  const summary = latest.summary.trim().slice(0, 2000);
+  if (!summary) return null;
+  return {
+    id: latest.id,
+    reportedAt: latest.reportedAt,
+    executorLabel,
+    summary,
+  };
+}
+
+function projectTask(
+  task: TaskReadModel,
+  includeTodayDate = false,
+  receipts: readonly MobileGatewayWorkReceiptRecord[] = [],
+) {
   return {
     id: task.id,
     version: task.version,
@@ -106,6 +138,7 @@ function projectTask(task: TaskReadModel, includeTodayDate = false) {
       todayDate: task.today_date || null,
       plannedStartTime: task.planned_start_time ?? null,
       plannedDurationMinutes: task.planned_duration_minutes ?? null,
+      latestWorkReceipt: projectLatestWorkReceipt(task.id, receipts),
     } : {}),
     schedule: task.schedule
       ? {
@@ -150,20 +183,11 @@ function canonicalSchedule(schedule: MobileScheduleEdit) {
 type MobileTaskFieldPatch =
   | { title: string }
   | { todayDate: string | null }
-  | { themeId: string | null }
-  | { plannedSchedule: { startTime: string | null; durationMinutes: number | null } };
-
-function canonicalPlannedSchedule(schedule: { startTime: string | null; durationMinutes: number | null }) {
-  return {
-    planned_start_time: schedule.startTime,
-    planned_duration_minutes: schedule.durationMinutes,
-  };
-}
+  | { themeId: string | null };
 
 function taskUpdatePatch(patch: MobileTaskFieldPatch) {
   if ("todayDate" in patch) return { today_date: patch.todayDate };
   if ("themeId" in patch) return { project_id: patch.themeId };
-  if ("plannedSchedule" in patch) return canonicalPlannedSchedule(patch.plannedSchedule);
   return patch;
 }
 
@@ -381,12 +405,13 @@ export class MobileGatewayAdapter {
         }
         const tasks = [...active.values()]
           .sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)) || left.id.localeCompare(right.id));
+        const receipts = [...await this.options.core.listWorkReceipts()];
         meta = this.meta(tasks.length > bootstrap!.limit);
         return this.success(mobileBootstrapResponseSchema.parse({
           ok: true,
           meta,
           data: {
-            tasks: tasks.slice(0, bootstrap!.limit).map((task) => projectTask(task, true)),
+            tasks: tasks.slice(0, bootstrap!.limit).map((task) => projectTask(task, true, receipts)),
             nextCursor: cursor || "",
             hasMore: false,
           },
@@ -401,13 +426,14 @@ export class MobileGatewayAdapter {
         });
         if (!result.ok) return this.taskError(meta, result.error);
         if (result.value.name !== "ListTaskChanges") throw new Error("Unexpected Task sync outcome");
+        const receipts = [...await this.options.core.listWorkReceipts()];
         return this.success(mobileSyncResponseSchema.parse({
           ok: true,
           meta,
           data: {
             changes: result.value.items.map((task) => task.deleted_at
               ? { kind: "tombstone", entityType: "task", id: task.id, version: task.version, updatedAt: task.updated_at }
-              : { kind: "upsert", task: projectTask(task, true) }),
+              : { kind: "upsert", task: projectTask(task, true, receipts) }),
             nextCursor: result.value.next_cursor || sync!.cursor,
             hasMore: result.value.has_more,
           },
@@ -450,13 +476,14 @@ export class MobileGatewayAdapter {
       });
       if (!result.ok) return this.taskError(meta, result.error, command);
       if (result.value.name !== command.name || !result.value.task) throw new Error("Unexpected Task command outcome");
+      const receipts = [...await this.options.core.listWorkReceipts()];
       return this.success(mobileTaskCommandResponseSchema.parse({
         ok: true,
         meta,
         data: {
           commandId: result.value.command_id,
           status: result.value.status,
-          task: projectTask(result.value.task, true),
+          task: projectTask(result.value.task, true, receipts),
         },
       }));
     } catch (error) {

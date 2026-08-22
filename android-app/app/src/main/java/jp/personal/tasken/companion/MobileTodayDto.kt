@@ -40,8 +40,17 @@ data class MobileTaskSummaryDto(
     val todayDate: String? = null,
     val plannedStartTime: String? = null,
     val plannedDurationMinutes: Int? = null,
+    val latestWorkReceipt: MobileWorkReceiptSummaryDto? = null,
     val schedule: MobileTaskScheduleDto?,
     val updatedAt: String,
+)
+
+@Serializable
+data class MobileWorkReceiptSummaryDto(
+    val id: String,
+    val reportedAt: String,
+    val executorLabel: String,
+    val summary: String,
 )
 
 @Serializable
@@ -117,6 +126,7 @@ object MobileTodayContract {
                 item.plannedDurationMinutes == null || isPlannedDurationMinutes(item.plannedDurationMinutes),
                 "Invalid Task plannedDurationMinutes.",
             )
+            item.latestWorkReceipt?.let(::validateWorkReceipt)
             item.schedule?.let(::validateSchedule)
             requireContract(isTimestamp(item.updatedAt), "Invalid Task updatedAt timestamp.")
         }
@@ -147,6 +157,13 @@ object MobileTodayContract {
         )
         requireContract(schedule.confidence in setOf("rough", "tentative", "fixed"), "Invalid Schedule confidence.")
         requireContract(schedule.granularity in setOf("day", "week", "month"), "Invalid Schedule granularity.")
+    }
+
+    private fun validateWorkReceipt(receipt: MobileWorkReceiptSummaryDto) {
+        requireContract(isEntityId(receipt.id), "Invalid Work Receipt ID.")
+        requireContract(isTimestamp(receipt.reportedAt), "Invalid Work Receipt reportedAt.")
+        requireContract(receipt.executorLabel.trim().isNotEmpty() && receipt.executorLabel.length <= 200, "Invalid Work Receipt executorLabel.")
+        requireContract(receipt.summary.trim().isNotEmpty() && receipt.summary.length <= 2000, "Invalid Work Receipt summary.")
     }
 
     private fun isEntityId(value: String): Boolean = value.trim().isNotEmpty() && value.length <= 200
@@ -186,10 +203,18 @@ fun MobileTodayResponseDto.toResult(): MobileTodayResult.Available = MobileToday
             todayDate = it.todayDate,
             plannedStartTime = it.plannedStartTime,
             plannedDurationMinutes = it.plannedDurationMinutes,
+            latestWorkReceipt = it.latestWorkReceipt?.toSummary(),
             schedule = it.schedule?.toMobileTaskSchedule(),
         )
     },
     generatedAt = meta.generatedAt,
+)
+
+fun MobileWorkReceiptSummaryDto.toSummary(): MobileWorkReceiptSummary = MobileWorkReceiptSummary(
+    id = id.trim(),
+    reportedAt = reportedAt,
+    executorLabel = executorLabel.trim(),
+    summary = summary.trim(),
 )
 
 fun MobileTaskScheduleDto.toMobileTaskSchedule(): MobileTaskSchedule = MobileTaskSchedule(

@@ -156,9 +156,11 @@ export const mobileTaskScheduleSchema = z.object({
 const mobilePlannedStartTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable();
 const mobilePlannedDurationMinutesSchema = z.number().int().positive().max(10080).nullable();
 
-export const mobilePlannedScheduleSchema = z.object({
-  startTime: mobilePlannedStartTimeSchema,
-  durationMinutes: mobilePlannedDurationMinutesSchema,
+export const mobileWorkReceiptSummarySchema = z.object({
+  id: entityIdSchema,
+  reportedAt: isoTimestampSchema,
+  executorLabel: z.string().trim().min(1).max(200),
+  summary: z.string().trim().min(1).max(2000),
 }).strict();
 
 export const mobileTaskSummarySchema = z.object({
@@ -171,6 +173,7 @@ export const mobileTaskSummarySchema = z.object({
   todayDate: localDateSchema.nullable().optional(),
   plannedStartTime: mobilePlannedStartTimeSchema.optional(),
   plannedDurationMinutes: mobilePlannedDurationMinutesSchema.optional(),
+  latestWorkReceipt: mobileWorkReceiptSummarySchema.nullable().optional(),
   schedule: mobileTaskScheduleSchema.nullable(),
   updatedAt: isoTimestampSchema,
 }).strict();
@@ -348,7 +351,6 @@ const mobileTaskUpdatePatchSchema = z.union([
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
   z.object({ schedule: mobileScheduleEditSchema }).strict(),
-  z.object({ plannedSchedule: mobilePlannedScheduleSchema }).strict(),
 ]);
 
 const mobileTaskUpdateBaseSchema = z.union([
@@ -356,7 +358,6 @@ const mobileTaskUpdateBaseSchema = z.union([
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
   z.object({ schedule: mobileScheduleBaseSchema.nullable() }).strict(),
-  z.object({ plannedSchedule: mobilePlannedScheduleSchema }).strict(),
 ]);
 
 const mobileTaskCommandSchema = z.discriminatedUnion("name", [
@@ -481,6 +482,7 @@ export type MobileHealthResponse = z.output<typeof mobileHealthResponseSchema>;
 export type MobileTodayRequest = z.output<typeof mobileTodayRequestSchema>;
 export type MobileTodayResponse = z.output<typeof mobileTodayResponseSchema>;
 export type MobileTaskSchedule = z.output<typeof mobileTaskScheduleSchema>;
+export type MobileWorkReceiptSummary = z.output<typeof mobileWorkReceiptSummarySchema>;
 export type MobileTaskSummary = z.output<typeof mobileTaskSummarySchema>;
 export type MobileThemeCatalogItem = z.output<typeof mobileThemeCatalogItemSchema>;
 export type MobileThemesRequest = z.output<typeof mobileThemesRequestSchema>;

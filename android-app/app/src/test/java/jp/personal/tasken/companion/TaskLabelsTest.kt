@@ -5,9 +5,23 @@ import org.junit.Test
 
 class TaskLabelsTest {
     @Test
-    fun `work state labels do not expose storage values`() {
+    fun `canonical work states use Japanese labels`() {
         assertEquals("未委任", taskWorkStateLabel("not_delegated"))
+        assertEquals("委任済み", taskWorkStateLabel("ready_for_agent"))
+        assertEquals("作業中", taskWorkStateLabel("in_progress"))
+        assertEquals("報告済み", taskWorkStateLabel("reported_done"))
+        assertEquals("確認待ち", taskWorkStateLabel("needs_human_review"))
+        assertEquals("確認済み", taskWorkStateLabel("accepted"))
+        assertEquals("停止中", taskWorkStateLabel("blocked"))
+        assertEquals("失敗", taskWorkStateLabel("failed"))
+    }
+
+    @Test
+    fun `legacy work state aliases stay readable`() {
+        assertEquals("委任済み", taskWorkStateLabel("delegated"))
+        assertEquals("作業中", taskWorkStateLabel("working"))
         assertEquals("確認待ち", taskWorkStateLabel("needs_review"))
+        assertEquals("確認済み", taskWorkStateLabel("completed"))
     }
 
     @Test

@@ -217,9 +217,6 @@ class AndroidMobileTaskRepository(
     override suspend fun enqueueUpdateTaskSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String =
         outbox.enqueueUpdateSchedule(taskId, schedule)
 
-    override suspend fun enqueueUpdateTaskPlannedSchedule(taskId: String, schedule: MobilePlannedScheduleDraft): String =
-        outbox.enqueueUpdatePlannedSchedule(taskId, schedule)
-
     override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
         outbox.enqueueUpdateTheme(taskId, themeId)
 
@@ -547,6 +544,10 @@ class AndroidMobileTaskRepository(
         todayDate = todayDate,
         plannedStartTime = plannedStartTime,
         plannedDurationMinutes = plannedDurationMinutes,
+        latestReceiptId = latestWorkReceipt?.id,
+        latestReceiptReportedAt = latestWorkReceipt?.reportedAt,
+        latestReceiptExecutorLabel = latestWorkReceipt?.executorLabel,
+        latestReceiptSummary = latestWorkReceipt?.summary,
         scheduleId = schedule?.id,
         scheduleVersion = schedule?.version,
         scheduleStartDate = schedule?.startDate,
