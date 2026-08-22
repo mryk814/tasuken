@@ -38,13 +38,23 @@ const {
   TaskCapabilityService,
   TaskenCoreClient,
   TaskenCoreRuntime,
+  decodeTaskenMobileThemeCursor,
+  encodeTaskenMobileThemeCursor,
+  mobileCapabilitySchema,
   mobileTaskCommandRequestSchema,
+  mobileThemesRequestSchema,
+  mobileThemesResponseSchema,
   mobileTodayRequestSchema,
   mobileTodayResponseSchema,
 } = mobile;
 
 const todayGolden = JSON.parse(readFileSync(
   new URL("../contracts/mobile/v1/today-response.golden.json", import.meta.url),
+  "utf8",
+));
+
+const themesGolden = JSON.parse(readFileSync(
+  new URL("../contracts/mobile/v1/themes-response.golden.json", import.meta.url),
   "utf8",
 ));
 
@@ -118,6 +128,7 @@ function capability(repository = new MemoryRepository()) {
 function core(service, overrides = {}) {
   return {
     status: async () => ({ apiVersion: "1", capabilities: ["task.query", "task.command"] }),
+    listThemes: () => [{ id: "theme-personal-default", name: "Personal" }],
     executeTaskQuery: (input) => service.executeQuery(input),
     executeTaskCommand: (input) => service.executeCommand(input),
     ...overrides,
@@ -247,11 +258,94 @@ test("canonical Today golden is accepted and malformed responses fail closed", (
   assert.equal(mobileTodayResponseSchema.safeParse(withData({ nextCursor: "" })).success, true);
 });
 
+test("canonical Theme catalog golden is narrow and malformed responses fail closed", () => {
+  assert.deepEqual(mobileThemesResponseSchema.parse(themesGolden), themesGolden);
+  assert.deepEqual(Object.keys(themesGolden.data.themes[0]).sort(), ["id", "title"]);
+  const cursor = encodeTaskenMobileThemeCursor("a".repeat(64), 1);
+  assert.deepEqual(decodeTaskenMobileThemeCursor(cursor), {
+    fingerprint: "a".repeat(64),
+    position: 1,
+  });
+
+  const withData = (patch) => ({
+    ...structuredClone(themesGolden),
+    data: { ...themesGolden.data, ...patch },
+  });
+  const withMetaAndData = (meta, data) => ({
+    ...structuredClone(themesGolden),
+    meta: { ...themesGolden.meta, ...meta },
+    data: { ...themesGolden.data, ...data },
+  });
+  const withFirstTheme = (patch) => withData({
+    themes: [{ ...themesGolden.data.themes[0], ...patch }, ...themesGolden.data.themes.slice(1)],
+  });
+  const missingTitle = structuredClone(themesGolden);
+  delete missingTitle.data.themes[0].title;
+
+  for (const invalid of [
+    withFirstTheme({ title: "" }),
+    withFirstTheme({ title: "x".repeat(501) }),
+    withFirstTheme({ rawPath: "C:/private/theme" }),
+    withData({ themes: Array.from({ length: 51 }, (_, index) => ({ id: `theme-${index}`, title: `Theme ${index}` })) }),
+    withData({ themes: [themesGolden.data.themes[0], themesGolden.data.themes[0]] }),
+    withData({ themes: [...themesGolden.data.themes].reverse() }),
+    withData({ nextCursor: "" }),
+    withMetaAndData({ truncated: false }, { nextCursor: cursor }),
+    withMetaAndData({ truncated: true }, { nextCursor: null }),
+    withMetaAndData({ truncated: true }, { themes: [], nextCursor: cursor }),
+    missingTitle,
+    { ...structuredClone(themesGolden), unexpected: true },
+  ]) {
+    assert.equal(mobileThemesResponseSchema.safeParse(invalid).success, false);
+  }
+
+  assert.equal(mobileThemesRequestSchema.safeParse({
+    apiVersion: 1,
+    schemaVersion: 1,
+    requestId: "request-themes",
+    limit: 50,
+  }).success, true);
+  assert.equal(mobileThemesResponseSchema.safeParse(withData({
+    themes: Array.from({ length: 50 }, (_, index) => ({
+      id: `theme-${String(index).padStart(2, "0")}`,
+      title: `Theme ${index}`,
+    })),
+  })).success, true);
+  assert.equal(mobileThemesRequestSchema.safeParse({
+    apiVersion: 1,
+    schemaVersion: 1,
+    requestId: "request-themes-page-2",
+    cursor,
+    limit: 50,
+  }).success, true);
+  assert.equal(mobileThemesRequestSchema.safeParse({
+    apiVersion: 1,
+    schemaVersion: 1,
+    requestId: "request-themes-trimmed-cursor",
+    cursor: ` ${cursor} `,
+    limit: 50,
+  }).success, false);
+  assert.equal(mobileThemesRequestSchema.safeParse({
+    apiVersion: 1,
+    schemaVersion: 1,
+    requestId: "request-themes",
+    limit: 51,
+  }).success, false);
+});
+
 test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, versions, and ambiguous idempotency", () => {
+  assert.deepEqual(TASKEN_MOBILE_CAPABILITIES, {
+    health: "mobile.health",
+    todayRead: "mobile.today.read",
+    syncRead: "mobile.sync.read",
+    taskWrite: "mobile.task.write",
+  });
+  assert.equal(mobileCapabilitySchema.safeParse("mobile.theme.read").success, false);
   assert.deepEqual(TASKEN_MOBILE_ENDPOINTS, {
     pair: "/v1/pair",
     health: "/v1/health",
     today: "/v1/today",
+    themes: "/v1/themes",
     bootstrap: "/v1/bootstrap",
     sync: "/v1/sync",
     commands: "/v1/commands",
@@ -268,6 +362,16 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
       base: { todayDate: null },
     },
   }).success, true);
+  assert.equal(mobileTaskCommandRequestSchema.safeParse({
+    ...valid,
+    command: {
+      name: "UpdateTask",
+      taskId: "task-mobile-create",
+      expectedVersion: 1,
+      changes: { themeId: "theme-research" },
+      base: { themeId: null },
+    },
+  }).success, true);
   for (const invalid of [
     { ...valid, apiVersion: 2 },
     { ...valid, schemaVersion: 2 },
@@ -281,6 +385,26 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
         taskId: "task-mobile-create",
         expectedVersion: 1,
         changes: { todayDate: "2026-08-22" },
+        base: { title: "Mobile Task" },
+      },
+    },
+    {
+      ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { title: "Mixed", themeId: "theme-research" },
+        base: { title: "Mobile Task", themeId: null },
+      },
+    },
+    {
+      ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { themeId: "theme-research" },
         base: { title: "Mobile Task" },
       },
     },
@@ -348,6 +472,100 @@ test("Mobile UpdateTask maps Today schedule to the canonical task field", async 
   });
   assert.equal(unscheduled.status, 200);
   assert.equal(unscheduled.body.data.task.todayDate, null);
+});
+
+test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to Personal, and rejects unknown Themes", async () => {
+  const { repository, service } = capability();
+  repository.save("theme", {
+    id: "theme-research",
+    name: "Research",
+  });
+  const canonicalCommands = [];
+  const adapter = gateway(service, {
+    executeTaskCommand: (input) => {
+      canonicalCommands.push(input);
+      return service.executeCommand(input);
+    },
+  });
+  assert.equal((await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest(),
+  })).status, 200);
+
+  const attached = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "request-mobile-theme-attach",
+      commandId: "command-mobile-theme-attach",
+      idempotencyKey: "command-mobile-theme-attach",
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        changes: { themeId: "theme-research" },
+        base: { themeId: "theme-personal-default" },
+      },
+    },
+  });
+  assert.equal(attached.status, 200);
+  assert.equal(attached.body.data.task.themeId, "theme-research");
+  assert.deepEqual(canonicalCommands.at(-1).payload, {
+    task_id: "task-mobile-create",
+    expected_version: 1,
+    changes: { project_id: "theme-research" },
+    base: { project_id: "theme-personal-default" },
+  });
+
+  const detached = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "request-mobile-theme-detach",
+      commandId: "command-mobile-theme-detach",
+      idempotencyKey: "command-mobile-theme-detach",
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 2,
+        changes: { themeId: null },
+        base: { themeId: "theme-research" },
+      },
+    },
+  });
+  assert.equal(detached.status, 200);
+  assert.equal(detached.body.data.task.themeId, "theme-personal-default");
+  assert.deepEqual(canonicalCommands.at(-1).payload.changes, { project_id: null });
+  assert.deepEqual(canonicalCommands.at(-1).payload.base, { project_id: "theme-research" });
+
+  const unknown = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "request-mobile-theme-unknown",
+      commandId: "command-mobile-theme-unknown",
+      idempotencyKey: "command-mobile-theme-unknown",
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 3,
+        changes: { themeId: "theme-missing" },
+        base: { themeId: "theme-personal-default" },
+      },
+    },
+  });
+  assert.equal(unknown.status, 400);
+  assert.equal(unknown.body.error.code, "validation_failed");
+  assert.equal(repository.get("task", "task-mobile-create").project_id, "theme-personal-default");
+  assert.equal(repository.get("task", "task-mobile-create").version, 3);
 });
 
 test("Phase 4A Today is scope-gated, Core-delegated, bounded, and path/secret free", async () => {
@@ -426,6 +644,121 @@ test("Phase 4A Today is scope-gated, Core-delegated, bounded, and path/secret fr
     principal,
     query: todayQuery({ unexpected: "field" }),
   });
+  assert.equal(unknownQuery.body.error.code, "validation_failed");
+});
+
+test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes only id/title", async () => {
+  const { service } = capability();
+  const catalog = [
+    { id: "theme-gamma", name: "Gamma", description: "C:/private/theme-gamma", accessToken: "secret-gamma" },
+    { id: "theme-alpha", name: "Alpha", repository_subdirectory: "/private/alpha" },
+    { id: "theme-beta", name: "Beta", ai_source_refs: [{ locator: "C:/secret/token.txt" }] },
+  ];
+  const adapter = gateway(service, { listThemes: () => catalog });
+  const first = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.themes,
+    principal,
+    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-themes-1", limit: "2" },
+  });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.meta.truncated, true);
+  assert.deepEqual(first.body.data.themes, [
+    { id: "theme-alpha", title: "Alpha" },
+    { id: "theme-beta", title: "Beta" },
+  ]);
+  const firstCursor = decodeTaskenMobileThemeCursor(first.body.data.nextCursor);
+  assert.equal(firstCursor?.position, 2);
+  assert.match(firstCursor?.fingerprint || "", /^[0-9a-f]{64}$/);
+  assert.doesNotMatch(JSON.stringify(first.body), /private|secret|token|description|repository|source/i);
+
+  const second = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.themes,
+    principal,
+    query: {
+      apiVersion: "1",
+      schemaVersion: "1",
+      requestId: "request-themes-2",
+      cursor: first.body.data.nextCursor,
+      limit: "2",
+    },
+  });
+  assert.equal(second.status, 200);
+  assert.equal(second.body.meta.truncated, false);
+  assert.deepEqual(second.body.data, {
+    themes: [{ id: "theme-gamma", title: "Gamma" }],
+    nextCursor: null,
+  });
+
+  const invalidCursor = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.themes,
+    principal,
+    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-themes-stale", cursor: "theme-missing" },
+  });
+  assert.equal(invalidCursor.status, 400);
+  assert.equal(invalidCursor.body.error.code, "validation_failed");
+
+  const trimmedCursor = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.themes,
+    principal,
+    query: {
+      apiVersion: "1",
+      schemaVersion: "1",
+      requestId: "request-themes-trimmed",
+      cursor: ` ${first.body.data.nextCursor} `,
+    },
+  });
+  assert.equal(trimmedCursor.status, 400);
+  assert.equal(trimmedCursor.body.error.code, "validation_failed");
+
+  catalog.push({ id: "theme-delta", name: "Delta" });
+  const changedCatalog = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.themes,
+    principal,
+    query: {
+      apiVersion: "1",
+      schemaVersion: "1",
+      requestId: "request-themes-changed",
+      cursor: first.body.data.nextCursor,
+      limit: "2",
+    },
+  });
+  assert.equal(changedCatalog.status, 400);
+  assert.equal(changedCatalog.body.error.code, "validation_failed");
+
+  const duplicateCatalog = await gateway(service, {
+    listThemes: () => [
+      { id: "theme-duplicate", name: "First" },
+      { id: " theme-duplicate ", name: "Second" },
+    ],
+  }).handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.themes,
+    principal,
+    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-themes-duplicate" },
+  });
+  assert.equal(duplicateCatalog.status, 500);
+  assert.equal(duplicateCatalog.body.error.code, "internal_error");
+
+  const forbidden = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.themes,
+    principal: { ...principal, scopes: ["mobile:task-write"] },
+    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-themes-forbidden" },
+  });
+  assert.equal(forbidden.status, 403);
+
+  const unknownQuery = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.themes,
+    principal,
+    query: { apiVersion: "1", schemaVersion: "1", requestId: "request-themes-invalid", includeArchived: "true" },
+  });
+  assert.equal(unknownQuery.status, 400);
   assert.equal(unknownQuery.body.error.code, "validation_failed");
 });
 
@@ -804,6 +1137,51 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   });
   const health = await client.health();
   assert.equal(health.data.capabilities.includes(TASKEN_MOBILE_CAPABILITIES.taskWrite), true);
+  assert.deepEqual(health.data.capabilities, [
+    TASKEN_MOBILE_CAPABILITIES.health,
+    TASKEN_MOBILE_CAPABILITIES.todayRead,
+    TASKEN_MOBILE_CAPABILITIES.syncRead,
+    TASKEN_MOBILE_CAPABILITIES.taskWrite,
+  ]);
+  const themes = await client.listThemes({
+    apiVersion: 1,
+    schemaVersion: 1,
+    requestId: "request-client-themes",
+    limit: 50,
+  });
+  assert.deepEqual(themes.data, {
+    themes: [{ id: "theme-personal-default", title: "Personal" }],
+    nextCursor: null,
+  });
+
+  const legacyRequests = [];
+  const legacyDesktop = new MobileGatewayClient({
+    baseUrl: "https://legacy-desktop.tailnet.ts.net",
+    accessToken,
+    fetch: async (url) => {
+      legacyRequests.push(new URL(url).pathname);
+      return new Response(JSON.stringify({
+        ok: false,
+        meta: { ...themesGolden.meta, serverId: "legacy-desktop", truncated: false },
+        error: {
+          code: "not_found",
+          message: "Mobile API endpointが見つかりません。",
+          retryable: false,
+        },
+      }), {
+        status: 404,
+        headers: { "x-tasken-mobile-api-version": "1" },
+      });
+    },
+  });
+  await assert.rejects(legacyDesktop.listThemes({
+    apiVersion: 1,
+    schemaVersion: 1,
+    requestId: "request-legacy-themes",
+    limit: 50,
+  }), (error) => error instanceof MobileGatewayClientError && error.code === "not_found");
+  assert.deepEqual(legacyRequests, [TASKEN_MOBILE_ENDPOINTS.themes]);
+
   const created = await client.executeTaskCommand(createRequest({
     requestId: "request-client-create",
     commandId: "command-client-create",
@@ -823,6 +1201,10 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   assert.ok(todayCall);
   assert.equal(todayCall.method, "GET");
   assert.equal(todayCall.body, undefined);
+  const themesCall = seen.find((entry) => entry.url.includes("/v1/themes?"));
+  assert.ok(themesCall);
+  assert.equal(themesCall.method, "GET");
+  assert.equal(themesCall.body, undefined);
   assert.equal(seen.every((entry) => entry.url.startsWith("https://desktop.tailnet.ts.net/v1/")), true);
   assert.equal(seen.every((entry) => entry.authorization === `Bearer ${accessToken}`), true);
 
@@ -1128,6 +1510,18 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
     assert.equal(status.apiVersion, "1");
     assert.equal(status.capabilities.includes("task.query"), true);
     assert.equal(status.capabilities.includes("task.command"), true);
+
+    const themeCatalog = await adapter.handle({
+      method: "GET",
+      path: TASKEN_MOBILE_ENDPOINTS.themes,
+      principal,
+      query: { apiVersion: "1", schemaVersion: "1", requestId: "request-runtime-themes" },
+    });
+    assert.equal(themeCatalog.status, 200);
+    assert.deepEqual(themeCatalog.body.data, {
+      themes: [{ id: "theme-personal-default", title: "Personal" }],
+      nextCursor: null,
+    });
 
     const created = await adapter.handle({
       method: "POST",
