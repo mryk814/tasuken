@@ -4,9 +4,9 @@
   "roots": [
     {
       "file": "src/main/index.ts",
-      "lines": 2605,
-      "imports": 41,
-      "moduleDependencies": 7
+      "lines": 2606,
+      "imports": 42,
+      "moduleDependencies": 8
     },
     {
       "file": "src/main/ipc/registerIpc.ts",
