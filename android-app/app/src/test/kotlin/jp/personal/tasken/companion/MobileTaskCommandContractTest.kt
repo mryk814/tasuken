@@ -2,6 +2,7 @@ package jp.personal.tasken.companion
 
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -96,13 +97,49 @@ class MobileTaskCommandContractTest {
         }
     }
 
+    @Test
+    fun validatesStrictChecklistPatchAndDuplicateIds() {
+        fun item(id: String, title: String) = buildJsonObject {
+            put("id", JsonPrimitive(id))
+            put("title", JsonPrimitive(title))
+            put("done", JsonPrimitive(false))
+            put("sortOrder", JsonPrimitive(0.0))
+            put("completedAt", JsonNull)
+        }
+        fun patch(vararg items: kotlinx.serialization.json.JsonObject) = buildJsonObject {
+            put("checklistItems", buildJsonArray { items.forEach(::add) })
+        }
+
+        val valid = updateEnvelope(patch(item("check-1", "確認する")), patch(), null)
+        val decoded = MobileTaskCommandContract.decodeUpdateEnvelope(MobileTaskCommandContract.encode(valid))
+        assertEquals("check-1", decoded.command.changes.getValue("checklistItems").let {
+            it as kotlinx.serialization.json.JsonArray
+        }.first().let { it as kotlinx.serialization.json.JsonObject }.getValue("id").let {
+            it as JsonPrimitive
+        }.content)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            MobileTaskCommandContract.encode(updateEnvelope(
+                patch(item("duplicate", "A"), item("duplicate", "B")),
+                patch(),
+                null,
+            ))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MobileTaskCommandContract.encode(updateEnvelope(patch(item("blank", "   ")), patch(), null))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MobileTaskCommandContract.encode(valid.copy(command = valid.command.copy(expectedScheduleVersion = 1)))
+        }
+    }
+
     private fun updateEnvelope(
         changes: kotlinx.serialization.json.JsonObject,
         base: kotlinx.serialization.json.JsonObject,
         expectedScheduleVersion: Int?,
     ) = MobileTaskUpdateEnvelopeDto(
         apiVersion = 1,
-        schemaVersion = 2,
+        schemaVersion = 3,
         requestId = "request-1",
         commandId = "command-1",
         idempotencyKey = "command-1",
@@ -123,7 +160,7 @@ class MobileTaskCommandContractTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",
@@ -152,7 +189,7 @@ class MobileTaskCommandContractTest {
           "ok": false,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",
@@ -188,7 +225,7 @@ class MobileTaskCommandContractTest {
           "ok": false,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",

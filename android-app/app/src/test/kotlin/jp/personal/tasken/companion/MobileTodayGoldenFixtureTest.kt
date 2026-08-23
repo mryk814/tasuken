@@ -26,13 +26,15 @@ class MobileTodayGoldenFixtureTest {
 
         assertTrue(response.ok)
         assertEquals(1, response.meta.apiVersion)
-        assertEquals(2, response.meta.schemaVersion)
+        assertEquals(3, response.meta.schemaVersion)
         assertFalse(response.meta.truncated)
         assertEquals("2026-08-21", response.data.date)
         assertEquals(null, response.data.nextCursor)
         assertEquals(2, response.data.items.size)
         assertEquals("解析結果を確認する", response.data.items.first().title)
         assertEquals("in_progress", response.data.items.first().workState)
+        assertEquals(listOf("グラフを確認する", "所見を残す"), response.data.items.first().checklistItems.map { it.title })
+        assertTrue(response.data.items.first().checklistItems.first().done)
         assertEquals(response.data.items.size, response.toResult().tasks.size)
     }
 
