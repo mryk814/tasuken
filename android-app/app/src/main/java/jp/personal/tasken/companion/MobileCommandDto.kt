@@ -181,7 +181,7 @@ object MobileTaskCommandContract {
         }
 
         val conflict = requireNotNull(response.error.conflict)
-        require(conflict.intendedAction in setOf("UpdateTask", "CompleteTask", "ReopenTask"))
+        require(conflict.intendedAction in setOf("UpdateTask", "CompleteTask", "ReopenTask", "DeleteTask"))
         require(conflict.expectedVersion > 0)
         require(conflict.currentTask.version > conflict.expectedVersion)
         validateTaskSummary(conflict.currentTask)
@@ -206,7 +206,7 @@ object MobileTaskCommandContract {
     private fun validateStateEnvelope(envelope: MobileTaskStateEnvelopeDto) {
         require(envelope.apiVersion == 1 && envelope.schemaVersion == 2)
         require(envelope.commandId == envelope.idempotencyKey)
-        require(envelope.command.name in setOf("CompleteTask", "ReopenTask"))
+        require(envelope.command.name in setOf("CompleteTask", "ReopenTask", "DeleteTask"))
         require(envelope.command.taskId.isNotBlank())
         require(envelope.command.expectedVersion > 0)
         require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)

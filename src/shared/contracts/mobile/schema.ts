@@ -180,7 +180,7 @@ export const mobileTaskSummarySchema = z.object({
 
 export const mobileVersionConflictSchema = z.object({
   currentTask: mobileTaskSummarySchema,
-  intendedAction: z.enum(["UpdateTask", "CompleteTask", "ReopenTask"]),
+  intendedAction: z.enum(["UpdateTask", "CompleteTask", "ReopenTask", "DeleteTask"]),
   expectedVersion: entityVersionSchema,
 }).strict();
 
@@ -418,6 +418,11 @@ const mobileTaskCommandSchema = z.discriminatedUnion("name", [
   }).strict(),
   z.object({
     name: z.literal("ReopenTask"),
+    taskId: taskIdSchema,
+    expectedVersion: entityVersionSchema,
+  }).strict(),
+  z.object({
+    name: z.literal("DeleteTask"),
     taskId: taskIdSchema,
     expectedVersion: entityVersionSchema,
   }).strict(),

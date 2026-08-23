@@ -184,7 +184,7 @@ function createRequest(overrides = {}) {
 }
 
 function stateRequest(name, expectedVersion, overrides = {}) {
-  const suffix = name === "CompleteTask" ? "complete" : "reopen";
+  const suffix = name === "CompleteTask" ? "complete" : name === "ReopenTask" ? "reopen" : "delete";
   return {
     apiVersion: 1,
     schemaVersion: 2,
@@ -363,6 +363,10 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
       changes: { todayDate: "2026-08-22" },
       base: { todayDate: null },
     },
+  }).success, true);
+  assert.equal(mobileTaskCommandRequestSchema.safeParse({
+    ...valid,
+    command: { name: "DeleteTask", taskId: "task-mobile-create", expectedVersion: 1 },
   }).success, true);
   assert.equal(mobileTaskCommandRequestSchema.safeParse({
     ...valid,
@@ -1251,6 +1255,18 @@ test("Mobile CompleteTask and ReopenTask require canonical expectedVersion and p
   assert.equal(reopened.status, 200);
   assert.equal(reopened.body.data.task.state, "todo");
   assert.equal(reopened.body.data.task.version, 3);
+
+  const deleted = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: stateRequest("DeleteTask", 3),
+  });
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.body.data.commandId, "command-mobile-delete");
+  assert.equal(deleted.body.data.task.id, "task-mobile-create");
+  assert.equal(deleted.body.data.task.version, 4);
+  assert.equal(mobileCapability.repository.get("task", "task-mobile-create"), null);
 });
 
 test("Phase 4A fails closed on Core version/capability and client uses separate HTTPS bearer", async () => {

@@ -601,7 +601,7 @@ export class MobileGatewayAdapter {
     retryable = false,
     conflict?: {
       currentTask: ReturnType<typeof projectTask>;
-      intendedAction: "UpdateTask" | "CompleteTask" | "ReopenTask";
+      intendedAction: "UpdateTask" | "CompleteTask" | "ReopenTask" | "DeleteTask";
       expectedVersion: number;
     },
   ): MobileGatewayResponse {
@@ -630,7 +630,12 @@ export class MobileGatewayAdapter {
         const currentTask = taskReadModelSchema.safeParse(error.details?.current_task);
         if (
           !currentTask.success
-          || (command?.name !== "UpdateTask" && command?.name !== "CompleteTask" && command?.name !== "ReopenTask")
+          || (
+            command?.name !== "UpdateTask"
+            && command?.name !== "CompleteTask"
+            && command?.name !== "ReopenTask"
+            && command?.name !== "DeleteTask"
+          )
           || command.expectedVersion === undefined
         ) throw new Error("Version conflict is missing its canonical Task context");
         return this.error(meta, "version_conflict", false, {

@@ -15,6 +15,7 @@ import androidx.work.WorkerParameters
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
+import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.Flow
@@ -118,6 +119,11 @@ data class MobileStateActionResult(
     val requiresSync: Boolean,
 )
 
+data class MobileUndoCreateResult(
+    val commandId: String?,
+    val requiresSync: Boolean,
+)
+
 class MobileOutbox(
     private val context: Context,
     private val dao: MobileLocalDao,
@@ -141,15 +147,33 @@ class MobileOutbox(
         title: String,
         todayDate: LocalDate? = LocalDate.now(),
         projectId: String? = null,
+        draftId: String = UUID.randomUUID().toString(),
+        createdAt: String = now().toString(),
     ): String {
         val normalizedTitle = title.trim()
         require(normalizedTitle.isNotEmpty() && normalizedTitle.length <= 500)
         require(projectId == null || projectId.isNotBlank())
-        val taskId = UUID.randomUUID().toString()
-        val commandId = UUID.randomUUID().toString()
-        val requestId = UUID.randomUUID().toString()
-        val issuedAt = now().toString()
+        require(draftId.isNotBlank())
+        val taskId = stableDraftId("task", draftId)
+        val commandId = stableDraftId("command", draftId)
+        val requestId = stableDraftId("request", draftId)
+        val issuedAt = createdAt
         val serverId = currentServerId()
+        dao.outbox(commandId)?.let { existing ->
+            val existingEnvelope = MobileTaskCommandContract.decodeCreateEnvelope(existing.envelopeJson)
+            require(
+                existing.serverId == serverId &&
+                    existing.taskId == taskId &&
+                    existingEnvelope.command.task.id == taskId &&
+                    existingEnvelope.command.task.title == normalizedTitle &&
+                    existingEnvelope.command.task.projectId == projectId &&
+                    existingEnvelope.command.task.todayDate == todayDate?.toString(),
+            ) { "同じDraft IDが別のTask作成に使われています。" }
+            return taskId
+        }
+        dao.task(taskId)?.let { existing ->
+            if (existing.serverVersion != null) return taskId
+        }
         val envelope = MobileCreateTaskEnvelopeDto(
             apiVersion = 1,
             schemaVersion = 2,
@@ -199,6 +223,83 @@ class MobileOutbox(
         )
         schedule()
         return taskId
+    }
+
+    private fun stableDraftId(kind: String, draftId: String): String = UUID.nameUUIDFromBytes(
+        "tasken-mobile-$kind:$draftId".toByteArray(StandardCharsets.UTF_8),
+    ).toString()
+
+    suspend fun undoCreate(taskId: String): MobileUndoCreateResult {
+        val serverId = currentServerId()
+        requireNotNull(dao.task(taskId)) { "追加したTaskがcacheにありません。再読み込みしてください。" }
+        val initialCommands = dao.outboxForTask(taskId)
+        initialCommands.firstOrNull { it.commandName == "DeleteTask" }?.let { existing ->
+            require(existing.serverId == serverId) { "接続先が変わったため、追加を元に戻せません。" }
+            return MobileUndoCreateResult(existing.commandId, requiresSync = true)
+        }
+        val create = initialCommands.firstOrNull { it.commandName == "CreateTask" }
+        if (create != null && dao.cancelUnsentCreate(create.commandId, taskId)) {
+            return MobileUndoCreateResult(commandId = null, requiresSync = false)
+        }
+
+        val task = requireNotNull(dao.task(taskId)) { "追加したTaskは既に取り消されています。" }
+        require(task.conflictCommandId == null) { "同期競合を解決してから追加を元に戻してください。" }
+        val parent = task.optimisticCommandId?.let { commandId ->
+            requireNotNull(dao.outbox(commandId)) { "送信待ちTaskのcommandが見つかりません。" }
+        }
+        if (parent != null) {
+            require(
+                parent.commandName == "CreateTask" &&
+                    parent.serverId == serverId &&
+                    parent.state in setOf(OutboxState.Pending, OutboxState.Sending, OutboxState.RetryWait),
+            ) { "Task作成の同期結果を待ってから追加を元に戻してください。" }
+        }
+        val expectedVersion = task.serverVersion ?: 1
+        val commandId = UUID.randomUUID().toString()
+        val requestId = UUID.randomUUID().toString()
+        val issuedAt = now().toString()
+        val envelope = MobileTaskStateEnvelopeDto(
+            apiVersion = 1,
+            schemaVersion = 2,
+            requestId = requestId,
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = deviceId(),
+            issuedAt = issuedAt,
+            command = MobileTaskStateCommandDto(
+                name = "DeleteTask",
+                taskId = taskId,
+                expectedVersion = expectedVersion,
+            ),
+        )
+        val command = OutboxCommandEntity(
+            commandId = commandId,
+            idempotencyKey = commandId,
+            requestId = requestId,
+            clientDeviceId = envelope.clientDeviceId,
+            issuedAt = issuedAt,
+            commandName = "DeleteTask",
+            envelopeJson = MobileTaskCommandContract.encode(envelope),
+            serverId = serverId,
+            state = OutboxState.Pending,
+            attemptCount = 0,
+            createdAt = issuedAt,
+            lastAttemptAt = null,
+            lastError = null,
+            taskId = taskId,
+            dependsOnCommandId = parent?.commandId,
+        )
+        val optimisticTask = task.copy(
+            updatedAt = issuedAt,
+            optimisticCommandId = commandId,
+        )
+        if (parent == null) {
+            dao.enqueueStateAction(optimisticTask, command)
+        } else {
+            dao.enqueueDependentStateAction(optimisticTask, command)
+        }
+        schedule()
+        return MobileUndoCreateResult(commandId, requiresSync = true)
     }
 
     suspend fun enqueueComplete(taskId: String): MobileStateActionResult = enqueueState(taskId, "CompleteTask", "done")
@@ -689,7 +790,7 @@ class MobileOutbox(
                 expectedScheduleVersion = envelope.command.expectedScheduleVersion,
             )
         }
-        "CompleteTask", "ReopenTask" -> {
+        "CompleteTask", "ReopenTask", "DeleteTask" -> {
             val envelope = MobileTaskCommandContract.decodeStateEnvelope(command.envelopeJson)
             require(envelope.commandId == command.commandId)
             require(envelope.command.taskId == command.taskId)
@@ -782,49 +883,69 @@ class MobileOutbox(
                             stored.copy(command = stored.command.copy(expectedVersion = task.version)),
                         )
                     }
-                    val receiptApplied = dao.applyCommandReceipt(
-                        commandId = command.commandId,
-                        expectedServerId = serverId,
-                        expectedTaskId = requireNotNull(command.taskId),
-                        expectedAttemptCount = command.attemptCount,
-                        canonicalTask = TaskCacheEntity(
-                            id = task.id,
-                            serverVersion = task.version,
-                            title = task.title,
-                            themeId = task.themeId,
-                            state = task.state,
-                            workState = task.workState,
-                            todayDate = task.todayDate,
-                            plannedStartTime = task.plannedStartTime,
-                            plannedDurationMinutes = task.plannedDurationMinutes,
-                            latestReceiptId = task.latestWorkReceipt?.id,
-                            latestReceiptReportedAt = task.latestWorkReceipt?.reportedAt,
-                            latestReceiptExecutorLabel = task.latestWorkReceipt?.executorLabel,
-                            latestReceiptSummary = task.latestWorkReceipt?.summary,
-                            scheduleId = task.schedule?.id,
-                            scheduleVersion = task.schedule?.version,
-                            scheduleStartDate = task.schedule?.startDate,
-                            scheduleEndDate = task.schedule?.endDate,
-                            scheduleDateKind = task.schedule?.dateKind,
-                            scheduleRangeSemantics = task.schedule?.rangeSemantics,
-                            scheduleConfidence = task.schedule?.confidence,
-                            scheduleGranularity = task.schedule?.granularity,
-                            updatedAt = task.updatedAt,
-                            optimisticCommandId = null,
-                        ),
-                        syncState = SyncStateEntity(
-                            serverId = response.meta.serverId,
-                            apiVersion = response.meta.apiVersion,
-                            schemaVersion = response.meta.schemaVersion,
-                            cursor = null,
-                            lastSuccessfulSyncAt = response.meta.generatedAt,
-                            lastAttemptAt = attemptedAt,
-                            lastError = null,
-                        ),
-                        dependentCommandId = dependent?.commandId,
-                        dependentEnvelopeJson = dependentEnvelope,
-                        optimisticState = dependent?.let { if (it.commandName == "CompleteTask") "done" else "todo" },
+                    val updatedSyncState = SyncStateEntity(
+                        serverId = response.meta.serverId,
+                        apiVersion = response.meta.apiVersion,
+                        schemaVersion = response.meta.schemaVersion,
+                        cursor = null,
+                        lastSuccessfulSyncAt = response.meta.generatedAt,
+                        lastAttemptAt = attemptedAt,
+                        lastError = null,
                     )
+                    val receiptApplied = if (command.commandName == "DeleteTask") {
+                        require(dependent == null)
+                        dao.applyDeleteReceipt(
+                            commandId = command.commandId,
+                            expectedServerId = serverId,
+                            expectedTaskId = requireNotNull(command.taskId),
+                            expectedAttemptCount = command.attemptCount,
+                            canonicalVersion = task.version,
+                            syncState = updatedSyncState,
+                        )
+                    } else {
+                        dao.applyCommandReceipt(
+                            commandId = command.commandId,
+                            expectedServerId = serverId,
+                            expectedTaskId = requireNotNull(command.taskId),
+                            expectedAttemptCount = command.attemptCount,
+                            canonicalTask = TaskCacheEntity(
+                                id = task.id,
+                                serverVersion = task.version,
+                                title = task.title,
+                                themeId = task.themeId,
+                                state = task.state,
+                                workState = task.workState,
+                                todayDate = task.todayDate,
+                                plannedStartTime = task.plannedStartTime,
+                                plannedDurationMinutes = task.plannedDurationMinutes,
+                                latestReceiptId = task.latestWorkReceipt?.id,
+                                latestReceiptReportedAt = task.latestWorkReceipt?.reportedAt,
+                                latestReceiptExecutorLabel = task.latestWorkReceipt?.executorLabel,
+                                latestReceiptSummary = task.latestWorkReceipt?.summary,
+                                scheduleId = task.schedule?.id,
+                                scheduleVersion = task.schedule?.version,
+                                scheduleStartDate = task.schedule?.startDate,
+                                scheduleEndDate = task.schedule?.endDate,
+                                scheduleDateKind = task.schedule?.dateKind,
+                                scheduleRangeSemantics = task.schedule?.rangeSemantics,
+                                scheduleConfidence = task.schedule?.confidence,
+                                scheduleGranularity = task.schedule?.granularity,
+                                updatedAt = task.updatedAt,
+                                optimisticCommandId = null,
+                            ),
+                            syncState = updatedSyncState,
+                            dependentCommandId = dependent?.commandId,
+                            dependentEnvelopeJson = dependentEnvelope,
+                            optimisticState = dependent?.let {
+                                when (it.commandName) {
+                                    "CompleteTask" -> "done"
+                                    "ReopenTask" -> "todo"
+                                    "DeleteTask" -> task.state
+                                    else -> error("Unsupported dependent command: ${it.commandName}")
+                                }
+                            },
+                        )
+                    }
                     if (!receiptApplied) return shouldRetry
                 }
                 is MobileCommandSendResult.Conflict -> {
@@ -968,7 +1089,18 @@ class MobileOutbox(
                         return true
                     }
                     val themeBase = themeUpdateBase(command)
-                    if (themeBase == null) {
+                    if (command.commandName == "DeleteTask" && result.code == "not_found") {
+                        dao.acceptMissingDelete(
+                            commandId = command.commandId,
+                            taskId = requireNotNull(command.taskId),
+                        )
+                    } else if (command.commandName == "DeleteTask") {
+                        dao.rejectDeleteAndRestore(
+                            commandId = command.commandId,
+                            taskId = requireNotNull(command.taskId),
+                            reason = reason,
+                        )
+                    } else if (themeBase == null) {
                         dao.markRejected(command.commandId, reason)
                     } else {
                         dao.rejectUpdateAndRollback(

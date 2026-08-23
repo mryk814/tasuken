@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
@@ -60,6 +61,43 @@ class CaptureThemePickerUiTest {
             .performClick()
         composeRule.onNodeWithTag("capture-theme-none-option").performClick()
         composeRule.runOnIdle { assertNull(selectedThemeId.value) }
+    }
+
+    @Test
+    fun quickAddExposesCloseAndContinueCompletionBehaviors() {
+        val submitted = mutableListOf<CaptureCompletionBehavior>()
+        composeRule.setContent {
+            MaterialTheme {
+                CaptureTaskSheet(
+                    draft = MobileCaptureDraft.fresh(text = "連続入力"),
+                    state = CaptureUiState.Idle,
+                    speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
+                    themes = emptyList(),
+                    themeCatalogState = MobileThemeCatalogState.Available(
+                        themes = emptyList(),
+                        serverId = "server-1",
+                        serverRevision = 1,
+                        generatedAt = "2026-08-23T00:00:00Z",
+                    ),
+                    onDraftChanged = {},
+                    onThemeSelected = {},
+                    onSubmit = { submitted += it },
+                    onStartVoice = {},
+                    onStopVoice = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("capture-submit-continue").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(
+                listOf(CaptureCompletionBehavior.Continue, CaptureCompletionBehavior.Close),
+                submitted,
+            )
+        }
     }
 
     @Test
