@@ -120,6 +120,70 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun createTaskCarriesContinueBehaviorWithoutReusingSubmitPath() {
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
+            override fun observePendingCount(): Flow<Int> = flowOf(0)
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "continued-task"
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository)
+
+        runBlocking {
+            viewModel.createTaskNow(
+                MobileCaptureDraft.fresh(text = "続けて追加"),
+                CaptureCompletionBehavior.Continue,
+            )
+        }
+
+        assertEquals(
+            CaptureUiState.Queued("continued-task", CaptureCompletionBehavior.Continue),
+            viewModel.captureState.value,
+        )
+    }
+
+    @Test
+    fun undoCreatedTaskReportsLocalCancelAndCanonicalDeleteSeparately() {
+        var requiresSync = false
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
+            override fun observePendingCount(): Flow<Int> = flowOf(0)
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun undoCreateTask(taskId: String) = MobileUndoCreateResult(
+                commandId = if (requiresSync) "delete-command" else null,
+                requiresSync = requiresSync,
+            )
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository)
+
+        runBlocking { viewModel.undoCreatedTaskNow("task-local") }
+        assertEquals(
+            TaskActionUiState.Queued(
+                taskId = "task-local",
+                requiresSync = false,
+                message = "Task追加を元に戻しました。",
+            ),
+            viewModel.taskActionState.value,
+        )
+
+        requiresSync = true
+        runBlocking { viewModel.undoCreatedTaskNow("task-canonical") }
+        assertEquals(
+            TaskActionUiState.Queued(
+                taskId = "task-canonical",
+                requiresSync = true,
+                message = "Task削除をDesktopへ自動送信します。",
+            ),
+            viewModel.taskActionState.value,
+        )
+    }
+
+    @Test
     fun createTaskValidationKeepsActionRecoverable() {
         val viewModel = TodayViewModel(FakeRepository(emptyList()))
 

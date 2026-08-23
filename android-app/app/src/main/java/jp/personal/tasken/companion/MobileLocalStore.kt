@@ -278,6 +278,9 @@ abstract class MobileLocalDao {
     @Query("DELETE FROM task_cache WHERE id = :taskId AND optimisticCommandId IS NULL AND conflictCommandId IS NULL")
     abstract suspend fun deleteCanonicalTask(taskId: String)
 
+    @Query("DELETE FROM task_cache WHERE id = :taskId")
+    abstract suspend fun deleteTask(taskId: String)
+
     @Query("DELETE FROM theme_cache")
     abstract suspend fun deleteThemes()
 
@@ -355,7 +358,7 @@ abstract class MobileLocalDao {
     open suspend fun enqueueStateAction(task: TaskCacheEntity, command: OutboxCommandEntity) {
         require(task.optimisticCommandId == command.commandId)
         require(task.serverVersion != null)
-        require(command.commandName in setOf("UpdateTask", "CompleteTask", "ReopenTask"))
+        require(command.commandName in setOf("UpdateTask", "CompleteTask", "ReopenTask", "DeleteTask"))
         require(command.serverId.isNotBlank())
         require(syncState()?.serverId == command.serverId)
         upsertTask(task)
@@ -366,7 +369,7 @@ abstract class MobileLocalDao {
     open suspend fun enqueueDependentStateAction(task: TaskCacheEntity, command: OutboxCommandEntity) {
         require(task.optimisticCommandId == command.commandId)
         require(command.dependsOnCommandId != null)
-        require(command.commandName in setOf("CompleteTask", "ReopenTask"))
+        require(command.commandName in setOf("CompleteTask", "ReopenTask", "DeleteTask"))
         require(command.serverId.isNotBlank())
         require(syncState()?.serverId == command.serverId)
         require(outbox(requireNotNull(command.dependsOnCommandId))?.serverId == command.serverId)
@@ -433,6 +436,22 @@ abstract class MobileLocalDao {
         require(syncState()?.serverId == command.serverId)
         require(replaceUnsentEnvelope(commandId, envelopeJson) == 1)
         upsertTask(task)
+    }
+
+    @Transaction
+    open suspend fun cancelUnsentCreate(commandId: String, taskId: String): Boolean {
+        val command = outbox(commandId) ?: return false
+        val current = task(taskId) ?: return false
+        if (
+            command.commandName != "CreateTask" ||
+            command.taskId != taskId ||
+            current.serverVersion != null ||
+            current.optimisticCommandId != commandId ||
+            dependents(commandId).isNotEmpty()
+        ) return false
+        if (deleteUnsent(commandId) != 1) return false
+        deleteTask(taskId)
+        return true
     }
 
     @Transaction
@@ -694,6 +713,21 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
+    open suspend fun rejectDeleteAndRestore(commandId: String, taskId: String, reason: String) {
+        val command = requireNotNull(outbox(commandId)) { "Outbox command is missing" }
+        require(
+            command.taskId == taskId &&
+                command.commandName == "DeleteTask" &&
+                command.state == OutboxState.Sending,
+        )
+        require(syncState()?.serverId == command.serverId)
+        val current = requireNotNull(task(taskId)) { "Task cache is missing" }
+        require(current.optimisticCommandId == commandId)
+        upsertTask(current.copy(optimisticCommandId = null))
+        markRejected(commandId, reason)
+    }
+
+    @Transaction
     open suspend fun rejectChecklistUpdateAndRollback(
         commandId: String,
         taskId: String,
@@ -711,6 +745,21 @@ abstract class MobileLocalDao {
         require(current.optimisticCommandId == commandId)
         upsertTask(current.copy(checklistJson = baseChecklistJson, optimisticCommandId = null))
         markRejected(commandId, reason)
+    }
+
+    @Transaction
+    open suspend fun acceptMissingDelete(commandId: String, taskId: String) {
+        val command = requireNotNull(outbox(commandId)) { "Outbox command is missing" }
+        require(
+            command.taskId == taskId &&
+                command.commandName == "DeleteTask" &&
+                command.state == OutboxState.Sending,
+        )
+        require(syncState()?.serverId == command.serverId)
+        require(task(taskId)?.optimisticCommandId == commandId)
+        deleteTask(taskId)
+        deleteConflict(commandId)
+        deleteOutbox(commandId)
     }
 
     @Transaction
@@ -765,6 +814,39 @@ abstract class MobileLocalDao {
                 conflictCommandId = null,
             ),
         )
+        upsertSyncState(syncState)
+        deleteConflict(commandId)
+        deleteOutbox(commandId)
+        return true
+    }
+
+    @Transaction
+    open suspend fun applyDeleteReceipt(
+        commandId: String,
+        expectedServerId: String,
+        expectedTaskId: String,
+        expectedAttemptCount: Int,
+        canonicalVersion: Int,
+        syncState: SyncStateEntity,
+    ): Boolean {
+        require(expectedServerId.isNotBlank() && expectedTaskId.isNotBlank() && expectedAttemptCount > 0)
+        val command = outbox(commandId) ?: return false
+        if (
+            command.serverId != expectedServerId ||
+            command.taskId != expectedTaskId ||
+            command.commandName != "DeleteTask" ||
+            command.state != OutboxState.Sending ||
+            command.attemptCount != expectedAttemptCount ||
+            syncState.serverId != expectedServerId ||
+            this.syncState()?.serverId != expectedServerId
+        ) return false
+        val currentTask = task(expectedTaskId) ?: return false
+        if (
+            currentTask.optimisticCommandId != commandId ||
+            currentTask.serverVersion?.let { canonicalVersion <= it } == true ||
+            dependents(commandId).isNotEmpty()
+        ) return false
+        deleteTask(expectedTaskId)
         upsertSyncState(syncState)
         deleteConflict(commandId)
         deleteOutbox(commandId)

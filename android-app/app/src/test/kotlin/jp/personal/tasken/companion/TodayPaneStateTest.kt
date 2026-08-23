@@ -47,6 +47,7 @@ class TodayPaneStateTest {
         assertEquals(0.9f, restored.captureDraft.speech?.confidence)
         assertEquals(true, restored.captureOpen)
         assertEquals(true, restored.captureVoiceStartRequested)
+        assertEquals(false, restored.captureInputFocusRequested)
         assertEquals(AppSection.Ai, restored.activeSection)
         assertEquals("解析", restored.taskSearch)
         assertEquals(TaskListFilter.Done, restored.taskFilter)
@@ -54,5 +55,31 @@ class TodayPaneStateTest {
         assertEquals(18, restored.taskListScrollOffset)
         assertEquals(2, restored.aiListScrollIndex)
         assertEquals(9, restored.aiListScrollOffset)
+    }
+
+    @Test
+    fun continueCaptureStartsDistinctDraftAndKeepsEntryDefaults() {
+        val state = TodayPaneState(
+            captureDraft = MobileCaptureDraft.fresh(
+                text = "一件目",
+                source = MobileCaptureSource.ShareTarget,
+                projectId = "theme-research",
+                newId = { "draft-first" },
+            ),
+            captureOpen = true,
+        )
+
+        state.continueCapture()
+
+        assertEquals(true, state.captureOpen)
+        assertEquals("", state.captureDraft.text)
+        assertEquals(MobileCaptureSource.AndroidApp, state.captureDraft.source)
+        assertEquals("theme-research", state.captureDraft.projectId)
+        assertEquals(false, state.captureDraft.draftId == "draft-first")
+        assertEquals(true, state.captureInputFocusRequested)
+
+        val restored = TodayPaneState.restore(state.save())
+        assertEquals(true, restored.captureInputFocusRequested)
+        assertEquals(state.captureDraft.draftId, restored.captureDraft.draftId)
     }
 }

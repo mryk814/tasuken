@@ -52,6 +52,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -82,6 +84,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -286,11 +290,26 @@ private fun TodayApp(
     }
     LaunchedEffect(captureState) {
         if (captureState is CaptureUiState.Queued) {
+            val queued = captureState as CaptureUiState.Queued
             speechRecognizer.cancel()
             speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
-            paneState.resetCapture()
-            snackbarHostState.showSnackbar("Taskを追加しました。Desktopへ自動送信します。")
+            if (queued.completionBehavior == CaptureCompletionBehavior.Continue) {
+                paneState.continueCapture()
+            } else {
+                paneState.resetCapture()
+            }
             todayViewModel.resetCaptureState()
+            coroutineScope.launch {
+                val result = snackbarHostState.showSnackbar(
+                    message = "Taskを追加しました。Desktopへ自動送信します。",
+                    actionLabel = "元に戻す",
+                    withDismissAction = true,
+                    duration = SnackbarDuration.Long,
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    todayViewModel.undoCreatedTask(queued.taskId)
+                }
+            }
         }
     }
     LaunchedEffect(taskActionState) {
@@ -298,7 +317,7 @@ private fun TodayApp(
             is TaskActionUiState.Queued -> {
                 val queued = taskActionState as TaskActionUiState.Queued
                 snackbarHostState.showSnackbar(
-                    if (queued.requiresSync) {
+                    queued.message ?: if (queued.requiresSync) {
                         "Taskを更新しました。Desktopへ自動送信します。"
                     } else {
                         "未送信の変更を取り消しました。"
@@ -492,7 +511,9 @@ private fun TodayApp(
             onThemeSelected = { themeId ->
                 paneState.captureDraft = paneState.captureDraft.withThemeId(themeId)
             },
-            onSubmit = { todayViewModel.createTask(paneState.captureDraft) },
+            requestInputFocus = paneState.captureInputFocusRequested,
+            onInputFocusHandled = paneState::consumeInputFocusRequest,
+            onSubmit = { behavior -> todayViewModel.createTask(paneState.captureDraft, behavior) },
             onStartVoice = requestSpeechRecognition,
             onStopVoice = speechRecognizer::stop,
             onDismiss = {
@@ -517,11 +538,22 @@ internal fun CaptureTaskSheet(
     themeCatalogState: MobileThemeCatalogState,
     onDraftChanged: (String) -> Unit,
     onThemeSelected: (String?) -> Unit,
-    onSubmit: () -> Unit,
+    requestInputFocus: Boolean = false,
+    onInputFocusHandled: () -> Unit = {},
+    onSubmit: (CaptureCompletionBehavior) -> Unit,
     onStartVoice: () -> Unit,
     onStopVoice: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val focusRequester = remember(draft.draftId) { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(draft.draftId, requestInputFocus) {
+        if (requestInputFocus) {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+            onInputFocusHandled()
+        }
+    }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -549,8 +581,10 @@ internal fun CaptureTaskSheet(
                 enabled = state !is CaptureUiState.Saving,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (draft.text.isNotBlank()) onSubmit() }),
-                modifier = Modifier.fillMaxWidth(),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (draft.text.isNotBlank()) onSubmit(CaptureCompletionBehavior.Close)
+                }),
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
             )
             CaptureThemePicker(
                 draftId = draft.draftId,
@@ -579,12 +613,20 @@ internal fun CaptureTaskSheet(
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Button(
-                    onClick = onSubmit,
+                TextButton(
+                    onClick = { onSubmit(CaptureCompletionBehavior.Continue) },
                     enabled = state !is CaptureUiState.Saving && draft.text.isNotBlank(),
+                    modifier = Modifier.testTag("capture-submit-continue"),
+                ) {
+                    Text("追加して次へ")
+                }
+                Button(
+                    onClick = { onSubmit(CaptureCompletionBehavior.Close) },
+                    enabled = state !is CaptureUiState.Saving && draft.text.isNotBlank(),
+                    modifier = Modifier.testTag("capture-submit-close"),
                 ) {
                     Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
                 }
@@ -1132,8 +1174,14 @@ internal fun TodayDetailPane(
                             }
                         } else {
                             Text("Desktop  ${taskStateLabel(conflict.serverState)}  v${conflict.serverVersion}")
+                            val localAction = when (conflict.intendedAction) {
+                                "CompleteTask" -> "完了"
+                                "ReopenTask" -> "再開"
+                                "DeleteTask" -> "削除"
+                                else -> "変更"
+                            }
                             Text(
-                                "この端末  ${if (conflict.intendedAction == "CompleteTask") "完了" else "再開"}  " +
+                                "この端末  $localAction  " +
                                     "(v${conflict.expectedVersion}から)",
                             )
                         }

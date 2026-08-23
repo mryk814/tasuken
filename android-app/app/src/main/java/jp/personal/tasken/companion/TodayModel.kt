@@ -173,17 +173,26 @@ sealed interface TodayUiState {
     data class Success(val tasks: List<MobileTask>, val generatedAt: String) : TodayUiState
 }
 
+enum class CaptureCompletionBehavior { Close, Continue }
+
 sealed interface CaptureUiState {
     data object Idle : CaptureUiState
     data object Saving : CaptureUiState
-    data class Queued(val taskId: String) : CaptureUiState
+    data class Queued(
+        val taskId: String,
+        val completionBehavior: CaptureCompletionBehavior = CaptureCompletionBehavior.Close,
+    ) : CaptureUiState
     data class Error(val message: String) : CaptureUiState
 }
 
 sealed interface TaskActionUiState {
     data object Idle : TaskActionUiState
     data class Saving(val taskId: String) : TaskActionUiState
-    data class Queued(val taskId: String, val requiresSync: Boolean = true) : TaskActionUiState
+    data class Queued(
+        val taskId: String,
+        val requiresSync: Boolean = true,
+        val message: String? = null,
+    ) : TaskActionUiState
     data class ConflictResolved(val taskId: String, val keptLocal: Boolean) : TaskActionUiState
     data class RejectedThemeDismissed(val taskId: String) : TaskActionUiState
     data class Error(val taskId: String, val message: String) : TaskActionUiState
@@ -287,12 +296,18 @@ class TodayViewModel(
         applyResult(gateway.retryPairing())
     }
 
-    fun createTask(draft: MobileCaptureDraft) {
+    fun createTask(
+        draft: MobileCaptureDraft,
+        completionBehavior: CaptureCompletionBehavior = CaptureCompletionBehavior.Close,
+    ) {
         mutableCaptureState.value = CaptureUiState.Saving
-        viewModelScope.launch(ioDispatcher) { createTaskNow(draft) }
+        viewModelScope.launch(ioDispatcher) { createTaskNow(draft, completionBehavior) }
     }
 
-    internal suspend fun createTaskNow(draft: MobileCaptureDraft) {
+    internal suspend fun createTaskNow(
+        draft: MobileCaptureDraft,
+        completionBehavior: CaptureCompletionBehavior = CaptureCompletionBehavior.Close,
+    ) {
         val normalized = draft.text.trim()
         if (normalized.isEmpty()) {
             mutableCaptureState.value = CaptureUiState.Error("Task名を入力してください。")
@@ -312,9 +327,37 @@ class TodayViewModel(
                 withContext(ioDispatcher) {
                     offlineRepository.enqueueCreateTask(draft.withText(normalized))
                 },
+                completionBehavior,
             )
         } catch (_: Exception) {
             CaptureUiState.Error("Taskを保存できませんでした。入力を残したまま再試行してください。")
+        }
+    }
+
+    fun undoCreatedTask(taskId: String) {
+        viewModelScope.launch { undoCreatedTaskNow(taskId) }
+    }
+
+    internal suspend fun undoCreatedTaskNow(taskId: String) {
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(taskId, "この環境ではTask追加を元に戻せません。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(taskId)
+        mutableTaskActionState.value = try {
+            val result = withContext(ioDispatcher) { offlineRepository.undoCreateTask(taskId) }
+            TaskActionUiState.Queued(
+                taskId = taskId,
+                requiresSync = result.requiresSync,
+                message = if (result.requiresSync) {
+                    "Task削除をDesktopへ自動送信します。"
+                } else {
+                    "Task追加を元に戻しました。"
+                },
+            )
+        } catch (error: Exception) {
+            TaskActionUiState.Error(taskId, error.message ?: "Task追加を元に戻せませんでした。")
         }
     }
 
@@ -620,6 +663,7 @@ class TodayPaneState(
     captureDraft: MobileCaptureDraft = MobileCaptureDraft.fresh(),
     captureOpen: Boolean = false,
     captureVoiceStartRequested: Boolean = false,
+    captureInputFocusRequested: Boolean = false,
     activeSection: AppSection = AppSection.Today,
     taskSearch: String = "",
     taskFilter: TaskListFilter = TaskListFilter.Open,
@@ -636,6 +680,8 @@ class TodayPaneState(
     var captureDraft by mutableStateOf(captureDraft)
     var captureOpen by mutableStateOf(captureOpen)
     var captureVoiceStartRequested by mutableStateOf(captureVoiceStartRequested)
+        private set
+    var captureInputFocusRequested by mutableStateOf(captureInputFocusRequested)
         private set
     var activeSection by mutableStateOf(activeSection)
     var taskSearch by mutableStateOf(taskSearch)
@@ -675,16 +721,34 @@ class TodayPaneState(
         }
         captureOpen = true
         captureVoiceStartRequested = requestVoice
+        captureInputFocusRequested = false
     }
 
     fun consumeVoiceStartRequest() {
         captureVoiceStartRequested = false
     }
 
+    fun continueCapture() {
+        val previous = captureDraft
+        captureDraft = MobileCaptureDraft.fresh(
+            source = MobileCaptureSource.AndroidApp,
+            kind = previous.kind,
+            projectId = previous.projectId,
+        )
+        captureOpen = true
+        captureVoiceStartRequested = false
+        captureInputFocusRequested = true
+    }
+
+    fun consumeInputFocusRequest() {
+        captureInputFocusRequested = false
+    }
+
     fun resetCapture() {
         captureDraft = MobileCaptureDraft.fresh()
         captureOpen = false
         captureVoiceStartRequested = false
+        captureInputFocusRequested = false
     }
 
     fun save(): List<Any?> = listOf(
@@ -710,6 +774,7 @@ class TodayPaneState(
         captureDraft.createdAt,
         captureVoiceStartRequested,
         captureDraft.speech?.sourceAudioAvailable,
+        captureInputFocusRequested,
     )
 
     companion object {
@@ -735,6 +800,7 @@ class TodayPaneState(
             ),
             captureOpen = saved.getOrNull(4) as? Boolean ?: false,
             captureVoiceStartRequested = saved.getOrNull(20) as? Boolean ?: false,
+            captureInputFocusRequested = saved.getOrNull(22) as? Boolean ?: false,
             activeSection = (saved.getOrNull(5) as? String)
                 ?.let { runCatching { AppSection.valueOf(it) }.getOrNull() }
                 ?: AppSection.Today,
@@ -769,6 +835,8 @@ interface MobileOfflineTaskRepository {
         draft: MobileCaptureDraft,
         todayDate: java.time.LocalDate? = java.time.LocalDate.now(),
     ): String
+    suspend fun undoCreateTask(taskId: String): MobileUndoCreateResult =
+        error("この環境ではTask追加を元に戻せません。")
     suspend fun enqueueUpdateTaskTitle(taskId: String, title: String): String = error("この環境ではTaskを編集できません。")
     suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: java.time.LocalDate?): String =
         error("この環境ではTaskの予定を変更できません。")

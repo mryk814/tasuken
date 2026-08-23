@@ -133,6 +133,33 @@ class MobileTaskCommandContractTest {
         }
     }
 
+    @Test
+    fun deleteTaskUsesVersionedStateEnvelopeAndConflictContract() {
+        val envelope = MobileTaskStateEnvelopeDto(
+            apiVersion = 1,
+            schemaVersion = 3,
+            requestId = "request-delete",
+            commandId = "command-delete",
+            idempotencyKey = "command-delete",
+            clientDeviceId = "device-1",
+            issuedAt = "2026-08-22T01:00:00Z",
+            command = MobileTaskStateCommandDto(
+                name = "DeleteTask",
+                taskId = "task-1",
+                expectedVersion = 7,
+            ),
+        )
+
+        val decoded = MobileTaskCommandContract.decodeStateEnvelope(MobileTaskCommandContract.encode(envelope))
+        assertEquals("DeleteTask", decoded.command.name)
+        assertEquals(7, decoded.command.expectedVersion)
+        assertEquals(
+            "DeleteTask",
+            MobileTaskCommandContract.decodeError(conflictPayload("theme-1", "DeleteTask"))
+                .error.conflict?.intendedAction,
+        )
+    }
+
     private fun updateEnvelope(
         changes: kotlinx.serialization.json.JsonObject,
         base: kotlinx.serialization.json.JsonObject,
@@ -184,7 +211,7 @@ class MobileTaskCommandContractTest {
         }
     """.trimIndent()
 
-    private fun conflictPayload(themeId: String): String = """
+    private fun conflictPayload(themeId: String, intendedAction: String = "UpdateTask"): String = """
         {
           "ok": false,
           "meta": {
@@ -211,7 +238,7 @@ class MobileTaskCommandContractTest {
                 "schedule": null,
                 "updatedAt": "2026-08-22T01:00:00Z"
               },
-              "intendedAction": "UpdateTask",
+              "intendedAction": "$intendedAction",
               "expectedVersion": 7,
               "conflictField": "task",
               "expectedScheduleVersion": null

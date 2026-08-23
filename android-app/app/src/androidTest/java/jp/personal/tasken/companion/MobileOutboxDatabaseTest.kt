@@ -76,6 +76,110 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun repeatedSubmitOfSameDraftReusesStableTaskAndCommand() = runBlocking {
+        val first = outbox.enqueueCreate(
+            title = "二重送信しない",
+            todayDate = LocalDate.parse("2026-08-22"),
+            projectId = "theme-research",
+            draftId = "draft-stable-submit",
+            createdAt = "2026-08-22T01:02:03Z",
+        )
+        val second = outbox.enqueueCreate(
+            title = "二重送信しない",
+            todayDate = LocalDate.parse("2026-08-22"),
+            projectId = "theme-research",
+            draftId = "draft-stable-submit",
+            createdAt = "2026-08-22T01:02:03Z",
+        )
+
+        assertEquals(first, second)
+        assertEquals(1, dao.tasks().count { it.id == first })
+        assertEquals(1, dao.outboxCount())
+    }
+
+    @Test
+    fun undoBeforeFirstSendCancelsCreateAndOptimisticTaskAtomically() = runBlocking {
+        val taskId = outbox.enqueueCreate("送信前に戻す", LocalDate.parse("2026-08-22"))
+
+        val result = outbox.undoCreate(taskId)
+
+        assertEquals(false, result.requiresSync)
+        assertNull(result.commandId)
+        assertNull(dao.task(taskId))
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun undoAfterCreateAttemptQueuesDependentDeleteAndConverges() = runBlocking {
+        val taskId = outbox.enqueueCreate("送信開始後に戻す", LocalDate.parse("2026-08-22"))
+        val createId = requireNotNull(dao.task(taskId)?.optimisticCommandId)
+        requireNotNull(dao.claimNext("server-1", "2026-08-22T01:03:00Z"))
+
+        val undo = outbox.undoCreate(taskId)
+        val deleteId = requireNotNull(undo.commandId)
+        assertEquals(true, undo.requiresSync)
+        assertEquals(createId, dao.outbox(deleteId)?.dependsOnCommandId)
+        assertEquals(deleteId, dao.task(taskId)?.optimisticCommandId)
+
+        assertEquals(1, outbox.recoverInterruptedSending())
+        val sent = mutableListOf<String>()
+        assertEquals(false, outbox.drain("server-1") { payload ->
+            if (sent.isEmpty()) {
+                val envelope = MobileTaskCommandContract.decodeCreateEnvelope(payload)
+                sent += envelope.command.name
+                MobileCommandSendResult.Applied(receipt(createId, taskId, version = 1))
+            } else {
+                val envelope = MobileTaskCommandContract.decodeStateEnvelope(payload)
+                sent += envelope.command.name
+                assertEquals("DeleteTask", envelope.command.name)
+                assertEquals(1, envelope.command.expectedVersion)
+                MobileCommandSendResult.Applied(receipt(deleteId, taskId, version = 2))
+            }
+        })
+
+        assertEquals(listOf("CreateTask", "DeleteTask"), sent)
+        assertNull(dao.task(taskId))
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun canonicalUndoUsesDeleteVersionConflictFlowWithoutSilentOverwrite() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000006"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 7, state = "todo"))
+
+        val deleteId = requireNotNull(outbox.undoCreate(taskId).commandId)
+        val envelope = MobileTaskCommandContract.decodeStateEnvelope(requireNotNull(dao.outbox(deleteId)).envelopeJson)
+        assertEquals("DeleteTask", envelope.command.name)
+        assertEquals(7, envelope.command.expectedVersion)
+
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Conflict(
+                conflict(
+                    taskId = taskId,
+                    serverVersion = 8,
+                    serverState = "todo",
+                    intendedAction = "DeleteTask",
+                ),
+            )
+        })
+        assertEquals(deleteId, dao.task(taskId)?.conflictCommandId)
+        assertEquals(OutboxState.Conflict, dao.outbox(deleteId)?.state)
+
+        val replacementId = outbox.keepLocal(deleteId)
+        val replacement = MobileTaskCommandContract.decodeStateEnvelope(
+            requireNotNull(dao.outbox(replacementId)).envelopeJson,
+        )
+        assertEquals("DeleteTask", replacement.command.name)
+        assertEquals(8, replacement.command.expectedVersion)
+
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Applied(receipt(replacementId, taskId, version = 9))
+        })
+        assertNull(dao.task(taskId))
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
     fun interruptedSendingReturnsToRetryWithoutChangingEnvelope() = runBlocking {
         val taskId = outbox.enqueueCreate("再送する", LocalDate.parse("2026-08-22"))
         val commandId = requireNotNull(dao.task(taskId)?.optimisticCommandId)
