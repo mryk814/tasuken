@@ -411,7 +411,10 @@ class MobileThemeCatalogRepositoryTest {
 
             assertTrue(repository.synchronizeIfPaired())
 
-            assertEquals(listOf("/v1/bootstrap", "/v1/commands", "/v1/sync", "/v1/themes"), requestedPaths)
+            assertEquals(
+                listOf("/v1/bootstrap", "/v1/commands", "/v1/sync", "/v1/proposals", "/v1/themes"),
+                requestedPaths,
+            )
             assertEquals(OutboxState.Rejected, dao.outbox(commandId)?.state)
             assertEquals("theme-old", dao.task(taskId)?.themeId)
             assertNull(dao.task(taskId)?.optimisticCommandId)
