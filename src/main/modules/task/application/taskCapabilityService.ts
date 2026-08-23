@@ -154,7 +154,15 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null, curre
     issuedAt: command.issued_at,
   } as const;
 
-  if (command.name === "CreateTask") return { ...base, payload: { task: command.payload.task } };
+  if (command.name === "CreateTask") {
+    return {
+      ...base,
+      payload: {
+        task: command.payload.task,
+        ...(command.payload.provenance ? { provenance: command.payload.provenance } : {}),
+      },
+    };
+  }
   if (command.name === "UpdateTask") {
     const schedule = materializedSchedule(command, currentSchedule);
     return {

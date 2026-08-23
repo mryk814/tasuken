@@ -458,6 +458,18 @@ export class MobileGatewayAdapter {
               intended_executor: command.task.intendedExecutor,
               today_date: command.task.todayDate ?? null,
             },
+            ...(command.provenance ? {
+              provenance: {
+                reported_via: command.provenance.reportedVia,
+                captured_at: command.provenance.capturedAt,
+                capture_method: command.provenance.captureMethod,
+                recognition_mode: command.provenance.recognitionMode,
+                language: command.provenance.language,
+                confidence: command.provenance.confidence,
+                source_audio_available: command.provenance.sourceAudioAvailable,
+                shared_mime_type: command.provenance.sharedMimeType,
+              },
+            } : {}),
           }
         : command.name === "UpdateTask"
           ? taskUpdatePayload(command)

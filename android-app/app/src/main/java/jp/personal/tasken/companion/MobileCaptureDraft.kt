@@ -46,6 +46,14 @@ data class MobileSpeechProvenance(
     val sourceAudioAvailable: Boolean = false,
 )
 
+data class MobileShareProvenance(
+    val mimeType: String,
+) {
+    init {
+        require(mimeType == "text/plain")
+    }
+}
+
 data class MobileCaptureDraft(
     val draftId: String,
     val text: String,
@@ -53,8 +61,14 @@ data class MobileCaptureDraft(
     val projectId: String?,
     val source: MobileCaptureSource,
     val speech: MobileSpeechProvenance?,
+    val share: MobileShareProvenance?,
     val createdAt: String,
 ) {
+    init {
+        require(speech == null || source == MobileCaptureSource.AndroidSpeech)
+        require((source == MobileCaptureSource.ShareTarget) == (share != null))
+    }
+
     fun withText(value: String): MobileCaptureDraft = copy(text = value.take(500))
 
     fun withThemeId(value: String?): MobileCaptureDraft = copy(
@@ -70,6 +84,7 @@ data class MobileCaptureDraft(
             confidence = result.confidence,
             sourceAudioAvailable = false,
         ),
+        share = null,
     )
 
     companion object {
@@ -78,6 +93,7 @@ data class MobileCaptureDraft(
             source: MobileCaptureSource = MobileCaptureSource.AndroidApp,
             kind: MobileCaptureKind = MobileCaptureKind.Task,
             projectId: String? = null,
+            share: MobileShareProvenance? = null,
             now: () -> Instant = Instant::now,
             newId: () -> String = { UUID.randomUUID().toString() },
         ): MobileCaptureDraft = MobileCaptureDraft(
@@ -87,6 +103,7 @@ data class MobileCaptureDraft(
             projectId = projectId,
             source = source,
             speech = null,
+            share = share,
             createdAt = now().toString(),
         )
     }

@@ -9,6 +9,40 @@ import org.junit.Test
 
 class MobileTaskCommandContractTest {
     @Test
+    fun createTaskRoundTripsStrictSpeechProvenance() {
+        val provenance = MobileTaskCreationProvenanceDto(
+            reportedVia = "android_speech",
+            capturedAt = "2026-08-23T00:00:00Z",
+            captureMethod = "android_speech",
+            recognitionMode = "on_device",
+            language = "ja-JP",
+            confidence = 0.82f,
+            sourceAudioAvailable = false,
+        )
+
+        val decoded = MobileTaskCommandContract.decodeCreateEnvelope(
+            MobileTaskCommandContract.encode(createEnvelope(provenance)),
+        )
+
+        assertEquals(provenance, decoded.command.provenance)
+        assertThrows(IllegalArgumentException::class.java) {
+            MobileTaskCommandContract.encode(
+                createEnvelope(provenance.copy(reportedVia = "widget")),
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MobileTaskCommandContract.encode(
+                createEnvelope(
+                    MobileTaskCreationProvenanceDto(
+                        reportedVia = "share_target",
+                        capturedAt = "2026-08-23T00:00:00Z",
+                    ),
+                ),
+            )
+        }
+    }
+
+    @Test
     fun receiptThemeIdUsesEntityIdTrimSemantics() {
         val response = MobileTaskCommandContract.decodeReceipt(receiptPayload(" theme-receipt "))
 
@@ -133,6 +167,24 @@ class MobileTaskCommandContractTest {
             expectedScheduleVersion = expectedScheduleVersion,
             changes = changes,
             base = base,
+        ),
+    )
+
+    private fun createEnvelope(provenance: MobileTaskCreationProvenanceDto) = MobileCreateTaskEnvelopeDto(
+        apiVersion = 1,
+        schemaVersion = 2,
+        requestId = "request-create",
+        commandId = "command-create",
+        idempotencyKey = "command-create",
+        clientDeviceId = "device-1",
+        issuedAt = "2026-08-23T00:00:00Z",
+        command = MobileCreateTaskCommandDto(
+            name = "CreateTask",
+            task = MobileCreateTaskCandidateDto(
+                id = "task-create",
+                title = "音声Task",
+            ),
+            provenance = provenance,
         ),
     )
 

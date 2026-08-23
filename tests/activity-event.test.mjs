@@ -268,7 +268,18 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
       activity_summary: "Ordinary metadata",
       work_action: "reported",
       executor_label: "Codex",
-      provenance: { reported_via: "mcp", source_session: "session-safe" },
+      provenance: {
+        reported_via: "android_speech",
+        captured_at: "2026-08-21T00:00:00.000Z",
+        capture_method: "android_speech",
+        recognition_mode: "on_device",
+        language: "ja-JP",
+        confidence: 0.82,
+        source_audio_available: false,
+        shared_mime_type: null,
+        source_session: "session-safe",
+        raw_text: "PRIVATE_SHARED_TEXT",
+      },
       capture_context: {
         token: "KEY_SECRET",
         accessToken: "CAMEL_TOKEN_SECRET",
@@ -338,14 +349,24 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
   assert.equal(projected.metadata.activity_summary, "Ordinary metadata");
   assert.equal(projected.metadata.work_action, "reported");
   assert.equal(projected.metadata.executor_label, "Codex");
-  assert.deepEqual(projected.metadata.provenance, { reported_via: "mcp", source_session: "session-safe" });
+  assert.deepEqual(projected.metadata.provenance, {
+    reported_via: "android_speech",
+    captured_at: "2026-08-21T00:00:00.000Z",
+    capture_method: "android_speech",
+    recognition_mode: "on_device",
+    language: "ja-JP",
+    confidence: 0.82,
+    source_audio_available: false,
+    shared_mime_type: null,
+    source_session: "session-safe",
+  });
   assert.equal("capture_context" in projected.metadata, false);
   assert.deepEqual(projected.actor, { kind: "agent" });
   assert.deepEqual(projected.origin, { kind: "mcp", command_id: "command-safe" });
   assert.equal("local_path" in projected.metadata, false);
   assert.equal("token" in projected.metadata, false);
   const serialized = JSON.stringify(projected);
-  for (const secret of ["user:pass", "q=secret", "fragment", "ftp://", "C:\\\\private", "/home/private", "Bearer private", "token=secret", "TOKEN_SECRET", "CLIENT_SECRET", "AUTHORIZATION_SECRET", "CREDENTIAL_SECRET", "API_KEY_SECRET", "PRIVATE_KEY_SECRET", "LOCAL_PATH", "ABSOLUTE_PATH", "FILE_PATH", "KEY_SECRET", "KEY_PATH", "ACTOR_KEY", "nested/path", "display_name"]) {
+  for (const secret of ["user:pass", "q=secret", "fragment", "ftp://", "C:\\\\private", "/home/private", "Bearer private", "token=secret", "TOKEN_SECRET", "CLIENT_SECRET", "AUTHORIZATION_SECRET", "CREDENTIAL_SECRET", "API_KEY_SECRET", "PRIVATE_KEY_SECRET", "LOCAL_PATH", "ABSOLUTE_PATH", "FILE_PATH", "KEY_SECRET", "KEY_PATH", "ACTOR_KEY", "nested/path", "display_name", "PRIVATE_SHARED_TEXT"]) {
     assert.equal(serialized.includes(secret), false, secret);
   }
 });

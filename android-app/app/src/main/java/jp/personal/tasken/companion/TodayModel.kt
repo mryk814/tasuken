@@ -640,10 +640,15 @@ class TodayPaneState(
         source: MobileCaptureSource,
         initialText: String = "",
         requestVoice: Boolean = false,
+        sharedMimeType: String? = null,
         replaceDraft: Boolean = true,
     ) {
         if (replaceDraft || captureDraft.text.isBlank()) {
-            captureDraft = MobileCaptureDraft.fresh(text = initialText, source = source)
+            captureDraft = MobileCaptureDraft.fresh(
+                text = initialText,
+                source = source,
+                share = sharedMimeType?.let(::MobileShareProvenance),
+            )
         }
         captureOpen = true
         captureVoiceStartRequested = requestVoice
@@ -701,6 +706,7 @@ class TodayPaneState(
         captureVoiceStartRequested,
         captureDraft.speech?.sourceAudioAvailable,
         captureInputFocusRequested,
+        captureDraft.share?.mimeType,
     )
 
     companion object {
@@ -722,6 +728,12 @@ class TodayPaneState(
                         sourceAudioAvailable = saved.getOrNull(21) as? Boolean ?: false,
                     )
                 },
+                share = (saved.getOrNull(23) as? String)?.let(::MobileShareProvenance)
+                    ?: if (MobileCaptureSource.fromWireValue(saved.getOrNull(15) as? String) == MobileCaptureSource.ShareTarget) {
+                        MobileShareProvenance("text/plain")
+                    } else {
+                        null
+                    },
                 createdAt = saved.getOrNull(19) as? String ?: java.time.Instant.now().toString(),
             ),
             captureOpen = saved.getOrNull(4) as? Boolean ?: false,

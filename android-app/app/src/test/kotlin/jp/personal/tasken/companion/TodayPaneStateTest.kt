@@ -64,6 +64,7 @@ class TodayPaneStateTest {
                 text = "一件目",
                 source = MobileCaptureSource.ShareTarget,
                 projectId = "theme-research",
+                share = MobileShareProvenance("text/plain"),
                 newId = { "draft-first" },
             ),
             captureOpen = true,
@@ -74,6 +75,7 @@ class TodayPaneStateTest {
         assertEquals(true, state.captureOpen)
         assertEquals("", state.captureDraft.text)
         assertEquals(MobileCaptureSource.AndroidApp, state.captureDraft.source)
+        assertEquals(null, state.captureDraft.share)
         assertEquals("theme-research", state.captureDraft.projectId)
         assertEquals(false, state.captureDraft.draftId == "draft-first")
         assertEquals(true, state.captureInputFocusRequested)
@@ -81,5 +83,21 @@ class TodayPaneStateTest {
         val restored = TodayPaneState.restore(state.save())
         assertEquals(true, restored.captureInputFocusRequested)
         assertEquals(state.captureDraft.draftId, restored.captureDraft.draftId)
+    }
+
+    @Test
+    fun shareMimeSurvivesProcessStateRecreation() {
+        val before = TodayPaneState()
+        before.openCapture(
+            source = MobileCaptureSource.ShareTarget,
+            initialText = "共有本文",
+            sharedMimeType = "text/plain",
+        )
+
+        val restored = TodayPaneState.restore(before.save())
+
+        assertEquals(MobileCaptureSource.ShareTarget, restored.captureDraft.source)
+        assertEquals("text/plain", restored.captureDraft.share?.mimeType)
+        assertEquals("共有本文", restored.captureDraft.text)
     }
 }

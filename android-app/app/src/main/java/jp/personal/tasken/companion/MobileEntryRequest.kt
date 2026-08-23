@@ -25,6 +25,7 @@ sealed interface MobileEntryRequest {
         val source: MobileEntrySource,
         val draft: String = "",
         val startVoice: Boolean = false,
+        val sharedMimeType: String? = null,
     ) : MobileEntryRequest
 
     data class Task(
@@ -56,7 +57,12 @@ object MobileEntryRequestResolver {
     ): MobileEntryRequest {
         if (action == Intent.ACTION_SEND && mimeType == "text/plain") {
             val text = sharedText?.trim().orEmpty()
-            if (text.isNotEmpty()) return MobileEntryRequest.Capture(token, MobileEntrySource.ShareTarget, text)
+            if (text.isNotEmpty()) return MobileEntryRequest.Capture(
+                token = token,
+                source = MobileEntrySource.ShareTarget,
+                draft = text,
+                sharedMimeType = mimeType,
+            )
         }
         val uri = data?.let { runCatching { URI(it) }.getOrNull() } ?: return MobileEntryRequest.None
         if (uri.scheme != "tasken") return MobileEntryRequest.None

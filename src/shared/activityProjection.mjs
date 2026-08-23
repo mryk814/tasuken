@@ -76,7 +76,22 @@ const PUBLIC_METADATA_KEYS = new Set([
   "note_ai_command_marker",
 ]);
 const PUBLIC_METADATA_OBJECT_FIELDS = new Map([
-  ["provenance", ["reported_via", "proposal_id", "caller", "source_session", "idempotency_key", "proposal_created_at", "imported_by"]],
+  ["provenance", [
+    "reported_via",
+    "captured_at",
+    "capture_method",
+    "recognition_mode",
+    "language",
+    "confidence",
+    "source_audio_available",
+    "shared_mime_type",
+    "proposal_id",
+    "caller",
+    "source_session",
+    "idempotency_key",
+    "proposal_created_at",
+    "imported_by",
+  ]],
   ["repository_context", ["repository_context_id", "provider", "repository_slug", "branch"]],
   ["note_ai_command_marker", ["schema", "commandId", "commandFingerprint", "noteId", "proposalId", "noteVersion", "proposalVersion"]],
 ]);
