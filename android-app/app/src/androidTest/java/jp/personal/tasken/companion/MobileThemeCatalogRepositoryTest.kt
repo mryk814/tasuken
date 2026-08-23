@@ -415,7 +415,7 @@ class MobileThemeCatalogRepositoryTest {
             assertEquals(OutboxState.Rejected, dao.outbox(commandId)?.state)
             assertEquals("theme-old", dao.task(taskId)?.themeId)
             assertNull(dao.task(taskId)?.optimisticCommandId)
-            val rejected = repository.observeCachedTasks().first().single().rejectedThemeUpdate
+            val rejected = repository.observeAllCachedTasks().first().single().rejectedThemeUpdate
             assertEquals("theme_not_found", rejected?.code)
             assertEquals("選択したThemeは削除済みか利用できません。", rejected?.message)
         } finally {
