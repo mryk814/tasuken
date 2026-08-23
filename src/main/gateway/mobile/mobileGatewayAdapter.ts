@@ -36,11 +36,6 @@ import {
   type MobileThemeCatalogItem,
 } from "../../../shared/contracts/mobile/public.ts";
 import {
-  ApplicationCommandError,
-  type CommandEnvelope,
-  type CommandReceipt,
-} from "../../../shared/applicationCommand.ts";
-import {
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
@@ -76,6 +71,24 @@ export interface MobileGatewayResponse {
   body: unknown;
 }
 
+export interface MobileGatewayTaskWorkProposalDecision {
+  commandId: string;
+  proposalId: string;
+  taskId: string;
+  expectedProposalVersion: number;
+  expectedTaskVersion: number;
+  decision: "accept" | "reject";
+  actorId: string;
+  issuedAt: string;
+}
+
+export type MobileGatewayTaskWorkProposalDecisionResult =
+  | { ok: true; commandId: string; status: "applied" | "no_change" }
+  | {
+    ok: false;
+    code: Extract<MobileErrorCode, "idempotency_conflict" | "not_found" | "proposal_conflict" | "validation_failed">;
+  };
+
 export interface MobileGatewayCorePort {
   status(): Promise<{ apiVersion: string; capabilities: readonly string[] }>;
   listThemes(): Promise<readonly MobileGatewayThemeRecord[]> | readonly MobileGatewayThemeRecord[];
@@ -83,7 +96,9 @@ export interface MobileGatewayCorePort {
   getWorkReceipt(id: string): Promise<MobileGatewayWorkReceiptDetailRecord | null> | MobileGatewayWorkReceiptDetailRecord | null;
   listTaskWorkProposals(): Promise<readonly MobileGatewayTaskWorkProposalRecord[]> | readonly MobileGatewayTaskWorkProposalRecord[];
   getTaskWorkProposal(id: string): Promise<MobileGatewayTaskWorkProposalRecord | null> | MobileGatewayTaskWorkProposalRecord | null;
-  executeApplicationCommand(input: CommandEnvelope): Promise<CommandReceipt> | CommandReceipt;
+  decideTaskWorkProposal(
+    input: MobileGatewayTaskWorkProposalDecision,
+  ): Promise<MobileGatewayTaskWorkProposalDecisionResult> | MobileGatewayTaskWorkProposalDecisionResult;
   executeTaskQuery(input: unknown): Promise<TaskQueryResponse> | TaskQueryResponse;
   executeTaskCommand(input: unknown): Promise<TaskCommandResponse> | TaskCommandResponse;
 }
@@ -748,18 +763,17 @@ export class MobileGatewayAdapter {
         if (taskResult.value.name !== "GetTask" || !taskResult.value.task) {
           return this.error(meta, "not_found");
         }
-        const receipt = await this.options.core.executeApplicationCommand({
+        const decisionResult = await this.options.core.decideTaskWorkProposal({
           commandId: decision.commandId,
-          name: "ApplyTaskWorkProposal",
-          actor: { kind: "user", id: request.principal.deviceId },
-          source: "mobile",
+          proposalId: decision.proposalId,
+          taskId: decision.taskId,
+          expectedProposalVersion: decision.expectedProposalVersion,
+          expectedTaskVersion: decision.expectedTaskVersion,
+          decision: decision.decision,
+          actorId: request.principal.deviceId,
           issuedAt: decision.issuedAt,
-          payload: { proposalId: decision.proposalId, decision: decision.decision },
-          expectedVersions: [
-            { type: "ai_proposal", id: decision.proposalId, version: decision.expectedProposalVersion },
-            { type: "task", id: decision.taskId, version: decision.expectedTaskVersion },
-          ],
         });
+        if (!decisionResult.ok) return this.error(meta, decisionResult.code);
         const updatedProposal = await this.options.core.getTaskWorkProposal(decision.proposalId);
         const updatedTask = await this.options.core.executeTaskQuery({
           schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
@@ -771,15 +785,15 @@ export class MobileGatewayAdapter {
           throw new Error("Proposal decision did not expose its canonical result");
         }
         const expectedStatus = decision.decision === "accept" ? "accepted" : "rejected";
-        if (updatedProposal.status !== expectedStatus || receipt.status === "conflict") {
+        if (updatedProposal.status !== expectedStatus) {
           throw new Error("Proposal decision returned an unexpected canonical state");
         }
         return this.success(mobileTaskWorkProposalDecisionResponseSchema.parse({
           ok: true,
           meta,
           data: {
-            commandId: receipt.commandId,
-            commandStatus: receipt.status,
+            commandId: decisionResult.commandId,
+            commandStatus: decisionResult.status,
             proposalId: decision.proposalId,
             proposalStatus: expectedStatus,
             decision: decision.decision,
@@ -907,16 +921,6 @@ export class MobileGatewayAdapter {
       const responseMeta = meta || this.fallbackMeta();
       if (error instanceof MobileGatewayCoreUnavailableError) {
         return this.error(responseMeta, "upstream_unavailable", true);
-      }
-      if (error instanceof ApplicationCommandError) {
-        if (error.code === "COMMAND_ID_REUSED") return this.error(responseMeta, "idempotency_conflict");
-        if (error.code === "NOT_FOUND") return this.error(responseMeta, "not_found");
-        if (error.code === "CONFLICT" || error.code === "INVALID_TRANSITION") {
-          return this.error(responseMeta, "proposal_conflict");
-        }
-        if (error.code === "INVALID_ENVELOPE" || error.code === "INVALID_PAYLOAD") {
-          return this.error(responseMeta, "validation_failed");
-        }
       }
       this.warnUnexpected(diagnosticId);
       return this.error(responseMeta, "internal_error");

@@ -960,31 +960,15 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
     },
   }).success, false);
 
-  const { repository, service } = capability();
+  const { repository } = capability();
   const application = new ApplicationCommandService(repository);
-  const proposalRecord = (proposal) => proposal && ({
-    id: proposal.id,
-    version: proposal.version,
-    source: proposal.source,
-    sourceApp: proposal.source_app,
-    payloadType: proposal.payload_type,
-    payload: proposal.payload,
-    request: proposal.request,
-    status: proposal.status,
-    receivedAt: proposal.received_at,
-  });
   let applicationCommandCalls = 0;
-  const adapter = gateway(service, {
-    listTaskWorkProposals: () => repository.list("ai_proposal")
-      .filter((proposal) => proposal.source === "mcp"
-        && proposal.payload_type === "task_work"
-        && proposal.status === "pending")
-      .map(proposalRecord),
-    getTaskWorkProposal: (id) => proposalRecord(repository.get("ai_proposal", id, true)),
-    executeApplicationCommand: (command) => {
-      applicationCommandCalls += 1;
-      return application.execute(command);
-    },
+  const runtime = new TaskenCoreRuntime(os.tmpdir(), repository, (command) => {
+    if (command.name === "ApplyTaskWorkProposal") applicationCommandCalls += 1;
+    return application.execute(command);
+  });
+  const adapter = runtime.createMobileGateway({
+    current: () => ({ serverId: "desktop-home", serverRevision: 42, generatedAt: now }),
   });
   const created = await adapter.handle({
     method: "POST",

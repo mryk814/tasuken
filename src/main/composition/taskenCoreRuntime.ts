@@ -16,6 +16,7 @@ import {
   MobileGatewayAdapter,
   type MobileGatewayLoggerPort,
   type MobileGatewayStatePort,
+  type MobileGatewayTaskWorkProposalDecisionResult,
 } from "../gateway/mobile/public.ts";
 import {
   TaskCapabilityService,
@@ -28,6 +29,7 @@ import {
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
 } from "../../shared/contracts/core/public.mjs";
+import { ApplicationCommandError } from "../../shared/applicationCommand.ts";
 
 type CorePersistence = AgentReadyTaskWorkspacePersistence
   & AgentWorkspacePersistence
@@ -40,6 +42,15 @@ type CorePersistence = AgentReadyTaskWorkspacePersistence
   & AgentContextWorkspacePersistence
   & WorkspaceTaskPersistence
   & AiProposalPersistence;
+
+function proposalDecisionFailure(error: ApplicationCommandError): MobileGatewayTaskWorkProposalDecisionResult {
+  if (error.code === "COMMAND_ID_REUSED") return { ok: false, code: "idempotency_conflict" };
+  if (error.code === "NOT_FOUND") return { ok: false, code: "not_found" };
+  if (error.code === "CONFLICT" || error.code === "INVALID_TRANSITION") {
+    return { ok: false, code: "proposal_conflict" };
+  }
+  return { ok: false, code: "validation_failed" };
+}
 
 export class TaskenCoreRuntime {
   private readonly host: TaskenCoreHost;
@@ -155,7 +166,27 @@ export class TaskenCoreRuntime {
             receivedAt: String(proposal.received_at || ""),
           };
         },
-        executeApplicationCommand: (input) => this.executeApplicationCommand(input),
+        decideTaskWorkProposal: (input) => {
+          try {
+            const receipt = this.executeApplicationCommand({
+              commandId: input.commandId,
+              name: "ApplyTaskWorkProposal",
+              actor: { kind: "user", id: input.actorId },
+              source: "mobile",
+              issuedAt: input.issuedAt,
+              payload: { proposalId: input.proposalId, decision: input.decision },
+              expectedVersions: [
+                { type: "ai_proposal", id: input.proposalId, version: input.expectedProposalVersion },
+                { type: "task", id: input.taskId, version: input.expectedTaskVersion },
+              ],
+            });
+            if (receipt.status === "conflict") return { ok: false, code: "proposal_conflict" };
+            return { ok: true, commandId: receipt.commandId, status: receipt.status };
+          } catch (error) {
+            if (error instanceof ApplicationCommandError) return proposalDecisionFailure(error);
+            throw error;
+          }
+        },
         executeTaskQuery: (input) => this.taskCapability.executeQuery(input),
         executeTaskCommand: (input) => this.taskCapability.executeCommand(input),
       },
