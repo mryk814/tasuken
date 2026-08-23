@@ -41,6 +41,7 @@ data class MobileTaskSummaryDto(
     val plannedStartTime: String? = null,
     val plannedDurationMinutes: Int? = null,
     val latestWorkReceipt: MobileWorkReceiptSummaryDto? = null,
+    val checklistItems: List<MobileChecklistItem> = emptyList(),
     val schedule: MobileTaskScheduleDto?,
     val updatedAt: String,
 )
@@ -70,7 +71,7 @@ class MobileTodayContractException(message: String, cause: Throwable? = null) :
 
 object MobileTodayContract {
     private const val ApiVersion = 1
-    private const val SchemaVersion = 2
+    private const val SchemaVersion = 3
     private const val MaxItems = 50
     private val taskStates = setOf("todo", "doing", "waiting", "review", "done", "cancelled")
     private val workStates = setOf(
@@ -127,6 +128,7 @@ object MobileTodayContract {
                 "Invalid Task plannedDurationMinutes.",
             )
             item.latestWorkReceipt?.let(::validateWorkReceipt)
+            validateChecklist(item.checklistItems)
             item.schedule?.let(::validateSchedule)
             requireContract(isTimestamp(item.updatedAt), "Invalid Task updatedAt timestamp.")
         }
@@ -166,6 +168,17 @@ object MobileTodayContract {
         requireContract(receipt.summary.trim().isNotEmpty() && receipt.summary.length <= 2000, "Invalid Work Receipt summary.")
     }
 
+    private fun validateChecklist(items: List<MobileChecklistItem>) {
+        requireContract(items.size <= 100, "Checklist exceeds the item limit.")
+        requireContract(items.map { it.id }.distinct().size == items.size, "Checklist item IDs must be unique.")
+        items.forEach { item ->
+            requireContract(isEntityId(item.id), "Invalid Checklist item ID.")
+            requireContract(item.title.trim().isNotEmpty() && item.title.length <= 200, "Invalid Checklist title.")
+            requireContract(item.sortOrder.isFinite(), "Invalid Checklist sortOrder.")
+            requireContract(item.completedAt == null || isTimestamp(item.completedAt), "Invalid Checklist completedAt.")
+        }
+    }
+
     private fun isEntityId(value: String): Boolean = value.trim().isNotEmpty() && value.length <= 200
 
     private fun isDate(value: String): Boolean = runCatching { LocalDate.parse(value) }.isSuccess
@@ -184,6 +197,9 @@ object MobileTodayContract {
                     id = item.id.trim(),
                     title = item.title.trim(),
                     themeId = item.themeId?.trim(),
+                    checklistItems = item.checklistItems
+                        .map { checklistItem -> checklistItem.copy(id = checklistItem.id.trim(), title = checklistItem.title.trim()) }
+                        .sortedWith(compareBy<MobileChecklistItem> { it.sortOrder }.thenBy { it.id }),
                     schedule = item.schedule?.copy(id = item.schedule.id.trim()),
                 )
             },
@@ -204,6 +220,7 @@ fun MobileTodayResponseDto.toResult(): MobileTodayResult.Available = MobileToday
             plannedStartTime = it.plannedStartTime,
             plannedDurationMinutes = it.plannedDurationMinutes,
             latestWorkReceipt = it.latestWorkReceipt?.toSummary(),
+            checklistItems = it.checklistItems,
             schedule = it.schedule?.toMobileTaskSchedule(),
         )
     },

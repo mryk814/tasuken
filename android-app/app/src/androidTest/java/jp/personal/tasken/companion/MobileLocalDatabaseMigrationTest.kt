@@ -288,7 +288,12 @@ class MobileLocalDatabaseMigrationTest {
                     "envelopeJson, serverId, state, attemptCount, createdAt, lastAttemptAt, lastError, " +
                     "taskId, dependsOnCommandId) VALUES " +
                     "('command-7', 'command-7', 'request-7', 'device-1', '2026-08-22T01:00:00Z', " +
-                    "'UpdateTask', '{\"schedule\":true}', 'server-1', 'pending', 0, " +
+                    "'UpdateTask', '{\"apiVersion\":1,\"schemaVersion\":1,\"requestId\":\"request-7\"," +
+                    "\"commandId\":\"command-7\",\"idempotencyKey\":\"command-7\"," +
+                    "\"clientDeviceId\":\"device-1\",\"issuedAt\":\"2026-08-22T01:00:00Z\"," +
+                    "\"command\":{\"name\":\"UpdateTask\",\"taskId\":\"task-7\",\"expectedVersion\":4," +
+                    "\"expectedScheduleVersion\":null,\"changes\":{\"todayDate\":\"2026-08-22\"}," +
+                    "\"base\":{\"todayDate\":null}}}', 'server-1', 'pending', 0, " +
                     "'2026-08-22T01:00:00Z', NULL, NULL, 'task-7', NULL)",
             )
             execSQL(
@@ -316,7 +321,8 @@ class MobileLocalDatabaseMigrationTest {
             }
             db.query("SELECT envelopeJson, state FROM outbox_command WHERE commandId = 'command-7'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals("{\"schedule\":true}", cursor.getString(0))
+                val envelope = cursor.getString(0)
+                assertTrue(envelope.contains("\"schemaVersion\":2"))
                 assertEquals("pending", cursor.getString(1))
             }
             db.query(
@@ -423,38 +429,115 @@ class MobileLocalDatabaseMigrationTest {
     }
 
     @Test
-    fun migrationTenToElevenPreservesTaskCacheAndAddsOfflineReceiptDetailStorage() {
+    fun migrationTenToElevenPreservesOfflineStateAndUpgradesChecklistProtocol() {
         helper.createDatabase(DatabaseName, 10).apply {
+            execSQL(
+                "INSERT INTO sync_state " +
+                    "(id, serverId, apiVersion, schemaVersion, cursor, lastSuccessfulSyncAt, lastAttemptAt, lastError) " +
+                    "VALUES (1, 'server-1', 1, 2, 'cursor-10', '2026-08-22T01:00:00Z', " +
+                    "'2026-08-22T01:00:00Z', NULL)",
+            )
+            execSQL(
+                "INSERT INTO task_cache " +
+                    "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, " +
+                    "optimisticCommandId, conflictCommandId) VALUES " +
+                    "('task-10', 7, 'Checklistを保持する', NULL, 'todo', NULL, '2026-08-22', " +
+                    "'2026-08-22T01:00:00Z', 'command-10', NULL)",
+            )
+            execSQL(
+                "INSERT INTO outbox_command " +
+                    "(commandId, idempotencyKey, requestId, clientDeviceId, issuedAt, commandName, " +
+                    "envelopeJson, serverId, state, attemptCount, createdAt, lastAttemptAt, lastError, " +
+                    "taskId, dependsOnCommandId) VALUES " +
+                    "('command-10', 'command-10', 'request-10', 'device-1', '2026-08-22T01:00:00Z', " +
+                    "'UpdateTask', '{\"apiVersion\":1,\"schemaVersion\":2,\"requestId\":\"request-10\"," +
+                    "\"commandId\":\"command-10\",\"idempotencyKey\":\"command-10\"," +
+                    "\"clientDeviceId\":\"device-1\",\"issuedAt\":\"2026-08-22T01:00:00Z\"," +
+                    "\"command\":{\"name\":\"UpdateTask\",\"taskId\":\"task-10\",\"expectedVersion\":7," +
+                    "\"expectedScheduleVersion\":null,\"changes\":{\"title\":\"端末Task\"}," +
+                    "\"base\":{\"title\":\"Checklistを保持する\"}}}', 'server-1', 'pending', 0, " +
+                    "'2026-08-22T01:00:00Z', NULL, NULL, 'task-10', NULL)",
+            )
+            execSQL(
+                "INSERT INTO task_conflict " +
+                    "(commandId, taskId, intendedAction, expectedVersion, serverVersion, serverState, " +
+                    "serverTitle, localTitle, serverTodayDate, localTodayDate, localTodayDateChanged, " +
+                    "serverThemeId, localThemeId, localThemeIdChanged, serverWorkState, serverUpdatedAt, " +
+                    "detectedAt, localScheduleStartDate, localScheduleEndDate, localScheduleRangeSemantics, " +
+                    "localScheduleChanged, localPlannedStartTime, localPlannedDurationMinutes, " +
+                    "localPlannedScheduleChanged) VALUES " +
+                    "('conflict-10', 'task-conflict-10', 'UpdateTask', 6, 7, 'todo', 'Server Task', NULL, " +
+                    "NULL, NULL, 0, NULL, NULL, 0, NULL, '2026-08-22T01:00:00Z', " +
+                    "'2026-08-22T01:01:00Z', NULL, NULL, NULL, 0, NULL, NULL, 0)",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 11, true, MIGRATION_10_11).use { db ->
+            db.query("SELECT checklistJson, optimisticCommandId FROM task_cache WHERE id = 'task-10'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("[]", cursor.getString(0))
+                assertEquals("command-10", cursor.getString(1))
+            }
+            db.query("SELECT envelopeJson, state FROM outbox_command WHERE commandId = 'command-10'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(3, MobileTaskCommandContract.decodeUpdateEnvelope(cursor.getString(0)).schemaVersion)
+                assertEquals("pending", cursor.getString(1))
+            }
+            db.query("SELECT schemaVersion, cursor FROM sync_state WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(3, cursor.getInt(0))
+                assertEquals("cursor-10", cursor.getString(1))
+            }
+            db.query(
+                "SELECT localChecklistJson, localChecklistChanged FROM task_conflict WHERE commandId = 'conflict-10'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertTrue(cursor.isNull(0))
+                assertEquals(0, cursor.getInt(1))
+            }
+        }
+    }
+
+    @Test
+    fun migrationElevenToTwelvePreservesChecklistStateAndAddsOfflineReceiptDetailStorage() {
+        helper.createDatabase(DatabaseName, 11).apply {
             execSQL(
                 "INSERT INTO task_cache " +
                     "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, " +
                     "optimisticCommandId, conflictCommandId, scheduleId, scheduleVersion, " +
                     "scheduleStartDate, scheduleEndDate, scheduleDateKind, scheduleRangeSemantics, " +
                     "scheduleConfidence, scheduleGranularity, plannedStartTime, plannedDurationMinutes, " +
-                    "latestReceiptId, latestReceiptReportedAt, latestReceiptExecutorLabel, latestReceiptSummary) " +
-                    "VALUES ('task-10', 7, '詳細を保持する', 'theme-1', 'todo', 'needs_human_review', " +
+                    "latestReceiptId, latestReceiptReportedAt, latestReceiptExecutorLabel, latestReceiptSummary, " +
+                    "checklistJson) VALUES " +
+                    "('task-11', 8, '詳細を保持する', 'theme-1', 'todo', 'needs_human_review', " +
                     "'2026-08-22', '2026-08-22T01:00:00Z', NULL, NULL, NULL, NULL, NULL, NULL, NULL, " +
-                    "NULL, NULL, NULL, NULL, NULL, 'receipt-10', '2026-08-22T01:00:00Z', 'Codex', '確認待ち')",
+                    "NULL, NULL, NULL, NULL, NULL, 'receipt-11', '2026-08-22T01:00:00Z', 'Codex', " +
+                    "'確認待ち', '[{\"id\":\"item-1\",\"title\":\"確認する\",\"done\":false," +
+                    "\"sortOrder\":0.0,\"completedAt\":null}]')",
             )
             close()
         }
 
-        helper.runMigrationsAndValidate(DatabaseName, 11, true, MIGRATION_10_11).use { db ->
-            db.query("SELECT title, latestReceiptId FROM task_cache WHERE id = 'task-10'").use { cursor ->
+        helper.runMigrationsAndValidate(DatabaseName, 12, true, MIGRATION_11_12).use { db ->
+            db.query(
+                "SELECT title, latestReceiptId, checklistJson FROM task_cache WHERE id = 'task-11'",
+            ).use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertEquals("詳細を保持する", cursor.getString(0))
-                assertEquals("receipt-10", cursor.getString(1))
+                assertEquals("receipt-11", cursor.getString(1))
+                assertTrue(cursor.getString(2).contains("item-1"))
             }
             db.execSQL(
                 "INSERT INTO work_receipt_cache " +
                     "(id, taskId, executorKind, executorLabel, startedAt, reportedAt, reportKind, " +
                     "summary, payloadJson, truncated, serverId, serverRevision, fetchedAt) VALUES " +
-                    "('receipt-10', 'task-10', 'ai_agent', 'Codex', NULL, '2026-08-22T01:00:00Z', " +
+                    "('receipt-11', 'task-11', 'ai_agent', 'Codex', NULL, '2026-08-22T01:00:00Z', " +
                     "'report', '確認待ち', '{}', 0, 'desktop-home', 42, '2026-08-22T01:01:00Z')",
             )
-            db.query("SELECT taskId, serverId FROM work_receipt_cache WHERE id = 'receipt-10'").use { cursor ->
+            db.query("SELECT taskId, serverId FROM work_receipt_cache WHERE id = 'receipt-11'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals("task-10", cursor.getString(0))
+                assertEquals("task-11", cursor.getString(0))
                 assertEquals("desktop-home", cursor.getString(1))
             }
         }

@@ -17,6 +17,19 @@ import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+
+private val mobileChecklistJson = Json {
+    ignoreUnknownKeys = false
+    encodeDefaults = true
+    explicitNulls = true
+}
+
+internal fun encodeMobileChecklist(items: List<MobileChecklistItem>): String = mobileChecklistJson.encodeToString(items)
+
+internal fun decodeMobileChecklist(value: String): List<MobileChecklistItem> = mobileChecklistJson.decodeFromString(value)
 
 @Entity(tableName = "task_cache")
 data class TaskCacheEntity(
@@ -44,6 +57,7 @@ data class TaskCacheEntity(
     val latestReceiptReportedAt: String? = null,
     val latestReceiptExecutorLabel: String? = null,
     val latestReceiptSummary: String? = null,
+    val checklistJson: String = "[]",
 )
 
 @Entity(
@@ -148,6 +162,8 @@ data class TaskConflictEntity(
     val serverThemeId: String?,
     val localThemeId: String? = null,
     val localThemeIdChanged: Boolean = false,
+    val localChecklistJson: String? = null,
+    val localChecklistChanged: Boolean = false,
     val serverWorkState: String?,
     val serverUpdatedAt: String,
     val detectedAt: String,
@@ -349,6 +365,12 @@ abstract class MobileLocalDao {
     )
     abstract suspend fun deleteUnsent(commandId: String): Int
 
+    @Query(
+        "UPDATE outbox_command SET envelopeJson = :envelopeJson " +
+            "WHERE commandId = :commandId AND state = 'pending' AND attemptCount = 0",
+    )
+    abstract suspend fun replaceUnsentEnvelope(commandId: String, envelopeJson: String): Int
+
     @Transaction
     open suspend fun enqueueCreate(task: TaskCacheEntity, command: OutboxCommandEntity) {
         require(task.optimisticCommandId == command.commandId)
@@ -426,6 +448,20 @@ abstract class MobileLocalDao {
         task: TaskCacheEntity,
     ) {
         require(deleteUnsent(commandId) == 1)
+        upsertTask(task)
+    }
+
+    @Transaction
+    open suspend fun replaceUnsentChecklistUpdate(
+        commandId: String,
+        task: TaskCacheEntity,
+        envelopeJson: String,
+    ) {
+        val command = requireNotNull(outbox(commandId))
+        require(command.taskId == task.id && command.commandName == "UpdateTask")
+        require(task.optimisticCommandId == commandId && task.conflictCommandId == null)
+        require(syncState()?.serverId == command.serverId)
+        require(replaceUnsentEnvelope(commandId, envelopeJson) == 1)
         upsertTask(task)
     }
 
@@ -662,6 +698,48 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
+    open suspend fun rejectScheduleUpdateAndRollback(
+        commandId: String,
+        taskId: String,
+        baseSchedule: MobileTaskScheduleDraft?,
+        reason: String,
+    ) {
+        val command = requireNotNull(outbox(commandId)) { "Outbox command is missing" }
+        require(
+            command.taskId == taskId &&
+                command.commandName == "UpdateTask" &&
+                command.state == OutboxState.Sending,
+        )
+        require(syncState()?.serverId == command.serverId)
+        val current = requireNotNull(task(taskId)) { "Optimistic task is missing" }
+        require(current.optimisticCommandId == commandId)
+        upsertTask(
+            if (baseSchedule == null) {
+                current.copy(
+                    scheduleId = null,
+                    scheduleVersion = null,
+                    scheduleStartDate = null,
+                    scheduleEndDate = null,
+                    scheduleDateKind = null,
+                    scheduleRangeSemantics = null,
+                    scheduleConfidence = null,
+                    scheduleGranularity = null,
+                    optimisticCommandId = null,
+                )
+            } else {
+                current.copy(
+                    scheduleStartDate = baseSchedule.startDate,
+                    scheduleEndDate = baseSchedule.endDate,
+                    scheduleDateKind = deriveScheduleDateKind(baseSchedule.startDate, baseSchedule.endDate),
+                    scheduleRangeSemantics = baseSchedule.rangeSemantics,
+                    optimisticCommandId = null,
+                )
+            },
+        )
+        markRejected(commandId, reason)
+    }
+
+    @Transaction
     open suspend fun rejectDeleteAndRestore(commandId: String, taskId: String, reason: String) {
         val command = requireNotNull(outbox(commandId)) { "Outbox command is missing" }
         require(
@@ -673,6 +751,26 @@ abstract class MobileLocalDao {
         val current = requireNotNull(task(taskId)) { "Task cache is missing" }
         require(current.optimisticCommandId == commandId)
         upsertTask(current.copy(optimisticCommandId = null))
+        markRejected(commandId, reason)
+    }
+
+    @Transaction
+    open suspend fun rejectChecklistUpdateAndRollback(
+        commandId: String,
+        taskId: String,
+        baseChecklistJson: String,
+        reason: String,
+    ) {
+        val command = requireNotNull(outbox(commandId)) { "Outbox command is missing" }
+        require(
+            command.taskId == taskId &&
+                command.commandName == "UpdateTask" &&
+                command.state == OutboxState.Sending,
+        )
+        require(syncState()?.serverId == command.serverId)
+        val current = requireNotNull(task(taskId)) { "Optimistic task is missing" }
+        require(current.optimisticCommandId == commandId)
+        upsertTask(current.copy(checklistJson = baseChecklistJson, optimisticCommandId = null))
         markRejected(commandId, reason)
     }
 
@@ -852,7 +950,7 @@ abstract class MobileLocalDao {
         TaskConflictEntity::class,
         WorkReceiptCacheEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -877,6 +975,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 MIGRATION_8_9,
                 MIGRATION_9_10,
                 MIGRATION_10_11,
+                MIGRATION_11_12,
             ).build().also { instance = it }
         }
     }
@@ -958,6 +1057,12 @@ internal val MIGRATION_7_8 = object : Migration(7, 8) {
         db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleEndDate TEXT")
         db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleRangeSemantics TEXT")
         db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleChanged INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "UPDATE outbox_command SET envelopeJson = " +
+                "REPLACE(envelopeJson, '\"schemaVersion\":1', '\"schemaVersion\":2') " +
+                "WHERE envelopeJson LIKE '%\"schemaVersion\":1%'",
+        )
+        db.execSQL("UPDATE sync_state SET schemaVersion = 2 WHERE apiVersion = 1 AND schemaVersion = 1")
     }
 }
 
@@ -981,6 +1086,20 @@ internal val MIGRATION_9_10 = object : Migration(9, 10) {
 }
 
 internal val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN checklistJson TEXT NOT NULL DEFAULT '[]'")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localChecklistJson TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localChecklistChanged INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "UPDATE outbox_command SET envelopeJson = " +
+                "REPLACE(envelopeJson, '\"schemaVersion\":2', '\"schemaVersion\":3') " +
+                "WHERE envelopeJson LIKE '%\"schemaVersion\":2%'",
+        )
+        db.execSQL("UPDATE sync_state SET schemaVersion = 3 WHERE apiVersion = 1 AND schemaVersion = 2")
+    }
+}
+
+internal val MIGRATION_11_12 = object : Migration(11, 12) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS work_receipt_cache (" +
@@ -1021,6 +1140,7 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     } else {
         null
     },
+    checklistItems = decodeMobileChecklist(checklistJson),
     schedule = toMobileTaskSchedule(),
     updatedAt = updatedAt,
     pending = optimisticCommandId != null,
@@ -1041,6 +1161,13 @@ fun TaskCacheWithConflict.toMobileTask(activeServerId: String? = null): MobileTa
             serverThemeId = it.serverThemeId,
             localThemeId = it.localThemeId,
             localThemeIdChanged = it.localThemeIdChanged,
+            serverChecklistItems = decodeMobileChecklist(task.checklistJson),
+            localChecklistItems = if (it.localChecklistChanged) {
+                decodeMobileChecklist(requireNotNull(it.localChecklistJson))
+            } else {
+                emptyList()
+            },
+            localChecklistItemsChanged = it.localChecklistChanged,
             serverSchedule = task.toMobileTaskSchedule(),
             localSchedule = if (it.localScheduleChanged) {
                 MobileTaskScheduleDraft(
@@ -1065,6 +1192,7 @@ fun TaskCacheWithConflict.toMobileTask(activeServerId: String? = null): MobileTa
             it.attemptCount == 0 &&
             it.commandName in setOf("CreateTask", "CompleteTask", "ReopenTask")
     } == true,
+    canEditPendingChecklist = optimisticCommand?.isUnsentChecklistUpdate() == true,
     rejectedThemeUpdate = relatedCommands
         .filter { it.serverId == activeServerId }
         .mapNotNull(OutboxCommandEntity::toRejectedThemeUpdateOrNull)

@@ -261,6 +261,15 @@ function projectTask(
       plannedDurationMinutes: task.planned_duration_minutes ?? null,
       latestWorkReceipt: projectLatestWorkReceipt(task.id, receipts),
     } : {}),
+    checklistItems: [...(task.checklist_items || [])]
+      .sort((left, right) => left.sort_order - right.sort_order || left.id.localeCompare(right.id))
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        done: item.done,
+        sortOrder: item.sort_order,
+        completedAt: item.completed_at ?? null,
+      })),
     schedule: task.schedule
       ? {
           id: task.schedule.id,
@@ -304,11 +313,29 @@ function canonicalSchedule(schedule: MobileScheduleEdit) {
 type MobileTaskFieldPatch =
   | { title: string }
   | { todayDate: string | null }
-  | { themeId: string | null };
+  | { themeId: string | null }
+  | { checklistItems: Array<{
+      id: string;
+      title: string;
+      done: boolean;
+      sortOrder: number;
+      completedAt: string | null;
+    }> };
 
 function taskUpdatePatch(patch: MobileTaskFieldPatch) {
   if ("todayDate" in patch) return { today_date: patch.todayDate };
   if ("themeId" in patch) return { project_id: patch.themeId };
+  if ("checklistItems" in patch) {
+    return {
+      checklist_items: patch.checklistItems.map((item) => ({
+        id: item.id,
+        title: item.title,
+        done: item.done,
+        sort_order: item.sortOrder,
+        completed_at: item.completedAt,
+      })),
+    };
+  }
   return patch;
 }
 
@@ -765,6 +792,8 @@ export class MobileGatewayAdapter {
       currentTask: ReturnType<typeof projectTask>;
       intendedAction: "UpdateTask" | "CompleteTask" | "ReopenTask" | "DeleteTask";
       expectedVersion: number;
+      conflictField: "task" | "schedule";
+      expectedScheduleVersion: number | null;
     },
   ): MobileGatewayResponse {
     const body = mobileErrorResponseSchema.parse({
@@ -778,7 +807,12 @@ export class MobileGatewayAdapter {
   private taskError(
     meta: MobileResponseMeta,
     error: TaskError,
-    command?: { name: string; expectedVersion?: number },
+    command?: {
+      name: string;
+      expectedVersion?: number;
+      expectedScheduleVersion?: number | null;
+      changes?: Record<string, unknown>;
+    },
   ) {
     if (
       error.code === "INVALID_COMMAND"
@@ -800,10 +834,14 @@ export class MobileGatewayAdapter {
           )
           || command.expectedVersion === undefined
         ) throw new Error("Version conflict is missing its canonical Task context");
+        const scheduleConflict = command.name === "UpdateTask"
+          && Boolean(command.changes && Object.prototype.hasOwnProperty.call(command.changes, "schedule"));
         return this.error(meta, "version_conflict", false, {
           currentTask: projectTask(currentTask.data, true),
           intendedAction: command.name,
           expectedVersion: command.expectedVersion,
+          conflictField: scheduleConflict ? "schedule" : "task",
+          expectedScheduleVersion: scheduleConflict ? command.expectedScheduleVersion ?? null : null,
         });
       }
       throw new Error("Unclassified Task conflict");

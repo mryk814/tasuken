@@ -227,6 +227,28 @@ export const mobileWorkReceiptResponseSchema = z.object({
   }).strict(),
 }).strict();
 
+export const mobileChecklistItemSchema = z.object({
+  id: entityIdSchema,
+  title: z.string().trim().min(1).max(200),
+  done: z.boolean(),
+  sortOrder: z.number().finite(),
+  completedAt: isoTimestampSchema.nullable(),
+}).strict();
+
+const mobileChecklistSchema = z.array(mobileChecklistItemSchema).max(100).superRefine((items, context) => {
+  const seen = new Set<string>();
+  items.forEach((item, index) => {
+    if (seen.has(item.id)) {
+      context.addIssue({
+        code: "custom",
+        path: [index, "id"],
+        message: "Checklist item IDは重複できません。",
+      });
+    }
+    seen.add(item.id);
+  });
+});
+
 export const mobileTaskSummarySchema = z.object({
   id: taskIdSchema,
   version: entityVersionSchema,
@@ -238,6 +260,7 @@ export const mobileTaskSummarySchema = z.object({
   plannedStartTime: mobilePlannedStartTimeSchema.optional(),
   plannedDurationMinutes: mobilePlannedDurationMinutesSchema.optional(),
   latestWorkReceipt: mobileWorkReceiptSummarySchema.nullable().optional(),
+  checklistItems: mobileChecklistSchema.default([]),
   schedule: mobileTaskScheduleSchema.nullable(),
   updatedAt: isoTimestampSchema,
 }).strict();
@@ -246,7 +269,45 @@ export const mobileVersionConflictSchema = z.object({
   currentTask: mobileTaskSummarySchema,
   intendedAction: z.enum(["UpdateTask", "CompleteTask", "ReopenTask", "DeleteTask"]),
   expectedVersion: entityVersionSchema,
-}).strict();
+  conflictField: z.enum(["task", "schedule"]),
+  expectedScheduleVersion: entityVersionSchema.nullable(),
+}).strict().superRefine((value, context) => {
+  if (value.conflictField === "task") {
+    if (value.expectedScheduleVersion !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["expectedScheduleVersion"],
+        message: "Task競合はSchedule versionを持てません。",
+      });
+    }
+    if (value.currentTask.version <= value.expectedVersion) {
+      context.addIssue({
+        code: "custom",
+        path: ["currentTask", "version"],
+        message: "Task競合のcurrentTaskはexpectedVersionより新しい必要があります。",
+      });
+    }
+    return;
+  }
+  if (value.intendedAction !== "UpdateTask") {
+    context.addIssue({
+      code: "custom",
+      path: ["intendedAction"],
+      message: "Schedule競合はUpdateTaskでだけ返せます。",
+    });
+  }
+  if (
+    value.expectedScheduleVersion !== null
+    && value.currentTask.schedule !== null
+    && value.currentTask.schedule.version === value.expectedScheduleVersion
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["currentTask", "schedule", "version"],
+      message: "Schedule競合のcurrent ScheduleはexpectedScheduleVersionと異なる必要があります。",
+    });
+  }
+});
 
 export const mobileErrorSchema = z.object({
   code: mobileErrorCodeSchema,
@@ -446,6 +507,7 @@ const mobileTaskUpdatePatchSchema = z.union([
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
   z.object({ schedule: mobileScheduleEditSchema }).strict(),
+  z.object({ checklistItems: mobileChecklistSchema }).strict(),
 ]);
 
 const mobileTaskUpdateBaseSchema = z.union([
@@ -453,6 +515,7 @@ const mobileTaskUpdateBaseSchema = z.union([
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
   z.object({ schedule: mobileScheduleBaseSchema.nullable() }).strict(),
+  z.object({ checklistItems: mobileChecklistSchema }).strict(),
 ]);
 
 const mobileTaskCommandSchema = z.discriminatedUnion("name", [

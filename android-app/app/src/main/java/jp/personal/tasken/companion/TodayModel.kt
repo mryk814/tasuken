@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 
 data class MobileTask(
     val id: String,
@@ -30,11 +31,22 @@ data class MobileTask(
     val plannedStartTime: String? = null,
     val plannedDurationMinutes: Int? = null,
     val latestWorkReceipt: MobileWorkReceiptSummary? = null,
+    val checklistItems: List<MobileChecklistItem> = emptyList(),
     val schedule: MobileTaskSchedule? = null,
     val pending: Boolean = false,
     val conflict: MobileTaskConflict? = null,
     val canChangePendingState: Boolean = false,
+    val canEditPendingChecklist: Boolean = false,
     val rejectedThemeUpdate: MobileRejectedThemeUpdate? = null,
+)
+
+@Serializable
+data class MobileChecklistItem(
+    val id: String,
+    val title: String,
+    val done: Boolean,
+    val sortOrder: Double,
+    val completedAt: String? = null,
 )
 
 data class MobileTaskSchedule(
@@ -173,6 +185,9 @@ data class MobileTaskConflict(
     val serverThemeId: String? = null,
     val localThemeId: String? = null,
     val localThemeIdChanged: Boolean = false,
+    val serverChecklistItems: List<MobileChecklistItem> = emptyList(),
+    val localChecklistItems: List<MobileChecklistItem> = emptyList(),
+    val localChecklistItemsChanged: Boolean = false,
     val serverSchedule: MobileTaskSchedule? = null,
     val localSchedule: MobileTaskScheduleDraft? = null,
     val localScheduleChanged: Boolean = false,
@@ -233,6 +248,7 @@ sealed interface TaskActionUiState {
 class TodayViewModel(
     private val repository: MobileTaskRepository = DisconnectedMobileTaskRepository(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val refreshExternalProjection: () -> Unit = {},
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow<TodayUiState>(TodayUiState.Loading)
     val uiState: StateFlow<TodayUiState> = mutableUiState.asStateFlow()
@@ -288,6 +304,7 @@ class TodayViewModel(
     internal suspend fun loadNow() {
         mutableUiState.value = TodayUiState.Loading
         val result = withContext(ioDispatcher) { repository.loadToday() }
+        refreshExternalProjection()
         val offlineRepository = repository as? MobileOfflineTaskRepository
         if (offlineRepository != null && result !is MobileTodayResult.PairingRequired) {
             val cachedTasks = withContext(ioDispatcher) { offlineRepository.observeCachedTasks().first() }
@@ -367,7 +384,6 @@ class TodayViewModel(
         mutableCaptureState.value = CaptureUiState.Saving
         viewModelScope.launch(ioDispatcher) { createTaskNow(draft, completionBehavior) }
     }
-
     internal suspend fun createTaskNow(
         draft: MobileCaptureDraft,
         completionBehavior: CaptureCompletionBehavior = CaptureCompletionBehavior.Close,
@@ -532,6 +548,59 @@ class TodayViewModel(
         viewModelScope.launch { updateTaskThemeNow(task, themeId) }
     }
 
+    fun updateTaskChecklist(task: MobileTask, items: List<MobileChecklistItem>) {
+        viewModelScope.launch { updateTaskChecklistNow(task, items) }
+    }
+
+    internal suspend fun updateTaskChecklistNow(task: MobileTask, items: List<MobileChecklistItem>) {
+        val normalized = try {
+            normalizeChecklist(items)
+        } catch (error: Exception) {
+            mutableTaskActionState.value = TaskActionUiState.Error(
+                task.id,
+                error.message ?: "Checklistを確認してください。",
+            )
+            return
+        }
+        if (normalized == normalizeChecklist(task.checklistItems)) return
+        if ((task.pending && !task.canEditPendingChecklist) || task.conflict != null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(
+                task.id,
+                if (task.conflict != null) "先に同期競合を解決してください。" else "このTaskの同期完了を待ってください。",
+            )
+            return
+        }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "この環境ではChecklistを編集できません。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            withContext(ioDispatcher) { offlineRepository.enqueueUpdateTaskChecklist(task.id, normalized) }
+            TaskActionUiState.Queued(task.id)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "Checklistを変更できませんでした。")
+        }
+    }
+
+    private fun normalizeChecklist(items: List<MobileChecklistItem>): List<MobileChecklistItem> {
+        require(items.size <= 100) { "Checklistは100件以内にしてください。" }
+        require(items.map { it.id.trim() }.distinct().size == items.size) { "Checklist itemが重複しています。" }
+        return items.mapIndexed { index, item ->
+            val id = item.id.trim()
+            val title = item.title.trim()
+            require(id.isNotEmpty() && id.length <= 200) { "Checklist itemを作り直してください。" }
+            require(title.isNotEmpty() && title.length <= 200) { "Checklistは1〜200文字で入力してください。" }
+            item.copy(
+                id = id,
+                title = title,
+                sortOrder = index.toDouble(),
+                completedAt = if (item.done) item.completedAt else null,
+            )
+        }
+    }
+
     fun discardRejectedThemeUpdate(task: MobileTask) {
         viewModelScope.launch { discardRejectedThemeUpdateNow(task) }
     }
@@ -651,11 +720,15 @@ class TodayViewModel(
 
 class TodayViewModelFactory(
     private val repository: MobileTaskRepository,
+    private val refreshExternalProjection: () -> Unit = {},
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(TodayViewModel::class.java))
-        return TodayViewModel(repository) as T
+        return TodayViewModel(
+            repository = repository,
+            refreshExternalProjection = refreshExternalProjection,
+        ) as T
     }
 }
 
@@ -865,6 +938,8 @@ interface MobileOfflineTaskRepository {
         error("この環境ではTaskの予定を変更できません。")
     suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
         error("この環境ではTaskのThemeを変更できません。")
+    suspend fun enqueueUpdateTaskChecklist(taskId: String, items: List<MobileChecklistItem>): String =
+        error("この環境ではChecklistを変更できません。")
     suspend fun discardRejectedThemeUpdate(taskId: String, commandId: String) {
         error("この環境ではTheme変更の却下情報を破棄できません。")
     }

@@ -24,6 +24,26 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun loadRefreshesExternalProjectionAfterRepositorySettles() {
+        val events = mutableListOf<String>()
+        val repository = object : MobileTaskRepository {
+            override fun loadToday(): MobileTodayResult {
+                events += "repository"
+                return MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
+            }
+        }
+        val viewModel = TodayViewModel(
+            repository = repository,
+            ioDispatcher = Dispatchers.Unconfined,
+            refreshExternalProjection = { events += "projection" },
+        )
+
+        runBlocking { viewModel.loadNow() }
+
+        assertEquals(listOf("repository", "projection"), events)
+    }
+
+    @Test
     fun loadReachesErrorStateWithRecovery() {
         val viewModel = TodayViewModel(object : MobileTaskRepository {
             override fun loadToday() = MobileTodayResult.Unavailable("接続失敗", "Desktopを確認してください。")

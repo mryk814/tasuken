@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -34,9 +35,9 @@ class WorkReceiptDetailUiTest {
         composeRule.onNodeWithTag("work-receipt-detail").assertIsDisplayed()
         composeRule.onNodeWithText("Offline cache").assertIsDisplayed()
         composeRule.onNodeWithText("完了").assertIsDisplayed()
-        composeRule.onNodeWithText("Gateway contract").assertIsDisplayed()
+        composeRule.onNodeWithText("Gateway contract").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("確認").assertIsDisplayed()
-        composeRule.onNodeWithText("PR #472").assertIsDisplayed()
+        composeRule.onNodeWithText("PR #472").performScrollTo().assertIsDisplayed()
     }
 
     @Test

@@ -4,6 +4,7 @@ import java.time.LocalDate
 import java.time.OffsetDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -145,6 +146,8 @@ data class MobileVersionConflictDto(
     val currentTask: MobileTaskSummaryDto,
     val intendedAction: String,
     val expectedVersion: Int,
+    val conflictField: String,
+    val expectedScheduleVersion: Int? = null,
 )
 
 object MobileTaskCommandContract {
@@ -183,7 +186,7 @@ object MobileTaskCommandContract {
     fun decodeReceipt(payload: String): MobileTaskCommandResponseDto {
         val response = json.decodeFromString<MobileTaskCommandResponseDto>(payload)
         require(response.ok)
-        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 2)
+        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 3)
         require(response.data.status in setOf("applied", "no_change"))
         require(response.data.commandId.isNotBlank())
         validateTaskSummary(response.data.task)
@@ -198,7 +201,7 @@ object MobileTaskCommandContract {
     fun decodeError(payload: String): MobileTaskCommandErrorResponseDto {
         val response = json.decodeFromString<MobileTaskCommandErrorResponseDto>(payload)
         require(!response.ok)
-        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 2)
+        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 3)
         require(response.error.code.isNotBlank() && response.error.message.isNotBlank())
         if (response.error.code != "version_conflict") {
             require(response.error.conflict == null)
@@ -208,7 +211,19 @@ object MobileTaskCommandContract {
         val conflict = requireNotNull(response.error.conflict)
         require(conflict.intendedAction in setOf("UpdateTask", "CompleteTask", "ReopenTask", "DeleteTask"))
         require(conflict.expectedVersion > 0)
-        require(conflict.currentTask.version > conflict.expectedVersion)
+        require(conflict.conflictField in setOf("task", "schedule"))
+        if (conflict.conflictField == "task") {
+            require(conflict.expectedScheduleVersion == null)
+            require(conflict.currentTask.version > conflict.expectedVersion)
+        } else {
+            require(conflict.intendedAction == "UpdateTask")
+            require(conflict.expectedScheduleVersion == null || conflict.expectedScheduleVersion > 0)
+            require(
+                conflict.expectedScheduleVersion == null ||
+                    conflict.currentTask.schedule == null ||
+                    conflict.currentTask.schedule.version != conflict.expectedScheduleVersion,
+            )
+        }
         validateTaskSummary(conflict.currentTask)
         return response.copy(
             error = response.error.copy(
@@ -220,7 +235,7 @@ object MobileTaskCommandContract {
     }
 
     private fun validateCreateEnvelope(envelope: MobileCreateTaskEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 2)
+        require(envelope.apiVersion == 1 && envelope.schemaVersion == 3)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name == "CreateTask")
         require(envelope.command.task.id.isNotBlank())
@@ -251,7 +266,7 @@ object MobileTaskCommandContract {
     }
 
     private fun validateStateEnvelope(envelope: MobileTaskStateEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 2)
+        require(envelope.apiVersion == 1 && envelope.schemaVersion == 3)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name in setOf("CompleteTask", "ReopenTask", "DeleteTask"))
         require(envelope.command.taskId.isNotBlank())
@@ -260,7 +275,7 @@ object MobileTaskCommandContract {
     }
 
     private fun validateUpdateEnvelope(envelope: MobileTaskUpdateEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 2)
+        require(envelope.apiVersion == 1 && envelope.schemaVersion == 3)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name == "UpdateTask")
         require(envelope.command.taskId.isNotBlank())
@@ -309,7 +324,32 @@ object MobileTaskCommandContract {
                 )
             }
             "schedule" -> validateSchedulePatch(patch[field], allowNullSchedule)
+            "checklistItems" -> validateChecklistPatch(patch[field])
             else -> error("Unsupported Task patch field: $field")
+        }
+    }
+
+    private fun validateChecklistPatch(value: Any?) {
+        require(value is JsonArray && value.size <= 100)
+        val ids = mutableSetOf<String>()
+        value.forEach { element ->
+            require(element is JsonObject)
+            require(element.keys == setOf("id", "title", "done", "sortOrder", "completedAt"))
+            val id = element.getValue("id")
+            val title = element.getValue("title")
+            val done = element.getValue("done")
+            val sortOrder = element.getValue("sortOrder")
+            val completedAt = element.getValue("completedAt")
+            require(id is JsonPrimitive && id.isString && id.content.isNotBlank() && id.content.length <= 200)
+            require(ids.add(id.content))
+            require(title is JsonPrimitive && title.isString && title.content.isNotBlank() && title.content.length <= 200)
+            require(done is JsonPrimitive && !done.isString && done.content in setOf("true", "false"))
+            require(sortOrder is JsonPrimitive && !sortOrder.isString && sortOrder.content.toDoubleOrNull()?.isFinite() == true)
+            require(
+                completedAt == JsonNull ||
+                    (completedAt is JsonPrimitive && completedAt.isString &&
+                        runCatching { OffsetDateTime.parse(completedAt.content) }.isSuccess),
+            )
         }
     }
 
@@ -359,6 +399,14 @@ object MobileTaskCommandContract {
             require(receipt.executorLabel.isNotBlank() && receipt.executorLabel.length <= 200)
             require(receipt.summary.isNotBlank() && receipt.summary.length <= 2000)
         }
+        require(task.checklistItems.size <= 100)
+        require(task.checklistItems.map { it.id }.distinct().size == task.checklistItems.size)
+        task.checklistItems.forEach { item ->
+            require(item.id.isNotBlank() && item.id.length <= 200)
+            require(item.title.isNotBlank() && item.title.length <= 200)
+            require(item.sortOrder.isFinite())
+            require(item.completedAt == null || runCatching { OffsetDateTime.parse(item.completedAt) }.isSuccess)
+        }
         task.schedule?.let { schedule ->
             require(schedule.id.isNotBlank() && schedule.id.length <= 200)
             require(schedule.version > 0)
@@ -388,6 +436,9 @@ object MobileTaskCommandContract {
         id = task.id.trim(),
         title = task.title.trim(),
         themeId = normalizeThemeId(task.themeId),
+        checklistItems = task.checklistItems
+            .map { it.copy(id = it.id.trim(), title = it.title.trim()) }
+            .sortedWith(compareBy<MobileChecklistItem> { it.sortOrder }.thenBy { it.id }),
         schedule = task.schedule?.copy(id = task.schedule.id.trim()),
     )
 
