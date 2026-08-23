@@ -9,6 +9,22 @@ import org.junit.Test
 
 class MobileCaptureDraftTest {
     @Test
+    fun themeSelectionNormalizesAndCanReturnToNoTheme() {
+        val draft = MobileCaptureDraft.fresh(
+            projectId = null,
+            now = { Instant.parse("2026-08-23T00:00:00Z") },
+            newId = { "draft-id" },
+        )
+
+        val selected = draft.withThemeId("  theme-research  ")
+        val cleared = selected.withThemeId("   ")
+
+        assertEquals("theme-research", selected.projectId)
+        assertNull(cleared.projectId)
+        assertEquals("draft-id", cleared.draftId)
+    }
+
+    @Test
     fun finalSpeechReplacesTextAndKeepsProvenanceWithoutAudio() {
         val draft = MobileCaptureDraft.fresh(
             text = "途中の文字",

@@ -54,18 +54,24 @@ class MobileOutboxDatabaseTest {
 
     @Test
     fun offlineCreatePersistsOptimisticTaskAndImmutableEnvelopeTogether() = runBlocking {
-        val taskId = outbox.enqueueCreate("  外出先で記録  ", LocalDate.parse("2026-08-22"))
+        val taskId = outbox.enqueueCreate(
+            "  外出先で記録  ",
+            LocalDate.parse("2026-08-22"),
+            projectId = "theme-research",
+        )
         val task = requireNotNull(dao.task(taskId))
         val command = requireNotNull(dao.outbox(requireNotNull(task.optimisticCommandId)))
         val envelope = MobileTaskCommandContract.decodeCreateEnvelope(command.envelopeJson)
 
         assertEquals("外出先で記録", task.title)
+        assertEquals("theme-research", task.themeId)
         assertEquals("2026-08-22", task.todayDate)
         assertEquals(command.commandId, command.idempotencyKey)
         assertEquals(command.commandId, envelope.commandId)
         assertEquals(command.requestId, envelope.requestId)
         assertEquals(command.issuedAt, envelope.issuedAt)
         assertEquals(taskId, envelope.command.task.id)
+        assertEquals("theme-research", envelope.command.task.projectId)
         assertEquals(OutboxState.Pending, command.state)
     }
 

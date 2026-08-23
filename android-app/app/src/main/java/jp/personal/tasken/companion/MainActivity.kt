@@ -486,7 +486,12 @@ private fun TodayApp(
             draft = paneState.captureDraft,
             state = captureState,
             speechState = speechState,
+            themes = themes,
+            themeCatalogState = themeCatalogState,
             onDraftChanged = { paneState.captureDraft = paneState.captureDraft.withText(it) },
+            onThemeSelected = { themeId ->
+                paneState.captureDraft = paneState.captureDraft.withThemeId(themeId)
+            },
             onSubmit = { todayViewModel.createTask(paneState.captureDraft) },
             onStartVoice = requestSpeechRecognition,
             onStopVoice = speechRecognizer::stop,
@@ -504,11 +509,14 @@ private fun TodayApp(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CaptureTaskSheet(
+internal fun CaptureTaskSheet(
     draft: MobileCaptureDraft,
     state: CaptureUiState,
     speechState: ShortSpeechUiState,
+    themes: List<MobileTheme>,
+    themeCatalogState: MobileThemeCatalogState,
     onDraftChanged: (String) -> Unit,
+    onThemeSelected: (String?) -> Unit,
     onSubmit: () -> Unit,
     onStartVoice: () -> Unit,
     onStopVoice: () -> Unit,
@@ -516,7 +524,10 @@ private fun CaptureTaskSheet(
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Taskを追加", fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -540,6 +551,14 @@ private fun CaptureTaskSheet(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { if (draft.text.isNotBlank()) onSubmit() }),
                 modifier = Modifier.fillMaxWidth(),
+            )
+            CaptureThemePicker(
+                draftId = draft.draftId,
+                themeId = draft.projectId,
+                themes = themes,
+                catalogState = themeCatalogState,
+                enabled = state !is CaptureUiState.Saving,
+                onThemeSelected = onThemeSelected,
             )
             val speechBusy = speechState is ShortSpeechUiState.Listening ||
                 speechState is ShortSpeechUiState.Partial ||
@@ -571,6 +590,95 @@ private fun CaptureTaskSheet(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun CaptureThemePicker(
+    draftId: String,
+    themeId: String?,
+    themes: List<MobileTheme>,
+    catalogState: MobileThemeCatalogState,
+    enabled: Boolean,
+    onThemeSelected: (String?) -> Unit,
+) {
+    var expanded by rememberSaveable(draftId) { mutableStateOf(false) }
+    val selectedTheme = themes.firstOrNull { it.id == themeId }
+    val catalogAllowsSelection = catalogState is MobileThemeCatalogState.Available ||
+        catalogState is MobileThemeCatalogState.Stale
+    val pickerEnabled = enabled && catalogAllowsSelection && (themes.isNotEmpty() || themeId != null)
+    val displayedValue = selectedTheme?.title ?: when {
+        themeId != null -> "選択済みTheme（一覧外）"
+        catalogState is MobileThemeCatalogState.Loading -> "読み込み中"
+        catalogState is MobileThemeCatalogState.Unsupported -> "未対応"
+        catalogState is MobileThemeCatalogState.Error -> "取得できません"
+        else -> "Themeなし"
+    }
+    val displayedState = selectedTheme?.let { "選択中のTheme: ${it.title}" }
+        ?: if (themeId != null) "選択中のThemeは一覧外" else "Themeなし"
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { if (pickerEnabled) expanded = !expanded },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        OutlinedTextField(
+            value = displayedValue,
+            onValueChange = {},
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = pickerEnabled)
+                .fillMaxWidth()
+                .testTag("capture-theme-picker")
+                .semantics { this.stateDescription = displayedState },
+            label = { Text("Theme（任意）") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            readOnly = true,
+            singleLine = true,
+            enabled = pickerEnabled,
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            val noThemeSelected = themeId == null
+            DropdownMenuItem(
+                text = { Text("Themeなし") },
+                trailingIcon = { if (noThemeSelected) Text("選択中") },
+                onClick = {
+                    expanded = false
+                    if (!noThemeSelected) onThemeSelected(null)
+                },
+                modifier = Modifier
+                    .testTag("capture-theme-none-option")
+                    .semantics { selected = noThemeSelected },
+            )
+            themes.forEach { theme ->
+                val isSelected = theme.id == themeId
+                DropdownMenuItem(
+                    text = { Text(theme.title) },
+                    trailingIcon = { if (isSelected) Text("選択中") },
+                    onClick = {
+                        expanded = false
+                        if (!isSelected) onThemeSelected(theme.id)
+                    },
+                    modifier = Modifier
+                        .testTag("capture-theme-option-${theme.id}")
+                        .semantics { selected = isSelected },
+                )
+            }
+        }
+    }
+
+    val helperText = when (catalogState) {
+        is MobileThemeCatalogState.Loading -> null
+        is MobileThemeCatalogState.Available -> if (themes.isEmpty()) "利用できるThemeがありません。" else null
+        is MobileThemeCatalogState.Stale -> "オフラインのTheme一覧を使用中です。"
+        is MobileThemeCatalogState.Unsupported -> "Desktopを更新するとThemeを選べます。"
+        is MobileThemeCatalogState.Error -> "Theme一覧を取得できません。接続後に再試行してください。"
+    }
+    if (helperText != null) {
+        Text(helperText, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

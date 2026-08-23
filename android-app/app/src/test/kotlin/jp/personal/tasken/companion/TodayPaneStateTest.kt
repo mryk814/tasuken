@@ -15,6 +15,7 @@ class TodayPaneStateTest {
             now = { java.time.Instant.parse("2026-08-23T00:00:00Z") },
             newId = { "draft-voice" },
         ).copy(
+            projectId = "theme-research",
             speech = MobileSpeechProvenance(
                 recognitionMode = MobileSpeechRecognitionMode.OnDevice,
                 language = "ja-JP",
@@ -39,6 +40,7 @@ class TodayPaneStateTest {
         assertEquals(32, restored.listScrollOffset)
         assertEquals("折りたたみ後も残す", restored.captureDraft.text)
         assertEquals("draft-voice", restored.captureDraft.draftId)
+        assertEquals("theme-research", restored.captureDraft.projectId)
         assertEquals(MobileCaptureSource.AndroidSpeech, restored.captureDraft.source)
         assertEquals(MobileSpeechRecognitionMode.OnDevice, restored.captureDraft.speech?.recognitionMode)
         assertEquals("ja-JP", restored.captureDraft.speech?.language)

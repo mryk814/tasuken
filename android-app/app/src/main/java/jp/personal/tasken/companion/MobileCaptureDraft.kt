@@ -57,6 +57,10 @@ data class MobileCaptureDraft(
 ) {
     fun withText(value: String): MobileCaptureDraft = copy(text = value.take(500))
 
+    fun withThemeId(value: String?): MobileCaptureDraft = copy(
+        projectId = value?.trim()?.takeIf(String::isNotEmpty),
+    )
+
     fun withSpeechResult(result: ShortSpeechRecognitionResult): MobileCaptureDraft = copy(
         text = result.text.take(500),
         source = MobileCaptureSource.AndroidSpeech,
