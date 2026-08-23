@@ -88,9 +88,16 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
 
   function show(): void {
     const win = ensureWindow();
+    const bounds = win.getBounds();
     restoreOpacity(win);
     options.satelliteWindows.focus(windowKey);
-    win.setAlwaysOnTop(true);
+    const stabilize = () => {
+      if (win.isDestroyed() || !win.isVisible()) return;
+      win.setBounds(bounds, false);
+      win.setAlwaysOnTop(true);
+    };
+    stabilize();
+    setTimeout(stabilize, 100);
     const refresh = () => {
       if (win.isDestroyed()) return;
       const mode = themeMode(options.repository.getPreference("themeMode"));

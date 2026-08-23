@@ -154,7 +154,15 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null, curre
     issuedAt: command.issued_at,
   } as const;
 
-  if (command.name === "CreateTask") return { ...base, payload: { task: command.payload.task } };
+  if (command.name === "CreateTask") {
+    return {
+      ...base,
+      payload: {
+        task: command.payload.task,
+        ...(command.payload.provenance ? { provenance: command.payload.provenance } : {}),
+      },
+    };
+  }
   if (command.name === "UpdateTask") {
     const schedule = materializedSchedule(command, currentSchedule);
     return {
@@ -192,6 +200,60 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null, curre
     payload: { taskId: command.payload.task_id },
     expectedVersions: expectedVersions(command, currentSchedule),
   };
+}
+
+function eventSnapshot(event: Entity | undefined, field: "before_json" | "after_json"): Entity | null | undefined {
+  if (!event) return undefined;
+  const serialized = event[field];
+  if (serialized === null) return null;
+  if (typeof serialized !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(serialized) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Entity : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function replayApplicationEnvelope(
+  persistence: WorkspaceTaskPersistence,
+  command: TaskCommand,
+): CommandEnvelope | null {
+  const events = persistence.list("change_event", true)
+    .filter((event) => event.command_id === command.command_id);
+  if (events.length === 0) return null;
+
+  const taskEvent = events.find((event) => event.record_type === "task");
+  const scheduleEvent = events.find((event) => event.record_type === "schedule");
+  const taskBefore = eventSnapshot(taskEvent, "before_json");
+  const scheduleBefore = eventSnapshot(scheduleEvent, "before_json");
+  if (taskBefore === undefined || (scheduleEvent && scheduleBefore === undefined)) return null;
+
+  if (command.name === "CreateTask") return applicationEnvelope(command, null, null);
+  if (!taskBefore || !Number.isInteger(taskBefore.version)) return null;
+  const replayCommand: TaskCommand = command.name === "UpdateTask"
+    ? {
+        ...command,
+        payload: {
+          ...command.payload,
+          expected_version: Number(taskBefore.version),
+          ...(command.payload.schedule_change
+            ? {
+                schedule_change: {
+                  ...command.payload.schedule_change,
+                  expected_version: scheduleBefore && Number.isInteger(scheduleBefore.version)
+                    ? Number(scheduleBefore.version)
+                    : null,
+                },
+              }
+            : {}),
+        },
+      }
+    : {
+        ...command,
+        payload: { ...command.payload, expected_version: Number(taskBefore.version) },
+      };
+  return applicationEnvelope(replayCommand, taskBefore, scheduleBefore || null);
 }
 
 function mergeNonOverlappingUpdate(command: TaskCommand, current: Entity | null): TaskCommand {
@@ -259,8 +321,10 @@ function mappedApplicationError(error: unknown): TaskError {
 export class TaskCapabilityService {
   private readonly queries: TaskQueryHandler;
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
+  private readonly persistence: WorkspaceTaskPersistence;
 
   constructor(persistence: WorkspaceTaskPersistence, executeApplicationCommand: ExecuteApplicationCommand) {
+    this.persistence = persistence;
     this.queries = new TaskQueryHandler(new SqliteTaskRepository(persistence));
     this.executeApplicationCommand = executeApplicationCommand;
   }
@@ -271,6 +335,25 @@ export class TaskCapabilityService {
     let command = parsed.value;
     const taskId = command.name === "CreateTask" ? command.payload.task.id : command.payload.task_id;
     try {
+      const replayEnvelope = replayApplicationEnvelope(this.persistence, command);
+      if (replayEnvelope) {
+        const receipt = this.executeApplicationCommand(replayEnvelope);
+        const changed = receipt.changes.find((change) => change.type === "task")?.entity
+          || this.queries.getTask(taskId, true);
+        if (!changed) return { ok: false, error: taskError("NOT_FOUND", "Taskが見つかりません。") };
+        const task = projectTask(changed, this.queries.getTaskSchedule(taskId));
+        return {
+          ok: true,
+          value: taskCommandOutcomeSchema.parse({
+            schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+            command_id: command.command_id,
+            name: command.name,
+            status: receipt.status,
+            task,
+            event: eventFor(command, receipt, task),
+          }),
+        };
+      }
       const current = this.queries.getTask(taskId, true);
       if (command.name === "UpdateTask" && !current) return { ok: false, error: taskError("NOT_FOUND", "更新対象のTaskがありません。") };
       const currentSchedule = current ? this.queries.getTaskSchedule(taskId) : null;

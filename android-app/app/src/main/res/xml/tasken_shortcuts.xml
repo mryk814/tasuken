@@ -12,6 +12,17 @@
             android:targetPackage="jp.personal.tasken.companion" />
     </shortcut>
     <shortcut
+        android:shortcutId="add_voice"
+        android:enabled="true"
+        android:icon="@android:drawable/ic_btn_speak_now"
+        android:shortcutShortLabel="@string/shortcut_add_voice">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="tasken://capture/new?source=android_speech"
+            android:targetClass="jp.personal.tasken.companion.MainActivity"
+            android:targetPackage="jp.personal.tasken.companion" />
+    </shortcut>
+    <shortcut
         android:shortcutId="open_today"
         android:enabled="true"
         android:icon="@android:drawable/ic_menu_today"

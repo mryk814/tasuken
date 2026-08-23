@@ -9,8 +9,24 @@ class TodayPaneStateTest {
         val before = TodayPaneState()
         before.selectedTaskId = "10000000-0000-4000-8000-000000000001"
         before.recordScroll(7, 32)
-        before.captureDraft = "折りたたみ後も残す"
-        before.captureOpen = true
+        before.captureDraft = MobileCaptureDraft.fresh(
+            text = "折りたたみ後も残す",
+            source = MobileCaptureSource.AndroidSpeech,
+            now = { java.time.Instant.parse("2026-08-23T00:00:00Z") },
+            newId = { "draft-voice" },
+        ).copy(
+            projectId = "theme-research",
+            speech = MobileSpeechProvenance(
+                recognitionMode = MobileSpeechRecognitionMode.OnDevice,
+                language = "ja-JP",
+                confidence = 0.9f,
+            ),
+        )
+        before.openCapture(
+            source = MobileCaptureSource.AndroidSpeech,
+            requestVoice = true,
+            replaceDraft = false,
+        )
         before.activeSection = AppSection.Ai
         before.taskSearch = "解析"
         before.taskFilter = TaskListFilter.Done
@@ -22,8 +38,16 @@ class TodayPaneStateTest {
         assertEquals(before.selectedTaskId, restored.selectedTaskId)
         assertEquals(7, restored.listScrollIndex)
         assertEquals(32, restored.listScrollOffset)
-        assertEquals("折りたたみ後も残す", restored.captureDraft)
+        assertEquals("折りたたみ後も残す", restored.captureDraft.text)
+        assertEquals("draft-voice", restored.captureDraft.draftId)
+        assertEquals("theme-research", restored.captureDraft.projectId)
+        assertEquals(MobileCaptureSource.AndroidSpeech, restored.captureDraft.source)
+        assertEquals(MobileSpeechRecognitionMode.OnDevice, restored.captureDraft.speech?.recognitionMode)
+        assertEquals("ja-JP", restored.captureDraft.speech?.language)
+        assertEquals(0.9f, restored.captureDraft.speech?.confidence)
         assertEquals(true, restored.captureOpen)
+        assertEquals(true, restored.captureVoiceStartRequested)
+        assertEquals(false, restored.captureInputFocusRequested)
         assertEquals(AppSection.Ai, restored.activeSection)
         assertEquals("解析", restored.taskSearch)
         assertEquals(TaskListFilter.Done, restored.taskFilter)
@@ -31,5 +55,49 @@ class TodayPaneStateTest {
         assertEquals(18, restored.taskListScrollOffset)
         assertEquals(2, restored.aiListScrollIndex)
         assertEquals(9, restored.aiListScrollOffset)
+    }
+
+    @Test
+    fun continueCaptureStartsDistinctDraftAndKeepsEntryDefaults() {
+        val state = TodayPaneState(
+            captureDraft = MobileCaptureDraft.fresh(
+                text = "一件目",
+                source = MobileCaptureSource.ShareTarget,
+                projectId = "theme-research",
+                share = MobileShareProvenance("text/plain"),
+                newId = { "draft-first" },
+            ),
+            captureOpen = true,
+        )
+
+        state.continueCapture()
+
+        assertEquals(true, state.captureOpen)
+        assertEquals("", state.captureDraft.text)
+        assertEquals(MobileCaptureSource.AndroidApp, state.captureDraft.source)
+        assertEquals(null, state.captureDraft.share)
+        assertEquals("theme-research", state.captureDraft.projectId)
+        assertEquals(false, state.captureDraft.draftId == "draft-first")
+        assertEquals(true, state.captureInputFocusRequested)
+
+        val restored = TodayPaneState.restore(state.save())
+        assertEquals(true, restored.captureInputFocusRequested)
+        assertEquals(state.captureDraft.draftId, restored.captureDraft.draftId)
+    }
+
+    @Test
+    fun shareMimeSurvivesProcessStateRecreation() {
+        val before = TodayPaneState()
+        before.openCapture(
+            source = MobileCaptureSource.ShareTarget,
+            initialText = "共有本文",
+            sharedMimeType = "text/plain",
+        )
+
+        val restored = TodayPaneState.restore(before.save())
+
+        assertEquals(MobileCaptureSource.ShareTarget, restored.captureDraft.source)
+        assertEquals("text/plain", restored.captureDraft.share?.mimeType)
+        assertEquals("共有本文", restored.captureDraft.text)
     }
 }

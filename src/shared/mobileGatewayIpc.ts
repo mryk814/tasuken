@@ -1,7 +1,7 @@
 export interface MobileGatewayDevice {
   id: string;
   label: string;
-  scopes: Array<"mobile:read" | "mobile:task-write">;
+  scopes: Array<"mobile:read" | "mobile:task-write" | "mobile:proposal-review">;
   createdAt: string;
   updatedAt: string;
   lastSeenAt: string;
@@ -32,4 +32,3 @@ export interface MobileGatewayPairingTicket {
   code: string;
   expiresAt: string;
 }
-

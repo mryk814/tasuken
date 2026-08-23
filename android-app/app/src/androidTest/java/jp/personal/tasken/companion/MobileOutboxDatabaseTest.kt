@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
@@ -53,19 +54,141 @@ class MobileOutboxDatabaseTest {
 
     @Test
     fun offlineCreatePersistsOptimisticTaskAndImmutableEnvelopeTogether() = runBlocking {
-        val taskId = outbox.enqueueCreate("  外出先で記録  ", LocalDate.parse("2026-08-22"))
+        val taskId = outbox.enqueueCreate(
+            "  外出先で記録  ",
+            LocalDate.parse("2026-08-22"),
+            projectId = "theme-research",
+            provenance = MobileTaskCreationProvenanceDto(
+                reportedVia = "android_speech",
+                capturedAt = "2026-08-22T01:02:03Z",
+                captureMethod = "android_speech",
+                recognitionMode = "on_device",
+                language = "ja-JP",
+                confidence = 0.9f,
+                sourceAudioAvailable = false,
+            ),
+        )
         val task = requireNotNull(dao.task(taskId))
         val command = requireNotNull(dao.outbox(requireNotNull(task.optimisticCommandId)))
         val envelope = MobileTaskCommandContract.decodeCreateEnvelope(command.envelopeJson)
 
         assertEquals("外出先で記録", task.title)
+        assertEquals("theme-research", task.themeId)
         assertEquals("2026-08-22", task.todayDate)
         assertEquals(command.commandId, command.idempotencyKey)
         assertEquals(command.commandId, envelope.commandId)
         assertEquals(command.requestId, envelope.requestId)
         assertEquals(command.issuedAt, envelope.issuedAt)
         assertEquals(taskId, envelope.command.task.id)
+        assertEquals("theme-research", envelope.command.task.projectId)
+        assertEquals("android_speech", envelope.command.provenance?.reportedVia)
+        assertEquals("on_device", envelope.command.provenance?.recognitionMode)
+        assertEquals(false, envelope.command.provenance?.sourceAudioAvailable)
         assertEquals(OutboxState.Pending, command.state)
+    }
+
+    @Test
+    fun repeatedSubmitOfSameDraftReusesStableTaskAndCommand() = runBlocking {
+        val first = outbox.enqueueCreate(
+            title = "二重送信しない",
+            todayDate = LocalDate.parse("2026-08-22"),
+            projectId = "theme-research",
+            draftId = "draft-stable-submit",
+            createdAt = "2026-08-22T01:02:03Z",
+        )
+        val second = outbox.enqueueCreate(
+            title = "二重送信しない",
+            todayDate = LocalDate.parse("2026-08-22"),
+            projectId = "theme-research",
+            draftId = "draft-stable-submit",
+            createdAt = "2026-08-22T01:02:03Z",
+        )
+
+        assertEquals(first, second)
+        assertEquals(1, dao.tasks().count { it.id == first })
+        assertEquals(1, dao.outboxCount())
+    }
+
+    @Test
+    fun undoBeforeFirstSendCancelsCreateAndOptimisticTaskAtomically() = runBlocking {
+        val taskId = outbox.enqueueCreate("送信前に戻す", LocalDate.parse("2026-08-22"))
+
+        val result = outbox.undoCreate(taskId)
+
+        assertEquals(false, result.requiresSync)
+        assertNull(result.commandId)
+        assertNull(dao.task(taskId))
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun undoAfterCreateAttemptQueuesDependentDeleteAndConverges() = runBlocking {
+        val taskId = outbox.enqueueCreate("送信開始後に戻す", LocalDate.parse("2026-08-22"))
+        val createId = requireNotNull(dao.task(taskId)?.optimisticCommandId)
+        requireNotNull(dao.claimNext("server-1", "2026-08-22T01:03:00Z"))
+
+        val undo = outbox.undoCreate(taskId)
+        val deleteId = requireNotNull(undo.commandId)
+        assertEquals(true, undo.requiresSync)
+        assertEquals(createId, dao.outbox(deleteId)?.dependsOnCommandId)
+        assertEquals(deleteId, dao.task(taskId)?.optimisticCommandId)
+
+        assertEquals(1, outbox.recoverInterruptedSending())
+        val sent = mutableListOf<String>()
+        assertEquals(false, outbox.drain("server-1") { payload ->
+            if (sent.isEmpty()) {
+                val envelope = MobileTaskCommandContract.decodeCreateEnvelope(payload)
+                sent += envelope.command.name
+                MobileCommandSendResult.Applied(receipt(createId, taskId, version = 1))
+            } else {
+                val envelope = MobileTaskCommandContract.decodeStateEnvelope(payload)
+                sent += envelope.command.name
+                assertEquals("DeleteTask", envelope.command.name)
+                assertEquals(1, envelope.command.expectedVersion)
+                MobileCommandSendResult.Applied(receipt(deleteId, taskId, version = 2))
+            }
+        })
+
+        assertEquals(listOf("CreateTask", "DeleteTask"), sent)
+        assertNull(dao.task(taskId))
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun canonicalUndoUsesDeleteVersionConflictFlowWithoutSilentOverwrite() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000006"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 7, state = "todo"))
+
+        val deleteId = requireNotNull(outbox.undoCreate(taskId).commandId)
+        val envelope = MobileTaskCommandContract.decodeStateEnvelope(requireNotNull(dao.outbox(deleteId)).envelopeJson)
+        assertEquals("DeleteTask", envelope.command.name)
+        assertEquals(7, envelope.command.expectedVersion)
+
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Conflict(
+                conflict(
+                    taskId = taskId,
+                    serverVersion = 8,
+                    serverState = "todo",
+                    intendedAction = "DeleteTask",
+                ),
+            )
+        })
+        assertEquals(deleteId, dao.task(taskId)?.conflictCommandId)
+        assertEquals(OutboxState.Conflict, dao.outbox(deleteId)?.state)
+
+        val replacementId = outbox.keepLocal(deleteId)
+        val replacement = MobileTaskCommandContract.decodeStateEnvelope(
+            requireNotNull(dao.outbox(replacementId)).envelopeJson,
+        )
+        assertEquals("DeleteTask", replacement.command.name)
+        assertEquals(8, replacement.command.expectedVersion)
+
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Applied(receipt(replacementId, taskId, version = 9))
+        })
+        assertNull(dao.task(taskId))
+        assertEquals(0, dao.outboxCount())
     }
 
     @Test
@@ -410,7 +533,7 @@ class MobileOutboxDatabaseTest {
             syncState = SyncStateEntity(
                 serverId = "server-1",
                 apiVersion = 1,
-                schemaVersion = 2,
+                schemaVersion = 4,
                 cursor = "2026-08-22T02:00:00Z|bootstrap-task",
                 lastSuccessfulSyncAt = "2026-08-22T02:00:00Z",
                 lastAttemptAt = "2026-08-22T02:00:00Z",
@@ -714,6 +837,109 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun checklistEditsCoalesceWhileOfflineThenConvergeCanonicalReceipt() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000046"
+        dao.upsertTask(canonicalCachedTask(taskId, version = 4, state = "todo"))
+        val added = listOf(MobileChecklistItem("check-1", "資料を確認", false, 0.0))
+
+        val commandId = outbox.enqueueUpdateChecklist(taskId, added)
+        val toggled = added.single().copy(done = true, completedAt = "2026-08-22T01:03:00Z")
+        assertEquals(commandId, outbox.enqueueUpdateChecklist(taskId, listOf(toggled)))
+        val renamed = toggled.copy(title = "資料を読み直す")
+        assertEquals(commandId, outbox.enqueueUpdateChecklist(taskId, listOf(renamed)))
+
+        assertEquals(1, dao.outboxCount())
+        val stored = requireNotNull(dao.outbox(commandId))
+        assertEquals(OutboxState.Pending, stored.state)
+        assertEquals(0, stored.attemptCount)
+        val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(stored.envelopeJson)
+        assertEquals(0, envelope.command.base.getValue("checklistItems").jsonArray.size)
+        val finalPatch = envelope.command.changes.getValue("checklistItems").jsonArray.single().jsonObject
+        assertEquals("資料を読み直す", finalPatch.getValue("title").jsonPrimitive.content)
+        assertTrue(finalPatch.getValue("done").jsonPrimitive.boolean)
+        val projected = dao.observeAllTasks().first().single().toMobileTask("server-1")
+        assertTrue(projected.canEditPendingChecklist)
+        assertEquals(listOf(renamed), projected.checklistItems)
+
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Applied(
+                receipt(commandId, taskId, version = 5, checklistItems = listOf(renamed)),
+            )
+        })
+        assertNull(dao.outbox(commandId))
+        assertNull(dao.task(taskId)?.optimisticCommandId)
+        assertEquals(listOf(renamed), decodeMobileChecklist(requireNotNull(dao.task(taskId)?.checklistJson)))
+    }
+
+    @Test
+    fun checklistEditReturningToBaseCancelsUnsentCommand() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000047"
+        val base = listOf(MobileChecklistItem("check-1", "元の項目", false, 0.0))
+        dao.upsertTask(
+            canonicalCachedTask(taskId, version = 4, state = "todo").copy(
+                checklistJson = encodeMobileChecklist(base),
+            ),
+        )
+
+        val commandId = outbox.enqueueUpdateChecklist(
+            taskId,
+            base + MobileChecklistItem("check-2", "追加した項目", false, 1.0),
+        )
+        assertEquals(commandId, outbox.enqueueUpdateChecklist(taskId, base))
+
+        assertEquals(0, dao.outboxCount())
+        assertNull(dao.task(taskId)?.optimisticCommandId)
+        assertEquals(base, decodeMobileChecklist(requireNotNull(dao.task(taskId)?.checklistJson)))
+    }
+
+    @Test
+    fun checklistConflictKeepsLocalItemsAgainstLatestServerBase() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000048"
+        val base = listOf(MobileChecklistItem("check-1", "元の項目", false, 0.0))
+        val local = listOf(
+            MobileChecklistItem("check-1", "端末の項目", true, 0.0, "2026-08-22T01:03:00Z"),
+        )
+        val server = listOf(
+            MobileChecklistItem("check-1", "Desktopの項目", false, 0.0),
+            MobileChecklistItem("check-2", "Desktopで追加", false, 1.0),
+        )
+        dao.upsertTask(
+            canonicalCachedTask(taskId, version = 4, state = "todo").copy(
+                checklistJson = encodeMobileChecklist(base),
+            ),
+        )
+
+        val commandId = outbox.enqueueUpdateChecklist(taskId, local)
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.Conflict(
+                conflict(
+                    taskId,
+                    serverVersion = 5,
+                    serverState = "todo",
+                    intendedAction = "UpdateTask",
+                    serverChecklistItems = server,
+                ),
+            )
+        })
+        val projectedConflict = requireNotNull(dao.observeAllTasks().first().single().toMobileTask("server-1").conflict)
+        assertTrue(projectedConflict.localChecklistItemsChanged)
+        assertEquals(local, projectedConflict.localChecklistItems)
+        assertEquals(server, projectedConflict.serverChecklistItems)
+
+        val replacementId = outbox.keepLocal(commandId)
+        val replacement = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(replacementId)).envelopeJson)
+        assertEquals(5, replacement.command.expectedVersion)
+        assertEquals(server.size, replacement.command.base.getValue("checklistItems").jsonArray.size)
+        assertEquals(
+            "Desktopの項目",
+            replacement.command.base.getValue("checklistItems").jsonArray.first().jsonObject
+                .getValue("title").jsonPrimitive.content,
+        )
+        assertEquals(local, decodeMobileChecklist(requireNotNull(dao.task(taskId)?.checklistJson)))
+        assertEquals(replacementId, dao.task(taskId)?.optimisticCommandId)
+    }
+
+    @Test
     fun themeUpdateUsesCachedCandidateAndKeepsBothValuesAcrossConflictResolution() = runBlocking {
         val taskId = "10000000-0000-4000-8000-000000000042"
         storeThemeCatalog(
@@ -860,6 +1086,150 @@ class MobileOutboxDatabaseTest {
             assertTrue(replacementId != rejectedCommandId)
             assertNull(reopenedDao.outbox(rejectedCommandId))
             assertEquals(replacementId, reopenedDao.task("rejected-theme-task")?.optimisticCommandId)
+        } finally {
+            durableDatabase?.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
+    fun rejectedScheduleUpdateRollsBackAtomicallyAndRemainsEditableAfterRestart() = runBlocking {
+        val databaseName = "mobile-schedule-rejected-restart-test"
+        context.deleteDatabase(databaseName)
+        var durableDatabase: MobileLocalDatabase? = null
+        try {
+            val initialDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            durableDatabase = initialDatabase
+            val initialDao = initialDatabase.mobileDao()
+            initialDao.upsertSyncState(activeSyncState())
+            initialDao.upsertTask(
+                canonicalCachedTask("rejected-schedule-task", version = 6, state = "todo").copy(
+                    scheduleId = "schedule-existing",
+                    scheduleVersion = 3,
+                    scheduleEndDate = "2026-08-24",
+                    scheduleDateKind = "deadline",
+                    scheduleConfidence = "fixed",
+                    scheduleGranularity = "day",
+                ),
+            )
+            val initialOutbox = MobileOutbox(
+                context = context,
+                dao = initialDao,
+                deviceId = { "restart-device" },
+                now = { Instant.parse("2026-08-22T02:00:00Z") },
+                schedule = {},
+            )
+            val rejectedCommandId = initialOutbox.enqueueUpdateSchedule(
+                "rejected-schedule-task",
+                MobileTaskScheduleDraft("2026-08-22", "2026-08-24", null),
+            )
+
+            assertEquals(false, initialOutbox.drain("server-1") {
+                MobileCommandSendResult.Rejected(
+                    code = "validation_failed",
+                    message = "予定を保存できませんでした。",
+                )
+            })
+            assertEquals(OutboxState.Rejected, initialDao.outbox(rejectedCommandId)?.state)
+            assertNull(initialDao.task("rejected-schedule-task")?.scheduleStartDate)
+            assertEquals("2026-08-24", initialDao.task("rejected-schedule-task")?.scheduleEndDate)
+            assertEquals("deadline", initialDao.task("rejected-schedule-task")?.scheduleDateKind)
+            assertNull(initialDao.task("rejected-schedule-task")?.optimisticCommandId)
+
+            initialDatabase.close()
+            val reopenedDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            durableDatabase = reopenedDatabase
+            val reopenedDao = reopenedDatabase.mobileDao()
+            val recreatedOutbox = MobileOutbox(
+                context = context,
+                dao = reopenedDao,
+                deviceId = { "restart-device" },
+                now = { Instant.parse("2026-08-22T02:01:00Z") },
+                schedule = {},
+            )
+
+            assertNull(reopenedDao.task("rejected-schedule-task")?.scheduleStartDate)
+            assertEquals("2026-08-24", reopenedDao.task("rejected-schedule-task")?.scheduleEndDate)
+            assertNull(reopenedDao.task("rejected-schedule-task")?.optimisticCommandId)
+            assertEquals(OutboxState.Rejected, reopenedDao.outbox(rejectedCommandId)?.state)
+            val replacementId = recreatedOutbox.enqueueUpdateSchedule(
+                "rejected-schedule-task",
+                MobileTaskScheduleDraft("2026-08-23", "2026-08-24", null),
+            )
+            assertTrue(replacementId != rejectedCommandId)
+            assertEquals(replacementId, reopenedDao.task("rejected-schedule-task")?.optimisticCommandId)
+        } finally {
+            durableDatabase?.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
+    fun rejectedChecklistUpdateRollsBackAtomicallyAndRemainsEditableAfterRestart() = runBlocking {
+        val databaseName = "mobile-checklist-rejected-restart-test"
+        context.deleteDatabase(databaseName)
+        var durableDatabase: MobileLocalDatabase? = null
+        try {
+            val base = listOf(MobileChecklistItem("check-1", "元の項目", false, 0.0))
+            val local = listOf(MobileChecklistItem("check-1", "端末の項目", true, 0.0, "2026-08-22T02:00:00Z"))
+            val initialDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            durableDatabase = initialDatabase
+            val initialDao = initialDatabase.mobileDao()
+            initialDao.upsertSyncState(activeSyncState())
+            initialDao.upsertTask(
+                canonicalCachedTask("rejected-checklist-task", version = 6, state = "todo").copy(
+                    checklistJson = encodeMobileChecklist(base),
+                ),
+            )
+            val initialOutbox = MobileOutbox(
+                context = context,
+                dao = initialDao,
+                deviceId = { "restart-device" },
+                now = { Instant.parse("2026-08-22T02:00:00Z") },
+                schedule = {},
+            )
+            val rejectedCommandId = initialOutbox.enqueueUpdateChecklist("rejected-checklist-task", local)
+
+            assertEquals(false, initialOutbox.drain("server-1") {
+                MobileCommandSendResult.Rejected(
+                    code = "validation_failed",
+                    message = "Checklistを保存できませんでした。",
+                )
+            })
+            assertEquals(OutboxState.Rejected, initialDao.outbox(rejectedCommandId)?.state)
+            assertEquals(base, decodeMobileChecklist(requireNotNull(initialDao.task("rejected-checklist-task")?.checklistJson)))
+            assertNull(initialDao.task("rejected-checklist-task")?.optimisticCommandId)
+
+            initialDatabase.close()
+            val reopenedDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            durableDatabase = reopenedDatabase
+            val reopenedDao = reopenedDatabase.mobileDao()
+            val recreatedOutbox = MobileOutbox(
+                context = context,
+                dao = reopenedDao,
+                deviceId = { "restart-device" },
+                now = { Instant.parse("2026-08-22T02:01:00Z") },
+                schedule = {},
+            )
+
+            assertEquals(base, decodeMobileChecklist(requireNotNull(reopenedDao.task("rejected-checklist-task")?.checklistJson)))
+            assertNull(reopenedDao.task("rejected-checklist-task")?.optimisticCommandId)
+            assertEquals(OutboxState.Rejected, reopenedDao.outbox(rejectedCommandId)?.state)
+            val replacementId = recreatedOutbox.enqueueUpdateChecklist(
+                "rejected-checklist-task",
+                base + MobileChecklistItem("check-2", "再起動後に追加", false, 1.0),
+            )
+            assertTrue(replacementId != rejectedCommandId)
+            assertEquals(OutboxState.Rejected, reopenedDao.outbox(rejectedCommandId)?.state)
+            assertEquals(replacementId, reopenedDao.task("rejected-checklist-task")?.optimisticCommandId)
         } finally {
             durableDatabase?.close()
             context.deleteDatabase(databaseName)
@@ -1104,13 +1474,14 @@ class MobileOutboxDatabaseTest {
         themeId: String? = null,
         todayDate: String? = null,
         schedule: MobileTaskScheduleDto? = null,
+        checklistItems: List<MobileChecklistItem> = emptyList(),
         plannedStartTime: String? = null,
         plannedDurationMinutes: Int? = null,
     ) = MobileTaskCommandResponseDto(
         ok = true,
         meta = MobileResponseMetaDto(
             apiVersion = 1,
-            schemaVersion = 2,
+            schemaVersion = 4,
             serverId = "server-1",
             serverRevision = 10,
             generatedAt = "2026-08-22T01:04:00Z",
@@ -1128,6 +1499,7 @@ class MobileOutboxDatabaseTest {
                 workState = null,
                 todayDate = todayDate,
                 schedule = schedule,
+                checklistItems = checklistItems,
                 plannedStartTime = plannedStartTime,
                 plannedDurationMinutes = plannedDurationMinutes,
                 updatedAt = "2026-08-22T01:04:00Z",
@@ -1144,13 +1516,14 @@ class MobileOutboxDatabaseTest {
         serverTodayDate: String? = null,
         serverThemeId: String? = null,
         serverSchedule: MobileTaskScheduleDto? = null,
+        serverChecklistItems: List<MobileChecklistItem> = emptyList(),
         plannedStartTime: String? = null,
         plannedDurationMinutes: Int? = null,
     ) = MobileTaskCommandErrorResponseDto(
         ok = false,
         meta = MobileResponseMetaDto(
             apiVersion = 1,
-            schemaVersion = 2,
+            schemaVersion = 4,
             serverId = "server-1",
             serverRevision = 11,
             generatedAt = "2026-08-22T01:05:00Z",
@@ -1170,12 +1543,15 @@ class MobileOutboxDatabaseTest {
                     workState = null,
                     todayDate = serverTodayDate,
                     schedule = serverSchedule,
+                    checklistItems = serverChecklistItems,
                     plannedStartTime = plannedStartTime,
                     plannedDurationMinutes = plannedDurationMinutes,
                     updatedAt = "2026-08-22T01:05:00Z",
                 ),
                 intendedAction = intendedAction,
                 expectedVersion = serverVersion - 1,
+                conflictField = if (serverSchedule == null) "task" else "schedule",
+                expectedScheduleVersion = serverSchedule?.version?.minus(1),
             ),
         ),
     )
@@ -1226,6 +1602,7 @@ class MobileOutboxDatabaseTest {
             scheduleRangeSemantics = response.data.task.schedule?.rangeSemantics,
             scheduleConfidence = response.data.task.schedule?.confidence,
             scheduleGranularity = response.data.task.schedule?.granularity,
+            checklistJson = encodeMobileChecklist(response.data.task.checklistItems),
             updatedAt = response.data.task.updatedAt,
             optimisticCommandId = null,
         )
@@ -1244,7 +1621,7 @@ class MobileOutboxDatabaseTest {
     private fun activeSyncState(serverId: String = "server-1") = SyncStateEntity(
         serverId = serverId,
         apiVersion = 1,
-        schemaVersion = 2,
+        schemaVersion = 4,
         cursor = "task-cursor",
         lastSuccessfulSyncAt = "2026-08-22T01:00:00Z",
         lastAttemptAt = "2026-08-22T01:00:00Z",

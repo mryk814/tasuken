@@ -2,7 +2,7 @@
   "ok": true,
   "meta": {
     "apiVersion": 1,
-    "schemaVersion": 2,
+    "schemaVersion": 4,
     "serverId": "desktop-main",
     "serverRevision": 42,
     "generatedAt": "2026-08-21T10:00:00.000Z",

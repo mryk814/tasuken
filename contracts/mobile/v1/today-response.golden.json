@@ -2,7 +2,7 @@
   "ok": true,
   "meta": {
     "apiVersion": 1,
-    "schemaVersion": 2,
+    "schemaVersion": 4,
     "serverId": "desktop-main",
     "serverRevision": 42,
     "generatedAt": "2026-08-21T10:00:00.000Z",
@@ -18,6 +18,22 @@
         "themeId": "20000000-0000-4000-8000-000000000001",
         "state": "todo",
         "workState": "in_progress",
+        "checklistItems": [
+          {
+            "id": "checklist-analysis",
+            "title": "グラフを確認する",
+            "done": true,
+            "sortOrder": 0,
+            "completedAt": "2026-08-21T08:30:00.000Z"
+          },
+          {
+            "id": "checklist-notes",
+            "title": "所見を残す",
+            "done": false,
+            "sortOrder": 1,
+            "completedAt": null
+          }
+        ],
         "schedule": null,
         "updatedAt": "2026-08-21T09:00:00.000Z"
       },
@@ -28,6 +44,7 @@
         "themeId": null,
         "state": "todo",
         "workState": null,
+        "checklistItems": [],
         "schedule": null,
         "updatedAt": "2026-08-21T09:30:00.000Z"
       }

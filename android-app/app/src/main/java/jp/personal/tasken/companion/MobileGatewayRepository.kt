@@ -201,12 +201,34 @@ class AndroidMobileTaskRepository(
         )
     }
 
+    override fun observeCachedTaskWorkProposals(): Flow<List<MobileTaskWorkProposal>> =
+        combine(dao.observeTaskWorkProposals(), dao.observeSyncState()) { proposals, syncState ->
+            proposals
+                .filter { it.serverId == syncState?.serverId }
+                .mapNotNull { cached ->
+                    runCatching { cached.toProposal() }
+                        .onFailure { error ->
+                            Log.w(MOBILE_GATEWAY_LOG_TAG, "Discarding an invalid cached Task Work Proposal", error)
+                        }
+                        .getOrNull()
+                }
+        }
+
     override fun observePendingCount(): Flow<Int> = outbox.observePendingCount()
 
     override fun observeConflictCount(): Flow<Int> = outbox.observeConflictCount()
 
-    override suspend fun enqueueCreateTask(title: String, todayDate: LocalDate?): String =
-        outbox.enqueueCreate(title, todayDate)
+    override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: LocalDate?): String =
+        outbox.enqueueCreate(
+            title = draft.text,
+            todayDate = todayDate,
+            projectId = draft.projectId,
+            draftId = draft.draftId,
+            createdAt = draft.createdAt,
+            provenance = draft.toTaskCreationProvenanceDto(),
+        )
+
+    override suspend fun undoCreateTask(taskId: String): MobileUndoCreateResult = outbox.undoCreate(taskId)
 
     override suspend fun enqueueUpdateTaskTitle(taskId: String, title: String): String =
         outbox.enqueueUpdateTitle(taskId, title)
@@ -220,6 +242,9 @@ class AndroidMobileTaskRepository(
     override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
         outbox.enqueueUpdateTheme(taskId, themeId)
 
+    override suspend fun enqueueUpdateTaskChecklist(taskId: String, items: List<MobileChecklistItem>): String =
+        outbox.enqueueUpdateChecklist(taskId, items)
+
     override suspend fun discardRejectedThemeUpdate(taskId: String, commandId: String) =
         outbox.discardRejectedThemeUpdate(taskId, commandId)
 
@@ -230,6 +255,234 @@ class AndroidMobileTaskRepository(
     override suspend fun acceptServerConflict(commandId: String) = outbox.acceptServer(commandId)
 
     override suspend fun keepLocalConflict(commandId: String): String = outbox.keepLocal(commandId)
+
+    override suspend fun loadWorkReceipt(taskId: String, receiptId: String): MobileWorkReceiptLoadResult {
+        val expectedServerId = dao.syncState()?.serverId
+            ?: return MobileWorkReceiptLoadResult.Unavailable(
+                receiptId,
+                "Taskを同期してからWork Receiptを開いてください。",
+            )
+        val cached = runCatching { dao.workReceipt(receiptId, expectedServerId)?.toDetail() }
+            .getOrNull()
+            ?.takeIf { it.taskId == taskId }
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) {
+            return cached?.let {
+                MobileWorkReceiptLoadResult.Available(
+                    detail = it,
+                    fromCache = true,
+                    warning = "保存済みのWork Receiptを表示しています。",
+                )
+            } ?: MobileWorkReceiptLoadResult.Unavailable(
+                receiptId,
+                "Desktopへ接続するとWork Receiptの詳細を読めます。",
+            )
+        }
+        return try {
+            val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
+            val encodedTaskId = URLEncoder.encode(taskId, Charsets.UTF_8.name())
+            val encodedReceiptId = URLEncoder.encode(receiptId, Charsets.UTF_8.name())
+            val response = gatewayRequest(
+                origin = configuration.origin,
+                path = "/v1/work-receipt?apiVersion=1&schemaVersion=4&requestId=$requestId" +
+                    "&taskId=$encodedTaskId&receiptId=$encodedReceiptId",
+                method = "GET",
+                body = null,
+                accessToken = token,
+            )
+            if (response.status == 401) {
+                store.clearTokenIfMatches(token)
+                error("Mobile Gateway token expired")
+            }
+            if (response.status == 404) {
+                return cached?.let {
+                    MobileWorkReceiptLoadResult.Available(
+                        detail = it,
+                        fromCache = true,
+                        warning = "Desktop側のWork Receipt詳細を確認できないため、保存済み内容を表示しています。",
+                    )
+                } ?: MobileWorkReceiptLoadResult.Unavailable(
+                    receiptId,
+                    "Work Receiptが見つかりません。Desktopを最新版へ更新して再読み込みしてください。",
+                )
+            }
+            require(response.status == 200) { "Work Receipt request failed with HTTP ${response.status}" }
+            val decoded = MobileWorkReceiptContract.decodeSuccess(response.body)
+            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+            val detail = decoded.toDetail()
+            require(detail.id == receiptId && detail.taskId == taskId) {
+                "Work Receipt response identity does not match the request"
+            }
+            dao.upsertWorkReceipt(
+                detail.toCache(
+                    serverId = decoded.meta.serverId,
+                    serverRevision = decoded.meta.serverRevision,
+                    fetchedAt = decoded.meta.generatedAt,
+                ),
+            )
+            MobileWorkReceiptLoadResult.Available(detail = detail, fromCache = false)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Work Receipt request failed", error)
+            cached?.let {
+                MobileWorkReceiptLoadResult.Available(
+                    detail = it,
+                    fromCache = true,
+                    warning = "Desktopへ接続できないため、保存済みのWork Receiptを表示しています。",
+                )
+            } ?: MobileWorkReceiptLoadResult.Unavailable(
+                receiptId,
+                "Work Receiptを読み込めませんでした。DesktopとTailscale接続を確認してください。",
+            )
+        }
+    }
+
+    override suspend fun refreshTaskWorkProposals(): Boolean {
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) return false
+        return refreshTaskWorkProposals(configuration.origin, token)
+    }
+
+    private suspend fun refreshTaskWorkProposals(origin: String, accessToken: String): Boolean {
+        val expectedServerId = dao.syncState()?.serverId ?: return false
+        return try {
+            val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
+            val response = gatewayRequest(
+                origin = origin,
+                path = "/v1/proposals?apiVersion=1&schemaVersion=4&requestId=$requestId&limit=50",
+                method = "GET",
+                body = null,
+                accessToken = accessToken,
+            )
+            if (response.status == 401) {
+                store.clearTokenIfMatches(accessToken)
+                return false
+            }
+            require(response.status == 200) { "Task Work Proposal request failed with HTTP ${response.status}" }
+            val decoded = MobileProposalContract.decodeList(response.body)
+            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+            dao.replaceTaskWorkProposals(decoded.data.proposals.map { it.toCache(decoded.meta) })
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Task Work Proposal refresh failed", error)
+            false
+        }
+    }
+
+    override suspend fun reviewTaskWorkProposal(
+        proposal: MobileTaskWorkProposal,
+        decision: String,
+    ): MobileProposalReviewResult {
+        require(decision in setOf("accept", "reject"))
+        val expectedServerId = dao.syncState()?.serverId
+            ?: return MobileProposalReviewResult.Unavailable(
+                proposal.id,
+                "Taskを同期してからProposalを判断してください。",
+            )
+        val cached = dao.taskWorkProposal(proposal.id, expectedServerId)?.toProposal()
+            ?: return MobileProposalReviewResult.Conflict(
+                proposal.id,
+                "Proposalが更新されています。再読み込みしてください。",
+            )
+        if (
+            cached.taskId != proposal.taskId ||
+            cached.version != proposal.version ||
+            cached.taskVersion != proposal.taskVersion
+        ) {
+            return MobileProposalReviewResult.Conflict(
+                proposal.id,
+                "Proposalが更新されています。再読み込みしてください。",
+            )
+        }
+        if (decision == "accept" && cached.stale) {
+            return MobileProposalReviewResult.Conflict(
+                proposal.id,
+                "Taskが更新されています。AIへ再報告を依頼してください。",
+            )
+        }
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) {
+            return MobileProposalReviewResult.Unavailable(
+                proposal.id,
+                "Desktopへ接続してからProposalを判断してください。",
+            )
+        }
+        return try {
+            val commandId = UUID.randomUUID().toString()
+            val envelope = MobileTaskWorkProposalDecisionEnvelopeDto(
+                apiVersion = 1,
+                schemaVersion = 4,
+                requestId = UUID.randomUUID().toString(),
+                commandId = commandId,
+                idempotencyKey = commandId,
+                clientDeviceId = store.deviceId(),
+                issuedAt = Instant.now().toString(),
+                proposalId = cached.id,
+                taskId = cached.taskId,
+                expectedProposalVersion = cached.version,
+                expectedTaskVersion = cached.taskVersion,
+                decision = decision,
+            )
+            val response = gatewayRequest(
+                origin = configuration.origin,
+                path = "/v1/proposal-decisions",
+                method = "POST",
+                body = MobileProposalContract.encodeDecision(envelope),
+                accessToken = token,
+            )
+            if (response.status == 401) {
+                store.clearTokenIfMatches(token)
+                return MobileProposalReviewResult.Unavailable(
+                    proposal.id,
+                    "接続が失効しました。新しいコードで再接続してください。",
+                )
+            }
+            if (response.status == 409) {
+                val error = MobileTaskCommandContract.decodeError(response.body)
+                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+                refreshTaskWorkProposals(configuration.origin, token)
+                return MobileProposalReviewResult.Conflict(
+                    proposal.id,
+                    error.error.message,
+                )
+            }
+            require(response.status == 200) { "Task Work Proposal decision failed with HTTP ${response.status}" }
+            val decoded = MobileProposalContract.decodeDecision(response.body)
+            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+            require(
+                decoded.data.commandId == commandId &&
+                    decoded.data.proposalId == cached.id &&
+                    decoded.data.taskId == cached.taskId &&
+                    decoded.data.decision == decision
+            ) { "Task Work Proposal decision identity does not match the request" }
+            dao.deleteTaskWorkProposal(cached.id, expectedServerId)
+            runCatching { synchronize(configuration.origin, token, expectedServerId) }
+                .onFailure { error ->
+                    Log.w(MOBILE_GATEWAY_LOG_TAG, "Task sync after Proposal decision failed", error)
+                }
+            refreshTaskWorkProposals(configuration.origin, token)
+            MobileProposalReviewResult.Applied(cached.id, decision)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: MobileOutboxServerMismatchException) {
+            MobileProposalReviewResult.Unavailable(
+                proposal.id,
+                "接続先Desktopが変わりました。再接続してください。",
+            )
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Task Work Proposal decision failed", error)
+            MobileProposalReviewResult.Unavailable(
+                proposal.id,
+                "Proposalを判断できませんでした。DesktopとTailscale接続を確認してください。",
+            )
+        }
+    }
 
     internal suspend fun recoverInterruptedOutbox(): Int = outbox.recoverInterruptedSending()
 
@@ -244,6 +497,7 @@ class AndroidMobileTaskRepository(
                 }
             ) return false
             synchronize(configuration.origin, token, serverId)
+            refreshTaskWorkProposals(configuration.origin, token)
             when (val outcome = refreshThemes(configuration.origin, token)) {
                 is MobileThemeRefreshOutcome.Failed -> !outcome.retryable
                 MobileThemeRefreshOutcome.Success,
@@ -275,7 +529,7 @@ class AndroidMobileTaskRepository(
         return try {
             val payload = buildJsonObject {
                 put("apiVersion", 1)
-                put("schemaVersion", 2)
+                put("schemaVersion", 4)
                 put("requestId", UUID.randomUUID().toString())
                 put("pairingCode", pairingCode)
                 put("clientDeviceId", store.deviceId())
@@ -382,7 +636,7 @@ class AndroidMobileTaskRepository(
             val encodedCursor = URLEncoder.encode(cursor, Charsets.UTF_8.name())
             val response = gatewayRequest(
                 origin = origin,
-                path = "/v1/sync?apiVersion=1&schemaVersion=2&requestId=$encodedRequestId&cursor=$encodedCursor&limit=50",
+                path = "/v1/sync?apiVersion=1&schemaVersion=4&requestId=$encodedRequestId&cursor=$encodedCursor&limit=50",
                 method = "GET",
                 body = null,
                 accessToken = accessToken,
@@ -410,7 +664,7 @@ class AndroidMobileTaskRepository(
         val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
         val response = gatewayRequest(
             origin = origin,
-            path = "/v1/bootstrap?apiVersion=1&schemaVersion=2&requestId=$requestId&limit=50",
+            path = "/v1/bootstrap?apiVersion=1&schemaVersion=4&requestId=$requestId&limit=50",
             method = "GET",
             body = null,
             accessToken = accessToken,
@@ -465,7 +719,7 @@ class AndroidMobileTaskRepository(
                 }.orEmpty()
                 val response = gatewayRequest(
                     origin = origin,
-                    path = "/v1/themes?apiVersion=1&schemaVersion=2&requestId=$requestId&limit=50$cursorQuery",
+                    path = "/v1/themes?apiVersion=1&schemaVersion=4&requestId=$requestId&limit=50$cursorQuery",
                     method = "GET",
                     body = null,
                     accessToken = accessToken,
@@ -557,6 +811,7 @@ class AndroidMobileTaskRepository(
         latestReceiptReportedAt = latestWorkReceipt?.reportedAt,
         latestReceiptExecutorLabel = latestWorkReceipt?.executorLabel,
         latestReceiptSummary = latestWorkReceipt?.summary,
+        checklistJson = encodeMobileChecklist(checklistItems),
         scheduleId = schedule?.id,
         scheduleVersion = schedule?.version,
         scheduleStartDate = schedule?.startDate,

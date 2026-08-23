@@ -14,6 +14,7 @@ import type { ScreenRecordingAudioMode, ScreenRecordingEnvironment, ScreenRecord
 import { SCREEN_RECORDING_BITRATES, screenRecordingContainerOf } from "../../../../../shared/screenRecording.mjs";
 import { formatArtifactFileSize } from "./artifacts";
 import { Button } from "./common";
+import { waitForMediaRecorderDataFlush } from "../lib/mediaRecorderFlush";
 import { trackPendingMediaRecordingFlush } from "../lib/mediaRecordingFlushRegistry";
 import { readVideoMetadata } from "../lib/videoMetadata";
 
@@ -454,9 +455,7 @@ export const ScreenRecorderPanel = forwardRef<ScreenRecorderPanelHandle, ScreenR
       const paused = new Promise<void>((resolve) => recorder.addEventListener("pause", () => resolve(), { once: true }));
       recorder.pause();
       await paused;
-      const dataQueued = new Promise<void>((resolve) => recorder.addEventListener("dataavailable", () => resolve(), { once: true }));
-      recorder.requestData();
-      await dataQueued;
+      await waitForMediaRecorderDataFlush(recorder);
       await appendRef.current;
       await workspaceApi.pauseMediaRecording(session.sessionId);
       accumulatedMsRef.current += Math.max(0, performance.now() - startedAtRef.current);

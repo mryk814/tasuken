@@ -50,7 +50,7 @@ test("revoked mobile devices can pair again without clearing Android data", () =
       id: "device-s23",
       label: "Galaxy S23",
       tokenHash: firstTokenHash,
-      scopes: ["mobile:read", "mobile:task-write"],
+      scopes: ["mobile:read", "mobile:task-write", "mobile:proposal-review"],
       pairedAt: firstPairingAt,
     });
     assert.equal(first.version, 1);
@@ -59,7 +59,7 @@ test("revoked mobile devices can pair again without clearing Android data", () =
         id: "device-s23",
         label: "Galaxy S23",
         tokenHash: secondTokenHash,
-        scopes: ["mobile:read", "mobile:task-write"],
+        scopes: ["mobile:read", "mobile:task-write", "mobile:proposal-review"],
         pairedAt: secondPairingAt,
       }),
       /Mobile device already exists/,
@@ -71,7 +71,7 @@ test("revoked mobile devices can pair again without clearing Android data", () =
       id: "device-s23",
       label: "Galaxy S23 re-paired",
       tokenHash: secondTokenHash,
-      scopes: ["mobile:read", "mobile:task-write"],
+      scopes: ["mobile:read", "mobile:task-write", "mobile:proposal-review"],
       pairedAt: secondPairingAt,
     });
 

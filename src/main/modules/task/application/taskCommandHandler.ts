@@ -1,4 +1,5 @@
 import { entityDefinition } from "../../../../shared/entityRegistry.mjs";
+import { taskCreationProvenanceSchema } from "../../../../shared/contracts/task/public.ts";
 import type { Entity, EntityType, SaveOperation } from "../../../../shared/types/workspace.ts";
 import { ApplicationCommandError, type ApplicationCommandName, type CommandEnvelope, type CommandReceipt } from "../../../../shared/applicationCommand.ts";
 import type { TaskRepository } from "../ports/taskRepository.ts";
@@ -15,6 +16,22 @@ import {
 } from "./taskPolicy.ts";
 
 const taskDefinition = entityDefinition("task");
+
+function attachCreationProvenance(command: CommandEnvelope, event: Entity, isCreate: boolean): Entity {
+  const raw = (command.payload as { provenance?: unknown }).provenance;
+  if (raw === undefined) return event;
+  if (!isCreate) throw new ApplicationCommandError("INVALID_PAYLOAD", "provenanceはCreateTaskだけに指定できます。");
+  const parsed = taskCreationProvenanceSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "Task作成元のprovenanceが不正です。", {
+      issues: parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })),
+    });
+  }
+  const metadata = event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+    ? event.metadata as Record<string, unknown>
+    : {};
+  return { ...event, metadata: { ...metadata, provenance: parsed.data } };
+}
 
 export const taskApplicationCommandNames = ["CreateTask", "UpdateTask", "DeleteTask", "CompleteTask", "ReopenTask"] as const;
 const taskCommandNames = new Set<ApplicationCommandName>(taskApplicationCommandNames);
@@ -94,7 +111,14 @@ export class TaskCommandHandler {
     );
     const operations: SaveOperation[] = [{ action: "save", type: "task", entity: task }];
     if (schedule) operations.push({ action: "save", type: "schedule", entity: schedule });
-    const event = this.runtime.annotateEvent(command, this.runtime.createEvent(command, "task", taskId, taskChangeType(current, task, command.name), current, task));
+    const event = this.runtime.annotateEvent(
+      command,
+      attachCreationProvenance(
+        command,
+        this.runtime.createEvent(command, "task", taskId, taskChangeType(current, task, command.name), current, task),
+        isCreate,
+      ),
+    );
     operations.push({ action: "save", type: "change_event", entity: event });
     const previousSchedule = schedule ? this.repository.get("schedule", schedule.id, true) : null;
     const scheduleEvent = schedule

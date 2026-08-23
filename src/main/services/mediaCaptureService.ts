@@ -914,11 +914,14 @@ export class MediaCaptureService {
     const sessionIdentity = captureDirectoryIdentity(sessionDirectory, "録音session");
     const manifest = this.readManifest(sessionDirectory);
     assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
-    if (manifest.state !== "recording") throw new Error("録音中ではありません。再開してから録音を続けてください。");
+    if (manifest.state !== "recording" && manifest.state !== "recording_paused") {
+      throw new Error("録音中ではありません。再開してから録音を続けてください。");
+    }
     const timestamp = this.now();
     if (
-      !manifest.recordingStateStartedAt
-      || (manifest.recordingElapsedMs || 0) + elapsedSince(manifest.recordingStateStartedAt, timestamp) > maxDurationMsFor(manifest.mediaKind)
+      manifest.state === "recording"
+      && (!manifest.recordingStateStartedAt
+        || (manifest.recordingElapsedMs || 0) + elapsedSince(manifest.recordingStateStartedAt, timestamp) > maxDurationMsFor(manifest.mediaKind))
     ) {
       throw new Error("録音時間の上限に達しました。録音を停止して保存してください。");
     }

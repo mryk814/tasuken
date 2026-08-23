@@ -16,6 +16,7 @@ import {
   MobileGatewayAdapter,
   type MobileGatewayLoggerPort,
   type MobileGatewayStatePort,
+  type MobileGatewayTaskWorkProposalDecisionResult,
 } from "../gateway/mobile/public.ts";
 import {
   TaskCapabilityService,
@@ -28,6 +29,7 @@ import {
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
 } from "../../shared/contracts/core/public.mjs";
+import { ApplicationCommandError } from "../../shared/applicationCommand.ts";
 
 type CorePersistence = AgentReadyTaskWorkspacePersistence
   & AgentWorkspacePersistence
@@ -41,13 +43,24 @@ type CorePersistence = AgentReadyTaskWorkspacePersistence
   & WorkspaceTaskPersistence
   & AiProposalPersistence;
 
+function proposalDecisionFailure(error: ApplicationCommandError): MobileGatewayTaskWorkProposalDecisionResult {
+  if (error.code === "COMMAND_ID_REUSED") return { ok: false, code: "idempotency_conflict" };
+  if (error.code === "NOT_FOUND") return { ok: false, code: "not_found" };
+  if (error.code === "CONFLICT" || error.code === "INVALID_TRANSITION") {
+    return { ok: false, code: "proposal_conflict" };
+  }
+  return { ok: false, code: "validation_failed" };
+}
+
 export class TaskenCoreRuntime {
   private readonly host: TaskenCoreHost;
   private readonly persistence: CorePersistence;
+  private readonly executeApplicationCommand: ExecuteApplicationCommand;
   readonly taskCapability: TaskCapabilityService;
 
   constructor(userDataPath: string, persistence: CorePersistence, executeApplicationCommand: ExecuteApplicationCommand) {
     this.persistence = persistence;
+    this.executeApplicationCommand = executeApplicationCommand;
     const core = createTaskenCore(persistence);
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
     this.host = new TaskenCoreHost({
@@ -104,6 +117,76 @@ export class TaskenCoreRuntime {
           executorLabel: String(receipt.executor_label || ""),
           summary: String(receipt.summary || ""),
         })),
+        getWorkReceipt: (id) => {
+          const receipt = this.persistence.get("work_receipt", id, false);
+          if (!receipt) return null;
+          return {
+            id: String(receipt.id || ""),
+            taskId: String(receipt.task_id || ""),
+            executorKind: String(receipt.executor_kind || "unknown"),
+            executorLabel: String(receipt.executor_label || ""),
+            startedAt: receipt.started_at ? String(receipt.started_at) : null,
+            reportedAt: String(receipt.reported_at || ""),
+            summary: String(receipt.summary || ""),
+            completedItems: receipt.completed_items,
+            changedOrCreatedItems: receipt.changed_or_created_items,
+            verification: receipt.verification,
+            remainingWork: receipt.remaining_work,
+            externalReferences: receipt.external_references,
+            runtimeMetadata: receipt.runtime_metadata,
+          };
+        },
+        listTaskWorkProposals: () => this.persistence.list("ai_proposal", false)
+          .filter((proposal) => proposal.source === "mcp"
+            && proposal.payload_type === "task_work"
+            && proposal.status === "pending")
+          .map((proposal) => ({
+            id: String(proposal.id || ""),
+            version: Number(proposal.version || 0),
+            source: String(proposal.source || ""),
+            sourceApp: String(proposal.source_app || ""),
+            payloadType: String(proposal.payload_type || ""),
+            payload: proposal.payload,
+            request: proposal.request,
+            status: String(proposal.status || ""),
+            receivedAt: String(proposal.received_at || ""),
+          })),
+        getTaskWorkProposal: (id) => {
+          const proposal = this.persistence.get("ai_proposal", id, true);
+          if (!proposal || proposal.source !== "mcp" || proposal.payload_type !== "task_work") return null;
+          return {
+            id: String(proposal.id || ""),
+            version: Number(proposal.version || 0),
+            source: String(proposal.source || ""),
+            sourceApp: String(proposal.source_app || ""),
+            payloadType: String(proposal.payload_type || ""),
+            payload: proposal.payload,
+            request: proposal.request,
+            status: String(proposal.status || ""),
+            receivedAt: String(proposal.received_at || ""),
+          };
+        },
+        decideTaskWorkProposal: (input) => {
+          try {
+            const receipt = this.executeApplicationCommand({
+              commandId: input.commandId,
+              name: "ApplyTaskWorkProposal",
+              actor: { kind: "user", id: input.actorId },
+              source: "mobile",
+              issuedAt: input.issuedAt,
+              payload: { proposalId: input.proposalId, decision: input.decision },
+              expectedVersions: [
+                { type: "ai_proposal", id: input.proposalId, version: input.expectedProposalVersion },
+                { type: "task", id: input.taskId, version: input.expectedTaskVersion },
+              ],
+            });
+            if (receipt.status === "conflict") return { ok: false, code: "proposal_conflict" };
+            return { ok: true, commandId: receipt.commandId, status: receipt.status };
+          } catch (error) {
+            if (error instanceof ApplicationCommandError) return proposalDecisionFailure(error);
+            throw error;
+          }
+        },
         executeTaskQuery: (input) => this.taskCapability.executeQuery(input),
         executeTaskCommand: (input) => this.taskCapability.executeCommand(input),
       },

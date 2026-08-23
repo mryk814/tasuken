@@ -1,0 +1,550 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 11,
+    "identityHash": "76c2e2e09c80938663833e70ecbcab3e",
+    "entities": [
+      {
+        "tableName": "task_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `serverVersion` INTEGER, `title` TEXT NOT NULL, `themeId` TEXT, `state` TEXT NOT NULL, `workState` TEXT, `todayDate` TEXT, `updatedAt` TEXT NOT NULL, `optimisticCommandId` TEXT, `conflictCommandId` TEXT, `scheduleId` TEXT, `scheduleVersion` INTEGER, `scheduleStartDate` TEXT, `scheduleEndDate` TEXT, `scheduleDateKind` TEXT, `scheduleRangeSemantics` TEXT, `scheduleConfidence` TEXT, `scheduleGranularity` TEXT, `plannedStartTime` TEXT, `plannedDurationMinutes` INTEGER, `latestReceiptId` TEXT, `latestReceiptReportedAt` TEXT, `latestReceiptExecutorLabel` TEXT, `latestReceiptSummary` TEXT, `checklistJson` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverVersion",
+            "columnName": "serverVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themeId",
+            "columnName": "themeId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workState",
+            "columnName": "workState",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "todayDate",
+            "columnName": "todayDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "optimisticCommandId",
+            "columnName": "optimisticCommandId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "conflictCommandId",
+            "columnName": "conflictCommandId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "scheduleId",
+            "columnName": "scheduleId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "scheduleVersion",
+            "columnName": "scheduleVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "scheduleStartDate",
+            "columnName": "scheduleStartDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "scheduleEndDate",
+            "columnName": "scheduleEndDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "scheduleDateKind",
+            "columnName": "scheduleDateKind",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "scheduleRangeSemantics",
+            "columnName": "scheduleRangeSemantics",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "scheduleConfidence",
+            "columnName": "scheduleConfidence",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "scheduleGranularity",
+            "columnName": "scheduleGranularity",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "plannedStartTime",
+            "columnName": "plannedStartTime",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "plannedDurationMinutes",
+            "columnName": "plannedDurationMinutes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "latestReceiptId",
+            "columnName": "latestReceiptId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "latestReceiptReportedAt",
+            "columnName": "latestReceiptReportedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "latestReceiptExecutorLabel",
+            "columnName": "latestReceiptExecutorLabel",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "latestReceiptSummary",
+            "columnName": "latestReceiptSummary",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "checklistJson",
+            "columnName": "checklistJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "theme_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `catalogId` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "catalogId",
+            "columnName": "catalogId",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "theme_catalog_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `serverId` TEXT NOT NULL, `serverRevision` INTEGER, `status` TEXT NOT NULL, `generatedAt` TEXT, `lastAttemptAt` TEXT NOT NULL, `lastError` TEXT, `activeRefreshId` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverRevision",
+            "columnName": "serverRevision",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "generatedAt",
+            "columnName": "generatedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastAttemptAt",
+            "columnName": "lastAttemptAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "activeRefreshId",
+            "columnName": "activeRefreshId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "outbox_command",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`commandId` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `requestId` TEXT NOT NULL, `clientDeviceId` TEXT NOT NULL, `issuedAt` TEXT NOT NULL, `commandName` TEXT NOT NULL, `envelopeJson` TEXT NOT NULL, `serverId` TEXT NOT NULL, `state` TEXT NOT NULL, `attemptCount` INTEGER NOT NULL, `createdAt` TEXT NOT NULL, `lastAttemptAt` TEXT, `lastError` TEXT, `taskId` TEXT, `dependsOnCommandId` TEXT, PRIMARY KEY(`commandId`))",
+        "fields": [
+          {
+            "fieldPath": "commandId",
+            "columnName": "commandId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requestId",
+            "columnName": "requestId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clientDeviceId",
+            "columnName": "clientDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "issuedAt",
+            "columnName": "issuedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "commandName",
+            "columnName": "commandName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "envelopeJson",
+            "columnName": "envelopeJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attemptCount",
+            "columnName": "attemptCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAttemptAt",
+            "columnName": "lastAttemptAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "taskId",
+            "columnName": "taskId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "dependsOnCommandId",
+            "columnName": "dependsOnCommandId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "commandId"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `serverId` TEXT, `apiVersion` INTEGER NOT NULL, `schemaVersion` INTEGER NOT NULL, `cursor` TEXT, `lastSuccessfulSyncAt` TEXT, `lastAttemptAt` TEXT, `lastError` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "apiVersion",
+            "columnName": "apiVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cursor",
+            "columnName": "cursor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastSuccessfulSyncAt",
+            "columnName": "lastSuccessfulSyncAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastAttemptAt",
+            "columnName": "lastAttemptAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "task_conflict",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`commandId` TEXT NOT NULL, `taskId` TEXT NOT NULL, `intendedAction` TEXT NOT NULL, `expectedVersion` INTEGER NOT NULL, `serverVersion` INTEGER NOT NULL, `serverState` TEXT NOT NULL, `serverTitle` TEXT NOT NULL, `localTitle` TEXT, `serverTodayDate` TEXT, `localTodayDate` TEXT, `localTodayDateChanged` INTEGER NOT NULL, `serverThemeId` TEXT, `localThemeId` TEXT, `localThemeIdChanged` INTEGER NOT NULL, `localChecklistJson` TEXT, `localChecklistChanged` INTEGER NOT NULL, `serverWorkState` TEXT, `serverUpdatedAt` TEXT NOT NULL, `detectedAt` TEXT NOT NULL, `localScheduleStartDate` TEXT, `localScheduleEndDate` TEXT, `localScheduleRangeSemantics` TEXT, `localScheduleChanged` INTEGER NOT NULL, `localPlannedStartTime` TEXT, `localPlannedDurationMinutes` INTEGER, `localPlannedScheduleChanged` INTEGER NOT NULL, PRIMARY KEY(`commandId`))",
+        "fields": [
+          {
+            "fieldPath": "commandId",
+            "columnName": "commandId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taskId",
+            "columnName": "taskId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "intendedAction",
+            "columnName": "intendedAction",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedVersion",
+            "columnName": "expectedVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverVersion",
+            "columnName": "serverVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverState",
+            "columnName": "serverState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverTitle",
+            "columnName": "serverTitle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localTitle",
+            "columnName": "localTitle",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "serverTodayDate",
+            "columnName": "serverTodayDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localTodayDate",
+            "columnName": "localTodayDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localTodayDateChanged",
+            "columnName": "localTodayDateChanged",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverThemeId",
+            "columnName": "serverThemeId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localThemeId",
+            "columnName": "localThemeId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localThemeIdChanged",
+            "columnName": "localThemeIdChanged",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localChecklistJson",
+            "columnName": "localChecklistJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localChecklistChanged",
+            "columnName": "localChecklistChanged",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverWorkState",
+            "columnName": "serverWorkState",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "serverUpdatedAt",
+            "columnName": "serverUpdatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "detectedAt",
+            "columnName": "detectedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localScheduleStartDate",
+            "columnName": "localScheduleStartDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localScheduleEndDate",
+            "columnName": "localScheduleEndDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localScheduleRangeSemantics",
+            "columnName": "localScheduleRangeSemantics",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localScheduleChanged",
+            "columnName": "localScheduleChanged",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localPlannedStartTime",
+            "columnName": "localPlannedStartTime",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localPlannedDurationMinutes",
+            "columnName": "localPlannedDurationMinutes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "localPlannedScheduleChanged",
+            "columnName": "localPlannedScheduleChanged",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "commandId"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '76c2e2e09c80938663833e70ecbcab3e')"
+    ]
+  }
+}

@@ -117,6 +117,32 @@ test("pause/resume/stopは録音chunkをprepared原音へまとめ既存CommitAu
   assert.equal(appliedCommand.payload.artifact.file_size, first.length + second.length);
 });
 
+test("pause後に遅着したMediaRecorder tail chunkはpausedのまま連番保存し録音時間を増やさない", (t) => {
+  const paths = fixture(t);
+  let currentNow = "2026-08-09T00:00:00.000Z";
+  const service = createService(paths, { now: () => currentNow });
+  const started = service.startRecording({ mediaKind: "audio", mimeType: "audio/webm", themeId: null });
+  const tail = webmBytes("tail-after-pause");
+
+  currentNow = "2026-08-09T00:00:02.000Z";
+  assert.equal(service.pauseRecording(started.sessionId).state, "paused");
+  currentNow = "2026-08-09T00:00:12.000Z";
+  assert.deepEqual(service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(tail) }), {
+    sessionId: started.sessionId,
+    nextSequence: 1,
+    fileSize: tail.length,
+    state: "paused",
+  });
+  currentNow = "2026-08-09T00:00:13.000Z";
+  assert.equal(service.resumeRecording(started.sessionId).state, "recording");
+  const prepared = service.stopRecording(started.sessionId);
+  assert.equal(prepared.durationMs, 2000);
+  assert.throws(
+    () => service.appendRecordingChunk({ sessionId: started.sessionId, sequence: 1, chunk: asArrayBuffer(tail) }),
+    /録音中ではありません/,
+  );
+});
+
 test("再起動後の未確定録音は自動commitせず復旧または破棄できる", (t) => {
   const paths = fixture(t);
   const first = createService(paths);

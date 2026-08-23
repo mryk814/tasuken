@@ -114,7 +114,7 @@ object MobileSyncContract {
 
     private fun validateMeta(ok: Boolean, meta: MobileResponseMetaDto) {
         requireContract(ok, "Sync success response requires ok=true.")
-        requireContract(meta.apiVersion == 1 && meta.schemaVersion == 2, "Unsupported mobile sync version.")
+        requireContract(meta.apiVersion == 1 && meta.schemaVersion == 4, "Unsupported mobile sync version.")
         requireContract(isEntityId(meta.serverId), "Invalid serverId.")
         requireContract(meta.serverRevision >= 0, "serverRevision must be non-negative.")
         requireContract(isTimestamp(meta.generatedAt), "Invalid generatedAt timestamp.")

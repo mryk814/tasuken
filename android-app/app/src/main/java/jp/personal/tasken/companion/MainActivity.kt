@@ -1,11 +1,18 @@
 package jp.personal.tasken.companion
 
+import android.Manifest
 import android.content.res.Configuration
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
+import java.time.Instant
 import java.time.LocalDate
+import java.util.UUID
+import java.util.Locale
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
@@ -26,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -44,6 +52,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,7 +62,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
-import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.material3.adaptive.layout.AnimatedPane
 import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldRole
 import androidx.compose.material3.adaptive.layout.PaneScaffoldDirective
@@ -62,6 +71,7 @@ import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -74,9 +84,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -101,12 +115,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        entryRequest.value = MobileEntryRequestResolver.fromIntent(intent)
+        entryRequest.value = resolveEntryRequest(intent)
         val repository = AndroidMobileTaskRepository(applicationContext)
+        val viewModelFactory = TodayViewModelFactory(repository) {
+            TaskenTodayWidget.updateAll(applicationContext)
+        }
         setContent {
             TaskenTheme {
                 val request by entryRequest.collectAsState()
-                TodayApp(viewModel(factory = TodayViewModelFactory(repository)), request)
+                TodayApp(viewModel(factory = viewModelFactory), request)
             }
         }
     }
@@ -114,7 +131,17 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        entryRequest.value = MobileEntryRequestResolver.fromIntent(intent)
+        entryRequest.value = resolveEntryRequest(intent)
+    }
+
+    private fun resolveEntryRequest(intent: Intent): MobileEntryRequest {
+        val token = intent.getLongExtra(EXTRA_ENTRY_TOKEN, 0L).takeIf { it != 0L }
+            ?: System.nanoTime().also { intent.putExtra(EXTRA_ENTRY_TOKEN, it) }
+        return MobileEntryRequestResolver.fromIntent(intent, token)
+    }
+
+    companion object {
+        private const val EXTRA_ENTRY_TOKEN = "jp.personal.tasken.companion.extra.ENTRY_TOKEN"
     }
 }
 
@@ -160,21 +187,58 @@ private fun TodayApp(
     val conflictCount by todayViewModel.conflictCount.collectAsState()
     val allTasks by todayViewModel.allTasks.collectAsState()
     val themeCatalogState by todayViewModel.themeCatalogState.collectAsState()
+    val workReceiptDetailState by todayViewModel.workReceiptDetailState.collectAsState()
+    val taskWorkProposals by todayViewModel.taskWorkProposals.collectAsState()
+    val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
+    val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
     val themes = themeCatalogState.themes
     val paneState = rememberTodayPaneState()
+    val context = LocalContext.current
+    val speechRecognizer = remember(context) { AndroidShortSpeechRecognizer(context.applicationContext) }
+    var speechState by remember(speechRecognizer) {
+        mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(speechRecognizer.availableMode()))
+    }
+    val startSpeechRecognition = {
+        speechRecognizer.start(Locale.getDefault().toLanguageTag()) { nextState ->
+            speechState = nextState
+            if (nextState is ShortSpeechUiState.Result) {
+                paneState.captureDraft = paneState.captureDraft.withSpeechResult(nextState.result)
+            }
+        }
+    }
+    val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            startSpeechRecognition()
+        } else {
+            speechState = ShortSpeechUiState.Error("マイク権限がありません。手入力はそのまま使えます。")
+        }
+    }
+    val requestSpeechRecognition = {
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            startSpeechRecognition()
+        } else {
+            microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
     val adaptiveInfo = currentWindowAdaptiveInfo()
     val scaffoldDirective = taskenPaneScaffoldDirective(
         base = calculatePaneScaffoldDirective(adaptiveInfo),
-        windowWidth = currentWindowDpSize().width,
+        windowWidth = LocalConfiguration.current.screenWidthDp.dp,
     )
-    val navigator = rememberListDetailPaneScaffoldNavigator(
-        scaffoldDirective = scaffoldDirective,
-    )
+    val navigator = key(scaffoldDirective) {
+        rememberListDetailPaneScaffoldNavigator(
+            scaffoldDirective = scaffoldDirective,
+        )
+    }
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var handledEntryToken by rememberSaveable { mutableLongStateOf(0L) }
+
+    DisposableEffect(speechRecognizer) {
+        onDispose { speechRecognizer.destroy() }
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, todayViewModel) {
@@ -188,8 +252,13 @@ private fun TodayApp(
         if (entryRequest.token == 0L || entryRequest.token == handledEntryToken) return@LaunchedEffect
         when (entryRequest) {
             is MobileEntryRequest.Capture -> {
-                paneState.captureDraft = entryRequest.draft
-                paneState.captureOpen = true
+                paneState.openCapture(
+                    source = entryRequest.source.toCaptureSource(),
+                    initialText = entryRequest.draft,
+                    requestVoice = entryRequest.startVoice,
+                    sharedMimeType = entryRequest.sharedMimeType,
+                )
+                speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
                 handledEntryToken = entryRequest.token
             }
             is MobileEntryRequest.Task -> {
@@ -214,12 +283,39 @@ private fun TodayApp(
             MobileEntryRequest.None -> Unit
         }
     }
+    LaunchedEffect(navigator) {
+        paneState.selectedTaskId?.let { taskId ->
+            navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, taskId)
+        }
+    }
+    LaunchedEffect(paneState.captureOpen, paneState.captureVoiceStartRequested) {
+        if (paneState.captureOpen && paneState.captureVoiceStartRequested) {
+            paneState.consumeVoiceStartRequest()
+            requestSpeechRecognition()
+        }
+    }
     LaunchedEffect(captureState) {
         if (captureState is CaptureUiState.Queued) {
-            paneState.captureDraft = ""
-            paneState.captureOpen = false
-            snackbarHostState.showSnackbar("Taskを追加しました。Desktopへ自動送信します。")
+            val queued = captureState as CaptureUiState.Queued
+            speechRecognizer.cancel()
+            speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+            if (queued.completionBehavior == CaptureCompletionBehavior.Continue) {
+                paneState.continueCapture()
+            } else {
+                paneState.resetCapture()
+            }
             todayViewModel.resetCaptureState()
+            coroutineScope.launch {
+                val result = snackbarHostState.showSnackbar(
+                    message = "Taskを追加しました。Desktopへ自動送信します。",
+                    actionLabel = "元に戻す",
+                    withDismissAction = true,
+                    duration = SnackbarDuration.Long,
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    todayViewModel.undoCreatedTask(queued.taskId)
+                }
+            }
         }
     }
     LaunchedEffect(taskActionState) {
@@ -227,7 +323,7 @@ private fun TodayApp(
             is TaskActionUiState.Queued -> {
                 val queued = taskActionState as TaskActionUiState.Queued
                 snackbarHostState.showSnackbar(
-                    if (queued.requiresSync) {
+                    queued.message ?: if (queued.requiresSync) {
                         "Taskを更新しました。Desktopへ自動送信します。"
                     } else {
                         "未送信の変更を取り消しました。"
@@ -250,6 +346,21 @@ private fun TodayApp(
                 todayViewModel.resetTaskActionState()
             }
             TaskActionUiState.Idle, is TaskActionUiState.Saving -> Unit
+        }
+    }
+    LaunchedEffect(proposalReviewState) {
+        when (val state = proposalReviewState) {
+            is ProposalReviewUiState.Applied -> {
+                snackbarHostState.showSnackbar(
+                    if (state.decision == "accept") "Proposalを承認しました。" else "Proposalを却下しました。",
+                )
+                todayViewModel.resetProposalReviewState()
+            }
+            is ProposalReviewUiState.Error -> {
+                snackbarHostState.showSnackbar(state.message)
+                todayViewModel.resetProposalReviewState()
+            }
+            ProposalReviewUiState.Idle, is ProposalReviewUiState.Reviewing -> Unit
         }
     }
 
@@ -332,7 +443,13 @@ private fun TodayApp(
                 )
                 NavigationBarItem(
                     selected = false,
-                    onClick = { paneState.captureOpen = true },
+                    onClick = {
+                        paneState.openCapture(
+                            source = MobileCaptureSource.AndroidApp,
+                            replaceDraft = false,
+                        )
+                        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+                    },
                     icon = { Text("+") },
                     label = { Text("追加") },
                 )
@@ -372,6 +489,7 @@ private fun TodayApp(
                         AppSection.Ai -> AiInboxListPane(
                             uiState = uiState,
                             tasks = allTasks,
+                            proposals = taskWorkProposals,
                             paneState = paneState,
                             onRetry = todayViewModel::load,
                             onRetryPairing = todayViewModel::retryPairing,
@@ -384,9 +502,19 @@ private fun TodayApp(
             detailPane = {
                 AnimatedPane {
                     val task = allTasks.firstOrNull { it.id == paneState.selectedTaskId }
+                    val receiptId = task?.latestWorkReceipt?.id
+                    LaunchedEffect(task?.id, receiptId) {
+                        if (task != null && receiptId != null) {
+                            todayViewModel.loadWorkReceipt(task.id, receiptId)
+                        }
+                    }
                     TodayDetailPane(
                         task = task,
                         actionState = taskActionState,
+                        workReceiptDetailState = workReceiptDetailState,
+                        taskWorkProposals = taskWorkProposals.filter { it.taskId == task?.id },
+                        proposalReviewOnline = proposalReviewOnline,
+                        proposalReviewState = proposalReviewState,
                         themes = themes,
                         themeCatalogState = themeCatalogState,
                         onStateAction = todayViewModel::toggleTaskState,
@@ -394,8 +522,13 @@ private fun TodayApp(
                         onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                         onThemeUpdate = todayViewModel::updateTaskTheme,
                         onScheduleUpdate = todayViewModel::updateTaskSchedule,
+                        onChecklistUpdate = todayViewModel::updateTaskChecklist,
                         onRejectedThemeDiscard = todayViewModel::discardRejectedThemeUpdate,
                         onConflictResolution = todayViewModel::resolveConflict,
+                        onWorkReceiptRetry = { selectedTask, selectedReceiptId ->
+                            todayViewModel.loadWorkReceipt(selectedTask.id, selectedReceiptId, force = true)
+                        },
+                        onProposalDecision = todayViewModel::reviewTaskWorkProposal,
                     )
                 }
             },
@@ -407,10 +540,22 @@ private fun TodayApp(
         CaptureTaskSheet(
             draft = paneState.captureDraft,
             state = captureState,
-            onDraftChanged = { paneState.captureDraft = it },
-            onSubmit = { todayViewModel.createTask(paneState.captureDraft) },
+            speechState = speechState,
+            themes = themes,
+            themeCatalogState = themeCatalogState,
+            onDraftChanged = { paneState.captureDraft = paneState.captureDraft.withText(it) },
+            onThemeSelected = { themeId ->
+                paneState.captureDraft = paneState.captureDraft.withThemeId(themeId)
+            },
+            requestInputFocus = paneState.captureInputFocusRequested,
+            onInputFocusHandled = paneState::consumeInputFocusRequest,
+            onSubmit = { behavior -> todayViewModel.createTask(paneState.captureDraft, behavior) },
+            onStartVoice = requestSpeechRecognition,
+            onStopVoice = speechRecognizer::stop,
             onDismiss = {
                 if (captureState !is CaptureUiState.Saving) {
+                    speechRecognizer.cancel()
+                    speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
                     paneState.captureOpen = false
                     todayViewModel.resetCaptureState()
                 }
@@ -421,21 +566,45 @@ private fun TodayApp(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CaptureTaskSheet(
-    draft: String,
+internal fun CaptureTaskSheet(
+    draft: MobileCaptureDraft,
     state: CaptureUiState,
+    speechState: ShortSpeechUiState,
+    themes: List<MobileTheme>,
+    themeCatalogState: MobileThemeCatalogState,
     onDraftChanged: (String) -> Unit,
-    onSubmit: () -> Unit,
+    onThemeSelected: (String?) -> Unit,
+    requestInputFocus: Boolean = false,
+    onInputFocusHandled: () -> Unit = {},
+    onSubmit: (CaptureCompletionBehavior) -> Unit,
+    onStartVoice: () -> Unit,
+    onStopVoice: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val focusRequester = remember(draft.draftId) { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(draft.draftId, requestInputFocus) {
+        if (requestInputFocus) {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+            onInputFocusHandled()
+        }
+    }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Taskを追加", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "入力元: ${captureSourceLabel(draft.source)}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             OutlinedTextField(
-                value = draft,
+                value = draft.text,
                 onValueChange = { onDraftChanged(it.take(500)) },
                 label = { Text("Task名") },
                 placeholder = { Text("例: 実験条件を整理する") },
@@ -448,17 +617,169 @@ private fun CaptureTaskSheet(
                 enabled = state !is CaptureUiState.Saving,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (draft.isNotBlank()) onSubmit() }),
-                modifier = Modifier.fillMaxWidth(),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (draft.text.isNotBlank()) onSubmit(CaptureCompletionBehavior.Close)
+                }),
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
             )
-            Button(
-                onClick = onSubmit,
-                enabled = state !is CaptureUiState.Saving && draft.isNotBlank(),
-                modifier = Modifier.align(Alignment.End),
+            CaptureThemePicker(
+                draftId = draft.draftId,
+                themeId = draft.projectId,
+                themes = themes,
+                catalogState = themeCatalogState,
+                enabled = state !is CaptureUiState.Saving,
+                onThemeSelected = onThemeSelected,
+            )
+            val speechBusy = speechState is ShortSpeechUiState.Listening ||
+                speechState is ShortSpeechUiState.Partial ||
+                speechState is ShortSpeechUiState.Processing
+            OutlinedButton(
+                onClick = if (speechBusy) onStopVoice else onStartVoice,
+                enabled = state !is CaptureUiState.Saving,
             ) {
-                Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
+                Text(if (speechBusy) "音声を確定" else "🎙 音声で入力")
+            }
+            Text(
+                speechStatusText(speechState, draft),
+                color = if (speechState is ShortSpeechUiState.Error) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = { onSubmit(CaptureCompletionBehavior.Continue) },
+                    enabled = state !is CaptureUiState.Saving && draft.text.isNotBlank(),
+                    modifier = Modifier.testTag("capture-submit-continue"),
+                ) {
+                    Text("追加して次へ")
+                }
+                Button(
+                    onClick = { onSubmit(CaptureCompletionBehavior.Close) },
+                    enabled = state !is CaptureUiState.Saving && draft.text.isNotBlank(),
+                    modifier = Modifier.testTag("capture-submit-close"),
+                ) {
+                    Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
+                }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun CaptureThemePicker(
+    draftId: String,
+    themeId: String?,
+    themes: List<MobileTheme>,
+    catalogState: MobileThemeCatalogState,
+    enabled: Boolean,
+    onThemeSelected: (String?) -> Unit,
+) {
+    var expanded by rememberSaveable(draftId) { mutableStateOf(false) }
+    val selectedTheme = themes.firstOrNull { it.id == themeId }
+    val catalogAllowsSelection = catalogState is MobileThemeCatalogState.Available ||
+        catalogState is MobileThemeCatalogState.Stale
+    val pickerEnabled = enabled && catalogAllowsSelection && (themes.isNotEmpty() || themeId != null)
+    val displayedValue = selectedTheme?.title ?: when {
+        themeId != null -> "選択済みTheme（一覧外）"
+        catalogState is MobileThemeCatalogState.Loading -> "読み込み中"
+        catalogState is MobileThemeCatalogState.Unsupported -> "未対応"
+        catalogState is MobileThemeCatalogState.Error -> "取得できません"
+        else -> "Themeなし"
+    }
+    val displayedState = selectedTheme?.let { "選択中のTheme: ${it.title}" }
+        ?: if (themeId != null) "選択中のThemeは一覧外" else "Themeなし"
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { if (pickerEnabled) expanded = !expanded },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        OutlinedTextField(
+            value = displayedValue,
+            onValueChange = {},
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = pickerEnabled)
+                .fillMaxWidth()
+                .testTag("capture-theme-picker")
+                .semantics { this.stateDescription = displayedState },
+            label = { Text("Theme（任意）") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            readOnly = true,
+            singleLine = true,
+            enabled = pickerEnabled,
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            val noThemeSelected = themeId == null
+            DropdownMenuItem(
+                text = { Text("Themeなし") },
+                trailingIcon = { if (noThemeSelected) Text("選択中") },
+                onClick = {
+                    expanded = false
+                    if (!noThemeSelected) onThemeSelected(null)
+                },
+                modifier = Modifier
+                    .testTag("capture-theme-none-option")
+                    .semantics { selected = noThemeSelected },
+            )
+            themes.forEach { theme ->
+                val isSelected = theme.id == themeId
+                DropdownMenuItem(
+                    text = { Text(theme.title) },
+                    trailingIcon = { if (isSelected) Text("選択中") },
+                    onClick = {
+                        expanded = false
+                        if (!isSelected) onThemeSelected(theme.id)
+                    },
+                    modifier = Modifier
+                        .testTag("capture-theme-option-${theme.id}")
+                        .semantics { selected = isSelected },
+                )
+            }
+        }
+    }
+
+    val helperText = when (catalogState) {
+        is MobileThemeCatalogState.Loading -> null
+        is MobileThemeCatalogState.Available -> if (themes.isEmpty()) "利用できるThemeがありません。" else null
+        is MobileThemeCatalogState.Stale -> "オフラインのTheme一覧を使用中です。"
+        is MobileThemeCatalogState.Unsupported -> "Desktopを更新するとThemeを選べます。"
+        is MobileThemeCatalogState.Error -> "Theme一覧を取得できません。接続後に再試行してください。"
+    }
+    if (helperText != null) {
+        Text(helperText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private fun captureSourceLabel(source: MobileCaptureSource): String = when (source) {
+    MobileCaptureSource.AndroidApp -> "Tasken"
+    MobileCaptureSource.Widget -> "Widget"
+    MobileCaptureSource.AppShortcut -> "App Shortcut"
+    MobileCaptureSource.ShareTarget -> "Share Target"
+    MobileCaptureSource.AndroidSpeech -> "Android音声入力"
+}
+
+private fun speechStatusText(state: ShortSpeechUiState, draft: MobileCaptureDraft): String = when (state) {
+    is ShortSpeechUiState.Idle -> speechPrivacyDescription(state.availableMode)
+    is ShortSpeechUiState.Listening -> "聞いています… ${speechModeLabel(state.mode)}"
+    is ShortSpeechUiState.Partial -> "認識中: ${state.text}"
+    is ShortSpeechUiState.Processing -> "文字にしています… ${speechModeLabel(state.mode)}"
+    is ShortSpeechUiState.Result ->
+        "${speechModeLabel(state.result.mode)}の結果です。内容を確認・修正してから追加してください。"
+    is ShortSpeechUiState.Error -> state.message
+}.let { status ->
+    val speech = draft.speech
+    if (speech == null || state is ShortSpeechUiState.Result) status else {
+        "$status ${speechModeLabel(speech.recognitionMode)}・${speech.language}"
     }
 }
 
@@ -591,6 +912,7 @@ private fun TasksListPane(
 private fun AiInboxListPane(
     uiState: TodayUiState,
     tasks: List<MobileTask>,
+    proposals: List<MobileTaskWorkProposal>,
     paneState: TodayPaneState,
     onRetry: () -> Unit,
     onRetryPairing: () -> Unit,
@@ -606,7 +928,7 @@ private fun AiInboxListPane(
         }
         else -> {
             val sections = filterAiInboxTasks(tasks)
-            if (sections.isEmpty()) {
+            if (sections.isEmpty() && proposals.isEmpty()) {
                 CenteredState { Text("AI作業中のTaskはありません") }
             } else {
                 val listState = rememberLazyListState(
@@ -623,6 +945,58 @@ private fun AiInboxListPane(
                     contentPadding = PaddingValues(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    if (proposals.isNotEmpty()) {
+                        item(key = "section-proposals") {
+                            Text(
+                                "確認待ち",
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        items(proposals, key = { "proposal-${it.id}" }) { proposal ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("proposal-list-${proposal.id}")
+                                    .semantics { role = Role.Button }
+                                    .clickable { onTaskSelected(proposal.taskId) },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (proposal.taskId == paneState.selectedTaskId) {
+                                        MaterialTheme.colorScheme.tertiaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                ),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary),
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Text(proposal.taskTitle, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            taskWorkProposalActionLabel(proposal.action),
+                                            color = MaterialTheme.colorScheme.tertiary,
+                                        )
+                                    }
+                                    Text(
+                                        "${proposal.caller} · ${proposal.sourceApp}",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 12.sp,
+                                    )
+                                    proposal.summary?.let { Text(it, maxLines = 2) }
+                                    if (proposal.stale) {
+                                        Text("Task更新済み · 承認不可", color = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
+                        }
+                    }
                     for ((section, sectionTasks) in sections) {
                         item(key = "section-${section.name}") {
                             Text(
@@ -718,7 +1092,7 @@ private fun PairingPane(
             value = pairingCode,
             onValueChange = { pairingCode = it.filter(Char::isDigit).take(8) },
             label = { Text("8桁のPairing code") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -809,6 +1183,10 @@ private fun TodayTaskList(
 internal fun TodayDetailPane(
     task: MobileTask?,
     actionState: TaskActionUiState,
+    workReceiptDetailState: WorkReceiptDetailUiState = WorkReceiptDetailUiState.Idle,
+    taskWorkProposals: List<MobileTaskWorkProposal> = emptyList(),
+    proposalReviewOnline: Boolean = false,
+    proposalReviewState: ProposalReviewUiState = ProposalReviewUiState.Idle,
     themes: List<MobileTheme> = emptyList(),
     themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
         MobileThemeCatalogState.Loading()
@@ -820,8 +1198,11 @@ internal fun TodayDetailPane(
     onTodayDateUpdate: (MobileTask, LocalDate?) -> Unit = { _, _ -> },
     onThemeUpdate: (MobileTask, String) -> Unit = { _, _ -> },
     onScheduleUpdate: (MobileTask, MobileTaskScheduleDraft) -> Unit = { _, _ -> },
+    onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
     onRejectedThemeDiscard: (MobileTask) -> Unit = {},
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
+    onWorkReceiptRetry: (MobileTask, String) -> Unit = { _, _ -> },
+    onProposalDecision: (MobileTaskWorkProposal, String) -> Unit = { _, _ -> },
 ) {
     if (task == null) {
         CenteredState { Text("Taskを選んでください") }
@@ -871,6 +1252,9 @@ internal fun TodayDetailPane(
                             if (conflict.localThemeIdChanged) {
                                 Text("Desktop  Theme ${themeTitleForDisplay(themes, conflict.serverThemeId)}")
                                 Text("この端末  Theme ${themeTitleForDisplay(themes, conflict.localThemeId)}")
+                            } else if (conflict.localChecklistItemsChanged) {
+                                Text("Desktop  Checklist ${checklistConflictLabel(conflict.serverChecklistItems)}")
+                                Text("この端末  Checklist ${checklistConflictLabel(conflict.localChecklistItems)}")
                             } else if (conflict.localScheduleChanged) {
                                 Text("Desktop  予定 ${scheduleConflictLabel(conflict.serverSchedule)}")
                                 Text("この端末  予定 ${scheduleConflictLabel(conflict.localSchedule)}")
@@ -885,8 +1269,14 @@ internal fun TodayDetailPane(
                             }
                         } else {
                             Text("Desktop  ${taskStateLabel(conflict.serverState)}  v${conflict.serverVersion}")
+                            val localAction = when (conflict.intendedAction) {
+                                "CompleteTask" -> "完了"
+                                "ReopenTask" -> "再開"
+                                "DeleteTask" -> "削除"
+                                else -> "変更"
+                            }
                             Text(
-                                "この端末  ${if (conflict.intendedAction == "CompleteTask") "完了" else "再開"}  " +
+                                "この端末  $localAction  " +
                                     "(v${conflict.expectedVersion}から)",
                             )
                         }
@@ -964,8 +1354,29 @@ internal fun TodayDetailPane(
                 },
                 onSave = { onScheduleUpdate(task, it) },
             )
+            TaskChecklistEditor(
+                task = task,
+                enabled = (!task.pending || task.canEditPendingChecklist) && task.conflict == null &&
+                    actionState !is TaskActionUiState.Saving,
+                stateDescription = when {
+                    task.pending && task.canEditPendingChecklist -> "送信待ちのChecklistへ追記できます"
+                    task.pending -> "同期後に変更"
+                    task.conflict != null -> "競合を解決してから変更"
+                    actionState is TaskActionUiState.Saving -> "保存中"
+                    else -> null
+                },
+                onSave = { onChecklistUpdate(task, it) },
+            )
             Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
+            taskWorkProposals.forEach { proposal ->
+                TaskWorkProposalReviewCard(
+                    proposal = proposal,
+                    online = proposalReviewOnline,
+                    reviewState = proposalReviewState,
+                    onDecision = onProposalDecision,
+                )
+            }
             task.latestWorkReceipt?.let { receipt ->
                 Card(
                     modifier = Modifier.fillMaxWidth().testTag("work-receipt-summary"),
@@ -978,6 +1389,37 @@ internal fun TodayDetailPane(
                         Text("最新のWork Receipt", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text("${receipt.executorLabel}  ${receipt.reportedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(receipt.summary)
+                        when (val detailState = workReceiptDetailState) {
+                            is WorkReceiptDetailUiState.Loading -> if (detailState.receiptId == receipt.id) {
+                                Row(
+                                    modifier = Modifier.testTag("work-receipt-loading"),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CircularProgressIndicator()
+                                    Text("詳細を読み込んでいます")
+                                }
+                            }
+                            is WorkReceiptDetailUiState.Available -> if (detailState.detail.id == receipt.id) {
+                                WorkReceiptDetailContent(
+                                    detail = detailState.detail,
+                                    fromCache = detailState.fromCache,
+                                    warning = detailState.warning,
+                                )
+                            }
+                            is WorkReceiptDetailUiState.Error -> if (detailState.receiptId == receipt.id) {
+                                Column(
+                                    modifier = Modifier.testTag("work-receipt-error"),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(detailState.message, color = MaterialTheme.colorScheme.error)
+                                    TextButton(onClick = { onWorkReceiptRetry(task, receipt.id) }) {
+                                        Text("詳細を再読み込み")
+                                    }
+                                }
+                            }
+                            WorkReceiptDetailUiState.Idle -> Unit
+                        }
                     }
                 }
             }
@@ -1009,6 +1451,300 @@ internal fun TodayDetailPane(
                     },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun TaskWorkProposalReviewCard(
+    proposal: MobileTaskWorkProposal,
+    online: Boolean,
+    reviewState: ProposalReviewUiState,
+    onDecision: (MobileTaskWorkProposal, String) -> Unit,
+) {
+    val reviewing = reviewState is ProposalReviewUiState.Reviewing && reviewState.proposalId == proposal.id
+    val uriHandler = LocalUriHandler.current
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("proposal-detail-${proposal.id}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("AI Proposal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(taskWorkProposalActionLabel(proposal.action), color = MaterialTheme.colorScheme.tertiary)
+            }
+            Text(
+                "${proposal.caller} · ${proposal.sourceApp}",
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            proposal.executorLabel?.let { Text("実行  $it") }
+            proposal.summary?.let { Text(it) }
+            WorkReceiptItemSection("完了", proposal.completedItems)
+            WorkReceiptItemSection("変更 / 作成", proposal.changedOrCreatedItems)
+            WorkReceiptItemSection("確認", proposal.verification)
+            WorkReceiptItemSection("残り", proposal.remainingWork)
+            if (proposal.externalReferences.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("関連リンク", fontWeight = FontWeight.SemiBold)
+                    proposal.externalReferences.forEach { reference ->
+                        TextButton(
+                            onClick = { uriHandler.openUri(reference.url) },
+                            modifier = Modifier.testTag("proposal-link-${reference.kind}"),
+                        ) {
+                            Text(reference.displayLabel)
+                        }
+                    }
+                }
+            }
+            when {
+                proposal.stale -> Text(
+                    "Taskが更新されています。承認せず、AIへ再報告を依頼してください。",
+                    color = MaterialTheme.colorScheme.error,
+                )
+                !online -> Text(
+                    "Offline cache · Desktop接続時に承認できます",
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                proposal.truncated -> Text(
+                    "長いProposalの一部を省略しています。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onDecision(proposal, "accept") },
+                    enabled = online && !proposal.stale && !reviewing,
+                    modifier = Modifier.testTag("proposal-approve-${proposal.id}"),
+                ) {
+                    Text(if (reviewing && reviewState.decision == "accept") "承認中" else "承認")
+                }
+                TextButton(
+                    onClick = { onDecision(proposal, "reject") },
+                    enabled = online && !reviewing,
+                    modifier = Modifier.testTag("proposal-reject-${proposal.id}"),
+                ) {
+                    Text(if (reviewing && reviewState.decision == "reject") "却下中" else "却下")
+                }
+            }
+        }
+    }
+}
+
+private fun taskWorkProposalActionLabel(action: String): String = when (action) {
+    "start" -> "作業開始"
+    "append_receipt" -> "進捗追記"
+    "report_done" -> "完了報告"
+    "report_blocked" -> "Blocked"
+    else -> "Proposal"
+}
+
+@Composable
+private fun WorkReceiptDetailContent(
+    detail: MobileWorkReceiptDetail,
+    fromCache: Boolean,
+    warning: String?,
+) {
+    val uriHandler = LocalUriHandler.current
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("work-receipt-detail"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (detail.startedAt != null) {
+            Text("開始  ${detail.startedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (fromCache) Text("Offline cache", color = MaterialTheme.colorScheme.secondary)
+        warning?.let { Text(it, color = MaterialTheme.colorScheme.secondary) }
+        WorkReceiptItemSection("完了", detail.completedItems)
+        WorkReceiptItemSection("変更 / 作成", detail.changedOrCreatedItems)
+        WorkReceiptItemSection("確認", detail.verification)
+        WorkReceiptItemSection("残り", detail.remainingWork)
+        if (detail.externalReferences.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("関連リンク", fontWeight = FontWeight.SemiBold)
+                detail.externalReferences.forEach { reference ->
+                    TextButton(
+                        onClick = { uriHandler.openUri(reference.url) },
+                        modifier = Modifier.testTag("work-receipt-link-${reference.kind}"),
+                    ) {
+                        Text(reference.displayLabel)
+                    }
+                }
+            }
+        }
+        if (detail.truncated) {
+            Text(
+                "長いReceiptの一部を省略しています。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WorkReceiptItemSection(label: String, items: List<String>) {
+    if (items.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, fontWeight = FontWeight.SemiBold)
+        items.forEach { item -> Text("• $item") }
+    }
+}
+
+private fun checklistConflictLabel(items: List<MobileChecklistItem>): String {
+    val completed = items.count { it.done }
+    return "${completed}/${items.size} 完了"
+}
+
+@Composable
+private fun TaskChecklistEditor(
+    task: MobileTask,
+    enabled: Boolean,
+    stateDescription: String?,
+    onSave: (List<MobileChecklistItem>) -> Unit,
+) {
+    var addDraft by rememberSaveable(task.id) { mutableStateOf("") }
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("task-checklist"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Checklist", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "${task.checklistItems.count { it.done }}/${task.checklistItems.size}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            stateDescription?.let {
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            task.checklistItems.forEach { item ->
+                ChecklistItemEditor(
+                    taskId = task.id,
+                    item = item,
+                    enabled = enabled,
+                    onToggle = {
+                        onSave(task.checklistItems.map { current ->
+                            if (current.id == item.id) {
+                                current.copy(
+                                    done = !current.done,
+                                    completedAt = if (current.done) null else Instant.now().toString(),
+                                )
+                            } else {
+                                current
+                            }
+                        })
+                    },
+                    onRename = { title ->
+                        onSave(task.checklistItems.map { current ->
+                            if (current.id == item.id) current.copy(title = title) else current
+                        })
+                    },
+                    onDelete = {
+                        onSave(task.checklistItems.filterNot { current -> current.id == item.id })
+                    },
+                )
+            }
+            if (task.checklistItems.isEmpty()) {
+                Text("項目はまだありません", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = addDraft,
+                    onValueChange = { if (it.length <= 200) addDraft = it },
+                    modifier = Modifier.weight(1f).testTag("checklist-add-title"),
+                    label = { Text("項目を追加") },
+                    singleLine = true,
+                    enabled = enabled && task.checklistItems.size < 100,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        val title = addDraft.trim()
+                        if (title.isNotEmpty() && task.checklistItems.size < 100) {
+                            addDraft = ""
+                            onSave(task.checklistItems + MobileChecklistItem(
+                                id = UUID.randomUUID().toString(),
+                                title = title,
+                                done = false,
+                                sortOrder = task.checklistItems.size.toDouble(),
+                            ))
+                        }
+                    }),
+                )
+                Button(
+                    onClick = {
+                        val title = addDraft.trim()
+                        addDraft = ""
+                        onSave(task.checklistItems + MobileChecklistItem(
+                            id = UUID.randomUUID().toString(),
+                            title = title,
+                            done = false,
+                            sortOrder = task.checklistItems.size.toDouble(),
+                        ))
+                    },
+                    enabled = enabled && addDraft.trim().isNotEmpty() && task.checklistItems.size < 100,
+                    modifier = Modifier.testTag("checklist-add"),
+                ) { Text("追加") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChecklistItemEditor(
+    taskId: String,
+    item: MobileChecklistItem,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var titleDraft by rememberSaveable(taskId, item.id, item.title) { mutableStateOf(item.title) }
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("checklist-item-${item.id}"),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(checked = item.done, onCheckedChange = { onToggle() }, enabled = enabled)
+            OutlinedTextField(
+                value = titleDraft,
+                onValueChange = { if (it.length <= 200) titleDraft = it },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (titleDraft.trim().isNotEmpty() && titleDraft.trim() != item.title) onRename(titleDraft)
+                }),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(
+                onClick = { onRename(titleDraft) },
+                enabled = enabled && titleDraft.trim().isNotEmpty() && titleDraft.trim() != item.title,
+            ) { Text("保存") }
+            TextButton(onClick = onDelete, enabled = enabled) { Text("削除") }
         }
     }
 }

@@ -373,6 +373,42 @@ test("Task application boundary rejects a second active Schedule for the same ow
   }), /active Scheduleを1件だけ/);
 });
 
+test("CreateTask stores validated capture provenance only on its canonical change event", () => {
+  const { application, repository, service } = capability();
+  const provenance = {
+    reported_via: "share_target",
+    captured_at: now,
+    capture_method: null,
+    recognition_mode: null,
+    language: null,
+    confidence: null,
+    source_audio_available: null,
+    shared_mime_type: "text/plain",
+  };
+  const command = createCommand("mobile", "capture-provenance");
+  command.payload.provenance = provenance;
+
+  const response = service.executeCommand(command);
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(repository.list("change_event")[0].metadata.provenance, provenance);
+  assert.equal(Object.hasOwn(repository.get("task", "task-capture-provenance"), "provenance"), false);
+
+  assert.throws(() => application.execute({
+    commandId: "application-invalid-provenance",
+    name: "CreateTask",
+    actor: { kind: "user" },
+    source: "main_ui",
+    issuedAt: now,
+    payload: {
+      task: {
+        ...createCommand("mobile", "invalid-provenance").payload.task,
+      },
+      provenance: { ...provenance, shared_mime_type: null },
+    },
+  }), /provenance/);
+});
+
 test("Desktop, HTTP, and authorized MCP use the same Task application handler semantics", () => {
   const desktop = capability();
   const desktopResponse = desktop.service.executeCommand(createCommand("desktop", "desktop"));
