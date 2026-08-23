@@ -188,6 +188,9 @@ private fun TodayApp(
     val allTasks by todayViewModel.allTasks.collectAsState()
     val themeCatalogState by todayViewModel.themeCatalogState.collectAsState()
     val workReceiptDetailState by todayViewModel.workReceiptDetailState.collectAsState()
+    val taskWorkProposals by todayViewModel.taskWorkProposals.collectAsState()
+    val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
+    val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
     val themes = themeCatalogState.themes
     val paneState = rememberTodayPaneState()
     val context = LocalContext.current
@@ -345,6 +348,21 @@ private fun TodayApp(
             TaskActionUiState.Idle, is TaskActionUiState.Saving -> Unit
         }
     }
+    LaunchedEffect(proposalReviewState) {
+        when (val state = proposalReviewState) {
+            is ProposalReviewUiState.Applied -> {
+                snackbarHostState.showSnackbar(
+                    if (state.decision == "accept") "Proposalを承認しました。" else "Proposalを却下しました。",
+                )
+                todayViewModel.resetProposalReviewState()
+            }
+            is ProposalReviewUiState.Error -> {
+                snackbarHostState.showSnackbar(state.message)
+                todayViewModel.resetProposalReviewState()
+            }
+            ProposalReviewUiState.Idle, is ProposalReviewUiState.Reviewing -> Unit
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -471,6 +489,7 @@ private fun TodayApp(
                         AppSection.Ai -> AiInboxListPane(
                             uiState = uiState,
                             tasks = allTasks,
+                            proposals = taskWorkProposals,
                             paneState = paneState,
                             onRetry = todayViewModel::load,
                             onRetryPairing = todayViewModel::retryPairing,
@@ -493,6 +512,9 @@ private fun TodayApp(
                         task = task,
                         actionState = taskActionState,
                         workReceiptDetailState = workReceiptDetailState,
+                        taskWorkProposals = taskWorkProposals.filter { it.taskId == task?.id },
+                        proposalReviewOnline = proposalReviewOnline,
+                        proposalReviewState = proposalReviewState,
                         themes = themes,
                         themeCatalogState = themeCatalogState,
                         onStateAction = todayViewModel::toggleTaskState,
@@ -506,6 +528,7 @@ private fun TodayApp(
                         onWorkReceiptRetry = { selectedTask, selectedReceiptId ->
                             todayViewModel.loadWorkReceipt(selectedTask.id, selectedReceiptId, force = true)
                         },
+                        onProposalDecision = todayViewModel::reviewTaskWorkProposal,
                     )
                 }
             },
@@ -889,6 +912,7 @@ private fun TasksListPane(
 private fun AiInboxListPane(
     uiState: TodayUiState,
     tasks: List<MobileTask>,
+    proposals: List<MobileTaskWorkProposal>,
     paneState: TodayPaneState,
     onRetry: () -> Unit,
     onRetryPairing: () -> Unit,
@@ -904,7 +928,7 @@ private fun AiInboxListPane(
         }
         else -> {
             val sections = filterAiInboxTasks(tasks)
-            if (sections.isEmpty()) {
+            if (sections.isEmpty() && proposals.isEmpty()) {
                 CenteredState { Text("AI作業中のTaskはありません") }
             } else {
                 val listState = rememberLazyListState(
@@ -921,6 +945,58 @@ private fun AiInboxListPane(
                     contentPadding = PaddingValues(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    if (proposals.isNotEmpty()) {
+                        item(key = "section-proposals") {
+                            Text(
+                                "確認待ち",
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        items(proposals, key = { "proposal-${it.id}" }) { proposal ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("proposal-list-${proposal.id}")
+                                    .semantics { role = Role.Button }
+                                    .clickable { onTaskSelected(proposal.taskId) },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (proposal.taskId == paneState.selectedTaskId) {
+                                        MaterialTheme.colorScheme.tertiaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                ),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary),
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Text(proposal.taskTitle, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            taskWorkProposalActionLabel(proposal.action),
+                                            color = MaterialTheme.colorScheme.tertiary,
+                                        )
+                                    }
+                                    Text(
+                                        "${proposal.caller} · ${proposal.sourceApp}",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 12.sp,
+                                    )
+                                    proposal.summary?.let { Text(it, maxLines = 2) }
+                                    if (proposal.stale) {
+                                        Text("Task更新済み · 承認不可", color = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
+                        }
+                    }
                     for ((section, sectionTasks) in sections) {
                         item(key = "section-${section.name}") {
                             Text(
@@ -1108,6 +1184,9 @@ internal fun TodayDetailPane(
     task: MobileTask?,
     actionState: TaskActionUiState,
     workReceiptDetailState: WorkReceiptDetailUiState = WorkReceiptDetailUiState.Idle,
+    taskWorkProposals: List<MobileTaskWorkProposal> = emptyList(),
+    proposalReviewOnline: Boolean = false,
+    proposalReviewState: ProposalReviewUiState = ProposalReviewUiState.Idle,
     themes: List<MobileTheme> = emptyList(),
     themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
         MobileThemeCatalogState.Loading()
@@ -1123,6 +1202,7 @@ internal fun TodayDetailPane(
     onRejectedThemeDiscard: (MobileTask) -> Unit = {},
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
     onWorkReceiptRetry: (MobileTask, String) -> Unit = { _, _ -> },
+    onProposalDecision: (MobileTaskWorkProposal, String) -> Unit = { _, _ -> },
 ) {
     if (task == null) {
         CenteredState { Text("Taskを選んでください") }
@@ -1289,6 +1369,14 @@ internal fun TodayDetailPane(
             )
             Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
+            taskWorkProposals.forEach { proposal ->
+                TaskWorkProposalReviewCard(
+                    proposal = proposal,
+                    online = proposalReviewOnline,
+                    reviewState = proposalReviewState,
+                    onDecision = onProposalDecision,
+                )
+            }
             task.latestWorkReceipt?.let { receipt ->
                 Card(
                     modifier = Modifier.fillMaxWidth().testTag("work-receipt-summary"),
@@ -1365,6 +1453,97 @@ internal fun TodayDetailPane(
             }
         }
     }
+}
+
+@Composable
+private fun TaskWorkProposalReviewCard(
+    proposal: MobileTaskWorkProposal,
+    online: Boolean,
+    reviewState: ProposalReviewUiState,
+    onDecision: (MobileTaskWorkProposal, String) -> Unit,
+) {
+    val reviewing = reviewState is ProposalReviewUiState.Reviewing && reviewState.proposalId == proposal.id
+    val uriHandler = LocalUriHandler.current
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("proposal-detail-${proposal.id}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("AI Proposal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(taskWorkProposalActionLabel(proposal.action), color = MaterialTheme.colorScheme.tertiary)
+            }
+            Text(
+                "${proposal.caller} · ${proposal.sourceApp}",
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            proposal.executorLabel?.let { Text("実行  $it") }
+            proposal.summary?.let { Text(it) }
+            WorkReceiptItemSection("完了", proposal.completedItems)
+            WorkReceiptItemSection("変更 / 作成", proposal.changedOrCreatedItems)
+            WorkReceiptItemSection("確認", proposal.verification)
+            WorkReceiptItemSection("残り", proposal.remainingWork)
+            if (proposal.externalReferences.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("関連リンク", fontWeight = FontWeight.SemiBold)
+                    proposal.externalReferences.forEach { reference ->
+                        TextButton(
+                            onClick = { uriHandler.openUri(reference.url) },
+                            modifier = Modifier.testTag("proposal-link-${reference.kind}"),
+                        ) {
+                            Text(reference.displayLabel)
+                        }
+                    }
+                }
+            }
+            when {
+                proposal.stale -> Text(
+                    "Taskが更新されています。承認せず、AIへ再報告を依頼してください。",
+                    color = MaterialTheme.colorScheme.error,
+                )
+                !online -> Text(
+                    "Offline cache · Desktop接続時に承認できます",
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                proposal.truncated -> Text(
+                    "長いProposalの一部を省略しています。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onDecision(proposal, "accept") },
+                    enabled = online && !proposal.stale && !reviewing,
+                    modifier = Modifier.testTag("proposal-approve-${proposal.id}"),
+                ) {
+                    Text(if (reviewing && reviewState.decision == "accept") "承認中" else "承認")
+                }
+                TextButton(
+                    onClick = { onDecision(proposal, "reject") },
+                    enabled = online && !reviewing,
+                    modifier = Modifier.testTag("proposal-reject-${proposal.id}"),
+                ) {
+                    Text(if (reviewing && reviewState.decision == "reject") "却下中" else "却下")
+                }
+            }
+        }
+    }
+}
+
+private fun taskWorkProposalActionLabel(action: String): String = when (action) {
+    "start" -> "作業開始"
+    "append_receipt" -> "進捗追記"
+    "report_done" -> "完了報告"
+    "report_blocked" -> "Blocked"
+    else -> "Proposal"
 }
 
 @Composable

@@ -481,7 +481,7 @@ class MobileLocalDatabaseMigrationTest {
             }
             db.query("SELECT envelopeJson, state FROM outbox_command WHERE commandId = 'command-10'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(3, MobileTaskCommandContract.decodeUpdateEnvelope(cursor.getString(0)).schemaVersion)
+                assertTrue(cursor.getString(0).contains("\"schemaVersion\":3"))
                 assertEquals("pending", cursor.getString(1))
             }
             db.query("SELECT schemaVersion, cursor FROM sync_state WHERE id = 1").use { cursor ->
@@ -538,6 +538,71 @@ class MobileLocalDatabaseMigrationTest {
             db.query("SELECT taskId, serverId FROM work_receipt_cache WHERE id = 'receipt-11'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertEquals("task-11", cursor.getString(0))
+                assertEquals("desktop-home", cursor.getString(1))
+            }
+        }
+    }
+
+    @Test
+    fun migrationTwelveToThirteenPreservesOfflineStateAndAddsProposalCache() {
+        helper.createDatabase(DatabaseName, 12).apply {
+            execSQL(
+                "INSERT INTO sync_state " +
+                    "(id, serverId, apiVersion, schemaVersion, cursor, lastSuccessfulSyncAt, lastAttemptAt, lastError) " +
+                    "VALUES (1, 'desktop-home', 1, 3, 'cursor-12', '2026-08-22T01:00:00Z', " +
+                    "'2026-08-22T01:00:00Z', NULL)",
+            )
+            execSQL(
+                "INSERT INTO task_cache " +
+                    "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, " +
+                    "optimisticCommandId, conflictCommandId, checklistJson) VALUES " +
+                    "('task-12', 4, 'Proposal移行を確認する', NULL, 'todo', 'in_progress', " +
+                    "'2026-08-22', '2026-08-22T01:00:00Z', 'command-12', NULL, '[]')",
+            )
+            execSQL(
+                "INSERT INTO outbox_command " +
+                    "(commandId, idempotencyKey, requestId, clientDeviceId, issuedAt, commandName, " +
+                    "envelopeJson, serverId, state, attemptCount, createdAt, lastAttemptAt, lastError, " +
+                    "taskId, dependsOnCommandId) VALUES " +
+                    "('command-12', 'command-12', 'request-12', 'device-1', '2026-08-22T01:00:00Z', " +
+                    "'CreateTask', '{\"apiVersion\":1,\"schemaVersion\":3,\"requestId\":\"request-12\"," +
+                    "\"commandId\":\"command-12\",\"idempotencyKey\":\"command-12\"," +
+                    "\"clientDeviceId\":\"device-1\",\"issuedAt\":\"2026-08-22T01:00:00Z\"," +
+                    "\"command\":{\"name\":\"CreateTask\",\"task\":{\"id\":\"task-new-12\"," +
+                    "\"title\":\"移行後に送る\",\"projectId\":null,\"state\":\"todo\"," +
+                    "\"priority\":\"normal\",\"requester\":\"self\",\"intendedExecutor\":\"self\"," +
+                    "\"todayDate\":\"2026-08-22\"},\"provenance\":null}}', " +
+                    "'desktop-home', 'pending', 0, '2026-08-22T01:00:00Z', NULL, NULL, " +
+                    "'task-new-12', NULL)",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 13, true, MIGRATION_12_13).use { db ->
+            db.query("SELECT title, optimisticCommandId FROM task_cache WHERE id = 'task-12'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("Proposal移行を確認する", cursor.getString(0))
+                assertEquals("command-12", cursor.getString(1))
+            }
+            db.query("SELECT envelopeJson, state FROM outbox_command WHERE commandId = 'command-12'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(4, MobileTaskCommandContract.decodeCreateEnvelope(cursor.getString(0)).schemaVersion)
+                assertEquals("pending", cursor.getString(1))
+            }
+            db.query("SELECT schemaVersion, cursor FROM sync_state WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(4, cursor.getInt(0))
+                assertEquals("cursor-12", cursor.getString(1))
+            }
+            db.execSQL(
+                "INSERT INTO task_work_proposal_cache " +
+                    "(id, taskId, receivedAt, payloadJson, truncated, serverId, serverRevision, fetchedAt) " +
+                    "VALUES ('proposal-12', 'task-12', '2026-08-22T01:00:00Z', '{}', 0, " +
+                    "'desktop-home', 42, '2026-08-22T01:01:00Z')",
+            )
+            db.query("SELECT taskId, serverId FROM task_work_proposal_cache WHERE id = 'proposal-12'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("task-12", cursor.getString(0))
                 assertEquals("desktop-home", cursor.getString(1))
             }
         }

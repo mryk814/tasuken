@@ -449,6 +449,67 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun proposalReviewRequiresOnlineRefreshAndProjectsCanonicalResult() {
+        var received: Pair<String, String>? = null
+        val repository = object : MobileGatewayRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
+            override fun configuration() = MobileGatewayConfiguration("https://gateway.test", paired = true)
+            override fun pair(origin: String, pairingCode: String) = loadToday()
+            override fun retryPairing() = MobileTodayResult.PairingRequired()
+            override suspend fun refreshTaskWorkProposals() = true
+            override suspend fun reviewTaskWorkProposal(
+                proposal: MobileTaskWorkProposal,
+                decision: String,
+            ): MobileProposalReviewResult {
+                received = proposal.id to decision
+                return MobileProposalReviewResult.Applied(proposal.id, decision)
+            }
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+        val proposal = sampleProposal()
+
+        runBlocking {
+            viewModel.loadNow()
+            viewModel.reviewTaskWorkProposalNow(proposal, "accept")
+        }
+
+        assertEquals(true, viewModel.proposalReviewOnline.value)
+        assertEquals(proposal.id to "accept", received)
+        assertEquals(ProposalReviewUiState.Applied(proposal.id, "accept"), viewModel.proposalReviewState.value)
+    }
+
+    @Test
+    fun staleOrOfflineProposalCannotBeAccepted() {
+        var calls = 0
+        val repository = object : MobileGatewayRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
+            override fun configuration() = MobileGatewayConfiguration("https://gateway.test", paired = true)
+            override fun pair(origin: String, pairingCode: String) = loadToday()
+            override fun retryPairing() = MobileTodayResult.PairingRequired()
+            override suspend fun refreshTaskWorkProposals() = false
+            override suspend fun reviewTaskWorkProposal(
+                proposal: MobileTaskWorkProposal,
+                decision: String,
+            ): MobileProposalReviewResult {
+                calls += 1
+                return MobileProposalReviewResult.Applied(proposal.id, decision)
+            }
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+
+        runBlocking {
+            viewModel.loadNow()
+            viewModel.reviewTaskWorkProposalNow(sampleProposal(), "accept")
+        }
+        assertTrue((viewModel.proposalReviewState.value as ProposalReviewUiState.Error).message.contains("Desktop"))
+        assertEquals(0, calls)
+
+        runBlocking { viewModel.reviewTaskWorkProposalNow(sampleProposal().copy(stale = true), "accept") }
+        assertTrue((viewModel.proposalReviewState.value as ProposalReviewUiState.Error).message.contains("更新"))
+        assertEquals(0, calls)
+    }
+
+    @Test
     fun retryPairingReturnsToPairingFormWithSavedOrigin() {
         val origin = "https://desktop-55avlhd.tail4d1e1e.ts.net:48178"
         val repository = object : MobileTaskRepository, MobileGatewayRepository {
@@ -488,5 +549,31 @@ class TodayViewModelTest {
         state = "todo",
         workState = null,
         updatedAt = "2026-08-21T09:00:00.000Z",
+    )
+
+    private fun sampleProposal() = MobileTaskWorkProposal(
+        id = "11111111-1111-5111-8111-111111111111",
+        version = 1,
+        taskId = sampleTask().id,
+        taskVersion = 3,
+        taskTitle = sampleTask().title,
+        themeId = null,
+        workState = "in_progress",
+        action = "report_done",
+        caller = "Hermes",
+        sourceApp = "hermes-discord",
+        receivedAt = "2026-08-23T00:00:00Z",
+        expectedTaskVersion = 3,
+        stale = false,
+        executorLabel = "Hermes",
+        startedAt = null,
+        reportedAt = "2026-08-23T00:00:00Z",
+        summary = "確認してください。",
+        completedItems = listOf("実装"),
+        changedOrCreatedItems = emptyList(),
+        verification = emptyList(),
+        remainingWork = emptyList(),
+        externalReferences = emptyList(),
+        truncated = false,
     )
 }

@@ -98,6 +98,45 @@ data class MobileWorkReceiptExternalReference(
     val externalId: String?,
 )
 
+data class MobileTaskWorkProposal(
+    val id: String,
+    val version: Int,
+    val taskId: String,
+    val taskVersion: Int,
+    val taskTitle: String,
+    val themeId: String?,
+    val workState: String?,
+    val action: String,
+    val caller: String,
+    val sourceApp: String,
+    val receivedAt: String,
+    val expectedTaskVersion: Int,
+    val stale: Boolean,
+    val executorLabel: String?,
+    val startedAt: String?,
+    val reportedAt: String?,
+    val summary: String?,
+    val completedItems: List<String>,
+    val changedOrCreatedItems: List<String>,
+    val verification: List<String>,
+    val remainingWork: List<String>,
+    val externalReferences: List<MobileWorkReceiptExternalReference>,
+    val truncated: Boolean,
+)
+
+sealed interface MobileProposalReviewResult {
+    data class Applied(val proposalId: String, val decision: String) : MobileProposalReviewResult
+    data class Conflict(val proposalId: String, val message: String) : MobileProposalReviewResult
+    data class Unavailable(val proposalId: String, val message: String) : MobileProposalReviewResult
+}
+
+sealed interface ProposalReviewUiState {
+    data object Idle : ProposalReviewUiState
+    data class Reviewing(val proposalId: String, val decision: String) : ProposalReviewUiState
+    data class Applied(val proposalId: String, val decision: String) : ProposalReviewUiState
+    data class Error(val proposalId: String, val message: String) : ProposalReviewUiState
+}
+
 sealed interface MobileWorkReceiptLoadResult {
     data class Available(
         val detail: MobileWorkReceiptDetail,
@@ -272,6 +311,12 @@ class TodayViewModel(
         WorkReceiptDetailUiState.Idle,
     )
     val workReceiptDetailState: StateFlow<WorkReceiptDetailUiState> = mutableWorkReceiptDetailState.asStateFlow()
+    private val mutableTaskWorkProposals = MutableStateFlow<List<MobileTaskWorkProposal>>(emptyList())
+    val taskWorkProposals: StateFlow<List<MobileTaskWorkProposal>> = mutableTaskWorkProposals.asStateFlow()
+    private val mutableProposalReviewOnline = MutableStateFlow(false)
+    val proposalReviewOnline: StateFlow<Boolean> = mutableProposalReviewOnline.asStateFlow()
+    private val mutableProposalReviewState = MutableStateFlow<ProposalReviewUiState>(ProposalReviewUiState.Idle)
+    val proposalReviewState: StateFlow<ProposalReviewUiState> = mutableProposalReviewState.asStateFlow()
     private var workReceiptLoadJob: Job? = null
     private var observingCache = false
     private var cachedGeneratedAt = ""
@@ -294,6 +339,11 @@ class TodayViewModel(
                     mutableThemes.value = state.themes.toList()
                 }
             }
+            viewModelScope.launch(ioDispatcher) {
+                offlineRepository.observeCachedTaskWorkProposals().collect { proposals ->
+                    mutableTaskWorkProposals.value = proposals.toList()
+                }
+            }
         }
     }
 
@@ -304,6 +354,13 @@ class TodayViewModel(
     internal suspend fun loadNow() {
         mutableUiState.value = TodayUiState.Loading
         val result = withContext(ioDispatcher) { repository.loadToday() }
+        mutableProposalReviewOnline.value = if (result is MobileTodayResult.PairingRequired) {
+            false
+        } else {
+            withContext(ioDispatcher) {
+                (repository as? MobileGatewayRepository)?.refreshTaskWorkProposals() == true
+            }
+        }
         refreshExternalProjection()
         val offlineRepository = repository as? MobileOfflineTaskRepository
         if (offlineRepository != null && result !is MobileTodayResult.PairingRequired) {
@@ -340,12 +397,64 @@ class TodayViewModel(
 
     internal suspend fun pairNow(origin: String, pairingCode: String) {
         val gateway = repository as? MobileGatewayRepository ?: return
-        applyResult(withContext(ioDispatcher) { gateway.pair(origin, pairingCode) })
+        val result = withContext(ioDispatcher) { gateway.pair(origin, pairingCode) }
+        applyResult(result)
+        mutableProposalReviewOnline.value = result is MobileTodayResult.Available &&
+            withContext(ioDispatcher) { gateway.refreshTaskWorkProposals() }
     }
 
     fun retryPairing() {
         val gateway = repository as? MobileGatewayRepository ?: return
+        mutableProposalReviewOnline.value = false
         applyResult(gateway.retryPairing())
+    }
+
+    fun reviewTaskWorkProposal(proposal: MobileTaskWorkProposal, decision: String) {
+        viewModelScope.launch { reviewTaskWorkProposalNow(proposal, decision) }
+    }
+
+    internal suspend fun reviewTaskWorkProposalNow(proposal: MobileTaskWorkProposal, decision: String) {
+        if (decision !in setOf("accept", "reject")) return
+        if (decision == "accept" && proposal.stale) {
+            mutableProposalReviewState.value = ProposalReviewUiState.Error(
+                proposal.id,
+                "Taskが更新されています。AIへ再報告を依頼してください。",
+            )
+            return
+        }
+        if (!mutableProposalReviewOnline.value) {
+            mutableProposalReviewState.value = ProposalReviewUiState.Error(
+                proposal.id,
+                "Desktopへ接続してからProposalを判断してください。",
+            )
+            return
+        }
+        val gateway = repository as? MobileGatewayRepository
+        if (gateway == null) {
+            mutableProposalReviewState.value = ProposalReviewUiState.Error(
+                proposal.id,
+                "この環境ではProposalを判断できません。",
+            )
+            return
+        }
+        mutableProposalReviewState.value = ProposalReviewUiState.Reviewing(proposal.id, decision)
+        when (val result = withContext(ioDispatcher) { gateway.reviewTaskWorkProposal(proposal, decision) }) {
+            is MobileProposalReviewResult.Applied -> {
+                mutableProposalReviewOnline.value = true
+                mutableProposalReviewState.value = ProposalReviewUiState.Applied(result.proposalId, result.decision)
+            }
+            is MobileProposalReviewResult.Conflict -> {
+                mutableProposalReviewState.value = ProposalReviewUiState.Error(result.proposalId, result.message)
+            }
+            is MobileProposalReviewResult.Unavailable -> {
+                mutableProposalReviewOnline.value = false
+                mutableProposalReviewState.value = ProposalReviewUiState.Error(result.proposalId, result.message)
+            }
+        }
+    }
+
+    fun resetProposalReviewState() {
+        mutableProposalReviewState.value = ProposalReviewUiState.Idle
     }
 
     fun loadWorkReceipt(taskId: String, receiptId: String, force: Boolean = false) {
@@ -914,6 +1023,14 @@ interface MobileGatewayRepository : MobileTaskRepository {
     fun retryPairing(): MobileTodayResult
     suspend fun loadWorkReceipt(taskId: String, receiptId: String): MobileWorkReceiptLoadResult =
         MobileWorkReceiptLoadResult.Unavailable(receiptId, "このDesktopではWork Receipt詳細を利用できません。")
+    suspend fun refreshTaskWorkProposals(): Boolean = false
+    suspend fun reviewTaskWorkProposal(
+        proposal: MobileTaskWorkProposal,
+        decision: String,
+    ): MobileProposalReviewResult = MobileProposalReviewResult.Unavailable(
+        proposal.id,
+        "このDesktopではProposal判断を利用できません。",
+    )
 }
 
 interface MobileOfflineTaskRepository {
@@ -923,6 +1040,8 @@ interface MobileOfflineTaskRepository {
     fun observeThemeCatalogState(): Flow<MobileThemeCatalogState> = observeCachedThemes().map { themes ->
         MobileThemeCatalogState.Loading(themes = themes.toList())
     }
+    fun observeCachedTaskWorkProposals(): Flow<List<MobileTaskWorkProposal>> =
+        kotlinx.coroutines.flow.flowOf(emptyList())
     fun observePendingCount(): Flow<Int>
     fun observeConflictCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     suspend fun enqueueCreateTask(

@@ -225,7 +225,7 @@ class MobileOutbox(
         }
         val envelope = MobileCreateTaskEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 3,
+            schemaVersion = 4,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -310,7 +310,7 @@ class MobileOutbox(
         val issuedAt = now().toString()
         val envelope = MobileTaskStateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 3,
+            schemaVersion = 4,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -369,7 +369,7 @@ class MobileOutbox(
         val serverId = currentServerId()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 3,
+            schemaVersion = 4,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -452,7 +452,7 @@ class MobileOutbox(
         val requestId = UUID.randomUUID().toString()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 3,
+            schemaVersion = 4,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -525,7 +525,7 @@ class MobileOutbox(
         val serverId = currentServerId()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 3,
+            schemaVersion = 4,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -580,7 +580,7 @@ class MobileOutbox(
             .map(OutboxCommandEntity::commandId)
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 3,
+            schemaVersion = 4,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -639,7 +639,7 @@ class MobileOutbox(
         val serverId = currentServerId()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 3,
+            schemaVersion = 4,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -760,7 +760,7 @@ class MobileOutbox(
             MobileTaskCommandContract.encode(
                 MobileTaskUpdateEnvelopeDto(
                     apiVersion = 1,
-                    schemaVersion = 3,
+                    schemaVersion = 4,
                     requestId = requestId,
                     commandId = replacementId,
                     idempotencyKey = replacementId,
@@ -780,7 +780,7 @@ class MobileOutbox(
             MobileTaskCommandContract.encode(
                 MobileTaskStateEnvelopeDto(
                     apiVersion = 1,
-                    schemaVersion = 3,
+                    schemaVersion = 4,
                     requestId = requestId,
                     commandId = replacementId,
                     idempotencyKey = replacementId,
@@ -884,7 +884,7 @@ class MobileOutbox(
         val issuedAt = now().toString()
         val envelope = MobileTaskStateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 3,
+            schemaVersion = 4,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,

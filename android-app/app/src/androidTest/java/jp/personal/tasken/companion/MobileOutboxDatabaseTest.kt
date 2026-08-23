@@ -533,7 +533,7 @@ class MobileOutboxDatabaseTest {
             syncState = SyncStateEntity(
                 serverId = "server-1",
                 apiVersion = 1,
-                schemaVersion = 3,
+                schemaVersion = 4,
                 cursor = "2026-08-22T02:00:00Z|bootstrap-task",
                 lastSuccessfulSyncAt = "2026-08-22T02:00:00Z",
                 lastAttemptAt = "2026-08-22T02:00:00Z",
@@ -1481,7 +1481,7 @@ class MobileOutboxDatabaseTest {
         ok = true,
         meta = MobileResponseMetaDto(
             apiVersion = 1,
-            schemaVersion = 3,
+            schemaVersion = 4,
             serverId = "server-1",
             serverRevision = 10,
             generatedAt = "2026-08-22T01:04:00Z",
@@ -1523,7 +1523,7 @@ class MobileOutboxDatabaseTest {
         ok = false,
         meta = MobileResponseMetaDto(
             apiVersion = 1,
-            schemaVersion = 3,
+            schemaVersion = 4,
             serverId = "server-1",
             serverRevision = 11,
             generatedAt = "2026-08-22T01:05:00Z",
@@ -1621,7 +1621,7 @@ class MobileOutboxDatabaseTest {
     private fun activeSyncState(serverId: String = "server-1") = SyncStateEntity(
         serverId = serverId,
         apiVersion = 1,
-        schemaVersion = 3,
+        schemaVersion = 4,
         cursor = "task-cursor",
         lastSuccessfulSyncAt = "2026-08-22T01:00:00Z",
         lastAttemptAt = "2026-08-22T01:00:00Z",

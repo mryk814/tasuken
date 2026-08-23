@@ -186,7 +186,7 @@ object MobileTaskCommandContract {
     fun decodeReceipt(payload: String): MobileTaskCommandResponseDto {
         val response = json.decodeFromString<MobileTaskCommandResponseDto>(payload)
         require(response.ok)
-        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 3)
+        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 4)
         require(response.data.status in setOf("applied", "no_change"))
         require(response.data.commandId.isNotBlank())
         validateTaskSummary(response.data.task)
@@ -201,7 +201,7 @@ object MobileTaskCommandContract {
     fun decodeError(payload: String): MobileTaskCommandErrorResponseDto {
         val response = json.decodeFromString<MobileTaskCommandErrorResponseDto>(payload)
         require(!response.ok)
-        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 3)
+        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 4)
         require(response.error.code.isNotBlank() && response.error.message.isNotBlank())
         if (response.error.code != "version_conflict") {
             require(response.error.conflict == null)
@@ -235,7 +235,7 @@ object MobileTaskCommandContract {
     }
 
     private fun validateCreateEnvelope(envelope: MobileCreateTaskEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 3)
+        require(envelope.apiVersion == 1 && envelope.schemaVersion == 4)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name == "CreateTask")
         require(envelope.command.task.id.isNotBlank())
@@ -266,7 +266,7 @@ object MobileTaskCommandContract {
     }
 
     private fun validateStateEnvelope(envelope: MobileTaskStateEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 3)
+        require(envelope.apiVersion == 1 && envelope.schemaVersion == 4)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name in setOf("CompleteTask", "ReopenTask", "DeleteTask"))
         require(envelope.command.taskId.isNotBlank())
@@ -275,7 +275,7 @@ object MobileTaskCommandContract {
     }
 
     private fun validateUpdateEnvelope(envelope: MobileTaskUpdateEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 3)
+        require(envelope.apiVersion == 1 && envelope.schemaVersion == 4)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name == "UpdateTask")
         require(envelope.command.taskId.isNotBlank())

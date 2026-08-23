@@ -80,6 +80,21 @@ data class WorkReceiptCacheEntity(
     val fetchedAt: String,
 )
 
+@Entity(
+    tableName = "task_work_proposal_cache",
+    indices = [Index(value = ["taskId"])],
+)
+data class TaskWorkProposalCacheEntity(
+    @PrimaryKey val id: String,
+    val taskId: String,
+    val receivedAt: String,
+    val payloadJson: String,
+    val truncated: Boolean,
+    val serverId: String,
+    val serverRevision: Int,
+    val fetchedAt: String,
+)
+
 @Entity(tableName = "theme_cache")
 data class ThemeCacheEntity(
     @PrimaryKey val id: String,
@@ -245,6 +260,12 @@ abstract class MobileLocalDao {
     @Query("SELECT * FROM work_receipt_cache WHERE id = :receiptId AND serverId = :serverId")
     abstract suspend fun workReceipt(receiptId: String, serverId: String): WorkReceiptCacheEntity?
 
+    @Query("SELECT * FROM task_work_proposal_cache ORDER BY receivedAt DESC, id ASC")
+    abstract fun observeTaskWorkProposals(): Flow<List<TaskWorkProposalCacheEntity>>
+
+    @Query("SELECT * FROM task_work_proposal_cache WHERE id = :proposalId AND serverId = :serverId")
+    abstract suspend fun taskWorkProposal(proposalId: String, serverId: String): TaskWorkProposalCacheEntity?
+
     @Query("SELECT * FROM outbox_command WHERE commandId = :commandId")
     abstract suspend fun outbox(commandId: String): OutboxCommandEntity?
 
@@ -294,6 +315,9 @@ abstract class MobileLocalDao {
     abstract suspend fun upsertWorkReceipt(receipt: WorkReceiptCacheEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertTaskWorkProposals(proposals: List<TaskWorkProposalCacheEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertConflict(conflict: TaskConflictEntity)
 
     @Query("DELETE FROM task_cache WHERE todayDate = :date AND optimisticCommandId IS NULL AND conflictCommandId IS NULL")
@@ -310,6 +334,18 @@ abstract class MobileLocalDao {
 
     @Query("DELETE FROM theme_cache")
     abstract suspend fun deleteThemes()
+
+    @Query("DELETE FROM task_work_proposal_cache")
+    abstract suspend fun deleteTaskWorkProposals()
+
+    @Query("DELETE FROM task_work_proposal_cache WHERE id = :proposalId AND serverId = :serverId")
+    abstract suspend fun deleteTaskWorkProposal(proposalId: String, serverId: String)
+
+    @Transaction
+    open suspend fun replaceTaskWorkProposals(proposals: List<TaskWorkProposalCacheEntity>) {
+        deleteTaskWorkProposals()
+        if (proposals.isNotEmpty()) upsertTaskWorkProposals(proposals)
+    }
 
     @Query(
         "SELECT * FROM outbox_command " +
@@ -949,8 +985,9 @@ abstract class MobileLocalDao {
         SyncStateEntity::class,
         TaskConflictEntity::class,
         WorkReceiptCacheEntity::class,
+        TaskWorkProposalCacheEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -976,6 +1013,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 MIGRATION_9_10,
                 MIGRATION_10_11,
                 MIGRATION_11_12,
+                MIGRATION_12_13,
             ).build().also { instance = it }
         }
     }
@@ -1113,6 +1151,27 @@ internal val MIGRATION_11_12 = object : Migration(11, 12) {
             "CREATE INDEX IF NOT EXISTS index_work_receipt_cache_taskId " +
                 "ON work_receipt_cache (taskId)",
         )
+    }
+}
+
+internal val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS task_work_proposal_cache (" +
+                "id TEXT NOT NULL PRIMARY KEY, taskId TEXT NOT NULL, receivedAt TEXT NOT NULL, " +
+                "payloadJson TEXT NOT NULL, truncated INTEGER NOT NULL, serverId TEXT NOT NULL, " +
+                "serverRevision INTEGER NOT NULL, fetchedAt TEXT NOT NULL)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_task_work_proposal_cache_taskId " +
+                "ON task_work_proposal_cache (taskId)",
+        )
+        db.execSQL(
+            "UPDATE outbox_command SET envelopeJson = " +
+                "REPLACE(envelopeJson, '\"schemaVersion\":3', '\"schemaVersion\":4') " +
+                "WHERE envelopeJson LIKE '%\"schemaVersion\":3%'",
+        )
+        db.execSQL("UPDATE sync_state SET schemaVersion = 4 WHERE apiVersion = 1 AND schemaVersion = 3")
     }
 }
 
