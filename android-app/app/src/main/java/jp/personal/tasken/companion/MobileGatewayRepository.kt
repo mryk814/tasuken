@@ -497,11 +497,11 @@ class AndroidMobileTaskRepository(
                 }
             ) return false
             synchronize(configuration.origin, token, serverId)
-            val proposalsRefreshed = refreshTaskWorkProposals(configuration.origin, token)
+            refreshTaskWorkProposals(configuration.origin, token)
             when (val outcome = refreshThemes(configuration.origin, token)) {
-                is MobileThemeRefreshOutcome.Failed -> !outcome.retryable && proposalsRefreshed
+                is MobileThemeRefreshOutcome.Failed -> !outcome.retryable
                 MobileThemeRefreshOutcome.Success,
-                MobileThemeRefreshOutcome.Unsupported -> proposalsRefreshed
+                MobileThemeRefreshOutcome.Unsupported -> true
             }
         } catch (error: MobileOutboxServerMismatchException) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Background sync refused a different Desktop", error)
