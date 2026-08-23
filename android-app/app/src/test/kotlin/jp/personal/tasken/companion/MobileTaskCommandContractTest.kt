@@ -218,7 +218,7 @@ class MobileTaskCommandContractTest {
 
     private fun createEnvelope(provenance: MobileTaskCreationProvenanceDto) = MobileCreateTaskEnvelopeDto(
         apiVersion = 1,
-        schemaVersion = 2,
+        schemaVersion = 3,
         requestId = "request-create",
         commandId = "command-create",
         idempotencyKey = "command-create",
