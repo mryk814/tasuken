@@ -47,6 +47,53 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun workReceiptLoadProjectsCachedWarningAndSupportsExplicitRetry() {
+        var calls = 0
+        val detail = MobileWorkReceiptDetail(
+            id = "receipt-1",
+            taskId = "task-1",
+            executorKind = "ai_agent",
+            executorLabel = "Codex",
+            startedAt = null,
+            reportedAt = "2026-08-21T10:00:00Z",
+            reportKind = "report",
+            summary = "確認してください。",
+            completedItems = listOf("実装"),
+            changedOrCreatedItems = emptyList(),
+            verification = emptyList(),
+            remainingWork = emptyList(),
+            externalReferences = emptyList(),
+            truncated = false,
+        )
+        val repository = object : MobileGatewayRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "")
+            override fun configuration() = MobileGatewayConfiguration("https://gateway.test", true)
+            override fun pair(origin: String, pairingCode: String) = loadToday()
+            override fun retryPairing() = MobileTodayResult.PairingRequired()
+            override suspend fun loadWorkReceipt(taskId: String, receiptId: String): MobileWorkReceiptLoadResult {
+                calls += 1
+                return MobileWorkReceiptLoadResult.Available(
+                    detail = detail,
+                    fromCache = true,
+                    warning = "保存済みです。",
+                )
+            }
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+
+        viewModel.loadWorkReceipt("task-1", "receipt-1")
+        val first = viewModel.workReceiptDetailState.value as WorkReceiptDetailUiState.Available
+        assertEquals(detail, first.detail)
+        assertEquals(true, first.fromCache)
+        assertEquals("保存済みです。", first.warning)
+
+        viewModel.loadWorkReceipt("task-1", "receipt-1")
+        assertEquals(1, calls)
+        viewModel.loadWorkReceipt("task-1", "receipt-1", force = true)
+        assertEquals(2, calls)
+    }
+
+    @Test
     fun offlineRepositoryProjectsRoomFlowInsteadOfNetworkReturnValue() {
         val cached = sampleTask().copy(title = "Room cache", pending = true)
         val network = sampleTask().copy(title = "Network object")

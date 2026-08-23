@@ -6,6 +6,7 @@ import androidx.room.Database
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.Insert
+import androidx.room.Index
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
@@ -43,6 +44,26 @@ data class TaskCacheEntity(
     val latestReceiptReportedAt: String? = null,
     val latestReceiptExecutorLabel: String? = null,
     val latestReceiptSummary: String? = null,
+)
+
+@Entity(
+    tableName = "work_receipt_cache",
+    indices = [Index(value = ["taskId"])],
+)
+data class WorkReceiptCacheEntity(
+    @PrimaryKey val id: String,
+    val taskId: String,
+    val executorKind: String,
+    val executorLabel: String,
+    val startedAt: String?,
+    val reportedAt: String,
+    val reportKind: String,
+    val summary: String,
+    val payloadJson: String,
+    val truncated: Boolean,
+    val serverId: String,
+    val serverRevision: Int,
+    val fetchedAt: String,
 )
 
 @Entity(tableName = "theme_cache")
@@ -205,6 +226,9 @@ abstract class MobileLocalDao {
     @Query("SELECT * FROM sync_state WHERE id = 1")
     abstract fun observeSyncState(): Flow<SyncStateEntity?>
 
+    @Query("SELECT * FROM work_receipt_cache WHERE id = :receiptId AND serverId = :serverId")
+    abstract suspend fun workReceipt(receiptId: String, serverId: String): WorkReceiptCacheEntity?
+
     @Query("SELECT * FROM outbox_command WHERE commandId = :commandId")
     abstract suspend fun outbox(commandId: String): OutboxCommandEntity?
 
@@ -249,6 +273,9 @@ abstract class MobileLocalDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertSyncState(state: SyncStateEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertWorkReceipt(receipt: WorkReceiptCacheEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertConflict(conflict: TaskConflictEntity)
@@ -823,8 +850,9 @@ abstract class MobileLocalDao {
         OutboxCommandEntity::class,
         SyncStateEntity::class,
         TaskConflictEntity::class,
+        WorkReceiptCacheEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -848,6 +876,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 MIGRATION_7_8,
                 MIGRATION_8_9,
                 MIGRATION_9_10,
+                MIGRATION_10_11,
             ).build().also { instance = it }
         }
     }
@@ -948,6 +977,23 @@ internal val MIGRATION_9_10 = object : Migration(9, 10) {
         db.execSQL("ALTER TABLE task_cache ADD COLUMN latestReceiptReportedAt TEXT")
         db.execSQL("ALTER TABLE task_cache ADD COLUMN latestReceiptExecutorLabel TEXT")
         db.execSQL("ALTER TABLE task_cache ADD COLUMN latestReceiptSummary TEXT")
+    }
+}
+
+internal val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS work_receipt_cache (" +
+                "id TEXT NOT NULL PRIMARY KEY, taskId TEXT NOT NULL, executorKind TEXT NOT NULL, " +
+                "executorLabel TEXT NOT NULL, startedAt TEXT, reportedAt TEXT NOT NULL, " +
+                "reportKind TEXT NOT NULL, summary TEXT NOT NULL, payloadJson TEXT NOT NULL, " +
+                "truncated INTEGER NOT NULL, serverId TEXT NOT NULL, serverRevision INTEGER NOT NULL, " +
+                "fetchedAt TEXT NOT NULL)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_work_receipt_cache_taskId " +
+                "ON work_receipt_cache (taskId)",
+        )
     }
 }
 

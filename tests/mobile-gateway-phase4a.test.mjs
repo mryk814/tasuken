@@ -46,6 +46,8 @@ const {
   mobileThemesResponseSchema,
   mobileTodayRequestSchema,
   mobileTodayResponseSchema,
+  mobileWorkReceiptRequestSchema,
+  mobileWorkReceiptResponseSchema,
 } = mobile;
 
 const todayGolden = JSON.parse(readFileSync(
@@ -55,6 +57,11 @@ const todayGolden = JSON.parse(readFileSync(
 
 const themesGolden = JSON.parse(readFileSync(
   new URL("../contracts/mobile/v1/themes-response.golden.json", import.meta.url),
+  "utf8",
+));
+
+const workReceiptGolden = JSON.parse(readFileSync(
+  new URL("../contracts/mobile/v1/work-receipt-response.golden.json", import.meta.url),
   "utf8",
 ));
 
@@ -130,6 +137,7 @@ function core(service, overrides = {}) {
     status: async () => ({ apiVersion: "1", capabilities: ["task.query", "task.command"] }),
     listThemes: () => [{ id: "theme-personal-default", name: "Personal" }],
     listWorkReceipts: () => [],
+    getWorkReceipt: () => null,
     executeTaskQuery: (input) => service.executeQuery(input),
     executeTaskCommand: (input) => service.executeCommand(input),
     ...overrides,
@@ -339,6 +347,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     health: "mobile.health",
     todayRead: "mobile.today.read",
     syncRead: "mobile.sync.read",
+    workReceiptRead: "mobile.work-receipt.read",
     taskWrite: "mobile.task.write",
   });
   assert.equal(mobileCapabilitySchema.safeParse("mobile.theme.read").success, false);
@@ -347,6 +356,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     health: "/v1/health",
     today: "/v1/today",
     themes: "/v1/themes",
+    workReceipt: "/v1/work-receipt",
     bootstrap: "/v1/bootstrap",
     sync: "/v1/sync",
     commands: "/v1/commands",
@@ -644,6 +654,112 @@ test("Mobile bootstrap projects the latest Work Receipt summary without raw tool
     query: todayQuery(),
   });
   assert.equal(today.body.data.items[0].latestWorkReceipt, undefined);
+});
+
+test("Mobile Work Receipt detail exposes only bounded canonical review fields", async () => {
+  assert.deepEqual(mobileWorkReceiptResponseSchema.parse(workReceiptGolden), workReceiptGolden);
+  assert.equal(mobileWorkReceiptRequestSchema.safeParse({
+    apiVersion: 1,
+    schemaVersion: 2,
+    requestId: "request-work-receipt",
+    taskId: "task-ai-review",
+    receiptId: "receipt-ai-review",
+  }).success, true);
+  const { service } = capability();
+  const adapter = gateway(service, {
+    getWorkReceipt: () => ({
+      id: "receipt-ai-review",
+      taskId: "task-ai-review",
+      executorKind: "ai_agent",
+      executorLabel: "Codex",
+      startedAt: "2026-08-21T01:00:00.000Z",
+      reportedAt: "2026-08-21T01:20:00.000Z",
+      summary: "Androidから確認できる変更です。",
+      completedItems: ["Mobile Gateway detail contract"],
+      changedOrCreatedItems: ["src/shared/contracts/mobile/schema.ts"],
+      verification: ["node --test tests/mobile-gateway-phase4a.test.mjs"],
+      remainingWork: ["Fold7 final signoff"],
+      externalReferences: [{
+        kind: "pull_request",
+        provider: "github",
+        display_label: "PR #472",
+        url: "https://github.com/mryk814/tasuken/pull/472",
+        external_id: "472",
+      }],
+      runtimeMetadata: { provider: "openai", model: "codex", report_kind: "report", reasoning: "hidden" },
+      toolOutput: "hidden",
+      reasoning: "hidden",
+    }),
+  });
+  const response = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.workReceipt,
+    principal,
+    query: {
+      apiVersion: "1",
+      schemaVersion: "2",
+      requestId: "request-work-receipt",
+      taskId: "task-ai-review",
+      receiptId: "receipt-ai-review",
+    },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.meta.truncated, false);
+  assert.deepEqual(response.body.data.receipt, workReceiptGolden.data.receipt);
+  assert.equal(response.body.data.receipt.toolOutput, undefined);
+  assert.equal(response.body.data.receipt.reasoning, undefined);
+  assert.equal(response.body.data.receipt.runtimeMetadata, undefined);
+});
+
+test("Mobile Work Receipt detail rejects cross-Task lookup and truncates oversized review data", async () => {
+  const { service } = capability();
+  const adapter = gateway(service, {
+    getWorkReceipt: () => ({
+      id: "receipt-large",
+      taskId: "task-owner",
+      executorKind: "ai_agent",
+      executorLabel: "Codex",
+      startedAt: null,
+      reportedAt: "2026-08-21T01:20:00.000Z",
+      summary: "x".repeat(10001),
+      completedItems: Array.from({ length: 21 }, (_, index) => `item-${index}-${"x".repeat(500)}`),
+      changedOrCreatedItems: [],
+      verification: [],
+      remainingWork: [],
+      externalReferences: [{
+        kind: "pull_request",
+        provider: "github",
+        display_label: "PR #472",
+        url: "https://github.com/mryk814/tasuken/pull/472?token=must-not-leave#review",
+        external_id: "472",
+      }],
+      runtimeMetadata: { report_kind: "blocked" },
+    }),
+  });
+  const query = {
+    apiVersion: "1",
+    schemaVersion: "2",
+    requestId: "request-large",
+    taskId: "task-owner",
+    receiptId: "receipt-large",
+  };
+  const response = await adapter.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.workReceipt, principal, query });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.meta.truncated, true);
+  assert.equal(response.body.data.receipt.reportKind, "blocked");
+  assert.equal(response.body.data.receipt.summary.length, 10000);
+  assert.equal(response.body.data.receipt.completedItems.length, 20);
+  assert.ok(response.body.data.receipt.completedItems.every((item) => item.length <= 400));
+  assert.equal(response.body.data.receipt.externalReferences[0].url, "https://github.com/mryk814/tasuken/pull/472");
+
+  const crossTask = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.workReceipt,
+    principal,
+    query: { ...query, requestId: "request-cross-task", taskId: "task-other" },
+  });
+  assert.equal(crossTask.status, 404);
+  assert.equal(crossTask.body.error.code, "not_found");
 });
 
 test("Mobile UpdateTask rejects plannedSchedule writes after the time editor was withdrawn", async () => {
@@ -1473,6 +1589,7 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
     TASKEN_MOBILE_CAPABILITIES.health,
     TASKEN_MOBILE_CAPABILITIES.todayRead,
     TASKEN_MOBILE_CAPABILITIES.syncRead,
+    TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
     TASKEN_MOBILE_CAPABILITIES.taskWrite,
   ]);
   const themes = await client.listThemes({

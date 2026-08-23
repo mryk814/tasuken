@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,6 +60,52 @@ data class MobileWorkReceiptSummary(
     val executorLabel: String,
     val summary: String,
 )
+
+data class MobileWorkReceiptDetail(
+    val id: String,
+    val taskId: String,
+    val executorKind: String,
+    val executorLabel: String,
+    val startedAt: String?,
+    val reportedAt: String,
+    val reportKind: String,
+    val summary: String,
+    val completedItems: List<String>,
+    val changedOrCreatedItems: List<String>,
+    val verification: List<String>,
+    val remainingWork: List<String>,
+    val externalReferences: List<MobileWorkReceiptExternalReference>,
+    val truncated: Boolean,
+)
+
+data class MobileWorkReceiptExternalReference(
+    val kind: String,
+    val provider: String?,
+    val displayLabel: String,
+    val url: String,
+    val externalId: String?,
+)
+
+sealed interface MobileWorkReceiptLoadResult {
+    data class Available(
+        val detail: MobileWorkReceiptDetail,
+        val fromCache: Boolean,
+        val warning: String? = null,
+    ) : MobileWorkReceiptLoadResult
+
+    data class Unavailable(val receiptId: String, val message: String) : MobileWorkReceiptLoadResult
+}
+
+sealed interface WorkReceiptDetailUiState {
+    data object Idle : WorkReceiptDetailUiState
+    data class Loading(val receiptId: String) : WorkReceiptDetailUiState
+    data class Available(
+        val detail: MobileWorkReceiptDetail,
+        val fromCache: Boolean,
+        val warning: String? = null,
+    ) : WorkReceiptDetailUiState
+    data class Error(val receiptId: String, val message: String) : WorkReceiptDetailUiState
+}
 
 data class MobileRejectedThemeUpdate(
     val commandId: String,
@@ -205,6 +252,11 @@ class TodayViewModel(
         MobileThemeCatalogState.Loading(),
     )
     val themeCatalogState: StateFlow<MobileThemeCatalogState> = mutableThemeCatalogState.asStateFlow()
+    private val mutableWorkReceiptDetailState = MutableStateFlow<WorkReceiptDetailUiState>(
+        WorkReceiptDetailUiState.Idle,
+    )
+    val workReceiptDetailState: StateFlow<WorkReceiptDetailUiState> = mutableWorkReceiptDetailState.asStateFlow()
+    private var workReceiptLoadJob: Job? = null
     private var observingCache = false
     private var cachedGeneratedAt = ""
 
@@ -277,6 +329,35 @@ class TodayViewModel(
     fun retryPairing() {
         val gateway = repository as? MobileGatewayRepository ?: return
         applyResult(gateway.retryPairing())
+    }
+
+    fun loadWorkReceipt(taskId: String, receiptId: String, force: Boolean = false) {
+        val current = mutableWorkReceiptDetailState.value
+        if (!force && current is WorkReceiptDetailUiState.Available && current.detail.id == receiptId) return
+        if (!force && current is WorkReceiptDetailUiState.Loading && current.receiptId == receiptId) return
+        val gateway = repository as? MobileGatewayRepository
+        if (gateway == null) {
+            mutableWorkReceiptDetailState.value = WorkReceiptDetailUiState.Error(
+                receiptId,
+                "この環境ではWork Receipt詳細を利用できません。",
+            )
+            return
+        }
+        workReceiptLoadJob?.cancel()
+        mutableWorkReceiptDetailState.value = WorkReceiptDetailUiState.Loading(receiptId)
+        workReceiptLoadJob = viewModelScope.launch(ioDispatcher) {
+            mutableWorkReceiptDetailState.value = when (val result = gateway.loadWorkReceipt(taskId, receiptId)) {
+                is MobileWorkReceiptLoadResult.Available -> WorkReceiptDetailUiState.Available(
+                    detail = result.detail,
+                    fromCache = result.fromCache,
+                    warning = result.warning,
+                )
+                is MobileWorkReceiptLoadResult.Unavailable -> WorkReceiptDetailUiState.Error(
+                    result.receiptId,
+                    result.message,
+                )
+            }
+        }
     }
 
     fun createTask(
@@ -758,6 +839,8 @@ interface MobileGatewayRepository : MobileTaskRepository {
     fun configuration(): MobileGatewayConfiguration
     fun pair(origin: String, pairingCode: String): MobileTodayResult
     fun retryPairing(): MobileTodayResult
+    suspend fun loadWorkReceipt(taskId: String, receiptId: String): MobileWorkReceiptLoadResult =
+        MobileWorkReceiptLoadResult.Unavailable(receiptId, "このDesktopではWork Receipt詳細を利用できません。")
 }
 
 interface MobileOfflineTaskRepository {

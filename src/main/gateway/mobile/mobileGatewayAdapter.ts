@@ -3,6 +3,9 @@ import {
   TASKEN_MOBILE_CAPABILITIES,
   TASKEN_MOBILE_ENDPOINTS,
   TASKEN_MOBILE_SCHEMA_VERSION,
+  TASKEN_MOBILE_WORK_RECEIPT_MAX_EXTERNAL_REFERENCES,
+  TASKEN_MOBILE_WORK_RECEIPT_MAX_ITEM_LENGTH,
+  TASKEN_MOBILE_WORK_RECEIPT_MAX_LIST_ITEMS,
   decodeTaskenMobileThemeCursor,
   encodeTaskenMobileThemeCursor,
   mobileBootstrapRequestSchema,
@@ -19,6 +22,8 @@ import {
   mobileThemesResponseSchema,
   mobileTodayRequestSchema,
   mobileTodayResponseSchema,
+  mobileWorkReceiptRequestSchema,
+  mobileWorkReceiptResponseSchema,
   type MobileCapability,
   type MobileErrorCode,
   type MobileResponseMeta,
@@ -65,6 +70,7 @@ export interface MobileGatewayCorePort {
   status(): Promise<{ apiVersion: string; capabilities: readonly string[] }>;
   listThemes(): Promise<readonly MobileGatewayThemeRecord[]> | readonly MobileGatewayThemeRecord[];
   listWorkReceipts(): Promise<readonly MobileGatewayWorkReceiptRecord[]> | readonly MobileGatewayWorkReceiptRecord[];
+  getWorkReceipt(id: string): Promise<MobileGatewayWorkReceiptDetailRecord | null> | MobileGatewayWorkReceiptDetailRecord | null;
   executeTaskQuery(input: unknown): Promise<TaskQueryResponse> | TaskQueryResponse;
   executeTaskCommand(input: unknown): Promise<TaskCommandResponse> | TaskCommandResponse;
 }
@@ -80,6 +86,17 @@ export interface MobileGatewayWorkReceiptRecord {
   reportedAt: string;
   executorLabel: string;
   summary: string;
+}
+
+export interface MobileGatewayWorkReceiptDetailRecord extends MobileGatewayWorkReceiptRecord {
+  executorKind: string;
+  startedAt: string | null;
+  completedItems: unknown;
+  changedOrCreatedItems: unknown;
+  verification: unknown;
+  remainingWork: unknown;
+  externalReferences: unknown;
+  runtimeMetadata: unknown;
 }
 
 export interface MobileGatewayStatePort {
@@ -119,6 +136,110 @@ function projectLatestWorkReceipt(
     reportedAt: latest.reportedAt,
     executorLabel,
     summary,
+  };
+}
+
+function projectWorkReceiptItemList(value: unknown) {
+  if (!Array.isArray(value)) return { items: [], truncated: value != null };
+  let truncated = value.length > TASKEN_MOBILE_WORK_RECEIPT_MAX_LIST_ITEMS;
+  const items: string[] = [];
+  for (const entry of value) {
+    if (items.length >= TASKEN_MOBILE_WORK_RECEIPT_MAX_LIST_ITEMS) break;
+    if (typeof entry !== "string" || !entry.trim()) {
+      truncated = true;
+      continue;
+    }
+    const normalized = entry.trim();
+    if (normalized.length > TASKEN_MOBILE_WORK_RECEIPT_MAX_ITEM_LENGTH) truncated = true;
+    items.push(normalized.slice(0, TASKEN_MOBILE_WORK_RECEIPT_MAX_ITEM_LENGTH));
+  }
+  return { items, truncated };
+}
+
+function projectWorkReceiptExternalReferences(value: unknown) {
+  if (!Array.isArray(value)) return { references: [], truncated: value != null };
+  let truncated = value.length > TASKEN_MOBILE_WORK_RECEIPT_MAX_EXTERNAL_REFERENCES;
+  const references: Array<{
+    kind: "issue" | "pull_request" | "merge_request" | "commit" | "branch" | "file" | "pipeline" | "other";
+    provider: string | null;
+    displayLabel: string;
+    url: string;
+    externalId: string | null;
+  }> = [];
+  const kinds = new Set(["issue", "pull_request", "merge_request", "commit", "branch", "file", "pipeline", "other"]);
+  for (const entry of value) {
+    if (references.length >= TASKEN_MOBILE_WORK_RECEIPT_MAX_EXTERNAL_REFERENCES) break;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      truncated = true;
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const kind = String(record.kind || "");
+    const displayLabel = String(record.display_label || "").trim();
+    let parsed: URL;
+    try {
+      parsed = new URL(String(record.url || ""));
+    } catch {
+      truncated = true;
+      continue;
+    }
+    if (!kinds.has(kind) || !displayLabel || parsed.protocol !== "https:" || parsed.username || parsed.password) {
+      truncated = true;
+      continue;
+    }
+    if (parsed.search || parsed.hash) truncated = true;
+    parsed.search = "";
+    parsed.hash = "";
+    const url = parsed.toString();
+    if (url.length > 2000) {
+      truncated = true;
+      continue;
+    }
+    const provider = String(record.provider || "").trim();
+    const externalId = String(record.external_id || "").trim();
+    if (displayLabel.length > 200 || provider.length > 120 || externalId.length > 200) truncated = true;
+    references.push({
+      kind: kind as (typeof references)[number]["kind"],
+      provider: provider ? provider.slice(0, 120) : null,
+      displayLabel: displayLabel.slice(0, 200),
+      url,
+      externalId: externalId ? externalId.slice(0, 200) : null,
+    });
+  }
+  return { references, truncated };
+}
+
+function projectWorkReceiptDetail(receipt: MobileGatewayWorkReceiptDetailRecord) {
+  const completed = projectWorkReceiptItemList(receipt.completedItems);
+  const changed = projectWorkReceiptItemList(receipt.changedOrCreatedItems);
+  const verification = projectWorkReceiptItemList(receipt.verification);
+  const remaining = projectWorkReceiptItemList(receipt.remainingWork);
+  const external = projectWorkReceiptExternalReferences(receipt.externalReferences);
+  const summary = receipt.summary.trim();
+  const executorLabel = receipt.executorLabel.trim();
+  const runtimeMetadata = receipt.runtimeMetadata && typeof receipt.runtimeMetadata === "object" && !Array.isArray(receipt.runtimeMetadata)
+    ? receipt.runtimeMetadata as Record<string, unknown>
+    : {};
+  return {
+    truncated: completed.truncated || changed.truncated || verification.truncated || remaining.truncated
+      || external.truncated || summary.length > 10000 || executorLabel.length > 200,
+    receipt: {
+      id: receipt.id,
+      taskId: receipt.taskId,
+      executorKind: ["self", "human", "ai_agent", "external", "unknown"].includes(receipt.executorKind)
+        ? receipt.executorKind
+        : "unknown",
+      executorLabel: executorLabel.slice(0, 200) || "agent",
+      startedAt: receipt.startedAt || null,
+      reportedAt: receipt.reportedAt,
+      reportKind: runtimeMetadata.report_kind === "blocked" ? "blocked" : "report",
+      summary: summary.slice(0, 10000),
+      completedItems: completed.items,
+      changedOrCreatedItems: changed.items,
+      verification: verification.items,
+      remainingWork: remaining.items,
+      externalReferences: external.references,
+    },
   };
 }
 
@@ -289,7 +410,7 @@ export class MobileGatewayAdapter {
       if (request.method === "GET" && request.body !== undefined) return this.error(meta, "validation_failed");
 
       if (
-        [TASKEN_MOBILE_ENDPOINTS.today, TASKEN_MOBILE_ENDPOINTS.themes, TASKEN_MOBILE_ENDPOINTS.bootstrap, TASKEN_MOBILE_ENDPOINTS.sync].includes(request.path as never)
+        [TASKEN_MOBILE_ENDPOINTS.today, TASKEN_MOBILE_ENDPOINTS.themes, TASKEN_MOBILE_ENDPOINTS.workReceipt, TASKEN_MOBILE_ENDPOINTS.bootstrap, TASKEN_MOBILE_ENDPOINTS.sync].includes(request.path as never)
         && !request.principal.scopes.includes("mobile:read")
       ) return this.error(meta, "forbidden");
       if (
@@ -303,6 +424,9 @@ export class MobileGatewayAdapter {
       const themes = request.path === TASKEN_MOBILE_ENDPOINTS.themes
         ? this.parseThemesQuery(request.query)
         : null;
+      const workReceipt = request.path === TASKEN_MOBILE_ENDPOINTS.workReceipt
+        ? this.parseWorkReceiptQuery(request.query)
+        : null;
       const bootstrap = request.path === TASKEN_MOBILE_ENDPOINTS.bootstrap
         ? this.parseBootstrapQuery(request.query)
         : null;
@@ -311,10 +435,11 @@ export class MobileGatewayAdapter {
         : null;
       if (request.path === TASKEN_MOBILE_ENDPOINTS.today && !today) return this.error(meta, "validation_failed");
       if (request.path === TASKEN_MOBILE_ENDPOINTS.themes && !themes) return this.error(meta, "validation_failed");
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.workReceipt && !workReceipt) return this.error(meta, "validation_failed");
       if (request.path === TASKEN_MOBILE_ENDPOINTS.bootstrap && !bootstrap) return this.error(meta, "validation_failed");
       if (request.path === TASKEN_MOBILE_ENDPOINTS.sync && !sync) return this.error(meta, "validation_failed");
-      if (today || themes || bootstrap || sync) diagnosticId = (today || themes || bootstrap || sync)!.requestId;
-      if (![TASKEN_MOBILE_ENDPOINTS.today, TASKEN_MOBILE_ENDPOINTS.themes, TASKEN_MOBILE_ENDPOINTS.bootstrap, TASKEN_MOBILE_ENDPOINTS.sync].includes(request.path as never) && Object.keys(request.query || {}).length > 0) {
+      if (today || themes || workReceipt || bootstrap || sync) diagnosticId = (today || themes || workReceipt || bootstrap || sync)!.requestId;
+      if (![TASKEN_MOBILE_ENDPOINTS.today, TASKEN_MOBILE_ENDPOINTS.themes, TASKEN_MOBILE_ENDPOINTS.workReceipt, TASKEN_MOBILE_ENDPOINTS.bootstrap, TASKEN_MOBILE_ENDPOINTS.sync].includes(request.path as never) && Object.keys(request.query || {}).length > 0) {
         return this.error(meta, "validation_failed");
       }
 
@@ -381,6 +506,17 @@ export class MobileGatewayAdapter {
             themes: page,
             nextCursor: hasMore ? encodeTaskenMobileThemeCursor(fingerprint, nextPosition) : null,
           },
+        }));
+      }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.workReceipt) {
+        const canonical = await this.options.core.getWorkReceipt(workReceipt!.receiptId);
+        if (!canonical || canonical.taskId !== workReceipt!.taskId) return this.error(meta, "not_found");
+        const projected = projectWorkReceiptDetail(canonical);
+        meta = this.meta(projected.truncated);
+        return this.success(mobileWorkReceiptResponseSchema.parse({
+          ok: true,
+          meta,
+          data: { receipt: projected.receipt },
         }));
       }
       if (request.path === TASKEN_MOBILE_ENDPOINTS.bootstrap) {
@@ -550,6 +686,19 @@ export class MobileGatewayAdapter {
     return parsed.success ? parsed.data : null;
   }
 
+  private parseWorkReceiptQuery(query: MobileGatewayRequest["query"]) {
+    const values = query || {};
+    if (Object.keys(values).some((key) => !["apiVersion", "schemaVersion", "requestId", "taskId", "receiptId"].includes(key))) return null;
+    const parsed = mobileWorkReceiptRequestSchema.safeParse({
+      apiVersion: Number(values.apiVersion),
+      schemaVersion: Number(values.schemaVersion),
+      requestId: values.requestId,
+      taskId: values.taskId,
+      receiptId: values.receiptId,
+    });
+    return parsed.success ? parsed.data : null;
+  }
+
   private parseSyncQuery(query: MobileGatewayRequest["query"]) {
     const values = query || {};
     if (Object.keys(values).some((key) => !["apiVersion", "schemaVersion", "requestId", "cursor", "limit"].includes(key))) return null;
@@ -577,6 +726,7 @@ export class MobileGatewayAdapter {
       capabilities.push(
         TASKEN_MOBILE_CAPABILITIES.todayRead,
         TASKEN_MOBILE_CAPABILITIES.syncRead,
+        TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
       );
     }
     if (principal.scopes.includes("mobile:task-write")) capabilities.push(TASKEN_MOBILE_CAPABILITIES.taskWrite);

@@ -240,6 +240,89 @@ class AndroidMobileTaskRepository(
 
     override suspend fun keepLocalConflict(commandId: String): String = outbox.keepLocal(commandId)
 
+    override suspend fun loadWorkReceipt(taskId: String, receiptId: String): MobileWorkReceiptLoadResult {
+        val expectedServerId = dao.syncState()?.serverId
+            ?: return MobileWorkReceiptLoadResult.Unavailable(
+                receiptId,
+                "Taskを同期してからWork Receiptを開いてください。",
+            )
+        val cached = runCatching { dao.workReceipt(receiptId, expectedServerId)?.toDetail() }
+            .getOrNull()
+            ?.takeIf { it.taskId == taskId }
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) {
+            return cached?.let {
+                MobileWorkReceiptLoadResult.Available(
+                    detail = it,
+                    fromCache = true,
+                    warning = "保存済みのWork Receiptを表示しています。",
+                )
+            } ?: MobileWorkReceiptLoadResult.Unavailable(
+                receiptId,
+                "Desktopへ接続するとWork Receiptの詳細を読めます。",
+            )
+        }
+        return try {
+            val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
+            val encodedTaskId = URLEncoder.encode(taskId, Charsets.UTF_8.name())
+            val encodedReceiptId = URLEncoder.encode(receiptId, Charsets.UTF_8.name())
+            val response = gatewayRequest(
+                origin = configuration.origin,
+                path = "/v1/work-receipt?apiVersion=1&schemaVersion=2&requestId=$requestId" +
+                    "&taskId=$encodedTaskId&receiptId=$encodedReceiptId",
+                method = "GET",
+                body = null,
+                accessToken = token,
+            )
+            if (response.status == 401) {
+                store.clearTokenIfMatches(token)
+                error("Mobile Gateway token expired")
+            }
+            if (response.status == 404) {
+                return cached?.let {
+                    MobileWorkReceiptLoadResult.Available(
+                        detail = it,
+                        fromCache = true,
+                        warning = "Desktop側のWork Receipt詳細を確認できないため、保存済み内容を表示しています。",
+                    )
+                } ?: MobileWorkReceiptLoadResult.Unavailable(
+                    receiptId,
+                    "Work Receiptが見つかりません。Desktopを最新版へ更新して再読み込みしてください。",
+                )
+            }
+            require(response.status == 200) { "Work Receipt request failed with HTTP ${response.status}" }
+            val decoded = MobileWorkReceiptContract.decodeSuccess(response.body)
+            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+            val detail = decoded.toDetail()
+            require(detail.id == receiptId && detail.taskId == taskId) {
+                "Work Receipt response identity does not match the request"
+            }
+            dao.upsertWorkReceipt(
+                detail.toCache(
+                    serverId = decoded.meta.serverId,
+                    serverRevision = decoded.meta.serverRevision,
+                    fetchedAt = decoded.meta.generatedAt,
+                ),
+            )
+            MobileWorkReceiptLoadResult.Available(detail = detail, fromCache = false)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Work Receipt request failed", error)
+            cached?.let {
+                MobileWorkReceiptLoadResult.Available(
+                    detail = it,
+                    fromCache = true,
+                    warning = "Desktopへ接続できないため、保存済みのWork Receiptを表示しています。",
+                )
+            } ?: MobileWorkReceiptLoadResult.Unavailable(
+                receiptId,
+                "Work Receiptを読み込めませんでした。DesktopとTailscale接続を確認してください。",
+            )
+        }
+    }
+
     internal suspend fun recoverInterruptedOutbox(): Int = outbox.recoverInterruptedSending()
 
     internal suspend fun synchronizeIfPaired(): Boolean {

@@ -78,6 +78,7 @@ export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.health,
   TASKEN_MOBILE_CAPABILITIES.todayRead,
   TASKEN_MOBILE_CAPABILITIES.syncRead,
+  TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
   TASKEN_MOBILE_CAPABILITIES.taskWrite,
 ]);
 
@@ -163,6 +164,67 @@ export const mobileWorkReceiptSummarySchema = z.object({
   reportedAt: isoTimestampSchema,
   executorLabel: z.string().trim().min(1).max(200),
   summary: z.string().trim().min(1).max(2000),
+}).strict();
+
+export const TASKEN_MOBILE_WORK_RECEIPT_MAX_LIST_ITEMS = 20;
+export const TASKEN_MOBILE_WORK_RECEIPT_MAX_ITEM_LENGTH = 400;
+export const TASKEN_MOBILE_WORK_RECEIPT_MAX_EXTERNAL_REFERENCES = 10;
+export const TASKEN_MOBILE_WORK_RECEIPT_MAX_EXTERNAL_URL_LENGTH = 2000;
+
+const mobileWorkReceiptItemSchema = z.string()
+  .trim()
+  .min(1)
+  .max(TASKEN_MOBILE_WORK_RECEIPT_MAX_ITEM_LENGTH);
+
+const mobileWorkReceiptItemListSchema = z.array(mobileWorkReceiptItemSchema)
+  .max(TASKEN_MOBILE_WORK_RECEIPT_MAX_LIST_ITEMS);
+
+export const mobileWorkReceiptExternalReferenceSchema = z.object({
+  kind: z.enum(["issue", "pull_request", "merge_request", "commit", "branch", "file", "pipeline", "other"]),
+  provider: z.string().trim().max(120).nullable(),
+  displayLabel: z.string().trim().min(1).max(200),
+  url: z.string().trim().url().max(TASKEN_MOBILE_WORK_RECEIPT_MAX_EXTERNAL_URL_LENGTH).refine((value) => {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === "https:" && !parsed.username && !parsed.password;
+    } catch {
+      return false;
+    }
+  }, "Work Receipt external referenceはcredentialを含まないHTTPS URLが必要です。"),
+  externalId: z.string().trim().max(200).nullable(),
+}).strict();
+
+export const mobileWorkReceiptRequestSchema = z.object({
+  apiVersion: apiVersionSchema,
+  schemaVersion: schemaVersionSchema,
+  requestId: requestIdSchema,
+  taskId: taskIdSchema,
+  receiptId: entityIdSchema,
+}).strict();
+
+export const mobileWorkReceiptDetailSchema = z.object({
+  id: entityIdSchema,
+  taskId: taskIdSchema,
+  executorKind: z.enum(["self", "human", "ai_agent", "external", "unknown"]),
+  executorLabel: z.string().trim().min(1).max(200),
+  startedAt: isoTimestampSchema.nullable(),
+  reportedAt: isoTimestampSchema,
+  reportKind: z.enum(["report", "blocked"]),
+  summary: z.string().trim().min(1).max(10000),
+  completedItems: mobileWorkReceiptItemListSchema,
+  changedOrCreatedItems: mobileWorkReceiptItemListSchema,
+  verification: mobileWorkReceiptItemListSchema,
+  remainingWork: mobileWorkReceiptItemListSchema,
+  externalReferences: z.array(mobileWorkReceiptExternalReferenceSchema)
+    .max(TASKEN_MOBILE_WORK_RECEIPT_MAX_EXTERNAL_REFERENCES),
+}).strict();
+
+export const mobileWorkReceiptResponseSchema = z.object({
+  ok: z.literal(true),
+  meta: mobileResponseMetaSchema,
+  data: z.object({
+    receipt: mobileWorkReceiptDetailSchema,
+  }).strict(),
 }).strict();
 
 export const mobileTaskSummarySchema = z.object({
@@ -522,6 +584,10 @@ export type MobileTodayRequest = z.output<typeof mobileTodayRequestSchema>;
 export type MobileTodayResponse = z.output<typeof mobileTodayResponseSchema>;
 export type MobileTaskSchedule = z.output<typeof mobileTaskScheduleSchema>;
 export type MobileWorkReceiptSummary = z.output<typeof mobileWorkReceiptSummarySchema>;
+export type MobileWorkReceiptRequest = z.output<typeof mobileWorkReceiptRequestSchema>;
+export type MobileWorkReceiptDetail = z.output<typeof mobileWorkReceiptDetailSchema>;
+export type MobileWorkReceiptExternalReference = z.output<typeof mobileWorkReceiptExternalReferenceSchema>;
+export type MobileWorkReceiptResponse = z.output<typeof mobileWorkReceiptResponseSchema>;
 export type MobileTaskSummary = z.output<typeof mobileTaskSummarySchema>;
 export type MobileThemeCatalogItem = z.output<typeof mobileThemeCatalogItemSchema>;
 export type MobileThemesRequest = z.output<typeof mobileThemesRequestSchema>;

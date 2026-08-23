@@ -104,6 +104,25 @@ export class TaskenCoreRuntime {
           executorLabel: String(receipt.executor_label || ""),
           summary: String(receipt.summary || ""),
         })),
+        getWorkReceipt: (id) => {
+          const receipt = this.persistence.get("work_receipt", id, false);
+          if (!receipt) return null;
+          return {
+            id: String(receipt.id || ""),
+            taskId: String(receipt.task_id || ""),
+            executorKind: String(receipt.executor_kind || "unknown"),
+            executorLabel: String(receipt.executor_label || ""),
+            startedAt: receipt.started_at ? String(receipt.started_at) : null,
+            reportedAt: String(receipt.reported_at || ""),
+            summary: String(receipt.summary || ""),
+            completedItems: receipt.completed_items,
+            changedOrCreatedItems: receipt.changed_or_created_items,
+            verification: receipt.verification,
+            remainingWork: receipt.remaining_work,
+            externalReferences: receipt.external_references,
+            runtimeMetadata: receipt.runtime_metadata,
+          };
+        },
         executeTaskQuery: (input) => this.taskCapability.executeQuery(input),
         executeTaskCommand: (input) => this.taskCapability.executeCommand(input),
       },

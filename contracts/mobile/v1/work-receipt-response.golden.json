@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "meta": {
+    "apiVersion": 1,
+    "schemaVersion": 2,
+    "serverId": "desktop-home",
+    "serverRevision": 42,
+    "generatedAt": "2026-08-21T01:00:00.000Z",
+    "truncated": false
+  },
+  "data": {
+    "receipt": {
+      "id": "receipt-ai-review",
+      "taskId": "task-ai-review",
+      "executorKind": "ai_agent",
+      "executorLabel": "Codex",
+      "startedAt": "2026-08-21T01:00:00.000Z",
+      "reportedAt": "2026-08-21T01:20:00.000Z",
+      "reportKind": "report",
+      "summary": "Androidから確認できる変更です。",
+      "completedItems": [
+        "Mobile Gateway detail contract"
+      ],
+      "changedOrCreatedItems": [
+        "src/shared/contracts/mobile/schema.ts"
+      ],
+      "verification": [
+        "node --test tests/mobile-gateway-phase4a.test.mjs"
+      ],
+      "remainingWork": [
+        "Fold7 final signoff"
+      ],
+      "externalReferences": [
+        {
+          "kind": "pull_request",
+          "provider": "github",
+          "displayLabel": "PR #472",
+          "url": "https://github.com/mryk814/tasuken/pull/472",
+          "externalId": "472"
+        }
+      ]
+    }
+  }
+}

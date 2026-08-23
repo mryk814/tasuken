@@ -87,6 +87,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -180,6 +181,7 @@ private fun TodayApp(
     val conflictCount by todayViewModel.conflictCount.collectAsState()
     val allTasks by todayViewModel.allTasks.collectAsState()
     val themeCatalogState by todayViewModel.themeCatalogState.collectAsState()
+    val workReceiptDetailState by todayViewModel.workReceiptDetailState.collectAsState()
     val themes = themeCatalogState.themes
     val paneState = rememberTodayPaneState()
     val context = LocalContext.current
@@ -468,9 +470,16 @@ private fun TodayApp(
             detailPane = {
                 AnimatedPane {
                     val task = allTasks.firstOrNull { it.id == paneState.selectedTaskId }
+                    val receiptId = task?.latestWorkReceipt?.id
+                    LaunchedEffect(task?.id, receiptId) {
+                        if (task != null && receiptId != null) {
+                            todayViewModel.loadWorkReceipt(task.id, receiptId)
+                        }
+                    }
                     TodayDetailPane(
                         task = task,
                         actionState = taskActionState,
+                        workReceiptDetailState = workReceiptDetailState,
                         themes = themes,
                         themeCatalogState = themeCatalogState,
                         onStateAction = todayViewModel::toggleTaskState,
@@ -480,6 +489,9 @@ private fun TodayApp(
                         onScheduleUpdate = todayViewModel::updateTaskSchedule,
                         onRejectedThemeDiscard = todayViewModel::discardRejectedThemeUpdate,
                         onConflictResolution = todayViewModel::resolveConflict,
+                        onWorkReceiptRetry = { selectedTask, selectedReceiptId ->
+                            todayViewModel.loadWorkReceipt(selectedTask.id, selectedReceiptId, force = true)
+                        },
                     )
                 }
             },
@@ -1081,6 +1093,7 @@ private fun TodayTaskList(
 internal fun TodayDetailPane(
     task: MobileTask?,
     actionState: TaskActionUiState,
+    workReceiptDetailState: WorkReceiptDetailUiState = WorkReceiptDetailUiState.Idle,
     themes: List<MobileTheme> = emptyList(),
     themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
         MobileThemeCatalogState.Loading()
@@ -1094,6 +1107,7 @@ internal fun TodayDetailPane(
     onScheduleUpdate: (MobileTask, MobileTaskScheduleDraft) -> Unit = { _, _ -> },
     onRejectedThemeDiscard: (MobileTask) -> Unit = {},
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
+    onWorkReceiptRetry: (MobileTask, String) -> Unit = { _, _ -> },
 ) {
     if (task == null) {
         CenteredState { Text("Taskを選んでください") }
@@ -1256,6 +1270,37 @@ internal fun TodayDetailPane(
                         Text("最新のWork Receipt", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text("${receipt.executorLabel}  ${receipt.reportedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(receipt.summary)
+                        when (val detailState = workReceiptDetailState) {
+                            is WorkReceiptDetailUiState.Loading -> if (detailState.receiptId == receipt.id) {
+                                Row(
+                                    modifier = Modifier.testTag("work-receipt-loading"),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CircularProgressIndicator()
+                                    Text("詳細を読み込んでいます")
+                                }
+                            }
+                            is WorkReceiptDetailUiState.Available -> if (detailState.detail.id == receipt.id) {
+                                WorkReceiptDetailContent(
+                                    detail = detailState.detail,
+                                    fromCache = detailState.fromCache,
+                                    warning = detailState.warning,
+                                )
+                            }
+                            is WorkReceiptDetailUiState.Error -> if (detailState.receiptId == receipt.id) {
+                                Column(
+                                    modifier = Modifier.testTag("work-receipt-error"),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(detailState.message, color = MaterialTheme.colorScheme.error)
+                                    TextButton(onClick = { onWorkReceiptRetry(task, receipt.id) }) {
+                                        Text("詳細を再読み込み")
+                                    }
+                                }
+                            }
+                            WorkReceiptDetailUiState.Idle -> Unit
+                        }
                     }
                 }
             }
@@ -1288,6 +1333,58 @@ internal fun TodayDetailPane(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun WorkReceiptDetailContent(
+    detail: MobileWorkReceiptDetail,
+    fromCache: Boolean,
+    warning: String?,
+) {
+    val uriHandler = LocalUriHandler.current
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("work-receipt-detail"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (detail.startedAt != null) {
+            Text("開始  ${detail.startedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (fromCache) Text("Offline cache", color = MaterialTheme.colorScheme.secondary)
+        warning?.let { Text(it, color = MaterialTheme.colorScheme.secondary) }
+        WorkReceiptItemSection("完了", detail.completedItems)
+        WorkReceiptItemSection("変更 / 作成", detail.changedOrCreatedItems)
+        WorkReceiptItemSection("確認", detail.verification)
+        WorkReceiptItemSection("残り", detail.remainingWork)
+        if (detail.externalReferences.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("関連リンク", fontWeight = FontWeight.SemiBold)
+                detail.externalReferences.forEach { reference ->
+                    TextButton(
+                        onClick = { uriHandler.openUri(reference.url) },
+                        modifier = Modifier.testTag("work-receipt-link-${reference.kind}"),
+                    ) {
+                        Text(reference.displayLabel)
+                    }
+                }
+            }
+        }
+        if (detail.truncated) {
+            Text(
+                "長いReceiptの一部を省略しています。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WorkReceiptItemSection(label: String, items: List<String>) {
+    if (items.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, fontWeight = FontWeight.SemiBold)
+        items.forEach { item -> Text("• $item") }
     }
 }
 

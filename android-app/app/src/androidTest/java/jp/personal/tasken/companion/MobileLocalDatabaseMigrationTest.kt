@@ -422,6 +422,44 @@ class MobileLocalDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrationTenToElevenPreservesTaskCacheAndAddsOfflineReceiptDetailStorage() {
+        helper.createDatabase(DatabaseName, 10).apply {
+            execSQL(
+                "INSERT INTO task_cache " +
+                    "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, " +
+                    "optimisticCommandId, conflictCommandId, scheduleId, scheduleVersion, " +
+                    "scheduleStartDate, scheduleEndDate, scheduleDateKind, scheduleRangeSemantics, " +
+                    "scheduleConfidence, scheduleGranularity, plannedStartTime, plannedDurationMinutes, " +
+                    "latestReceiptId, latestReceiptReportedAt, latestReceiptExecutorLabel, latestReceiptSummary) " +
+                    "VALUES ('task-10', 7, '詳細を保持する', 'theme-1', 'todo', 'needs_human_review', " +
+                    "'2026-08-22', '2026-08-22T01:00:00Z', NULL, NULL, NULL, NULL, NULL, NULL, NULL, " +
+                    "NULL, NULL, NULL, NULL, NULL, 'receipt-10', '2026-08-22T01:00:00Z', 'Codex', '確認待ち')",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 11, true, MIGRATION_10_11).use { db ->
+            db.query("SELECT title, latestReceiptId FROM task_cache WHERE id = 'task-10'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("詳細を保持する", cursor.getString(0))
+                assertEquals("receipt-10", cursor.getString(1))
+            }
+            db.execSQL(
+                "INSERT INTO work_receipt_cache " +
+                    "(id, taskId, executorKind, executorLabel, startedAt, reportedAt, reportKind, " +
+                    "summary, payloadJson, truncated, serverId, serverRevision, fetchedAt) VALUES " +
+                    "('receipt-10', 'task-10', 'ai_agent', 'Codex', NULL, '2026-08-22T01:00:00Z', " +
+                    "'report', '確認待ち', '{}', 0, 'desktop-home', 42, '2026-08-22T01:01:00Z')",
+            )
+            db.query("SELECT taskId, serverId FROM work_receipt_cache WHERE id = 'receipt-10'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("task-10", cursor.getString(0))
+                assertEquals("desktop-home", cursor.getString(1))
+            }
+        }
+    }
+
     private companion object {
         const val DatabaseName = "mobile-migration-test"
     }
