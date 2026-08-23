@@ -235,7 +235,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
             rows: List<Triple<Int, Int, Int>>,
         ): RemoteViews = RemoteViews(context.packageName, layoutId).apply {
             val visibleTasks = snapshot.tasks.take(mode.taskLimit)
-            setOnClickPendingIntent(R.id.widget_header, openAppIntent(context, widgetId, "tasken://today?source=widget"))
+            setOnClickPendingIntent(R.id.widget_open_today, openAppIntent(context, widgetId, "tasken://today?source=widget"))
             bindCaptureActions(context, widgetId)
             setTextViewText(R.id.widget_status, statusText(snapshot))
             setOnClickPendingIntent(R.id.widget_status, openAppIntent(context, widgetId + 30_000, "tasken://today?source=widget"))
