@@ -8,6 +8,7 @@ enum class MobileEntrySource {
     AppShortcut,
     ShareTarget,
     Widget,
+    AndroidSpeech,
     DeepLink,
 }
 
@@ -23,6 +24,7 @@ sealed interface MobileEntryRequest {
         override val token: Long,
         val source: MobileEntrySource,
         val draft: String = "",
+        val startVoice: Boolean = false,
     ) : MobileEntryRequest
 
     data class Task(
@@ -61,12 +63,17 @@ object MobileEntryRequestResolver {
         val source = when (queryParameter(uri.rawQuery, "source")) {
             "app_shortcut" -> MobileEntrySource.AppShortcut
             "widget" -> MobileEntrySource.Widget
+            "android_speech" -> MobileEntrySource.AndroidSpeech
             else -> MobileEntrySource.DeepLink
         }
         val path = uri.path.trim('/')
         return when {
             uri.host == "today" && path.isEmpty() -> MobileEntryRequest.Today(token, source)
-            uri.host == "capture" && path == "new" -> MobileEntryRequest.Capture(token, source)
+            uri.host == "capture" && path == "new" -> MobileEntryRequest.Capture(
+                token = token,
+                source = source,
+                startVoice = source == MobileEntrySource.AndroidSpeech || queryParameter(uri.rawQuery, "voice") == "1",
+            )
             uri.host == "task" && path.matches(ENTITY_ID) -> MobileEntryRequest.Task(token, source, path)
             else -> MobileEntryRequest.None
         }
@@ -79,4 +86,13 @@ object MobileEntryRequestResolver {
         ?.get(1)
 
     private val ENTITY_ID = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+}
+
+internal fun MobileEntrySource.toCaptureSource(): MobileCaptureSource = when (this) {
+    MobileEntrySource.App -> MobileCaptureSource.AndroidApp
+    MobileEntrySource.AppShortcut -> MobileCaptureSource.AppShortcut
+    MobileEntrySource.ShareTarget -> MobileCaptureSource.ShareTarget
+    MobileEntrySource.Widget -> MobileCaptureSource.Widget
+    MobileEntrySource.AndroidSpeech -> MobileCaptureSource.AndroidSpeech
+    MobileEntrySource.DeepLink -> MobileCaptureSource.AndroidApp
 }

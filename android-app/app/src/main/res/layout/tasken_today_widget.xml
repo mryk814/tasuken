@@ -39,6 +39,16 @@
             android:textColor="#8A2F3B"
             android:textSize="22sp"
             android:contentDescription="Taskを追加" />
+
+        <TextView
+            android:id="@+id/widget_voice"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:contentDescription="音声でTaskを追加"
+            android:gravity="center"
+            android:text="🎙"
+            android:textColor="#8A2F3B"
+            android:textSize="18sp" />
     </LinearLayout>
 
     <TextView

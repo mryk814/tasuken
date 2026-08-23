@@ -181,9 +181,14 @@ class MobileOutbox(
 
     fun observeConflictCount(): Flow<Int> = dao.observeConflictCount()
 
-    suspend fun enqueueCreate(title: String, todayDate: LocalDate? = LocalDate.now()): String {
+    suspend fun enqueueCreate(
+        title: String,
+        todayDate: LocalDate? = LocalDate.now(),
+        projectId: String? = null,
+    ): String {
         val normalizedTitle = title.trim()
         require(normalizedTitle.isNotEmpty() && normalizedTitle.length <= 500)
+        require(projectId == null || projectId.isNotBlank())
         val taskId = UUID.randomUUID().toString()
         val commandId = UUID.randomUUID().toString()
         val requestId = UUID.randomUUID().toString()
@@ -202,6 +207,7 @@ class MobileOutbox(
                 task = MobileCreateTaskCandidateDto(
                     id = taskId,
                     title = normalizedTitle,
+                    projectId = projectId,
                     todayDate = todayDate?.toString(),
                 ),
             ),
@@ -211,7 +217,7 @@ class MobileOutbox(
                 id = taskId,
                 serverVersion = null,
                 title = normalizedTitle,
-                themeId = null,
+                themeId = projectId,
                 state = "todo",
                 workState = null,
                 todayDate = todayDate?.toString(),

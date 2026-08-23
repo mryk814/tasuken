@@ -9,8 +9,23 @@ class TodayPaneStateTest {
         val before = TodayPaneState()
         before.selectedTaskId = "10000000-0000-4000-8000-000000000001"
         before.recordScroll(7, 32)
-        before.captureDraft = "折りたたみ後も残す"
-        before.captureOpen = true
+        before.captureDraft = MobileCaptureDraft.fresh(
+            text = "折りたたみ後も残す",
+            source = MobileCaptureSource.AndroidSpeech,
+            now = { java.time.Instant.parse("2026-08-23T00:00:00Z") },
+            newId = { "draft-voice" },
+        ).copy(
+            speech = MobileSpeechProvenance(
+                recognitionMode = MobileSpeechRecognitionMode.OnDevice,
+                language = "ja-JP",
+                confidence = 0.9f,
+            ),
+        )
+        before.openCapture(
+            source = MobileCaptureSource.AndroidSpeech,
+            requestVoice = true,
+            replaceDraft = false,
+        )
         before.activeSection = AppSection.Ai
         before.taskSearch = "解析"
         before.taskFilter = TaskListFilter.Done
@@ -22,8 +37,14 @@ class TodayPaneStateTest {
         assertEquals(before.selectedTaskId, restored.selectedTaskId)
         assertEquals(7, restored.listScrollIndex)
         assertEquals(32, restored.listScrollOffset)
-        assertEquals("折りたたみ後も残す", restored.captureDraft)
+        assertEquals("折りたたみ後も残す", restored.captureDraft.text)
+        assertEquals("draft-voice", restored.captureDraft.draftId)
+        assertEquals(MobileCaptureSource.AndroidSpeech, restored.captureDraft.source)
+        assertEquals(MobileSpeechRecognitionMode.OnDevice, restored.captureDraft.speech?.recognitionMode)
+        assertEquals("ja-JP", restored.captureDraft.speech?.language)
+        assertEquals(0.9f, restored.captureDraft.speech?.confidence)
         assertEquals(true, restored.captureOpen)
+        assertEquals(true, restored.captureVoiceStartRequested)
         assertEquals(AppSection.Ai, restored.activeSection)
         assertEquals("解析", restored.taskSearch)
         assertEquals(TaskListFilter.Done, restored.taskFilter)

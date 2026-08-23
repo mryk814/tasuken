@@ -95,6 +95,10 @@ class TaskenTodayWidget : AppWidgetProvider() {
             RemoteViews(context.packageName, R.layout.tasken_today_widget).apply {
                 setOnClickPendingIntent(R.id.widget_header, openAppIntent(context, widgetId, "tasken://today?source=widget"))
                 setOnClickPendingIntent(R.id.widget_add, openAppIntent(context, widgetId + 10_000, "tasken://capture/new?source=widget"))
+                setOnClickPendingIntent(
+                    R.id.widget_voice,
+                    openAppIntent(context, widgetId + 20_000, "tasken://capture/new?source=android_speech"),
+                )
                 setTextViewText(R.id.widget_status, statusText(snapshot))
                 setViewVisibility(R.id.widget_empty, if (snapshot.tasks.isEmpty()) View.VISIBLE else View.GONE)
                 rowIds.forEachIndexed { index, (rowId, buttonId, titleId) ->

@@ -20,6 +20,26 @@ class MobileEntryRequestTest {
     }
 
     @Test
+    fun resolves_voice_shortcut_to_confirmed_speech_capture() {
+        val result = MobileEntryRequestResolver.resolve(
+            action = Intent.ACTION_VIEW,
+            data = "tasken://capture/new?source=android_speech",
+            mimeType = null,
+            sharedText = null,
+            token = 7,
+        )
+
+        assertEquals(
+            MobileEntryRequest.Capture(
+                token = 7,
+                source = MobileEntrySource.AndroidSpeech,
+                startVoice = true,
+            ),
+            result,
+        )
+    }
+
+    @Test
     fun resolves_widget_task_and_today_links() {
         assertEquals(
             MobileEntryRequest.Today(2, MobileEntrySource.Widget),
