@@ -54,7 +54,7 @@ class TodayViewModelTest {
             override fun loadToday() = MobileTodayResult.Available(listOf(network), "2026-08-21T10:00:00.000Z")
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(listOf(cached))
             override fun observePendingCount(): Flow<Int> = flowOf(1)
-            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
             override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
             override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
         }
@@ -69,13 +69,13 @@ class TodayViewModelTest {
 
     @Test
     fun createTaskQueuesOfflineCommandAndReportsTaskId() {
-        var receivedTitle = ""
+        var receivedDraft: MobileCaptureDraft? = null
         val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
             override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
             override fun observePendingCount(): Flow<Int> = flowOf(0)
-            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?): String {
-                receivedTitle = title
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?): String {
+                receivedDraft = draft
                 return "queued-task-id"
             }
             override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
@@ -83,9 +83,17 @@ class TodayViewModelTest {
         }
         val viewModel = TodayViewModel(repository)
 
-        runBlocking { viewModel.createTaskNow("  外出先で追加  ") }
+        runBlocking {
+            viewModel.createTaskNow(
+                MobileCaptureDraft.fresh(
+                    text = "  外出先で追加  ",
+                    source = MobileCaptureSource.AndroidSpeech,
+                ),
+            )
+        }
 
-        assertEquals("外出先で追加", receivedTitle)
+        assertEquals("外出先で追加", receivedDraft?.text)
+        assertEquals(MobileCaptureSource.AndroidSpeech, receivedDraft?.source)
         assertEquals(CaptureUiState.Queued("queued-task-id"), viewModel.captureState.value)
     }
 
@@ -93,7 +101,7 @@ class TodayViewModelTest {
     fun createTaskValidationKeepsActionRecoverable() {
         val viewModel = TodayViewModel(FakeRepository(emptyList()))
 
-        runBlocking { viewModel.createTaskNow("   ") }
+        runBlocking { viewModel.createTaskNow(MobileCaptureDraft.fresh(text = "   ")) }
 
         assertEquals(CaptureUiState.Error("Task名を入力してください。"), viewModel.captureState.value)
     }
@@ -105,7 +113,7 @@ class TodayViewModelTest {
             override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
             override fun observePendingCount(): Flow<Int> = flowOf(0)
-            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
             override suspend fun enqueueCompleteTask(taskId: String): MobileStateActionResult {
                 received += "complete:$taskId"
                 return MobileStateActionResult("complete-command", true)
@@ -145,7 +153,7 @@ class TodayViewModelTest {
             override fun loadToday() = MobileTodayResult.Available(listOf(task), "2026-08-21T10:00:00.000Z")
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(listOf(task))
             override fun observePendingCount(): Flow<Int> = flowOf(1)
-            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
             override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
             override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult(null, false)
         }
@@ -163,7 +171,7 @@ class TodayViewModelTest {
             override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
             override fun observePendingCount(): Flow<Int> = flowOf(0)
-            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
             override suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: java.time.LocalDate?): String {
                 received = todayDate
                 return "schedule-command"
@@ -187,7 +195,7 @@ class TodayViewModelTest {
             override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
             override fun observePendingCount(): Flow<Int> = flowOf(0)
-            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
             override suspend fun enqueueUpdateTaskSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String {
                 received = schedule
                 return "schedule-command"
@@ -233,7 +241,7 @@ class TodayViewModelTest {
                 ),
             )
             override fun observePendingCount(): Flow<Int> = flowOf(0)
-            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
             override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String {
                 called = true
                 receivedThemeId = themeId
@@ -263,7 +271,7 @@ class TodayViewModelTest {
             override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
             override fun observePendingCount(): Flow<Int> = flowOf(0)
-            override suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
             override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
             override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
             override suspend fun discardRejectedThemeUpdate(taskId: String, commandId: String) {

@@ -270,13 +270,13 @@ class TodayViewModel(
         applyResult(gateway.retryPairing())
     }
 
-    fun createTask(title: String) {
+    fun createTask(draft: MobileCaptureDraft) {
         mutableCaptureState.value = CaptureUiState.Saving
-        viewModelScope.launch(ioDispatcher) { createTaskNow(title) }
+        viewModelScope.launch(ioDispatcher) { createTaskNow(draft) }
     }
 
-    internal suspend fun createTaskNow(title: String) {
-        val normalized = title.trim()
+    internal suspend fun createTaskNow(draft: MobileCaptureDraft) {
+        val normalized = draft.text.trim()
         if (normalized.isEmpty()) {
             mutableCaptureState.value = CaptureUiState.Error("Task名を入力してください。")
             return
@@ -291,7 +291,11 @@ class TodayViewModel(
             return
         }
         mutableCaptureState.value = try {
-            CaptureUiState.Queued(withContext(ioDispatcher) { offlineRepository.enqueueCreateTask(normalized) })
+            CaptureUiState.Queued(
+                withContext(ioDispatcher) {
+                    offlineRepository.enqueueCreateTask(draft.withText(normalized))
+                },
+            )
         } catch (_: Exception) {
             CaptureUiState.Error("Taskを保存できませんでした。入力を残したまま再試行してください。")
         }
@@ -539,8 +543,9 @@ class TodayPaneState(
     selectedTaskId: String? = null,
     listScrollIndex: Int = 0,
     listScrollOffset: Int = 0,
-    captureDraft: String = "",
+    captureDraft: MobileCaptureDraft = MobileCaptureDraft.fresh(),
     captureOpen: Boolean = false,
+    captureVoiceStartRequested: Boolean = false,
     activeSection: AppSection = AppSection.Today,
     taskSearch: String = "",
     taskFilter: TaskListFilter = TaskListFilter.Open,
@@ -556,6 +561,8 @@ class TodayPaneState(
         private set
     var captureDraft by mutableStateOf(captureDraft)
     var captureOpen by mutableStateOf(captureOpen)
+    var captureVoiceStartRequested by mutableStateOf(captureVoiceStartRequested)
+        private set
     var activeSection by mutableStateOf(activeSection)
     var taskSearch by mutableStateOf(taskSearch)
     var taskFilter by mutableStateOf(taskFilter)
@@ -583,11 +590,34 @@ class TodayPaneState(
         aiListScrollOffset = offset.coerceAtLeast(0)
     }
 
+    fun openCapture(
+        source: MobileCaptureSource,
+        initialText: String = "",
+        requestVoice: Boolean = false,
+        replaceDraft: Boolean = true,
+    ) {
+        if (replaceDraft || captureDraft.text.isBlank()) {
+            captureDraft = MobileCaptureDraft.fresh(text = initialText, source = source)
+        }
+        captureOpen = true
+        captureVoiceStartRequested = requestVoice
+    }
+
+    fun consumeVoiceStartRequest() {
+        captureVoiceStartRequested = false
+    }
+
+    fun resetCapture() {
+        captureDraft = MobileCaptureDraft.fresh()
+        captureOpen = false
+        captureVoiceStartRequested = false
+    }
+
     fun save(): List<Any?> = listOf(
         selectedTaskId,
         listScrollIndex,
         listScrollOffset,
-        captureDraft,
+        captureDraft.text,
         captureOpen,
         activeSection.name,
         taskSearch,
@@ -596,6 +626,16 @@ class TodayPaneState(
         taskListScrollOffset,
         aiListScrollIndex,
         aiListScrollOffset,
+        captureDraft.draftId,
+        captureDraft.kind.wireValue,
+        captureDraft.projectId,
+        captureDraft.source.wireValue,
+        captureDraft.speech?.recognitionMode?.wireValue,
+        captureDraft.speech?.language,
+        captureDraft.speech?.confidence,
+        captureDraft.createdAt,
+        captureVoiceStartRequested,
+        captureDraft.speech?.sourceAudioAvailable,
     )
 
     companion object {
@@ -603,8 +643,24 @@ class TodayPaneState(
             selectedTaskId = saved[0] as String?,
             listScrollIndex = saved[1] as Int,
             listScrollOffset = saved[2] as Int,
-            captureDraft = saved.getOrNull(3) as? String ?: "",
+            captureDraft = MobileCaptureDraft(
+                draftId = saved.getOrNull(12) as? String ?: java.util.UUID.randomUUID().toString(),
+                text = saved.getOrNull(3) as? String ?: "",
+                kind = MobileCaptureKind.fromWireValue(saved.getOrNull(13) as? String),
+                projectId = saved.getOrNull(14) as? String,
+                source = MobileCaptureSource.fromWireValue(saved.getOrNull(15) as? String),
+                speech = (saved.getOrNull(16) as? String)?.let { mode ->
+                    MobileSpeechProvenance(
+                        recognitionMode = MobileSpeechRecognitionMode.fromWireValue(mode),
+                        language = saved.getOrNull(17) as? String ?: "",
+                        confidence = saved.getOrNull(18) as? Float,
+                        sourceAudioAvailable = saved.getOrNull(21) as? Boolean ?: false,
+                    )
+                },
+                createdAt = saved.getOrNull(19) as? String ?: java.time.Instant.now().toString(),
+            ),
             captureOpen = saved.getOrNull(4) as? Boolean ?: false,
+            captureVoiceStartRequested = saved.getOrNull(20) as? Boolean ?: false,
             activeSection = (saved.getOrNull(5) as? String)
                 ?.let { runCatching { AppSection.valueOf(it) }.getOrNull() }
                 ?: AppSection.Today,
@@ -635,7 +691,10 @@ interface MobileOfflineTaskRepository {
     }
     fun observePendingCount(): Flow<Int>
     fun observeConflictCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
-    suspend fun enqueueCreateTask(title: String, todayDate: java.time.LocalDate? = java.time.LocalDate.now()): String
+    suspend fun enqueueCreateTask(
+        draft: MobileCaptureDraft,
+        todayDate: java.time.LocalDate? = java.time.LocalDate.now(),
+    ): String
     suspend fun enqueueUpdateTaskTitle(taskId: String, title: String): String = error("この環境ではTaskを編集できません。")
     suspend fun enqueueUpdateTaskTodayDate(taskId: String, todayDate: java.time.LocalDate?): String =
         error("この環境ではTaskの予定を変更できません。")

@@ -205,8 +205,8 @@ class AndroidMobileTaskRepository(
 
     override fun observeConflictCount(): Flow<Int> = outbox.observeConflictCount()
 
-    override suspend fun enqueueCreateTask(title: String, todayDate: LocalDate?): String =
-        outbox.enqueueCreate(title, todayDate)
+    override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: LocalDate?): String =
+        outbox.enqueueCreate(draft.text, todayDate, draft.projectId)
 
     override suspend fun enqueueUpdateTaskTitle(taskId: String, title: String): String =
         outbox.enqueueUpdateTitle(taskId, title)

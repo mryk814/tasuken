@@ -1,11 +1,16 @@
 package jp.personal.tasken.companion
 
+import android.Manifest
 import android.content.res.Configuration
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import java.time.LocalDate
+import java.util.Locale
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
@@ -75,6 +80,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -101,7 +107,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        entryRequest.value = MobileEntryRequestResolver.fromIntent(intent)
+        entryRequest.value = resolveEntryRequest(intent)
         val repository = AndroidMobileTaskRepository(applicationContext)
         setContent {
             TaskenTheme {
@@ -114,7 +120,17 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        entryRequest.value = MobileEntryRequestResolver.fromIntent(intent)
+        entryRequest.value = resolveEntryRequest(intent)
+    }
+
+    private fun resolveEntryRequest(intent: Intent): MobileEntryRequest {
+        val token = intent.getLongExtra(EXTRA_ENTRY_TOKEN, 0L).takeIf { it != 0L }
+            ?: System.nanoTime().also { intent.putExtra(EXTRA_ENTRY_TOKEN, it) }
+        return MobileEntryRequestResolver.fromIntent(intent, token)
+    }
+
+    companion object {
+        private const val EXTRA_ENTRY_TOKEN = "jp.personal.tasken.companion.extra.ENTRY_TOKEN"
     }
 }
 
@@ -162,6 +178,33 @@ private fun TodayApp(
     val themeCatalogState by todayViewModel.themeCatalogState.collectAsState()
     val themes = themeCatalogState.themes
     val paneState = rememberTodayPaneState()
+    val context = LocalContext.current
+    val speechRecognizer = remember(context) { AndroidShortSpeechRecognizer(context.applicationContext) }
+    var speechState by remember(speechRecognizer) {
+        mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(speechRecognizer.availableMode()))
+    }
+    val startSpeechRecognition = {
+        speechRecognizer.start(Locale.getDefault().toLanguageTag()) { nextState ->
+            speechState = nextState
+            if (nextState is ShortSpeechUiState.Result) {
+                paneState.captureDraft = paneState.captureDraft.withSpeechResult(nextState.result)
+            }
+        }
+    }
+    val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            startSpeechRecognition()
+        } else {
+            speechState = ShortSpeechUiState.Error("マイク権限がありません。手入力はそのまま使えます。")
+        }
+    }
+    val requestSpeechRecognition = {
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            startSpeechRecognition()
+        } else {
+            microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
     val adaptiveInfo = currentWindowAdaptiveInfo()
     val scaffoldDirective = taskenPaneScaffoldDirective(
         base = calculatePaneScaffoldDirective(adaptiveInfo),
@@ -176,6 +219,10 @@ private fun TodayApp(
     val keyboardController = LocalSoftwareKeyboardController.current
     var handledEntryToken by rememberSaveable { mutableLongStateOf(0L) }
 
+    DisposableEffect(speechRecognizer) {
+        onDispose { speechRecognizer.destroy() }
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, todayViewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -188,8 +235,12 @@ private fun TodayApp(
         if (entryRequest.token == 0L || entryRequest.token == handledEntryToken) return@LaunchedEffect
         when (entryRequest) {
             is MobileEntryRequest.Capture -> {
-                paneState.captureDraft = entryRequest.draft
-                paneState.captureOpen = true
+                paneState.openCapture(
+                    source = entryRequest.source.toCaptureSource(),
+                    initialText = entryRequest.draft,
+                    requestVoice = entryRequest.startVoice,
+                )
+                speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
                 handledEntryToken = entryRequest.token
             }
             is MobileEntryRequest.Task -> {
@@ -214,10 +265,17 @@ private fun TodayApp(
             MobileEntryRequest.None -> Unit
         }
     }
+    LaunchedEffect(paneState.captureOpen, paneState.captureVoiceStartRequested) {
+        if (paneState.captureOpen && paneState.captureVoiceStartRequested) {
+            paneState.consumeVoiceStartRequest()
+            requestSpeechRecognition()
+        }
+    }
     LaunchedEffect(captureState) {
         if (captureState is CaptureUiState.Queued) {
-            paneState.captureDraft = ""
-            paneState.captureOpen = false
+            speechRecognizer.cancel()
+            speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+            paneState.resetCapture()
             snackbarHostState.showSnackbar("Taskを追加しました。Desktopへ自動送信します。")
             todayViewModel.resetCaptureState()
         }
@@ -332,7 +390,13 @@ private fun TodayApp(
                 )
                 NavigationBarItem(
                     selected = false,
-                    onClick = { paneState.captureOpen = true },
+                    onClick = {
+                        paneState.openCapture(
+                            source = MobileCaptureSource.AndroidApp,
+                            replaceDraft = false,
+                        )
+                        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+                    },
                     icon = { Text("+") },
                     label = { Text("追加") },
                 )
@@ -407,10 +471,15 @@ private fun TodayApp(
         CaptureTaskSheet(
             draft = paneState.captureDraft,
             state = captureState,
-            onDraftChanged = { paneState.captureDraft = it },
+            speechState = speechState,
+            onDraftChanged = { paneState.captureDraft = paneState.captureDraft.withText(it) },
             onSubmit = { todayViewModel.createTask(paneState.captureDraft) },
+            onStartVoice = requestSpeechRecognition,
+            onStopVoice = speechRecognizer::stop,
             onDismiss = {
                 if (captureState !is CaptureUiState.Saving) {
+                    speechRecognizer.cancel()
+                    speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
                     paneState.captureOpen = false
                     todayViewModel.resetCaptureState()
                 }
@@ -422,10 +491,13 @@ private fun TodayApp(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CaptureTaskSheet(
-    draft: String,
+    draft: MobileCaptureDraft,
     state: CaptureUiState,
+    speechState: ShortSpeechUiState,
     onDraftChanged: (String) -> Unit,
     onSubmit: () -> Unit,
+    onStartVoice: () -> Unit,
+    onStopVoice: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -434,8 +506,12 @@ private fun CaptureTaskSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Taskを追加", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "入力元: ${captureSourceLabel(draft.source)}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             OutlinedTextField(
-                value = draft,
+                value = draft.text,
                 onValueChange = { onDraftChanged(it.take(500)) },
                 label = { Text("Task名") },
                 placeholder = { Text("例: 実験条件を整理する") },
@@ -448,17 +524,62 @@ private fun CaptureTaskSheet(
                 enabled = state !is CaptureUiState.Saving,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (draft.isNotBlank()) onSubmit() }),
+                keyboardActions = KeyboardActions(onDone = { if (draft.text.isNotBlank()) onSubmit() }),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Button(
-                onClick = onSubmit,
-                enabled = state !is CaptureUiState.Saving && draft.isNotBlank(),
-                modifier = Modifier.align(Alignment.End),
+            val speechBusy = speechState is ShortSpeechUiState.Listening ||
+                speechState is ShortSpeechUiState.Partial ||
+                speechState is ShortSpeechUiState.Processing
+            OutlinedButton(
+                onClick = if (speechBusy) onStopVoice else onStartVoice,
+                enabled = state !is CaptureUiState.Saving,
             ) {
-                Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
+                Text(if (speechBusy) "音声を確定" else "🎙 音声で入力")
+            }
+            Text(
+                speechStatusText(speechState, draft),
+                color = if (speechState is ShortSpeechUiState.Error) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(
+                    onClick = onSubmit,
+                    enabled = state !is CaptureUiState.Saving && draft.text.isNotBlank(),
+                ) {
+                    Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
+                }
             }
         }
+    }
+}
+
+private fun captureSourceLabel(source: MobileCaptureSource): String = when (source) {
+    MobileCaptureSource.AndroidApp -> "Tasken"
+    MobileCaptureSource.Widget -> "Widget"
+    MobileCaptureSource.AppShortcut -> "App Shortcut"
+    MobileCaptureSource.ShareTarget -> "Share Target"
+    MobileCaptureSource.AndroidSpeech -> "Android音声入力"
+}
+
+private fun speechStatusText(state: ShortSpeechUiState, draft: MobileCaptureDraft): String = when (state) {
+    is ShortSpeechUiState.Idle -> speechPrivacyDescription(state.availableMode)
+    is ShortSpeechUiState.Listening -> "聞いています… ${speechModeLabel(state.mode)}"
+    is ShortSpeechUiState.Partial -> "認識中: ${state.text}"
+    is ShortSpeechUiState.Processing -> "文字にしています… ${speechModeLabel(state.mode)}"
+    is ShortSpeechUiState.Result ->
+        "${speechModeLabel(state.result.mode)}の結果です。内容を確認・修正してから追加してください。"
+    is ShortSpeechUiState.Error -> state.message
+}.let { status ->
+    val speech = draft.speech
+    if (speech == null || state is ShortSpeechUiState.Result) status else {
+        "$status ${speechModeLabel(speech.recognitionMode)}・${speech.language}"
     }
 }
 
