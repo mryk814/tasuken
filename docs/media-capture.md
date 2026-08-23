@@ -98,7 +98,7 @@ session manifest、recovery root、availability、ID-based protocol、Range配�
 | 画面またはwindowを選んで録画できる | Main `desktopCapturer`がscreen/windowを別々に列挙し、Inboxのcompact pickerへraw ID非公開の短命tokenとして投影する |
 | source許可をRendererへ委ねない | list→arm→display permissionをsender/Main frame/origin/user gesture/TTL/one-shotで結び、permission時にcapabilityと同じraw sourceの存続を再列挙する |
 | pointerとaudio modeを選べる | Pointer on/off、Audio Off/Mic/Systemをpickerに置く。SystemはWindows loopbackのみ、Micはdisplay audioと混ぜず別streamから明示取得する |
-| bounded録画とrace-free controls | #371と同じ1 MiB/512 MiB/4時間/16,000 chunk、8 chunk queueを使い、pause/resume/stop/discardを単一transition queueで直列化する |
+| bounded録画とrace-free controls | #371と同じ1 MiB/512 MiB/4時間/16,000 chunk、8 chunk queueを使い、pause/resume/stop/discardを単一transition queueで直列化する。MediaRecorderがpause後に配送する末尾chunkは`recording_paused`で連番・hash・容量を再検証して受理する |
 | 停止後にVideo Artifactへ保存する | 通常stopはownerを選ばずCaptureEntryへ原本を自動commitし、収録物へ表示する。Content Viewerでのtrimは原本を変更せず、破棄は正式Entityを作らない |
 | app/route終了とcrashから復旧できる | global app flushとroute cleanupを合成してstopを待ち、未停止・commit失敗sessionだけを保存待ちから「録画を復旧」または「破棄」できる |
 | path/raw source/mediaを漏らさない | public envelopeはtoken/session/artifact IDとbounded metadataだけ。raw source ID、path、receipt内部path、全Blobをprojection/logへ出さない |

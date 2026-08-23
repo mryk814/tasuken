@@ -52,6 +52,13 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
   assert.equal(packagedArgs.includes("--disable-gpu-compositing"), false);
 });
 
+test("desktop smoke waits for the exact pasted nodes and settled Today mini state", async () => {
+  const source = await readFile("src/main/index.ts", "utf8");
+  assert.match(source, /querySelectorAll\("h2"\)[\s\S]*?Pasted Markdown Heading[\s\S]*?querySelectorAll\("strong"\)[\s\S]*?Pasted Bold Text/);
+  assert.match(source, /toggleTodayMiniWindow\(\)[\s\S]*?getSatelliteWindowState\(\)[\s\S]*?todayOpen[\s\S]*?toggleTodayMiniWindow\(\)/);
+  assert.match(source, /toggleResult[\s\S]*?for \(let attempt = 0;[\s\S]*?const settledBounds = todayMini\.getBounds\(\)[\s\S]*?todayMini\.isVisible\(\)[\s\S]*?todayMini\.isAlwaysOnTop\(\)[\s\S]*?settledBounds\.x === initialMiniBounds\.x[\s\S]*?settledBounds\.height === initialMiniBounds\.height[\s\S]*?todayMiniToggleRestored/);
+});
+
 test("packaged smoke records, commits, plays and restart-checks a synthetic microphone capture", async () => {
   const source = await readFile("src/main/index.ts", "utf8");
   assert.match(source, /use-fake-device-for-media-stream/);
@@ -85,7 +92,7 @@ test("packaged smoke records an actual display source through Main authority and
   assert.match(source, /window\.api\.screenRecording\.arm\(\{ sourceToken: source\.sourceToken, audioMode: "off", includePointer: false \}\)/);
   assert.match(source, /navigator\.mediaDevices\.getDisplayMedia/);
   assert.match(source, /window\.api\.mediaCapture\.startRecording\(\{[\s\S]*?mediaKind: "video"[\s\S]*?sourceId:/);
-  assert.match(source, /recorder\.addEventListener\("pause"[\s\S]*?recorder\.pause\(\)[\s\S]*?recorder\.requestData\(\)[\s\S]*?await appendChain[\s\S]*?mediaCapture\.pauseRecording[\s\S]*?mediaCapture\.resumeRecording[\s\S]*?recorder\.resume\(\)/);
+  assert.match(source, /recorder\.addEventListener\("pause"[\s\S]*?recorder\.pause\(\)[\s\S]*?pauseChunksFlushed[\s\S]*?setTimeout\(resolve, 200\)[\s\S]*?await pauseChunksFlushed[\s\S]*?await appendChain[\s\S]*?mediaCapture\.pauseRecording[\s\S]*?mediaCapture\.resumeRecording[\s\S]*?recorder\.resume\(\)/);
   assert.match(source, /window\.api\.mediaCapture\.commitVideo\(\{ sessionId: prepared\.sessionId, \.\.\.metadata \}\)/);
   assert.match(source, /screenRecordingSmoke = await window\.webContents\.executeJavaScript\([\s\S]*?`, true\)/);
   assert.match(source, /created\.importedVideoArtifactId = videoSmoke\.artifactId/);

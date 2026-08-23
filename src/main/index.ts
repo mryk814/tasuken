@@ -807,12 +807,12 @@ flowchart LR
       const pasteEvent = new ClipboardEvent("paste", { bubbles: true, cancelable: true });
       Object.defineProperty(pasteEvent, "clipboardData", { value: pasteData });
       liveEditable.dispatchEvent(pasteEvent);
-      await delay(200);
+      const pastedMarkdown = await waitFor(() => {
+        const editor = notesPane?.querySelector(".note-live-editor");
+        return editor && [...editor.querySelectorAll("h2")].some((heading) => heading.textContent?.includes("Pasted Markdown Heading")) && [...editor.querySelectorAll("strong")].some((bold) => bold.textContent?.includes("Pasted Bold Text")) ? editor : null;
+      }, "貼り付けMarkdown描画", 40);
       const notesLiveEditRendered = Boolean(notesPane?.querySelector(".note-live-editor")?.textContent?.includes("Live edit smoke"));
-      const notesMarkdownPasteRendered = Boolean(
-        notesPane?.querySelector(".note-live-editor h2")?.textContent?.includes("Pasted Markdown Heading")
-        && notesPane?.querySelector(".note-live-editor strong")?.textContent?.includes("Pasted Bold Text")
-      );
+      const notesMarkdownPasteRendered = Boolean(pastedMarkdown);
       const editStructure = {
         h1: liveEditable.querySelector("h1")?.textContent?.trim() || "",
         h2: liveEditable.querySelector("h2")?.textContent?.trim() || "",
@@ -1184,10 +1184,7 @@ flowchart LR
       const mimeType = capabilities.mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
       if (!mimeType) throw new Error("screen recording MIME is unavailable");
       const container = mimeType.startsWith("video/mp4") ? "video/mp4" : "video/webm";
-      const started = await window.api.mediaCapture.startRecording({
-        mediaKind: "video",
-        mimeType: container,
-      });
+      const started = await window.api.mediaCapture.startRecording({ mediaKind: "video", mimeType: container });
       const recorder = new MediaRecorder(stream, { mimeType });
       let sequence = 0;
       let appendChain = Promise.resolve();
@@ -1206,9 +1203,12 @@ flowchart LR
       const recorderPaused = new Promise((resolve) => recorder.addEventListener("pause", resolve, { once: true }));
       recorder.pause();
       await recorderPaused;
-      const pauseChunk = new Promise((resolve) => recorder.addEventListener("dataavailable", resolve, { once: true }));
+      let pauseQuietTimer;
+      const pauseChunksFlushed = new Promise((resolve) => recorder.addEventListener("dataavailable", () => {
+        clearTimeout(pauseQuietTimer); pauseQuietTimer = setTimeout(resolve, 200);
+      }));
       recorder.requestData();
-      await pauseChunk;
+      await pauseChunksFlushed;
       await appendChain;
       const paused = await window.api.mediaCapture.pauseRecording({ sessionId: started.sessionId });
       if (paused.state !== "paused") throw new Error("screen recording Main pause mismatch");
@@ -1511,7 +1511,6 @@ flowchart LR
   } finally {
     releaseSmokeClipboardLock();
   }
-
   let mini: SmokeMiniResult = {
     todayMiniOpened: false,
     todayMiniAlwaysOnTop: false,
@@ -1534,16 +1533,16 @@ flowchart LR
       });
     }
     mini.todayMiniOpened = created.todayMiniWindowOpened && todayMini.isVisible();
-    mini.todayMiniAlwaysOnTop = todayMini.isAlwaysOnTop();
     const initialMiniId = todayMini.webContents.id;
     const initialMiniBounds = todayMini.getBounds();
     const toggleResult = await window.webContents.executeJavaScript(`
       (async () => {
-        const hidden = await window.api.app.toggleTodayMiniWindow();
+        const hidden = await window.api.app.toggleTodayMiniWindow(); for (let attempt = 0; attempt < 20 && (await window.api.app.getSatelliteWindowState()).todayOpen; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
         const shown = await window.api.app.toggleTodayMiniWindow();
         return { hidden, shown };
       })()
     `) as { hidden: boolean; shown: boolean };
+    for (let attempt = 0; attempt < 20; attempt += 1) { const settledBounds = todayMini.getBounds(); if (todayMini.isVisible() && todayMini.isAlwaysOnTop() && settledBounds.x === initialMiniBounds.x && settledBounds.y === initialMiniBounds.y && settledBounds.width === initialMiniBounds.width && settledBounds.height === initialMiniBounds.height) break; await new Promise((resolve) => setTimeout(resolve, 50)); }
     mini.todayMiniToggleRestored = toggleResult.hidden === false
       && toggleResult.shown === true
       && todayMini.isVisible()
@@ -1552,6 +1551,7 @@ flowchart LR
       && todayMini.getBounds().y === initialMiniBounds.y
       && todayMini.getBounds().width === initialMiniBounds.width
       && todayMini.getBounds().height === initialMiniBounds.height;
+    mini.todayMiniAlwaysOnTop = todayMini.isAlwaysOnTop();
     const longTheme = todayMiniThemeMatrix.at(-1)!;
     await todayMini.webContents.executeJavaScript(`
       (() => {

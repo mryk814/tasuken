@@ -127,6 +127,7 @@ test("画面録画のpause→即stop等は単一transition queueで直列化す�
   assert.match(screenRecorder, /function stopRecording\(showToast = true\)[\s\S]*?queueRecordingTransition\(\(\) => stopRecordingNow\(showToast\)\)/);
   assert.match(screenRecorder, /function discardActive\(\): Promise<void> \{[\s\S]*?queueRecordingTransition\(discardActiveNow\)/);
   assert.match(screenRecorder, /async function pauseRecordingNow[\s\S]*?catch \(caught\)[\s\S]*?await stopRecordingNow\(false\)/);
+  assert.match(screenRecorder, /recorder\.pause\(\)[\s\S]*?await paused[\s\S]*?waitForMediaRecorderDataFlush\(recorder\)[\s\S]*?await appendRef\.current[\s\S]*?pauseMediaRecording/);
   assert.match(screenRecorder, /async function discardActiveNow[\s\S]*?recorder\.stop\(\)[\s\S]*?await appendRef\.current\.catch\(\(\) => undefined\)[\s\S]*?cancelVideoImport/);
   assert.match(screenRecorder, /disabled=\{transitioning \|\| state === "stopping"\}/);
   assert.match(screenRecorder, /catch \(caught\) \{[\s\S]*?releaseStreams\(\);[\s\S]*?同じ録画sessionの停止を再試行してください/);

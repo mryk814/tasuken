@@ -49,6 +49,7 @@ test("Today mini can snap and resize to the top right and fades strongly while i
   assert.match(mainSource, /setOpacity\(INACTIVE_OPACITY\)/);
   assert.match(mainSource, /frame:\s*false/);
   assert.match(mainSource, /autoHideMenuBar:\s*true/);
+  assert.match(mainSource, /const bounds = win\.getBounds\(\)[\s\S]*?const stabilize[\s\S]*?win\.setBounds\(bounds, false\)[\s\S]*?win\.setAlwaysOnTop\(true\)[\s\S]*?setTimeout\(stabilize, 100\)/);
   assert.match(preloadSource, /pinTopRight/);
   assert.match(preloadSource, /hide/);
   assert.match(contractsSource, /pinTopRight/);
