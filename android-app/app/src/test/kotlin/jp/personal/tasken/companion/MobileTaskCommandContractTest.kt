@@ -33,6 +33,15 @@ class MobileTaskCommandContractTest {
     }
 
     @Test
+    fun scheduleConflictAcceptsSameTaskVersionWhenScheduleAdvanced() {
+        val response = MobileTaskCommandContract.decodeError(scheduleConflictPayload())
+
+        assertEquals("schedule", response.error.conflict?.conflictField)
+        assertEquals(7, response.error.conflict?.currentTask?.version)
+        assertEquals(5, response.error.conflict?.currentTask?.schedule?.version)
+    }
+
+    @Test
     fun validatesStrictSchedulePatchAndExpectedScheduleVersion() {
         val schedule = buildJsonObject {
             put("schedule", buildJsonObject {
@@ -147,7 +156,54 @@ class MobileTaskCommandContractTest {
                 "updatedAt": "2026-08-22T01:00:00Z"
               },
               "intendedAction": "UpdateTask",
-              "expectedVersion": 7
+              "expectedVersion": 7,
+              "conflictField": "task",
+              "expectedScheduleVersion": null
+            }
+          }
+        }
+    """.trimIndent()
+
+    private fun scheduleConflictPayload(): String = """
+        {
+          "ok": false,
+          "meta": {
+            "apiVersion": 1,
+            "schemaVersion": 2,
+            "serverId": "server-1",
+            "serverRevision": 8,
+            "generatedAt": "2026-08-22T01:00:00Z",
+            "truncated": false
+          },
+          "error": {
+            "code": "version_conflict",
+            "message": "Scheduleが更新されています。",
+            "retryable": false,
+            "conflict": {
+              "currentTask": {
+                "id": "task-1",
+                "version": 7,
+                "title": "Task",
+                "themeId": null,
+                "state": "todo",
+                "workState": null,
+                "todayDate": null,
+                "schedule": {
+                  "id": "schedule-1",
+                  "version": 5,
+                  "startDate": "2026-08-23",
+                  "endDate": "2026-08-25",
+                  "dateKind": "range",
+                  "rangeSemantics": null,
+                  "confidence": "fixed",
+                  "granularity": "day"
+                },
+                "updatedAt": "2026-08-22T01:00:00Z"
+              },
+              "intendedAction": "UpdateTask",
+              "expectedVersion": 7,
+              "conflictField": "schedule",
+              "expectedScheduleVersion": 4
             }
           }
         }

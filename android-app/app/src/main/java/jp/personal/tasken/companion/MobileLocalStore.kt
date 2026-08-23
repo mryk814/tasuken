@@ -607,6 +607,48 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
+    open suspend fun rejectScheduleUpdateAndRollback(
+        commandId: String,
+        taskId: String,
+        baseSchedule: MobileTaskScheduleDraft?,
+        reason: String,
+    ) {
+        val command = requireNotNull(outbox(commandId)) { "Outbox command is missing" }
+        require(
+            command.taskId == taskId &&
+                command.commandName == "UpdateTask" &&
+                command.state == OutboxState.Sending,
+        )
+        require(syncState()?.serverId == command.serverId)
+        val current = requireNotNull(task(taskId)) { "Optimistic task is missing" }
+        require(current.optimisticCommandId == commandId)
+        upsertTask(
+            if (baseSchedule == null) {
+                current.copy(
+                    scheduleId = null,
+                    scheduleVersion = null,
+                    scheduleStartDate = null,
+                    scheduleEndDate = null,
+                    scheduleDateKind = null,
+                    scheduleRangeSemantics = null,
+                    scheduleConfidence = null,
+                    scheduleGranularity = null,
+                    optimisticCommandId = null,
+                )
+            } else {
+                current.copy(
+                    scheduleStartDate = baseSchedule.startDate,
+                    scheduleEndDate = baseSchedule.endDate,
+                    scheduleDateKind = deriveScheduleDateKind(baseSchedule.startDate, baseSchedule.endDate),
+                    scheduleRangeSemantics = baseSchedule.rangeSemantics,
+                    optimisticCommandId = null,
+                )
+            },
+        )
+        markRejected(commandId, reason)
+    }
+
+    @Transaction
     open suspend fun applyCommandReceipt(
         commandId: String,
         expectedServerId: String,
@@ -836,6 +878,12 @@ internal val MIGRATION_7_8 = object : Migration(7, 8) {
         db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleEndDate TEXT")
         db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleRangeSemantics TEXT")
         db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleChanged INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "UPDATE outbox_command SET envelopeJson = " +
+                "REPLACE(envelopeJson, '\"schemaVersion\":1', '\"schemaVersion\":2') " +
+                "WHERE envelopeJson LIKE '%\"schemaVersion\":1%'",
+        )
+        db.execSQL("UPDATE sync_state SET schemaVersion = 2 WHERE apiVersion = 1 AND schemaVersion = 1")
     }
 }
 

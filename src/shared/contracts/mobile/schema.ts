@@ -169,7 +169,45 @@ export const mobileVersionConflictSchema = z.object({
   currentTask: mobileTaskSummarySchema,
   intendedAction: z.enum(["UpdateTask", "CompleteTask", "ReopenTask"]),
   expectedVersion: entityVersionSchema,
-}).strict();
+  conflictField: z.enum(["task", "schedule"]),
+  expectedScheduleVersion: entityVersionSchema.nullable(),
+}).strict().superRefine((value, context) => {
+  if (value.conflictField === "task") {
+    if (value.expectedScheduleVersion !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["expectedScheduleVersion"],
+        message: "Task競合はSchedule versionを持てません。",
+      });
+    }
+    if (value.currentTask.version <= value.expectedVersion) {
+      context.addIssue({
+        code: "custom",
+        path: ["currentTask", "version"],
+        message: "Task競合のcurrentTaskはexpectedVersionより新しい必要があります。",
+      });
+    }
+    return;
+  }
+  if (value.intendedAction !== "UpdateTask") {
+    context.addIssue({
+      code: "custom",
+      path: ["intendedAction"],
+      message: "Schedule競合はUpdateTaskでだけ返せます。",
+    });
+  }
+  if (
+    value.expectedScheduleVersion !== null
+    && value.currentTask.schedule !== null
+    && value.currentTask.schedule.version === value.expectedScheduleVersion
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["currentTask", "schedule", "version"],
+      message: "Schedule競合のcurrent ScheduleはexpectedScheduleVersionと異なる必要があります。",
+    });
+  }
+});
 
 export const mobileErrorSchema = z.object({
   code: mobileErrorCodeSchema,

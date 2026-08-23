@@ -109,7 +109,11 @@ function projectTask(task: TaskReadModel, includeTodayDate = false) {
           version: task.schedule.version,
           startDate: task.schedule.start_date,
           endDate: task.schedule.end_date,
-          dateKind: task.schedule.date_kind,
+          dateKind: scheduleDateKind({
+            startDate: task.schedule.start_date,
+            endDate: task.schedule.end_date,
+            rangeSemantics: task.schedule.range_semantics,
+          }),
           rangeSemantics: task.schedule.range_semantics,
           confidence: task.schedule.confidence,
           granularity: task.schedule.granularity,
@@ -558,6 +562,8 @@ export class MobileGatewayAdapter {
       currentTask: ReturnType<typeof projectTask>;
       intendedAction: "UpdateTask" | "CompleteTask" | "ReopenTask";
       expectedVersion: number;
+      conflictField: "task" | "schedule";
+      expectedScheduleVersion: number | null;
     },
   ): MobileGatewayResponse {
     const body = mobileErrorResponseSchema.parse({
@@ -571,7 +577,12 @@ export class MobileGatewayAdapter {
   private taskError(
     meta: MobileResponseMeta,
     error: TaskError,
-    command?: { name: string; expectedVersion?: number },
+    command?: {
+      name: string;
+      expectedVersion?: number;
+      expectedScheduleVersion?: number | null;
+      changes?: Record<string, unknown>;
+    },
   ) {
     if (
       error.code === "INVALID_COMMAND"
@@ -588,10 +599,14 @@ export class MobileGatewayAdapter {
           || (command?.name !== "UpdateTask" && command?.name !== "CompleteTask" && command?.name !== "ReopenTask")
           || command.expectedVersion === undefined
         ) throw new Error("Version conflict is missing its canonical Task context");
+        const scheduleConflict = command.name === "UpdateTask"
+          && Boolean(command.changes && Object.prototype.hasOwnProperty.call(command.changes, "schedule"));
         return this.error(meta, "version_conflict", false, {
           currentTask: projectTask(currentTask.data, true),
           intendedAction: command.name,
           expectedVersion: command.expectedVersion,
+          conflictField: scheduleConflict ? "schedule" : "task",
+          expectedScheduleVersion: scheduleConflict ? command.expectedScheduleVersion ?? null : null,
         });
       }
       throw new Error("Unclassified Task conflict");

@@ -867,6 +867,82 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun rejectedScheduleUpdateRollsBackAtomicallyAndRemainsEditableAfterRestart() = runBlocking {
+        val databaseName = "mobile-schedule-rejected-restart-test"
+        context.deleteDatabase(databaseName)
+        var durableDatabase: MobileLocalDatabase? = null
+        try {
+            val initialDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            durableDatabase = initialDatabase
+            val initialDao = initialDatabase.mobileDao()
+            initialDao.upsertSyncState(activeSyncState())
+            initialDao.upsertTask(
+                canonicalCachedTask("rejected-schedule-task", version = 6, state = "todo").copy(
+                    scheduleId = "schedule-existing",
+                    scheduleVersion = 3,
+                    scheduleEndDate = "2026-08-24",
+                    scheduleDateKind = "deadline",
+                    scheduleConfidence = "fixed",
+                    scheduleGranularity = "day",
+                ),
+            )
+            val initialOutbox = MobileOutbox(
+                context = context,
+                dao = initialDao,
+                deviceId = { "restart-device" },
+                now = { Instant.parse("2026-08-22T02:00:00Z") },
+                schedule = {},
+            )
+            val rejectedCommandId = initialOutbox.enqueueUpdateSchedule(
+                "rejected-schedule-task",
+                MobileTaskScheduleDraft("2026-08-22", "2026-08-24", null),
+            )
+
+            assertEquals(false, initialOutbox.drain("server-1") {
+                MobileCommandSendResult.Rejected(
+                    code = "validation_failed",
+                    message = "予定を保存できませんでした。",
+                )
+            })
+            assertEquals(OutboxState.Rejected, initialDao.outbox(rejectedCommandId)?.state)
+            assertNull(initialDao.task("rejected-schedule-task")?.scheduleStartDate)
+            assertEquals("2026-08-24", initialDao.task("rejected-schedule-task")?.scheduleEndDate)
+            assertEquals("deadline", initialDao.task("rejected-schedule-task")?.scheduleDateKind)
+            assertNull(initialDao.task("rejected-schedule-task")?.optimisticCommandId)
+
+            initialDatabase.close()
+            val reopenedDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            durableDatabase = reopenedDatabase
+            val reopenedDao = reopenedDatabase.mobileDao()
+            val recreatedOutbox = MobileOutbox(
+                context = context,
+                dao = reopenedDao,
+                deviceId = { "restart-device" },
+                now = { Instant.parse("2026-08-22T02:01:00Z") },
+                schedule = {},
+            )
+
+            assertNull(reopenedDao.task("rejected-schedule-task")?.scheduleStartDate)
+            assertEquals("2026-08-24", reopenedDao.task("rejected-schedule-task")?.scheduleEndDate)
+            assertNull(reopenedDao.task("rejected-schedule-task")?.optimisticCommandId)
+            assertEquals(OutboxState.Rejected, reopenedDao.outbox(rejectedCommandId)?.state)
+            val replacementId = recreatedOutbox.enqueueUpdateSchedule(
+                "rejected-schedule-task",
+                MobileTaskScheduleDraft("2026-08-23", "2026-08-24", null),
+            )
+            assertTrue(replacementId != rejectedCommandId)
+            assertEquals(replacementId, reopenedDao.task("rejected-schedule-task")?.optimisticCommandId)
+        } finally {
+            durableDatabase?.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
     fun rejectedThemeUpdateCanBeDiscardedAndIsScopedToActiveServer() = runBlocking {
         val taskId = "10000000-0000-4000-8000-000000000044"
         storeThemeCatalog(dao, listOf(ThemeCacheEntity("theme-new", "新Theme")))

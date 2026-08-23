@@ -651,6 +651,7 @@ class MobileOutbox(
     )
 
     private data class ThemeUpdateBase(val themeId: String?)
+    private data class ScheduleUpdateBase(val schedule: MobileTaskScheduleDraft?)
 
     private fun receiptExpectation(command: OutboxCommandEntity): ReceiptExpectation = when (command.commandName) {
         "CreateTask" -> {
@@ -733,6 +734,22 @@ class MobileOutbox(
             if (it == JsonNull) null else it.jsonPrimitive.content
         }
         return ThemeUpdateBase(baseThemeId)
+    }
+
+    private fun scheduleUpdateBase(command: OutboxCommandEntity): ScheduleUpdateBase? {
+        if (command.commandName != "UpdateTask") return null
+        val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(command.envelopeJson)
+        if (envelope.command.changes.keys != setOf("schedule")) return null
+        val value = envelope.command.base.getValue("schedule")
+        if (value == JsonNull) return ScheduleUpdateBase(null)
+        val schedule = value as JsonObject
+        return ScheduleUpdateBase(
+            MobileTaskScheduleDraft(
+                startDate = schedule.getValue("startDate").let { if (it == JsonNull) null else it.jsonPrimitive.content },
+                endDate = schedule.getValue("endDate").let { if (it == JsonNull) null else it.jsonPrimitive.content },
+                rangeSemantics = schedule.getValue("rangeSemantics").let { if (it == JsonNull) null else it.jsonPrimitive.content },
+            ),
+        )
     }
 
     suspend fun drain(serverId: String, sender: (String) -> MobileCommandSendResult): Boolean {
@@ -922,15 +939,23 @@ class MobileOutbox(
                         return true
                     }
                     val themeBase = themeUpdateBase(command)
-                    if (themeBase == null) {
-                        dao.markRejected(command.commandId, reason)
-                    } else {
+                    val scheduleBase = scheduleUpdateBase(command)
+                    if (themeBase != null) {
                         dao.rejectUpdateAndRollback(
                             commandId = command.commandId,
                             taskId = requireNotNull(command.taskId),
                             baseThemeId = themeBase.themeId,
                             reason = reason,
                         )
+                    } else if (scheduleBase != null) {
+                        dao.rejectScheduleUpdateAndRollback(
+                            commandId = command.commandId,
+                            taskId = requireNotNull(command.taskId),
+                            baseSchedule = scheduleBase.schedule,
+                            reason = reason,
+                        )
+                    } else {
+                        dao.markRejected(command.commandId, reason)
                     }
                 }
             }

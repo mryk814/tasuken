@@ -113,6 +113,8 @@ data class MobileVersionConflictDto(
     val currentTask: MobileTaskSummaryDto,
     val intendedAction: String,
     val expectedVersion: Int,
+    val conflictField: String,
+    val expectedScheduleVersion: Int? = null,
 )
 
 object MobileTaskCommandContract {
@@ -176,7 +178,19 @@ object MobileTaskCommandContract {
         val conflict = requireNotNull(response.error.conflict)
         require(conflict.intendedAction in setOf("UpdateTask", "CompleteTask", "ReopenTask"))
         require(conflict.expectedVersion > 0)
-        require(conflict.currentTask.version > conflict.expectedVersion)
+        require(conflict.conflictField in setOf("task", "schedule"))
+        if (conflict.conflictField == "task") {
+            require(conflict.expectedScheduleVersion == null)
+            require(conflict.currentTask.version > conflict.expectedVersion)
+        } else {
+            require(conflict.intendedAction == "UpdateTask")
+            require(conflict.expectedScheduleVersion == null || conflict.expectedScheduleVersion > 0)
+            require(
+                conflict.expectedScheduleVersion == null ||
+                    conflict.currentTask.schedule == null ||
+                    conflict.currentTask.schedule.version != conflict.expectedScheduleVersion,
+            )
+        }
         validateTaskSummary(conflict.currentTask)
         return response.copy(
             error = response.error.copy(

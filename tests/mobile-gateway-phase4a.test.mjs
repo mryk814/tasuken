@@ -482,7 +482,7 @@ test("Mobile UpdateTask maps Today schedule to the canonical task field", async 
 });
 
 test("Mobile Schedule update derives canonical semantics and keeps Schedule identity/version server-owned", async () => {
-  const { service } = capability();
+  const { repository, service } = capability();
   const canonicalCommands = [];
   const adapter = gateway(service, {
     executeTaskCommand: (input) => {
@@ -542,6 +542,11 @@ test("Mobile Schedule update derives canonical semantics and keeps Schedule iden
     },
     base: null,
   });
+  const eventsAfterCreate = repository.list("change_event", true).length;
+  const createReplay = await update("command-mobile-schedule-create", 1, null, deadline, null);
+  assert.equal(createReplay.status, 200);
+  assert.equal(createReplay.body.data.task.schedule.version, 1);
+  assert.equal(repository.list("change_event", true).length, eventsAfterCreate);
 
   const range = { startDate: "2026-08-22", endDate: "2026-08-24", rangeSemantics: null };
   const edited = await update("command-mobile-schedule-edit", 2, 1, range, deadline);
@@ -550,6 +555,24 @@ test("Mobile Schedule update derives canonical semantics and keeps Schedule iden
   assert.equal(edited.body.data.task.schedule.version, 2);
   assert.equal(edited.body.data.task.schedule.dateKind, "range");
   assert.equal(edited.body.data.task.schedule.rangeSemantics, null);
+  const eventsAfterEdit = repository.list("change_event", true).length;
+  const editReplay = await update("command-mobile-schedule-edit", 2, 1, range, deadline);
+  assert.equal(editReplay.status, 200);
+  assert.equal(editReplay.body.data.task.schedule.version, 2);
+  assert.equal(repository.list("change_event", true).length, eventsAfterEdit);
+
+  const canonicalSchedule = repository.get("schedule", "command-mobile-schedule-create", true);
+  repository.records.set("schedule:command-mobile-schedule-create", { ...canonicalSchedule, date_kind: "deadline" });
+  const legacyProjection = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
+    principal,
+    query: { apiVersion: "1", schemaVersion: "2", requestId: "request-legacy-schedule", limit: "50" },
+  });
+  assert.equal(legacyProjection.status, 200);
+  assert.equal(legacyProjection.body.data.tasks[0].schedule.dateKind, "range");
+  assert.equal(repository.get("schedule", "command-mobile-schedule-create", true).date_kind, "deadline");
+  repository.records.set("schedule:command-mobile-schedule-create", canonicalSchedule);
 
   const clearedValue = { startDate: null, endDate: null, rangeSemantics: null };
   const cleared = await update("command-mobile-schedule-clear", 3, 2, clearedValue, range);
@@ -567,6 +590,86 @@ test("Mobile Schedule update derives canonical semantics and keeps Schedule iden
   );
   assert.equal(invalid.status, 400);
   assert.equal(invalid.body.error.code, "validation_failed");
+});
+
+test("Mobile Schedule conflict remains valid when only the canonical Schedule version advanced", async () => {
+  const { service } = capability();
+  const setup = gateway(service);
+  assert.equal((await setup.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest(),
+  })).status, 200);
+  const deadline = { startDate: null, endDate: "2026-08-24", rangeSemantics: null };
+  assert.equal((await setup.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "request-schedule-conflict-setup",
+      commandId: "command-schedule-conflict-setup",
+      idempotencyKey: "command-schedule-conflict-setup",
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: 1,
+        expectedScheduleVersion: null,
+        changes: { schedule: deadline },
+        base: { schedule: null },
+      },
+    },
+  })).status, 200);
+  const queried = service.executeQuery({
+    schemaVersion: 2,
+    query_id: "query-schedule-conflict",
+    name: "GetTask",
+    parameters: { task_id: "task-mobile-create", include_deleted: false },
+  });
+  assert.equal(queried.ok, true);
+  const currentTask = {
+    ...queried.value.task,
+    schedule: { ...queried.value.task.schedule, version: queried.value.task.schedule.version + 1 },
+  };
+  const adapter = gateway(service, {
+    executeTaskCommand: () => ({
+      ok: false,
+      error: {
+        code: "CONFLICT",
+        message: "Schedule conflict",
+        issues: [],
+        retryable: false,
+        conflict_reason: "version_conflict",
+        details: { current_task: currentTask },
+      },
+    }),
+  });
+  const response = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "request-schedule-only-conflict",
+      commandId: "command-schedule-only-conflict",
+      idempotencyKey: "command-schedule-only-conflict",
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedVersion: currentTask.version,
+        expectedScheduleVersion: currentTask.schedule.version - 1,
+        changes: { schedule: { startDate: "2026-08-22", endDate: "2026-08-24", rangeSemantics: null } },
+        base: { schedule: deadline },
+      },
+    },
+  });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.conflict.conflictField, "schedule");
+  assert.equal(response.body.error.conflict.expectedVersion, currentTask.version);
+  assert.equal(response.body.error.conflict.expectedScheduleVersion, currentTask.schedule.version - 1);
+  assert.equal(response.body.error.conflict.currentTask.version, currentTask.version);
+  assert.equal(response.body.error.conflict.currentTask.schedule.version, currentTask.schedule.version);
 });
 
 test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to Personal, and rejects deleted Themes", async () => {
@@ -1137,6 +1240,8 @@ test("Mobile CompleteTask and ReopenTask require canonical expectedVersion and p
     },
     intendedAction: "ReopenTask",
     expectedVersion: 1,
+    conflictField: "task",
+    expectedScheduleVersion: null,
   });
 
   const reopened = await adapter.handle({

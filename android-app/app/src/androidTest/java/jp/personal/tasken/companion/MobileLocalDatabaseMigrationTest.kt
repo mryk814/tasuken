@@ -288,7 +288,12 @@ class MobileLocalDatabaseMigrationTest {
                     "envelopeJson, serverId, state, attemptCount, createdAt, lastAttemptAt, lastError, " +
                     "taskId, dependsOnCommandId) VALUES " +
                     "('command-7', 'command-7', 'request-7', 'device-1', '2026-08-22T01:00:00Z', " +
-                    "'UpdateTask', '{\"schedule\":true}', 'server-1', 'pending', 0, " +
+                    "'UpdateTask', '{\"apiVersion\":1,\"schemaVersion\":1,\"requestId\":\"request-7\"," +
+                    "\"commandId\":\"command-7\",\"idempotencyKey\":\"command-7\"," +
+                    "\"clientDeviceId\":\"device-1\",\"issuedAt\":\"2026-08-22T01:00:00Z\"," +
+                    "\"command\":{\"name\":\"UpdateTask\",\"taskId\":\"task-7\",\"expectedVersion\":4," +
+                    "\"expectedScheduleVersion\":null,\"changes\":{\"todayDate\":\"2026-08-22\"}," +
+                    "\"base\":{\"todayDate\":null}}}', 'server-1', 'pending', 0, " +
                     "'2026-08-22T01:00:00Z', NULL, NULL, 'task-7', NULL)",
             )
             execSQL(
@@ -316,7 +321,8 @@ class MobileLocalDatabaseMigrationTest {
             }
             db.query("SELECT envelopeJson, state FROM outbox_command WHERE commandId = 'command-7'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals("{\"schedule\":true}", cursor.getString(0))
+                val envelope = cursor.getString(0)
+                assertEquals(2, MobileTaskCommandContract.decodeUpdateEnvelope(envelope).schemaVersion)
                 assertEquals("pending", cursor.getString(1))
             }
             db.query(
