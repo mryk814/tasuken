@@ -1242,6 +1242,8 @@ class MobileOutboxDatabaseTest {
                 ),
                 intendedAction = intendedAction,
                 expectedVersion = serverVersion - 1,
+                conflictField = if (serverSchedule == null) "task" else "schedule",
+                expectedScheduleVersion = serverSchedule?.version?.minus(1),
             ),
         ),
     )
