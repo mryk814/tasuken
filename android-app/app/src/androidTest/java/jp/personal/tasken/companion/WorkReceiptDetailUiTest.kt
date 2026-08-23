@@ -36,7 +36,7 @@ class WorkReceiptDetailUiTest {
         composeRule.onNodeWithText("Offline cache").assertIsDisplayed()
         composeRule.onNodeWithText("完了").assertIsDisplayed()
         composeRule.onNodeWithText("• Gateway contract").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("確認").assertIsDisplayed()
+        composeRule.onNodeWithText("確認").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("PR #472").performScrollTo().assertIsDisplayed()
     }
 
