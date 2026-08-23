@@ -125,6 +125,7 @@ function safeMessage(code: MobileErrorCode): string {
     idempotency_conflict: "同じcommandIdが異なる内容で使用されています。",
     entity_conflict: "同じ端末またはTask IDが既に存在します。",
     version_conflict: "Taskが更新されています。再読み込みして再試行してください。",
+    proposal_conflict: "Proposalまたは対象Taskが更新されています。再読み込みしてください。",
     capability_unavailable: "必要なTasken Core capabilityを利用できません。",
     upstream_unavailable: "Tasken Coreを利用できません。Desktopの状態を確認してください。",
     response_too_large: "requestまたはresponseが上限を超えました。",

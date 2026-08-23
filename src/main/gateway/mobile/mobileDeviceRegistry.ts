@@ -11,7 +11,12 @@ const DEFAULT_PAIRING_TTL_MS = 5 * 60 * 1_000;
 export const MOBILE_DEVICE_DEFAULT_SCOPES = Object.freeze([
   "mobile:read",
   "mobile:task-write",
+  "mobile:proposal-review",
 ] satisfies MobileScope[]);
+
+function effectiveScopes(scopes: readonly MobileScope[]): MobileScope[] {
+  return [...new Set([...scopes, ...MOBILE_DEVICE_DEFAULT_SCOPES])];
+}
 
 export interface MobileDeviceRecord {
   id: string;
@@ -176,7 +181,7 @@ export class MobileDeviceRegistry {
     const record = this.persistence.findMobileDeviceByTokenHash(sha256(accessToken));
     if (!record || record.revokedAt) return null;
     this.persistence.touchMobileDevice(record.id, this.now().toISOString());
-    return { kind: "mobile_device", deviceId: record.id, scopes: [...record.scopes] };
+    return { kind: "mobile_device", deviceId: record.id, scopes: effectiveScopes(record.scopes) };
   }
 
   listDevices(): MobileDeviceRecord[] {

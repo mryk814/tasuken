@@ -79,10 +79,12 @@ export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.todayRead,
   TASKEN_MOBILE_CAPABILITIES.syncRead,
   TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
+  TASKEN_MOBILE_CAPABILITIES.proposalRead,
+  TASKEN_MOBILE_CAPABILITIES.proposalReview,
   TASKEN_MOBILE_CAPABILITIES.taskWrite,
 ]);
 
-export const mobileScopeSchema = z.enum(["mobile:read", "mobile:task-write"]);
+export const mobileScopeSchema = z.enum(["mobile:read", "mobile:task-write", "mobile:proposal-review"]);
 
 export const mobileResponseMetaSchema = z.object({
   apiVersion: apiVersionSchema,
@@ -106,6 +108,7 @@ export const mobileErrorCodeSchema = z.enum([
   "idempotency_conflict",
   "entity_conflict",
   "version_conflict",
+  "proposal_conflict",
   "capability_unavailable",
   "upstream_unavailable",
   "response_too_large",
@@ -224,6 +227,91 @@ export const mobileWorkReceiptResponseSchema = z.object({
   meta: mobileResponseMetaSchema,
   data: z.object({
     receipt: mobileWorkReceiptDetailSchema,
+  }).strict(),
+}).strict();
+
+export const TASKEN_MOBILE_PROPOSAL_MAX_ITEMS = 50;
+export const mobileTaskWorkProposalActionSchema = z.enum([
+  "start",
+  "append_receipt",
+  "report_done",
+  "report_blocked",
+]);
+
+export const mobileTaskWorkProposalSchema = z.object({
+  id: entityIdSchema,
+  version: entityVersionSchema,
+  status: z.literal("pending"),
+  task: z.object({
+    id: taskIdSchema,
+    version: entityVersionSchema,
+    title: z.string().trim().min(1).max(500),
+    themeId: entityIdSchema.nullable(),
+    workState: taskWorkStateSchema.nullable(),
+  }).strict(),
+  action: mobileTaskWorkProposalActionSchema,
+  caller: z.string().trim().min(1).max(200),
+  sourceApp: z.string().trim().min(1).max(120),
+  receivedAt: isoTimestampSchema,
+  expectedTaskVersion: entityVersionSchema,
+  stale: z.boolean(),
+  executorLabel: z.string().trim().min(1).max(200).nullable(),
+  startedAt: isoTimestampSchema.nullable(),
+  reportedAt: isoTimestampSchema.nullable(),
+  summary: z.string().trim().min(1).max(10000).nullable(),
+  completedItems: mobileWorkReceiptItemListSchema,
+  changedOrCreatedItems: mobileWorkReceiptItemListSchema,
+  verification: mobileWorkReceiptItemListSchema,
+  remainingWork: mobileWorkReceiptItemListSchema,
+  externalReferences: z.array(mobileWorkReceiptExternalReferenceSchema)
+    .max(TASKEN_MOBILE_WORK_RECEIPT_MAX_EXTERNAL_REFERENCES),
+}).strict();
+
+export const mobileTaskWorkProposalsRequestSchema = z.object({
+  apiVersion: apiVersionSchema,
+  schemaVersion: schemaVersionSchema,
+  requestId: requestIdSchema,
+  limit: z.number().int().positive().max(TASKEN_MOBILE_PROPOSAL_MAX_ITEMS)
+    .default(TASKEN_MOBILE_PROPOSAL_MAX_ITEMS),
+}).strict();
+
+export const mobileTaskWorkProposalsResponseSchema = z.object({
+  ok: z.literal(true),
+  meta: mobileResponseMetaSchema,
+  data: z.object({
+    proposals: z.array(mobileTaskWorkProposalSchema).max(TASKEN_MOBILE_PROPOSAL_MAX_ITEMS),
+  }).strict(),
+}).strict();
+
+export const mobileTaskWorkProposalDecisionRequestSchema = z.object({
+  apiVersion: apiVersionSchema,
+  schemaVersion: schemaVersionSchema,
+  requestId: requestIdSchema,
+  commandId: entityIdSchema,
+  idempotencyKey: entityIdSchema,
+  clientDeviceId: entityIdSchema,
+  issuedAt: isoTimestampSchema,
+  proposalId: entityIdSchema,
+  taskId: taskIdSchema,
+  expectedProposalVersion: entityVersionSchema,
+  expectedTaskVersion: entityVersionSchema,
+  decision: z.enum(["accept", "reject"]),
+}).strict().refine((value) => value.commandId === value.idempotencyKey, {
+  path: ["idempotencyKey"],
+  message: "commandIdとidempotencyKeyを一致させてください。",
+});
+
+export const mobileTaskWorkProposalDecisionResponseSchema = z.object({
+  ok: z.literal(true),
+  meta: mobileResponseMetaSchema,
+  data: z.object({
+    commandId: entityIdSchema,
+    commandStatus: z.enum(["applied", "no_change"]),
+    proposalId: entityIdSchema,
+    proposalStatus: z.enum(["accepted", "rejected"]),
+    decision: z.enum(["accept", "reject"]),
+    taskId: taskIdSchema,
+    taskVersion: entityVersionSchema,
   }).strict(),
 }).strict();
 
@@ -651,6 +739,12 @@ export type MobileWorkReceiptRequest = z.output<typeof mobileWorkReceiptRequestS
 export type MobileWorkReceiptDetail = z.output<typeof mobileWorkReceiptDetailSchema>;
 export type MobileWorkReceiptExternalReference = z.output<typeof mobileWorkReceiptExternalReferenceSchema>;
 export type MobileWorkReceiptResponse = z.output<typeof mobileWorkReceiptResponseSchema>;
+export type MobileTaskWorkProposalAction = z.output<typeof mobileTaskWorkProposalActionSchema>;
+export type MobileTaskWorkProposal = z.output<typeof mobileTaskWorkProposalSchema>;
+export type MobileTaskWorkProposalsRequest = z.output<typeof mobileTaskWorkProposalsRequestSchema>;
+export type MobileTaskWorkProposalsResponse = z.output<typeof mobileTaskWorkProposalsResponseSchema>;
+export type MobileTaskWorkProposalDecisionRequest = z.output<typeof mobileTaskWorkProposalDecisionRequestSchema>;
+export type MobileTaskWorkProposalDecisionResponse = z.output<typeof mobileTaskWorkProposalDecisionResponseSchema>;
 export type MobileTaskSummary = z.output<typeof mobileTaskSummarySchema>;
 export type MobileThemeCatalogItem = z.output<typeof mobileThemeCatalogItemSchema>;
 export type MobileThemesRequest = z.output<typeof mobileThemesRequestSchema>;

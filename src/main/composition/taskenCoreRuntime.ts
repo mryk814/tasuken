@@ -44,10 +44,12 @@ type CorePersistence = AgentReadyTaskWorkspacePersistence
 export class TaskenCoreRuntime {
   private readonly host: TaskenCoreHost;
   private readonly persistence: CorePersistence;
+  private readonly executeApplicationCommand: ExecuteApplicationCommand;
   readonly taskCapability: TaskCapabilityService;
 
   constructor(userDataPath: string, persistence: CorePersistence, executeApplicationCommand: ExecuteApplicationCommand) {
     this.persistence = persistence;
+    this.executeApplicationCommand = executeApplicationCommand;
     const core = createTaskenCore(persistence);
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
     this.host = new TaskenCoreHost({
@@ -123,6 +125,37 @@ export class TaskenCoreRuntime {
             runtimeMetadata: receipt.runtime_metadata,
           };
         },
+        listTaskWorkProposals: () => this.persistence.list("ai_proposal", false)
+          .filter((proposal) => proposal.source === "mcp"
+            && proposal.payload_type === "task_work"
+            && proposal.status === "pending")
+          .map((proposal) => ({
+            id: String(proposal.id || ""),
+            version: Number(proposal.version || 0),
+            source: String(proposal.source || ""),
+            sourceApp: String(proposal.source_app || ""),
+            payloadType: String(proposal.payload_type || ""),
+            payload: proposal.payload,
+            request: proposal.request,
+            status: String(proposal.status || ""),
+            receivedAt: String(proposal.received_at || ""),
+          })),
+        getTaskWorkProposal: (id) => {
+          const proposal = this.persistence.get("ai_proposal", id, true);
+          if (!proposal || proposal.source !== "mcp" || proposal.payload_type !== "task_work") return null;
+          return {
+            id: String(proposal.id || ""),
+            version: Number(proposal.version || 0),
+            source: String(proposal.source || ""),
+            sourceApp: String(proposal.source_app || ""),
+            payloadType: String(proposal.payload_type || ""),
+            payload: proposal.payload,
+            request: proposal.request,
+            status: String(proposal.status || ""),
+            receivedAt: String(proposal.received_at || ""),
+          };
+        },
+        executeApplicationCommand: (input) => this.executeApplicationCommand(input),
         executeTaskQuery: (input) => this.taskCapability.executeQuery(input),
         executeTaskCommand: (input) => this.taskCapability.executeCommand(input),
       },
