@@ -71,7 +71,7 @@ class MobileTodayContractException(message: String, cause: Throwable? = null) :
 
 object MobileTodayContract {
     private const val ApiVersion = 1
-    private const val SchemaVersion = 3
+    private const val SchemaVersion = 4
     private const val MaxItems = 50
     private val taskStates = setOf("todo", "doing", "waiting", "review", "done", "cancelled")
     private val workStates = setOf(
