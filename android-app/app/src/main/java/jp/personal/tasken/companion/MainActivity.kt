@@ -1092,7 +1092,7 @@ private fun PairingPane(
             value = pairingCode,
             onValueChange = { pairingCode = it.filter(Char::isDigit).take(8) },
             label = { Text("8桁のPairing code") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
