@@ -140,6 +140,15 @@ function projectTask(
       plannedDurationMinutes: task.planned_duration_minutes ?? null,
       latestWorkReceipt: projectLatestWorkReceipt(task.id, receipts),
     } : {}),
+    checklistItems: [...(task.checklist_items || [])]
+      .sort((left, right) => left.sort_order - right.sort_order || left.id.localeCompare(right.id))
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        done: item.done,
+        sortOrder: item.sort_order,
+        completedAt: item.completed_at ?? null,
+      })),
     schedule: task.schedule
       ? {
           id: task.schedule.id,
@@ -183,11 +192,29 @@ function canonicalSchedule(schedule: MobileScheduleEdit) {
 type MobileTaskFieldPatch =
   | { title: string }
   | { todayDate: string | null }
-  | { themeId: string | null };
+  | { themeId: string | null }
+  | { checklistItems: Array<{
+      id: string;
+      title: string;
+      done: boolean;
+      sortOrder: number;
+      completedAt: string | null;
+    }> };
 
 function taskUpdatePatch(patch: MobileTaskFieldPatch) {
   if ("todayDate" in patch) return { today_date: patch.todayDate };
   if ("themeId" in patch) return { project_id: patch.themeId };
+  if ("checklistItems" in patch) {
+    return {
+      checklist_items: patch.checklistItems.map((item) => ({
+        id: item.id,
+        title: item.title,
+        done: item.done,
+        sort_order: item.sortOrder,
+        completed_at: item.completedAt,
+      })),
+    };
+  }
   return patch;
 }
 

@@ -3,7 +3,9 @@ package jp.personal.tasken.companion
 import android.content.res.Configuration
 import android.content.Intent
 import android.os.Bundle
+import java.time.Instant
 import java.time.LocalDate
+import java.util.UUID
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -26,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -401,6 +405,7 @@ private fun TodayApp(
                         onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                         onThemeUpdate = todayViewModel::updateTaskTheme,
                         onScheduleUpdate = todayViewModel::updateTaskSchedule,
+                        onChecklistUpdate = todayViewModel::updateTaskChecklist,
                         onRejectedThemeDiscard = todayViewModel::discardRejectedThemeUpdate,
                         onConflictResolution = todayViewModel::resolveConflict,
                     )
@@ -827,6 +832,7 @@ internal fun TodayDetailPane(
     onTodayDateUpdate: (MobileTask, LocalDate?) -> Unit = { _, _ -> },
     onThemeUpdate: (MobileTask, String) -> Unit = { _, _ -> },
     onScheduleUpdate: (MobileTask, MobileTaskScheduleDraft) -> Unit = { _, _ -> },
+    onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
     onRejectedThemeDiscard: (MobileTask) -> Unit = {},
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
 ) {
@@ -878,6 +884,9 @@ internal fun TodayDetailPane(
                             if (conflict.localThemeIdChanged) {
                                 Text("Desktop  Theme ${themeTitleForDisplay(themes, conflict.serverThemeId)}")
                                 Text("この端末  Theme ${themeTitleForDisplay(themes, conflict.localThemeId)}")
+                            } else if (conflict.localChecklistItemsChanged) {
+                                Text("Desktop  Checklist ${checklistConflictLabel(conflict.serverChecklistItems)}")
+                                Text("この端末  Checklist ${checklistConflictLabel(conflict.localChecklistItems)}")
                             } else if (conflict.localScheduleChanged) {
                                 Text("Desktop  予定 ${scheduleConflictLabel(conflict.serverSchedule)}")
                                 Text("この端末  予定 ${scheduleConflictLabel(conflict.localSchedule)}")
@@ -971,6 +980,19 @@ internal fun TodayDetailPane(
                 },
                 onSave = { onScheduleUpdate(task, it) },
             )
+            TaskChecklistEditor(
+                task = task,
+                enabled = (!task.pending || task.canEditPendingChecklist) && task.conflict == null &&
+                    actionState !is TaskActionUiState.Saving,
+                stateDescription = when {
+                    task.pending && task.canEditPendingChecklist -> "送信待ちのChecklistへ追記できます"
+                    task.pending -> "同期後に変更"
+                    task.conflict != null -> "競合を解決してから変更"
+                    actionState is TaskActionUiState.Saving -> "保存中"
+                    else -> null
+                },
+                onSave = { onChecklistUpdate(task, it) },
+            )
             Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
             task.latestWorkReceipt?.let { receipt ->
@@ -1016,6 +1038,157 @@ internal fun TodayDetailPane(
                     },
                 )
             }
+        }
+    }
+}
+
+private fun checklistConflictLabel(items: List<MobileChecklistItem>): String {
+    val completed = items.count { it.done }
+    return "${completed}/${items.size} 完了"
+}
+
+@Composable
+private fun TaskChecklistEditor(
+    task: MobileTask,
+    enabled: Boolean,
+    stateDescription: String?,
+    onSave: (List<MobileChecklistItem>) -> Unit,
+) {
+    var addDraft by rememberSaveable(task.id) { mutableStateOf("") }
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("task-checklist"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Checklist", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "${task.checklistItems.count { it.done }}/${task.checklistItems.size}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            stateDescription?.let {
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            task.checklistItems.forEach { item ->
+                ChecklistItemEditor(
+                    taskId = task.id,
+                    item = item,
+                    enabled = enabled,
+                    onToggle = {
+                        onSave(task.checklistItems.map { current ->
+                            if (current.id == item.id) {
+                                current.copy(
+                                    done = !current.done,
+                                    completedAt = if (current.done) null else Instant.now().toString(),
+                                )
+                            } else {
+                                current
+                            }
+                        })
+                    },
+                    onRename = { title ->
+                        onSave(task.checklistItems.map { current ->
+                            if (current.id == item.id) current.copy(title = title) else current
+                        })
+                    },
+                    onDelete = {
+                        onSave(task.checklistItems.filterNot { current -> current.id == item.id })
+                    },
+                )
+            }
+            if (task.checklistItems.isEmpty()) {
+                Text("項目はまだありません", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = addDraft,
+                    onValueChange = { if (it.length <= 200) addDraft = it },
+                    modifier = Modifier.weight(1f).testTag("checklist-add-title"),
+                    label = { Text("項目を追加") },
+                    singleLine = true,
+                    enabled = enabled && task.checklistItems.size < 100,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        val title = addDraft.trim()
+                        if (title.isNotEmpty() && task.checklistItems.size < 100) {
+                            addDraft = ""
+                            onSave(task.checklistItems + MobileChecklistItem(
+                                id = UUID.randomUUID().toString(),
+                                title = title,
+                                done = false,
+                                sortOrder = task.checklistItems.size.toDouble(),
+                            ))
+                        }
+                    }),
+                )
+                Button(
+                    onClick = {
+                        val title = addDraft.trim()
+                        addDraft = ""
+                        onSave(task.checklistItems + MobileChecklistItem(
+                            id = UUID.randomUUID().toString(),
+                            title = title,
+                            done = false,
+                            sortOrder = task.checklistItems.size.toDouble(),
+                        ))
+                    },
+                    enabled = enabled && addDraft.trim().isNotEmpty() && task.checklistItems.size < 100,
+                    modifier = Modifier.testTag("checklist-add"),
+                ) { Text("追加") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChecklistItemEditor(
+    taskId: String,
+    item: MobileChecklistItem,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var titleDraft by rememberSaveable(taskId, item.id, item.title) { mutableStateOf(item.title) }
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("checklist-item-${item.id}"),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(checked = item.done, onCheckedChange = { onToggle() }, enabled = enabled)
+            OutlinedTextField(
+                value = titleDraft,
+                onValueChange = { if (it.length <= 200) titleDraft = it },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (titleDraft.trim().isNotEmpty() && titleDraft.trim() != item.title) onRename(titleDraft)
+                }),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(
+                onClick = { onRename(titleDraft) },
+                enabled = enabled && titleDraft.trim().isNotEmpty() && titleDraft.trim() != item.title,
+            ) { Text("保存") }
+            TextButton(onClick = onDelete, enabled = enabled) { Text("削除") }
         }
     }
 }

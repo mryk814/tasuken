@@ -163,6 +163,28 @@ export const mobileWorkReceiptSummarySchema = z.object({
   summary: z.string().trim().min(1).max(2000),
 }).strict();
 
+export const mobileChecklistItemSchema = z.object({
+  id: entityIdSchema,
+  title: z.string().trim().min(1).max(200),
+  done: z.boolean(),
+  sortOrder: z.number().finite(),
+  completedAt: isoTimestampSchema.nullable(),
+}).strict();
+
+const mobileChecklistSchema = z.array(mobileChecklistItemSchema).max(100).superRefine((items, context) => {
+  const seen = new Set<string>();
+  items.forEach((item, index) => {
+    if (seen.has(item.id)) {
+      context.addIssue({
+        code: "custom",
+        path: [index, "id"],
+        message: "Checklist item IDは重複できません。",
+      });
+    }
+    seen.add(item.id);
+  });
+});
+
 export const mobileTaskSummarySchema = z.object({
   id: taskIdSchema,
   version: entityVersionSchema,
@@ -174,6 +196,7 @@ export const mobileTaskSummarySchema = z.object({
   plannedStartTime: mobilePlannedStartTimeSchema.optional(),
   plannedDurationMinutes: mobilePlannedDurationMinutesSchema.optional(),
   latestWorkReceipt: mobileWorkReceiptSummarySchema.nullable().optional(),
+  checklistItems: mobileChecklistSchema.default([]),
   schedule: mobileTaskScheduleSchema.nullable(),
   updatedAt: isoTimestampSchema,
 }).strict();
@@ -389,6 +412,7 @@ const mobileTaskUpdatePatchSchema = z.union([
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
   z.object({ schedule: mobileScheduleEditSchema }).strict(),
+  z.object({ checklistItems: mobileChecklistSchema }).strict(),
 ]);
 
 const mobileTaskUpdateBaseSchema = z.union([
@@ -396,6 +420,7 @@ const mobileTaskUpdateBaseSchema = z.union([
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
   z.object({ schedule: mobileScheduleBaseSchema.nullable() }).strict(),
+  z.object({ checklistItems: mobileChecklistSchema }).strict(),
 ]);
 
 const mobileTaskCommandSchema = z.discriminatedUnion("name", [
