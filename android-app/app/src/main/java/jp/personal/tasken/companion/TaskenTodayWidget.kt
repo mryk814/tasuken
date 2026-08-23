@@ -33,6 +33,7 @@ data class TaskenWidgetSnapshot(
     val pendingCount: Int,
     val conflictCount: Int,
     val lastSuccessfulSyncAt: String?,
+    val totalTaskCount: Int = tasks.size,
 )
 
 internal enum class TaskenWidgetMode(val taskLimit: Int) {
@@ -150,8 +151,9 @@ class TaskenTodayWidget : AppWidgetProvider() {
         private suspend fun loadSnapshot(context: Context): TaskenWidgetSnapshot {
             val dao = MobileLocalDatabase.open(context).mobileDao()
             val themesById = dao.themes().associate { it.id to it.title }
+            val todayTasks = dao.tasksForDate(LocalDate.now().toString())
             return TaskenWidgetSnapshot(
-                tasks = dao.tasksForDate(LocalDate.now().toString()).take(MAX_TASK_COUNT).map {
+                tasks = todayTasks.take(MAX_TASK_COUNT).map {
                     TaskenWidgetTask(
                         id = it.id,
                         title = it.title,
@@ -161,6 +163,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
                         hasConflict = it.conflictCommandId != null,
                     )
                 },
+                totalTaskCount = todayTasks.size,
                 pendingCount = dao.pendingCount(),
                 conflictCount = dao.conflictCount(),
                 lastSuccessfulSyncAt = dao.syncState()?.lastSuccessfulSyncAt,
@@ -241,7 +244,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
             setOnClickPendingIntent(R.id.widget_status, openAppIntent(context, widgetId + 30_000, "tasken://today?source=widget"))
             setViewVisibility(R.id.widget_empty, if (visibleTasks.isEmpty()) View.VISIBLE else View.GONE)
             if (mode == TaskenWidgetMode.Large || mode == TaskenWidgetMode.Wide) {
-                setTextViewText(R.id.widget_count, "Today ${snapshot.tasks.size}件")
+                setTextViewText(R.id.widget_count, taskCountText(snapshot))
             }
             bindRows(context, widgetId, visibleTasks, rows)
         }
@@ -307,6 +310,8 @@ class TaskenTodayWidget : AppWidgetProvider() {
                 if (theme != null) append(" · ").append(theme)
             }
         }
+
+        internal fun taskCountText(snapshot: TaskenWidgetSnapshot): String = "Today ${snapshot.totalTaskCount}件"
 
         internal fun statusText(snapshot: TaskenWidgetSnapshot): String = when {
             snapshot.conflictCount > 0 -> "競合 ${snapshot.conflictCount}件"

@@ -36,6 +36,19 @@ class TaskenTodayWidgetTest {
     }
 
     @Test
+    fun total_count_is_not_capped_by_the_number_of_rendered_rows() {
+        val snapshot = TaskenWidgetSnapshot(
+            tasks = List(6) { index -> TaskenWidgetTask("task-$index", "Task $index", false) },
+            totalTaskCount = 9,
+            pendingCount = 0,
+            conflictCount = 0,
+            lastSuccessfulSyncAt = null,
+        )
+
+        assertEquals("Today 9件", TaskenTodayWidget.taskCountText(snapshot))
+    }
+
+    @Test
     fun status_prioritizes_conflict_then_pending_then_sync_state() {
         fun snapshot(pending: Int = 0, conflict: Int = 0, syncedAt: String? = null) = TaskenWidgetSnapshot(
             tasks = emptyList(),
