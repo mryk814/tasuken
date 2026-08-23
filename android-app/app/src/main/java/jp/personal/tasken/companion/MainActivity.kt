@@ -52,7 +52,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
-import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.material3.adaptive.layout.AnimatedPane
 import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldRole
 import androidx.compose.material3.adaptive.layout.PaneScaffoldDirective
@@ -62,6 +61,7 @@ import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -165,11 +165,13 @@ private fun TodayApp(
     val adaptiveInfo = currentWindowAdaptiveInfo()
     val scaffoldDirective = taskenPaneScaffoldDirective(
         base = calculatePaneScaffoldDirective(adaptiveInfo),
-        windowWidth = currentWindowDpSize().width,
+        windowWidth = LocalConfiguration.current.screenWidthDp.dp,
     )
-    val navigator = rememberListDetailPaneScaffoldNavigator(
-        scaffoldDirective = scaffoldDirective,
-    )
+    val navigator = key(scaffoldDirective) {
+        rememberListDetailPaneScaffoldNavigator(
+            scaffoldDirective = scaffoldDirective,
+        )
+    }
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
@@ -212,6 +214,11 @@ private fun TodayApp(
                 handledEntryToken = entryRequest.token
             }
             MobileEntryRequest.None -> Unit
+        }
+    }
+    LaunchedEffect(navigator) {
+        paneState.selectedTaskId?.let { taskId ->
+            navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, taskId)
         }
     }
     LaunchedEffect(captureState) {
