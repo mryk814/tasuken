@@ -88,12 +88,14 @@ class TodayViewModelTest {
                 MobileCaptureDraft.fresh(
                     text = "  外出先で追加  ",
                     source = MobileCaptureSource.AndroidSpeech,
+                    projectId = "theme-research",
                 ),
             )
         }
 
         assertEquals("外出先で追加", receivedDraft?.text)
         assertEquals(MobileCaptureSource.AndroidSpeech, receivedDraft?.source)
+        assertEquals("theme-research", receivedDraft?.projectId)
         assertEquals(CaptureUiState.Queued("queued-task-id"), viewModel.captureState.value)
     }
 
