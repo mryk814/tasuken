@@ -192,6 +192,7 @@ sealed interface TaskActionUiState {
 class TodayViewModel(
     private val repository: MobileTaskRepository = DisconnectedMobileTaskRepository(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val refreshExternalProjection: () -> Unit = {},
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow<TodayUiState>(TodayUiState.Loading)
     val uiState: StateFlow<TodayUiState> = mutableUiState.asStateFlow()
@@ -242,6 +243,7 @@ class TodayViewModel(
     internal suspend fun loadNow() {
         mutableUiState.value = TodayUiState.Loading
         val result = withContext(ioDispatcher) { repository.loadToday() }
+        refreshExternalProjection()
         val offlineRepository = repository as? MobileOfflineTaskRepository
         if (offlineRepository != null && result !is MobileTodayResult.PairingRequired) {
             val cachedTasks = withContext(ioDispatcher) { offlineRepository.observeCachedTasks().first() }
@@ -591,11 +593,15 @@ class TodayViewModel(
 
 class TodayViewModelFactory(
     private val repository: MobileTaskRepository,
+    private val refreshExternalProjection: () -> Unit = {},
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(TodayViewModel::class.java))
-        return TodayViewModel(repository) as T
+        return TodayViewModel(
+            repository = repository,
+            refreshExternalProjection = refreshExternalProjection,
+        ) as T
     }
 }
 

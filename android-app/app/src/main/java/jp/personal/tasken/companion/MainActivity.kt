@@ -106,10 +106,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         entryRequest.value = MobileEntryRequestResolver.fromIntent(intent)
         val repository = AndroidMobileTaskRepository(applicationContext)
+        val viewModelFactory = TodayViewModelFactory(repository) {
+            TaskenTodayWidget.updateAll(applicationContext)
+        }
         setContent {
             TaskenTheme {
                 val request by entryRequest.collectAsState()
-                TodayApp(viewModel(factory = TodayViewModelFactory(repository)), request)
+                TodayApp(viewModel(factory = viewModelFactory), request)
             }
         }
     }
