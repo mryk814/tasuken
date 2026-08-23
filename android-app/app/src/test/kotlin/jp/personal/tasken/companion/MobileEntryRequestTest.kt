@@ -61,7 +61,12 @@ class MobileEntryRequestTest {
     fun resolves_nonempty_plain_text_share_without_mutating_input() {
         val shared = "https://example.com/read-later\n共有メモ"
         assertEquals(
-            MobileEntryRequest.Capture(4, MobileEntrySource.ShareTarget, shared),
+            MobileEntryRequest.Capture(
+                token = 4,
+                source = MobileEntrySource.ShareTarget,
+                draft = shared,
+                sharedMimeType = "text/plain",
+            ),
             MobileEntryRequestResolver.resolve(Intent.ACTION_SEND, null, "text/plain", "  $shared  ", 4),
         )
     }

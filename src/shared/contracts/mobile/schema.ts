@@ -3,6 +3,7 @@ import * as z from "zod/v4";
 import { entityIdSchema, entityVersionSchema, isoTimestampSchema, localDateSchema } from "../../kernel/public.ts";
 import {
   taskIdSchema,
+  taskCreationReportedViaSchema,
   taskIntendedExecutorSchema,
   taskPrioritySchema,
   taskRequesterSchema,
@@ -11,6 +12,7 @@ import {
   taskScheduleGranularitySchema,
   taskScheduleRangeSemanticsSchema,
   taskStateSchema,
+  taskSpeechRecognitionModeSchema,
   taskWorkStateSchema,
 } from "../task/public.ts";
 import {
@@ -381,6 +383,37 @@ const mobileCreateTaskCandidateSchema = z.object({
   todayDate: localDateSchema.nullable().optional(),
 }).strict();
 
+export const mobileTaskCreationProvenanceSchema = z.object({
+  reportedVia: taskCreationReportedViaSchema,
+  capturedAt: isoTimestampSchema,
+  captureMethod: z.literal("android_speech").nullable(),
+  recognitionMode: taskSpeechRecognitionModeSchema.nullable(),
+  language: z.string().trim().min(1).max(64).nullable(),
+  confidence: z.number().finite().min(0).max(1).nullable(),
+  sourceAudioAvailable: z.literal(false).nullable(),
+  sharedMimeType: z.literal("text/plain").nullable(),
+}).strict().superRefine((value, context) => {
+  const hasSpeech = value.captureMethod === "android_speech";
+  if (hasSpeech) {
+    if (value.reportedVia !== "android_speech") {
+      context.addIssue({ code: "custom", path: ["reportedVia"], message: "音声認識結果はandroid_speech入力だけに指定できます。" });
+    }
+    if (value.recognitionMode === null || value.language === null || value.sourceAudioAvailable !== false) {
+      context.addIssue({ code: "custom", path: ["captureMethod"], message: "音声認識のmode・language・sourceAudioAvailableが必要です。" });
+    }
+  } else if (
+    value.recognitionMode !== null
+    || value.language !== null
+    || value.confidence !== null
+    || value.sourceAudioAvailable !== null
+  ) {
+    context.addIssue({ code: "custom", path: ["captureMethod"], message: "音声認識metadataにはcaptureMethodが必要です。" });
+  }
+  if ((value.reportedVia === "share_target") !== (value.sharedMimeType !== null)) {
+    context.addIssue({ code: "custom", path: ["sharedMimeType"], message: "Share Target入力にはtext/plain MIMEを指定してください。" });
+  }
+});
+
 const mobileScheduleEditFields = {
   startDate: localDateSchema.nullable(),
   endDate: localDateSchema.nullable(),
@@ -427,6 +460,7 @@ const mobileTaskCommandSchema = z.discriminatedUnion("name", [
   z.object({
     name: z.literal("CreateTask"),
     task: mobileCreateTaskCandidateSchema,
+    provenance: mobileTaskCreationProvenanceSchema.optional(),
   }).strict(),
   z.object({
     name: z.literal("UpdateTask"),

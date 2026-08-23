@@ -58,6 +58,15 @@ class MobileOutboxDatabaseTest {
             "  外出先で記録  ",
             LocalDate.parse("2026-08-22"),
             projectId = "theme-research",
+            provenance = MobileTaskCreationProvenanceDto(
+                reportedVia = "android_speech",
+                capturedAt = "2026-08-22T01:02:03Z",
+                captureMethod = "android_speech",
+                recognitionMode = "on_device",
+                language = "ja-JP",
+                confidence = 0.9f,
+                sourceAudioAvailable = false,
+            ),
         )
         val task = requireNotNull(dao.task(taskId))
         val command = requireNotNull(dao.outbox(requireNotNull(task.optimisticCommandId)))
@@ -72,6 +81,9 @@ class MobileOutboxDatabaseTest {
         assertEquals(command.issuedAt, envelope.issuedAt)
         assertEquals(taskId, envelope.command.task.id)
         assertEquals("theme-research", envelope.command.task.projectId)
+        assertEquals("android_speech", envelope.command.provenance?.reportedVia)
+        assertEquals("on_device", envelope.command.provenance?.recognitionMode)
+        assertEquals(false, envelope.command.provenance?.sourceAudioAvailable)
         assertEquals(OutboxState.Pending, command.state)
     }
 

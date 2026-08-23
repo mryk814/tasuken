@@ -51,6 +51,7 @@ export interface CreateTaskCommandPayload {
   task: Entity;
   schedule?: Entity | null;
   references?: Entity[];
+  provenance?: Record<string, unknown>;
 }
 
 export interface CreateTaskFromCaptureCommandPayload {

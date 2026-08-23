@@ -1144,6 +1144,121 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
   assert.equal(unknownQuery.body.error.code, "validation_failed");
 });
 
+test("CreateTask preserves strict capture provenance through replay without storing captured content", async () => {
+  const mobileCapability = capability();
+  const adapter = gateway(mobileCapability.service);
+  const provenance = {
+    reportedVia: "android_speech",
+    capturedAt: now,
+    captureMethod: "android_speech",
+    recognitionMode: "on_device",
+    language: "ja-JP",
+    confidence: 0.82,
+    sourceAudioAvailable: false,
+    sharedMimeType: null,
+  };
+  const request = createRequest({
+    requestId: "request-mobile-provenance",
+    commandId: "command-mobile-provenance",
+    idempotencyKey: "command-mobile-provenance",
+    command: {
+      ...createRequest().command,
+      task: {
+        ...createRequest().command.task,
+        id: "task-mobile-provenance",
+        title: "音声で作成したTask",
+      },
+      provenance,
+    },
+  });
+
+  const first = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: request,
+  });
+
+  assert.equal(first.status, 200);
+  assert.deepEqual(mobileCapability.repository.list("change_event")[0].metadata.provenance, {
+    reported_via: "android_speech",
+    captured_at: now,
+    capture_method: "android_speech",
+    recognition_mode: "on_device",
+    language: "ja-JP",
+    confidence: 0.82,
+    source_audio_available: false,
+    shared_mime_type: null,
+  });
+  assert.doesNotMatch(JSON.stringify(mobileCapability.repository.list("change_event")[0].metadata), /音声で作成したTask/);
+
+  const replay = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: request,
+  });
+  assert.equal(replay.status, 200);
+  assert.equal(mobileCapability.repository.list("change_event").length, 1);
+
+  const changedProvenance = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...request,
+      command: { ...request.command, provenance: { ...provenance, confidence: 0.5 } },
+    },
+  });
+  assert.equal(changedProvenance.status, 409);
+  assert.equal(changedProvenance.body.error.code, "idempotency_conflict");
+  assert.equal(mobileCapability.repository.list("change_event").length, 1);
+
+  const invalidProvenance = [
+    { ...provenance, reportedVia: "widget" },
+    {
+      reportedVia: "share_target",
+      capturedAt: now,
+      captureMethod: null,
+      recognitionMode: null,
+      language: null,
+      confidence: null,
+      sourceAudioAvailable: null,
+      sharedMimeType: null,
+    },
+    {
+      reportedVia: "widget",
+      capturedAt: now,
+      captureMethod: null,
+      recognitionMode: "on_device",
+      language: null,
+      confidence: null,
+      sourceAudioAvailable: null,
+      sharedMimeType: null,
+    },
+  ];
+  for (const [index, invalid] of invalidProvenance.entries()) {
+    const response = await adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.commands,
+      principal,
+      body: {
+        ...request,
+        requestId: `request-invalid-provenance-${index}`,
+        commandId: `command-invalid-provenance-${index}`,
+        idempotencyKey: `command-invalid-provenance-${index}`,
+        command: {
+          ...request.command,
+          task: { ...request.command.task, id: `task-invalid-provenance-${index}` },
+          provenance: invalid,
+        },
+      },
+    });
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error.code, "validation_failed");
+  }
+});
+
 test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and uses durable Core replay", async () => {
   const mobileCapability = capability();
   const mobileAdapter = gateway(mobileCapability.service);

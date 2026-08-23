@@ -32,7 +32,32 @@ data class MobileCreateTaskEnvelopeDto(
 data class MobileCreateTaskCommandDto(
     val name: String,
     val task: MobileCreateTaskCandidateDto,
+    val provenance: MobileTaskCreationProvenanceDto? = null,
 )
+
+@Serializable
+data class MobileTaskCreationProvenanceDto(
+    val reportedVia: String,
+    val capturedAt: String,
+    val captureMethod: String? = null,
+    val recognitionMode: String? = null,
+    val language: String? = null,
+    val confidence: Float? = null,
+    val sourceAudioAvailable: Boolean? = null,
+    val sharedMimeType: String? = null,
+)
+
+internal fun MobileCaptureDraft.toTaskCreationProvenanceDto(): MobileTaskCreationProvenanceDto =
+    MobileTaskCreationProvenanceDto(
+        reportedVia = source.wireValue,
+        capturedAt = createdAt,
+        captureMethod = speech?.let { "android_speech" },
+        recognitionMode = speech?.recognitionMode?.wireValue,
+        language = speech?.language,
+        confidence = speech?.confidence,
+        sourceAudioAvailable = speech?.sourceAudioAvailable,
+        sharedMimeType = share?.mimeType,
+    )
 
 @Serializable
 data class MobileCreateTaskCandidateDto(
@@ -216,6 +241,28 @@ object MobileTaskCommandContract {
         require(envelope.command.task.id.isNotBlank())
         require(envelope.command.task.title.isNotBlank() && envelope.command.task.title.length <= 500)
         require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)
+        envelope.command.provenance?.let(::validateCreationProvenance)
+    }
+
+    private fun validateCreationProvenance(provenance: MobileTaskCreationProvenanceDto) {
+        require(provenance.reportedVia in setOf("android_app", "widget", "app_shortcut", "share_target", "android_speech"))
+        require(runCatching { OffsetDateTime.parse(provenance.capturedAt) }.isSuccess)
+        require(provenance.captureMethod == null || provenance.captureMethod == "android_speech")
+        provenance.confidence?.let { require(it.isFinite() && it in 0f..1f) }
+        val hasSpeech = provenance.captureMethod == "android_speech"
+        if (hasSpeech) {
+            require(provenance.reportedVia == "android_speech")
+            require(provenance.recognitionMode in setOf("on_device", "system_service", "unknown"))
+            require(provenance.language?.isNotBlank() == true && provenance.language.length <= 64)
+            require(provenance.sourceAudioAvailable == false)
+        } else {
+            require(provenance.recognitionMode == null)
+            require(provenance.language == null)
+            require(provenance.confidence == null)
+            require(provenance.sourceAudioAvailable == null)
+        }
+        require((provenance.reportedVia == "share_target") == (provenance.sharedMimeType != null))
+        require(provenance.sharedMimeType == null || provenance.sharedMimeType == "text/plain")
     }
 
     private fun validateStateEnvelope(envelope: MobileTaskStateEnvelopeDto) {

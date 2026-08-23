@@ -193,6 +193,10 @@ class MobileOutbox(
         projectId: String? = null,
         draftId: String = UUID.randomUUID().toString(),
         createdAt: String = now().toString(),
+        provenance: MobileTaskCreationProvenanceDto = MobileTaskCreationProvenanceDto(
+            reportedVia = MobileCaptureSource.AndroidApp.wireValue,
+            capturedAt = createdAt,
+        ),
     ): String {
         val normalizedTitle = title.trim()
         require(normalizedTitle.isNotEmpty() && normalizedTitle.length <= 500)
@@ -211,7 +215,8 @@ class MobileOutbox(
                     existingEnvelope.command.task.id == taskId &&
                     existingEnvelope.command.task.title == normalizedTitle &&
                     existingEnvelope.command.task.projectId == projectId &&
-                    existingEnvelope.command.task.todayDate == todayDate?.toString(),
+                    existingEnvelope.command.task.todayDate == todayDate?.toString() &&
+                    existingEnvelope.command.provenance == provenance,
             ) { "同じDraft IDが別のTask作成に使われています。" }
             return taskId
         }
@@ -234,6 +239,7 @@ class MobileOutbox(
                     projectId = projectId,
                     todayDate = todayDate?.toString(),
                 ),
+                provenance = provenance,
             ),
         )
         dao.enqueueCreate(

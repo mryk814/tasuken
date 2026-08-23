@@ -212,6 +212,7 @@ class AndroidMobileTaskRepository(
             projectId = draft.projectId,
             draftId = draft.draftId,
             createdAt = draft.createdAt,
+            provenance = draft.toTaskCreationProvenanceDto(),
         )
 
     override suspend fun undoCreateTask(taskId: String): MobileUndoCreateResult = outbox.undoCreate(taskId)

@@ -68,7 +68,10 @@ export {
   taskCommandEntrypointSchema,
   taskCommandSchema,
   taskCommandSourceSchema,
+  taskCreationProvenanceSchema,
+  taskCreationReportedViaSchema,
   taskScheduleChangeSchema,
+  taskSpeechRecognitionModeSchema,
   updateTaskCommandSchema,
   type CompleteTaskCommand,
   type CreateTaskCommand,
@@ -78,7 +81,10 @@ export {
   type TaskCommandActor,
   type TaskCommandEntrypoint,
   type TaskCommandSource,
+  type TaskCreationProvenance,
+  type TaskCreationReportedVia,
   type TaskScheduleChange,
+  type TaskSpeechRecognitionMode,
   type UpdateTaskCommand,
 } from "./commands.ts";
 

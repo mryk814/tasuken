@@ -18,6 +18,46 @@ export const taskCommandActorSchema = z.object({
 export const taskCommandSourceSchema = z.enum(["desktop", "mobile", "http", "mcp", "system"]);
 export const taskCommandEntrypointSchema = z.enum(["main_ui", "today_window", "quick_capture", "inbox", "command_palette", "tasken_root", "mcp"]);
 
+export const taskCreationReportedViaSchema = z.enum([
+  "android_app",
+  "widget",
+  "app_shortcut",
+  "share_target",
+  "android_speech",
+]);
+export const taskSpeechRecognitionModeSchema = z.enum(["on_device", "system_service", "unknown"]);
+
+export const taskCreationProvenanceSchema = z.object({
+  reported_via: taskCreationReportedViaSchema,
+  captured_at: isoTimestampSchema,
+  capture_method: z.literal("android_speech").nullable(),
+  recognition_mode: taskSpeechRecognitionModeSchema.nullable(),
+  language: z.string().trim().min(1).max(64).nullable(),
+  confidence: z.number().finite().min(0).max(1).nullable(),
+  source_audio_available: z.literal(false).nullable(),
+  shared_mime_type: z.literal("text/plain").nullable(),
+}).strict().superRefine((value, context) => {
+  const hasSpeech = value.capture_method === "android_speech";
+  if (hasSpeech) {
+    if (value.reported_via !== "android_speech") {
+      context.addIssue({ code: "custom", path: ["reported_via"], message: "音声認識結果はandroid_speech入力だけに指定できます。" });
+    }
+    if (value.recognition_mode === null || value.language === null || value.source_audio_available !== false) {
+      context.addIssue({ code: "custom", path: ["capture_method"], message: "音声認識のmode・language・source_audio_availableが必要です。" });
+    }
+  } else if (
+    value.recognition_mode !== null
+    || value.language !== null
+    || value.confidence !== null
+    || value.source_audio_available !== null
+  ) {
+    context.addIssue({ code: "custom", path: ["capture_method"], message: "音声認識metadataにはcapture_methodが必要です。" });
+  }
+  if ((value.reported_via === "share_target") !== (value.shared_mime_type !== null)) {
+    context.addIssue({ code: "custom", path: ["shared_mime_type"], message: "Share Target入力にはtext/plain MIMEを指定してください。" });
+  }
+});
+
 const commandBase = {
   schemaVersion: taskContractSchemaVersionSchema,
   command_id: entityIdSchema,
@@ -30,7 +70,10 @@ const commandBase = {
 export const createTaskCommandSchema = z.object({
   ...commandBase,
   name: z.literal("CreateTask"),
-  payload: z.object({ task: taskDraftSchema }).strict(),
+  payload: z.object({
+    task: taskDraftSchema,
+    provenance: taskCreationProvenanceSchema.optional(),
+  }).strict(),
 }).strict();
 
 export const taskScheduleChangeSchema = z.object({
@@ -131,6 +174,9 @@ export const taskCommandSchema = z.discriminatedUnion("name", [
 export type TaskCommandActor = z.output<typeof taskCommandActorSchema>;
 export type TaskCommandSource = z.output<typeof taskCommandSourceSchema>;
 export type TaskCommandEntrypoint = z.output<typeof taskCommandEntrypointSchema>;
+export type TaskCreationReportedVia = z.output<typeof taskCreationReportedViaSchema>;
+export type TaskSpeechRecognitionMode = z.output<typeof taskSpeechRecognitionModeSchema>;
+export type TaskCreationProvenance = z.output<typeof taskCreationProvenanceSchema>;
 export type CreateTaskCommand = z.output<typeof createTaskCommandSchema>;
 export type UpdateTaskCommand = z.output<typeof updateTaskCommandSchema>;
 export type TaskScheduleChange = z.output<typeof taskScheduleChangeSchema>;

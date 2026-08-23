@@ -251,6 +251,7 @@ private fun TodayApp(
                     source = entryRequest.source.toCaptureSource(),
                     initialText = entryRequest.draft,
                     requestVoice = entryRequest.startVoice,
+                    sharedMimeType = entryRequest.sharedMimeType,
                 )
                 speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
                 handledEntryToken = entryRequest.token
