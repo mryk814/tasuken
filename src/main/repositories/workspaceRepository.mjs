@@ -29,6 +29,11 @@ import { buildActivityRootRegistry, publicActivityRootStatus } from "../../share
 import { normalizeReferenceAssertion, referenceAssertionIdentity } from "../../shared/relationAssertion.mjs";
 
 const SCHEMA_VERSION = 5;
+const MOBILE_DEVICE_SCOPES = Object.freeze([
+  "mobile:read",
+  "mobile:task-write",
+  "mobile:proposal-review",
+]);
 
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
@@ -58,7 +63,7 @@ function parseMobileDeviceRow(row) {
   } catch {
     throw new Error("Mobile device scopes are invalid");
   }
-  if (!Array.isArray(scopes) || scopes.some((scope) => !["mobile:read", "mobile:task-write"].includes(scope))) {
+  if (!Array.isArray(scopes) || scopes.some((scope) => !MOBILE_DEVICE_SCOPES.includes(scope))) {
     throw new Error("Mobile device scopes are invalid");
   }
   return {
@@ -1519,7 +1524,7 @@ export class WorkspaceDatabase {
     if (!id || !label || !pairedAt || !/^[a-f0-9]{64}$/.test(tokenHash)) {
       throw new Error("Mobile device record is invalid");
     }
-    if (scopes.length === 0 || scopes.some((scope) => !["mobile:read", "mobile:task-write"].includes(scope))) {
+    if (scopes.length === 0 || scopes.some((scope) => !MOBILE_DEVICE_SCOPES.includes(scope))) {
       throw new Error("Mobile device scopes are invalid");
     }
     const pair = this.db.transaction(() => {
