@@ -77,6 +77,25 @@ class MobileTaskCommandContractTest {
         }
     }
 
+    @Test
+    fun rejectsWithdrawnPlannedSchedulePatch() {
+        val planned = buildJsonObject {
+            put("plannedSchedule", buildJsonObject {
+                put("startTime", JsonPrimitive("10:00"))
+                put("durationMinutes", JsonPrimitive(90))
+            })
+        }
+        val empty = buildJsonObject {
+            put("plannedSchedule", buildJsonObject {
+                put("startTime", JsonNull)
+                put("durationMinutes", JsonNull)
+            })
+        }
+        assertThrows(IllegalStateException::class.java) {
+            MobileTaskCommandContract.encode(updateEnvelope(planned, empty, null))
+        }
+    }
+
     private fun updateEnvelope(
         changes: kotlinx.serialization.json.JsonObject,
         base: kotlinx.serialization.json.JsonObject,

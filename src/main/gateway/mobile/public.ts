@@ -3,6 +3,7 @@ export {
   MobileGatewayCoreUnavailableError,
   type MobileGatewayCorePort,
   type MobileGatewayThemeRecord,
+  type MobileGatewayWorkReceiptRecord,
   type MobileGatewayLoggerPort,
   type MobileGatewayOptions,
   type MobileGatewayRequest,

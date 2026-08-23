@@ -8,6 +8,13 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
+internal val PLANNED_START_TIME_PATTERN = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
+internal const val PLANNED_DURATION_MINUTES_MAX = 10080
+
+internal fun isPlannedStartTime(value: String): Boolean = PLANNED_START_TIME_PATTERN.matches(value)
+
+internal fun isPlannedDurationMinutes(value: Int): Boolean = value in 1..PLANNED_DURATION_MINUTES_MAX
+
 @Serializable
 data class MobileCreateTaskEnvelopeDto(
     val apiVersion: Int,
@@ -312,6 +319,13 @@ object MobileTaskCommandContract {
         require(task.themeId == null || isThemeId(task.themeId))
         require(task.state in setOf("todo", "doing", "waiting", "review", "done", "cancelled"))
         require(task.todayDate == null || runCatching { LocalDate.parse(task.todayDate) }.isSuccess)
+        require(task.plannedStartTime == null || isPlannedStartTime(task.plannedStartTime))
+        require(task.plannedDurationMinutes == null || isPlannedDurationMinutes(task.plannedDurationMinutes))
+        task.latestWorkReceipt?.let { receipt ->
+            require(receipt.id.isNotBlank() && receipt.id.length <= 200)
+            require(receipt.executorLabel.isNotBlank() && receipt.executorLabel.length <= 200)
+            require(receipt.summary.isNotBlank() && receipt.summary.length <= 2000)
+        }
         task.schedule?.let { schedule ->
             require(schedule.id.isNotBlank() && schedule.id.length <= 200)
             require(schedule.version > 0)

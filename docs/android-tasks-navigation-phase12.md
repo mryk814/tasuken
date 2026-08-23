@@ -12,7 +12,7 @@ This phase adds the first Room-backed Tasks surface beside Today. It advances, b
 - Filters distinguish active, completed, and all cached Tasks.
 - Today and Tasks retain independent list scroll positions.
 - The active section, search query, filter, scroll positions, selected Task, and Capture draft use saveable pane state.
-- The AI destination is intentionally absent until #402 provides a connected surface; this phase does not add a dead navigation item.
+- The AI destination was intentionally absent here. Phase 0 of #402 adds the connected read-only AI Inbox; see `docs/android-ai-inbox-phase0.md`.
 
 ## Detail and deep links
 
@@ -33,7 +33,7 @@ This phase adds the first Room-backed Tasks surface beside Today. It advances, b
 
 ## Remaining boundary
 
-- The Tasks filters do not yet include Theme, Today/upcoming/unscheduled subdivisions, or AI work-state views.
-- Task detail does not yet edit Theme, schedule, checklist, description/completion note, executor, or Work Receipt.
+- The Tasks filters do not yet include Theme, Today/upcoming/unscheduled subdivisions.
+- Task detail does not yet edit checklist, description/completion note, or executor. Work Receipt is read-only in the AI Inbox (Phase 0).
 - Fold/unfold, landscape, multi-window, font-scale, and Fold7 visual/adaptive signoff remain unverified.
 - Signed release APK verification remains open.

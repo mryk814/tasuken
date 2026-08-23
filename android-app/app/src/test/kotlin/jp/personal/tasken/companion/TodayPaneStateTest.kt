@@ -11,10 +11,11 @@ class TodayPaneStateTest {
         before.recordScroll(7, 32)
         before.captureDraft = "折りたたみ後も残す"
         before.captureOpen = true
-        before.activeSection = AppSection.Tasks
+        before.activeSection = AppSection.Ai
         before.taskSearch = "解析"
         before.taskFilter = TaskListFilter.Done
         before.recordTaskScroll(4, 18)
+        before.recordAiScroll(2, 9)
 
         val restored = TodayPaneState.restore(before.save())
 
@@ -23,10 +24,12 @@ class TodayPaneStateTest {
         assertEquals(32, restored.listScrollOffset)
         assertEquals("折りたたみ後も残す", restored.captureDraft)
         assertEquals(true, restored.captureOpen)
-        assertEquals(AppSection.Tasks, restored.activeSection)
+        assertEquals(AppSection.Ai, restored.activeSection)
         assertEquals("解析", restored.taskSearch)
         assertEquals(TaskListFilter.Done, restored.taskFilter)
         assertEquals(4, restored.taskListScrollIndex)
         assertEquals(18, restored.taskListScrollOffset)
+        assertEquals(2, restored.aiListScrollIndex)
+        assertEquals(9, restored.aiListScrollOffset)
     }
 }

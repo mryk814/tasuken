@@ -1178,7 +1178,10 @@ class MobileOutboxDatabaseTest {
         version: Int = 1,
         status: String = "applied",
         themeId: String? = null,
+        todayDate: String? = null,
         schedule: MobileTaskScheduleDto? = null,
+        plannedStartTime: String? = null,
+        plannedDurationMinutes: Int? = null,
     ) = MobileTaskCommandResponseDto(
         ok = true,
         meta = MobileResponseMetaDto(
@@ -1199,7 +1202,10 @@ class MobileOutboxDatabaseTest {
                 themeId = themeId,
                 state = state,
                 workState = null,
+                todayDate = todayDate,
                 schedule = schedule,
+                plannedStartTime = plannedStartTime,
+                plannedDurationMinutes = plannedDurationMinutes,
                 updatedAt = "2026-08-22T01:04:00Z",
             ),
         ),
@@ -1214,6 +1220,8 @@ class MobileOutboxDatabaseTest {
         serverTodayDate: String? = null,
         serverThemeId: String? = null,
         serverSchedule: MobileTaskScheduleDto? = null,
+        plannedStartTime: String? = null,
+        plannedDurationMinutes: Int? = null,
     ) = MobileTaskCommandErrorResponseDto(
         ok = false,
         meta = MobileResponseMetaDto(
@@ -1238,6 +1246,8 @@ class MobileOutboxDatabaseTest {
                     workState = null,
                     todayDate = serverTodayDate,
                     schedule = serverSchedule,
+                    plannedStartTime = plannedStartTime,
+                    plannedDurationMinutes = plannedDurationMinutes,
                     updatedAt = "2026-08-22T01:05:00Z",
                 ),
                 intendedAction = intendedAction,

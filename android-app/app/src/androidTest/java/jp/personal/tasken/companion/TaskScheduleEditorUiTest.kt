@@ -2,25 +2,22 @@ package jp.personal.tasken.companion
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.StateRestorationTester
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.junit4.StateRestorationTester
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.v2.runComposeUiTest
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
-@OptIn(ExperimentalTestApi::class)
 class TaskScheduleEditorUiTest {
     @get:Rule
     val composeRule = createComposeRule()
@@ -36,8 +33,8 @@ class TaskScheduleEditorUiTest {
         )
 
         composeRule.onNodeWithTag("schedule-kind").assertTextEquals("実施日")
-        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("2026-08-24")
-        composeRule.onNodeWithTag("schedule-end-date").assertTextContains("未設定")
+        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("2026-08-24", substring = true)
+        composeRule.onNodeWithTag("schedule-end-date").assertTextContains("未設定", substring = true)
         composeRule.onNodeWithTag("schedule-range-semantics").assertDoesNotExist()
         composeRule.onNodeWithTag("schedule-save").assertIsNotEnabled()
     }
@@ -53,8 +50,8 @@ class TaskScheduleEditorUiTest {
         )
 
         composeRule.onNodeWithTag("schedule-kind").assertTextEquals("期限")
-        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定")
-        composeRule.onNodeWithTag("schedule-end-date").assertTextContains("2026-08-30")
+        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定", substring = true)
+        composeRule.onNodeWithTag("schedule-end-date").assertTextContains("2026-08-30", substring = true)
         composeRule.onNodeWithTag("schedule-range-semantics").assertDoesNotExist()
     }
 
@@ -123,6 +120,36 @@ class TaskScheduleEditorUiTest {
         composeRule.onNodeWithTag("schedule-range-ongoing").assertIsNotSelected()
         composeRule.onNodeWithTag("schedule-save").assertIsNotEnabled()
         composeRule.runOnIdle { assertEquals(null, submitted) }
+    }
+
+    @Test
+    fun clearedDraftSurvivesSavedInstanceStateRestoration() {
+        val restorationTester = StateRestorationTester(composeRule)
+        val task = sampleTask(
+            schedule = schedule(
+                startDate = "2026-08-24",
+                endDate = null,
+                dateKind = "point",
+            ),
+        )
+        restorationTester.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task,
+                    actionState = TaskActionUiState.Idle,
+                    onStateAction = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("schedule-start-clear").performScrollTo().performClick()
+        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定", substring = true)
+        composeRule.onNodeWithTag("schedule-save").assertIsEnabled()
+
+        restorationTester.emulateSavedInstanceStateRestore()
+
+        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定", substring = true)
+        composeRule.onNodeWithTag("schedule-save").assertIsEnabled()
     }
 
     @Test
@@ -275,46 +302,4 @@ class TaskScheduleEditorUiTest {
         serverState = "todo",
         detectedAt = "2026-08-22T01:00:00Z",
     )
-}
-
-@OptIn(ExperimentalTestApi::class)
-class TaskScheduleRestorationUiTest {
-    @Test
-    fun clearedDraftSurvivesSavedInstanceStateRestoration() = runComposeUiTest {
-        val restorationTester = StateRestorationTester(this)
-        val task = MobileTask(
-            id = "10000000-0000-4000-8000-000000000001",
-            title = "Task",
-            themeId = null,
-            state = "todo",
-            workState = null,
-            updatedAt = "2026-08-21T09:00:00.000Z",
-            schedule = MobileTaskSchedule(
-                id = "20000000-0000-4000-8000-000000000001",
-                version = 2,
-                startDate = "2026-08-24",
-                endDate = null,
-                dateKind = "point",
-                rangeSemantics = null,
-            ),
-        )
-        restorationTester.setContent {
-            MaterialTheme {
-                TodayDetailPane(
-                    task = task,
-                    actionState = TaskActionUiState.Idle,
-                    onStateAction = {},
-                )
-            }
-        }
-
-        onNodeWithTag("schedule-start-clear").performScrollTo().performClick()
-        onNodeWithTag("schedule-start-date").assertTextContains("未設定")
-        onNodeWithTag("schedule-save").assertIsEnabled()
-
-        restorationTester.emulateSaveAndRestore()
-
-        onNodeWithTag("schedule-start-date").assertTextContains("未設定")
-        onNodeWithTag("schedule-save").assertIsEnabled()
-    }
 }

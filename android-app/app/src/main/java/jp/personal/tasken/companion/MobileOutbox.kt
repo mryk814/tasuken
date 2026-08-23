@@ -36,6 +36,11 @@ private fun themeIdPatch(themeId: String?): JsonObject = buildJsonObject {
     put("themeId", themeId?.let(::JsonPrimitive) ?: JsonNull)
 }
 
+private data class LeftoverPlannedScheduleDraft(
+    val startTime: String?,
+    val durationMinutes: Int?,
+)
+
 private fun scheduleValue(schedule: MobileTaskScheduleDraft): JsonObject = buildJsonObject {
     put("startDate", schedule.startDate?.let(::JsonPrimitive) ?: JsonNull)
     put("endDate", schedule.endDate?.let(::JsonPrimitive) ?: JsonNull)
@@ -458,6 +463,14 @@ class MobileOutbox(
         } else {
             null
         }
+        if (isUpdate && conflict.localPlannedScheduleChanged &&
+            conflict.localTitle == null &&
+            !conflict.localTodayDateChanged &&
+            !conflict.localThemeIdChanged &&
+            !conflict.localScheduleChanged
+        ) {
+            error("時刻の変更は使えません。Desktopを採用してください。")
+        }
         val envelopeJson = if (isUpdate) {
             val changes = when {
                 conflict.localTitle != null -> titlePatch(conflict.localTitle)
@@ -793,6 +806,12 @@ class MobileOutbox(
                             state = task.state,
                             workState = task.workState,
                             todayDate = task.todayDate,
+                            plannedStartTime = task.plannedStartTime,
+                            plannedDurationMinutes = task.plannedDurationMinutes,
+                            latestReceiptId = task.latestWorkReceipt?.id,
+                            latestReceiptReportedAt = task.latestWorkReceipt?.reportedAt,
+                            latestReceiptExecutorLabel = task.latestWorkReceipt?.executorLabel,
+                            latestReceiptSummary = task.latestWorkReceipt?.summary,
                             scheduleId = task.schedule?.id,
                             scheduleVersion = task.schedule?.version,
                             scheduleStartDate = task.schedule?.startDate,
@@ -870,6 +889,18 @@ class MobileOutbox(
                             },
                         )
                     }
+                    val localPlannedScheduleChanged = localPatch?.containsKey("plannedSchedule") == true
+                    val localPlannedSchedule = localPatch?.get("plannedSchedule")?.let { value ->
+                        require(value is JsonObject)
+                        LeftoverPlannedScheduleDraft(
+                            startTime = value.getValue("startTime").let {
+                                if (it == JsonNull) null else it.jsonPrimitive.content
+                            },
+                            durationMinutes = value.getValue("durationMinutes").let {
+                                if (it == JsonNull) null else it.jsonPrimitive.content.toInt()
+                            },
+                        )
+                    }
                     dao.recordConflict(
                         commandId = command.commandId,
                         canonicalTask = TaskCacheEntity(
@@ -880,6 +911,12 @@ class MobileOutbox(
                             state = current.state,
                             workState = current.workState,
                             todayDate = current.todayDate,
+                            plannedStartTime = current.plannedStartTime,
+                            plannedDurationMinutes = current.plannedDurationMinutes,
+                            latestReceiptId = current.latestWorkReceipt?.id,
+                            latestReceiptReportedAt = current.latestWorkReceipt?.reportedAt,
+                            latestReceiptExecutorLabel = current.latestWorkReceipt?.executorLabel,
+                            latestReceiptSummary = current.latestWorkReceipt?.summary,
                             scheduleId = current.schedule?.id,
                             scheduleVersion = current.schedule?.version,
                             scheduleStartDate = current.schedule?.startDate,
@@ -911,6 +948,9 @@ class MobileOutbox(
                             localScheduleEndDate = localSchedule?.endDate,
                             localScheduleRangeSemantics = localSchedule?.rangeSemantics,
                             localScheduleChanged = localScheduleChanged,
+                            localPlannedStartTime = localPlannedSchedule?.startTime,
+                            localPlannedDurationMinutes = localPlannedSchedule?.durationMinutes,
+                            localPlannedScheduleChanged = localPlannedScheduleChanged,
                             serverWorkState = current.workState,
                             serverUpdatedAt = current.updatedAt,
                             detectedAt = response.meta.generatedAt,

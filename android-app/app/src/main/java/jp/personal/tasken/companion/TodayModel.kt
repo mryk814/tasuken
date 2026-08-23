@@ -26,6 +26,9 @@ data class MobileTask(
     val workState: String?,
     val updatedAt: String,
     val todayDate: String? = null,
+    val plannedStartTime: String? = null,
+    val plannedDurationMinutes: Int? = null,
+    val latestWorkReceipt: MobileWorkReceiptSummary? = null,
     val schedule: MobileTaskSchedule? = null,
     val pending: Boolean = false,
     val conflict: MobileTaskConflict? = null,
@@ -48,6 +51,13 @@ data class MobileTaskScheduleDraft(
     val startDate: String?,
     val endDate: String?,
     val rangeSemantics: String?,
+)
+
+data class MobileWorkReceiptSummary(
+    val id: String,
+    val reportedAt: String,
+    val executorLabel: String,
+    val summary: String,
 )
 
 data class MobileRejectedThemeUpdate(
@@ -119,6 +129,11 @@ data class MobileTaskConflict(
     val serverSchedule: MobileTaskSchedule? = null,
     val localSchedule: MobileTaskScheduleDraft? = null,
     val localScheduleChanged: Boolean = false,
+    val serverPlannedStartTime: String? = null,
+    val serverPlannedDurationMinutes: Int? = null,
+    val localPlannedStartTime: String? = null,
+    val localPlannedDurationMinutes: Int? = null,
+    val localPlannedScheduleChanged: Boolean = false,
 )
 
 sealed interface MobileTodayResult {
@@ -242,11 +257,17 @@ class TodayViewModel(
     }
 
     fun pair(origin: String, pairingCode: String) {
+        viewModelScope.launch { pairNow(origin, pairingCode) }
+    }
+
+    internal suspend fun pairNow(origin: String, pairingCode: String) {
         val gateway = repository as? MobileGatewayRepository ?: return
-        mutableUiState.value = TodayUiState.Loading
-        viewModelScope.launch {
-            applyResult(withContext(ioDispatcher) { gateway.pair(origin, pairingCode) })
-        }
+        applyResult(withContext(ioDispatcher) { gateway.pair(origin, pairingCode) })
+    }
+
+    fun retryPairing() {
+        val gateway = repository as? MobileGatewayRepository ?: return
+        applyResult(gateway.retryPairing())
     }
 
     fun createTask(title: String) {
@@ -511,7 +532,7 @@ class TodayViewModelFactory(
 }
 
 
-enum class AppSection { Today, Tasks }
+enum class AppSection { Today, Tasks, Ai }
 enum class TaskListFilter { Open, Done, All }
 
 class TodayPaneState(
@@ -525,6 +546,8 @@ class TodayPaneState(
     taskFilter: TaskListFilter = TaskListFilter.Open,
     taskListScrollIndex: Int = 0,
     taskListScrollOffset: Int = 0,
+    aiListScrollIndex: Int = 0,
+    aiListScrollOffset: Int = 0,
 ) {
     var selectedTaskId by mutableStateOf(selectedTaskId)
     var listScrollIndex by mutableIntStateOf(listScrollIndex)
@@ -540,6 +563,10 @@ class TodayPaneState(
         private set
     var taskListScrollOffset by mutableIntStateOf(taskListScrollOffset)
         private set
+    var aiListScrollIndex by mutableIntStateOf(aiListScrollIndex)
+        private set
+    var aiListScrollOffset by mutableIntStateOf(aiListScrollOffset)
+        private set
 
     fun recordScroll(index: Int, offset: Int) {
         listScrollIndex = index.coerceAtLeast(0)
@@ -549,6 +576,11 @@ class TodayPaneState(
     fun recordTaskScroll(index: Int, offset: Int) {
         taskListScrollIndex = index.coerceAtLeast(0)
         taskListScrollOffset = offset.coerceAtLeast(0)
+    }
+
+    fun recordAiScroll(index: Int, offset: Int) {
+        aiListScrollIndex = index.coerceAtLeast(0)
+        aiListScrollOffset = offset.coerceAtLeast(0)
     }
 
     fun save(): List<Any?> = listOf(
@@ -562,6 +594,8 @@ class TodayPaneState(
         taskFilter.name,
         taskListScrollIndex,
         taskListScrollOffset,
+        aiListScrollIndex,
+        aiListScrollOffset,
     )
 
     companion object {
@@ -580,6 +614,8 @@ class TodayPaneState(
                 ?: TaskListFilter.Open,
             taskListScrollIndex = saved.getOrNull(8) as? Int ?: 0,
             taskListScrollOffset = saved.getOrNull(9) as? Int ?: 0,
+            aiListScrollIndex = saved.getOrNull(10) as? Int ?: 0,
+            aiListScrollOffset = saved.getOrNull(11) as? Int ?: 0,
         )
     }
 }
@@ -587,6 +623,7 @@ class TodayPaneState(
 interface MobileGatewayRepository : MobileTaskRepository {
     fun configuration(): MobileGatewayConfiguration
     fun pair(origin: String, pairingCode: String): MobileTodayResult
+    fun retryPairing(): MobileTodayResult
 }
 
 interface MobileOfflineTaskRepository {
