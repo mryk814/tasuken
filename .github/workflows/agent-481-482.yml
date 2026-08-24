@@ -1,4 +1,4 @@
-name: Issue 481 482 agent inspection
+name: Issue 481 482 implementation
 
 on:
   push:
@@ -9,76 +9,629 @@ permissions:
   contents: write
 
 jobs:
-  inspect:
+  implement:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Inspect issue-related code paths
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Apply focused fixes in reviewable commits
         shell: bash
+        env:
+          FEATURE_BRANCH: fix/issues-481-482-polish-audit
+          BASE_SHA: f72484caf7ebb331a1252221e43930b0ce1d2eb0
+          EXPECTED_HEAD: ${{ github.sha }}
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          ROOTS = [Path('src'), Path('tests')]
-          CATEGORIES = {
-              'PROMPT': re.compile(r'prompt|プロンプト', re.I),
-              'CHECKLIST': re.compile(r'checklist|チェックリスト|scrollTop|scrollIntoView', re.I),
-              'CHAT_REFS': re.compile(r'chat.?ref|openExternal|externalUrl|sourceUrl|threadUrl|originalUrl|元のチャット', re.I),
-              'STICKY': re.compile(r'memo.?sticky|sticky-card|presentation_color|alwaysOnTop|常に手前', re.I),
-              'SHORTCUT': re.compile(r'CommandOrControl|accelerator|shortcut', re.I),
-              'PERFORMANCE': re.compile(r'readFileSync|writeFileSync|execSync|spawnSync|setInterval|addEventListener|reloadWorkspace|refreshWorkspace|loadWorkspace|entities\.listAll', re.I),
-          }
-          EXTENSIONS = {'.ts', '.tsx', '.js', '.mjs', '.css', '.html'}
-          per_category_limit = 220
-          lines_out = []
-
-          files = []
-          for root in ROOTS:
-              files.extend(path for path in root.rglob('*') if path.is_file() and path.suffix in EXTENSIONS)
-
-          for category, pattern in CATEGORIES.items():
-              lines_out.append(f'\n===== {category} =====')
-              count = 0
-              for path in files:
-                  try:
-                      source = path.read_text(encoding='utf-8')
-                  except UnicodeDecodeError:
-                      continue
-                  rows = source.splitlines()
-                  for index, row in enumerate(rows):
-                      if not pattern.search(row):
-                          continue
-                      start = max(0, index - 2)
-                      end = min(len(rows), index + 3)
-                      lines_out.append(f'\n--- {path}:{index + 1} ---')
-                      for line_no in range(start, end):
-                          marker = '>' if line_no == index else ' '
-                          lines_out.append(f'{marker}{line_no + 1:5}: {rows[line_no]}')
-                      count += 1
-                      if count >= per_category_limit:
-                          lines_out.append(f'\n[truncated after {per_category_limit} matches]')
-                          break
-                  if count >= per_category_limit:
-                      break
-              lines_out.append(f'\n[matches: {count}]')
-
-          destination = Path('_agent/inspection-481-482.txt')
-          destination.parent.mkdir(parents=True, exist_ok=True)
-          destination.write_text('\n'.join(lines_out), encoding='utf-8')
-          PY
-
-      - name: Commit inspection report
-        shell: bash
-        run: |
+          set -Eeuo pipefail
           git config user.name "Tasken agent"
           git config user.email "actions@users.noreply.github.com"
-          git add _agent/inspection-481-482.txt
-          git commit -m "481・482の実装候補を一時記録する"
-          git push origin HEAD:fix/issues-481-482-polish-audit
+          git reset --hard "$BASE_SHA"
+
+          cat > /tmp/apply_481_482.py <<'PY'
+          from pathlib import Path
+          import re
+          import subprocess
+          import textwrap
+
+          def block(content: str) -> str:
+              return textwrap.dedent(content).lstrip("\n")
+
+          def read(path: str) -> str:
+              return Path(path).read_text(encoding="utf-8")
+
+          def write(path: str, content: str) -> None:
+              target = Path(path)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding="utf-8")
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              source = read(path)
+              count = source.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected exactly one literal match, got {count}: {old[:120]!r}")
+              write(path, source.replace(old, new, 1))
+
+          def replace_regex_once(path: str, pattern: str, replacement: str, flags: int = 0) -> None:
+              source = read(path)
+              updated, count = re.subn(pattern, replacement, source, count=1, flags=flags)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected exactly one regex match, got {count}: {pattern}")
+              write(path, updated)
+
+          def append(path: str, content: str) -> None:
+              source = read(path) if Path(path).exists() else ""
+              if content.strip() in source:
+                  raise RuntimeError(f"{path}: content already appended")
+              write(path, source.rstrip() + "\n\n" + content.strip() + "\n")
+
+          def commit(message: str, *paths: str) -> None:
+              subprocess.run(["git", "add", "--", *paths], check=True)
+              diff = subprocess.run(["git", "diff", "--cached", "--quiet"])
+              if diff.returncode == 0:
+                  raise RuntimeError(f"no staged changes for commit: {message}")
+              subprocess.run(["git", "commit", "-m", message], check=True)
+
+          # 1. Sticky: opt-in always-on-top and keep the full palette reachable.
+          replace_once(
+              "src/main/memoStickyController.ts",
+              "      alwaysOnTop: true,\n",
+              "      alwaysOnTop: false,\n",
+          )
+          replace_once(
+              "src/renderer/memo-sticky.html",
+              "        min-width: 164px; display: grid; gap: var(--space-1); padding: var(--space-1);\n"
+              "        border: 1px solid var(--color-border); border-radius: var(--radius-md);\n",
+              "        min-width: 164px; display: grid; gap: var(--space-1); padding: var(--space-1);\n"
+              "        max-height: calc(100vh - 52px); overflow-x: hidden; overflow-y: auto;\n"
+              "        overscroll-behavior: contain; scrollbar-gutter: stable;\n"
+              "        border: 1px solid var(--color-border); border-radius: var(--radius-md);\n",
+          )
+          issue_test = block(r'''
+          import assert from "node:assert/strict";
+          import { Buffer } from "node:buffer";
+          import { readFileSync } from "node:fs";
+          import path from "node:path";
+          import test from "node:test";
+          import { build } from "esbuild";
+
+          function source(relativePath) {
+            return readFileSync(path.resolve(relativePath), "utf8");
+          }
+
+          async function importBundled(relativePath) {
+            const result = await build({
+              entryPoints: [path.resolve(relativePath)],
+              bundle: true,
+              platform: "node",
+              format: "esm",
+              write: false,
+              logLevel: "silent",
+            });
+            const code = result.outputFiles[0].text;
+            return import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+          }
+
+          test("Sticky is not always-on-top by default and keeps the full color menu reachable", () => {
+            const controller = source("src/main/memoStickyController.ts");
+            const markup = source("src/renderer/memo-sticky.html");
+            assert.match(controller, /alwaysOnTop:\s*false/);
+            const menuBlock = markup.match(/\.menu\s*\{[\s\S]*?\n\s*\}/)?.[0] || "";
+            assert.match(menuBlock, /max-height:\s*calc\(100vh - 52px\)/);
+            assert.match(menuBlock, /overflow-y:\s*auto/);
+            assert.match(markup, /data-color="neutral"/);
+          });
+          ''')
+          issue_test = issue_test.rstrip() + "\n"
+          write("tests/issue-481-polish.test.mjs", issue_test)
+          commit(
+              "付箋の初期表示とカラーメニューを整える",
+              "src/main/memoStickyController.ts",
+              "src/renderer/memo-sticky.html",
+              "tests/issue-481-polish.test.mjs",
+          )
+
+          # 2. Checklist: do not remount the editor after every persisted row update.
+          replace_once(
+              "src/renderer/src/features/workspace/components/drawer.tsx",
+              '    ? `${entityId}:${str(entity._focusChecklistItem)}:${JSON.stringify(taskFormEntity.checklist_items || [])}`\n',
+              '    ? `${entityId}:${str(entity._focusChecklistItem)}`\n',
+          )
+          append(
+              "tests/issue-481-polish.test.mjs",
+              r'''
+              test("Checklist persistence does not put mutable rows in the TaskFields key", () => {
+                const drawer = source("src/renderer/src/features/workspace/components/drawer.tsx");
+                const keyBlock = drawer.match(/const taskChecklistEditorKey[\s\S]*?: "";/)?.[0] || "";
+                assert.match(keyBlock, /entityId/);
+                assert.match(keyBlock, /_focusChecklistItem/);
+                assert.doesNotMatch(keyBlock, /JSON\.stringify|checklist_items/);
+              });
+              ''',
+          )
+          commit(
+              "チェックリスト保存時の再マウントを防ぐ",
+              "src/renderer/src/features/workspace/components/drawer.tsx",
+              "tests/issue-481-polish.test.mjs",
+          )
+
+          # 3. Focus: completion is the common path; scratchpad promotion stays explicit.
+          replace_once(
+              "src/renderer/src/features/workspace/components/FocusSessionDialog.tsx",
+              "  const [completeTask, setCompleteTask] = useState(false);\n",
+              "  const [completeTask, setCompleteTask] = useState(true);\n",
+          )
+          replace_once(
+              "src/renderer/src/features/workspace/components/FocusSessionDialog.tsx",
+              "  const [keepScratchpad, setKeepScratchpad] = useState(true);\n",
+              "  const [keepScratchpad, setKeepScratchpad] = useState(false);\n",
+          )
+          append(
+              "tests/issue-481-polish.test.mjs",
+              r'''
+              test("Focus finish defaults to task completion without promoting an empty scratchpad", () => {
+                const focus = source("src/renderer/src/features/workspace/components/FocusSessionDialog.tsx");
+                assert.match(focus, /const \[completeTask, setCompleteTask\] = useState\(true\);/);
+                assert.match(focus, /const \[keepScratchpad, setKeepScratchpad\] = useState\(false\);/);
+                assert.match(focus, /keepScratchpad\s*&&\s*scratchpad\.trim\(\)/);
+              });
+              ''',
+          )
+          commit(
+              "Focus終了時の既定値を実利用向けにする",
+              "src/renderer/src/features/workspace/components/FocusSessionDialog.tsx",
+              "tests/issue-481-polish.test.mjs",
+          )
+
+          # 4. Chat Refs: restore a one-click path to the original chat URL.
+          replace_once(
+              "src/renderer/src/features/workspace/pages/ChatRefsPage.tsx",
+              "  IconFileImport,\n",
+              "  IconExternalLink,\n  IconFileImport,\n",
+          )
+          replace_once(
+              "src/renderer/src/features/workspace/pages/ChatRefsPage.tsx",
+              "                      {!archived && (\n"
+              "                        <button\n"
+              "                          className=\"row-action-button\"\n",
+              "                      {String(r.url || \"\").trim() && (\n"
+              "                        <button\n"
+              "                          type=\"button\"\n"
+              "                          className=\"row-action-button chat-open-original-action\"\n"
+              "                          onClick={(event) => {\n"
+              "                            event.stopPropagation();\n"
+              "                            openChatUrl(r);\n"
+              "                          }}\n"
+              "                          aria-label={`${r.title || \"チャットリンク\"}の元チャットを開く`}\n"
+              "                          title=\"元チャットを開く\"\n"
+              "                        >\n"
+              "                          <IconExternalLink size={15} />\n"
+              "                        </button>\n"
+              "                      )}\n"
+              "                      {!archived && (\n"
+              "                        <button\n"
+              "                          className=\"row-action-button\"\n",
+          )
+          append(
+              "tests/issue-481-polish.test.mjs",
+              r'''
+              test("Chat Refs exposes a direct original-chat action on rows with URLs", () => {
+                const page = source("src/renderer/src/features/workspace/pages/ChatRefsPage.tsx");
+                assert.match(page, /chat-open-original-action/);
+                assert.match(page, /openChatUrl\(r\)/);
+                assert.match(page, /title="元チャットを開く"/);
+                assert.match(page, /IconExternalLink/);
+              });
+              ''',
+          )
+          commit(
+              "Chat Refsに元チャット操作を戻す",
+              "src/renderer/src/features/workspace/pages/ChatRefsPage.tsx",
+              "tests/issue-481-polish.test.mjs",
+          )
+
+          # 5. Prompt: use the canonical prompt schema and keep copy/edit as separate actions.
+          replace_once(
+              "src/renderer/src/features/workspace/pages/ThemePage.tsx",
+              'import { IconCopy, IconFolder, IconMessage2Plus, IconRefresh } from "@tabler/icons-react";\n',
+              'import { IconCopy, IconFolder, IconMessage2Plus, IconPencil, IconRefresh } from "@tabler/icons-react";\n',
+          )
+          replace_regex_once(
+              "src/renderer/src/features/workspace/pages/ThemePage.tsx",
+              r'''  function addPrompt\(\) \{\n    openDrawer\(\{\n      type: "note",\n      mode: "edit",\n      entity: \{\n        theme_id: theme\.id,\n        note_type: "report_prompt",\n        content_format: "markdown",\n        title: `\$\{theme\.name\} 報告書プロンプト`,\n        body_markdown: `\$\{theme\.name\} の活動を、対象期間に沿って簡潔な報告書として整理してください。`,\n        properties_json: \{ report_type: "weekly" \},\n      \},\n    \}\);\n  \}\n''',
+              '''  function addPrompt() {
+                openDrawer({
+                  type: "note",
+                  mode: "edit",
+                  entity: {
+                    theme_id: theme.id,
+                    note_type: "prompt",
+                    content_format: "markdown",
+                    title: `${theme.name} 報告書プロンプト`,
+                    body_markdown: `${theme.name} の活動を、対象期間に沿って簡潔な報告書として整理してください。`,
+                    properties_json: {
+                      prompt_purpose: "report",
+                      prompt_variables: "themeName, periodStart, periodEnd",
+                      is_default: false,
+                      ai_export_enabled: true,
+                    },
+                  },
+                });
+              }
+              function editPrompt(prompt: BaseRecord) {
+                openDrawer({ type: "note", mode: "edit", entity: prompt });
+              }
+          ''',
+          )
+          replace_once(
+              "src/renderer/src/features/workspace/pages/ThemePage.tsx",
+              "            <Button variant=\"secondary\" compact onClick={defaultPrompt ? () => copyNoteText(defaultPrompt, \"報告書プロンプトをコピーしました。\") : addPrompt}>\n"
+              "              {defaultPrompt ? <IconCopy size={15} /> : <IconMessage2Plus size={15} />}\n"
+              "              {defaultPrompt ? \"プロンプトをコピー\" : \"プロンプトを追加\"}\n"
+              "            </Button>\n",
+              "            {defaultPrompt ? (\n"
+              "              <>\n"
+              "                <Button variant=\"secondary\" compact onClick={() => copyNoteText(defaultPrompt, \"報告書プロンプトをコピーしました。\")}>\n"
+              "                  <IconCopy size={15} />プロンプトをコピー\n"
+              "                </Button>\n"
+              "                <Button variant=\"secondary\" compact onClick={() => editPrompt(defaultPrompt)}>\n"
+              "                  <IconPencil size={15} />プロンプトを編集\n"
+              "                </Button>\n"
+              "              </>\n"
+              "            ) : (\n"
+              "              <Button variant=\"secondary\" compact onClick={addPrompt}>\n"
+              "                <IconMessage2Plus size={15} />プロンプトを追加\n"
+              "              </Button>\n"
+              "            )}\n",
+          )
+          append(
+              "tests/issue-481-polish.test.mjs",
+              r'''
+              test("Theme report prompts use the canonical prompt contract and remain editable", () => {
+                const page = source("src/renderer/src/features/workspace/pages/ThemePage.tsx");
+                const addPrompt = page.match(/function addPrompt\(\)[\s\S]*?function editPrompt/)?.[0] || "";
+                assert.match(addPrompt, /note_type: "prompt"/);
+                assert.match(addPrompt, /prompt_purpose: "report"/);
+                assert.doesNotMatch(addPrompt, /note_type: "report_prompt"/);
+                assert.match(page, /function editPrompt/);
+                assert.match(page, /プロンプトを編集/);
+                assert.match(page, /copyNoteText\(defaultPrompt/);
+              });
+              ''',
+          )
+          commit(
+              "報告書プロンプトの追加形式と導線を揃える",
+              "src/renderer/src/features/workspace/pages/ThemePage.tsx",
+              "tests/issue-481-polish.test.mjs",
+          )
+
+          # 6. Shortcut labels: preserve accelerator syntax in storage, format only display text.
+          replace_once(
+              "src/shared/taskenRoot.ts",
+              'export const DEFAULT_ROOT_SHORTCUT = "CommandOrControl+Shift+Space";\n',
+              '''export const DEFAULT_ROOT_SHORTCUT = "CommandOrControl+Shift+Space";
+
+              export function formatShortcutLabel(accelerator: string, platform = ""): string {
+                const isMac = /mac/i.test(platform);
+                const labels: Record<string, string> = {
+                  CommandOrControl: isMac ? "⌘" : "Ctrl",
+                  Command: isMac ? "⌘" : "Command",
+                  Control: isMac ? "⌃" : "Ctrl",
+                  Ctrl: isMac ? "⌃" : "Ctrl",
+                  Option: isMac ? "⌥" : "Alt",
+                  Alt: isMac ? "⌥" : "Alt",
+                  Shift: isMac ? "⇧" : "Shift",
+                  Space: "Space",
+                  Meta: isMac ? "⌘" : "Meta",
+                  Super: isMac ? "⌘" : "Super",
+                };
+                const parts = accelerator
+                  .split("+")
+                  .map((part) => part.trim())
+                  .filter(Boolean)
+                  .map((part) => labels[part] || part);
+                return parts.join(isMac ? "" : "+");
+              }
+              ''',
+          )
+          replace_once(
+              "src/renderer/src/features/workspace/pages/SettingsPage.tsx",
+              'import { DEFAULT_ROOT_SHORTCUT, DIRECT_SHORTCUT_DEFINITIONS } from "../../../../../shared/taskenRoot";\n',
+              'import { DEFAULT_ROOT_SHORTCUT, DIRECT_SHORTCUT_DEFINITIONS, formatShortcutLabel } from "../../../../../shared/taskenRoot";\n',
+          )
+          replace_once(
+              "src/renderer/src/features/workspace/pages/SettingsPage.tsx",
+              '<div key={definition.id}><dt>{definition.label}</dt><dd className="mono-value">{definition.accelerator}</dd></div>',
+              '<div key={definition.id}><dt>{definition.label}</dt><dd className="mono-value shortcut-label">{formatShortcutLabel(definition.accelerator, typeof navigator === "undefined" ? "" : navigator.platform)}</dd></div>',
+          )
+          append(
+              "tests/issue-481-polish.test.mjs",
+              r'''
+              test("Shortcut labels follow the host OS without changing accelerator storage", async () => {
+                const taskenRoot = await importBundled("src/shared/taskenRoot.ts");
+                assert.equal(taskenRoot.formatShortcutLabel("CommandOrControl+Shift+Space", "Win32"), "Ctrl+Shift+Space");
+                assert.equal(taskenRoot.formatShortcutLabel("CommandOrControl+Shift+Space", "MacIntel"), "⌘⇧Space");
+                assert.equal(taskenRoot.DEFAULT_ROOT_SHORTCUT, "CommandOrControl+Shift+Space");
+                const settings = source("src/renderer/src/features/workspace/pages/SettingsPage.tsx");
+                assert.match(settings, /formatShortcutLabel\(definition\.accelerator/);
+              });
+              ''',
+          )
+          commit(
+              "ショートカット表示をOS表記へ整える",
+              "src/shared/taskenRoot.ts",
+              "src/renderer/src/features/workspace/pages/SettingsPage.tsx",
+              "tests/issue-481-polish.test.mjs",
+          )
+
+          # 7. Performance diagnostics: disabled by default and content-free.
+          diagnostics = block(r'''
+          export const PERFORMANCE_DIAGNOSTICS_STORAGE_KEY = "tasken.performanceDiagnostics";
+
+          type DiagnosticKind = "long_task" | "event_loop_lag";
+
+          type DiagnosticEvent = {
+            kind: DiagnosticKind;
+            duration_ms: number;
+            heap_used_mb?: number;
+          };
+
+          type PerformanceWithMemory = Performance & {
+            memory?: {
+              usedJSHeapSize?: number;
+            };
+          };
+
+          function diagnosticsEnabled(): boolean {
+            try {
+              return window.localStorage.getItem(PERFORMANCE_DIAGNOSTICS_STORAGE_KEY) === "1";
+            } catch {
+              return false;
+            }
+          }
+
+          function coarseHeapUsedMb(): number | undefined {
+            const bytes = (performance as PerformanceWithMemory).memory?.usedJSHeapSize;
+            if (!Number.isFinite(bytes)) return undefined;
+            return Math.round((Number(bytes) / 1024 / 1024) / 8) * 8;
+          }
+
+          function report(event: DiagnosticEvent): void {
+            console.info("[tasken:performance]", event);
+          }
+
+          export function installRendererPerformanceDiagnostics(): () => void {
+            if (!diagnosticsEnabled()) return () => undefined;
+
+            let observer: PerformanceObserver | null = null;
+            if (
+              typeof PerformanceObserver !== "undefined"
+              && PerformanceObserver.supportedEntryTypes?.includes("longtask")
+            ) {
+              observer = new PerformanceObserver((list) => {
+                for (const entry of list.getEntries()) {
+                  report({
+                    kind: "long_task",
+                    duration_ms: Math.round(entry.duration),
+                    heap_used_mb: coarseHeapUsedMb(),
+                  });
+                }
+              });
+              observer.observe({ entryTypes: ["longtask"] });
+            }
+
+            const sampleIntervalMs = 1_000;
+            const lagThresholdMs = 200;
+            let expectedAt = performance.now() + sampleIntervalMs;
+            const timer = window.setInterval(() => {
+              const now = performance.now();
+              const lag = Math.max(0, now - expectedAt);
+              expectedAt = now + sampleIntervalMs;
+              if (lag >= lagThresholdMs) {
+                report({
+                  kind: "event_loop_lag",
+                  duration_ms: Math.round(lag),
+                  heap_used_mb: coarseHeapUsedMb(),
+                });
+              }
+            }, sampleIntervalMs);
+
+            let stopped = false;
+            const stop = () => {
+              if (stopped) return;
+              stopped = true;
+              window.clearInterval(timer);
+              observer?.disconnect();
+              window.removeEventListener("pagehide", stop);
+            };
+            window.addEventListener("pagehide", stop, { once: true });
+            return stop;
+          }
+          ''')
+          write("src/renderer/src/utils/performanceDiagnostics.ts", diagnostics)
+          replace_once(
+              "src/renderer/src/main.tsx",
+              'import App from "./App";\n',
+              'import App from "./App";\nimport { installRendererPerformanceDiagnostics } from "./utils/performanceDiagnostics";\n',
+          )
+          replace_once(
+              "src/renderer/src/main.tsx",
+              "installMarkdownDocumentSurfaces(document);\n",
+              "installMarkdownDocumentSurfaces(document);\ninstallRendererPerformanceDiagnostics();\n",
+          )
+          performance_test = block(r'''
+          import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+          import path from "node:path";
+          import test from "node:test";
+
+          function source(relativePath) {
+            return readFileSync(path.resolve(relativePath), "utf8");
+          }
+
+          test("renderer performance diagnostics are opt-in and clean themselves up", () => {
+            const diagnostics = source("src/renderer/src/utils/performanceDiagnostics.ts");
+            assert.match(diagnostics, /tasken\.performanceDiagnostics/);
+            assert.match(diagnostics, /=== "1"/);
+            assert.match(diagnostics, /supportedEntryTypes\?\.includes\("longtask"\)/);
+            assert.match(diagnostics, /event_loop_lag/);
+            assert.match(diagnostics, /clearInterval/);
+            assert.match(diagnostics, /observer\?\.disconnect/);
+          });
+
+          test("performance telemetry contains only fixed kinds, duration, and coarse heap", () => {
+            const diagnostics = source("src/renderer/src/utils/performanceDiagnostics.ts");
+            const eventType = diagnostics.match(/type DiagnosticEvent = \{[\s\S]*?\n\};/)?.[0] || "";
+            assert.match(eventType, /kind:/);
+            assert.match(eventType, /duration_ms:/);
+            assert.match(eventType, /heap_used_mb\?:/);
+            assert.doesNotMatch(eventType, /title|body|url|path|query|content/i);
+          });
+
+          test("renderer bootstrap installs the opt-in diagnostics", () => {
+            const main = source("src/renderer/src/main.tsx");
+            assert.match(main, /installRendererPerformanceDiagnostics\(\)/);
+          });
+          ''')
+          write("tests/performance-diagnostics.test.mjs", performance_test)
+          commit(
+              "応答低下を調べる軽量診断を追加する",
+              "src/renderer/src/utils/performanceDiagnostics.ts",
+              "src/renderer/src/main.tsx",
+              "tests/performance-diagnostics.test.mjs",
+          )
+
+          # 8. Handoff: distinguish automated confidence from local UI confirmation.
+          verification = block(r'''
+          # Issues #481 / #482 ローカル確認
+
+          Branch: `fix/issues-481-482-polish-audit`
+
+          ## 取得と自動確認
+
+          ```bash
+          git fetch origin
+          git switch fix/issues-481-482-polish-audit
+          npm ci
+          npm run typecheck
+          npm run build
+          npm test
+          npm run dev
+          ```
+
+          ## #481 実画面で確認する項目
+
+          1. **Prompt**
+             - Theme の「報告書・重要文書」で、Prompt がない場合は「プロンプトを追加」が開く。
+             - 保存後は「プロンプトをコピー」と「プロンプトを編集」が別々に表示される。
+             - 編集で本文を変更し、再度開いて変更が残る。
+
+          2. **Chat Refs**
+             - URL がある行に外部リンク操作が表示され、元チャットが既定ブラウザーで開く。
+             - 行本体の編集、続き追加、会話ログ、Archive の各操作と誤爆しない。
+
+          3. **Sticky**
+             - 新しく開いた付箋は「常に手前に表示」が OFF。
+             - 小さい付箋でも色メニューをスクロールでき、最下段のグレーを選べる。
+             - 長文、改行、コードブロック相当の文字列を貼り、横にはみ出さず縦スクロールできる。
+
+          4. **Checklist**
+             - 右Drawerを途中までスクロールし、Checklist末尾で Enter を連続入力する。
+             - 各保存後もDrawerが先頭へ戻らず、入力行とスクロール位置が保たれる。
+             - Drawerを閉じて開き直し、追加内容が保存されている。
+
+          5. **Focus終了**
+             - 終了画面で「Taskを完了」が初期ON、「メモとして残す」が初期OFF。
+             - Scratchpadが空ならメモは作られない。
+             - 明示的にメモ保存をONにし、本文がある場合だけメモが作られる。
+
+          6. **Shortcut表示**
+             - Windowsでは `Ctrl+Shift+Space` のように表示される。
+             - 保存されるaccelerator自体は `CommandOrControl+Shift+Space` のままで、登録が壊れていない。
+
+          ## #482 応答低下の観測
+
+          診断は既定OFF。DevTools Consoleで次を実行して再読み込みする。
+
+          ```js
+          localStorage.setItem("tasken.performanceDiagnostics", "1");
+          location.reload();
+          ```
+
+          Console の `[tasken:performance]` だけを見る。記録するのは固定されたイベント種別、時間、概算ヒープ量だけで、本文・タイトル・URL・ファイルパスは記録しない。
+
+          重点操作:
+          - 起動直後に Today / Timeline / Notes / Chat Refs を順に開く。
+          - 右Drawerを開閉し、Checklistを連続保存する。
+          - Notesで長文を編集し、Themeへ移動して戻る。
+          - Stickyを複数開閉する。
+          - 「応答なし」になった直前の操作と、`long_task` / `event_loop_lag` の時間だけ控える。
+
+          終了後は診断を戻す。
+
+          ```js
+          localStorage.removeItem("tasken.performanceDiagnostics");
+          location.reload();
+          ```
+
+          ## 今回あえて保留した項目
+
+          Timeline初期viewport、Drawer breakpoint、Chat Refsの系譜表現、Sticky一覧の折りたたみなど、見た目と仕様判断が必要な項目はこのBranchで推測変更していない。上の実機確認結果とスクリーンショットを基に、次の小さな修正へ分ける。
+          ''')
+          write("docs/verification/issues-481-482.md", verification)
+          commit(
+              "481・482のローカル確認手順を追加する",
+              "docs/verification/issues-481-482.md",
+          )
+          PY
+
+          python3 /tmp/apply_481_482.py
+
+          set +e
+          {
+            npm ci &&
+            node scripts/run-electron-node.mjs --test --test-concurrency=1 \
+              tests/issue-481-polish.test.mjs \
+              tests/performance-diagnostics.test.mjs \
+              tests/memo-sticky-presentation.test.mjs \
+              tests/satellite-window-state.test.mjs \
+              tests/task-checklist.test.mjs \
+              tests/focus-session.test.mjs \
+              tests/chat-refs.test.mjs \
+              tests/prompt-library.test.mjs \
+              tests/tasken-root.test.mjs &&
+            npm run typecheck &&
+            npm run build &&
+            npm test
+          } 2>&1 | tee /tmp/verification.log
+          status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            git reset --hard "$EXPECTED_HEAD"
+            mkdir -p _agent
+            {
+              echo "Implementation verification failed."
+              echo "Base: $BASE_SHA"
+              echo "Expected head: $EXPECTED_HEAD"
+              echo
+              tail -n 1200 /tmp/verification.log
+            } > _agent/implementation-result.txt
+            git add _agent/implementation-result.txt
+            git commit -m "481・482の検証失敗ログを記録する"
+            git push origin HEAD:"$FEATURE_BRANCH"
+            exit "$status"
+          fi
+
+          git push \
+            --force-with-lease=refs/heads/"$FEATURE_BRANCH":"$EXPECTED_HEAD" \
+            origin HEAD:refs/heads/"$FEATURE_BRANCH"
