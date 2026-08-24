@@ -549,6 +549,28 @@ function persistReceipt(repository: Repository, command: CommandEnvelope, operat
   return { ...baseReceipt, eventChanges: eventChangesFor(repository, eventIds) };
 }
 
+function persistDeleteReceipt(
+  repository: Repository,
+  command: CommandEnvelope,
+  type: EntityType,
+  deleted: Entity,
+  event: Entity,
+  preserveRevision: boolean,
+): CommandReceipt {
+  const baseReceipt = receiptFor(command, "applied", [{ type, entity: deleted }], [event.id]);
+  const receipt: CommandReceipt = {
+    ...baseReceipt,
+    saved: [],
+    deleted: [{ type, id: deleted.id }],
+    revisions: preserveRevision ? baseReceipt.revisions : [],
+  };
+  repository.save("change_event", {
+    ...event,
+    receipt_json: JSON.stringify(receipt),
+  });
+  return { ...receipt, eventChanges: eventChangesFor(repository, [event.id]) };
+}
+
 function persistNoChange(repository: Repository, command: CommandEnvelope, taskId: string, current: Entity): CommandReceipt {
   const marker: Entity = {
     id: randomUUID(),
@@ -599,6 +621,7 @@ function taskCommandRuntime(repository: Repository): TaskCommandRuntime {
     createEvent: (command, entityType, entityId, kind, before, after) => commandEvent(command, entityType, entityId, kind, before, after),
     annotateEvent,
     persist: (command, operations, eventIds, changeTypes) => persistReceipt(repository, command, operations, eventIds, changeTypes),
+    persistDelete: (command, type, deleted, event) => persistDeleteReceipt(repository, command, type, deleted, event, false),
     persistNoChange: (command, taskId, current) => persistNoChange(repository, command, taskId, current),
     now,
   };
@@ -846,21 +869,8 @@ export class ApplicationCommandService {
     if (!deleted) {
       throw new ApplicationCommandError("NOT_FOUND", "削除対象のCaptureがありません。", { id: captureId });
     }
-    const event = annotateEvent(
-      command,
-      commandEvent(command, "capture_entry", captureId, "deleted", current, deleted),
-    );
-    const baseReceipt = receiptFor(command, "applied", [{ type: "capture_entry", entity: deleted }], [event.id]);
-    const receipt: CommandReceipt = {
-      ...baseReceipt,
-      saved: [],
-      deleted: [{ type: "capture_entry", id: captureId }],
-    };
-    this.repository.save("change_event", {
-      ...event,
-      receipt_json: JSON.stringify(receipt),
-    });
-    return { ...receipt, eventChanges: eventChangesFor(this.repository, [event.id]) };
+    const event = annotateEvent(command, commandEvent(command, "capture_entry", captureId, "deleted", current, deleted));
+    return persistDeleteReceipt(this.repository, command, "capture_entry", deleted, event, true);
   }
 
   private commitAudioCapture(command: CommandEnvelope): CommandReceipt {

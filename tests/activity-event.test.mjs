@@ -60,6 +60,17 @@ test("structured Activity contract uses completed_at for Task completion and dis
     after: { id: "task-1", state: "todo", updated_at: "2026-08-08T03:00:00.000Z" },
   });
   assert.equal(reopened.event_kind, "task_reopened");
+
+  const deleted = buildActivityEvent({
+    id: "event-delete",
+    entityType: "task",
+    entityId: "task-1",
+    changeType: "deleted",
+    before: { id: "task-1", title: "確認", state: "todo", version: 1 },
+    after: { id: "task-1", title: "確認", state: "todo", version: 2, deleted_at: "2026-08-08T04:00:00.000Z" },
+  });
+  assert.equal(deleted.event_kind, "entity_deleted");
+  assert.equal(deleted.change_type, "deleted");
 });
 
 test("Note, Resource, and Artifact event kinds are fixed and typed", () => {
