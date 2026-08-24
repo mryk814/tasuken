@@ -284,6 +284,7 @@ private fun TodayApp(
                 captureDraftStore = captureDraftStore,
                 target = target,
                 message = "直前に追加した${entityLabel}を元に戻せます。",
+                duration = SnackbarDuration.Indefinite,
             )
         }
     }
@@ -369,6 +370,11 @@ private fun TodayApp(
                 captureDraftStore = captureDraftStore,
                 target = undoTarget,
                 message = "${entityLabel}を追加しました。Desktopへ自動送信します。",
+                duration = if (queued.completionBehavior == CaptureCompletionBehavior.Continue) {
+                    SnackbarDuration.Indefinite
+                } else {
+                    SnackbarDuration.Long
+                },
             )
         }
     }
@@ -2269,12 +2275,13 @@ private suspend fun showCreateUndoSnackbar(
     captureDraftStore: MobileCaptureDraftStore,
     target: MobileCaptureUndoTarget,
     message: String,
+    duration: SnackbarDuration = SnackbarDuration.Long,
 ) {
     val result = snackbarHostState.showSnackbar(
         message = message,
         actionLabel = "元に戻す",
         withDismissAction = true,
-        duration = SnackbarDuration.Long,
+        duration = duration,
     )
     if (result == SnackbarResult.ActionPerformed) {
         todayViewModel.undoCreatedCapture(target.entityId, target.kind)
