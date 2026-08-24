@@ -1,23 +1,1204 @@
-Implementation patching failed.
+Implementation verification failed.
 Base: f72484caf7ebb331a1252221e43930b0ce1d2eb0
-Expected head: e7ef46ae2c8ced67dcdb0df7c824bdd1d5b14bfb
+Expected head: ee73da0e1d64ad58195959a05b6ca6e6a650d637
 
-[fix/issues-481-482-polish-audit b49b7f7] 付箋の初期表示とカラーメニューを整える
- 3 files changed, 36 insertions(+), 1 deletion(-)
- create mode 100644 tests/issue-481-polish.test.mjs
-[fix/issues-481-482-polish-audit be78f1d] チェックリスト保存時の再マウントを防ぐ
- 2 files changed, 9 insertions(+), 1 deletion(-)
-[fix/issues-481-482-polish-audit 5f0774a] Focus終了時の既定値を実利用向けにする
- 2 files changed, 9 insertions(+), 2 deletions(-)
-[fix/issues-481-482-polish-audit 71aa6da] Chat Refsに元チャット操作を戻す
- 2 files changed, 23 insertions(+)
-[fix/issues-481-482-polish-audit 089fe2d] 報告書プロンプトの追加形式と導線を揃える
- 2 files changed, 47 insertions(+), 18 deletions(-)
-[fix/issues-481-482-polish-audit eebe4cd] ショートカット表示をOS表記へ整える
- 3 files changed, 34 insertions(+), 3 deletions(-)
-Traceback (most recent call last):
-  File "/tmp/apply_481_482.py", line 421, in <module>
-    replace_once(
-  File "/tmp/apply_481_482.py", line 21, in replace_once
-    raise RuntimeError(f"{path}: expected exactly one literal match, got {count}: {old[:120]!r}")
-RuntimeError: src/renderer/src/main.tsx: expected exactly one literal match, got 0: 'import App from "./App";\n'
+  duration_ms: 217.393788
+  type: 'test'
+  ...
+# Subtest: Wave 6 capabilities fail before fetch and malformed responses fail closed
+ok 1112 - Wave 6 capabilities fail before fetch and malformed responses fail closed
+  ---
+  duration_ms: 15.242659
+  type: 'test'
+  ...
+# Subtest: Wave 6 MCP registrations contain no legacy/native fallback
+ok 1113 - Wave 6 MCP registrations contain no legacy/native fallback
+  ---
+  duration_ms: 0.375147
+  type: 'test'
+  ...
+# Subtest: actual stdio MCP reads all Wave 6 tools from the Core SQLite owner without writes or fallback
+ok 1114 - actual stdio MCP reads all Wave 6 tools from the Core SQLite owner without writes or fallback
+  ---
+  duration_ms: 539.02247
+  type: 'test'
+  ...
+# Subtest: Wave 7 recent notes preserves visibility-before-limit, inherited Theme policy, ordering, and body projection
+ok 1115 - Wave 7 recent notes preserves visibility-before-limit, inherited Theme policy, ordering, and body projection
+  ---
+  duration_ms: 11.934257
+  type: 'test'
+  ...
+# Subtest: Wave 7 search knowledge preserves query/type/theme filters, tie order, and hidden-result accounting
+ok 1116 - Wave 7 search knowledge preserves query/type/theme filters, tie order, and hidden-result accounting
+  ---
+  duration_ms: 0.704616
+  type: 'test'
+  ...
+# Subtest: Wave 7 knowledge context preserves source opt-in, default relation inclusion, limits, and raw relation endpoint behavior
+ok 1117 - Wave 7 knowledge context preserves source opt-in, default relation inclusion, limits, and raw relation endpoint behavior
+  ---
+  duration_ms: 1.720284
+  type: 'test'
+  ...
+# Subtest: Wave 7 plan health aggregates only visible, non-deleted records and preserves legacy shape
+ok 1118 - Wave 7 plan health aggregates only visible, non-deleted records and preserves legacy shape
+  ---
+  duration_ms: 0.783503
+  type: 'test'
+  ...
+# Subtest: Wave 7 knowledge health excludes private/deleted nodes from public aggregation and retains exact issue groups
+ok 1119 - Wave 7 knowledge health excludes private/deleted nodes from public aggregation and retains exact issue groups
+  ---
+  duration_ms: 0.825856
+  type: 'test'
+  ...
+# Subtest: Wave 7 safe legacy fields are exact across Core, HTTP, and MCP
+ok 1120 - Wave 7 safe legacy fields are exact across Core, HTTP, and MCP
+  ---
+  duration_ms: 156.332317
+  type: 'test'
+  ...
+# Subtest: Wave 7 drops every relation with a non-public endpoint
+ok 1121 - Wave 7 drops every relation with a non-public endpoint
+  ---
+  duration_ms: 1.345858
+  type: 'test'
+  ...
+# Subtest: Wave 7 all five tools allowlist fields and recursively redact adversarial values
+ok 1122 - Wave 7 all five tools allowlist fields and recursively redact adversarial values
+  ---
+  duration_ms: 7.575797
+  type: 'test'
+  ...
+# Subtest: Wave 7 dense graph and health arrays are deterministically capped after visibility
+ok 1123 - Wave 7 dense graph and health arrays are deterministically capped after visibility
+  ---
+  duration_ms: 38.153361
+  type: 'test'
+  ...
+# Subtest: Wave 7 equal-timestamp caps use stable id subsets across Core, HTTP, and MCP
+ok 1124 - Wave 7 equal-timestamp caps use stable id subsets across Core, HTTP, and MCP
+  ---
+  duration_ms: 334.248897
+  type: 'test'
+  ...
+# Subtest: Wave 7 named capabilities fail before fetch and malformed responses fail closed
+ok 1125 - Wave 7 named capabilities fail before fetch and malformed responses fail closed
+  ---
+  duration_ms: 5.60348
+  type: 'test'
+  ...
+# Subtest: Wave 7 MCP registrations reject the same nonempty and maximum inputs as shared contracts
+ok 1126 - Wave 7 MCP registrations reject the same nonempty and maximum inputs as shared contracts
+  ---
+  duration_ms: 40.088775
+  type: 'test'
+  ...
+# Subtest: actual stdio MCP reads Wave 7/8 from Core-owned SQLite without writes or native fallback
+ok 1127 - actual stdio MCP reads Wave 7/8 from Core-owned SQLite without writes or native fallback
+  ---
+  duration_ms: 568.434725
+  type: 'test'
+  ...
+# Subtest: Wave 7 MCP registrations contain no legacy read-context fallback
+ok 1128 - Wave 7 MCP registrations contain no legacy read-context fallback
+  ---
+  duration_ms: 0.479702
+  type: 'test'
+  ...
+# Subtest: Wave 8 Core, loopback, and MCP return one canonical result without legacy fallback
+ok 1129 - Wave 8 Core, loopback, and MCP return one canonical result without legacy fallback
+  ---
+  duration_ms: 258.453634
+  type: 'test'
+  ...
+# Subtest: Wave 8 applies visibility before caps and recursively removes secret/path/resource fields
+ok 1130 - Wave 8 applies visibility before caps and recursively removes secret/path/resource fields
+  ---
+  duration_ms: 12.006966
+  type: 'test'
+  ...
+# Subtest: Wave 8 public inputs, named capabilities, and nested responses fail closed
+ok 1131 - Wave 8 public inputs, named capabilities, and nested responses fail closed
+  ---
+  duration_ms: 17.070041
+  type: 'test'
+  ...
+# Subtest: Wave 8 MCP registrations contain no legacy read-context fallback
+ok 1132 - Wave 8 MCP registrations contain no legacy read-context fallback
+  ---
+  duration_ms: 0.388807
+  type: 'test'
+  ...
+# Subtest: Phase 0: MCP inventory documents every registered read and Proposal tool
+ok 1133 - Phase 0: MCP inventory documents every registered read and Proposal tool
+  ---
+  duration_ms: 1.73166
+  type: 'test'
+  ...
+# Subtest: Phase 0: agent-ready Task selection, ordering, AI visibility, and metadata stay compatible
+ok 1134 - Phase 0: agent-ready Task selection, ordering, AI visibility, and metadata stay compatible
+  ---
+  duration_ms: 9.822002
+  type: 'test'
+  ...
+# Subtest: Phase 0: agent-ready Theme filter, limit, and archived opt-in stay compatible
+ok 1135 - Phase 0: agent-ready Theme filter, limit, and archived opt-in stay compatible
+  ---
+  duration_ms: 0.487603
+  type: 'test'
+  ...
+# Subtest: Phase 1 Core is deep-equal to the legacy agent-ready query for compatible requests
+ok 1136 - Phase 1 Core is deep-equal to the legacy agent-ready query for compatible requests
+  ---
+  duration_ms: 18.791828
+  type: 'test'
+  ...
+# Subtest: Phase 1 adapter uses only the injected Workspace repository instance
+ok 1137 - Phase 1 adapter uses only the injected Workspace repository instance
+  ---
+  duration_ms: 0.204934
+  type: 'test'
+  ...
+# Subtest: Phase 2: legacy, in-process, HTTP, and MCP agent-ready results are deep-equal
+ok 1138 - Phase 2: legacy, in-process, HTTP, and MCP agent-ready results are deep-equal
+  ---
+  duration_ms: 72.610676
+  type: 'test'
+  ...
+# Subtest: Phase 2: discovery, auth, health, capabilities, body, and timeout boundaries are enforced
+ok 1139 - Phase 2: discovery, auth, health, capabilities, body, and timeout boundaries are enforced
+  ---
+  duration_ms: 28.958672
+  type: 'test'
+  ...
+# Subtest: Phase 2: Core stop closes a partial keep-alive connection and remains idempotent
+ok 1140 - Phase 2: Core stop closes a partial keep-alive connection and remains idempotent
+  ---
+  duration_ms: 4.298802
+  type: 'test'
+  ...
+# Subtest: Phase 2: unavailable Core never constructs the legacy DB context
+ok 1141 - Phase 2: unavailable Core never constructs the legacy DB context
+  ---
+  duration_ms: 20.415989
+  type: 'test'
+  ...
+# Subtest: Phase 2: version and auth failures never fall back to the legacy DB context
+ok 1142 - Phase 2: version and auth failures never fall back to the legacy DB context
+  ---
+  duration_ms: 41.004284
+  type: 'test'
+  ...
+# Subtest: Wave 5: migrated MCP detail tool never opens the legacy context provider
+ok 1143 - Wave 5: migrated MCP detail tool never opens the legacy context provider
+  ---
+  duration_ms: 6.542643
+  type: 'test'
+  ...
+# Subtest: Phase 2: pure Core client imports under normal Node without SQLite or native modules
+ok 1144 - Phase 2: pure Core client imports under normal Node without SQLite or native modules
+  ---
+  duration_ms: 245.968268
+  type: 'test'
+  ...
+# Subtest: Phase 2: discovery symlinks and malformed credentials are rejected without secret disclosure
+ok 1145 - Phase 2: discovery symlinks and malformed credentials are rejected without secret disclosure
+  ---
+  duration_ms: 4.919664
+  type: 'test'
+  ...
+# Subtest: \#413 MCP production graph is Core-only and native-free
+ok 1146 - \#413 MCP production graph is Core-only and native-free
+  ---
+  duration_ms: 6.955716
+  type: 'test'
+  ...
+# Subtest: \#413 all 22 reads and 11 proposals use Core without fallback
+ok 1147 - \#413 all 22 reads and 11 proposals use Core without fallback
+  ---
+  duration_ms: 0.611628
+  type: 'test'
+  ...
+# Subtest: \#413 built MCP package contains no retired native bridge
+ok 1148 - \#413 built MCP package contains no retired native bridge # SKIP
+  ---
+  duration_ms: 0.082283
+  type: 'test'
+  ...
+# Subtest: legacy Task-work inbox envelope remains a compatibility reference for acceptance semantics
+ok 1149 - legacy Task-work inbox envelope remains a compatibility reference for acceptance semantics
+  ---
+  duration_ms: 9.019841
+  type: 'test'
+  ...
+# Subtest: seven content proposal tools retain exact create/merge payloads and stay proposal-only
+ok 1150 - seven content proposal tools retain exact create/merge payloads and stay proposal-only
+  ---
+  duration_ms: 9.084707
+  type: 'test'
+  ...
+# Subtest: proposal validators enforce public bounds and reject private paths, credential URLs, and executable media
+ok 1151 - proposal validators enforce public bounds and reject private paths, credential URLs, and executable media
+  ---
+  duration_ms: 4.365801
+  type: 'test'
+  ...
+# Subtest: all eleven proposal tools use their authenticated Core command owner
+ok 1152 - all eleven proposal tools use their authenticated Core command owner
+  ---
+  duration_ms: 0.752478
+  type: 'test'
+  ...
+# Subtest: Task-work Core client requires its named capability and rejects additive response fields
+ok 1153 - Task-work Core client requires its named capability and rejects additive response fields
+  ---
+  duration_ms: 43.483684
+  type: 'test'
+  ...
+# Subtest: Wave 8 legacy get_activity: timezone/date/order, visibility-before-limit, archive, and safe event projection
+ok 1154 - Wave 8 legacy get_activity: timezone/date/order, visibility-before-limit, archive, and safe event projection
+  ---
+  duration_ms: 48.013129
+  type: 'test'
+  ...
+# Subtest: Wave 8 legacy get_activity exposes direct-method event_kinds without the MCP schema max-20 guard
+ok 1155 - Wave 8 legacy get_activity exposes direct-method event_kinds without the MCP schema max-20 guard
+  ---
+  duration_ms: 1.385647
+  type: 'test'
+  ...
+# Subtest: Wave 8 legacy get_context_subgraph: bounded two-hop graph, cycles, suggested edges, hidden endpoints, and token limits
+ok 1156 - Wave 8 legacy get_context_subgraph: bounded two-hop graph, cycles, suggested edges, hidden endpoints, and token limits
+  ---
+  duration_ms: 12.464174
+  type: 'test'
+  ...
+# Subtest: Wave 8 legacy export_ai_context: exact empty Markdown and bounded JSON scope semantics
+ok 1157 - Wave 8 legacy export_ai_context: exact empty Markdown and bounded JSON scope semantics
+  ---
+  duration_ms: 6.276178
+  type: 'test'
+  ...
+# Subtest: WSL/Linuxは引き継がれたAPPDATAではなくElectronのXDG userDataを使う
+ok 1158 - WSL/Linuxは引き継がれたAPPDATAではなくElectronのXDG userDataを使う
+  ---
+  duration_ms: 1.310535
+  type: 'test'
+  ...
+# Subtest: 開発用DBの明示指定はuserData解決より優先する
+ok 1159 - 開発用DBの明示指定はuserData解決より優先する
+  ---
+  duration_ms: 0.143283
+  type: 'test'
+  ...
+# Subtest: userDataの明示指定はDBファイルの親として使う
+ok 1160 - userDataの明示指定はDBファイルの親として使う
+  ---
+  duration_ms: 0.115111
+  type: 'test'
+  ...
+# Subtest: read-only MCPの旧Research Desk fallbackはWindowsだけで使う
+ok 1161 - read-only MCPの旧Research Desk fallbackはWindowsだけで使う
+  ---
+  duration_ms: 11.871985
+  type: 'test'
+  ...
+# Subtest: packaged MCP smoke root requires an exact isolated temp root and marker
+ok 1162 - packaged MCP smoke root requires an exact isolated temp root and marker
+  ---
+  duration_ms: 3.867191
+  type: 'test'
+  ...
+# Subtest: Tasken Root検索は既存NFKC契約とusage boostを共用する
+ok 1163 - Tasken Root検索は既存NFKC契約とusage boostを共用する
+  ---
+  duration_ms: 13.204053
+  type: 'test'
+  ...
+# Subtest: Action RegistryはEntityごとに一つの非破壊primaryとavailabilityを返す
+ok 1164 - Action RegistryはEntityごとに一つの非破壊primaryとavailabilityを返す
+  ---
+  duration_ms: 0.389158
+  type: 'test'
+  ...
+# Subtest: Global Rootはsingleton Window・toggle hide・hotkey cleanup契約を持つ
+ok 1165 - Global Rootはsingleton Window・toggle hide・hotkey cleanup契約を持つ
+  ---
+  duration_ms: 1.140623
+  type: 'test'
+  ...
+# Subtest: Root mutationはApplication Commandを使い、専用Entity保存経路を持たない
+ok 1166 - Root mutationはApplication Commandを使い、専用Entity保存経路を持たない
+  ---
+  duration_ms: 0.343981
+  type: 'test'
+  ...
+# Subtest: Action Panelはkeyboardとmouseで到達できdisabled reasonを表示する
+ok 1167 - Action Panelはkeyboardとmouseで到達できdisabled reasonを表示する
+  ---
+  duration_ms: 0.285624
+  type: 'test'
+  ...
+# Subtest: Theme AI Pack IPCはthemeId+expectedContentHashだけでpublishし、安全な通知を解除できる（\#295）
+ok 1168 - Theme AI Pack IPCはthemeId+expectedContentHashだけでpublishし、安全な通知を解除できる（\#295）
+  ---
+  duration_ms: 1.48184
+  type: 'test'
+  ...
+# Subtest: Mainはstale Previewをwrite境界より前で拒否し、UIは主要状態と二重publishを扱う（\#295）
+ok 1169 - Mainはstale Previewをwrite境界より前で拒否し、UIは主要状態と二重publishを扱う（\#295）
+  ---
+  duration_ms: 0.321537
+  type: 'test'
+  ...
+# Subtest: Theme ID markerからrename前folderを再発見し、重複markerを拒否する（\#295）
+ok 1170 - Theme ID markerからrename前folderを再発見し、重複markerを拒否する（\#295）
+  ---
+  duration_ms: 5.703708
+  type: 'test'
+  ...
+# Subtest: root unavailableと別Themeのpreferred folderは既存データを変更せず停止する（\#295）
+ok 1171 - root unavailableと別Themeのpreferred folderは既存データを変更せず停止する（\#295）
+  ---
+  duration_ms: 0.956289
+  type: 'test'
+  ...
+# Subtest: operation ID traversalとAI Pack/stage/backup junctionをwrite前に拒否する（\#295）
+ok 1172 - operation ID traversalとAI Pack/stage/backup junctionをwrite前に拒否する（\#295）
+  ---
+  duration_ms: 11.46425
+  type: 'test'
+  ...
+# Subtest: fixed 7 Markdown + manifestをstaging swapし、unchangedはmtimeもgeneratedAtも変えない（\#295）
+ok 1173 - fixed 7 Markdown + manifestをstaging swapし、unchangedはmtimeもgeneratedAtも変えない（\#295）
+  ---
+  duration_ms: 13.229891
+  type: 'test'
+  ...
+# Subtest: manifestが同じでも実Markdown driftを検出して再生成する（\#295）
+ok 1174 - manifestが同じでも実Markdown driftを検出して再生成する（\#295）
+  ---
+  duration_ms: 21.907084
+  type: 'test'
+  ...
+# Subtest: staging write failureは旧Packを保ちretryableにする（\#295）
+ok 1175 - staging write failureは旧Packを保ちretryableにする（\#295）
+  ---
+  duration_ms: 11.264464
+  type: 'test'
+  ...
+# Subtest: Windows stage→target rename failureはbackupを復元する（\#295）
+ok 1176 - Windows stage→target rename failureはbackupを復元する（\#295）
+  ---
+  duration_ms: 14.819551
+  type: 'test'
+  ...
+# Subtest: rollbackも失敗したoperationはreceiptを残し、marker不一致なら起動時に触らない（\#295）
+ok 1177 - rollbackも失敗したoperationはreceiptを残し、marker不一致なら起動時に触らない（\#295）
+  ---
+  duration_ms: 15.253485
+  type: 'test'
+  ...
+# Subtest: 正しいoperation markerでもbackup Markdown改ざん時は復旧しない（\#295）
+ok 1178 - 正しいoperation markerでもbackup Markdown改ざん時は復旧しない（\#295）
+  ---
+  duration_ms: 15.146096
+  type: 'test'
+  ...
+# Subtest: inspectはMarkdown symlink/junctionをfollowせずdirtyにする（\#295）
+ok 1179 - inspectはMarkdown symlink/junctionをfollowせずdirtyにする（\#295）
+  ---
+  duration_ms: 7.999616
+  type: 'test'
+  ...
+# Subtest: backup marker後のcrashは旧Packをcurrentへ戻しstagingを回収する（\#295）
+ok 1180 - backup marker後のcrashは旧Packをcurrentへ戻しstagingを回収する（\#295）
+  ---
+  duration_ms: 10.995224
+  type: 'test'
+  ...
+# Subtest: stage→target後のcrashは新Packのpublishを完了してbackupを回収する（\#295）
+ok 1181 - stage→target後のcrashは新Packのpublishを完了してbackupを回収する（\#295）
+  ---
+  duration_ms: 10.51419
+  type: 'test'
+  ...
+# Subtest: publish成功後のbackup cleanup failureはcurrent_with_warningで新Packを維持する（\#295）
+ok 1182 - publish成功後のbackup cleanup failureはcurrent_with_warningで新Packを維持する（\#295）
+  ---
+  duration_ms: 15.466051
+  type: 'test'
+  ...
+# Subtest: PreviewとpublishはMainで同じplanを再構築し、stale previewではwriteしない（\#295）
+ok 1183 - PreviewとpublishはMainで同じplanを再構築し、stale previewではwriteしない（\#295）
+  ---
+  duration_ms: 67.281417
+  type: 'test'
+  ...
+# Subtest: folder openはMainでTheme containmentとAI Pack junctionを再検証する（\#295）
+ok 1184 - folder openはMainでTheme containmentとAI Pack junctionを再検証する（\#295）
+  ---
+  duration_ms: 29.304956
+  type: 'test'
+  ...
+# Subtest: Theme AI Packは00〜06の固定7ファイルとtasken-ai-pack/v1 manifestを返す（\#295）
+ok 1185 - Theme AI Packは00〜06の固定7ファイルとtasken-ai-pack/v1 manifestを返す（\#295）
+  ---
+  duration_ms: 17.354565
+  type: 'test'
+  ...
+# Subtest: M365許可だけを本文へ含め、除外理由・鮮度・authority・安全なsource refを保持する（\#295）
+ok 1186 - M365許可だけを本文へ含め、除外理由・鮮度・authority・安全なsource refを保持する（\#295）
+  ---
+  duration_ms: 1.147323
+  type: 'test'
+  ...
+# Subtest: supersededと巨大本文は概要だけにし、未確認suggestionを除外する（\#295）
+ok 1187 - supersededと巨大本文は概要だけにし、未確認suggestionを除外する（\#295）
+  ---
+  duration_ms: 0.974917
+  type: 'test'
+  ...
+# Subtest: 未公開Conversation本文はexcerptにもせず、公開済みでも参照だけをMeetingsへ載せる（\#295 / \#304）
+ok 1188 - 未公開Conversation本文はexcerptにもせず、公開済みでも参照だけをMeetingsへ載せる（\#295 / \#304）
+  ---
+  duration_ms: 0.768951
+  type: 'test'
+  ...
+# Subtest: Activityはincluded entityだけを使いstable ID・canonical・source・receiptを残す（\#295 / \#315）
+ok 1189 - Activityはincluded entityだけを使いstable ID・canonical・source・receiptを残す（\#295 / \#315）
+  ---
+  duration_ms: 0.823342
+  type: 'test'
+  ...
+# Subtest: generated時刻・source revision・入力順だけの変化ではstable content hashが変わらない（\#295）
+ok 1190 - generated時刻・source revision・入力順だけの変化ではstable content hashが変わらない（\#295）
+  ---
+  duration_ms: 0.901589
+  type: 'test'
+  ...
+# Subtest: Theme外Entityと完了済みCurrent Workは理由付きで除外する（\#295）
+ok 1191 - Theme外Entityと完了済みCurrent Workは理由付きで除外する（\#295）
+  ---
+  duration_ms: 0.652499
+  type: 'test'
+  ...
+# Subtest: Theme詳細はReport→Task→Note→Artifactの順で状況を出す（\#321）
+ok 1192 - Theme詳細はReport→Task→Note→Artifactの順で状況を出す（\#321）
+  ---
+  duration_ms: 2.450498
+  type: 'test'
+  ...
+# Subtest: Taskは未完了と完了を横並びにし、完了時刻を出す（\#321）
+ok 1193 - Taskは未完了と完了を横並びにし、完了時刻を出す（\#321）
+  ---
+  duration_ms: 0.287386
+  type: 'test'
+  ...
+# Subtest: 最近のNoteは本文の書き出しまで見せる（\#321）
+ok 1194 - 最近のNoteは本文の書き出しまで見せる（\#321）
+  ---
+  duration_ms: 0.437369
+  type: 'test'
+  ...
+# Subtest: ArtifactはTheme配下で生まれたものを新しい順に出し、元Noteを辿れる（\#321）
+ok 1195 - ArtifactはTheme配下で生まれたものを新しい順に出し、元Noteを辿れる（\#321）
+  ---
+  duration_ms: 0.150633
+  type: 'test'
+  ...
+# Subtest: Overviewは全件一覧にせず上位だけ出す（\#321）
+ok 1196 - Overviewは全件一覧にせず上位だけ出す（\#321）
+  ---
+  duration_ms: 0.123484
+  type: 'test'
+  ...
+# Subtest: canonical picker exposes personal and explicit none together
+ok 1197 - canonical picker exposes personal and explicit none together
+  ---
+  duration_ms: 2.343449
+  type: 'test'
+  ...
+# Subtest: ThemeSelect preserves explicit empty value and only defaults when omitted
+ok 1198 - ThemeSelect preserves explicit empty value and only defaults when omitted
+  ---
+  duration_ms: 0.331372
+  type: 'test'
+  ...
+# Subtest: major creation and filter surfaces use the shared picker contract
+ok 1199 - major creation and filter surfaces use the shared picker contract
+  ---
+  duration_ms: 1.657171
+  type: 'test'
+  ...
+# Subtest: timeboxed today rows sort timed tasks first and keep untimed tasks separate
+ok 1200 - timeboxed today rows sort timed tasks first and keep untimed tasks separate
+  ---
+  duration_ms: 2.689743
+  type: 'test'
+  ...
+# Subtest: timeboxed today rows flag overlapping time ranges
+ok 1201 - timeboxed today rows flag overlapping time ranges
+  ---
+  duration_ms: 0.312403
+  type: 'test'
+  ...
+# Subtest: timebox inputs normalize invalid values without breaking Today
+ok 1202 - timebox inputs normalize invalid values without breaking Today
+  ---
+  duration_ms: 0.114931
+  type: 'test'
+  ...
+# Subtest: timeboxing is not exposed in Today or the task edit drawer
+ok 1203 - timeboxing is not exposed in Today or the task edit drawer
+  ---
+  duration_ms: 1.073964
+  type: 'test'
+  ...
+# Subtest: Timeline itemの状態を日付と\#309のsemanticsから一意に決める（\#318）
+ok 1204 - Timeline itemの状態を日付と\#309のsemanticsから一意に決める（\#318）
+  ---
+  duration_ms: 1.404345
+  type: 'test'
+  ...
+# Subtest: Timelineの範囲意味判定はgetScheduleKindへ集約する（\#326）
+ok 1205 - Timelineの範囲意味判定はgetScheduleKindへ集約する（\#326）
+  ---
+  duration_ms: 0.313806
+  type: 'test'
+  ...
+# Subtest: 状態を色だけで伝えない（\#312 / \#318）
+ok 1206 - 状態を色だけで伝えない（\#312 / \#318）
+  ---
+  duration_ms: 1.602419
+  type: 'test'
+  ...
+# Subtest: Timelineのtoolbarを中長期の把握へ絞る（\#318）
+ok 1207 - Timelineのtoolbarを中長期の把握へ絞る（\#318）
+  ---
+  duration_ms: 0.536286
+  type: 'test'
+  ...
+# Subtest: スライド出力は画面のTimelineに合わせ、Activityを既定で混ぜない（\#318）
+ok 1208 - スライド出力は画面のTimelineに合わせ、Activityを既定で混ぜない（\#318）
+  ---
+  duration_ms: 1.618132
+  type: 'test'
+  ...
+# Subtest: Today page stays focused on daily tasks instead of utility controls
+ok 1209 - Today page stays focused on daily tasks instead of utility controls
+  ---
+  duration_ms: 1.700805
+  type: 'test'
+  ...
+# Subtest: Today page removes low-read metric cards from the main scan path
+ok 1210 - Today page removes low-read metric cards from the main scan path
+  ---
+  duration_ms: 0.224543
+  type: 'test'
+  ...
+# Subtest: Today page keeps inbox and unscheduled work out of row sections
+ok 1211 - Today page keeps inbox and unscheduled work out of row sections
+  ---
+  duration_ms: 0.188109
+  type: 'test'
+  ...
+# Subtest: Today candidate shelf is limited to the three useful lanes
+ok 1212 - Today candidate shelf is limited to the three useful lanes
+  ---
+  duration_ms: 0.255529
+  type: 'test'
+  ...
+# Subtest: Today removes duplicate risk and current-location sections from the main page
+ok 1213 - Today removes duplicate risk and current-location sections from the main page
+  ---
+  duration_ms: 0.218695
+  type: 'test'
+  ...
+# Subtest: Today shows a lightweight waiting list beside nearby milestones
+ok 1214 - Today shows a lightweight waiting list beside nearby milestones
+  ---
+  duration_ms: 0.243061
+  type: 'test'
+  ...
+# Subtest: Today and related lists share overdue urgency styling
+ok 1215 - Today and related lists share overdue urgency styling
+  ---
+  duration_ms: 0.317732
+  type: 'test'
+  ...
+# Subtest: Today opens task rows directly in edit mode and shows lightweight reminder time
+ok 1216 - Today opens task rows directly in edit mode and shows lightweight reminder time
+  ---
+  duration_ms: 0.113068
+  type: 'test'
+  ...
+# Subtest: Todayは日付範囲の意味ごとに扱いを分ける（\#309）
+ok 1217 - Todayは日付範囲の意味ごとに扱いを分ける（\#309）
+  ---
+  duration_ms: 0.277813
+  type: 'test'
+  ...
+# Subtest: Today surfaces generated Activity and configures automatic daily export
+ok 1218 - Today surfaces generated Activity and configures automatic daily export
+  ---
+  duration_ms: 0.287887
+  type: 'test'
+  ...
+# Subtest: Settings exposes shared-folder sync status, manual sync, and conflict resolution
+ok 1219 - Settings exposes shared-folder sync status, manual sync, and conflict resolution
+  ---
+  duration_ms: 0.549816
+  type: 'test'
+  ...
+# Subtest: Todayのprimary actionはTask追加ひとつにする（\#316）
+ok 1220 - Todayのprimary actionはTask追加ひとつにする（\#316）
+  ---
+  duration_ms: 0.292495
+  type: 'test'
+  ...
+# Subtest: 実行中のFocusはSidebar下部から確認・再開できる（\#316）
+ok 1221 - 実行中のFocusはSidebar下部から確認・再開できる（\#316）
+  ---
+  duration_ms: 2.767148
+  type: 'test'
+  ...
+# Subtest: Focus UIは表示だけ閉じ、sessionを終了しない（\#316）
+ok 1222 - Focus UIは表示だけ閉じ、sessionを終了しない（\#316）
+  ---
+  duration_ms: 0.290601
+  type: 'test'
+  ...
+# Subtest: Daily ScratchpadはMarkdownとして書けて確認できる（\#316）
+ok 1223 - Daily ScratchpadはMarkdownとして書けて確認できる（\#316）
+  ---
+  duration_ms: 0.489676
+  type: 'test'
+  ...
+# Subtest: Today no longer exposes the daily loop shelf or morning planning flow
+ok 1224 - Today no longer exposes the daily loop shelf or morning planning flow
+  ---
+  duration_ms: 1.841134
+  type: 'test'
+  ...
+# Subtest: Today mini can snap and resize to the top right and fades strongly while inactive
+ok 1225 - Today mini can snap and resize to the top right and fades strongly while inactive
+  ---
+  duration_ms: 0.987276
+  type: 'test'
+  ...
+# Subtest: Today mini keeps the clean surface but uses Tasken tone and compact task metadata
+ok 1226 - Today mini keeps the clean surface but uses Tasken tone and compact task metadata
+  ---
+  duration_ms: 0.796732
+  type: 'test'
+  ...
+# Subtest: Today mini task追加は共通Theme pickerの選択をcanonical project_idへ渡す
+ok 1227 - Today mini task追加は共通Theme pickerの選択をcanonical project_idへ渡す
+  ---
+  duration_ms: 1.575078
+  type: 'test'
+  ...
+# Subtest: Top Bar TodayはMain-owned visibilityをtoggleし、状態に合うlabelを出す
+ok 1228 - Top Bar TodayはMain-owned visibilityをtoggleし、状態に合うlabelを出す
+  ---
+  duration_ms: 0.82914
+  type: 'test'
+  ...
+# Subtest: Today miniの追加欄は狭幅で横scrollせず、明示submitと入力保護を持つ
+ok 1229 - Today miniの追加欄は狭幅で横scrollせず、明示submitと入力保護を持つ
+  ---
+  duration_ms: 0.900708
+  type: 'test'
+  ...
+# Subtest: 共通Theme optionは安全なcolor tokenだけをcompact pickerへ渡す
+ok 1230 - 共通Theme optionは安全なcolor tokenだけをcompact pickerへ渡す
+  ---
+  duration_ms: 27.81177
+  type: 'test'
+  ...
+# Subtest: Today miniのTheme表示は正式な追加色を保持し、未知Themeをneutral表示する
+ok 1231 - Today miniのTheme表示は正式な追加色を保持し、未知Themeをneutral表示する
+  ---
+  duration_ms: 7.644189
+  type: 'test'
+  ...
+# Subtest: Today miniのTheme IPC境界はpersonalまたは実在Themeだけを許可する
+ok 1232 - Today miniのTheme IPC境界はpersonalまたは実在Themeだけを許可する
+  ---
+  duration_ms: 6.301084
+  type: 'test'
+  ...
+# Subtest: scheduledDate uses the end date before the start date for ranges
+ok 1233 - scheduledDate uses the end date before the start date for ranges
+  ---
+  duration_ms: 1.176266
+  type: 'test'
+  ...
+# Subtest: open todo rows sort by nearest end date without promoting today-starting long tasks
+ok 1234 - open todo rows sort by nearest end date without promoting today-starting long tasks
+  ---
+  duration_ms: 9.055534
+  type: 'test'
+  ...
+# Subtest: video MIME is strict for mp4/m4v/mov/webm and never falls back
+ok 1235 - video MIME is strict for mp4/m4v/mov/webm and never falls back
+  ---
+  duration_ms: 1.369473
+  type: 'test'
+  ...
+# Subtest: video metadata enforces safe practical bounds
+ok 1236 - video metadata enforces safe practical bounds
+  ---
+  duration_ms: 0.60596
+  type: 'test'
+  ...
+# Subtest: video IPC requests accept exact ID-only metadata envelopes
+ok 1237 - video IPC requests accept exact ID-only metadata envelopes
+  ---
+  duration_ms: 1.868834
+  type: 'test'
+  ...
+# Subtest: 紐づけ先未選択の画面録画はCaptureEntryごとInboxへ確定する（\#383）
+ok 1238 - 紐づけ先未選択の画面録画はCaptureEntryごとInboxへ確定する（\#383）
+  ---
+  duration_ms: 0.164444
+  type: 'test'
+  ...
+# Subtest: 紐づけ先未選択の画面録画はCaptureEntryごとInboxへ確定する（\#383）
+ok 1239 - 紐づけ先未選択の画面録画はCaptureEntryごとInboxへ確定する（\#383）
+  ---
+  duration_ms: 1.495741
+  type: 'test'
+  ...
+# Subtest: ContentViewer gives distinct unavailable reasons without exposing a path
+ok 1240 - ContentViewer gives distinct unavailable reasons without exposing a path
+  ---
+  duration_ms: 1.43467
+  type: 'test'
+  ...
+# Subtest: video prepare requires the drawer Theme to be saved and commit is an explicit decision
+ok 1241 - video prepare requires the drawer Theme to be saved and commit is an explicit decision
+  ---
+  duration_ms: 0.497709
+  type: 'test'
+  ...
+# Subtest: ArtifactSection exposes compact loading, empty, error, and success states without a permanent empty panel
+ok 1242 - ArtifactSection exposes compact loading, empty, error, and success states without a permanent empty panel
+  ---
+  duration_ms: 0.452942
+  type: 'test'
+  ...
+# Subtest: Focus Session attaches video to the active focus_session Note identity
+ok 1243 - Focus Session attaches video to the active focus_session Note identity
+  ---
+  duration_ms: 0.324742
+  type: 'test'
+  ...
+# Subtest: generic drag/drop rejects media by name before asking Electron for a raw path
+ok 1244 - generic drag/drop rejects media by name before asking Electron for a raw path
+  ---
+  duration_ms: 0.412312
+  type: 'test'
+  ...
+# Subtest: video viewer inspects by ID, keeps race cancellation, and gates external-open to verified/codec errors
+ok 1245 - video viewer inspects by ID, keeps race cancellation, and gates external-open to verified/codec errors
+  ---
+  duration_ms: 0.64656
+  type: 'test'
+  ...
+# Subtest: managed video viewer has one combined trim bar and writes a derived artifact
+ok 1246 - managed video viewer has one combined trim bar and writes a derived artifact
+  ---
+  duration_ms: 2.205875
+  type: 'test'
+  ...
+# Subtest: managed video stages exact bytes and commits one strict ID-owned Artifact command
+ok 1247 - managed video stages exact bytes and commits one strict ID-owned Artifact command
+  ---
+  duration_ms: 17.081219
+  type: 'test'
+  ...
+# Subtest: trim export keeps the original bytes and commits a separate derived Artifact
+ok 1248 - trim export keeps the original bytes and commits a separate derived Artifact
+  ---
+  duration_ms: 81.687705
+  type: 'test'
+  ...
+# Subtest: video theme authority is derived from the saved owner before bytes are staged
+ok 1249 - video theme authority is derived from the saved owner before bytes are staged
+  ---
+  duration_ms: 12.965098
+  type: 'test'
+  ...
+# Subtest: prepared video remains discardable when its owner is deleted or changes Theme before commit
+ok 1250 - prepared video remains discardable when its owner is deleted or changes Theme before commit
+  ---
+  duration_ms: 7.649206
+  type: 'test'
+  ...
+# Subtest: owner change at the finalizing boundary rolls the session back to prepared with no publish or command
+ok 1251 - owner change at the finalizing boundary rolls the session back to prepared with no publish or command
+  ---
+  duration_ms: 4.806767
+  type: 'test'
+  ...
+# Subtest: linked video revalidates original on retry and never returns its path
+ok 1252 - linked video revalidates original on retry and never returns its path
+  ---
+  duration_ms: 13.794019
+  type: 'test'
+  ...
+# Subtest: linked video rejects a same-bytes replacement inode until the original identity is restored
+ok 1253 - linked video rejects a same-bytes replacement inode until the original identity is restored
+  ---
+  duration_ms: 6.726446
+  type: 'test'
+  ...
+# Subtest: video signature mismatch is rejected before a durable session exists
+ok 1254 - video signature mismatch is rejected before a durable session exists
+  ---
+  duration_ms: 1.673304
+  type: 'test'
+  ...
+# Subtest: tampered managed sourcePath manifest remains pending with zero retry DB writes
+ok 1255 - tampered managed sourcePath manifest remains pending with zero retry DB writes
+  ---
+  duration_ms: 6.532818
+  type: 'test'
+  ...
+# Subtest: tampered linked managed root manifest remains pending with zero retry DB writes
+ok 1256 - tampered linked managed root manifest remains pending with zero retry DB writes
+  ---
+  duration_ms: 5.140843
+  type: 'test'
+  ...
+# Subtest: tampered linked source identity manifest remains pending with zero retry DB writes
+ok 1257 - tampered linked source identity manifest remains pending with zero retry DB writes
+  ---
+  duration_ms: 5.061654
+  type: 'test'
+  ...
+# Subtest: drag success reorders visible IDs and reindexes only the scope
+ok 1258 - drag success reorders visible IDs and reindexes only the scope
+  ---
+  duration_ms: 2.278303
+  type: 'test'
+  ...
+# Subtest: hidden/filter-out IDs keep their place and relative order
+ok 1259 - hidden/filter-out IDs keep their place and relative order
+  ---
+  duration_ms: 0.149963
+  type: 'test'
+  ...
+# Subtest: invalid or cross-scope drag is rejected without changing the source
+ok 1260 - invalid or cross-scope drag is rejected without changing the source
+  ---
+  duration_ms: 0.185154
+  type: 'test'
+  ...
+# Subtest: sort-only overlay preserves newer external entity fields
+ok 1261 - sort-only overlay preserves newer external entity fields
+  ---
+  duration_ms: 0.16216
+  type: 'test'
+  ...
+# Subtest: serial reorder tokens clear only their own optimistic state
+ok 1262 - serial reorder tokens clear only their own optimistic state
+  ---
+  duration_ms: 0.229441
+  type: 'test'
+  ...
+# Subtest: ChatRefs serializes reorder writes and leaves error ownership with saveEntities
+ok 1263 - ChatRefs serializes reorder writes and leaves error ownership with saveEntities
+  ---
+  duration_ms: 0.454795
+  type: 'test'
+  ...
+# Subtest: typed registry exposes schema, scope, sort contract, and defaults
+ok 1264 - typed registry exposes schema, scope, sort contract, and defaults
+  ---
+  duration_ms: 1.399067
+  type: 'test'
+  ...
+# Subtest: legacy values migrate into the current schema without losing known fields
+ok 1265 - legacy values migrate into the current schema without losing known fields
+  ---
+  duration_ms: 1.41407
+  type: 'test'
+  ...
+# Subtest: theme scope slots are isolated and reload from one canonical envelope
+ok 1266 - theme scope slots are isolated and reload from one canonical envelope
+  ---
+  duration_ms: 0.406273
+  type: 'test'
+  ...
+# Subtest: database preference revision increments atomically and keeps both scopes
+ok 1267 - database preference revision increments atomically and keeps both scopes
+  ---
+  duration_ms: 0.384851
+  type: 'test'
+  ...
+# Subtest: Web Artifactは拡張子またはtext/html MIMEで識別する
+ok 1268 - Web Artifactは拡張子またはtext/html MIMEで識別する
+  ---
+  duration_ms: 1.40768
+  type: 'test'
+  ...
+# Subtest: 旧Static policyは既存Artifact互換用にscript/event/network/navigationの実行経路を除去する
+ok 1269 - 旧Static policyは既存Artifact互換用にscript/event/network/navigationの実行経路を除去する
+  ---
+  duration_ms: 1.228604
+  type: 'test'
+  ...
+# Subtest: 隔離Previewはinline JSをsandboxへ渡し、networkとOS境界を閉じる
+ok 1270 - 隔離Previewはinline JSをsandboxへ渡し、networkとOS境界を閉じる
+  ---
+  duration_ms: 0.537128
+  type: 'test'
+  ...
+# Subtest: Electron親CSP下でもPreviewは専用protocolのID URLとして独立して動かせる
+ok 1271 - Electron親CSP下でもPreviewは専用protocolのID URLとして独立して動かせる
+  ---
+  duration_ms: 0.186387
+  type: 'test'
+  ...
+# Subtest: AI Artifact Proposalはself-contained HTMLを保存候補として受け付ける
+ok 1272 - AI Artifact Proposalはself-contained HTMLを保存候補として受け付ける
+  ---
+  duration_ms: 1.391927
+  type: 'test'
+  ...
+# Subtest: Web PreviewはArtifact ID-onlyのMain/Preload/Renderer経路へ接続される
+ok 1273 - Web PreviewはArtifact ID-onlyのMain/Preload/Renderer経路へ接続される
+  ---
+  duration_ms: 0.474525
+  type: 'test'
+  ...
+# Subtest: WorkspaceServiceはArtifact IDから専用protocol URLを返し、MainだけがHTML本文を読む
+ok 1274 - WorkspaceServiceはArtifact IDから専用protocol URLを返し、MainだけがHTML本文を読む
+  ---
+  duration_ms: 2.178324
+  type: 'test'
+  ...
+# Subtest: ContentViewerは隔離Interactive Previewを常時表示する
+ok 1275 - ContentViewerは隔離Interactive Previewを常時表示する
+  ---
+  duration_ms: 0.340917
+  type: 'test'
+  ...
+# Subtest: Command Paletteは日本語・英語keywordを正規化して横断検索する
+ok 1276 - Command Paletteは日本語・英語keywordを正規化して横断検索する
+  ---
+  duration_ms: 2.506451
+  type: 'test'
+  ...
+# Subtest: Context Packは選択項目だけを構造化し、長文Noteを無条件に全文投入しない
+ok 1277 - Context Packは選択項目だけを構造化し、長文Noteを無条件に全文投入しない
+  ---
+  duration_ms: 0.492811
+  type: 'test'
+  ...
+# Subtest: P1 UIは固定registry、最近履歴、Theme導線、Repository保存へ接続される
+ok 1278 - P1 UIは固定registry、最近履歴、Theme導線、Repository保存へ接続される
+  ---
+  duration_ms: 1.1987
+  type: 'test'
+  ...
+# Subtest: compat migration: legacy workspace conversion preserves first-class entity meanings
+ok 1279 - compat migration: legacy workspace conversion preserves first-class entity meanings
+  ---
+  duration_ms: 3.137188
+  type: 'test'
+  ...
+# Subtest: domain view models keep task, waiting, capture, and timeline concerns separate
+ok 1280 - domain view models keep task, waiting, capture, and timeline concerns separate
+  ---
+  duration_ms: 9.547614
+  type: 'test'
+  ...
+# Subtest: today view separates ongoing period tasks from explicit daily tasks
+ok 1281 - today view separates ongoing period tasks from explicit daily tasks
+  ---
+  duration_ms: 0.608013
+  type: 'test'
+  ...
+# Subtest: task duplication creates an editable new todo without completion state
+ok 1282 - task duplication creates an editable new todo without completion state
+  ---
+  duration_ms: 1.32682
+  type: 'test'
+  ...
+# Subtest: inbox view sorts untriaged captures by newest timestamp
+ok 1283 - inbox view sorts untriaged captures by newest timestamp
+  ---
+  duration_ms: 0.295358
+  type: 'test'
+  ...
+# Subtest: micro memo can be sent back to the untriaged inbox lane
+ok 1284 - micro memo can be sent back to the untriaged inbox lane
+  ---
+  duration_ms: 1.195675
+  type: 'test'
+  ...
+# Subtest: compat timeline projection: plan nodes into legacy-compatible gantt items
+ok 1285 - compat timeline projection: plan nodes into legacy-compatible gantt items
+  ---
+  duration_ms: 0.401817
+  type: 'test'
+  ...
+# Subtest: post-migration smoke: legacy items=[] still produces meaningful views and export
+ok 1286 - post-migration smoke: legacy items=[] still produces meaningful views and export
+  ---
+  duration_ms: 1.5022
+  type: 'test'
+  ...
+# Subtest: export data excludes notes explicitly removed from export target
+ok 1287 - export data excludes notes explicitly removed from export target
+  ---
+  duration_ms: 0.422387
+  type: 'test'
+  ...
+# Subtest: document publish flag is separate from AI export inclusion
+ok 1288 - document publish flag is separate from AI export inclusion
+  ---
+  duration_ms: 0.231533
+  type: 'test'
+  ...
+# Subtest: post-migration smoke: MCP mergedItems includes plan_nodes
+ok 1289 - post-migration smoke: MCP mergedItems includes plan_nodes
+  ---
+  duration_ms: 11.803524
+  type: 'test'
+  ...
+# Subtest: workspace projection keeps active repository contexts after reload
+ok 1290 - workspace projection keeps active repository contexts after reload
+  ---
+  duration_ms: 3.32769
+  type: 'test'
+  ...
+# Subtest: revoked mobile devices can pair again without clearing Android data
+ok 1291 - revoked mobile devices can pair again without clearing Android data
+  ---
+  duration_ms: 22.997633
+  type: 'test'
+  ...
+# Subtest: Core Task context reads an empty SQLite snapshot without creating the default Theme
+ok 1292 - Core Task context reads an empty SQLite snapshot without creating the default Theme
+  ---
+  duration_ms: 10.333341
+  type: 'test'
+  ...
+# Subtest: workspace entity types and snapshots exclude person records
+ok 1293 - workspace entity types and snapshots exclude person records
+  ---
+  duration_ms: 3.51619
+  type: 'test'
+  ...
+# Subtest: activity log export directory preference round-trips
+ok 1294 - activity log export directory preference round-trips
+  ---
+  duration_ms: 0.615153
+  type: 'test'
+  ...
+# Subtest: Tasken Root and automatic Snapshot preferences round-trip with bounded values
+ok 1295 - Tasken Root and automatic Snapshot preferences round-trip with bounded values
+  ---
+  duration_ms: 1.455831
+  type: 'test'
+  ...
+# Subtest: link URL validation allows web and mailto but rejects file
+ok 1296 - link URL validation allows web and mailto but rejects file
+  ---
+  duration_ms: 0.439653
+  type: 'test'
+  ...
+# Subtest: knowledge entity validation rejects invalid enums
+ok 1297 - knowledge entity validation rejects invalid enums
+  ---
+  duration_ms: 0.32381
+  type: 'test'
+  ...
+# Subtest: workspace entity types and snapshots include v2 domain records
+ok 1298 - workspace entity types and snapshots include v2 domain records
+  ---
+  duration_ms: 1.223686
+  type: 'test'
+  ...
+# Subtest: domain entity validation rejects invalid enum values
+ok 1299 - domain entity validation rejects invalid enum values
+  ---
+  duration_ms: 0.802651
+  type: 'test'
+  ...
+# Subtest: sketch validation preserves editable page objects and rejects broken documents
+ok 1300 - sketch validation preserves editable page objects and rejects broken documents
+  ---
+  duration_ms: 0.621783
+  type: 'test'
+  ...
+# Subtest: saved sketches reload under the canonical sketches collection
+ok 1301 - saved sketches reload under the canonical sketches collection
+  ---
+  duration_ms: 6.512278
+  type: 'test'
+  ...
+# Subtest: new Reference writes canonical assertions and endpoint deletion keeps lineage
+ok 1302 - new Reference writes canonical assertions and endpoint deletion keeps lineage
+  ---
+  duration_ms: 7.341269
+  type: 'test'
+  ...
+# Subtest: ink capture atomically creates its sketch before linking the capture
+ok 1303 - ink capture atomically creates its sketch before linking the capture
+  ---
+  duration_ms: 5.593194
+  type: 'test'
+  ...
+# Subtest: file capture keeps its Artifact valid while it is retargeted to a Note
+ok 1304 - file capture keeps its Artifact valid while it is retargeted to a Note
+  ---
+  duration_ms: 6.067868
+  type: 'test'
+  ...
+# Subtest: directional knowledge edges reject cycles but weak relations do not
+ok 1305 - directional knowledge edges reject cycles but weak relations do not
+  ---
+  duration_ms: 0.36418
+  type: 'test'
+  ...
+# Subtest: snapshot validation rejects directional knowledge edge cycles
+ok 1306 - snapshot validation rejects directional knowledge edge cycles
+  ---
+  duration_ms: 1.210928
+  type: 'test'
+  ...
+# Subtest: snapshot validation follows Registry Theme fields and keeps Schedule owner-scoped
+ok 1307 - snapshot validation follows Registry Theme fields and keeps Schedule owner-scoped
+  ---
+  duration_ms: 0.39096
+  type: 'test'
+  ...
+# Subtest: snapshot create never overwrites an existing local record
+ok 1308 - snapshot create never overwrites an existing local record
+  ---
+  duration_ms: 0.494744
+  type: 'test'
+  ...
+# Subtest: snapshot duplicate creates a separate id and update requires local record
+ok 1309 - snapshot duplicate creates a separate id and update requires local record
+  ---
+  duration_ms: 0.334186
+  type: 'test'
+  ...
+1..1309
+# tests 1309
+# suites 0
+# pass 1307
+# fail 1
+# cancelled 0
+# skipped 1
+# todo 0
+# duration_ms 75622.461367
