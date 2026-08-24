@@ -594,7 +594,26 @@ jobs:
           )
           PY
 
-          python3 /tmp/apply_481_482.py
+          set +e
+          python3 /tmp/apply_481_482.py 2>&1 | tee /tmp/apply.log
+          apply_status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$apply_status" -ne 0 ]; then
+            git reset --hard "$EXPECTED_HEAD"
+            mkdir -p _agent
+            {
+              echo "Implementation patching failed."
+              echo "Base: $BASE_SHA"
+              echo "Expected head: $EXPECTED_HEAD"
+              echo
+              cat /tmp/apply.log
+            } > _agent/implementation-result.txt
+            git add _agent/implementation-result.txt
+            git commit -m "481・482の実装失敗ログを記録する"
+            git push origin HEAD:"$FEATURE_BRANCH"
+            exit "$apply_status"
+          fi
 
           set +e
           {
