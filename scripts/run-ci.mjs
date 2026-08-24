@@ -6,6 +6,7 @@ const npmCli = process.env.npm_execpath || "";
 const steps = [
   // testもsmokeもElectronのABIで動くので、rebuildは最初の一回だけでよい。
   ["Electron ABI rebuild", "rebuild:electron", []],
+  ["ESLint", "lint", []],
   ["TypeScript typecheck", "typecheck", []],
   ["Unit and contract tests", "test:unit-contract", []],
   ["Behavior and data-safety tests", "test:behavior", []],
@@ -20,7 +21,11 @@ const steps = [
 
 for (const [label, script, scriptArgs] of steps) {
   console.log("\n=== " + label + " :: npm run " + script + " ===");
-  const command = npmCli ? process.execPath : isWindows ? (process.env.ComSpec || "cmd.exe") : npmCommand;
+  const command = npmCli
+    ? process.execPath
+    : isWindows
+      ? process.env.ComSpec || "cmd.exe"
+      : npmCommand;
   const args = npmCli
     ? [npmCli, "run", script, "--", ...scriptArgs]
     : isWindows
