@@ -117,8 +117,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val entryRequest = MutableStateFlow<MobileEntryRequest>(MobileEntryRequest.None)
@@ -202,8 +205,10 @@ private fun TodayApp(
     val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
     val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
     val themes = themeCatalogState.themes
-    val paneState = rememberTodayPaneState()
     val context = LocalContext.current
+    val captureDraftStore = remember(context) { MobileCaptureDraftStore(context.applicationContext) }
+    val restoredCaptureDraft = remember(captureDraftStore) { captureDraftStore.load() }
+    val paneState = rememberTodayPaneState(restoredCaptureDraft)
     val speechRecognizer = remember(context) { AndroidShortSpeechRecognizer(context.applicationContext) }
     var speechState by remember(speechRecognizer) {
         mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(speechRecognizer.availableMode()))
@@ -245,9 +250,29 @@ private fun TodayApp(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var handledEntryToken by rememberSaveable { mutableLongStateOf(0L) }
+    var draftPersistenceFailed by rememberSaveable { mutableStateOf(false) }
 
     DisposableEffect(speechRecognizer) {
         onDispose { speechRecognizer.destroy() }
+    }
+
+    LaunchedEffect(paneState, captureDraftStore) {
+        snapshotFlow {
+            MobileCaptureDraftSnapshot(
+                draft = paneState.captureDraft,
+                captureOpen = paneState.captureOpen,
+            )
+        }.distinctUntilChanged().collect { snapshot ->
+            val saved = withContext(Dispatchers.IO) { captureDraftStore.save(snapshot) }
+            if (!saved && !draftPersistenceFailed) {
+                draftPersistenceFailed = true
+                snackbarHostState.showSnackbar(
+                    "入力途中のDraftを端末へ保存できませんでした。空き容量を確認して再試行してください。",
+                )
+            } else if (saved) {
+                draftPersistenceFailed = false
+            }
+        }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -2221,5 +2246,10 @@ private val TodayPaneStateSaver = Saver<TodayPaneState, List<Any?>>(
 )
 
 @Composable
-private fun rememberTodayPaneState(): TodayPaneState =
-    rememberSaveable(saver = TodayPaneStateSaver) { TodayPaneState() }
+private fun rememberTodayPaneState(restoredCapture: MobileCaptureDraftSnapshot?): TodayPaneState =
+    rememberSaveable(saver = TodayPaneStateSaver) {
+        TodayPaneState(
+            captureDraft = restoredCapture?.draft ?: MobileCaptureDraft.fresh(),
+            captureOpen = restoredCapture?.captureOpen ?: false,
+        )
+    }
