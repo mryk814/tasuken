@@ -2079,6 +2079,18 @@ test("Mobile CompleteTask and ReopenTask require canonical expectedVersion and p
   assert.equal(deleted.body.data.task.id, "task-mobile-create");
   assert.equal(deleted.body.data.task.version, 4);
   assert.equal(mobileCapability.repository.get("task", "task-mobile-create"), null);
+
+  const deleteEventCount = mobileCapability.repository.list("change_event").length;
+  const restartedAfterDelete = capability(mobileCapability.repository);
+  const deleteReplay = await gateway(restartedAfterDelete.service).handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: stateRequest("DeleteTask", 3),
+  });
+  assert.equal(deleteReplay.status, 200);
+  assert.equal(deleteReplay.body.data.task.version, 4);
+  assert.equal(mobileCapability.repository.list("change_event").length, deleteEventCount);
 });
 
 test("Phase 4A fails closed on Core version/capability and client uses separate HTTPS bearer", async () => {

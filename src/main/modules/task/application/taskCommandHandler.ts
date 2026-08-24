@@ -39,9 +39,10 @@ const taskCommandNames = new Set<ApplicationCommandName>(taskApplicationCommandN
 export interface TaskCommandRuntime {
   hasExpectedVersion(command: CommandEnvelope, type: EntityType, id: string): boolean;
   assertExpectedVersion(command: CommandEnvelope, type: EntityType, id: string, current: Entity | null): void;
-  createEvent(command: CommandEnvelope, entityType: EntityType, entityId: string, kind: "created" | "updated" | "completed" | "rescheduled", before: Entity | null, after: Entity): Entity;
+  createEvent(command: CommandEnvelope, entityType: EntityType, entityId: string, kind: "created" | "updated" | "completed" | "rescheduled" | "deleted", before: Entity | null, after: Entity): Entity;
   annotateEvent(command: CommandEnvelope, event: Entity): Entity;
   persist(command: CommandEnvelope, operations: SaveOperation[], eventIds: string[], changeTypes: EntityType[]): CommandReceipt;
+  persistDelete(command: CommandEnvelope, type: EntityType, deleted: Entity, event: Entity): CommandReceipt;
   persistNoChange(command: CommandEnvelope, taskId: string, current: Entity): CommandReceipt;
   now(): string;
 }
@@ -201,16 +202,10 @@ export class TaskCommandHandler {
     this.runtime.assertExpectedVersion(command, "task", taskId, current);
     const deleted = this.repository.removeTask(taskId);
     if (!deleted) throw new ApplicationCommandError("NOT_FOUND", "削除対象のTaskがありません。", { id: taskId });
-    return {
-      commandId: command.commandId,
-      name: command.name,
-      status: "applied",
-      saved: [],
-      deleted: [{ type: "task", id: taskId }],
-      events: [],
-      warnings: [],
-      revisions: [],
-      changes: [{ type: "task", entity: deleted }],
-    };
+    const event = this.runtime.annotateEvent(
+      command,
+      this.runtime.createEvent(command, "task", taskId, "deleted", current, deleted),
+    );
+    return this.runtime.persistDelete(command, "task", deleted, event);
   }
 }

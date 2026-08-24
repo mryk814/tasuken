@@ -222,6 +222,7 @@ export function activityEventKind({ entityType, changeType, commandName, before,
   const command = text(commandName);
   const previous = parseEntity(before);
   const next = parseEntity(after);
+  if (changeType === "deleted") return "entity_deleted";
   if (type === "task") {
     if (command === "CompleteTask" || changeType === "completed" || (previous?.state !== "done" && next?.state === "done")) return "task_completed";
     if (command === "ReopenTask" || (previous?.state === "done" && next?.state && next.state !== "done")) return "task_reopened";
@@ -241,7 +242,6 @@ export function activityEventKind({ entityType, changeType, commandName, before,
   if (type === "reference") return previous ? "reference_updated" : "reference_created";
   if (type === "schedule") return "schedule_updated";
   if (type === "status_update") return "status_updated";
-  if (changeType === "deleted") return "entity_deleted";
   if (changeType === "created") return "entity_updated";
   return "entity_updated";
 }
@@ -336,7 +336,7 @@ export function buildActivityEvent(input = {}) {
     entity_type: type,
     entity_id: id,
     changed_at: iso(input.changed_at || input.changedAt || occurredAt),
-    change_type: text(input.change_type) || (kind.endsWith("_created") || kind.endsWith("_added") ? "created" : kind === "task_completed" ? "completed" : kind === "schedule_updated" ? "rescheduled" : "updated"),
+    change_type: text(input.change_type || input.changeType) || (kind.endsWith("_created") || kind.endsWith("_added") ? "created" : kind === "task_completed" ? "completed" : kind === "schedule_updated" ? "rescheduled" : kind === "entity_deleted" ? "deleted" : "updated"),
     reason: input.reason ?? null,
     before_json: input.before_json !== undefined ? input.before_json : (input.before !== undefined ? input.before : (before || null)),
     after_json: input.after_json !== undefined ? input.after_json : (input.after !== undefined ? input.after : (Object.keys(after).length ? after : null)),
