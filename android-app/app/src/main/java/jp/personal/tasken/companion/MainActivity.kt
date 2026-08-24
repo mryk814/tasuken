@@ -208,6 +208,7 @@ private fun TodayApp(
     val context = LocalContext.current
     val captureDraftStore = remember(context) { MobileCaptureDraftStore(context.applicationContext) }
     val restoredCaptureDraft = remember(captureDraftStore) { captureDraftStore.load() }
+    val restoredUndoTarget = remember(captureDraftStore) { captureDraftStore.loadUndoTarget() }
     val paneState = rememberTodayPaneState(restoredCaptureDraft)
     val speechRecognizer = remember(context) { AndroidShortSpeechRecognizer(context.applicationContext) }
     var speechState by remember(speechRecognizer) {
@@ -274,6 +275,18 @@ private fun TodayApp(
             }
         }
     }
+    LaunchedEffect(restoredUndoTarget) {
+        restoredUndoTarget?.let { target ->
+            val entityLabel = if (target.kind == MobileCaptureKind.Task) "Task" else "Capture"
+            showCreateUndoSnackbar(
+                snackbarHostState = snackbarHostState,
+                todayViewModel = todayViewModel,
+                captureDraftStore = captureDraftStore,
+                target = target,
+                message = "直前に追加した${entityLabel}を元に戻せます。",
+            )
+        }
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, todayViewModel) {
@@ -332,6 +345,10 @@ private fun TodayApp(
     LaunchedEffect(captureState) {
         if (captureState is CaptureUiState.Queued) {
             val queued = captureState as CaptureUiState.Queued
+            val undoTarget = MobileCaptureUndoTarget(queued.entityId, queued.kind)
+            val undoTargetSaved = withContext(Dispatchers.IO) {
+                captureDraftStore.saveUndoTarget(undoTarget)
+            }
             speechRecognizer.cancel()
             speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
             if (queued.completionBehavior == CaptureCompletionBehavior.Continue) {
@@ -340,18 +357,19 @@ private fun TodayApp(
                 paneState.resetCapture()
             }
             todayViewModel.resetCaptureState()
-            coroutineScope.launch {
-                val entityLabel = if (queued.kind == MobileCaptureKind.Task) "Task" else "Capture"
-                val result = snackbarHostState.showSnackbar(
-                    message = "${entityLabel}を追加しました。Desktopへ自動送信します。",
-                    actionLabel = "元に戻す",
-                    withDismissAction = true,
-                    duration = SnackbarDuration.Long,
+            if (!undoTargetSaved) {
+                snackbarHostState.showSnackbar(
+                    "追加は保存しましたが、再起動後のUndo対象を保持できませんでした。空き容量を確認してください。",
                 )
-                if (result == SnackbarResult.ActionPerformed) {
-                    todayViewModel.undoCreatedCapture(queued.entityId, queued.kind)
-                }
             }
+            val entityLabel = if (queued.kind == MobileCaptureKind.Task) "Task" else "Capture"
+            showCreateUndoSnackbar(
+                snackbarHostState = snackbarHostState,
+                todayViewModel = todayViewModel,
+                captureDraftStore = captureDraftStore,
+                target = undoTarget,
+                message = "${entityLabel}を追加しました。Desktopへ自動送信します。",
+            )
         }
     }
     LaunchedEffect(taskActionState) {
@@ -2244,6 +2262,25 @@ private val TodayPaneStateSaver = Saver<TodayPaneState, List<Any?>>(
     save = { it.save() },
     restore = { TodayPaneState.restore(it) },
 )
+
+private suspend fun showCreateUndoSnackbar(
+    snackbarHostState: SnackbarHostState,
+    todayViewModel: TodayViewModel,
+    captureDraftStore: MobileCaptureDraftStore,
+    target: MobileCaptureUndoTarget,
+    message: String,
+) {
+    val result = snackbarHostState.showSnackbar(
+        message = message,
+        actionLabel = "元に戻す",
+        withDismissAction = true,
+        duration = SnackbarDuration.Long,
+    )
+    if (result == SnackbarResult.ActionPerformed) {
+        todayViewModel.undoCreatedCapture(target.entityId, target.kind)
+    }
+    withContext(Dispatchers.IO) { captureDraftStore.clearUndoTarget() }
+}
 
 @Composable
 private fun rememberTodayPaneState(restoredCapture: MobileCaptureDraftSnapshot?): TodayPaneState =

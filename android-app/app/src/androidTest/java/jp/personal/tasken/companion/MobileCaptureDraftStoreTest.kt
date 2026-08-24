@@ -19,11 +19,13 @@ class MobileCaptureDraftStoreTest {
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         MobileCaptureDraftStore(context).clear()
+        MobileCaptureDraftStore(context).clearUndoTarget()
     }
 
     @After
     fun tearDown() {
         MobileCaptureDraftStore(context).clear()
+        MobileCaptureDraftStore(context).clearUndoTarget()
     }
 
     @Test
@@ -90,6 +92,41 @@ class MobileCaptureDraftStoreTest {
             context,
             now = { Instant.parse("2026-08-08T10:00:01Z") },
         ).load()
+
+        assertNull(restored)
+    }
+
+    @Test
+    fun restoresUndoTargetAfterProcessRestart() {
+        val savedAt = Instant.parse("2026-08-24T10:00:00Z")
+        val target = MobileCaptureUndoTarget(
+            entityId = "capture-restart-target",
+            kind = MobileCaptureKind.Capture,
+        )
+        MobileCaptureDraftStore(context, now = { savedAt }).saveUndoTarget(target)
+
+        val restored = MobileCaptureDraftStore(
+            context,
+            now = { Instant.parse("2026-08-24T10:01:00Z") },
+        ).loadUndoTarget()
+
+        assertEquals(target, restored)
+    }
+
+    @Test
+    fun expiresUndoTargetAfterOneDay() {
+        val savedAt = Instant.parse("2026-08-01T10:00:00Z")
+        MobileCaptureDraftStore(context, now = { savedAt }).saveUndoTarget(
+            MobileCaptureUndoTarget(
+                entityId = "task-expired-target",
+                kind = MobileCaptureKind.Task,
+            ),
+        )
+
+        val restored = MobileCaptureDraftStore(
+            context,
+            now = { Instant.parse("2026-08-02T10:00:01Z") },
+        ).loadUndoTarget()
 
         assertNull(restored)
     }
