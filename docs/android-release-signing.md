@@ -87,6 +87,8 @@ The script performs all of the following:
 
 The throwaway CI certificate must never be used for the locally installed Tasken app.
 
+A manual `workflow_dispatch` additionally builds the permanent signed APK from repository secrets and uploads it as a 14-day workflow artifact. Permanent secrets are never read by pull-request or ordinary push jobs. The release JKS, legacy JKS, lineage, passwords, and aliases must all be configured before dispatch; the job fails closed when any file secret is absent.
+
 ## Official references
 
 - Android build variants and signing configuration: https://developer.android.com/build/build-variants#signing
