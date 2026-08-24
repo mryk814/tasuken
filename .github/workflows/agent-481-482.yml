@@ -460,8 +460,8 @@ jobs:
           write("src/renderer/src/utils/performanceDiagnostics.ts", diagnostics)
           replace_once(
               "src/renderer/src/main.tsx",
-              'import App from "./App";\n',
-              'import App from "./App";\nimport { installRendererPerformanceDiagnostics } from "./utils/performanceDiagnostics";\n',
+              'import { App } from "./App";\n',
+              'import { App } from "./App";\nimport { installRendererPerformanceDiagnostics } from "./utils/performanceDiagnostics";\n',
           )
           replace_once(
               "src/renderer/src/main.tsx",
