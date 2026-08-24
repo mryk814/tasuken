@@ -57,10 +57,21 @@ jobs:
           fi
           grep -F "Release signing is not configured" "$RUNNER_TEMP/unsigned-release.log"
 
-      - name: Build and verify a signed release with an ephemeral JKS
+      - name: Build and verify a rotated signed release with ephemeral JKS files
         shell: bash
         run: |
           set -euo pipefail
+          keytool -genkeypair \
+            -storetype JKS \
+            -keystore "$RUNNER_TEMP/tasken-ci-legacy.jks" \
+            -storepass tasken-ci-legacy-password \
+            -alias tasken-ci-legacy \
+            -keypass tasken-ci-legacy-password \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 3650 \
+            -dname "CN=Tasken Legacy CI,OU=Verification,O=Tasken,L=Kobe,ST=Hyogo,C=JP"
+
           keytool -genkeypair \
             -storetype JKS \
             -keystore "$RUNNER_TEMP/tasken-ci-release.jks" \
@@ -72,6 +83,25 @@ jobs:
             -validity 3650 \
             -dname "CN=Tasken CI,OU=Verification,O=Tasken,L=Kobe,ST=Hyogo,C=JP"
 
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$sdk_root"
+          apksigner="$(find "$sdk_root/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$apksigner"
+          "$apksigner" rotate \
+            --out "$RUNNER_TEMP/tasken-ci-lineage" \
+            --old-signer \
+            --ks "$RUNNER_TEMP/tasken-ci-legacy.jks" \
+            --ks-key-alias tasken-ci-legacy \
+            --ks-pass pass:tasken-ci-legacy-password \
+            --key-pass pass:tasken-ci-legacy-password \
+            --set-installed-data true \
+            --set-rollback false \
+            --new-signer \
+            --ks "$RUNNER_TEMP/tasken-ci-release.jks" \
+            --ks-key-alias tasken-ci \
+            --ks-pass pass:tasken-ci-store-password \
+            --key-pass pass:tasken-ci-key-password
+
           cd android-app
           TASKEN_ANDROID_KEYSTORE="$RUNNER_TEMP/tasken-ci-release.jks" \
           TASKEN_ANDROID_KEYSTORE_PASSWORD="tasken-ci-store-password" \
@@ -80,9 +110,20 @@ jobs:
             ./gradlew --no-daemon verifyReleaseSigning assembleRelease --stacktrace
 
           apk="app/build/outputs/apk/release/app-release.apk"
+          rotated_apk="app/build/outputs/apk/release/app-release-rotated.apk"
           test -f "$apk"
-          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          test -n "$sdk_root"
-          apksigner="$(find "$sdk_root/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -n "$apksigner"
-          "$apksigner" verify --verbose --print-certs "$apk"
+          "$apksigner" sign \
+            --ks "$RUNNER_TEMP/tasken-ci-legacy.jks" \
+            --ks-key-alias tasken-ci-legacy \
+            --ks-pass pass:tasken-ci-legacy-password \
+            --key-pass pass:tasken-ci-legacy-password \
+            --next-signer \
+            --ks "$RUNNER_TEMP/tasken-ci-release.jks" \
+            --ks-key-alias tasken-ci \
+            --ks-pass pass:tasken-ci-store-password \
+            --key-pass pass:tasken-ci-key-password \
+            --lineage "$RUNNER_TEMP/tasken-ci-lineage" \
+            --rotation-min-sdk-version 33 \
+            --out "$rotated_apk" \
+            "$apk"
+          "$apksigner" verify --verbose --print-certs --min-sdk-version 26 "$rotated_apk"

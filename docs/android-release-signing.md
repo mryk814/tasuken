@@ -39,6 +39,25 @@ keytool -genkeypair -v `
 
 Keep at least two secure backups of the keystore and its credentials. Android accepts an installed app update only when it is signed by the same application-signing key. Also increase `versionCode` before distributing an update build.
 
+## Migrate an existing debug install without clearing data
+
+Tasken development installs created before the first permanent release use the local Android debug certificate. Do not install a normally signed release APK over those installs: Android will reject the certificate mismatch, and uninstalling would remove Room, pairing, and Android Keystore state.
+
+For the one-time transition, create an Android signing-certificate lineage from that exact legacy key to the permanent release key. The lineage must grant `installed-data` to the old signer and must not grant rollback. Keep the lineage and both keystores with the signing backup; API 26–32 APK signatures still require the oldest signer, while API 33+ uses the permanent rotated signer.
+
+Configure all of the following environment values in addition to the four release values:
+
+| Environment variable | Purpose |
+| --- | --- |
+| `TASKEN_ANDROID_LEGACY_KEYSTORE` | Exact keystore that signed the installed APK |
+| `TASKEN_ANDROID_LEGACY_KEYSTORE_PASSWORD` | Legacy keystore password |
+| `TASKEN_ANDROID_LEGACY_KEY_ALIAS` | Legacy key alias |
+| `TASKEN_ANDROID_LEGACY_KEY_PASSWORD` | Legacy private-key password |
+| `TASKEN_ANDROID_SIGNING_LINEAGE` | Binary lineage produced by `apksigner rotate` |
+| `TASKEN_ANDROID_ROTATION_MIN_SDK_VERSION` | Optional; defaults to `33` |
+
+The build script treats rotation as all-or-nothing and fails before signing when any required value or file is missing. Passwords are passed to `apksigner` by environment-variable reference, not as command-line values. The final APK is re-signed with the oldest and newest keys plus the lineage, then independently verified for Tasken's minimum SDK.
+
 ## Build and independently verify the APK
 
 After configuring the four values, run from the repository root:
@@ -53,7 +72,7 @@ The script performs all of the following:
 2. builds `assembleRelease`;
 3. requires the signed output `android-app/app/build/outputs/apk/release/app-release.apk`;
 4. verifies the APK signature with Android `apksigner --print-certs`;
-5. prints the final APK path.
+5. prints the SHA-256 digest and final APK path.
 
 `assembleRelease`, bundle, packaging, signing, installation, and publication tasks fail closed when release signing is incomplete. Debug unit tests and debug APK builds remain independent of release credentials.
 
@@ -64,6 +83,7 @@ The script performs all of the following:
 - debug unit tests and a debug APK succeed with no release secret;
 - unsigned `assembleRelease` is rejected;
 - an ephemeral JKS produces a release APK accepted by Android `apksigner`.
+- an ephemeral old-to-new lineage produces a rotated release APK accepted from API 26 onward.
 
 The throwaway CI certificate must never be used for the locally installed Tasken app.
 
@@ -71,3 +91,4 @@ The throwaway CI certificate must never be used for the locally installed Tasken
 
 - Android build variants and signing configuration: https://developer.android.com/build/build-variants#signing
 - Android app signing and key continuity: https://developer.android.com/studio/publish/app-signing
+- Android `apksigner` rotation and lineage: https://developer.android.com/tools/apksigner
