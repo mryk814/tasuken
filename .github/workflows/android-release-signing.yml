@@ -95,6 +95,7 @@ jobs:
             --ks-pass pass:tasken-ci-legacy-password \
             --key-pass pass:tasken-ci-legacy-password \
             --set-installed-data true \
+            --set-permission true \
             --set-rollback false \
             --new-signer \
             --ks "$RUNNER_TEMP/tasken-ci-release.jks" \

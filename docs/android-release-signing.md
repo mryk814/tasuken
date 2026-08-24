@@ -43,7 +43,7 @@ Keep at least two secure backups of the keystore and its credentials. Android ac
 
 Tasken development installs created before the first permanent release use the local Android debug certificate. Do not install a normally signed release APK over those installs: Android will reject the certificate mismatch, and uninstalling would remove Room, pairing, and Android Keystore state.
 
-For the one-time transition, create an Android signing-certificate lineage from that exact legacy key to the permanent release key. The lineage must grant `installed-data` to the old signer and must not grant rollback. Keep the lineage and both keystores with the signing backup; API 26–32 APK signatures still require the oldest signer, while API 33+ uses the permanent rotated signer.
+For the one-time transition, create an Android signing-certificate lineage from that exact legacy key to the permanent release key. The lineage must grant `installed-data` and `permission` to the old signer because Tasken owns an Android signature permission, and it must not grant rollback. Keep the lineage and both keystores with the signing backup; API 26–32 APK signatures still require the oldest signer, while API 33+ uses the permanent rotated signer.
 
 Configure all of the following environment values in addition to the four release values:
 
