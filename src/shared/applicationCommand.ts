@@ -5,6 +5,8 @@ import type { ExternalReference } from "./externalReference.mjs";
 export const applicationCommandNames = [
   "CreateTask",
   "DeleteTask",
+  "CreateCapture",
+  "DeleteCapture",
   "CreateTaskFromCapture",
   "UpdateTask",
   "CompleteTask",
@@ -52,6 +54,15 @@ export interface CreateTaskCommandPayload {
   schedule?: Entity | null;
   references?: Entity[];
   provenance?: Record<string, unknown>;
+}
+
+export interface CreateCaptureCommandPayload {
+  capture: Entity;
+  provenance?: Record<string, unknown>;
+}
+
+export interface DeleteCaptureCommandPayload {
+  captureId: string;
 }
 
 export interface CreateTaskFromCaptureCommandPayload {
@@ -155,6 +166,8 @@ export interface CommitTrimmedVideoArtifactCommandPayload {
 
 export type ApplicationCommandPayload =
   | CreateTaskCommandPayload
+  | CreateCaptureCommandPayload
+  | DeleteCaptureCommandPayload
   | CreateTaskFromCaptureCommandPayload
   | UpdateTaskCommandPayload
   | TaskIdCommandPayload
@@ -271,6 +284,14 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
   if ((name === "CreateTask" || name === "CreateTaskFromCapture" || name === "UpdateTask")
     && (!isRecord(value.payload.task) || typeof value.payload.task.id !== "string")) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtask payloadが不正です。`);
+  }
+  if (name === "CreateCapture"
+    && (!isRecord(value.payload.capture) || typeof value.payload.capture.id !== "string" || !value.payload.capture.id.trim())) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "CreateCaptureのcapture payloadが不正です。");
+  }
+  if (name === "DeleteCapture"
+    && (typeof value.payload.captureId !== "string" || !value.payload.captureId.trim())) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "DeleteCaptureのcaptureIdが不正です。");
   }
   if ((name === "CompleteTask" || name === "ReopenTask" || name === "DeleteTask")
     && (typeof value.payload.taskId !== "string" || !value.payload.taskId.trim())) {

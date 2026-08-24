@@ -40,6 +40,7 @@ class CaptureThemePickerUiTest {
                     ),
                     onDraftChanged = {},
                     onThemeSelected = { selectedThemeId.value = it },
+                    onKindSelected = {},
                     onSubmit = {},
                     onStartVoice = {},
                     onStopVoice = {},
@@ -81,6 +82,7 @@ class CaptureThemePickerUiTest {
                     ),
                     onDraftChanged = {},
                     onThemeSelected = {},
+                    onKindSelected = {},
                     onSubmit = { submitted += it },
                     onStartVoice = {},
                     onStopVoice = {},
@@ -98,6 +100,42 @@ class CaptureThemePickerUiTest {
                 submitted,
             )
         }
+    }
+
+    @Test
+    fun quickAddSwitchesBetweenTaskAndCanonicalCapture() {
+        val selectedKind = mutableStateOf(MobileCaptureKind.Task)
+        composeRule.setContent {
+            MaterialTheme {
+                CaptureTaskSheet(
+                    draft = MobileCaptureDraft.fresh(
+                        text = "思いつき",
+                        kind = selectedKind.value,
+                    ),
+                    state = CaptureUiState.Idle,
+                    speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
+                    themes = emptyList(),
+                    themeCatalogState = MobileThemeCatalogState.Available(
+                        themes = emptyList(),
+                        serverId = "server-1",
+                        serverRevision = 1,
+                        generatedAt = "2026-08-23T00:00:00Z",
+                    ),
+                    onDraftChanged = {},
+                    onThemeSelected = {},
+                    onKindSelected = { selectedKind.value = it },
+                    onSubmit = {},
+                    onStartVoice = {},
+                    onStopVoice = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("capture-kind-capture").performClick()
+
+        composeRule.runOnIdle { assertEquals(MobileCaptureKind.Capture, selectedKind.value) }
+        composeRule.onNodeWithText("思いついたことをそのまま").assertExists()
     }
 
     @Test

@@ -30,6 +30,7 @@ class MobileCaptureDraftTest {
         val draft = MobileCaptureDraft.fresh(
             text = "途中の文字",
             source = MobileCaptureSource.AppShortcut,
+            kind = MobileCaptureKind.Capture,
             now = { Instant.parse("2026-08-23T00:00:00Z") },
             newId = { "draft-id" },
         )
@@ -45,6 +46,7 @@ class MobileCaptureDraftTest {
 
         assertEquals("draft-id", recognized.draftId)
         assertEquals("音声で確定したTask", recognized.text)
+        assertEquals(MobileCaptureKind.Capture, recognized.kind)
         assertEquals(MobileCaptureSource.AndroidSpeech, recognized.source)
         assertEquals(MobileSpeechRecognitionMode.OnDevice, recognized.speech?.recognitionMode)
         assertEquals("ja-JP", recognized.speech?.language)

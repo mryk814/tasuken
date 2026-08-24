@@ -87,7 +87,8 @@ object MobileWorkReceiptContract {
     private fun validate(response: MobileWorkReceiptResponseDto) {
         requireContract(response.ok, "Work Receipt success response requires ok=true.")
         requireContract(
-            response.meta.apiVersion == 1 && response.meta.schemaVersion == 4,
+            response.meta.apiVersion == TASKEN_MOBILE_API_VERSION &&
+                response.meta.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION,
             "Unsupported mobile Work Receipt version.",
         )
         requireContract(isEntityId(response.meta.serverId), "Invalid serverId.")

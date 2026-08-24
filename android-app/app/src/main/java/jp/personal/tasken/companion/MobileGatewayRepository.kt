@@ -230,6 +230,18 @@ class AndroidMobileTaskRepository(
 
     override suspend fun undoCreateTask(taskId: String): MobileUndoCreateResult = outbox.undoCreate(taskId)
 
+    override suspend fun enqueueCreateCapture(draft: MobileCaptureDraft): String =
+        outbox.enqueueCapture(
+            text = draft.text,
+            projectId = draft.projectId,
+            draftId = draft.draftId,
+            createdAt = draft.createdAt,
+            provenance = draft.toCaptureCreationProvenanceDto(),
+        )
+
+    override suspend fun undoCreateCapture(captureId: String): MobileUndoCreateResult =
+        outbox.undoCapture(captureId)
+
     override suspend fun enqueueUpdateTaskTitle(taskId: String, title: String): String =
         outbox.enqueueUpdateTitle(taskId, title)
 
@@ -285,7 +297,8 @@ class AndroidMobileTaskRepository(
             val encodedReceiptId = URLEncoder.encode(receiptId, Charsets.UTF_8.name())
             val response = gatewayRequest(
                 origin = configuration.origin,
-                path = "/v1/work-receipt?apiVersion=1&schemaVersion=4&requestId=$requestId" +
+                path = "/v1/work-receipt?apiVersion=$TASKEN_MOBILE_API_VERSION" +
+                    "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId" +
                     "&taskId=$encodedTaskId&receiptId=$encodedReceiptId",
                 method = "GET",
                 body = null,
@@ -352,7 +365,8 @@ class AndroidMobileTaskRepository(
             val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
             val response = gatewayRequest(
                 origin = origin,
-                path = "/v1/proposals?apiVersion=1&schemaVersion=4&requestId=$requestId&limit=50",
+                path = "/v1/proposals?apiVersion=$TASKEN_MOBILE_API_VERSION" +
+                    "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId&limit=50",
                 method = "GET",
                 body = null,
                 accessToken = accessToken,
@@ -416,8 +430,8 @@ class AndroidMobileTaskRepository(
         return try {
             val commandId = UUID.randomUUID().toString()
             val envelope = MobileTaskWorkProposalDecisionEnvelopeDto(
-                apiVersion = 1,
-                schemaVersion = 4,
+                apiVersion = TASKEN_MOBILE_API_VERSION,
+                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
                 requestId = UUID.randomUUID().toString(),
                 commandId = commandId,
                 idempotencyKey = commandId,
@@ -493,7 +507,7 @@ class AndroidMobileTaskRepository(
         return try {
             val serverId = confirmRemoteAndApplyBootstrap(configuration.origin, token)
             if (outbox.drain(serverId) { envelope ->
-                    sendTaskCommand(configuration.origin, token, serverId, envelope)
+                    sendMobileCommand(configuration.origin, token, serverId, envelope)
                 }
             ) return false
             synchronize(configuration.origin, token, serverId)
@@ -528,8 +542,8 @@ class AndroidMobileTaskRepository(
         }
         return try {
             val payload = buildJsonObject {
-                put("apiVersion", 1)
-                put("schemaVersion", 4)
+                put("apiVersion", TASKEN_MOBILE_API_VERSION)
+                put("schemaVersion", TASKEN_MOBILE_SCHEMA_VERSION)
                 put("requestId", UUID.randomUUID().toString())
                 put("pairingCode", pairingCode)
                 put("clientDeviceId", store.deviceId())
@@ -591,7 +605,7 @@ class AndroidMobileTaskRepository(
             val (cached, syncedAt) = runBlocking {
                 val serverId = confirmRemoteAndApplyBootstrap(configuration.origin, token)
                 outbox.drain(serverId) { envelope ->
-                    sendTaskCommand(configuration.origin, token, serverId, envelope)
+                    sendMobileCommand(configuration.origin, token, serverId, envelope)
                 }
                 synchronize(configuration.origin, token, serverId)
                 try {
@@ -636,7 +650,9 @@ class AndroidMobileTaskRepository(
             val encodedCursor = URLEncoder.encode(cursor, Charsets.UTF_8.name())
             val response = gatewayRequest(
                 origin = origin,
-                path = "/v1/sync?apiVersion=1&schemaVersion=4&requestId=$encodedRequestId&cursor=$encodedCursor&limit=50",
+                path = "/v1/sync?apiVersion=$TASKEN_MOBILE_API_VERSION" +
+                    "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$encodedRequestId" +
+                    "&cursor=$encodedCursor&limit=50",
                 method = "GET",
                 body = null,
                 accessToken = accessToken,
@@ -664,7 +680,8 @@ class AndroidMobileTaskRepository(
         val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
         val response = gatewayRequest(
             origin = origin,
-            path = "/v1/bootstrap?apiVersion=1&schemaVersion=4&requestId=$requestId&limit=50",
+            path = "/v1/bootstrap?apiVersion=$TASKEN_MOBILE_API_VERSION" +
+                "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId&limit=50",
             method = "GET",
             body = null,
             accessToken = accessToken,
@@ -719,7 +736,9 @@ class AndroidMobileTaskRepository(
                 }.orEmpty()
                 val response = gatewayRequest(
                     origin = origin,
-                    path = "/v1/themes?apiVersion=1&schemaVersion=4&requestId=$requestId&limit=50$cursorQuery",
+                    path = "/v1/themes?apiVersion=$TASKEN_MOBILE_API_VERSION" +
+                        "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId" +
+                        "&limit=50$cursorQuery",
                     method = "GET",
                     body = null,
                     accessToken = accessToken,
@@ -834,13 +853,16 @@ class AndroidMobileTaskRepository(
         lastError = null,
     )
 
-    private fun sendTaskCommand(
+    private fun sendMobileCommand(
         origin: String,
         accessToken: String,
         expectedServerId: String,
         envelopeJson: String,
     ): MobileCommandSendResult {
         return try {
+            val commandName = Json.parseToJsonElement(envelopeJson)
+                .jsonObject.getValue("command").jsonObject.getValue("name").jsonPrimitive.content
+            val captureCommand = commandName in setOf("CreateCapture", "DeleteCapture")
             val response = gatewayRequest(
                 origin = origin,
                 path = "/v1/commands",
@@ -850,11 +872,20 @@ class AndroidMobileTaskRepository(
             )
             when {
                 response.status == 200 -> {
-                    val receipt = MobileTaskCommandContract.decodeReceipt(response.body)
-                    if (receipt.meta.serverId != expectedServerId) {
-                        MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
+                    if (captureCommand) {
+                        val receipt = MobileCaptureCommandContract.decodeReceipt(response.body)
+                        if (receipt.meta.serverId != expectedServerId) {
+                            MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
+                        } else {
+                            MobileCommandSendResult.CaptureApplied(receipt)
+                        }
                     } else {
-                        MobileCommandSendResult.Applied(receipt)
+                        val receipt = MobileTaskCommandContract.decodeReceipt(response.body)
+                        if (receipt.meta.serverId != expectedServerId) {
+                            MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
+                        } else {
+                            MobileCommandSendResult.Applied(receipt)
+                        }
                     }
                 }
                 response.status == 401 -> {
@@ -884,7 +915,7 @@ class AndroidMobileTaskRepository(
                     } else {
                         MobileCommandSendResult.Rejected(
                             code = error?.error?.code ?: "http_${response.status}",
-                            message = error?.error?.message ?: "DesktopがTask操作を受理しませんでした。",
+                            message = error?.error?.message ?: "Desktopが操作を受理しませんでした。",
                             retryable = error?.error?.retryable ?: false,
                         )
                     }

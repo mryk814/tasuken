@@ -6,6 +6,7 @@ import { entityDefinition } from "../../shared/entityRegistry.mjs";
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeRepositoryContext } from "../../shared/repositoryContext.mjs";
+import { taskCreationProvenanceSchema } from "../../shared/contracts/task/public.ts";
 import type { CanonicalNoteAiCompanion, Entity, EntityType, SaveOperation } from "../../shared/types/workspace";
 import {
   ApplicationCommandError,
@@ -256,7 +257,7 @@ function commandEvent(
   command: CommandEnvelope,
   entityType: EntityType,
   entityId: string,
-  kind: "created" | "updated" | "completed" | "rescheduled" | "triaged",
+  kind: "created" | "updated" | "completed" | "rescheduled" | "triaged" | "deleted",
   before: Entity | null,
   after: Entity,
   eventKind?: string,
@@ -338,6 +339,31 @@ function annotateEvent(command: CommandEnvelope, event: Entity): Entity {
     actor_id: command.actor.id || null,
     command_fingerprint: commandFingerprint(command),
   };
+}
+
+function annotateCaptureProvenance(command: CommandEnvelope, event: Entity): Entity {
+  const raw = (command.payload as { provenance?: unknown }).provenance;
+  if (raw === undefined) return event;
+  const parsed = taskCreationProvenanceSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "Capture作成元のprovenanceが不正です。", {
+      issues: parsed.error.issues,
+    });
+  }
+  const metadata = event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+    ? event.metadata as Record<string, unknown>
+    : {};
+  return { ...event, metadata: { ...metadata, provenance: parsed.data } };
+}
+
+function assertCanonicalThemeExists(repository: Repository, entity: Entity, label: string): void {
+  const themeId = entity.project_id;
+  if (typeof themeId !== "string" || !themeId.trim()) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", `${label}のcanonical Theme IDがありません。`);
+  }
+  if (!repository.list("theme").some((theme) => theme.id === themeId)) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", `Themeが存在しません: ${themeId}`, { themeId });
+  }
 }
 
 function eventChangesFor(repository: Repository, eventIds: string[]): CommandReceipt["eventChanges"] {
@@ -720,6 +746,8 @@ export class ApplicationCommandService {
     const taskModule = createTaskModule(this.repository, taskCommandRuntime(this.repository));
     if (taskModule.commands.handles(command.name)) return taskModule.commands.execute(command);
 
+    if (command.name === "CreateCapture") return this.createCapture(command);
+    if (command.name === "DeleteCapture") return this.deleteCapture(command);
     if (command.name === "CreateTaskFromCapture") {
       return this.createTaskFromCapture(command);
     }
@@ -743,6 +771,80 @@ export class ApplicationCommandService {
     if (command.name === "AcceptTaskWork") return this.acceptTaskWork(command);
     if (command.name === "ReturnTaskWork") return this.returnTaskWork(command);
     throw new ApplicationCommandError("INVALID_ENVELOPE", `Command handlerが登録されていません: ${command.name}`);
+  }
+
+  private createCapture(command: CommandEnvelope): CommandReceipt {
+    if (command.source !== "mobile") {
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "CreateCaptureはMobile経路専用です。");
+    }
+    const payload = command.payload as { capture: Entity; provenance?: Record<string, unknown> };
+    if (this.repository.get("capture_entry", payload.capture.id, true)) {
+      throw new ApplicationCommandError("CONFLICT", "同じCapture IDが既に存在します。", {
+        type: "capture_entry",
+        id: payload.capture.id,
+      });
+    }
+    const capture: Entity = {
+      ...payload.capture,
+      project_id: canonicalThemeId(payload.capture.project_id, { defaultPersonal: true }),
+    };
+    delete capture.theme_id;
+    captureDefinition.parseCreate(capture);
+    if (
+      capture.state !== "untriaged"
+      || capture.kind !== "inbox"
+      || !["text", "url", "markdown"].includes(String(capture.content_type))
+      || (capture.content_type === "url" && !capture.url)
+    ) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "Mobile Captureのcanonical payloadが不正です。");
+    }
+    assertCanonicalThemeExists(this.repository, capture, "Capture");
+    const event = annotateCaptureProvenance(
+      command,
+      annotateEvent(command, commandEvent(command, "capture_entry", capture.id, "created", null, capture)),
+    );
+    return persistReceipt(this.repository, command, [
+      { action: "save", type: "capture_entry", entity: capture },
+      { action: "save", type: "change_event", entity: event },
+    ], [event.id], ["capture_entry"]);
+  }
+
+  private deleteCapture(command: CommandEnvelope): CommandReceipt {
+    if (command.source !== "mobile") {
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "DeleteCaptureはMobile経路専用です。");
+    }
+    const captureId = (command.payload as { captureId: string }).captureId;
+    const current = this.repository.get("capture_entry", captureId);
+    if (!current) {
+      throw new ApplicationCommandError("NOT_FOUND", "削除対象のCaptureがありません。", { id: captureId });
+    }
+    if (!expectedVersionFor(command, "capture_entry", captureId)) {
+      throw new ApplicationCommandError("CONFLICT", "DeleteCaptureにはexpected versionが必要です。", {
+        type: "capture_entry",
+        id: captureId,
+        conflictReason: "version_conflict",
+      });
+    }
+    assertExpectedVersion(this.repository, command, "capture_entry", captureId, current);
+    const deleted = this.repository.remove("capture_entry", captureId);
+    if (!deleted) {
+      throw new ApplicationCommandError("NOT_FOUND", "削除対象のCaptureがありません。", { id: captureId });
+    }
+    const event = annotateEvent(
+      command,
+      commandEvent(command, "capture_entry", captureId, "deleted", current, deleted),
+    );
+    const baseReceipt = receiptFor(command, "applied", [{ type: "capture_entry", entity: deleted }], [event.id]);
+    const receipt: CommandReceipt = {
+      ...baseReceipt,
+      saved: [],
+      deleted: [{ type: "capture_entry", id: captureId }],
+    };
+    this.repository.save("change_event", {
+      ...event,
+      receipt_json: JSON.stringify(receipt),
+    });
+    return { ...receipt, eventChanges: eventChangesFor(this.repository, [event.id]) };
   }
 
   private commitAudioCapture(command: CommandEnvelope): CommandReceipt {

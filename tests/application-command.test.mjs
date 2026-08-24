@@ -180,6 +180,81 @@ test("DeleteTask uses the same expected-version boundary and keeps deletion undo
   assert.throws(() => service.execute(envelope("DeleteTask", { taskId: "delete-task" }, "delete-task-stale", [{ type: "task", id: "delete-task", version: 1 }])), /削除対象のTaskがありません/);
 });
 
+test("Mobile CreateCapture/DeleteCapture are canonical, provenance-bounded, and replay idempotent", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  const provenance = {
+    reported_via: "share_target",
+    captured_at: "2026-08-08T00:00:00.000Z",
+    capture_method: null,
+    recognition_mode: null,
+    language: null,
+    confidence: null,
+    source_audio_available: null,
+    shared_mime_type: "text/plain",
+  };
+  const create = {
+    ...envelope("CreateCapture", {
+      capture: {
+        id: "mobile-capture",
+        text: "https://example.com/research",
+        title: "example.com",
+        kind: "inbox",
+        content_type: "url",
+        url: "https://example.com/research",
+        project_id: "",
+        captured_at: provenance.captured_at,
+        state: "untriaged",
+      },
+      provenance,
+    }, "mobile-capture-create"),
+    source: "mobile",
+  };
+  const created = service.execute(create);
+  assert.equal(created.status, "applied");
+  assert.equal(repo.get("capture_entry", "mobile-capture").project_id, "theme-personal-default");
+  assert.equal(repo.get("capture_entry", "mobile-capture").text, "https://example.com/research");
+  const createEvent = repo.get("change_event", created.events[0]);
+  assert.deepEqual(createEvent.metadata.provenance, provenance);
+  assert.equal(JSON.stringify(createEvent.metadata).includes("example.com/research"), false);
+  assert.deepEqual(service.execute(create), created);
+  assert.equal(repo.list("capture_entry").filter(({ id }) => id === "mobile-capture").length, 1);
+
+  const embeddedUrl = {
+    ...create,
+    commandId: "mobile-capture-embedded",
+    payload: {
+      ...create.payload,
+      capture: {
+        ...create.payload.capture,
+        id: "mobile-capture-embedded",
+        text: "共有された https://example.com/article をあとで読む",
+        title: "共有された https://example.com/article をあとで読む",
+        content_type: "text",
+        url: "https://example.com/article",
+      },
+    },
+  };
+  assert.equal(service.execute(embeddedUrl).status, "applied");
+  assert.equal(repo.get("capture_entry", "mobile-capture-embedded").content_type, "text");
+
+  const remove = {
+    ...envelope(
+      "DeleteCapture",
+      { captureId: "mobile-capture" },
+      "mobile-capture-delete",
+      [{ type: "capture_entry", id: "mobile-capture", version: 1 }],
+    ),
+    source: "mobile",
+  };
+  const deleted = service.execute(remove);
+  assert.deepEqual(deleted.deleted, [{ type: "capture_entry", id: "mobile-capture" }]);
+  assert.equal(deleted.changes[0].entity.version, 2);
+  assert.equal(repo.get("capture_entry", "mobile-capture"), null);
+  assert.deepEqual(service.execute(remove), deleted);
+  assert.equal(repo.list("change_event", true).filter(({ command_id }) => command_id === "mobile-capture-delete").length, 1);
+});
+
 test("Main Today and Today mini use the same explicit-date Task selector", () => {
   const tasks = [
     { id: "today", title: "Today", state: "todo" },

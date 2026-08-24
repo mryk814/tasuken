@@ -306,14 +306,15 @@ private fun TodayApp(
             }
             todayViewModel.resetCaptureState()
             coroutineScope.launch {
+                val entityLabel = if (queued.kind == MobileCaptureKind.Task) "Task" else "Capture"
                 val result = snackbarHostState.showSnackbar(
-                    message = "Taskを追加しました。Desktopへ自動送信します。",
+                    message = "${entityLabel}を追加しました。Desktopへ自動送信します。",
                     actionLabel = "元に戻す",
                     withDismissAction = true,
                     duration = SnackbarDuration.Long,
                 )
                 if (result == SnackbarResult.ActionPerformed) {
-                    todayViewModel.undoCreatedTask(queued.taskId)
+                    todayViewModel.undoCreatedCapture(queued.entityId, queued.kind)
                 }
             }
         }
@@ -547,9 +548,12 @@ private fun TodayApp(
             onThemeSelected = { themeId ->
                 paneState.captureDraft = paneState.captureDraft.withThemeId(themeId)
             },
+            onKindSelected = { kind ->
+                paneState.captureDraft = paneState.captureDraft.withKind(kind)
+            },
             requestInputFocus = paneState.captureInputFocusRequested,
             onInputFocusHandled = paneState::consumeInputFocusRequest,
-            onSubmit = { behavior -> todayViewModel.createTask(paneState.captureDraft, behavior) },
+            onSubmit = { behavior -> todayViewModel.createCapture(paneState.captureDraft, behavior) },
             onStartVoice = requestSpeechRecognition,
             onStopVoice = speechRecognizer::stop,
             onDismiss = {
@@ -574,6 +578,7 @@ internal fun CaptureTaskSheet(
     themeCatalogState: MobileThemeCatalogState,
     onDraftChanged: (String) -> Unit,
     onThemeSelected: (String?) -> Unit,
+    onKindSelected: (MobileCaptureKind) -> Unit,
     requestInputFocus: Boolean = false,
     onInputFocusHandled: () -> Unit = {},
     onSubmit: (CaptureCompletionBehavior) -> Unit,
@@ -598,16 +603,35 @@ internal fun CaptureTaskSheet(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Taskを追加", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Quick Add", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text(
                 "入力元: ${captureSourceLabel(draft.source)}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MobileCaptureKind.entries.forEach { kind ->
+                    FilterChip(
+                        selected = draft.kind == kind,
+                        onClick = { onKindSelected(kind) },
+                        label = { Text(if (kind == MobileCaptureKind.Task) "Task" else "Capture") },
+                        enabled = state !is CaptureUiState.Saving,
+                        modifier = Modifier.testTag("capture-kind-${kind.wireValue}"),
+                    )
+                }
+            }
             OutlinedTextField(
                 value = draft.text,
                 onValueChange = { onDraftChanged(it.take(500)) },
-                label = { Text("Task名") },
-                placeholder = { Text("例: 実験条件を整理する") },
+                label = { Text(if (draft.kind == MobileCaptureKind.Task) "Task名" else "Capture") },
+                placeholder = {
+                    Text(
+                        if (draft.kind == MobileCaptureKind.Task) {
+                            "例: 実験条件を整理する"
+                        } else {
+                            "思いついたことをそのまま"
+                        },
+                    )
+                },
                 supportingText = if (state is CaptureUiState.Error) {
                     { Text(state.message) }
                 } else {

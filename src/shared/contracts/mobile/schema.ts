@@ -82,9 +82,15 @@ export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.proposalRead,
   TASKEN_MOBILE_CAPABILITIES.proposalReview,
   TASKEN_MOBILE_CAPABILITIES.taskWrite,
+  TASKEN_MOBILE_CAPABILITIES.captureWrite,
 ]);
 
-export const mobileScopeSchema = z.enum(["mobile:read", "mobile:task-write", "mobile:proposal-review"]);
+export const mobileScopeSchema = z.enum([
+  "mobile:read",
+  "mobile:task-write",
+  "mobile:capture-write",
+  "mobile:proposal-review",
+]);
 
 export const mobileResponseMetaSchema = z.object({
   apiVersion: apiVersionSchema,
@@ -564,6 +570,8 @@ export const mobileTaskCreationProvenanceSchema = z.object({
   }
 });
 
+export const mobileCaptureCreationProvenanceSchema = mobileTaskCreationProvenanceSchema;
+
 const mobileScheduleEditFields = {
   startDate: localDateSchema.nullable(),
   endDate: localDateSchema.nullable(),
@@ -699,6 +707,68 @@ export const mobileTaskCommandResponseSchema = z.object({
   }).strict(),
 }).strict();
 
+const mobileCreateCaptureCandidateSchema = z.object({
+  id: entityIdSchema,
+  text: z.string().trim().min(1).max(500),
+  projectId: entityIdSchema.nullable().optional(),
+  capturedAt: isoTimestampSchema,
+}).strict();
+
+const mobileCaptureCommandSchema = z.discriminatedUnion("name", [
+  z.object({
+    name: z.literal("CreateCapture"),
+    capture: mobileCreateCaptureCandidateSchema,
+    provenance: mobileCaptureCreationProvenanceSchema.optional(),
+  }).strict(),
+  z.object({
+    name: z.literal("DeleteCapture"),
+    captureId: entityIdSchema,
+    expectedVersion: entityVersionSchema,
+  }).strict(),
+]);
+
+export const mobileCaptureCommandRequestSchema = z.object({
+  apiVersion: apiVersionSchema,
+  schemaVersion: schemaVersionSchema,
+  requestId: requestIdSchema,
+  commandId: entityIdSchema,
+  idempotencyKey: entityIdSchema,
+  clientDeviceId: entityIdSchema,
+  issuedAt: isoTimestampSchema,
+  command: mobileCaptureCommandSchema,
+}).strict().refine((value) => value.commandId === value.idempotencyKey, {
+  path: ["idempotencyKey"],
+  message: "commandIdとidempotencyKeyを一致させてください。",
+}).refine(
+  (value) => value.command.name !== "CreateCapture" || value.command.capture.capturedAt === value.issuedAt,
+  { path: ["command", "capture", "capturedAt"], message: "capturedAtとissuedAtを一致させてください。" },
+).refine(
+  (value) => value.command.name !== "CreateCapture"
+    || value.command.provenance === undefined
+    || value.command.provenance.capturedAt === value.command.capture.capturedAt,
+  { path: ["command", "provenance", "capturedAt"], message: "provenanceのcapturedAtを一致させてください。" },
+);
+
+export const mobileCommandRequestSchema = z.union([
+  mobileTaskCommandRequestSchema,
+  mobileCaptureCommandRequestSchema,
+]);
+
+export const mobileCaptureCommandResponseSchema = z.object({
+  ok: z.literal(true),
+  meta: mobileResponseMetaSchema,
+  data: z.object({
+    commandId: entityIdSchema,
+    status: z.enum(["applied", "no_change"]),
+    capture: z.object({
+      id: entityIdSchema,
+      version: entityVersionSchema,
+      capturedAt: isoTimestampSchema,
+      deleted: z.boolean(),
+    }).strict(),
+  }).strict(),
+}).strict();
+
 export const mobilePairRequestSchema = z.object({
   apiVersion: apiVersionSchema,
   schemaVersion: schemaVersionSchema,
@@ -756,6 +826,9 @@ export type MobileSyncChange = z.output<typeof mobileSyncChangeSchema>;
 export type MobileSyncResponse = z.output<typeof mobileSyncResponseSchema>;
 export type MobileTaskCommandRequest = z.output<typeof mobileTaskCommandRequestSchema>;
 export type MobileTaskCommandResponse = z.output<typeof mobileTaskCommandResponseSchema>;
+export type MobileCaptureCommandRequest = z.output<typeof mobileCaptureCommandRequestSchema>;
+export type MobileCaptureCommandResponse = z.output<typeof mobileCaptureCommandResponseSchema>;
+export type MobileCommandRequest = z.output<typeof mobileCommandRequestSchema>;
 export type MobilePairRequest = z.output<typeof mobilePairRequestSchema>;
 export type MobilePairResponse = z.output<typeof mobilePairResponseSchema>;
 export type MobileErrorResponse = z.output<typeof mobileErrorResponseSchema>;

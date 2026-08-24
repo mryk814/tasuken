@@ -586,7 +586,7 @@ class MobileLocalDatabaseMigrationTest {
             }
             db.query("SELECT envelopeJson, state FROM outbox_command WHERE commandId = 'command-12'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(4, MobileTaskCommandContract.decodeCreateEnvelope(cursor.getString(0)).schemaVersion)
+                assertTrue(cursor.getString(0).contains("\"schemaVersion\":4"))
                 assertEquals("pending", cursor.getString(1))
             }
             db.query("SELECT schemaVersion, cursor FROM sync_state WHERE id = 1").use { cursor ->
@@ -604,6 +604,72 @@ class MobileLocalDatabaseMigrationTest {
                 assertTrue(cursor.moveToFirst())
                 assertEquals("task-12", cursor.getString(0))
                 assertEquals("desktop-home", cursor.getString(1))
+            }
+        }
+    }
+
+    @Test
+    fun migrationThirteenToFourteenPreservesPendingTaskAndAddsMinimalCaptureReceiptStorage() {
+        helper.createDatabase(DatabaseName, 13).apply {
+            execSQL(
+                "INSERT INTO sync_state " +
+                    "(id, serverId, apiVersion, schemaVersion, cursor, lastSuccessfulSyncAt, lastAttemptAt, lastError) " +
+                    "VALUES (1, 'desktop-home', 1, 4, 'cursor-13', '2026-08-23T01:00:00Z', " +
+                    "'2026-08-23T01:00:00Z', NULL)",
+            )
+            execSQL(
+                "INSERT INTO task_cache " +
+                    "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, " +
+                    "optimisticCommandId, conflictCommandId, checklistJson) VALUES " +
+                    "('task-13', NULL, '移行後に送るTask', NULL, 'todo', NULL, NULL, " +
+                    "'2026-08-23T01:00:00Z', 'command-13', NULL, '[]')",
+            )
+            execSQL(
+                "INSERT INTO outbox_command " +
+                    "(commandId, idempotencyKey, requestId, clientDeviceId, issuedAt, commandName, " +
+                    "envelopeJson, serverId, state, attemptCount, createdAt, lastAttemptAt, lastError, " +
+                    "taskId, dependsOnCommandId) VALUES " +
+                    "('command-13', 'command-13', 'request-13', 'device-1', '2026-08-23T01:00:00Z', " +
+                    "'CreateTask', '{\"apiVersion\":1,\"schemaVersion\":4,\"requestId\":\"request-13\"," +
+                    "\"commandId\":\"command-13\",\"idempotencyKey\":\"command-13\"," +
+                    "\"clientDeviceId\":\"device-1\",\"issuedAt\":\"2026-08-23T01:00:00Z\"," +
+                    "\"command\":{\"name\":\"CreateTask\",\"task\":{\"id\":\"task-13\"," +
+                    "\"title\":\"移行後に送るTask\",\"projectId\":null,\"state\":\"todo\"," +
+                    "\"priority\":\"normal\",\"requester\":\"self\"," +
+                    "\"intendedExecutor\":\"self\",\"todayDate\":null},\"provenance\":null}}', " +
+                    "'desktop-home', 'pending', 0, '2026-08-23T01:00:00Z', NULL, NULL, " +
+                    "'task-13', NULL)",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 14, true, MIGRATION_13_14).use { db ->
+            db.query("SELECT title, optimisticCommandId FROM task_cache WHERE id = 'task-13'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("移行後に送るTask", cursor.getString(0))
+                assertEquals("command-13", cursor.getString(1))
+            }
+            db.query(
+                "SELECT envelopeJson, state, captureId FROM outbox_command WHERE commandId = 'command-13'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(5, MobileTaskCommandContract.decodeCreateEnvelope(cursor.getString(0)).schemaVersion)
+                assertEquals("pending", cursor.getString(1))
+                assertTrue(cursor.isNull(2))
+            }
+            db.query("SELECT schemaVersion, cursor FROM sync_state WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(5, cursor.getInt(0))
+                assertEquals("cursor-13", cursor.getString(1))
+            }
+            db.execSQL(
+                "INSERT INTO capture_receipt (id, serverVersion, capturedAt, optimisticCommandId) " +
+                    "VALUES ('capture-13', NULL, '2026-08-23T01:00:00Z', 'capture-command-13')",
+            )
+            db.query("SELECT serverVersion, capturedAt FROM capture_receipt WHERE id = 'capture-13'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertTrue(cursor.isNull(0))
+                assertEquals("2026-08-23T01:00:00Z", cursor.getString(1))
             }
         }
     }

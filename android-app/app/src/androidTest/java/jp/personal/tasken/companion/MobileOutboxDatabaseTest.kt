@@ -110,6 +110,111 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun offlineCapturePersistsBodyOnlyInImmutableOutboxAndReusesStableDraft() = runBlocking {
+        val provenance = MobileTaskCreationProvenanceDto(
+            reportedVia = "share_target",
+            capturedAt = "2026-08-22T01:02:03Z",
+            sharedMimeType = "text/plain",
+        )
+        val first = outbox.enqueueCapture(
+            text = "  共有された本文  ",
+            projectId = "theme-research",
+            draftId = "capture-draft-stable",
+            createdAt = "2026-08-22T01:02:03Z",
+            provenance = provenance,
+        )
+        val second = outbox.enqueueCapture(
+            text = "共有された本文",
+            projectId = "theme-research",
+            draftId = "capture-draft-stable",
+            createdAt = "2026-08-22T01:02:03Z",
+            provenance = provenance,
+        )
+
+        assertEquals(first, second)
+        assertEquals(0, dao.tasks().size)
+        val receipt = requireNotNull(dao.captureReceipt(first))
+        assertNull(receipt.serverVersion)
+        val command = requireNotNull(dao.outboxForCapture(first).single())
+        val envelope = MobileCaptureCommandContract.decodeCreateEnvelope(command.envelopeJson)
+        assertEquals("共有された本文", envelope.command.capture.text)
+        assertEquals("share_target", envelope.command.provenance?.reportedVia)
+        assertEquals("text/plain", envelope.command.provenance?.sharedMimeType)
+        assertEquals(first, command.captureId)
+        assertEquals(1, dao.outboxCount())
+        assertEquals(false, receipt.toString().contains("共有された本文"))
+    }
+
+    @Test
+    fun captureUndoBeforeSendRemovesReceiptAndCommandAtomically() = runBlocking {
+        val captureId = outbox.enqueueCapture("送信前に戻す", draftId = "capture-unsent")
+
+        val result = outbox.undoCapture(captureId)
+
+        assertEquals(false, result.requiresSync)
+        assertNull(result.commandId)
+        assertNull(dao.captureReceipt(captureId))
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun captureRetryAfterProcessInterruptionConvergesCreateThenVersionedDeleteOnce() = runBlocking {
+        val captureId = outbox.enqueueCapture("再起動をまたいで戻す", draftId = "capture-restart")
+        val create = requireNotNull(dao.outboxForCapture(captureId).single())
+        requireNotNull(dao.claimNext("server-1", "2026-08-22T01:03:00Z"))
+        val undo = outbox.undoCapture(captureId)
+        val deleteId = requireNotNull(undo.commandId)
+        assertEquals(create.commandId, dao.outbox(deleteId)?.dependsOnCommandId)
+
+        assertEquals(1, outbox.recoverInterruptedSending())
+        val sent = mutableListOf<String>()
+        assertEquals(false, outbox.drain("server-1") { payload ->
+            if (sent.isEmpty()) {
+                val envelope = MobileCaptureCommandContract.decodeCreateEnvelope(payload)
+                sent += envelope.command.name
+                MobileCommandSendResult.CaptureApplied(
+                    captureReceipt(create.commandId, captureId, version = 3, deleted = false),
+                )
+            } else {
+                val envelope = MobileCaptureCommandContract.decodeDeleteEnvelope(payload)
+                sent += envelope.command.name
+                assertEquals(3, envelope.command.expectedVersion)
+                MobileCommandSendResult.CaptureApplied(
+                    captureReceipt(deleteId, captureId, version = 4, deleted = true),
+                )
+            }
+        })
+
+        assertEquals(listOf("CreateCapture", "DeleteCapture"), sent)
+        assertNull(dao.captureReceipt(captureId))
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun appliedCaptureUndoUsesCanonicalReceiptVersion() = runBlocking {
+        val captureId = outbox.enqueueCapture("同期後に戻す", draftId = "capture-applied")
+        val createId = requireNotNull(dao.outboxForCapture(captureId).single()).commandId
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.CaptureApplied(
+                captureReceipt(createId, captureId, version = 7, deleted = false),
+            )
+        })
+        assertEquals(7, dao.captureReceipt(captureId)?.serverVersion)
+
+        val deleteId = requireNotNull(outbox.undoCapture(captureId).commandId)
+        val delete = MobileCaptureCommandContract.decodeDeleteEnvelope(requireNotNull(dao.outbox(deleteId)).envelopeJson)
+        assertEquals(7, delete.command.expectedVersion)
+        assertEquals(false, outbox.drain("server-1") {
+            MobileCommandSendResult.CaptureApplied(
+                captureReceipt(deleteId, captureId, version = 8, deleted = true),
+            )
+        })
+
+        assertNull(dao.captureReceipt(captureId))
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
     fun undoBeforeFirstSendCancelsCreateAndOptimisticTaskAtomically() = runBlocking {
         val taskId = outbox.enqueueCreate("送信前に戻す", LocalDate.parse("2026-08-22"))
 
@@ -533,7 +638,7 @@ class MobileOutboxDatabaseTest {
             syncState = SyncStateEntity(
                 serverId = "server-1",
                 apiVersion = 1,
-                schemaVersion = 4,
+                schemaVersion = 5,
                 cursor = "2026-08-22T02:00:00Z|bootstrap-task",
                 lastSuccessfulSyncAt = "2026-08-22T02:00:00Z",
                 lastAttemptAt = "2026-08-22T02:00:00Z",
@@ -1481,7 +1586,7 @@ class MobileOutboxDatabaseTest {
         ok = true,
         meta = MobileResponseMetaDto(
             apiVersion = 1,
-            schemaVersion = 4,
+            schemaVersion = 5,
             serverId = "server-1",
             serverRevision = 10,
             generatedAt = "2026-08-22T01:04:00Z",
@@ -1507,6 +1612,33 @@ class MobileOutboxDatabaseTest {
         ),
     )
 
+    private fun captureReceipt(
+        commandId: String,
+        captureId: String,
+        version: Int,
+        deleted: Boolean,
+    ) = MobileCaptureCommandResponseDto(
+        ok = true,
+        meta = MobileResponseMetaDto(
+            apiVersion = TASKEN_MOBILE_API_VERSION,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+            serverId = "server-1",
+            serverRevision = 10,
+            generatedAt = "2026-08-22T01:04:00Z",
+            truncated = false,
+        ),
+        data = MobileCaptureCommandReceiptDto(
+            commandId = commandId,
+            status = "applied",
+            capture = MobileCaptureReceiptDto(
+                id = captureId,
+                version = version,
+                capturedAt = "2026-08-22T01:02:03Z",
+                deleted = deleted,
+            ),
+        ),
+    )
+
     private fun conflict(
         taskId: String,
         serverVersion: Int,
@@ -1523,7 +1655,7 @@ class MobileOutboxDatabaseTest {
         ok = false,
         meta = MobileResponseMetaDto(
             apiVersion = 1,
-            schemaVersion = 4,
+            schemaVersion = 5,
             serverId = "server-1",
             serverRevision = 11,
             generatedAt = "2026-08-22T01:05:00Z",
@@ -1621,7 +1753,7 @@ class MobileOutboxDatabaseTest {
     private fun activeSyncState(serverId: String = "server-1") = SyncStateEntity(
         serverId = serverId,
         apiVersion = 1,
-        schemaVersion = 4,
+        schemaVersion = 5,
         cursor = "task-cursor",
         lastSuccessfulSyncAt = "2026-08-22T01:00:00Z",
         lastAttemptAt = "2026-08-22T01:00:00Z",
