@@ -1,8 +1,8 @@
 # Android daily-driver MVP 引き継ぎ
 
-更新: 2026-08-24 22:55 JST  
+更新: 2026-08-24 23:13 JST  
 対象: #400 / #401 / #402 / #477  
-基準main: `6e7390a1bdba75e12704ffe7fa0024fc9eeed482`
+実装基準main: PR #493 merge `b2d02a41f667fe14beaae2adadfbb55b70246fc0`
 
 ## 目標
 
@@ -18,7 +18,7 @@ Fold対応とAI連携は別製品として増やすのではなく、同じTask�
 
 - AndroidのTask管理、offline cache/outbox、Quick Add、Share Target、短い音声入力、Widget、canonical Capture、signed APK、compact/expanded UIはmainへ統合済みである。process death / OS reboot後のDraft・Undo復元はPR #493で実装・実機検証済みである。
 - #399は実装Issueとして閉じている。
-- #401の最終入力acceptanceは完了した。PR #493をmainへ統合後、証拠コメントとともにcloseできる。
+- #401の最終入力acceptanceは完了し、PR #493のmain統合後に受け入れ基準を全件checkしてcloseした。
 - #400はFold / One UI continuityの残りがあるためopenを維持する。
 - #402はread-only AI Inbox、Work Receipt閲覧、Proposal accept/rejectまで実装済みで、human work reviewとdelegate/Context Previewは未実装である。
 - offline pending 1→0とexactly-once収束、および入力のprocess death / OS reboot journeyは完了した。
@@ -36,7 +36,7 @@ Fold対応とAI連携は別製品として増やすのではなく、同じTask�
 | offline auth/cache             | #488 | transient 401でtoken/cacheを破棄せず、再接続中もRoom cacheを表示            |
 | Quick Add下端inset             | #490 | safe drawing / IME下端をscroll末尾で扱い、gesture barより上に保存操作を保つ |
 
-Android機能の最新main mergeはPR #490、merge commitは`46e7ae9`である。引き継ぎ文書のPR #491 / #492と別セッションの#481 / #482完了変更を含む現在のmainは`6e7390a1`である。
+Android機能の最新main mergeはPR #493、merge commitは`b2d02a41`である。
 
 PR #493はWindows quality、Android quality、永久署名workflowが成功している。
 
@@ -47,7 +47,7 @@ PR #493はWindows quality、Android quality、永久署名workflowが成功し�
 | Today / Task一覧 / 検索 / filter / detail                         | mainへ統合済み                  | S23、Fold7、emulatorで描画済み                                         | 実装済み、continuityの一部が未証明            |
 | Create / title / Theme / Schedule / checklist / complete / reopen | mainへ統合済み                  | 個別操作は実機・自動testあり                                           | daily-driver連続journeyは未完                 |
 | Room cache / outbox / cursor sync                                 | #399として実装済み              | Fold7 reboot後にcacheとpending 1を保持                                 | canonical復帰後のpending 1→0が未証明          |
-| Quick Add / App Shortcut / Widget / Share Target / voice          | main + PR #493                  | 実URL、Task/Capture継続入力、未送信/適用済みUndo、process death/reboot | #401の入力acceptanceはpass                    |
+| Quick Add / App Shortcut / Widget / Share Target / voice          | main（#493）                    | 実URL、Task/Capture継続入力、未送信/適用済みUndo、process death/reboot | #401をclose                                   |
 | Task / Capture provenance                                         | mainへ統合済み                  | android_speech / share_targetのallowlist metadataを確認                | raw本文・音声をmetadataへ複製していない       |
 | signed release / update install                                   | #485で実装済み                  | Fold7 / S23でRoom・Keystore dataを保持した`adb install -r`を確認       | pass                                          |
 | Fold compact / expanded                                           | #486 / #490で実装済み           | Fold7 compact→expandedでQuick Addを維持し、IME中も保存操作へscroll可能 | Task選択等のcontinuityと物理hinge感触は未証明 |
@@ -152,9 +152,9 @@ Galaxy Z Fold7の物理hingeの触感や長時間利用時の快適さも、ス�
 
 ## 現在のruntime state
 
-常用port `127.0.0.1:48177`は、22:55 JSTの最新観測ではWindows canonical runtimeのElectronだけがlistenしている。PIDは再起動で変わるため、再開時はportと実行パスを改めて確認する。
+常用port `127.0.0.1:48177`は、23:13 JSTの最新観測ではWindows canonical runtimeのElectronだけがlistenしている。PIDは再起動で変わるため、再開時はportと実行パスを改めて確認する。
 
-canonical sourceは`C:\Users\ootan\AppData\Local\TaskenDevRuntime\source`、main `6e7390a1`、user-dataは`C:\Users\ootan\AppData\Local\TaskenDevRuntime\user-data`である。
+canonical sourceは`C:\Users\ootan\AppData\Local\TaskenDevRuntime\source`、clean main、user-dataは`C:\Users\ootan\AppData\Local\TaskenDevRuntime\user-data`である。
 
 以前の保護対象だった`214e` worktreeはcleanな`codex/481-482`、head `6e7390a1`となり、常用portを使用していない。所有権不明のためcleanupは行わない。
 
@@ -163,8 +163,7 @@ canonical sourceは`C:\Users\ootan\AppData\Local\TaskenDevRuntime\source`、main
 - Windows canonical source: `C:\Users\ootan\AppData\Local\TaskenDevRuntime\source`
 - Windows canonical branch: clean `main`、`tasken-github/main`と一致
 - 共有checkout `C:\Users\ootan\projects\tasuken`はmainがremoteよりbehindで、`.agents/`、`.tmp-smoke/`、`artifacts/`が未追跡。所有権不明のため触らない。
-- PR #493用worktree: `C:\Users\ootan\.codex\worktrees\477d\tasuken`
-- PR #493用branch: `codex/477-input-process-death`
+- PR #493用worktreeとlocal / remote branchはmerge後に削除済み
 - `214e` worktreeはcleanだが所有権不明のため保護対象
 
 ## 再開時のread-only確認
@@ -192,7 +191,7 @@ rtk wsl.exe --cd /home/ootan/src/tasuken -e bash -lc '/home/ootan/.local/bin/rtk
 
 その判定には、機能がmainにあることだけでなく、#477のFold continuity、Gateway運用、AI Inbox live E2Eを常用構成で再現可能に通す必要がある。offline recoveryと入力journeyはpassした。
 
-PR #493のmain統合後に#401をcloseする。#400と#477は残る実機acceptanceを終えるまでopenを維持する。
+#401はcloseした。#400と#477は残る実機acceptanceを終えるまでopenを維持する。
 
 その後に#478、#479の順でAI human reviewとHermes delegateへ進む。
 
