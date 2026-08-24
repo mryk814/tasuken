@@ -1715,13 +1715,8 @@ test("CreateCapture uses its dedicated scope and returns a body-free canonical r
       capture: {
         id: "capture-mobile-create",
         text: "共有された https://example.com/article をあとで読む",
-        title: "共有された https://example.com/article をあとで読む",
-        kind: "inbox",
-        content_type: "text",
-        url: "https://example.com/article",
         project_id: "theme-personal-default",
         captured_at: now,
-        state: "untriaged",
       },
       provenance: {
         reported_via: "share_target",

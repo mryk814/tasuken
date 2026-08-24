@@ -6,6 +6,7 @@ import { entityDefinition } from "../../shared/entityRegistry.mjs";
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeRepositoryContext } from "../../shared/repositoryContext.mjs";
+import { firstCaptureUrl, quickCaptureContentType, quickCaptureTitle } from "../../shared/quickCapture.mjs";
 import { taskCreationProvenanceSchema } from "../../shared/contracts/task/public.ts";
 import type { CanonicalNoteAiCompanion, Entity, EntityType, SaveOperation } from "../../shared/types/workspace";
 import {
@@ -777,18 +778,33 @@ export class ApplicationCommandService {
     if (command.source !== "mobile") {
       throw new ApplicationCommandError("INVALID_ENVELOPE", "CreateCaptureはMobile経路専用です。");
     }
-    const payload = command.payload as { capture: Entity; provenance?: Record<string, unknown> };
+    const payload = command.payload as {
+      capture: {
+        id: string;
+        text: string;
+        project_id?: string | null;
+        captured_at: string;
+      };
+      provenance?: Record<string, unknown>;
+    };
     if (this.repository.get("capture_entry", payload.capture.id, true)) {
       throw new ApplicationCommandError("CONFLICT", "同じCapture IDが既に存在します。", {
         type: "capture_entry",
         id: payload.capture.id,
       });
     }
+    const captureUrl = firstCaptureUrl(payload.capture.text);
     const capture: Entity = {
-      ...payload.capture,
+      id: payload.capture.id,
+      text: payload.capture.text,
+      title: quickCaptureTitle(payload.capture.text),
+      kind: "inbox",
+      content_type: quickCaptureContentType(payload.capture.text),
+      url: captureUrl || null,
       project_id: canonicalThemeId(payload.capture.project_id, { defaultPersonal: true }),
+      captured_at: payload.capture.captured_at,
+      state: "untriaged",
     };
-    delete capture.theme_id;
     captureDefinition.parseCreate(capture);
     if (
       capture.state !== "untriaged"

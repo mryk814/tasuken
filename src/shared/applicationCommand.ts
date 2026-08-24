@@ -57,7 +57,12 @@ export interface CreateTaskCommandPayload {
 }
 
 export interface CreateCaptureCommandPayload {
-  capture: Entity;
+  capture: {
+    id: string;
+    text: string;
+    project_id?: string | null;
+    captured_at: string;
+  };
   provenance?: Record<string, unknown>;
 }
 
@@ -286,7 +291,15 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtask payloadが不正です。`);
   }
   if (name === "CreateCapture"
-    && (!isRecord(value.payload.capture) || typeof value.payload.capture.id !== "string" || !value.payload.capture.id.trim())) {
+    && (
+      !isRecord(value.payload.capture)
+      || typeof value.payload.capture.id !== "string"
+      || !value.payload.capture.id.trim()
+      || typeof value.payload.capture.text !== "string"
+      || !value.payload.capture.text.trim()
+      || typeof value.payload.capture.captured_at !== "string"
+      || !value.payload.capture.captured_at.trim()
+    )) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", "CreateCaptureのcapture payloadが不正です。");
   }
   if (name === "DeleteCapture"

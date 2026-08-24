@@ -49,8 +49,6 @@ import {
   type TaskQueryResponse,
   type TaskReadModel,
 } from "../../../shared/contracts/task/public.ts";
-import { firstCaptureUrl, quickCaptureContentType, quickCaptureTitle } from "../../../shared/quickCapture.mjs";
-
 const REQUIRED_CORE_CAPABILITIES = [TASKEN_CORE_TASK_QUERY_CAPABILITY, TASKEN_CORE_TASK_COMMAND_CAPABILITY] as const;
 
 export interface MobilePrincipal {
@@ -903,13 +901,8 @@ export class MobileGatewayAdapter {
               capture: {
                 id: command.capture.id,
                 text: command.capture.text,
-                title: quickCaptureTitle(command.capture.text),
-                kind: "inbox",
-                content_type: quickCaptureContentType(command.capture.text),
-                url: firstCaptureUrl(command.capture.text) || null,
                 project_id: command.capture.projectId ?? null,
                 captured_at: command.capture.capturedAt,
-                state: "untriaged",
               },
               ...(command.provenance ? {
                 provenance: {

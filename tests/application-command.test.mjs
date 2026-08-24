@@ -198,13 +198,8 @@ test("Mobile CreateCapture/DeleteCapture are canonical, provenance-bounded, and 
       capture: {
         id: "mobile-capture",
         text: "https://example.com/research",
-        title: "example.com",
-        kind: "inbox",
-        content_type: "url",
-        url: "https://example.com/research",
         project_id: "",
         captured_at: provenance.captured_at,
-        state: "untriaged",
       },
       provenance,
     }, "mobile-capture-create"),
@@ -229,9 +224,6 @@ test("Mobile CreateCapture/DeleteCapture are canonical, provenance-bounded, and 
         ...create.payload.capture,
         id: "mobile-capture-embedded",
         text: "共有された https://example.com/article をあとで読む",
-        title: "共有された https://example.com/article をあとで読む",
-        content_type: "text",
-        url: "https://example.com/article",
       },
     },
   };
