@@ -611,9 +611,11 @@ class AndroidMobileTaskRepository(
             )
         } catch (error: Exception) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Gateway Today sync failed", error)
-            val cached = runBlocking { dao.tasksForDate(LocalDate.now().toString()).map(TaskCacheEntity::toMobileTask) }
-            if (cached.isNotEmpty()) {
-                MobileTodayResult.Available(cached, runBlocking { dao.syncState()?.lastSuccessfulSyncAt.orEmpty() })
+            val (cached, syncState) = runBlocking {
+                dao.tasksForDate(LocalDate.now().toString()).map(TaskCacheEntity::toMobileTask) to dao.syncState()
+            }
+            if (syncState != null) {
+                MobileTodayResult.Available(cached, syncState.lastSuccessfulSyncAt.orEmpty())
             } else {
                 MobileTodayResult.Unavailable(
                     "Mobile Gatewayに接続できません。",
