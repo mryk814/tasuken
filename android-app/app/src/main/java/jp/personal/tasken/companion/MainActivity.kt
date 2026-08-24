@@ -60,6 +60,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.layout.AnimatedPane
@@ -588,6 +589,7 @@ internal fun CaptureTaskSheet(
 ) {
     val focusRequester = remember(draft.draftId) { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     LaunchedEffect(draft.draftId, requestInputFocus) {
         if (requestInputFocus) {
             focusRequester.requestFocus()
@@ -595,7 +597,10 @@ internal fun CaptureTaskSheet(
             onInputFocusHandled()
         }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
