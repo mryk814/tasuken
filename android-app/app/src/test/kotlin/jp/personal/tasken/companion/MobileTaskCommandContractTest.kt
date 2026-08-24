@@ -171,7 +171,7 @@ class MobileTaskCommandContractTest {
     fun deleteTaskUsesVersionedStateEnvelopeAndConflictContract() {
         val envelope = MobileTaskStateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 4,
+            schemaVersion = 5,
             requestId = "request-delete",
             commandId = "command-delete",
             idempotencyKey = "command-delete",
@@ -194,13 +194,105 @@ class MobileTaskCommandContractTest {
         )
     }
 
+    @Test
+    fun captureCommandsRoundTripStrictProvenanceAndVersionedDelete() {
+        val provenance = MobileTaskCreationProvenanceDto(
+            reportedVia = "share_target",
+            capturedAt = "2026-08-23T00:00:00Z",
+            sharedMimeType = "text/plain",
+        )
+        val create = MobileCreateCaptureEnvelopeDto(
+            apiVersion = TASKEN_MOBILE_API_VERSION,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+            requestId = "request-capture",
+            commandId = "command-capture",
+            idempotencyKey = "command-capture",
+            clientDeviceId = "device-1",
+            issuedAt = "2026-08-23T00:00:00Z",
+            command = MobileCreateCaptureCommandDto(
+                name = "CreateCapture",
+                capture = MobileCreateCaptureCandidateDto(
+                    id = "capture-1",
+                    text = "共有メモ",
+                    projectId = "theme-1",
+                    capturedAt = "2026-08-23T00:00:00Z",
+                ),
+                provenance = provenance,
+            ),
+        )
+
+        val decoded = MobileCaptureCommandContract.decodeCreateEnvelope(
+            MobileCaptureCommandContract.encode(create),
+        )
+        assertEquals("共有メモ", decoded.command.capture.text)
+        assertEquals(provenance, decoded.command.provenance)
+
+        val delete = MobileDeleteCaptureEnvelopeDto(
+            apiVersion = TASKEN_MOBILE_API_VERSION,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+            requestId = "request-delete-capture",
+            commandId = "command-delete-capture",
+            idempotencyKey = "command-delete-capture",
+            clientDeviceId = "device-1",
+            issuedAt = "2026-08-23T00:01:00Z",
+            command = MobileDeleteCaptureCommandDto("DeleteCapture", "capture-1", 3),
+        )
+        assertEquals(
+            3,
+            MobileCaptureCommandContract.decodeDeleteEnvelope(MobileCaptureCommandContract.encode(delete))
+                .command.expectedVersion,
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            MobileCaptureCommandContract.encode(
+                create.copy(command = create.command.copy(
+                    provenance = provenance.copy(capturedAt = "2026-08-23T00:00:01Z"),
+                )),
+            )
+        }
+    }
+
+    @Test
+    fun captureReceiptIsMinimalAndRejectsBodyCopies() {
+        val valid = """
+            {
+              "ok": true,
+              "meta": {
+                "apiVersion": 1,
+                "schemaVersion": 5,
+                "serverId": "server-1",
+                "serverRevision": 8,
+                "generatedAt": "2026-08-23T00:00:00Z",
+                "truncated": false
+              },
+              "data": {
+                "commandId": "command-capture",
+                "status": "applied",
+                "capture": {
+                  "id": "capture-1",
+                  "version": 3,
+                  "capturedAt": "2026-08-23T00:00:00Z",
+                  "deleted": false
+                }
+              }
+            }
+        """.trimIndent()
+
+        assertEquals("capture-1", MobileCaptureCommandContract.decodeReceipt(valid).data.capture.id)
+        assertThrows(kotlinx.serialization.SerializationException::class.java) {
+            MobileCaptureCommandContract.decodeReceipt(
+                valid.replace("\"deleted\": false", "\"deleted\": false, \"text\": \"複製禁止\""),
+            )
+        }
+    }
+
     private fun updateEnvelope(
         changes: kotlinx.serialization.json.JsonObject,
         base: kotlinx.serialization.json.JsonObject,
         expectedScheduleVersion: Int?,
     ) = MobileTaskUpdateEnvelopeDto(
         apiVersion = 1,
-        schemaVersion = 4,
+        schemaVersion = 5,
         requestId = "request-1",
         commandId = "command-1",
         idempotencyKey = "command-1",
@@ -218,7 +310,7 @@ class MobileTaskCommandContractTest {
 
     private fun createEnvelope(provenance: MobileTaskCreationProvenanceDto) = MobileCreateTaskEnvelopeDto(
         apiVersion = 1,
-        schemaVersion = 4,
+        schemaVersion = 5,
         requestId = "request-create",
         commandId = "command-create",
         idempotencyKey = "command-create",
@@ -239,7 +331,7 @@ class MobileTaskCommandContractTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",
@@ -268,7 +360,7 @@ class MobileTaskCommandContractTest {
           "ok": false,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",
@@ -304,7 +396,7 @@ class MobileTaskCommandContractTest {
           "ok": false,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",

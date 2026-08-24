@@ -11,6 +11,7 @@ const DEFAULT_PAIRING_TTL_MS = 5 * 60 * 1_000;
 export const MOBILE_DEVICE_DEFAULT_SCOPES = Object.freeze([
   "mobile:read",
   "mobile:task-write",
+  "mobile:capture-write",
   "mobile:proposal-review",
 ] satisfies MobileScope[]);
 
@@ -100,7 +101,7 @@ function publicDevice(record: StoredMobileDeviceRecord): MobileDeviceRecord {
   return {
     id: record.id,
     label: record.label,
-    scopes: [...record.scopes],
+    scopes: effectiveScopes(record.scopes),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     lastSeenAt: record.lastSeenAt,

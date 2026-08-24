@@ -10,7 +10,8 @@ import {
   encodeTaskenMobileThemeCursor,
   mobileBootstrapRequestSchema,
   mobileBootstrapResponseSchema,
-  mobileTaskCommandRequestSchema,
+  mobileCaptureCommandResponseSchema,
+  mobileCommandRequestSchema,
   mobileTaskCommandResponseSchema,
   mobileErrorResponseSchema,
   mobileHealthResponseSchema,
@@ -48,7 +49,6 @@ import {
   type TaskQueryResponse,
   type TaskReadModel,
 } from "../../../shared/contracts/task/public.ts";
-
 const REQUIRED_CORE_CAPABILITIES = [TASKEN_CORE_TASK_QUERY_CAPABILITY, TASKEN_CORE_TASK_COMMAND_CAPABILITY] as const;
 
 export interface MobilePrincipal {
@@ -89,6 +89,27 @@ export type MobileGatewayTaskWorkProposalDecisionResult =
     code: Extract<MobileErrorCode, "idempotency_conflict" | "not_found" | "proposal_conflict" | "validation_failed">;
   };
 
+export interface MobileGatewayCaptureCommand {
+  commandId: string;
+  name: "CreateCapture" | "DeleteCapture";
+  actorId: string;
+  issuedAt: string;
+  payload: Record<string, unknown>;
+  expectedVersion?: number;
+}
+
+export type MobileGatewayCaptureCommandResult =
+  | {
+    ok: true;
+    commandId: string;
+    status: "applied" | "no_change";
+    capture: { id: string; version: number; capturedAt: string; deleted: boolean };
+  }
+  | {
+    ok: false;
+    code: Extract<MobileErrorCode, "idempotency_conflict" | "entity_conflict" | "not_found" | "validation_failed">;
+  };
+
 export interface MobileGatewayCorePort {
   status(): Promise<{ apiVersion: string; capabilities: readonly string[] }>;
   listThemes(): Promise<readonly MobileGatewayThemeRecord[]> | readonly MobileGatewayThemeRecord[];
@@ -101,6 +122,9 @@ export interface MobileGatewayCorePort {
   ): Promise<MobileGatewayTaskWorkProposalDecisionResult> | MobileGatewayTaskWorkProposalDecisionResult;
   executeTaskQuery(input: unknown): Promise<TaskQueryResponse> | TaskQueryResponse;
   executeTaskCommand(input: unknown): Promise<TaskCommandResponse> | TaskCommandResponse;
+  executeCaptureCommand(
+    input: MobileGatewayCaptureCommand,
+  ): Promise<MobileGatewayCaptureCommandResult> | MobileGatewayCaptureCommandResult;
 }
 
 export interface MobileGatewayThemeRecord {
@@ -540,7 +564,7 @@ function safeMessage(code: MobileErrorCode) {
     method_not_allowed: "このmethodは利用できません。",
     version_mismatch: "Tasken Coreとのversionが一致しません。Desktopを更新してください。",
     idempotency_conflict: "同じcommandIdが異なる内容で使用されています。",
-    entity_conflict: "同じTask IDが既に存在します。新しいIDで再試行してください。",
+    entity_conflict: "同じIDが既に存在するか、対象が更新済みです。再読み込みして再試行してください。",
     version_conflict: "Taskが更新されています。再読み込みして再試行してください。",
     proposal_conflict: "Proposalまたは対象Taskが更新されています。再読み込みしてください。",
     capability_unavailable: "必要なTasken Core capabilityを利用できません。",
@@ -572,15 +596,23 @@ export class MobileGatewayAdapter {
         .includes(request.path as never) ? "POST" : "GET";
       if (request.method !== expectedMethod) return this.error(meta, "method_not_allowed");
       if (request.method === "GET" && request.body !== undefined) return this.error(meta, "validation_failed");
+      const commandRequest = request.path === TASKEN_MOBILE_ENDPOINTS.commands
+        ? mobileCommandRequestSchema.safeParse(request.body)
+        : null;
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.commands
+        && (!commandRequest?.success || commandRequest.data.clientDeviceId !== request.principal.deviceId)
+      ) return this.error(meta, "validation_failed");
 
       if (
         [TASKEN_MOBILE_ENDPOINTS.today, TASKEN_MOBILE_ENDPOINTS.themes, TASKEN_MOBILE_ENDPOINTS.workReceipt, TASKEN_MOBILE_ENDPOINTS.proposals, TASKEN_MOBILE_ENDPOINTS.bootstrap, TASKEN_MOBILE_ENDPOINTS.sync].includes(request.path as never)
         && !request.principal.scopes.includes("mobile:read")
       ) return this.error(meta, "forbidden");
-      if (
-        request.path === TASKEN_MOBILE_ENDPOINTS.commands
-        && !request.principal.scopes.includes("mobile:task-write")
-      ) return this.error(meta, "forbidden");
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.commands && commandRequest?.success) {
+        const captureCommand = ["CreateCapture", "DeleteCapture"].includes(commandRequest.data.command.name);
+        const requiredScope: MobileScope = captureCommand ? "mobile:capture-write" : "mobile:task-write";
+        if (!request.principal.scopes.includes(requiredScope)) return this.error(meta, "forbidden");
+      }
       if (
         request.path === TASKEN_MOBILE_ENDPOINTS.proposalDecisions
         && !request.principal.scopes.includes("mobile:proposal-review")
@@ -859,12 +891,52 @@ export class MobileGatewayAdapter {
         }));
       }
 
-      const parsed = mobileTaskCommandRequestSchema.safeParse(request.body);
-      if (!parsed.success || parsed.data.clientDeviceId !== request.principal.deviceId) {
-        return this.error(meta, "validation_failed");
-      }
+      const parsed = commandRequest;
+      if (!parsed?.success) return this.error(meta, "validation_failed");
       diagnosticId = parsed.data.requestId;
       const command = parsed.data.command;
+      if (command.name === "CreateCapture" || command.name === "DeleteCapture") {
+        const payload = command.name === "CreateCapture"
+          ? {
+              capture: {
+                id: command.capture.id,
+                text: command.capture.text,
+                project_id: command.capture.projectId ?? null,
+                captured_at: command.capture.capturedAt,
+              },
+              ...(command.provenance ? {
+                provenance: {
+                  reported_via: command.provenance.reportedVia,
+                  captured_at: command.provenance.capturedAt,
+                  capture_method: command.provenance.captureMethod,
+                  recognition_mode: command.provenance.recognitionMode,
+                  language: command.provenance.language,
+                  confidence: command.provenance.confidence,
+                  source_audio_available: command.provenance.sourceAudioAvailable,
+                  shared_mime_type: command.provenance.sharedMimeType,
+                },
+              } : {}),
+            }
+          : { captureId: command.captureId };
+        const result = await this.options.core.executeCaptureCommand({
+          commandId: parsed.data.commandId,
+          name: command.name,
+          actorId: request.principal.deviceId,
+          issuedAt: parsed.data.issuedAt,
+          payload,
+          ...(command.name === "DeleteCapture" ? { expectedVersion: command.expectedVersion } : {}),
+        });
+        if (!result.ok) return this.error(meta, result.code);
+        return this.success(mobileCaptureCommandResponseSchema.parse({
+          ok: true,
+          meta,
+          data: {
+            commandId: result.commandId,
+            status: result.status,
+            capture: result.capture,
+          },
+        }));
+      }
       const payload = command.name === "CreateTask"
         ? {
             task: {
@@ -1026,6 +1098,7 @@ export class MobileGatewayAdapter {
       );
     }
     if (principal.scopes.includes("mobile:task-write")) capabilities.push(TASKEN_MOBILE_CAPABILITIES.taskWrite);
+    if (principal.scopes.includes("mobile:capture-write")) capabilities.push(TASKEN_MOBILE_CAPABILITIES.captureWrite);
     if (principal.scopes.includes("mobile:proposal-review")) capabilities.push(TASKEN_MOBILE_CAPABILITIES.proposalReview);
     return capabilities;
   }

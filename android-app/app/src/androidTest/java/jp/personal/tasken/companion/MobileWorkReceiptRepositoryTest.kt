@@ -32,7 +32,7 @@ class MobileWorkReceiptRepositoryTest {
             SyncStateEntity(
                 serverId = "server-1",
                 apiVersion = 1,
-                schemaVersion = 4,
+                schemaVersion = 5,
                 cursor = "cursor-1",
                 lastSuccessfulSyncAt = "2026-08-22T01:00:00Z",
                 lastAttemptAt = "2026-08-22T01:00:00Z",
@@ -110,7 +110,7 @@ class MobileWorkReceiptRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "serverId": "$serverId",
             "serverRevision": 42,
             "generatedAt": "2026-08-22T02:00:00Z",

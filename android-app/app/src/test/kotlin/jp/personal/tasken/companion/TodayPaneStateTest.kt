@@ -12,6 +12,7 @@ class TodayPaneStateTest {
         before.captureDraft = MobileCaptureDraft.fresh(
             text = "折りたたみ後も残す",
             source = MobileCaptureSource.AndroidSpeech,
+            kind = MobileCaptureKind.Capture,
             now = { java.time.Instant.parse("2026-08-23T00:00:00Z") },
             newId = { "draft-voice" },
         ).copy(
@@ -42,6 +43,7 @@ class TodayPaneStateTest {
         assertEquals("draft-voice", restored.captureDraft.draftId)
         assertEquals("theme-research", restored.captureDraft.projectId)
         assertEquals(MobileCaptureSource.AndroidSpeech, restored.captureDraft.source)
+        assertEquals(MobileCaptureKind.Capture, restored.captureDraft.kind)
         assertEquals(MobileSpeechRecognitionMode.OnDevice, restored.captureDraft.speech?.recognitionMode)
         assertEquals("ja-JP", restored.captureDraft.speech?.language)
         assertEquals(0.9f, restored.captureDraft.speech?.confidence)
@@ -97,6 +99,7 @@ class TodayPaneStateTest {
         val restored = TodayPaneState.restore(before.save())
 
         assertEquals(MobileCaptureSource.ShareTarget, restored.captureDraft.source)
+        assertEquals(MobileCaptureKind.Capture, restored.captureDraft.kind)
         assertEquals("text/plain", restored.captureDraft.share?.mimeType)
         assertEquals("共有本文", restored.captureDraft.text)
     }

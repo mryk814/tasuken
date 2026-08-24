@@ -59,6 +59,77 @@ internal fun MobileCaptureDraft.toTaskCreationProvenanceDto(): MobileTaskCreatio
         sharedMimeType = share?.mimeType,
     )
 
+internal fun MobileCaptureDraft.toCaptureCreationProvenanceDto(): MobileTaskCreationProvenanceDto =
+    toTaskCreationProvenanceDto()
+
+@Serializable
+data class MobileCreateCaptureEnvelopeDto(
+    val apiVersion: Int,
+    val schemaVersion: Int,
+    val requestId: String,
+    val commandId: String,
+    val idempotencyKey: String,
+    val clientDeviceId: String,
+    val issuedAt: String,
+    val command: MobileCreateCaptureCommandDto,
+)
+
+@Serializable
+data class MobileCreateCaptureCommandDto(
+    val name: String,
+    val capture: MobileCreateCaptureCandidateDto,
+    val provenance: MobileTaskCreationProvenanceDto? = null,
+)
+
+@Serializable
+data class MobileCreateCaptureCandidateDto(
+    val id: String,
+    val text: String,
+    val projectId: String? = null,
+    val capturedAt: String,
+)
+
+@Serializable
+data class MobileDeleteCaptureEnvelopeDto(
+    val apiVersion: Int,
+    val schemaVersion: Int,
+    val requestId: String,
+    val commandId: String,
+    val idempotencyKey: String,
+    val clientDeviceId: String,
+    val issuedAt: String,
+    val command: MobileDeleteCaptureCommandDto,
+)
+
+@Serializable
+data class MobileDeleteCaptureCommandDto(
+    val name: String,
+    val captureId: String,
+    val expectedVersion: Int,
+)
+
+@Serializable
+data class MobileCaptureCommandResponseDto(
+    val ok: Boolean,
+    val meta: MobileResponseMetaDto,
+    val data: MobileCaptureCommandReceiptDto,
+)
+
+@Serializable
+data class MobileCaptureCommandReceiptDto(
+    val commandId: String,
+    val status: String,
+    val capture: MobileCaptureReceiptDto,
+)
+
+@Serializable
+data class MobileCaptureReceiptDto(
+    val id: String,
+    val version: Int,
+    val capturedAt: String,
+    val deleted: Boolean,
+)
+
 @Serializable
 data class MobileCreateTaskCandidateDto(
     val id: String,
@@ -186,7 +257,8 @@ object MobileTaskCommandContract {
     fun decodeReceipt(payload: String): MobileTaskCommandResponseDto {
         val response = json.decodeFromString<MobileTaskCommandResponseDto>(payload)
         require(response.ok)
-        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 4)
+        require(response.meta.apiVersion == TASKEN_MOBILE_API_VERSION &&
+            response.meta.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
         require(response.data.status in setOf("applied", "no_change"))
         require(response.data.commandId.isNotBlank())
         validateTaskSummary(response.data.task)
@@ -201,7 +273,8 @@ object MobileTaskCommandContract {
     fun decodeError(payload: String): MobileTaskCommandErrorResponseDto {
         val response = json.decodeFromString<MobileTaskCommandErrorResponseDto>(payload)
         require(!response.ok)
-        require(response.meta.apiVersion == 1 && response.meta.schemaVersion == 4)
+        require(response.meta.apiVersion == TASKEN_MOBILE_API_VERSION &&
+            response.meta.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
         require(response.error.code.isNotBlank() && response.error.message.isNotBlank())
         if (response.error.code != "version_conflict") {
             require(response.error.conflict == null)
@@ -235,7 +308,8 @@ object MobileTaskCommandContract {
     }
 
     private fun validateCreateEnvelope(envelope: MobileCreateTaskEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 4)
+        require(envelope.apiVersion == TASKEN_MOBILE_API_VERSION &&
+            envelope.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name == "CreateTask")
         require(envelope.command.task.id.isNotBlank())
@@ -266,7 +340,8 @@ object MobileTaskCommandContract {
     }
 
     private fun validateStateEnvelope(envelope: MobileTaskStateEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 4)
+        require(envelope.apiVersion == TASKEN_MOBILE_API_VERSION &&
+            envelope.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name in setOf("CompleteTask", "ReopenTask", "DeleteTask"))
         require(envelope.command.taskId.isNotBlank())
@@ -275,7 +350,8 @@ object MobileTaskCommandContract {
     }
 
     private fun validateUpdateEnvelope(envelope: MobileTaskUpdateEnvelopeDto) {
-        require(envelope.apiVersion == 1 && envelope.schemaVersion == 4)
+        require(envelope.apiVersion == TASKEN_MOBILE_API_VERSION &&
+            envelope.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name == "UpdateTask")
         require(envelope.command.taskId.isNotBlank())
@@ -443,4 +519,92 @@ object MobileTaskCommandContract {
     )
 
     private fun isThemeId(value: String): Boolean = value.isNotBlank() && value.length <= 200
+}
+
+object MobileCaptureCommandContract {
+    private val json = Json {
+        ignoreUnknownKeys = false
+        isLenient = false
+        coerceInputValues = false
+        encodeDefaults = true
+        explicitNulls = true
+    }
+
+    fun encode(envelope: MobileCreateCaptureEnvelopeDto): String {
+        validate(envelope)
+        return json.encodeToString(envelope)
+    }
+
+    fun encode(envelope: MobileDeleteCaptureEnvelopeDto): String {
+        validate(envelope)
+        return json.encodeToString(envelope)
+    }
+
+    fun decodeCreateEnvelope(payload: String): MobileCreateCaptureEnvelopeDto =
+        json.decodeFromString<MobileCreateCaptureEnvelopeDto>(payload).also(::validate)
+
+    fun decodeDeleteEnvelope(payload: String): MobileDeleteCaptureEnvelopeDto =
+        json.decodeFromString<MobileDeleteCaptureEnvelopeDto>(payload).also(::validate)
+
+    fun decodeReceipt(payload: String): MobileCaptureCommandResponseDto {
+        val response = json.decodeFromString<MobileCaptureCommandResponseDto>(payload)
+        require(response.ok)
+        require(response.meta.apiVersion == TASKEN_MOBILE_API_VERSION &&
+            response.meta.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
+        require(response.data.commandId.isNotBlank())
+        require(response.data.status in setOf("applied", "no_change"))
+        require(response.data.capture.id.isNotBlank())
+        require(response.data.capture.version > 0)
+        require(runCatching { OffsetDateTime.parse(response.data.capture.capturedAt) }.isSuccess)
+        require(runCatching { OffsetDateTime.parse(response.meta.generatedAt) }.isSuccess)
+        return response
+    }
+
+    private fun validate(envelope: MobileCreateCaptureEnvelopeDto) {
+        require(envelope.apiVersion == TASKEN_MOBILE_API_VERSION &&
+            envelope.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
+        require(envelope.commandId == envelope.idempotencyKey)
+        require(envelope.command.name == "CreateCapture")
+        require(envelope.command.capture.id.isNotBlank())
+        require(envelope.command.capture.text.isNotBlank() && envelope.command.capture.text.length <= 500)
+        require(envelope.command.capture.projectId == null || envelope.command.capture.projectId.isNotBlank())
+        require(runCatching { OffsetDateTime.parse(envelope.command.capture.capturedAt) }.isSuccess)
+        require(envelope.command.capture.capturedAt == envelope.issuedAt)
+        require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)
+        envelope.command.provenance?.let {
+            validateCreationProvenance(it)
+            require(it.capturedAt == envelope.command.capture.capturedAt)
+        }
+    }
+
+    private fun validate(envelope: MobileDeleteCaptureEnvelopeDto) {
+        require(envelope.apiVersion == TASKEN_MOBILE_API_VERSION &&
+            envelope.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
+        require(envelope.commandId == envelope.idempotencyKey)
+        require(envelope.command.name == "DeleteCapture")
+        require(envelope.command.captureId.isNotBlank())
+        require(envelope.command.expectedVersion > 0)
+        require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)
+    }
+
+    private fun validateCreationProvenance(provenance: MobileTaskCreationProvenanceDto) {
+        require(provenance.reportedVia in setOf("android_app", "widget", "app_shortcut", "share_target", "android_speech"))
+        require(runCatching { OffsetDateTime.parse(provenance.capturedAt) }.isSuccess)
+        require(provenance.captureMethod == null || provenance.captureMethod == "android_speech")
+        provenance.confidence?.let { require(it.isFinite() && it in 0f..1f) }
+        val hasSpeech = provenance.captureMethod == "android_speech"
+        if (hasSpeech) {
+            require(provenance.reportedVia == "android_speech")
+            require(provenance.recognitionMode in setOf("on_device", "system_service", "unknown"))
+            require(provenance.language?.isNotBlank() == true && provenance.language.length <= 64)
+            require(provenance.sourceAudioAvailable == false)
+        } else {
+            require(provenance.recognitionMode == null)
+            require(provenance.language == null)
+            require(provenance.confidence == null)
+            require(provenance.sourceAudioAvailable == null)
+        }
+        require((provenance.reportedVia == "share_target") == (provenance.sharedMimeType != null))
+        require(provenance.sharedMimeType == null || provenance.sharedMimeType == "text/plain")
+    }
 }

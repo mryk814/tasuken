@@ -145,6 +145,7 @@ internal fun OutboxCommandEntity.isUnsentChecklistUpdate(): Boolean {
 
 sealed interface MobileCommandSendResult {
     data class Applied(val response: MobileTaskCommandResponseDto) : MobileCommandSendResult
+    data class CaptureApplied(val response: MobileCaptureCommandResponseDto) : MobileCommandSendResult
     data class Conflict(val response: MobileTaskCommandErrorResponseDto) : MobileCommandSendResult
     data class Retry(val reason: String) : MobileCommandSendResult
     data class Rejected(
@@ -225,7 +226,7 @@ class MobileOutbox(
         }
         val envelope = MobileCreateTaskEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 4,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -275,6 +276,86 @@ class MobileOutbox(
         return taskId
     }
 
+    suspend fun enqueueCapture(
+        text: String,
+        projectId: String? = null,
+        draftId: String = UUID.randomUUID().toString(),
+        createdAt: String = now().toString(),
+        provenance: MobileTaskCreationProvenanceDto = MobileTaskCreationProvenanceDto(
+            reportedVia = MobileCaptureSource.AndroidApp.wireValue,
+            capturedAt = createdAt,
+        ),
+    ): String {
+        val normalizedText = text.trim()
+        require(normalizedText.isNotEmpty() && normalizedText.length <= 500)
+        require(projectId == null || projectId.isNotBlank())
+        require(draftId.isNotBlank())
+        val captureId = stableDraftId("capture", draftId)
+        val commandId = stableDraftId("capture-command", draftId)
+        val requestId = stableDraftId("capture-request", draftId)
+        val serverId = currentServerId()
+        dao.outbox(commandId)?.let { existing ->
+            val existingEnvelope = MobileCaptureCommandContract.decodeCreateEnvelope(existing.envelopeJson)
+            require(
+                existing.serverId == serverId &&
+                    existing.captureId == captureId &&
+                    existingEnvelope.command.capture.id == captureId &&
+                    existingEnvelope.command.capture.text == normalizedText &&
+                    existingEnvelope.command.capture.projectId == projectId &&
+                    existingEnvelope.command.provenance == provenance,
+            ) { "同じDraft IDが別のCapture作成に使われています。" }
+            return captureId
+        }
+        dao.captureReceipt(captureId)?.let { existing ->
+            if (existing.serverVersion != null) return captureId
+        }
+        val envelope = MobileCreateCaptureEnvelopeDto(
+            apiVersion = TASKEN_MOBILE_API_VERSION,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+            requestId = requestId,
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = deviceId(),
+            issuedAt = createdAt,
+            command = MobileCreateCaptureCommandDto(
+                name = "CreateCapture",
+                capture = MobileCreateCaptureCandidateDto(
+                    id = captureId,
+                    text = normalizedText,
+                    projectId = projectId,
+                    capturedAt = createdAt,
+                ),
+                provenance = provenance,
+            ),
+        )
+        dao.enqueueCaptureCreate(
+            receipt = CaptureReceiptEntity(
+                id = captureId,
+                serverVersion = null,
+                capturedAt = createdAt,
+                optimisticCommandId = commandId,
+            ),
+            command = OutboxCommandEntity(
+                commandId = commandId,
+                idempotencyKey = commandId,
+                requestId = requestId,
+                clientDeviceId = envelope.clientDeviceId,
+                issuedAt = createdAt,
+                commandName = "CreateCapture",
+                envelopeJson = MobileCaptureCommandContract.encode(envelope),
+                serverId = serverId,
+                state = OutboxState.Pending,
+                attemptCount = 0,
+                createdAt = createdAt,
+                lastAttemptAt = null,
+                lastError = null,
+                captureId = captureId,
+            ),
+        )
+        schedule()
+        return captureId
+    }
+
     private fun stableDraftId(kind: String, draftId: String): String = UUID.nameUUIDFromBytes(
         "tasken-mobile-$kind:$draftId".toByteArray(StandardCharsets.UTF_8),
     ).toString()
@@ -310,7 +391,7 @@ class MobileOutbox(
         val issuedAt = now().toString()
         val envelope = MobileTaskStateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 4,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -352,6 +433,76 @@ class MobileOutbox(
         return MobileUndoCreateResult(commandId, requiresSync = true)
     }
 
+    suspend fun undoCapture(captureId: String): MobileUndoCreateResult {
+        val serverId = currentServerId()
+        requireNotNull(dao.captureReceipt(captureId)) {
+            "追加したCaptureのreceiptがありません。同期状態を確認してください。"
+        }
+        val initialCommands = dao.outboxForCapture(captureId)
+        initialCommands.firstOrNull { it.commandName == "DeleteCapture" }?.let { existing ->
+            require(existing.serverId == serverId) { "接続先が変わったため、追加を元に戻せません。" }
+            return MobileUndoCreateResult(existing.commandId, requiresSync = true)
+        }
+        val create = initialCommands.firstOrNull { it.commandName == "CreateCapture" }
+        if (create != null && dao.cancelUnsentCaptureCreate(create.commandId, captureId)) {
+            return MobileUndoCreateResult(commandId = null, requiresSync = false)
+        }
+
+        val receipt = requireNotNull(dao.captureReceipt(captureId)) {
+            "追加したCaptureは既に取り消されています。"
+        }
+        val parent = receipt.optimisticCommandId?.let { commandId ->
+            requireNotNull(dao.outbox(commandId)) { "送信待ちCaptureのcommandが見つかりません。" }
+        }
+        if (parent != null) {
+            require(
+                parent.commandName == "CreateCapture" &&
+                    parent.serverId == serverId &&
+                    parent.state in setOf(OutboxState.Pending, OutboxState.Sending, OutboxState.RetryWait),
+            ) { "Capture作成の同期結果を待ってから追加を元に戻してください。" }
+        }
+        val expectedVersion = receipt.serverVersion ?: 1
+        val commandId = UUID.randomUUID().toString()
+        val requestId = UUID.randomUUID().toString()
+        val issuedAt = now().toString()
+        val envelope = MobileDeleteCaptureEnvelopeDto(
+            apiVersion = TASKEN_MOBILE_API_VERSION,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+            requestId = requestId,
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = deviceId(),
+            issuedAt = issuedAt,
+            command = MobileDeleteCaptureCommandDto(
+                name = "DeleteCapture",
+                captureId = captureId,
+                expectedVersion = expectedVersion,
+            ),
+        )
+        dao.enqueueCaptureDelete(
+            receipt = receipt.copy(optimisticCommandId = commandId),
+            command = OutboxCommandEntity(
+                commandId = commandId,
+                idempotencyKey = commandId,
+                requestId = requestId,
+                clientDeviceId = envelope.clientDeviceId,
+                issuedAt = issuedAt,
+                commandName = "DeleteCapture",
+                envelopeJson = MobileCaptureCommandContract.encode(envelope),
+                serverId = serverId,
+                state = OutboxState.Pending,
+                attemptCount = 0,
+                createdAt = issuedAt,
+                lastAttemptAt = null,
+                lastError = null,
+                captureId = captureId,
+                dependsOnCommandId = parent?.commandId,
+            ),
+        )
+        schedule()
+        return MobileUndoCreateResult(commandId, requiresSync = true)
+    }
+
     suspend fun enqueueComplete(taskId: String): MobileStateActionResult = enqueueState(taskId, "CompleteTask", "done")
 
     suspend fun enqueueReopen(taskId: String): MobileStateActionResult = enqueueState(taskId, "ReopenTask", "todo")
@@ -369,7 +520,7 @@ class MobileOutbox(
         val serverId = currentServerId()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 4,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -452,7 +603,7 @@ class MobileOutbox(
         val requestId = UUID.randomUUID().toString()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 4,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -525,7 +676,7 @@ class MobileOutbox(
         val serverId = currentServerId()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 4,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -580,7 +731,7 @@ class MobileOutbox(
             .map(OutboxCommandEntity::commandId)
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 4,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -639,7 +790,7 @@ class MobileOutbox(
         val serverId = currentServerId()
         val envelope = MobileTaskUpdateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 4,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -760,7 +911,7 @@ class MobileOutbox(
             MobileTaskCommandContract.encode(
                 MobileTaskUpdateEnvelopeDto(
                     apiVersion = 1,
-                    schemaVersion = 4,
+                    schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
                     requestId = requestId,
                     commandId = replacementId,
                     idempotencyKey = replacementId,
@@ -780,7 +931,7 @@ class MobileOutbox(
             MobileTaskCommandContract.encode(
                 MobileTaskStateEnvelopeDto(
                     apiVersion = 1,
-                    schemaVersion = 4,
+                    schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
                     requestId = requestId,
                     commandId = replacementId,
                     idempotencyKey = replacementId,
@@ -884,7 +1035,7 @@ class MobileOutbox(
         val issuedAt = now().toString()
         val envelope = MobileTaskStateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 4,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
             requestId = requestId,
             commandId = commandId,
             idempotencyKey = commandId,
@@ -1143,6 +1294,81 @@ class MobileOutbox(
                     }
                     if (!receiptApplied) return shouldRetry
                 }
+                is MobileCommandSendResult.CaptureApplied -> {
+                    val response = result.response
+                    val capture = response.data.capture
+                    val captureId = command.captureId
+                    val isCreate = command.commandName == "CreateCapture"
+                    val isDelete = command.commandName == "DeleteCapture"
+                    val valid = (
+                        command.serverId == serverId &&
+                            response.meta.serverId == serverId &&
+                            response.data.commandId == command.commandId &&
+                            captureId != null &&
+                            capture.id == captureId &&
+                            capture.version > 0 &&
+                            (isCreate || isDelete) &&
+                            capture.deleted == isDelete
+                        )
+                    if (!valid) {
+                        dao.markRetry(
+                            command.commandId,
+                            structuredCommandError(
+                                "invalid_command_receipt",
+                                "GatewayのCapture receiptが送信commandと一致しません。",
+                                retryable = true,
+                            ),
+                        )
+                        return true
+                    }
+                    val dependents = dao.dependents(command.commandId)
+                    require(dependents.size <= 1)
+                    val dependent = dependents.singleOrNull()
+                    val dependentEnvelope = dependent?.let {
+                        require(isCreate && it.commandName == "DeleteCapture" && it.captureId == captureId)
+                        val stored = MobileCaptureCommandContract.decodeDeleteEnvelope(it.envelopeJson)
+                        MobileCaptureCommandContract.encode(
+                            stored.copy(command = stored.command.copy(expectedVersion = capture.version)),
+                        )
+                    }
+                    val updatedSyncState = SyncStateEntity(
+                        serverId = response.meta.serverId,
+                        apiVersion = response.meta.apiVersion,
+                        schemaVersion = response.meta.schemaVersion,
+                        cursor = null,
+                        lastSuccessfulSyncAt = response.meta.generatedAt,
+                        lastAttemptAt = attemptedAt,
+                        lastError = null,
+                    )
+                    val receiptApplied = if (isDelete) {
+                        require(dependent == null)
+                        dao.applyCaptureDeleteReceipt(
+                            commandId = command.commandId,
+                            expectedServerId = serverId,
+                            expectedCaptureId = captureId,
+                            expectedAttemptCount = command.attemptCount,
+                            canonicalVersion = capture.version,
+                            syncState = updatedSyncState,
+                        )
+                    } else {
+                        dao.applyCaptureCreateReceipt(
+                            commandId = command.commandId,
+                            expectedServerId = serverId,
+                            expectedCaptureId = captureId,
+                            expectedAttemptCount = command.attemptCount,
+                            canonicalReceipt = CaptureReceiptEntity(
+                                id = capture.id,
+                                serverVersion = capture.version,
+                                capturedAt = capture.capturedAt,
+                                optimisticCommandId = null,
+                            ),
+                            syncState = updatedSyncState,
+                            dependentCommandId = dependent?.commandId,
+                            dependentEnvelopeJson = dependentEnvelope,
+                        )
+                    }
+                    if (!receiptApplied) return shouldRetry
+                }
                 is MobileCommandSendResult.Conflict -> {
                     val response = result.response
                     if (response.meta.serverId != serverId || command.serverId != serverId) {
@@ -1300,6 +1526,17 @@ class MobileOutbox(
                         dao.rejectDeleteAndRestore(
                             commandId = command.commandId,
                             taskId = requireNotNull(command.taskId),
+                            reason = reason,
+                        )
+                    } else if (command.commandName == "DeleteCapture" && result.code == "not_found") {
+                        dao.acceptMissingCaptureDelete(
+                            commandId = command.commandId,
+                            captureId = requireNotNull(command.captureId),
+                        )
+                    } else if (command.commandName == "DeleteCapture") {
+                        dao.rejectCaptureDeleteAndRestore(
+                            commandId = command.commandId,
+                            captureId = requireNotNull(command.captureId),
                             reason = reason,
                         )
                     } else if (themeBase != null) {

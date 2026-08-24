@@ -26,7 +26,7 @@ class MobileTodayGoldenFixtureTest {
 
         assertTrue(response.ok)
         assertEquals(1, response.meta.apiVersion)
-        assertEquals(4, response.meta.schemaVersion)
+        assertEquals(TASKEN_MOBILE_SCHEMA_VERSION, response.meta.schemaVersion)
         assertFalse(response.meta.truncated)
         assertEquals("2026-08-21", response.data.date)
         assertEquals(null, response.data.nextCursor)

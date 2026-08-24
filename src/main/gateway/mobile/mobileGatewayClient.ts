@@ -13,9 +13,13 @@ import {
   mobileTodayRequestSchema,
   mobileTodayResponseSchema,
   type MobileCapability,
+  type MobileHealthResponse,
   type MobileTaskCommandRequest,
+  type MobileTaskCommandResponse,
   type MobileThemesRequest,
+  type MobileThemesResponse,
   type MobileTodayRequest,
+  type MobileTodayResponse,
 } from "../../../shared/contracts/mobile/public.ts";
 
 export class MobileGatewayClientError extends Error {
@@ -75,11 +79,11 @@ export class MobileGatewayClient {
     this.maxResponseBytes = options.maxResponseBytes || TASKEN_MOBILE_MAX_RESPONSE_BYTES;
   }
 
-  async health() {
+  async health(): Promise<MobileHealthResponse> {
     return mobileHealthResponseSchema.parse(await this.request("GET", TASKEN_MOBILE_ENDPOINTS.health));
   }
 
-  async listToday(input: MobileTodayRequest) {
+  async listToday(input: MobileTodayRequest): Promise<MobileTodayResponse> {
     const parsed = mobileTodayRequestSchema.parse(input);
     await this.requireCapability(TASKEN_MOBILE_CAPABILITIES.todayRead);
     const query = new URLSearchParams({
@@ -92,7 +96,7 @@ export class MobileGatewayClient {
     return mobileTodayResponseSchema.parse(await this.request("GET", `${TASKEN_MOBILE_ENDPOINTS.today}?${query}`));
   }
 
-  async listThemes(input: MobileThemesRequest) {
+  async listThemes(input: MobileThemesRequest): Promise<MobileThemesResponse> {
     const parsed = mobileThemesRequestSchema.parse(input);
     const query = new URLSearchParams({
       apiVersion: String(parsed.apiVersion),
@@ -104,7 +108,7 @@ export class MobileGatewayClient {
     return mobileThemesResponseSchema.parse(await this.request("GET", `${TASKEN_MOBILE_ENDPOINTS.themes}?${query}`));
   }
 
-  async executeTaskCommand(input: MobileTaskCommandRequest) {
+  async executeTaskCommand(input: MobileTaskCommandRequest): Promise<MobileTaskCommandResponse> {
     mobileTaskCommandRequestSchema.parse(input);
     await this.requireCapability(TASKEN_MOBILE_CAPABILITIES.taskWrite);
     return mobileTaskCommandResponseSchema.parse(await this.request("POST", TASKEN_MOBILE_ENDPOINTS.commands, input));

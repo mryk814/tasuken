@@ -60,6 +60,14 @@ data class TaskCacheEntity(
     val checklistJson: String = "[]",
 )
 
+@Entity(tableName = "capture_receipt")
+data class CaptureReceiptEntity(
+    @PrimaryKey val id: String,
+    val serverVersion: Int?,
+    val capturedAt: String,
+    val optimisticCommandId: String?,
+)
+
 @Entity(
     tableName = "work_receipt_cache",
     indices = [Index(value = ["taskId"])],
@@ -142,6 +150,7 @@ data class OutboxCommandEntity(
     val lastAttemptAt: String?,
     val lastError: String?,
     val taskId: String? = null,
+    val captureId: String? = null,
     val dependsOnCommandId: String? = null,
 )
 
@@ -234,6 +243,9 @@ abstract class MobileLocalDao {
     @Query("SELECT * FROM task_cache WHERE id = :taskId")
     abstract suspend fun task(taskId: String): TaskCacheEntity?
 
+    @Query("SELECT * FROM capture_receipt WHERE id = :captureId")
+    abstract suspend fun captureReceipt(captureId: String): CaptureReceiptEntity?
+
     @Query("SELECT * FROM theme_cache ORDER BY title COLLATE NOCASE ASC, id ASC")
     abstract fun observeThemes(): Flow<List<ThemeCacheEntity>>
 
@@ -272,6 +284,9 @@ abstract class MobileLocalDao {
     @Query("SELECT * FROM outbox_command WHERE taskId = :taskId ORDER BY createdAt, commandId")
     abstract suspend fun outboxForTask(taskId: String): List<OutboxCommandEntity>
 
+    @Query("SELECT * FROM outbox_command WHERE captureId = :captureId ORDER BY createdAt, commandId")
+    abstract suspend fun outboxForCapture(captureId: String): List<OutboxCommandEntity>
+
     @Query("SELECT * FROM outbox_command WHERE dependsOnCommandId = :commandId ORDER BY createdAt, commandId")
     abstract suspend fun dependents(commandId: String): List<OutboxCommandEntity>
 
@@ -298,6 +313,9 @@ abstract class MobileLocalDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertTask(task: TaskCacheEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertCaptureReceipt(receipt: CaptureReceiptEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertThemes(themes: List<ThemeCacheEntity>)
@@ -331,6 +349,9 @@ abstract class MobileLocalDao {
 
     @Query("DELETE FROM task_cache WHERE id = :taskId")
     abstract suspend fun deleteTask(taskId: String)
+
+    @Query("DELETE FROM capture_receipt WHERE id = :captureId")
+    abstract suspend fun deleteCaptureReceipt(captureId: String)
 
     @Query("DELETE FROM theme_cache")
     abstract suspend fun deleteThemes()
@@ -414,6 +435,33 @@ abstract class MobileLocalDao {
         require(command.serverId.isNotBlank())
         require(syncState()?.serverId == command.serverId)
         upsertTask(task)
+        insertOutbox(command)
+    }
+
+    @Transaction
+    open suspend fun enqueueCaptureCreate(receipt: CaptureReceiptEntity, command: OutboxCommandEntity) {
+        require(receipt.optimisticCommandId == command.commandId)
+        require(command.captureId == receipt.id && command.commandName == "CreateCapture")
+        require(command.commandId == command.idempotencyKey)
+        require(command.serverId.isNotBlank())
+        require(syncState()?.serverId == command.serverId)
+        upsertCaptureReceipt(receipt)
+        insertOutbox(command)
+    }
+
+    @Transaction
+    open suspend fun enqueueCaptureDelete(receipt: CaptureReceiptEntity, command: OutboxCommandEntity) {
+        require(receipt.optimisticCommandId == command.commandId)
+        require(command.captureId == receipt.id && command.commandName == "DeleteCapture")
+        require(command.commandId == command.idempotencyKey)
+        require(command.serverId.isNotBlank())
+        require(syncState()?.serverId == command.serverId)
+        command.dependsOnCommandId?.let { parentId ->
+            val parent = requireNotNull(outbox(parentId))
+            require(parent.captureId == receipt.id && parent.commandName == "CreateCapture")
+            require(parent.serverId == command.serverId)
+        }
+        upsertCaptureReceipt(receipt)
         insertOutbox(command)
     }
 
@@ -515,6 +563,56 @@ abstract class MobileLocalDao {
         if (deleteUnsent(commandId) != 1) return false
         deleteTask(taskId)
         return true
+    }
+
+    @Transaction
+    open suspend fun cancelUnsentCaptureCreate(commandId: String, captureId: String): Boolean {
+        val command = outbox(commandId) ?: return false
+        val receipt = captureReceipt(captureId) ?: return false
+        if (
+            command.commandName != "CreateCapture" ||
+            command.captureId != captureId ||
+            receipt.serverVersion != null ||
+            receipt.optimisticCommandId != commandId ||
+            dependents(commandId).isNotEmpty()
+        ) return false
+        if (command.state == OutboxState.Rejected) {
+            deleteOutbox(commandId)
+            deleteCaptureReceipt(captureId)
+            return true
+        }
+        if (deleteUnsent(commandId) != 1) return false
+        deleteCaptureReceipt(captureId)
+        return true
+    }
+
+    @Transaction
+    open suspend fun acceptMissingCaptureDelete(commandId: String, captureId: String) {
+        val command = requireNotNull(outbox(commandId))
+        require(
+            command.captureId == captureId &&
+                command.commandName == "DeleteCapture" &&
+                command.state == OutboxState.Sending,
+        )
+        require(syncState()?.serverId == command.serverId)
+        require(captureReceipt(captureId)?.optimisticCommandId == commandId)
+        deleteCaptureReceipt(captureId)
+        deleteOutbox(commandId)
+    }
+
+    @Transaction
+    open suspend fun rejectCaptureDeleteAndRestore(commandId: String, captureId: String, reason: String) {
+        val command = requireNotNull(outbox(commandId))
+        require(
+            command.captureId == captureId &&
+                command.commandName == "DeleteCapture" &&
+                command.state == OutboxState.Sending,
+        )
+        require(syncState()?.serverId == command.serverId)
+        val receipt = requireNotNull(captureReceipt(captureId))
+        require(receipt.optimisticCommandId == commandId)
+        upsertCaptureReceipt(receipt.copy(optimisticCommandId = null))
+        markRejected(commandId, reason)
     }
 
     @Transaction
@@ -884,6 +982,86 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
+    open suspend fun applyCaptureCreateReceipt(
+        commandId: String,
+        expectedServerId: String,
+        expectedCaptureId: String,
+        expectedAttemptCount: Int,
+        canonicalReceipt: CaptureReceiptEntity,
+        syncState: SyncStateEntity,
+        dependentCommandId: String? = null,
+        dependentEnvelopeJson: String? = null,
+    ): Boolean {
+        require(expectedServerId.isNotBlank() && expectedCaptureId.isNotBlank() && expectedAttemptCount > 0)
+        val command = outbox(commandId) ?: return false
+        if (
+            command.serverId != expectedServerId ||
+            command.captureId != expectedCaptureId ||
+            command.commandName != "CreateCapture" ||
+            command.state != OutboxState.Sending ||
+            command.attemptCount != expectedAttemptCount ||
+            syncState.serverId != expectedServerId ||
+            this.syncState()?.serverId != expectedServerId ||
+            canonicalReceipt.id != expectedCaptureId ||
+            canonicalReceipt.serverVersion == null
+        ) return false
+        val current = captureReceipt(expectedCaptureId) ?: return false
+        if (current.serverVersion?.let { canonicalReceipt.serverVersion < it } == true) return false
+        if (dependentCommandId != null) {
+            require(dependentEnvelopeJson != null)
+            val dependent = outbox(dependentCommandId) ?: return false
+            if (
+                dependent.serverId != expectedServerId ||
+                dependent.captureId != expectedCaptureId ||
+                dependent.dependsOnCommandId != commandId ||
+                dependent.commandName != "DeleteCapture" ||
+                dependent.state != OutboxState.Pending ||
+                dependent.attemptCount != 0 ||
+                current.optimisticCommandId != dependentCommandId
+            ) return false
+            if (materializeDependent(dependentCommandId, commandId, dependentEnvelopeJson) != 1) return false
+        } else if (current.optimisticCommandId != commandId) {
+            return false
+        }
+        upsertCaptureReceipt(canonicalReceipt.copy(optimisticCommandId = dependentCommandId))
+        upsertSyncState(syncState)
+        deleteOutbox(commandId)
+        return true
+    }
+
+    @Transaction
+    open suspend fun applyCaptureDeleteReceipt(
+        commandId: String,
+        expectedServerId: String,
+        expectedCaptureId: String,
+        expectedAttemptCount: Int,
+        canonicalVersion: Int,
+        syncState: SyncStateEntity,
+    ): Boolean {
+        require(expectedServerId.isNotBlank() && expectedCaptureId.isNotBlank() && expectedAttemptCount > 0)
+        val command = outbox(commandId) ?: return false
+        if (
+            command.serverId != expectedServerId ||
+            command.captureId != expectedCaptureId ||
+            command.commandName != "DeleteCapture" ||
+            command.state != OutboxState.Sending ||
+            command.attemptCount != expectedAttemptCount ||
+            syncState.serverId != expectedServerId ||
+            this.syncState()?.serverId != expectedServerId
+        ) return false
+        val current = captureReceipt(expectedCaptureId) ?: return false
+        if (
+            current.optimisticCommandId != commandId ||
+            current.serverVersion?.let { canonicalVersion <= it } == true ||
+            dependents(commandId).isNotEmpty()
+        ) return false
+        deleteCaptureReceipt(expectedCaptureId)
+        upsertSyncState(syncState)
+        deleteOutbox(commandId)
+        return true
+    }
+
+    @Transaction
     open suspend fun applyDeleteReceipt(
         commandId: String,
         expectedServerId: String,
@@ -979,6 +1157,7 @@ abstract class MobileLocalDao {
 @Database(
     entities = [
         TaskCacheEntity::class,
+        CaptureReceiptEntity::class,
         ThemeCacheEntity::class,
         ThemeCatalogStateEntity::class,
         OutboxCommandEntity::class,
@@ -987,7 +1166,7 @@ abstract class MobileLocalDao {
         WorkReceiptCacheEntity::class,
         TaskWorkProposalCacheEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -1014,6 +1193,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 MIGRATION_10_11,
                 MIGRATION_11_12,
                 MIGRATION_12_13,
+                MIGRATION_13_14,
             ).build().also { instance = it }
         }
     }
@@ -1172,6 +1352,23 @@ internal val MIGRATION_12_13 = object : Migration(12, 13) {
                 "WHERE envelopeJson LIKE '%\"schemaVersion\":3%'",
         )
         db.execSQL("UPDATE sync_state SET schemaVersion = 4 WHERE apiVersion = 1 AND schemaVersion = 3")
+    }
+}
+
+internal val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE outbox_command ADD COLUMN captureId TEXT")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS capture_receipt (" +
+                "id TEXT NOT NULL PRIMARY KEY, serverVersion INTEGER, capturedAt TEXT NOT NULL, " +
+                "optimisticCommandId TEXT)",
+        )
+        db.execSQL(
+            "UPDATE outbox_command SET envelopeJson = " +
+                "REPLACE(envelopeJson, '\"schemaVersion\":4', '\"schemaVersion\":5') " +
+                "WHERE envelopeJson LIKE '%\"schemaVersion\":4%'",
+        )
+        db.execSQL("UPDATE sync_state SET schemaVersion = 5 WHERE apiVersion = 1 AND schemaVersion = 4")
     }
 }
 

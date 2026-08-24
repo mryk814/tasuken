@@ -71,6 +71,8 @@ data class MobileCaptureDraft(
 
     fun withText(value: String): MobileCaptureDraft = copy(text = value.take(500))
 
+    fun withKind(value: MobileCaptureKind): MobileCaptureDraft = copy(kind = value)
+
     fun withThemeId(value: String?): MobileCaptureDraft = copy(
         projectId = value?.trim()?.takeIf(String::isNotEmpty),
     )

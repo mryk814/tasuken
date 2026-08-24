@@ -14,6 +14,7 @@ import {
 } from "../infrastructure/sqlite/public.ts";
 import {
   MobileGatewayAdapter,
+  type MobileGatewayCaptureCommandResult,
   type MobileGatewayLoggerPort,
   type MobileGatewayStatePort,
   type MobileGatewayTaskWorkProposalDecisionResult,
@@ -29,7 +30,10 @@ import {
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
 } from "../../shared/contracts/core/public.mjs";
-import { ApplicationCommandError } from "../../shared/applicationCommand.ts";
+import {
+  ApplicationCommandError,
+  type ApplicationCommandPayload,
+} from "../../shared/applicationCommand.ts";
 
 type CorePersistence = AgentReadyTaskWorkspacePersistence
   & AgentWorkspacePersistence
@@ -48,6 +52,15 @@ function proposalDecisionFailure(error: ApplicationCommandError): MobileGatewayT
   if (error.code === "NOT_FOUND") return { ok: false, code: "not_found" };
   if (error.code === "CONFLICT" || error.code === "INVALID_TRANSITION") {
     return { ok: false, code: "proposal_conflict" };
+  }
+  return { ok: false, code: "validation_failed" };
+}
+
+function captureCommandFailure(error: ApplicationCommandError): MobileGatewayCaptureCommandResult {
+  if (error.code === "COMMAND_ID_REUSED") return { ok: false, code: "idempotency_conflict" };
+  if (error.code === "NOT_FOUND") return { ok: false, code: "not_found" };
+  if (error.code === "CONFLICT" || error.code === "INVALID_TRANSITION") {
+    return { ok: false, code: "entity_conflict" };
   }
   return { ok: false, code: "validation_failed" };
 }
@@ -189,6 +202,50 @@ export class TaskenCoreRuntime {
         },
         executeTaskQuery: (input) => this.taskCapability.executeQuery(input),
         executeTaskCommand: (input) => this.taskCapability.executeCommand(input),
+        executeCaptureCommand: (input) => {
+          try {
+            const receipt = this.executeApplicationCommand({
+              commandId: input.commandId,
+              name: input.name,
+              actor: { kind: "user", id: input.actorId },
+              source: "mobile",
+              issuedAt: input.issuedAt,
+              payload: input.payload as unknown as ApplicationCommandPayload,
+              expectedVersions: input.name === "DeleteCapture"
+                ? [{
+                    type: "capture_entry",
+                    id: String(input.payload.captureId || ""),
+                    version: Number(input.expectedVersion),
+                  }]
+                : [],
+            });
+            if (receipt.status === "conflict") return { ok: false, code: "entity_conflict" };
+            const capture = receipt.changes.find((change) => change.type === "capture_entry")?.entity;
+            if (
+              !capture
+              || typeof capture.id !== "string"
+              || !Number.isInteger(Number(capture.version))
+              || Number(capture.version) <= 0
+              || typeof capture.captured_at !== "string"
+            ) {
+              throw new Error("Capture command receipt is missing its canonical Capture");
+            }
+            return {
+              ok: true,
+              commandId: receipt.commandId,
+              status: receipt.status,
+              capture: {
+                id: capture.id,
+                version: Number(capture.version),
+                capturedAt: capture.captured_at,
+                deleted: input.name === "DeleteCapture",
+              },
+            };
+          } catch (error) {
+            if (error instanceof ApplicationCommandError) return captureCommandFailure(error);
+            throw error;
+          }
+        },
       },
       state,
       logger,

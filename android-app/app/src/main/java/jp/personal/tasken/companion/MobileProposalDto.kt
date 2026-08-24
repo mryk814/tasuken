@@ -130,7 +130,8 @@ object MobileProposalContract {
     private fun validateList(response: MobileTaskWorkProposalsResponseDto) {
         requireProposal(response.ok, "Proposal一覧は成功応答である必要があります。")
         requireProposal(
-            response.meta.apiVersion == 1 && response.meta.schemaVersion == 4,
+            response.meta.apiVersion == TASKEN_MOBILE_API_VERSION &&
+                response.meta.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION,
             "未対応のProposal contractです。",
         )
         requireTimestamp(response.meta.generatedAt, "Proposal generatedAt")
@@ -190,7 +191,11 @@ object MobileProposalContract {
     }
 
     private fun validateDecisionEnvelope(envelope: MobileTaskWorkProposalDecisionEnvelopeDto) {
-        requireProposal(envelope.apiVersion == 1 && envelope.schemaVersion == 4, "未対応のProposal判断contractです。")
+        requireProposal(
+            envelope.apiVersion == TASKEN_MOBILE_API_VERSION &&
+                envelope.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION,
+            "未対応のProposal判断contractです。",
+        )
         requireText(envelope.requestId, 200, "Proposal request ID")
         requireText(envelope.commandId, 200, "Proposal command ID")
         requireProposal(envelope.commandId == envelope.idempotencyKey, "Proposal command IDが一致しません。")
@@ -206,7 +211,8 @@ object MobileProposalContract {
     private fun validateDecisionResponse(response: MobileTaskWorkProposalDecisionResponseDto) {
         requireProposal(response.ok, "Proposal判断は成功応答である必要があります。")
         requireProposal(
-            response.meta.apiVersion == 1 && response.meta.schemaVersion == 4,
+            response.meta.apiVersion == TASKEN_MOBILE_API_VERSION &&
+                response.meta.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION,
             "未対応のProposal判断contractです。",
         )
         requireTimestamp(response.meta.generatedAt, "Proposal decision generatedAt")

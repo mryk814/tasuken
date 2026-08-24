@@ -5,6 +5,9 @@ import java.time.OffsetDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
+internal const val TASKEN_MOBILE_API_VERSION = 1
+internal const val TASKEN_MOBILE_SCHEMA_VERSION = 5
+
 @Serializable
 data class MobileTodayResponseDto(
     val ok: Boolean,
@@ -70,8 +73,8 @@ class MobileTodayContractException(message: String, cause: Throwable? = null) :
     IllegalArgumentException(message, cause)
 
 object MobileTodayContract {
-    private const val ApiVersion = 1
-    private const val SchemaVersion = 4
+    private const val ApiVersion = TASKEN_MOBILE_API_VERSION
+    private const val SchemaVersion = TASKEN_MOBILE_SCHEMA_VERSION
     private const val MaxItems = 50
     private val taskStates = setOf("todo", "doing", "waiting", "review", "done", "cancelled")
     private val workStates = setOf(

@@ -151,7 +151,7 @@ class TodayViewModelTest {
         val viewModel = TodayViewModel(repository)
 
         runBlocking {
-            viewModel.createTaskNow(
+            viewModel.createCaptureNow(
                 MobileCaptureDraft.fresh(
                     text = "  外出先で追加  ",
                     source = MobileCaptureSource.AndroidSpeech,
@@ -163,7 +163,10 @@ class TodayViewModelTest {
         assertEquals("外出先で追加", receivedDraft?.text)
         assertEquals(MobileCaptureSource.AndroidSpeech, receivedDraft?.source)
         assertEquals("theme-research", receivedDraft?.projectId)
-        assertEquals(CaptureUiState.Queued("queued-task-id"), viewModel.captureState.value)
+        assertEquals(
+            CaptureUiState.Queued("queued-task-id", MobileCaptureKind.Task),
+            viewModel.captureState.value,
+        )
     }
 
     @Test
@@ -179,14 +182,50 @@ class TodayViewModelTest {
         val viewModel = TodayViewModel(repository)
 
         runBlocking {
-            viewModel.createTaskNow(
+            viewModel.createCaptureNow(
                 MobileCaptureDraft.fresh(text = "続けて追加"),
                 CaptureCompletionBehavior.Continue,
             )
         }
 
         assertEquals(
-            CaptureUiState.Queued("continued-task", CaptureCompletionBehavior.Continue),
+            CaptureUiState.Queued(
+                "continued-task",
+                MobileCaptureKind.Task,
+                CaptureCompletionBehavior.Continue,
+            ),
+            viewModel.captureState.value,
+        )
+    }
+
+    @Test
+    fun createCaptureUsesCanonicalCaptureQueue() {
+        var receivedDraft: MobileCaptureDraft? = null
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
+            override fun observePendingCount(): Flow<Int> = flowOf(0)
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) =
+                error("Task path must not be used")
+            override suspend fun enqueueCreateCapture(draft: MobileCaptureDraft): String {
+                receivedDraft = draft
+                return "queued-capture-id"
+            }
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository)
+
+        runBlocking {
+            viewModel.createCaptureNow(
+                MobileCaptureDraft.fresh(text = "  共有メモ  ", kind = MobileCaptureKind.Capture),
+            )
+        }
+
+        assertEquals("共有メモ", receivedDraft?.text)
+        assertEquals(MobileCaptureKind.Capture, receivedDraft?.kind)
+        assertEquals(
+            CaptureUiState.Queued("queued-capture-id", MobileCaptureKind.Capture),
             viewModel.captureState.value,
         )
     }
@@ -208,7 +247,7 @@ class TodayViewModelTest {
         }
         val viewModel = TodayViewModel(repository)
 
-        runBlocking { viewModel.undoCreatedTaskNow("task-local") }
+        runBlocking { viewModel.undoCreatedCaptureNow("task-local", MobileCaptureKind.Task) }
         assertEquals(
             TaskActionUiState.Queued(
                 taskId = "task-local",
@@ -219,7 +258,7 @@ class TodayViewModelTest {
         )
 
         requiresSync = true
-        runBlocking { viewModel.undoCreatedTaskNow("task-canonical") }
+        runBlocking { viewModel.undoCreatedCaptureNow("task-canonical", MobileCaptureKind.Task) }
         assertEquals(
             TaskActionUiState.Queued(
                 taskId = "task-canonical",
@@ -234,9 +273,9 @@ class TodayViewModelTest {
     fun createTaskValidationKeepsActionRecoverable() {
         val viewModel = TodayViewModel(FakeRepository(emptyList()))
 
-        runBlocking { viewModel.createTaskNow(MobileCaptureDraft.fresh(text = "   ")) }
+        runBlocking { viewModel.createCaptureNow(MobileCaptureDraft.fresh(text = "   ")) }
 
-        assertEquals(CaptureUiState.Error("Task名を入力してください。"), viewModel.captureState.value)
+        assertEquals(CaptureUiState.Error("Taskの内容を入力してください。"), viewModel.captureState.value)
     }
 
     @Test

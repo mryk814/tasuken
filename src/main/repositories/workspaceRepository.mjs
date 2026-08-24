@@ -32,6 +32,7 @@ const SCHEMA_VERSION = 5;
 const MOBILE_DEVICE_SCOPES = Object.freeze([
   "mobile:read",
   "mobile:task-write",
+  "mobile:capture-write",
   "mobile:proposal-review",
 ]);
 
