@@ -6,7 +6,7 @@ on:
       - fix/issues-481-482-polish-audit
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   inspect:
@@ -36,7 +36,7 @@ jobs:
               'PERFORMANCE': re.compile(r'readFileSync|writeFileSync|execSync|spawnSync|setInterval|addEventListener|reloadWorkspace|refreshWorkspace|loadWorkspace|entities\.listAll', re.I),
           }
           EXTENSIONS = {'.ts', '.tsx', '.js', '.mjs', '.css', '.html'}
-          per_category_limit = 180
+          per_category_limit = 220
           lines_out = []
 
           files = []
@@ -69,13 +69,16 @@ jobs:
                       break
               lines_out.append(f'\n[matches: {count}]')
 
-          Path('inspection-481-482.txt').write_text('\n'.join(lines_out), encoding='utf-8')
-          print('\n'.join(lines_out[:450]))
+          destination = Path('_agent/inspection-481-482.txt')
+          destination.parent.mkdir(parents=True, exist_ok=True)
+          destination.write_text('\n'.join(lines_out), encoding='utf-8')
           PY
 
-      - name: Upload inspection report
-        uses: actions/upload-artifact@v4
-        with:
-          name: issue-481-482-inspection
-          path: inspection-481-482.txt
-          retention-days: 3
+      - name: Commit inspection report
+        shell: bash
+        run: |
+          git config user.name "Tasken agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add _agent/inspection-481-482.txt
+          git commit -m "481・482の実装候補を一時記録する"
+          git push origin HEAD:fix/issues-481-482-polish-audit
