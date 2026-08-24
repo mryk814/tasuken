@@ -20,12 +20,21 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -60,6 +69,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.layout.AnimatedPane
@@ -585,9 +595,13 @@ internal fun CaptureTaskSheet(
     onStartVoice: () -> Unit,
     onStopVoice: () -> Unit,
     onDismiss: () -> Unit,
+    bottomContentInsets: WindowInsets = WindowInsets.safeDrawing
+        .union(WindowInsets.ime)
+        .only(WindowInsetsSides.Bottom),
 ) {
     val focusRequester = remember(draft.draftId) { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     LaunchedEffect(draft.draftId, requestInputFocus) {
         if (requestInputFocus) {
             focusRequester.requestFocus()
@@ -595,10 +609,17 @@ internal fun CaptureTaskSheet(
             onInputFocusHandled()
         }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        contentWindowInsets = {
+            WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
+        },
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .testTag("capture-sheet-content")
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -672,7 +693,7 @@ internal fun CaptureTaskSheet(
                 },
             )
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -691,6 +712,12 @@ internal fun CaptureTaskSheet(
                     Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
                 }
             }
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsBottomHeight(bottomContentInsets)
+                    .testTag("capture-bottom-inset-spacer"),
+            )
         }
     }
 }
@@ -824,7 +851,46 @@ private fun TodayListPane(
         TodayUiState.Empty -> CenteredState { Text("今日のTaskはありません") }
         is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
         is TodayUiState.Error -> GatewayErrorState(uiState, onRetry, onRetryPairing)
+        is TodayUiState.Cached -> CachedTodayPane(uiState, paneState, onRetryPairing, onTaskSelected)
         is TodayUiState.Success -> TodayTaskList(uiState.tasks, paneState, onTaskSelected)
+    }
+}
+
+@Composable
+private fun CachedTodayPane(
+    state: TodayUiState.Cached,
+    paneState: TodayPaneState,
+    onRetryPairing: () -> Unit,
+    onTaskSelected: (String) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            shape = MaterialTheme.shapes.medium,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    state.pairing.message.ifBlank { "保存済みTaskを表示しています。再接続が必要です。" },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = onRetryPairing) { Text("再接続") }
+            }
+        }
+        if (state.tasks.isEmpty()) {
+            Box(modifier = Modifier.weight(1f)) {
+                CenteredState { Text("今日のTaskはありません") }
+            }
+        } else {
+            Box(modifier = Modifier.weight(1f)) {
+                TodayTaskList(state.tasks, paneState, onTaskSelected)
+            }
+        }
     }
 }
 

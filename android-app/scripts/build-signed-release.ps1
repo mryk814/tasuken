@@ -3,7 +3,13 @@ param(
     [string]$Keystore = $env:TASKEN_ANDROID_KEYSTORE,
     [string]$KeystorePassword = $env:TASKEN_ANDROID_KEYSTORE_PASSWORD,
     [string]$KeyAlias = $env:TASKEN_ANDROID_KEY_ALIAS,
-    [string]$KeyPassword = $env:TASKEN_ANDROID_KEY_PASSWORD
+    [string]$KeyPassword = $env:TASKEN_ANDROID_KEY_PASSWORD,
+    [string]$LegacyKeystore = $env:TASKEN_ANDROID_LEGACY_KEYSTORE,
+    [string]$LegacyKeystorePassword = $env:TASKEN_ANDROID_LEGACY_KEYSTORE_PASSWORD,
+    [string]$LegacyKeyAlias = $env:TASKEN_ANDROID_LEGACY_KEY_ALIAS,
+    [string]$LegacyKeyPassword = $env:TASKEN_ANDROID_LEGACY_KEY_PASSWORD,
+    [string]$SigningLineage = $env:TASKEN_ANDROID_SIGNING_LINEAGE,
+    [string]$RotationMinSdkVersion = $env:TASKEN_ANDROID_ROTATION_MIN_SDK_VERSION
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,6 +28,41 @@ if (-not [string]::IsNullOrWhiteSpace($KeyAlias)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($KeyPassword)) {
     $env:TASKEN_ANDROID_KEY_PASSWORD = $KeyPassword
+}
+
+$rotationValues = @{
+    TASKEN_ANDROID_LEGACY_KEYSTORE = $LegacyKeystore
+    TASKEN_ANDROID_LEGACY_KEYSTORE_PASSWORD = $LegacyKeystorePassword
+    TASKEN_ANDROID_LEGACY_KEY_ALIAS = $LegacyKeyAlias
+    TASKEN_ANDROID_LEGACY_KEY_PASSWORD = $LegacyKeyPassword
+    TASKEN_ANDROID_SIGNING_LINEAGE = $SigningLineage
+}
+$rotationConfigured = $rotationValues.Values.Where({ -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0
+if ($rotationConfigured) {
+    $missingRotationValues = $rotationValues.GetEnumerator() |
+        Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } |
+        ForEach-Object Key |
+        Sort-Object
+    if ($missingRotationValues.Count -gt 0) {
+        throw "Signing rotation is incomplete. Missing: $($missingRotationValues -join ', ')"
+    }
+    if (-not (Test-Path -LiteralPath $LegacyKeystore -PathType Leaf)) {
+        throw "Legacy release keystore does not exist: $LegacyKeystore"
+    }
+    if (-not (Test-Path -LiteralPath $SigningLineage -PathType Leaf)) {
+        throw "Signing lineage does not exist: $SigningLineage"
+    }
+
+    $parsedRotationMinSdkVersion = 0
+    if ([string]::IsNullOrWhiteSpace($RotationMinSdkVersion)) {
+        $parsedRotationMinSdkVersion = 33
+    }
+    elseif (-not [int]::TryParse($RotationMinSdkVersion, [ref]$parsedRotationMinSdkVersion) -or $parsedRotationMinSdkVersion -lt 28) {
+        throw "TASKEN_ANDROID_ROTATION_MIN_SDK_VERSION must be an integer greater than or equal to 28."
+    }
+
+    $env:TASKEN_ANDROID_LEGACY_KEYSTORE_PASSWORD = $LegacyKeystorePassword
+    $env:TASKEN_ANDROID_LEGACY_KEY_PASSWORD = $LegacyKeyPassword
 }
 
 $androidRoot = Split-Path -Parent $PSScriptRoot
@@ -63,11 +104,48 @@ try {
         throw "Android apksigner was not found. Set ANDROID_HOME or ANDROID_SDK_ROOT, or install Android build-tools."
     }
 
-    & $apksigner.FullName verify --verbose --print-certs $apk
+    if ($rotationConfigured) {
+        $rotatedApk = Join-Path $androidRoot "app\build\outputs\apk\release\app-release-rotated.apk"
+        Remove-Item -LiteralPath $rotatedApk -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath "$rotatedApk.idsig" -Force -ErrorAction SilentlyContinue
+
+        & $apksigner.FullName sign `
+            --ks (Resolve-Path -LiteralPath $LegacyKeystore).Path `
+            --ks-key-alias $LegacyKeyAlias `
+            --ks-pass "env:TASKEN_ANDROID_LEGACY_KEYSTORE_PASSWORD" `
+            --key-pass "env:TASKEN_ANDROID_LEGACY_KEY_PASSWORD" `
+            --next-signer `
+            --ks $env:TASKEN_ANDROID_KEYSTORE `
+            --ks-key-alias $KeyAlias `
+            --ks-pass "env:TASKEN_ANDROID_KEYSTORE_PASSWORD" `
+            --key-pass "env:TASKEN_ANDROID_KEY_PASSWORD" `
+            --lineage (Resolve-Path -LiteralPath $SigningLineage).Path `
+            --rotation-min-sdk-version $parsedRotationMinSdkVersion `
+            --out $rotatedApk `
+            $apk
+        if ($LASTEXITCODE -ne 0) {
+            throw "apksigner rotation failed"
+        }
+
+        Move-Item -LiteralPath $rotatedApk -Destination $apk -Force
+        Remove-Item -LiteralPath "$rotatedApk.idsig" -Force -ErrorAction SilentlyContinue
+    }
+
+    & $apksigner.FullName verify --verbose --print-certs --min-sdk-version 26 $apk
     if ($LASTEXITCODE -ne 0) {
         throw "apksigner verification failed"
     }
 
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    $apkStream = [IO.File]::OpenRead($apk)
+    try {
+        $apkHash = -join ($sha256.ComputeHash($apkStream) | ForEach-Object { $_.ToString("x2") })
+    }
+    finally {
+        $apkStream.Dispose()
+        $sha256.Dispose()
+    }
+    Write-Output "SHA-256: $apkHash"
     Write-Output (Resolve-Path -LiteralPath $apk).Path
 }
 finally {

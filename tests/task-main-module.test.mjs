@@ -43,6 +43,7 @@ const unusedRuntime = {
   createEvent: () => { throw new Error("unused"); },
   annotateEvent: (_command, event) => event,
   persist: () => { throw new Error("unused"); },
+  persistDelete: () => { throw new Error("unused"); },
   persistNoChange: () => { throw new Error("unused"); },
   now: () => "2026-08-17T00:00:00.000Z",
 };

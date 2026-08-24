@@ -256,6 +256,11 @@ sealed interface TodayUiState {
     data object Empty : TodayUiState
     data class PairingRequired(val origin: String, val message: String = "") : TodayUiState
     data class Error(val message: String, val recovery: String) : TodayUiState
+    data class Cached(
+        val tasks: List<MobileTask>,
+        val generatedAt: String,
+        val pairing: PairingRequired,
+    ) : TodayUiState
     data class Success(val tasks: List<MobileTask>, val generatedAt: String) : TodayUiState
 }
 
@@ -321,6 +326,7 @@ class TodayViewModel(
     private var workReceiptLoadJob: Job? = null
     private var observingCache = false
     private var cachedGeneratedAt = ""
+    private var cachedPairingRequired: MobileTodayResult.PairingRequired? = null
 
     init {
         val offlineRepository = repository as? MobileOfflineTaskRepository
@@ -364,15 +370,20 @@ class TodayViewModel(
         }
         refreshExternalProjection()
         val offlineRepository = repository as? MobileOfflineTaskRepository
-        if (offlineRepository != null && result !is MobileTodayResult.PairingRequired) {
+        if (offlineRepository != null) {
             val cachedTasks = withContext(ioDispatcher) { offlineRepository.observeCachedTasks().first() }
-            if (cachedTasks.isNotEmpty() || result is MobileTodayResult.Available) {
+            val allCachedTasks = withContext(ioDispatcher) { offlineRepository.observeAllCachedTasks().first() }
+            val canProjectCache = result !is MobileTodayResult.PairingRequired ||
+                cachedTasks.isNotEmpty() || allCachedTasks.isNotEmpty()
+            if (canProjectCache && (cachedTasks.isNotEmpty() || allCachedTasks.isNotEmpty() || result is MobileTodayResult.Available)) {
                 cachedGeneratedAt = (result as? MobileTodayResult.Available)?.generatedAt.orEmpty()
+                cachedPairingRequired = result as? MobileTodayResult.PairingRequired
                 applyCachedTasks(cachedTasks)
                 observeCache(offlineRepository)
                 return
             }
         }
+        cachedPairingRequired = null
         applyResult(result)
     }
 
@@ -385,7 +396,14 @@ class TodayViewModel(
     }
 
     private fun applyCachedTasks(tasks: List<MobileTask>) {
-        mutableUiState.value = if (tasks.isEmpty()) {
+        val pairing = cachedPairingRequired
+        mutableUiState.value = if (pairing != null) {
+            TodayUiState.Cached(
+                tasks = tasks.toList(),
+                generatedAt = cachedGeneratedAt,
+                pairing = TodayUiState.PairingRequired(pairing.origin, pairing.message),
+            )
+        } else if (tasks.isEmpty()) {
             TodayUiState.Empty
         } else {
             TodayUiState.Success(tasks.toList(), cachedGeneratedAt)
@@ -399,6 +417,7 @@ class TodayViewModel(
     internal suspend fun pairNow(origin: String, pairingCode: String) {
         val gateway = repository as? MobileGatewayRepository ?: return
         val result = withContext(ioDispatcher) { gateway.pair(origin, pairingCode) }
+        cachedPairingRequired = null
         applyResult(result)
         mutableProposalReviewOnline.value = result is MobileTodayResult.Available &&
             withContext(ioDispatcher) { gateway.refreshTaskWorkProposals() }
@@ -407,6 +426,7 @@ class TodayViewModel(
     fun retryPairing() {
         val gateway = repository as? MobileGatewayRepository ?: return
         mutableProposalReviewOnline.value = false
+        cachedPairingRequired = null
         applyResult(gateway.retryPairing())
     }
 

@@ -68,18 +68,43 @@ test("audio MIMEは対応拡張子からstrictに決まりoctet-streamへ潰れ�
 test("audio Artifactはmedia kind、MIME、size、duration、content hashを検証する", () => {
   assert.equal(validateAudioArtifactMetadata(audioArtifact()).media_kind, "audio");
   assert.equal(validateEntity("artifact", audioArtifact()).content_hash, HASH);
-  assert.throws(() => validateEntity("artifact", audioArtifact({ mime_type: "application/octet-stream" })), /mime_type/);
-  assert.throws(() => validateEntity("artifact", audioArtifact({ duration_ms: -1 })), /duration_ms/);
-  assert.throws(() => validateEntity("artifact", audioArtifact({ content_hash: "sha256:bad" })), /content_hash/);
-  assert.throws(() => validateEntity("artifact", audioArtifact({ filename: "voice.flac", file_type: "flac", mime_type: "audio\/flac" })), /対応していない音声形式/);
+  assert.throws(
+    () => validateEntity("artifact", audioArtifact({ mime_type: "application/octet-stream" })),
+    /mime_type/,
+  );
+  assert.throws(
+    () => validateEntity("artifact", audioArtifact({ duration_ms: -1 })),
+    /duration_ms/,
+  );
+  assert.throws(
+    () => validateEntity("artifact", audioArtifact({ content_hash: "sha256:bad" })),
+    /content_hash/,
+  );
+  assert.throws(
+    () =>
+      validateEntity(
+        "artifact",
+        audioArtifact({ filename: "voice.flac", file_type: "flac", mime_type: "audio\/flac" }),
+      ),
+    /対応していない音声形式/,
+  );
 });
 
 test("Voice Captureはaudio importと処理状態を通常file Captureから区別する", () => {
   assert.equal(validateAudioCaptureEntry(voiceCapture()).capture_method, "audio_import");
   assert.equal(validateEntity("capture_entry", voiceCapture()).content_type, "audio");
-  assert.throws(() => validateEntity("capture_entry", voiceCapture({ content_type: "file" })), /content_type/);
-  assert.throws(() => validateEntity("capture_entry", voiceCapture({ media_status: "saved" })), /media_status/);
-  assert.throws(() => validateEntity("capture_entry", voiceCapture({ transcription_status: "unknown" })), /transcription_status/);
+  assert.throws(
+    () => validateEntity("capture_entry", voiceCapture({ content_type: "file" })),
+    /content_type/,
+  );
+  assert.throws(
+    () => validateEntity("capture_entry", voiceCapture({ media_status: "saved" })),
+    /media_status/,
+  );
+  assert.throws(
+    () => validateEntity("capture_entry", voiceCapture({ transcription_status: "unknown" })),
+    /transcription_status/,
+  );
 });
 
 test("durationはcompactな時刻へ整形する", () => {
@@ -93,7 +118,7 @@ test("保存済みVoice Captureは未整理・整理済みの両方でduration�
   assert.equal(TRANSCRIPTION_STATUS_LABELS.not_requested, "未文字起こし");
   assert.equal(MEDIA_AVAILABILITY_LABELS.available, "保存済み");
   const inbox = readFileSync("src/renderer/src/features/workspace/pages/InboxPage.tsx", "utf8");
-  assert.equal((inbox.match(/<CapturedArtifactButton key=/g) || []).length, 2);
+  assert.equal((inbox.match(/<CapturedArtifactButton\s+key=/g) || []).length, 2);
   assert.match(inbox, /formatMediaDuration\(artifact\.duration_ms\)/);
   assert.match(inbox, /formatArtifactFileSize\(artifact\.file_size\)/);
   assert.match(inbox, /TRANSCRIPTION_STATUS_LABELS\[transcription\]/);

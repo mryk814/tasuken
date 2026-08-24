@@ -93,7 +93,7 @@ test("micro memo date is a labeled top-level time element", () => {
   const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
   assert.match(source, /className="micro-memo-card-meta"/);
   assert.match(source, /<time dateTime=\{memo\.captured_at\}/);
-  assert.match(source, />記録 \{formatDate\(memo\.captured_at\)\}</);
+  assert.match(source, />\s*記録\s+\{formatDate\(memo\.captured_at\)\}\s*</);
   assert.match(styles, /\.micro-memo-card-meta\s*\{[\s\S]*?justify-content: flex-start/);
 });
 

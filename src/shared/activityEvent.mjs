@@ -314,6 +314,7 @@ export function activityEventKind({
   const command = text(commandName);
   const previous = parseEntity(before);
   const next = parseEntity(after);
+  if (changeType === "deleted") return "entity_deleted";
   if (type === "task") {
     if (
       command === "CompleteTask" ||
@@ -349,7 +350,6 @@ export function activityEventKind({
   if (type === "reference") return previous ? "reference_updated" : "reference_created";
   if (type === "schedule") return "schedule_updated";
   if (type === "status_update") return "status_updated";
-  if (changeType === "deleted") return "entity_deleted";
   if (changeType === "created") return "entity_updated";
   return "entity_updated";
 }
@@ -458,14 +458,16 @@ export function buildActivityEvent(input = {}) {
     entity_id: id,
     changed_at: iso(input.changed_at || input.changedAt || occurredAt),
     change_type:
-      text(input.change_type) ||
+      text(input.change_type || input.changeType) ||
       (kind.endsWith("_created") || kind.endsWith("_added")
         ? "created"
         : kind === "task_completed"
           ? "completed"
           : kind === "schedule_updated"
             ? "rescheduled"
-            : "updated"),
+            : kind === "entity_deleted"
+              ? "deleted"
+              : "updated"),
     reason: input.reason ?? null,
     before_json:
       input.before_json !== undefined

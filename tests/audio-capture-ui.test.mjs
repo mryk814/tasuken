@@ -51,7 +51,7 @@ const mainIndex = readFileSync("src/main/index.ts", "utf8");
 test("InboxはMemoだけを主操作にし、音声の入口はStudioへ移す（#383）", () => {
   assert.match(
     inbox,
-    /<Button variant="primary" onClick=\{addMemo\}><IconPlus size=\{16\} \/>Memo<\/Button>/,
+    /<Button\s+variant="primary"\s+onClick=\{addMemo\}\s*>\s*<IconPlus\s+size=\{16\}\s*\/>\s*Memo\s*<\/Button>/,
   );
   // 録音・画面録画はInboxに要らない機能なので、入口ごと持たない。
   assert.doesNotMatch(inbox, /音声を取り込む|マイクで録音|ScreenRecorderPanel/);
@@ -442,7 +442,7 @@ test("画面録画は通常停止で収録物へ自動保存し、失敗時だ�
 });
 
 test("saved audio uses one metadata-rich button in untriaged and processed Inbox rows", () => {
-  assert.equal((inbox.match(/<CapturedArtifactButton key=/g) || []).length, 2);
+  assert.equal((inbox.match(/<CapturedArtifactButton\s+key=/g) || []).length, 2);
   assert.match(inbox, /IconVolume size=\{14\}/);
   assert.match(inbox, /formatMediaDuration\(artifact\.duration_ms\)/);
   assert.match(inbox, /formatArtifactFileSize\(artifact\.file_size\)/);

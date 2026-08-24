@@ -70,7 +70,7 @@ test("Today and related lists share overdue urgency styling", () => {
 test("Today opens task rows directly in edit mode and shows lightweight reminder time", () => {
   assert.match(todayPageSource, /reminderMeta/);
   assert.match(todayPageSource, /IconClock/);
-  assert.match(todayPageSource, /type: "task", mode: "edit"/);
+  assert.match(todayPageSource, /type: "task",\s*mode: "edit"/);
 });
 
 test("Todayは日付範囲の意味ごとに扱いを分ける（#309）", () => {

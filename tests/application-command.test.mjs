@@ -341,12 +341,28 @@ test("DeleteTask uses the same expected-version boundary and keeps deletion undo
     ]),
   );
   assert.deepEqual(receipt.deleted, [{ type: "task", id: "delete-task" }]);
+  assert.deepEqual(receipt.saved, []);
+  assert.deepEqual(receipt.revisions, []);
   assert.equal(
     receipt.changes.find(({ type }) => type === "task").entity.deleted_at,
     "2026-08-08T00:00:00.000Z",
   );
   assert.equal(repo.get("task", "delete-task"), null);
   assert.equal(repo.get("task", "delete-task", true).deleted_at, "2026-08-08T00:00:00.000Z");
+  assert.equal(repo.get("task", "delete-task", true).version, 2);
+  assert.equal(receipt.events.length, 1);
+  assert.equal(repo.get("change_event", receipt.events[0]).change_type, "deleted");
+  assert.equal(repo.get("change_event", receipt.events[0]).command_id, "delete-task-command");
+  const replay = new ApplicationCommandService(repo).execute(
+    envelope("DeleteTask", { taskId: "delete-task" }, "delete-task-command", [
+      { type: "task", id: "delete-task", version: 1 },
+    ]),
+  );
+  assert.deepEqual(replay, receipt);
+  assert.equal(
+    repo.list("change_event").filter((event) => event.command_id === "delete-task-command").length,
+    1,
+  );
   assert.throws(
     () =>
       service.execute(

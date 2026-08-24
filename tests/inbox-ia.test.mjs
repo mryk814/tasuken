@@ -94,11 +94,11 @@ test("Inboxを未整理Task候補へ絞る（#317）", () => {
   // primaryはMemoひとつ。
   const primaries = header.match(/<Button variant="primary"/g) || [];
   assert.equal(primaries.length, 1);
-  assert.match(header, /<IconPlus size=\{16\} \/>Memo<\/Button>/);
+  assert.match(header, /<IconPlus\s+size=\{16\}\s*\/>\s*Memo\s*<\/Button>/);
 
   // Quick Captureと同じcapture_entryへ保存し、保存先を分裂させない。
   assert.match(inboxPageSource, /function addMemo\(\) \{[\s\S]*?type: "capture_entry"/);
-  assert.match(inboxPageSource, /kind: "micro_memo", content_type: "text", state: "untriaged"/);
+  assert.match(inboxPageSource, /kind: "micro_memo",\s*content_type: "text",\s*state: "untriaged"/);
 });
 
 test("Inbox itemの既定の行き先はTaskで、他種別はmenuへ畳む（#317）", () => {

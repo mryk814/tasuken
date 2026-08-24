@@ -382,7 +382,7 @@ test("Top BarのToday／付箋はicon中心で状態を色だけに頼らない�
 test("位置・サイズを覚え、画面外へ復元しない配線がある（#290）", () => {
   assert.match(
     registrySource,
-    /clampBoundsToDisplays\(saved, displays\(\), \{ minWidth: spec\.minWidth, minHeight: spec\.minHeight \}\)/,
+    /clampBoundsToDisplays\(\s*saved,\s*displays\(\),\s*\{\s*minWidth: spec\.minWidth,\s*minHeight: spec\.minHeight,?\s*\},?\s*\)/,
   );
   assert.match(registrySource, /window\.on\("move", \(\) => scheduleSaveBounds\(entry\)\)/);
   assert.match(registrySource, /window\.on\("resize", \(\) => scheduleSaveBounds\(entry\)\)/);
@@ -523,7 +523,7 @@ test("付箋で開いているMemoを本体から区別できる（#298 / #377�
   const cssSource = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
   // A=付箋対象、B=表示中、C=最前面の正本はMainのregistry。画面は購読するだけで自前に持たない。
-  assert.match(inboxSource, /workspaceApi\.getSatelliteWindowState\(\)/);
+  assert.match(inboxSource, /workspaceApi\s*\.\s*getSatelliteWindowState\(\)/);
   assert.match(inboxSource, /return workspaceApi\.onSatelliteWindowStateChanged\(applyState\);/);
   assert.match(registrySource, /options\.onChanged\?\.\(\);/);
 

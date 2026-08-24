@@ -48,6 +48,17 @@ data class MobileGatewayConfiguration(
 
 data class GatewayHttpResponse(val status: Int, val body: String)
 
+internal fun isConfirmedGatewayUnauthorized(
+    response: GatewayHttpResponse,
+    expectedServerId: String? = null,
+): Boolean {
+    if (response.status != 401) return false
+    val decoded = runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()
+        ?: return false
+    if (decoded.error.code != "unauthorized") return false
+    return expectedServerId == null || decoded.meta.serverId == expectedServerId
+}
+
 fun interface MobileGatewayHttpClient {
     fun request(
         origin: String,
@@ -305,7 +316,9 @@ class AndroidMobileTaskRepository(
                 accessToken = token,
             )
             if (response.status == 401) {
-                store.clearTokenIfMatches(token)
+                if (isConfirmedGatewayUnauthorized(response, dao.syncState()?.serverId)) {
+                    store.clearTokenIfMatches(token)
+                }
                 error("Mobile Gateway token expired")
             }
             if (response.status == 404) {
@@ -372,7 +385,9 @@ class AndroidMobileTaskRepository(
                 accessToken = accessToken,
             )
             if (response.status == 401) {
-                store.clearTokenIfMatches(accessToken)
+                if (isConfirmedGatewayUnauthorized(response, expectedServerId)) {
+                    store.clearTokenIfMatches(accessToken)
+                }
                 return false
             }
             require(response.status == 200) { "Task Work Proposal request failed with HTTP ${response.status}" }
@@ -451,10 +466,15 @@ class AndroidMobileTaskRepository(
                 accessToken = token,
             )
             if (response.status == 401) {
-                store.clearTokenIfMatches(token)
+                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
+                if (confirmed) store.clearTokenIfMatches(token)
                 return MobileProposalReviewResult.Unavailable(
                     proposal.id,
-                    "接続が失効しました。新しいコードで再接続してください。",
+                    if (confirmed) {
+                        "接続が失効しました。新しいコードで再接続してください。"
+                    } else {
+                        "Desktopへ接続できませんでした。接続を確認して再試行してください。"
+                    },
                 )
             }
             if (response.status == 409) {
@@ -660,7 +680,9 @@ class AndroidMobileTaskRepository(
                 accessToken = accessToken,
             )
             if (response.status == 401) {
-                store.clearTokenIfMatches(accessToken)
+                if (isConfirmedGatewayUnauthorized(response, expectedServerId)) {
+                    store.clearTokenIfMatches(accessToken)
+                }
                 throw IllegalStateException("Mobile Gateway token expired")
             }
             require(response.status == 200) { "Mobile sync failed with HTTP ${response.status}" }
@@ -689,7 +711,9 @@ class AndroidMobileTaskRepository(
             accessToken = accessToken,
         )
         if (response.status == 401) {
-            store.clearTokenIfMatches(accessToken)
+            if (isConfirmedGatewayUnauthorized(response, dao.syncState()?.serverId)) {
+                store.clearTokenIfMatches(accessToken)
+            }
             throw IllegalStateException("Mobile Gateway token expired")
         }
         require(response.status == 200) { "Mobile bootstrap failed with HTTP ${response.status}" }
@@ -745,7 +769,9 @@ class AndroidMobileTaskRepository(
                     body = null,
                     accessToken = accessToken,
                 )
-                if (response.status == 401) store.clearTokenIfMatches(accessToken)
+                if (isConfirmedGatewayUnauthorized(response, expectedServerId)) {
+                    store.clearTokenIfMatches(accessToken)
+                }
                 if (response.status != 200) throw MobileThemeHttpException(response.status)
                 val decoded = MobileThemeContract.decodePage(response.body)
                 if (decoded.meta.serverId != expectedServerId) {
@@ -891,8 +917,15 @@ class AndroidMobileTaskRepository(
                     }
                 }
                 response.status == 401 -> {
-                    store.clearTokenIfMatches(accessToken)
-                    MobileCommandSendResult.Retry("接続が失効しました。新しいコードで再接続してください。")
+                    val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
+                    if (confirmed) store.clearTokenIfMatches(accessToken)
+                    MobileCommandSendResult.Retry(
+                        if (confirmed) {
+                            "接続が失効しました。新しいコードで再接続してください。"
+                        } else {
+                            "Desktopへ送信できませんでした。自動で再送します。"
+                        },
+                    )
                 }
                 response.status == 409 -> {
                     val error = MobileTaskCommandContract.decodeError(response.body)
