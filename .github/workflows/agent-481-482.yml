@@ -643,7 +643,11 @@ jobs:
               echo "Base: $BASE_SHA"
               echo "Expected head: $EXPECTED_HEAD"
               echo
-              tail -n 1200 /tmp/verification.log
+              echo "=== focused failure context ==="
+              grep -n -B 30 -A 100 -E 'not ok|ERR_|AssertionError|Error:|error TS' /tmp/verification.log || true
+              echo
+              echo "=== final summary ==="
+              tail -n 450 /tmp/verification.log
             } > _agent/implementation-result.txt
             git add _agent/implementation-result.txt
             git commit -m "481・482の検証失敗ログを記録する"
