@@ -1,6 +1,6 @@
 # Android daily-driver MVP 引き継ぎ
 
-更新: 2026-08-24 19:50 JST  
+更新: 2026-08-24 20:04 JST  
 対象: #400 / #401 / #402 / #477  
 基準main: `46e7ae999548b21fb93eed6517cd3ad86e4500fd`
 
@@ -157,7 +157,7 @@ Galaxy Z Fold7の物理hingeの触感や長時間利用時の快適さも、ス�
 
 ## 現在のblocking state
 
-常用port `127.0.0.1:48177`はPID 38600のElectronが使用している。
+常用port `127.0.0.1:48177`は、20:04 JSTの最新観測ではPID 52804のElectronが使用している。PIDはprocess再起動で変わるため、再開時はportと実行パスを改めて確認する。
 
 processの実体は次である。
 
@@ -165,7 +165,7 @@ processの実体は次である。
 C:\Users\ootan\.codex\worktrees\214e\tasuken\node_modules\electron\dist\electron.exe .
 ```
 
-このworktreeは`codex/481-482`で、mainに対してahead 2 / behind 8、25 pathsが未コミットまたは未追跡である。
+このworktreeは`codex/481-482`で、mainに対してahead 2 / behind 8、32 pathsが未コミットまたは未追跡である。
 
 PRは作成されていない。
 
