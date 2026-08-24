@@ -1,8 +1,10 @@
 package jp.personal.tasken.companion
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasStateDescription
@@ -11,8 +13,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -100,6 +104,46 @@ class CaptureThemePickerUiTest {
                 submitted,
             )
         }
+    }
+
+    @Test
+    fun quickAddKeepsSubmitActionsAboveBottomSystemInset() {
+        composeRule.setContent {
+            MaterialTheme {
+                CaptureTaskSheet(
+                    draft = MobileCaptureDraft.fresh(text = "下端操作を守る"),
+                    state = CaptureUiState.Idle,
+                    speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
+                    themes = emptyList(),
+                    themeCatalogState = MobileThemeCatalogState.Available(
+                        themes = emptyList(),
+                        serverId = "server-1",
+                        serverRevision = 1,
+                        generatedAt = "2026-08-24T00:00:00Z",
+                    ),
+                    onDraftChanged = {},
+                    onThemeSelected = {},
+                    onKindSelected = {},
+                    onSubmit = {},
+                    onStartVoice = {},
+                    onStopVoice = {},
+                    onDismiss = {},
+                    bottomContentInsets = WindowInsets(bottom = 96.dp),
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("capture-bottom-inset-spacer").performScrollTo()
+        val actionBounds = composeRule.onNodeWithTag("capture-submit-row")
+            .fetchSemanticsNode().boundsInRoot
+        val insetNode = composeRule.onNodeWithTag("capture-bottom-inset-spacer")
+        val insetBounds = insetNode.fetchSemanticsNode().boundsInRoot
+
+        insetNode.assertHeightIsEqualTo(96.dp)
+        assertTrue(
+            "Submit actions must precede the bottom inset: actions=$actionBounds inset=$insetBounds",
+            actionBounds.bottom <= insetBounds.top + 1f,
+        )
     }
 
     @Test
