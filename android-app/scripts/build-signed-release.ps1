@@ -136,7 +136,16 @@ try {
         throw "apksigner verification failed"
     }
 
-    Get-FileHash -LiteralPath $apk -Algorithm SHA256 | Select-Object Path, Hash
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    $apkStream = [IO.File]::OpenRead($apk)
+    try {
+        $apkHash = -join ($sha256.ComputeHash($apkStream) | ForEach-Object { $_.ToString("x2") })
+    }
+    finally {
+        $apkStream.Dispose()
+        $sha256.Dispose()
+    }
+    Write-Output "SHA-256: $apkHash"
     Write-Output (Resolve-Path -LiteralPath $apk).Path
 }
 finally {
