@@ -1,0 +1,81 @@
+name: Issue 481 482 agent inspection
+
+on:
+  push:
+    branches:
+      - fix/issues-481-482-polish-audit
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Inspect issue-related code paths
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          ROOTS = [Path('src'), Path('tests')]
+          CATEGORIES = {
+              'PROMPT': re.compile(r'prompt|プロンプト', re.I),
+              'CHECKLIST': re.compile(r'checklist|チェックリスト|scrollTop|scrollIntoView', re.I),
+              'CHAT_REFS': re.compile(r'chat.?ref|openExternal|externalUrl|sourceUrl|threadUrl|originalUrl|元のチャット', re.I),
+              'STICKY': re.compile(r'memo.?sticky|sticky-card|presentation_color|alwaysOnTop|常に手前', re.I),
+              'SHORTCUT': re.compile(r'CommandOrControl|accelerator|shortcut', re.I),
+              'PERFORMANCE': re.compile(r'readFileSync|writeFileSync|execSync|spawnSync|setInterval|addEventListener|reloadWorkspace|refreshWorkspace|loadWorkspace|entities\.listAll', re.I),
+          }
+          EXTENSIONS = {'.ts', '.tsx', '.js', '.mjs', '.css', '.html'}
+          per_category_limit = 180
+          lines_out = []
+
+          files = []
+          for root in ROOTS:
+              files.extend(path for path in root.rglob('*') if path.is_file() and path.suffix in EXTENSIONS)
+
+          for category, pattern in CATEGORIES.items():
+              lines_out.append(f'\n===== {category} =====')
+              count = 0
+              for path in files:
+                  try:
+                      source = path.read_text(encoding='utf-8')
+                  except UnicodeDecodeError:
+                      continue
+                  rows = source.splitlines()
+                  for index, row in enumerate(rows):
+                      if not pattern.search(row):
+                          continue
+                      start = max(0, index - 2)
+                      end = min(len(rows), index + 3)
+                      lines_out.append(f'\n--- {path}:{index + 1} ---')
+                      for line_no in range(start, end):
+                          marker = '>' if line_no == index else ' '
+                          lines_out.append(f'{marker}{line_no + 1:5}: {rows[line_no]}')
+                      count += 1
+                      if count >= per_category_limit:
+                          lines_out.append(f'\n[truncated after {per_category_limit} matches]')
+                          break
+                  if count >= per_category_limit:
+                      break
+              lines_out.append(f'\n[matches: {count}]')
+
+          Path('inspection-481-482.txt').write_text('\n'.join(lines_out), encoding='utf-8')
+          print('\n'.join(lines_out[:450]))
+          PY
+
+      - name: Upload inspection report
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-481-482-inspection
+          path: inspection-481-482.txt
+          retention-days: 3
