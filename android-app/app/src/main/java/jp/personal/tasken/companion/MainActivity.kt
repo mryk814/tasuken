@@ -24,9 +24,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -587,6 +595,9 @@ internal fun CaptureTaskSheet(
     onStartVoice: () -> Unit,
     onStopVoice: () -> Unit,
     onDismiss: () -> Unit,
+    bottomContentInsets: WindowInsets = WindowInsets.safeDrawing
+        .union(WindowInsets.ime)
+        .only(WindowInsetsSides.Bottom),
 ) {
     val focusRequester = remember(draft.draftId) { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -601,10 +612,14 @@ internal fun CaptureTaskSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        contentWindowInsets = {
+            WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
+        },
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .testTag("capture-sheet-content")
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -678,7 +693,7 @@ internal fun CaptureTaskSheet(
                 },
             )
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -697,6 +712,12 @@ internal fun CaptureTaskSheet(
                     Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
                 }
             }
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsBottomHeight(bottomContentInsets)
+                    .testTag("capture-bottom-inset-spacer"),
+            )
         }
     }
 }
