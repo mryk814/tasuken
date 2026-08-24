@@ -262,6 +262,7 @@ function TodayRows({
   onToggleToday,
   onPostpone,
   onOpenDetail,
+  onStartFocus,
   onToggleChecklistItem,
   onOpenChecklistEditor,
   onAdd,
@@ -276,6 +277,7 @@ function TodayRows({
   onToggleToday: (row: TodayRow) => void;
   onPostpone: (row: TodayRow, days: number) => void;
   onOpenDetail: (row: TodayRow) => void;
+  onStartFocus?: (row: TodayRow) => void;
   onToggleChecklistItem: (row: TodayRow, itemId: string) => void;
   onOpenChecklistEditor: (row: TodayRow) => void;
   onAdd?: () => void;
@@ -342,6 +344,17 @@ function TodayRows({
             </div>
             <time className={urgency || undefined} dateTime={row.date || undefined}>{formatDate(row.date)}</time>
             <span className="today-postpone-actions">
+              {row.v2?.type === "task" && !done && onStartFocus && (
+                <button
+                  className="today-focus-button"
+                  onClick={(event) => { event.stopPropagation(); onStartFocus(row); }}
+                  title="フォーカスを開始"
+                  aria-label={`${row.title}のフォーカスを開始`}
+                  type="button"
+                >
+                  <IconClock size={15} />
+                </button>
+              )}
               {hasSchedule(row) && (
                 <button className="postpone-button" onClick={(event) => { event.stopPropagation(); onPostpone(row, 1); }} title="+1日" aria-label={`${row.title}を1日延期`}>+1d</button>
               )}
@@ -754,7 +767,7 @@ function buildDisconnectedCalendarStatus(): CalendarConnectionStatus {
   return { provider: null, accountName: "", connected: false, lastFetchedAt: "" };
 }
 
-export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, openDailyScratchpad, saveEntities, setToast }: PageProps) {
+export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, openDailyScratchpad, startFocusSession, saveEntities, setToast }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
@@ -1169,6 +1182,9 @@ export function TodayPage({ data, domain: v2, themes, openDrawer, navigate, open
     onToggleToday: handleToggleToday,
     onPostpone: handlePostpone,
     onOpenDetail: handleOpenDetail,
+    onStartFocus: (row: TodayRow) => {
+      if (row.v2?.type === "task") startFocusSession(row.v2.task.id);
+    },
     onToggleChecklistItem: handleToggleChecklistItem,
     onOpenChecklistEditor: handleOpenChecklistEditor,
   };

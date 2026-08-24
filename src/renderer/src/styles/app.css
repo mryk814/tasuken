@@ -1269,6 +1269,7 @@ textarea:hover {
 }
 .today-postpone-actions {
   display: flex;
+  align-items: center;
   gap: var(--space-1);
 }
 .postpone-button {
@@ -1502,7 +1503,7 @@ textarea:hover {
 .today-task-row {
   min-height: 40px;
   display: grid;
-  grid-template-columns: 8px 24px minmax(0, 1fr) 94px 52px;
+  grid-template-columns: 8px 24px minmax(0, 1fr) 94px 82px;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--pad-card);
@@ -8568,7 +8569,8 @@ kbd {
 .priority-flag-button,
 .today-plan-button,
 .todo-copy-button,
-.todo-focus-button {
+.todo-focus-button,
+.today-focus-button {
   width: 26px;
   height: 26px;
   display: grid;
@@ -8583,7 +8585,8 @@ kbd {
 .priority-flag-button:hover,
 .today-plan-button:hover,
 .todo-copy-button:hover,
-.todo-focus-button:hover {
+.todo-focus-button:hover,
+.today-focus-button:hover {
   border-color: var(--color-border);
   background: var(--color-surface-muted);
   color: var(--color-accent-strong);
@@ -11058,6 +11061,9 @@ kbd {
   width: 18px;
   color: var(--color-accent-strong);
 }
+.chat-thread-branch.is-empty {
+  visibility: hidden;
+}
 .chat-link-row[role="button"] {
   cursor: pointer;
 }
@@ -11773,8 +11779,8 @@ kbd {
 .micro-memo-card {
   --memo-paper-color: var(--color-chart-4);
   display: grid;
-  gap: var(--space-3);
-  align-content: space-between;
+  gap: var(--space-2);
+  align-content: start;
   min-height: 150px;
   padding: var(--pad-card);
   border-left: 4px solid var(--memo-paper-color);
@@ -11802,6 +11808,20 @@ kbd {
   margin: 0;
   white-space: pre-wrap;
 }
+.micro-memo-card-body {
+  display: block !important;
+  min-width: 0;
+  max-height: 9rem;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.micro-memo-card-body.is-expanded {
+  max-height: none;
+}
+.micro-memo-card-body p {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .micro-memo-card > div {
   display: flex;
   align-items: center;
@@ -11814,6 +11834,48 @@ kbd {
 .micro-memo-card-meta {
   min-height: 18px;
   justify-content: flex-start !important;
+}
+.micro-memo-card-header-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 0 0 auto;
+  gap: var(--space-1);
+  justify-content: flex-end;
+}
+.micro-memo-color-select {
+  min-width: 58px;
+  max-width: 74px;
+  min-height: 28px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.micro-memo-color-select:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+.micro-memo-collapse-button,
+.micro-memo-pin-button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+.micro-memo-collapse-button:hover,
+.micro-memo-collapse-button:focus-visible {
+  border-color: var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-accent-strong);
 }
 .micro-memo-card time {
   color: var(--color-text-secondary);
@@ -11845,6 +11907,21 @@ kbd {
 .sticky-open-count {
   color: var(--color-text-secondary);
   font: var(--text-xs) var(--font-mono);
+}
+.sticky-color-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.sticky-color-filter select {
+  min-height: 28px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
 }
 
 .activity-log-strip {

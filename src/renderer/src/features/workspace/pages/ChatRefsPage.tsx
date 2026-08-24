@@ -62,7 +62,7 @@ import {
   archiveChatResources,
   chatGroupCollapsePreferenceKey,
   chatGroupNameExists,
-  chatThreadVisualDepth,
+  chatThreadVisualDepths,
   chatThreadMetaLabels,
   clearChatGroupResources,
   filterChatResourcesByArchive,
@@ -181,13 +181,20 @@ export function ChatRefsPage({
     if (activeThemeId && activeThemeId !== selectedThemeId) setSelectedThemeId(activeThemeId);
   }, [activeThemeId, selectedThemeId]);
 
-  const inboxResources = chatResources.filter((r) => !r.project_id && !isChatArchived(r));
-  const archivedCount = chatResources.filter(isChatArchived).length;
+  const inboxResources = useMemo(
+    () => chatResources.filter((r) => !r.project_id && !isChatArchived(r)),
+    [chatResources],
+  );
+  const archivedCount = useMemo(() => chatResources.filter(isChatArchived).length, [chatResources]);
 
-  const scopedResources = chatResources.filter((r) => {
-    if (selectedThemeId) return r.project_id === selectedThemeId;
-    return !r.project_id;
-  });
+  const scopedResources = useMemo(
+    () =>
+      chatResources.filter((r) => {
+        if (selectedThemeId) return r.project_id === selectedThemeId;
+        return !r.project_id;
+      }),
+    [chatResources, selectedThemeId],
+  );
 
   const archiveScopedResources = useMemo(() => {
     const searching = query.trim().length > 0;
@@ -197,13 +204,17 @@ export function ChatRefsPage({
     });
   }, [scopedResources, isArchiveView, includeArchivedInSearch, query]);
 
-  const visibleResources = archiveScopedResources.filter((r) => {
-    if (statusFilter === "adopted" && !isAdopted(r)) return false;
-    if (statusFilter === "inbox" && isAdopted(r)) return false;
-    const haystack =
-      `${r.title} ${r.description} ${r.url} ${r.chat_group || ""} ${themeTitle(themes, r.project_id)}`.toLowerCase();
-    return haystack.includes(query.toLowerCase());
-  });
+  const visibleResources = useMemo(
+    () =>
+      archiveScopedResources.filter((r) => {
+        if (statusFilter === "adopted" && !isAdopted(r)) return false;
+        if (statusFilter === "inbox" && isAdopted(r)) return false;
+        const haystack =
+          `${r.title} ${r.description} ${r.url} ${r.chat_group || ""} ${themeTitle(themes, r.project_id)}`.toLowerCase();
+        return haystack.includes(query.toLowerCase());
+      }),
+    [archiveScopedResources, query, statusFilter, themes],
+  );
 
   // 最近利用 = メンバの保存時刻（updated_at 優先）。クリックやリンクを開いただけでは動かさない
   const groups = useMemo(
@@ -214,6 +225,13 @@ export function ChatRefsPage({
       }),
     [visibleResources, sortOrder, groupSortOrder],
   );
+  const threadDepthById = useMemo(() => {
+    const depths = new Map<string, number>();
+    for (const group of groups) {
+      for (const [id, depth] of chatThreadVisualDepths(group.resources)) depths.set(id, depth);
+    }
+    return depths;
+  }, [groups]);
   const resourceById = useMemo(
     () => new Map(chatResources.map((resource) => [resource.id, resource])),
     [chatResources],
@@ -942,7 +960,7 @@ export function ChatRefsPage({
                     const activeDropTarget = dragTarget?.id === r.id && draggingId !== r.id;
                     const parent = resourceById.get(str(r.parent_resource_id));
                     const childCount = childrenByParentId.get(r.id)?.length || 0;
-                    const threadDepth = chatThreadVisualDepth(r, group.resources);
+                    const threadDepth = threadDepthById.get(r.id) || 0;
                     const threadLabels = chatThreadMetaLabels({
                       parentTitle: parent ? str(parent.title || parent.url) : "",
                       childCount,
@@ -992,11 +1010,12 @@ export function ChatRefsPage({
                             : undefined
                         }
                       >
-                        {parent && (
-                          <span className="chat-thread-branch" aria-hidden="true">
-                            <IconArrowUpLeft size={15} />
-                          </span>
-                        )}
+                        <span
+                          className={`chat-thread-branch ${parent ? "" : "is-empty"}`}
+                          aria-hidden="true"
+                        >
+                          {parent && <IconArrowUpLeft size={15} />}
+                        </span>
                         {sortOrder === "manual" && !isArchiveView && (
                           <span
                             className={`chat-row-drag-handle ${canDrag ? "" : "is-disabled"}`}

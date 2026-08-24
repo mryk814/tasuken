@@ -433,8 +433,15 @@ export function sortChatResources(resources: Resource[], order: ChatRefSortOrder
 
 /** 元チャットを起点に段下げする表示用深さ。矢印の表示状態には依存しない。 */
 export function chatThreadVisualDepth(resource: Resource, resources: Resource[]): number {
+  return chatThreadVisualDepths(resources).get(resource.id) || 0;
+}
+
+/** 同じ一覧を行ごとにMap化しないための一括版。深さは表示部品とは独立した投影。 */
+export function chatThreadVisualDepths(resources: Resource[]): Map<string, number> {
   const resourceById = new Map(resources.map((item) => [item.id, item]));
-  return Math.min(3, threadDepth(resource, resourceById));
+  return new Map(
+    resources.map((resource) => [resource.id, Math.min(3, threadDepth(resource, resourceById))]),
+  );
 }
 
 export function groupChatResources(

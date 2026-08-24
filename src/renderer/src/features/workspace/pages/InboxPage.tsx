@@ -4,6 +4,8 @@ import {
   IconArrowRight,
   IconCalendarCheck,
   IconCheck,
+  IconChevronDown,
+  IconChevronRight,
   IconCopy,
   IconPin,
   IconExternalLink,
@@ -35,6 +37,7 @@ import {
   buildSaveScheduleOperations,
   buildSaveResourceOperations,
   buildSaveNoteOperations,
+  buildSaveCaptureEntryOperations,
   buildTriageCaptureEntryOperations,
   buildChangeEventOperation,
 } from "../domain-model/persistence";
@@ -42,7 +45,13 @@ import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waitin
 import type { Artifact, ArtifactSourceType, SaveOperation } from "../types";
 import type { Entity } from "../../../../../shared/types/workspace";
 import { CAPTURE_METHOD_LABELS, formatMediaDuration, MEDIA_AVAILABILITY_LABELS, TRANSCRIPTION_STATUS_LABELS } from "../../../../../shared/mediaArtifact.mjs";
-import { memoStickyColorOf } from "../../../../../shared/memoPresentation";
+import {
+  MEMO_STICKY_COLOR_LABELS,
+  MEMO_STICKY_COLORS,
+  markMemoStickyColor,
+  memoStickyColorOf,
+  type MemoStickyColor,
+} from "../../../../../shared/memoPresentation";
 import { useUiStore } from "../../../stores/uiStore";
 import { createSketchDraft } from "../lib/sketch";
 import { buildLinkedArtifactOperationsFromPaths } from "../lib/artifactEntities";
@@ -228,6 +237,18 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
   const [openStickyIds, setOpenStickyIds] = useState<string[]>([]);
   const [stickyTargetIds, setStickyTargetIds] = useState<string[]>([]);
   const [alwaysOnTopStickyIds, setAlwaysOnTopStickyIds] = useState<string[]>([]);
+  const [stickyColorFilter, setStickyColorFilter] = useState<MemoStickyColor | "all">("all");
+  const [collapsedStickyIds, setCollapsedStickyIds] = useState<string[]>([]);
+  const [expandedStickyIds, setExpandedStickyIds] = useState<string[]>([]);
+  const visibleMicroMemoRows = useMemo(
+    () =>
+      stickyColorFilter === "all"
+        ? microMemoRows
+        : microMemoRows.filter(
+            (entry) => memoStickyColorOf(entry as unknown as Entity) === stickyColorFilter,
+          ),
+    [microMemoRows, stickyColorFilter],
+  );
   const today = todayIso();
   const allTargetStickiesVisible = stickyTargetIds.length > 0
     && stickyTargetIds.every((memoId) => openStickyIds.includes(memoId));
@@ -361,6 +382,39 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
     if (result.status === "flush_failed") {
       setToast("付箋を収納できませんでした。付箋側の保存エラーを解消してください。", "danger");
     }
+  }
+
+  async function updateMicroMemoColor(memo: CaptureEntry, color: MemoStickyColor) {
+    if (memoStickyColorOf(memo as unknown as Entity) === color) return;
+    try {
+      const next = markMemoStickyColor(memo as unknown as Entity, color) as unknown as CaptureEntry;
+      await saveEntities(
+        buildSaveCaptureEntryOperations(next, {
+          source: "manual",
+          reason: "sticky_color_changed",
+          newSession: true,
+        }),
+        "付箋の色を変更しました。",
+        "main_ui",
+      );
+    } catch (error) {
+      setToast(
+        `付箋の色を変更できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    }
+  }
+
+  function toggleStickyCard(id: string) {
+    setCollapsedStickyIds((current) =>
+      current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
+    );
+  }
+
+  function toggleStickyCardExpansion(id: string) {
+    setExpandedStickyIds((current) =>
+      current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
+    );
   }
 
   async function organize(row: InboxRow) {
@@ -1014,9 +1068,20 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       </section> : <section className="panel inbox-panel">
         <div className="section-heading">
           <h2>付箋メモ</h2>
-          <span>{microMemoRows.length}件</span>
+          <span>{visibleMicroMemoRows.length}件</span>
           <div className="inline-actions">
             <span className="sticky-open-count">対象 {stickyTargetIds.length} · 表示中 {openStickyIds.length}</span>
+            <label className="sticky-color-filter">
+              <span>色</span>
+              <select
+                value={stickyColorFilter}
+                onChange={(event) => setStickyColorFilter(event.target.value as MemoStickyColor | "all")}
+                aria-label="付箋の色で絞り込む"
+              >
+                <option value="all">すべて</option>
+                {MEMO_STICKY_COLORS.map((color) => <option key={color} value={color}>{MEMO_STICKY_COLOR_LABELS[color]}</option>)}
+              </select>
+            </label>
             <button className="text-button compact" onClick={copyAllMicroMemos} disabled={!allMicroMemoRows.length} type="button">
               <IconCopy size={14} />まとめてコピー
             </button>
@@ -1025,44 +1090,71 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
             </button>
           </div>
         </div>
-        {microMemoRows.length ? (
+        {visibleMicroMemoRows.length ? (
           <div className="micro-memo-grid">
-            {microMemoRows.map((memo) => {
+            {visibleMicroMemoRows.map((memo) => {
               const targeted = stickyTargetIds.includes(memo.id);
+              const color = memoStickyColorOf(memo as unknown as Entity);
+              const collapsed = collapsedStickyIds.includes(memo.id);
+              const expanded = expandedStickyIds.includes(memo.id);
               return (
                 <article
-                  className={`micro-memo-card ${targeted ? "is-targeted" : ""}`}
-                  data-sticky-color={memoStickyColorOf(memo as unknown as Entity)}
+                  className={`micro-memo-card ${targeted ? "is-targeted" : ""} ${collapsed ? "is-collapsed" : ""}`}
+                  data-expanded={expanded}
+                  data-sticky-color={color}
                   key={memo.id}
                 >
                   <div className="micro-memo-card-header">
                     <div className="micro-memo-card-meta">
                       <time dateTime={memo.captured_at} title={`記録日 ${memo.captured_at}`}>記録 {formatDate(memo.captured_at)}</time>
                     </div>
-                    <button
-                      className={`micro-memo-pin-button ${targeted ? "is-active" : ""}`}
-                      onClick={() => void toggleMicroMemoTarget(memo)}
-                      aria-label={targeted ? "付箋対象から外して収納" : "付箋対象にして表示"}
-                      aria-pressed={targeted}
-                      title={targeted ? "付箋対象から外す" : "付箋対象にする"}
-                      type="button"
-                    ><IconPin size={16} /></button>
+                    <div className="micro-memo-card-header-actions">
+                      <select
+                        className="micro-memo-color-select"
+                        value={color}
+                        onChange={(event) => void updateMicroMemoColor(memo, event.target.value as MemoStickyColor)}
+                        aria-label="付箋の色を変更"
+                      >
+                        {MEMO_STICKY_COLORS.map((option) => <option key={option} value={option}>{MEMO_STICKY_COLOR_LABELS[option]}</option>)}
+                      </select>
+                      <button
+                        className="micro-memo-collapse-button"
+                        onClick={() => toggleStickyCard(memo.id)}
+                        aria-label={collapsed ? "付箋メモを展開" : "付箋メモを折りたたむ"}
+                        aria-expanded={!collapsed}
+                        title={collapsed ? "展開" : "折りたたむ"}
+                        type="button"
+                      >{collapsed ? <IconChevronRight size={15} /> : <IconChevronDown size={15} />}</button>
+                      <button
+                        className={`micro-memo-pin-button ${targeted ? "is-active" : ""}`}
+                        onClick={() => void toggleMicroMemoTarget(memo)}
+                        aria-label={targeted ? "付箋対象から外して収納" : "付箋対象にして表示"}
+                        aria-pressed={targeted}
+                        title={targeted ? "付箋対象から外す" : "付箋対象にする"}
+                        type="button"
+                      ><IconPin size={16} /></button>
+                    </div>
                   </div>
-                  {memo.title ? <>
-                    <strong>{memo.title}</strong>
+                  {!collapsed && <div className={`micro-memo-card-body ${expanded ? "is-expanded" : ""}`}>
+                    {memo.title && <strong>{memo.title}</strong>}
                     <p>{memo.text}</p>
-                  </> : <p>{memo.text}</p>}
-                  <div className="micro-memo-actions">
+                  </div>}
+                  {!collapsed && <div className="micro-memo-actions">
+                    <button className="row-action-button" onClick={() => toggleStickyCardExpansion(memo.id)} aria-label={expanded ? "付箋メモを短く表示" : "付箋メモを全文表示"} title={expanded ? "短く表示" : "全文表示"} type="button">
+                      {expanded ? <IconChevronDown size={15} /> : <IconChevronRight size={15} />}
+                    </button>
                     <button className="row-action-button" onClick={() => copyMicroMemo(memo)} aria-label="付箋メモをコピー" title="コピー"><IconCopy size={15} /></button>
                     <button className="row-action-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: memo as unknown as Record<string, unknown> })} aria-label="付箋メモを編集" title="編集"><IconPencil size={15} /></button>
                     {/* アーカイブと削除は別の操作として並べる（#298）。 */}
                     <button className="row-action-button" onClick={() => void archiveEntry(memo)} aria-label="付箋メモをアーカイブ" title="アーカイブ"><IconArchive size={15} /></button>
                     <button className="row-action-button danger" onClick={() => removeEntity("capture_entry", memo as unknown as Record<string, unknown>)} aria-label="付箋メモを削除" title="削除"><IconTrash size={15} /></button>
-                  </div>
+                  </div>}
                 </article>
               );
             })}
           </div>
+        ) : stickyColorFilter !== "all" ? (
+          <EmptyState title="この色の付箋メモはありません" action="色フィルターを解除" onAction={() => setStickyColorFilter("all")} />
         ) : (
           <EmptyState title={query ? "検索に一致する付箋メモはありません" : "付箋メモはありません"} />
         )}
