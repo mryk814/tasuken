@@ -1,0 +1,9 @@
+node_modules/
+out/
+release/
+coverage/
+artifacts/
+mcp-dist/
+architecture/
+android/
+**/generated/
