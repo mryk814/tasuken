@@ -1,0 +1,23 @@
+Implementation patching failed.
+Base: f72484caf7ebb331a1252221e43930b0ce1d2eb0
+Expected head: e7ef46ae2c8ced67dcdb0df7c824bdd1d5b14bfb
+
+[fix/issues-481-482-polish-audit b49b7f7] 付箋の初期表示とカラーメニューを整える
+ 3 files changed, 36 insertions(+), 1 deletion(-)
+ create mode 100644 tests/issue-481-polish.test.mjs
+[fix/issues-481-482-polish-audit be78f1d] チェックリスト保存時の再マウントを防ぐ
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+[fix/issues-481-482-polish-audit 5f0774a] Focus終了時の既定値を実利用向けにする
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+[fix/issues-481-482-polish-audit 71aa6da] Chat Refsに元チャット操作を戻す
+ 2 files changed, 23 insertions(+)
+[fix/issues-481-482-polish-audit 089fe2d] 報告書プロンプトの追加形式と導線を揃える
+ 2 files changed, 47 insertions(+), 18 deletions(-)
+[fix/issues-481-482-polish-audit eebe4cd] ショートカット表示をOS表記へ整える
+ 3 files changed, 34 insertions(+), 3 deletions(-)
+Traceback (most recent call last):
+  File "/tmp/apply_481_482.py", line 421, in <module>
+    replace_once(
+  File "/tmp/apply_481_482.py", line 21, in replace_once
+    raise RuntimeError(f"{path}: expected exactly one literal match, got {count}: {old[:120]!r}")
+RuntimeError: src/renderer/src/main.tsx: expected exactly one literal match, got 0: 'import App from "./App";\n'
