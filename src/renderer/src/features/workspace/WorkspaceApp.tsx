@@ -45,6 +45,7 @@ import {
   localDateAndTime,
   runActivityAutoExport,
 } from "./lib/activityAutoExport";
+import { resolveActivityLogDirectory } from "./lib/activityLogDirectory";
 import { buildActivityLog } from "./lib/activityLog";
 import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
 import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
@@ -619,13 +620,19 @@ export function WorkspaceApp() {
       let activeDirectory = "";
       activityAutoExportRunning.current = true;
       try {
-        const [time, directory, lastExportDate] = await Promise.all([
+        const [time, directory, artifactDirectory, lastExportDate] = await Promise.all([
           workspaceApi.getPreference("activityLogAutoExportTime"),
           workspaceApi.getPreference("activityLogDirectory"),
+          workspaceApi.getPreference("artifactDirectory"),
           workspaceApi.getPreference("activityLogLastAutoExportDate"),
         ]);
-        activeDirectory = String(directory || "");
-        const targetDates = activityDatesToAutoExport({ now, time, directory, lastExportDate });
+        activeDirectory = resolveActivityLogDirectory(directory, artifactDirectory);
+        const targetDates = activityDatesToAutoExport({
+          now,
+          time,
+          directory: activeDirectory,
+          lastExportDate,
+        });
         if (!targetDates.length || canceled) return;
         if (activityAutoExportFailedTarget.current === `${targetDates[0]}:${activeDirectory}`)
           return;
@@ -1734,16 +1741,27 @@ export function WorkspaceApp() {
         .filter((level, index, levels) => levels.indexOf(level) === index)
         .sort((left, right) => left - right);
       const hasHeadingNumberLevels = Boolean(named("heading_number_levels_present"));
+      const existingPromptProperties =
+        base.properties_json && typeof base.properties_json === "object"
+          ? (base.properties_json as Record<string, unknown>)
+          : {};
+      // Promptの用途・既定・変数は画面で判断させる情報ではない。
+      // 既存データは失わず、生成元が付けた分類だけを内部的に保持する。
       const promptProperties =
         noteType === "prompt"
           ? {
               prompt_purpose: formText(
                 values,
                 "prompt_purpose",
-                String(base.note_type) === "report_prompt" ? "report" : "other",
+                str(existingPromptProperties.prompt_purpose) ||
+                  (String(base.note_type) === "report_prompt" ? "report" : "other"),
               ),
-              prompt_variables: formText(values, "prompt_variables"),
-              is_default: values.getAll("prompt_is_default").map(String).includes("true"),
+              prompt_variables: formText(
+                values,
+                "prompt_variables",
+                str(existingPromptProperties.prompt_variables),
+              ),
+              is_default: existingPromptProperties.is_default === true,
             }
           : {};
       const reportProperties =

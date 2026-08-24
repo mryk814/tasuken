@@ -14,7 +14,9 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString("base64")}`
+  );
 }
 
 const parser = await importBundled("src/renderer/src/features/workspace/lib/conversationParser.ts");
@@ -113,7 +115,10 @@ Setが最速です。
 `;
   const messages = parser.parseConversationMessages(body);
   assert.equal(messages.length, 4);
-  assert.deepEqual(messages.map((m) => m.role), ["user", "assistant", "user", "assistant"]);
+  assert.deepEqual(
+    messages.map((m) => m.role),
+    ["user", "assistant", "user", "assistant"],
+  );
   assert.match(messages[1].content, /### 1\. Setを使う/);
   assert.match(messages[1].content, /### 2\. filterを使う/);
 });
@@ -136,7 +141,10 @@ test("parseConversationMessages uses ### as separator when no ## role heading ex
 });
 
 test("parseConversationMessages returns empty when no role heading exists", () => {
-  assert.deepEqual(parser.parseConversationMessages("## Section 1\n\nText\n\n## Section 2\n\nMore"), []);
+  assert.deepEqual(
+    parser.parseConversationMessages("## Section 1\n\nText\n\n## Section 2\n\nMore"),
+    [],
+  );
 });
 
 test("mapProviderToLinkType maps known providers", () => {
@@ -163,7 +171,9 @@ test("isConversationMarkdown returns true for conversation patterns", () => {
 });
 
 test("isConversationMarkdown returns false for regular markdown", () => {
-  assert.ok(!parser.isConversationMarkdown("# Title\n\n## Section 1\n\nContent\n\n## Section 2\n\nMore"));
+  assert.ok(
+    !parser.isConversationMarkdown("# Title\n\n## Section 1\n\nContent\n\n## Section 2\n\nMore"),
+  );
   assert.ok(!parser.isConversationMarkdown("Just some text"));
 });
 
@@ -195,7 +205,10 @@ test("drawer.tsx includes ConversationPreview integration", () => {
 });
 
 test("ContentViewer renders chat_log target with ConversationPreview", () => {
-  const source = readFileSync("src/renderer/src/features/workspace/components/ContentViewer.tsx", "utf8");
+  const source = readFileSync(
+    "src/renderer/src/features/workspace/components/ContentViewer.tsx",
+    "utf8",
+  );
   assert.match(source, /target\.type === "chat_log"/);
   assert.match(source, /mode: "conversation"/);
   assert.match(source, /<ConversationPreview/);
@@ -255,13 +268,18 @@ test("role display names drop emoji from the source heading", () => {
 });
 
 test("ConversationPreview uses Tabler icons instead of emoji", () => {
-  const source = readFileSync("src/renderer/src/features/workspace/components/ConversationPreview.tsx", "utf8");
+  const source = readFileSync(
+    "src/renderer/src/features/workspace/components/ConversationPreview.tsx",
+    "utf8",
+  );
   assert.match(source, /@tabler\/icons-react/);
   assert.match(source, /conversation-thread/);
   assert.doesNotMatch(source, /[\u{1F300}-\u{1FAFF}]/u);
 });
 
-const conversationCopy = await importBundled("src/renderer/src/features/workspace/lib/conversationCopy.ts");
+const conversationCopy = await importBundled(
+  "src/renderer/src/features/workspace/lib/conversationCopy.ts",
+);
 
 const COPY_MESSAGES = [
   { role: "system", displayName: "System", content: "system prompt" },
@@ -302,7 +320,9 @@ test("conversation range copy excludes tool and system messages by default", () 
   assert.equal(turn.count, 2);
   assert.equal(turn.excluded, 1);
 
-  const withTools = conversationCopy.conversationRangeMarkdown(COPY_MESSAGES, 1, 3, { includeToolAndSystem: true });
+  const withTools = conversationCopy.conversationRangeMarkdown(COPY_MESSAGES, 1, 3, {
+    includeToolAndSystem: true,
+  });
   assert.match(withTools.markdown, /## Tool\n\ntool output/);
   assert.equal(withTools.excluded, 0);
 
@@ -313,15 +333,24 @@ test("conversation range copy excludes tool and system messages by default", () 
   );
 
   // 本文のみの連結は区切りを入れ、話者名を混ぜない。
-  const bodies = conversationCopy.conversationRangeMarkdown(COPY_MESSAGES, 4, 5, { withSpeaker: false });
+  const bodies = conversationCopy.conversationRangeMarkdown(COPY_MESSAGES, 4, 5, {
+    withSpeaker: false,
+  });
   assert.equal(bodies.markdown, "順序は保たれる？\n\n---\n\n保たれます。");
   assert.doesNotMatch(bodies.markdown, /##/);
 
-  assert.deepEqual(conversationCopy.conversationRangeMarkdown([], 0, 0), { markdown: "", count: 0, excluded: 0 });
+  assert.deepEqual(conversationCopy.conversationRangeMarkdown([], 0, 0), {
+    markdown: "",
+    count: 0,
+    excluded: 0,
+  });
 });
 
 test("Conversation Viewer offers message, turn, range and code block copy", () => {
-  const source = readFileSync("src/renderer/src/features/workspace/components/ConversationPreview.tsx", "utf8");
+  const source = readFileSync(
+    "src/renderer/src/features/workspace/components/ConversationPreview.tsx",
+    "utf8",
+  );
   const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
   assert.match(source, /本文のみ/);
   assert.match(source, /このやり取り/);
@@ -329,6 +358,12 @@ test("Conversation Viewer offers message, turn, range and code block copy", () =
   assert.match(source, /ここまでコピー/);
   assert.match(source, /conversation-code-copy/);
   // hoverだけに頼らず、focusでも操作が現れること。
-  assert.match(styles, /\.conversation-turn:focus-within \.conversation-turn-actions \{ opacity: 1; \}/);
-  assert.match(styles, /\.conversation-code-copy:focus-visible \{ outline: 2px solid var\(--color-focus\)/);
+  assert.match(
+    styles,
+    /\.conversation-turn:focus-within \.conversation-turn-actions\s*\{\s*opacity: 1;/,
+  );
+  assert.match(
+    styles,
+    /\.conversation-code-copy:focus-visible\s*\{\s*outline: 2px solid var\(--color-focus\)/,
+  );
 });

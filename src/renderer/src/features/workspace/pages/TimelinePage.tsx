@@ -48,7 +48,6 @@ import {
   findPlanDependencyId,
   timelineItemDateSpan,
   timelineItemHasSchedule,
-  timelineItemIsMilestone,
   timelineItemLevel,
   timelineItemStatusLabel,
   timelineItemStatusValue,
@@ -128,7 +127,7 @@ export function TimelinePage({
   removeEntityQuiet,
   setToast,
 }: PageProps) {
-  const [prefs, setPrefs] = usePreference("timeline.preferences");
+  const [prefs, setPrefs, preferenceLoad] = usePreference("timeline.preferences");
   const {
     dayWidth,
     themeFilter,
@@ -364,7 +363,7 @@ export function TimelinePage({
 
   const didInitialScroll = useRef(false);
   useLayoutEffect(() => {
-    if (didInitialScroll.current || !scrollRef.current) return;
+    if (!preferenceLoad.isReady || didInitialScroll.current || !scrollRef.current) return;
     const element = scrollRef.current;
     const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
     const defaultScrollLeft = Math.max(
@@ -373,10 +372,10 @@ export function TimelinePage({
     );
     element.scrollLeft = Math.max(
       0,
-      Math.min(maxScrollLeft, scrollLeft > 0 ? scrollLeft : defaultScrollLeft),
+      Math.min(maxScrollLeft, preferenceLoad.hasStoredValue ? scrollLeft : defaultScrollLeft),
     );
     didInitialScroll.current = true;
-  }, [canvasWidth, scrollLeft, todayLeft]);
+  }, [canvasWidth, preferenceLoad.hasStoredValue, preferenceLoad.isReady, scrollLeft, todayLeft]);
 
   function rememberScrollPosition() {
     if (scrollSaveTimer.current !== null) window.clearTimeout(scrollSaveTimer.current);
@@ -730,6 +729,18 @@ export function TimelinePage({
           スライド用
         </Button>
         <Button
+          variant="secondary"
+          onClick={() =>
+            createMilestone(
+              themeFilter === "all" || themeFilter === "none" ? null : themeFilter,
+              today,
+            )
+          }
+        >
+          <IconCalendarPlus size={16} />
+          マイルストーンを追加
+        </Button>
+        <Button
           variant="primary"
           onClick={() =>
             openDrawer({
@@ -895,7 +906,18 @@ export function TimelinePage({
               return (
                 <div className="gantt-milestone-table-row" key={`milestones-${row.groupKey}`}>
                   <span>Milestones</span>
-                  <strong>{row.milestones.length}</strong>
+                  <div className="gantt-milestone-actions">
+                    <strong>{row.milestones.length}</strong>
+                    <button
+                      type="button"
+                      className="gantt-add-milestone-button"
+                      onClick={() => createMilestone(row.theme?.id || null, today)}
+                      title="このThemeにマイルストーンを追加"
+                    >
+                      <IconCalendarPlus size={14} />
+                      追加
+                    </button>
+                  </div>
                 </div>
               );
             }
@@ -929,7 +951,6 @@ export function TimelinePage({
                   className="gantt-name"
                   style={{ paddingLeft: `calc(var(--space-2) + ${depth * 14}px)` }}
                 >
-                  {timelineItemIsMilestone(item) && <span className="gantt-milestone-mark">◆</span>}
                   {editingTitle?.id === item.id ? (
                     <input
                       className="gantt-title-input"
@@ -964,18 +985,24 @@ export function TimelinePage({
                       >
                         {item.title}
                       </button>
-                      {/* 状態は色だけで伝えず、語でも読めるようにする（#312 / #318）。 */}
-                      {timelineState !== "ongoing" && (
-                        <StatusBadge
-                          value={timelineState}
-                          label={TIMELINE_ITEM_STATE_LABELS[timelineState]}
-                          className={`timeline-state-chip is-state-${timelineState}`}
-                        />
-                      )}
-                      {(scheduleKind === "execution_window" ||
+                      {(timelineState !== "ongoing" ||
+                        scheduleKind === "execution_window" ||
                         scheduleKind === "unspecified_range") && (
-                        <span className={`timeline-range-chip is-range-${scheduleKind}`}>
-                          {SCHEDULE_KIND_LABELS[scheduleKind]}
+                        <span className="gantt-name-meta">
+                          {/* 状態は色だけで伝えず、語でも読めるようにする（#312 / #318）。 */}
+                          {timelineState !== "ongoing" && (
+                            <StatusBadge
+                              value={timelineState}
+                              label={TIMELINE_ITEM_STATE_LABELS[timelineState]}
+                              className={`timeline-state-chip is-state-${timelineState}`}
+                            />
+                          )}
+                          {(scheduleKind === "execution_window" ||
+                            scheduleKind === "unspecified_range") && (
+                            <span className={`timeline-range-chip is-range-${scheduleKind}`}>
+                              {SCHEDULE_KIND_LABELS[scheduleKind]}
+                            </span>
+                          )}
                         </span>
                       )}
                     </>

@@ -14,7 +14,9 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString("base64")}`
+  );
 }
 
 const notes = await importBundled("src/renderer/src/features/workspace/lib/notes.ts");
@@ -28,8 +30,14 @@ test("Notes defaults to Note and keeps deterministic date ordering", () => {
     { id: "same-a", created_at: "2026-07-01", updated_at: "2026-07-10" },
     { id: "old", created_at: "2026-07-02", updated_at: "2026-07-09" },
   ];
-  assert.deepEqual(notes.sortNotesRecords(records, "updated_desc").map((record) => record.id), ["same-b", "same-a", "old"]);
-  assert.deepEqual(notes.sortNotesRecords(records, "created_asc").map((record) => record.id), ["same-a", "same-b", "old"]);
+  assert.deepEqual(
+    notes.sortNotesRecords(records, "updated_desc").map((record) => record.id),
+    ["same-b", "same-a", "old"],
+  );
+  assert.deepEqual(
+    notes.sortNotesRecords(records, "created_asc").map((record) => record.id),
+    ["same-a", "same-b", "old"],
+  );
 });
 
 test("Notes UI persists filter and sort preferences and exposes save-folder actions", () => {
@@ -74,7 +82,10 @@ test("Notes opens directly in Edit while filling a large list in idle batches", 
   assert.match(source, /compactNotesBodyPreview/);
   assert.match(source, /if \(!normalizedQuery\) return true/);
   assert.match(source, /lazy\(loadMarkdownRichEditor\)/);
-  assert.doesNotMatch(source, /import \{[^}]*MarkdownRichEditor[^}]*\} from "\.\.\/components\/MarkdownRichEditor"/s);
+  assert.doesNotMatch(
+    source,
+    /import \{[^}]*MarkdownRichEditor[^}]*\} from "\.\.\/components\/MarkdownRichEditor"/s,
+  );
 });
 
 test("micro memo date is a labeled top-level time element", () => {
@@ -83,7 +94,7 @@ test("micro memo date is a labeled top-level time element", () => {
   assert.match(source, /className="micro-memo-card-meta"/);
   assert.match(source, /<time dateTime=\{memo\.captured_at\}/);
   assert.match(source, />記録 \{formatDate\(memo\.captured_at\)\}</);
-  assert.match(styles, /\.micro-memo-card-meta[^\n]*justify-content: flex-start/);
+  assert.match(styles, /\.micro-memo-card-meta\s*\{[\s\S]*?justify-content: flex-start/);
 });
 
 test("page headers move purpose copy into an info popover instead of a permanent subtitle", () => {
@@ -97,11 +108,23 @@ test("page headers move purpose copy into an info popover instead of a permanent
   assert.match(common, /aria-controls=\{id\}/);
   assert.match(common, /event\.key === "Escape"/);
   assert.match(common, /closest\("\.page-info"\)/);
-  assert.match(styles, /\.page-info-button:focus-visible \{ outline: 2px solid var\(--color-focus\)/);
+  assert.match(
+    styles,
+    /\.page-info-button:focus-visible\s*\{\s*outline: 2px solid var\(--color-focus\)/,
+  );
 
   const boilerplate = [
-    "ArtifactsPage", "ChatRefsPage", "ImportExportPage", "InboxPage", "KnowledgePage",
-    "NotesPage", "ThemesPage", "TimelinePage", "TodayPage", "TodoPage", "WaitingPage",
+    "ArtifactsPage",
+    "ChatRefsPage",
+    "ImportExportPage",
+    "InboxPage",
+    "KnowledgePage",
+    "NotesPage",
+    "ThemesPage",
+    "TimelinePage",
+    "TodayPage",
+    "TodoPage",
+    "WaitingPage",
   ];
   for (const page of boilerplate) {
     const source = readFileSync(`src/renderer/src/features/workspace/pages/${page}.tsx`, "utf8");
@@ -109,7 +132,10 @@ test("page headers move purpose copy into an info popover instead of a permanent
     assert.doesNotMatch(header.slice(0, 400), /subtitle=/, `${page} は用途説明を常時表示しない`);
   }
   // Theme詳細の説明は利用者が書いたデータなので常時表示のまま残す。
-  assert.match(readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8"), /subtitle=\{theme\.description\}/);
+  assert.match(
+    readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8"),
+    /subtitle=\{theme\.description\}/,
+  );
 });
 
 test("navigation, page headings and command palette share one canonical label", () => {
@@ -131,10 +157,21 @@ test("navigation, page headings and command palette share one canonical label", 
 
   // 説明語をページ名へ混ぜない。
   for (const forbidden of ["Inbox整理", "チャット参照", "AI連携"]) {
-    for (const file of ["pages/InboxPage.tsx", "pages/ChatRefsPage.tsx", "pages/ImportExportPage.tsx"]) {
+    for (const file of [
+      "pages/InboxPage.tsx",
+      "pages/ChatRefsPage.tsx",
+      "pages/ImportExportPage.tsx",
+    ]) {
       const source = readFileSync(`src/renderer/src/features/workspace/${file}`, "utf8");
-      const header = source.slice(source.indexOf("<PageHeader"), source.indexOf("<PageHeader") + 300);
-      assert.doesNotMatch(header, new RegExp(forbidden), `${file} の見出しに ${forbidden} を書かない`);
+      const header = source.slice(
+        source.indexOf("<PageHeader"),
+        source.indexOf("<PageHeader") + 300,
+      );
+      assert.doesNotMatch(
+        header,
+        new RegExp(forbidden),
+        `${file} の見出しに ${forbidden} を書かない`,
+      );
     }
   }
 
@@ -152,35 +189,62 @@ test("Notesは本文集中表示で一覧と補助行を畳み、縦領域を本
   assert.match(page, /documentFocus: !documentFocus/);
   assert.match(page, /is-document-focus/);
   // 集中表示では一覧ペインも畳む。切り離しNoteウィンドウ（#290）も同じ畳み方を使う。
-  assert.match(page, /listCollapsed \|\| documentFocus \|\| detachedNoteId \? " is-list-collapsed"/);
+  assert.match(
+    page,
+    /listCollapsed \|\| documentFocus \|\| detachedNoteId \? " is-list-collapsed"/,
+  );
   // Escで元へ戻せる。入力中は横取りしない。
-  assert.match(page, /event\.key !== "Escape" \|\| target\?\.closest\("input, textarea, \[contenteditable=true\]"\)/);
+  assert.match(
+    page,
+    /event\.key !== "Escape" \|\| target\?\.closest\("input, textarea, \[contenteditable=true\]"\)/,
+  );
   // ページ見出し・フィルタ・日付や出力先の補助行を畳む。
   assert.match(styles, /\.notes-page\.is-document-focus > \.page-header/);
-  assert.match(styles, /\.notes-page\.is-document-focus \.note-export-handoff \{ display: none; \}/);
+  assert.match(
+    styles,
+    /\.notes-page\.is-document-focus \.note-export-handoff\s*\{\s*display: none;/,
+  );
 });
 
 test("Notesの作成導線が一つのprimary actionへ集約される（#313）", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
-  const menu = readFileSync("src/renderer/src/features/workspace/components/NoteCreateMenu.tsx", "utf8");
+  const menu = readFileSync(
+    "src/renderer/src/features/workspace/components/NoteCreateMenu.tsx",
+    "utf8",
+  );
 
   // 種類ごとのbuttonを4つ常設しない。
-  assert.equal(/<button className="primary-button" onClick=\{\(\) => addNote\("note"\)\}/.test(source), false);
-  assert.equal(/<button className="primary-button" onClick=\{\(\) => addPrompt\(\)\}/.test(source), false);
-  assert.match(source, /<NoteCreateMenu defaultKind=\{createDefaultKind\} onCreate=\{createRecord\} \/>/);
+  assert.equal(
+    /<button className="primary-button" onClick=\{\(\) => addNote\("note"\)\}/.test(source),
+    false,
+  );
+  assert.equal(
+    /<button className="primary-button" onClick=\{\(\) => addPrompt\(\)\}/.test(source),
+    false,
+  );
+  assert.match(
+    source,
+    /<NoteCreateMenu defaultKind=\{createDefaultKind\} onCreate=\{createRecord\} \/>/,
+  );
 
   // 既定の種類は現在のfilterから決める。`すべて`ではNote。
   assert.match(source, /const createDefaultKind: NotesKind = scope === "all" \? "note" : scope;/);
 
   // dropdownから4種を選べ、keyboard / screen readerからも辿れる。
-  assert.match(menu, /const CREATE_ORDER: NotesKind\[\] = \["note", "resource", "report", "prompt"\];/);
+  assert.match(
+    menu,
+    /const CREATE_ORDER: NotesKind\[\] = \["note", "resource", "report", "prompt"\];/,
+  );
   assert.match(menu, /aria-haspopup="menu"/);
   assert.match(menu, /aria-label="追加する種類を選ぶ"/);
   assert.match(menu, /role="menuitem"/);
 });
 
 test("本文を選択しただけでは変換toolbarを出さない（#313）", () => {
-  const editor = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
+  const editor = readFileSync(
+    "src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx",
+    "utf8",
+  );
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
   const app = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 
@@ -193,8 +257,8 @@ test("本文を選択しただけでは変換toolbarを出さない（#313）", 
   assert.match(editor, /selectionCommand\?: SelectionCommandRequest \| null;/);
   assert.match(editor, /lastSelectionRangeRef\.current = range\.cloneRange\(\);/);
   assert.match(source, /"selection-task": \(\) => requestSelectionCommand\("task"\)/);
-  assert.match(app, /id: "notes:selection-task", label: "選択範囲からTaskを作る"/);
-  assert.match(app, /id: "notes:selection-ai", label: "選択範囲をAIで編集"/);
+  assert.match(app, /id: "notes:selection-task",\s*label: "選択範囲からTaskを作る"/);
+  assert.match(app, /id: "notes:selection-ai",\s*label: "選択範囲をAIで編集"/);
 });
 
 test("本文の全文コピーは大きなbuttonから外す（#313）", () => {
@@ -202,17 +266,29 @@ test("本文の全文コピーは大きなbuttonから外す（#313）", () => {
 
   // 大きなtext buttonは撤去。#331でoverflow menuの項目になった。
   assert.equal(/>本文をコピー</.test(source), false);
-  assert.match(source, /id: "copy-body", label: "本文をすべてコピー", onSelect: \(\) => void copySelectedRaw\(\)/);
+  assert.match(
+    source,
+    /id: "copy-body", label: "本文をすべてコピー", onSelect: \(\) => void copySelectedRaw\(\)/,
+  );
 });
 
 test("Notesのtoolbarがpage / document / editor / outputへ分かれる（#331）", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 
   // 文書の段は「この文書を確定する」ことだけを扱う。
-  assert.match(source, /<span className="note-draft-state" role="status" aria-live="polite">\{saveStateLabel\}<\/span>/);
-  assert.match(source, /<ToolbarMenu label="この文書" title="この文書に対する操作" items=\{documentMenuItems\} \/>/);
+  assert.match(
+    source,
+    /<span className="note-draft-state" role="status" aria-live="polite">\{saveStateLabel\}<\/span>/,
+  );
+  assert.match(
+    source,
+    /<ToolbarMenu label="この文書" title="この文書に対する操作" items=\{documentMenuItems\} \/>/,
+  );
   // Editorの段はmode切替と高頻度操作、派生出力はmenuへ。
-  assert.match(source, /<ToolbarMenu label="出力" title="書き出しと保存先" items=\{outputMenuItems\} \/>/);
+  assert.match(
+    source,
+    /<ToolbarMenu label="出力" title="書き出しと保存先" items=\{outputMenuItems\} \/>/,
+  );
   assert.match(source, /aria-label="本文を検索・置換"/);
 
   // 低頻度actionは同格buttonとして並べない。
@@ -231,16 +307,25 @@ test("`保存`はNote正本の確定だけに使い、派生出力と語彙を�
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 
   // 画面上で `保存` と表示されるbuttonは、内部Entityを確定する一つだけ。
-  assert.match(source, /<ActionButton action="notesSave" compact disabled=\{!draftDirty\} onClick=\{saveSelectedDraft\} \/>/);
+  assert.match(
+    source,
+    /<ActionButton action="notesSave" compact disabled=\{!draftDirty\} onClick=\{saveSelectedDraft\} \/>/,
+  );
 
   // 派生出力は `保存` と呼ばない。
-  assert.match(source, /label: markdownExporting \? "Markdownコピーを作成しています" : "Markdownコピーを作成"/);
+  assert.match(
+    source,
+    /label: markdownExporting \? "Markdownコピーを作成しています" : "Markdownコピーを作成"/,
+  );
   assert.match(source, /label: pdfExporting \? "PDFを作成しています" : "PDFを作成"/);
   assert.equal(/\{markdownExporting \? "保存中" : "保存"\}/.test(source), false);
 
   // 保存状態は一時messageが無くても静止状態を言う。
   assert.match(source, /const saveStateLabel = draftState\s*\n\s*\|\| \(draftDirty/);
-  assert.match(source, /noteSaveStateLabel\(\{ internalSaved: true, fileState: canonicalFileState \}\)/);
+  assert.match(
+    source,
+    /noteSaveStateLabel\(\{ internalSaved: true, fileState: canonicalFileState \}\)/,
+  );
 });
 
 test("AI iconはAIの操作にだけ使う（#312）", () => {

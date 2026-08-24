@@ -14,6 +14,8 @@ const MAX_EVENTS = 500;
 const DEFAULT_ACTIVITY_KINDS = new Set([
   "task_completed",
   "task_reopened",
+  "task_checklist_checked",
+  "task_checklist_unchecked",
   "task_work_recorded",
   "task_ai_reported",
   "task_ai_accepted",
@@ -76,24 +78,38 @@ const PUBLIC_METADATA_KEYS = new Set([
   "note_ai_command_marker",
 ]);
 const PUBLIC_METADATA_OBJECT_FIELDS = new Map([
-  ["provenance", [
-    "reported_via",
-    "captured_at",
-    "capture_method",
-    "recognition_mode",
-    "language",
-    "confidence",
-    "source_audio_available",
-    "shared_mime_type",
-    "proposal_id",
-    "caller",
-    "source_session",
-    "idempotency_key",
-    "proposal_created_at",
-    "imported_by",
-  ]],
+  [
+    "provenance",
+    [
+      "reported_via",
+      "captured_at",
+      "capture_method",
+      "recognition_mode",
+      "language",
+      "confidence",
+      "source_audio_available",
+      "shared_mime_type",
+      "proposal_id",
+      "caller",
+      "source_session",
+      "idempotency_key",
+      "proposal_created_at",
+      "imported_by",
+    ],
+  ],
   ["repository_context", ["repository_context_id", "provider", "repository_slug", "branch"]],
-  ["note_ai_command_marker", ["schema", "commandId", "commandFingerprint", "noteId", "proposalId", "noteVersion", "proposalVersion"]],
+  [
+    "note_ai_command_marker",
+    [
+      "schema",
+      "commandId",
+      "commandFingerprint",
+      "noteId",
+      "proposalId",
+      "noteVersion",
+      "proposalVersion",
+    ],
+  ],
 ]);
 const REDACTED_MARKER = /\[redacted(?:-url|-local-path)?\]/i;
 const ACTOR_FIELDS = ["kind", "id"];
@@ -123,11 +139,13 @@ function publicMetadataValue(keyName, value) {
   const objectFields = PUBLIC_METADATA_OBJECT_FIELDS.get(keyName);
   if (objectFields) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-    return Object.fromEntries(objectFields.flatMap((field) => {
-      if (!Object.hasOwn(value, field)) return [];
-      const safe = publicPrimitive(value[field]);
-      return safe === undefined ? [] : [[field, safe]];
-    }));
+    return Object.fromEntries(
+      objectFields.flatMap((field) => {
+        if (!Object.hasOwn(value, field)) return [];
+        const safe = publicPrimitive(value[field]);
+        return safe === undefined ? [] : [[field, safe]];
+      }),
+    );
   }
   if (Array.isArray(value)) {
     return value.map(publicPrimitive).filter((entry) => entry !== undefined);
@@ -165,9 +183,16 @@ function safeStorageRootId(value) {
 
 function safeRelativeLocator(value) {
   const source = text(value).replaceAll("\\", "/");
-  if (!source || source.startsWith("/") || /^[A-Za-z]:\//.test(source) || source.startsWith("//")) return null;
-  if (source.split("/").some((segment) => segment === "..") || /[\x00-\x1f\x7f]/.test(source)) return null;
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(source) || safeReceiptText(source) !== source || REDACTED_MARKER.test(source)) return null;
+  if (!source || source.startsWith("/") || /^[A-Za-z]:\//.test(source) || source.startsWith("//"))
+    return null;
+  if (source.split("/").some((segment) => segment === "..") || /[\x00-\x1f\x7f]/.test(source))
+    return null;
+  if (
+    /^[A-Za-z][A-Za-z0-9+.-]*:/.test(source) ||
+    safeReceiptText(source) !== source ||
+    REDACTED_MARKER.test(source)
+  )
+    return null;
   return source.replace(/^\.\//, "").slice(0, 2_000) || null;
 }
 
@@ -223,10 +248,14 @@ function localDate(value, timezone) {
       month: "2-digit",
       day: "2-digit",
     }).formatToParts(date);
-    const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+    const values = Object.fromEntries(
+      parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]),
+    );
     return `${values.year}-${values.month}-${values.day}`;
   } catch {
-    return timezone && timezone !== DEFAULT_TIMEZONE ? localDate(value, DEFAULT_TIMEZONE) : date.toISOString().slice(0, 10);
+    return timezone && timezone !== DEFAULT_TIMEZONE
+      ? localDate(value, DEFAULT_TIMEZONE)
+      : date.toISOString().slice(0, 10);
   }
 }
 
@@ -241,7 +270,9 @@ function localTime(value, timezone) {
       hour12: false,
     }).format(date);
   } catch {
-    return timezone && timezone !== DEFAULT_TIMEZONE ? localTime(value, DEFAULT_TIMEZONE) : date.toISOString().slice(11, 16);
+    return timezone && timezone !== DEFAULT_TIMEZONE
+      ? localTime(value, DEFAULT_TIMEZONE)
+      : date.toISOString().slice(11, 16);
   }
 }
 
@@ -264,7 +295,9 @@ function allEntities(workspace = {}, entities = {}) {
 }
 
 function themeMap(themes = [], workspace = {}) {
-  const records = themes.length ? themes : [...collection(workspace, "themes"), ...collection(workspace, "projects")];
+  const records = themes.length
+    ? themes
+    : [...collection(workspace, "themes"), ...collection(workspace, "projects")];
   return new Map(records.filter((theme) => theme?.id).map((theme) => [theme.id, theme]));
 }
 
@@ -285,11 +318,21 @@ function relationRefsFor(event, workspace) {
   }
   for (const artifact of collection(workspace, "artifacts")) {
     if (!active(artifact)) continue;
-    if (artifact.source_type === ref.type && String(artifact.source_id) === String(ref.id)) add("artifact", artifact.id, "generated");
-    if (artifact.origin_note_id === ref.id && ref.type === "note") add("artifact", artifact.id, "exported");
+    if (artifact.source_type === ref.type && String(artifact.source_id) === String(ref.id))
+      add("artifact", artifact.id, "generated");
+    if (artifact.origin_note_id === ref.id && ref.type === "note")
+      add("artifact", artifact.id, "exported");
   }
-  return [...new Map(result.map(publicTypedRef).filter(Boolean).map((value) => [JSON.stringify(value), value])).values()]
-    .sort((a, b) => `${a.relation || ""}:${a.type}:${a.id}`.localeCompare(`${b.relation || ""}:${b.type}:${b.id}`));
+  return [
+    ...new Map(
+      result
+        .map(publicTypedRef)
+        .filter(Boolean)
+        .map((value) => [JSON.stringify(value), value]),
+    ).values(),
+  ].sort((a, b) =>
+    `${a.relation || ""}:${a.type}:${a.id}`.localeCompare(`${b.relation || ""}:${b.type}:${b.id}`),
+  );
 }
 
 function publicCanonicalBase(value) {
@@ -303,7 +346,9 @@ function publicCanonicalBase(value) {
   if (!kind || (!webUrl && !(storageRootId && relativePath))) return null;
   return {
     kind,
-    ...(storageRootId && relativePath ? { storage_root_id: storageRootId, relative_path: relativePath } : {}),
+    ...(storageRootId && relativePath
+      ? { storage_root_id: storageRootId, relative_path: relativePath }
+      : {}),
     ...(webUrl ? { web_url: webUrl } : {}),
     ...(entityId ? { entity_id: entityId } : {}),
   };
@@ -325,10 +370,12 @@ function publicCanonicalRefs(refs, roots) {
 }
 
 function publicSourceRefs(refs) {
-  return (Array.isArray(refs) ? refs : []).map((ref) => {
-    if (ref?.type || ref?.id) return publicTypedRef(ref);
-    return publicCanonicalBase(ref);
-  }).filter(Boolean);
+  return (Array.isArray(refs) ? refs : [])
+    .map((ref) => {
+      if (ref?.type || ref?.id) return publicTypedRef(ref);
+      return publicCanonicalBase(ref);
+    })
+    .filter(Boolean);
 }
 
 function deduplicate(events) {
@@ -336,7 +383,8 @@ function deduplicate(events) {
   for (const event of events) {
     const dedupeKey = activityEventDedupeKey(event);
     const previous = byKey.get(dedupeKey);
-    if (!previous || String(event.occurred_at).localeCompare(String(previous.occurred_at)) > 0) byKey.set(dedupeKey, event);
+    if (!previous || String(event.occurred_at).localeCompare(String(previous.occurred_at)) > 0)
+      byKey.set(dedupeKey, event);
   }
   return [...byKey.values()];
 }
@@ -348,12 +396,16 @@ function eventAllowedByDefault(event) {
   if (event.metadata?.include_in_activity === true) return true;
   if (!DEFAULT_ACTIVITY_KINDS.has(event.event_kind)) return false;
   if (event.entity_ref?.type === "capture_entry") return Boolean(event.metadata?.formalized);
-  if (event.event_kind === "note_updated" || event.event_kind === "report_updated" || event.event_kind === "prompt_updated") {
+  if (
+    event.event_kind === "note_updated" ||
+    event.event_kind === "report_updated" ||
+    event.event_kind === "prompt_updated"
+  ) {
     return (event.changed_fields || []).some((field) => !["updated_at", "version"].includes(field));
   }
   // A Task being created or having only its title edited is useful in the
   // database history, but is noise in the default Activity index. Completion,
-  // reopen, work, and explicit AI transitions have their own fixed kinds.
+  // reopen, checklist toggles, work, and explicit AI transitions have fixed kinds.
   if (event.event_kind === "task_updated") return false;
   return true;
 }
@@ -361,17 +413,25 @@ function eventAllowedByDefault(event) {
 function projectOne(event, context) {
   const { entityMap, themesById, workspaceDefault, audience, workspace, roots } = context;
   const currentEntity = entityMap.get(key(event.entity_ref.type, event.entity_ref.id));
-  const themeId = event.theme_ref?.kind === "theme" ? event.theme_ref.id : text(currentEntity?.project_id || currentEntity?.theme_id);
+  const themeId =
+    event.theme_ref?.kind === "theme"
+      ? event.theme_ref.id
+      : text(currentEntity?.project_id || currentEntity?.theme_id);
   const theme = themeId ? themesById.get(themeId) : null;
   if (audience) {
     // #294 policy is evaluated at projection time. Event history does not
     // freeze a past visibility decision.
-    if (!currentEntity) return { excluded: { type: event.entity_ref.type, reason: "entity_missing", count: 1 } };
-    const policy = projectEntityForAi(event.entity_ref.type, currentEntity || { id: event.entity_ref.id, title: event.summary }, {
-      audience,
-      theme,
-      workspaceDefault,
-    });
+    if (!currentEntity)
+      return { excluded: { type: event.entity_ref.type, reason: "entity_missing", count: 1 } };
+    const policy = projectEntityForAi(
+      event.entity_ref.type,
+      currentEntity || { id: event.entity_ref.id, title: event.summary },
+      {
+        audience,
+        theme,
+        workspaceDefault,
+      },
+    );
     if (!policy.included) return { excluded: policy.exclusion };
   }
   const eventId = publicIdentifier(event.id);
@@ -432,39 +492,71 @@ export function queryActivityEvents({
   sort_direction = "asc",
   include_match_metadata = false,
 } = {}) {
-  const sourceWorkspace = { ...workspace, references: references.length ? references : workspace.references };
+  const sourceWorkspace = {
+    ...workspace,
+    references: references.length ? references : workspace.references,
+  };
   const entityMap = allEntities(sourceWorkspace, entities);
   const themesById = themeMap(themes, sourceWorkspace);
   const effectiveTimezone = normalizeTimezone(timezone);
-  const kinds = new Set([...(eventKinds.length ? eventKinds : event_kinds)].map(text).filter(Boolean));
-  const scopedEvents = deduplicate(events.map((event) => migrateChangeEvent(event, {
-    entity: entityMap.get(key(event?.entity_ref?.type || event?.entity_type, event?.entity_ref?.id || event?.entity_id)) || null,
-  })).filter(eventAllowedByDefault).filter((event) => {
-    const eventDate = localDate(event.occurred_at, effectiveTimezone);
-    if (date && eventDate !== date) return false;
-    if (from && event.occurred_at < from) return false;
-    if (to && event.occurred_at > to) return false;
-    if (themeId || theme_id) {
-      const selected = themeId || theme_id;
-      if (event.theme_ref?.id !== selected) return false;
-    }
-    if (entityType || entity_type) {
-      const selected = entityType || entity_type;
-      if (event.entity_ref?.type !== selected) return false;
-    }
-    if (kinds.size && !kinds.has(event.event_kind)) return false;
-    return true;
-  }));
+  const kinds = new Set(
+    [...(eventKinds.length ? eventKinds : event_kinds)].map(text).filter(Boolean),
+  );
+  const scopedEvents = deduplicate(
+    events
+      .map((event) =>
+        migrateChangeEvent(event, {
+          entity:
+            entityMap.get(
+              key(
+                event?.entity_ref?.type || event?.entity_type,
+                event?.entity_ref?.id || event?.entity_id,
+              ),
+            ) || null,
+        }),
+      )
+      .filter(eventAllowedByDefault)
+      .filter((event) => {
+        const eventDate = localDate(event.occurred_at, effectiveTimezone);
+        if (date && eventDate !== date) return false;
+        if (from && event.occurred_at < from) return false;
+        if (to && event.occurred_at > to) return false;
+        if (themeId || theme_id) {
+          const selected = themeId || theme_id;
+          if (event.theme_ref?.id !== selected) return false;
+        }
+        if (entityType || entity_type) {
+          const selected = entityType || entity_type;
+          if (event.entity_ref?.type !== selected) return false;
+        }
+        if (kinds.size && !kinds.has(event.event_kind)) return false;
+        return true;
+      }),
+  );
   const projected = [];
   const exclusions = [];
   const direction = sort_direction === "desc" ? -1 : 1;
-  for (const event of scopedEvents.sort((a, b) => direction * (
-    String(a.occurred_at).localeCompare(String(b.occurred_at))
-    || String(a.id).localeCompare(String(b.id))
-  ))) {
-    const result = projectOne(event, { entityMap, themesById, workspaceDefault, audience, workspace: sourceWorkspace, roots });
+  for (const event of scopedEvents.sort(
+    (a, b) =>
+      direction *
+      (String(a.occurred_at).localeCompare(String(b.occurred_at)) ||
+        String(a.id).localeCompare(String(b.id))),
+  )) {
+    const result = projectOne(event, {
+      entityMap,
+      themesById,
+      workspaceDefault,
+      audience,
+      workspace: sourceWorkspace,
+      roots,
+    });
     if (result.excluded) exclusions.push(result.excluded);
-    else if (result.event) projected.push({ ...result.event, local_date: localDate(event.occurred_at, effectiveTimezone), local_time: localTime(event.occurred_at, effectiveTimezone) });
+    else if (result.event)
+      projected.push({
+        ...result.event,
+        local_date: localDate(event.occurred_at, effectiveTimezone),
+        local_time: localTime(event.occurred_at, effectiveTimezone),
+      });
   }
   const max = Math.max(0, Math.min(MAX_EVENTS, Number(limit) || MAX_EVENTS));
   return {
@@ -485,13 +577,20 @@ function entityLink(ref) {
 
 function canonicalLink(ref) {
   if (ref.web_url) return `[${ref.relative_path || "Canonical"}](${ref.web_url})`;
-  if (ref.storage_root_id && ref.relative_path) return `\`${ref.storage_root_id}:${ref.relative_path}\``;
+  if (ref.storage_root_id && ref.relative_path)
+    return `\`${ref.storage_root_id}:${ref.relative_path}\``;
   return "(broken canonical ref)";
 }
 
 export function projectActivityMarkdown(result, { title = "Activity", date = result?.date } = {}) {
   const events = result?.events || [];
-  const lines = [`# ${title}${date ? ` ${date}` : ""}`, "", `> timezone: ${result?.timezone || DEFAULT_TIMEZONE}`, "", "## Events"];
+  const lines = [
+    `# ${title}${date ? ` ${date}` : ""}`,
+    "",
+    `> timezone: ${result?.timezone || DEFAULT_TIMEZONE}`,
+    "",
+    "## Events",
+  ];
   if (!events.length) lines.push("- なし");
   for (const event of events) {
     lines.push(
@@ -501,12 +600,13 @@ export function projectActivityMarkdown(result, { title = "Activity", date = res
       `- Theme: ${event.theme_ref?.kind === "theme" ? event.theme_ref.id : "none"}`,
       `- Changed: ${event.changed_fields.length ? event.changed_fields.join(", ") : "—"}`,
       `- Canonical: ${event.canonical_refs.length ? event.canonical_refs.map(canonicalLink).join(", ") : "—"}`,
-      `- Source: ${event.source_refs.length ? event.source_refs.map((ref) => ref.type && ref.id ? `${ref.type}:${ref.id}` : ref.locator || "ref").join(", ") : "—"}`,
+      `- Source: ${event.source_refs.length ? event.source_refs.map((ref) => (ref.type && ref.id ? `${ref.type}:${ref.id}` : ref.locator || "ref")).join(", ") : "—"}`,
       `- Relations: ${event.relation_refs.length ? event.relation_refs.map((ref) => `${ref.relation || "related_to"} ${ref.type}:${ref.id}`).join(", ") : "—"}`,
       `- Summary: ${event.summary}`,
     );
   }
-  if (result?.excluded_count) lines.push("", `## Excluded by policy`, `- ${result.excluded_count} event(s)`);
+  if (result?.excluded_count)
+    lines.push("", `## Excluded by policy`, `- ${result.excluded_count} event(s)`);
   return lines.join("\n");
 }
 

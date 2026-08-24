@@ -33,6 +33,6 @@ test("desktop smoke crosses the native Sketch clipboard boundary", () => {
   assert.match(smoke, /window\.api\.clipboard\.writeImage/);
   assert.match(smoke, /window\.webContents\.paste\(\)/);
   assert.match(smoke, /target\?\.querySelector\("img"\)/);
-  assert.match(smoke, /&& result\.sketchClipboardWritten/);
-  assert.match(smoke, /&& result\.sketchClipboardPasted/);
+  assert.match(smoke, /&&\s*result\.sketchClipboardWritten/);
+  assert.match(smoke, /&&\s*result\.sketchClipboardPasted/);
 });

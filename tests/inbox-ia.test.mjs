@@ -14,12 +14,20 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 }
 
 const routesSource = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
-const inboxPageSource = readFileSync("src/renderer/src/features/workspace/pages/InboxPage.tsx", "utf8");
-const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+const inboxPageSource = readFileSync(
+  "src/renderer/src/features/workspace/pages/InboxPage.tsx",
+  "utf8",
+);
+const workspaceAppSource = readFileSync(
+  "src/renderer/src/features/workspace/WorkspaceApp.tsx",
+  "utf8",
+);
 
 test("micro memos are folded into Inbox navigation instead of a separate nav item", () => {
   assert.doesNotMatch(routesSource, /\["micro-memos", "付箋メモ"\]/);
@@ -37,11 +45,17 @@ test("Inbox page has separate untriaged and micro memo lanes", () => {
 });
 
 test("the title bar launcher directly controls satellite windows without a popover", () => {
-  const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
+  const shellSource = readFileSync(
+    "src/renderer/src/features/workspace/components/shell.tsx",
+    "utf8",
+  );
   const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
   assert.match(shellSource, /function TitleBarLauncher/);
-  assert.match(shellSource, /const todayLabel = launcher\.todayWindowOpen \? "今日やることを収納" : "今日やることを表示"/);
+  assert.match(
+    shellSource,
+    /const todayLabel = launcher\.todayWindowOpen \? "今日やることを収納" : "今日やることを表示"/,
+  );
   assert.match(shellSource, /aria-label=\{todayLabel\}/);
   assert.match(shellSource, /aria-label="付箋を展開または収納"/);
   assert.match(shellSource, /aria-pressed=\{launcher\.todayWindowOpen\}/);
@@ -52,17 +66,20 @@ test("the title bar launcher directly controls satellite windows without a popov
 
   // Command PaletteからもTop Barと同じwindow操作へ到達する。
   assert.match(workspaceAppSource, /id: "open:memos"/);
-  assert.match(workspaceAppSource, /execute: \(\) => \{ void toggleStickyWindows\(\); \}/);
+  assert.match(workspaceAppSource, /execute: \(\) => \{\s*void toggleStickyWindows\(\);\s*\}/);
   assert.match(workspaceAppSource, /id: "open:today-window"/);
   assert.match(workspaceAppSource, /execute: toggleTodayWindow/);
 
-  assert.match(styles, /\.titlebar-launcher button:focus-visible \{ outline: 2px solid var\(--color-focus\)/);
+  assert.match(
+    styles,
+    /\.titlebar-launcher button:focus-visible\s*\{\s*outline: 2px solid var\(--color-focus\)/,
+  );
   assert.match(styles, /\.titlebar-launcher button\.is-active[\s\S]*box-shadow/);
 });
 
 test("Inboxを未整理Task候補へ絞る（#317）", () => {
   const header = inboxPageSource.slice(
-    inboxPageSource.indexOf("<PageHeader route=\"inbox\">"),
+    inboxPageSource.indexOf('<PageHeader route="inbox">'),
     inboxPageSource.indexOf("</PageHeader>"),
   );
 
@@ -86,7 +103,10 @@ test("Inboxを未整理Task候補へ絞る（#317）", () => {
 
 test("Inbox itemの既定の行き先はTaskで、他種別はmenuへ畳む（#317）", () => {
   // 7種を同格のbuttonで常設しない。
-  assert.equal(/INBOX_KIND_OPTIONS\.map\(\(\[value, label\]\) => \(\s*\n\s*<button/.test(inboxPageSource), false);
+  assert.equal(
+    /INBOX_KIND_OPTIONS\.map\(\(\[value, label\]\) => \(\s*\n\s*<button/.test(inboxPageSource),
+    false,
+  );
   assert.match(inboxPageSource, /className=\{draft\.output === "task" \? "is-selected" : ""\}/);
   assert.match(inboxPageSource, /items=\{INBOX_KIND_OPTIONS\.map\(\(\[value, label\]\) => \(\{/);
   // 内部コードを画面へ出さない。
@@ -98,7 +118,10 @@ test("Inbox itemの既定の行き先はTaskで、他種別はmenuへ畳む（#3
 });
 
 test("ToDoは表から追加を撤去し、作成しただけで今日へ入れない（#317）", async () => {
-  const todoPageSource = readFileSync("src/renderer/src/features/workspace/pages/TodoPage.tsx", "utf8");
+  const todoPageSource = readFileSync(
+    "src/renderer/src/features/workspace/pages/TodoPage.tsx",
+    "utf8",
+  );
   const ioSource = readFileSync("src/renderer/src/features/workspace/lib/io.ts", "utf8");
 
   assert.equal(/表から追加/.test(todoPageSource), false);
@@ -110,24 +133,65 @@ test("ToDoは表から追加を撤去し、作成しただけで今日へ入れ�
   const { isTodayRow } = await import("../src/renderer/src/features/workspace/lib/todoRows.js");
   const today = "2026-08-07";
   assert.equal(isTodayRow({ task: { id: "t1" } }, today), false);
-  assert.equal(isTodayRow({ task: { id: "t2" }, schedule: { start_date: null, end_date: null } }, today), false);
-  assert.equal(isTodayRow({ task: { id: "t3" }, schedule: { end_date: "2026-08-08" } }, today), false);
+  assert.equal(
+    isTodayRow({ task: { id: "t2" }, schedule: { start_date: null, end_date: null } }, today),
+    false,
+  );
+  assert.equal(
+    isTodayRow({ task: { id: "t3" }, schedule: { end_date: "2026-08-08" } }, today),
+    false,
+  );
   assert.equal(isTodayRow({ task: { id: "t4" }, schedule: { end_date: today } }, today), true);
   assert.equal(isTodayRow({ task: { id: "t5" }, schedule: { start_date: today } }, today), true);
 });
 
 test("収録物はInboxの分類対象にせず、Studioの棚に並べる（#383）", async () => {
-  const selectors = await importBundled("src/renderer/src/features/workspace/domain-model/selectors.ts");
+  const selectors = await importBundled(
+    "src/renderer/src/features/workspace/domain-model/selectors.ts",
+  );
   const domain = {
     capture_entries: [
-      { id: "c1", state: "untriaged", kind: "inbox", content_type: "text", captured_at: "2026-08-10T00:00:00.000Z" },
-      { id: "c2", state: "untriaged", kind: "voice_memo", content_type: "audio", captured_at: "2026-08-10T00:00:01.000Z" },
-      { id: "c3", state: "untriaged", kind: "screen_capture", content_type: "video", captured_at: "2026-08-10T00:00:02.000Z" },
-      { id: "c4", state: "archived", kind: "screen_capture", content_type: "video", captured_at: "2026-08-10T00:00:03.000Z" },
+      {
+        id: "c1",
+        state: "untriaged",
+        kind: "inbox",
+        content_type: "text",
+        captured_at: "2026-08-10T00:00:00.000Z",
+      },
+      {
+        id: "c2",
+        state: "untriaged",
+        kind: "voice_memo",
+        content_type: "audio",
+        captured_at: "2026-08-10T00:00:01.000Z",
+      },
+      {
+        id: "c3",
+        state: "untriaged",
+        kind: "screen_capture",
+        content_type: "video",
+        captured_at: "2026-08-10T00:00:02.000Z",
+      },
+      {
+        id: "c4",
+        state: "archived",
+        kind: "screen_capture",
+        content_type: "video",
+        captured_at: "2026-08-10T00:00:03.000Z",
+      },
     ],
   };
   // Inboxは「あとで分類する受け取り」だけを持つ。録れたものは出さない。
-  assert.deepEqual(selectors.buildInboxView(domain).entries.map((entry) => entry.id), ["c1"]);
+  assert.deepEqual(
+    selectors.buildInboxView(domain).entries.map((entry) => entry.id),
+    ["c1"],
+  );
   // Studioは録れたものを並べる。アーカイブ済みは棚から外す。
-  assert.deepEqual(selectors.buildRecordingView(domain).entries.map((entry) => entry.id).sort(), ["c2", "c3"]);
+  assert.deepEqual(
+    selectors
+      .buildRecordingView(domain)
+      .entries.map((entry) => entry.id)
+      .sort(),
+    ["c2", "c3"],
+  );
 });

@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const todayPageSource = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
+const todayPageSource = readFileSync(
+  "src/renderer/src/features/workspace/pages/TodayPage.tsx",
+  "utf8",
+);
 
 test("Today page stays focused on daily tasks instead of utility controls", () => {
   assert.match(todayPageSource, /openTodayTasksWindow/);
@@ -58,7 +61,10 @@ test("Today and related lists share overdue urgency styling", () => {
   assert.match(todayPageSource, /function dateUrgency/);
   assert.match(todayPageSource, /is-\$\{urgency\}/);
   assert.match(todayPageSource, /markDueToday=\{false\}/);
-  assert.match(todayPageSource, /today-focus-hero.*is-overdue|is-overdue.*today-focus-hero|className=\{`today-focus-hero panel\$\{/);
+  assert.match(
+    todayPageSource,
+    /today-focus-hero.*is-overdue|is-overdue.*today-focus-hero|className=\{`today-focus-hero panel\$\{/,
+  );
 });
 
 test("Today opens task rows directly in edit mode and shows lightweight reminder time", () => {
@@ -90,7 +96,7 @@ test("Today surfaces generated Activity and configures automatic daily export", 
   assert.match(todayPageSource, /collectActivityLogEntries/);
   assert.match(todayPageSource, /毎日自動出力/);
   assert.match(todayPageSource, /activityLogAutoExportTime/);
-  assert.match(todayPageSource, /Activity Logの自動出力先を選択/);
+  assert.match(todayPageSource, /Rootを設定すると自動で出力先を作ります。/);
   assert.match(todayPageSource, /アプリ停止中の未出力分は、次回起動時に日ごとに補完します/);
 });
 
@@ -110,7 +116,7 @@ test("Settings exposes shared-folder sync status, manual sync, and conflict reso
 
 test("Todayのprimary actionはTask追加ひとつにする（#316）", () => {
   const header = todayPageSource.slice(
-    todayPageSource.indexOf("<PageHeader route=\"today\">"),
+    todayPageSource.indexOf('<PageHeader route="today">'),
     todayPageSource.indexOf("</PageHeader>"),
   );
 
@@ -127,7 +133,10 @@ test("Todayのprimary actionはTask追加ひとつにする（#316）", () => {
   assert.match(header, /id: "goto-activity",\s+label: "Activityへ移動"/);
 
   // Task作成時にThemeを選べる（#316のTask creation contract）。
-  assert.match(todayPageSource, /<InlineAddPanel[\s\S]*?theme=\{addTheme\}[\s\S]*?themes=\{themes\}/);
+  assert.match(
+    todayPageSource,
+    /<InlineAddPanel[\s\S]*?theme=\{addTheme\}[\s\S]*?themes=\{themes\}/,
+  );
 });
 
 test("実行中のFocusはSidebar下部から確認・再開できる（#316）", () => {
@@ -139,23 +148,38 @@ test("実行中のFocusはSidebar下部から確認・再開できる（#316）"
   assert.equal(/focus-resume-chip/.test(app), false);
   assert.equal(/focus-resume-chip/.test(styles), false);
   assert.match(shell, /function SidebarFocus\(/);
-  assert.match(shell, /<SidebarFocus focus=\{activeFocus\} collapsed=\{collapsed\} onOpen=\{openActiveFocus\} \/>/);
+  assert.match(
+    shell,
+    /<SidebarFocus focus=\{activeFocus\} collapsed=\{collapsed\} onOpen=\{openActiveFocus\} \/>/,
+  );
   assert.match(styles, /\.sidebar-focus \{[\s\S]*?margin-top: auto;/);
 
   // 色だけでactiveを示さず、labelと経過時間を出す。
   assert.match(shell, /FOCUS/);
   assert.match(shell, /function elapsedFocusLabel\(/);
   // 動きを減らす設定ではpulseを止める。
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\s*\n\s*\.sidebar-focus-dot \{ animation: none; \}/);
+  assert.match(
+    styles,
+    /@media \(prefers-reduced-motion: reduce\) \{\s*\.sidebar-focus-dot \{\s*animation: none;/,
+  );
 
   // どの画面からでも開けるshortcutとcommandがある。
-  assert.match(app, /event\.altKey && !event\.ctrlKey && !event\.metaKey && event\.key\.toLowerCase\(\) === "f"/);
+  assert.match(
+    app,
+    /event\.altKey && !event\.ctrlKey && !event\.metaKey && event\.key\.toLowerCase\(\) === "f"/,
+  );
   assert.match(app, /id: "focus:resume"/);
-  assert.match(shell, /<dt><kbd>Alt<\/kbd>\+<kbd>F<\/kbd><\/dt><dd>実行中のFocus Sessionを開く<\/dd>/);
+  assert.match(
+    shell,
+    /<dt><kbd>Alt<\/kbd>\+<kbd>F<\/kbd><\/dt><dd>実行中のFocus Sessionを開く<\/dd>/,
+  );
 });
 
 test("Focus UIは表示だけ閉じ、sessionを終了しない（#316）", () => {
-  const dialog = readFileSync("src/renderer/src/features/workspace/components/FocusSessionDialog.tsx", "utf8");
+  const dialog = readFileSync(
+    "src/renderer/src/features/workspace/components/FocusSessionDialog.tsx",
+    "utf8",
+  );
 
   // 外側click / Escで閉じる。closeは表示を閉じるだけ（session終了は明示操作）。
   assert.match(dialog, /className="focus-session-backdrop"\s*\n\s*role="presentation"/);
@@ -166,7 +190,10 @@ test("Focus UIは表示だけ閉じ、sessionを終了しない（#316）", () =
 });
 
 test("Daily ScratchpadはMarkdownとして書けて確認できる（#316）", () => {
-  const dialog = readFileSync("src/renderer/src/features/workspace/components/DailyScratchpadDialog.tsx", "utf8");
+  const dialog = readFileSync(
+    "src/renderer/src/features/workspace/components/DailyScratchpadDialog.tsx",
+    "utf8",
+  );
   const markdown = readFileSync("src/renderer/src/features/workspace/lib/markdown.ts", "utf8");
 
   // 本文はMarkdownが正本。書いた結果を確認できる。

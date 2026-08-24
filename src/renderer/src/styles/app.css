@@ -8106,6 +8106,32 @@ kbd {
   padding: 0 var(--space-2);
   font-size: var(--text-sm);
 }
+.todo-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--pad-card);
+  border-bottom: 1px solid var(--color-accent-subtle-bd);
+  background: var(--color-accent-subtle-bg);
+}
+.todo-bulk-bar strong {
+  color: var(--color-accent-strong);
+  font-size: var(--text-sm);
+}
+.todo-bulk-theme-picker {
+  width: auto;
+  min-width: 148px;
+  height: 30px;
+  font-size: var(--text-sm);
+}
+.todo-row-selector {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
 .data-table {
   width: 100%;
   overflow-x: auto;
@@ -8243,7 +8269,7 @@ kbd {
 .todo-table .table-head,
 .todo-table .table-row {
   min-width: 0;
-  grid-template-columns: 8px 22px minmax(0, 1fr) 72px minmax(92px, 118px) 88px;
+  grid-template-columns: 22px 8px 22px minmax(0, 1fr) 72px minmax(92px, 118px) 88px;
 }
 .task-shelf-select {
   min-width: 0;
@@ -8692,20 +8718,24 @@ kbd {
   font-weight: var(--weight-medium);
 }
 .gantt-name {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
+  display: grid;
+  align-content: center;
+  gap: 2px;
   min-width: 0;
   overflow: hidden;
   border: 0;
   background: transparent;
   text-align: left;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
-.gantt-name > span {
-  flex: 0 0 auto;
-  color: var(--color-accent-strong);
+.gantt-name-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  overflow: hidden;
+  white-space: nowrap;
 }
 .gantt-add-plan-button {
   width: 30px;
@@ -8768,6 +8798,7 @@ kbd {
   color: var(--color-danger-strong);
 }
 .gantt-title-button {
+  width: 100%;
   min-width: 0;
   overflow: hidden;
   padding: 0;
@@ -9066,7 +9097,7 @@ kbd {
 .gantt-milestone-table-row {
   min-height: 48px;
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) 92px;
+  grid-template-columns: minmax(150px, 1fr) auto;
   align-items: center;
   gap: var(--space-1);
   padding: 0 var(--space-2);
@@ -9080,12 +9111,34 @@ kbd {
   font-weight: var(--weight-medium);
 }
 .gantt-milestone-table-row strong {
-  justify-self: end;
   padding: 2px var(--space-2);
   border-radius: var(--radius-pill);
   background: var(--color-accent-subtle-bg);
   color: var(--color-accent-strong);
   font: var(--text-xs) var(--font-mono);
+}
+.gantt-milestone-actions {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.gantt-add-milestone-button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.gantt-add-milestone-button:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle-bg);
+  color: var(--color-accent-strong);
 }
 .gantt-milestone-mark {
   flex: 0 0 auto;
@@ -9109,6 +9162,7 @@ kbd {
   border-bottom: 1px solid var(--color-border-subtle);
   background-color: color-mix(in srgb, var(--color-accent-subtle-bg) 38%, var(--color-surface));
   background-image: var(--gantt-grid-image);
+  cursor: crosshair;
 }
 .milestone-lane-mark {
   position: absolute;
@@ -11061,6 +11115,16 @@ kbd {
   width: 18px;
   color: var(--color-accent-strong);
 }
+.chat-thread-connector {
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
 .chat-thread-branch.is-empty {
   visibility: hidden;
 }
@@ -11843,22 +11907,6 @@ kbd {
   gap: var(--space-1);
   justify-content: flex-end;
 }
-.micro-memo-color-select {
-  min-width: 58px;
-  max-width: 74px;
-  min-height: 28px;
-  padding: 0 var(--space-1);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-}
-.micro-memo-color-select:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 1px;
-}
-.micro-memo-collapse-button,
 .micro-memo-pin-button {
   width: 24px;
   height: 24px;
@@ -11870,12 +11918,6 @@ kbd {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-secondary);
-}
-.micro-memo-collapse-button:hover,
-.micro-memo-collapse-button:focus-visible {
-  border-color: var(--color-border);
-  background: var(--color-surface-muted);
-  color: var(--color-accent-strong);
 }
 .micro-memo-card time {
   color: var(--color-text-secondary);
@@ -11911,17 +11953,102 @@ kbd {
 .sticky-color-filter {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-1);
   color: var(--color-text-secondary);
   font-size: var(--text-xs);
 }
-.sticky-color-filter select {
-  min-height: 28px;
-  padding: 0 var(--space-1);
+.sticky-color-filter-options {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.sticky-color-filter-options button,
+.micro-memo-color-picker summary,
+.micro-memo-color-options button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 2px var(--space-1);
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--color-text-primary);
+  font-size: var(--text-xs);
+}
+.sticky-color-filter-options button:hover,
+.micro-memo-color-picker summary:hover,
+.micro-memo-color-options button:hover {
+  border-color: var(--color-accent-subtle-bd);
+  background: var(--color-accent-subtle-bg);
+}
+.sticky-color-filter-options button.is-selected,
+.micro-memo-color-options button.is-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle-bg-strong);
+  color: var(--color-accent-strong);
+  font-weight: var(--weight-medium);
+}
+.sticky-color-filter-options button:focus-visible,
+.micro-memo-color-picker summary:focus-visible,
+.micro-memo-color-options button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+.sticky-color-swatch {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--color-text) 28%, transparent);
+  border-radius: var(--radius-pill);
+  background: var(--color-chart-4);
+}
+.sticky-color-swatch[data-sticky-color="blue"] {
+  background: var(--color-chart-2);
+}
+.sticky-color-swatch[data-sticky-color="green"] {
+  background: var(--color-chart-3);
+}
+.sticky-color-swatch[data-sticky-color="pink"] {
+  background: var(--color-chart-1);
+}
+.sticky-color-swatch[data-sticky-color="purple"] {
+  background: var(--color-chart-5);
+}
+.sticky-color-swatch[data-sticky-color="neutral"] {
+  background: var(--color-chart-6);
+}
+.micro-memo-color-picker {
+  position: relative;
+  flex: 0 0 auto;
+}
+.micro-memo-color-picker summary {
+  min-width: 72px;
+  list-style: none;
+  cursor: pointer;
+}
+.micro-memo-color-picker summary::-webkit-details-marker {
+  display: none;
+}
+.micro-memo-color-options {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  display: grid;
+  min-width: 116px;
+  gap: 2px;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-sm);
+}
+.micro-memo-color-options button {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
 }
 
 .activity-log-strip {
@@ -14237,11 +14364,12 @@ kbd {
 }
 .gantt-name {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
+  display: grid;
+  align-content: center;
+  gap: 2px;
 }
 .gantt-name > .gantt-title-button {
+  width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

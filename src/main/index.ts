@@ -54,7 +54,7 @@ import { MediaCaptureService } from "./services/mediaCaptureService";
 import { ScreenRecordingService } from "./services/screenRecordingService";
 import { commandNotificationPayloads } from "./rendererMediaProjection";
 import { configureMainLog, logMain } from "./log";
-import { installMainPerformanceDiagnostics } from "./performanceDiagnostics";
+import { installMainPerformanceDiagnostics } from "./services/performanceDiagnostics";
 import { createRecordingIndicatorController } from "./recordingIndicatorController";
 import { createTaskenRootController, type TaskenRootController } from "./taskenRootController";
 import { screenRecordingOriginsMatch } from "../shared/screenRecording.mjs";

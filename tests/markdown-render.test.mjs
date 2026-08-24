@@ -23,11 +23,18 @@ async function importBundled(relativePath) {
 }
 
 const markdown = await importBundled("src/renderer/src/features/workspace/lib/markdown.ts");
-const markdownEditing = await importBundled("src/renderer/src/features/workspace/lib/markdownEditing.ts");
+const markdownEditing = await importBundled(
+  "src/renderer/src/features/workspace/lib/markdownEditing.ts",
+);
 const mermaid = await importBundled("src/renderer/src/features/workspace/lib/mermaid.ts");
-const mermaidSizing = await importBundled("src/renderer/src/features/workspace/lib/mermaidSizing.ts");
+const mermaidSizing = await importBundled(
+  "src/renderer/src/features/workspace/lib/mermaidSizing.ts",
+);
 const mermaidWidth = await importBundled("src/renderer/src/features/workspace/lib/mermaidWidth.ts");
-const markdownSurfaceSource = readFileSync("src/renderer/src/features/workspace/lib/markdownDocumentSurfaces.ts", "utf8");
+const markdownSurfaceSource = readFileSync(
+  "src/renderer/src/features/workspace/lib/markdownDocumentSurfaces.ts",
+  "utf8",
+);
 
 test("Mermaid SVG presentation enlarges small diagrams without shrinking large ones", () => {
   assert.deepEqual(mermaidSizing.mermaidSvgPresentation("0 0 113.046875 174"), {
@@ -44,18 +51,39 @@ test("Mermaid SVG presentation enlarges small diagrams without shrinking large o
 });
 
 test("Mermaid lazy viewport fallback renders only within the observer root margin", () => {
-  assert.equal(mermaid.isMermaidNearViewport({ top: 760, bottom: 820, left: 20, right: 400 }, 800, 600), true);
-  assert.equal(mermaid.isMermaidNearViewport({ top: 1360, bottom: 1420, left: 20, right: 400 }, 800, 600), false);
-  assert.equal(mermaid.isMermaidNearViewport({ top: 200, bottom: 260, left: 820, right: 900 }, 800, 600), false);
-  assert.equal(mermaid.isMermaidNearViewport({ top: 0, bottom: 0, left: 20, right: 400 }, 800, 600), false);
-  assert.equal(mermaid.isMermaidNearViewport({ top: 0, bottom: 60, left: 20, right: 400 }, 0, 600), false);
+  assert.equal(
+    mermaid.isMermaidNearViewport({ top: 760, bottom: 820, left: 20, right: 400 }, 800, 600),
+    true,
+  );
+  assert.equal(
+    mermaid.isMermaidNearViewport({ top: 1360, bottom: 1420, left: 20, right: 400 }, 800, 600),
+    false,
+  );
+  assert.equal(
+    mermaid.isMermaidNearViewport({ top: 200, bottom: 260, left: 820, right: 900 }, 800, 600),
+    false,
+  );
+  assert.equal(
+    mermaid.isMermaidNearViewport({ top: 0, bottom: 0, left: 20, right: 400 }, 800, 600),
+    false,
+  );
+  assert.equal(
+    mermaid.isMermaidNearViewport({ top: 0, bottom: 60, left: 20, right: 400 }, 0, 600),
+    false,
+  );
 });
 
 test("Mermaid width metadata normalizes and preserves unrelated fence metadata", () => {
   assert.equal(mermaidWidth.mermaidWidthFromMeta("title=overview width=67%"), 65);
   assert.equal(mermaidWidth.mermaidWidthFromMeta("width=20%"), null);
-  assert.equal(mermaidWidth.withMermaidWidthMeta("title=overview width=65%", 80), "title=overview width=80%");
-  assert.equal(mermaidWidth.withMermaidWidthMeta("title=overview width=65%", null), "title=overview");
+  assert.equal(
+    mermaidWidth.withMermaidWidthMeta("title=overview width=65%", 80),
+    "title=overview width=80%",
+  );
+  assert.equal(
+    mermaidWidth.withMermaidWidthMeta("title=overview width=65%", null),
+    "title=overview",
+  );
 });
 
 test("markdown preview renders tasken images and math markers", () => {
@@ -74,7 +102,10 @@ $$
   assert.match(html, /class="md-math-block"/);
   assert.match(html, /class="katex"/);
   assert.match(html, /x_\{t\+1\} = \\arg\\max_x \\alpha_t\(x\)/);
-  assert.match(html, /<img src="tasken-attachment:\/\/local\/00000000-0000-0000-0000-000000000000.png\/chart" alt="Chart"/);
+  assert.match(
+    html,
+    /<img src="tasken-attachment:\/\/local\/00000000-0000-0000-0000-000000000000.png\/chart" alt="Chart"/,
+  );
 });
 
 test("markdown preview renders document blocks for decorated output", () => {
@@ -117,7 +148,9 @@ code line
 });
 
 test("markdown preview renders footnotes and keeps Mermaid code blocks identifiable", () => {
-  const html = markdown.renderMarkdownPreview(`結論[^source]。\n\n[^source]: 実験ノートを参照。\n\n\`\`\`mermaid\nflowchart TD\n  A[入力] --> B[判断]\n\`\`\``);
+  const html = markdown.renderMarkdownPreview(
+    `結論[^source]。\n\n[^source]: 実験ノートを参照。\n\n\`\`\`mermaid\nflowchart TD\n  A[入力] --> B[判断]\n\`\`\``,
+  );
 
   assert.match(html, /class="md-footnote-ref"/);
   assert.match(html, /<section class="md-footnotes"/);
@@ -179,11 +212,23 @@ test("Notes Edit and Preview share the rendered document style contract", () => 
   assert.match(source, /className="note-main-editor note-main-editor-raw note-editor-footnotes"/);
   assert.match(source, /const mermaidCodeBlockDescriptor/);
   assert.match(source, /Editor:\s*MermaidCodeBlockEditor/);
-  assert.match(styles, /\.note-preview-panel \.note-main-preview \{[\s\S]*?padding-bottom:\s*60vh;/);
-  assert.match(styles, /\.note-preview-panel \.note-live-editor \[class\*="_rootContentEditableWrapper_"\]::after \{[\s\S]*?flex:\s*0 0 60vh;[\s\S]*?user-select:\s*none;/);
+  assert.match(
+    styles,
+    /\.note-preview-panel \.note-main-preview \{[\s\S]*?padding-bottom:\s*60vh;/,
+  );
+  assert.match(
+    styles,
+    /\.note-preview-panel \.note-live-editor \[class\*="_rootContentEditableWrapper_"\]::after \{[\s\S]*?flex:\s*0 0 60vh;[\s\S]*?user-select:\s*none;/,
+  );
   assert.doesNotMatch(styles, /\.note-mdx-content \{[^}]*padding:[^;]*60vh/);
-  assert.match(styles, /\.note-live-editor \[class\*="_rootContentEditableWrapper_"\] \{[\s\S]*?overflow:\s*auto;/);
-  assert.match(styles, /\.note-mdx-content\[contenteditable="true"\] \{[\s\S]*?overflow:\s*visible;/);
+  assert.match(
+    styles,
+    /\.note-live-editor \[class\*="_rootContentEditableWrapper_"\] \{[\s\S]*?overflow:\s*auto;/,
+  );
+  assert.match(
+    styles,
+    /\.note-mdx-content\[contenteditable="true"\] \{[\s\S]*?overflow:\s*visible;/,
+  );
   assert.doesNotMatch(styles, /\.note-preview-panel \.note-mdx-content::after/);
   assert.doesNotMatch(styles, /scroll-padding-bottom:\s*60vh/);
   assert.match(styles, /:has\(\.cm-editor\)[\s\S]*?width:\s*100%/);
@@ -191,15 +236,26 @@ test("Notes Edit and Preview share the rendered document style contract", () => 
 });
 
 test("markdown preview renders safe ordinary links and rejects unsafe link urls", () => {
-  const html = markdown.renderMarkdownPreview("[OpenAI](https://openai.com) [mail](mailto:test@example.com) [bad](javascript:alert(1)) ![Chart](https://example.com/chart.png) [[Knowledge]]");
+  const html = markdown.renderMarkdownPreview(
+    "[OpenAI](https://openai.com) [mail](mailto:test@example.com) [bad](javascript:alert(1)) ![Chart](https://example.com/chart.png) [[Knowledge]]",
+  );
 
-  assert.match(html, /<a class="md-link" href="https:\/\/openai\.com\/" target="_blank" rel="noreferrer">OpenAI<\/a>/);
-  assert.match(html, /<a class="md-link" href="mailto:test@example.com" target="_blank" rel="noreferrer">mail<\/a>/);
+  assert.match(
+    html,
+    /<a class="md-link" href="https:\/\/openai\.com\/" target="_blank" rel="noreferrer">OpenAI<\/a>/,
+  );
+  assert.match(
+    html,
+    /<a class="md-link" href="mailto:test@example.com" target="_blank" rel="noreferrer">mail<\/a>/,
+  );
   assert.doesNotMatch(html, /href="javascript:/);
   assert.match(html, /bad/);
   assert.match(html, /<img src="https:\/\/example\.com\/chart\.png" alt="Chart"/);
   assert.match(html, /class="md-wiki-link"/);
-  assert.equal(markdown.safeMarkdownLinkUrl("https://example.com/path"), "https://example.com/path");
+  assert.equal(
+    markdown.safeMarkdownLinkUrl("https://example.com/path"),
+    "https://example.com/path",
+  );
   assert.equal(markdown.safeMarkdownLinkUrl("javascript:alert(1)"), "");
   assert.equal(markdown.safeMarkdownLinkUrl("example.com/docs"), "https://example.com/docs");
   assert.equal(markdown.safeMarkdownLinkUrl("//example.com/x"), "https://example.com/x");
@@ -208,16 +264,19 @@ test("markdown preview renders safe ordinary links and rejects unsafe link urls"
 
 test("markdown preview and editor css make ordinary links visible", () => {
   const source = readFileSync("src/renderer/src/styles/app.css", "utf8");
-  const notesSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
+  const notesSource = readFileSync(
+    "src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx",
+    "utf8",
+  );
   const documentCss = markdown.previewDocument("[OpenAI](https://openai.com)", "markdown");
 
-  assert.match(source, /--markdown-link:\s*#0B6BCB/);
+  assert.match(source, /--markdown-link:\s*#0b6bcb/i);
   assert.match(source, /\.markdown-preview a,\s*\n\.markdown-preview \.md-link/s);
   assert.match(source, /text-decoration: underline/);
   assert.match(source, /\.markdown-preview a:hover/);
   assert.match(source, /\.markdown-preview h2 a/);
   assert.match(source, /\.markdown-preview blockquote a/);
-  assert.match(documentCss, /#0B6BCB/);
+  assert.match(documentCss, /#0b6bcb/i);
   assert.match(notesSource, /openSafeMarkdownLink/);
   assert.match(notesSource, /linkDialogPlugin/);
   assert.match(notesSource, /pointerdown/);
@@ -247,7 +306,10 @@ test("previewDocument styling stays aligned with markdown-preview tokens", () =>
   assert.match(html, /--markdown-document-math-bg:\s*#f6f4f1/);
   assert.match(html, /--markdown-document-code-bg:\s*#f5f9fc/);
   assert.match(html, /--markdown-document-quote-bg:\s*#fafcfd/);
-  assert.match(markdownSurfaceSource, /\.note-mdx-content,\s*\n\.markdown-preview,\s*\n\.markdown-document/);
+  assert.match(
+    markdownSurfaceSource,
+    /\.note-mdx-content,\s*\n\.markdown-preview,\s*\n\.markdown-document/,
+  );
   assert.match(html, /--markdown-accent:#2D7FB8/);
   assert.match(html, /--markdown-accent-bd:#C3DCEE/);
   assert.match(html, /--markdown-paper-secondary:#554b46/);
@@ -257,18 +319,36 @@ test("previewDocument styling stays aligned with markdown-preview tokens", () =>
   assert.match(html, /<table>/);
 
   // quote: Preview と同じく薄い左線 + 斜体 + 二次色（PDF 独自の強い青面にしない）
-  assert.match(html, /\.markdown-document blockquote\{[^}]*border-left:3px solid var\(--markdown-accent-bd\)/s);
+  assert.match(
+    html,
+    /\.markdown-document blockquote\{[^}]*border-left:3px solid var\(--markdown-accent-bd\)/s,
+  );
   assert.match(html, /\.markdown-document blockquote\{[^}]*font-style:italic/s);
-  assert.match(html, /\.markdown-document blockquote\{[^}]*color:var\(--markdown-paper-secondary\)/s);
-  assert.match(previewCss, /\.markdown-preview blockquote \{[^}]*border-left: 3px solid var\(--markdown-accent-bd\)/s);
+  assert.match(
+    html,
+    /\.markdown-document blockquote\{[^}]*color:var\(--markdown-paper-secondary\)/s,
+  );
+  assert.match(
+    previewCss,
+    /\.markdown-preview blockquote \{[^}]*border-left: 3px solid var\(--markdown-accent-bd\)/s,
+  );
   assert.match(previewCss, /\.markdown-preview blockquote \{[^}]*font-style: italic/s);
 
   // 見出し階層・表も Preview と同じ骨格
-  assert.match(html, /\.markdown-document h2\{[^}]*border-left:6px solid var\(--markdown-accent\)/s);
-  assert.match(html, /\.markdown-document h2\{[^}]*border-bottom:2px solid var\(--markdown-accent-bd\)/s);
+  assert.match(
+    html,
+    /\.markdown-document h2\{[^}]*border-left:6px solid var\(--markdown-accent\)/s,
+  );
+  assert.match(
+    html,
+    /\.markdown-document h2\{[^}]*border-bottom:2px solid var\(--markdown-accent-bd\)/s,
+  );
   assert.match(html, /border-collapse:collapse/);
   assert.match(html, /padding:3px 0/);
-  assert.match(previewCss, /\.markdown-preview h2 \{[^}]*border-left: 6px solid var\(--markdown-accent\)/s);
+  assert.match(
+    previewCss,
+    /\.markdown-preview h2 \{[^}]*border-left: 6px solid var\(--markdown-accent\)/s,
+  );
   assert.match(previewCss, /\.markdown-preview table \{[^}]*border-collapse: collapse/s);
 });
 
@@ -313,12 +393,18 @@ $$
   assert.match(doc, /\.markdown-document \.md-math-inline\s*\{[\s\S]*?display:\s*inline/s);
   assert.doesNotMatch(doc, /\.md-math-inline\{[^}]*font-family:Georgia/);
   assert.match(doc, /\.markdown-document \.md-math-block\{\s*overflow:visible/s);
-  assert.match(doc, /\.markdown-document \.md-math-block\s*\{[\s\S]*?background:\s*var\(--markdown-document-math-bg\)/s);
+  assert.match(
+    doc,
+    /\.markdown-document \.md-math-block\s*\{[\s\S]*?background:\s*var\(--markdown-document-math-bg\)/s,
+  );
   assert.doesNotMatch(doc, /\.markdown-document \.md-math-block\s*\{[^}]*color-mix\(/s);
 });
 
 test("previewDocument includes print-safe Mermaid and higher-contrast text styling", () => {
-  const doc = markdown.previewDocument("```mermaid width=65%\nflowchart LR\nA --> B\n```", "markdown");
+  const doc = markdown.previewDocument(
+    "```mermaid width=65%\nflowchart LR\nA --> B\n```",
+    "markdown",
+  );
   const mermaidSource = readFileSync("src/renderer/src/features/workspace/lib/mermaid.ts", "utf8");
   const pdfServiceSource = readFileSync("src/main/services/workspaceService.ts", "utf8");
 
@@ -326,10 +412,16 @@ test("previewDocument includes print-safe Mermaid and higher-contrast text styli
   assert.match(doc, /print-color-adjust:exact/);
   assert.match(doc, /data-mermaid-width="65"/);
   assert.match(doc, /style="width:min\(100%, 65%\);margin-inline:auto"/);
-  assert.match(doc, /\.markdown-document pre\.md-mermaid-block\.is-rendered > code\{display:none\}/);
+  assert.match(
+    doc,
+    /\.markdown-document pre\.md-mermaid-block\.is-rendered > code\{display:none\}/,
+  );
   assert.match(doc, /\.markdown-document \.md-mermaid-svg svg\{[^}]*max-width:100%/s);
   assert.match(doc, /\.markdown-document \.md-mermaid-svg svg\{[^}]*max-height:205mm/s);
-  assert.doesNotMatch(pdfServiceSource, /querySelectorAll\("\.md-mermaid-block"\)[^}]*style\.width/);
+  assert.doesNotMatch(
+    pdfServiceSource,
+    /querySelectorAll\("\.md-mermaid-block"\)[^}]*style\.width/,
+  );
   assert.match(doc, /class="md-mermaid-block" data-mermaid="true"/);
   assert.match(mermaidSource, /sequence:\s*\{[\s\S]*mirrorActors:\s*false/);
   assert.match(mermaidSource, /renderMermaidBlocks\(parsed, "print"\)/);
@@ -342,12 +434,15 @@ test("markdown preview css separates heading levels and keeps tables compact", (
 
   assert.match(source, /\.markdown-preview h2 \{[^}]*border-bottom: 2px solid/s);
   assert.match(source, /\.markdown-preview h3 \{[^}]*border-left: 4px solid/s);
-  assert.match(source, /\.markdown-preview h4 \{[^}]*border-bottom: 1px solid var\(--markdown-accent-bd\)/s);
+  assert.match(
+    source,
+    /\.markdown-preview h4 \{[^}]*border-bottom: 1px solid var\(--markdown-accent-bd\)/s,
+  );
   assert.match(source, /\.markdown-preview h4 \{[^}]*border-left: 0/s);
   assert.match(source, /\.markdown-preview h4 \{[^}]*color: var\(--markdown-paper-text\)/s);
   assert.match(source, /\.markdown-preview table \{[^}]*border-collapse: collapse/s);
   assert.match(source, /\.markdown-preview tbody tr:last-child td \{[^}]*border-bottom: 0/s);
-  assert.match(source, /\[class\*="_tableColumnEditorTrigger_"\][^}]*opacity: \.28/s);
+  assert.match(source, /\[class\*="_tableColumnEditorTrigger_"\][^}]*opacity: 0?\.28/s);
 });
 
 test("markdown editing surfaces use a white paper background", () => {
@@ -356,14 +451,38 @@ test("markdown editing surfaces use a white paper background", () => {
 
   assert.match(source, /--markdown-paper: #fff;/);
   assert.match(source, /--markdown-paper-text: #26211f;/);
-  assert.match(source, /\.note-main-editor \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
-  assert.match(source, /\.note-live-editor \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
-  assert.match(source, /\.note-mdx-content \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
-  assert.match(source, /\.note-main-preview \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
-  assert.match(source, /\.note-main-raw \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
-  assert.match(source, /\.markdown-preview \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
-  assert.match(artifactSource, /\.artifact-preview-frame \{[^}]*background: var\(--markdown-paper\)/s);
-  assert.match(artifactSource, /\.artifact-raw \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s);
+  assert.match(
+    source,
+    /\.note-main-editor \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s,
+  );
+  assert.match(
+    source,
+    /\.note-live-editor \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s,
+  );
+  assert.match(
+    source,
+    /\.note-mdx-content \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s,
+  );
+  assert.match(
+    source,
+    /\.note-main-preview \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s,
+  );
+  assert.match(
+    source,
+    /\.note-main-raw \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s,
+  );
+  assert.match(
+    source,
+    /\.markdown-preview \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s,
+  );
+  assert.match(
+    artifactSource,
+    /\.artifact-preview-frame \{[^}]*background: var\(--markdown-paper\)/s,
+  );
+  assert.match(
+    artifactSource,
+    /\.artifact-raw \{[^}]*background: var\(--markdown-paper\)[^}]*color: var\(--markdown-paper-text\)/s,
+  );
 });
 
 test("structured markdown paste detection keeps plain text paste native", () => {
@@ -405,7 +524,10 @@ test("rich browser paste converts html links to plain markdown", () => {
     <ul><li><a href="javascript:alert(1)">bad link</a></li><li>plain item</li></ul>
   `);
 
-  assert.equal(converted, "Read [the docs](https://example.com/docs?x=1)\nand [mail us](mailto:team@example.com).\n\n- bad link\n- plain item");
+  assert.equal(
+    converted,
+    "Read [the docs](https://example.com/docs?x=1)\nand [mail us](mailto:team@example.com).\n\n- bad link\n- plain item",
+  );
   assert.doesNotMatch(converted, /style|script|javascript/);
 });
 
@@ -441,35 +563,47 @@ test("markdown editing helpers format safely, find matches, and build a line dif
   ]);
   const restoreDiff = markdownEditing.diffMarkdownLines("a\nb\nc\nd", "a\nX\nc\nY\nd");
   const restoreHunks = markdownEditing.buildMarkdownDiffHunks(restoreDiff, 0);
-  assert.equal(markdownEditing.restoreMarkdownDiffHunk("a\nX\nc\nY\nd", restoreHunks[0]), "a\nb\nc\nY\nd");
-  assert.equal(markdownEditing.restoreMarkdownDiffHunk("a\nX\nc\nY\nd", restoreHunks[1]), "a\nX\nc\nd");
+  assert.equal(
+    markdownEditing.restoreMarkdownDiffHunk("a\nX\nc\nY\nd", restoreHunks[0]),
+    "a\nb\nc\nY\nd",
+  );
+  assert.equal(
+    markdownEditing.restoreMarkdownDiffHunk("a\nX\nc\nY\nd", restoreHunks[1]),
+    "a\nX\nc\nd",
+  );
   const consecutiveDiff = markdownEditing.diffMarkdownLines("a\nb\nc\nd", "a\nX\nY\nd");
   assert.equal(markdownEditing.buildMarkdownDiffMarkers(consecutiveDiff, 0).length, 1);
   const separatedDiff = markdownEditing.diffMarkdownLines("a\nb\nc\nd", "a\nX\nc\nY");
   assert.equal(markdownEditing.buildMarkdownDiffMarkers(separatedDiff, 2).length, 2);
   const nearbyAdditions = markdownEditing.buildMarkdownDiffMarkers(
-    markdownEditing.diffMarkdownLines(
-      "開始\n中間\n次",
-      "開始\n前の追加段落\n中間\nfda\n次",
-    ),
+    markdownEditing.diffMarkdownLines("開始\n中間\n次", "開始\n前の追加段落\n中間\nfda\n次"),
     2,
   );
-  assert.deepEqual(
-    markdownEditing.buildMarkdownDiffMarkerAnchorTexts(nearbyAdditions[1]),
-    ["fda", "中間"],
-  );
+  assert.deepEqual(markdownEditing.buildMarkdownDiffMarkerAnchorTexts(nearbyAdditions[1]), [
+    "fda",
+    "中間",
+  ]);
   const overlappingContextDiff = markdownEditing.diffMarkdownLines("same", "A\nsame\nB");
   const overlappingContextHunks = markdownEditing.buildMarkdownDiffHunks(overlappingContextDiff, 2);
-  assert.deepEqual(overlappingContextHunks.map((hunk) => ({
-    focusStart: hunk.focusStart,
-    focusEnd: hunk.focusEnd,
-    addedLines: hunk.addedLines,
-  })), [
-    { focusStart: 0, focusEnd: 0, addedLines: 1 },
-    { focusStart: 2, focusEnd: 2, addedLines: 1 },
-  ]);
-  assert.equal(markdownEditing.restoreMarkdownDiffHunk("A\nsame\nB", overlappingContextHunks[0]), "same\nB");
-  assert.equal(markdownEditing.restoreMarkdownDiffHunk("A\nsame\nB", overlappingContextHunks[1]), "A\nsame");
+  assert.deepEqual(
+    overlappingContextHunks.map((hunk) => ({
+      focusStart: hunk.focusStart,
+      focusEnd: hunk.focusEnd,
+      addedLines: hunk.addedLines,
+    })),
+    [
+      { focusStart: 0, focusEnd: 0, addedLines: 1 },
+      { focusStart: 2, focusEnd: 2, addedLines: 1 },
+    ],
+  );
+  assert.equal(
+    markdownEditing.restoreMarkdownDiffHunk("A\nsame\nB", overlappingContextHunks[0]),
+    "same\nB",
+  );
+  assert.equal(
+    markdownEditing.restoreMarkdownDiffHunk("A\nsame\nB", overlappingContextHunks[1]),
+    "A\nsame",
+  );
   const deletionHunk = markdownEditing.buildMarkdownDiffHunks(
     markdownEditing.diffMarkdownLines("a\nb\nc", "a\nc"),
     1,
@@ -511,15 +645,18 @@ test("markdown editing helpers format safely, find matches, and build a line dif
       omittedAfter: 0,
     },
   ]);
-  assert.deepEqual(markdownEditing.buildMarkdownDiffMarkers(diff, 1).map(({ lineNumber, kind, hunk }) => ({
-    lineNumber,
-    kind,
-    addedLines: hunk.addedLines,
-    removedLines: hunk.removedLines,
-  })), [
-    { lineNumber: 3, kind: "changed", addedLines: 1, removedLines: 1 },
-    { lineNumber: 9, kind: "changed", addedLines: 1, removedLines: 1 },
-  ]);
+  assert.deepEqual(
+    markdownEditing.buildMarkdownDiffMarkers(diff, 1).map(({ lineNumber, kind, hunk }) => ({
+      lineNumber,
+      kind,
+      addedLines: hunk.addedLines,
+      removedLines: hunk.removedLines,
+    })),
+    [
+      { lineNumber: 3, kind: "changed", addedLines: 1, removedLines: 1 },
+      { lineNumber: 9, kind: "changed", addedLines: 1, removedLines: 1 },
+    ],
+  );
 });
 
 test("markdown replace updates one match or every match without rescanning inserted text", () => {
@@ -530,7 +667,9 @@ test("markdown replace updates one match or every match without rescanning inser
   assert.equal(single.count, 1);
   // 置換文字列より後ろの一致へ進む（自分自身を選び直さない）。
   assert.equal(single.nextIndex, 0);
-  assert.deepEqual(markdownEditing.findMarkdownMatches(single.text, "旧名称"), [{ index: 16, length: 3 }]);
+  assert.deepEqual(markdownEditing.findMarkdownMatches(single.text, "旧名称"), [
+    { index: 16, length: 3 },
+  ]);
 
   // 置換後の文字列が検索語を含んでも、次の一致は挿入部分より後ろから探す。
   const growing = markdownEditing.replaceMarkdownMatch("aa", "a", 0, "aa");
@@ -543,16 +682,33 @@ test("markdown replace updates one match or every match without rescanning inser
   assert.equal(markdownEditing.replaceAllMarkdownMatches("aaa", "a", "aa").text, "aaaaaa");
 
   // 一致が無い・検索語が空の場合は本文を変えない。
-  assert.deepEqual(markdownEditing.replaceMarkdownMatch(source, "存在しない語", 0, "x"), { text: source, count: 0, nextIndex: 0 });
-  assert.deepEqual(markdownEditing.replaceAllMarkdownMatches(source, "  ", "x"), { text: source, count: 0, nextIndex: 0 });
+  assert.deepEqual(markdownEditing.replaceMarkdownMatch(source, "存在しない語", 0, "x"), {
+    text: source,
+    count: 0,
+    nextIndex: 0,
+  });
+  assert.deepEqual(markdownEditing.replaceAllMarkdownMatches(source, "  ", "x"), {
+    text: source,
+    count: 0,
+    nextIndex: 0,
+  });
 
   // 大文字・小文字を区別せずに一致し、置換文字列はそのまま入る（検索の挙動と揃える）。
-  assert.equal(markdownEditing.replaceAllMarkdownMatches("Alpha alpha", "ALPHA", "Beta").text, "Beta Beta");
+  assert.equal(
+    markdownEditing.replaceAllMarkdownMatches("Alpha alpha", "ALPHA", "Beta").text,
+    "Beta Beta",
+  );
 });
 
 test("notes search bar exposes replace controls and reload-safe Ctrl+R", () => {
-  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
-  assert.match(notesSource, /event\.key\.toLowerCase\(\) === "r"[\s\S]*?openReplaceRef\.current\(\)/);
+  const notesSource = readFileSync(
+    "src/renderer/src/features/workspace/pages/NotesPage.tsx",
+    "utf8",
+  );
+  assert.match(
+    notesSource,
+    /event\.key\.toLowerCase\(\) === "r"[\s\S]*?openReplaceRef\.current\(\)/,
+  );
   assert.match(notesSource, /すべて置換/);
   // 置換はEditor標準のUndo/Redoで戻す（#286）。置換バー独自の「元に戻す」は持たない。
   assert.doesNotMatch(notesSource, /onClick=\{undoReplace\}/);
@@ -582,7 +738,10 @@ test("markdown preview renders MDX editor html img tags with safe attachment url
 `);
 
   assert.match(html, /class="md-image has-display-width"/);
-  assert.match(html, /src="tasken-attachment:\/\/local\/a5a3a30d-097e-4398-b604-8f80828af63e\.png\/image"/);
+  assert.match(
+    html,
+    /src="tasken-attachment:\/\/local\/a5a3a30d-097e-4398-b604-8f80828af63e\.png\/image"/,
+  );
   // 指定幅は figure に載せ、img は 100% で埋める（Preview で潰れない）
   assert.match(html, /<figure class="md-image has-display-width" style="width:min\(100%, 742px\)"/);
   assert.match(html, /width="742"/);
@@ -614,10 +773,19 @@ test("notes page flushes MDX markdown before leaving edit mode", () => {
 
 test("long note Edit keeps full-document work off the urgent keystroke path", () => {
   const notesPage = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
-  const richEditor = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
-  const headingIndex = readFileSync("src/renderer/src/features/workspace/components/MarkdownHeadingIndex.tsx", "utf8");
+  const richEditor = readFileSync(
+    "src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx",
+    "utf8",
+  );
+  const headingIndex = readFileSync(
+    "src/renderer/src/features/workspace/components/MarkdownHeadingIndex.tsx",
+    "utf8",
+  );
 
-  assert.match(notesPage, /startTransition\(\(\) => \{\s*setDraftOwner\(selectedOwnerRef\.current\)/);
+  assert.match(
+    notesPage,
+    /startTransition\(\(\) => \{\s*setDraftOwner\(selectedOwnerRef\.current\)/,
+  );
   assert.match(notesPage, /setDraftBodyState\(value\)/);
   assert.match(notesPage, /diffOpen && draftDirty \? diffMarkdownLines/);
   assert.match(notesPage, /setTimeout\(\(\) => setIndexedDraftBody\(draftBody\), 240\)/);
@@ -636,7 +804,10 @@ test("notes editor hides north-south only image resizers", () => {
   assert.match(css, /height: auto !important/);
   // width:auto があると <img width> が無効になり Edit 再入場で全幅化する
   assert.match(css, /width は指定しない/);
-  const imgRule = (css.match(/\.note-mdx-content img \{[^}]+\}/s)?.[0] || "").replace(/\/\*[\s\S]*?\*\//g, "");
+  const imgRule = (css.match(/\.note-mdx-content img \{[^}]+\}/s)?.[0] || "").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
   assert.match(imgRule, /height:\s*auto\s*!important/);
   // max-width は可。width プロパティ自体は不可（HTML width 属性を潰す）
   // gutter を引いた calc も max-width の一種として許容する（#287）
@@ -667,10 +838,7 @@ test("notes editor exposes persisted Mermaid width controls", () => {
     path.resolve("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx"),
     "utf8",
   );
-  const styles = readFileSync(
-    path.resolve("src/renderer/src/styles/app.css"),
-    "utf8",
-  );
+  const styles = readFileSync(path.resolve("src/renderer/src/styles/app.css"), "utf8");
   assert.match(source, /useCodeBlockEditorContext/);
   assert.match(source, /type="range"/);
   assert.match(source, /setMeta\(withMermaidWidthMeta/);
@@ -683,17 +851,23 @@ test("notes editor exposes persisted Mermaid width controls", () => {
   assert.match(source, /const LazyMermaidPreview = memo\(MarkdownPreview, \(\) => true\)/);
   assert.match(source, /<LazyMermaidPreview key=\{rendered\}/);
   assert.match(source, /draftWidth === null \? "" : " is-custom-width"/);
-  assert.match(styles, /\.note-mermaid-preview-frame\.is-custom-width \.md-mermaid-svg svg \{ width: 100% !important;/);
+  assert.match(
+    styles,
+    /\.note-mermaid-preview-frame\.is-custom-width \.md-mermaid-svg svg\s*\{\s*width: 100% !important;/,
+  );
 });
 
 test("markdown preview rejects unsafe html img tags", () => {
-  const html = markdown.renderMarkdownPreview(`<img src="javascript:alert(1)" alt="x" onerror="alert(1)" />`);
+  const html = markdown.renderMarkdownPreview(
+    `<img src="javascript:alert(1)" alt="x" onerror="alert(1)" />`,
+  );
   assert.doesNotMatch(html, /<img /);
   assert.match(html, /&lt;img/);
 });
 
 test("renderedText converts markdown report bodies into readable email text", () => {
-  const text = markdown.renderedText(`---
+  const text = markdown.renderedText(
+    `---
 type: report
 ---
 # 週報
@@ -707,7 +881,9 @@ $$
 x = T_a(x)
 $$
 
-![Chart](tasken-attachment://local/image.png/chart)`, "markdown");
+![Chart](tasken-attachment://local/image.png/chart)`,
+    "markdown",
+  );
 
   assert.match(text, /Frontmatter/);
   assert.match(text, /週報/);
@@ -739,7 +915,7 @@ test("markdown preview keeps escaped markdown characters literal", () => {
 
 test("markdown preview and PDF keep MDXEditor underline html tags", () => {
   // MDXEditor の下線トグルは Markdown に <u>...</u> として書き出される。
-  const html = markdown.renderMarkdownPreview('本文に <u>下線</u> と <u>**強調下線**</u> がある。');
+  const html = markdown.renderMarkdownPreview("本文に <u>下線</u> と <u>**強調下線**</u> がある。");
   assert.match(html, /<u class="md-underline">下線<\/u>/);
   assert.match(html, /<u class="md-underline"><strong>強調下線<\/strong><\/u>/);
   assert.doesNotMatch(html, /&lt;u&gt;/);
@@ -839,10 +1015,7 @@ test("math editor plugin transforms inline math beyond top-level paragraphs", ()
 });
 
 test("notes page keeps mode switches draft-only and autosaves when the note leaves the screen", () => {
-  const source = readFileSync(
-    "src/renderer/src/features/workspace/pages/NotesPage.tsx",
-    "utf8",
-  );
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 
   assert.match(source, /autosaveRef/);
   assert.match(source, /function autoSaveDraft/);
@@ -854,17 +1027,20 @@ test("notes page keeps mode switches draft-only and autosaves when the note leav
   assert.doesNotMatch(switchSource, /autoSaveDraft/);
   // Route/unmount cleanup hands the dirty snapshot to the serialized owner
   // queue; the app-level registry keeps it awaitable after this page unmounts.
-  assert.match(source, /import \{ flushPendingNoteDraftSaves, trackPendingNoteDraftSave \} from "\.\.\/lib\/noteDraftFlushRegistry";/);
-  assert.match(source, /useEffect\(\(\) => \(\) => \{\s*cancelAutosaveTimer\(\);\s*const pending = autosaveRef\.current;\s*if \(pending\?\.snapshot\.dirty\) void saveQueuedDraft\(pending\);/);
+  assert.match(
+    source,
+    /import \{ flushPendingNoteDraftSaves, trackPendingNoteDraftSave \} from "\.\.\/lib\/noteDraftFlushRegistry";/,
+  );
+  assert.match(
+    source,
+    /useEffect\(\(\) => \(\) => \{\s*cancelAutosaveTimer\(\);\s*const pending = autosaveRef\.current;\s*if \(pending\?\.snapshot\.dirty\) void saveQueuedDraft\(pending\);/,
+  );
   assert.match(source, /\}, \[\]\);/);
   assert.doesNotMatch(source, /\[selected\?\.id, saveEntity, setToast\]/);
 });
 
 test("notes page keeps scroll position when switching edit, preview, and raw modes", () => {
-  const source = readFileSync(
-    "src/renderer/src/features/workspace/pages/NotesPage.tsx",
-    "utf8",
-  );
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 
   assert.match(source, /function switchPreviewMode/);
   assert.match(source, /function captureModeScroll/);
@@ -875,7 +1051,10 @@ test("notes page keeps scroll position when switching edit, preview, and raw mod
   assert.match(source, /restoreNoteModeScroll/);
   assert.match(source, /new MutationObserver/);
   // Edit 面は contenteditable の外枠がスクロールし、末尾余白を選択範囲から分離する。
-  assert.match(source, /querySelector<HTMLElement>\("\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]"\)/);
+  assert.match(
+    source,
+    /querySelector<HTMLElement>\("\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]"\)/,
+  );
   assert.match(source, /switchPreviewMode\("edit"\)/);
   assert.match(source, /switchPreviewMode\("preview"\)/);
   assert.match(source, /switchPreviewMode\("raw"\)/);
@@ -904,22 +1083,40 @@ test("heading auto-numbering prefixes h1-h4 and skips manual numbers", () => {
   assert.match(html, /<h1 id="md-h-0"[^>]*>概要<\/h1>/);
   assert.doesNotMatch(html, /md-heading-number">1\.<\/span> 概要/);
   assert.match(html, /<h2 id="md-h-1"[^>]*><span class="md-heading-number">1\.<\/span> 背景<\/h2>/);
-  assert.match(html, /<h3 id="md-h-2"[^>]*><span class="md-heading-number">1\.1<\/span> 詳細<\/h3>/);
-  assert.match(html, /<h4 id="md-h-3"[^>]*><span class="md-heading-number">1\.1\.1<\/span> 補足<\/h4>/);
+  assert.match(
+    html,
+    /<h3 id="md-h-2"[^>]*><span class="md-heading-number">1\.1<\/span> 詳細<\/h3>/,
+  );
+  assert.match(
+    html,
+    /<h4 id="md-h-3"[^>]*><span class="md-heading-number">1\.1\.1<\/span> 補足<\/h4>/,
+  );
   assert.match(html, /<h2 id="md-h-4"[^>]*><span class="md-heading-number">2\.<\/span> 目的<\/h2>/);
   assert.match(html, /<h1 id="md-h-5"[^>]*>方針<\/h1>/);
   // 手動番号は二重にしない（カウンタは進める）
   assert.match(html, /<h2 id="md-h-6"[^>]*>1\. 既に番号あり<\/h2>/);
   assert.doesNotMatch(html, /md-heading-number">3\.<\/span> 1\. 既に番号あり/);
-  assert.match(html, /<h3 id="md-h-7"[^>]*><span class="md-heading-number">3\.1<\/span> 通常<\/h3>/);
+  assert.match(
+    html,
+    /<h3 id="md-h-7"[^>]*><span class="md-heading-number">3\.1<\/span> 通常<\/h3>/,
+  );
   assert.match(html, /<h1 id="md-h-8"[^>]*>第1章 手動章<\/h1>/);
   assert.match(html, /<h2 id="md-h-9"[^>]*>\(1\) 括弧番号<\/h2>/);
   assert.match(html, /<h3 id="md-h-10"[^>]*>① 丸数字<\/h3>/);
 
   // h1 からを明示するとタイトルにも番号が付く
-  const fromH1 = markdown.renderMarkdownPreview(source, { headingNumbers: true, headingNumberStart: 1 });
-  assert.match(fromH1, /<h1 id="md-h-0"[^>]*><span class="md-heading-number">1\.<\/span> 概要<\/h1>/);
-  assert.match(fromH1, /<h2 id="md-h-1"[^>]*><span class="md-heading-number">1\.1<\/span> 背景<\/h2>/);
+  const fromH1 = markdown.renderMarkdownPreview(source, {
+    headingNumbers: true,
+    headingNumberStart: 1,
+  });
+  assert.match(
+    fromH1,
+    /<h1 id="md-h-0"[^>]*><span class="md-heading-number">1\.<\/span> 概要<\/h1>/,
+  );
+  assert.match(
+    fromH1,
+    /<h2 id="md-h-1"[^>]*><span class="md-heading-number">1\.1<\/span> 背景<\/h2>/,
+  );
 
   assert.equal(markdown.hasManualHeadingNumber("1. 概要"), true);
   assert.equal(markdown.hasManualHeadingNumber("1.1 背景"), true);
@@ -932,13 +1129,25 @@ test("heading auto-numbering prefixes h1-h4 and skips manual numbers", () => {
 });
 
 test("heading auto-numbering starts from shallowest heading in the document", () => {
-  const html = markdown.renderMarkdownPreview(`## First
+  const html = markdown.renderMarkdownPreview(
+    `## First
 ### Nested
-## Second`, { headingNumbers: true });
+## Second`,
+    { headingNumbers: true },
+  );
 
-  assert.match(html, /<h2 id="md-h-0"[^>]*><span class="md-heading-number">1\.<\/span> First<\/h2>/);
-  assert.match(html, /<h3 id="md-h-1"[^>]*><span class="md-heading-number">1\.1<\/span> Nested<\/h3>/);
-  assert.match(html, /<h2 id="md-h-2"[^>]*><span class="md-heading-number">2\.<\/span> Second<\/h2>/);
+  assert.match(
+    html,
+    /<h2 id="md-h-0"[^>]*><span class="md-heading-number">1\.<\/span> First<\/h2>/,
+  );
+  assert.match(
+    html,
+    /<h3 id="md-h-1"[^>]*><span class="md-heading-number">1\.1<\/span> Nested<\/h3>/,
+  );
+  assert.match(
+    html,
+    /<h2 id="md-h-2"[^>]*><span class="md-heading-number">2\.<\/span> Second<\/h2>/,
+  );
 });
 
 test("headingNumberStart skips shallower headings (e.g. h1 unnumbered)", () => {
@@ -947,12 +1156,24 @@ test("headingNumberStart skips shallower headings (e.g. h1 unnumbered)", () => {
 ### Detail
 ## Next`;
 
-  const fromH2 = markdown.renderMarkdownPreview(source, { headingNumbers: true, headingNumberStart: 2 });
+  const fromH2 = markdown.renderMarkdownPreview(source, {
+    headingNumbers: true,
+    headingNumberStart: 2,
+  });
   assert.match(fromH2, /<h1 id="md-h-0"[^>]*>Title<\/h1>/);
   assert.doesNotMatch(fromH2, /md-heading-number">1\.<\/span> Title/);
-  assert.match(fromH2, /<h2 id="md-h-1"[^>]*><span class="md-heading-number">1\.<\/span> Section<\/h2>/);
-  assert.match(fromH2, /<h3 id="md-h-2"[^>]*><span class="md-heading-number">1\.1<\/span> Detail<\/h3>/);
-  assert.match(fromH2, /<h2 id="md-h-3"[^>]*><span class="md-heading-number">2\.<\/span> Next<\/h2>/);
+  assert.match(
+    fromH2,
+    /<h2 id="md-h-1"[^>]*><span class="md-heading-number">1\.<\/span> Section<\/h2>/,
+  );
+  assert.match(
+    fromH2,
+    /<h3 id="md-h-2"[^>]*><span class="md-heading-number">1\.1<\/span> Detail<\/h3>/,
+  );
+  assert.match(
+    fromH2,
+    /<h2 id="md-h-3"[^>]*><span class="md-heading-number">2\.<\/span> Next<\/h2>/,
+  );
 
   const labels = markdown.computeHeadingNumberLabels(
     [
@@ -992,19 +1213,34 @@ test("heading number options follow heading_numbers for both preview and PDF", (
     heading_number_levels: [1, 3],
   });
   assert.deepEqual(selected.preview.headingNumberLevels, [1, 3]);
-  const selectedLabels = markdown.computeHeadingNumberLabels([
-    { level: 1, text: "First" },
-    { level: 2, text: "Unnumbered" },
-    { level: 3, text: "Detail A" },
-    { level: 3, text: "Detail B" },
-    { level: 1, text: "Second" },
-    { level: 3, text: "Detail C" },
-  ], [1, 3]);
+  const selectedLabels = markdown.computeHeadingNumberLabels(
+    [
+      { level: 1, text: "First" },
+      { level: 2, text: "Unnumbered" },
+      { level: 3, text: "Detail A" },
+      { level: 3, text: "Detail B" },
+      { level: 1, text: "Second" },
+      { level: 3, text: "Detail C" },
+    ],
+    [1, 3],
+  );
   assert.deepEqual(selectedLabels, ["1.", null, "1.1", "1.2", "2.", "2.1"]);
-  const nonContiguous = markdown.renderMarkdownPreview("# Title\n### Detail\n# Next", selected.preview);
-  assert.match(nonContiguous, /<h1 id="md-h-0"[^>]*><span class="md-heading-number">1\.<\/span> Title<\/h1>/);
-  assert.match(nonContiguous, /<h3 id="md-h-1"[^>]*><span class="md-heading-number">1\.1<\/span> Detail<\/h3>/);
-  assert.match(nonContiguous, /<h1 id="md-h-2"[^>]*><span class="md-heading-number">2\.<\/span> Next<\/h1>/);
+  const nonContiguous = markdown.renderMarkdownPreview(
+    "# Title\n### Detail\n# Next",
+    selected.preview,
+  );
+  assert.match(
+    nonContiguous,
+    /<h1 id="md-h-0"[^>]*><span class="md-heading-number">1\.<\/span> Title<\/h1>/,
+  );
+  assert.match(
+    nonContiguous,
+    /<h3 id="md-h-1"[^>]*><span class="md-heading-number">1\.1<\/span> Detail<\/h3>/,
+  );
+  assert.match(
+    nonContiguous,
+    /<h1 id="md-h-2"[^>]*><span class="md-heading-number">2\.<\/span> Next<\/h1>/,
+  );
 
   const off = markdown.headingNumberOptionsFromProperties({});
   assert.equal(off.preview.headingNumbers, false);
@@ -1028,7 +1264,10 @@ test("heading number options follow heading_numbers for both preview and PDF", (
   const notesSource = [
     readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8"),
     readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8"),
-    readFileSync("src/renderer/src/features/workspace/components/MarkdownDiffMarkerRail.tsx", "utf8"),
+    readFileSync(
+      "src/renderer/src/features/workspace/components/MarkdownDiffMarkerRail.tsx",
+      "utf8",
+    ),
   ].join("\n");
   assert.match(notesSource, /heading_numbers/);
   assert.match(notesSource, /heading_number_start/);
@@ -1092,7 +1331,8 @@ test("heading number options follow heading_numbers for both preview and PDF", (
 });
 
 test("outlookHtml creates simple styled HTML without tasken image references", () => {
-  const html = markdown.outlookHtml(`---
+  const html = markdown.outlookHtml(
+    `---
 type: report
 ---
 # 週報
@@ -1100,7 +1340,9 @@ type: report
 - 試作条件を整理
 - CAE結果を確認
 
-![Chart](tasken-attachment://local/image.png/chart)`, "markdown");
+![Chart](tasken-attachment://local/image.png/chart)`,
+    "markdown",
+  );
 
   assert.match(html, /font-family/);
   assert.match(html, /<h1 style=/);
@@ -1152,7 +1394,10 @@ test("lightweight callout renders existing INSIGHT syntax as MEMO and keeps plai
   assert.match(css, /md-callout-marker-multiline/);
   assert.match(css, /content: attr\(data-callout-label\)/);
 
-  const richEditorSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
+  const richEditorSource = readFileSync(
+    "src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx",
+    "utf8",
+  );
   const notesSource = [
     readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8"),
     richEditorSource,
@@ -1162,10 +1407,18 @@ test("lightweight callout renders existing INSIGHT syntax as MEMO and keeps plai
 
   // Edit 装飾: マーカー専用段落なら「MEMO」表示用 class を付ける（軽量 DOM モック）
   class FakeClassList {
-    constructor() { this._set = new Set(); }
-    contains(name) { return this._set.has(name); }
-    add(name) { this._set.add(name); }
-    remove(name) { this._set.delete(name); }
+    constructor() {
+      this._set = new Set();
+    }
+    contains(name) {
+      return this._set.has(name);
+    }
+    add(name) {
+      this._set.add(name);
+    }
+    remove(name) {
+      this._set.delete(name);
+    }
   }
   function el(tag, text = "") {
     const node = {
@@ -1174,10 +1427,18 @@ test("lightweight callout renders existing INSIGHT syntax as MEMO and keeps plai
       classList: new FakeClassList(),
       _attrs: {},
       children: [],
-      getAttribute(name) { return this._attrs[name] ?? null; },
-      setAttribute(name, value) { this._attrs[name] = value; },
-      removeAttribute(name) { delete this._attrs[name]; },
-      hasAttribute(name) { return name in this._attrs; },
+      getAttribute(name) {
+        return this._attrs[name] ?? null;
+      },
+      setAttribute(name, value) {
+        this._attrs[name] = value;
+      },
+      removeAttribute(name) {
+        delete this._attrs[name];
+      },
+      hasAttribute(name) {
+        return name in this._attrs;
+      },
       querySelector(sel) {
         if (sel === ":scope > p") return this.children.find((c) => c.tagName === "P") || null;
         return null;
@@ -1204,7 +1465,10 @@ test("lightweight callout renders existing INSIGHT syntax as MEMO and keeps plai
   assert.match(notesSource, /editor\.insertMarkdown\(INSIGHT_CALLOUT_SNIPPET\)/);
   assert.match(notesSource, /selectInsertedMemoPlaceholder\(editorScopeRef\.current\)/);
   assert.match(notesSource, /\$getNearestNodeFromDOMNode\(node\)/);
-  assert.match(notesSource, /lexicalNode\.select\(start, start \+ CALLOUT_INPUT_PLACEHOLDER\.length\)/);
+  assert.match(
+    notesSource,
+    /lexicalNode\.select\(start, start \+ CALLOUT_INPUT_PLACEHOLDER\.length\)/,
+  );
   assert.doesNotMatch(richEditorSource, /document\.createRange\(\)/);
   assert.match(richEditorSource, /handleCalloutMarkerEnter/);
   assert.match(richEditorSource, /quoteNode\.append\(\$createLineBreakNode\(\), placeholder\)/);
@@ -1237,7 +1501,10 @@ title: t
   assert.equal(markdown.HEADING_INDEX_MIN_COUNT, 2);
   assert.equal(markdown.markdownHeadingId(2), "md-h-2");
 
-  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const notesSource = readFileSync(
+    "src/renderer/src/features/workspace/pages/NotesPage.tsx",
+    "utf8",
+  );
   assert.match(notesSource, /MarkdownHeadingIndex/);
   assert.match(notesSource, /extractMarkdownHeadings/);
   assert.match(notesSource, /jumpToMarkdownHeading/);
@@ -1251,7 +1518,10 @@ title: t
   assert.match(css, /top: 50%/);
   assert.match(css, /right: 18px/);
 
-  const indexSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownHeadingIndex.tsx", "utf8");
+  const indexSource = readFileSync(
+    "src/renderer/src/features/workspace/components/MarkdownHeadingIndex.tsx",
+    "utf8",
+  );
   assert.match(indexSource, /onMouseEnter/);
   assert.match(indexSource, /onMouseLeave/);
   assert.match(indexSource, /level === 2/);
@@ -1259,11 +1529,17 @@ title: t
   assert.match(indexSource, /activeBarIndex|is-active/);
   assert.match(indexSource, /addEventListener\("scroll"/);
   assert.match(indexSource, /resolveActiveIndex/);
-  assert.match(indexSource, /rawHeadingScrollTop\(heading\.sourceLine, sourceLineCount, scroller\.scrollHeight\)/);
+  assert.match(
+    indexSource,
+    /rawHeadingScrollTop\(heading\.sourceLine, sourceLineCount, scroller\.scrollHeight\)/,
+  );
   assert.match(notesSource, /sourceLineCount=\{indexedLineCount\}/);
   assert.match(notesSource, /mode=\{previewMode\}/);
   // Edit 面は contenteditable 外側のスクロールラッパへ追従する。
-  assert.match(indexSource, /querySelector<HTMLElement>\("\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]"\)/);
+  assert.match(
+    indexSource,
+    /querySelector<HTMLElement>\("\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]"\)/,
+  );
   assert.match(indexSource, /computeHeadingNumberLabels/);
   assert.match(indexSource, /headingNumberOptions/);
   assert.match(indexSource, /md-heading-index-item-number/);
@@ -1313,17 +1589,27 @@ test("CJK隣接の取り消し線が Preview で反映される（#285）", () =
     "本文の~~「引用」~~が続く",
   ];
   for (const source of cases) {
-    assert.match(markdown.previewHtml(source, "markdown"), /<del>/, `取り消し線にならなかった: ${source}`);
+    assert.match(
+      markdown.previewHtml(source, "markdown"),
+      /<del>/,
+      `取り消し線にならなかった: ${source}`,
+    );
   }
   assert.match(markdown.previewHtml("This is ~~struck~~ text", "markdown"), /<del>/);
 });
 
 test("Editor も Preview と同じ CJK 拡張を使う（#285）", () => {
-  const pluginSource = readFileSync("src/renderer/src/features/workspace/components/markdownCjkFriendlyPlugin.ts", "utf8");
+  const pluginSource = readFileSync(
+    "src/renderer/src/features/workspace/components/markdownCjkFriendlyPlugin.ts",
+    "utf8",
+  );
   assert.match(pluginSource, /cjkFriendlyExtension/);
   assert.match(pluginSource, /gfmStrikethroughCjkFriendly/);
   assert.match(pluginSource, /addSyntaxExtension\$/);
-  const editorSource = readFileSync("src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx", "utf8");
+  const editorSource = readFileSync(
+    "src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx",
+    "utf8",
+  );
   assert.match(editorSource, /markdownCjkFriendlyPlugin\(\)/);
 });
 
@@ -1350,10 +1636,16 @@ test("Markdown 画像は幅を正本にして高さを自動計算する（#289�
 });
 
 test("画像は width 指定がなければ元幅を超えない（#289）", () => {
-  const withWidth = markdown.previewHtml('<img src="https://example.com/a.png" alt="x" width="300">', "markdown");
+  const withWidth = markdown.previewHtml(
+    '<img src="https://example.com/a.png" alt="x" width="300">',
+    "markdown",
+  );
   assert.match(withWidth, /width:min\(100%, 300px\)/);
   assert.match(withWidth, /height:auto/);
-  const withoutWidth = markdown.previewHtml('<img src="https://example.com/a.png" alt="x">', "markdown");
+  const withoutWidth = markdown.previewHtml(
+    '<img src="https://example.com/a.png" alt="x">',
+    "markdown",
+  );
   assert.match(withoutWidth, /max-width:100%/);
   assert.match(withoutWidth, /height:auto/);
 });
@@ -1374,13 +1666,24 @@ test("画像の左右にリサイズ用の余白を残す（#287）", () => {
 test("幅未指定の画像は本文幅より狭く置く（#287）", () => {
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
   // 挿入直後（width 属性なし）は既定幅。利用者が決めた幅は尊重する。
-  assert.match(css, /\.note-mdx-content img:not\(\[width\]\) \{[^}]*max-width:\s*var\(--image-default-width\)/);
-  assert.match(css, /\.markdown-preview \.md-image:not\(\.has-display-width\) img \{[^}]*max-width:\s*var\(--image-default-width\)/);
+  assert.match(
+    css,
+    /\.note-mdx-content img:not\(\[width\]\) \{[^}]*max-width:\s*var\(--image-default-width\)/,
+  );
+  assert.match(
+    css,
+    /\.markdown-preview \.md-image:not\(\.has-display-width\) img \{[^}]*max-width:\s*var\(--image-default-width\)/,
+  );
 });
 
 test("リサイズハンドルがクリップされない（#287）", () => {
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
-  assert.match(css, /\[class\*="_imageResizer_"\]::before \{[\s\S]*?inset:\s*calc\(var\(--image-resize-hit-slop\) \* -1\)/);
-  const overflowRule = css.match(/\.note-mdx-content \[class\*="_imageWrapper_"\] > div \{\s*\n\s*overflow: visible;/);
+  assert.match(
+    css,
+    /\[class\*="_imageResizer_"\]::before \{[\s\S]*?inset:\s*calc\(var\(--image-resize-hit-slop\) \* -1\)/,
+  );
+  const overflowRule = css.match(
+    /\.note-mdx-content \[class\*="_imageWrapper_"\] > div \{\s*\n\s*overflow: visible;/,
+  );
   assert.ok(overflowRule || /overflow:\s*visible/.test(css), "wrapper に overflow: visible がない");
 });

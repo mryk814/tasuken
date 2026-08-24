@@ -14,7 +14,7 @@ import { AI_ICON } from "../../../pages/semanticIcons";
 import type { BaseRecord, PageProps, SaveOperation } from "../types";
 import { NOTES_KIND_LABELS, notesKindFromNoteType, THEME_STATUS_LABELS } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
-import { isDefaultPrompt, isPromptNote, promptPurpose } from "../lib/prompts";
+import { isPromptNote, promptPurpose } from "../lib/prompts";
 import { compactNotesBodyPreview } from "../lib/notes";
 import { buildCompleteTaskOperations } from "../domain-model/taskRecurrence";
 import {
@@ -312,11 +312,7 @@ export function ThemePage({
         note.note_type === "report_prompt" ||
         (isPromptNote(note) && promptPurpose(note) === "report"),
     )
-    .sort(
-      (a, b) =>
-        Number(isDefaultPrompt(b)) - Number(isDefaultPrompt(a)) ||
-        String(b.updated_at || "").localeCompare(String(a.updated_at || "")),
-    );
+    .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   /** 未完了は期限の近い順。Overviewでは上位だけ出し、続きはToDoへ回す（#321）。 */
   const nextTasks = [...openTasks]
     .sort((a, b) =>

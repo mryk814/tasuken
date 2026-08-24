@@ -128,6 +128,9 @@
             <button type="button" role="menuitem" id="delete" class="danger">メモを削除</button>
           </span>
         </span>
+        <button class="icon-button" id="minimize" type="button" title="付箋を最小化" aria-label="付箋を最小化">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12" /></svg>
+        </button>
         <button class="icon-button" id="close" type="button" title="付箋を閉じる（対象設定は残ります）" aria-label="付箋を閉じる。付箋対象の設定は残ります">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
         </button>
@@ -368,6 +371,11 @@
         setState(copied ? "コピーしました" : "コピーできません。保存状態を確認してください。", copied ? "" : "is-error");
       });
       document.querySelector("#open-main").addEventListener("click", () => { setMenuOpen(false); void api.openInMain(); });
+      document.querySelector("#minimize").addEventListener("click", async () => {
+        if (!await api.minimize()) {
+          setState("最小化できません。保存エラーを解消してから再試行してください。", "is-error");
+        }
+      });
       document.querySelector("#close").addEventListener("click", () => { void api.close(); });
       document.querySelector("#archive").addEventListener("click", async () => {
         setMenuOpen(false);

@@ -9,6 +9,7 @@ import {
   IconCopy,
   IconPin,
   IconExternalLink,
+  IconEye,
   IconFile,
   IconFlag,
   IconFlagFilled,
@@ -41,10 +42,22 @@ import {
   buildTriageCaptureEntryOperations,
   buildChangeEventOperation,
 } from "../domain-model/persistence";
-import type { CaptureEntry, Note as DomainNote, Resource, Schedule, Task, Waiting } from "../domain-model/types";
+import type {
+  CaptureEntry,
+  Note as DomainNote,
+  Resource,
+  Schedule,
+  Task,
+  Waiting,
+} from "../domain-model/types";
 import type { Artifact, ArtifactSourceType, SaveOperation } from "../types";
 import type { Entity } from "../../../../../shared/types/workspace";
-import { CAPTURE_METHOD_LABELS, formatMediaDuration, MEDIA_AVAILABILITY_LABELS, TRANSCRIPTION_STATUS_LABELS } from "../../../../../shared/mediaArtifact.mjs";
+import {
+  CAPTURE_METHOD_LABELS,
+  formatMediaDuration,
+  MEDIA_AVAILABILITY_LABELS,
+  TRANSCRIPTION_STATUS_LABELS,
+} from "../../../../../shared/mediaArtifact.mjs";
 import {
   MEMO_STICKY_COLOR_LABELS,
   MEMO_STICKY_COLORS,
@@ -75,7 +88,6 @@ const INBOX_KIND_LABELS: Record<InboxKind, string> = {
   idea: "アイデア",
   artifact: "Artifact",
 };
-
 
 const INBOX_KIND_OPTIONS: Array<[InboxKind, string]> = [
   ["task", "タスク"],
@@ -118,18 +130,34 @@ function CapturedArtifactButton({
   const isAudio = artifact.media_kind === "audio";
   // 画面録画も音声と同じ「録ったもの」として、長さ・容量まで見せる（#383）。
   const isVideo = artifact.media_kind === "video";
-  const availability = String(artifact.media_availability || "available") as keyof typeof MEDIA_AVAILABILITY_LABELS;
-  const transcription = String(capture.transcription_status || "not_requested") as keyof typeof TRANSCRIPTION_STATUS_LABELS;
+  const availability = String(
+    artifact.media_availability || "available",
+  ) as keyof typeof MEDIA_AVAILABILITY_LABELS;
+  const transcription = String(
+    capture.transcription_status || "not_requested",
+  ) as keyof typeof TRANSCRIPTION_STATUS_LABELS;
   return (
-    <button type="button" className={isAudio || isVideo ? "inbox-captured-audio" : undefined} onClick={onOpen}>
-      {isAudio ? <IconVolume size={14} /> : isVideo ? <IconVideo size={14} /> : <IconFile size={14} />}
+    <button
+      type="button"
+      className={isAudio || isVideo ? "inbox-captured-audio" : undefined}
+      onClick={onOpen}
+    >
+      {isAudio ? (
+        <IconVolume size={14} />
+      ) : isVideo ? (
+        <IconVideo size={14} />
+      ) : (
+        <IconFile size={14} />
+      )}
       <span>{artifact.filename}</span>
       {(isAudio || isVideo) && (
         <small>
           {[
             formatMediaDuration(artifact.duration_ms),
             formatArtifactFileSize(artifact.file_size),
-            isAudio ? TRANSCRIPTION_STATUS_LABELS[transcription] : CAPTURE_METHOD_LABELS[String(capture.capture_method)],
+            isAudio
+              ? TRANSCRIPTION_STATUS_LABELS[transcription]
+              : CAPTURE_METHOD_LABELS[String(capture.capture_method)],
             MEDIA_AVAILABILITY_LABELS[availability],
           ]
             .filter(Boolean)
@@ -139,7 +167,6 @@ function CapturedArtifactButton({
     </button>
   );
 }
-
 
 type OrganizedTargetType = "task" | "waiting" | "note" | "resource";
 type OrganizedEntity = Task | Waiting | DomainNote | Resource;
@@ -200,7 +227,93 @@ function copyTextForTarget(result: OrganizedResult): string {
   return [result.title, description].filter(Boolean).join("\n");
 }
 
-export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer, openContentViewer, navigate, saveEntities, createTaskFromCapture, removeEntity, setToast }: PageProps) {
+function StickyColorSwatch({ color }: { color: MemoStickyColor }) {
+  return <span className="sticky-color-swatch" data-sticky-color={color} aria-hidden="true" />;
+}
+
+function StickyColorFilter({
+  value,
+  onChange,
+}: {
+  value: MemoStickyColor | "all";
+  onChange: (color: MemoStickyColor | "all") => void;
+}) {
+  return (
+    <div className="sticky-color-filter" role="group" aria-label="付箋の色で絞り込む">
+      <span>色</span>
+      <div className="sticky-color-filter-options">
+        <button
+          type="button"
+          className={value === "all" ? "is-selected" : ""}
+          aria-pressed={value === "all"}
+          onClick={() => onChange("all")}
+        >
+          すべて
+        </button>
+        {MEMO_STICKY_COLORS.map((color) => (
+          <button
+            key={color}
+            type="button"
+            className={value === color ? "is-selected" : ""}
+            aria-pressed={value === color}
+            onClick={() => onChange(color)}
+          >
+            <StickyColorSwatch color={color} />
+            {MEMO_STICKY_COLOR_LABELS[color]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StickyColorPicker({
+  color,
+  onSelect,
+}: {
+  color: MemoStickyColor;
+  onSelect: (color: MemoStickyColor) => void;
+}) {
+  return (
+    <details className="micro-memo-color-picker">
+      <summary aria-label={`付箋の色: ${MEMO_STICKY_COLOR_LABELS[color]}`} title="付箋の色を変更">
+        <StickyColorSwatch color={color} />
+        <span>{MEMO_STICKY_COLOR_LABELS[color]}</span>
+      </summary>
+      <div className="micro-memo-color-options" role="group" aria-label="付箋の色を選択">
+        {MEMO_STICKY_COLORS.map((option) => (
+          <button
+            key={option}
+            type="button"
+            className={color === option ? "is-selected" : ""}
+            aria-pressed={color === option}
+            onClick={(event) => {
+              event.currentTarget.closest("details")?.removeAttribute("open");
+              onSelect(option);
+            }}
+          >
+            <StickyColorSwatch color={option} />
+            {MEMO_STICKY_COLOR_LABELS[option]}
+          </button>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+export function InboxPage({
+  data,
+  domain: v2,
+  themes,
+  activeThemeId,
+  openDrawer,
+  openContentViewer,
+  navigate,
+  saveEntities,
+  createTaskFromCapture,
+  removeEntity,
+  setToast,
+}: PageProps) {
   const v2Tasks = v2.tasks;
   const { artifacts } = data;
   const [query, setQuery] = useState("");
@@ -212,10 +325,11 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
     [allInboxRows, query],
   );
   const processedRows = useMemo(
-    () => v2.capture_entries
-      .filter((entry) => entry.kind !== "micro_memo" && entry.state !== "untriaged")
-      .filter((entry) => captureMatchesQuery(entry, query))
-      .sort((a, b) => String(b.captured_at).localeCompare(String(a.captured_at))),
+    () =>
+      v2.capture_entries
+        .filter((entry) => entry.kind !== "micro_memo" && entry.state !== "untriaged")
+        .filter((entry) => captureMatchesQuery(entry, query))
+        .sort((a, b) => String(b.captured_at).localeCompare(String(a.captured_at))),
     [query, v2.capture_entries],
   );
   const allMicroMemoRows = useMemo(() => buildMicroMemoView(v2).entries, [v2]);
@@ -238,7 +352,6 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
   const [stickyTargetIds, setStickyTargetIds] = useState<string[]>([]);
   const [alwaysOnTopStickyIds, setAlwaysOnTopStickyIds] = useState<string[]>([]);
   const [stickyColorFilter, setStickyColorFilter] = useState<MemoStickyColor | "all">("all");
-  const [collapsedStickyIds, setCollapsedStickyIds] = useState<string[]>([]);
   const [expandedStickyIds, setExpandedStickyIds] = useState<string[]>([]);
   const visibleMicroMemoRows = useMemo(
     () =>
@@ -250,8 +363,8 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
     [microMemoRows, stickyColorFilter],
   );
   const today = todayIso();
-  const allTargetStickiesVisible = stickyTargetIds.length > 0
-    && stickyTargetIds.every((memoId) => openStickyIds.includes(memoId));
+  const allTargetStickiesVisible =
+    stickyTargetIds.length > 0 && stickyTargetIds.every((memoId) => openStickyIds.includes(memoId));
 
   useEffect(() => {
     const applyState = (state: {
@@ -263,16 +376,23 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       setStickyTargetIds(state.stickyMemoIds);
       setAlwaysOnTopStickyIds(state.alwaysOnTopMemoIds);
     };
-    void workspaceApi.getSatelliteWindowState().then(applyState).catch(() => applyState({
-      openMemoIds: [],
-      stickyMemoIds: [],
-      alwaysOnTopMemoIds: [],
-    }));
+    void workspaceApi
+      .getSatelliteWindowState()
+      .then(applyState)
+      .catch(() =>
+        applyState({
+          openMemoIds: [],
+          stickyMemoIds: [],
+          alwaysOnTopMemoIds: [],
+        }),
+      );
     return workspaceApi.onSatelliteWindowStateChanged(applyState);
   }, []);
 
   function captureArtifacts(captureId: string): Artifact[] {
-    return artifacts.filter((artifact) => artifact.source_type === "capture_entry" && artifact.source_id === captureId);
+    return artifacts.filter(
+      (artifact) => artifact.source_type === "capture_entry" && artifact.source_id === captureId,
+    );
   }
 
   function retargetArtifactOperations(
@@ -281,16 +401,18 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
     sourceId: string,
     themeId: string | null,
   ): SaveOperation[] {
-    return captureArtifacts(sourceCaptureId).filter((artifact) => artifact.media_kind !== "audio" && artifact.media_kind !== "video").map((artifact) => ({
-      action: "save",
-      type: "artifact",
-      entity: {
-        ...artifact,
-        source_type: sourceType,
-        source_id: sourceId,
-        theme_id: themeId,
-      },
-    }));
+    return captureArtifacts(sourceCaptureId)
+      .filter((artifact) => artifact.media_kind !== "audio" && artifact.media_kind !== "video")
+      .map((artifact) => ({
+        action: "save",
+        type: "artifact",
+        entity: {
+          ...artifact,
+          source_type: sourceType,
+          source_id: sourceId,
+          theme_id: themeId,
+        },
+      }));
   }
 
   useEffect(() => {
@@ -310,7 +432,13 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
     setDrafts((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
   }
 
-  function rememberOrganized(targetType: OrganizedTargetType, targetId: string, title: string, entity: OrganizedEntity, schedule?: Schedule) {
+  function rememberOrganized(
+    targetType: OrganizedTargetType,
+    targetId: string,
+    title: string,
+    entity: OrganizedEntity,
+    schedule?: Schedule,
+  ) {
     const result: OrganizedResult = {
       id: `${targetType}:${targetId}`,
       targetType,
@@ -322,48 +450,73 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       schedule,
     };
     setFeedback(`${result.label}「${title}」に整理しました。`);
-    setRecentOrganized((current) => [
-      result,
-      ...current.filter((entry) => entry.id !== result.id),
-    ].slice(0, 5));
+    setRecentOrganized((current) =>
+      [result, ...current.filter((entry) => entry.id !== result.id)].slice(0, 5),
+    );
   }
 
   function openOrganized(result: OrganizedResult) {
-    const entity = result.targetType === "task" || result.targetType === "waiting"
-      ? { ...result.entity, _schedule: result.schedule }
-      : result.entity;
-    openDrawer({ type: result.targetType, mode: "edit", entity: entity as unknown as Record<string, unknown> });
+    const entity =
+      result.targetType === "task" || result.targetType === "waiting"
+        ? { ...result.entity, _schedule: result.schedule }
+        : result.entity;
+    openDrawer({
+      type: result.targetType,
+      mode: "edit",
+      entity: entity as unknown as Record<string, unknown>,
+    });
   }
 
   function copyOrganized(result: OrganizedResult) {
-    workspaceApi.copyText(copyTextForTarget(result))
+    workspaceApi
+      .copyText(copyTextForTarget(result))
       .then(() => setToast(`${result.label}をコピーしました。`))
-      .catch((error) => setToast(`コピーできませんでした。${error instanceof Error ? error.message : String(error)}`));
+      .catch((error) =>
+        setToast(
+          `コピーできませんでした。${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
   }
 
   function copyMicroMemo(memo: CaptureEntry) {
     const body = [memo.title, memo.text].filter(Boolean).join("\n");
-    workspaceApi.copyText(body)
+    workspaceApi
+      .copyText(body)
       .then(() => setToast("付箋メモをコピーしました。"))
-      .catch((error) => setToast(`コピーできませんでした。${error instanceof Error ? error.message : String(error)}`));
+      .catch((error) =>
+        setToast(
+          `コピーできませんでした。${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
   }
 
   function copyAllMicroMemos() {
-    const body = allMicroMemoRows.map((memo) => {
-      const title = memo.title?.trim();
-      const text = memo.text?.trim();
-      const indentedText = text ? text.replace(/\n/g, "\n  ") : "";
-      return title
-        ? `- ${title}${indentedText ? `\n  ${indentedText}` : ""}`
-        : (indentedText ? `- ${indentedText}` : "");
-    }).filter(Boolean).join("\n");
+    const body = allMicroMemoRows
+      .map((memo) => {
+        const title = memo.title?.trim();
+        const text = memo.text?.trim();
+        const indentedText = text ? text.replace(/\n/g, "\n  ") : "";
+        return title
+          ? `- ${title}${indentedText ? `\n  ${indentedText}` : ""}`
+          : indentedText
+            ? `- ${indentedText}`
+            : "";
+      })
+      .filter(Boolean)
+      .join("\n");
     if (!body) {
       setToast("コピーできる付箋メモがありません。", "info");
       return;
     }
-    workspaceApi.copyText(body)
+    workspaceApi
+      .copyText(body)
       .then(() => setToast(`${allMicroMemoRows.length}件の付箋メモをコピーしました。`, "success"))
-      .catch((error) => setToast(`コピーできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger"));
+      .catch((error) =>
+        setToast(
+          `コピーできませんでした。${error instanceof Error ? error.message : String(error)}`,
+          "danger",
+        ),
+      );
   }
 
   async function toggleMicroMemoTarget(memo: CaptureEntry) {
@@ -373,6 +526,15 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       setToast("付箋対象を変更できませんでした。メモを再読み込みしてください。", "danger");
     } else if (result.status === "flush_failed") {
       setToast("付箋を収納できませんでした。付箋側の保存エラーを解消してください。", "danger");
+    }
+  }
+
+  async function showMicroMemoSticky(memo: CaptureEntry) {
+    const result = await workspaceApi.setMemoStickyTarget(memo.id, true);
+    if (result.status === "not_found") {
+      setToast("付箋を表示できませんでした。メモを再読み込みしてください。", "danger");
+    } else if (result.status === "flush_failed") {
+      setToast("付箋を表示できませんでした。付箋側の保存エラーを解消してください。", "danger");
     }
   }
 
@@ -405,12 +567,6 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
     }
   }
 
-  function toggleStickyCard(id: string) {
-    setCollapsedStickyIds((current) =>
-      current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
-    );
-  }
-
   function toggleStickyCardExpansion(id: string) {
     setExpandedStickyIds((current) =>
       current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
@@ -433,7 +589,10 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       return;
     }
     if (draft.output === "artifact" && captureArtifacts(row.entry.id).length === 0) {
-      setToast("Artifactに整理するには、先にファイルを記録してください。入力内容は保持されています。", "warning");
+      setToast(
+        "Artifactに整理するには、先にファイルを記録してください。入力内容は保持されています。",
+        "warning",
+      );
       return;
     }
     const themeId = draft.theme_id || null;
@@ -467,9 +626,13 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
             granularity: "day",
           };
         }
-        await createTaskFromCapture(task as unknown as Entity, schedule as unknown as Entity | null, row.entry as unknown as Entity, artifactIds);
+        await createTaskFromCapture(
+          task as unknown as Entity,
+          schedule as unknown as Entity | null,
+          row.entry as unknown as Entity,
+          artifactIds,
+        );
         rememberOrganized("task", taskId, title, task, schedule);
-
       } else if (draft.output === "waiting") {
         const waitingId = crypto.randomUUID();
         let schedule: Schedule | undefined;
@@ -496,10 +659,11 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
           };
           ops.push(...buildSaveScheduleOperations(schedule));
         }
-        ops.push(...buildTriageCaptureEntryOperations(row.entry, { type: "waiting", id: waitingId }));
+        ops.push(
+          ...buildTriageCaptureEntryOperations(row.entry, { type: "waiting", id: waitingId }),
+        );
         await saveEntities(ops, `待ち「${title}」に整理しました。`);
         rememberOrganized("waiting", waitingId, title, waiting, schedule);
-
       } else if (draft.output === "memo" || draft.output === "document") {
         const noteId = uuid();
         const note: DomainNote = {
@@ -519,11 +683,11 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
         const label = draft.output === "document" ? "Markdown文書" : "メモ";
         await saveEntities(ops, `${label}「${title}」に整理しました。`);
         rememberOrganized("note", noteId, title, note);
-
       } else if (draft.output === "link") {
         const resourceId = uuid();
         const inferredLinkType = inferChatServiceFromUrl(draft.link_url);
-        const linkType = draft.link_type || (inferredLinkType !== "other" ? inferredLinkType : null);
+        const linkType =
+          draft.link_type || (inferredLinkType !== "other" ? inferredLinkType : null);
         const resource: Resource = {
           id: resourceId,
           title,
@@ -555,11 +719,13 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
         }
         await saveEntities(ops, `リンク「${title}」に整理しました。`);
         rememberOrganized("resource", resourceId, title, resource);
-
       } else if (draft.output === "artifact") {
         const attachedArtifacts = captureArtifacts(row.entry.id);
         await saveEntities(
-          buildTriageCaptureEntryOperations(row.entry, { type: "artifact", id: attachedArtifacts[0].id }),
+          buildTriageCaptureEntryOperations(row.entry, {
+            type: "artifact",
+            id: attachedArtifacts[0].id,
+          }),
           `${attachedArtifacts.length}件のArtifactとして整理しました。`,
         );
         setFeedback(`${attachedArtifacts.length}件のArtifactとして整理しました。`);
@@ -585,12 +751,17 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
     openDrawer({
       type: "capture_entry",
       mode: "edit",
-      entity: lane === "micro"
-        ? { kind: "micro_memo", content_type: "text", state: "untriaged", captured_at: new Date().toISOString() }
-        : { state: "untriaged", captured_at: todayIso() },
+      entity:
+        lane === "micro"
+          ? {
+              kind: "micro_memo",
+              content_type: "text",
+              state: "untriaged",
+              captured_at: new Date().toISOString(),
+            }
+          : { state: "untriaged", captured_at: todayIso() },
     });
   }
-
 
   async function deleteEntry(row: InboxRow) {
     setSelected((current) => current.filter((id) => id !== row.entry.id));
@@ -613,13 +784,23 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       state: "untriaged",
     };
     try {
-      await saveEntities([
-        { action: "save", type: "capture_entry", entity: entry as unknown as SaveOperation["entity"] },
-        ...buildLinkedArtifactOperationsFromPaths(picked.files, "capture_entry", captureId),
-        buildChangeEventOperation("capture_entry", captureId, "created"),
-      ], `${picked.files.length}件をInboxへ記録しました。`);
+      await saveEntities(
+        [
+          {
+            action: "save",
+            type: "capture_entry",
+            entity: entry as unknown as SaveOperation["entity"],
+          },
+          ...buildLinkedArtifactOperationsFromPaths(picked.files, "capture_entry", captureId),
+          buildChangeEventOperation("capture_entry", captureId, "created"),
+        ],
+        `${picked.files.length}件をInboxへ記録しました。`,
+      );
     } catch (error) {
-      setToast(`ファイルを記録できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `ファイルを記録できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     }
   }
 
@@ -634,7 +815,11 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       return;
     }
     const result = await workspaceApi.openPath(target);
-    if (!result.ok) setToast(`ファイルを開けませんでした。${result.error || "保存場所を確認してください。"}`, "danger");
+    if (!result.ok)
+      setToast(
+        `ファイルを開けませんでした。${result.error || "保存場所を確認してください。"}`,
+        "danger",
+      );
   }
 
   async function restoreToInbox(entry: CaptureEntry) {
@@ -644,19 +829,33 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       triaged_to_type: null,
       triaged_to_id: null,
     };
-    await saveEntities([
-      { action: "save", type: "capture_entry", entity: restored as unknown as SaveOperation["entity"] },
-      buildChangeEventOperation("capture_entry", entry.id, "updated", {}, entry, restored),
-    ], "Inboxへ戻しました。");
+    await saveEntities(
+      [
+        {
+          action: "save",
+          type: "capture_entry",
+          entity: restored as unknown as SaveOperation["entity"],
+        },
+        buildChangeEventOperation("capture_entry", entry.id, "updated", {}, entry, restored),
+      ],
+      "Inboxへ戻しました。",
+    );
     setLane("untriaged");
   }
 
   async function archiveEntry(entry: CaptureEntry) {
     const archived: CaptureEntry = { ...entry, state: "archived" };
-    await saveEntities([
-      { action: "save", type: "capture_entry", entity: archived as unknown as SaveOperation["entity"] },
-      buildChangeEventOperation("capture_entry", entry.id, "updated", {}, entry, archived),
-    ], "アーカイブしました。整理済みから戻せます。");
+    await saveEntities(
+      [
+        {
+          action: "save",
+          type: "capture_entry",
+          entity: archived as unknown as SaveOperation["entity"],
+        },
+        buildChangeEventOperation("capture_entry", entry.id, "updated", {}, entry, archived),
+      ],
+      "アーカイブしました。整理済みから戻せます。",
+    );
   }
 
   function openProcessedEntry(entry: CaptureEntry) {
@@ -673,17 +872,22 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
       if (artifact) void openCapturedArtifact(artifact);
       return;
     }
-    const entity = type === "task"
-      ? v2.tasks.find((candidate) => candidate.id === id)
-      : type === "waiting"
-        ? v2.waitings.find((candidate) => candidate.id === id)
-        : type === "note"
-          ? v2.notes.find((candidate) => candidate.id === id)
-          : type === "resource"
-            ? v2.resources.find((candidate) => candidate.id === id)
-            : null;
+    const entity =
+      type === "task"
+        ? v2.tasks.find((candidate) => candidate.id === id)
+        : type === "waiting"
+          ? v2.waitings.find((candidate) => candidate.id === id)
+          : type === "note"
+            ? v2.notes.find((candidate) => candidate.id === id)
+            : type === "resource"
+              ? v2.resources.find((candidate) => candidate.id === id)
+              : null;
     if (entity && ["task", "waiting", "note", "resource"].includes(type)) {
-      openDrawer({ type: type as OrganizedTargetType, mode: "edit", entity: entity as unknown as Record<string, unknown> });
+      openDrawer({
+        type: type as OrganizedTargetType,
+        mode: "edit",
+        entity: entity as unknown as Record<string, unknown>,
+      });
     }
   }
 
@@ -692,30 +896,36 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
     const title = `Ink Capture ${new Date().toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
     const sketch = createSketchDraft(title, null, captureId);
     try {
-      await saveEntities([
-        { action: "save", type: "sketch", entity: sketch },
-        {
-          action: "save",
-          type: "capture_entry",
-          entity: {
-            id: captureId,
-            title,
-            text: "手書きで記録",
-            kind: "ink_capture",
-            content_type: "ink",
-            captured_at: new Date().toISOString(),
-            state: "triaged",
-            triaged_to_type: "sketch",
-            triaged_to_id: sketch.id,
+      await saveEntities(
+        [
+          { action: "save", type: "sketch", entity: sketch },
+          {
+            action: "save",
+            type: "capture_entry",
+            entity: {
+              id: captureId,
+              title,
+              text: "手書きで記録",
+              kind: "ink_capture",
+              content_type: "ink",
+              captured_at: new Date().toISOString(),
+              state: "triaged",
+              triaged_to_type: "sketch",
+              triaged_to_id: sketch.id,
+            },
           },
-        },
-        buildChangeEventOperation("capture_entry", captureId, "triaged"),
-        buildChangeEventOperation("sketch", sketch.id, "created"),
-      ], "Ink Captureを開始しました。");
+          buildChangeEventOperation("capture_entry", captureId, "triaged"),
+          buildChangeEventOperation("sketch", sketch.id, "created"),
+        ],
+        "Ink Captureを開始しました。",
+      );
       localStorage.setItem("tasken:sketch:active-id", sketch.id);
       navigate("sketch-editor");
     } catch (error) {
-      setToast(`Ink Captureを開始できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `Ink Captureを開始できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     }
   }
 
@@ -761,36 +971,80 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
             {
               id: "capture-chat-link",
               label: "チャットリンクを追加",
-              onSelect: () => openDrawer({ type: "resource", mode: "edit", entity: { reference_status: "inbox", captured_at: todayIso() } }),
+              onSelect: () =>
+                openDrawer({
+                  type: "resource",
+                  mode: "edit",
+                  entity: { reference_status: "inbox", captured_at: todayIso() },
+                }),
             },
           ]}
         />
-        <Button variant="primary" onClick={addMemo}><IconPlus size={16} />Memo</Button>
+        <Button variant="primary" onClick={addMemo}>
+          <IconPlus size={16} />
+          Memo
+        </Button>
       </PageHeader>
       <div className="hub-tabs inbox-tabs" aria-label="Inboxレーン">
-        <button className={lane === "untriaged" ? "is-active" : ""} aria-current={lane === "untriaged" ? "page" : undefined} onClick={() => setLane("untriaged")}>
+        <button
+          className={lane === "untriaged" ? "is-active" : ""}
+          aria-current={lane === "untriaged" ? "page" : undefined}
+          onClick={() => setLane("untriaged")}
+        >
           未整理 <span>{allInboxRows.length}</span>
         </button>
-        <button className={lane === "processed" ? "is-active" : ""} aria-current={lane === "processed" ? "page" : undefined} onClick={() => setLane("processed")}>
-          整理済み <span>{v2.capture_entries.filter((entry) => entry.kind !== "micro_memo" && entry.state !== "untriaged").length}</span>
+        <button
+          className={lane === "processed" ? "is-active" : ""}
+          aria-current={lane === "processed" ? "page" : undefined}
+          onClick={() => setLane("processed")}
+        >
+          整理済み{" "}
+          <span>
+            {
+              v2.capture_entries.filter(
+                (entry) => entry.kind !== "micro_memo" && entry.state !== "untriaged",
+              ).length
+            }
+          </span>
         </button>
-        <button className={lane === "micro" ? "is-active" : ""} aria-current={lane === "micro" ? "page" : undefined} onClick={() => setLane("micro")}>
+        <button
+          className={lane === "micro" ? "is-active" : ""}
+          aria-current={lane === "micro" ? "page" : undefined}
+          onClick={() => setLane("micro")}
+        >
           付箋メモ <span>{allMicroMemoRows.length}</span>
         </button>
       </div>
       <label className="inbox-search">
         <IconSearch size={16} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Inboxを検索" />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Inboxを検索"
+        />
       </label>
       {lane === "untriaged" && selected.length > 0 && (
         <section className="panel inbox-bulk-toolbar">
           <label className="inbox-bulk-check">
-            <input type="checkbox" checked={selected.length === inboxRows.length} onChange={toggleSelectAll} />
+            <input
+              type="checkbox"
+              checked={selected.length === inboxRows.length}
+              onChange={toggleSelectAll}
+            />
             {selected.length}件選択中
           </label>
-          <label>種類
-            <select defaultValue="" onChange={(e) => { if (e.target.value) bulkPatch({ output: e.target.value as InboxKind }); e.target.value = ""; }}>
-              <option value="" disabled>一括変更</option>
+          <label>
+            種類
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) bulkPatch({ output: e.target.value as InboxKind });
+                e.target.value = "";
+              }}
+            >
+              <option value="" disabled>
+                一括変更
+              </option>
               <option value="task">タスク</option>
               <option value="memo">メモ</option>
               <option value="document">Markdown</option>
@@ -800,365 +1054,596 @@ export function InboxPage({ data, domain: v2, themes, activeThemeId, openDrawer,
               <option value="artifact">Artifact</option>
             </select>
           </label>
-          <label>Theme
-            <select defaultValue="" onChange={(e) => { if (e.target.value === "__clear") bulkPatch({ theme_id: "" }); else if (e.target.value) bulkPatch({ theme_id: e.target.value }); e.target.value = ""; }}>
-              <option value="" disabled>一括変更</option>
+          <label>
+            Theme
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value === "__clear") bulkPatch({ theme_id: "" });
+                else if (e.target.value) bulkPatch({ theme_id: e.target.value });
+                e.target.value = "";
+              }}
+            >
+              <option value="" disabled>
+                一括変更
+              </option>
               <option value="__clear">個人業務</option>
-              {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+              {themes.map((theme) => (
+                <option key={theme.id} value={theme.id}>
+                  {theme.name}
+                </option>
+              ))}
             </select>
           </label>
-          <label>予定日
-            <input type="date" defaultValue="" onChange={(e) => { if (e.target.value) bulkPatch({ planned_end: e.target.value }); }} />
+          <label>
+            予定日
+            <input
+              type="date"
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) bulkPatch({ planned_end: e.target.value });
+              }}
+            />
           </label>
-          <Button variant="secondary" compact onClick={() => bulkPatch({ today_flag: true, planned_end: today })}>今日やる</Button>
-          <Button variant="secondary" compact onClick={() => bulkPatch({ priority: "high" })}>優先</Button>
-          <Button variant="primary" compact onClick={organizeSelected}>一括整理</Button>
+          <Button
+            variant="secondary"
+            compact
+            onClick={() => bulkPatch({ today_flag: true, planned_end: today })}
+          >
+            今日やる
+          </Button>
+          <Button variant="secondary" compact onClick={() => bulkPatch({ priority: "high" })}>
+            優先
+          </Button>
+          <Button variant="primary" compact onClick={organizeSelected}>
+            一括整理
+          </Button>
         </section>
       )}
-      {lane === "untriaged" ? <section className="panel inbox-panel">
-        <div className="section-heading">
-          <h2>未整理</h2>
-          <span>{inboxRows.length}件</span>
-        </div>
-        {feedback && (
-          <div className="inbox-feedback" role="status" aria-live="polite">
-            <IconCheck size={16} />
-            {feedback}
+      {lane === "untriaged" ? (
+        <section className="panel inbox-panel">
+          <div className="section-heading">
+            <h2>未整理</h2>
+            <span>{inboxRows.length}件</span>
           </div>
-        )}
-        {recentOrganized.length > 0 && (
-          <div className="inbox-organized-history" aria-label="最近整理した項目">
-            {recentOrganized.map((result) => (
-              <div className="inbox-organized-item" key={result.id}>
-                <span className="inbox-organized-kind">{result.label}</span>
-                <strong>{result.title}</strong>
-                <div className="inbox-organized-actions">
-                  <button className="text-button compact" onClick={() => openOrganized(result)}>
-                    <IconExternalLink size={14} />開く
-                  </button>
-                  <button className="text-button compact" onClick={() => navigate(result.route)}>
-                    <IconArrowRight size={14} />一覧へ
-                  </button>
-                  <button className="row-action-button" onClick={() => copyOrganized(result)} aria-label={`${result.title}をコピー`} title="コピー">
-                    <IconCopy size={14} />
-                  </button>
+          {feedback && (
+            <div className="inbox-feedback" role="status" aria-live="polite">
+              <IconCheck size={16} />
+              {feedback}
+            </div>
+          )}
+          {recentOrganized.length > 0 && (
+            <div className="inbox-organized-history" aria-label="最近整理した項目">
+              {recentOrganized.map((result) => (
+                <div className="inbox-organized-item" key={result.id}>
+                  <span className="inbox-organized-kind">{result.label}</span>
+                  <strong>{result.title}</strong>
+                  <div className="inbox-organized-actions">
+                    <button className="text-button compact" onClick={() => openOrganized(result)}>
+                      <IconExternalLink size={14} />
+                      開く
+                    </button>
+                    <button className="text-button compact" onClick={() => navigate(result.route)}>
+                      <IconArrowRight size={14} />
+                      一覧へ
+                    </button>
+                    <button
+                      className="row-action-button"
+                      onClick={() => copyOrganized(result)}
+                      aria-label={`${result.title}をコピー`}
+                      title="コピー"
+                    >
+                      <IconCopy size={14} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {inboxRows.length ? (
-          <div className="inbox-list">
-            {inboxRows.map((row) => {
-              const draft = drafts[row.entry.id] || draftFromEntry(row.entry);
-              const isOrganizing = Boolean(organizing[row.entry.id]);
-              return (
-                <div className={`inbox-card ${isOrganizing ? "is-organizing" : ""}`} key={row.entry.id}>
-                  <div className="inbox-card-main">
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(row.entry.id)}
-                      onChange={(event) => setSelected((current) => event.target.checked ? [...current, row.entry.id] : current.filter((id) => id !== row.entry.id))}
-                      aria-label={`${draft.title}を選択`}
-                    />
-                    {/*
+              ))}
+            </div>
+          )}
+          {inboxRows.length ? (
+            <div className="inbox-list">
+              {inboxRows.map((row) => {
+                const draft = drafts[row.entry.id] || draftFromEntry(row.entry);
+                const isOrganizing = Boolean(organizing[row.entry.id]);
+                return (
+                  <div
+                    className={`inbox-card ${isOrganizing ? "is-organizing" : ""}`}
+                    key={row.entry.id}
+                  >
+                    <div className="inbox-card-main">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(row.entry.id)}
+                        onChange={(event) =>
+                          setSelected((current) =>
+                            event.target.checked
+                              ? [...current, row.entry.id]
+                              : current.filter((id) => id !== row.entry.id),
+                          )
+                        }
+                        aria-label={`${draft.title}を選択`}
+                      />
+                      {/*
                       Inboxの既定の行き先はTask（#317）。7種を同格で常設せず、
                       いま選ばれている種類だけを見せ、変更はmenuから行う。
                     */}
-                    <div className="inbox-kind-picker" aria-label="種類">
-                      <button
-                        type="button"
-                        className={draft.output === "task" ? "is-selected" : ""}
-                        onClick={() => patchDraft(row.entry.id, { output: "task" })}
-                      >
-                        タスク
-                      </button>
-                      {draft.output !== "task" && (
-                        <button type="button" className="is-selected" aria-current="true">
-                          {INBOX_KIND_LABELS[draft.output]}
-                        </button>
-                      )}
-                      <ToolbarMenu
-                        label="種類"
-                        align="left"
-                        title={`整理先の種類（現在: ${INBOX_KIND_LABELS[draft.output]}）`}
-                        items={INBOX_KIND_OPTIONS.map(([value, label]) => ({
-                          id: `kind-${value}`,
-                          label: draft.output === value ? `${label}（選択中）` : label,
-                          onSelect: () => patchDraft(row.entry.id, { output: value }),
-                        }))}
-                      />
-                    </div>
-                    <label className="inbox-title-field">タイトル
-                      <input value={draft.title} onChange={(event) => patchDraft(row.entry.id, { title: event.target.value })} />
-                    </label>
-                    <label>予定日
-                      <input type="date" value={draft.planned_end} onChange={(event) => patchDraft(row.entry.id, { planned_end: event.target.value })} />
-                    </label>
-                    <button
-                      className={`today-plan-button ${draft.today_flag ? "is-active" : ""}`}
-                      onClick={() => patchDraft(row.entry.id, { today_flag: !draft.today_flag, planned_end: !draft.today_flag && !draft.planned_end ? today : draft.planned_end })}
-                      aria-label={draft.today_flag ? "今日やるから外す" : "今日やるに入れる"}
-                      title={draft.today_flag ? "今日やるから外す" : "今日やるに入れる"}
-                    >
-                      <IconCalendarCheck size={16} />
-                    </button>
-                    <button
-                      className={`priority-flag-button ${draft.priority === "high" ? "is-active" : ""}`}
-                      onClick={() => patchDraft(row.entry.id, { priority: draft.priority === "high" ? "normal" : "high" })}
-                      aria-label={draft.priority === "high" ? "優先フラグを外す" : "優先フラグを付ける"}
-                      title={draft.priority === "high" ? "優先フラグを外す" : "優先フラグを付ける"}
-                    >
-                      {draft.priority === "high" ? <IconFlagFilled size={16} /> : <IconFlag size={16} />}
-                    </button>
-                  </div>
-                  <div className="inbox-card-details">
-                    <div className="inbox-theme-field">
-                      <span>Theme</span>
-                      <div className="inbox-theme-picker" aria-label="Theme">
+                      <div className="inbox-kind-picker" aria-label="種類">
                         <button
                           type="button"
-                          className={`theme-chip ${!draft.theme_id ? "is-selected" : ""}`}
-                          onClick={() => patchDraft(row.entry.id, { theme_id: "" })}
+                          className={draft.output === "task" ? "is-selected" : ""}
+                          onClick={() => patchDraft(row.entry.id, { output: "task" })}
                         >
-                          個人業務
+                          タスク
                         </button>
-                        {themes.map((theme, index) => (
-                          <button
-                            key={theme.id}
-                            type="button"
-                            className={`theme-chip ${draft.theme_id === theme.id ? "is-selected" : ""}`}
-                            style={{ "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties}
-                            onClick={() => patchDraft(row.entry.id, { theme_id: theme.id })}
-                          >
-                            <span className="chip-dot" />
-                            {theme.name}
+                        {draft.output !== "task" && (
+                          <button type="button" className="is-selected" aria-current="true">
+                            {INBOX_KIND_LABELS[draft.output]}
                           </button>
-                        ))}
+                        )}
+                        <ToolbarMenu
+                          label="種類"
+                          align="left"
+                          title={`整理先の種類（現在: ${INBOX_KIND_LABELS[draft.output]}）`}
+                          items={INBOX_KIND_OPTIONS.map(([value, label]) => ({
+                            id: `kind-${value}`,
+                            label: draft.output === value ? `${label}（選択中）` : label,
+                            onSelect: () => patchDraft(row.entry.id, { output: value }),
+                          }))}
+                        />
+                      </div>
+                      <label className="inbox-title-field">
+                        タイトル
+                        <input
+                          value={draft.title}
+                          onChange={(event) =>
+                            patchDraft(row.entry.id, { title: event.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        予定日
+                        <input
+                          type="date"
+                          value={draft.planned_end}
+                          onChange={(event) =>
+                            patchDraft(row.entry.id, { planned_end: event.target.value })
+                          }
+                        />
+                      </label>
+                      <button
+                        className={`today-plan-button ${draft.today_flag ? "is-active" : ""}`}
+                        onClick={() =>
+                          patchDraft(row.entry.id, {
+                            today_flag: !draft.today_flag,
+                            planned_end:
+                              !draft.today_flag && !draft.planned_end ? today : draft.planned_end,
+                          })
+                        }
+                        aria-label={draft.today_flag ? "今日やるから外す" : "今日やるに入れる"}
+                        title={draft.today_flag ? "今日やるから外す" : "今日やるに入れる"}
+                      >
+                        <IconCalendarCheck size={16} />
+                      </button>
+                      <button
+                        className={`priority-flag-button ${draft.priority === "high" ? "is-active" : ""}`}
+                        onClick={() =>
+                          patchDraft(row.entry.id, {
+                            priority: draft.priority === "high" ? "normal" : "high",
+                          })
+                        }
+                        aria-label={
+                          draft.priority === "high" ? "優先フラグを外す" : "優先フラグを付ける"
+                        }
+                        title={
+                          draft.priority === "high" ? "優先フラグを外す" : "優先フラグを付ける"
+                        }
+                      >
+                        {draft.priority === "high" ? (
+                          <IconFlagFilled size={16} />
+                        ) : (
+                          <IconFlag size={16} />
+                        )}
+                      </button>
+                    </div>
+                    <div className="inbox-card-details">
+                      <div className="inbox-theme-field">
+                        <span>Theme</span>
+                        <div className="inbox-theme-picker" aria-label="Theme">
+                          <button
+                            type="button"
+                            className={`theme-chip ${!draft.theme_id ? "is-selected" : ""}`}
+                            onClick={() => patchDraft(row.entry.id, { theme_id: "" })}
+                          >
+                            個人業務
+                          </button>
+                          {themes.map((theme, index) => (
+                            <button
+                              key={theme.id}
+                              type="button"
+                              className={`theme-chip ${draft.theme_id === theme.id ? "is-selected" : ""}`}
+                              style={
+                                {
+                                  "--chip-color": `var(--color-${themeColor(theme, index)})`,
+                                } as React.CSSProperties
+                              }
+                              onClick={() => patchDraft(row.entry.id, { theme_id: theme.id })}
+                            >
+                              <span className="chip-dot" />
+                              {theme.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {draft.output === "waiting" && (
+                        <div className="inbox-waiting-fields">
+                          <label>
+                            相手
+                            <input
+                              value={draft.waiting_for}
+                              onChange={(event) =>
+                                patchDraft(row.entry.id, { waiting_for: event.target.value })
+                              }
+                              placeholder="例: 田中さん、外注先A"
+                            />
+                          </label>
+                        </div>
+                      )}
+                      {draft.output === "link" && (
+                        <div className="inbox-link-fields">
+                          <label>
+                            URL
+                            <input
+                              value={draft.link_url}
+                              onChange={(event) =>
+                                patchDraft(row.entry.id, { link_url: event.target.value })
+                              }
+                              placeholder="https://chatgpt.com/..."
+                            />
+                          </label>
+                          <label>
+                            サービス
+                            <select
+                              value={draft.link_type}
+                              onChange={(event) =>
+                                patchDraft(row.entry.id, { link_type: event.target.value })
+                              }
+                            >
+                              <option value="">URLから推定</option>
+                              <option value="chatgpt">ChatGPT</option>
+                              <option value="claude">Claude</option>
+                              <option value="gemini">Gemini</option>
+                              <option value="copilot">Copilot</option>
+                              <option value="other">その他</option>
+                            </select>
+                          </label>
+                          <label>
+                            実施事項
+                            <select
+                              value={draft.item_id}
+                              onChange={(event) =>
+                                patchDraft(row.entry.id, { item_id: event.target.value })
+                              }
+                            >
+                              <option value="">未設定</option>
+                              {v2Tasks
+                                .filter((t) => !draft.theme_id || t.project_id === draft.theme_id)
+                                .map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.title}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                          <label>
+                            参照状態
+                            <select
+                              value={draft.reference_status}
+                              onChange={(event) =>
+                                patchDraft(row.entry.id, { reference_status: event.target.value })
+                              }
+                            >
+                              <option value="inbox">未整理</option>
+                              <option value="adopted">採用</option>
+                            </select>
+                          </label>
+                        </div>
+                      )}
+                      {captureArtifacts(row.entry.id).length > 0 && (
+                        <div className="inbox-captured-files" aria-label="記録したファイル">
+                          {captureArtifacts(row.entry.id).map((artifact) => (
+                            <CapturedArtifactButton
+                              key={artifact.id}
+                              artifact={artifact}
+                              capture={row.entry}
+                              onOpen={() => {
+                                void openCapturedArtifact(artifact);
+                              }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      <label>
+                        説明・補足
+                        <textarea
+                          value={draft.description}
+                          onChange={(event) =>
+                            patchDraft(row.entry.id, { description: event.target.value })
+                          }
+                        />
+                      </label>
+                      <div className="form-actions">
+                        <button
+                          className="row-action-button"
+                          onClick={() =>
+                            openDrawer({
+                              type: "capture_entry",
+                              mode: "edit",
+                              entity: row.entry as unknown as Record<string, unknown>,
+                            })
+                          }
+                          aria-label={`${draft.title || "記録"}を編集`}
+                          title="編集"
+                        >
+                          <IconPencil size={15} />
+                        </button>
+                        <button
+                          className="row-action-button danger"
+                          onClick={() => void deleteEntry(row)}
+                          aria-label={`${draft.title || "記録"}を削除`}
+                          title="削除"
+                        >
+                          <IconTrash size={15} />
+                        </button>
+                        <button
+                          className="row-action-button"
+                          onClick={() => void archiveEntry(row.entry)}
+                          aria-label={`${draft.title || "記録"}をアーカイブ`}
+                          title="アーカイブ"
+                        >
+                          <IconArchive size={15} />
+                        </button>
+                        <ActionButton
+                          action="inboxOrganize"
+                          compact
+                          disabled={isOrganizing}
+                          onClick={() => organize(row)}
+                        >
+                          {isOrganizing ? "整理中..." : "整理する"}
+                        </ActionButton>
                       </div>
                     </div>
-                    {draft.output === "waiting" && (
-                      <div className="inbox-waiting-fields">
-                        <label>相手
-                          <input value={draft.waiting_for} onChange={(event) => patchDraft(row.entry.id, { waiting_for: event.target.value })} placeholder="例: 田中さん、外注先A" />
-                        </label>
-                      </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState
+              title="未整理の記録はありません"
+              action="記録を追加"
+              onAction={() =>
+                openDrawer({
+                  type: "capture_entry",
+                  mode: "edit",
+                  entity: {
+                    state: "untriaged",
+                    captured_at: new Date().toISOString().slice(0, 10),
+                  },
+                })
+              }
+            />
+          )}
+        </section>
+      ) : lane === "processed" ? (
+        <section className="panel inbox-panel">
+          <div className="section-heading">
+            <h2>整理済み</h2>
+            <span>{processedRows.length}件</span>
+          </div>
+          {processedRows.length ? (
+            <div className="inbox-processed-list">
+              {processedRows.map((entry) => (
+                <article className="inbox-processed-row" key={entry.id}>
+                  <div className="inbox-processed-main">
+                    <span className={`inbox-state-label is-${entry.state}`}>
+                      {entry.state === "triaged" ? "整理済み" : "アーカイブ"}
+                    </span>
+                    <strong>{entry.title || quickCaptureTitle(entry.text)}</strong>
+                    <small>{formatDate(entry.captured_at)}</small>
+                    {entry.content_type && (
+                      <span className="inbox-content-type">{entry.content_type}</span>
                     )}
-                    {draft.output === "link" && (
-                      <div className="inbox-link-fields">
-                        <label>URL
-                          <input value={draft.link_url} onChange={(event) => patchDraft(row.entry.id, { link_url: event.target.value })} placeholder="https://chatgpt.com/..." />
-                        </label>
-                        <label>サービス
-                          <select value={draft.link_type} onChange={(event) => patchDraft(row.entry.id, { link_type: event.target.value })}>
-                            <option value="">URLから推定</option>
-                            <option value="chatgpt">ChatGPT</option>
-                            <option value="claude">Claude</option>
-                            <option value="gemini">Gemini</option>
-                            <option value="copilot">Copilot</option>
-                            <option value="other">その他</option>
-                          </select>
-                        </label>
-                        <label>実施事項
-                          <select value={draft.item_id} onChange={(event) => patchDraft(row.entry.id, { item_id: event.target.value })}>
-                            <option value="">未設定</option>
-                            {v2Tasks
-                              .filter((t) => !draft.theme_id || t.project_id === draft.theme_id)
-                              .map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
-                          </select>
-                        </label>
-                        <label>参照状態
-                          <select value={draft.reference_status} onChange={(event) => patchDraft(row.entry.id, { reference_status: event.target.value })}>
-                            <option value="inbox">未整理</option>
-                            <option value="adopted">採用</option>
-                          </select>
-                        </label>
-                      </div>
+                  </div>
+                  <p>{entry.text}</p>
+                  {captureArtifacts(entry.id).length > 0 && (
+                    <div className="inbox-captured-files">
+                      {captureArtifacts(entry.id).map((artifact) => (
+                        <CapturedArtifactButton
+                          key={artifact.id}
+                          artifact={artifact}
+                          capture={entry}
+                          onOpen={() => {
+                            void openCapturedArtifact(artifact);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <div className="inbox-processed-actions">
+                    {entry.state === "triaged" && entry.triaged_to_id && (
+                      <Button variant="secondary" compact onClick={() => openProcessedEntry(entry)}>
+                        <IconExternalLink size={14} />
+                        整理先を開く
+                      </Button>
                     )}
-                    {captureArtifacts(row.entry.id).length > 0 && (
-                      <div className="inbox-captured-files" aria-label="記録したファイル">
-                        {captureArtifacts(row.entry.id).map((artifact) => (
-                          <CapturedArtifactButton key={artifact.id} artifact={artifact} capture={row.entry} onOpen={() => { void openCapturedArtifact(artifact); }} />
-                        ))}
-                      </div>
+                    {entry.state === "archived" && (
+                      <Button
+                        variant="secondary"
+                        compact
+                        onClick={() => void restoreToInbox(entry)}
+                      >
+                        <IconRestore size={14} />
+                        Inboxへ戻す
+                      </Button>
                     )}
-                    <label>説明・補足
-                      <textarea value={draft.description} onChange={(event) => patchDraft(row.entry.id, { description: event.target.value })} />
-                    </label>
-                    <div className="form-actions">
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title={
+                query ? "検索に一致する整理済み記録はありません" : "整理済みの記録はありません"
+              }
+            />
+          )}
+        </section>
+      ) : (
+        <section className="panel inbox-panel">
+          <div className="section-heading">
+            <h2>付箋メモ</h2>
+            <span>{visibleMicroMemoRows.length}件</span>
+            <div className="inline-actions">
+              <span className="sticky-open-count">
+                対象 {stickyTargetIds.length} · 表示中 {openStickyIds.length}
+              </span>
+              <StickyColorFilter value={stickyColorFilter} onChange={setStickyColorFilter} />
+              <button
+                className="text-button compact"
+                onClick={copyAllMicroMemos}
+                disabled={!allMicroMemoRows.length}
+                type="button"
+              >
+                <IconCopy size={14} />
+                まとめてコピー
+              </button>
+              <button
+                className="text-button compact"
+                onClick={() => void toggleMicroMemoStickies()}
+              >
+                {allTargetStickiesVisible ? "対象を収納" : "対象を表示"}
+              </button>
+            </div>
+          </div>
+          {visibleMicroMemoRows.length ? (
+            <div className="micro-memo-grid">
+              {visibleMicroMemoRows.map((memo) => {
+                const targeted = stickyTargetIds.includes(memo.id);
+                const color = memoStickyColorOf(memo as unknown as Entity);
+                const expanded = expandedStickyIds.includes(memo.id);
+                return (
+                  <article
+                    className={`micro-memo-card ${targeted ? "is-targeted" : ""}`}
+                    data-expanded={expanded}
+                    data-sticky-color={color}
+                    key={memo.id}
+                  >
+                    <div className="micro-memo-card-header">
+                      <div className="micro-memo-card-meta">
+                        <time dateTime={memo.captured_at} title={`記録日 ${memo.captured_at}`}>
+                          記録 {formatDate(memo.captured_at)}
+                        </time>
+                      </div>
+                      <div className="micro-memo-card-header-actions">
+                        <StickyColorPicker
+                          color={color}
+                          onSelect={(next) => void updateMicroMemoColor(memo, next)}
+                        />
+                        <button
+                          className={`micro-memo-pin-button ${targeted ? "is-active" : ""}`}
+                          onClick={() => void toggleMicroMemoTarget(memo)}
+                          aria-label={targeted ? "付箋対象から外して収納" : "付箋対象にして表示"}
+                          aria-pressed={targeted}
+                          title={targeted ? "付箋対象から外す" : "付箋対象にする"}
+                          type="button"
+                        >
+                          <IconPin size={16} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className={`micro-memo-card-body ${expanded ? "is-expanded" : ""}`}>
+                      {memo.title && <strong>{memo.title}</strong>}
+                      <p>{memo.text}</p>
+                    </div>
+                    <div className="micro-memo-actions">
+                      {targeted && (
+                        <button
+                          className="row-action-button"
+                          onClick={() => void showMicroMemoSticky(memo)}
+                          aria-label="付箋を表示"
+                          title="表示"
+                          type="button"
+                        >
+                          <IconEye size={15} />
+                        </button>
+                      )}
                       <button
                         className="row-action-button"
-                        onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: row.entry as unknown as Record<string, unknown> })}
-                        aria-label={`${draft.title || "記録"}を編集`}
+                        onClick={() => toggleStickyCardExpansion(memo.id)}
+                        aria-label={expanded ? "付箋メモを短く表示" : "付箋メモを全文表示"}
+                        title={expanded ? "短く表示" : "全文表示"}
+                        type="button"
+                      >
+                        {expanded ? <IconChevronDown size={15} /> : <IconChevronRight size={15} />}
+                      </button>
+                      <button
+                        className="row-action-button"
+                        onClick={() => copyMicroMemo(memo)}
+                        aria-label="付箋メモをコピー"
+                        title="コピー"
+                      >
+                        <IconCopy size={15} />
+                      </button>
+                      <button
+                        className="row-action-button"
+                        onClick={() =>
+                          openDrawer({
+                            type: "capture_entry",
+                            mode: "edit",
+                            entity: memo as unknown as Record<string, unknown>,
+                          })
+                        }
+                        aria-label="付箋メモを編集"
                         title="編集"
                       >
                         <IconPencil size={15} />
                       </button>
-                      <button
-                        className="row-action-button danger"
-                        onClick={() => void deleteEntry(row)}
-                        aria-label={`${draft.title || "記録"}を削除`}
-                        title="削除"
-                      >
-                        <IconTrash size={15} />
-                      </button>
+                      {/* アーカイブと削除は別の操作として並べる（#298）。 */}
                       <button
                         className="row-action-button"
-                        onClick={() => void archiveEntry(row.entry)}
-                        aria-label={`${draft.title || "記録"}をアーカイブ`}
+                        onClick={() => void archiveEntry(memo)}
+                        aria-label="付箋メモをアーカイブ"
                         title="アーカイブ"
                       >
                         <IconArchive size={15} />
                       </button>
-                      <ActionButton action="inboxOrganize" compact disabled={isOrganizing} onClick={() => organize(row)}>
-                        {isOrganizing ? "整理中..." : "整理する"}
-                      </ActionButton>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState title="未整理の記録はありません" action="記録を追加" onAction={() => openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } })} />
-        )}
-      </section> : lane === "processed" ? <section className="panel inbox-panel">
-        <div className="section-heading">
-          <h2>整理済み</h2>
-          <span>{processedRows.length}件</span>
-        </div>
-        {processedRows.length ? (
-          <div className="inbox-processed-list">
-            {processedRows.map((entry) => (
-              <article className="inbox-processed-row" key={entry.id}>
-                <div className="inbox-processed-main">
-                  <span className={`inbox-state-label is-${entry.state}`}>
-                    {entry.state === "triaged" ? "整理済み" : "アーカイブ"}
-                  </span>
-                  <strong>{entry.title || quickCaptureTitle(entry.text)}</strong>
-                  <small>{formatDate(entry.captured_at)}</small>
-                  {entry.content_type && <span className="inbox-content-type">{entry.content_type}</span>}
-                </div>
-                <p>{entry.text}</p>
-                {captureArtifacts(entry.id).length > 0 && (
-                  <div className="inbox-captured-files">
-                    {captureArtifacts(entry.id).map((artifact) => (
-                      <CapturedArtifactButton key={artifact.id} artifact={artifact} capture={entry} onOpen={() => { void openCapturedArtifact(artifact); }} />
-                    ))}
-                  </div>
-                )}
-                <div className="inbox-processed-actions">
-                  {entry.state === "triaged" && entry.triaged_to_id && (
-                    <Button variant="secondary" compact onClick={() => openProcessedEntry(entry)}>
-                      <IconExternalLink size={14} />整理先を開く
-                    </Button>
-                  )}
-                  {entry.state === "archived" && (
-                    <Button variant="secondary" compact onClick={() => void restoreToInbox(entry)}>
-                      <IconRestore size={14} />Inboxへ戻す
-                    </Button>
-                  )}
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <EmptyState title={query ? "検索に一致する整理済み記録はありません" : "整理済みの記録はありません"} />
-        )}
-      </section> : <section className="panel inbox-panel">
-        <div className="section-heading">
-          <h2>付箋メモ</h2>
-          <span>{visibleMicroMemoRows.length}件</span>
-          <div className="inline-actions">
-            <span className="sticky-open-count">対象 {stickyTargetIds.length} · 表示中 {openStickyIds.length}</span>
-            <label className="sticky-color-filter">
-              <span>色</span>
-              <select
-                value={stickyColorFilter}
-                onChange={(event) => setStickyColorFilter(event.target.value as MemoStickyColor | "all")}
-                aria-label="付箋の色で絞り込む"
-              >
-                <option value="all">すべて</option>
-                {MEMO_STICKY_COLORS.map((color) => <option key={color} value={color}>{MEMO_STICKY_COLOR_LABELS[color]}</option>)}
-              </select>
-            </label>
-            <button className="text-button compact" onClick={copyAllMicroMemos} disabled={!allMicroMemoRows.length} type="button">
-              <IconCopy size={14} />まとめてコピー
-            </button>
-            <button className="text-button compact" onClick={() => void toggleMicroMemoStickies()}>
-              {allTargetStickiesVisible ? "対象を収納" : "対象を表示"}
-            </button>
-          </div>
-        </div>
-        {visibleMicroMemoRows.length ? (
-          <div className="micro-memo-grid">
-            {visibleMicroMemoRows.map((memo) => {
-              const targeted = stickyTargetIds.includes(memo.id);
-              const color = memoStickyColorOf(memo as unknown as Entity);
-              const collapsed = collapsedStickyIds.includes(memo.id);
-              const expanded = expandedStickyIds.includes(memo.id);
-              return (
-                <article
-                  className={`micro-memo-card ${targeted ? "is-targeted" : ""} ${collapsed ? "is-collapsed" : ""}`}
-                  data-expanded={expanded}
-                  data-sticky-color={color}
-                  key={memo.id}
-                >
-                  <div className="micro-memo-card-header">
-                    <div className="micro-memo-card-meta">
-                      <time dateTime={memo.captured_at} title={`記録日 ${memo.captured_at}`}>記録 {formatDate(memo.captured_at)}</time>
-                    </div>
-                    <div className="micro-memo-card-header-actions">
-                      <select
-                        className="micro-memo-color-select"
-                        value={color}
-                        onChange={(event) => void updateMicroMemoColor(memo, event.target.value as MemoStickyColor)}
-                        aria-label="付箋の色を変更"
+                      <button
+                        className="row-action-button danger"
+                        onClick={() =>
+                          removeEntity("capture_entry", memo as unknown as Record<string, unknown>)
+                        }
+                        aria-label="付箋メモを削除"
+                        title="削除"
                       >
-                        {MEMO_STICKY_COLORS.map((option) => <option key={option} value={option}>{MEMO_STICKY_COLOR_LABELS[option]}</option>)}
-                      </select>
-                      <button
-                        className="micro-memo-collapse-button"
-                        onClick={() => toggleStickyCard(memo.id)}
-                        aria-label={collapsed ? "付箋メモを展開" : "付箋メモを折りたたむ"}
-                        aria-expanded={!collapsed}
-                        title={collapsed ? "展開" : "折りたたむ"}
-                        type="button"
-                      >{collapsed ? <IconChevronRight size={15} /> : <IconChevronDown size={15} />}</button>
-                      <button
-                        className={`micro-memo-pin-button ${targeted ? "is-active" : ""}`}
-                        onClick={() => void toggleMicroMemoTarget(memo)}
-                        aria-label={targeted ? "付箋対象から外して収納" : "付箋対象にして表示"}
-                        aria-pressed={targeted}
-                        title={targeted ? "付箋対象から外す" : "付箋対象にする"}
-                        type="button"
-                      ><IconPin size={16} /></button>
+                        <IconTrash size={15} />
+                      </button>
                     </div>
-                  </div>
-                  {!collapsed && <div className={`micro-memo-card-body ${expanded ? "is-expanded" : ""}`}>
-                    {memo.title && <strong>{memo.title}</strong>}
-                    <p>{memo.text}</p>
-                  </div>}
-                  {!collapsed && <div className="micro-memo-actions">
-                    <button className="row-action-button" onClick={() => toggleStickyCardExpansion(memo.id)} aria-label={expanded ? "付箋メモを短く表示" : "付箋メモを全文表示"} title={expanded ? "短く表示" : "全文表示"} type="button">
-                      {expanded ? <IconChevronDown size={15} /> : <IconChevronRight size={15} />}
-                    </button>
-                    <button className="row-action-button" onClick={() => copyMicroMemo(memo)} aria-label="付箋メモをコピー" title="コピー"><IconCopy size={15} /></button>
-                    <button className="row-action-button" onClick={() => openDrawer({ type: "capture_entry", mode: "edit", entity: memo as unknown as Record<string, unknown> })} aria-label="付箋メモを編集" title="編集"><IconPencil size={15} /></button>
-                    {/* アーカイブと削除は別の操作として並べる（#298）。 */}
-                    <button className="row-action-button" onClick={() => void archiveEntry(memo)} aria-label="付箋メモをアーカイブ" title="アーカイブ"><IconArchive size={15} /></button>
-                    <button className="row-action-button danger" onClick={() => removeEntity("capture_entry", memo as unknown as Record<string, unknown>)} aria-label="付箋メモを削除" title="削除"><IconTrash size={15} /></button>
-                  </div>}
-                </article>
-              );
-            })}
-          </div>
-        ) : stickyColorFilter !== "all" ? (
-          <EmptyState title="この色の付箋メモはありません" action="色フィルターを解除" onAction={() => setStickyColorFilter("all")} />
-        ) : (
-          <EmptyState title={query ? "検索に一致する付箋メモはありません" : "付箋メモはありません"} />
-        )}
-      </section>}
+                  </article>
+                );
+              })}
+            </div>
+          ) : stickyColorFilter !== "all" ? (
+            <EmptyState
+              title="この色の付箋メモはありません"
+              action="色フィルターを解除"
+              onAction={() => setStickyColorFilter("all")}
+            />
+          ) : (
+            <EmptyState
+              title={query ? "検索に一致する付箋メモはありません" : "付箋メモはありません"}
+            />
+          )}
+        </section>
+      )}
     </div>
   );
 }

@@ -148,6 +148,8 @@ export function TodoPage({
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   const [addDate, setAddDate] = useState("");
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set());
+  const [bulkThemeId, setBulkThemeId] = useState(PERSONAL_DEFAULT_THEME_ID);
   const today = todayIso();
 
   const taskRows: TodoRow[] = buildTodoView(domain).tasks;
@@ -171,6 +173,8 @@ export function TodoPage({
     themes,
   );
   const groupedVisible = groupTodoRows(visible, groupMode, today, themes);
+  const selectedVisibleRows = visible.filter((row) => selectedTaskIds.has(row.task.id));
+  const allVisibleSelected = visible.length > 0 && selectedVisibleRows.length === visible.length;
 
   function patchTaskFilters(patch: Partial<TaskViewFilters>) {
     setViewPreference((current) => ({
@@ -197,6 +201,48 @@ export function TodoPage({
 
   function setGroupMode(next: TodoGroupMode) {
     setViewPreference((current) => ({ ...current, groupMode: next }));
+  }
+
+  function toggleTaskSelection(taskId: string) {
+    setSelectedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
+
+  function toggleVisibleSelection() {
+    const visibleIds = visible.map((row) => row.task.id);
+    setSelectedTaskIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  async function reassignSelectedTheme() {
+    const themeId = canonicalThemeId(bulkThemeId, { defaultPersonal: true });
+    const changedRows = selectedVisibleRows.filter((row) => row.task.project_id !== themeId);
+    if (!changedRows.length) {
+      setToast("選択したタスクはすでにこのThemeです。", "info");
+      return;
+    }
+    await saveEntities(
+      changedRows.flatMap((row) =>
+        buildSaveTaskOperations(
+          { ...row.task, project_id: themeId },
+          { reason: "bulk_theme_reassigned" },
+        ),
+      ),
+      `${changedRows.length}件のThemeを変更しました。`,
+    );
+    setSelectedTaskIds((current) => {
+      const next = new Set(current);
+      selectedVisibleRows.forEach((row) => next.delete(row.task.id));
+      return next;
+    });
   }
 
   async function addTask() {
@@ -366,6 +412,14 @@ export function TodoPage({
         style={{ "--chip-color": chipColor } as React.CSSProperties}
         onClick={() => openTaskDetail(task, schedule)}
       >
+        <input
+          className="todo-row-selector"
+          type="checkbox"
+          checked={selectedTaskIds.has(task.id)}
+          onClick={(event) => event.stopPropagation()}
+          onChange={() => toggleTaskSelection(task.id)}
+          aria-label={`${task.title}を一括操作に選択`}
+        />
         <span className="todo-theme-bar" />
         <button
           className={`todo-check-circle ${done ? "is-done" : ""}`}
@@ -627,8 +681,39 @@ export function TodoPage({
             <option value="theme">Themeでグループ</option>
           </select>
         </div>
+        {selectedVisibleRows.length > 0 && (
+          <div className="todo-bulk-bar" aria-label="選択したタスクの一括操作">
+            <strong>{selectedVisibleRows.length}件を選択</strong>
+            <ThemePickerSelect
+              themes={themes}
+              value={bulkThemeId}
+              onChange={setBulkThemeId}
+              ariaLabel="一括変更先のTheme"
+              className="todo-bulk-theme-picker"
+            />
+            <Button variant="secondary" compact onClick={() => void reassignSelectedTheme()}>
+              Themeを変更
+            </Button>
+            <button
+              type="button"
+              className="text-button compact"
+              onClick={() => setSelectedTaskIds(new Set())}
+            >
+              選択解除
+            </button>
+          </div>
+        )}
         <div className="data-table todo-table">
           <div className="table-head">
+            <span>
+              <input
+                className="todo-row-selector"
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={toggleVisibleSelection}
+                aria-label="表示中のタスクをすべて選択"
+              />
+            </span>
             <span />
             <span />
             <span>タスク</span>

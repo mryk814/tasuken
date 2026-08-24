@@ -18,7 +18,12 @@ async function importBundled(relativePath) {
 }
 
 const activityLog = await importBundled("src/renderer/src/features/workspace/lib/activityLog.ts");
-const activityAutoExport = await importBundled("src/renderer/src/features/workspace/lib/activityAutoExport.ts");
+const activityAutoExport = await importBundled(
+  "src/renderer/src/features/workspace/lib/activityAutoExport.ts",
+);
+const activityLogDirectory = await importBundled(
+  "src/renderer/src/features/workspace/lib/activityLogDirectory.ts",
+);
 
 test("activity log summarizes completed work and empty sections for a date", () => {
   const markdown = activityLog.buildActivityLog({
@@ -26,18 +31,46 @@ test("activity log summarizes completed work and empty sections for a date", () 
     domain: {
       projects: [{ id: "theme-1", name: "材料A" }],
       tasks: [
-        { id: "task-1", project_id: "theme-1", title: "測定を終える", state: "done", completed_at: "2026-07-02T10:00:00.000Z" },
-        { id: "task-2", project_id: "theme-1", title: "別日の完了", state: "done", completed_at: "2026-07-01T10:00:00.000Z" },
+        {
+          id: "task-1",
+          project_id: "theme-1",
+          title: "測定を終える",
+          state: "done",
+          completed_at: "2026-07-02T10:00:00.000Z",
+        },
+        {
+          id: "task-2",
+          project_id: "theme-1",
+          title: "別日の完了",
+          state: "done",
+          completed_at: "2026-07-01T10:00:00.000Z",
+        },
       ],
       waitings: [
-        { id: "waiting-1", project_id: "theme-1", title: "回答を確認", waiting_for: "Lab", state: "received", updated_at: "2026-07-02T11:00:00.000Z" },
+        {
+          id: "waiting-1",
+          project_id: "theme-1",
+          title: "回答を確認",
+          waiting_for: "Lab",
+          state: "received",
+          updated_at: "2026-07-02T11:00:00.000Z",
+        },
       ],
       notes: [],
       resources: [],
       knowledge_nodes: [],
-      capture_entries: [{ id: "cap-1", text: "作業メモ", captured_at: "2026-07-02T12:00:00.000Z", state: "untriaged" }],
+      capture_entries: [
+        {
+          id: "cap-1",
+          text: "作業メモ",
+          captured_at: "2026-07-02T12:00:00.000Z",
+          state: "untriaged",
+        },
+      ],
     },
-    statusUpdates: [{ id: "status-1", theme_id: "theme-1", date: "2026-07-02", summary: "一区切り" }],
+    statusUpdates: [
+      { id: "status-1", theme_id: "theme-1", date: "2026-07-02", summary: "一区切り" },
+    ],
     themes: [{ id: "theme-1", name: "材料A", code: "MAT-A", description: "材料評価テーマ" }],
   });
 
@@ -56,7 +89,13 @@ test("activity log resolves current official theme name code and description by 
     date: "2026-07-02",
     domain: {
       tasks: [
-        { id: "task-1", project_id: "theme-1", title: "測定", state: "done", completed_at: "2026-07-02T10:00:00.000Z" },
+        {
+          id: "task-1",
+          project_id: "theme-1",
+          title: "測定",
+          state: "done",
+          completed_at: "2026-07-02T10:00:00.000Z",
+        },
       ],
       waitings: [],
       notes: [],
@@ -77,8 +116,20 @@ test("activity log marks missing themes without inventing fake personal work", (
     date: "2026-07-02",
     domain: {
       tasks: [
-        { id: "task-1", project_id: "gone-theme", title: "孤児タスク", state: "done", completed_at: "2026-07-02T10:00:00.000Z" },
-        { id: "task-2", project_id: null, title: "個人タスク", state: "done", completed_at: "2026-07-02T11:00:00.000Z" },
+        {
+          id: "task-1",
+          project_id: "gone-theme",
+          title: "孤児タスク",
+          state: "done",
+          completed_at: "2026-07-02T10:00:00.000Z",
+        },
+        {
+          id: "task-2",
+          project_id: null,
+          title: "個人タスク",
+          state: "done",
+          completed_at: "2026-07-02T11:00:00.000Z",
+        },
       ],
       waitings: [],
       notes: [],
@@ -130,69 +181,111 @@ test("activity entries expose the same automatic daily sources used by markdown"
     themes: [],
   });
 
-  assert.deepEqual(entries.completedTasks.map((entry) => entry.id), ["t1"]);
-  assert.deepEqual(entries.notes.map((entry) => entry.id), ["n1"]);
+  assert.deepEqual(
+    entries.completedTasks.map((entry) => entry.id),
+    ["t1"],
+  );
+  assert.deepEqual(
+    entries.notes.map((entry) => entry.id),
+    ["n1"],
+  );
 });
 
 test("activity auto export catches up yesterday when the app starts before today's scheduled time", () => {
-  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
-    now: new Date(2026, 6, 11, 8, 0),
-    time: "22:00",
-    directory: "C:\\logs",
-    lastExportDate: "2026-07-09",
-  }), ["2026-07-10"]);
+  assert.deepEqual(
+    activityAutoExport.activityDatesToAutoExport({
+      now: new Date(2026, 6, 11, 8, 0),
+      time: "22:00",
+      directory: "C:\\logs",
+      lastExportDate: "2026-07-09",
+    }),
+    ["2026-07-10"],
+  );
+});
+
+test("Activity Log follows the Root directory unless the user selected an override", () => {
+  assert.equal(
+    activityLogDirectory.resolveActivityLogDirectory("", "C:\\Tasken Root\\"),
+    "C:\\Tasken Root\\Activity",
+  );
+  assert.equal(
+    activityLogDirectory.resolveActivityLogDirectory("/tmp/custom-log", "/workspace"),
+    "/tmp/custom-log",
+  );
+  assert.equal(activityLogDirectory.defaultActivityLogDirectory("/"), "/Activity");
 });
 
 test("activity auto export catches up every missing date in calendar order", () => {
-  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
-    now: new Date(2026, 6, 11, 8, 0),
-    time: "22:00",
-    directory: "C:\\logs",
-    lastExportDate: "2026-07-07",
-  }), ["2026-07-08", "2026-07-09", "2026-07-10"]);
-  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
-    now: new Date(2026, 7, 2, 23, 0),
-    time: "22:00",
-    directory: "C:\\logs",
-    lastExportDate: "2026-07-30",
-  }), ["2026-07-31", "2026-08-01", "2026-08-02"]);
+  assert.deepEqual(
+    activityAutoExport.activityDatesToAutoExport({
+      now: new Date(2026, 6, 11, 8, 0),
+      time: "22:00",
+      directory: "C:\\logs",
+      lastExportDate: "2026-07-07",
+    }),
+    ["2026-07-08", "2026-07-09", "2026-07-10"],
+  );
+  assert.deepEqual(
+    activityAutoExport.activityDatesToAutoExport({
+      now: new Date(2026, 7, 2, 23, 0),
+      time: "22:00",
+      directory: "C:\\logs",
+      lastExportDate: "2026-07-30",
+    }),
+    ["2026-07-31", "2026-08-01", "2026-08-02"],
+  );
 });
 
 test("activity auto export includes today after the scheduled time and does not duplicate it", () => {
   const now = new Date(2026, 6, 28, 22, 1);
-  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
-    now,
-    time: "22:00",
-    directory: "C:\\logs",
-    lastExportDate: "2026-07-27",
-  }), ["2026-07-28"]);
-  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
-    now,
-    time: "22:00",
-    directory: "C:\\logs",
-    lastExportDate: "2026-07-28",
-  }), []);
+  assert.deepEqual(
+    activityAutoExport.activityDatesToAutoExport({
+      now,
+      time: "22:00",
+      directory: "C:\\logs",
+      lastExportDate: "2026-07-27",
+    }),
+    ["2026-07-28"],
+  );
+  assert.deepEqual(
+    activityAutoExport.activityDatesToAutoExport({
+      now,
+      time: "22:00",
+      directory: "C:\\logs",
+      lastExportDate: "2026-07-28",
+    }),
+    [],
+  );
 });
 
 test("first-time auto export creates the latest eligible daily snapshot only", () => {
-  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
-    now: new Date(2026, 6, 28, 9, 0),
-    time: "22:00",
-    directory: "C:\\logs",
-    lastExportDate: "",
-  }), ["2026-07-27"]);
-  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
-    now: new Date(2026, 6, 28, 23, 0),
-    time: "22:00",
-    directory: "C:\\logs",
-    lastExportDate: "",
-  }), ["2026-07-28"]);
-  assert.deepEqual(activityAutoExport.activityDatesToAutoExport({
-    now: new Date(2026, 6, 28, 23, 0),
-    time: "22:00",
-    directory: "",
-    lastExportDate: "",
-  }), []);
+  assert.deepEqual(
+    activityAutoExport.activityDatesToAutoExport({
+      now: new Date(2026, 6, 28, 9, 0),
+      time: "22:00",
+      directory: "C:\\logs",
+      lastExportDate: "",
+    }),
+    ["2026-07-27"],
+  );
+  assert.deepEqual(
+    activityAutoExport.activityDatesToAutoExport({
+      now: new Date(2026, 6, 28, 23, 0),
+      time: "22:00",
+      directory: "C:\\logs",
+      lastExportDate: "",
+    }),
+    ["2026-07-28"],
+  );
+  assert.deepEqual(
+    activityAutoExport.activityDatesToAutoExport({
+      now: new Date(2026, 6, 28, 23, 0),
+      time: "22:00",
+      directory: "",
+      lastExportDate: "",
+    }),
+    [],
+  );
 });
 
 test("catch-up checkpoints each successful date and leaves a failed date for retry", async () => {
@@ -205,7 +298,9 @@ test("catch-up checkpoints each successful date and leaves a failed date for ret
         if (date === "2026-07-09") throw new Error("disk unavailable");
         exported.push(date);
       },
-      markExported: async (date) => { marked.push(date); },
+      markExported: async (date) => {
+        marked.push(date);
+      },
     }),
     /disk unavailable/,
   );

@@ -14,12 +14,22 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 }
 
-const { timelineItemScheduleKind, timelineItemState } = await importBundled("src/renderer/src/features/workspace/lib/timeline.ts");
-const timelinePageSource = readFileSync("src/renderer/src/features/workspace/pages/TimelinePage.tsx", "utf8");
-const ganttSource = readFileSync("src/renderer/src/features/workspace/components/gantt.tsx", "utf8");
+const { timelineItemScheduleKind, timelineItemState } = await importBundled(
+  "src/renderer/src/features/workspace/lib/timeline.ts",
+);
+const timelinePageSource = readFileSync(
+  "src/renderer/src/features/workspace/pages/TimelinePage.tsx",
+  "utf8",
+);
+const ganttSource = readFileSync(
+  "src/renderer/src/features/workspace/components/gantt.tsx",
+  "utf8",
+);
 const stylesSource = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
 const TODAY = "2026-08-07";
@@ -37,17 +47,47 @@ test("Timeline itemの状態を日付と#309のsemanticsから一意に決める
   assert.equal(at({ planned_start: "2026-09-01", planned_end: "2026-09-30" }), "planned");
   assert.equal(at({ planned_start: "2026-08-01", planned_end: "2026-08-31" }), "active");
   // #309の日付範囲の意味を状態として区別する。
-  assert.equal(at({ planned_start: "2026-08-01", planned_end: "2026-08-31", range_semantics: "ongoing" }), "ongoing");
-  assert.equal(at({ planned_start: "2026-08-01", planned_end: "2026-08-31", range_semantics: "once_within_window" }), "execution_window");
+  assert.equal(
+    at({ planned_start: "2026-08-01", planned_end: "2026-08-31", range_semantics: "ongoing" }),
+    "ongoing",
+  );
+  assert.equal(
+    at({
+      planned_start: "2026-08-01",
+      planned_end: "2026-08-31",
+      range_semantics: "once_within_window",
+    }),
+    "execution_window",
+  );
   // 予定を持たない項目は未着手。
   assert.equal(at({}), "planned");
 });
 
 test("Timelineの範囲意味判定はgetScheduleKindへ集約する（#326）", () => {
-  assert.equal(timelineItemScheduleKind({ planned_start: "2026-08-01", planned_end: "2026-08-31", range_semantics: "once_within_window" }), "execution_window");
-  assert.equal(timelineItemScheduleKind({ planned_start: "2026-08-01", planned_end: "2026-08-31", range_semantics: "ongoing" }), "ongoing_period");
-  assert.equal(timelineItemScheduleKind({ planned_start: "2026-08-01", planned_end: "2026-08-31" }), "unspecified_range");
-  assert.match(readFileSync("src/renderer/src/features/workspace/lib/timeline.ts", "utf8"), /getScheduleKind\(schedule\)/);
+  assert.equal(
+    timelineItemScheduleKind({
+      planned_start: "2026-08-01",
+      planned_end: "2026-08-31",
+      range_semantics: "once_within_window",
+    }),
+    "execution_window",
+  );
+  assert.equal(
+    timelineItemScheduleKind({
+      planned_start: "2026-08-01",
+      planned_end: "2026-08-31",
+      range_semantics: "ongoing",
+    }),
+    "ongoing_period",
+  );
+  assert.equal(
+    timelineItemScheduleKind({ planned_start: "2026-08-01", planned_end: "2026-08-31" }),
+    "unspecified_range",
+  );
+  assert.match(
+    readFileSync("src/renderer/src/features/workspace/lib/timeline.ts", "utf8"),
+    /getScheduleKind\(schedule\)/,
+  );
 });
 
 test("状態を色だけで伝えない（#312 / #318）", () => {
@@ -61,19 +101,37 @@ test("状態を色だけで伝えない（#312 / #318）", () => {
 
   // 一覧側は語で読める。
   assert.match(timelinePageSource, /const timelineState = timelineItemState\(item, today\);/);
-  assert.match(timelinePageSource, /<StatusBadge[\s\S]*className=\{`timeline-state-chip is-state-\$\{timelineState\}`\}/);
+  assert.match(
+    timelinePageSource,
+    /<StatusBadge[\s\S]*className=\{`timeline-state-chip is-state-\$\{timelineState\}`\}/,
+  );
   assert.match(timelinePageSource, /TIMELINE_ITEM_STATE_LABELS\[timelineState\]/);
 
   // 形（不透明度・線種・縞）も併用する。
-  assert.match(stylesSource, /\.gantt-item-bar\.is-state-completed \{ opacity: \.62;/);
+  assert.match(stylesSource, /\.gantt-item-bar\.is-state-completed \{\s*opacity: 0?\.62;/);
   assert.match(stylesSource, /\.gantt-item-bar\.is-state-cancelled \{[^}]*border-style: dotted;/);
-  assert.match(stylesSource, /\.gantt-item-bar\.is-state-ongoing \{[\s\S]*?border-width: 2px;[\s\S]*?background: color-mix/);
-  assert.match(stylesSource, /\.gantt-item-bar\.is-state-ongoing \{[\s\S]*?box-shadow: inset 0 -2px 0/);
-  assert.match(stylesSource, /\.gantt-item-bar\.is-state-execution_window \{ border-style: dashed;/);
-  assert.match(stylesSource, /\.gantt-item-bar\.is-range-execution_window \{ border-style: dashed;/);
-  assert.match(stylesSource, /\.gantt-item-bar\.is-range-ongoing_period \{ border-style: solid;/);
+  assert.match(
+    stylesSource,
+    /\.gantt-item-bar\.is-state-ongoing \{[\s\S]*?border-width: 2px;[\s\S]*?background: color-mix/,
+  );
+  assert.match(
+    stylesSource,
+    /\.gantt-item-bar\.is-state-ongoing \{[\s\S]*?box-shadow: inset 0 -2px 0/,
+  );
+  assert.match(
+    stylesSource,
+    /\.gantt-item-bar\.is-state-execution_window \{\s*border-style: dashed;/,
+  );
+  assert.match(
+    stylesSource,
+    /\.gantt-item-bar\.is-range-execution_window \{\s*border-style: dashed;/,
+  );
+  assert.match(stylesSource, /\.gantt-item-bar\.is-range-ongoing_period \{\s*border-style: solid;/);
   // 期限超過は破壊的操作の赤ではなくwarning系にする。
-  assert.match(stylesSource, /\.gantt-item-bar\.is-state-overdue \{[^}]*var\(--color-status-blocked-fg\)/);
+  assert.match(
+    stylesSource,
+    /\.gantt-item-bar\.is-state-overdue \{[^}]*var\(--color-status-blocked-fg\)/,
+  );
 });
 
 test("Timelineのtoolbarを中長期の把握へ絞る（#318）", () => {
@@ -87,8 +145,14 @@ test("Timelineのtoolbarを中長期の把握へ絞る（#318）", () => {
   assert.match(timelinePageSource, /\{allThemesCollapsed \? "すべて展開" : "すべて折りたたむ"\}/);
 
   // 週間は廃止せずmenuへ畳む。常設は中長期scaleだけ。
-  assert.match(timelinePageSource, /const LONG_RANGE_ZOOM_PRESETS = ZOOM_PRESETS\.filter\(\(preset\) => preset\.id !== "week"\)/);
-  assert.match(timelinePageSource, /const SHORT_RANGE_ZOOM_PRESETS = ZOOM_PRESETS\.filter\(\(preset\) => preset\.id === "week"\)/);
+  assert.match(
+    timelinePageSource,
+    /const LONG_RANGE_ZOOM_PRESETS = ZOOM_PRESETS\.filter\(\(preset\) => preset\.id !== "week"\)/,
+  );
+  assert.match(
+    timelinePageSource,
+    /const SHORT_RANGE_ZOOM_PRESETS = ZOOM_PRESETS\.filter\(\(preset\) => preset\.id === "week"\)/,
+  );
   assert.match(timelinePageSource, /\{label\}表示にする/);
 
   // 長いタイトルはellipsis + tooltipで読む。
@@ -97,10 +161,16 @@ test("Timelineのtoolbarを中長期の把握へ絞る（#318）", () => {
 });
 
 test("スライド出力は画面のTimelineに合わせ、Activityを既定で混ぜない（#318）", () => {
-  const dialogSource = readFileSync("src/renderer/src/features/workspace/components/SlideTimelineDialog.tsx", "utf8");
+  const dialogSource = readFileSync(
+    "src/renderer/src/features/workspace/components/SlideTimelineDialog.tsx",
+    "utf8",
+  );
 
   assert.match(dialogSource, /const \[showActivity, setShowActivity\] = useState\(false\);/);
-  assert.match(dialogSource, /const \[showCompleted, setShowCompleted\] = useState\(initialShowCompleted\);/);
+  assert.match(
+    dialogSource,
+    /const \[showCompleted, setShowCompleted\] = useState\(initialShowCompleted\);/,
+  );
   // Theme filterと表示期間は画面から引き継ぐ。
   assert.match(timelinePageSource, /initialThemeId=\{themeFilter\}/);
   assert.match(timelinePageSource, /initialStart=\{range\.start\}/);

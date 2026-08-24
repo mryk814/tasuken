@@ -11,6 +11,8 @@ export const ACTIVITY_EVENT_SCHEMA_VERSION = 1;
 export const ACTIVITY_EVENT_KINDS = Object.freeze([
   "task_created",
   "task_updated",
+  "task_checklist_checked",
+  "task_checklist_unchecked",
   "task_completed",
   "task_reopened",
   "task_work_recorded",
@@ -45,10 +47,27 @@ export const ACTIVITY_EVENT_KINDS = Object.freeze([
 ]);
 
 const eventKindSet = new Set(ACTIVITY_EVENT_KINDS);
-const legacyChangeTypes = new Set(["created", "updated", "completed", "rescheduled", "triaged", "deleted"]);
+const legacyChangeTypes = new Set([
+  "created",
+  "updated",
+  "completed",
+  "rescheduled",
+  "triaged",
+  "deleted",
+]);
 const systemFields = new Set([
-  "id", "created_at", "updated_at", "deleted_at", "device_id", "source", "version",
-  "before_json", "after_json", "receipt_json", "change_type", "changed_at",
+  "id",
+  "created_at",
+  "updated_at",
+  "deleted_at",
+  "device_id",
+  "source",
+  "version",
+  "before_json",
+  "after_json",
+  "receipt_json",
+  "change_type",
+  "changed_at",
 ]);
 
 function text(value) {
@@ -58,7 +77,11 @@ function text(value) {
 function jsonValue(value) {
   if (value == null || value === "") return null;
   if (typeof value === "string") {
-    try { return JSON.parse(value); } catch { return value; }
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
   }
   return value;
 }
@@ -87,7 +110,11 @@ function iso(value, fallback = new Date().toISOString()) {
 function stableJson(value) {
   if (value == null) return "null";
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (isObject(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  if (isObject(value))
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(",")}}`;
   return JSON.stringify(value);
 }
 
@@ -149,8 +176,12 @@ export function normalizeCanonicalRef(value, fallback = {}) {
   const kind = text(value.kind) || text(fallback.kind) || "canonical_markdown";
   const storageRootId = text(value.storage_root_id || value.root_id || fallback.storage_root_id);
   const locator = text(value.locator);
-  const relativePath = safeRelativePath(value.relative_path || value.path || (storageRootId ? locator : "") || fallback.relative_path);
-  const webUrl = safeWebUrl(value.web_url || value.url || (!storageRootId ? locator : "") || fallback.web_url);
+  const relativePath = safeRelativePath(
+    value.relative_path || value.path || (storageRootId ? locator : "") || fallback.relative_path,
+  );
+  const webUrl = safeWebUrl(
+    value.web_url || value.url || (!storageRootId ? locator : "") || fallback.web_url,
+  );
   if (!storageRootId && !relativePath && !webUrl) return null;
   const ref = { kind };
   if (storageRootId) ref.storage_root_id = storageRootId;
@@ -172,15 +203,26 @@ function canonicalRefsFromEntity(entity, event = {}) {
     if (properties.canonical_ref) candidates.push(properties.canonical_ref);
     if (Array.isArray(properties.canonical_refs)) candidates.push(...properties.canonical_refs);
   }
-  return [...new Map(candidates.map((value) => normalizeCanonicalRef(value, { entity_id: entity?.id })).filter(Boolean)
-    .map((value) => [JSON.stringify(value), value])).values()];
+  return [
+    ...new Map(
+      candidates
+        .map((value) => normalizeCanonicalRef(value, { entity_id: entity?.id }))
+        .filter(Boolean)
+        .map((value) => [JSON.stringify(value), value]),
+    ).values(),
+  ];
 }
 
 function normalizeTypedRef(value) {
   if (!isObject(value)) return null;
-  const ref = entityRef(value.type || value.entity_type, value.id || value.entity_id, value.revision);
+  const ref = entityRef(
+    value.type || value.entity_type,
+    value.id || value.entity_id,
+    value.revision,
+  );
   if (!ref) return null;
-  if (text(value.relation || value.predicate)) ref.relation = text(value.relation || value.predicate);
+  if (text(value.relation || value.predicate))
+    ref.relation = text(value.relation || value.predicate);
   if (text(value.role)) ref.role = text(value.role);
   return ref;
 }
@@ -190,41 +232,103 @@ function sourceRefsFromEntity(entity, event = {}) {
   if (Array.isArray(event.source_refs)) candidates.push(...event.source_refs);
   if (Array.isArray(entity?.source_refs)) candidates.push(...entity.source_refs);
   if (Array.isArray(entity?.ai_source_refs)) candidates.push(...entity.ai_source_refs);
-  if (entity?.source_record_id) candidates.push({ type: "source_record", id: entity.source_record_id });
-  if (entity?.source_type && entity?.source_id) candidates.push({ type: entity.source_type, id: entity.source_id });
-  return [...new Map(candidates.map((value) => {
-    if (isObject(value) && (value.locator || value.kind === "url" || value.kind === "canonical_document")) {
-      const canonical = normalizeCanonicalRef(value, {});
-      if (canonical) return [JSON.stringify(canonical), canonical];
-    }
-    const ref = normalizeTypedRef(value);
-    return ref ? [JSON.stringify(ref), ref] : ["", null];
-  }).filter(([key, value]) => key && value)).values()];
+  if (entity?.source_record_id)
+    candidates.push({ type: "source_record", id: entity.source_record_id });
+  if (entity?.source_type && entity?.source_id)
+    candidates.push({ type: entity.source_type, id: entity.source_id });
+  return [
+    ...new Map(
+      candidates
+        .map((value) => {
+          if (
+            isObject(value) &&
+            (value.locator || value.kind === "url" || value.kind === "canonical_document")
+          ) {
+            const canonical = normalizeCanonicalRef(value, {});
+            if (canonical) return [JSON.stringify(canonical), canonical];
+          }
+          const ref = normalizeTypedRef(value);
+          return ref ? [JSON.stringify(ref), ref] : ["", null];
+        })
+        .filter(([key, value]) => key && value),
+    ).values(),
+  ];
 }
 
 function relationRefsFromEntity(entity, event = {}) {
   const candidates = Array.isArray(event.relation_refs) ? event.relation_refs : [];
   if (Array.isArray(entity?.relation_refs)) candidates.push(...entity.relation_refs);
-  return [...new Map(candidates.map((value) => normalizeTypedRef(value)).filter(Boolean)
-    .map((value) => [JSON.stringify(value), value])).values()];
+  return [
+    ...new Map(
+      candidates
+        .map((value) => normalizeTypedRef(value))
+        .filter(Boolean)
+        .map((value) => [JSON.stringify(value), value]),
+    ).values(),
+  ];
 }
 
 export function changedFields(beforeValue, afterValue) {
   const before = parseEntity(beforeValue) || {};
   const after = parseEntity(afterValue) || {};
   const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
-  return [...keys].filter((key) => !systemFields.has(key) && stableJson(before[key]) !== stableJson(after[key])).sort();
+  return [...keys]
+    .filter((key) => !systemFields.has(key) && stableJson(before[key]) !== stableJson(after[key]))
+    .sort();
 }
 
-export function activityEventKind({ entityType, changeType, commandName, before, after, eventKind } = {}) {
+function checklistToggleDirection(before, after) {
+  const previousItems = Array.isArray(before?.checklist_items) ? before.checklist_items : null;
+  const nextItems = Array.isArray(after?.checklist_items) ? after.checklist_items : null;
+  if (!previousItems || !nextItems) return null;
+  const previousDoneById = new Map();
+  for (const item of previousItems) {
+    if (!isObject(item) || !text(item.id)) continue;
+    previousDoneById.set(text(item.id), Boolean(item.done));
+  }
+  let checked = 0;
+  let unchecked = 0;
+  for (const item of nextItems) {
+    if (!isObject(item) || !text(item.id) || !previousDoneById.has(text(item.id))) continue;
+    const previousDone = previousDoneById.get(text(item.id));
+    const nextDone = Boolean(item.done);
+    if (previousDone === nextDone) continue;
+    if (nextDone) checked += 1;
+    else unchecked += 1;
+  }
+  if (checked === 1 && unchecked === 0) return "checked";
+  if (unchecked === 1 && checked === 0) return "unchecked";
+  return null;
+}
+
+export function activityEventKind({
+  entityType,
+  changeType,
+  commandName,
+  before,
+  after,
+  eventKind,
+} = {}) {
   if (eventKind && eventKindSet.has(eventKind)) return eventKind;
   const type = entityTypeOf(entityType);
   const command = text(commandName);
   const previous = parseEntity(before);
   const next = parseEntity(after);
   if (type === "task") {
-    if (command === "CompleteTask" || changeType === "completed" || (previous?.state !== "done" && next?.state === "done")) return "task_completed";
-    if (command === "ReopenTask" || (previous?.state === "done" && next?.state && next.state !== "done")) return "task_reopened";
+    if (
+      command === "CompleteTask" ||
+      changeType === "completed" ||
+      (previous?.state !== "done" && next?.state === "done")
+    )
+      return "task_completed";
+    if (
+      command === "ReopenTask" ||
+      (previous?.state === "done" && next?.state && next.state !== "done")
+    )
+      return "task_reopened";
+    const checklistChange = checklistToggleDirection(previous, next);
+    if (checklistChange === "checked") return "task_checklist_checked";
+    if (checklistChange === "unchecked") return "task_checklist_unchecked";
     return previous ? "task_updated" : "task_created";
   }
   if (type === "note") {
@@ -232,9 +336,13 @@ export function activityEventKind({ entityType, changeType, commandName, before,
     const prefix = noteType === "report" ? "report" : noteType === "prompt" ? "prompt" : "note";
     return `${prefix}_${previous ? "updated" : "created"}`;
   }
-  if (type === "resource") return changeType === "created" || !previous ? "resource_added" : "resource_updated";
+  if (type === "resource")
+    return changeType === "created" || !previous ? "resource_added" : "resource_updated";
   if (type === "artifact") return previous ? "artifact_updated" : "artifact_added";
-  if (type === "waiting") return changeType === "completed" || next?.state === "received" ? "waiting_received" : "waiting_updated";
+  if (type === "waiting")
+    return changeType === "completed" || next?.state === "received"
+      ? "waiting_received"
+      : "waiting_updated";
   if (type === "plan_node") return previous ? "plan_node_updated" : "plan_node_created";
   if (type === "knowledge_node") return previous ? "knowledge_updated" : "knowledge_created";
   if (type === "sketch") return previous ? "sketch_updated" : "sketch_created";
@@ -247,7 +355,9 @@ export function activityEventKind({ entityType, changeType, commandName, before,
 }
 
 function defaultSummary(kind, entity, entityRefValue) {
-  const title = text(entity?.title || entity?.name) || `${entityRefValue?.type || "Entity"} ${entityRefValue?.id || ""}`.trim();
+  const title =
+    text(entity?.title || entity?.name) ||
+    `${entityRefValue?.type || "Entity"} ${entityRefValue?.id || ""}`.trim();
   if (kind === "task_work_recorded") return `Task work recorded: ${title}`;
   if (kind === "task_ai_reported") return `AI reported work: ${title}`;
   if (kind === "task_ai_accepted") return `AI work accepted: ${title}`;
@@ -264,7 +374,10 @@ function normalizeOrigin(value, source, metadata) {
       ...(text(value.session_id) ? { session_id: text(value.session_id) } : {}),
     };
   }
-  return { kind: text(value) || text(source) || "manual", ...(text(metadata?.command_id) ? { command_id: text(metadata.command_id) } : {}) };
+  return {
+    kind: text(value) || text(source) || "manual",
+    ...(text(metadata?.command_id) ? { command_id: text(metadata.command_id) } : {}),
+  };
 }
 
 function normalizeActor(value, legacy = {}) {
@@ -278,9 +391,12 @@ function normalizeActor(value, legacy = {}) {
 function normalizeMetadata(value, event, origin) {
   const metadata = isObject(value) ? clone(value) : {};
   metadata.schema_version = ACTIVITY_EVENT_SCHEMA_VERSION;
-  if (text(origin.session_id) && !text(metadata.session_id)) metadata.session_id = text(origin.session_id);
-  if (text(origin.command_id) && !text(metadata.command_id)) metadata.command_id = text(origin.command_id);
-  if (text(event.dedupe_key) && !text(metadata.dedupe_key)) metadata.dedupe_key = text(event.dedupe_key);
+  if (text(origin.session_id) && !text(metadata.session_id))
+    metadata.session_id = text(origin.session_id);
+  if (text(origin.command_id) && !text(metadata.command_id))
+    metadata.command_id = text(origin.command_id);
+  if (text(event.dedupe_key) && !text(metadata.dedupe_key))
+    metadata.dedupe_key = text(event.dedupe_key);
   return metadata;
 }
 
@@ -301,12 +417,13 @@ export function buildActivityEvent(input = {}) {
     eventKind: input.event_kind || input.eventKind,
   });
   const completedAt = input.completed_at || input.completedAt || after.completed_at;
-  const occurredAt = (kind === "task_completed" && completedAt)
-    || input.occurred_at
-    || input.occurredAt
-    || input.changed_at
-    || input.changedAt
-    || after.updated_at;
+  const occurredAt =
+    (kind === "task_completed" && completedAt) ||
+    input.occurred_at ||
+    input.occurredAt ||
+    input.changed_at ||
+    input.changedAt ||
+    after.updated_at;
   const source = text(input.source || input.origin?.kind) || "manual";
   const metadata = normalizeMetadata(input.metadata, input, input.origin || {});
   if (!text(metadata.dedupe_key)) {
@@ -330,16 +447,40 @@ export function buildActivityEvent(input = {}) {
     canonical_refs: canonicalRefsFromEntity(after, input),
     source_refs: sourceRefsFromEntity(after, input),
     relation_refs: relationRefsFromEntity(after, input),
-    work_receipt_ref: normalizeTypedRef(input.work_receipt_ref || after.work_receipt_ref || (after.work_receipt_id ? { type: "work_receipt", id: after.work_receipt_id } : null)),
+    work_receipt_ref: normalizeTypedRef(
+      input.work_receipt_ref ||
+        after.work_receipt_ref ||
+        (after.work_receipt_id ? { type: "work_receipt", id: after.work_receipt_id } : null),
+    ),
     metadata,
     // Compatibility projection for v1 readers and snapshots.
     entity_type: type,
     entity_id: id,
     changed_at: iso(input.changed_at || input.changedAt || occurredAt),
-    change_type: text(input.change_type) || (kind.endsWith("_created") || kind.endsWith("_added") ? "created" : kind === "task_completed" ? "completed" : kind === "schedule_updated" ? "rescheduled" : "updated"),
+    change_type:
+      text(input.change_type) ||
+      (kind.endsWith("_created") || kind.endsWith("_added")
+        ? "created"
+        : kind === "task_completed"
+          ? "completed"
+          : kind === "schedule_updated"
+            ? "rescheduled"
+            : "updated"),
     reason: input.reason ?? null,
-    before_json: input.before_json !== undefined ? input.before_json : (input.before !== undefined ? input.before : (before || null)),
-    after_json: input.after_json !== undefined ? input.after_json : (input.after !== undefined ? input.after : (Object.keys(after).length ? after : null)),
+    before_json:
+      input.before_json !== undefined
+        ? input.before_json
+        : input.before !== undefined
+          ? input.before
+          : before || null,
+    after_json:
+      input.after_json !== undefined
+        ? input.after_json
+        : input.after !== undefined
+          ? input.after
+          : Object.keys(after).length
+            ? after
+            : null,
     source,
   };
   if (text(input.command_id)) event.command_id = text(input.command_id);
@@ -355,7 +496,11 @@ export function buildActivityEvent(input = {}) {
 /** Idempotent legacy migration. Existing fields are not deleted or rewritten. */
 export function migrateChangeEvent(event, { entity = null } = {}) {
   if (!isObject(event)) throw new Error("Change Eventが不正です。");
-  if (Number(event.metadata?.schema_version) >= ACTIVITY_EVENT_SCHEMA_VERSION && event.event_kind && event.entity_ref) {
+  if (
+    Number(event.metadata?.schema_version) >= ACTIVITY_EVENT_SCHEMA_VERSION &&
+    event.event_kind &&
+    event.entity_ref
+  ) {
     return clone(event);
   }
   const migrated = buildActivityEvent({
@@ -381,7 +526,14 @@ export function normalizeActivityEvent(event, context = {}) {
 }
 
 export function isStructuredActivityEvent(value) {
-  return Boolean(isObject(value) && value.entity_ref?.type && value.entity_ref?.id && eventKindSet.has(value.event_kind) && value.occurred_at && value.metadata?.schema_version);
+  return Boolean(
+    isObject(value) &&
+    value.entity_ref?.type &&
+    value.entity_ref?.id &&
+    eventKindSet.has(value.event_kind) &&
+    value.occurred_at &&
+    value.metadata?.schema_version,
+  );
 }
 
 export function activityEventDedupeKey(event) {
@@ -396,9 +548,16 @@ export function resolveCanonicalRef(ref, roots = {}) {
   const normalized = normalizeCanonicalRef(ref);
   if (!normalized) return { status: "broken", ref: null, path: null };
   if (!normalized.storage_root_id || !normalized.relative_path) {
-    return { status: normalized.web_url ? "ok" : "broken", ref: normalized, path: normalized.web_url || null };
+    return {
+      status: normalized.web_url ? "ok" : "broken",
+      ref: normalized,
+      path: normalized.web_url || null,
+    };
   }
-  const root = roots instanceof Map ? roots.get(normalized.storage_root_id) : roots[normalized.storage_root_id];
+  const root =
+    roots instanceof Map
+      ? roots.get(normalized.storage_root_id)
+      : roots[normalized.storage_root_id];
   if (!root) {
     return normalized.web_url
       ? { status: "ok", local_status: "broken", ref: normalized, path: normalized.web_url }
@@ -422,5 +581,9 @@ export function resolveCanonicalRef(ref, roots = {}) {
       ? { status: "ok", local_status: "broken", ref: normalized, path: normalized.web_url }
       : { status: "broken", ref: normalized, path: null };
   }
-  return { status: "ok", ref: normalized, path: `${String(rootPath).replace(/[\\/]$/, "")}/${normalized.relative_path}` };
+  return {
+    status: "ok",
+    ref: normalized,
+    path: `${String(rootPath).replace(/[\\/]$/, "")}/${normalized.relative_path}`,
+  };
 }

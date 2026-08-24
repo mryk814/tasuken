@@ -5,7 +5,13 @@ import { itemLevel } from "./domain";
 import { addDays, daysBetween, localDateIso } from "./format";
 
 export type TimelineRow =
-  | { rowType: "theme"; groupKey: string; theme: Theme | null; initiativeCount: number; planCount: number }
+  | {
+      rowType: "theme";
+      groupKey: string;
+      theme: Theme | null;
+      initiativeCount: number;
+      planCount: number;
+    }
   | { rowType: "milestones"; groupKey: string; theme: Theme | null; milestones: Item[] }
   | { rowType: "item"; item: Item; depth: number; laneItems: Item[] };
 
@@ -42,7 +48,10 @@ export function ganttRange(scale: string, today: string): GanttRange {
   }
   if (scale === "quarter") return monthRange(year, Math.floor((month - 1) / 3) * 3 + 1, 3);
   const span = scale === "week" ? 14 : 31;
-  return { start: addDays(today, -Math.round(span * 0.25)), end: addDays(today, Math.round(span * 0.75)) };
+  return {
+    start: addDays(today, -Math.round(span * 0.25)),
+    end: addDays(today, Math.round(span * 0.75)),
+  };
 }
 
 interface BuildRowsArgs {
@@ -82,13 +91,7 @@ export function scaleFromDayWidth(dayWidth: number): string {
  * class / label / icon へ同じ値を配る。色だけで伝えない。
  */
 export type TimelineItemState =
-  | "completed"
-  | "cancelled"
-  | "overdue"
-  | "ongoing"
-  | "execution_window"
-  | "active"
-  | "planned";
+  "completed" | "cancelled" | "overdue" | "ongoing" | "execution_window" | "active" | "planned";
 
 interface TimelineStateInput {
   status?: string;
@@ -108,10 +111,12 @@ export function timelineItemScheduleKind(item: TimelineStateInput): ScheduleKind
     owner_id: "timeline-item",
     start_date: start,
     end_date: end,
-    date_kind: start && end && end > start ? "range" : end ? "deadline" : start ? "point" : "unknown",
-    range_semantics: item.range_semantics === "ongoing" || item.range_semantics === "once_within_window"
-      ? item.range_semantics as ScheduleRangeSemantics
-      : null,
+    date_kind:
+      start && end && end > start ? "range" : end ? "deadline" : start ? "point" : "unknown",
+    range_semantics:
+      item.range_semantics === "ongoing" || item.range_semantics === "once_within_window"
+        ? (item.range_semantics as ScheduleRangeSemantics)
+        : null,
     confidence: "fixed",
     granularity: "day",
   };
@@ -175,7 +180,12 @@ function isVisibleAtScale(item: Item, scale?: string): boolean {
 
 // テーマ別レーンで行を組み立てる。親を持たない計画Itemは左表の「実施事項」、
 // その子Itemは同じタイムライン行に並ぶ「計画」として扱う。
-export function buildTimelineRows({ items, themes, collapsedThemes, scale }: BuildRowsArgs): TimelineRow[] {
+export function buildTimelineRows({
+  items,
+  themes,
+  collapsedThemes,
+  scale,
+}: BuildRowsArgs): TimelineRow[] {
   const themeIds = new Set(themes.map((theme) => theme.id));
   const byTheme = new Map<string | null, Item[]>();
   for (const item of items) {
@@ -186,16 +196,25 @@ export function buildTimelineRows({ items, themes, collapsedThemes, scale }: Bui
   const order: (string | null)[] = [...themes.map((theme) => theme.id), null];
   for (const themeId of order) {
     const pool = byTheme.get(themeId) || [];
-    if (!pool.length) continue;
+    if (!pool.length && themeId === null) continue;
     const groupKey = themeId || "__none";
     const milestones = pool
-      .filter((item) => item.kind === "milestone" && String(item.display_lane || "theme_lane") !== "item_endpoint" && isVisibleAtScale(item, scale))
-      .sort((a, b) => dateOf(a).localeCompare(dateOf(b)) || (a.sort_order || 0) - (b.sort_order || 0));
+      .filter(
+        (item) =>
+          item.kind === "milestone" &&
+          String(item.display_lane || "theme_lane") !== "item_endpoint" &&
+          isVisibleAtScale(item, scale),
+      )
+      .sort(
+        (a, b) => dateOf(a).localeCompare(dateOf(b)) || (a.sort_order || 0) - (b.sort_order || 0),
+      );
     const allPlans = pool
       .filter((item) => item.kind !== "milestone" && itemLevel(item) === "plan")
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     const planIds = new Set(allPlans.map((item) => item.id));
-    const initiatives = allPlans.filter((item) => !item.parent_item_id || !planIds.has(item.parent_item_id));
+    const initiatives = allPlans.filter(
+      (item) => !item.parent_item_id || !planIds.has(item.parent_item_id),
+    );
     const planCount = allPlans.length - initiatives.length;
     rows.push({
       rowType: "theme",
@@ -205,14 +224,12 @@ export function buildTimelineRows({ items, themes, collapsedThemes, scale }: Bui
       planCount,
     });
     if (collapsedThemes.includes(groupKey)) continue;
-    if (milestones.length) {
-      rows.push({
-        rowType: "milestones",
-        groupKey,
-        theme: themes.find((theme) => theme.id === themeId) || null,
-        milestones,
-      });
-    }
+    rows.push({
+      rowType: "milestones",
+      groupKey,
+      theme: themes.find((theme) => theme.id === themeId) || null,
+      milestones,
+    });
     const childPlans = allPlans
       .filter((item) => item.parent_item_id && planIds.has(item.parent_item_id))
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));

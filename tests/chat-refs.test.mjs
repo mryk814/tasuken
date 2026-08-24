@@ -533,8 +533,8 @@ test("ChatRefsは会話閲覧へ集中し、まとめコピーをmenuへ畳む�
   // 常設buttonからは外す。機能はmenuへ退避し、主toolbarへは戻さない。
   assert.equal(/<IconCopy size=\{16\} \/>URLをコピー/.test(header), false);
   assert.equal(/<IconCopy size=\{16\} \/>一覧をコピー/.test(header), false);
-  assert.match(header, /id: "copy-urls", label: "表示中のURLをまとめてコピー"/);
-  assert.match(header, /id: "copy-list", label: "表示中の一覧をコピー"/);
+  assert.match(header, /id: "copy-urls",\s*label: "表示中のURLをまとめてコピー"/);
+  assert.match(header, /id: "copy-list",\s*label: "表示中の一覧をコピー"/);
 
   // 主操作は会話へ戻る・取り込む・追加。
   assert.match(header, /会話ログを取り込む/);

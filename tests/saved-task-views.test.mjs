@@ -14,7 +14,9 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 }
 
 const savedViews = await importBundled("src/renderer/src/features/workspace/lib/savedTaskViews.ts");
@@ -43,30 +45,87 @@ test("saved task view filters combine tab, theme, state, priority, and schedule"
     schedule: "this-week",
   };
   const rows = [
-    row("match", { project_id: "theme-a", state: "doing", priority: "high" }, { end_date: "2026-07-08" }),
-    row("other-theme", { project_id: "theme-b", state: "doing", priority: "high" }, { end_date: "2026-07-08" }),
-    row("done", { project_id: "theme-a", state: "done", priority: "high" }, { end_date: "2026-07-08" }),
-    row("late", { project_id: "theme-a", state: "doing", priority: "high" }, { end_date: "2026-07-20" }),
+    row(
+      "match",
+      { project_id: "theme-a", state: "doing", priority: "high" },
+      { end_date: "2026-07-08" },
+    ),
+    row(
+      "other-theme",
+      { project_id: "theme-b", state: "doing", priority: "high" },
+      { end_date: "2026-07-08" },
+    ),
+    row(
+      "done",
+      { project_id: "theme-a", state: "done", priority: "high" },
+      { end_date: "2026-07-08" },
+    ),
+    row(
+      "late",
+      { project_id: "theme-a", state: "doing", priority: "high" },
+      { end_date: "2026-07-20" },
+    ),
   ];
 
-  assert.deepEqual(savedViews.filterTodoRows(rows, filters, "2026-07-05").map((entry) => entry.task.id), ["match"]);
+  assert.deepEqual(
+    savedViews.filterTodoRows(rows, filters, "2026-07-05").map((entry) => entry.task.id),
+    ["match"],
+  );
 });
 
 test("saved task view filters distinguish range semantics without inspecting dates in the view", () => {
   const filters = { tab: "open", rangeSemantics: "ongoing_period" };
   const rows = [
-    row("execution", {}, { start_date: "2026-07-01", end_date: "2026-07-08", date_kind: "range", range_semantics: "once_within_window" }),
-    row("ongoing", {}, { start_date: "2026-07-01", end_date: "2026-07-08", date_kind: "range", range_semantics: "ongoing" }),
-    row("unspecified", {}, { start_date: "2026-07-01", end_date: "2026-07-08", date_kind: "range" }),
+    row(
+      "execution",
+      {},
+      {
+        start_date: "2026-07-01",
+        end_date: "2026-07-08",
+        date_kind: "range",
+        range_semantics: "once_within_window",
+      },
+    ),
+    row(
+      "ongoing",
+      {},
+      {
+        start_date: "2026-07-01",
+        end_date: "2026-07-08",
+        date_kind: "range",
+        range_semantics: "ongoing",
+      },
+    ),
+    row(
+      "unspecified",
+      {},
+      { start_date: "2026-07-01", end_date: "2026-07-08", date_kind: "range" },
+    ),
   ];
 
-  assert.deepEqual(savedViews.filterTodoRows(rows, filters, "2026-07-05").map((entry) => entry.task.id), ["ongoing"]);
+  assert.deepEqual(
+    savedViews.filterTodoRows(rows, filters, "2026-07-05").map((entry) => entry.task.id),
+    ["ongoing"],
+  );
 });
 
 test("saved task Theme filter keeps all sentinel separate from explicit Themeなし", () => {
-  const rows = [row("none", { project_id: null }), row("personal", { project_id: "theme-personal-default" })];
-  assert.deepEqual(savedViews.filterTodoRows(rows, { tab: "open", themeId: "all" }, "2026-07-05").map((entry) => entry.task.id), ["none", "personal"]);
-  assert.deepEqual(savedViews.filterTodoRows(rows, { tab: "open", themeId: "" }, "2026-07-05").map((entry) => entry.task.id), ["none"]);
+  const rows = [
+    row("none", { project_id: null }),
+    row("personal", { project_id: "theme-personal-default" }),
+  ];
+  assert.deepEqual(
+    savedViews
+      .filterTodoRows(rows, { tab: "open", themeId: "all" }, "2026-07-05")
+      .map((entry) => entry.task.id),
+    ["none", "personal"],
+  );
+  assert.deepEqual(
+    savedViews
+      .filterTodoRows(rows, { tab: "open", themeId: "" }, "2026-07-05")
+      .map((entry) => entry.task.id),
+    ["none"],
+  );
 });
 
 test("saved task views ignore malformed filters and tolerate deleted themes", () => {
@@ -100,6 +159,9 @@ test("ToDo page keeps table controls lightweight and removes saved view manageme
   assert.match(source, /期間未分類/);
   assert.match(source, /並び替え/);
   assert.match(source, /グループ/);
-  assert.match(styles, /\.todo-table \.table-head, \.todo-table \.table-row \{[^}]*min-width: 0;/);
+  assert.match(
+    styles,
+    /\.todo-table \.table-head,\s*\.todo-table \.table-row \{[^}]*min-width: 0;/,
+  );
   assert.match(styles, /\.todo-row-group \{[^}]*min-width: 0;/);
 });

@@ -15,7 +15,9 @@ async function mcpBridgeContract() {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 }
 
 const settings = readFileSync("src/renderer/src/features/workspace/pages/SettingsPage.tsx", "utf8");
@@ -47,12 +49,15 @@ test("Settings exposes automatic generational backups and keeps manual recovery 
   assert.match(settings, /automaticSnapshotStatus/);
   assert.match(settings, /configureAutomaticSnapshot/);
   assert.match(settings, /runAutomaticSnapshot/);
-  assert.match(settings, /min="1" max="20"/);
+  assert.match(settings, /min="1"\s*max="20"/);
   assert.match(settings, /今すぐ作成/);
   assert.match(settings, /手動の移行・復元/);
   assert.match(settings, /バックアップを書き出す/);
   assert.match(settings, /バックアップを読み込む/);
-  assert.match(styles, /@container page \(max-width: 960px\)[\s\S]*?\.settings-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(
+    styles,
+    /@container page \(max-width: 960px\)[\s\S]*?\.settings-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/,
+  );
 });
 
 test("Settings deep links normalize to Settings and preserve category history", () => {
@@ -72,8 +77,14 @@ test("Settings keeps integrations together and hides details until requested", (
   assert.match(settings, /Danger Zone/);
   assert.match(settings, /APIキーを削除/);
   assert.match(settings, /接続を解除/);
-  assert.match(settings, /<Button variant="secondary" disabled=\{!mcpInfo\} onClick=\{copyMcpConfig\}>接続設定をコピー<\/Button>/);
-  assert.match(settings, /<Button variant="primary" disabled=\{aiBusy \|\| !aiModel\.trim\(\)\} onClick=\{\(\) => saveAiSettings\(false\)\}>/);
+  assert.match(
+    settings,
+    /<Button variant="secondary" disabled=\{!mcpInfo\} onClick=\{copyMcpConfig\}>\s*接続設定をコピー\s*<\/Button>/,
+  );
+  assert.match(
+    settings,
+    /<Button\s*variant="primary"\s*disabled=\{aiBusy \|\| !aiModel\.trim\(\)\}\s*onClick=\{\(\) => saveAiSettings\(false\)\}\s*>/,
+  );
 });
 
 test("Settings does not render stored secrets and remains compact at narrow widths", () => {
@@ -81,8 +92,8 @@ test("Settings does not render stored secrets and remains compact at narrow widt
   assert.match(settings, /保存時だけ入力。再表示しません/);
   assert.doesNotMatch(settings, /aiConfig\.apiKey/);
   assert.match(styles, /\.settings-layout \{[\s\S]*grid-template-columns/);
-  assert.match(styles, /\.settings-category-nav \{ position: static; display: flex/);
-  assert.match(styles, /\.settings-summary-list \{ grid-template-columns: 1fr; \}/);
+  assert.match(styles, /\.settings-category-nav \{\s*position: static;\s*display: flex/);
+  assert.match(styles, /\.settings-summary-list \{\s*grid-template-columns: 1fr;/);
 });
 
 test("Settings copies the exact typed MCP client config generated for the runtime", async () => {
@@ -103,9 +114,15 @@ test("Settings copies the exact typed MCP client config generated for the runtim
   assert.equal(info.transport, "stdio-core");
   assert.equal(info.pendingProposalCount, 2);
   let copied = "";
-  await copyMcpBridgeConfig(async (text) => { copied = text; return true; }, info);
+  await copyMcpBridgeConfig(async (text) => {
+    copied = text;
+    return true;
+  }, info);
   assert.equal(copied, info.configJson);
-  assert.match(settings, /copyMcpBridgeConfig\(\(text\) => workspaceApi\.copyText\(text\), mcpInfo\)/);
+  assert.match(
+    settings,
+    /copyMcpBridgeConfig\(\(text\) => workspaceApi\.copyText\(text\), mcpInfo\)/,
+  );
   assert.match(settings, /label: "設定をコピーできます", tone: "neutral"/);
   assert.doesNotMatch(settings, /const mcpSummary[\s\S]{0,300}label: "正常"/);
 });

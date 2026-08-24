@@ -406,6 +406,17 @@ export function createMemoStickyController(
       return window ? flushAndClose(window) : false;
     });
 
+    // 閉じるのとは別に、付箋対象を保ったまま一時的に視界から退避する。
+    // 最小化前にもflushするので、autosave待ちの本文を失わない。
+    ipcMain.handle(IPC.memoStickyMinimize, async (event) => {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window || !options.satelliteWindows.has(window)) return false;
+      if (!(await flushWindow(window))) return false;
+      window.minimize();
+      options.notifyStickyStateChanged();
+      return window.isMinimized();
+    });
+
     ipcMain.handle(IPC.memoStickySetTarget, (event, value: unknown) => setTarget(event, value));
     ipcMain.handle(IPC.memoStickySetColor, (event, value: unknown) => setColor(event, value));
     ipcMain.handle(IPC.memoStickySetTheme, (_event, value: unknown) => setTheme(value));

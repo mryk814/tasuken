@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const themePage = readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8");
-const artifacts = readFileSync("src/renderer/src/features/workspace/components/artifacts.tsx", "utf8");
+const artifacts = readFileSync(
+  "src/renderer/src/features/workspace/components/artifacts.tsx",
+  "utf8",
+);
 const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
 /** 画面に出る順で見出しを拾う。順序そのものが#321の契約。 */
@@ -15,8 +18,15 @@ test("Theme詳細はReport→Task→Note→Artifactの順で状況を出す（#3
   const headings = sectionHeadings(themePage);
   const order = ["報告書・重要文書", "未完了", "完了・やったこと", "最近のNote"];
   const indexes = order.map((heading) => headings.indexOf(heading));
-  assert.ok(indexes.every((index) => index >= 0), `見出しが揃っている: ${headings.join(",")}`);
-  assert.deepEqual([...indexes].sort((a, b) => a - b), indexes, "上から Report → Task → Note の順にする");
+  assert.ok(
+    indexes.every((index) => index >= 0),
+    `見出しが揃っている: ${headings.join(",")}`,
+  );
+  assert.deepEqual(
+    [...indexes].sort((a, b) => a - b),
+    indexes,
+    "上から Report → Task → Note の順にする",
+  );
 
   // 現在地・マイルストーン・セクションは補助として後ろへ回す。
   assert.ok(headings.indexOf("現在地") > headings.indexOf("最近のNote"));
@@ -32,11 +42,20 @@ test("Taskは未完了と完了を横並びにし、完了時刻を出す（#321
   // 完了はcheckbox一回で、drawerも開ける。
   assert.match(themePage, /className="theme-task-check"/);
   assert.match(themePage, /onClick=\{\(\) => void completeTask\(task\)\}/);
-  assert.match(themePage, /buildCompleteTaskOperations\(task, schedulesMap\.get\(`task:\$\{task\.id\}`\)\)/);
-  assert.match(themePage, /<time dateTime=\{str\(task\.completed_at \|\| task\.updated_at \|\| task\.created_at\)\}>/);
+  assert.match(
+    themePage,
+    /buildCompleteTaskOperations\(task, schedulesMap\.get\(`task:\$\{task\.id\}`\)\)/,
+  );
+  assert.match(
+    themePage,
+    /<time dateTime=\{str\(task\.completed_at \|\| task\.updated_at \|\| task\.created_at\)\}>/,
+  );
   assert.match(themePage, /function completedLabel\(task: Task\)/);
   // 完了は見えるが未完了より主張を弱める。
-  assert.match(styles, /\.theme-task-list\.is-done \.theme-task-main > strong \{ color: var\(--color-text-secondary\)/);
+  assert.match(
+    styles,
+    /\.theme-task-list\.is-done \.theme-task-main > strong \{\s*color: var\(--color-text-secondary\)/,
+  );
 });
 
 test("最近のNoteは本文の書き出しまで見せる（#321）", () => {

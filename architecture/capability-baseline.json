@@ -87,6 +87,7 @@
         "copy",
         "isAlwaysOnTop",
         "load",
+        "minimize",
         "onAppFlushRequested",
         "onThemeChanged",
         "onWorkspaceChanged",

@@ -215,6 +215,7 @@ export const IPC = {
   memoStickySave: "memo-sticky:save",
   memoStickyCopy: "memo-sticky:copy",
   memoStickyClose: "memo-sticky:close",
+  memoStickyMinimize: "memo-sticky:minimize",
   memoStickySetTarget: "memo-sticky:set-target",
   memoStickySetColor: "memo-sticky:set-color",
   memoStickySetTheme: "memo-sticky:set-theme",

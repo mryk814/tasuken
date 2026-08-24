@@ -28,23 +28,20 @@ test("performance telemetry contains only fixed kinds, duration, and coarse heap
 });
 
 test("main performance diagnostics are opt-in and content-free", () => {
-  const diagnostics = source("src/main/performanceDiagnostics.ts");
-  const mainLog = source("src/main/log.ts");
-  const measurement =
-    mainLog.match(/export function measureMainPerformance[\s\S]*?\n}\n/)?.[0] || "";
+  const diagnostics = source("src/main/services/performanceDiagnostics.ts");
   assert.match(diagnostics, /TASKEN_PERF_DIAGNOSTICS/);
   assert.match(diagnostics, /event_loop_lag/);
-  assert.match(mainLog, /workspace_load/);
-  assert.match(mainLog, /result_size_kb/);
+  assert.match(diagnostics, /workspace_load/);
+  assert.match(diagnostics, /result_size_kb/);
   assert.match(diagnostics, /clearInterval/);
-  assert.doesNotMatch(`${diagnostics}\n${measurement}`, /title|body|url|path|query|content/i);
+  assert.doesNotMatch(diagnostics, /title|body|url|path|query|content/i);
 });
 
 test("workspace reload is measured only through the opt-in main diagnostic helper", () => {
   const service = source("src/main/services/workspaceService.ts");
   assert.match(service, /measureMainPerformance\("workspace_load"/);
   assert.match(service, /repository\.loadWorkspace\(includeDeleted\)/);
-  assert.match(source("src/main/log.ts"), /TASKEN_PERF_DIAGNOSTICS/);
+  assert.match(source("src/main/services/performanceDiagnostics.ts"), /TASKEN_PERF_DIAGNOSTICS/);
 });
 
 test("both process bootstraps install diagnostics without enabling them", () => {

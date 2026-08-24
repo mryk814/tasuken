@@ -59,12 +59,6 @@ import {
 } from "../lib/markdown";
 import { renderMermaidDocumentForPdf } from "../lib/mermaid";
 import {
-  PROMPT_PURPOSE_LABELS,
-  promptPurpose,
-  promptVariables,
-  isDefaultPrompt,
-} from "../lib/prompts";
-import {
   CHAT_SERVICE_LABELS,
   CHAT_SERVICE_TYPES,
   isKnownChatService,
@@ -1680,46 +1674,6 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
           </Field>
           <Field label="対象終了">
             <input name="period_end" type="date" defaultValue={str(properties.period_end)} />
-          </Field>
-        </div>
-      )}
-      {isPrompt && (
-        <div className="form-grid">
-          <Field label="用途">
-            <select
-              name="prompt_purpose"
-              defaultValue={promptPurpose({
-                note_type: str(entity.note_type) || noteType,
-                properties_json: properties,
-              })}
-            >
-              {Object.entries(PROMPT_PURPOSE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="変数">
-            <input
-              name="prompt_variables"
-              defaultValue={
-                promptVariables({ properties_json: properties }) ||
-                "themeName, periodStart, periodEnd"
-              }
-            />
-          </Field>
-          <Field label="既定">
-            <input type="hidden" name="prompt_is_default" value="false" />
-            <label className="toggle">
-              <input
-                type="checkbox"
-                name="prompt_is_default"
-                value="true"
-                defaultChecked={isDefaultPrompt({ properties_json: properties })}
-              />
-              この用途の既定にする
-            </label>
           </Field>
         </div>
       )}

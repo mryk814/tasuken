@@ -7,16 +7,16 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import {
-  buildActivityEvent,
-  migrateChangeEvent,
-} from "../src/shared/activityEvent.mjs";
+import { buildActivityEvent, migrateChangeEvent } from "../src/shared/activityEvent.mjs";
 import {
   projectActivityJson,
   projectActivityMarkdown,
   queryActivityEvents,
 } from "../src/shared/activityProjection.mjs";
-import { buildActivityRootRegistry, publicActivityRootStatus } from "../src/shared/activityRootRegistry.mjs";
+import {
+  buildActivityRootRegistry,
+  publicActivityRootStatus,
+} from "../src/shared/activityRootRegistry.mjs";
 import { resolveActivityCanonicalLocalPath } from "../src/main/services/activityCanonicalResolver.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
@@ -29,7 +29,9 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import("data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64"));
+  return import(
+    "data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64")
+  );
 }
 
 test("structured Activity contract uses completed_at for Task completion and distinguishes reopen", () => {
@@ -62,44 +64,90 @@ test("structured Activity contract uses completed_at for Task completion and dis
   assert.equal(reopened.event_kind, "task_reopened");
 });
 
+test("Task checklist toggles are distinct Activity events", () => {
+  const before = {
+    id: "task-1",
+    title: "確認",
+    checklist_items: [{ id: "check-1", title: "下書き確認", done: false, sort_order: 0 }],
+  };
+  const checked = buildActivityEvent({
+    entityType: "task",
+    entityId: "task-1",
+    before,
+    after: {
+      ...before,
+      checklist_items: [
+        { ...before.checklist_items[0], done: true, completed_at: "2026-08-24T00:00:00.000Z" },
+      ],
+    },
+  });
+  assert.equal(checked.event_kind, "task_checklist_checked");
+
+  const unchecked = buildActivityEvent({
+    entityType: "task",
+    entityId: "task-1",
+    before: checked.after_json,
+    after: before,
+  });
+  assert.equal(unchecked.event_kind, "task_checklist_unchecked");
+});
+
 test("Note, Resource, and Artifact event kinds are fixed and typed", () => {
-  assert.equal(buildActivityEvent({
-    entityType: "note",
-    entityId: "note-1",
-    changeType: "created",
-    after: { id: "note-1", title: "メモ" },
-  }).event_kind, "note_created");
-  assert.equal(buildActivityEvent({
-    entityType: "note",
-    entityId: "note-1",
-    changeType: "updated",
-    before: { id: "note-1", title: "メモ" },
-    after: { id: "note-1", title: "メモ2" },
-  }).event_kind, "note_updated");
-  assert.equal(buildActivityEvent({
-    entityType: "resource",
-    entityId: "resource-1",
-    changeType: "created",
-    after: { id: "resource-1", title: "会話ログ" },
-  }).event_kind, "resource_added");
-  assert.equal(buildActivityEvent({
-    entityType: "resource",
-    entityId: "resource-1",
-    changeType: "updated",
-    before: { id: "resource-1", title: "会話ログ" },
-    after: { id: "resource-1", title: "会話ログ2" },
-  }).event_kind, "resource_updated");
-  assert.equal(buildActivityEvent({
-    entityType: "artifact",
-    entityId: "artifact-1",
-    after: { id: "artifact-1", title: "出力" },
-  }).event_kind, "artifact_added");
-  assert.equal(buildActivityEvent({
-    entityType: "artifact",
-    entityId: "artifact-1",
-    before: { id: "artifact-1", title: "出力" },
-    after: { id: "artifact-1", title: "出力2" },
-  }).event_kind, "artifact_updated");
+  assert.equal(
+    buildActivityEvent({
+      entityType: "note",
+      entityId: "note-1",
+      changeType: "created",
+      after: { id: "note-1", title: "メモ" },
+    }).event_kind,
+    "note_created",
+  );
+  assert.equal(
+    buildActivityEvent({
+      entityType: "note",
+      entityId: "note-1",
+      changeType: "updated",
+      before: { id: "note-1", title: "メモ" },
+      after: { id: "note-1", title: "メモ2" },
+    }).event_kind,
+    "note_updated",
+  );
+  assert.equal(
+    buildActivityEvent({
+      entityType: "resource",
+      entityId: "resource-1",
+      changeType: "created",
+      after: { id: "resource-1", title: "会話ログ" },
+    }).event_kind,
+    "resource_added",
+  );
+  assert.equal(
+    buildActivityEvent({
+      entityType: "resource",
+      entityId: "resource-1",
+      changeType: "updated",
+      before: { id: "resource-1", title: "会話ログ" },
+      after: { id: "resource-1", title: "会話ログ2" },
+    }).event_kind,
+    "resource_updated",
+  );
+  assert.equal(
+    buildActivityEvent({
+      entityType: "artifact",
+      entityId: "artifact-1",
+      after: { id: "artifact-1", title: "出力" },
+    }).event_kind,
+    "artifact_added",
+  );
+  assert.equal(
+    buildActivityEvent({
+      entityType: "artifact",
+      entityId: "artifact-1",
+      before: { id: "artifact-1", title: "出力" },
+      after: { id: "artifact-1", title: "出力2" },
+    }).event_kind,
+    "artifact_updated",
+  );
 });
 
 test("default Activity excludes Task create/title-only edit but keeps meaningful events", () => {
@@ -145,11 +193,16 @@ test("default Activity excludes Task create/title-only edit but keeps meaningful
     },
     date: "2026-08-08",
   });
-  assert.deepEqual(result.events.map((event) => event.id), ["task-complete", "note-edit"]);
+  assert.deepEqual(
+    result.events.map((event) => event.id),
+    ["task-complete", "note-edit"],
+  );
 });
 
 test("renderer autosave dedupe has a five-second session boundary", async () => {
-  const persistence = await importBundled("src/renderer/src/features/workspace/domain-model/persistence.ts");
+  const persistence = await importBundled(
+    "src/renderer/src/features/workspace/domain-model/persistence.ts",
+  );
   const first = persistence.buildChangeEventOperation(
     "note",
     "note-session-test",
@@ -205,8 +258,12 @@ test("canonical refs are root-relative, private absolute paths stay out, and pol
       id: "note-local",
       title: "local",
       ai_visibility: [],
-      canonical_refs: [{ kind: "canonical_document", storage_root_id: "root-a", relative_path: "Notes/local.md" }],
-      ai_source_refs: [{ kind: "canonical_document", storage_root_id: "root-a", locator: "Notes/local.md" }],
+      canonical_refs: [
+        { kind: "canonical_document", storage_root_id: "root-a", relative_path: "Notes/local.md" },
+      ],
+      ai_source_refs: [
+        { kind: "canonical_document", storage_root_id: "root-a", locator: "Notes/local.md" },
+      ],
       source_refs: [{ type: "file", absolute_path: "C:\\Users\\private\\secret.md" }],
     },
   });
@@ -233,7 +290,10 @@ test("canonical refs are root-relative, private absolute paths stay out, and pol
     relative_path: "Notes/local.md",
     status: "ok",
   });
-  assert.equal(coding.events[0].source_refs.some((ref) => ref.absolute_path), false);
+  assert.equal(
+    coding.events[0].source_refs.some((ref) => ref.absolute_path),
+    false,
+  );
   assert.equal(JSON.stringify(coding).includes("C:\\\\Users\\\\private"), false);
 });
 
@@ -245,11 +305,19 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
     event_kind: "task_work_recorded",
     occurred_at: "2026-08-21T00:00:00.000Z",
     after: { id: "task-safe", title: "Safe Task", ai_visibility: ["coding_agent"] },
-    summary: "See https://user:pass@example.com/report?q=secret#fragment and C:\\private\\report.txt token=secret",
+    summary:
+      "See https://user:pass@example.com/report?q=secret#fragment and C:\\private\\report.txt token=secret",
     canonical_refs: [
-      { kind: "canonical_document", web_url: "https://user:pass@example.com/report?q=secret#fragment" },
+      {
+        kind: "canonical_document",
+        web_url: "https://user:pass@example.com/report?q=secret#fragment",
+      },
       { kind: "canonical_document", web_url: "ftp://example.com/private" },
-      { kind: "canonical_document", storage_root_id: "root-safe", relative_path: "token=secret/report.md" },
+      {
+        kind: "canonical_document",
+        storage_root_id: "root-safe",
+        relative_path: "token=secret/report.md",
+      },
     ],
     source_refs: [
       { kind: "url", locator: "https://user:pass@example.com/source?q=secret#fragment" },
@@ -330,21 +398,38 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
   };
   const result = queryActivityEvents({
     events: [event],
-    workspace: { tasks: [{ id: "task-safe", title: "Safe Task", ai_visibility: ["coding_agent"] }] },
+    workspace: {
+      tasks: [{ id: "task-safe", title: "Safe Task", ai_visibility: ["coding_agent"] }],
+    },
     audience: "coding_agent",
   });
   const projected = result.events[0];
   assert.equal(projected.canonical_refs[0].web_url, "https://example.com/report");
   assert.equal(projected.canonical_refs.length, 1);
-  assert.equal(projected.source_refs.some((ref) => ref.web_url === "https://example.com/source"), true);
-  assert.deepEqual(projected.source_refs.find((ref) => ref.id === "artifact-safe"), {
-    type: "artifact",
-    id: "artifact-safe",
-    role: "evidence",
-  });
-  assert.equal(projected.source_refs.some((ref) => ref.id?.includes("redacted")), false);
-  assert.equal(projected.relation_refs.some((ref) => ref.id === "note-safe"), true);
-  assert.equal(projected.relation_refs.some((ref) => ref.id?.includes("redacted")), false);
+  assert.equal(
+    projected.source_refs.some((ref) => ref.web_url === "https://example.com/source"),
+    true,
+  );
+  assert.deepEqual(
+    projected.source_refs.find((ref) => ref.id === "artifact-safe"),
+    {
+      type: "artifact",
+      id: "artifact-safe",
+      role: "evidence",
+    },
+  );
+  assert.equal(
+    projected.source_refs.some((ref) => ref.id?.includes("redacted")),
+    false,
+  );
+  assert.equal(
+    projected.relation_refs.some((ref) => ref.id === "note-safe"),
+    true,
+  );
+  assert.equal(
+    projected.relation_refs.some((ref) => ref.id?.includes("redacted")),
+    false,
+  );
   assert.equal(projected.work_receipt_ref, null);
   assert.equal(projected.metadata.activity_summary, "Ordinary metadata");
   assert.equal(projected.metadata.work_action, "reported");
@@ -366,22 +451,68 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
   assert.equal("local_path" in projected.metadata, false);
   assert.equal("token" in projected.metadata, false);
   const serialized = JSON.stringify(projected);
-  for (const secret of ["user:pass", "q=secret", "fragment", "ftp://", "C:\\\\private", "/home/private", "Bearer private", "token=secret", "TOKEN_SECRET", "CLIENT_SECRET", "AUTHORIZATION_SECRET", "CREDENTIAL_SECRET", "API_KEY_SECRET", "PRIVATE_KEY_SECRET", "LOCAL_PATH", "ABSOLUTE_PATH", "FILE_PATH", "KEY_SECRET", "KEY_PATH", "ACTOR_KEY", "nested/path", "display_name", "PRIVATE_SHARED_TEXT"]) {
+  for (const secret of [
+    "user:pass",
+    "q=secret",
+    "fragment",
+    "ftp://",
+    "C:\\\\private",
+    "/home/private",
+    "Bearer private",
+    "token=secret",
+    "TOKEN_SECRET",
+    "CLIENT_SECRET",
+    "AUTHORIZATION_SECRET",
+    "CREDENTIAL_SECRET",
+    "API_KEY_SECRET",
+    "PRIVATE_KEY_SECRET",
+    "LOCAL_PATH",
+    "ABSOLUTE_PATH",
+    "FILE_PATH",
+    "KEY_SECRET",
+    "KEY_PATH",
+    "ACTOR_KEY",
+    "nested/path",
+    "display_name",
+    "PRIVATE_SHARED_TEXT",
+  ]) {
     assert.equal(serialized.includes(secret), false, secret);
   }
 });
 
 test("canonical root identity survives root changes and public status never exposes paths", () => {
-  const ref = { kind: "canonical_document", storage_root_id: "sync", relative_path: "Notes/measure.md" };
+  const ref = {
+    kind: "canonical_document",
+    storage_root_id: "sync",
+    relative_path: "Notes/measure.md",
+  };
   const oldRegistry = buildActivityRootRegistry({ artifactDirectory: "C:/tasken-old" });
   const newRegistry = buildActivityRootRegistry({ artifactDirectory: "D:/tasken-new" });
   const oldResolved = queryActivityEvents({
-    events: [buildActivityEvent({ id: "root-change-event", entityType: "note", entityId: "note-root", changeType: "created", after: { id: "note-root", title: "root" }, canonical_refs: [ref] })],
+    events: [
+      buildActivityEvent({
+        id: "root-change-event",
+        entityType: "note",
+        entityId: "note-root",
+        changeType: "created",
+        after: { id: "note-root", title: "root" },
+        canonical_refs: [ref],
+      }),
+    ],
     workspace: { notes: [{ id: "note-root", title: "root" }] },
     roots: oldRegistry,
   });
   const newResolved = queryActivityEvents({
-    events: [buildActivityEvent({ id: "root-change-event", entityType: "note", entityId: "note-root", changeType: "created", after: { id: "note-root", title: "root" }, canonical_refs: [ref] })],
+    events: [
+      buildActivityEvent({
+        id: "root-change-event",
+        entityType: "note",
+        entityId: "note-root",
+        changeType: "created",
+        after: { id: "note-root", title: "root" },
+        canonical_refs: [ref],
+      }),
+    ],
     workspace: { notes: [{ id: "note-root", title: "root" }] },
     roots: newRegistry,
   });
@@ -392,7 +523,16 @@ test("canonical root identity survives root changes and public status never expo
   assert.deepEqual(publicStatus.sync, { status: "ok" });
   assert.equal(JSON.stringify(publicStatus).includes("tasken-new"), false);
   const broken = queryActivityEvents({
-    events: [buildActivityEvent({ id: "root-change-event", entityType: "note", entityId: "note-root", changeType: "created", after: { id: "note-root", title: "root" }, canonical_refs: [ref] })],
+    events: [
+      buildActivityEvent({
+        id: "root-change-event",
+        entityType: "note",
+        entityId: "note-root",
+        changeType: "created",
+        after: { id: "note-root", title: "root" },
+        canonical_refs: [ref],
+      }),
+    ],
     workspace: { notes: [{ id: "note-root", title: "root" }] },
     roots: { sync: { status: "broken" } },
   });
@@ -407,11 +547,23 @@ test("canonical web URL remains openable when local root is missing, while inval
     web_url: "https://example.com/canonical/missing",
   };
   const webProjection = queryActivityEvents({
-    events: [buildActivityEvent({ id: "web-fallback-event", entityType: "note", entityId: "note-web", changeType: "created", after: { id: "note-web", title: "web", canonical_refs: [webRef] } })],
+    events: [
+      buildActivityEvent({
+        id: "web-fallback-event",
+        entityType: "note",
+        entityId: "note-web",
+        changeType: "created",
+        after: { id: "note-web", title: "web", canonical_refs: [webRef] },
+      }),
+    ],
     workspace: { notes: [{ id: "note-web", title: "web" }] },
     roots: { sync: { status: "broken" } },
   });
-  assert.deepEqual(webProjection.events[0].canonical_refs[0], { ...webRef, status: "ok", local_status: "broken" });
+  assert.deepEqual(webProjection.events[0].canonical_refs[0], {
+    ...webRef,
+    status: "ok",
+    local_status: "broken",
+  });
   assert.equal(resolveActivityCanonicalLocalPath(webRef, {}).status, "missing");
 
   const directory = await mkdtemp(path.join(os.tmpdir(), "tasken-activity-boundary-"));
@@ -421,12 +573,18 @@ test("canonical web URL remains openable when local root is missing, while inval
   await mkdir(outside);
   const outsideFile = path.join(outside, "secret.md");
   await writeFile(outsideFile, "private");
-  const traversal = resolveActivityCanonicalLocalPath({ ...webRef, web_url: "", relative_path: "../outside/secret.md" }, { sync: root });
+  const traversal = resolveActivityCanonicalLocalPath(
+    { ...webRef, web_url: "", relative_path: "../outside/secret.md" },
+    { sync: root },
+  );
   assert.equal(traversal.status, "missing");
   const link = path.join(root, "link");
   try {
     await symlink(outside, link, "junction");
-    const symlinkEscape = resolveActivityCanonicalLocalPath({ ...webRef, web_url: "", relative_path: "link/secret.md" }, { sync: root });
+    const symlinkEscape = resolveActivityCanonicalLocalPath(
+      { ...webRef, web_url: "", relative_path: "link/secret.md" },
+      { sync: root },
+    );
     assert.equal(symlinkEscape.status, "outside_root");
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -449,7 +607,9 @@ test("workspace root resolver follows artifactDirectory changes without rewritin
     after: {
       id: "note-root-resolver",
       title: "root resolver",
-      canonical_refs: [{ kind: "canonical_document", storage_root_id: "sync", relative_path: "Notes/root.md" }],
+      canonical_refs: [
+        { kind: "canonical_document", storage_root_id: "sync", relative_path: "Notes/root.md" },
+      ],
     },
   });
   repository.save("change_event", event);
@@ -503,31 +663,43 @@ test("schema v3 migrates a real legacy row idempotently without parsing plain af
   const db = new Database(file);
   db.exec(
     "CREATE TABLE workspace_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);" +
-    "INSERT INTO workspace_meta(key, value) VALUES ('schema_version', '2');" +
-    "CREATE TABLE entities (" +
-    "entity_type TEXT NOT NULL, id TEXT NOT NULL, data_json TEXT NOT NULL," +
-    "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT," +
-    "device_id TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual'," +
-    "version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (entity_type, id));" +
-    "CREATE TABLE sync_entity_heads (entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, revision_id TEXT NOT NULL, PRIMARY KEY (entity_type, entity_id));" +
-    "CREATE TABLE sync_outbox (change_id TEXT PRIMARY KEY, device_sequence INTEGER NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, published_at TEXT);" +
-    "CREATE TABLE sync_device_cursors (device_id TEXT PRIMARY KEY, last_sequence INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);" +
-    "CREATE TABLE sync_conflicts (id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, local_revision_id TEXT NOT NULL, incoming_revision_id TEXT NOT NULL, packet_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(entity_type, entity_id));",
+      "INSERT INTO workspace_meta(key, value) VALUES ('schema_version', '2');" +
+      "CREATE TABLE entities (" +
+      "entity_type TEXT NOT NULL, id TEXT NOT NULL, data_json TEXT NOT NULL," +
+      "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT," +
+      "device_id TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual'," +
+      "version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (entity_type, id));" +
+      "CREATE TABLE sync_entity_heads (entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, revision_id TEXT NOT NULL, PRIMARY KEY (entity_type, entity_id));" +
+      "CREATE TABLE sync_outbox (change_id TEXT PRIMARY KEY, device_sequence INTEGER NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, published_at TEXT);" +
+      "CREATE TABLE sync_device_cursors (device_id TEXT PRIMARY KEY, last_sequence INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);" +
+      "CREATE TABLE sync_conflicts (id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, local_revision_id TEXT NOT NULL, incoming_revision_id TEXT NOT NULL, packet_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(entity_type, entity_id));",
   );
   const insert = db.prepare(
     "INSERT INTO entities(entity_type, id, data_json, created_at, updated_at, deleted_at, device_id, source, version) " +
-    "VALUES (?, ?, ?, ?, ?, NULL, 'device-1', 'manual', 1)",
+      "VALUES (?, ?, ?, ?, ?, NULL, 'device-1', 'manual', 1)",
   );
-  insert.run("task", "task-legacy", JSON.stringify({ title: "legacy", state: "todo" }), stamp, stamp);
-  insert.run("change_event", "legacy-event", JSON.stringify({
-    entity_type: "task",
-    entity_id: "task-legacy",
-    changed_at: stamp,
-    change_type: "updated",
-    source: "manual",
-    before_json: null,
-    after_json: JSON.stringify(legacyAfter),
-  }), stamp, stamp);
+  insert.run(
+    "task",
+    "task-legacy",
+    JSON.stringify({ title: "legacy", state: "todo" }),
+    stamp,
+    stamp,
+  );
+  insert.run(
+    "change_event",
+    "legacy-event",
+    JSON.stringify({
+      entity_type: "task",
+      entity_id: "task-legacy",
+      changed_at: stamp,
+      change_type: "updated",
+      source: "manual",
+      before_json: null,
+      after_json: JSON.stringify(legacyAfter),
+    }),
+    stamp,
+    stamp,
+  );
   db.close();
 
   const first = new WorkspaceDatabase(file);

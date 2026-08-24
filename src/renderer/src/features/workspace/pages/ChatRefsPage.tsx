@@ -8,7 +8,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconCopy,
-  IconArrowUpLeft,
   IconExternalLink,
   IconFileImport,
   IconFoldDown,
@@ -1010,12 +1009,6 @@ export function ChatRefsPage({
                             : undefined
                         }
                       >
-                        <span
-                          className={`chat-thread-branch ${parent ? "" : "is-empty"}`}
-                          aria-hidden="true"
-                        >
-                          {parent && <IconArrowUpLeft size={15} />}
-                        </span>
                         {sortOrder === "manual" && !isArchiveView && (
                           <span
                             className={`chat-row-drag-handle ${canDrag ? "" : "is-disabled"}`}
@@ -1036,6 +1029,17 @@ export function ChatRefsPage({
                             <IconGripVertical size={16} />
                           </span>
                         )}
+                        <span
+                          className={`chat-thread-branch ${parent ? "" : "is-empty"}`}
+                          aria-hidden="true"
+                        >
+                          {parent && (
+                            <svg className="chat-thread-connector" viewBox="0 0 24 24">
+                              <path d="M21 17H4V4" />
+                              <path d="m1 7 3-3 3 3" />
+                            </svg>
+                          )}
+                        </span>
                         <button
                           className={`chat-star ${isAdopted(r) ? "is-adopted" : ""}`}
                           onClick={(event) => {

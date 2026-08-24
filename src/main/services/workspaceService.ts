@@ -135,7 +135,8 @@ import {
   webArtifactPreviewUrl,
 } from "../../shared/webArtifact.mjs";
 import { validateSnapshotMediaWorkspace } from "./snapshotMediaValidation";
-import { logMain, measureMainPerformance } from "../log";
+import { logMain } from "../log";
+import { measureMainPerformance } from "./performanceDiagnostics";
 
 /**
  * Theme保存先を解決できない理由ごとに、次の操作まで書く。
@@ -2949,9 +2950,7 @@ export class WorkspaceService {
   }
 
   /** Main-owned Media sessionがmanaged Artifactの確定先を共有する。 */
-  resolveManagedArtifactDirectory(
-    themeId: string | null,
-  ):
+  resolveManagedArtifactDirectory(themeId: string | null):
     | { kind: "needs_directory" }
     | {
         kind: "ok";

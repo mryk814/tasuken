@@ -104,11 +104,18 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
   }
 
   /** 保存済みの位置を、いまの画面構成に合わせて補正して返す。無ければ既定サイズ。 */
-  function restoreBounds(key: SatelliteWindowKey, spec: SatelliteWindowSpec): { bounds: Partial<WindowBounds>; restoredFromState: boolean } {
+  function restoreBounds(
+    key: SatelliteWindowKey,
+    spec: SatelliteWindowSpec,
+  ): { bounds: Partial<WindowBounds>; restoredFromState: boolean } {
     const saved = store.read(key);
-    if (!saved) return { bounds: { width: spec.width, height: spec.height }, restoredFromState: false };
+    if (!saved)
+      return { bounds: { width: spec.width, height: spec.height }, restoredFromState: false };
     return {
-      bounds: clampBoundsToDisplays(saved, displays(), { minWidth: spec.minWidth, minHeight: spec.minHeight }),
+      bounds: clampBoundsToDisplays(saved, displays(), {
+        minWidth: spec.minWidth,
+        minHeight: spec.minHeight,
+      }),
       restoredFromState: true,
     };
   }
@@ -175,6 +182,9 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
     window.once("ready-to-show", () => reveal(window));
     window.on("move", () => scheduleSaveBounds(entry));
     window.on("resize", () => scheduleSaveBounds(entry));
+    // 最小化／復元もB（表示状態）の変化として本体へ通知する。
+    window.on("minimize", () => options.onChanged?.());
+    window.on("restore", () => options.onChanged?.());
     window.on("close", () => {
       // 閉じる直前の位置は debounce を待たずに確定させる。
       if (entry.saveTimer) clearTimeout(entry.saveTimer);
@@ -203,7 +213,9 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
   }
 
   function overlaps(a: WindowBounds, b: WindowBounds): boolean {
-    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    return (
+      a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+    );
   }
 
   function sameBounds(a: WindowBounds, b: WindowBounds): boolean {
@@ -220,7 +232,8 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
     if (!areas.length) return 0;
     const occupied: WindowBounds[] = [];
     for (const entry of entries.values()) {
-      if (wanted.includes(entry) || entry.window.isDestroyed() || !entry.window.isVisible()) continue;
+      if (wanted.includes(entry) || entry.window.isDestroyed() || !entry.window.isVisible())
+        continue;
       const bounds = normalizeBounds(entry.window.getBounds());
       if (bounds) occupied.push(bounds);
     }
@@ -230,9 +243,10 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
       if (!current) continue;
       const clamped = clampBoundsToDisplays(current, areas, { minWidth: 1, minHeight: 1 });
       const initialPlacement = !entry.restoredFromState;
-      const needsPlacement = initialPlacement
-        || !sameBounds(current, clamped)
-        || occupied.some((other) => overlaps(current, other));
+      const needsPlacement =
+        initialPlacement ||
+        !sameBounds(current, clamped) ||
+        occupied.some((other) => overlaps(current, other));
       let next = current;
       if (needsPlacement) {
         const candidates = areas.flatMap((area) => {
@@ -246,8 +260,9 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
           }
           return result;
         });
-        next = candidates.find((candidate) => !occupied.some((other) => overlaps(candidate, other)))
-          || clampBoundsToDisplays(current, areas, { minWidth: 1, minHeight: 1 });
+        next =
+          candidates.find((candidate) => !occupied.some((other) => overlaps(candidate, other))) ||
+          clampBoundsToDisplays(current, areas, { minWidth: 1, minHeight: 1 });
       }
       if (!sameBounds(current, next)) {
         entry.window.setBounds(next, false);
@@ -325,7 +340,9 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
           alwaysOnTop: entry.window.isAlwaysOnTop(),
         });
       }
-      return result.sort((a, b) => a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title, "ja"));
+      return result.sort(
+        (a, b) => a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title, "ja"),
+      );
     },
     arrange,
     broadcast(channel, payload) {

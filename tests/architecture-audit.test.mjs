@@ -5,7 +5,13 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { analyzeArchitecture, collectExports, collectImports, normalizePath, scanTextRules } from "../scripts/architecture-audit/core.mjs";
+import {
+  analyzeArchitecture,
+  collectExports,
+  collectImports,
+  normalizePath,
+  scanTextRules,
+} from "../scripts/architecture-audit/core.mjs";
 
 const fixtureRoot = path.resolve("tests/fixtures/architecture-audit");
 const policy = {
@@ -47,53 +53,97 @@ function analyze(overrides = {}) {
 }
 
 test("architecture parser covers imports, re-exports, and dynamic imports", () => {
-  const imports = collectImports("fixture.ts", [
-    'import { a } from "./a";',
-    'export * from "./b";',
-    'export { c } from "./c";',
-    'const d = import("./d");',
-  ].join("\n"));
-  assert.deepEqual(imports.map(({ specifier, kind }) => ({ specifier, kind })), [
-    { specifier: "./a", kind: "import" },
-    { specifier: "./b", kind: "export-all" },
-    { specifier: "./c", kind: "re-export" },
-    { specifier: "./d", kind: "dynamic-import" },
-  ]);
+  const imports = collectImports(
+    "fixture.ts",
+    [
+      'import { a } from "./a";',
+      'export * from "./b";',
+      'export { c } from "./c";',
+      'const d = import("./d");',
+    ].join("\n"),
+  );
+  assert.deepEqual(
+    imports.map(({ specifier, kind }) => ({ specifier, kind })),
+    [
+      { specifier: "./a", kind: "import" },
+      { specifier: "./b", kind: "export-all" },
+      { specifier: "./c", kind: "re-export" },
+      { specifier: "./d", kind: "dynamic-import" },
+    ],
+  );
 });
 
 test("architecture parser inventories named and default exports", () => {
-  const exports = collectExports("fixture.ts", [
-    "export const taskSchema = {};",
-    "export type Task = {};",
-    'export { parseTask } from "./parse";',
-    "export default function createTask() {}",
-  ].join("\n"));
+  const exports = collectExports(
+    "fixture.ts",
+    [
+      "export const taskSchema = {};",
+      "export type Task = {};",
+      'export { parseTask } from "./parse";',
+      "export default function createTask() {}",
+    ].join("\n"),
+  );
   assert.deepEqual(exports, ["Task", "createTask", "default", "parseTask", "taskSchema"]);
 });
 
 test("valid public feature import stays clear while deep and runtime imports are reported", () => {
   const report = analyze();
-  assert.equal(report.findings.some((entry) => entry.source === "src/renderer/features/tasks/valid.ts"), false);
-  assert.equal(report.findings.some((entry) => entry.source.endsWith("invalid.ts") && entry.ruleId === "renderer.cross_feature_deep_import"), true);
-  assert.equal(report.findings.some((entry) => entry.source.endsWith("invalid.ts") && entry.ruleId === "runtime.renderer_isolation"), true);
+  assert.equal(
+    report.findings.some((entry) => entry.source === "src/renderer/features/tasks/valid.ts"),
+    false,
+  );
+  assert.equal(
+    report.findings.some(
+      (entry) =>
+        entry.source.endsWith("invalid.ts") &&
+        entry.ruleId === "renderer.cross_feature_deep_import",
+    ),
+    true,
+  );
+  assert.equal(
+    report.findings.some(
+      (entry) =>
+        entry.source.endsWith("invalid.ts") && entry.ruleId === "runtime.renderer_isolation",
+    ),
+    true,
+  );
 });
 
 test("path aliases resolve before public API and deep-import rules run", () => {
   const report = analyze();
-  const aliasFinding = report.findings.find((entry) => entry.source.endsWith("alias-invalid.ts") && entry.ruleId === "renderer.cross_feature_deep_import");
+  const aliasFinding = report.findings.find(
+    (entry) =>
+      entry.source.endsWith("alias-invalid.ts") &&
+      entry.ruleId === "renderer.cross_feature_deep_import",
+  );
   assert.equal(aliasFinding?.target, "src/renderer/features/notes/internal.ts");
 });
 
 test("tests use public APIs unless exact same-module ownership is declared", () => {
   const source = "tests/cross-module.test.ts";
   const report = analyze();
-  assert.equal(report.findings.some((entry) => entry.source === source && entry.ruleId === "test.cross_module_internal_import"), true);
-  const sameModule = analyze({ policy: { ...policy, testOwnership: [{ source, module: "renderer.notes" }] } });
-  assert.equal(sameModule.findings.some((entry) => entry.source === source && entry.ruleId === "test.cross_module_internal_import"), false);
+  assert.equal(
+    report.findings.some(
+      (entry) => entry.source === source && entry.ruleId === "test.cross_module_internal_import",
+    ),
+    true,
+  );
+  const sameModule = analyze({
+    policy: { ...policy, testOwnership: [{ source, module: "renderer.notes" }] },
+  });
+  assert.equal(
+    sameModule.findings.some(
+      (entry) => entry.source === source && entry.ruleId === "test.cross_module_internal_import",
+    ),
+    false,
+  );
 });
 
 test("Windows separators normalize to stable repository paths", () => {
-  assert.equal(normalizePath("src\\renderer\\features\\tasks\\valid.ts"), "src/renderer/features/tasks/valid.ts");
+  assert.equal(
+    normalizePath("src\\renderer\\features\\tasks\\valid.ts"),
+    "src/renderer/features/tasks/valid.ts",
+  );
 });
 
 test("migrated Task commands cannot return to the legacy central service", () => {
@@ -118,9 +168,15 @@ test("suppression requires tracked debt and expires deterministically", () => {
     expiresAt: "2026-08-31",
   };
   const active = analyze({ suppressions: { entries: [entry] } });
-  assert.equal(active.findings.find((finding) => finding.ruleId === entry.rule && finding.source === source)?.suppressed, true);
+  assert.equal(
+    active.findings.find((finding) => finding.ruleId === entry.rule && finding.source === source)
+      ?.suppressed,
+    true,
+  );
   const expired = analyze({ suppressions: { entries: [{ ...entry, expiresAt: "2026-08-16" }] } });
-  const expiredFinding = expired.findings.find((finding) => finding.ruleId === entry.rule && finding.source === source);
+  const expiredFinding = expired.findings.find(
+    (finding) => finding.ruleId === entry.rule && finding.source === source,
+  );
   assert.equal(expiredFinding?.suppressed, false);
   assert.equal(expiredFinding?.suppression?.expired, true);
 });
@@ -136,39 +192,87 @@ test("production audit is deterministic and keeps temporary composition growth v
     assert.equal(first.stdout, second.stdout);
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
-    assert.equal(report.summary.newFindings, 3);
-    assert.equal(report.summary.suppressedFindings, 3);
+    assert.equal(report.summary.newFindings, 5);
+    assert.equal(report.summary.suppressedFindings, 5);
     assert.equal(report.summary.blockingFindings, 0);
     const newFindings = report.findings.filter((entry) => !entry.baseline);
-    assert.equal(newFindings.length, 3);
-    assert.equal(newFindings.every((entry) => entry.suppressed && entry.suppression?.issue), true);
+    assert.equal(newFindings.length, 5);
+    assert.equal(
+      newFindings.every((entry) => entry.suppressed && entry.suppression?.issue),
+      true,
+    );
     assert.deepEqual(
       report.findings
         .filter((entry) => entry.ruleId === "composition.baseline_increase")
         .map((entry) => [entry.source, entry.suppressed, entry.suppression?.issue]),
       [
+        ["src/main/index.ts", true, 482],
         ["src/main/ipc/registerIpc.ts", true, 405],
         ["src/preload/index.ts", true, 405],
+        ["src/renderer/src/features/workspace/WorkspaceApp.tsx", true, 481],
         ["src/shared/ipc/contracts.ts", true, 407],
       ],
     );
     assert.equal(report.summary.newCompatibilityConsumers, 0);
     assert.equal(report.summary.unclassifiedSharedFiles, 0);
-    assert.equal(report.modules.find((entry) => entry.id === "main.task")?.publicEntrypoints[0], "src/main/modules/task/public.ts");
-    assert.equal(report.findings.some((entry) => entry.ruleId === "main.task_legacy_logic"), false);
-    const mainPreload = report.capabilitySurfaces.find((entry) => entry.file === "src/preload/index.ts" && entry.global === "api");
+    assert.equal(
+      report.modules.find((entry) => entry.id === "main.task")?.publicEntrypoints[0],
+      "src/main/modules/task/public.ts",
+    );
+    assert.equal(
+      report.findings.some((entry) => entry.ruleId === "main.task_legacy_logic"),
+      false,
+    );
+    const mainPreload = report.capabilitySurfaces.find(
+      (entry) => entry.file === "src/preload/index.ts" && entry.global === "api",
+    );
     assert.equal(mainPreload?.properties.includes("task"), true);
     assert.deepEqual(mainPreload?.added, []);
     const ownershipByFile = new Map(report.sharedOwnership.map((entry) => [entry.file, entry]));
-    assert.equal(ownershipByFile.get("src/shared/applicationCommand.ts")?.classification, "compatibility");
-    assert.equal(ownershipByFile.get("src/shared/types/workspace.ts")?.classification, "compatibility");
+    assert.equal(
+      ownershipByFile.get("src/shared/applicationCommand.ts")?.classification,
+      "compatibility",
+    );
+    assert.equal(
+      ownershipByFile.get("src/shared/types/workspace.ts")?.classification,
+      "compatibility",
+    );
     assert.equal(ownershipByFile.get("src/shared/kernel/public.ts")?.classification, "kernel");
-    assert.equal(ownershipByFile.get("src/shared/contracts/task/public.ts")?.classification, "feature-contract");
-    assert.equal(ownershipByFile.get("src/shared/compatibility/taskIpc.ts")?.classification, "compatibility");
-    assert.equal(report.findings.find((entry) => entry.ruleId === "composition.baseline_increase" && entry.source === "src/shared/ipc/contracts.ts")?.suppressed, true);
-    assert.equal(report.findings.some((entry) => entry.ruleId === "runtime.shared_neutrality" && entry.source.startsWith("src/shared/kernel/")), false);
-    assert.equal(report.findings.some((entry) => entry.ruleId === "runtime.shared_neutrality" && entry.source.startsWith("src/shared/contracts/task/")), false);
-    assert.doesNotThrow(() => JSON.parse(readFileSync(path.join(output, "shared-ownership.json"), "utf8")));
+    assert.equal(
+      ownershipByFile.get("src/shared/contracts/task/public.ts")?.classification,
+      "feature-contract",
+    );
+    assert.equal(
+      ownershipByFile.get("src/shared/compatibility/taskIpc.ts")?.classification,
+      "compatibility",
+    );
+    assert.equal(
+      report.findings.find(
+        (entry) =>
+          entry.ruleId === "composition.baseline_increase" &&
+          entry.source === "src/shared/ipc/contracts.ts",
+      )?.suppressed,
+      true,
+    );
+    assert.equal(
+      report.findings.some(
+        (entry) =>
+          entry.ruleId === "runtime.shared_neutrality" &&
+          entry.source.startsWith("src/shared/kernel/"),
+      ),
+      false,
+    );
+    assert.equal(
+      report.findings.some(
+        (entry) =>
+          entry.ruleId === "runtime.shared_neutrality" &&
+          entry.source.startsWith("src/shared/contracts/task/"),
+      ),
+      false,
+    );
+    assert.doesNotThrow(() =>
+      JSON.parse(readFileSync(path.join(output, "shared-ownership.json"), "utf8")),
+    );
     assert.match(readFileSync(path.join(output, "report.md"), "utf8"), /Rollout: report-only/);
   } finally {
     rmSync(output, { recursive: true, force: true });
@@ -178,21 +282,27 @@ test("production audit is deterministic and keeps temporary composition growth v
 test("Task enforcement profile is blocking and clean without changing global report-only mode", () => {
   const output = mkdtempSync(path.join(os.tmpdir(), "tasken-architecture-enforced-"));
   try {
-    const result = spawnSync(process.execPath, [
-      "scripts/audit-architecture.mjs",
-      "--enforce",
-      "task",
-      "--format=json",
-      "--output-dir",
-      output,
-    ], { encoding: "utf8" });
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/audit-architecture.mjs",
+        "--enforce",
+        "task",
+        "--format=json",
+        "--output-dir",
+        output,
+      ],
+      { encoding: "utf8" },
+    );
     assert.equal(result.status, 0, result.stderr);
     const report = JSON.parse(result.stdout);
     assert.equal(report.mode, "enforced:task");
     assert.equal(report.summary.blockingFindings, 0);
     assert.deepEqual(
       report.modules
-        .filter((entry) => ["shared.kernel", "shared.contracts.task", "main.task"].includes(entry.id))
+        .filter((entry) =>
+          ["shared.kernel", "shared.contracts.task", "main.task"].includes(entry.id),
+        )
         .map((entry) => entry.status)
         .sort(),
       ["enforced", "enforced", "enforced"],
@@ -212,15 +322,19 @@ test("Task enforcement blocks malformed suppression debt records", () => {
       globalRules: ["suppression.invalid_debt_record"],
     },
     suppressions: {
-      entries: [{
-        rule: "renderer.cross_feature_deep_import",
-        source: "src/renderer/features/tasks/invalid.ts",
-        target: "src/renderer/features/notes/internal.ts",
-        reason: "Missing owner and issue on purpose",
-      }],
+      entries: [
+        {
+          rule: "renderer.cross_feature_deep_import",
+          source: "src/renderer/features/tasks/invalid.ts",
+          target: "src/renderer/features/notes/internal.ts",
+          reason: "Missing owner and issue on purpose",
+        },
+      ],
     },
   });
-  const finding = report.findings.find((entry) => entry.ruleId === "suppression.invalid_debt_record");
+  const finding = report.findings.find(
+    (entry) => entry.ruleId === "suppression.invalid_debt_record",
+  );
   assert.equal(finding?.severity, "blocking");
   assert.equal(report.summary.blockingFindings, 1);
 });
@@ -229,9 +343,9 @@ test("Task enforcement blocks undeclared dependencies, shared runtime imports, a
   const undeclared = analyze({
     policy: {
       ...policy,
-      modules: policy.modules.map((module) => module.id === "renderer.tasks"
-        ? { ...module, allowedDependencies: [] }
-        : module),
+      modules: policy.modules.map((module) =>
+        module.id === "renderer.tasks" ? { ...module, allowedDependencies: [] } : module,
+      ),
     },
     enforcement: {
       id: "task",
@@ -241,16 +355,20 @@ test("Task enforcement blocks undeclared dependencies, shared runtime imports, a
     },
   });
   assert.equal(
-    undeclared.findings.some((entry) => entry.ruleId === "module.undeclared_dependency" && entry.severity === "blocking"),
+    undeclared.findings.some(
+      (entry) => entry.ruleId === "module.undeclared_dependency" && entry.severity === "blocking",
+    ),
     true,
   );
 
   const sharedRuntime = analyze({
     policy: {
       ...policy,
-      modules: policy.modules.map((module) => module.id === "renderer.tasks"
-        ? { ...module, id: "shared.contracts.task", kind: "shared-contract" }
-        : module),
+      modules: policy.modules.map((module) =>
+        module.id === "renderer.tasks"
+          ? { ...module, id: "shared.contracts.task", kind: "shared-contract" }
+          : module,
+      ),
     },
     enforcement: {
       id: "task",
@@ -260,7 +378,9 @@ test("Task enforcement blocks undeclared dependencies, shared runtime imports, a
     },
   });
   assert.equal(
-    sharedRuntime.findings.some((entry) => entry.ruleId === "runtime.shared_neutrality" && entry.severity === "blocking"),
+    sharedRuntime.findings.some(
+      (entry) => entry.ruleId === "runtime.shared_neutrality" && entry.severity === "blocking",
+    ),
     true,
   );
 
@@ -276,7 +396,9 @@ test("Task enforcement blocks undeclared dependencies, shared runtime imports, a
     },
   });
   assert.equal(
-    capabilityExpansion.findings.some((entry) => entry.ruleId === "capability.surface_expansion" && entry.severity === "blocking"),
+    capabilityExpansion.findings.some(
+      (entry) => entry.ruleId === "capability.surface_expansion" && entry.severity === "blocking",
+    ),
     true,
   );
 });
