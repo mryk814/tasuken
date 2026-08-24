@@ -5,10 +5,42 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MobileTaskCommandContractTest {
+    @Test
+    fun tokenInvalidationRequiresVersionedUnauthorizedFromExpectedGateway() {
+        val unauthorized = GatewayHttpResponse(
+            status = 401,
+            body = """
+                {
+                  "ok": false,
+                  "meta": {
+                    "apiVersion": 1,
+                    "schemaVersion": 5,
+                    "serverId": "server-1",
+                    "serverRevision": 8,
+                    "generatedAt": "2026-08-24T00:00:00Z",
+                    "truncated": false
+                  },
+                  "error": {
+                    "code": "unauthorized",
+                    "message": "Device token expired",
+                    "retryable": false
+                  }
+                }
+            """.trimIndent(),
+        )
+
+        assertTrue(isConfirmedGatewayUnauthorized(unauthorized, "server-1"))
+        assertFalse(isConfirmedGatewayUnauthorized(unauthorized, "server-2"))
+        assertFalse(isConfirmedGatewayUnauthorized(unauthorized.copy(body = "Unauthorized"), "server-1"))
+        assertFalse(isConfirmedGatewayUnauthorized(unauthorized.copy(status = 502), "server-1"))
+    }
+
     @Test
     fun createTaskRoundTripsStrictSpeechProvenance() {
         val provenance = MobileTaskCreationProvenanceDto(

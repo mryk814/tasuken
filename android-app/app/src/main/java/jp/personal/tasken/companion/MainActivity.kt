@@ -829,7 +829,46 @@ private fun TodayListPane(
         TodayUiState.Empty -> CenteredState { Text("今日のTaskはありません") }
         is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
         is TodayUiState.Error -> GatewayErrorState(uiState, onRetry, onRetryPairing)
+        is TodayUiState.Cached -> CachedTodayPane(uiState, paneState, onRetryPairing, onTaskSelected)
         is TodayUiState.Success -> TodayTaskList(uiState.tasks, paneState, onTaskSelected)
+    }
+}
+
+@Composable
+private fun CachedTodayPane(
+    state: TodayUiState.Cached,
+    paneState: TodayPaneState,
+    onRetryPairing: () -> Unit,
+    onTaskSelected: (String) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            shape = MaterialTheme.shapes.medium,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    state.pairing.message.ifBlank { "保存済みTaskを表示しています。再接続が必要です。" },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = onRetryPairing) { Text("再接続") }
+            }
+        }
+        if (state.tasks.isEmpty()) {
+            Box(modifier = Modifier.weight(1f)) {
+                CenteredState { Text("今日のTaskはありません") }
+            }
+        } else {
+            Box(modifier = Modifier.weight(1f)) {
+                TodayTaskList(state.tasks, paneState, onTaskSelected)
+            }
+        }
     }
 }
 

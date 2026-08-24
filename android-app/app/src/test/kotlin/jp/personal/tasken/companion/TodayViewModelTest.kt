@@ -135,6 +135,28 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun lostPairingKeepsRoomCacheVisibleWithReconnectState() {
+        val cached = sampleTask().copy(title = "Pending after restart", pending = true)
+        val origin = "https://desktop.example.ts.net:48178"
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.PairingRequired(origin)
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(listOf(cached))
+            override fun observePendingCount(): Flow<Int> = flowOf(1)
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+
+        runBlocking { viewModel.loadNow() }
+
+        val state = viewModel.uiState.value as TodayUiState.Cached
+        assertEquals("Pending after restart", state.tasks.single().title)
+        assertEquals(origin, state.pairing.origin)
+        assertEquals(1, viewModel.pendingCount.value)
+    }
+
+    @Test
     fun createTaskQueuesOfflineCommandAndReportsTaskId() {
         var receivedDraft: MobileCaptureDraft? = null
         val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
