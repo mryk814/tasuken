@@ -154,6 +154,7 @@
         text-align: left;
       }
       .task-main:hover .task-title { color: var(--color-accent); }
+      .task-main:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
       .task-title {
         overflow: hidden;
         text-overflow: ellipsis;
@@ -175,6 +176,43 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      .task-checklist {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        min-width: 0;
+        padding-top: 4px;
+      }
+      .checklist-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        max-width: 100%;
+        min-height: 24px;
+        padding: 2px 7px 2px 4px;
+        border: 1px solid color-mix(in srgb, var(--color-text) 18%, transparent);
+        border-radius: var(--radius-pill);
+        background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+        color: var(--color-text-secondary);
+        font-size: 11px;
+        text-align: left;
+      }
+      .checklist-item:hover { border-color: var(--color-accent); color: var(--color-text); }
+      .checklist-item.is-done { color: var(--color-text-tertiary); text-decoration: line-through; }
+      .checklist-item-mark {
+        display: grid;
+        place-items: center;
+        width: 15px;
+        height: 15px;
+        flex: 0 0 auto;
+        border: 1px solid var(--color-border-strong);
+        border-radius: 4px;
+        color: transparent;
+        text-decoration: none;
+      }
+      .checklist-item.is-done .checklist-item-mark { border-color: var(--color-success); background: var(--color-success); color: var(--color-on-accent); }
+      .checklist-item-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .reminder-clock {
         display: inline-grid;
         place-items: center;
@@ -446,11 +484,17 @@
         const checklist = task.checklistTotal > 0
           ? `<span class="num">${task.checklistDone}/${task.checklistTotal}</span>`
           : "";
+        const checklistItems = task.checklistItems?.length
+          ? `<span class="task-checklist" aria-label="チェックリスト">${task.checklistItems.map((item) => `
+              <button class="checklist-item ${item.done ? "is-done" : ""}" type="button" data-action="toggle-checklist" data-item-id="${escapeHtml(item.id)}" aria-label="${escapeHtml(item.title)}を${item.done ? "未完了に戻す" : "完了"}">
+                <span class="checklist-item-mark" aria-hidden="true">✓</span><span class="checklist-item-title">${escapeHtml(item.title)}</span>
+              </button>`).join("")}</span>`
+          : "";
         return `
           <article class="task-row ${task.priority === "high" ? "is-high" : ""}" data-task-id="${escapeHtml(task.id)}" style="--theme-color: ${escapeHtml(task.themeColor || "var(--color-chart-6)")}">
             <span class="theme-dot" aria-hidden="true"></span>
             <button class="check-button" type="button" data-action="toggle" aria-label="${escapeHtml(task.title)}を完了">✓</button>
-            <button class="task-main" type="button" data-action="open" title="Taskenで開く">
+            <div class="task-main" role="button" tabindex="0" data-action="open" title="Taskenで開く">
               <span class="task-title">${escapeHtml(task.title)}</span>
               <span class="task-meta">
                 <span>${escapeHtml(task.themeName)}</span>
@@ -458,7 +502,8 @@
                 ${reminder}
                 ${checklist}
               </span>
-            </button>
+              ${checklistItems}
+            </div>
             <button class="open-button" type="button" data-action="open" aria-label="${escapeHtml(task.title)}をTaskenで開く">›</button>
           </article>
         `;
@@ -503,16 +548,31 @@
         }
       });
       content.addEventListener("click", async (event) => {
-        const button = event.target.closest("button[data-action]");
-        const row = button?.closest("[data-task-id]");
-        if (!button || !row) return;
+        const actionTarget = event.target instanceof Element ? event.target.closest("[data-action]") : null;
+        const row = actionTarget?.closest("[data-task-id]");
+        if (!actionTarget || !row) return;
         const taskId = row.dataset.taskId;
         if (!taskId) return;
-        if (button.dataset.action === "toggle") {
+        if (actionTarget.dataset.action === "toggle") {
           await render(() => window.todayMiniApi.toggle(taskId));
           return;
         }
+        if (actionTarget.dataset.action === "toggle-checklist") {
+          const itemId = actionTarget.dataset.itemId;
+          if (!itemId) return;
+          await render(() => window.todayMiniApi.toggleChecklist({ taskId, itemId }));
+          return;
+        }
         await window.todayMiniApi.openTask(taskId);
+      });
+      content.addEventListener("keydown", async (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const actionTarget = event.target instanceof Element ? event.target.closest("[data-action]") : null;
+        if (!actionTarget || actionTarget.dataset.action !== "open") return;
+        event.preventDefault();
+        const row = actionTarget.closest("[data-task-id]");
+        const taskId = row?.dataset.taskId;
+        if (taskId) await window.todayMiniApi.openTask(taskId);
       });
       // 変更通知が届かない経路（外部プロセスの書き込み・スリープ復帰・日付またぎ）でも
       // 表示が古いまま残らないよう、focus復帰・日付変更・定期確認を併用する。

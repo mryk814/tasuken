@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
 import { workspaceApi } from "../../services/workspaceApi";
 import { actionDefinition, TOAST_ACTIONS } from "../../pages/semanticActions";
@@ -31,21 +40,34 @@ import {
 } from "./types";
 import { entityTitle } from "./lib/domain";
 import { activeRecords, formText, str, uuid } from "./lib/format";
-import { activityDatesToAutoExport, localDateAndTime, runActivityAutoExport } from "./lib/activityAutoExport";
+import {
+  activityDatesToAutoExport,
+  localDateAndTime,
+  runActivityAutoExport,
+} from "./lib/activityAutoExport";
 import { buildActivityLog } from "./lib/activityLog";
 import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
 import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
 import { buildDomainDrawerFormPlan } from "./lib/drawerFormPlans";
 import type { SaveOperation } from "./types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
-import { AppState, AppTitleBar, Sidebar, ShortcutDialog, type TitleBarLauncherData } from "./components/shell";
+import {
+  AppState,
+  AppTitleBar,
+  Sidebar,
+  ShortcutDialog,
+  type TitleBarLauncherData,
+} from "./components/shell";
 import { buildArtifactThemeSyncOperations } from "./lib/artifactEntities";
 import { ContentViewer } from "./components/ContentViewer";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
 import { WorkspacePageRouter } from "./components/WorkspacePageRouter";
 import { currentWindowMode } from "./lib/windowMode";
-import { isPersonalDefaultTheme, sortThemesWithDefaultFirst } from "../../../../shared/personalTheme.mjs";
+import {
+  isPersonalDefaultTheme,
+  sortThemesWithDefaultFirst,
+} from "../../../../shared/personalTheme.mjs";
 import {
   CommandPalette,
   type CommandPaletteEntry,
@@ -54,14 +76,27 @@ import {
 import { ContextPackDialog } from "./components/ContextPackDialog";
 import { DailyScratchpadDialog } from "./components/DailyScratchpadDialog";
 import { FocusSessionDialog } from "./components/FocusSessionDialog";
-import { findActiveFocusSession, focusSessionProperties, focusSessionTaskId } from "../../../../shared/focusSession.mjs";
+import {
+  findActiveFocusSession,
+  focusSessionProperties,
+  focusSessionTaskId,
+} from "../../../../shared/focusSession.mjs";
 import { canonicalThemeId } from "../../../../shared/themeRef.mjs";
-import type { ApplicationCommandSource, ApplyAiProposalCommandPayload, CommandEnvelope, CommandReceipt, ExpectedVersion } from "../../../../shared/applicationCommand";
+import type {
+  ApplicationCommandSource,
+  ApplyAiProposalCommandPayload,
+  CommandEnvelope,
+  CommandReceipt,
+  ExpectedVersion,
+} from "../../../../shared/applicationCommand";
 import { collectionKeyForEntityType } from "../../../../shared/entityRegistry.mjs";
 import { flushPendingNoteDraftSaves } from "./lib/noteDraftFlushRegistry";
 import { flushPendingMediaRecordingFlushes } from "./lib/mediaRecordingFlushRegistry";
 import { projectWorkspaceData } from "./lib/workspaceProjection";
-import { buildDerivedFromDocumentCompanion, stripLineageDraftMetadata } from "./lib/lineageOperations";
+import {
+  buildDerivedFromDocumentCompanion,
+  stripLineageDraftMetadata,
+} from "./lib/lineageOperations";
 import { buildRecallPaletteEntries, type RecallPaletteTarget } from "./lib/recallPaletteEntries";
 const TASK_REFERENCE_TYPE: EntityType = "reference";
 
@@ -77,16 +112,24 @@ function toastIcon(tone: ToastTone) {
 type FormSignatureScope = "all" | "checklist" | "non-checklist";
 
 function isChecklistFormField(name: string): boolean {
-  return name === "checklist_id"
-    || name === "checklist_title"
-    || name.startsWith("checklist_done_")
-    || name.startsWith("checklist_completed_at_");
+  return (
+    name === "checklist_id" ||
+    name === "checklist_title" ||
+    name.startsWith("checklist_done_") ||
+    name.startsWith("checklist_completed_at_")
+  );
 }
 
 function formSignature(form: HTMLFormElement, scope: FormSignatureScope = "all"): string {
-  return JSON.stringify(Array.from(new FormData(form).entries())
-    .filter(([key]) => scope === "all" || (scope === "checklist" ? isChecklistFormField(key) : !isChecklistFormField(key)))
-    .map(([key, value]) => [key, typeof value === "string" ? value : value.name]));
+  return JSON.stringify(
+    Array.from(new FormData(form).entries())
+      .filter(
+        ([key]) =>
+          scope === "all" ||
+          (scope === "checklist" ? isChecklistFormField(key) : !isChecklistFormField(key)),
+      )
+      .map(([key, value]) => [key, typeof value === "string" ? value : value.name]),
+  );
 }
 
 export function WorkspaceApp() {
@@ -136,7 +179,9 @@ export function WorkspaceApp() {
   const [sidebarCollapsed, setSidebarCollapsed] = usePreference("shell.sidebarCollapsed");
   const [sidebarWidth, setSidebarWidth] = usePreference("shell.sidebarWidth");
   const [zoomFactor, setZoomFactor] = usePreference("shell.zoomFactor");
-  const [compactDrawerLayout, setCompactDrawerLayout] = useState(() => window.matchMedia("(max-width: 1680px)").matches);
+  const [compactDrawerLayout, setCompactDrawerLayout] = useState(
+    () => window.matchMedia("(max-width: 1680px)").matches,
+  );
   const lastDeleted = useRef<{ type: EntityType; id: string } | null>(null);
   const drawerTrigger = useRef<HTMLElement | null>(null);
   const drawerGeneration = useRef(0);
@@ -162,62 +207,68 @@ export function WorkspaceApp() {
   sidebarResizeDraftRef.current = sidebarResizeDraft;
   const effectiveSidebarWidth = sidebarResizeDraft ?? sidebarWidth;
 
-  const handleSidebarResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    sidebarResizeLastWidthRef.current = sidebarWidth;
-    sidebarResizeCollapsedRef.current = sidebarCollapsed;
-    const collapseThreshold = 110;
-    const onMove = (moveEvent: PointerEvent) => {
-      const shellRect = appShellRef.current?.getBoundingClientRect();
-      const rawWidth = moveEvent.clientX - (shellRect?.left ?? 0);
-      if (rawWidth <= collapseThreshold) {
-        sidebarResizeCollapsedRef.current = true;
-        setSidebarCollapsed(true);
+  const handleSidebarResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      sidebarResizeLastWidthRef.current = sidebarWidth;
+      sidebarResizeCollapsedRef.current = sidebarCollapsed;
+      const collapseThreshold = 110;
+      const onMove = (moveEvent: PointerEvent) => {
+        const shellRect = appShellRef.current?.getBoundingClientRect();
+        const rawWidth = moveEvent.clientX - (shellRect?.left ?? 0);
+        if (rawWidth <= collapseThreshold) {
+          sidebarResizeCollapsedRef.current = true;
+          setSidebarCollapsed(true);
+          sidebarResizeDraftRef.current = null;
+          setSidebarResizeDraft(null);
+          return;
+        }
+        sidebarResizeCollapsedRef.current = false;
+        setSidebarCollapsed(false);
+        const nextWidth = Math.max(180, Math.min(360, rawWidth));
+        sidebarResizeLastWidthRef.current = nextWidth;
+        sidebarResizeDraftRef.current = nextWidth;
+        setSidebarResizeDraft(nextWidth);
+      };
+      const onUp = () => {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        if (!sidebarResizeCollapsedRef.current) {
+          setSidebarWidth(sidebarResizeLastWidthRef.current);
+          setSidebarCollapsed(false);
+        }
         sidebarResizeDraftRef.current = null;
         setSidebarResizeDraft(null);
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+    },
+    [setSidebarCollapsed, setSidebarWidth, sidebarCollapsed, sidebarWidth],
+  );
+
+  const handleSidebarResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      if (sidebarCollapsed) {
+        if (event.key !== "ArrowRight") return;
+        event.preventDefault();
+        setSidebarCollapsed(false);
+        setSidebarWidth(Math.max(180, Math.min(360, sidebarWidth)));
         return;
       }
-      sidebarResizeCollapsedRef.current = false;
-      setSidebarCollapsed(false);
-      const nextWidth = Math.max(180, Math.min(360, rawWidth));
-      sidebarResizeLastWidthRef.current = nextWidth;
-      sidebarResizeDraftRef.current = nextWidth;
-      setSidebarResizeDraft(nextWidth);
-    };
-    const onUp = () => {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      if (!sidebarResizeCollapsedRef.current) {
-        setSidebarWidth(sidebarResizeLastWidthRef.current);
-        setSidebarCollapsed(false);
-      }
-      sidebarResizeDraftRef.current = null;
-      setSidebarResizeDraft(null);
-    };
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-  }, [setSidebarCollapsed, setSidebarWidth, sidebarCollapsed, sidebarWidth]);
-
-  const handleSidebarResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    if (sidebarCollapsed) {
-      if (event.key !== "ArrowRight") return;
       event.preventDefault();
+      const delta = event.key === "ArrowLeft" ? -20 : 20;
+      const nextWidth = sidebarWidth + delta;
+      if (nextWidth <= 110) {
+        setSidebarCollapsed(true);
+        return;
+      }
       setSidebarCollapsed(false);
-      setSidebarWidth(Math.max(180, Math.min(360, sidebarWidth)));
-      return;
-    }
-    event.preventDefault();
-    const delta = event.key === "ArrowLeft" ? -20 : 20;
-    const nextWidth = sidebarWidth + delta;
-    if (nextWidth <= 110) {
-      setSidebarCollapsed(true);
-      return;
-    }
-    setSidebarCollapsed(false);
-    setSidebarWidth(Math.max(180, Math.min(360, nextWidth)));
-  }, [setSidebarCollapsed, setSidebarWidth, sidebarCollapsed, sidebarWidth]);
+      setSidebarWidth(Math.max(180, Math.min(360, nextWidth)));
+    },
+    [setSidebarCollapsed, setSidebarWidth, sidebarCollapsed, sidebarWidth],
+  );
 
   async function loadWorkspace() {
     try {
@@ -257,24 +308,32 @@ export function WorkspaceApp() {
 
   // Mainの終了要求はrendererの保存完了ackを受け取ってから完了させる。
   // NotesPageの現在snapshotと、route unmount後も残るpending saveを合成してackする。
-  useEffect(() => workspaceApi.onAppFlushRequested((request) => {
-    let settled = false;
-    const respond = (ok: boolean) => {
-      if (settled) return;
-      settled = true;
-      void workspaceApi.ackAppFlush(request.requestId, ok).catch(() => undefined);
-    };
-    const detail: {
-      handled: boolean;
-      flush: Promise<boolean> | null;
-    } = { handled: false, flush: null };
-    window.dispatchEvent(new CustomEvent("tasken:app-flush-requested", { detail }));
-    // Notes routeがunmount済みでも、route cleanupが開始したsaveをここで待つ。
-    const pageFlush = detail.flush || Promise.resolve(true);
-    void Promise.all([pageFlush, flushPendingNoteDraftSaves(), flushPendingMediaRecordingFlushes()])
-      .then(([pageOk, noteOk, mediaOk]) => respond(pageOk && noteOk && mediaOk))
-      .catch(() => respond(false));
-  }), []);
+  useEffect(
+    () =>
+      workspaceApi.onAppFlushRequested((request) => {
+        let settled = false;
+        const respond = (ok: boolean) => {
+          if (settled) return;
+          settled = true;
+          void workspaceApi.ackAppFlush(request.requestId, ok).catch(() => undefined);
+        };
+        const detail: {
+          handled: boolean;
+          flush: Promise<boolean> | null;
+        } = { handled: false, flush: null };
+        window.dispatchEvent(new CustomEvent("tasken:app-flush-requested", { detail }));
+        // Notes routeがunmount済みでも、route cleanupが開始したsaveをここで待つ。
+        const pageFlush = detail.flush || Promise.resolve(true);
+        void Promise.all([
+          pageFlush,
+          flushPendingNoteDraftSaves(),
+          flushPendingMediaRecordingFlushes(),
+        ])
+          .then(([pageOk, noteOk, mediaOk]) => respond(pageOk && noteOk && mediaOk))
+          .catch(() => respond(false));
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (!window.api?.app?.onWorkspaceChanged) return;
@@ -285,7 +344,9 @@ export function WorkspaceApp() {
       }
       if (change?.type && change.entity) {
         applyExternalSave(change.type, change.entity);
-        void refreshWorkspace().catch((error) => setToast(`更新を反映できませんでした。${errorMessage(error)}`, "danger"));
+        void refreshWorkspace().catch((error) =>
+          setToast(`更新を反映できませんでした。${errorMessage(error)}`, "danger"),
+        );
         return;
       }
       void refreshWorkspace();
@@ -294,17 +355,27 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     if (detachedNoteId) return undefined;
-    const applyState = (state: { todayOpen: boolean; openMemoIds: string[]; stickyMemoIds: string[]; alwaysOnTopMemoIds: string[] }) => {
+    const applyState = (state: {
+      todayOpen: boolean;
+      openMemoIds: string[];
+      stickyMemoIds: string[];
+      alwaysOnTopMemoIds: string[];
+    }) => {
       setTodayWindowOpen(state.todayOpen);
       setOpenStickyMemoIds(state.openMemoIds);
       setStickyMemoTargetIds(state.stickyMemoIds);
     };
-    void workspaceApi.getSatelliteWindowState().then(applyState).catch(() => applyState({
-      todayOpen: false,
-      openMemoIds: [],
-      stickyMemoIds: [],
-      alwaysOnTopMemoIds: [],
-    }));
+    void workspaceApi
+      .getSatelliteWindowState()
+      .then(applyState)
+      .catch(() =>
+        applyState({
+          todayOpen: false,
+          openMemoIds: [],
+          stickyMemoIds: [],
+          alwaysOnTopMemoIds: [],
+        }),
+      );
     return workspaceApi.onSatelliteWindowStateChanged(applyState);
   }, [detachedNoteId]);
 
@@ -363,10 +434,14 @@ export function WorkspaceApp() {
     updateCheckStarted.current = true;
     let canceled = false;
     const timer = window.setTimeout(() => {
-      workspaceApi.checkForUpdates()
+      workspaceApi
+        .checkForUpdates()
         .then((result) => {
           if (!canceled && result.status === "available") {
-            setToast(`Tasken ${result.latestVersion} が公開されています。Settingsで更新できます。`, "info");
+            setToast(
+              `Tasken ${result.latestVersion} が公開されています。Settingsで更新できます。`,
+              "info",
+            );
           }
         })
         .catch(() => {});
@@ -387,13 +462,20 @@ export function WorkspaceApp() {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName;
-      const inInput = ["INPUT", "TEXTAREA", "SELECT"].includes(tag ?? "") || target?.isContentEditable;
+      const inInput =
+        ["INPUT", "TEXTAREA", "SELECT"].includes(tag ?? "") || target?.isContentEditable;
       if (event.key === "Escape") {
         if (showShortcuts) setShowShortcuts(false);
         else if (drawer) closeDrawer();
         return;
       }
-      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "s" && drawerFormRef.current) {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "s" &&
+        drawerFormRef.current
+      ) {
         event.preventDefault();
         void saveDirtyDrawerForm();
         return;
@@ -405,7 +487,11 @@ export function WorkspaceApp() {
       }
       if (event.altKey && event.key.toLowerCase() === "n") {
         event.preventDefault();
-        openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) } });
+        openDrawer({
+          type: "capture_entry",
+          mode: "edit",
+          entity: { state: "untriaged", captured_at: new Date().toISOString().slice(0, 10) },
+        });
       }
       // 実行中のFocus Sessionをどの画面からでも開く（#316）。Alt+N（クイック記録）と同系列。
       if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "f") {
@@ -420,16 +506,26 @@ export function WorkspaceApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawer, showShortcuts]);
 
-  const fullData = useMemo(() => projectWorkspaceData(workspace as Record<string, unknown> | null), [workspace]);
+  const fullData = useMemo(
+    () => projectWorkspaceData(workspace as Record<string, unknown> | null),
+    [workspace],
+  );
   const fullDomain = useMemo(() => buildWorkspaceDomain(fullData), [fullData]);
   // 常設の既定Themeは並びの先頭へ固定し、グループ絞り込みでも消さない（#282）。
   // Themeが0件に見える状態でも個人業務は残る。
-  const allThemes = useMemo(() => sortThemesWithDefaultFirst(fullData.themes) as Theme[], [fullData.themes]);
-  const themes = useMemo(() => (
-    activeGroups.length > 0
-      ? allThemes.filter((theme) => activeGroups.includes(theme.group || "") || isPersonalDefaultTheme(theme))
-      : allThemes
-  ), [activeGroups, allThemes]);
+  const allThemes = useMemo(
+    () => sortThemesWithDefaultFirst(fullData.themes) as Theme[],
+    [fullData.themes],
+  );
+  const themes = useMemo(
+    () =>
+      activeGroups.length > 0
+        ? allThemes.filter(
+            (theme) => activeGroups.includes(theme.group || "") || isPersonalDefaultTheme(theme),
+          )
+        : allThemes,
+    [activeGroups, allThemes],
+  );
   const groupThemeIds = useMemo(() => new Set(themes.map((t) => t.id)), [themes]);
   const hasGroupFilter = activeGroups.length > 0;
 
@@ -449,14 +545,16 @@ export function WorkspaceApp() {
 
   const domain = useMemo(() => {
     if (!hasGroupFilter) return fullDomain;
-    const match = (projectId: unknown) => typeof projectId === "string" && groupThemeIds.has(projectId);
+    const match = (projectId: unknown) =>
+      typeof projectId === "string" && groupThemeIds.has(projectId);
     const tasks = fullDomain.tasks.filter((t) => match(t.project_id));
     const waitings = fullDomain.waitings.filter((w) => match(w.project_id));
     const plan_nodes = fullDomain.plan_nodes.filter((p) => match(p.project_id));
     const taskIds = new Set(tasks.map((t) => t.id));
     const waitingIds = new Set(waitings.map((w) => w.id));
     const planNodeIds = new Set(plan_nodes.map((p) => p.id));
-    const ownerKey = (s: { owner_type: string; owner_id: string }) => `${s.owner_type}:${s.owner_id}`;
+    const ownerKey = (s: { owner_type: string; owner_id: string }) =>
+      `${s.owner_type}:${s.owner_id}`;
     const ownerSet = new Set([
       ...tasks.map((t) => `task:${t.id}`),
       ...waitings.map((w) => `waiting:${w.id}`),
@@ -471,8 +569,12 @@ export function WorkspaceApp() {
       knowledge_nodes: fullDomain.knowledge_nodes.filter((k) => match(k.project_id)),
       notes: fullDomain.notes.filter((n) => match(n.project_id)),
       resources: fullDomain.resources.filter((r) => match(r.project_id)),
-      task_dependencies: fullDomain.task_dependencies.filter((d) => taskIds.has(d.task_id) && taskIds.has(d.depends_on_task_id)),
-      plan_dependencies: fullDomain.plan_dependencies.filter((d) => planNodeIds.has(d.plan_node_id) && planNodeIds.has(d.depends_on_plan_node_id)),
+      task_dependencies: fullDomain.task_dependencies.filter(
+        (d) => taskIds.has(d.task_id) && taskIds.has(d.depends_on_task_id),
+      ),
+      plan_dependencies: fullDomain.plan_dependencies.filter(
+        (d) => planNodeIds.has(d.plan_node_id) && planNodeIds.has(d.depends_on_plan_node_id),
+      ),
     };
   }, [fullDomain, hasGroupFilter, groupThemeIds]);
 
@@ -481,10 +583,14 @@ export function WorkspaceApp() {
   const links = data.links;
   const activeTheme = themes.find((theme) => theme.id === activeThemeId) || themes[0] || null;
   const activeFocusSession = useMemo(
-    () => findActiveFocusSession(fullData.notes as unknown as Array<Record<string, unknown>>) as BaseRecord | null,
+    () =>
+      findActiveFocusSession(
+        fullData.notes as unknown as Array<Record<string, unknown>>,
+      ) as BaseRecord | null,
     [fullData.notes],
   );
-  const activeFocusTask = fullDomain.tasks.find((task) => task.id === focusSessionTaskId(activeFocusSession)) || null;
+  const activeFocusTask =
+    fullDomain.tasks.find((task) => task.id === focusSessionTaskId(activeFocusSession)) || null;
   // global shortcutは登録時のclosureを見るので、最新のtask idはrefで渡す（#316）。
   activeFocusTaskIdRef.current = activeFocusTask?.id || "";
 
@@ -492,7 +598,10 @@ export function WorkspaceApp() {
     const activeTaskId = focusSessionTaskId(activeFocusSession);
     if (activeTaskId && activeTaskId !== taskId) {
       setFocusTaskId(activeTaskId);
-      setToast(`進行中のFocus Session「${activeFocusTask?.title || "Task"}」を再開しました。終了後に別のTaskを開始できます。`, "info");
+      setToast(
+        `進行中のFocus Session「${activeFocusTask?.title || "Task"}」を再開しました。終了後に別のTaskを開始できます。`,
+        "info",
+      );
       return;
     }
     setFocusTaskId(taskId);
@@ -518,7 +627,8 @@ export function WorkspaceApp() {
         activeDirectory = String(directory || "");
         const targetDates = activityDatesToAutoExport({ now, time, directory, lastExportDate });
         if (!targetDates.length || canceled) return;
-        if (activityAutoExportFailedTarget.current === `${targetDates[0]}:${activeDirectory}`) return;
+        if (activityAutoExportFailedTarget.current === `${targetDates[0]}:${activeDirectory}`)
+          return;
 
         await runActivityAutoExport({
           dates: targetDates,
@@ -543,16 +653,24 @@ export function WorkspaceApp() {
             });
             if (canceled || result.canceled) throw new Error("自動出力を中断しました。");
           },
-          markExported: (targetDate) => workspaceApi.setPreference("activityLogLastAutoExportDate", targetDate).then(() => {}),
+          markExported: (targetDate) =>
+            workspaceApi.setPreference("activityLogLastAutoExportDate", targetDate).then(() => {}),
         });
         if (!canceled) {
-          const period = targetDates.length === 1 ? targetDates[0] : `${targetDates[0]}〜${targetDates.at(-1)}`;
-          setToast(`Activity Logを${targetDates.length}日分、自動出力しました。${period}`, "success");
+          const period =
+            targetDates.length === 1 ? targetDates[0] : `${targetDates[0]}〜${targetDates.at(-1)}`;
+          setToast(
+            `Activity Logを${targetDates.length}日分、自動出力しました。${period}`,
+            "success",
+          );
         }
       } catch (error) {
         activityAutoExportFailedTarget.current = `${activeTargetDate || current.date}:${activeDirectory}`;
         if (!canceled) {
-          setToast(`Activity Log ${activeTargetDate || current.date}の自動出力に失敗しました。次回起動時に再試行します。${errorMessage(error)}`, "danger");
+          setToast(
+            `Activity Log ${activeTargetDate || current.date}の自動出力に失敗しました。次回起動時に再試行します。${errorMessage(error)}`,
+            "danger",
+          );
         }
       } finally {
         activityAutoExportRunning.current = false;
@@ -575,25 +693,36 @@ export function WorkspaceApp() {
   }, []);
   const markDrawerFormDirty = useCallback(() => setDrawerFormDirty(true), []);
 
-  const registerEditForm = useCallback((form: HTMLFormElement | null) => {
-    const previous = drawerFormRef.current;
-    if (previous && previous !== form) previous.removeEventListener("input", handleDrawerFormInput);
-    if (noteAutoSaveTimer.current) { window.clearTimeout(noteAutoSaveTimer.current); noteAutoSaveTimer.current = null; }
-    drawerAutosavePromise.current = null;
-    drawerFormRef.current = form;
-    drawerFormInitialSignature.current = form ? formSignature(form) : "";
-    drawerFormInitialChecklistSignature.current = form ? formSignature(form, "checklist") : "";
-    drawerFormInitialNonChecklistSignature.current = form ? formSignature(form, "non-checklist") : "";
-    setDrawerFormDirty(false);
-    if (form) form.addEventListener("input", handleDrawerFormInput);
-  }, [handleDrawerFormInput]);
+  const registerEditForm = useCallback(
+    (form: HTMLFormElement | null) => {
+      const previous = drawerFormRef.current;
+      if (previous && previous !== form)
+        previous.removeEventListener("input", handleDrawerFormInput);
+      if (noteAutoSaveTimer.current) {
+        window.clearTimeout(noteAutoSaveTimer.current);
+        noteAutoSaveTimer.current = null;
+      }
+      drawerAutosavePromise.current = null;
+      drawerFormRef.current = form;
+      drawerFormInitialSignature.current = form ? formSignature(form) : "";
+      drawerFormInitialChecklistSignature.current = form ? formSignature(form, "checklist") : "";
+      drawerFormInitialNonChecklistSignature.current = form
+        ? formSignature(form, "non-checklist")
+        : "";
+      setDrawerFormDirty(false);
+      if (form) form.addEventListener("input", handleDrawerFormInput);
+    },
+    [handleDrawerFormInput],
+  );
 
   function isDrawerFormDirty(): boolean {
     const form = drawerFormRef.current;
-    return Boolean(form && drawer && (
-      formSignature(form, "checklist") !== drawerFormInitialChecklistSignature.current
-      || formSignature(form, "non-checklist") !== drawerFormInitialNonChecklistSignature.current
-    ));
+    return Boolean(
+      form &&
+      drawer &&
+      (formSignature(form, "checklist") !== drawerFormInitialChecklistSignature.current ||
+        formSignature(form, "non-checklist") !== drawerFormInitialNonChecklistSignature.current),
+    );
   }
 
   const registerDrawerSave = useCallback((promise: Promise<boolean>) => {
@@ -604,7 +733,9 @@ export function WorkspaceApp() {
     const form = drawerFormRef.current;
     if (!form || form.dataset.entityType !== "task") return;
     drawerFormInitialChecklistSignature.current = formSignature(form, "checklist");
-    setDrawerFormDirty(formSignature(form, "non-checklist") !== drawerFormInitialNonChecklistSignature.current);
+    setDrawerFormDirty(
+      formSignature(form, "non-checklist") !== drawerFormInitialNonChecklistSignature.current,
+    );
   }, []);
 
   // 既存メモのメタ（タイトル・種別など）は入力が止まって1.5秒後に静かに自動保存する。
@@ -636,14 +767,20 @@ export function WorkspaceApp() {
     };
   });
 
-  useEffect(() => () => {
-    if (noteAutoSaveTimer.current) window.clearTimeout(noteAutoSaveTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (noteAutoSaveTimer.current) window.clearTimeout(noteAutoSaveTimer.current);
+    },
+    [],
+  );
 
   async function saveDirtyDrawerForm(): Promise<boolean> {
     const form = drawerFormRef.current;
     if (!form || !drawer) return true;
-    if (noteAutoSaveTimer.current) { window.clearTimeout(noteAutoSaveTimer.current); noteAutoSaveTimer.current = null; }
+    if (noteAutoSaveTimer.current) {
+      window.clearTimeout(noteAutoSaveTimer.current);
+      noteAutoSaveTimer.current = null;
+    }
     const pending = drawerAutosavePromise.current;
     if (pending) {
       try {
@@ -679,20 +816,25 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     const isSketchEditorDrawer = route === "sketch-editor" && drawer?.type === "sketch";
-    if (!drawer || contentViewer || (!compactDrawerLayout && !isSketchEditorDrawer)) return undefined;
+    if (!drawer || contentViewer || (!compactDrawerLayout && !isSketchEditorDrawer))
+      return undefined;
     const generation = drawerGeneration.current;
     const isProtectedSurface = (target: EventTarget | null) => {
       if (!(target instanceof Element)) return true;
-      return Boolean(target.closest(".drawer, .content-viewer-overlay, .shortcut-overlay, .context-menu"));
+      return Boolean(
+        target.closest(".drawer, .content-viewer-overlay, .shortcut-overlay, .context-menu"),
+      );
     };
-    const isSketchWorkSurface = (target: EventTarget | null) => (
-      isSketchEditorDrawer
-      && target instanceof Element
-      && Boolean(target.closest(".sketch-toolbar, .sketch-page-rail, .sketch-canvas-area, .sketch-bottom-controls"))
-    );
-    const isActionTrigger = (target: EventTarget | null) => (
-      target instanceof Element && Boolean(target.closest("button, a, [role='button']"))
-    );
+    const isSketchWorkSurface = (target: EventTarget | null) =>
+      isSketchEditorDrawer &&
+      target instanceof Element &&
+      Boolean(
+        target.closest(
+          ".sketch-toolbar, .sketch-page-rail, .sketch-canvas-area, .sketch-bottom-controls",
+        ),
+      );
+    const isActionTrigger = (target: EventTarget | null) =>
+      target instanceof Element && Boolean(target.closest("button, a, [role='button']"));
     const onPointerDown = (event: PointerEvent) => {
       if (isProtectedSurface(event.target) || isActionTrigger(event.target)) return;
       void dismissCompactDrawer(generation);
@@ -761,9 +903,11 @@ export function WorkspaceApp() {
     void (async () => {
       if (!(await saveDirtyDrawerForm())) return;
       drawerGeneration.current += 1;
-      setDrawer((current) => next && current?.dataScope === "full" && !next.dataScope
-        ? { ...next, dataScope: "full" }
-        : next);
+      setDrawer((current) =>
+        next && current?.dataScope === "full" && !next.dataScope
+          ? { ...next, dataScope: "full" }
+          : next,
+      );
       if (!next) {
         requestAnimationFrame(() => {
           const trigger = drawerTrigger.current;
@@ -782,19 +926,30 @@ export function WorkspaceApp() {
         setToast("タスクを開けませんでした。画面を更新してもう一度試してください。", "danger");
         return;
       }
-      const schedule = fullDomain.schedules.find((entry) => entry.owner_type === "task" && entry.owner_id === task.id);
+      const schedule = fullDomain.schedules.find(
+        (entry) => entry.owner_type === "task" && entry.owner_id === task.id,
+      );
       location.hash = "todo";
       setRoute("todo");
-      openDrawer({ type: "task", mode: "edit", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
+      openDrawer({
+        type: "task",
+        mode: "edit",
+        entity: { ...task, _schedule: schedule } as Record<string, unknown>,
+      });
     });
   }, [fullDomain, loadState, setRoute, setToast]);
 
   useEffect(() => {
-    if (!window.api?.app?.onOpenTaskenRootTarget || detachedNoteId || loadState !== "success") return undefined;
+    if (!window.api?.app?.onOpenTaskenRootTarget || detachedNoteId || loadState !== "success")
+      return undefined;
     return window.api.app.onOpenTaskenRootTarget((request) => {
       if (request.kind === "command") {
         if (request.id === "create:capture") {
-          openDrawer({ type: "capture_entry", mode: "edit", entity: { state: "untriaged", captured_at: new Date().toISOString() } });
+          openDrawer({
+            type: "capture_entry",
+            mode: "edit",
+            entity: { state: "untriaged", captured_at: new Date().toISOString() },
+          });
           return;
         }
         if (request.id.startsWith("navigate:")) navigate(request.id.slice("navigate:".length));
@@ -810,10 +965,16 @@ export function WorkspaceApp() {
           startFocusSession(task.id);
           return;
         }
-        const schedule = fullDomain.schedules.find((entry) => entry.owner_type === "task" && entry.owner_id === task.id);
+        const schedule = fullDomain.schedules.find(
+          (entry) => entry.owner_type === "task" && entry.owner_id === task.id,
+        );
         location.hash = "todo";
         setRoute("todo");
-        openDrawer({ type: "task", mode: request.action === "edit" ? "edit" : undefined, entity: { ...task, _schedule: schedule } as Record<string, unknown> });
+        openDrawer({
+          type: "task",
+          mode: request.action === "edit" ? "edit" : undefined,
+          entity: { ...task, _schedule: schedule } as Record<string, unknown>,
+        });
         return;
       }
       if (request.kind === "note") {
@@ -836,7 +997,8 @@ export function WorkspaceApp() {
       }
       if (request.kind === "resource") {
         const resource = fullDomain.resources.find((entry) => entry.id === request.id);
-        if (resource) openDrawer({ type: "resource", entity: resource as unknown as Record<string, unknown> });
+        if (resource)
+          openDrawer({ type: "resource", entity: resource as unknown as Record<string, unknown> });
         return;
       }
       if (request.kind === "artifact") {
@@ -844,7 +1006,16 @@ export function WorkspaceApp() {
         if (artifact) openContentViewer({ type: "artifact", artifactId: artifact.id });
       }
     });
-  }, [allThemes, detachedNoteId, fullData.artifacts, fullDomain, loadState, setActiveThemeId, setRoute, setToast]);
+  }, [
+    allThemes,
+    detachedNoteId,
+    fullData.artifacts,
+    fullDomain,
+    loadState,
+    setActiveThemeId,
+    setRoute,
+    setToast,
+  ]);
 
   // 切り離しウィンドウから本体へ表示を渡す（#290 / #298）。本体側だけが受ける。
   useEffect(() => {
@@ -867,7 +1038,9 @@ export function WorkspaceApp() {
         setRoute(normalized);
       }),
     ];
-    return () => { for (const unsubscribe of unsubscribers) unsubscribe?.(); };
+    return () => {
+      for (const unsubscribe of unsubscribers) unsubscribe?.();
+    };
   }, [detachedNoteId, loadState, setInboxLane, setRoute]);
 
   const saveEntity: SaveEntity = async (
@@ -880,46 +1053,70 @@ export function WorkspaceApp() {
     try {
       if (type === "task") {
         const existing = fullDomain.tasks.find((candidate) => candidate.id === entity.id);
-        const isCompleting = Boolean(existing && existing.state !== "done" && entity.state === "done");
-        const isReopening = Boolean(existing && existing.state === "done" && entity.state !== "done");
+        const isCompleting = Boolean(
+          existing && existing.state !== "done" && entity.state === "done",
+        );
+        const isReopening = Boolean(
+          existing && existing.state === "done" && entity.state !== "done",
+        );
         const taskId = entity.id as string;
-        const context = { commandId: uuid(), issuedAt: new Date().toISOString(), entrypoint: drawer?.commandSource || "main_ui" } as const;
+        const context = {
+          commandId: uuid(),
+          issuedAt: new Date().toISOString(),
+          entrypoint: drawer?.commandSource || "main_ui",
+        } as const;
         const expectedVersion = Number((existing as unknown as Entity | undefined)?.version || 0);
         const outcome = !existing
           ? await taskClient.create(projectTaskDraft(entity), context)
           : isCompleting
-            ? await taskClient.complete(taskId, expectedVersion, entity.completion_note as string | null, projectTaskPatch(entity), context)
+            ? await taskClient.complete(
+                taskId,
+                expectedVersion,
+                entity.completion_note as string | null,
+                projectTaskPatch(entity),
+                context,
+              )
             : isReopening
               ? await taskClient.reopen(taskId, expectedVersion, projectTaskPatch(entity), context)
               : await taskClient.update(taskId, expectedVersion, projectTaskPatch(entity), context);
         if (!outcome.task) throw new Error("Task commandの結果にTaskがありません。");
         applyExternalSave("task", outcome.task as unknown as Entity);
-        if (!options.quiet) setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
+        if (!options.quiet)
+          setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
         return outcome.task as unknown as Entity;
       }
-      const saved = type === "note"
-        ? await workspaceApi.saveDocument({
-          entity: entity as Entity,
-          snapshot: documentSnapshot || {
-            owner: { recordType: "note", entityId: String(entity.id) },
-            body: String(entity.body_markdown ?? ""),
-            expectedRevision: Number(entity.version || 0),
-          },
-          options,
-          companions: documentCompanions,
-        })
-        : await saveWorkspaceEntity(type, entity as Entity, options);
+      const saved =
+        type === "note"
+          ? await workspaceApi.saveDocument({
+              entity: entity as Entity,
+              snapshot: documentSnapshot || {
+                owner: { recordType: "note", entityId: String(entity.id) },
+                body: String(entity.body_markdown ?? ""),
+                expectedRevision: Number(entity.version || 0),
+              },
+              options,
+              companions: documentCompanions,
+            })
+          : await saveWorkspaceEntity(type, entity as Entity, options);
       if (!options.quiet) {
-        const binding = saved.properties_json && typeof saved.properties_json === "object"
-          ? (saved.properties_json as Record<string, unknown>).canonical_markdown
-          : null;
-        const syncState = binding && typeof binding === "object" && !Array.isArray(binding)
-          ? String((binding as Record<string, unknown>).sync_state || "")
-          : "";
+        const binding =
+          saved.properties_json && typeof saved.properties_json === "object"
+            ? (saved.properties_json as Record<string, unknown>).canonical_markdown
+            : null;
+        const syncState =
+          binding && typeof binding === "object" && !Array.isArray(binding)
+            ? String((binding as Record<string, unknown>).sync_state || "")
+            : "";
         if (type === "note" && syncState === "conflict") {
-          setToast("Taskenへ保存しましたが、Markdownが外部で変更されています。内容を確認して再試行してください。", "warning");
+          setToast(
+            "Taskenへ保存しましたが、Markdownが外部で変更されています。内容を確認して再試行してください。",
+            "warning",
+          );
         } else if (type === "note" && ["internal_ahead", "unavailable"].includes(syncState)) {
-          setToast("Taskenへ保存しましたが、Markdownを更新できませんでした。保存先を確認して再試行してください。", "warning");
+          setToast(
+            "Taskenへ保存しましたが、Markdownを更新できませんでした。保存先を確認して再試行してください。",
+            "warning",
+          );
         } else {
           setToast(entity.id ? "変更を保存しました。" : "追加しました。", "success");
         }
@@ -937,17 +1134,38 @@ export function WorkspaceApp() {
     return receipt;
   };
 
-  const createTaskFromCapture = async (task: Entity, schedule: Entity | null, capture: Entity, artifactIds: string[]): Promise<CommandReceipt> => {
-    const currentCapture = fullData.capture_entrys?.find((entry) => entry.id === capture.id) || capture;
-    const expectedVersions: ExpectedVersion[] = [{ type: "capture_entry", id: currentCapture.id, version: Number(currentCapture.version || 0) }];
+  const createTaskFromCapture = async (
+    task: Entity,
+    schedule: Entity | null,
+    capture: Entity,
+    artifactIds: string[],
+  ): Promise<CommandReceipt> => {
+    const currentCapture =
+      fullData.capture_entrys?.find((entry) => entry.id === capture.id) || capture;
+    const expectedVersions: ExpectedVersion[] = [
+      {
+        type: "capture_entry",
+        id: currentCapture.id,
+        version: Number(currentCapture.version || 0),
+      },
+    ];
     for (const artifactId of artifactIds) {
       const artifact = (fullData.artifacts || []).find((entry) => entry.id === artifactId);
       if (!artifact) throw new Error(`Artifactが見つかりません: ${artifactId}`);
-      expectedVersions.push({ type: "artifact", id: artifact.id, version: Number(artifact.version || 0) });
+      expectedVersions.push({
+        type: "artifact",
+        id: artifact.id,
+        version: Number(artifact.version || 0),
+      });
     }
     if (schedule) {
       const existingSchedule = fullDomain.schedules.find((entry) => entry.id === schedule.id);
-      if (existingSchedule) expectedVersions.push({ type: "schedule", id: existingSchedule.id, version: Number((existingSchedule as unknown as Entity).version || 0) });
+      if (existingSchedule)
+        expectedVersions.push({
+          type: "schedule",
+          id: existingSchedule.id,
+          version: Number((existingSchedule as unknown as Entity).version || 0),
+        });
     }
     const receipt = await workspaceApi.executeCommand({
       commandId: uuid(),
@@ -970,7 +1188,11 @@ export function WorkspaceApp() {
     return receipt;
   };
 
-  const saveEntities: SaveEntities = async (operations, successMessage = "変更を保存しました。", source: ApplicationCommandSource = drawer?.commandSource || "main_ui") => {
+  const saveEntities: SaveEntities = async (
+    operations,
+    successMessage = "変更を保存しました。",
+    source: ApplicationCommandSource = drawer?.commandSource || "main_ui",
+  ) => {
     try {
       // Taskの書き込みは、画面・Today・Inbox・補助windowを問わず同じ
       // Application Commandへ集約する。旧renderer event生成はここで除去し、
@@ -980,22 +1202,36 @@ export function WorkspaceApp() {
       const taskIds = new Set(taskOperations.map((operation) => operation.entity.id));
       const remaining = operations.filter((operation) => {
         if (operation.type === "task" && taskIds.has(operation.entity.id)) return false;
-        if (operation.type === "schedule" && operation.entity.owner_type === "task" && taskIds.has(String(operation.entity.owner_id))) return false;
-        return !(operation.type === "change_event"
-          && operation.entity.entity_type === "task"
-          && taskIds.has(String(operation.entity.entity_id)));
+        if (
+          operation.type === "schedule" &&
+          operation.entity.owner_type === "task" &&
+          taskIds.has(String(operation.entity.owner_id))
+        )
+          return false;
+        return !(
+          operation.type === "change_event" &&
+          operation.entity.entity_type === "task" &&
+          taskIds.has(String(operation.entity.entity_id))
+        );
       });
-      const taskReferences = remaining.filter((operation) => (
-        operation.type === TASK_REFERENCE_TYPE
-        && (taskIds.has(String(operation.entity.source_id)) || taskIds.has(String(operation.entity.target_id)))
-      ));
+      const taskReferences = remaining.filter(
+        (operation) =>
+          operation.type === TASK_REFERENCE_TYPE &&
+          (taskIds.has(String(operation.entity.source_id)) ||
+            taskIds.has(String(operation.entity.target_id))),
+      );
       const unsupportedMixed = remaining.filter((operation) => !taskReferences.includes(operation));
 
       const entityOperations = operations.filter((operation) => operation.type !== "change_event");
       const existingRecord = (type: EntityType, id: string): Entity | undefined => {
         const collection = collectionKeyForEntityType(type);
         const records = (fullData as unknown as Record<string, unknown>)[collection];
-        return Array.isArray(records) ? records.find((record): record is Entity => Boolean(record) && typeof record === "object" && (record as Entity).id === id) : undefined;
+        return Array.isArray(records)
+          ? records.find(
+              (record): record is Entity =>
+                Boolean(record) && typeof record === "object" && (record as Entity).id === id,
+            )
+          : undefined;
       };
       const expectedFor = (type: EntityType, id: string): ExpectedVersion | null => {
         const existing = existingRecord(type, id);
@@ -1009,21 +1245,38 @@ export function WorkspaceApp() {
       };
 
       // 学び付き完了は、繰返しの次Task/Scheduleも含めて一つのCommandへ写す。
-      const learningNoteOperation = entityOperations.find((operation) => (
-        operation.type === "note" && operation.entity.note_type === "learning" && typeof operation.entity.item_id === "string"
-      ));
+      const learningNoteOperation = entityOperations.find(
+        (operation) =>
+          operation.type === "note" &&
+          operation.entity.note_type === "learning" &&
+          typeof operation.entity.item_id === "string",
+      );
       if (taskOperations.length && learningNoteOperation?.type === "note") {
         const taskId = String(learningNoteOperation.entity.item_id);
-        const currentTaskOperation = taskOperations.find((operation) => operation.entity.id === taskId);
-        const nextTaskOperations = taskOperations.filter((operation) => operation.entity.id !== taskId);
-        const nextScheduleOperations = entityOperations.filter((operation) => operation.type === "schedule" && nextTaskOperations.some((task) => task.entity.id === operation.entity.owner_id));
+        const currentTaskOperation = taskOperations.find(
+          (operation) => operation.entity.id === taskId,
+        );
+        const nextTaskOperations = taskOperations.filter(
+          (operation) => operation.entity.id !== taskId,
+        );
+        const nextScheduleOperations = entityOperations.filter(
+          (operation) =>
+            operation.type === "schedule" &&
+            nextTaskOperations.some((task) => task.entity.id === operation.entity.owner_id),
+        );
         const learningRepresentedCount = taskOperations.length + 1 + nextScheduleOperations.length;
-        const learningEntitiesAreExplicit = currentTaskOperation
-          && nextTaskOperations.length <= 1
-          && nextScheduleOperations.length <= 1
-          && learningRepresentedCount === entityOperations.length
-          && entityOperations.every((operation) => operation.type === "task" || operation.type === "note" || operation.type === "schedule")
-          && entityOperations.filter((operation) => operation.type === "note").length === 1;
+        const learningEntitiesAreExplicit =
+          currentTaskOperation &&
+          nextTaskOperations.length <= 1 &&
+          nextScheduleOperations.length <= 1 &&
+          learningRepresentedCount === entityOperations.length &&
+          entityOperations.every(
+            (operation) =>
+              operation.type === "task" ||
+              operation.type === "note" ||
+              operation.type === "schedule",
+          ) &&
+          entityOperations.filter((operation) => operation.type === "note").length === 1;
         if (learningEntitiesAreExplicit && currentTaskOperation) {
           const expected = expectedFor("task", taskId);
           if (!expected) throw new Error("学び付き完了のTaskがWorkspaceにありません。");
@@ -1048,33 +1301,75 @@ export function WorkspaceApp() {
 
       // Focus終了はsession、選択Note、学びのpromoted Note/Reference、次Task、
       // status updateを名前付きpayloadへ写し、旧saveManyの部分commitを許さない。
-      const focusSessionOperations = entityOperations.filter((operation) => (
-        operation.type === "note"
-        && (operation.entity.properties_json as Record<string, unknown> | undefined)?.document_role === "focus_session"
-        && (operation.entity.properties_json as Record<string, unknown> | undefined)?.session_state === "ended"
-      ));
+      const focusSessionOperations = entityOperations.filter(
+        (operation) =>
+          operation.type === "note" &&
+          (operation.entity.properties_json as Record<string, unknown> | undefined)
+            ?.document_role === "focus_session" &&
+          (operation.entity.properties_json as Record<string, unknown> | undefined)
+            ?.session_state === "ended",
+      );
       const focusSessionOperation = focusSessionOperations[0];
       if (taskOperations.length && focusSessionOperation?.type === "note") {
-        const sessionProps = focusSessionOperation.entity.properties_json as Record<string, unknown>;
+        const sessionProps = focusSessionOperation.entity.properties_json as Record<
+          string,
+          unknown
+        >;
         const focusTaskId = typeof sessionProps.task_id === "string" ? sessionProps.task_id : "";
-        const currentTaskOperation = taskOperations.find((operation) => operation.entity.id === focusTaskId);
-        const noteOperations = entityOperations.filter((operation) => operation.type === "note" && operation !== focusSessionOperation);
-        const existingNotes = noteOperations.filter((operation) => Boolean(existingRecord("note", operation.entity.id)));
-        const promotedNotes = noteOperations.filter((operation) => !existingRecord("note", operation.entity.id));
-        const referenceOperations = entityOperations.filter((operation) => operation.type === TASK_REFERENCE_TYPE);
-        const statusOperations = entityOperations.filter((operation) => operation.type === "status_update");
-        const nextTaskOperations = taskOperations.filter((operation) => operation.entity.id !== focusTaskId);
-        const representedCount = 1 + (currentTaskOperation ? 1 : 0) + noteOperations.length + referenceOperations.length + statusOperations.length + nextTaskOperations.length;
-        const focusTypesAreExplicit = entityOperations.every((operation) => operation.type === "task" || operation.type === "note" || operation.type === TASK_REFERENCE_TYPE || operation.type === "status_update")
-          && representedCount === entityOperations.length
-          && focusSessionOperations.length === 1
-          && existingNotes.length <= 1
-          && promotedNotes.length <= 1
-          && referenceOperations.length <= 1
-          && statusOperations.length <= 1
-          && nextTaskOperations.length <= 1
-          && !entityOperations.some((operation) => operation.type === "task" && operation.entity.id === focusTaskId && operation.entity.state !== "done");
-        if (focusTypesAreExplicit && focusTaskId && (!currentTaskOperation || currentTaskOperation.entity.state === "done")) {
+        const currentTaskOperation = taskOperations.find(
+          (operation) => operation.entity.id === focusTaskId,
+        );
+        const noteOperations = entityOperations.filter(
+          (operation) => operation.type === "note" && operation !== focusSessionOperation,
+        );
+        const existingNotes = noteOperations.filter((operation) =>
+          Boolean(existingRecord("note", operation.entity.id)),
+        );
+        const promotedNotes = noteOperations.filter(
+          (operation) => !existingRecord("note", operation.entity.id),
+        );
+        const referenceOperations = entityOperations.filter(
+          (operation) => operation.type === TASK_REFERENCE_TYPE,
+        );
+        const statusOperations = entityOperations.filter(
+          (operation) => operation.type === "status_update",
+        );
+        const nextTaskOperations = taskOperations.filter(
+          (operation) => operation.entity.id !== focusTaskId,
+        );
+        const representedCount =
+          1 +
+          (currentTaskOperation ? 1 : 0) +
+          noteOperations.length +
+          referenceOperations.length +
+          statusOperations.length +
+          nextTaskOperations.length;
+        const focusTypesAreExplicit =
+          entityOperations.every(
+            (operation) =>
+              operation.type === "task" ||
+              operation.type === "note" ||
+              operation.type === TASK_REFERENCE_TYPE ||
+              operation.type === "status_update",
+          ) &&
+          representedCount === entityOperations.length &&
+          focusSessionOperations.length === 1 &&
+          existingNotes.length <= 1 &&
+          promotedNotes.length <= 1 &&
+          referenceOperations.length <= 1 &&
+          statusOperations.length <= 1 &&
+          nextTaskOperations.length <= 1 &&
+          !entityOperations.some(
+            (operation) =>
+              operation.type === "task" &&
+              operation.entity.id === focusTaskId &&
+              operation.entity.state !== "done",
+          );
+        if (
+          focusTypesAreExplicit &&
+          focusTaskId &&
+          (!currentTaskOperation || currentTaskOperation.entity.state === "done")
+        ) {
           const sessionExpected = expectedFor("note", focusSessionOperation.entity.id);
           if (!sessionExpected) throw new Error("Focus SessionがWorkspaceにありません。");
           const expectedVersions = [sessionExpected];
@@ -1096,9 +1391,13 @@ export function WorkspaceApp() {
               task: currentTaskOperation?.entity || existingRecord("task", focusTaskId) || null,
               selectedNote: existingNotes[0]?.entity || null,
               promotedNote: promotedNotes[0]?.entity || null,
-              promotedReference: referenceOperations[0]?.type === TASK_REFERENCE_TYPE ? referenceOperations[0].entity : null,
+              promotedReference:
+                referenceOperations[0]?.type === TASK_REFERENCE_TYPE
+                  ? referenceOperations[0].entity
+                  : null,
               nextTask: nextTaskOperations[0]?.entity || null,
-              statusUpdate: statusOperations[0]?.type === "status_update" ? statusOperations[0].entity : null,
+              statusUpdate:
+                statusOperations[0]?.type === "status_update" ? statusOperations[0].entity : null,
               completeTask: Boolean(currentTaskOperation),
             },
             actor: { kind: "user" },
@@ -1113,11 +1412,20 @@ export function WorkspaceApp() {
 
       // AI Proposalは候補集合を型付きcandidateへ変換する。候補数・型に制限を
       // 設けた汎用SaveOperationの代替であり、proposal状態更新まで同じtransaction。
-      const proposalOperation = entityOperations.find((operation) => operation.type === "ai_proposal");
-      const aiCandidateOperations = entityOperations.filter((operation) => operation.type !== "ai_proposal");
+      const proposalOperation = entityOperations.find(
+        (operation) => operation.type === "ai_proposal",
+      );
+      const aiCandidateOperations = entityOperations.filter(
+        (operation) => operation.type !== "ai_proposal",
+      );
       if (proposalOperation?.type === "ai_proposal" && aiCandidateOperations.length) {
-        const candidates = aiCandidateOperations.map((operation) => ({ type: operation.type, entity: operation.entity })) as unknown as ApplyAiProposalCommandPayload["candidates"];
-        const candidateExpected = candidates.map(({ type, entity }) => expectedFor(type, entity.id)).filter((entry): entry is ExpectedVersion => Boolean(entry));
+        const candidates = aiCandidateOperations.map((operation) => ({
+          type: operation.type,
+          entity: operation.entity,
+        })) as unknown as ApplyAiProposalCommandPayload["candidates"];
+        const candidateExpected = candidates
+          .map(({ type, entity }) => expectedFor(type, entity.id))
+          .filter((entry): entry is ExpectedVersion => Boolean(entry));
         const proposalExpected = expectedFor("ai_proposal", proposalOperation.entity.id);
         if (!proposalExpected) throw new Error("AI ProposalがWorkspaceにありません。");
         await executeTyped({
@@ -1133,51 +1441,91 @@ export function WorkspaceApp() {
         return saved;
       }
       if (taskOperations.length && unsupportedMixed.length) {
-        throw new Error("Taskの保存に未対応の混在操作が含まれています。Task Commandへ分解してから再試行してください。");
+        throw new Error(
+          "Taskの保存に未対応の混在操作が含まれています。Task Commandへ分解してから再試行してください。",
+        );
       }
       const envelopes: CommandEnvelope[] = [];
       for (const taskOperation of taskOperations) {
         const task = taskOperation.entity;
         const existing = fullDomain.tasks.find((candidate) => candidate.id === task.id);
-        const scheduleOperation = operations.find((operation) => (
-          operation.type === "schedule"
-          && operation.entity.owner_type === "task"
-          && operation.entity.owner_id === task.id
-        ));
-        const isCompleting = Boolean(existing && existing.state !== "done" && task.state === "done");
+        const scheduleOperation = operations.find(
+          (operation) =>
+            operation.type === "schedule" &&
+            operation.entity.owner_type === "task" &&
+            operation.entity.owner_id === task.id,
+        );
+        const isCompleting = Boolean(
+          existing && existing.state !== "done" && task.state === "done",
+        );
         const isReopening = Boolean(existing && existing.state === "done" && task.state !== "done");
         const existingSchedule = scheduleOperation
           ? fullDomain.schedules.find((schedule) => schedule.id === scheduleOperation.entity.id)
           : undefined;
         const references = taskReferences
-          .filter((operation) => taskIds.has(task.id) && (
-            String(operation.entity.source_id) === task.id || String(operation.entity.target_id) === task.id
-          ))
+          .filter(
+            (operation) =>
+              taskIds.has(task.id) &&
+              (String(operation.entity.source_id) === task.id ||
+                String(operation.entity.target_id) === task.id),
+          )
           .map((operation) => operation.entity);
         const envelope: CommandEnvelope = {
           commandId: uuid(),
-          name: !existing ? "CreateTask" : isCompleting ? "CompleteTask" : isReopening ? "ReopenTask" : "UpdateTask",
-          payload: !existing || (!isCompleting && !isReopening)
-            ? { task, schedule: scheduleOperation?.entity || null, references: references.length ? references : undefined }
-            : { taskId: task.id, task, completionNote: task.completion_note as string | null, schedule: scheduleOperation?.entity || null, references: references.length ? references : undefined },
+          name: !existing
+            ? "CreateTask"
+            : isCompleting
+              ? "CompleteTask"
+              : isReopening
+                ? "ReopenTask"
+                : "UpdateTask",
+          payload:
+            !existing || (!isCompleting && !isReopening)
+              ? {
+                  task,
+                  schedule: scheduleOperation?.entity || null,
+                  references: references.length ? references : undefined,
+                }
+              : {
+                  taskId: task.id,
+                  task,
+                  completionNote: task.completion_note as string | null,
+                  schedule: scheduleOperation?.entity || null,
+                  references: references.length ? references : undefined,
+                },
           actor: { kind: "user" },
           source,
           expectedVersions: existing
             ? [
-              { type: "task", id: task.id, version: Number((existing as unknown as Entity).version || 0) },
-              ...(existingSchedule ? [{ type: "schedule" as const, id: existingSchedule.id, version: Number((existingSchedule as unknown as Entity).version || 0) }] : []),
-            ]
+                {
+                  type: "task",
+                  id: task.id,
+                  version: Number((existing as unknown as Entity).version || 0),
+                },
+                ...(existingSchedule
+                  ? [
+                      {
+                        type: "schedule" as const,
+                        id: existingSchedule.id,
+                        version: Number((existingSchedule as unknown as Entity).version || 0),
+                      },
+                    ]
+                  : []),
+              ]
             : [],
           issuedAt: new Date().toISOString(),
         };
         envelopes.push(envelope);
       }
-      const receipts: CommandReceipt[] = envelopes.length ? await workspaceApi.executeCommands(envelopes) : [];
+      const receipts: CommandReceipt[] = envelopes.length
+        ? await workspaceApi.executeCommands(envelopes)
+        : [];
       for (const receipt of receipts) {
         applyCommandReceipt(receipt);
         saved = [...saved, ...receipt.changes.map(({ entity }) => entity)];
       }
-      if (!taskOperations.length && remaining.length) saved = [...saved, ...(await saveWorkspaceEntities(remaining))];
+      if (!taskOperations.length && remaining.length)
+        saved = [...saved, ...(await saveWorkspaceEntities(remaining))];
       setToast(successMessage, "success");
       return saved;
     } catch (error) {
@@ -1190,26 +1538,41 @@ export function WorkspaceApp() {
     const id = entity.id ?? "";
     if (type === "theme") {
       const name = entityTitle(type, entity as BaseRecord);
-      const openTasks = fullDomain.tasks.filter((task) => task.project_id === id && task.state !== "done" && task.state !== "cancelled").length;
-      const openWaitings = fullDomain.waitings.filter((waiting) => waiting.project_id === id && waiting.state === "waiting").length;
-      const openPlanNodes = fullDomain.plan_nodes.filter((node) => node.project_id === id && node.state !== "done" && node.state !== "cancelled").length;
+      const openTasks = fullDomain.tasks.filter(
+        (task) => task.project_id === id && task.state !== "done" && task.state !== "cancelled",
+      ).length;
+      const openWaitings = fullDomain.waitings.filter(
+        (waiting) => waiting.project_id === id && waiting.state === "waiting",
+      ).length;
+      const openPlanNodes = fullDomain.plan_nodes.filter(
+        (node) => node.project_id === id && node.state !== "done" && node.state !== "cancelled",
+      ).length;
       const notesCount = fullDomain.notes.filter((note) => note.project_id === id).length;
-      const resourcesCount = fullDomain.resources.filter((resource) => resource.project_id === id).length;
+      const resourcesCount = fullDomain.resources.filter(
+        (resource) => resource.project_id === id,
+      ).length;
       const relatedCount = openTasks + openWaitings + openPlanNodes + notesCount + resourcesCount;
-      const detail = relatedCount > 0
-        ? `\n未完了/待ち/メモ/資料など関連する項目が${relatedCount}件あります。`
-        : "";
-      const ok = confirm(`「${name}」を削除しますか？${detail}\n削除後も「元に戻す」から復元できます。`);
+      const detail =
+        relatedCount > 0
+          ? `\n未完了/待ち/メモ/資料など関連する項目が${relatedCount}件あります。`
+          : "";
+      const ok = confirm(
+        `「${name}」を削除しますか？${detail}\n削除後も「元に戻す」から復元できます。`,
+      );
       if (!ok) return;
     }
     try {
       if (type === "task") {
         const current = fullDomain.tasks.find((task) => task.id === id);
         if (!current) throw new Error("削除対象のTaskがありません。");
-        const outcome = await taskClient.delete(id, Number((current as unknown as Entity).version || 0), {
-          commandId: uuid(),
-          issuedAt: new Date().toISOString(),
-        });
+        const outcome = await taskClient.delete(
+          id,
+          Number((current as unknown as Entity).version || 0),
+          {
+            commandId: uuid(),
+            issuedAt: new Date().toISOString(),
+          },
+        );
         if (outcome.task) applyExternalSave("task", outcome.task as unknown as Entity);
       } else {
         await removeWorkspaceEntity(type, id);
@@ -1222,7 +1585,10 @@ export function WorkspaceApp() {
       drawerGeneration.current += 1;
       setDrawer(null);
       requestAnimationFrame(() => drawerTrigger.current?.focus?.());
-      setToast(`${entityTitle(type, entity as BaseRecord)}を削除しました。元に戻せます。`, "warning");
+      setToast(
+        `${entityTitle(type, entity as BaseRecord)}を削除しました。元に戻せます。`,
+        "warning",
+      );
     } catch (error) {
       setToast(`削除できませんでした。${errorMessage(error)}`, "danger");
     }
@@ -1244,7 +1610,10 @@ export function WorkspaceApp() {
     await saveFormElement(event.currentTarget);
   }
 
-  async function saveFormElement(form: HTMLFormElement, options: { closeAfterSave?: boolean; quiet?: boolean } = {}): Promise<boolean> {
+  async function saveFormElement(
+    form: HTMLFormElement,
+    options: { closeAfterSave?: boolean; quiet?: boolean } = {},
+  ): Promise<boolean> {
     const closeAfterSave = options.closeAfterSave ?? true;
     const submittedSignature = formSignature(form);
     const finishSave = (saved?: Entity) => {
@@ -1254,11 +1623,17 @@ export function WorkspaceApp() {
         drawerFormInitialNonChecklistSignature.current = formSignature(form, "non-checklist");
         setDrawerFormDirty(false);
       }
-      if (closeAfterSave) { closeDrawer(); return; }
+      if (closeAfterSave) {
+        closeDrawer();
+        return;
+      }
       // 開いたままの自動保存: 保存後の値でdrawer.entityを更新し、フォーム内の保存状態表示を実データと一致させる。
-      if (saved) setDrawer((current) => (current && drawerFormRef.current === form
-        ? { ...current, entity: saved as unknown as Record<string, unknown> }
-        : current));
+      if (saved)
+        setDrawer((current) =>
+          current && drawerFormRef.current === form
+            ? { ...current, entity: saved as unknown as Record<string, unknown> }
+            : current,
+        );
     };
     const values = new FormData(form);
     const type = form.dataset.entityType as DrawerEntityType | undefined;
@@ -1288,7 +1663,10 @@ export function WorkspaceApp() {
     }
     if (type === "theme") {
       const name = formText(values, "name");
-      if (!name) { setToast("テーマ名を入力してください。"); return false; }
+      if (!name) {
+        setToast("テーマ名を入力してください。");
+        return false;
+      }
       const { status: _status, ...rest } = base;
       entity = {
         ...rest,
@@ -1299,7 +1677,9 @@ export function WorkspaceApp() {
         group: formText(values, "group"),
         storage_root: formText(values, "storage_root") || null,
         // 配下EntityのAI公開既定（#294）。未設定に戻すとworkspace既定を使う。
-        default_ai_visibility: themeDefaultAiVisibilityFromForm(values, base, (name) => Boolean(named(name))),
+        default_ai_visibility: themeDefaultAiVisibilityFromForm(values, base, (name) =>
+          Boolean(named(name)),
+        ),
       };
     } else if (type === "sketch") {
       const title = formText(values, "title");
@@ -1315,7 +1695,10 @@ export function WorkspaceApp() {
       };
     } else if (type === "note") {
       const title = formText(values, "title");
-      if (!title) { setToast("タイトルを入力してください。"); return false; }
+      if (!title) {
+        setToast("タイトルを入力してください。");
+        return false;
+      }
       // 本文は Notes 中央エリアが正本。ドロワーに本文フィールドがあるときだけフォーム値を使う。
       const hasBodyField = Boolean(named("body_markdown"));
       const body = hasBodyField
@@ -1331,33 +1714,52 @@ export function WorkspaceApp() {
       const hasSourceUrlField = Boolean(named("source_url"));
       const publishEnabled = values.getAll("publish_enabled").map(String).includes("true");
       const hasHeadingNumberFields = Boolean(named("heading_numbers"));
-      const headingNumbers = hasHeadingNumberFields && values.getAll("heading_numbers").map(String).includes("true");
+      const headingNumbers =
+        hasHeadingNumberFields && values.getAll("heading_numbers").map(String).includes("true");
       const headingNumberStartRaw = formText(values, "heading_number_start");
-      const headingNumberStart = headingNumberStartRaw === "1" || headingNumberStartRaw === "2" || headingNumberStartRaw === "3" || headingNumberStartRaw === "4"
-        ? Number(headingNumberStartRaw)
-        : 2;
-      const headingNumberLevels = values.getAll("heading_number_levels")
+      const headingNumberStart =
+        headingNumberStartRaw === "1" ||
+        headingNumberStartRaw === "2" ||
+        headingNumberStartRaw === "3" ||
+        headingNumberStartRaw === "4"
+          ? Number(headingNumberStartRaw)
+          : 2;
+      const headingNumberLevels = values
+        .getAll("heading_number_levels")
         .map(Number)
-        .filter((level): level is 1 | 2 | 3 | 4 => level === 1 || level === 2 || level === 3 || level === 4)
+        .filter(
+          (level): level is 1 | 2 | 3 | 4 =>
+            level === 1 || level === 2 || level === 3 || level === 4,
+        )
         .filter((level, index, levels) => levels.indexOf(level) === index)
         .sort((left, right) => left - right);
       const hasHeadingNumberLevels = Boolean(named("heading_number_levels_present"));
-      const promptProperties = noteType === "prompt" ? {
-        prompt_purpose: formText(values, "prompt_purpose", String(base.note_type) === "report_prompt" ? "report" : "other"),
-        prompt_variables: formText(values, "prompt_variables"),
-        is_default: values.getAll("prompt_is_default").map(String).includes("true"),
-      } : {};
-      const reportProperties = noteType === "report" ? {
-        report_type: formText(values, "report_type", "weekly"),
-        period_start: formText(values, "period_start") || null,
-        period_end: formText(values, "period_end") || null,
-      } : {};
+      const promptProperties =
+        noteType === "prompt"
+          ? {
+              prompt_purpose: formText(
+                values,
+                "prompt_purpose",
+                String(base.note_type) === "report_prompt" ? "report" : "other",
+              ),
+              prompt_variables: formText(values, "prompt_variables"),
+              is_default: values.getAll("prompt_is_default").map(String).includes("true"),
+            }
+          : {};
+      const reportProperties =
+        noteType === "report"
+          ? {
+              report_type: formText(values, "report_type", "weekly"),
+              period_start: formText(values, "period_start") || null,
+              period_end: formText(values, "period_end") || null,
+            }
+          : {};
       const headingNumberProperties = hasHeadingNumberFields
         ? {
-          heading_numbers: headingNumbers,
-          heading_number_start: headingNumberLevels[0] ?? headingNumberStart,
-          heading_number_levels: hasHeadingNumberLevels ? headingNumberLevels : [2, 3, 4],
-        }
+            heading_numbers: headingNumbers,
+            heading_number_start: headingNumberLevels[0] ?? headingNumberStart,
+            heading_number_levels: hasHeadingNumberLevels ? headingNumberLevels : [2, 3, 4],
+          }
         : {};
       const { theme_id: _legacyThemeId, ...baseWithoutLegacyTheme } = base;
       const canonicalBase = stripLineageDraftMetadata(baseWithoutLegacyTheme);
@@ -1373,10 +1775,18 @@ export function WorkspaceApp() {
         content_format: formText(values, "content_format") || "markdown",
         project_id: canonicalThemeId(formText(values, "theme_id"), { defaultPersonal: true }),
         // Note編集UIから関連タスク（item_id）を外した。フォームに無いときは既存値を保持する（#144）。
-        item_id: noteType === "report"
-          ? null
-          : (named("item_id") ? (formText(values, "item_id") || null) : ((base.item_id as string | null) ?? null)),
-        source_url: noteType === "report" ? "" : hasSourceUrlField ? formText(values, "source_url") : (base.source_url as string | undefined),
+        item_id:
+          noteType === "report"
+            ? null
+            : named("item_id")
+              ? formText(values, "item_id") || null
+              : ((base.item_id as string | null) ?? null),
+        source_url:
+          noteType === "report"
+            ? ""
+            : hasSourceUrlField
+              ? formText(values, "source_url")
+              : (base.source_url as string | undefined),
         source_record_id: formText(values, "source_record_id") || null,
         properties_json: {
           ...((base.properties_json as Record<string, unknown>) || {}),
@@ -1390,7 +1800,9 @@ export function WorkspaceApp() {
     } else if (type === "status_update") {
       entity = {
         ...base,
-        theme_id: canonicalThemeId(formText(values, "theme_id", activeThemeId), { defaultPersonal: true }),
+        theme_id: canonicalThemeId(formText(values, "theme_id", activeThemeId), {
+          defaultPersonal: true,
+        }),
         date: formText(values, "date", todayIso()),
         status: formText(values, "status", "on_track"),
         summary: formText(values, "summary"),
@@ -1398,7 +1810,10 @@ export function WorkspaceApp() {
         risks: formText(values, "risks"),
         next_actions: formText(values, "next_actions"),
       };
-      if (!entity.summary) { setToast("現在地の概要を入力してください。"); return false; }
+      if (!entity.summary) {
+        setToast("現在地の概要を入力してください。");
+        return false;
+      }
     } else if (type === "knowledge_node") {
       const autoTarget = str(base._auto_edge_target_id);
       const autoRelation = str(base._auto_edge_relation_type);
@@ -1414,30 +1829,41 @@ export function WorkspaceApp() {
         theme_id: canonicalThemeId(formText(values, "theme_id"), { defaultPersonal: true }),
         source_type: sourceType,
         source_id: sourceId,
-        source_note_id: sourceType === "note" ? sourceId : (base.source_note_id as string | null) ?? null,
-        source_link_id: sourceType === "resource" ? sourceId : (base.source_link_id as string | null) ?? null,
-        source_item_id: (sourceType === "task" || sourceType === "waiting" || sourceType === "plan_node") ? sourceId : (base.source_item_id as string | null) ?? null,
+        source_note_id:
+          sourceType === "note" ? sourceId : ((base.source_note_id as string | null) ?? null),
+        source_link_id:
+          sourceType === "resource" ? sourceId : ((base.source_link_id as string | null) ?? null),
+        source_item_id:
+          sourceType === "task" || sourceType === "waiting" || sourceType === "plan_node"
+            ? sourceId
+            : ((base.source_item_id as string | null) ?? null),
         confidence: formText(values, "confidence", "medium"),
         status: formText(values, "status", "active"),
         ...aiMetadataFromForm(values, base, (name) => Boolean(named(name))),
       };
-      if (!entity.title) { setToast("Knowledgeのタイトルを入力してください。"); return false; }
+      if (!entity.title) {
+        setToast("Knowledgeのタイトルを入力してください。");
+        return false;
+      }
       delete entity._auto_edge_target_id;
       delete entity._auto_edge_relation_type;
       if (autoTarget && autoRelation) {
-        await saveEntities([
-          { action: "save", type: "knowledge_node", entity: entity as Entity },
-          {
-            action: "save",
-            type: "knowledge_edge",
-            entity: {
-              id: uuid(),
-              source_node_id: entityId,
-              target_node_id: autoTarget,
-              relation_type: autoRelation,
-            } as Entity,
-          },
-        ], base.id ? "変更を保存しました。" : "Knowledgeを追加しました。");
+        await saveEntities(
+          [
+            { action: "save", type: "knowledge_node", entity: entity as Entity },
+            {
+              action: "save",
+              type: "knowledge_edge",
+              entity: {
+                id: uuid(),
+                source_node_id: entityId,
+                target_node_id: autoTarget,
+                relation_type: autoRelation,
+              } as Entity,
+            },
+          ],
+          base.id ? "変更を保存しました。" : "Knowledgeを追加しました。",
+        );
         finishSave();
         return true;
       }
@@ -1449,7 +1875,11 @@ export function WorkspaceApp() {
         relation_type: formText(values, "relation_type", "supports"),
         description: formText(values, "description"),
       };
-      if (!entity.source_node_id || !entity.target_node_id || entity.source_node_id === entity.target_node_id) {
+      if (
+        !entity.source_node_id ||
+        !entity.target_node_id ||
+        entity.source_node_id === entity.target_node_id
+      ) {
         setToast("異なる2つのKnowledgeを選択してください。");
         return false;
       }
@@ -1502,7 +1932,10 @@ export function WorkspaceApp() {
       }
     }
 
-    const saved = await saveEntity(type, entity, { reason: formText(values, "revision_reason"), quiet: options.quiet });
+    const saved = await saveEntity(type, entity, {
+      reason: formText(values, "revision_reason"),
+      quiet: options.quiet,
+    });
     if (type === "theme" && !activeThemeId && saved) setActiveThemeId(saved.id);
     finishSave(saved);
     return true;
@@ -1521,17 +1954,24 @@ export function WorkspaceApp() {
       const result = await workspaceApi.toggleMemoStickyTargetsVisibility();
       if (result.status === "empty") setToast("表示する付箋がありません。", "info");
       if (result.status === "flush_failed") {
-        setToast("付箋を収納できませんでした。保存エラーを解消してから再試行してください。", "danger");
+        setToast(
+          "付箋を収納できませんでした。保存エラーを解消してから再試行してください。",
+          "danger",
+        );
       }
     })().catch((error) => {
       setToast(`付箋を切り替えられませんでした。${errorMessage(error)}`, "danger");
     });
   };
-  const recallPaletteEntries = useMemo(() => buildRecallPaletteEntries({
-    data: fullData,
-    domain: fullDomain,
-    themes: allThemes,
-  }), [allThemes, fullData, fullDomain]);
+  const recallPaletteEntries = useMemo(
+    () =>
+      buildRecallPaletteEntries({
+        data: fullData,
+        domain: fullDomain,
+        themes: allThemes,
+      }),
+    [allThemes, fullData, fullDomain],
+  );
 
   async function openRecallTarget(target: RecallPaletteTarget, trigger: HTMLElement | null) {
     if (!(await saveDirtyDrawerForm())) {
@@ -1540,7 +1980,8 @@ export function WorkspaceApp() {
     drawerGeneration.current += 1;
     if (target.kind === "theme") {
       const recalledTheme = allThemes.find((theme) => theme.id === target.entityId);
-      if (!recalledTheme) throw new Error("Themeが見つかりません。画面を更新して、もう一度試してください。");
+      if (!recalledTheme)
+        throw new Error("Themeが見つかりません。画面を更新して、もう一度試してください。");
       const recalledGroup = recalledTheme.group || "";
       if (activeGroups.length > 0 && !activeGroups.includes(recalledGroup)) {
         setActiveGroups([...activeGroups, recalledGroup]);
@@ -1549,7 +1990,9 @@ export function WorkspaceApp() {
       setActiveThemeId(recalledTheme.id);
       location.hash = target.route;
       setRoute(target.route);
-      requestAnimationFrame(() => document.querySelector<HTMLElement>(".main-area")?.focus({ preventScroll: true }));
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>(".main-area")?.focus({ preventScroll: true }),
+      );
       return;
     }
     if (target.kind === "artifact") {
@@ -1559,33 +2002,40 @@ export function WorkspaceApp() {
       openContentViewer({ type: "artifact", artifactId: target.entityId });
       return;
     }
-    const collection = target.entityType === "capture_entry"
-      ? fullDomain.capture_entries
-      : target.entityType === "waiting"
-        ? fullDomain.waitings
-        : target.entityType === "knowledge_node"
-          ? fullDomain.knowledge_nodes
-          : target.entityType === "resource"
-            ? fullDomain.resources
-            : target.entityType === "note"
-              ? fullDomain.notes
-              : target.entityType === "plan_node"
-                ? fullDomain.plan_nodes
-            : target.entityType === "task"
-              ? fullDomain.tasks
-              : [];
+    const collection =
+      target.entityType === "capture_entry"
+        ? fullDomain.capture_entries
+        : target.entityType === "waiting"
+          ? fullDomain.waitings
+          : target.entityType === "knowledge_node"
+            ? fullDomain.knowledge_nodes
+            : target.entityType === "resource"
+              ? fullDomain.resources
+              : target.entityType === "note"
+                ? fullDomain.notes
+                : target.entityType === "plan_node"
+                  ? fullDomain.plan_nodes
+                  : target.entityType === "task"
+                    ? fullDomain.tasks
+                    : [];
     const entity = collection.find((entry) => entry.id === target.entityId);
     if (!entity) {
       throw new Error("検索結果を開けませんでした。画面を更新して、もう一度試してください。");
     }
     location.hash = target.route;
     setRoute(target.route);
-    const projection = target.entityType === "task" || target.entityType === "waiting" || target.entityType === "plan_node"
-      ? {
-        ...entity,
-        _schedule: fullDomain.schedules.find((schedule) => schedule.owner_type === target.entityType && schedule.owner_id === entity.id),
-      }
-      : entity;
+    const projection =
+      target.entityType === "task" ||
+      target.entityType === "waiting" ||
+      target.entityType === "plan_node"
+        ? {
+            ...entity,
+            _schedule: fullDomain.schedules.find(
+              (schedule) =>
+                schedule.owner_type === target.entityType && schedule.owner_id === entity.id,
+            ),
+          }
+        : entity;
     drawerTrigger.current = trigger;
     setDrawer({
       type: target.entityType,
@@ -1594,17 +2044,23 @@ export function WorkspaceApp() {
       dataScope: "full",
     });
     requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>(".drawer input, .drawer textarea, .drawer button")?.focus({ preventScroll: true });
+      document
+        .querySelector<HTMLElement>(".drawer input, .drawer textarea, .drawer button")
+        ?.focus({ preventScroll: true });
     });
   }
   const commandPaletteEntries: CommandPaletteEntry[] = [
-    ...(activeFocusSession ? [{
-      id: "focus:resume",
-      label: `Focus Sessionを再開: ${activeFocusTask?.title || "Task"}`,
-      keywords: ["集中", "再開", "focus", "session"],
-      category: "Commands" as const,
-      execute: () => setFocusTaskId(focusSessionTaskId(activeFocusSession)),
-    }] : []),
+    ...(activeFocusSession
+      ? [
+          {
+            id: "focus:resume",
+            label: `Focus Sessionを再開: ${activeFocusTask?.title || "Task"}`,
+            keywords: ["集中", "再開", "focus", "session"],
+            category: "Commands" as const,
+            execute: () => setFocusTaskId(focusSessionTaskId(activeFocusSession)),
+          },
+        ]
+      : []),
     {
       id: "open:daily-scratchpad",
       label: "今日のDaily Scratchpadを開く",
@@ -1617,7 +2073,9 @@ export function WorkspaceApp() {
       label: "付箋を展開／収納",
       keywords: ["memo", "メモ", "付箋", "sticky", "window"],
       category: "Commands",
-      execute: () => { void toggleStickyWindows(); },
+      execute: () => {
+        void toggleStickyWindows();
+      },
     },
     {
       id: "open:today-window",
@@ -1626,51 +2084,100 @@ export function WorkspaceApp() {
       category: "Commands",
       execute: toggleTodayWindow,
     },
-    { id: "navigate:today", label: `${routeLabel("today")}へ移動`, keywords: ["今日", "home"], category: "Commands", execute: () => navigate("today") },
-    { id: "navigate:todo", label: `${routeLabel("todo")}へ移動`, keywords: ["task", "タスク"], category: "Commands", execute: () => navigate("todo") },
-    { id: "navigate:inbox", label: `${routeLabel("inbox")}へ移動`, keywords: ["capture", "記録"], category: "Commands", execute: () => navigate("inbox") },
-    { id: "navigate:notes", label: `${routeLabel("notes")}へ移動`, keywords: ["note", "markdown", "文書"], category: "Commands", execute: () => navigate("notes") },
-    { id: "navigate:sketch", label: `${routeLabel("sketch")}へ移動`, keywords: ["手書き", "図解", "canvas"], category: "Commands", execute: () => navigate("sketch") },
-    { id: "navigate:themes", label: `All ${routeLabel("themes")}へ移動`, keywords: ["theme", "テーマ"], category: "Commands", execute: () => navigate("themes") },
-    { id: "navigate:artifacts", label: `${routeLabel("artifacts")}へ移動`, keywords: ["file", "成果物"], category: "Commands", execute: () => navigate("artifacts") },
+    {
+      id: "navigate:today",
+      label: `${routeLabel("today")}へ移動`,
+      keywords: ["今日", "home"],
+      category: "Commands",
+      execute: () => navigate("today"),
+    },
+    {
+      id: "navigate:todo",
+      label: `${routeLabel("todo")}へ移動`,
+      keywords: ["task", "タスク"],
+      category: "Commands",
+      execute: () => navigate("todo"),
+    },
+    {
+      id: "navigate:inbox",
+      label: `${routeLabel("inbox")}へ移動`,
+      keywords: ["capture", "記録"],
+      category: "Commands",
+      execute: () => navigate("inbox"),
+    },
+    {
+      id: "navigate:notes",
+      label: `${routeLabel("notes")}へ移動`,
+      keywords: ["note", "markdown", "文書"],
+      category: "Commands",
+      execute: () => navigate("notes"),
+    },
+    {
+      id: "navigate:sketch",
+      label: `${routeLabel("sketch")}へ移動`,
+      keywords: ["手書き", "図解", "canvas"],
+      category: "Commands",
+      execute: () => navigate("sketch"),
+    },
+    {
+      id: "navigate:themes",
+      label: `All ${routeLabel("themes")}へ移動`,
+      keywords: ["theme", "テーマ"],
+      category: "Commands",
+      execute: () => navigate("themes"),
+    },
+    {
+      id: "navigate:artifacts",
+      label: `${routeLabel("artifacts")}へ移動`,
+      keywords: ["file", "成果物"],
+      category: "Commands",
+      execute: () => navigate("artifacts"),
+    },
     {
       id: "create:task",
       label: "Taskを作る",
       keywords: ["追加", "todo", "新規"],
       category: "Commands",
-      execute: () => openDrawer({
-        type: "task",
-        mode: "edit",
-        commandSource: "command_palette",
-        entity: { project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }) },
-      }),
+      execute: () =>
+        openDrawer({
+          type: "task",
+          mode: "edit",
+          commandSource: "command_palette",
+          entity: { project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }) },
+        }),
     },
     {
       id: "create:note",
       label: "Noteを作る",
       keywords: ["メモ", "追加", "新規"],
       category: "Commands",
-      execute: () => openDrawer({
-        type: "note",
-        mode: "edit",
-        entity: { project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }), note_type: "note", content_format: "markdown" },
-      }),
+      execute: () =>
+        openDrawer({
+          type: "note",
+          mode: "edit",
+          entity: {
+            project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }),
+            note_type: "note",
+            content_format: "markdown",
+          },
+        }),
     },
     {
       id: "create:markdown",
       label: "Markdown文書を作る",
       keywords: ["document", "原稿", "追加", "新規"],
       category: "Commands",
-      execute: () => openDrawer({
-        type: "note",
-        mode: "edit",
-        entity: {
-          project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }),
-          note_type: "note",
-          content_format: "markdown",
-          properties_json: { publish_enabled: true },
-        },
-      }),
+      execute: () =>
+        openDrawer({
+          type: "note",
+          mode: "edit",
+          entity: {
+            project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }),
+            note_type: "note",
+            content_format: "markdown",
+            properties_json: { publish_enabled: true },
+          },
+        }),
     },
     {
       id: "create:capture",
@@ -1678,32 +2185,100 @@ export function WorkspaceApp() {
       keywords: ["inbox", "記録", "capture"],
       category: "Commands",
       shortcut: "Ctrl+Shift+N",
-      execute: () => openDrawer({
-        type: "capture_entry",
-        mode: "edit",
-        entity: { state: "untriaged", captured_at: new Date().toISOString() },
-      }),
+      execute: () =>
+        openDrawer({
+          type: "capture_entry",
+          mode: "edit",
+          entity: { state: "untriaged", captured_at: new Date().toISOString() },
+        }),
     },
-    ...(activeTheme ? [{
-      id: "ai:context-pack",
-      label: `${activeTheme.name}のContext Packを作る`,
-      keywords: ["AI", "文脈", "prompt", "theme"],
-      category: "Commands" as const,
-      execute: () => setContextPackThemeId(activeTheme.id),
-    }] : []),
-    ...(route === "notes" ? [
-      { id: "notes:note-ai", label: "現在の文書でNote AIを開く", keywords: ["AI", "chat", "diff", "原稿"], category: "Commands" as const, execute: () => dispatchNotesCommand("draft") },
-      { id: "notes:save", label: "現在の文書を保存", keywords: ["save", "保存"], category: "Commands" as const, shortcut: "Ctrl+S", execute: () => dispatchNotesCommand("save") },
-      { id: "notes:edit", label: "現在の文書をEditで表示", keywords: ["編集", "markdown"], category: "Commands" as const, execute: () => dispatchNotesCommand("edit") },
-      { id: "notes:preview", label: "現在の文書をPreviewで表示", keywords: ["表示", "render"], category: "Commands" as const, execute: () => dispatchNotesCommand("preview") },
-      { id: "notes:format", label: "現在のMarkdownを整形", keywords: ["format", "空行"], category: "Commands" as const, execute: () => dispatchNotesCommand("format") },
-      { id: "notes:pdf", label: "現在の文書をPDF出力", keywords: ["export", "出力"], category: "Commands" as const, execute: () => dispatchNotesCommand("pdf") },
-      { id: "notes:folder", label: "現在の文書の保存先を開く", keywords: ["folder", "directory", "フォルダ"], category: "Commands" as const, execute: () => dispatchNotesCommand("folder") },
-      // 選択しただけでtoolbarを出すのをやめたので、変換はここが正規の入口（#313）。
-      { id: "notes:selection-task", label: "選択範囲からTaskを作る", keywords: ["選択", "切り出し", "task", "抽出"], category: "Commands" as const, execute: () => dispatchNotesCommand("selection-task") },
-      { id: "notes:selection-note", label: "選択範囲からNoteを作る", keywords: ["選択", "切り出し", "note", "抽出"], category: "Commands" as const, execute: () => dispatchNotesCommand("selection-note") },
-      { id: "notes:selection-ai", label: "選択範囲をAIで編集", keywords: ["選択", "AI", "書き換え"], category: "Commands" as const, execute: () => dispatchNotesCommand("selection-ai") },
-    ] : []),
+    ...(activeTheme
+      ? [
+          {
+            id: "ai:context-pack",
+            label: `${activeTheme.name}のContext Packを作る`,
+            keywords: ["AI", "文脈", "prompt", "theme"],
+            category: "Commands" as const,
+            execute: () => setContextPackThemeId(activeTheme.id),
+          },
+        ]
+      : []),
+    ...(route === "notes"
+      ? [
+          {
+            id: "notes:note-ai",
+            label: "現在の文書でNote AIを開く",
+            keywords: ["AI", "chat", "diff", "原稿"],
+            category: "Commands" as const,
+            execute: () => dispatchNotesCommand("draft"),
+          },
+          {
+            id: "notes:save",
+            label: "現在の文書を保存",
+            keywords: ["save", "保存"],
+            category: "Commands" as const,
+            shortcut: "Ctrl+S",
+            execute: () => dispatchNotesCommand("save"),
+          },
+          {
+            id: "notes:edit",
+            label: "現在の文書をEditで表示",
+            keywords: ["編集", "markdown"],
+            category: "Commands" as const,
+            execute: () => dispatchNotesCommand("edit"),
+          },
+          {
+            id: "notes:preview",
+            label: "現在の文書をPreviewで表示",
+            keywords: ["表示", "render"],
+            category: "Commands" as const,
+            execute: () => dispatchNotesCommand("preview"),
+          },
+          {
+            id: "notes:format",
+            label: "現在のMarkdownを整形",
+            keywords: ["format", "空行"],
+            category: "Commands" as const,
+            execute: () => dispatchNotesCommand("format"),
+          },
+          {
+            id: "notes:pdf",
+            label: "現在の文書をPDF出力",
+            keywords: ["export", "出力"],
+            category: "Commands" as const,
+            execute: () => dispatchNotesCommand("pdf"),
+          },
+          {
+            id: "notes:folder",
+            label: "現在の文書の保存先を開く",
+            keywords: ["folder", "directory", "フォルダ"],
+            category: "Commands" as const,
+            execute: () => dispatchNotesCommand("folder"),
+          },
+          // 選択しただけでtoolbarを出すのをやめたので、変換はここが正規の入口（#313）。
+          {
+            id: "notes:selection-task",
+            label: "選択範囲からTaskを作る",
+            keywords: ["選択", "切り出し", "task", "抽出"],
+            category: "Commands" as const,
+            execute: () => dispatchNotesCommand("selection-task"),
+          },
+          {
+            id: "notes:selection-note",
+            label: "選択範囲からNoteを作る",
+            keywords: ["選択", "切り出し", "note", "抽出"],
+            category: "Commands" as const,
+            execute: () => dispatchNotesCommand("selection-note"),
+          },
+          {
+            id: "notes:selection-ai",
+            label: "選択範囲をAIで編集",
+            keywords: ["選択", "AI", "書き換え"],
+            category: "Commands" as const,
+            execute: () => dispatchNotesCommand("selection-ai"),
+          },
+        ]
+      : []),
     ...recallPaletteEntries.map((entry) => ({
       id: entry.id,
       label: entry.label,
@@ -1711,14 +2286,21 @@ export function WorkspaceApp() {
       searchText: entry.searchText,
       context: entry.context,
       category: entry.category,
-      execute: (context?: CommandPaletteExecutionContext) => openRecallTarget(entry.target, context?.trigger ?? null),
+      execute: (context?: CommandPaletteExecutionContext) =>
+        openRecallTarget(entry.target, context?.trigger ?? null),
     })),
     ...domain.tasks
       .filter((task) => task.state !== "done" && task.state !== "cancelled")
       .map((task) => ({
         id: `focus:${task.id}`,
         label: `集中して作業する: ${task.title}`,
-        keywords: ["focus", "session", "集中", task.title, themes.find((theme) => theme.id === task.project_id)?.name || ""],
+        keywords: [
+          "focus",
+          "session",
+          "集中",
+          task.title,
+          themes.find((theme) => theme.id === task.project_id)?.name || "",
+        ],
         category: "Commands" as const,
         execute: () => startFocusSession(task.id),
       })),
@@ -1726,8 +2308,9 @@ export function WorkspaceApp() {
 
   const titleBarLauncher: TitleBarLauncherData = {
     todayWindowOpen,
-    stickyWindowsShown: stickyMemoTargetIds.length > 0
-      && stickyMemoTargetIds.every((memoId) => openStickyMemoIds.includes(memoId)),
+    stickyWindowsShown:
+      stickyMemoTargetIds.length > 0 &&
+      stickyMemoTargetIds.every((memoId) => openStickyMemoIds.includes(memoId)),
     toggleStickyWindows,
     toggleTodayWindow,
   };
@@ -1750,10 +2333,24 @@ export function WorkspaceApp() {
   const frameStyle = { "--app-content-zoom": zoomFactor } as CSSProperties;
 
   if (loadState === "loading") {
-    return <div className="app-frame" style={frameStyle}>{titleBar}<div className="app-content-viewport"><AppState state="loading" /></div></div>;
+    return (
+      <div className="app-frame" style={frameStyle}>
+        {titleBar}
+        <div className="app-content-viewport">
+          <AppState state="loading" />
+        </div>
+      </div>
+    );
   }
   if (loadState === "error") {
-    return <div className="app-frame" style={frameStyle}>{titleBar}<div className="app-content-viewport"><AppState state="error" message={loadError} onRetry={loadWorkspace} /></div></div>;
+    return (
+      <div className="app-frame" style={frameStyle}>
+        {titleBar}
+        <div className="app-content-viewport">
+          <AppState state="error" message={loadError} onRetry={loadWorkspace} />
+        </div>
+      </div>
+    );
   }
   if (!workspace) return null;
 
@@ -1775,6 +2372,7 @@ export function WorkspaceApp() {
     openContentViewer,
     openContextPack: setContextPackThemeId,
     openDailyScratchpad: (date?: string) => setScratchpadDate(date || todayIso()),
+    startFocusSession,
     saveEntity,
     saveEntities,
     executeCommand: executeTaskWorkCommand,
@@ -1806,13 +2404,20 @@ export function WorkspaceApp() {
               setActiveThemeId={setActiveThemeId}
               domain={domain}
               openDrawer={openDrawer}
-              activeFocus={activeFocusTask && activeFocusSession ? {
-                taskTitle: activeFocusTask.title,
-                // 開始時刻は properties_json 側が正本。共有helperを通す。
-                startedAt: str(focusSessionProperties(activeFocusSession).started_at)
-                  || str(activeFocusSession.created_at),
-              } : null}
-              openActiveFocus={activeFocusTask ? () => setFocusTaskId(activeFocusTask.id) : undefined}
+              activeFocus={
+                activeFocusTask && activeFocusSession
+                  ? {
+                      taskTitle: activeFocusTask.title,
+                      // 開始時刻は properties_json 側が正本。共有helperを通す。
+                      startedAt:
+                        str(focusSessionProperties(activeFocusSession).started_at) ||
+                        str(activeFocusSession.created_at),
+                    }
+                  : null
+              }
+              openActiveFocus={
+                activeFocusTask ? () => setFocusTaskId(activeFocusTask.id) : undefined
+              }
             />
           )}
           {!detachedNoteId && (
@@ -1824,7 +2429,11 @@ export function WorkspaceApp() {
               aria-valuemin={64}
               aria-valuemax={360}
               aria-valuenow={sidebarCollapsed ? 64 : Math.round(effectiveSidebarWidth)}
-              aria-valuetext={sidebarCollapsed ? "折りたたみ中。右へドラッグで戻せます" : `${Math.round(effectiveSidebarWidth)}px`}
+              aria-valuetext={
+                sidebarCollapsed
+                  ? "折りたたみ中。右へドラッグで戻せます"
+                  : `${Math.round(effectiveSidebarWidth)}px`
+              }
               tabIndex={0}
               onPointerDown={handleSidebarResize}
               onKeyDown={handleSidebarResizeKeyDown}
@@ -1884,9 +2493,13 @@ export function WorkspaceApp() {
             <div
               className={`toast is-${toastToneValue}`}
               role={toastToneValue === "danger" ? "alert" : "status"}
-              aria-live={toastToneValue === "danger" || toastToneValue === "warning" ? "assertive" : "polite"}
+              aria-live={
+                toastToneValue === "danger" || toastToneValue === "warning" ? "assertive" : "polite"
+              }
             >
-              <span className="toast-icon" aria-hidden="true">{toastIcon(toastToneValue)}</span>
+              <span className="toast-icon" aria-hidden="true">
+                {toastIcon(toastToneValue)}
+              </span>
               <span className="toast-message">{toast}</span>
               {lastDeleted.current && <button onClick={undoDelete}>元に戻す</button>}
               <button onClick={() => setToast("")}>閉じる</button>
@@ -1927,7 +2540,11 @@ export function WorkspaceApp() {
           {/* 実行中Focusの表示はSidebar下部へ移した（#316）。右下floatingは目に入りにくい。 */}
           {focusTaskId && fullDomain.tasks.find((task) => task.id === focusTaskId) && (
             <FocusSessionDialog
-              task={fullDomain.tasks.find((task) => task.id === focusTaskId) as typeof fullDomain.tasks[number]}
+              task={
+                fullDomain.tasks.find(
+                  (task) => task.id === focusTaskId,
+                ) as (typeof fullDomain.tasks)[number]
+              }
               session={activeFocusSession}
               data={fullData}
               domain={fullDomain}

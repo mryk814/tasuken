@@ -128,7 +128,8 @@
         "openTask",
         "pinTopRight",
         "refresh",
-        "toggle"
+        "toggle",
+        "toggleChecklist"
       ]
     }
   ]

@@ -39,6 +39,7 @@ export interface TimelinePreferenceValue {
   showLightning: boolean;
   rangeBufferMonths: 0 | 3 | 6;
   collapsedThemes: string[];
+  scrollLeft: number;
 }
 
 export interface TodoPreferenceValue {
@@ -90,7 +91,17 @@ export type PreferenceValueMap = {
   "artifacts.preferences": ArtifactsPreferenceValue;
   "sketch.libraryPreferences": SketchLibraryPreferenceValue;
   "sketch.toolPresets": SketchToolPresetsPreferenceValue;
-  "sketch.shapeKind": "auto" | "line" | "rectangle" | "rounded_rectangle" | "ellipse" | "triangle" | "diamond" | "sticky_note" | "callout" | "bidirectional_arrow";
+  "sketch.shapeKind":
+    | "auto"
+    | "line"
+    | "rectangle"
+    | "rounded_rectangle"
+    | "ellipse"
+    | "triangle"
+    | "diamond"
+    | "sticky_note"
+    | "callout"
+    | "bidirectional_arrow";
   "sketch.eraserMode": "partial" | "stroke";
 };
 
@@ -126,9 +137,15 @@ export interface ViewPreferenceChange {
 }
 
 export const VIEW_PREFERENCE_REGISTRY: readonly ViewPreferenceDefinition[];
-export function getViewPreferenceDefinition<K extends PreferenceId>(id: K): ViewPreferenceDefinition<K> | null;
+export function getViewPreferenceDefinition<K extends PreferenceId>(
+  id: K,
+): ViewPreferenceDefinition<K> | null;
 export function isViewPreferenceId(id: unknown): id is PreferenceId;
-export function normalizeViewPreference<K extends PreferenceId>(id: K, value: unknown, fromVersion?: number): PreferenceValueMap[K];
+export function normalizeViewPreference<K extends PreferenceId>(
+  id: K,
+  value: unknown,
+  fromVersion?: number,
+): PreferenceValueMap[K];
 export function defaultViewPreference<K extends PreferenceId>(id: K): PreferenceValueMap[K];
 export function viewPreferenceSlotKey(id: PreferenceId, scopeKey?: string): string;
 export function normalizeViewPreferenceEnvelope(value: unknown): ViewPreferenceEnvelope;

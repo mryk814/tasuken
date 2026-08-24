@@ -4,8 +4,8 @@
   "roots": [
     {
       "file": "src/main/index.ts",
-      "lines": 2606,
-      "imports": 42,
+      "lines": 2608,
+      "imports": 43,
       "moduleDependencies": 8
     },
     {
@@ -22,8 +22,8 @@
     },
     {
       "file": "src/renderer/src/main.tsx",
-      "lines": 15,
-      "imports": 6,
+      "lines": 17,
+      "imports": 7,
       "moduleDependencies": 2
     },
     {

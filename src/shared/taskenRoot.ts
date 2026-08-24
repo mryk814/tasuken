@@ -1,6 +1,29 @@
 import type { Entity, EntityType } from "./types/workspace";
 
 export const DEFAULT_ROOT_SHORTCUT = "CommandOrControl+Shift+Space";
+
+export function formatShortcutLabel(accelerator: string, platform = ""): string {
+  const isMac = /mac/i.test(platform);
+  const labels: Record<string, string> = {
+    CommandOrControl: isMac ? "⌘" : "Ctrl",
+    Command: isMac ? "⌘" : "Command",
+    Control: isMac ? "⌃" : "Ctrl",
+    Ctrl: isMac ? "⌃" : "Ctrl",
+    Option: isMac ? "⌥" : "Alt",
+    Alt: isMac ? "⌥" : "Alt",
+    Shift: isMac ? "⇧" : "Shift",
+    Space: "Space",
+    Meta: isMac ? "⌘" : "Meta",
+    Super: isMac ? "⌘" : "Super",
+  };
+  const parts = accelerator
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => labels[part] || part);
+  return parts.join(isMac ? "" : "+");
+}
+
 export const ROOT_SHORTCUT_PREFERENCE_KEY = "taskenRoot.globalShortcut";
 export const ROOT_USAGE_PREFERENCE_KEY = "taskenRoot.usage.v1";
 
@@ -46,38 +69,125 @@ const taskIsActive = (target: RootActionTarget): RootActionAvailability => {
     ? { available: false, reason: "完了・中止済みのTaskでは開始できません。" }
     : available();
 };
-const taskCanComplete = (target: RootActionTarget): RootActionAvailability => (
+const taskCanComplete = (target: RootActionTarget): RootActionAvailability =>
   String(target.entity?.state || "") === "done"
     ? { available: false, reason: "このTaskは完了済みです。" }
-    : available()
-);
-const taskCanReopen = (target: RootActionTarget): RootActionAvailability => (
+    : available();
+const taskCanReopen = (target: RootActionTarget): RootActionAvailability =>
   String(target.entity?.state || "") === "done"
     ? available()
-    : { available: false, reason: "完了済みのTaskだけ再開できます。" }
-);
+    : { available: false, reason: "完了済みのTaskだけ再開できます。" };
 
 /**
  * Main UI・Context Menu・Tasken Root・将来のAI routingで共有するActionの意味契約。
  * 実行処理は各surfaceのadapterへ渡し、Task mutationはApplication Commandへ集約する。
  */
 export const ROOT_ACTION_DEFINITIONS: readonly RootActionDefinition[] = [
-  { id: "open", label: "開く", icon: "open", keywords: ["open", "表示"], appliesTo: ["task", "note", "theme", "resource", "artifact"], primaryFor: ["task", "note", "theme", "resource", "artifact"], shortcut: "Enter", role: "primary", safety: "read" },
-  { id: "execute", label: "実行", icon: "command", keywords: ["run", "実行"], appliesTo: ["command"], primaryFor: ["command"], shortcut: "Enter", role: "primary", safety: "read" },
-  { id: "focus", label: "Focusを開始", icon: "focus", keywords: ["集中", "session"], appliesTo: ["task"], role: "secondary", safety: "write", availability: taskIsActive },
-  { id: "complete", label: "完了", icon: "complete", keywords: ["done", "finish"], appliesTo: ["task"], role: "secondary", safety: "write", availability: taskCanComplete },
-  { id: "reopen", label: "再開", icon: "reopen", keywords: ["戻す", "open"], appliesTo: ["task"], role: "secondary", safety: "write", availability: taskCanReopen },
-  { id: "edit", label: "編集", icon: "edit", keywords: ["change", "変更"], appliesTo: ["task", "note"], role: "secondary", safety: "write" },
-  { id: "open-window", label: "別Windowで開く", icon: "window", keywords: ["detach", "切り離す"], appliesTo: ["note"], role: "secondary", safety: "read" },
-  { id: "open-external", label: "外部で開く", icon: "external", keywords: ["file", "browser"], appliesTo: ["artifact"], role: "secondary", safety: "external" },
-  { id: "show-folder", label: "フォルダを開く", icon: "folder", keywords: ["directory", "場所"], appliesTo: ["artifact"], role: "secondary", safety: "external" },
-  { id: "copy-link", label: "stable linkをコピー", icon: "link", keywords: ["URL", "参照"], appliesTo: ["task", "note", "theme", "resource", "artifact"], role: "secondary", safety: "read" },
+  {
+    id: "open",
+    label: "開く",
+    icon: "open",
+    keywords: ["open", "表示"],
+    appliesTo: ["task", "note", "theme", "resource", "artifact"],
+    primaryFor: ["task", "note", "theme", "resource", "artifact"],
+    shortcut: "Enter",
+    role: "primary",
+    safety: "read",
+  },
+  {
+    id: "execute",
+    label: "実行",
+    icon: "command",
+    keywords: ["run", "実行"],
+    appliesTo: ["command"],
+    primaryFor: ["command"],
+    shortcut: "Enter",
+    role: "primary",
+    safety: "read",
+  },
+  {
+    id: "focus",
+    label: "Focusを開始",
+    icon: "focus",
+    keywords: ["集中", "session"],
+    appliesTo: ["task"],
+    role: "secondary",
+    safety: "write",
+    availability: taskIsActive,
+  },
+  {
+    id: "complete",
+    label: "完了",
+    icon: "complete",
+    keywords: ["done", "finish"],
+    appliesTo: ["task"],
+    role: "secondary",
+    safety: "write",
+    availability: taskCanComplete,
+  },
+  {
+    id: "reopen",
+    label: "再開",
+    icon: "reopen",
+    keywords: ["戻す", "open"],
+    appliesTo: ["task"],
+    role: "secondary",
+    safety: "write",
+    availability: taskCanReopen,
+  },
+  {
+    id: "edit",
+    label: "編集",
+    icon: "edit",
+    keywords: ["change", "変更"],
+    appliesTo: ["task", "note"],
+    role: "secondary",
+    safety: "write",
+  },
+  {
+    id: "open-window",
+    label: "別Windowで開く",
+    icon: "window",
+    keywords: ["detach", "切り離す"],
+    appliesTo: ["note"],
+    role: "secondary",
+    safety: "read",
+  },
+  {
+    id: "open-external",
+    label: "外部で開く",
+    icon: "external",
+    keywords: ["file", "browser"],
+    appliesTo: ["artifact"],
+    role: "secondary",
+    safety: "external",
+  },
+  {
+    id: "show-folder",
+    label: "フォルダを開く",
+    icon: "folder",
+    keywords: ["directory", "場所"],
+    appliesTo: ["artifact"],
+    role: "secondary",
+    safety: "external",
+  },
+  {
+    id: "copy-link",
+    label: "stable linkをコピー",
+    icon: "link",
+    keywords: ["URL", "参照"],
+    appliesTo: ["task", "note", "theme", "resource", "artifact"],
+    role: "secondary",
+    safety: "read",
+  },
 ];
 
-export function rootActionsForTarget(target: RootActionTarget): Array<RootActionDefinition & RootActionAvailability> {
-  return ROOT_ACTION_DEFINITIONS
-    .filter((definition) => definition.appliesTo.includes(target.kind))
-    .map((definition) => ({ ...definition, ...(definition.availability?.(target) || available()) }));
+export function rootActionsForTarget(
+  target: RootActionTarget,
+): Array<RootActionDefinition & RootActionAvailability> {
+  return ROOT_ACTION_DEFINITIONS.filter((definition) =>
+    definition.appliesTo.includes(target.kind),
+  ).map((definition) => ({ ...definition, ...(definition.availability?.(target) || available()) }));
 }
 
 export function rootPrimaryAction(target: RootActionTarget): RootActionDefinition | undefined {
@@ -90,6 +200,13 @@ export function normalizeRootShortcut(value: unknown): string {
 }
 
 export function rootEntityType(kind: RootTargetKind): EntityType | null {
-  if (kind === "task" || kind === "note" || kind === "theme" || kind === "resource" || kind === "artifact") return kind;
+  if (
+    kind === "task" ||
+    kind === "note" ||
+    kind === "theme" ||
+    kind === "resource" ||
+    kind === "artifact"
+  )
+    return kind;
   return null;
 }

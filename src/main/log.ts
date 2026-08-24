@@ -8,6 +8,40 @@ const KEEP_GENERATIONS = 3;
 
 let logFilePath: string | null = null;
 
+function mainDiagnosticsEnabled(): boolean {
+  return process.env.TASKEN_PERF_DIAGNOSTICS === "1";
+}
+
+export function measureMainPerformance<T>(kind: "workspace_load", operation: () => T): T {
+  if (!mainDiagnosticsEnabled()) return operation();
+
+  const startedAt = performance.now();
+  const result = operation();
+  const durationMs = Math.round(performance.now() - startedAt);
+
+  try {
+    const serialized = JSON.stringify(result);
+    const resultSizeKb =
+      typeof serialized === "string" ? Math.round(Buffer.byteLength(serialized, "utf8") / 1024) : 0;
+    console.info("[tasken:performance]", {
+      source: "main",
+      kind,
+      duration_ms: durationMs,
+      result_size_kb: resultSizeKb,
+    });
+  } catch {
+    // Diagnostics must not change a successful workspace load when its result cannot be serialized.
+    console.info("[tasken:performance]", {
+      source: "main",
+      kind,
+      duration_ms: durationMs,
+      result_size_kb: -1,
+    });
+  }
+
+  return result;
+}
+
 /** userData配下のログ先を決める。起動時に一度だけ呼ぶ。 */
 export function configureMainLog(userDataPath: string): void {
   const directory = path.join(userDataPath, "logs");
@@ -30,7 +64,12 @@ function rotateIfNeeded(target: string): void {
  * ここを書かないと利用者も開発者も失敗理由に到達できない。
  */
 export function logMain(level: LogLevel, scope: string, message: string, error?: unknown): void {
-  const detail = error instanceof Error ? `${error.message}\n${error.stack || ""}` : error === undefined ? "" : String(error);
+  const detail =
+    error instanceof Error
+      ? `${error.message}\n${error.stack || ""}`
+      : error === undefined
+        ? ""
+        : String(error);
   const line = `${new Date().toISOString()} ${level.toUpperCase()} ${scope} ${message}${detail ? `\n${detail}` : ""}\n`;
   if (level === "error") console.error(line.trimEnd());
   else if (level === "warn") console.warn(line.trimEnd());

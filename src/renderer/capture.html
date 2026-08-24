@@ -24,28 +24,42 @@
         gap: 8px;
         padding: 12px;
         height: 100%;
+        min-width: 0;
+        overflow: hidden;
       }
       .capture-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        min-width: 0;
+        gap: 8px;
         user-select: none;
         -webkit-app-region: drag;
       }
       .capture-header strong {
         font-size: 12px;
         color: var(--color-accent);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .capture-hint {
         font-size: 11px;
         color: var(--color-text-secondary);
         -webkit-app-region: no-drag;
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
       .due-preview {
         display: none;
         min-height: 18px;
         font-size: 11px;
         color: var(--color-success-strong);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .due-preview.is-visible { display: block; }
       .due-preview.is-error { color: var(--color-danger); }
@@ -54,6 +68,9 @@
         align-items: center;
         gap: 6px;
         flex-wrap: wrap;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
         font-size: 11px;
         color: var(--color-text-secondary);
       }
@@ -68,6 +85,7 @@
       }
       .range-choice button:hover,
       .range-choice button.is-selected { border-color: var(--color-accent); background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); }
+      .range-choice > span { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .mode-pill {
         display: inline-flex;
         align-items: center;
@@ -126,6 +144,8 @@
         display: flex;
         justify-content: flex-end;
         gap: 6px;
+        min-width: 0;
+        flex: 0 0 auto;
       }
       button {
         min-height: 30px;
@@ -138,6 +158,8 @@
         font-size: 12px;
         font-weight: 600;
         cursor: pointer;
+        flex: 0 0 auto;
+        white-space: nowrap;
       }
       button:hover { background: var(--color-accent-hover); }
       button:active { transform: scale(0.98); }

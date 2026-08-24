@@ -9,9 +9,23 @@ import type {
   WorkspaceMeta,
 } from "../types/workspace";
 import type { CanonicalRootStatusMap } from "../types/workspace";
-import type { MemoStickyColor, MemoStickyTargetRequest, MemoStickyThemeRequest } from "../memoPresentation";
-import type { ArtifactFileImportRequest, ArtifactFileImportResult, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../attachments";
-import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../fileExport";
+import type {
+  MemoStickyColor,
+  MemoStickyTargetRequest,
+  MemoStickyThemeRequest,
+} from "../memoPresentation";
+import type {
+  ArtifactFileImportRequest,
+  ArtifactFileImportResult,
+  MarkdownImageAttachmentRequest,
+  MarkdownImageAttachmentResult,
+} from "../attachments";
+import type {
+  MarkdownFileExportRequest,
+  MarkdownFileExportResult,
+  MarkdownPdfExportRequest,
+  MarkdownPdfExportResult,
+} from "../fileExport";
 import type { SketchExportRequest, SketchExportResult } from "../sketchExport";
 import type {
   MermaidPowerPointPptxExportRequest,
@@ -21,7 +35,11 @@ import type {
   MermaidSvgClipboardRequest,
   MermaidSvgClipboardResult,
 } from "../mermaidPowerPoint";
-import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../slideTimelineExport";
+import type {
+  ImageClipboardRequest,
+  SlideTimelineExportRequest,
+  SlideTimelineExportResult,
+} from "../slideTimelineExport";
 import type {
   AiConnectionTestResult,
   AiFeature,
@@ -34,15 +52,55 @@ import type {
   AiProviderProfileUpdate,
   AiTestConnectionRequest,
 } from "../ai";
-import type { CalendarConnectRequest, CalendarConnectionStatus, CalendarDisconnectRequest, CalendarEventsResult } from "../calendar";
+import type {
+  CalendarConnectRequest,
+  CalendarConnectionStatus,
+  CalendarDisconnectRequest,
+  CalendarEventsResult,
+} from "../calendar";
 import type { WebArtifactExecutionPolicy } from "../webArtifact.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 import type { ThemePickerOption } from "../themeRef.mjs";
 import type { AiContextPreview } from "../aiContextPreview.mjs";
 import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../dataHealth.mjs";
-import type { AudioCaptureCancelRequest, AudioCaptureCommitRequest, AudioCaptureCommitResult, AudioCapturePrepareRequest, AudioCapturePrepareResult, AudioCapturePrepared, MediaArtifactInspection, MediaArtifactOpenRequest, MediaRecordingAppendRequest, MediaRecordingControlRequest, MediaRecordingProgress, MediaRecordingStarted, MediaRecordingStartRequest, VideoImportCommitRequest, VideoImportCommitResult, VideoImportPrepareRequest, VideoImportPrepareResult, VideoImportPrepared, VideoTrimExportRequest, VideoTrimExportResult, VideoTrimSourceRevision } from "../mediaCapture";
-import type { BatchTranscriptionArtifactRequest, BatchTranscriptionCancelRequest, BatchTranscriptionHistoryResult, BatchTranscriptionPreviewResult, BatchTranscriptionRunRequest, BatchTranscriptionRunResult } from "../batchTranscriptionIpc";
-import type { ArmedScreenRecordingProjection, ScreenRecordingArmRequest, ScreenRecordingEnvironment, ScreenRecordingRegionSelection, ScreenRecordingSourceProjection } from "../screenRecording.mjs";
+import type {
+  AudioCaptureCancelRequest,
+  AudioCaptureCommitRequest,
+  AudioCaptureCommitResult,
+  AudioCapturePrepareRequest,
+  AudioCapturePrepareResult,
+  AudioCapturePrepared,
+  MediaArtifactInspection,
+  MediaArtifactOpenRequest,
+  MediaRecordingAppendRequest,
+  MediaRecordingControlRequest,
+  MediaRecordingProgress,
+  MediaRecordingStarted,
+  MediaRecordingStartRequest,
+  VideoImportCommitRequest,
+  VideoImportCommitResult,
+  VideoImportPrepareRequest,
+  VideoImportPrepareResult,
+  VideoImportPrepared,
+  VideoTrimExportRequest,
+  VideoTrimExportResult,
+  VideoTrimSourceRevision,
+} from "../mediaCapture";
+import type {
+  BatchTranscriptionArtifactRequest,
+  BatchTranscriptionCancelRequest,
+  BatchTranscriptionHistoryResult,
+  BatchTranscriptionPreviewResult,
+  BatchTranscriptionRunRequest,
+  BatchTranscriptionRunResult,
+} from "../batchTranscriptionIpc";
+import type {
+  ArmedScreenRecordingProjection,
+  ScreenRecordingArmRequest,
+  ScreenRecordingEnvironment,
+  ScreenRecordingRegionSelection,
+  ScreenRecordingSourceProjection,
+} from "../screenRecording.mjs";
 import { LEGACY_TASK_IPC_CHANNELS } from "../compatibility/taskIpc.ts";
 import type { TaskCapability } from "../contracts/task/public.ts";
 import type {
@@ -151,6 +209,7 @@ export const IPC = {
   todayMiniThemes: "today-mini:themes",
   todayMiniAddTask: "today-mini:add-task",
   todayMiniToggle: "today-mini:toggle",
+  todayMiniToggleChecklist: "today-mini:toggle-checklist",
   todayMiniOpenTask: "today-mini:open-task",
   memoStickyLoad: "memo-sticky:load",
   memoStickySave: "memo-sticky:save",
@@ -295,6 +354,13 @@ export interface TodayMiniTask {
   priority: "normal" | "high";
   checklistDone: number;
   checklistTotal: number;
+  checklistItems: TodayMiniChecklistItem[];
+}
+
+export interface TodayMiniChecklistItem {
+  id: string;
+  title: string;
+  done: boolean;
 }
 
 export type TodayMiniThemeOption = ThemePickerOption;
@@ -302,6 +368,11 @@ export type TodayMiniThemeOption = ThemePickerOption;
 export interface TodayMiniAddTaskRequest {
   title: string;
   themeId?: string;
+}
+
+export interface TodayMiniToggleChecklistRequest {
+  taskId: string;
+  itemId: string;
 }
 
 export interface SatelliteWindowStatePayload {
@@ -390,12 +461,21 @@ export interface ThemeAiPackPreviewResult {
   includedCount: number;
   excludedCount: number;
   excludedReasons: Array<{ type: string; reason: string; count: number }>;
-  warnings: Array<{ kind: "stale" | "superseded"; type: string; id: string; title: string; reason: string }>;
+  warnings: Array<{
+    kind: "stale" | "superseded";
+    type: string;
+    id: string;
+    title: string;
+    reason: string;
+  }>;
   totalCharacterCount: number;
   error?: string;
 }
 
-export interface ThemeAiPackStatusResult extends Omit<ThemeAiPackPreviewResult, "files" | "warnings" | "excludedReasons"> {
+export interface ThemeAiPackStatusResult extends Omit<
+  ThemeAiPackPreviewResult,
+  "files" | "warnings" | "excludedReasons"
+> {
   fileCount: number;
   warningCount: number;
 }
@@ -624,7 +704,12 @@ export interface ResearchDeskApi {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<boolean>;
     getView(): Promise<ViewPreferenceEnvelope>;
-    setView(id: string, scopeKey: string, value: unknown, schemaVersion: number): Promise<ViewPreferenceChange>;
+    setView(
+      id: string,
+      scopeKey: string,
+      value: unknown,
+      schemaVersion: number,
+    ): Promise<ViewPreferenceChange>;
     onViewChanged(callback: (change: ViewPreferenceChange) => void): () => void;
   };
   ai: {
@@ -636,8 +721,15 @@ export interface ResearchDeskApi {
     setDefaultProviderProfile(id: string): Promise<AiProviderConfig>;
     setDefaultModelProfile(id: string): Promise<AiProviderConfig>;
     testConnection(request: AiTestConnectionRequest): Promise<AiConnectionTestResult>;
-    featureAvailability(feature: AiFeature, providerProfileId?: string, modelProfileId?: string): Promise<AiFeatureAvailability>;
-    startNoteStream(requestId: string, request: AiNoteGenerateRequest): Promise<AiNoteGenerateResult>;
+    featureAvailability(
+      feature: AiFeature,
+      providerProfileId?: string,
+      modelProfileId?: string,
+    ): Promise<AiFeatureAvailability>;
+    startNoteStream(
+      requestId: string,
+      request: AiNoteGenerateRequest,
+    ): Promise<AiNoteGenerateResult>;
     cancelNoteStream(requestId: string): Promise<boolean>;
     onNoteStreamEvent(callback: (requestId: string, event: AiStreamEvent) => void): () => void;
   };
@@ -650,7 +742,9 @@ export interface ResearchDeskApi {
   files: {
     openPath(filePath: string): Promise<{ ok: boolean; error?: string }>;
     showItemInFolder(filePath: string): Promise<{ ok: boolean; error?: string }>;
-    pathExists(filePath: string): Promise<{ exists: boolean; kind: "url" | "path"; error?: string }>;
+    pathExists(
+      filePath: string,
+    ): Promise<{ exists: boolean; kind: "url" | "path"; error?: string }>;
     /** アプリ内ビューア用。ローカル画像は data URL、Markdown/テキストは本文を返す。 */
     readPreview(filePath: string): Promise<FilePreviewReadResult>;
     // DOMのFileからOSパスを取り出す（Preloadのelectron.webUtils経由。同期）。
@@ -658,10 +752,14 @@ export interface ResearchDeskApi {
   };
   dialogs: {
     chooseDirectory(title?: string): Promise<{ canceled: boolean; path?: string }>;
-    chooseFiles(title?: string): Promise<{ canceled: boolean; files?: Array<{ path: string; name: string }> }>;
+    chooseFiles(
+      title?: string,
+    ): Promise<{ canceled: boolean; files?: Array<{ path: string; name: string }> }>;
   };
   attachments: {
-    saveMarkdownImage(request: MarkdownImageAttachmentRequest): Promise<MarkdownImageAttachmentResult>;
+    saveMarkdownImage(
+      request: MarkdownImageAttachmentRequest,
+    ): Promise<MarkdownImageAttachmentResult>;
     importArtifactFiles(request: ArtifactFileImportRequest): Promise<ArtifactFileImportResult>;
   };
   artifacts: {
@@ -676,12 +774,16 @@ export interface ResearchDeskApi {
     appendRecording(request: MediaRecordingAppendRequest): Promise<MediaRecordingProgress>;
     pauseRecording(request: MediaRecordingControlRequest): Promise<MediaRecordingProgress>;
     resumeRecording(request: MediaRecordingControlRequest): Promise<MediaRecordingProgress>;
-    stopRecording(request: MediaRecordingControlRequest): Promise<AudioCapturePrepared | VideoImportPrepared>;
+    stopRecording(
+      request: MediaRecordingControlRequest,
+    ): Promise<AudioCapturePrepared | VideoImportPrepared>;
     prepareVideo(request: VideoImportPrepareRequest): Promise<VideoImportPrepareResult>;
     listPreparedVideo(): Promise<VideoImportPrepared[]>;
     commitVideo(request: VideoImportCommitRequest): Promise<VideoImportCommitResult>;
     cancelVideo(request: AudioCaptureCancelRequest): Promise<boolean>;
-    openArtifactExternal(request: MediaArtifactOpenRequest): Promise<{ ok: boolean; error?: string }>;
+    openArtifactExternal(
+      request: MediaArtifactOpenRequest,
+    ): Promise<{ ok: boolean; error?: string }>;
     inspectArtifact(request: MediaArtifactOpenRequest): Promise<MediaArtifactInspection>;
     getVideoTrimSource(request: MediaArtifactOpenRequest): Promise<VideoTrimSourceRevision>;
     exportVideoTrim(request: VideoTrimExportRequest): Promise<VideoTrimExportResult>;
@@ -696,7 +798,9 @@ export interface ResearchDeskApi {
     capabilities(): Promise<ScreenRecordingEnvironment>;
     listSources(): Promise<readonly Readonly<ScreenRecordingSourceProjection>[]>;
     arm(request: ScreenRecordingArmRequest): Promise<ArmedScreenRecordingProjection>;
-    selectRegion(request: { sourceToken: string }): Promise<import("../screenRecording.mjs").ScreenRecordingRegionSelection | null>;
+    selectRegion(request: {
+      sourceToken: string;
+    }): Promise<import("../screenRecording.mjs").ScreenRecordingRegionSelection | null>;
     applyRegionIndicator(region: ScreenRecordingRegionSelection | null): Promise<boolean>;
     applyIndicator(state: RecordingIndicatorState | null): Promise<boolean>;
     onIndicatorCommand(callback: (command: RecordingIndicatorCommand) => void): () => void;
@@ -722,7 +826,9 @@ export interface ResearchDeskApi {
     toggleMemoStickyTargetsVisibility(): Promise<MemoStickyVisibilityResult>;
     setMemoStickyTheme(request: MemoStickyThemeRequest): Promise<boolean>;
     getSatelliteWindowState(): Promise<SatelliteWindowStatePayload>;
-    onSatelliteWindowStateChanged(callback: (state: SatelliteWindowStatePayload) => void): () => void;
+    onSatelliteWindowStateChanged(
+      callback: (state: SatelliteWindowStatePayload) => void,
+    ): () => void;
     /** Noteを別ウィンドウで開く。既に開いていれば前面へ出す（#290）。 */
     openNoteWindow(noteId: string): Promise<boolean>;
     listOpenNoteWindows(): Promise<string[]>;
@@ -736,7 +842,7 @@ export interface ResearchDeskApi {
     onOpenNote(callback: (noteId: string) => void): () => void;
     onOpenMemo(callback: (memoId: string) => void): () => void;
     onNavigate(callback: (route: string) => void): () => void;
-  onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
+    onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
     onOpenTaskDetail(callback: (taskId: string) => void): () => void;
     onOpenTaskenRootTarget(callback: (request: RootOpenRequest) => void): () => void;
   };
@@ -751,7 +857,10 @@ export interface ResearchDeskApi {
   documents: {
     /** Note / Report本文の保存とcanonical Markdown更新を同じuse caseで行う。 */
     save(request: DocumentSaveRequest): Promise<Entity>;
-    applyAiProposal(request: DocumentSaveRequest, envelope: CommandEnvelope): Promise<CommandReceipt>;
+    applyAiProposal(
+      request: DocumentSaveRequest,
+      envelope: CommandEnvelope,
+    ): Promise<CommandReceipt>;
   };
   commands: {
     execute(envelope: CommandEnvelope): Promise<CommandReceipt>;
@@ -763,7 +872,9 @@ export interface ResearchDeskApi {
     // decisionsは「change.key -> action」の対応表。配列ではなくオブジェクトで渡す。
     applyImport(token: string, decisions: Record<string, string>): Promise<Workspace>;
     automaticStatus(): Promise<AutomaticSnapshotBackupStatus>;
-    configureAutomatic(config: AutomaticSnapshotBackupConfig): Promise<AutomaticSnapshotBackupStatus>;
+    configureAutomatic(
+      config: AutomaticSnapshotBackupConfig,
+    ): Promise<AutomaticSnapshotBackupStatus>;
     runAutomatic(): Promise<AutomaticSnapshotBackupStatus>;
   };
   sharedSync: {
@@ -771,7 +882,10 @@ export interface ResearchDeskApi {
     configure(directory: string): Promise<SharedSyncStatus>;
     disable(): Promise<SharedSyncStatus>;
     syncNow(): Promise<SharedSyncStatus>;
-    resolveConflict(conflictId: string, choice: "local" | "incoming"): Promise<{
+    resolveConflict(
+      conflictId: string,
+      choice: "local" | "incoming",
+    ): Promise<{
       result: { type: EntityType; entity: Entity; revisionId: string };
       status: SharedSyncStatus;
     }>;
@@ -781,8 +895,12 @@ export interface ResearchDeskApi {
     markdownPdf(request: MarkdownPdfExportRequest): Promise<MarkdownPdfExportResult>;
     sketch(request: SketchExportRequest): Promise<SketchExportResult>;
     slideTimeline(request: SlideTimelineExportRequest): Promise<SlideTimelineExportResult>;
-    mermaidSvg(request: MermaidPowerPointSvgExportRequest): Promise<MermaidPowerPointSvgExportResult>;
-    mermaidPptx(request: MermaidPowerPointPptxExportRequest): Promise<MermaidPowerPointPptxExportResult>;
+    mermaidSvg(
+      request: MermaidPowerPointSvgExportRequest,
+    ): Promise<MermaidPowerPointSvgExportResult>;
+    mermaidPptx(
+      request: MermaidPowerPointPptxExportRequest,
+    ): Promise<MermaidPowerPointPptxExportResult>;
   };
   calendar: {
     getStatus(): Promise<CalendarConnectionStatus>;

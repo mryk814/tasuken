@@ -4,7 +4,14 @@ import { randomUUID } from "node:crypto";
 
 import { localDateString } from "./dateTime";
 import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
-import { IPC, type TodayMiniAddTaskRequest, type TodayMiniTask, type TodayMiniThemeOption } from "../shared/ipc/contracts";
+import {
+  IPC,
+  type TodayMiniAddTaskRequest,
+  type TodayMiniChecklistItem,
+  type TodayMiniTask,
+  type TodayMiniThemeOption,
+  type TodayMiniToggleChecklistRequest,
+} from "../shared/ipc/contracts";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import { canonicalThemeId, themePickerOptions } from "../shared/themeRef.mjs";
 import { selectTodayTasks, TODAY_TASK_POLICY } from "../shared/todayTasks.mjs";
@@ -28,7 +35,9 @@ interface TodayMiniControllerOptions {
   satelliteWindows: SatelliteWindowRegistry;
   showMainWindow: () => BrowserWindow;
   notifyWorkspaceChanged: (
-    change: { type: EntityType; entity: Entity } | { entities: Array<{ type: EntityType; entity: Entity }> },
+    change:
+      | { type: EntityType; entity: Entity }
+      | { entities: Array<{ type: EntityType; entity: Entity }> },
   ) => void;
   notifyCommandApplied: (receipt: CommandReceipt, senderId: number) => void;
   executeCommand: (envelope: CommandEnvelope) => CommandReceipt;
@@ -43,7 +52,9 @@ export interface TodayMiniController {
   registerIpc: () => void;
 }
 
-export function createTodayMiniController(options: TodayMiniControllerOptions): TodayMiniController {
+export function createTodayMiniController(
+  options: TodayMiniControllerOptions,
+): TodayMiniController {
   let fadeTimer: ReturnType<typeof setTimeout> | null = null;
   const windowKey = { kind: "today" as const, entityId: "today" };
 
@@ -53,7 +64,9 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
     fadeTimer = null;
   }
 
-  function restoreOpacity(win: BrowserWindow | null = options.satelliteWindows.get(windowKey)): void {
+  function restoreOpacity(
+    win: BrowserWindow | null = options.satelliteWindows.get(windowKey),
+  ): void {
     clearFadeTimer();
     if (win && !win.isDestroyed()) win.setOpacity(1);
   }
@@ -61,7 +74,8 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
   function scheduleFade(win: BrowserWindow): void {
     clearFadeTimer();
     fadeTimer = setTimeout(() => {
-      if (!win.isDestroyed() && win.isVisible() && !win.isFocused()) win.setOpacity(INACTIVE_OPACITY);
+      if (!win.isDestroyed() && win.isVisible() && !win.isFocused())
+        win.setOpacity(INACTIVE_OPACITY);
     }, FADE_DELAY_MS);
   }
 
@@ -138,17 +152,31 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
     return true;
   }
 
-  function checklistCounts(task: Entity): { done: number; total: number } {
+  function checklistItems(task: Entity): TodayMiniChecklistItem[] {
     const items = Array.isArray(task.checklist_items) ? task.checklist_items : [];
-    const valid = items.filter((item) => item && typeof item === "object" && "title" in item);
+    return items.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const record = item as Record<string, unknown>;
+      const id = typeof record.id === "string" ? record.id.trim() : "";
+      const title = typeof record.title === "string" ? record.title.trim() : "";
+      if (!id || !title) return [];
+      return [{ id, title, done: Boolean(record.done) }];
+    });
+  }
+
+  function checklistCounts(task: Entity): { done: number; total: number } {
+    const valid = checklistItems(task);
     return {
-      done: valid.filter((item) => Boolean((item as Record<string, unknown>).done)).length,
+      done: valid.filter((item) => item.done).length,
       total: valid.length,
     };
   }
 
   function listThemeOptions(): TodayMiniThemeOption[] {
-    return themePickerOptions(options.repository.list("theme") as Entity[], { allowPersonal: true, allowNone: false });
+    return themePickerOptions(options.repository.list("theme") as Entity[], {
+      allowPersonal: true,
+      allowNone: false,
+    });
   }
 
   function listTasks(): TodayMiniTask[] {
@@ -156,10 +184,16 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
     const tasks = options.repository.list("task") as Entity[];
     const schedules = options.repository.list("schedule") as Entity[];
     const themes = options.repository.list("theme") as Entity[];
-    const selected = selectTodayTasks(tasks, schedules, today, TODAY_TASK_POLICY) as Array<{ task: Entity; schedule?: Entity }>;
+    const selected = selectTodayTasks(tasks, schedules, today, TODAY_TASK_POLICY) as Array<{
+      task: Entity;
+      schedule?: Entity;
+    }>;
     return selected.map(({ task, schedule }): TodayMiniTask => {
       const counts = checklistCounts(task);
-      const theme = presentTodayMiniTheme(themes, canonicalThemeId(task.project_id, { legacyNullMeansPersonal: true }));
+      const theme = presentTodayMiniTheme(
+        themes,
+        canonicalThemeId(task.project_id, { legacyNullMeansPersonal: true }),
+      );
       return {
         id: String(task.id),
         title: String(task.title || "無題のタスク"),
@@ -170,6 +204,7 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
         priority: task.priority === "high" ? "high" : "normal",
         checklistDone: counts.done,
         checklistTotal: counts.total,
+        checklistItems: checklistItems(task),
       };
     });
   }
@@ -218,12 +253,40 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
     const mainWindow = options.showMainWindow();
     const send = () => {
       setTimeout(() => {
-        if (!mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.workspaceOpenTaskDetail, taskId);
+        if (!mainWindow.isDestroyed())
+          mainWindow.webContents.send(IPC.workspaceOpenTaskDetail, taskId);
       }, 150);
     };
     if (mainWindow.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", send);
     else send();
     return true;
+  }
+
+  function toggleChecklist(taskId: string, itemId: string, senderId: number): TodayMiniTask[] {
+    const task = options.repository.get("task", taskId) as Entity | null;
+    if (!task) throw new Error("タスクが見つかりません。");
+    const rawItems = Array.isArray(task.checklist_items) ? task.checklist_items : [];
+    let found = false;
+    const nextItems = rawItems.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      const record = item as Record<string, unknown>;
+      if (record.id !== itemId) return item;
+      found = true;
+      const done = !record.done;
+      return { ...record, done, completed_at: done ? new Date().toISOString() : null };
+    });
+    if (!found) throw new Error("チェックリスト項目が見つかりません。");
+    const receipt = options.executeCommand({
+      commandId: randomUUID(),
+      name: "UpdateTask",
+      payload: { task: { ...task, checklist_items: nextItems } },
+      actor: { kind: "user" },
+      source: "today_window",
+      expectedVersions: [{ type: "task", id: task.id, version: Number(task.version || 0) }],
+      issuedAt: new Date().toISOString(),
+    });
+    if (receipt.changes.length) options.notifyCommandApplied(receipt, senderId);
+    return listTasks();
   }
 
   function registerIpc(): void {
@@ -238,11 +301,19 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
     ipcMain.handle(IPC.todayMiniRefresh, () => listTasks());
     ipcMain.handle(IPC.todayMiniThemes, () => listThemeOptions());
     ipcMain.handle(IPC.todayMiniAddTask, (event, request: unknown) => {
-      if (!request || typeof request !== "object" || typeof (request as TodayMiniAddTaskRequest).title !== "string") {
+      if (
+        !request ||
+        typeof request !== "object" ||
+        typeof (request as TodayMiniAddTaskRequest).title !== "string"
+      ) {
         throw new Error("タスク名を入力してください。");
       }
       const payload = request as TodayMiniAddTaskRequest;
-      return addTask(payload.title, typeof payload.themeId === "string" ? payload.themeId : undefined, event.sender.id);
+      return addTask(
+        payload.title,
+        typeof payload.themeId === "string" ? payload.themeId : undefined,
+        event.sender.id,
+      );
     });
     ipcMain.handle(IPC.todayMiniToggle, (event, taskId: unknown) => {
       if (typeof taskId !== "string" || !taskId.trim()) throw new Error("対象タスクがありません。");
@@ -260,6 +331,20 @@ export function createTodayMiniController(options: TodayMiniControllerOptions): 
       });
       if (receipt.changes.length) options.notifyCommandApplied(receipt, event.sender.id);
       return listTasks();
+    });
+    ipcMain.handle(IPC.todayMiniToggleChecklist, (event, request: unknown) => {
+      if (!request || typeof request !== "object")
+        throw new Error("チェックリスト項目がありません。");
+      const payload = request as TodayMiniToggleChecklistRequest;
+      if (
+        typeof payload.taskId !== "string" ||
+        !payload.taskId.trim() ||
+        typeof payload.itemId !== "string" ||
+        !payload.itemId.trim()
+      ) {
+        throw new Error("チェックリスト項目がありません。");
+      }
+      return toggleChecklist(payload.taskId, payload.itemId, event.sender.id);
     });
     ipcMain.handle(IPC.todayMiniOpenTask, (_event, taskId: unknown) => {
       if (typeof taskId !== "string" || !taskId.trim()) return false;

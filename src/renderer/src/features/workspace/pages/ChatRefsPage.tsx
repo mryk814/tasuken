@@ -9,6 +9,7 @@ import {
   IconChevronRight,
   IconCopy,
   IconArrowUpLeft,
+  IconExternalLink,
   IconFileImport,
   IconFoldDown,
   IconFoldUp,
@@ -22,13 +23,35 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import { applyOptimisticSortOrders, clearOptimisticSortOrders } from "../../../../../shared/viewOrdering.mjs";
-import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID, themePickerOptions } from "../../../../../shared/themeRef.mjs";
+import {
+  applyOptimisticSortOrders,
+  clearOptimisticSortOrders,
+} from "../../../../../shared/viewOrdering.mjs";
+import {
+  canonicalThemeId,
+  PERSONAL_DEFAULT_THEME_ID,
+  themePickerOptions,
+} from "../../../../../shared/themeRef.mjs";
 import { usePreference } from "../../../utils/usePreference";
-import { Button, ContextMenu, EmptyState, PageHeader, type ContextMenuItem } from "../components/common";
+import {
+  Button,
+  ContextMenu,
+  EmptyState,
+  PageHeader,
+  type ContextMenuItem,
+} from "../components/common";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { ConversationImportDialog } from "../components/ConversationImportDialog";
 import { isConversationMarkdown } from "../lib/conversationParser";
@@ -109,17 +132,21 @@ export function ChatRefsPage({
   saveEntities,
   setToast,
 }: PageProps) {
-  const [optimisticSortOrders, setOptimisticSortOrders] = useState<Record<string, OptimisticSortOrder>>({});
+  const [optimisticSortOrders, setOptimisticSortOrders] = useState<
+    Record<string, OptimisticSortOrder>
+  >({});
   const optimisticSortOrdersRef = useRef(optimisticSortOrders);
   optimisticSortOrdersRef.current = optimisticSortOrders;
   const reorderQueueRef = useRef(Promise.resolve());
-  const chatResources = useMemo(() => applyOptimisticSortOrders(
-    domain.resources.filter(isChatReference),
-    optimisticSortOrders,
-  ), [domain.resources, optimisticSortOrders]);
+  const chatResources = useMemo(
+    () => applyOptimisticSortOrders(domain.resources.filter(isChatReference), optimisticSortOrders),
+    [domain.resources, optimisticSortOrders],
+  );
   const latestChatResourcesRef = useRef(chatResources);
   latestChatResourcesRef.current = chatResources;
-  const [selectedThemeId, setSelectedThemeId] = useState(activeThemeId || PERSONAL_DEFAULT_THEME_ID);
+  const [selectedThemeId, setSelectedThemeId] = useState(
+    activeThemeId || PERSONAL_DEFAULT_THEME_ID,
+  );
   const [query, setQuery] = useState("");
   const [prefs, setPrefs] = usePreference("chatRefs.preferences");
   const {
@@ -129,13 +156,18 @@ export function ChatRefsPage({
     listMode = "active",
     includeArchivedInSearch = false,
   } = prefs;
-  const updatePrefs = (patch: Partial<ChatRefsPrefs>) => setPrefs((current) => ({ ...current, ...patch }));
+  const updatePrefs = (patch: Partial<ChatRefsPrefs>) =>
+    setPrefs((current) => ({ ...current, ...patch }));
   const isArchiveView = listMode === "archive";
   const [collapsedPreferences, setCollapsedPreferences] = usePreference("chatRefs.collapsedGroups");
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingGroupKey, setDraggingGroupKey] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<DragTarget>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
   /** Electron では window.prompt が使えないため、グループ名変更はインライン編集にする */
   const [renamingGroupKey, setRenamingGroupKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -168,19 +200,24 @@ export function ChatRefsPage({
   const visibleResources = archiveScopedResources.filter((r) => {
     if (statusFilter === "adopted" && !isAdopted(r)) return false;
     if (statusFilter === "inbox" && isAdopted(r)) return false;
-    const haystack = `${r.title} ${r.description} ${r.url} ${r.chat_group || ""} ${themeTitle(themes, r.project_id)}`.toLowerCase();
+    const haystack =
+      `${r.title} ${r.description} ${r.url} ${r.chat_group || ""} ${themeTitle(themes, r.project_id)}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
 
   // 最近利用 = メンバの保存時刻（updated_at 優先）。クリックやリンクを開いただけでは動かさない
   const groups = useMemo(
-    () => groupChatResources(visibleResources, {
-      resourceOrder: sortOrder,
-      groupOrder: groupSortOrder,
-    }),
+    () =>
+      groupChatResources(visibleResources, {
+        resourceOrder: sortOrder,
+        groupOrder: groupSortOrder,
+      }),
     [visibleResources, sortOrder, groupSortOrder],
   );
-  const resourceById = useMemo(() => new Map(chatResources.map((resource) => [resource.id, resource])), [chatResources]);
+  const resourceById = useMemo(
+    () => new Map(chatResources.map((resource) => [resource.id, resource])),
+    [chatResources],
+  );
   const childrenByParentId = useMemo(() => {
     const map = new Map<string, Resource[]>();
     for (const resource of chatResources) {
@@ -191,34 +228,42 @@ export function ChatRefsPage({
     return map;
   }, [chatResources]);
   const allGroupKeys = useMemo(() => groups.map((g) => g.key), [groups]);
-  const collapsePreferenceKey = (groupKey: string, mode: ListMode = listMode) => (
-    chatGroupCollapsePreferenceKey(selectedThemeId || null, mode, groupKey)
-  );
+  const collapsePreferenceKey = (groupKey: string, mode: ListMode = listMode) =>
+    chatGroupCollapsePreferenceKey(selectedThemeId || null, mode, groupKey);
   const collapsed = useMemo(
-    () => new Set(groups
-      .filter((group) => collapsedPreferences.includes(
-        chatGroupCollapsePreferenceKey(selectedThemeId || null, listMode, group.key),
-      ))
-      .map((group) => group.key)),
+    () =>
+      new Set(
+        groups
+          .filter((group) =>
+            collapsedPreferences.includes(
+              chatGroupCollapsePreferenceKey(selectedThemeId || null, listMode, group.key),
+            ),
+          )
+          .map((group) => group.key),
+      ),
     [collapsedPreferences, groups, listMode, selectedThemeId],
   );
   const allCollapsed = allGroupKeys.length > 0 && allGroupKeys.every((key) => collapsed.has(key));
 
   function toggleGroup(key: string) {
     const preferenceKey = collapsePreferenceKey(key);
-    setCollapsedPreferences((current) => updateCollapsedChatGroupPreferences(
-      current,
-      [preferenceKey],
-      !current.includes(preferenceKey),
-    ));
+    setCollapsedPreferences((current) =>
+      updateCollapsedChatGroupPreferences(
+        current,
+        [preferenceKey],
+        !current.includes(preferenceKey),
+      ),
+    );
   }
 
   function toggleAllGroups() {
-    setCollapsedPreferences((current) => updateCollapsedChatGroupPreferences(
-      current,
-      allGroupKeys.map((key) => collapsePreferenceKey(key)),
-      !allCollapsed,
-    ));
+    setCollapsedPreferences((current) =>
+      updateCollapsedChatGroupPreferences(
+        current,
+        allGroupKeys.map((key) => collapsePreferenceKey(key)),
+        !allCollapsed,
+      ),
+    );
   }
 
   function toggleAdopted(r: Resource) {
@@ -234,11 +279,16 @@ export function ChatRefsPage({
   }
 
   function copyGroupUrls(groupResources: Resource[]) {
-    workspaceApi.copyText(groupResources.map((r) => r.url || "").join("\n")).then(() => setToast(`${groupResources.length}件のURLをコピーしました。`));
+    workspaceApi
+      .copyText(groupResources.map((r) => r.url || "").join("\n"))
+      .then(() => setToast(`${groupResources.length}件のURLをコピーしました。`));
   }
 
   function saveGroupResources(resources: Resource[], message: string) {
-    void saveEntities(resources.flatMap((resource) => buildSaveResourceOperations(resource)), message);
+    void saveEntities(
+      resources.flatMap((resource) => buildSaveResourceOperations(resource)),
+      message,
+    );
   }
 
   /** 表示フィルタを通さない Theme 内の正本メンバ（Archive 含む） */
@@ -282,16 +332,22 @@ export function ChatRefsPage({
       return;
     }
     const targetExists = chatGroupNameExists(scopedResources, nextName, group.key);
-    if (targetExists && !window.confirm(`「${nextName}」に統合します。リンクは削除されません。続けますか？`)) return;
+    if (
+      targetExists &&
+      !window.confirm(`「${nextName}」に統合します。リンクは削除されません。続けますか？`)
+    )
+      return;
     saveGroupResources(
       renameChatGroupResources(targets, nextName),
       targetExists ? "グループを統合しました。" : "グループ名を変更しました。",
     );
-    setCollapsedPreferences((current) => moveCollapsedChatGroupPreference(
-      current,
-      collapsePreferenceKey(group.key),
-      collapsePreferenceKey(nextName),
-    ));
+    setCollapsedPreferences((current) =>
+      moveCollapsedChatGroupPreference(
+        current,
+        collapsePreferenceKey(group.key),
+        collapsePreferenceKey(nextName),
+      ),
+    );
     cancelRenameGroup();
   }
 
@@ -307,47 +363,78 @@ export function ChatRefsPage({
     }
     const targets = themeGroupResources(group.key);
     if (!targets.length) return;
-    if (!window.confirm(`「${group.label}」のグループだけ解除し、${targets.length}件のリンクは未分類へ移します。続けますか？`)) return;
+    if (
+      !window.confirm(
+        `「${group.label}」のグループだけ解除し、${targets.length}件のリンクは未分類へ移します。続けますか？`,
+      )
+    )
+      return;
     saveGroupResources(
       clearChatGroupResources(targets),
       "グループを解除し、リンクを未分類へ移しました。",
     );
-    setCollapsedPreferences((current) => updateCollapsedChatGroupPreferences(
-      current,
-      [
-        collapsePreferenceKey(group.key, "active"),
-        collapsePreferenceKey(group.key, "archive"),
-      ],
-      false,
-    ));
+    setCollapsedPreferences((current) =>
+      updateCollapsedChatGroupPreferences(
+        current,
+        [collapsePreferenceKey(group.key, "active"), collapsePreferenceKey(group.key, "archive")],
+        false,
+      ),
+    );
     if (renamingGroupKey === group.key) cancelRenameGroup();
   }
 
-  function moveChatLink(group: ChatRefGroup, draggedId: string, targetId: string, placement: DragPlacement) {
+  function moveChatLink(
+    group: ChatRefGroup,
+    draggedId: string,
+    targetId: string,
+    placement: DragPlacement,
+  ) {
     const token = crypto.randomUUID();
     const operation = reorderQueueRef.current.then(async () => {
       // 手動順の正本全体を渡し、検索・Archive・採用フィルタで隠れた同一Groupの順序を保つ。
       // overlayはsort_orderだけなので、保存中に届いたtitle/state等の更新を隠さない。
       const latestScoped = latestChatResourcesRef.current.filter((resource) => {
-        const sameTheme = selectedThemeId ? resource.project_id === selectedThemeId : !resource.project_id;
+        const sameTheme = selectedThemeId
+          ? resource.project_id === selectedThemeId
+          : !resource.project_id;
         const key = String(resource.chat_group || "").trim() || UNGROUPED_CHAT_GROUP;
         return sameTheme && key === group.key;
       });
       const fullGroup = sortChatResources(latestScoped, "manual");
-      const reordered = reorderChatGroupResources(fullGroup, draggedId, targetId, placement, group.resources.map((resource) => resource.id));
+      const reordered = reorderChatGroupResources(
+        fullGroup,
+        draggedId,
+        targetId,
+        placement,
+        group.resources.map((resource) => resource.id),
+      );
       if (!reordered.length) return;
       optimisticSortOrdersRef.current = {
         ...optimisticSortOrdersRef.current,
-        ...Object.fromEntries(reordered.map((resource) => [resource.id, { token, value: Number(resource.sort_order) || 0 }])),
+        ...Object.fromEntries(
+          reordered.map((resource) => [
+            resource.id,
+            { token, value: Number(resource.sort_order) || 0 },
+          ]),
+        ),
       };
       setOptimisticSortOrders(optimisticSortOrdersRef.current);
       try {
-        await saveEntities(reordered.flatMap((resource) => buildSaveResourceOperations(resource)), "並び替えを保存しました。");
-        optimisticSortOrdersRef.current = clearOptimisticSortOrders(optimisticSortOrdersRef.current, token);
+        await saveEntities(
+          reordered.flatMap((resource) => buildSaveResourceOperations(resource)),
+          "並び替えを保存しました。",
+        );
+        optimisticSortOrdersRef.current = clearOptimisticSortOrders(
+          optimisticSortOrdersRef.current,
+          token,
+        );
         setOptimisticSortOrders(optimisticSortOrdersRef.current);
       } catch {
         // saveEntitiesが原因と復旧操作をtoastへ出す。ここでは自分のtokenだけを解除する。
-        optimisticSortOrdersRef.current = clearOptimisticSortOrders(optimisticSortOrdersRef.current, token);
+        optimisticSortOrdersRef.current = clearOptimisticSortOrders(
+          optimisticSortOrdersRef.current,
+          token,
+        );
         setOptimisticSortOrders(optimisticSortOrdersRef.current);
       }
     });
@@ -373,17 +460,24 @@ export function ChatRefsPage({
   function archiveGroup(group: ChatRefGroup) {
     const targets = themeGroupResources(group.key).filter((resource) => !isChatArchived(resource));
     if (!targets.length) return;
-    if (!window.confirm(`「${group.label}」の${targets.length}件をArchiveします。削除ではなく保管です。続けますか？`)) return;
-    saveGroupResources(
-      archiveChatResources(targets),
-      `「${group.label}」をArchiveしました。`,
-    );
+    if (
+      !window.confirm(
+        `「${group.label}」の${targets.length}件をArchiveします。削除ではなく保管です。続けますか？`,
+      )
+    )
+      return;
+    saveGroupResources(archiveChatResources(targets), `「${group.label}」をArchiveしました。`);
   }
 
   function restoreGroup(group: ChatRefGroup) {
     const targets = themeGroupResources(group.key).filter(isChatArchived);
     if (!targets.length) return;
-    if (!window.confirm(`「${group.label}」の${targets.length}件を元のグループへ戻します。続けますか？`)) return;
+    if (
+      !window.confirm(
+        `「${group.label}」の${targets.length}件を元のグループへ戻します。続けますか？`,
+      )
+    )
+      return;
     saveGroupResources(
       restoreChatResources(targets),
       `「${group.label}」のArchiveを解除しました。`,
@@ -402,7 +496,10 @@ export function ChatRefsPage({
     const archived = isChatArchived(resource);
     const items: ContextMenuItem[] = [
       { label: "編集する", onSelect: () => openChatResource(resource) },
-      { label: isAdopted(resource) ? "採用を解除" : "採用にする", onSelect: () => toggleAdopted(resource) },
+      {
+        label: isAdopted(resource) ? "採用を解除" : "採用にする",
+        onSelect: () => toggleAdopted(resource),
+      },
       { label: "タイトルをコピー", onSelect: () => workspaceApi.copyText(str(resource.title)) },
     ];
     if (url) {
@@ -421,7 +518,11 @@ export function ChatRefsPage({
   }
 
   function openChatResource(resource: Resource) {
-    openDrawer({ type: "resource", mode: "edit", entity: resource as unknown as Record<string, unknown> });
+    openDrawer({
+      type: "resource",
+      mode: "edit",
+      entity: resource as unknown as Record<string, unknown>,
+    });
   }
 
   function openChatUrl(resource: Resource) {
@@ -446,29 +547,36 @@ export function ChatRefsPage({
 
   function copyList() {
     const header = "タイトル\tグループ\tTheme\t採用\tURL\t要約";
-    const rows = visibleResources.map((r) => [
-      str(r.title),
-      str(r.chat_group),
-      themeTitle(themes, r.project_id),
-      isAdopted(r) ? "★" : "",
-      str(r.url),
-      str(r.description).replace(/\s+/g, " "),
-    ].join("\t"));
-    workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("チャット参照一覧をコピーしました。"));
+    const rows = visibleResources.map((r) =>
+      [
+        str(r.title),
+        str(r.chat_group),
+        themeTitle(themes, r.project_id),
+        isAdopted(r) ? "★" : "",
+        str(r.url),
+        str(r.description).replace(/\s+/g, " "),
+      ].join("\t"),
+    );
+    workspaceApi
+      .copyText([header, ...rows].join("\n"))
+      .then(() => setToast("チャット参照一覧をコピーしました。"));
   }
 
   function copyUrls() {
-    workspaceApi.copyText(visibleResources.map((r) => r.url || "").join("\n")).then(() => setToast("チャットURLをコピーしました。"));
+    workspaceApi
+      .copyText(visibleResources.map((r) => r.url || "").join("\n"))
+      .then(() => setToast("チャットURLをコピーしました。"));
   }
 
   function addChatLink(chatGroup = "") {
     const activeSiblings = scopedResources.filter((resource) => !isChatArchived(resource));
-    const nextSortOrder = Math.max(
-      0,
-      ...activeSiblings
-        .filter((resource) => str(resource.chat_group).trim() === chatGroup.trim())
-        .map((resource) => Number(resource.sort_order) || 0),
-    ) + 10;
+    const nextSortOrder =
+      Math.max(
+        0,
+        ...activeSiblings
+          .filter((resource) => str(resource.chat_group).trim() === chatGroup.trim())
+          .map((resource) => Number(resource.sort_order) || 0),
+      ) + 10;
     openDrawer({
       type: "resource",
       mode: "edit",
@@ -485,18 +593,21 @@ export function ChatRefsPage({
 
   function addContinuation(parent: Resource) {
     const activeSiblings = scopedResources.filter((resource) => !isChatArchived(resource));
-    const nextSortOrder = Math.max(
-      0,
-      ...activeSiblings
-        .filter((resource) => str(resource.chat_group).trim() === str(parent.chat_group).trim())
-        .map((resource) => Number(resource.sort_order) || 0),
-    ) + 10;
+    const nextSortOrder =
+      Math.max(
+        0,
+        ...activeSiblings
+          .filter((resource) => str(resource.chat_group).trim() === str(parent.chat_group).trim())
+          .map((resource) => Number(resource.sort_order) || 0),
+      ) + 10;
     openDrawer({
       type: "resource",
       mode: "edit",
       entity: {
         reference_status: "inbox",
-        project_id: canonicalThemeId(parent.project_id || selectedThemeId, { defaultPersonal: true }),
+        project_id: canonicalThemeId(parent.project_id || selectedThemeId, {
+          defaultPersonal: true,
+        }),
         chat_group: parent.chat_group || "",
         parent_resource_id: parent.id,
         importance: "normal",
@@ -510,7 +621,11 @@ export function ChatRefsPage({
     <div className="page chat-refs-page">
       <PageHeader
         route="chat-refs"
-        info={isArchiveView ? "Archiveしたチャットリンクを確認し、必要なら元のグループへ戻します。" : undefined}
+        info={
+          isArchiveView
+            ? "Archiveしたチャットリンクを確認し、必要なら元のグループへ戻します。"
+            : undefined
+        }
       >
         {/*
           主操作は会話へ戻る・ログを読む・必要な部分を再利用すること（#322）。
@@ -521,14 +636,30 @@ export function ChatRefsPage({
           label="コピー"
           title="一覧のまとめコピー"
           items={[
-            { id: "copy-urls", label: "表示中のURLをまとめてコピー", disabled: !visibleResources.length, onSelect: copyUrls },
-            { id: "copy-list", label: "表示中の一覧をコピー", disabled: !visibleResources.length, onSelect: copyList },
+            {
+              id: "copy-urls",
+              label: "表示中のURLをまとめてコピー",
+              disabled: !visibleResources.length,
+              onSelect: copyUrls,
+            },
+            {
+              id: "copy-list",
+              label: "表示中の一覧をコピー",
+              disabled: !visibleResources.length,
+              onSelect: copyList,
+            },
           ]}
         />
         {!isArchiveView && (
           <>
-            <Button variant="secondary" onClick={() => setImportDialogOpen(true)}><IconFileImport size={16} />会話ログを取り込む</Button>
-            <Button variant="primary" onClick={() => addChatLink()}><IconLinkPlus size={16} />追加</Button>
+            <Button variant="secondary" onClick={() => setImportDialogOpen(true)}>
+              <IconFileImport size={16} />
+              会話ログを取り込む
+            </Button>
+            <Button variant="primary" onClick={() => addChatLink()}>
+              <IconLinkPlus size={16} />
+              追加
+            </Button>
           </>
         )}
       </PageHeader>
@@ -559,7 +690,12 @@ export function ChatRefsPage({
           <span>表示中</span>
           <strong className="metric-value">{visibleResources.length}</strong>
         </div>
-        <input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル、グループ、URLを検索" />
+        <input
+          data-search
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="タイトル、グループ、URLを検索"
+        />
         {!isArchiveView && query.trim() && (
           <label className="chat-ref-search-option">
             <input
@@ -581,7 +717,9 @@ export function ChatRefsPage({
         </select>
         <select
           value={groupSortOrder}
-          onChange={(event) => updatePrefs({ groupSortOrder: event.target.value as ChatGroupSortOrder })}
+          onChange={(event) =>
+            updatePrefs({ groupSortOrder: event.target.value as ChatGroupSortOrder })
+          }
           aria-label="グループの並び順"
         >
           <option value="recent">グループ：最近利用順</option>
@@ -615,26 +753,40 @@ export function ChatRefsPage({
             <span>{themes.length}件</span>
           </div>
           <div className="chat-theme-list">
-            {themePickerOptions(themes, { allowPersonal: true, allowNone: false }).map((option, index) => {
-              const theme = themes.find((entry) => entry.id === option.value);
-              const count = chatResources.filter((r) => {
-                if (r.project_id !== option.value) return false;
-                return isArchiveView ? isChatArchived(r) : !isChatArchived(r);
-              }).length;
-              return (
-                <button
-                  key={`${option.kind}-${option.value}`}
-                  className={selectedThemeId === option.value ? "is-active" : ""}
-                  style={theme ? { "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties : undefined}
-                  onClick={() => selectTheme(option.value)}
-                >
-                  {theme && <span className="chip-dot" />}
-                  <strong>{option.label}</strong>
-                  <span className="count">{count}</span>
-                </button>
-              );
-            })}
-            {!themes.length && <EmptyState title="Themeがありません" action="Themeを追加" onAction={() => openDrawer({ type: "theme", mode: "edit", entity: {} })} />}
+            {themePickerOptions(themes, { allowPersonal: true, allowNone: false }).map(
+              (option, index) => {
+                const theme = themes.find((entry) => entry.id === option.value);
+                const count = chatResources.filter((r) => {
+                  if (r.project_id !== option.value) return false;
+                  return isArchiveView ? isChatArchived(r) : !isChatArchived(r);
+                }).length;
+                return (
+                  <button
+                    key={`${option.kind}-${option.value}`}
+                    className={selectedThemeId === option.value ? "is-active" : ""}
+                    style={
+                      theme
+                        ? ({
+                            "--chip-color": `var(--color-${themeColor(theme, index)})`,
+                          } as React.CSSProperties)
+                        : undefined
+                    }
+                    onClick={() => selectTheme(option.value)}
+                  >
+                    {theme && <span className="chip-dot" />}
+                    <strong>{option.label}</strong>
+                    <span className="count">{count}</span>
+                  </button>
+                );
+              },
+            )}
+            {!themes.length && (
+              <EmptyState
+                title="Themeがありません"
+                action="Themeを追加"
+                onAction={() => openDrawer({ type: "theme", mode: "edit", entity: {} })}
+              />
+            )}
           </div>
         </div>
 
@@ -648,7 +800,10 @@ export function ChatRefsPage({
               <div className="chat-link-group" key={group.key}>
                 <div className="chat-group-header">
                   {renamingGroupKey === group.key ? (
-                    <form className="chat-group-rename" onSubmit={(event) => onRenameGroupSubmit(event, group)}>
+                    <form
+                      className="chat-group-rename"
+                      onSubmit={(event) => onRenameGroupSubmit(event, group)}
+                    >
                       <input
                         className="chat-group-rename-input"
                         autoFocus
@@ -688,15 +843,25 @@ export function ChatRefsPage({
                         aria-expanded={!collapsed.has(group.key)}
                         onClick={() => toggleGroup(group.key)}
                       >
-                        {collapsed.has(group.key) ? <IconChevronRight size={16} /> : <IconChevronDown size={16} />}
-                        <strong>{isArchiveView && group.key !== UNGROUPED_CHAT_GROUP ? `元グループ: ${group.label}` : group.label}</strong>
+                        {collapsed.has(group.key) ? (
+                          <IconChevronRight size={16} />
+                        ) : (
+                          <IconChevronDown size={16} />
+                        )}
+                        <strong>
+                          {isArchiveView && group.key !== UNGROUPED_CHAT_GROUP
+                            ? `元グループ: ${group.label}`
+                            : group.label}
+                        </strong>
                         <span className="count">{group.resources.length}</span>
                       </button>
                       {!isArchiveView && (
                         <>
                           <button
                             className="chat-group-add"
-                            onClick={() => addChatLink(group.key === UNGROUPED_CHAT_GROUP ? "" : group.key)}
+                            onClick={() =>
+                              addChatLink(group.key === UNGROUPED_CHAT_GROUP ? "" : group.key)
+                            }
                             aria-label={`${group.label}にチャットリンクを追加`}
                             title="このグループに追加"
                           >
@@ -763,159 +928,226 @@ export function ChatRefsPage({
                     </>
                   )}
                 </div>
-                {!collapsed.has(group.key) && group.resources.map((r) => {
-                  const service = resolveChatService(r);
-                  const archived = isChatArchived(r);
-                  const canDrag = !isArchiveView && !archived && sortOrder === "manual" && group.resources.length > 1;
-                  const isSameDragGroup = draggingGroupKey === null || draggingGroupKey === group.key;
-                  const activeDropTarget = dragTarget?.id === r.id && draggingId !== r.id;
-                  const parent = resourceById.get(str(r.parent_resource_id));
-                  const childCount = childrenByParentId.get(r.id)?.length || 0;
-                  const threadDepth = chatThreadVisualDepth(r, group.resources);
-                  const threadLabels = chatThreadMetaLabels({ parentTitle: parent ? str(parent.title || parent.url) : "", childCount });
-                  const chatDate = formatChatResourceDate(r);
-                  return (
-                    <div
-                      className={`chat-link-row ${draggingId === r.id ? "is-dragging" : ""} ${activeDropTarget ? `is-drop-${dragTarget.placement}` : ""} ${archived ? "is-archived" : ""}`}
-                      data-thread-depth={threadDepth || undefined}
-                      key={r.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openChatResource(r)}
-                      onContextMenu={(event) => showChatLinkMenu(event, r)}
-                      onKeyDown={(event) => openRowFromKeyboard(event, r)}
-                      onDragOver={canDrag && isSameDragGroup ? (event) => {
-                        event.preventDefault();
-                        event.dataTransfer.dropEffect = "move";
-                        const placement = dragPlacement(event);
-                        setDragTarget((current) => (
-                          current?.id === r.id && current.placement === placement ? current : { id: r.id, placement }
-                        ));
-                      } : undefined}
-                      onDragLeave={canDrag ? () => setDragTarget((current) => current?.id === r.id ? null : current) : undefined}
-                      onDrop={canDrag && isSameDragGroup ? (event) => {
-                        event.preventDefault();
-                        const draggedId = event.dataTransfer.getData("application/x-tasken-chat-ref") || draggingId;
-                        const placement = dragPlacement(event);
-                        if (draggedId) moveChatLink(group, draggedId, r.id, placement);
-                        clearDragState();
-                      } : undefined}
-                    >
-                      {childCount > 0 && (
-                        <span className="chat-thread-branch" aria-hidden="true">
-                          <IconArrowUpLeft size={15} />
-                        </span>
-                      )}
-                      {sortOrder === "manual" && !isArchiveView && (
-                        <span
-                          className={`chat-row-drag-handle ${canDrag ? "" : "is-disabled"}`}
-                          draggable={canDrag}
-                          onClick={stopRowClick}
-                          onDragStart={(event) => {
-                            if (!canDrag) return;
-                            event.dataTransfer.effectAllowed = "move";
-                            event.dataTransfer.setData("application/x-tasken-chat-ref", r.id);
-                            setDraggingId(r.id);
-                            setDraggingGroupKey(group.key);
-                            setDragTarget(null);
-                          }}
-                          onDragEnd={clearDragState}
-                          aria-label={`${r.title || "チャットリンク"}をドラッグして並び替え`}
-                          title={canDrag ? "ドラッグして並び替え" : "並び替え対象が1件だけです"}
-                        >
-                          <IconGripVertical size={16} />
-                        </span>
-                      )}
-                      <button
-                        className={`chat-star ${isAdopted(r) ? "is-adopted" : ""}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleAdopted(r);
-                        }}
-                        aria-label={isAdopted(r) ? "採用を解除" : "採用にする"}
+                {!collapsed.has(group.key) &&
+                  group.resources.map((r) => {
+                    const service = resolveChatService(r);
+                    const archived = isChatArchived(r);
+                    const canDrag =
+                      !isArchiveView &&
+                      !archived &&
+                      sortOrder === "manual" &&
+                      group.resources.length > 1;
+                    const isSameDragGroup =
+                      draggingGroupKey === null || draggingGroupKey === group.key;
+                    const activeDropTarget = dragTarget?.id === r.id && draggingId !== r.id;
+                    const parent = resourceById.get(str(r.parent_resource_id));
+                    const childCount = childrenByParentId.get(r.id)?.length || 0;
+                    const threadDepth = chatThreadVisualDepth(r, group.resources);
+                    const threadLabels = chatThreadMetaLabels({
+                      parentTitle: parent ? str(parent.title || parent.url) : "",
+                      childCount,
+                    });
+                    const chatDate = formatChatResourceDate(r);
+                    return (
+                      <div
+                        className={`chat-link-row ${draggingId === r.id ? "is-dragging" : ""} ${activeDropTarget ? `is-drop-${dragTarget.placement}` : ""} ${archived ? "is-archived" : ""}`}
+                        data-thread-depth={threadDepth || undefined}
+                        key={r.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openChatResource(r)}
+                        onContextMenu={(event) => showChatLinkMenu(event, r)}
+                        onKeyDown={(event) => openRowFromKeyboard(event, r)}
+                        onDragOver={
+                          canDrag && isSameDragGroup
+                            ? (event) => {
+                                event.preventDefault();
+                                event.dataTransfer.dropEffect = "move";
+                                const placement = dragPlacement(event);
+                                setDragTarget((current) =>
+                                  current?.id === r.id && current.placement === placement
+                                    ? current
+                                    : { id: r.id, placement },
+                                );
+                              }
+                            : undefined
+                        }
+                        onDragLeave={
+                          canDrag
+                            ? () =>
+                                setDragTarget((current) => (current?.id === r.id ? null : current))
+                            : undefined
+                        }
+                        onDrop={
+                          canDrag && isSameDragGroup
+                            ? (event) => {
+                                event.preventDefault();
+                                const draggedId =
+                                  event.dataTransfer.getData("application/x-tasken-chat-ref") ||
+                                  draggingId;
+                                const placement = dragPlacement(event);
+                                if (draggedId) moveChatLink(group, draggedId, r.id, placement);
+                                clearDragState();
+                              }
+                            : undefined
+                        }
                       >
-                        {isAdopted(r) ? <IconStarFilled size={16} /> : <IconStar size={16} />}
-                      </button>
-                      <span className={`chat-service-chip chat-service-${service}`} title={CHAT_SERVICE_LABELS[service]} aria-label={CHAT_SERVICE_LABELS[service]}>
-                        <ChatServiceIcon service={service} />
-                      </span>
-                      {/* 一覧では会話の入口と派生関係だけを見せ、URL・内部時刻は隠す。 */}
-                      <span className="chat-link-title">
-                        {r.title || "無題"}
-                        {(archived || threadLabels.length > 0) && <span className="chat-link-meta">
-                          {archived && <small className="chat-thread-meta">Archive</small>}
-                          {threadLabels.length > 0 && <small className="chat-thread-meta">{threadLabels.join(" / ")}</small>}
-                        </span>}
-                      </span>
-                      {chatDate !== "—" && <time className="chat-link-date" dateTime={chatDate.replaceAll("/", "-").replace(" ", "T")}>
-                        {chatDate}
-                      </time>}
-                      {!archived && (
+                        {parent && (
+                          <span className="chat-thread-branch" aria-hidden="true">
+                            <IconArrowUpLeft size={15} />
+                          </span>
+                        )}
+                        {sortOrder === "manual" && !isArchiveView && (
+                          <span
+                            className={`chat-row-drag-handle ${canDrag ? "" : "is-disabled"}`}
+                            draggable={canDrag}
+                            onClick={stopRowClick}
+                            onDragStart={(event) => {
+                              if (!canDrag) return;
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("application/x-tasken-chat-ref", r.id);
+                              setDraggingId(r.id);
+                              setDraggingGroupKey(group.key);
+                              setDragTarget(null);
+                            }}
+                            onDragEnd={clearDragState}
+                            aria-label={`${r.title || "チャットリンク"}をドラッグして並び替え`}
+                            title={canDrag ? "ドラッグして並び替え" : "並び替え対象が1件だけです"}
+                          >
+                            <IconGripVertical size={16} />
+                          </span>
+                        )}
                         <button
-                          className="row-action-button"
+                          className={`chat-star ${isAdopted(r) ? "is-adopted" : ""}`}
                           onClick={(event) => {
                             event.stopPropagation();
-                            addContinuation(r);
+                            toggleAdopted(r);
                           }}
-                          aria-label={`${r.title || "チャットリンク"}の続きチャットを追加`}
-                          title="続きとして追加"
+                          aria-label={isAdopted(r) ? "採用を解除" : "採用にする"}
                         >
-                          <IconLinkPlus size={15} />
+                          {isAdopted(r) ? <IconStarFilled size={16} /> : <IconStar size={16} />}
                         </button>
-                      )}
-                      {isConversationMarkdown(String(r.body_markdown || "")) && (
-                        <button
-                          className="row-action-button chat-conversation-action"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openContentViewer({ type: "chat_log", resourceId: String(r.id) });
-                          }}
-                          aria-label={`${r.title || "チャットリンク"}の会話ログを読む`}
-                          title="会話ログを読む"
+                        <span
+                          className={`chat-service-chip chat-service-${service}`}
+                          title={CHAT_SERVICE_LABELS[service]}
+                          aria-label={CHAT_SERVICE_LABELS[service]}
                         >
-                          <IconMessage size={15} />
-                        </button>
-                      )}
-                      {archived ? (
-                        <button
-                          className="row-action-button chat-link-restore"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            restoreChatLink(r);
-                          }}
-                          aria-label={`${r.title || "チャットリンク"}のArchiveを解除`}
-                          title="Archiveを解除"
-                        >
-                          <IconArchiveOff size={15} />
-                        </button>
-                      ) : (
-                        <button
-                          className="row-action-button chat-link-archive"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            archiveChatLink(r);
-                          }}
-                          aria-label={`${r.title || "チャットリンク"}をArchive`}
-                          title="Archive（削除ではなく保管）"
-                        >
-                          <IconArchive size={15} />
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+                          <ChatServiceIcon service={service} />
+                        </span>
+                        {/* 一覧では会話の入口と派生関係だけを見せ、URL・内部時刻は隠す。 */}
+                        <span className="chat-link-title">
+                          {r.title || "無題"}
+                          {(archived || threadLabels.length > 0) && (
+                            <span className="chat-link-meta">
+                              {archived && <small className="chat-thread-meta">Archive</small>}
+                              {threadLabels.length > 0 && (
+                                <small className="chat-thread-meta">
+                                  {threadLabels.join(" / ")}
+                                </small>
+                              )}
+                            </span>
+                          )}
+                        </span>
+                        {chatDate !== "—" && (
+                          <time
+                            className="chat-link-date"
+                            dateTime={chatDate.replaceAll("/", "-").replace(" ", "T")}
+                          >
+                            {chatDate}
+                          </time>
+                        )}
+                        {String(r.url || "").trim() && (
+                          <button
+                            type="button"
+                            className="row-action-button chat-open-original-action"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openChatUrl(r);
+                            }}
+                            aria-label={`${r.title || "チャットリンク"}の元チャットを開く`}
+                            title="元チャットを開く"
+                          >
+                            <IconExternalLink size={15} />
+                          </button>
+                        )}
+                        {!archived && (
+                          <button
+                            className="row-action-button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              addContinuation(r);
+                            }}
+                            aria-label={`${r.title || "チャットリンク"}の続きチャットを追加`}
+                            title="続きとして追加"
+                          >
+                            <IconLinkPlus size={15} />
+                          </button>
+                        )}
+                        {isConversationMarkdown(String(r.body_markdown || "")) && (
+                          <button
+                            className="row-action-button chat-conversation-action"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openContentViewer({ type: "chat_log", resourceId: String(r.id) });
+                            }}
+                            aria-label={`${r.title || "チャットリンク"}の会話ログを読む`}
+                            title="会話ログを読む"
+                          >
+                            <IconMessage size={15} />
+                          </button>
+                        )}
+                        {archived ? (
+                          <button
+                            className="row-action-button chat-link-restore"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              restoreChatLink(r);
+                            }}
+                            aria-label={`${r.title || "チャットリンク"}のArchiveを解除`}
+                            title="Archiveを解除"
+                          >
+                            <IconArchiveOff size={15} />
+                          </button>
+                        ) : (
+                          <button
+                            className="row-action-button chat-link-archive"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              archiveChatLink(r);
+                            }}
+                            aria-label={`${r.title || "チャットリンク"}をArchive`}
+                            title="Archive（削除ではなく保管）"
+                          >
+                            <IconArchive size={15} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
               </div>
             ))}
-            {!visibleResources.length && (
-              isArchiveView
-                ? <EmptyState title="Archiveはまだありません" />
-                : <EmptyState title="チャット参照がありません" action="チャットリンクを追加" onAction={() => addChatLink()} />
-            )}
+            {!visibleResources.length &&
+              (isArchiveView ? (
+                <EmptyState title="Archiveはまだありません" />
+              ) : (
+                <EmptyState
+                  title="チャット参照がありません"
+                  action="チャットリンクを追加"
+                  onAction={() => addChatLink()}
+                />
+              ))}
           </div>
         </div>
       </section>
 
-      {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
       {importDialogOpen && (
         <ConversationImportDialog
           themes={themes}

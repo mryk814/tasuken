@@ -1,4 +1,15 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, safeStorage, session as electronSession, shell, webContents } from "electron";
+import {
+  app,
+  BrowserWindow,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  net,
+  safeStorage,
+  session as electronSession,
+  shell,
+  webContents,
+} from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,11 +27,18 @@ import {
 } from "./quickCaptureController";
 import { createReminderController, type ReminderController } from "./reminderController";
 import { createTodayMiniController, type TodayMiniController } from "./todayMiniController";
-import { createSatelliteWindowRegistry, type SatelliteWindowRegistry } from "./satelliteWindowRegistry";
+import {
+  createSatelliteWindowRegistry,
+  type SatelliteWindowRegistry,
+} from "./satelliteWindowRegistry";
 import { createMemoStickyController, type MemoStickyController } from "./memoStickyController";
 import { createNoteWindowController, type NoteWindowController } from "./noteWindowController";
 import { createTrayController, type TrayController } from "./trayController";
-import { TaskenDesktopComposition, applyMcpPackageSmokeUserData, readMcpPackageSmokeLaunchOptions } from "./composition/taskenDesktopComposition.ts";
+import {
+  TaskenDesktopComposition,
+  applyMcpPackageSmokeUserData,
+  readMcpPackageSmokeLaunchOptions,
+} from "./composition/taskenDesktopComposition.ts";
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
@@ -36,11 +54,17 @@ import { MediaCaptureService } from "./services/mediaCaptureService";
 import { ScreenRecordingService } from "./services/screenRecordingService";
 import { commandNotificationPayloads } from "./rendererMediaProjection";
 import { configureMainLog, logMain } from "./log";
+import { installMainPerformanceDiagnostics } from "./performanceDiagnostics";
 import { createRecordingIndicatorController } from "./recordingIndicatorController";
 import { createTaskenRootController, type TaskenRootController } from "./taskenRootController";
 import { screenRecordingOriginsMatch } from "../shared/screenRecording.mjs";
 import type { CommandReceipt } from "../shared/applicationCommand";
-import { IPC, type RootOpenRequest, type SatelliteWindowStatePayload, type WorkspaceChangePayload } from "../shared/ipc/contracts";
+import {
+  IPC,
+  type RootOpenRequest,
+  type SatelliteWindowStatePayload,
+  type WorkspaceChangePayload,
+} from "../shared/ipc/contracts";
 import { resolveAiVisibility } from "../shared/aiMetadata.mjs";
 import { DIRECT_SHORTCUT_DEFINITIONS } from "../shared/taskenRoot";
 import { TASK_CONTRACT_SCHEMA_VERSION } from "../shared/contracts/task/public";
@@ -48,22 +72,45 @@ import { TASK_CONTRACT_SCHEMA_VERSION } from "../shared/contracts/task/public";
 const isSmokeTest = process.argv.includes("--smoke-test");
 const mcpPackageSmoke = readMcpPackageSmokeLaunchOptions(process.argv, process.env);
 const smokeRunArgument = process.argv.find((argument) => argument.startsWith("--smoke-run-id="));
-const smokeRunId = smokeRunArgument?.slice("--smoke-run-id=".length).replace(/[^a-zA-Z0-9_-]/g, "_") || String(process.pid);
-const smokeResultArgument = process.argv.find((argument) => argument.startsWith("--smoke-result-path="));
-const smokeResultPath = path.resolve(smokeResultArgument?.slice("--smoke-result-path=".length) || path.join(os.tmpdir(), `tasken-smoke-${smokeRunId}-result.json`));
+const smokeRunId =
+  smokeRunArgument?.slice("--smoke-run-id=".length).replace(/[^a-zA-Z0-9_-]/g, "_") ||
+  String(process.pid);
+const smokeResultArgument = process.argv.find((argument) =>
+  argument.startsWith("--smoke-result-path="),
+);
+const smokeResultPath = path.resolve(
+  smokeResultArgument?.slice("--smoke-result-path=".length) ||
+    path.join(os.tmpdir(), `tasken-smoke-${smokeRunId}-result.json`),
+);
 const isSmokeRestartCheck = process.argv.includes("--smoke-restart-check");
 const isPackagedSmokeRequired = process.argv.includes("--smoke-require-packaged");
-const smokeMediaArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-media-artifact-id="));
-const smokeMediaArtifactId = smokeMediaArtifactArgument?.slice("--smoke-media-artifact-id=".length) || "";
-const smokeMicrophoneArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-microphone-artifact-id="));
-const smokeMicrophoneArtifactId = smokeMicrophoneArtifactArgument?.slice("--smoke-microphone-artifact-id=".length) || "";
-const smokeImportedVideoArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-imported-video-artifact-id="));
-const smokeImportedVideoArtifactId = smokeImportedVideoArtifactArgument?.slice("--smoke-imported-video-artifact-id=".length) || "";
-const smokeScreenRecordingArtifactArgument = process.argv.find((argument) => argument.startsWith("--smoke-screen-recording-artifact-id="));
-const smokeScreenRecordingArtifactId = smokeScreenRecordingArtifactArgument?.slice("--smoke-screen-recording-artifact-id=".length) || "";
-const smokeVideoOwnerArgument = process.argv.find((argument) => argument.startsWith("--smoke-video-owner-id="));
+const smokeMediaArtifactArgument = process.argv.find((argument) =>
+  argument.startsWith("--smoke-media-artifact-id="),
+);
+const smokeMediaArtifactId =
+  smokeMediaArtifactArgument?.slice("--smoke-media-artifact-id=".length) || "";
+const smokeMicrophoneArtifactArgument = process.argv.find((argument) =>
+  argument.startsWith("--smoke-microphone-artifact-id="),
+);
+const smokeMicrophoneArtifactId =
+  smokeMicrophoneArtifactArgument?.slice("--smoke-microphone-artifact-id=".length) || "";
+const smokeImportedVideoArtifactArgument = process.argv.find((argument) =>
+  argument.startsWith("--smoke-imported-video-artifact-id="),
+);
+const smokeImportedVideoArtifactId =
+  smokeImportedVideoArtifactArgument?.slice("--smoke-imported-video-artifact-id=".length) || "";
+const smokeScreenRecordingArtifactArgument = process.argv.find((argument) =>
+  argument.startsWith("--smoke-screen-recording-artifact-id="),
+);
+const smokeScreenRecordingArtifactId =
+  smokeScreenRecordingArtifactArgument?.slice("--smoke-screen-recording-artifact-id=".length) || "";
+const smokeVideoOwnerArgument = process.argv.find((argument) =>
+  argument.startsWith("--smoke-video-owner-id="),
+);
 const smokeVideoOwnerId = smokeVideoOwnerArgument?.slice("--smoke-video-owner-id=".length) || "";
-const smokeScreenRecordingPausedResumed = process.argv.includes("--smoke-screen-recording-paused-resumed");
+const smokeScreenRecordingPausedResumed = process.argv.includes(
+  "--smoke-screen-recording-paused-resumed",
+);
 if (isSmokeTest && !isSmokeRestartCheck) {
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
   app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
@@ -89,11 +136,14 @@ const smokeTrace: string[] = [];
 const readyMainWindows = new WeakSet<BrowserWindow>();
 let appQuitApproved = false;
 let appFlushPending = false;
-const pendingAppFlushes = new Map<string, {
-  senderId: number;
-  timer: ReturnType<typeof setTimeout>;
-  resolve: (ok: boolean) => void;
-}>();
+const pendingAppFlushes = new Map<
+  string,
+  {
+    senderId: number;
+    timer: ReturnType<typeof setTimeout>;
+    resolve: (ok: boolean) => void;
+  }
+>();
 registerAttachmentScheme();
 registerMediaScheme();
 registerWebArtifactScheme();
@@ -158,10 +208,7 @@ function showMainContextMenu(window: BrowserWindow, params: Electron.ContextMenu
       { role: "selectAll" },
     );
   } else if (params.selectionText) {
-    template.push(
-      { type: "separator" },
-      { role: "copy" },
-    );
+    template.push({ type: "separator" }, { role: "copy" });
   }
   Menu.buildFromTemplate(template).popup({ window });
 }
@@ -171,33 +218,35 @@ function showMainContextMenu(window: BrowserWindow, params: Electron.ContextMenu
  * 再読み込みは Ctrl+Shift+R、開発者ツールは F12 の開発者向け操作として残す。
  */
 function applyApplicationMenu(): void {
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    {
-      label: "編集",
-      submenu: [
-        { role: "undo", label: "元に戻す" },
-        { role: "redo", label: "やり直す" },
-        { type: "separator" },
-        { role: "cut", label: "切り取り" },
-        { role: "copy", label: "コピー" },
-        { role: "paste", label: "貼り付け" },
-        { role: "selectAll", label: "すべて選択" },
-      ],
-    },
-    {
-      label: "表示",
-      submenu: [
-        { role: "forceReload", accelerator: "CmdOrCtrl+Shift+R", label: "再読み込み" },
-        { role: "toggleDevTools", accelerator: "F12", label: "開発者ツール" },
-        { type: "separator" },
-        { role: "resetZoom", label: "拡大率をリセット" },
-        { role: "zoomIn", label: "拡大" },
-        { role: "zoomOut", label: "縮小" },
-        { type: "separator" },
-        { role: "togglefullscreen", label: "全画面表示" },
-      ],
-    },
-  ]));
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "編集",
+        submenu: [
+          { role: "undo", label: "元に戻す" },
+          { role: "redo", label: "やり直す" },
+          { type: "separator" },
+          { role: "cut", label: "切り取り" },
+          { role: "copy", label: "コピー" },
+          { role: "paste", label: "貼り付け" },
+          { role: "selectAll", label: "すべて選択" },
+        ],
+      },
+      {
+        label: "表示",
+        submenu: [
+          { role: "forceReload", accelerator: "CmdOrCtrl+Shift+R", label: "再読み込み" },
+          { role: "toggleDevTools", accelerator: "F12", label: "開発者ツール" },
+          { type: "separator" },
+          { role: "resetZoom", label: "拡大率をリセット" },
+          { role: "zoomIn", label: "拡大" },
+          { role: "zoomOut", label: "縮小" },
+          { type: "separator" },
+          { role: "togglefullscreen", label: "全画面表示" },
+        ],
+      },
+    ]),
+  );
 }
 
 /**
@@ -260,22 +309,37 @@ function notifyTodayMiniRefresh(types: EntityType[]): void {
   todayMiniWindow.webContents.send(IPC.todayMiniRefresh);
 }
 
-function notifyCommandApplied(input: CommandReceipt | CommandReceipt[], senderId: number, options: { senderReceivesAll?: boolean } = {}): void {
-  const receipts = (Array.isArray(input) ? input : [input]).filter((receipt) => (
-    receipt.status !== "no_change" && !(receipt as CommandReceipt & { replayed?: boolean }).replayed
-  ));
+function notifyCommandApplied(
+  input: CommandReceipt | CommandReceipt[],
+  senderId: number,
+  options: { senderReceivesAll?: boolean } = {},
+): void {
+  const receipts = (Array.isArray(input) ? input : [input]).filter(
+    (receipt) =>
+      receipt.status !== "no_change" &&
+      !(receipt as CommandReceipt & { replayed?: boolean }).replayed,
+  );
   if (!receipts.length) return;
   const entityChanges = receipts.flatMap((receipt) => receipt.changes);
-  const eventChanges = receipts.flatMap((receipt) => receipt.eventChanges || receipt.events
-    .map((eventId) => workspaceRepository?.get("change_event", eventId, true))
-    .filter((event): event is Entity => Boolean(event))
-    .map((event) => ({ type: "change_event" as const, entity: event })));
-  const payloads = commandNotificationPayloads(entityChanges, eventChanges, options.senderReceivesAll === true);
+  const eventChanges = receipts.flatMap(
+    (receipt) =>
+      receipt.eventChanges ||
+      receipt.events
+        .map((eventId) => workspaceRepository?.get("change_event", eventId, true))
+        .filter((event): event is Entity => Boolean(event))
+        .map((event) => ({ type: "change_event" as const, entity: event })),
+  );
+  const payloads = commandNotificationPayloads(
+    entityChanges,
+    eventChanges,
+    options.senderReceivesAll === true,
+  );
   const changes = payloads.other.entities;
   if (!changes.length) return;
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed() || isAuxiliaryWindow(win)) continue;
-    const delta = win.webContents.id === senderId ? payloads.sender.entities : payloads.other.entities;
+    const delta =
+      win.webContents.id === senderId ? payloads.sender.entities : payloads.other.entities;
     if (delta.length) win.webContents.send(IPC.workspaceChanged, { entities: delta });
   }
   // Satellite windows do not issue the main command IPC, so they can always
@@ -284,13 +348,16 @@ function notifyCommandApplied(input: CommandReceipt | CommandReceipt[], senderId
   satelliteWindows?.broadcast(IPC.workspaceChanged, payloads.satellite);
   if (changes.some(({ type }) => TODAY_MINI_ENTITY_TYPES.has(type))) {
     const mini = todayMiniController?.getWindow();
-    if (mini && !mini.isDestroyed() && mini.webContents.id !== senderId) mini.webContents.send(IPC.todayMiniRefresh);
+    if (mini && !mini.isDestroyed() && mini.webContents.id !== senderId)
+      mini.webContents.send(IPC.todayMiniRefresh);
   }
 }
 
 function findMainWindow(): BrowserWindow | null {
-  return BrowserWindow.getAllWindows()
-    .find((win) => !isAuxiliaryWindow(win) && !win.isDestroyed()) || null;
+  return (
+    BrowserWindow.getAllWindows().find((win) => !isAuxiliaryWindow(win) && !win.isDestroyed()) ||
+    null
+  );
 }
 
 function rendererWindowsForAppFlush(): BrowserWindow[] {
@@ -419,23 +486,38 @@ function recordSmoke(stage: string, details: Record<string, unknown> = {}): void
   smokeTrace.push(stage);
   if (smokeTrace.length > 40) smokeTrace.shift();
   fs.mkdirSync(path.dirname(smokeResultPath), { recursive: true });
-  fs.writeFileSync(smokeResultPath, JSON.stringify({ stage, argv: process.argv, ...details }, null, 2));
+  fs.writeFileSync(
+    smokeResultPath,
+    JSON.stringify({ stage, argv: process.argv, ...details }, null, 2),
+  );
 }
 
 function tinyPcmWav(): Buffer {
   const sampleCount = 800;
   const dataBytes = sampleCount * 2;
   const bytes = Buffer.alloc(44 + dataBytes);
-  bytes.write("RIFF", 0); bytes.writeUInt32LE(36 + dataBytes, 4); bytes.write("WAVE", 8);
-  bytes.write("fmt ", 12); bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
-  bytes.writeUInt32LE(8000, 24); bytes.writeUInt32LE(16000, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
-  bytes.write("data", 36); bytes.writeUInt32LE(dataBytes, 40);
+  bytes.write("RIFF", 0);
+  bytes.writeUInt32LE(36 + dataBytes, 4);
+  bytes.write("WAVE", 8);
+  bytes.write("fmt ", 12);
+  bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20);
+  bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(8000, 24);
+  bytes.writeUInt32LE(16000, 28);
+  bytes.writeUInt16LE(2, 32);
+  bytes.writeUInt16LE(16, 34);
+  bytes.write("data", 36);
+  bytes.writeUInt32LE(dataBytes, 40);
   return bytes;
 }
 
 function tinyVp8Webm(): Buffer {
   // 16x16 / 0.52sの無音VP8。smoke専用fixtureで、production IPCへraw bytes/pathは公開しない。
-  return Buffer.from("GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAJmEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggJQ7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNTkuMjcuMTAwV0GNTGF2ZjU5LjI3LjEwMESJiECCwAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYiPMq35J8Igz5yBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhAX14QDgibCBELqBEJqBAhJUw2f9c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY1OS4yNy4xMDBzc9djwItjxYiPMq35J8Igz2fIoUWjh0VOQ09ERVJEh5RMYXZjNTkuMzcuMTAwIGxpYnZweGfIokWjiERVUkFUSU9ORIeUMDA6MDA6MDAuNjAwMDAwMDAwAAAfQ7Z1QKrngQCjo4EAAIAQAgCdASoQABAAAEcIhYWImYSIAgIADA1gAP7/q1CAo5iBAGQAsQEABRCsABgAMD/0DAAAAP72uQCjmIEAyACxAQAFEKwAGAAwP/QMAAAA/va5AKOYgQEsALEBAAUQrAAYADA/9AwAAAD+9rkAo5iBAZAAsQEABRCsABgAMD/0DAAAAP72uQCjmIEB9ACxAQAFEKwAGAAwP/QMAAAA/va5ABxTu2uRu4+zgQC3iveBAfGCAaDwgQM=", "base64");
+  return Buffer.from(
+    "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAJmEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggJQ7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNTkuMjcuMTAwV0GNTGF2ZjU5LjI3LjEwMESJiECCwAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYiPMq35J8Igz5yBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhAX14QDgibCBELqBEJqBAhJUw2f9c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY1OS4yNy4xMDBzc9djwItjxYiPMq35J8Igz2fIoUWjh0VOQ09ERVJEh5RMYXZjNTkuMzcuMTAwIGxpYnZweGfIokWjiERVUkFUSU9ORIeUMDA6MDA6MDAuNjAwMDAwMDAwAAAfQ7Z1QKrngQCjo4EAAIAQAgCdASoQABAAAEcIhYWImYSIAgIADA1gAP7/q1CAo5iBAGQAsQEABRCsABgAMD/0DAAAAP72uQCjmIEAyACxAQAFEKwAGAAwP/QMAAAA/va5AKOYgQEsALEBAAUQrAAYADA/9AwAAAD+9rkAo5iBAZAAsQEABRCsABgAMD/0DAAAAP72uQCjmIEB9ACxAQAFEKwAGAAwP/QMAAAA/va5ABxTu2uRu4+zgQC3iveBAfGCAaDwgQM=",
+    "base64",
+  );
 }
 
 async function verifySmokeMediaRange(artifactId: string): Promise<boolean> {
@@ -443,11 +525,13 @@ async function verifySmokeMediaRange(artifactId: string): Promise<boolean> {
     headers: { Range: "bytes=0-43" },
   });
   const bytes = Buffer.from(await response.arrayBuffer());
-  return response.status === 206
-    && response.headers.get("content-range")?.startsWith("bytes 0-43/") === true
-    && bytes.length === 44
-    && bytes.subarray(0, 4).toString("ascii") === "RIFF"
-    && bytes.subarray(8, 12).toString("ascii") === "WAVE";
+  return (
+    response.status === 206 &&
+    response.headers.get("content-range")?.startsWith("bytes 0-43/") === true &&
+    bytes.length === 44 &&
+    bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
+    bytes.subarray(8, 12).toString("ascii") === "WAVE"
+  );
 }
 
 async function verifySmokeVideoRange(artifactId: string): Promise<boolean> {
@@ -458,34 +542,44 @@ async function verifySmokeVideoRange(artifactId: string): Promise<boolean> {
   // WebMはEBML header、MP4はftyp box。画面録画はMP4既定になった（#388）。
   const isWebm = bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
   const isMp4 = bytes.subarray(4, 8).toString("ascii") === "ftyp";
-  return response.status === 206
-    && response.headers.get("content-range")?.startsWith("bytes 0-31/") === true
-    && bytes.length === 32
-    && (isWebm || isMp4);
+  return (
+    response.status === 206 &&
+    response.headers.get("content-range")?.startsWith("bytes 0-31/") === true &&
+    bytes.length === 32 &&
+    (isWebm || isMp4)
+  );
 }
 
 app.disableHardwareAcceleration();
-  if (process.platform === "win32") app.setAppUserModelId("jp.personal.tasken");
-  app.commandLine.appendSwitch("disable-gpu");
-  app.commandLine.appendSwitch("disable-gpu-compositing");
-  app.commandLine.appendSwitch("disable-gpu-sandbox");
-  app.commandLine.appendSwitch("in-process-gpu");
-  // Chromium EditContext は Windows 日本語 IME の候補位置がずれる事例がある（CodeMirror 等でも無効化が定石）。
-  // 従来の contenteditable キャレット基準に戻す。
-  app.commandLine.appendSwitch("disable-blink-features", "EditContext");
-  // Taskenはhardware accelerationを無効化しているため、D3D11前提のWGC capturerも無効化する。
-  // Windows画面録画はChromiumのlegacy desktop capturerへ固定して列挙と録画を同じbackendに揃える。
-  app.commandLine.appendSwitch("disable-features", "EditContext,AllowWgcScreenCapturer,AllowWgcWindowCapturer");
+if (process.platform === "win32") app.setAppUserModelId("jp.personal.tasken");
+app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch("disable-gpu-compositing");
+app.commandLine.appendSwitch("disable-gpu-sandbox");
+app.commandLine.appendSwitch("in-process-gpu");
+// Chromium EditContext は Windows 日本語 IME の候補位置がずれる事例がある（CodeMirror 等でも無効化が定石）。
+// 従来の contenteditable キャレット基準に戻す。
+app.commandLine.appendSwitch("disable-blink-features", "EditContext");
+// Taskenはhardware accelerationを無効化しているため、D3D11前提のWGC capturerも無効化する。
+// Windows画面録画はChromiumのlegacy desktop capturerへ固定して列挙と録画を同じbackendに揃える。
+app.commandLine.appendSwitch(
+  "disable-features",
+  "EditContext,AllowWgcScreenCapturer,AllowWgcWindowCapturer",
+);
 
-  if (!applyMcpPackageSmokeUserData(mcpPackageSmoke, app.isPackaged, (userDataPath) => app.setPath("userData", userDataPath)) && isSmokeTest) {
-    const smokeUserDataPath = path.join(app.getPath("temp"), `tasken-smoke-${smokeRunId}-userData`);
-    app.setPath("userData", smokeUserDataPath);
-    recordSmoke("main-started");
-    setTimeout(() => {
-      const previousStage = lastSmokeStage;
-      recordSmoke("timeout", { previousStage, trace: [...smokeTrace] });
-      app.exit(1);
-    }, 180000);
+if (
+  !applyMcpPackageSmokeUserData(mcpPackageSmoke, app.isPackaged, (userDataPath) =>
+    app.setPath("userData", userDataPath),
+  ) &&
+  isSmokeTest
+) {
+  const smokeUserDataPath = path.join(app.getPath("temp"), `tasken-smoke-${smokeRunId}-userData`);
+  app.setPath("userData", smokeUserDataPath);
+  recordSmoke("main-started");
+  setTimeout(() => {
+    const previousStage = lastSmokeStage;
+    recordSmoke("timeout", { previousStage, trace: [...smokeTrace] });
+    app.exit(1);
+  }, 180000);
 }
 
 async function runSmokeTest(window: BrowserWindow): Promise<void> {
@@ -498,8 +592,22 @@ async function runSmokeTest(window: BrowserWindow): Promise<void> {
   const smokeThemeId = `smoke-theme-${Date.now()}`;
   const todayMiniThemeMatrix = Array.from({ length: 20 }, (_, index) => ({
     id: `today-mini-theme-${Date.now()}-${index}`,
-    name: index === 19 ? "とても長い日本語のTheme名を省略表示して全文をtooltipで確認する" : `Today Theme ${String(index + 1).padStart(2, "0")}`,
-    color: ["chart-1", "chart-2", "chart-3", "chart-4", "chart-5", "chart-6", "theme-extra-1", "theme-extra-2", "theme-extra-3", "theme-extra-4"][index % 10],
+    name:
+      index === 19
+        ? "とても長い日本語のTheme名を省略表示して全文をtooltipで確認する"
+        : `Today Theme ${String(index + 1).padStart(2, "0")}`,
+    color: [
+      "chart-1",
+      "chart-2",
+      "chart-3",
+      "chart-4",
+      "chart-5",
+      "chart-6",
+      "theme-extra-1",
+      "theme-extra-2",
+      "theme-extra-3",
+      "theme-extra-4",
+    ][index % 10],
   }));
   const markdownBody = `---
 theme: smoke
@@ -533,7 +641,7 @@ flowchart LR
 
 編集前の本文。`;
   recordSmoke("core-start");
-  const created = await window.webContents.executeJavaScript(`
+  const created = (await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       window.__taskenSmokeDiagnostics = { rendererErrors: [] };
@@ -1010,32 +1118,40 @@ flowchart LR
           : String(aiVisibilityDefaultSaved),
       };
     })()
-  `) as SmokeCreatedResult;
+  `)) as SmokeCreatedResult;
 
   // #376: actual detached renderer -> preload -> IPC -> transaction -> native close handshake.
   if (!workspaceRepository || !memoStickyController || !satelliteWindows) {
     throw new Error("sticky memo smoke boundary is unavailable");
   }
   const stickySmokeId = randomUUID();
-  workspaceRepository.save("capture_entry", {
-    id: stickySmokeId,
-    title: "Sticky smoke",
-    text: "initial",
-    kind: "micro_memo",
-    content_type: "text",
-    captured_at: new Date().toISOString(),
-    state: "untriaged",
-  }, { source: "smoke" });
-  if (!memoStickyController.open(stickySmokeId)) throw new Error("sticky memo smoke window did not open");
+  workspaceRepository.save(
+    "capture_entry",
+    {
+      id: stickySmokeId,
+      title: "Sticky smoke",
+      text: "initial",
+      kind: "micro_memo",
+      content_type: "text",
+      captured_at: new Date().toISOString(),
+      state: "untriaged",
+    },
+    { source: "smoke" },
+  );
+  if (!memoStickyController.open(stickySmokeId))
+    throw new Error("sticky memo smoke window did not open");
   const stickyWindow = satelliteWindows.get({ kind: "memo", entityId: stickySmokeId });
   if (!stickyWindow) throw new Error("sticky memo smoke window was not registered");
   if (stickyWindow.webContents.isLoading()) {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("sticky memo smoke load timeout")), 10_000);
-      stickyWindow.webContents.once("did-finish-load", () => { clearTimeout(timer); resolve(); });
+      stickyWindow.webContents.once("did-finish-load", () => {
+        clearTimeout(timer);
+        resolve();
+      });
     });
   }
-  const stickyEdit = await stickyWindow.webContents.executeJavaScript(`
+  const stickyEdit = (await stickyWindow.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const textarea = document.querySelector("#text");
@@ -1065,11 +1181,11 @@ flowchart LR
       }
       return { enter: afterEnter?.text === "first\\n", ime: afterIme?.text === "first\\n日本語" };
     })()
-  `) as { enter: boolean; ime: boolean };
+  `)) as { enter: boolean; ime: boolean };
   stickyWindow.setBounds({ ...stickyWindow.getBounds(), width: 340, height: 280 }, false);
-  const stickyResizePreserved = await stickyWindow.webContents.executeJavaScript(`
+  const stickyResizePreserved = (await stickyWindow.webContents.executeJavaScript(`
     document.querySelector("#text")?.value === "first\\n日本語"
-  `) as boolean;
+  `)) as boolean;
   await stickyWindow.webContents.executeJavaScript(`
     (() => {
       const textarea = document.querySelector("#text");
@@ -1081,21 +1197,26 @@ flowchart LR
   for (let attempt = 0; attempt < 100 && !stickyWindow.isDestroyed(); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  const stickyPersisted = workspaceRepository.get("capture_entry", stickySmokeId, true) as Entity | null;
+  const stickyPersisted = workspaceRepository.get(
+    "capture_entry",
+    stickySmokeId,
+    true,
+  ) as Entity | null;
   created.stickyAutosaveSaved = stickyEdit.enter;
   created.stickyImeSaved = stickyEdit.ime;
   created.stickyResizePreserved = stickyResizePreserved;
-  created.stickyNativeCloseFlushed = stickyWindow.isDestroyed()
-    && stickyPersisted?.text === "first\n日本語 close-flush";
+  created.stickyNativeCloseFlushed =
+    stickyWindow.isDestroyed() && stickyPersisted?.text === "first\n日本語 close-flush";
 
-  if (!smokeMediaCaptureService || !smokeVideoSourcePath) throw new Error("smoke video Main fixture is unavailable");
+  if (!smokeMediaCaptureService || !smokeVideoSourcePath)
+    throw new Error("smoke video Main fixture is unavailable");
   smokeMediaCaptureService.prepareVideoFile(smokeVideoSourcePath, {
     storageMode: "managed",
     sourceType: "task",
     sourceId: smokeTaskId,
   });
 
-  const videoSmoke = await window.webContents.executeJavaScript(`
+  const videoSmoke = (await window.webContents.executeJavaScript(`
     (async () => {
       const pending = await window.api.mediaCapture.listPreparedVideo();
       if (pending.length !== 1 || pending[0].status !== "ready") throw new Error("prepared video session was not listed");
@@ -1154,7 +1275,13 @@ flowchart LR
         volumePreserved: playback.volumePreserved,
       };
     })()
-  `) as { artifactId: string; metadataLoaded: boolean; canPlay: boolean; seeked: boolean; volumePreserved: boolean };
+  `)) as {
+    artifactId: string;
+    metadataLoaded: boolean;
+    canPlay: boolean;
+    seeked: boolean;
+    volumePreserved: boolean;
+  };
   created.importedVideoArtifactId = videoSmoke.artifactId;
   created.importedVideoMetadataLoaded = videoSmoke.metadataLoaded;
   created.importedVideoCanPlay = videoSmoke.canPlay;
@@ -1164,7 +1291,8 @@ flowchart LR
   created.appIsPackaged = app.isPackaged;
   if (!created.importedVideoRangeVerified) throw new Error("imported video range request failed");
 
-  const screenRecordingSmoke = await window.webContents.executeJavaScript(`
+  const screenRecordingSmoke = (await window.webContents.executeJavaScript(
+    `
     (async () => {
       const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
       const capabilities = await window.api.screenRecording.capabilities();
@@ -1294,16 +1422,27 @@ flowchart LR
         pausedResumed: true,
       };
     })()
-  `, true) as { artifactId: string; metadataLoaded: boolean; canPlay: boolean; seeked: boolean; volumePreserved: boolean; pausedResumed: boolean };
+  `,
+    true,
+  )) as {
+    artifactId: string;
+    metadataLoaded: boolean;
+    canPlay: boolean;
+    seeked: boolean;
+    volumePreserved: boolean;
+    pausedResumed: boolean;
+  };
   created.screenRecordingArtifactId = screenRecordingSmoke.artifactId;
   created.screenRecordingMetadataLoaded = screenRecordingSmoke.metadataLoaded;
   created.screenRecordingCanPlay = screenRecordingSmoke.canPlay;
   created.screenRecordingSeeked = screenRecordingSmoke.seeked;
   created.screenRecordingVolumePreserved = screenRecordingSmoke.volumePreserved;
   created.screenRecordingPausedResumed = screenRecordingSmoke.pausedResumed;
-  created.screenRecordingRangeVerified = await verifySmokeVideoRange(screenRecordingSmoke.artifactId);
+  created.screenRecordingRangeVerified = await verifySmokeVideoRange(
+    screenRecordingSmoke.artifactId,
+  );
 
-  const audioSmoke = await window.webContents.executeJavaScript(`
+  const audioSmoke = (await window.webContents.executeJavaScript(`
     (async () => {
       const pending = await window.api.mediaCapture.listPreparedAudio();
       if (pending.length !== 1 || pending[0].status !== "ready") throw new Error("prepared audio session was not listed");
@@ -1346,7 +1485,13 @@ flowchart LR
           && revision.language === "ja",
       };
     })()
-  `) as { artifactId: string; metadataLoaded: boolean; transcriptionPreview: boolean; transcriptionCompleted: boolean; transcriptionProvenance: boolean };
+  `)) as {
+    artifactId: string;
+    metadataLoaded: boolean;
+    transcriptionPreview: boolean;
+    transcriptionCompleted: boolean;
+    transcriptionProvenance: boolean;
+  };
   created.audioArtifactId = audioSmoke.artifactId;
   created.audioMetadataLoaded = audioSmoke.metadataLoaded;
   created.audioRangeVerified = await verifySmokeMediaRange(audioSmoke.artifactId);
@@ -1354,7 +1499,7 @@ flowchart LR
   created.batchTranscriptionCompleted = audioSmoke.transcriptionCompleted;
   created.batchTranscriptionProvenance = audioSmoke.transcriptionProvenance;
 
-  const microphoneSmoke = await window.webContents.executeJavaScript(`
+  const microphoneSmoke = (await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1447,7 +1592,7 @@ flowchart LR
       });
       return { artifactId: artifact.id, recorded: prepared.fileSize > 0 && prepared.durationMs > 0, playable, captureMethod: capture.capture_method === "microphone" };
     })()
-  `) as { artifactId: string; recorded: boolean; playable: boolean; captureMethod: boolean };
+  `)) as { artifactId: string; recorded: boolean; playable: boolean; captureMethod: boolean };
   created.microphoneArtifactId = microphoneSmoke.artifactId;
   created.microphoneRangeVerified = await verifySmokeVideoRange(microphoneSmoke.artifactId);
   created.microphoneRecorded = microphoneSmoke.recorded;
@@ -1457,7 +1602,7 @@ flowchart LR
   const releaseSmokeClipboardLock = await acquireSmokeClipboardLock({ runId: smokeRunId });
   try {
     recordSmoke("clipboard-start");
-    const clipboardPhase = await window.webContents.executeJavaScript(`
+    const clipboardPhase = (await window.webContents.executeJavaScript(`
       (async () => {
         const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         const notesPane = document.querySelector(".note-preview-panel");
@@ -1490,20 +1635,20 @@ flowchart LR
         target.focus();
         return { rawCopyNotified, clipboardWritten, sketchClipboardWritten };
       })()
-    `) as { rawCopyNotified: boolean; clipboardWritten: boolean; sketchClipboardWritten: boolean };
+    `)) as { rawCopyNotified: boolean; clipboardWritten: boolean; sketchClipboardWritten: boolean };
     created.rawCopyNotified = clipboardPhase.rawCopyNotified;
     created.clipboardWritten = clipboardPhase.clipboardWritten;
     created.sketchClipboardWritten = clipboardPhase.sketchClipboardWritten;
     window.webContents.paste();
     await new Promise((resolve) => setTimeout(resolve, 100));
-    created.sketchClipboardPasted = await window.webContents.executeJavaScript(`
+    created.sketchClipboardPasted = (await window.webContents.executeJavaScript(`
       (() => {
         const target = document.querySelector("#sketch-clipboard-smoke-target");
         const pasted = Boolean(target?.querySelector("img"));
         target?.remove();
         return pasted;
       })()
-    `) as boolean;
+    `)) as boolean;
     recordSmoke("clipboard-complete", {
       sketchClipboardWritten: created.sketchClipboardWritten,
       sketchClipboardPasted: created.sketchClipboardPasted,
@@ -1535,22 +1680,35 @@ flowchart LR
     mini.todayMiniOpened = created.todayMiniWindowOpened && todayMini.isVisible();
     const initialMiniId = todayMini.webContents.id;
     const initialMiniBounds = todayMini.getBounds();
-    const toggleResult = await window.webContents.executeJavaScript(`
+    const toggleResult = (await window.webContents.executeJavaScript(`
       (async () => {
         const hidden = await window.api.app.toggleTodayMiniWindow(); for (let attempt = 0; attempt < 20 && (await window.api.app.getSatelliteWindowState()).todayOpen; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
         const shown = await window.api.app.toggleTodayMiniWindow();
         return { hidden, shown };
       })()
-    `) as { hidden: boolean; shown: boolean };
-    for (let attempt = 0; attempt < 20; attempt += 1) { const settledBounds = todayMini.getBounds(); if (todayMini.isVisible() && todayMini.isAlwaysOnTop() && settledBounds.x === initialMiniBounds.x && settledBounds.y === initialMiniBounds.y && settledBounds.width === initialMiniBounds.width && settledBounds.height === initialMiniBounds.height) break; await new Promise((resolve) => setTimeout(resolve, 50)); }
-    mini.todayMiniToggleRestored = toggleResult.hidden === false
-      && toggleResult.shown === true
-      && todayMini.isVisible()
-      && todayMini.webContents.id === initialMiniId
-      && todayMini.getBounds().x === initialMiniBounds.x
-      && todayMini.getBounds().y === initialMiniBounds.y
-      && todayMini.getBounds().width === initialMiniBounds.width
-      && todayMini.getBounds().height === initialMiniBounds.height;
+    `)) as { hidden: boolean; shown: boolean };
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const settledBounds = todayMini.getBounds();
+      if (
+        todayMini.isVisible() &&
+        todayMini.isAlwaysOnTop() &&
+        settledBounds.x === initialMiniBounds.x &&
+        settledBounds.y === initialMiniBounds.y &&
+        settledBounds.width === initialMiniBounds.width &&
+        settledBounds.height === initialMiniBounds.height
+      )
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    mini.todayMiniToggleRestored =
+      toggleResult.hidden === false &&
+      toggleResult.shown === true &&
+      todayMini.isVisible() &&
+      todayMini.webContents.id === initialMiniId &&
+      todayMini.getBounds().x === initialMiniBounds.x &&
+      todayMini.getBounds().y === initialMiniBounds.y &&
+      todayMini.getBounds().width === initialMiniBounds.width &&
+      todayMini.getBounds().height === initialMiniBounds.height;
     mini.todayMiniAlwaysOnTop = todayMini.isAlwaysOnTop();
     const longTheme = todayMiniThemeMatrix.at(-1)!;
     await todayMini.webContents.executeJavaScript(`
@@ -1565,7 +1723,8 @@ flowchart LR
     for (const width of [300, 320, 360, 420]) {
       todayMini.setSize(width, Math.max(360, initialMiniBounds.height), false);
       await new Promise((resolve) => setTimeout(resolve, 40));
-      responsiveResults.push(await todayMini.webContents.executeJavaScript(`
+      responsiveResults.push(
+        (await todayMini.webContents.executeJavaScript(`
         (() => {
           const doc = document.scrollingElement;
           const form = document.querySelector(".add-task-bar");
@@ -1596,11 +1755,12 @@ flowchart LR
           trigger?.click();
           return result;
         })()
-      `) as boolean);
+      `)) as boolean,
+      );
     }
     todayMini.setBounds(initialMiniBounds, false);
     mini.todayMiniResponsive = responsiveResults.every(Boolean);
-    const miniInteraction = await todayMini.webContents.executeJavaScript(`
+    const miniInteraction = (await todayMini.webContents.executeJavaScript(`
       (async () => {
         const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -1615,7 +1775,10 @@ flowchart LR
         const todayMiniOpenDetail = await window.todayMiniApi.openTask(${JSON.stringify(smokeTaskId)});
         return { todayMiniTaskVisible, todayMiniCompletionSaved, todayMiniOpenDetail };
       })()
-    `) as Pick<SmokeMiniResult, "todayMiniTaskVisible" | "todayMiniCompletionSaved" | "todayMiniOpenDetail">;
+    `)) as Pick<
+      SmokeMiniResult,
+      "todayMiniTaskVisible" | "todayMiniCompletionSaved" | "todayMiniOpenDetail"
+    >;
     mini = { ...mini, ...miniInteraction };
 
     // 合成キーはwebContentsがfocusされるまで捨てられるので、キー送出前に前面へ出す。
@@ -1634,10 +1797,10 @@ flowchart LR
       todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode: "Down" });
       todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode: "Down" });
       await new Promise((resolve) => setTimeout(resolve, 60));
-      const opened = await todayMini.webContents.executeJavaScript(`
+      const opened = (await todayMini.webContents.executeJavaScript(`
         document.querySelector(".theme-picker-menu")?.hidden === false
           && document.activeElement?.classList.contains("theme-picker-option") === true
-      `) as boolean;
+      `)) as boolean;
       if (opened) break;
     }
     // 開いた直後は選択中（長いTheme名）にfocusが当たる。Upで一つ前のSmoke Themeへ移る。
@@ -1650,10 +1813,10 @@ flowchart LR
     todayMini.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
     todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
     await new Promise((resolve) => setTimeout(resolve, 80));
-    mini.todayMiniThemeKeyboard = await todayMini.webContents.executeJavaScript(`
+    mini.todayMiniThemeKeyboard = (await todayMini.webContents.executeJavaScript(`
       document.querySelector(".theme-picker-trigger")?.getAttribute("title") === "Smoke Theme"
         && document.activeElement === document.querySelector(".theme-picker-trigger")
-    `) as boolean;
+    `)) as boolean;
     const miniAddedTitle = `Today追加動作確認 ${Date.now()}`;
     await todayMini.webContents.executeJavaScript(`
       (() => {
@@ -1666,7 +1829,7 @@ flowchart LR
     todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
     todayMini.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
     todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
-    const enterAdded = await todayMini.webContents.executeJavaScript(`
+    const enterAdded = (await todayMini.webContents.executeJavaScript(`
       (async () => {
         const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         const input = document.querySelector("#add-task-input");
@@ -1677,11 +1840,12 @@ flowchart LR
         const added = (await window.todayMiniApi.list()).find((task) => task.title === ${JSON.stringify(miniAddedTitle)});
         return Boolean(added?.themeName === "Smoke Theme" && input.value === "" && document.querySelector(".theme-picker-trigger")?.getAttribute("title") === "Smoke Theme");
       })()
-    `) as boolean;
-    const enterSavedTask = (workspaceRepository.list("task") as Entity[])
-      .find((task) => task.title === miniAddedTitle);
+    `)) as boolean;
+    const enterSavedTask = (workspaceRepository.list("task") as Entity[]).find(
+      (task) => task.title === miniAddedTitle,
+    );
     const miniButtonTitle = `Today＋動作確認 ${Date.now()}`;
-    const submitPoint = await todayMini.webContents.executeJavaScript(`
+    const submitPoint = (await todayMini.webContents.executeJavaScript(`
       (() => {
         const input = document.querySelector("#add-task-input");
         input.value = ${JSON.stringify(miniButtonTitle)};
@@ -1689,12 +1853,24 @@ flowchart LR
         const rect = document.querySelector("#add-task-submit")?.getBoundingClientRect();
         return rect ? { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) } : null;
       })()
-    `) as { x: number; y: number } | null;
+    `)) as { x: number; y: number } | null;
     if (submitPoint) {
-      todayMini.webContents.sendInputEvent({ type: "mouseDown", x: submitPoint.x, y: submitPoint.y, button: "left", clickCount: 1 });
-      todayMini.webContents.sendInputEvent({ type: "mouseUp", x: submitPoint.x, y: submitPoint.y, button: "left", clickCount: 1 });
+      todayMini.webContents.sendInputEvent({
+        type: "mouseDown",
+        x: submitPoint.x,
+        y: submitPoint.y,
+        button: "left",
+        clickCount: 1,
+      });
+      todayMini.webContents.sendInputEvent({
+        type: "mouseUp",
+        x: submitPoint.x,
+        y: submitPoint.y,
+        button: "left",
+        clickCount: 1,
+      });
     }
-    const buttonAdded = await todayMini.webContents.executeJavaScript(`
+    const buttonAdded = (await todayMini.webContents.executeJavaScript(`
       (async () => {
         const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -1704,13 +1880,15 @@ flowchart LR
         return Boolean(document.body.innerText.includes(${JSON.stringify(miniButtonTitle)})
           && document.querySelector("#add-task-input")?.value === "");
       })()
-    `) as boolean;
-    const buttonSavedTask = (workspaceRepository.list("task") as Entity[])
-      .find((task) => task.title === miniButtonTitle);
-    mini.todayMiniThemeSaved = enterAdded
-      && enterSavedTask?.project_id === smokeThemeId
-      && buttonAdded
-      && buttonSavedTask?.project_id === smokeThemeId;
+    `)) as boolean;
+    const buttonSavedTask = (workspaceRepository.list("task") as Entity[]).find(
+      (task) => task.title === miniButtonTitle,
+    );
+    mini.todayMiniThemeSaved =
+      enterAdded &&
+      enterSavedTask?.project_id === smokeThemeId &&
+      buttonAdded &&
+      buttonSavedTask?.project_id === smokeThemeId;
 
     const failedTheme = todayMiniThemeMatrix.at(-1)!;
     await todayMini.webContents.executeJavaScript(`
@@ -1726,7 +1904,7 @@ flowchart LR
     `);
     workspaceRepository.remove("theme", failedTheme.id);
     todayMini.webContents.send(IPC.todayMiniRefresh);
-    mini.todayMiniFailurePreserved = await todayMini.webContents.executeJavaScript(`
+    mini.todayMiniFailurePreserved = (await todayMini.webContents.executeJavaScript(`
       (async () => {
         const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -1744,9 +1922,9 @@ flowchart LR
           && document.querySelector(".theme-picker-trigger .theme-picker-color")?.style.getPropertyValue("--theme-picker-color") === "var(--color-border-strong)"
           && !document.querySelector("#add-task-submit")?.disabled;
       })()
-    `) as boolean;
+    `)) as boolean;
   }
-  const detailOpened = await window.webContents.executeJavaScript(`
+  const detailOpened = (await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -1757,14 +1935,14 @@ flowchart LR
       }
       return false;
     })()
-  `) as boolean;
+  `)) as boolean;
   mini.todayMiniOpenDetail = mini.todayMiniOpenDetail && detailOpened;
   recordSmoke("markdown-edit-complete");
 
   window.show();
   window.focus();
   window.webContents.focus();
-  const settingsNavigation = await window.webContents.executeJavaScript(`
+  const settingsNavigation = (await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const waitFor = async (finder, label, attempts = 50) => {
@@ -1789,11 +1967,11 @@ flowchart LR
         categoryButtonFocused: document.activeElement === appearanceButton,
       };
     })()
-  `) as {
+  `)) as {
     storageDeepLink: boolean;
     categoryButtonFocused: boolean;
   };
-  const nativeFocusBeforeKey = await window.webContents.executeJavaScript(`
+  const nativeFocusBeforeKey = (await window.webContents.executeJavaScript(`
     (() => {
       const target = [...document.querySelectorAll(".settings-category-nav button")]
         .find((button) => button.querySelector("strong")?.textContent?.trim() === "Appearance");
@@ -1804,13 +1982,13 @@ flowchart LR
       target?.focus();
       return { focused: document.activeElement === target };
     })()
-  `) as {
+  `)) as {
     focused: boolean;
   };
   window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
   window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
   window.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
-  const settingsKeyboard = await window.webContents.executeJavaScript(`
+  const settingsKeyboard = (await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const appearanceIsActive = () => window.location.hash === "#settings/appearance"
@@ -1825,11 +2003,11 @@ flowchart LR
         inputTrusted: Boolean(window.__taskenSmokeInputTrusted),
       };
     })()
-  `) as {
+  `)) as {
     appearanceIsActive: boolean;
     inputTrusted: boolean;
   };
-  const settingsHistory = await window.webContents.executeJavaScript(`
+  const settingsHistory = (await window.webContents.executeJavaScript(`
     (async () => {
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const waitFor = async (finder, label, attempts = 50) => {
@@ -1847,13 +2025,13 @@ flowchart LR
       await waitFor(storageIsActive, "Settings history.back Storage restore");
       return { storageRestored: storageIsActive() };
     })()
-  `) as { storageRestored: boolean };
+  `)) as { storageRestored: boolean };
   recordSmoke("settings-complete");
   const settingsStorageBeforeReload = settingsHistory.storageRestored;
 
   window.webContents.once("did-finish-load", async () => {
     try {
-      const afterReload = await window.webContents.executeJavaScript(`
+      const afterReload = (await window.webContents.executeJavaScript(`
         Promise.all([
           window.api.entities.list("note"),
           window.api.preferences.get("themeMode"),
@@ -1888,7 +2066,7 @@ flowchart LR
           settingsReloadRestored,
         });
         })
-      `) as SmokeReloadResult;
+      `)) as SmokeReloadResult;
       const result = {
         ...created,
         persistedAfterReload: afterReload.persisted,
@@ -1901,7 +2079,8 @@ flowchart LR
         aiVisibilityDefaultAfterReload: afterReload.aiVisibilityDefault,
         aiMetadataPersistedAfterReload: afterReload.aiTaskMetadataPersisted,
         settingsDeepLink: settingsNavigation.storageDeepLink,
-        settingsKeyboardFocus: settingsNavigation.categoryButtonFocused && nativeFocusBeforeKey.focused,
+        settingsKeyboardFocus:
+          settingsNavigation.categoryButtonFocused && nativeFocusBeforeKey.focused,
         settingsKeyboardTransition: settingsKeyboard.appearanceIsActive,
         settingsHistoryBackRestored: settingsHistory.storageRestored,
         settingsReloadRestored: afterReload.settingsReloadRestored,
@@ -1911,83 +2090,83 @@ flowchart LR
       };
       console.log(JSON.stringify(result));
       const passed = Boolean(
-        result.persistedAfterReload
-        && result.markdownPersistedAfterReload
-        && result.markdownThemeLinkedAfterReload
-        && result.markdownFrontmatterPersistedAfterReload
-        && result.markdownLiveEditPersistedAfterReload
-        && result.markdownPastePersistedAfterReload
-        && result.saved
-        && result.markdownSaved
-        && result.markdownPreviewRendered
-        && result.markdownFrontmatterRendered
-        && result.markdownMathRendered
-        && result.markdownImageRendered
-        && result.notesPanePreviewRendered
-        && result.notesPaneMathRendered
-        && result.notesLiveEditSaved
-        && result.notesMarkdownPasteRendered
-        && result.notesEditPreviewAligned
-        && result.notesEditReopened
-        && result.notesMermaidRenderedInEdit
-        && result.notesCodeBlockFullWidth
-        && result.notesFootnoteEditPreviewAligned
-        && result.rawCopyNotified
-        && result.rootReady
-        && result.todayMiniOpened
-        && result.todayMiniAlwaysOnTop
-        && result.todayMiniTaskVisible
-        && result.todayMiniCompletionSaved
-        && result.todayMiniOpenDetail
-        && result.todayMiniToggleRestored
-        && result.todayMiniResponsive
-        && result.todayMiniThemeKeyboard
-        && result.todayMiniThemeSaved
-        && result.todayMiniFailurePreserved
-        && result.clipboardWritten
-        && result.sketchClipboardWritten
-        && result.sketchClipboardPasted
-        && result.sketchCreatedAndOpened
-        && result.stickyAutosaveSaved
-        && result.stickyImeSaved
-        && result.stickyResizePreserved
-        && result.stickyNativeCloseFlushed
-        && result.themeMode === "dark"
-        && result.themeModeAfterReload === "dark"
-        && result.aiMetadataPersisted
-        && result.aiThemeDefaultPersisted
-        && result.aiMetadataRejectedInvalid
-        && result.aiVisibilityDefaultSaved === "coding_agent"
-        && result.aiMetadataPersistedAfterReload
-        && result.aiVisibilityDefaultAfterReload === "coding_agent"
-        && result.settingsDeepLink
-        && result.settingsKeyboardFocus
-        && result.settingsKeyboardInputTrusted
-        && result.settingsKeyboardTransition
-        && result.settingsHistoryBackRestored
-        && result.settingsStorageBeforeReload
-        && result.settingsReloadRestored
-        && result.audioMetadataLoaded
-        && result.audioRangeVerified
-        && result.batchTranscriptionPreview
-        && result.batchTranscriptionCompleted
-        && result.batchTranscriptionProvenance
-        && result.microphoneRecorded
-        && result.microphonePlayback
-        && result.microphoneCaptureMethod
-        && result.microphoneRangeVerified
-        && result.importedVideoMetadataLoaded
-        && result.importedVideoCanPlay
-        && result.importedVideoSeeked
-        && result.importedVideoVolumePreserved
-        && result.importedVideoRangeVerified
-        && result.screenRecordingMetadataLoaded
-        && result.screenRecordingCanPlay
-        && result.screenRecordingSeeked
-        && result.screenRecordingVolumePreserved
-        && result.screenRecordingRangeVerified
-        && result.screenRecordingPausedResumed
-        && (!isPackagedSmokeRequired || result.appIsPackaged)
+        result.persistedAfterReload &&
+        result.markdownPersistedAfterReload &&
+        result.markdownThemeLinkedAfterReload &&
+        result.markdownFrontmatterPersistedAfterReload &&
+        result.markdownLiveEditPersistedAfterReload &&
+        result.markdownPastePersistedAfterReload &&
+        result.saved &&
+        result.markdownSaved &&
+        result.markdownPreviewRendered &&
+        result.markdownFrontmatterRendered &&
+        result.markdownMathRendered &&
+        result.markdownImageRendered &&
+        result.notesPanePreviewRendered &&
+        result.notesPaneMathRendered &&
+        result.notesLiveEditSaved &&
+        result.notesMarkdownPasteRendered &&
+        result.notesEditPreviewAligned &&
+        result.notesEditReopened &&
+        result.notesMermaidRenderedInEdit &&
+        result.notesCodeBlockFullWidth &&
+        result.notesFootnoteEditPreviewAligned &&
+        result.rawCopyNotified &&
+        result.rootReady &&
+        result.todayMiniOpened &&
+        result.todayMiniAlwaysOnTop &&
+        result.todayMiniTaskVisible &&
+        result.todayMiniCompletionSaved &&
+        result.todayMiniOpenDetail &&
+        result.todayMiniToggleRestored &&
+        result.todayMiniResponsive &&
+        result.todayMiniThemeKeyboard &&
+        result.todayMiniThemeSaved &&
+        result.todayMiniFailurePreserved &&
+        result.clipboardWritten &&
+        result.sketchClipboardWritten &&
+        result.sketchClipboardPasted &&
+        result.sketchCreatedAndOpened &&
+        result.stickyAutosaveSaved &&
+        result.stickyImeSaved &&
+        result.stickyResizePreserved &&
+        result.stickyNativeCloseFlushed &&
+        result.themeMode === "dark" &&
+        result.themeModeAfterReload === "dark" &&
+        result.aiMetadataPersisted &&
+        result.aiThemeDefaultPersisted &&
+        result.aiMetadataRejectedInvalid &&
+        result.aiVisibilityDefaultSaved === "coding_agent" &&
+        result.aiMetadataPersistedAfterReload &&
+        result.aiVisibilityDefaultAfterReload === "coding_agent" &&
+        result.settingsDeepLink &&
+        result.settingsKeyboardFocus &&
+        result.settingsKeyboardInputTrusted &&
+        result.settingsKeyboardTransition &&
+        result.settingsHistoryBackRestored &&
+        result.settingsStorageBeforeReload &&
+        result.settingsReloadRestored &&
+        result.audioMetadataLoaded &&
+        result.audioRangeVerified &&
+        result.batchTranscriptionPreview &&
+        result.batchTranscriptionCompleted &&
+        result.batchTranscriptionProvenance &&
+        result.microphoneRecorded &&
+        result.microphonePlayback &&
+        result.microphoneCaptureMethod &&
+        result.microphoneRangeVerified &&
+        result.importedVideoMetadataLoaded &&
+        result.importedVideoCanPlay &&
+        result.importedVideoSeeked &&
+        result.importedVideoVolumePreserved &&
+        result.importedVideoRangeVerified &&
+        result.screenRecordingMetadataLoaded &&
+        result.screenRecordingCanPlay &&
+        result.screenRecordingSeeked &&
+        result.screenRecordingVolumePreserved &&
+        result.screenRecordingRangeVerified &&
+        result.screenRecordingPausedResumed &&
+        (!isPackagedSmokeRequired || result.appIsPackaged),
       );
       recordSmoke(passed ? "restart-ready" : "failed", result);
       app.exit(passed ? 0 : 1);
@@ -2002,12 +2181,27 @@ flowchart LR
 }
 
 async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
-  recordSmoke("restart-renderer-loaded", { audioArtifactId: smokeMediaArtifactId, microphoneArtifactId: smokeMicrophoneArtifactId, importedVideoArtifactId: smokeImportedVideoArtifactId, screenRecordingArtifactId: smokeScreenRecordingArtifactId, screenRecordingPausedResumed: smokeScreenRecordingPausedResumed, smokeTaskId: smokeVideoOwnerId, appIsPackaged: app.isPackaged });
+  recordSmoke("restart-renderer-loaded", {
+    audioArtifactId: smokeMediaArtifactId,
+    microphoneArtifactId: smokeMicrophoneArtifactId,
+    importedVideoArtifactId: smokeImportedVideoArtifactId,
+    screenRecordingArtifactId: smokeScreenRecordingArtifactId,
+    screenRecordingPausedResumed: smokeScreenRecordingPausedResumed,
+    smokeTaskId: smokeVideoOwnerId,
+    appIsPackaged: app.isPackaged,
+  });
   const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!idPattern.test(smokeMediaArtifactId) || !idPattern.test(smokeMicrophoneArtifactId) || !idPattern.test(smokeImportedVideoArtifactId) || !idPattern.test(smokeScreenRecordingArtifactId) || !idPattern.test(smokeVideoOwnerId) || !smokeScreenRecordingPausedResumed) {
+  if (
+    !idPattern.test(smokeMediaArtifactId) ||
+    !idPattern.test(smokeMicrophoneArtifactId) ||
+    !idPattern.test(smokeImportedVideoArtifactId) ||
+    !idPattern.test(smokeScreenRecordingArtifactId) ||
+    !idPattern.test(smokeVideoOwnerId) ||
+    !smokeScreenRecordingPausedResumed
+  ) {
     throw new Error("restart Media Artifact IDs are invalid");
   }
-  const renderer = await window.webContents.executeJavaScript(`
+  const renderer = (await window.webContents.executeJavaScript(`
     (async () => {
       const artifact = await window.api.entities.get("artifact", ${JSON.stringify(smokeMediaArtifactId)});
       if (!artifact || artifact.media_kind !== "audio" || artifact.mime_type !== "audio/wav") throw new Error("restarted imported audio Artifact missing");
@@ -2091,16 +2285,51 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
       const screenRecording = await verifyVideo(${JSON.stringify(smokeScreenRecordingArtifactId)}, "screen recording", "screen_recording", ["video/mp4", "video/webm"]);
       return { artifactId: artifact.id, playable, transcriptionRestarted, microphoneArtifactId: microphoneArtifact.id, microphonePlayable, importedVideo, screenRecording };
     })()
-  `) as { artifactId: string; playable: boolean; transcriptionRestarted: boolean; microphoneArtifactId: string; microphonePlayable: boolean; importedVideo: { artifactId: string; ownerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean }; screenRecording: { artifactId: string; ownerLinked: boolean; canPlay: boolean; seeked: boolean; metadata: boolean } };
+  `)) as {
+    artifactId: string;
+    playable: boolean;
+    transcriptionRestarted: boolean;
+    microphoneArtifactId: string;
+    microphonePlayable: boolean;
+    importedVideo: {
+      artifactId: string;
+      ownerLinked: boolean;
+      canPlay: boolean;
+      seeked: boolean;
+      metadata: boolean;
+    };
+    screenRecording: {
+      artifactId: string;
+      ownerLinked: boolean;
+      canPlay: boolean;
+      seeked: boolean;
+      metadata: boolean;
+    };
+  };
   const rangeVerified = await verifySmokeMediaRange(renderer.artifactId);
   const microphoneRangeVerified = await verifySmokeVideoRange(renderer.microphoneArtifactId);
   const importedVideoRangeVerified = await verifySmokeVideoRange(renderer.importedVideo.artifactId);
-  const screenRecordingRangeVerified = await verifySmokeVideoRange(renderer.screenRecording.artifactId);
-  const passed = renderer.playable && rangeVerified && renderer.transcriptionRestarted && renderer.microphonePlayable && microphoneRangeVerified
-    && renderer.importedVideo.canPlay && renderer.importedVideo.seeked && renderer.importedVideo.metadata && renderer.importedVideo.ownerLinked && importedVideoRangeVerified
-    && renderer.screenRecording.canPlay && renderer.screenRecording.seeked && renderer.screenRecording.metadata && renderer.screenRecording.ownerLinked && screenRecordingRangeVerified
-    && smokeScreenRecordingPausedResumed
-    && (!isPackagedSmokeRequired || app.isPackaged);
+  const screenRecordingRangeVerified = await verifySmokeVideoRange(
+    renderer.screenRecording.artifactId,
+  );
+  const passed =
+    renderer.playable &&
+    rangeVerified &&
+    renderer.transcriptionRestarted &&
+    renderer.microphonePlayable &&
+    microphoneRangeVerified &&
+    renderer.importedVideo.canPlay &&
+    renderer.importedVideo.seeked &&
+    renderer.importedVideo.metadata &&
+    renderer.importedVideo.ownerLinked &&
+    importedVideoRangeVerified &&
+    renderer.screenRecording.canPlay &&
+    renderer.screenRecording.seeked &&
+    renderer.screenRecording.metadata &&
+    renderer.screenRecording.ownerLinked &&
+    screenRecordingRangeVerified &&
+    smokeScreenRecordingPausedResumed &&
+    (!isPackagedSmokeRequired || app.isPackaged);
   recordSmoke(passed ? "passed" : "failed", {
     audioArtifactId: renderer.artifactId,
     playable: renderer.playable,
@@ -2202,7 +2431,12 @@ function createWindow(): BrowserWindow {
   });
   window.webContents.on("console-message", ({ level, message, lineNumber: line, sourceId }) => {
     if (!isSmokeTest) return;
-    if (level !== "warning" && level !== "error" && !/mermaid|markdown|unhandled|exception/i.test(message)) return;
+    if (
+      level !== "warning" &&
+      level !== "error" &&
+      !/mermaid|markdown|unhandled|exception/i.test(message)
+    )
+      return;
     const entry = { level, message, line, sourceId };
     recordSmoke("renderer-console", entry);
     console.error("Renderer console: " + JSON.stringify(entry));
@@ -2228,7 +2462,9 @@ function createWindow(): BrowserWindow {
     void requestRendererFlush(window).then((ok) => {
       closeFlushPending = false;
       if (!ok) {
-        console.warn("Main windowの終了前flushが完了しなかったため、ウィンドウを開いたままにします。");
+        console.warn(
+          "Main windowの終了前flushが完了しなかったため、ウィンドウを開いたままにします。",
+        );
         return;
       }
       closeApproved = true;
@@ -2273,53 +2509,69 @@ function denyDisplayMediaRequest(callback: (streams: Electron.Streams) => void):
 }
 
 function installScreenRecordingDisplayHandler(screenRecording: ScreenRecordingService): void {
-  electronSession.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
-    const frame = request.frame;
-    if (!frame || frame.detached) {
-      denyDisplayMediaRequest(callback);
-      return;
-    }
-    try {
-      const sender = webContents.fromFrame(frame);
-      if (!sender) throw new Error("画面録画の要求元が閉じられました。もう一度選択してください。");
-      const parsedFrameUrl = new URL(frame.url);
-      const frameOrigin = parsedFrameUrl.protocol === "file:" ? "file://" : parsedFrameUrl.origin;
-      // Chromiumはsecurity originを "http://localhost:5173/" のように末尾スラッシュ付きで渡す。
-      // 生の文字列比較にすると、dev serverで動かしたときだけ必ず不一致になる。
-      if (!screenRecordingOriginsMatch(request.securityOrigin, frameOrigin)) {
-        throw new Error(`画面録画のoriginが一致しません。画面を再読み込みしてください。(request=${request.securityOrigin} frame=${frameOrigin})`);
+  electronSession.defaultSession.setDisplayMediaRequestHandler(
+    async (request, callback) => {
+      const frame = request.frame;
+      if (!frame || frame.detached) {
+        denyDisplayMediaRequest(callback);
+        return;
       }
-      const grant = await screenRecording.consumePermissionRequest({
-        senderWebContentsId: sender.id,
-        frameTreeNodeId: frame.frameTreeNodeId,
-        frameIsMain: sender.mainFrame === frame,
-        frameDetached: frame.detached,
-        securityOrigin: frameOrigin,
-        userGesture: request.userGesture,
-        videoRequested: request.videoRequested,
-        audioRequested: request.audioRequested,
-      });
-      callback({
-        video: grant.source,
-        ...(grant.displayAudio ? { audio: grant.displayAudio } : {}),
-      });
-    } catch (error) {
-      // 拒否理由はRendererへ渡さない。ただしMainのログには残す。
-      // ここを名前だけにすると、録画が始まらない理由へ誰も到達できない。
-      logMain("warn", "screen-recording:display-request", "permission grantを拒否した", error);
-      denyDisplayMediaRequest(callback);
-    }
-  }, { useSystemPicker: false });
+      try {
+        const sender = webContents.fromFrame(frame);
+        if (!sender)
+          throw new Error("画面録画の要求元が閉じられました。もう一度選択してください。");
+        const parsedFrameUrl = new URL(frame.url);
+        const frameOrigin = parsedFrameUrl.protocol === "file:" ? "file://" : parsedFrameUrl.origin;
+        // Chromiumはsecurity originを "http://localhost:5173/" のように末尾スラッシュ付きで渡す。
+        // 生の文字列比較にすると、dev serverで動かしたときだけ必ず不一致になる。
+        if (!screenRecordingOriginsMatch(request.securityOrigin, frameOrigin)) {
+          throw new Error(
+            `画面録画のoriginが一致しません。画面を再読み込みしてください。(request=${request.securityOrigin} frame=${frameOrigin})`,
+          );
+        }
+        const grant = await screenRecording.consumePermissionRequest({
+          senderWebContentsId: sender.id,
+          frameTreeNodeId: frame.frameTreeNodeId,
+          frameIsMain: sender.mainFrame === frame,
+          frameDetached: frame.detached,
+          securityOrigin: frameOrigin,
+          userGesture: request.userGesture,
+          videoRequested: request.videoRequested,
+          audioRequested: request.audioRequested,
+        });
+        callback({
+          video: grant.source,
+          ...(grant.displayAudio ? { audio: grant.displayAudio } : {}),
+        });
+      } catch (error) {
+        // 拒否理由はRendererへ渡さない。ただしMainのログには残す。
+        // ここを名前だけにすると、録画が始まらない理由へ誰も到達できない。
+        logMain("warn", "screen-recording:display-request", "permission grantを拒否した", error);
+        denyDisplayMediaRequest(callback);
+      }
+    },
+    { useSystemPicker: false },
+  );
 }
 
 async function startDesktopApp(): Promise<void> {
   await app.whenReady();
   migrateLegacyUserDataIfNeeded();
   configureMainLog(app.getPath("userData"));
+  installMainPerformanceDiagnostics();
   registerAttachmentProtocol();
-  workspaceRepository = new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite"));
-  const composition = desktopComposition = new TaskenDesktopComposition({ userDataPath: app.getPath("userData"), persistence: workspaceRepository, mcpPackageSmoke });
-  if (composition.packageSmokeVerifyOnlyCompleted) { app.exit(0); return; }
+  workspaceRepository = new WorkspaceDatabase(
+    path.join(app.getPath("userData"), "research-desk.sqlite"),
+  );
+  const composition = (desktopComposition = new TaskenDesktopComposition({
+    userDataPath: app.getPath("userData"),
+    persistence: workspaceRepository,
+    mcpPackageSmoke,
+  }));
+  if (composition.packageSmokeVerifyOnlyCompleted) {
+    app.exit(0);
+    return;
+  }
   await composition.start();
   const applicationCommands = composition.applicationCommands;
   let smokeAudioSourcePath = "";
@@ -2361,33 +2613,45 @@ async function startDesktopApp(): Promise<void> {
     repository: batchTranscriptionRepository,
     entityRepository: workspaceRepository,
     mediaCapture,
-    providerRegistry: isSmokeTest ? {
-      resolve: () => ({
-        binding: {
-          feature: "transcript_batch",
-          provider_profile_id: "tasken-smoke-provider",
-          provider_label: "Tasken packaged fake provider",
-          model_profile_id: "tasken-smoke-model",
-          model_id: "tasken-smoke-transcriber",
-          processing_mode: "local",
-          enabled: true,
-          credential_configured: false,
-          model_lifecycle: "available",
-          capabilities: ["batch_transcription", "local_processing"],
-          max_file_size: 1024 * 1024,
-          supported_mime_types: ["audio/wav", "audio/webm"],
-        },
-        provider: {
-          providerProfileId: "tasken-smoke-provider",
-          transcribe: ({ source, fileSize }: { source: { fileDescriptor: number }; fileSize: number }) => {
-            const bytes = Buffer.alloc(fileSize);
-            const count = fs.readSync(source.fileDescriptor, bytes, 0, fileSize, 0);
-            if (count !== fileSize || !bytes.subarray(0, 4).equals(Buffer.from("RIFF"))) throw new Error("fake transcription source mismatch");
-            return Promise.resolve({ rawText: "Tasken packaged fake transcript", language: "ja" });
-          },
-        },
-      }),
-    } : { resolve: () => aiProvider.resolveBatchTranscriptionProvider() },
+    providerRegistry: isSmokeTest
+      ? {
+          resolve: () => ({
+            binding: {
+              feature: "transcript_batch",
+              provider_profile_id: "tasken-smoke-provider",
+              provider_label: "Tasken packaged fake provider",
+              model_profile_id: "tasken-smoke-model",
+              model_id: "tasken-smoke-transcriber",
+              processing_mode: "local",
+              enabled: true,
+              credential_configured: false,
+              model_lifecycle: "available",
+              capabilities: ["batch_transcription", "local_processing"],
+              max_file_size: 1024 * 1024,
+              supported_mime_types: ["audio/wav", "audio/webm"],
+            },
+            provider: {
+              providerProfileId: "tasken-smoke-provider",
+              transcribe: ({
+                source,
+                fileSize,
+              }: {
+                source: { fileDescriptor: number };
+                fileSize: number;
+              }) => {
+                const bytes = Buffer.alloc(fileSize);
+                const count = fs.readSync(source.fileDescriptor, bytes, 0, fileSize, 0);
+                if (count !== fileSize || !bytes.subarray(0, 4).equals(Buffer.from("RIFF")))
+                  throw new Error("fake transcription source mismatch");
+                return Promise.resolve({
+                  rawText: "Tasken packaged fake transcript",
+                  language: "ja",
+                });
+              },
+            },
+          }),
+        }
+      : { resolve: () => aiProvider.resolveBatchTranscriptionProvider() },
     confirmationSecret: workspaceRepository.ensureMeta(
       "batch_transcription_confirmation_secret",
       `${randomUUID()}${randomUUID()}`,
@@ -2410,7 +2674,9 @@ async function startDesktopApp(): Promise<void> {
   smokeMediaCaptureService = isSmokeTest ? mediaCapture : null;
   const mediaRecovery = mediaCapture.recoverPending();
   if (mediaRecovery.recovered || mediaRecovery.pending) {
-    console.info(`Media Capture recovery: recovered=${mediaRecovery.recovered}, pending=${mediaRecovery.pending}`);
+    console.info(
+      `Media Capture recovery: recovered=${mediaRecovery.recovered}, pending=${mediaRecovery.pending}`,
+    );
   }
   if (smokeAudioSourcePath) mediaCapture.prepareFile(smokeAudioSourcePath, null);
   registerMediaProtocol(mediaCapture);
@@ -2425,7 +2691,9 @@ async function startDesktopApp(): Promise<void> {
     automaticSnapshotBackup,
     sharedFolderSyncService,
     aiProvider,
-    new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) => shell.openExternal(url)),
+    new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) =>
+      shell.openExternal(url),
+    ),
     applicationCommands,
     composition.taskCapability,
     mediaCapture,
@@ -2435,7 +2703,8 @@ async function startDesktopApp(): Promise<void> {
       notifyMainWindowRefresh();
       notifyTodayMiniRefresh(types);
     },
-    notifyCommandApplied, notifyTodayMiniRefresh,
+    notifyCommandApplied,
+    notifyTodayMiniRefresh,
   );
   registerMobileGatewayIpc(composition.mobileGateway);
   // 切り離しウィンドウの共通基盤（#290）。位置・サイズは端末ごとの見え方なので
@@ -2445,18 +2714,21 @@ async function startDesktopApp(): Promise<void> {
     getAppIconPath,
     // 付箋の開閉を本体の一覧へ即時反映する（#298）。
     onChanged: () => notifyMemoStickyWindowsChanged(),
-    resolvePageUrl: (page) => (
+    resolvePageUrl: (page) =>
       process.env.ELECTRON_RENDERER_URL
         ? { url: `${process.env.ELECTRON_RENDERER_URL}/${page}.html` }
-        : { file: path.join(__dirname, `../renderer/${page}.html`) }
-    ),
+        : { file: path.join(__dirname, `../renderer/${page}.html`) },
   });
-  ipcMain.handle(IPC.satelliteWindowState, () => ({
-    todayOpen: isVisibleWindow(todayMiniController?.getWindow() || null),
-    openMemoIds: memoStickyController?.visibleMemoIds() || [],
-    stickyMemoIds: memoStickyController?.stickyMemoIds() || [],
-    alwaysOnTopMemoIds: memoStickyController?.alwaysOnTopMemoIds() || [],
-  } satisfies SatelliteWindowStatePayload));
+  ipcMain.handle(
+    IPC.satelliteWindowState,
+    () =>
+      ({
+        todayOpen: isVisibleWindow(todayMiniController?.getWindow() || null),
+        openMemoIds: memoStickyController?.visibleMemoIds() || [],
+        stickyMemoIds: memoStickyController?.stickyMemoIds() || [],
+        alwaysOnTopMemoIds: memoStickyController?.alwaysOnTopMemoIds() || [],
+      }) satisfies SatelliteWindowStatePayload,
+  );
   memoStickyController = createMemoStickyController({
     repository: workspaceRepository,
     satelliteWindows,
@@ -2476,12 +2748,15 @@ async function startDesktopApp(): Promise<void> {
   noteWindowController.registerIpc();
   taskenRootController = createTaskenRootController({
     getPreference: (key) => workspaceRepository.getPreference(key),
-    setPreference: (key, value) => { workspaceRepository.setPreference(key, value); },
+    setPreference: (key, value) => {
+      workspaceRepository.setPreference(key, value);
+    },
     getAppIconPath,
     showMainTarget: (request: RootOpenRequest) => {
       const mainWindow = showMainWindow();
       const send = () => {
-        if (!mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.workspaceOpenRootTarget, request);
+        if (!mainWindow.isDestroyed())
+          mainWindow.webContents.send(IPC.workspaceOpenRootTarget, request);
       };
       if (readyMainWindows.has(mainWindow)) send();
       else mainWindow.webContents.once("did-finish-load", send);
@@ -2563,7 +2838,9 @@ if (!hasSingleInstanceLock) {
     if (app.isReady()) showMainWindow();
   });
   void startDesktopApp().catch(async (error: unknown) => {
-    await desktopComposition?.stopSafely((stopError) => logMain("warn", "tasken-core", "起動失敗後にloopback hostを停止できませんでした", stopError));
+    await desktopComposition?.stopSafely((stopError) =>
+      logMain("warn", "tasken-core", "起動失敗後にloopback hostを停止できませんでした", stopError),
+    );
     desktopComposition = null;
     console.error("Tasken failed to start.", error);
     recordSmoke("startup-failed", { error: String(error) });
@@ -2572,10 +2849,10 @@ if (!hasSingleInstanceLock) {
 }
 
 app.on("window-all-closed", () => {
-    // トレイ常駐中はメインウィンドウを閉じてもアプリを終了しない
-    if (process.platform === "darwin") return;
-    if (trayController?.isActive()) return;
-    app.quit();
+  // トレイ常駐中はメインウィンドウを閉じてもアプリを終了しない
+  if (process.platform === "darwin") return;
+  if (trayController?.isActive()) return;
+  app.quit();
 });
 
 app.on("before-quit", (event) => {
@@ -2586,21 +2863,25 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (appFlushPending) return;
   appFlushPending = true;
-  void Promise.all(rendererWindowsForAppFlush().map((window) => requestRendererFlush(window))).then(async (results) => {
-    appFlushPending = false;
-    if (results.some((ok) => !ok)) {
-      console.warn("終了前flushが完了しなかったため、アプリを終了しませんでした。");
-      return;
-    }
-    await desktopComposition?.stopSafely((error) => logMain("warn", "tasken-core", "loopback hostを停止できませんでした", error));
-    desktopComposition = null;
-    appQuitApproved = true;
-    app.quit();
-  });
+  void Promise.all(rendererWindowsForAppFlush().map((window) => requestRendererFlush(window))).then(
+    async (results) => {
+      appFlushPending = false;
+      if (results.some((ok) => !ok)) {
+        console.warn("終了前flushが完了しなかったため、アプリを終了しませんでした。");
+        return;
+      }
+      await desktopComposition?.stopSafely((error) =>
+        logMain("warn", "tasken-core", "loopback hostを停止できませんでした", error),
+      );
+      desktopComposition = null;
+      appQuitApproved = true;
+      app.quit();
+    },
+  );
 });
 
 app.on("will-quit", () => {
-    reminderController?.stop();
-    taskenRootController?.destroy();
-    globalShortcut.unregisterAll();
+  reminderController?.stop();
+  taskenRootController?.destroy();
+  globalShortcut.unregisterAll();
 });

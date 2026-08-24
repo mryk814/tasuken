@@ -9,11 +9,23 @@ import type {
   WorkspaceMeta,
 } from "../../../../shared/types/workspace";
 import type { WorkReceipt, WorkspaceDomain } from "./domain-model/types";
-import type { ApplicationCommandSource, CommandEnvelope, CommandReceipt } from "../../../../shared/applicationCommand";
+import type {
+  ApplicationCommandSource,
+  CommandEnvelope,
+  CommandReceipt,
+} from "../../../../shared/applicationCommand";
 import type { TaskCommandEntrypoint } from "../../../../shared/contracts/task/public";
 
 // shared型をこの層から再エクスポートし、各ファイルの相対パスを単純化する。
-export type { DocumentSaveReferenceCompanion, DocumentSaveSnapshot, Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../../shared/types/workspace";
+export type {
+  DocumentSaveReferenceCompanion,
+  DocumentSaveSnapshot,
+  Entity,
+  EntityType,
+  SaveOperation,
+  SaveOptions,
+  Workspace,
+} from "../../../../shared/types/workspace";
 
 // DBのdata_jsonはスキーマレスなので、利用するフィールドだけを型付けし、
 // それ以外はindex signatureで許容する（カスタム項目・将来フィールドのため）。
@@ -160,12 +172,7 @@ export interface PlanRevision extends BaseRecord {
 }
 
 export type KnowledgeNodeType =
-  | "source"
-  | "evidence"
-  | "claim"
-  | "question"
-  | "decision"
-  | "insight";
+  "source" | "evidence" | "claim" | "question" | "decision" | "insight";
 
 export type KnowledgeRelationType =
   | "supports"
@@ -198,11 +205,13 @@ export interface KnowledgeNode extends BaseRecord {
   status?: "active" | "resolved" | "deprecated" | "rejected";
 }
 
-export type ArtifactSourceType = "chat_ref" | "task" | "note" | "report" | "theme" | "capture_entry" | "ai_proposal";
+export type ArtifactSourceType =
+  "chat_ref" | "task" | "note" | "report" | "theme" | "capture_entry" | "ai_proposal";
 export type ArtifactGeneratedBy = "chatgpt" | "claude" | "copilot" | "gemini" | "openai" | "manual";
 
 export type ArtifactStorageMode = "managed" | "linked";
-export type ArtifactLinkType = "url" | "local_path" | "shared_path" | "onedrive" | "sharepoint" | "teams";
+export type ArtifactLinkType =
+  "url" | "local_path" | "shared_path" | "onedrive" | "sharepoint" | "teams";
 export type ArtifactLinkStatus = "unknown" | "ok" | "broken" | "inaccessible";
 export type WebArtifactKind = "self_contained_html" | "bundle";
 export type WebArtifactExecutionPolicy = "static" | "sandboxed_interactive";
@@ -387,10 +396,16 @@ export interface PageProps {
   openContentViewer: OpenContentViewer;
   openContextPack: OpenContextPack;
   openDailyScratchpad: OpenDailyScratchpad;
+  startFocusSession(taskId: string): void;
   saveEntity: SaveEntity;
   saveEntities: SaveEntities;
   executeCommand: ExecuteCommand;
-  createTaskFromCapture(task: Entity, schedule: Entity | null, capture: Entity, artifactIds: string[]): Promise<CommandReceipt>;
+  createTaskFromCapture(
+    task: Entity,
+    schedule: Entity | null,
+    capture: Entity,
+    artifactIds: string[],
+  ): Promise<CommandReceipt>;
   removeEntity: RemoveEntity;
   removeEntityQuiet(type: EntityType, id: string): Promise<void>;
   setToast(message: string, tone?: "info" | "success" | "warning" | "danger"): void;

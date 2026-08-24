@@ -63,10 +63,12 @@
         color: var(--color-text-secondary); font-size: var(--text-xs); -webkit-app-region: drag;
       }
       .menu-anchor { position: relative; display: inline-flex; -webkit-app-region: no-drag; }
-      .menu {
-        position: absolute; top: calc(100% + var(--space-1)); right: 0; z-index: 10;
-        min-width: 164px; display: grid; gap: var(--space-1); padding: var(--space-1);
-        border: 1px solid var(--color-border); border-radius: var(--radius-md);
+        .menu {
+          position: absolute; top: calc(100% + var(--space-1)); right: 0; z-index: 10;
+          min-width: 164px; display: grid; gap: var(--space-1); padding: var(--space-1);
+          max-height: calc(100vh - 52px); overflow-x: hidden; overflow-y: auto;
+          overscroll-behavior: contain; scrollbar-gutter: stable;
+          border: 1px solid var(--color-border); border-radius: var(--radius-md);
         background: var(--color-surface); box-shadow: var(--shadow-md);
       }
       .menu[hidden] { display: none; }
@@ -78,7 +80,7 @@
       .menu button[aria-checked="true"] { background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); font-weight: 700; }
       .menu button.danger { color: var(--color-danger); }
       .palette { min-width: 150px; }
-      .palette button { display: flex; align-items: center; gap: var(--space-2); }
+      .palette button { width: 100%; display: flex; align-items: center; gap: var(--space-2); }
       .color-swatch { width: 14px; height: 14px; flex: 0 0 auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--swatch); }
       .palette button[data-color="yellow"] { --swatch: var(--color-chart-4); }
       .palette button[data-color="blue"] { --swatch: var(--color-chart-2); }

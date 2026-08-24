@@ -18,17 +18,25 @@ test("typed registry exposes schema, scope, sort contract, and defaults", () => 
   assert.equal(notes.sortKey, "sortOrder");
   assert.equal(notes.schemaVersion, 2);
   assert.equal(defaultViewPreference("notes.preferences").scope, "note");
-  assert.ok(VIEW_PREFERENCE_REGISTRY.every((entry) => entry.id && entry.schemaVersion && entry.defaultValue !== undefined));
+  assert.ok(
+    VIEW_PREFERENCE_REGISTRY.every(
+      (entry) => entry.id && entry.schemaVersion && entry.defaultValue !== undefined,
+    ),
+  );
 });
 
 test("legacy values migrate into the current schema without losing known fields", () => {
-  const migrated = normalizeViewPreference("notes.preferences", {
-    scope: "resource",
-    sortOrder: "created_asc",
-    themeId: "theme-a",
-    listWidth: 960,
-    listCollapsed: true,
-  }, 1);
+  const migrated = normalizeViewPreference(
+    "notes.preferences",
+    {
+      scope: "resource",
+      sortOrder: "created_asc",
+      themeId: "theme-a",
+      listWidth: 960,
+      listCollapsed: true,
+    },
+    1,
+  );
   assert.deepEqual(migrated, {
     scope: "resource",
     sortOrder: "created_asc",
@@ -37,8 +45,13 @@ test("legacy values migrate into the current schema without losing known fields"
     listCollapsed: true,
     documentFocus: false,
   });
-  const timeline = normalizeViewPreference("timeline.preferences", { dayWidth: 3, themeFilter: "theme-a" }, 1);
+  const timeline = normalizeViewPreference(
+    "timeline.preferences",
+    { dayWidth: 3, themeFilter: "theme-a" },
+    1,
+  );
   assert.deepEqual(timeline.collapsedThemes, []);
+  assert.equal(timeline.scrollLeft, 0);
   assert.equal(normalizeViewPreference("timeline.preferences", { dayWidth: 48 }, 2).dayWidth, 48);
 });
 
@@ -66,8 +79,18 @@ test("database preference revision increments atomically and keeps both scopes",
     return meta.get(key);
   };
   repo.db = { prepare: () => ({ run: (value) => meta.set("view_preferences", value) }) };
-  const first = repo.setViewPreference("theme.preferences", "theme-a", { collapsedSections: ["s1"] }, 1);
-  const second = repo.setViewPreference("theme.preferences", "theme-b", { collapsedSections: ["s2"] }, 1);
+  const first = repo.setViewPreference(
+    "theme.preferences",
+    "theme-a",
+    { collapsedSections: ["s1"] },
+    1,
+  );
+  const second = repo.setViewPreference(
+    "theme.preferences",
+    "theme-b",
+    { collapsedSections: ["s2"] },
+    1,
+  );
   assert.equal(first.revision, 1);
   assert.equal(second.revision, 2);
   const reloaded = repo.getViewPreferences();

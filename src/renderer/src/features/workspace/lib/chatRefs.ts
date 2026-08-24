@@ -33,7 +33,9 @@ export type GroupChatResourcesOptions = {
   themeId?: string | null;
 };
 
-export function chatGroupKey(resource: Pick<Resource, "chat_group"> | { chat_group?: string | null }): string {
+export function chatGroupKey(
+  resource: Pick<Resource, "chat_group"> | { chat_group?: string | null },
+): string {
   return String(resource.chat_group || "").trim() || UNGROUPED_CHAT_GROUP;
 }
 
@@ -104,7 +106,11 @@ export function chatGroupActivityAt(resources: Resource[], externalTouch?: strin
  * ピン留め将来対応: pinned を先に、続けて groupOrder、最後に名前で安定化。
  * 未分類は常に末尾（フォルダ運用の逃げ場として固定）。
  */
-export function compareChatGroups(a: ChatRefGroup, b: ChatRefGroup, groupOrder: ChatGroupSortOrder): number {
+export function compareChatGroups(
+  a: ChatRefGroup,
+  b: ChatRefGroup,
+  groupOrder: ChatGroupSortOrder,
+): number {
   if (a.key === UNGROUPED_CHAT_GROUP && b.key !== UNGROUPED_CHAT_GROUP) return 1;
   if (b.key === UNGROUPED_CHAT_GROUP && a.key !== UNGROUPED_CHAT_GROUP) return -1;
 
@@ -122,7 +128,11 @@ export function compareChatGroups(a: ChatRefGroup, b: ChatRefGroup, groupOrder: 
 export function isChatReference(resource: Resource): boolean {
   if (resource.resource_scope === "note") return false;
   if (resource.resource_scope === "chat_ref") return true;
-  return isKnownChatService(resource.link_type) || resolveChatService(resource) !== "other" || Boolean(resource.reference_status);
+  return (
+    isKnownChatService(resource.link_type) ||
+    resolveChatService(resource) !== "other" ||
+    Boolean(resource.reference_status)
+  );
 }
 
 /** Archive 済みか（削除・グループ解除とは独立） */
@@ -141,7 +151,10 @@ export function filterChatResourcesByArchive(
   return resources.filter((resource) => !isChatArchived(resource));
 }
 
-export function archiveChatResource(resource: Resource, at: string = new Date().toISOString()): Resource {
+export function archiveChatResource(
+  resource: Resource,
+  at: string = new Date().toISOString(),
+): Resource {
   if (isChatArchived(resource)) return resource;
   return {
     ...resource,
@@ -157,7 +170,10 @@ export function restoreChatResource(resource: Resource): Resource {
   };
 }
 
-export function archiveChatResources(resources: Resource[], at: string = new Date().toISOString()): Resource[] {
+export function archiveChatResources(
+  resources: Resource[],
+  at: string = new Date().toISOString(),
+): Resource[] {
   return resources.map((resource) => archiveChatResource(resource, at));
 }
 
@@ -244,7 +260,11 @@ export function chatResourceDate(resource: Resource): string {
   const captured = String(resource.captured_at || "");
   if (hasMinuteTime(captured)) return localDateTimeKey(captured);
   const capturedDate = datePart(captured);
-  const fallback = timestampFallback(resource, capturedDate) || captured || textField(resource, "created_at") || textField(resource, "updated_at");
+  const fallback =
+    timestampFallback(resource, capturedDate) ||
+    captured ||
+    textField(resource, "created_at") ||
+    textField(resource, "updated_at");
   return hasMinuteTime(fallback) ? localDateTimeKey(fallback) : fallback;
 }
 
@@ -256,7 +276,10 @@ export function formatChatResourceDate(resource: Resource): string {
   return hasMinuteTime(value) ? `${formattedDate} ${value.slice(11, 16)}` : formattedDate;
 }
 
-export function resolveSubmittedChatCapturedAt(submittedDate: string, initialValue?: string | null): string | null {
+export function resolveSubmittedChatCapturedAt(
+  submittedDate: string,
+  initialValue?: string | null,
+): string | null {
   const submitted = submittedDate.trim();
   const initial = String(initialValue || "");
   if (!submitted) return initial || null;
@@ -264,7 +287,13 @@ export function resolveSubmittedChatCapturedAt(submittedDate: string, initialVal
   return submitted;
 }
 
-export function chatThreadMetaLabels({ parentTitle, childCount }: { parentTitle?: string; childCount: number }): string[] {
+export function chatThreadMetaLabels({
+  parentTitle,
+  childCount,
+}: {
+  parentTitle?: string;
+  childCount: number;
+}): string[] {
   const labels: string[] = [];
   const parent = String(parentTitle || "").trim();
   if (parent) labels.push(`元チャット：${parent}`);
@@ -331,8 +360,12 @@ function clusterDate(resources: Resource[], order: ChatRefSortOrder): string {
   return dates.reduce((current, candidate) => {
     if (!current) return candidate;
     return order === "oldest"
-      ? (candidate < current ? candidate : current)
-      : (candidate > current ? candidate : current);
+      ? candidate < current
+        ? candidate
+        : current
+      : candidate > current
+        ? candidate
+        : current;
   }, "");
 }
 
@@ -355,22 +388,33 @@ function sortChatResourcesByHierarchy(resources: Resource[], order: ChatRefSortO
     const visit = (resource: Resource) => {
       if (visited.has(resource.id)) return;
       visited.add(resource.id);
-      for (const child of [...(childrenByParentId.get(resource.id) || [])].sort((a, b) => compareChatResources(a, b, order))) {
+      ordered.push(resource);
+      for (const child of [...(childrenByParentId.get(resource.id) || [])].sort((a, b) =>
+        compareChatResources(a, b, order),
+      )) {
         visit(child);
       }
-      ordered.push(resource);
     };
 
     const root = resourceById.get(rootId);
     if (root) visit(root);
-    for (const member of [...members].sort((a, b) => compareChatResources(a, b, order))) visit(member);
+    for (const member of [...members].sort((a, b) => compareChatResources(a, b, order)))
+      visit(member);
     return { members, ordered };
   });
 
   clusters.sort((a, b) => {
     if (order === "manual") {
-      const aOrder = a.members.map(manualSortOrder).filter((value): value is number => value !== null).sort((x, y) => x - y)[0] ?? null;
-      const bOrder = b.members.map(manualSortOrder).filter((value): value is number => value !== null).sort((x, y) => x - y)[0] ?? null;
+      const aOrder =
+        a.members
+          .map(manualSortOrder)
+          .filter((value): value is number => value !== null)
+          .sort((x, y) => x - y)[0] ?? null;
+      const bOrder =
+        b.members
+          .map(manualSortOrder)
+          .filter((value): value is number => value !== null)
+          .sort((x, y) => x - y)[0] ?? null;
       if (aOrder !== null && bOrder !== null && aOrder !== bOrder) return aOrder - bOrder;
       if (aOrder !== null && bOrder === null) return -1;
       if (aOrder === null && bOrder !== null) return 1;
@@ -387,25 +431,20 @@ export function sortChatResources(resources: Resource[], order: ChatRefSortOrder
   return sortChatResourcesByHierarchy(resources, order);
 }
 
-/** 子を左、親を右へ段下げするための表示用深さ。データ上の親子深さは変更しない。 */
+/** 元チャットを起点に段下げする表示用深さ。矢印の表示状態には依存しない。 */
 export function chatThreadVisualDepth(resource: Resource, resources: Resource[]): number {
   const resourceById = new Map(resources.map((item) => [item.id, item]));
-  const rootId = threadRootId(resource, resourceById);
-  let maxDepth = 0;
-  for (const item of resources) {
-    if (threadRootId(item, resourceById) !== rootId) continue;
-    maxDepth = Math.max(maxDepth, threadDepth(item, resourceById));
-  }
-  return Math.min(3, Math.max(0, maxDepth - threadDepth(resource, resourceById)));
+  return Math.min(3, threadDepth(resource, resourceById));
 }
 
 export function groupChatResources(
   resources: Resource[],
   orderOrOptions: ChatRefSortOrder | GroupChatResourcesOptions = "newest",
 ): ChatRefGroup[] {
-  const options: GroupChatResourcesOptions = typeof orderOrOptions === "string"
-    ? { resourceOrder: orderOrOptions, groupOrder: "name" }
-    : orderOrOptions;
+  const options: GroupChatResourcesOptions =
+    typeof orderOrOptions === "string"
+      ? { resourceOrder: orderOrOptions, groupOrder: "name" }
+      : orderOrOptions;
   const resourceOrder = options.resourceOrder || "newest";
   const groupOrder = options.groupOrder || "name";
   const activityByKey = options.groupActivityByKey || {};
@@ -525,12 +564,16 @@ export function buildChatGroupKnowledgePrompt({
   const lines = resources.map((resource, index) => {
     const title = String(resource.title || `チャット${index + 1}`);
     const url = String(resource.url || "");
-    const description = String(resource.description || "").replace(/\s+/g, " ").trim();
+    const description = String(resource.description || "")
+      .replace(/\s+/g, " ")
+      .trim();
     return [
       `${index + 1}. ${title}`,
       url ? `   URL: ${url}` : "",
       description ? `   メモ: ${description}` : "",
-    ].filter(Boolean).join("\n");
+    ]
+      .filter(Boolean)
+      .join("\n");
   });
 
   const task = [

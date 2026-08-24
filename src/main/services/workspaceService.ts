@@ -1,10 +1,31 @@
-import { app, BrowserWindow, clipboard, dialog, nativeImage, shell, type WebContents } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  nativeImage,
+  shell,
+  type WebContents,
+} from "electron";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { ArtifactFileImportRequest, ArtifactFileImportResult, ArtifactProposalMaterializeRequest, ArtifactProposalMaterializeResult, ImportedArtifactFile, MarkdownImageAttachmentRequest, MarkdownImageAttachmentResult } from "../../shared/attachments";
-import type { MarkdownFileExportRequest, MarkdownFileExportResult, MarkdownPdfExportRequest, MarkdownPdfExportResult } from "../../shared/fileExport";
+import type {
+  ArtifactFileImportRequest,
+  ArtifactFileImportResult,
+  ArtifactProposalMaterializeRequest,
+  ArtifactProposalMaterializeResult,
+  ImportedArtifactFile,
+  MarkdownImageAttachmentRequest,
+  MarkdownImageAttachmentResult,
+} from "../../shared/attachments";
+import type {
+  MarkdownFileExportRequest,
+  MarkdownFileExportResult,
+  MarkdownPdfExportRequest,
+  MarkdownPdfExportResult,
+} from "../../shared/fileExport";
 import type {
   AppUpdateCheckResult,
   ConversationContextPreviewResult,
@@ -34,14 +55,29 @@ import {
   type MermaidSvgClipboardRequest,
   type MermaidSvgClipboardResult,
 } from "../../shared/mermaidPowerPoint";
-import type { ImageClipboardRequest, SlideTimelineExportRequest, SlideTimelineExportResult } from "../../shared/slideTimelineExport";
-import type { CanonicalNoteAiCompanion, DocumentSaveReferenceCompanion, DocumentSaveRequest, SaveOperation, SaveOptions, Workspace } from "../../shared/types/workspace";
+import type {
+  ImageClipboardRequest,
+  SlideTimelineExportRequest,
+  SlideTimelineExportResult,
+} from "../../shared/slideTimelineExport";
+import type {
+  CanonicalNoteAiCompanion,
+  DocumentSaveReferenceCompanion,
+  DocumentSaveRequest,
+  SaveOperation,
+  SaveOptions,
+  Workspace,
+} from "../../shared/types/workspace";
 import { referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
 import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
 import { reconcileStableLinkAssertions } from "../../shared/stableLinks.mjs";
 import { queryActivityEvents } from "../../shared/activityProjection.mjs";
 import { normalizeAiVisibility } from "../../shared/aiMetadata.mjs";
-import { previewTaskCoding, previewThemeCoding, previewThemeM365 } from "../../shared/aiContextPreview.mjs";
+import {
+  previewTaskCoding,
+  previewThemeCoding,
+  previewThemeM365,
+} from "../../shared/aiContextPreview.mjs";
 import { DataHealthEvaluator, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
 import {
   CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
@@ -62,7 +98,10 @@ import {
 import { validateArtifactProposal } from "../../shared/proposalMedia.mjs";
 import { THEME_FOLDER_MANIFEST, buildThemeFolderManifest } from "../../shared/storageResolver.mjs";
 import { PERSONAL_DEFAULT_THEME_ID } from "../../shared/themeRef.mjs";
-import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
+import {
+  buildActivityRootRegistry,
+  publicActivityRootStatus,
+} from "../../shared/activityRootRegistry.mjs";
 import { resolveActivityCanonicalLocalPath } from "./activityCanonicalResolver.mjs";
 import {
   artifactFileTypeOf,
@@ -90,20 +129,29 @@ import {
 } from "./themeAiPackPublisher.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
 import { artifactOpenTarget } from "../../shared/artifactLinks.mjs";
-import { isWebArtifact, normalizeWebArtifactExecutionPolicy, webArtifactPreviewUrl } from "../../shared/webArtifact.mjs";
+import {
+  isWebArtifact,
+  normalizeWebArtifactExecutionPolicy,
+  webArtifactPreviewUrl,
+} from "../../shared/webArtifact.mjs";
 import { validateSnapshotMediaWorkspace } from "./snapshotMediaValidation";
-import { logMain } from "../log";
+import { logMain, measureMainPerformance } from "../log";
 
 /**
  * Theme保存先を解決できない理由ごとに、次の操作まで書く。
  * 「Settingsを確認してください」だけでは何を直すのか分からない（#383）。
  */
 function themeStorageResolutionMessage(status: string, reason: string): string {
-  if (status === "needs_root") return "Theme保存先が未設定です。Settingsで同期ストレージを選択してください。";
-  if (status === "root_unavailable") return "Theme保存先のフォルダへアクセスできません。同期が完了しているか、フォルダが移動・削除されていないか確認してください。";
-  if (reason === "duplicate_theme_manifest") return "同じThemeのフォルダが保存先に複数あります。片方を移動または削除してから、もう一度保存してください。";
-  if (reason === "theme_manifest_mismatch") return "Theme保存先に指定したフォルダを別のThemeが使っています。Settingsでこのthemeの保存先を別フォルダへ変えるか、指定を外して共通の同期先を使ってください。";
-  if (reason === "theme_manifest_invalid") return "Theme保存先の識別ファイルを読めません。フォルダの内容を確認するか、保存先を選び直してください。";
+  if (status === "needs_root")
+    return "Theme保存先が未設定です。Settingsで同期ストレージを選択してください。";
+  if (status === "root_unavailable")
+    return "Theme保存先のフォルダへアクセスできません。同期が完了しているか、フォルダが移動・削除されていないか確認してください。";
+  if (reason === "duplicate_theme_manifest")
+    return "同じThemeのフォルダが保存先に複数あります。片方を移動または削除してから、もう一度保存してください。";
+  if (reason === "theme_manifest_mismatch")
+    return "Theme保存先に指定したフォルダを別のThemeが使っています。Settingsでこのthemeの保存先を別フォルダへ変えるか、指定を外して共通の同期先を使ってください。";
+  if (reason === "theme_manifest_invalid")
+    return "Theme保存先の識別ファイルを読めません。フォルダの内容を確認するか、保存先を選び直してください。";
   return "Theme保存先を確認できませんでした。Settingsで保存先を選び直してください。";
 }
 import {
@@ -121,8 +169,17 @@ const MARKDOWN_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 const PREVIEW_IMAGE_MAX_BYTES = 40 * 1024 * 1024;
 const PREVIEW_TEXT_MAX_BYTES = 5 * 1024 * 1024;
 const THEME_AI_PACK_CANDIDATE_TYPES = [
-  "capture_entry", "task", "waiting", "plan_node", "note", "resource",
-  "status_update", "work_receipt", "knowledge_node", "artifact", "sketch",
+  "capture_entry",
+  "task",
+  "waiting",
+  "plan_node",
+  "note",
+  "resource",
+  "status_update",
+  "work_receipt",
+  "knowledge_node",
+  "artifact",
+  "sketch",
 ] as const;
 const RELEASES_API_URL = "https://api.github.com/repos/mryk814/tasuken/releases/latest";
 const RELEASES_PAGE_URL = "https://github.com/mryk814/tasuken/releases/latest";
@@ -163,7 +220,9 @@ interface GitHubLatestRelease {
 interface WorkspaceRepository {
   loadWorkspace(includeDeleted?: boolean): unknown;
   save(type: string, entity: unknown, options?: unknown): Record<string, unknown>;
-  saveMany(operations: Array<{ action: "save"; type: string; entity: unknown; options?: unknown }>): Array<Record<string, unknown>>;
+  saveMany(
+    operations: Array<{ action: "save"; type: string; entity: unknown; options?: unknown }>,
+  ): Array<Record<string, unknown>>;
   previewSnapshot(workspace: unknown): unknown[];
   applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
   getPreference(key: string): unknown;
@@ -172,10 +231,12 @@ interface WorkspaceRepository {
   setDataHealthState(expectedRevision: number, value: unknown): unknown;
   get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
   list(type: string, includeDeleted?: boolean): Array<Record<string, unknown>>;
-  runTransaction<T>(callback: (repository: {
-    save(type: string, entity: unknown, options?: unknown): Record<string, unknown>;
-    remove(type: string, id: string): Record<string, unknown> | null;
-  }) => T): T;
+  runTransaction<T>(
+    callback: (repository: {
+      save(type: string, entity: unknown, options?: unknown): Record<string, unknown>;
+      remove(type: string, id: string): Record<string, unknown> | null;
+    }) => T,
+  ): T;
 }
 
 interface CanonicalFileSnapshot {
@@ -236,15 +297,17 @@ function safePdfFileName(value: string): string {
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : {};
 }
 
 function safeContextPreviewError(value: unknown): string {
   const source = objectValue(value);
   const code = typeof source.code === "string" ? source.code : "";
-  if (code === "not_found") return "対象が見つからないか、AI公開範囲に含まれていません。元Entityのvisibilityを確認してください。";
-  if (code === "unsupported_schema") return "保存形式を解釈できません。Taskenを更新してからもう一度お試しください。";
+  if (code === "not_found")
+    return "対象が見つからないか、AI公開範囲に含まれていません。元Entityのvisibilityを確認してください。";
+  if (code === "unsupported_schema")
+    return "保存形式を解釈できません。Taskenを更新してからもう一度お試しください。";
   return "Context Previewを作成できませんでした。元Entityの公開範囲を確認して、もう一度お試しください。";
 }
 
@@ -257,7 +320,10 @@ function parsedRecord(value: unknown): Record<string, unknown> {
   }
 }
 
-function normalizeCanonicalNoteAiCompanion(value: unknown, noteId: string): CanonicalNoteAiCompanion | null {
+function normalizeCanonicalNoteAiCompanion(
+  value: unknown,
+  noteId: string,
+): CanonicalNoteAiCompanion | null {
   if (value === undefined || value === null) return null;
   const companion = objectValue(value);
   const proposal = objectValue(companion.proposal);
@@ -265,7 +331,9 @@ function normalizeCanonicalNoteAiCompanion(value: unknown, noteId: string): Cano
   const metadata = objectValue(event.metadata);
   const marker = objectValue(metadata.note_ai_command_marker);
   const proposalPayload = parsedRecord(proposal.payload);
-  const proposalNotes = Array.isArray(proposalPayload.notes) ? proposalPayload.notes.map(objectValue) : [];
+  const proposalNotes = Array.isArray(proposalPayload.notes)
+    ? proposalPayload.notes.map(objectValue)
+    : [];
   const proposalRequest = objectValue(proposal.request);
   const proposalTarget = objectValue(proposalRequest.target);
   const proposalNote = proposalNotes[0] || {};
@@ -277,36 +345,41 @@ function normalizeCanonicalNoteAiCompanion(value: unknown, noteId: string): Cano
   const after = parsedRecord(event.after_json);
   const commandId = typeof companion.commandId === "string" ? companion.commandId : "";
   const proposalId = typeof proposal.id === "string" ? proposal.id : "";
-  const valid = companion.schema === "tasken-note-ai-companion/v1"
-    && companion.noteId === noteId
-    && commandId.length > 0
-    && proposalId.length > 0
-    && proposal.payload_type === "notes"
-    && ["accepted", "partially_accepted"].includes(String(proposal.status || ""))
-    && proposalNotes.length === 1
-    && ((isCreate && !proposalNote.target_id && !proposalTarget.type && !proposalTarget.id)
-      || (isEdit && proposalNote.target_id === noteId && proposalTarget.type === "note" && proposalTarget.id === noteId))
-    && typeof event.id === "string"
-    && event.id.length > 0
-    && event.entity_type === "note"
-    && event.record_type === "note"
-    && event.entity_id === noteId
-    && event.command_id === commandId
-    && event.command_name === "ApplyAiProposal"
-    && typeof event.command_fingerprint === "string"
-    && event.command_fingerprint.length > 0
-    && ((isCreate && !before.id) || (isEdit && before.id === noteId))
-    && after.id === noteId
-    && marker.schema === "tasken-note-ai-command-marker/v1"
-    && marker.commandId === commandId
-    && marker.commandFingerprint === event.command_fingerprint
-    && marker.noteId === noteId
-    && marker.proposalId === proposalId
-    && Number.isInteger(marker.noteVersion)
-    && Number(marker.noteVersion) > 0
-    && Number.isInteger(marker.proposalVersion)
-    && Number(marker.proposalVersion) > 0;
-  if (!valid) throw new Error("canonical Note AI companionが不正です。復旧データを適用せず隔離します。");
+  const valid =
+    companion.schema === "tasken-note-ai-companion/v1" &&
+    companion.noteId === noteId &&
+    commandId.length > 0 &&
+    proposalId.length > 0 &&
+    proposal.payload_type === "notes" &&
+    ["accepted", "partially_accepted"].includes(String(proposal.status || "")) &&
+    proposalNotes.length === 1 &&
+    ((isCreate && !proposalNote.target_id && !proposalTarget.type && !proposalTarget.id) ||
+      (isEdit &&
+        proposalNote.target_id === noteId &&
+        proposalTarget.type === "note" &&
+        proposalTarget.id === noteId)) &&
+    typeof event.id === "string" &&
+    event.id.length > 0 &&
+    event.entity_type === "note" &&
+    event.record_type === "note" &&
+    event.entity_id === noteId &&
+    event.command_id === commandId &&
+    event.command_name === "ApplyAiProposal" &&
+    typeof event.command_fingerprint === "string" &&
+    event.command_fingerprint.length > 0 &&
+    ((isCreate && !before.id) || (isEdit && before.id === noteId)) &&
+    after.id === noteId &&
+    marker.schema === "tasken-note-ai-command-marker/v1" &&
+    marker.commandId === commandId &&
+    marker.commandFingerprint === event.command_fingerprint &&
+    marker.noteId === noteId &&
+    marker.proposalId === proposalId &&
+    Number.isInteger(marker.noteVersion) &&
+    Number(marker.noteVersion) > 0 &&
+    Number.isInteger(marker.proposalVersion) &&
+    Number(marker.proposalVersion) > 0;
+  if (!valid)
+    throw new Error("canonical Note AI companionが不正です。復旧データを適用せず隔離します。");
   return {
     schema: "tasken-note-ai-companion/v1",
     noteId,
@@ -324,7 +397,10 @@ function canonicalNoteAiOperations(companion: CanonicalNoteAiCompanion | null): 
   ];
 }
 
-function sameStableLinkAssertion(existing: Record<string, unknown> | undefined, desired: Record<string, unknown>): boolean {
+function sameStableLinkAssertion(
+  existing: Record<string, unknown> | undefined,
+  desired: Record<string, unknown>,
+): boolean {
   if (!existing || existing.deleted_at) return false;
   try {
     const pick = (value: Record<string, unknown>) => {
@@ -353,7 +429,11 @@ function sameStableLinkAssertion(existing: Record<string, unknown> | undefined, 
 function isSafeThemeAiPackDirectory(themeFolder: string, packDirectory: string): boolean {
   const resolvedThemeFolder = path.resolve(themeFolder);
   const resolvedPackDirectory = path.resolve(packDirectory);
-  if (path.dirname(resolvedPackDirectory) !== resolvedThemeFolder || path.basename(resolvedPackDirectory) !== THEME_AI_PACK_DIRECTORY) return false;
+  if (
+    path.dirname(resolvedPackDirectory) !== resolvedThemeFolder ||
+    path.basename(resolvedPackDirectory) !== THEME_AI_PACK_DIRECTORY
+  )
+    return false;
   try {
     const packStat = fs.lstatSync(resolvedPackDirectory);
     return !packStat.isSymbolicLink() && packStat.isDirectory();
@@ -362,10 +442,15 @@ function isSafeThemeAiPackDirectory(themeFolder: string, packDirectory: string):
   }
 }
 
-function normalizeDocumentSaveCompanions(value: unknown, noteId: string): DocumentSaveReferenceCompanion[] {
+function normalizeDocumentSaveCompanions(
+  value: unknown,
+  noteId: string,
+): DocumentSaveReferenceCompanion[] {
   if (value == null) return [];
   if (!Array.isArray(value) || value.length > 4) {
-    throw new Error("文書保存のcompanionが不正です。画面を再読み込みして、もう一度試してください。");
+    throw new Error(
+      "文書保存のcompanionが不正です。画面を再読み込みして、もう一度試してください。",
+    );
   }
   const targetTypes = new Set<string>(referenceTargetEntityTypes);
   return value.map((entry) => {
@@ -377,20 +462,28 @@ function normalizeDocumentSaveCompanions(value: unknown, noteId: string): Docume
     const targetType = typeof entity.target_type === "string" ? entity.target_type.trim() : "";
     const targetId = typeof entity.target_id === "string" ? entity.target_id.trim() : "";
     if (operation.action !== "save" || operation.type !== "reference" || !id) {
-      throw new Error("文書保存には型付きReferenceだけを同伴できます。画面を再読み込みして、もう一度試してください。");
+      throw new Error(
+        "文書保存には型付きReferenceだけを同伴できます。画面を再読み込みして、もう一度試してください。",
+      );
     }
     if (entity.source_type !== "note" || sourceId !== noteId) {
-      throw new Error("文書保存のReference sourceが対象Noteと一致しません。対象Noteを開き直して再試行してください。");
+      throw new Error(
+        "文書保存のReference sourceが対象Noteと一致しません。対象Noteを開き直して再試行してください。",
+      );
     }
     if (!targetTypes.has(targetType) || !targetId) {
-      throw new Error("文書保存のReference targetが不正です。参照元を開き直して再試行してください。");
+      throw new Error(
+        "文書保存のReference targetが不正です。参照元を開き直して再試行してください。",
+      );
     }
     if (entity.relation_type !== "derived_from") {
       throw new Error("文書保存のReference predicateはderived_fromだけを利用できます。");
     }
     const createdAt = typeof entity.created_at === "string" ? entity.created_at.trim() : "";
     if (createdAt && Number.isNaN(Date.parse(createdAt))) {
-      throw new Error("文書保存のReference作成日時が不正です。画面を再読み込みして、もう一度試してください。");
+      throw new Error(
+        "文書保存のReference作成日時が不正です。画面を再読み込みして、もう一度試してください。",
+      );
     }
     return {
       action: "save",
@@ -406,8 +499,12 @@ function normalizeDocumentSaveCompanions(value: unknown, noteId: string): Docume
         ...(createdAt ? { created_at: createdAt } : {}),
       },
       options: {
-        ...(typeof options.source === "string" && options.source.trim() ? { source: options.source.trim() } : {}),
-        ...(typeof options.reason === "string" && options.reason.trim() ? { reason: options.reason.trim() } : {}),
+        ...(typeof options.source === "string" && options.source.trim()
+          ? { source: options.source.trim() }
+          : {}),
+        ...(typeof options.reason === "string" && options.reason.trim()
+          ? { reason: options.reason.trim() }
+          : {}),
       },
     };
   });
@@ -430,17 +527,29 @@ function normalizeDocumentSaveRequest(value: unknown): DocumentSaveRequest {
     throw new Error("文書保存のownerが不正です。対象Noteを開き直して再試行してください。");
   }
   if (typeof entity.id !== "string" || entity.id !== entityId) {
-    throw new Error("文書保存のownerとEntityが一致しません。古い編集画面を閉じて再試行してください。");
+    throw new Error(
+      "文書保存のownerとEntityが一致しません。古い編集画面を閉じて再試行してください。",
+    );
   }
   if (typeof snapshot.body !== "string") {
-    throw new Error("文書保存の本文snapshotがありません。編集内容を保持したまま再試行してください。");
+    throw new Error(
+      "文書保存の本文snapshotがありません。編集内容を保持したまま再試行してください。",
+    );
   }
   const expectedRevision = snapshot.expectedRevision;
-  if (typeof expectedRevision !== "number" || !Number.isInteger(expectedRevision) || expectedRevision < 0) {
-    throw new Error("文書保存のexpected revisionが不正です。対象Noteを開き直して再試行してください。");
+  if (
+    typeof expectedRevision !== "number" ||
+    !Number.isInteger(expectedRevision) ||
+    expectedRevision < 0
+  ) {
+    throw new Error(
+      "文書保存のexpected revisionが不正です。対象Noteを開き直して再試行してください。",
+    );
   }
   if (String(entity.body_markdown ?? "") !== snapshot.body) {
-    throw new Error("文書保存の本文snapshotとEntityが一致しません。古い編集画面を閉じて再試行してください。");
+    throw new Error(
+      "文書保存の本文snapshotとEntityが一致しません。古い編集画面を閉じて再試行してください。",
+    );
   }
   return {
     entity: entity as DocumentSaveRequest["entity"],
@@ -468,7 +577,8 @@ function normalizeMarkdownFileExportRequest(value: unknown): MarkdownFileExportR
     directory: typeof record.directory === "string" ? record.directory : null,
     chooseDirectory: Boolean(record.chooseDirectory),
     fileName: typeof record.fileName === "string" ? record.fileName : null,
-    themeId: typeof record.themeId === "string" && record.themeId.trim() ? record.themeId.trim() : null,
+    themeId:
+      typeof record.themeId === "string" && record.themeId.trim() ? record.themeId.trim() : null,
   };
 }
 
@@ -486,7 +596,8 @@ function normalizeMarkdownPdfExportRequest(value: unknown): MarkdownPdfExportReq
     directory: typeof record.directory === "string" ? record.directory : null,
     chooseDirectory: Boolean(record.chooseDirectory),
     fileName: typeof record.fileName === "string" ? record.fileName : null,
-    themeId: typeof record.themeId === "string" && record.themeId.trim() ? record.themeId.trim() : null,
+    themeId:
+      typeof record.themeId === "string" && record.themeId.trim() ? record.themeId.trim() : null,
   };
 }
 
@@ -545,16 +656,20 @@ function normalizeArtifactFileImportRequest(value: unknown): ArtifactFileImportR
     const fileRecord = entry as Record<string, unknown>;
     const filePath = typeof fileRecord.path === "string" ? fileRecord.path.trim() : "";
     if (!filePath) {
-      throw new Error("ファイルの場所を取得できませんでした。エクスプローラーからファイルをドラッグしてください。");
+      throw new Error(
+        "ファイルの場所を取得できませんでした。エクスプローラーからファイルをドラッグしてください。",
+      );
     }
     return {
       path: filePath,
-      name: typeof fileRecord.name === "string" && fileRecord.name.trim() ? fileRecord.name.trim() : undefined,
+      name:
+        typeof fileRecord.name === "string" && fileRecord.name.trim()
+          ? fileRecord.name.trim()
+          : undefined,
     };
   });
-  const themeId = typeof record.themeId === "string" && record.themeId.trim()
-    ? record.themeId.trim()
-    : null;
+  const themeId =
+    typeof record.themeId === "string" && record.themeId.trim() ? record.themeId.trim() : null;
   return { files, themeId };
 }
 
@@ -570,7 +685,9 @@ function normalizeMarkdownImageAttachment(value: unknown): MarkdownImageAttachme
     throw new Error("対応していない画像形式です。PNG、JPEG、GIF、WebP、BMPを貼り付けてください。");
   }
   if (!dataUrl.startsWith(`data:${mimeType};base64,`)) {
-    throw new Error("画像データを読み取れませんでした。コピーし直して、もう一度貼り付けてください。");
+    throw new Error(
+      "画像データを読み取れませんでした。コピーし直して、もう一度貼り付けてください。",
+    );
   }
   return { fileName, mimeType, dataUrl };
 }
@@ -598,18 +715,26 @@ export class WorkspaceService {
     },
   ) {
     this.canonicalRecoveryPath = path.join(userDataPath, "canonical-markdown-recovery.json");
-    this.canonicalRecoveryWarningPath = path.join(userDataPath, "canonical-markdown-recovery-warning.json");
+    this.canonicalRecoveryWarningPath = path.join(
+      userDataPath,
+      "canonical-markdown-recovery-warning.json",
+    );
     this.themeAiPackRecoveryDirectory = path.join(userDataPath, "theme-ai-pack-recovery");
-    this.conversationContextRecoveryDirectory = path.join(userDataPath, "conversation-context-recovery");
+    this.conversationContextRecoveryDirectory = path.join(
+      userDataPath,
+      "conversation-context-recovery",
+    );
     this.taskenCoreClient = taskenCoreClient;
   }
 
   loadWorkspace(includeDeleted = false): unknown {
-    this.recoverConversationContextReceipts();
-    this.recoverThemeAiPackReceipts();
-    this.recoverCanonicalMarkdownReceipts();
-    this.migrateCanonicalMarkdownBindings();
-    return this.repository.loadWorkspace(includeDeleted);
+    return measureMainPerformance("workspace_load", () => {
+      this.recoverConversationContextReceipts();
+      this.recoverThemeAiPackReceipts();
+      this.recoverCanonicalMarkdownReceipts();
+      this.migrateCanonicalMarkdownBindings();
+      return this.repository.loadWorkspace(includeDeleted);
+    });
   }
 
   private writeAtomicText(filePath: string, content: string, operationId: string): string | null {
@@ -617,27 +742,36 @@ export class WorkspaceService {
   }
 
   private recoverThemeAiPackReceipts(): void {
-    const results = recoverThemeAiPackOperations({ recoveryDirectory: this.themeAiPackRecoveryDirectory });
+    const results = recoverThemeAiPackOperations({
+      recoveryDirectory: this.themeAiPackRecoveryDirectory,
+    });
     for (const result of results) {
       if (result.state === "recovery_required") {
-        console.warn(`Theme AI Pack ${result.operationId} は自動復旧できませんでした。${result.error || ""}`);
+        console.warn(
+          `Theme AI Pack ${result.operationId} は自動復旧できませんでした。${result.error || ""}`,
+        );
       }
     }
   }
 
-  private buildThemeAiPack(themeIdValue: unknown): { theme: Record<string, unknown>; plan: ThemeAiPackPlan } {
+  private buildThemeAiPack(themeIdValue: unknown): {
+    theme: Record<string, unknown>;
+    plan: ThemeAiPackPlan;
+  } {
     const themeId = typeof themeIdValue === "string" ? themeIdValue.trim() : "";
     if (!themeId) throw new Error("Theme IDがありません。Themeを開き直してください。");
     const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
     if (!theme || theme.deleted_at) throw new Error("AI Packを作成するThemeが見つかりません。");
-    const candidates = THEME_AI_PACK_CANDIDATE_TYPES.flatMap((type) => (
+    const candidates = THEME_AI_PACK_CANDIDATE_TYPES.flatMap((type) =>
       this.repository.list(type).map((entity) => {
         const publication = type === "resource" ? publicationForThemeAiPack(entity) : null;
         return { type, entity, ...(publication ? { publication } : {}) };
-      })
-    ));
+      }),
+    );
     const workspace = this.repository.loadWorkspace(false) as Record<string, unknown>;
-    const workspaceDefault = normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault"));
+    const workspaceDefault = normalizeAiVisibility(
+      this.repository.getPreference("aiVisibilityDefault"),
+    );
     const activity = queryActivityEvents({
       workspace,
       events: this.repository.list("change_event"),
@@ -647,11 +781,25 @@ export class WorkspaceService {
       roots: this.activityCanonicalRootPaths(),
       limit: 100,
     });
-    const sourceRevision = markdownSignature(JSON.stringify([
-      ["theme", theme.id, theme.version, theme.updated_at],
-      ...candidates.map(({ type, entity }) => [type, entity.id, entity.version, entity.updated_at]),
-      ...activity.events.map((event) => ["change_event", event.id, event.entity_ref?.revision, event.occurred_at]),
-    ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))));
+    const sourceRevision = markdownSignature(
+      JSON.stringify(
+        [
+          ["theme", theme.id, theme.version, theme.updated_at],
+          ...candidates.map(({ type, entity }) => [
+            type,
+            entity.id,
+            entity.version,
+            entity.updated_at,
+          ]),
+          ...activity.events.map((event) => [
+            "change_event",
+            event.id,
+            event.entity_ref?.revision,
+            event.occurred_at,
+          ]),
+        ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+      ),
+    );
     return {
       theme,
       plan: buildThemeAiPackPlan({
@@ -668,9 +816,11 @@ export class WorkspaceService {
   async getAiContextPreview(requestValue: unknown): Promise<AiContextPreviewResult> {
     const request = objectValue(requestValue) as Partial<AiContextPreviewRequest>;
     const scopeValue = objectValue(request.scope);
-    const scopeType = scopeValue.type === "theme" || scopeValue.type === "task" ? scopeValue.type : null;
+    const scopeType =
+      scopeValue.type === "theme" || scopeValue.type === "task" ? scopeValue.type : null;
     const scopeId = typeof scopeValue.id === "string" ? scopeValue.id.trim() : "";
-    const audience = request.audience === "m365" || request.audience === "coding_agent" ? request.audience : null;
+    const audience =
+      request.audience === "m365" || request.audience === "coding_agent" ? request.audience : null;
     if (!scopeType || !scopeId || !audience) {
       throw new Error("Context Previewの対象またはAudienceが不正です。画面を開き直してください。");
     }
@@ -680,9 +830,12 @@ export class WorkspaceService {
         let themeId = scopeId;
         if (scopeType === "task") {
           const task = this.repository.get("task", scopeId);
-          themeId = typeof task?.project_id === "string" && task.project_id.trim()
-            ? task.project_id.trim()
-            : typeof task?.theme_id === "string" ? task.theme_id.trim() : "";
+          themeId =
+            typeof task?.project_id === "string" && task.project_id.trim()
+              ? task.project_id.trim()
+              : typeof task?.theme_id === "string"
+                ? task.theme_id.trim()
+                : "";
           if (!task || task.deleted_at || !themeId) {
             return {
               state: "error",
@@ -708,10 +861,12 @@ export class WorkspaceService {
         };
       }
       if (!this.taskenCoreClient) throw new Error("Tasken Core clientが構成されていません。");
-      const response = scopeType === "task"
-        ? await this.taskenCoreClient.getTaskContext({ task_id: scopeId })
-        : await this.taskenCoreClient.getThemeContext({ theme_id: scopeId });
-      const preview = scopeType === "task" ? previewTaskCoding(response) : previewThemeCoding(response);
+      const response =
+        scopeType === "task"
+          ? await this.taskenCoreClient.getTaskContext({ task_id: scopeId })
+          : await this.taskenCoreClient.getThemeContext({ theme_id: scopeId });
+      const preview =
+        scopeType === "task" ? previewTaskCoding(response) : previewThemeCoding(response);
       return {
         state: preview.counts.included ? "ready" : "empty",
         requestedScope,
@@ -725,7 +880,12 @@ export class WorkspaceService {
         state: "error",
         requestedScope,
         effectiveScope: requestedScope,
-        producer: audience === "m365" ? "theme_ai_pack" : scopeType === "task" ? "mcp_task_context" : "mcp_theme_context",
+        producer:
+          audience === "m365"
+            ? "theme_ai_pack"
+            : scopeType === "task"
+              ? "mcp_task_context"
+              : "mcp_theme_context",
         preview: null,
         includedInEffectiveScope: null,
         error: safeContextPreviewError(error),
@@ -737,7 +897,9 @@ export class WorkspaceService {
     try {
       return this.evaluateDataHealth(queryValue);
     } catch {
-      throw new Error("Data Healthを確認できませんでした。画面を再読み込みして、もう一度お試しください。");
+      throw new Error(
+        "Data Healthを確認できませんでした。画面を再読み込みして、もう一度お試しください。",
+      );
     }
   }
 
@@ -767,12 +929,13 @@ export class WorkspaceService {
       themeAiPackStatuses,
     });
     const stateFilter = query.state && query.state !== "all" ? query.state : "open";
-    const issues = evaluated.issues.filter((entry) => (
-      (!query.themeId || entry.themeId === query.themeId)
-      && (!query.entityType || entry.ref.type === query.entityType)
-      && (!query.severity || entry.severity === query.severity)
-      && (!stateFilter || entry.state === stateFilter)
-    ));
+    const issues = evaluated.issues.filter(
+      (entry) =>
+        (!query.themeId || entry.themeId === query.themeId) &&
+        (!query.entityType || entry.ref.type === query.entityType) &&
+        (!query.severity || entry.severity === query.severity) &&
+        (!stateFilter || entry.state === stateFilter),
+    );
     return { ...evaluated, issues, totalIssueCount: evaluated.issues.length };
   }
 
@@ -790,7 +953,9 @@ export class WorkspaceService {
       throw new Error("Data Healthの状態を読み込めませんでした。画面を再読み込みしてください。");
     }
     if (request.expectedRevision !== current.revision) {
-      throw new Error("Data Healthが別画面で更新されました。再読み込みしてからもう一度操作してください。");
+      throw new Error(
+        "Data Healthが別画面で更新されました。再読み込みしてからもう一度操作してください。",
+      );
     }
     const currentResult = this.getDataHealth({ state: "all" });
     if (!currentResult.issues.some((entry) => entry.id === issueId)) {
@@ -812,7 +977,9 @@ export class WorkspaceService {
         issues,
       });
     } catch {
-      throw new Error("Data Healthが別画面で更新されました。再読み込みしてからもう一度操作してください。");
+      throw new Error(
+        "Data Healthが別画面で更新されました。再読み込みしてからもう一度操作してください。",
+      );
     }
     return this.getDataHealth({ state: "all" });
   }
@@ -827,18 +994,27 @@ export class WorkspaceService {
     });
   }
 
-  private saveConversationContextResource(entity: Record<string, unknown>): Record<string, unknown> {
-    return this.repository.save("resource", entity, { __conversationContextPublicationWrite: true });
+  private saveConversationContextResource(
+    entity: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return this.repository.save("resource", entity, {
+      __conversationContextPublicationWrite: true,
+    });
   }
 
-  private conversationContextInput(requestValue: unknown, publishedAt?: string): {
+  private conversationContextInput(
+    requestValue: unknown,
+    publishedAt?: string,
+  ): {
     resource: Record<string, unknown>;
     theme: Record<string, unknown>;
     plan: ConversationContextPlan;
   } {
     const request = objectValue(requestValue);
-    const conversationId = typeof request.conversationId === "string" ? request.conversationId.trim() : "";
-    if (!conversationId) throw new Error("Conversation IDがありません。Viewerを開き直してください。");
+    const conversationId =
+      typeof request.conversationId === "string" ? request.conversationId.trim() : "";
+    if (!conversationId)
+      throw new Error("Conversation IDがありません。Viewerを開き直してください。");
     const resource = this.repository.get("resource", conversationId);
     if (!resource || resource.deleted_at || resource.resource_scope !== "chat_ref") {
       throw new Error("Conversationが見つかりません。Viewerを開き直してください。");
@@ -857,50 +1033,65 @@ export class WorkspaceService {
       resource,
       theme,
       workspaceDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
-      scope: request.scope === "selected_turns" ? "selected_turns" : request.scope === "full" ? "full" : undefined,
+      scope:
+        request.scope === "selected_turns"
+          ? "selected_turns"
+          : request.scope === "full"
+            ? "full"
+            : undefined,
       selectedMessageIndexes,
       publishedAt,
     });
     return { resource, theme, plan };
   }
 
-  private conversationContextLocation(theme: Record<string, unknown>, plan: ConversationContextPlan) {
+  private conversationContextLocation(
+    theme: Record<string, unknown>,
+    plan: ConversationContextPlan,
+  ) {
     const publication = normalizeConversationContextPublication(
       this.repository.get("resource", plan.conversation_id)?.conversation_context_publication,
     );
     const bindingThemeId = publication?.status !== "removed" ? publication?.theme_id : null;
     const bindingTheme = bindingThemeId
-      ? this.repository.get("theme", bindingThemeId, true) || this.repository.get("project", bindingThemeId, true)
+      ? this.repository.get("theme", bindingThemeId, true) ||
+        this.repository.get("project", bindingThemeId, true)
       : theme;
     if (!bindingTheme) return { location: { status: "theme_missing" as const }, storage: null };
     const location = this.resolveThemeAiPack(bindingTheme);
     if (location.status !== "ok") return { location, storage: null };
-    const storage = publication?.status === "published"
-      ? inspectConversationContextFile({
-          themeFolder: location.themeFolder,
-          relativePath: publication.relative_path,
-          contentHash: publication.content_hash,
-        })
-      : null;
+    const storage =
+      publication?.status === "published"
+        ? inspectConversationContextFile({
+            themeFolder: location.themeFolder,
+            relativePath: publication.relative_path,
+            contentHash: publication.content_hash,
+          })
+        : null;
     return { location, storage };
   }
 
   getConversationContextPreview(requestValue: unknown): ConversationContextPreviewResult {
     const request = objectValue(requestValue);
-    const existing = typeof request.conversationId === "string"
-      ? this.repository.get("resource", request.conversationId.trim())
-      : null;
-    const publication = normalizeConversationContextPublication(existing?.conversation_context_publication);
+    const existing =
+      typeof request.conversationId === "string"
+        ? this.repository.get("resource", request.conversationId.trim())
+        : null;
+    const publication = normalizeConversationContextPublication(
+      existing?.conversation_context_publication,
+    );
     const plannedPublishedAt = publication?.published_at || this.now();
     const { theme, plan } = this.conversationContextInput(request, plannedPublishedAt);
     const { location, storage } = this.conversationContextLocation(theme, plan);
-    const storageDirty = publication?.status === "published" && (!storage?.exists || !storage.current);
+    const storageDirty =
+      publication?.status === "published" && (!storage?.exists || !storage.current);
     return {
       conversationId: plan.conversation_id,
       themeId: plan.theme_id,
-      storageRootId: publication?.status !== "removed" && publication?.storage_root_id
-        ? publication.storage_root_id
-        : plan.storage_root_id,
+      storageRootId:
+        publication?.status !== "removed" && publication?.storage_root_id
+          ? publication.storage_root_id
+          : plan.storage_root_id,
       relativePath: plan.relative_path,
       plannedPublishedAt,
       scope: plan.scope,
@@ -918,7 +1109,9 @@ export class WorkspaceService {
       warnings: plan.warnings,
       blockingReasons: [
         ...plan.blocking_reasons,
-        ...(location.status === "ok" ? [] : ["ThemeのOneDrive保存先を利用できません。Settingsを確認してください。"]),
+        ...(location.status === "ok"
+          ? []
+          : ["ThemeのOneDrive保存先を利用できません。Settingsを確認してください。"]),
       ],
       sourceUrl: plan.source_url,
       theme: plan.theme,
@@ -929,7 +1122,10 @@ export class WorkspaceService {
     };
   }
 
-  private publishThemeAiPackAfterConversationChange(themeId: string): { state: string; error?: string } {
+  private publishThemeAiPackAfterConversationChange(themeId: string): {
+    state: string;
+    error?: string;
+  } {
     try {
       const preview = this.getThemeAiPackPreview(themeId);
       const result = this.publishThemeAiPack({ themeId, expectedContentHash: preview.contentHash });
@@ -941,9 +1137,15 @@ export class WorkspaceService {
 
   publishConversationContext(requestValue: unknown): ConversationContextPublishResult {
     const request = objectValue(requestValue);
-    const plannedPublishedAt = typeof request.plannedPublishedAt === "string" ? request.plannedPublishedAt.trim() : "";
-    const expectedContentHash = typeof request.expectedContentHash === "string" ? request.expectedContentHash.trim() : "";
-    if (!plannedPublishedAt || Number.isNaN(new Date(plannedPublishedAt).getTime()) || !expectedContentHash) {
+    const plannedPublishedAt =
+      typeof request.plannedPublishedAt === "string" ? request.plannedPublishedAt.trim() : "";
+    const expectedContentHash =
+      typeof request.expectedContentHash === "string" ? request.expectedContentHash.trim() : "";
+    if (
+      !plannedPublishedAt ||
+      Number.isNaN(new Date(plannedPublishedAt).getTime()) ||
+      !expectedContentHash
+    ) {
       throw new Error("AI Context Previewが古いため、内容を確認し直してください。");
     }
     const { resource, theme, plan } = this.conversationContextInput(request, plannedPublishedAt);
@@ -962,19 +1164,32 @@ export class WorkspaceService {
       throw new Error(plan.blocking_reasons[0] || "M365への公開が許可されていません。");
     }
     const location = this.resolveThemeAiPack(theme);
-    if (location.status !== "ok") throw new Error("ThemeのOneDrive保存先を利用できません。Settingsを確認してください。");
+    if (location.status !== "ok")
+      throw new Error("ThemeのOneDrive保存先を利用できません。Settingsを確認してください。");
     const ensured = ensureThemeAiPackLocation(location, { operationId: randomUUID() });
     if (ensured.status !== "ok") throw new Error("ThemeのOneDrive保存先を準備できませんでした。");
-    const existingPublication = normalizeConversationContextPublication(resource.conversation_context_publication);
-    if (existingPublication?.status !== "removed"
-      && existingPublication?.theme_id
-      && existingPublication.theme_id !== plan.theme_id) {
-      throw new Error("以前のThemeに公開済みです。先にAI Contextから外してから、新しいThemeへ公開してください。");
+    const existingPublication = normalizeConversationContextPublication(
+      resource.conversation_context_publication,
+    );
+    if (
+      existingPublication?.status !== "removed" &&
+      existingPublication?.theme_id &&
+      existingPublication.theme_id !== plan.theme_id
+    ) {
+      throw new Error(
+        "以前のThemeに公開済みです。先にAI Contextから外してから、新しいThemeへ公開してください。",
+      );
     }
-    if (existingPublication?.status === "published"
-      && existingPublication.content_hash === plan.content_hash
-      && existingPublication.source_revision === plan.source_revision) {
-      const storage = inspectConversationContextFile({ themeFolder: ensured.themeFolder, relativePath: plan.relative_path, contentHash: plan.content_hash });
+    if (
+      existingPublication?.status === "published" &&
+      existingPublication.content_hash === plan.content_hash &&
+      existingPublication.source_revision === plan.source_revision
+    ) {
+      const storage = inspectConversationContextFile({
+        themeFolder: ensured.themeFolder,
+        relativePath: plan.relative_path,
+        contentHash: plan.content_hash,
+      });
       if (storage.current) {
         return {
           conversationId: plan.conversation_id,
@@ -1004,7 +1219,10 @@ export class WorkspaceService {
       operation_id: operationId,
       last_error: null,
     };
-    const pendingResource = this.saveConversationContextResource({ ...resource, conversation_context_publication: pendingPublication });
+    const pendingResource = this.saveConversationContextResource({
+      ...resource,
+      conversation_context_publication: pendingPublication,
+    });
     try {
       const fileResult = publishConversationContextFile({
         themeFolder: ensured.themeFolder,
@@ -1018,7 +1236,12 @@ export class WorkspaceService {
       });
       this.saveConversationContextResource({
         ...pendingResource,
-        conversation_context_publication: { ...pendingPublication, status: "published", operation_id: null, updated_at: this.now() },
+        conversation_context_publication: {
+          ...pendingPublication,
+          status: "published",
+          operation_id: null,
+          updated_at: this.now(),
+        },
       });
       completeConversationContextOperation(this.conversationContextRecoveryDirectory, operationId);
       const pack = this.publishThemeAiPackAfterConversationChange(plan.theme_id);
@@ -1030,14 +1253,27 @@ export class WorkspaceService {
         written: fileResult.written,
         contentHash: plan.content_hash,
         themePackState: pack.state,
-        ...(pack.error ? { warning: "Conversationは公開済みですが、Theme AI Packを更新できませんでした。Theme画面から再試行してください。" } : {}),
+        ...(pack.error
+          ? {
+              warning:
+                "Conversationは公開済みですが、Theme AI Packを更新できませんでした。Theme画面から再試行してください。",
+            }
+          : {}),
       };
     } catch (error) {
       try {
-        const recoverable = listConversationContextOperations(this.conversationContextRecoveryDirectory)
-          .some((item) => item.receipt?.operationId === operationId && item.receipt.phase === "file_written");
+        const recoverable = listConversationContextOperations(
+          this.conversationContextRecoveryDirectory,
+        ).some(
+          (item) =>
+            item.receipt?.operationId === operationId && item.receipt.phase === "file_written",
+        );
         const current = this.repository.get("resource", plan.conversation_id);
-        if (current && normalizeConversationContextPublication(current.conversation_context_publication)?.operation_id === operationId) {
+        if (
+          current &&
+          normalizeConversationContextPublication(current.conversation_context_publication)
+            ?.operation_id === operationId
+        ) {
           this.saveConversationContextResource({
             ...current,
             conversation_context_publication: {
@@ -1052,31 +1288,55 @@ export class WorkspaceService {
       } catch {
         // Receiptとpublishing stateを残し、次回起動でfile read-back後に復旧する。
       }
-      throw new Error("AI Contextファイルを更新できませんでした。OneDriveの同期状態と保存先を確認して再試行してください。");
+      throw new Error(
+        "AI Contextファイルを更新できませんでした。OneDriveの同期状態と保存先を確認して再試行してください。",
+      );
     }
   }
 
   removeConversationContext(requestValue: unknown): ConversationContextRemoveResult {
     const request = objectValue(requestValue);
-    const conversationId = typeof request.conversationId === "string" ? request.conversationId.trim() : "";
+    const conversationId =
+      typeof request.conversationId === "string" ? request.conversationId.trim() : "";
     const resource = conversationId ? this.repository.get("resource", conversationId) : null;
-    if (!resource || resource.deleted_at || resource.resource_scope !== "chat_ref") throw new Error("Conversationが見つかりません。");
-    const publication = normalizeConversationContextPublication(resource.conversation_context_publication);
+    if (!resource || resource.deleted_at || resource.resource_scope !== "chat_ref")
+      throw new Error("Conversationが見つかりません。");
+    const publication = normalizeConversationContextPublication(
+      resource.conversation_context_publication,
+    );
     if (!publication || publication.status === "removed") {
-      return { conversationId, themeId: String(resource.theme_id || resource.project_id || ""), publicationState: "removed", removed: false };
+      return {
+        conversationId,
+        themeId: String(resource.theme_id || resource.project_id || ""),
+        publicationState: "removed",
+        removed: false,
+      };
     }
-    const themeId = publication.theme_id || String(resource.theme_id || resource.project_id || "").trim();
+    const themeId =
+      publication.theme_id || String(resource.theme_id || resource.project_id || "").trim();
     const storageRootId = publication.storage_root_id || `theme:${themeId}`;
-    if (!themeId || storageRootId !== `theme:${themeId}`) throw new Error("Conversationの公開先bindingが不正です。再読込してから再試行してください。");
-    const theme = this.repository.get("theme", themeId, true) || this.repository.get("project", themeId, true);
+    if (!themeId || storageRootId !== `theme:${themeId}`)
+      throw new Error("Conversationの公開先bindingが不正です。再読込してから再試行してください。");
+    const theme =
+      this.repository.get("theme", themeId, true) || this.repository.get("project", themeId, true);
     if (!theme) throw new Error("ConversationのThemeが見つかりません。");
     const location = this.resolveThemeAiPack(theme);
-    if (location.status !== "ok") throw new Error("ThemeのOneDrive保存先を利用できません。Settingsを確認してください。");
+    if (location.status !== "ok")
+      throw new Error("ThemeのOneDrive保存先を利用できません。Settingsを確認してください。");
     const ensured = ensureThemeAiPackLocation(location, { operationId: randomUUID() });
     if (ensured.status !== "ok") throw new Error("ThemeのOneDrive保存先を準備できませんでした。");
     const operationId = randomUUID();
-    const pendingPublication = { ...publication, status: "removing", operation_id: operationId, updated_at: this.now(), last_error: null };
-    const pendingResource = this.saveConversationContextResource({ ...resource, conversation_context_publication: pendingPublication });
+    const pendingPublication = {
+      ...publication,
+      status: "removing",
+      operation_id: operationId,
+      updated_at: this.now(),
+      last_error: null,
+    };
+    const pendingResource = this.saveConversationContextResource({
+      ...resource,
+      conversation_context_publication: pendingPublication,
+    });
     try {
       const fileResult = removeConversationContextFile({
         themeFolder: ensured.themeFolder,
@@ -1106,14 +1366,27 @@ export class WorkspaceService {
         publicationState: "removed",
         removed: fileResult.removed,
         themePackState: pack.state,
-        ...(pack.error ? { warning: "AI Contextから外しましたが、Theme AI Packを更新できませんでした。Theme画面から再試行してください。" } : {}),
+        ...(pack.error
+          ? {
+              warning:
+                "AI Contextから外しましたが、Theme AI Packを更新できませんでした。Theme画面から再試行してください。",
+            }
+          : {}),
       };
     } catch (error) {
       try {
-        const recoverable = listConversationContextOperations(this.conversationContextRecoveryDirectory)
-          .some((item) => item.receipt?.operationId === operationId && item.receipt.phase === "file_removed");
+        const recoverable = listConversationContextOperations(
+          this.conversationContextRecoveryDirectory,
+        ).some(
+          (item) =>
+            item.receipt?.operationId === operationId && item.receipt.phase === "file_removed",
+        );
         const current = this.repository.get("resource", conversationId);
-        if (current && normalizeConversationContextPublication(current.conversation_context_publication)?.operation_id === operationId) {
+        if (
+          current &&
+          normalizeConversationContextPublication(current.conversation_context_publication)
+            ?.operation_id === operationId
+        ) {
           this.saveConversationContextResource({
             ...current,
             conversation_context_publication: {
@@ -1128,29 +1401,43 @@ export class WorkspaceService {
       } catch {
         // Receiptとremoving stateを残し、次回起動でfile absence確認後に復旧する。
       }
-      throw new Error("AI Contextファイルを解除できませんでした。OneDriveの同期状態と保存先を確認して再試行してください。");
+      throw new Error(
+        "AI Contextファイルを解除できませんでした。OneDriveの同期状態と保存先を確認して再試行してください。",
+      );
     }
   }
 
   private recoverConversationContextReceipts(): void {
-    for (const item of listConversationContextOperations(this.conversationContextRecoveryDirectory)) {
+    for (const item of listConversationContextOperations(
+      this.conversationContextRecoveryDirectory,
+    )) {
       const receipt = item.receipt;
       if (!receipt) {
-        console.warn(`Conversation AI Context recovery receiptを読めませんでした。${item.error || ""}`);
+        console.warn(
+          `Conversation AI Context recovery receiptを読めませんでした。${item.error || ""}`,
+        );
         continue;
       }
       try {
         const resource = this.repository.get("resource", receipt.conversationId, true);
-        const publication = normalizeConversationContextPublication(resource?.conversation_context_publication);
+        const publication = normalizeConversationContextPublication(
+          resource?.conversation_context_publication,
+        );
         if (!resource || !publication || publication.operation_id !== receipt.operationId) {
           // 新しい操作が正本なら古いreceiptは再適用しない。
-          completeConversationContextOperation(this.conversationContextRecoveryDirectory, receipt.operationId);
+          completeConversationContextOperation(
+            this.conversationContextRecoveryDirectory,
+            receipt.operationId,
+          );
           continue;
         }
-        const theme = this.repository.get("theme", receipt.themeId, true) || this.repository.get("project", receipt.themeId, true);
+        const theme =
+          this.repository.get("theme", receipt.themeId, true) ||
+          this.repository.get("project", receipt.themeId, true);
         if (!theme) throw new Error("Themeが見つかりません。");
         const location = this.resolveThemeAiPack(theme);
-        if (location.status !== "ok") throw new Error(`Theme保存先を再発見できません: ${location.status}`);
+        if (location.status !== "ok")
+          throw new Error(`Theme保存先を再発見できません: ${location.status}`);
         let phase = receipt.phase;
         if (phase === "planned") {
           const storage = inspectConversationContextFile({
@@ -1171,7 +1458,10 @@ export class WorkspaceService {
                 updated_at: this.now(),
               },
             });
-            completeConversationContextOperation(this.conversationContextRecoveryDirectory, receipt.operationId);
+            completeConversationContextOperation(
+              this.conversationContextRecoveryDirectory,
+              receipt.operationId,
+            );
             continue;
           }
         }
@@ -1184,9 +1474,18 @@ export class WorkspaceService {
           if (!storage.current) throw new Error("公開fileのread-back hashが一致しません。");
           this.saveConversationContextResource({
             ...resource,
-            conversation_context_publication: { ...publication, status: "published", operation_id: null, last_error: null, updated_at: this.now() },
+            conversation_context_publication: {
+              ...publication,
+              status: "published",
+              operation_id: null,
+              last_error: null,
+              updated_at: this.now(),
+            },
           });
-          completeConversationContextOperation(this.conversationContextRecoveryDirectory, receipt.operationId);
+          completeConversationContextOperation(
+            this.conversationContextRecoveryDirectory,
+            receipt.operationId,
+          );
           this.publishThemeAiPackAfterConversationChange(receipt.themeId);
           continue;
         }
@@ -1210,13 +1509,18 @@ export class WorkspaceService {
               updated_at: this.now(),
             },
           });
-          completeConversationContextOperation(this.conversationContextRecoveryDirectory, receipt.operationId);
+          completeConversationContextOperation(
+            this.conversationContextRecoveryDirectory,
+            receipt.operationId,
+          );
           this.publishThemeAiPackAfterConversationChange(receipt.themeId);
           continue;
         }
         throw new Error("file操作が完了していないため自動確定できません。");
       } catch (error) {
-        console.warn(`Conversation AI Context ${receipt.operationId} を自動復旧できませんでした。${errorText(error)}`);
+        console.warn(
+          `Conversation AI Context ${receipt.operationId} を自動復旧できませんでした。${errorText(error)}`,
+        );
       }
     }
   }
@@ -1224,9 +1528,10 @@ export class WorkspaceService {
   getThemeAiPackPreview(themeIdValue: unknown): ThemeAiPackPreviewResult {
     const { theme, plan } = this.buildThemeAiPack(themeIdValue);
     const location = this.resolveThemeAiPack(theme);
-    const storage = location.status === "ok"
-      ? inspectThemeAiPack({ plan, packDirectory: location.packDirectory })
-      : { state: location.status, dirty: true };
+    const storage =
+      location.status === "ok"
+        ? inspectThemeAiPack({ plan, packDirectory: location.packDirectory })
+        : { state: location.status, dirty: true };
     return {
       themeId: plan.theme_id,
       contentHash: plan.content_hash,
@@ -1237,7 +1542,9 @@ export class WorkspaceService {
       dirty: storage.dirty,
       retryPending: location.status === "needs_root" || location.status === "root_unavailable",
       locationStatus: location.status,
-      canOpenFolder: location.status === "ok" && isSafeThemeAiPackDirectory(location.themeFolder, location.packDirectory),
+      canOpenFolder:
+        location.status === "ok" &&
+        isSafeThemeAiPackDirectory(location.themeFolder, location.packDirectory),
       files: plan.files.map((file, index) => ({
         name: file.name,
         content: file.content,
@@ -1265,8 +1572,10 @@ export class WorkspaceService {
   publishThemeAiPack(requestValue: unknown): ThemeAiPackPublishResult {
     const request = objectValue(requestValue);
     const themeId = typeof request.themeId === "string" ? request.themeId.trim() : "";
-    const expectedContentHash = typeof request.expectedContentHash === "string" ? request.expectedContentHash.trim() : "";
-    if (!themeId || !expectedContentHash) throw new Error("AI Pack Previewが古いため、内容を確認し直してください。");
+    const expectedContentHash =
+      typeof request.expectedContentHash === "string" ? request.expectedContentHash.trim() : "";
+    if (!themeId || !expectedContentHash)
+      throw new Error("AI Pack Previewが古いため、内容を確認し直してください。");
     if (this.publishingThemeAiPacks.has(themeId)) {
       return { state: "publishing", dirty: true, retryPending: false, written: false, themeId };
     }
@@ -1316,13 +1625,23 @@ export class WorkspaceService {
   async openThemeAiPackFolder(themeIdValue: unknown): Promise<{ ok: boolean; error?: string }> {
     const { theme } = this.buildThemeAiPack(themeIdValue);
     const location = this.resolveThemeAiPack(theme);
-    if (location.status !== "ok") return { ok: false, error: "AI Packの保存Rootを利用できません。Settingsを確認してください。" };
+    if (location.status !== "ok")
+      return {
+        ok: false,
+        error: "AI Packの保存Rootを利用できません。Settingsを確認してください。",
+      };
     const resolvedPackDirectory = path.resolve(location.packDirectory);
     if (!fs.existsSync(resolvedPackDirectory)) {
-      return { ok: false, error: "AI Packはまだ生成されていません。内容を確認して更新してください。" };
+      return {
+        ok: false,
+        error: "AI Packはまだ生成されていません。内容を確認して更新してください。",
+      };
     }
     if (!isSafeThemeAiPackDirectory(location.themeFolder, resolvedPackDirectory)) {
-      return { ok: false, error: "AI Packの保存先にsymlink/junctionは利用できません。Settingsを確認してください。" };
+      return {
+        ok: false,
+        error: "AI Packの保存先にsymlink/junctionは利用できません。Settingsを確認してください。",
+      };
     }
     const error = await shell.openPath(resolvedPackDirectory);
     return error ? { ok: false, error } : { ok: true };
@@ -1331,7 +1650,15 @@ export class WorkspaceService {
   private readCanonicalFile(filePath: string): CanonicalFileSnapshot {
     try {
       const stat = fs.statSync(filePath);
-      if (!stat.isFile()) return { exists: false, content: "", signature: "", size: null, mtimeMs: null, error: "正本Markdownが通常のファイルではありません。" };
+      if (!stat.isFile())
+        return {
+          exists: false,
+          content: "",
+          signature: "",
+          size: null,
+          mtimeMs: null,
+          error: "正本Markdownが通常のファイルではありません。",
+        };
       const rawContent = fs.readFileSync(filePath);
       const content = rawContent.toString("utf8");
       return {
@@ -1347,10 +1674,24 @@ export class WorkspaceService {
           fs.statSync(path.dirname(filePath));
           return { exists: false, content: "", signature: "", size: null, mtimeMs: null };
         } catch (directoryError) {
-          return { exists: false, content: "", signature: "", size: null, mtimeMs: null, error: errorText(directoryError) };
+          return {
+            exists: false,
+            content: "",
+            signature: "",
+            size: null,
+            mtimeMs: null,
+            error: errorText(directoryError),
+          };
         }
       }
-      return { exists: false, content: "", signature: "", size: null, mtimeMs: null, error: errorText(error) };
+      return {
+        exists: false,
+        content: "",
+        signature: "",
+        size: null,
+        mtimeMs: null,
+        error: errorText(error),
+      };
     }
   }
 
@@ -1358,19 +1699,24 @@ export class WorkspaceService {
     try {
       const parsed: unknown = JSON.parse(fs.readFileSync(this.canonicalRecoveryPath, "utf8"));
       if (!Array.isArray(parsed)) throw new Error("recovery receiptのJSON配列が必要です。");
-      const receipts = parsed.filter((entry): entry is CanonicalRecoveryReceipt => (
-        Boolean(entry)
-        && typeof entry === "object"
-        && typeof (entry as Record<string, unknown>).operationId === "string"
-        && typeof (entry as Record<string, unknown>).noteId === "string"
-        && typeof (entry as Record<string, unknown>).filePath === "string"
-        && typeof (entry as Record<string, unknown>).content === "string"
-        && typeof (entry as Record<string, unknown>).entity === "object"
-        && typeof (entry as Record<string, unknown>).binding === "object"
-      ));
-      if (receipts.length !== parsed.length) throw new Error("recovery receiptの項目形式が不正です。");
+      const receipts = parsed.filter(
+        (entry): entry is CanonicalRecoveryReceipt =>
+          Boolean(entry) &&
+          typeof entry === "object" &&
+          typeof (entry as Record<string, unknown>).operationId === "string" &&
+          typeof (entry as Record<string, unknown>).noteId === "string" &&
+          typeof (entry as Record<string, unknown>).filePath === "string" &&
+          typeof (entry as Record<string, unknown>).content === "string" &&
+          typeof (entry as Record<string, unknown>).entity === "object" &&
+          typeof (entry as Record<string, unknown>).binding === "object",
+      );
+      if (receipts.length !== parsed.length)
+        throw new Error("recovery receiptの項目形式が不正です。");
       for (const receipt of receipts) {
-        if (String(receipt.entity.id || "") !== receipt.noteId || "additionalOperations" in receipt) {
+        if (
+          String(receipt.entity.id || "") !== receipt.noteId ||
+          "additionalOperations" in receipt
+        ) {
           throw new Error("recovery receiptのNoteまたは副作用schemaが不正です。");
         }
         normalizeCanonicalNoteAiCompanion(receipt.noteAiCompanion, receipt.noteId);
@@ -1401,10 +1747,16 @@ export class WorkspaceService {
       reason: errorText(error),
     };
     try {
-      this.writeAtomicText(this.canonicalRecoveryWarningPath, `${JSON.stringify(warning, null, 2)}\n`, randomUUID());
+      this.writeAtomicText(
+        this.canonicalRecoveryWarningPath,
+        `${JSON.stringify(warning, null, 2)}\n`,
+        randomUUID(),
+      );
     } catch (warningError) {
       // JSON破損を握りつぶさないため、警告ファイルの作成失敗もMainログへ残す。
-      console.warn(`canonical Markdown recovery receiptの警告保存に失敗しました。${errorText(warningError)}`);
+      console.warn(
+        `canonical Markdown recovery receiptの警告保存に失敗しました。${errorText(warningError)}`,
+      );
     }
     console.warn(`canonical Markdown recovery receiptを検証できませんでした。${errorText(error)}`);
   }
@@ -1418,11 +1770,17 @@ export class WorkspaceService {
       }
       return;
     }
-    this.writeAtomicText(this.canonicalRecoveryPath, `${JSON.stringify(receipts, null, 2)}\n`, randomUUID());
+    this.writeAtomicText(
+      this.canonicalRecoveryPath,
+      `${JSON.stringify(receipts, null, 2)}\n`,
+      randomUUID(),
+    );
   }
 
   private addCanonicalRecoveryReceipt(receipt: CanonicalRecoveryReceipt): void {
-    const receipts = this.readCanonicalRecoveryReceipts().filter((entry) => entry.operationId !== receipt.operationId);
+    const receipts = this.readCanonicalRecoveryReceipts().filter(
+      (entry) => entry.operationId !== receipt.operationId,
+    );
     receipts.push(receipt);
     this.writeCanonicalRecoveryReceipts(receipts);
   }
@@ -1470,10 +1828,12 @@ export class WorkspaceService {
     // supersedeされたものとして解決する。別Noteや未来のrevisionは残す。
     try {
       this.writeCanonicalRecoveryReceipts(
-        this.readCanonicalRecoveryReceipts().filter((receipt) => (
-          receipt.noteId !== noteId
-          || (receipt.operationId !== operationId && Number(receipt.baseRevision || 0) > actualRevision)
-        )),
+        this.readCanonicalRecoveryReceipts().filter(
+          (receipt) =>
+            receipt.noteId !== noteId ||
+            (receipt.operationId !== operationId &&
+              Number(receipt.baseRevision || 0) > actualRevision),
+        ),
       );
     } catch (error) {
       // DB/fileの正本保存自体は成功している。receipt掃除だけ失敗した場合は
@@ -1489,95 +1849,125 @@ export class WorkspaceService {
     for (const receipt of receipts) {
       try {
         const companions = normalizeDocumentSaveCompanions(receipt.companions, receipt.noteId);
-        const noteAiCompanion = normalizeCanonicalNoteAiCompanion(receipt.noteAiCompanion, receipt.noteId);
+        const noteAiCompanion = normalizeCanonicalNoteAiCompanion(
+          receipt.noteAiCompanion,
+          receipt.noteId,
+        );
         const current = this.repository.get("note", receipt.noteId, true);
         // receiptはfile write後の復旧候補であり、DBのcurrentを上書きする正本ではない。
         const snapshot = this.readCanonicalFile(receipt.filePath);
         const expectedSignature = markdownSignature(receipt.content);
-        const binding = normalizeCanonicalMarkdownBinding(receipt.binding, { noteId: receipt.noteId });
+        const binding = normalizeCanonicalMarkdownBinding(receipt.binding, {
+          noteId: receipt.noteId,
+        });
         const baseRevision = Number.isInteger(receipt.baseRevision)
           ? Number(receipt.baseRevision)
           : Number(receipt.entity.version || 0);
         const currentBody = String(current?.body_markdown || "");
         const currentBinding = current
-          ? canonicalMarkdownBindingFromProperties(objectValue(current.properties_json), { noteId: receipt.noteId })
+          ? canonicalMarkdownBindingFromProperties(objectValue(current.properties_json), {
+              noteId: receipt.noteId,
+            })
           : null;
-        const receiptBodySignature = receipt.bodySignature
-          || markdownSignature(String(receipt.entity.body_markdown || ""));
+        const receiptBodySignature =
+          receipt.bodySignature || markdownSignature(String(receipt.entity.body_markdown || ""));
         // A verification mismatch can persist the intended entity and its
         // internal_ahead binding before the process restarts. That save is
         // version base+1, but it is still this receipt's own attempt. Only an
         // exact operation/body/revision match is exempted; a later edit keeps
         // the normal currentAdvanced protection below.
-        const sameReceiptAttempt = Boolean(current
-          && Number(current.version || 0) === baseRevision + 1
-          && currentBinding?.last_operation_id === receipt.operationId
-          && markdownSignature(currentBody) === receiptBodySignature);
+        const sameReceiptAttempt = Boolean(
+          current &&
+          Number(current.version || 0) === baseRevision + 1 &&
+          currentBinding?.last_operation_id === receipt.operationId &&
+          markdownSignature(currentBody) === receiptBodySignature,
+        );
         // receipt.entity is the attempted new state, so its body/title naturally
         // differ from the unchanged DB row after a file-success/DB-failure. A
         // repository save always advances the entity revision; use that typed
         // revision boundary to distinguish a later DB edit from the original
         // operation instead of treating the expected file contents as evidence
         // that the DB was edited concurrently.
-        const currentAdvanced = Boolean(current
-          && Number(current.version || 0) > baseRevision
-          && !sameReceiptAttempt);
+        const currentAdvanced = Boolean(
+          current && Number(current.version || 0) > baseRevision && !sameReceiptAttempt,
+        );
         // 同じrevisionのcurrentはDB保存に失敗した元の行なので、receiptの
         // intended entityを適用する。後続revisionだけはcurrentを正本として保つ。
-        const entity: Record<string, unknown> = currentAdvanced && current ? current : receipt.entity;
+        const entity: Record<string, unknown> =
+          currentAdvanced && current ? current : receipt.entity;
         if (currentAdvanced && current) {
           // 後続のcanonical saveがすでにin_syncへ到達していれば、この旧receiptを
           // 再度conflict化しない。本文・実ファイル署名も一致する場合だけ解決する。
           if (
-            currentBinding?.sync_state === "in_sync"
-            && currentBinding.body_signature === markdownSignature(currentBody)
-            && currentBinding.file_signature === snapshot.signature
-            && snapshot.exists
-            && !snapshot.error
+            currentBinding?.sync_state === "in_sync" &&
+            currentBinding.body_signature === markdownSignature(currentBody) &&
+            currentBinding.file_signature === snapshot.signature &&
+            snapshot.exists &&
+            !snapshot.error
           ) {
             continue;
           }
-          const conflict = normalizeCanonicalMarkdownBinding({
-            ...binding,
-            ...(currentBinding || {}),
-            sync_state: snapshot.error || !snapshot.exists ? "unavailable" : "conflict",
-            body_signature: markdownSignature(currentBody),
-            file_signature: snapshot.signature,
-            file_size: snapshot.size,
-            file_mtime_ms: snapshot.mtimeMs,
-            last_synced_revision: null,
-            file_ahead_signature: snapshot.signature,
-            last_error: "復旧receiptより新しいDB変更があるため、旧MarkdownをDBへ戻さずconflictとして保持しています。確認してから再保存してください。",
-          }, { noteId: receipt.noteId });
+          const conflict = normalizeCanonicalMarkdownBinding(
+            {
+              ...binding,
+              ...(currentBinding || {}),
+              sync_state: snapshot.error || !snapshot.exists ? "unavailable" : "conflict",
+              body_signature: markdownSignature(currentBody),
+              file_signature: snapshot.signature,
+              file_size: snapshot.size,
+              file_mtime_ms: snapshot.mtimeMs,
+              last_synced_revision: null,
+              file_ahead_signature: snapshot.signature,
+              last_error:
+                "復旧receiptより新しいDB変更があるため、旧MarkdownをDBへ戻さずconflictとして保持しています。確認してから再保存してください。",
+            },
+            { noteId: receipt.noteId },
+          );
           if (!this.sameCanonicalBinding(currentBinding, conflict)) {
-            this.repository.save("note", {
-              ...current,
-              properties_json: withCanonicalMarkdownBinding(objectValue(current.properties_json), conflict),
-            }, { source: "canonical-recovery", __canonicalOperationAt: this.now() });
+            this.repository.save(
+              "note",
+              {
+                ...current,
+                properties_json: withCanonicalMarkdownBinding(
+                  objectValue(current.properties_json),
+                  conflict,
+                ),
+              },
+              { source: "canonical-recovery", __canonicalOperationAt: this.now() },
+            );
           }
           remaining.push(receipt);
           continue;
         }
         if (!snapshot.exists || snapshot.error || snapshot.signature !== expectedSignature) {
-          const errorMessage = snapshot.error
-            || (!snapshot.exists ? "保存したMarkdownが見つかりません。" : "保存したMarkdownの内容が一致しません。");
-          const conflict = normalizeCanonicalMarkdownBinding({
-            ...binding,
-            sync_state: snapshot.error ? "unavailable" : "conflict",
-            file_ahead_signature: snapshot.signature,
-            last_error: errorMessage,
-          }, { noteId: receipt.noteId });
+          const errorMessage =
+            snapshot.error ||
+            (!snapshot.exists
+              ? "保存したMarkdownが見つかりません。"
+              : "保存したMarkdownの内容が一致しません。");
+          const conflict = normalizeCanonicalMarkdownBinding(
+            {
+              ...binding,
+              sync_state: snapshot.error ? "unavailable" : "conflict",
+              file_ahead_signature: snapshot.signature,
+              last_error: errorMessage,
+            },
+            { noteId: receipt.noteId },
+          );
           if (
-            !current
-            || current.body_markdown !== entity.body_markdown
-            || currentBinding?.sync_state !== conflict.sync_state
-            || currentBinding?.file_ahead_signature !== conflict.file_ahead_signature
-            || currentBinding?.last_error !== conflict.last_error
+            !current ||
+            current.body_markdown !== entity.body_markdown ||
+            currentBinding?.sync_state !== conflict.sync_state ||
+            currentBinding?.file_ahead_signature !== conflict.file_ahead_signature ||
+            currentBinding?.last_error !== conflict.last_error
           ) {
             this.saveNoteInternally(
               entity,
               conflict,
-              { source: "canonical-recovery", __canonicalOperationAt: receipt.operationAt || this.now() },
+              {
+                source: "canonical-recovery",
+                __canonicalOperationAt: receipt.operationAt || this.now(),
+              },
               companions,
               noteAiCompanion,
             );
@@ -1585,22 +1975,28 @@ export class WorkspaceService {
           remaining.push(receipt);
           continue;
         }
-        const synced = normalizeCanonicalMarkdownBinding({
-          ...binding,
-          sync_state: "in_sync",
-          body_signature: markdownSignature(String(entity.body_markdown || "")),
-          file_signature: snapshot.signature,
-          file_size: snapshot.size,
-          file_mtime_ms: snapshot.mtimeMs,
-          last_synced_revision: Number(current?.version || 0) + 1,
-          last_synced_at: receipt.operationAt || this.now(),
-          last_error: "",
-          file_ahead_signature: "",
-        }, { noteId: receipt.noteId });
+        const synced = normalizeCanonicalMarkdownBinding(
+          {
+            ...binding,
+            sync_state: "in_sync",
+            body_signature: markdownSignature(String(entity.body_markdown || "")),
+            file_signature: snapshot.signature,
+            file_size: snapshot.size,
+            file_mtime_ms: snapshot.mtimeMs,
+            last_synced_revision: Number(current?.version || 0) + 1,
+            last_synced_at: receipt.operationAt || this.now(),
+            last_error: "",
+            file_ahead_signature: "",
+          },
+          { noteId: receipt.noteId },
+        );
         this.saveNoteInternally(
           entity,
           synced,
-          { source: "canonical-recovery", __canonicalOperationAt: receipt.operationAt || this.now() },
+          {
+            source: "canonical-recovery",
+            __canonicalOperationAt: receipt.operationAt || this.now(),
+          },
           companions,
           noteAiCompanion,
         );
@@ -1668,17 +2064,20 @@ export class WorkspaceService {
     attemptAt: string,
     patch: Record<string, unknown> = {},
   ): ReturnType<typeof normalizeCanonicalMarkdownBinding> {
-    return normalizeCanonicalMarkdownBinding({
-      ...(binding || {}),
-      binding_id: binding?.binding_id || `note:${noteId}`,
-      canonical_path: target?.filePath || binding?.canonical_path || "",
-      directory: target?.directory || binding?.directory || "",
-      root_identity: target?.rootIdentity || binding?.root_identity || "",
-      file_name: target ? path.basename(target.filePath) : binding?.file_name || "",
-      last_operation_id: operationId,
-      last_attempt_at: attemptAt,
-      ...patch,
-    }, { noteId });
+    return normalizeCanonicalMarkdownBinding(
+      {
+        ...(binding || {}),
+        binding_id: binding?.binding_id || `note:${noteId}`,
+        canonical_path: target?.filePath || binding?.canonical_path || "",
+        directory: target?.directory || binding?.directory || "",
+        root_identity: target?.rootIdentity || binding?.root_identity || "",
+        file_name: target ? path.basename(target.filePath) : binding?.file_name || "",
+        last_operation_id: operationId,
+        last_attempt_at: attemptAt,
+        ...patch,
+      },
+      { noteId },
+    );
   }
 
   private saveNoteInternally(
@@ -1704,7 +2103,9 @@ export class WorkspaceService {
       existingReferences,
       { recordedAt: options.__canonicalOperationAt, origin: "user" },
     );
-    const existingById = new Map(existingReferences.map((reference) => [String(reference.id), reference]));
+    const existingById = new Map(
+      existingReferences.map((reference) => [String(reference.id), reference]),
+    );
     const stableLinkOperations = stableLinks.upsert_assertions
       .filter((assertion) => {
         const target = assertion.object as { type: string; id: string };
@@ -1712,8 +2113,10 @@ export class WorkspaceService {
         // only an endpoint that currently exists can become a new assertion.
         // An assertion whose endpoint was deleted remains untouched below and
         // is projected as a broken diagnostic.
-        return Boolean(this.repository.get(target.type, target.id))
-          && !sameStableLinkAssertion(existingById.get(String(assertion.id)), assertion);
+        return (
+          Boolean(this.repository.get(target.type, target.id)) &&
+          !sameStableLinkAssertion(existingById.get(String(assertion.id)), assertion)
+        );
       })
       .map((assertion) => ({
         action: "save" as const,
@@ -1723,9 +2126,15 @@ export class WorkspaceService {
       }));
     const staleLinkIds = stableLinks.delete_assertion_ids
       .map((id) => existingById.get(id))
-      .filter((reference): reference is Record<string, unknown> => Boolean(reference && !reference.deleted_at))
+      .filter((reference): reference is Record<string, unknown> =>
+        Boolean(reference && !reference.deleted_at),
+      )
       .map((reference) => String(reference.id));
-    const relationOperations = [...companions, ...stableLinkOperations, ...canonicalNoteAiOperations(noteAiCompanion)];
+    const relationOperations = [
+      ...companions,
+      ...stableLinkOperations,
+      ...canonicalNoteAiOperations(noteAiCompanion),
+    ];
     if (staleLinkIds.length) {
       return this.repository.runTransaction((transaction) => {
         const saved = transaction.save(noteOperation.type, noteOperation.entity, options);
@@ -1736,7 +2145,8 @@ export class WorkspaceService {
         return saved;
       });
     }
-    if (!relationOperations.length) return this.repository.save(noteOperation.type, noteOperation.entity, options);
+    if (!relationOperations.length)
+      return this.repository.save(noteOperation.type, noteOperation.entity, options);
     return this.repository.saveMany([noteOperation, ...relationOperations])[0];
   }
 
@@ -1755,14 +2165,19 @@ export class WorkspaceService {
     const current = this.repository.get("note", noteId, true);
     const actualRevision = Number(current?.version || 0);
     if (actualRevision !== request.snapshot.expectedRevision) {
-      throw new Error(`Noteが更新済みです（expected revision ${request.snapshot.expectedRevision}, actual ${actualRevision}）。古い編集画面を閉じて再試行してください。`);
+      throw new Error(
+        `Noteが更新済みです（expected revision ${request.snapshot.expectedRevision}, actual ${actualRevision}）。古い編集画面を閉じて再試行してください。`,
+      );
     }
     const note: Record<string, unknown> = { ...(current || {}), ...input, id: noteId };
     const properties = objectValue(note.properties_json);
     const binding = canonicalMarkdownBindingFromProperties(properties, { noteId });
     const operationId = randomUUID();
     const attemptAt = this.now();
-    const options: CanonicalSaveOptions = { ...(request.options || {}), __canonicalOperationAt: attemptAt };
+    const options: CanonicalSaveOptions = {
+      ...(request.options || {}),
+      __canonicalOperationAt: attemptAt,
+    };
     const content = buildCanonicalMarkdownContent({
       title: String(note.title || ""),
       themeName: this.canonicalThemeName(note),
@@ -1774,7 +2189,13 @@ export class WorkspaceService {
     const baseAttempt = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt);
 
     if (!target) {
-      return this.saveNoteInternally(note, baseAttempt, options, request.companions, noteAiCompanion);
+      return this.saveNoteInternally(
+        note,
+        baseAttempt,
+        options,
+        request.companions,
+        noteAiCompanion,
+      );
     }
 
     try {
@@ -1789,7 +2210,13 @@ export class WorkspaceService {
         sync_state: "unavailable",
         last_error: errorText(error),
       });
-      return this.saveNoteInternally(note, unavailable, options, request.companions, noteAiCompanion);
+      return this.saveNoteInternally(
+        note,
+        unavailable,
+        options,
+        request.companions,
+        noteAiCompanion,
+      );
     }
     const snapshot = this.readCanonicalFile(target.filePath);
     if (snapshot.error) {
@@ -1797,7 +2224,13 @@ export class WorkspaceService {
         sync_state: "unavailable",
         last_error: snapshot.error,
       });
-      return this.saveNoteInternally(note, unavailable, options, request.companions, noteAiCompanion);
+      return this.saveNoteInternally(
+        note,
+        unavailable,
+        options,
+        request.companions,
+        noteAiCompanion,
+      );
     }
 
     const plan = planCanonicalMarkdownWrite({
@@ -1832,7 +2265,13 @@ export class WorkspaceService {
         last_error: "",
         file_ahead_signature: "",
       });
-      const saved = this.saveNoteInternally(note, synced, options, request.companions, noteAiCompanion);
+      const saved = this.saveNoteInternally(
+        note,
+        synced,
+        options,
+        request.companions,
+        noteAiCompanion,
+      );
       this.resolveCanonicalRecoveryReceiptsForSave(noteId, operationId, actualRevision);
       return saved;
     }
@@ -1877,7 +2316,8 @@ export class WorkspaceService {
         sync_state: "internal_ahead",
         body_signature: markdownSignature(String(note.body_markdown || "")),
         file_signature: expectedSignature,
-        last_error: written.error || "書き込んだMarkdownの内容を検証できませんでした。再試行してください。",
+        last_error:
+          written.error || "書き込んだMarkdownの内容を検証できませんでした。再試行してください。",
       });
       this.saveNoteInternally(note, failed, options, request.companions, noteAiCompanion);
       // 実ファイルの再検証に成功するまでreceiptは残す。
@@ -1895,11 +2335,19 @@ export class WorkspaceService {
       file_ahead_signature: "",
     });
     try {
-      const saved = this.saveNoteInternally(note, synced, options, request.companions, noteAiCompanion);
+      const saved = this.saveNoteInternally(
+        note,
+        synced,
+        options,
+        request.companions,
+        noteAiCompanion,
+      );
       this.resolveCanonicalRecoveryReceiptsForSave(noteId, operationId, actualRevision);
       return saved;
     } catch (error) {
-      throw new Error(`Markdownは更新しましたが、Tasken内部への保存に失敗しました。再起動後に復旧します。${errorText(error)}`);
+      throw new Error(
+        `Markdownは更新しましたが、Tasken内部への保存に失敗しました。再起動後に復旧します。${errorText(error)}`,
+      );
     }
   }
 
@@ -1907,13 +2355,22 @@ export class WorkspaceService {
     const notes = this.repository.list("note");
     for (const note of notes) {
       const properties = objectValue(note.properties_json);
-      if (properties.canonical_markdown && typeof properties.canonical_markdown === "object" && !Array.isArray(properties.canonical_markdown)) continue;
+      if (
+        properties.canonical_markdown &&
+        typeof properties.canonical_markdown === "object" &&
+        !Array.isArray(properties.canonical_markdown)
+      )
+        continue;
       const noteId = String(note.id || "");
       if (!noteId) continue;
       const legacy = canonicalMarkdownBindingFromProperties(properties, { noteId });
       const operationId = randomUUID();
       const attemptAt = this.now();
-      const migrationOptions: CanonicalSaveOptions = { source: "canonical-migration", quiet: true, __canonicalOperationAt: attemptAt };
+      const migrationOptions: CanonicalSaveOptions = {
+        source: "canonical-migration",
+        quiet: true,
+        __canonicalOperationAt: attemptAt,
+      };
       let target: CanonicalTarget | null;
       try {
         target = this.resolveCanonicalTarget(note, legacy);
@@ -1928,7 +2385,8 @@ export class WorkspaceService {
       if (!target) {
         const binding = this.bindingForAttempt(legacy, noteId, null, operationId, attemptAt, {
           sync_state: "unavailable",
-          last_error: "設定済みのMarkdown保存ルートがありません。Settingsで保存先を確認してください。",
+          last_error:
+            "設定済みのMarkdown保存ルートがありません。Settingsで保存先を確認してください。",
         });
         this.saveNoteInternally(note, binding, migrationOptions);
         continue;
@@ -1979,9 +2437,7 @@ export class WorkspaceService {
         // 既知signatureがある場合は、同じ実fileを指すこと自体が前回保存の根拠になる。
         // signatureが無いlegacyだけは、migration時刻ではなくNote保存時刻でcanonical本文を照合する。
         const externallyChanged = Boolean(
-          knownFileSignature
-            ? knownFileSignature !== snapshot.signature
-            : !contentMatches,
+          knownFileSignature ? knownFileSignature !== snapshot.signature : !contentMatches,
         );
         const binding = this.bindingForAttempt(legacy, noteId, target, operationId, attemptAt, {
           sync_state: externallyChanged ? "conflict" : "in_sync",
@@ -1992,9 +2448,9 @@ export class WorkspaceService {
           last_synced_revision: externallyChanged ? null : Number(note.version || 0) + 1,
           last_synced_at: externallyChanged ? "" : attemptAt,
           last_error: externallyChanged
-            ? (contentMatches
+            ? contentMatches
               ? "既存Markdownが前回保存時から外部で変更されています。確認してから上書きしてください。"
-              : "既存Markdownの内容がNoteから生成したcanonical本文と一致しません。確認してから上書きしてください。")
+              : "既存Markdownの内容がNoteから生成したcanonical本文と一致しません。確認してから上書きしてください。"
             : "",
           file_ahead_signature: externallyChanged ? snapshot.signature : "",
         });
@@ -2015,12 +2471,12 @@ export class WorkspaceService {
           ...note,
           properties_json: withCanonicalMarkdownBinding(properties, pending),
         },
-      filePath: target.filePath,
-      content,
-      binding: { ...pending },
-      operationAt: attemptAt,
-      baseRevision: Number(note.version || 0),
-      bodySignature: markdownSignature(String(note.body_markdown || "")),
+        filePath: target.filePath,
+        content,
+        binding: { ...pending },
+        operationAt: attemptAt,
+        baseRevision: Number(note.version || 0),
+        bodySignature: markdownSignature(String(note.body_markdown || "")),
       });
       let fileWriteCompleted = false;
       try {
@@ -2028,7 +2484,10 @@ export class WorkspaceService {
         fileWriteCompleted = true;
         const written = this.readCanonicalFile(target.filePath);
         if (written.error || !written.exists || written.signature !== expectedSignature) {
-          throw new Error(written.error || "移行したMarkdownの内容を検証できませんでした。次回起動で再試行します。");
+          throw new Error(
+            written.error ||
+              "移行したMarkdownの内容を検証できませんでした。次回起動で再試行します。",
+          );
         }
         const binding = this.bindingForAttempt(legacy, noteId, target, operationId, attemptAt, {
           sync_state: "in_sync",
@@ -2047,7 +2506,9 @@ export class WorkspaceService {
           sync_state: fileWriteCompleted ? "conflict" : "internal_ahead",
           body_signature: markdownSignature(String(note.body_markdown || "")),
           file_signature: expectedSignature,
-          file_ahead_signature: fileWriteCompleted ? this.readCanonicalFile(target.filePath).signature : "",
+          file_ahead_signature: fileWriteCompleted
+            ? this.readCanonicalFile(target.filePath).signature
+            : "",
           last_error: errorText(error),
         });
         try {
@@ -2067,7 +2528,9 @@ export class WorkspaceService {
 
   writeClipboardHtml(payload: unknown): boolean {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      throw new Error("コピーするHTMLの形式が不正です。画面を再読み込みして、もう一度試してください。");
+      throw new Error(
+        "コピーするHTMLの形式が不正です。画面を再読み込みして、もう一度試してください。",
+      );
     }
     const record = payload as Record<string, unknown>;
     const html = typeof record.html === "string" ? record.html : "";
@@ -2084,12 +2547,19 @@ export class WorkspaceService {
       throw new Error("コピーする画像の形式が不正です。画面を再読み込みしてください。");
     }
     const payload = payloadValue as Partial<ImageClipboardRequest>;
-    if (typeof payload.dataUrl !== "string" || !payload.dataUrl.startsWith("data:image/png;base64,")) {
-      throw new Error("コピーするPNG画像を作成できませんでした。画面を開き直して、もう一度試してください。");
+    if (
+      typeof payload.dataUrl !== "string" ||
+      !payload.dataUrl.startsWith("data:image/png;base64,")
+    ) {
+      throw new Error(
+        "コピーするPNG画像を作成できませんでした。画面を開き直して、もう一度試してください。",
+      );
     }
     const image = nativeImage.createFromDataURL(payload.dataUrl);
     if (image.isEmpty()) {
-      throw new Error("コピーする画像を読み取れませんでした。画面を開き直して、もう一度試してください。");
+      throw new Error(
+        "コピーする画像を読み取れませんでした。画面を開き直して、もう一度試してください。",
+      );
     }
     clipboard.clear();
     clipboard.writeImage(image);
@@ -2097,11 +2567,13 @@ export class WorkspaceService {
     const expectedSize = image.getSize();
     const writtenSize = written.getSize();
     if (
-      written.isEmpty()
-      || writtenSize.width !== expectedSize.width
-      || writtenSize.height !== expectedSize.height
+      written.isEmpty() ||
+      writtenSize.width !== expectedSize.width ||
+      writtenSize.height !== expectedSize.height
     ) {
-      throw new Error("Windowsのクリップボードへ画像を書き込めませんでした。クリップボードを使う別アプリを閉じて、もう一度試してください。");
+      throw new Error(
+        "Windowsのクリップボードへ画像を書き込めませんでした。クリップボードを使う別アプリを閉じて、もう一度試してください。",
+      );
     }
     return true;
   }
@@ -2147,7 +2619,10 @@ export class WorkspaceService {
       }
     });
     if (!filePath) {
-      return { ok: false, error: "ファイルが見つかりません。出力し直すか、出力先を変更してください。" };
+      return {
+        ok: false,
+        error: "ファイルが見つかりません。出力し直すか、出力先を変更してください。",
+      };
     }
     const error = await shell.openPath(filePath);
     return error ? { ok: false, error } : { ok: true };
@@ -2162,7 +2637,9 @@ export class WorkspaceService {
   }
 
   getActivityCanonicalRootStatus(): Record<string, { status: "ok" | "broken" }> {
-    return publicActivityRootStatus(this.activityCanonicalRootPaths(), (root: string) => fs.existsSync(root));
+    return publicActivityRootStatus(this.activityCanonicalRootPaths(), (root: string) =>
+      fs.existsSync(root),
+    );
   }
 
   async openActivityCanonicalRef(value: unknown): Promise<{ ok: boolean; error?: string }> {
@@ -2174,7 +2651,8 @@ export class WorkspaceService {
       return { ok: false, error: "開けるCanonical文書の場所がありません。" };
     }
 
-    if (local.status === "outside_root") return { ok: false, error: "Canonical文書の参照先が保存Rootの外にあります。" };
+    if (local.status === "outside_root")
+      return { ok: false, error: "Canonical文書の参照先が保存Rootの外にあります。" };
     if (local.status === "ok") return this.openPath(local.path);
     if (ref.web_url) return this.openPath(ref.web_url);
     return { ok: false, error: "Canonical文書が見つかりません。保存先を確認してください。" };
@@ -2186,7 +2664,11 @@ export class WorkspaceService {
     }
     const raw = filePathValue.trim();
     if (/^https?:\/\//i.test(raw)) {
-      return { ok: false, error: "URLのフォルダは開けません。パスをコピーしてブラウザやエクスプローラーから開いてください。" };
+      return {
+        ok: false,
+        error:
+          "URLのフォルダは開けません。パスをコピーしてブラウザやエクスプローラーから開いてください。",
+      };
     }
     const candidates = [raw, path.normalize(raw), path.resolve(raw)];
     const filePath = candidates.find((candidate) => {
@@ -2197,7 +2679,11 @@ export class WorkspaceService {
       }
     });
     if (!filePath) {
-      return { ok: false, error: "ファイルが見つかりません。移動または削除された可能性があります。保存先をSettingsで確認してください。" };
+      return {
+        ok: false,
+        error:
+          "ファイルが見つかりません。移動または削除された可能性があります。保存先をSettingsで確認してください。",
+      };
     }
     shell.showItemInFolder(filePath);
     return { ok: true };
@@ -2223,7 +2709,11 @@ export class WorkspaceService {
       });
       return { exists, kind: "path" };
     } catch (error) {
-      return { exists: false, kind: "path", error: error instanceof Error ? error.message : String(error) };
+      return {
+        exists: false,
+        kind: "path",
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -2248,26 +2738,38 @@ export class WorkspaceService {
       }
     });
     if (!filePath) {
-      return { ok: false, error: "ファイルが見つかりません。移動または削除された可能性があります。" };
+      return {
+        ok: false,
+        error: "ファイルが見つかりません。移動または削除された可能性があります。",
+      };
     }
     const extension = path.extname(filePath).toLowerCase();
     const imageMime = PREVIEW_IMAGE_EXT_MIME[extension];
     const textMime = PREVIEW_TEXT_EXT_MIME[extension];
     if (!imageMime && !textMime) {
-      return { ok: false, error: "この形式はアプリ内プレビューに未対応です。外部アプリで開いてください。" };
+      return {
+        ok: false,
+        error: "この形式はアプリ内プレビューに未対応です。外部アプリで開いてください。",
+      };
     }
     try {
       const stat = fs.statSync(filePath);
       if (imageMime) {
         if (stat.size > PREVIEW_IMAGE_MAX_BYTES) {
-          return { ok: false, error: "画像が大きすぎるためプレビューできません。外部アプリで開いてください。" };
+          return {
+            ok: false,
+            error: "画像が大きすぎるためプレビューできません。外部アプリで開いてください。",
+          };
         }
         const bytes = fs.readFileSync(filePath);
         const dataUrl = `data:${imageMime};base64,${bytes.toString("base64")}`;
         return { ok: true, kind: "image", dataUrl, mimeType: imageMime, filePath };
       }
       if (stat.size > PREVIEW_TEXT_MAX_BYTES) {
-        return { ok: false, error: "ファイルが大きすぎるためプレビューできません。外部アプリで開いてください。" };
+        return {
+          ok: false,
+          error: "ファイルが大きすぎるためプレビューできません。外部アプリで開いてください。",
+        };
       }
       const text = fs.readFileSync(filePath, "utf8");
       return { ok: true, kind: "text", text, mimeType: textMime || "text/plain", filePath };
@@ -2279,7 +2781,11 @@ export class WorkspaceService {
     }
   }
 
-  private resolveWebArtifact(artifactIdValue: unknown): { ok: true; artifact: Record<string, unknown>; filePath: string } | { ok: false; error: string } {
+  private resolveWebArtifact(
+    artifactIdValue: unknown,
+  ):
+    | { ok: true; artifact: Record<string, unknown>; filePath: string }
+    | { ok: false; error: string } {
     if (typeof artifactIdValue !== "string" || !artifactIdValue.trim()) {
       return { ok: false, error: "Web ArtifactのIDがありません。画面を再読み込みしてください。" };
     }
@@ -2288,11 +2794,17 @@ export class WorkspaceService {
       return { ok: false, error: "Web Artifactが見つかりません。削除済みの可能性があります。" };
     }
     if (!isWebArtifact(artifact)) {
-      return { ok: false, error: "このArtifactはWeb Artifactとして扱えません。HTML形式を確認してください。" };
+      return {
+        ok: false,
+        error: "このArtifactはWeb Artifactとして扱えません。HTML形式を確認してください。",
+      };
     }
     const target = artifactOpenTarget(artifact);
     if (!target || /^https?:\/\//i.test(target)) {
-      return { ok: false, error: "外部URLのHTMLは安全なアプリ内Previewに対応していません。ブラウザで開いてください。" };
+      return {
+        ok: false,
+        error: "外部URLのHTMLは安全なアプリ内Previewに対応していません。ブラウザで開いてください。",
+      };
     }
 
     const candidates = [target, path.normalize(target), path.resolve(target)];
@@ -2323,7 +2835,10 @@ export class WorkspaceService {
     };
   }
 
-  readWebArtifactPreviewDocument(artifactIdValue: unknown, policyValue: unknown = "sandboxed_interactive"):
+  readWebArtifactPreviewDocument(
+    artifactIdValue: unknown,
+    policyValue: unknown = "sandboxed_interactive",
+  ):
     | { ok: true; html: string; executionPolicy: "static" | "sandboxed_interactive" }
     | { ok: false; error: string } {
     const resolved = this.resolveWebArtifact(artifactIdValue);
@@ -2333,7 +2848,10 @@ export class WorkspaceService {
     try {
       const stat = fs.statSync(resolved.filePath);
       if (stat.size > PREVIEW_TEXT_MAX_BYTES) {
-        return { ok: false, error: "HTMLが大きすぎるためPreviewできません。外部ブラウザで開いてください。" };
+        return {
+          ok: false,
+          error: "HTMLが大きすぎるためPreviewできません。外部ブラウザで開いてください。",
+        };
       }
       return {
         ok: true,
@@ -2341,7 +2859,10 @@ export class WorkspaceService {
         executionPolicy,
       };
     } catch {
-      return { ok: false, error: "Web Artifactを読み込めませんでした。ファイルの変更・削除を確認してください。" };
+      return {
+        ok: false,
+        error: "Web Artifactを読み込めませんでした。ファイルの変更・削除を確認してください。",
+      };
     }
   }
 
@@ -2354,9 +2875,14 @@ export class WorkspaceService {
     return { canceled: false, path: result.filePaths[0] };
   }
 
-  async chooseFiles(titleValue: unknown): Promise<{ canceled: boolean; files?: Array<{ path: string; name: string }> }> {
+  async chooseFiles(
+    titleValue: unknown,
+  ): Promise<{ canceled: boolean; files?: Array<{ path: string; name: string }> }> {
     const result = await dialog.showOpenDialog({
-      title: typeof titleValue === "string" && titleValue.trim() ? titleValue : "Artifact ファイルを選択",
+      title:
+        typeof titleValue === "string" && titleValue.trim()
+          ? titleValue
+          : "Artifact ファイルを選択",
       properties: ["openFile", "multiSelections"],
     });
     if (result.canceled || !result.filePaths.length) return { canceled: true };
@@ -2387,7 +2913,8 @@ export class WorkspaceService {
     let themeCode: string | null = null;
     let themeId = themeIdValue ? String(themeIdValue).trim() : null;
     if (themeId) {
-      const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
+      const theme =
+        this.repository.get("theme", themeId) || this.repository.get("project", themeId);
       if (theme) {
         themeId = String(theme.id || themeId);
         const root = typeof theme.storage_root === "string" ? theme.storage_root.trim() : "";
@@ -2397,13 +2924,15 @@ export class WorkspaceService {
       }
     }
     // .mjs の型推論が弱いため、純ロジック呼び出しは明示した関数型を通す。
-    const location = (resolveThemeContentDirectoryParts as (options: {
-      artifactDirectory?: string | null;
-      themeId?: string | null;
-      themeCode?: string | null;
-      themeStorageRoot?: string | null;
-      contentKind?: "artifacts" | "notes" | "exports";
-    }) => { kind: "needs_directory" } | { kind: "ok"; root: string; segments: string[] })({
+    const location = (
+      resolveThemeContentDirectoryParts as (options: {
+        artifactDirectory?: string | null;
+        themeId?: string | null;
+        themeCode?: string | null;
+        themeStorageRoot?: string | null;
+        contentKind?: "artifacts" | "notes" | "exports";
+      }) => { kind: "needs_directory" } | { kind: "ok"; root: string; segments: string[] }
+    )({
       artifactDirectory: baseDirectory,
       themeId,
       themeCode,
@@ -2414,12 +2943,21 @@ export class WorkspaceService {
     const directory = path.join(location.root, ...location.segments);
     // Theme名を変えてもフォルダとThemeの対応を見失わないよう、markerを置く（#306）。
     // 生成は遅延・idempotentで、失敗しても保存自体は止めない。
-    if (themeId && options.writeThemeManifest !== false) this.writeThemeFolderManifest(location, themeId);
+    if (themeId && options.writeThemeManifest !== false)
+      this.writeThemeFolderManifest(location, themeId);
     return { kind: "ok", directory };
   }
 
   /** Main-owned Media sessionがmanaged Artifactの確定先を共有する。 */
-  resolveManagedArtifactDirectory(themeId: string | null): { kind: "needs_directory" } | { kind: "ok"; directory: string; themeMarker?: { directory: string; themeId: string; displayName: string } } {
+  resolveManagedArtifactDirectory(
+    themeId: string | null,
+  ):
+    | { kind: "needs_directory" }
+    | {
+        kind: "ok";
+        directory: string;
+        themeMarker?: { directory: string; themeId: string; displayName: string };
+      } {
     // MediaCaptureService がancestor確認→mkdir→再確認を一つの境界で行う。
     // ここでTheme markerを先に書くと、junction越しに外部directoryを作り得る。
     if (!themeId || themeId === PERSONAL_DEFAULT_THEME_ID) {
@@ -2428,7 +2966,8 @@ export class WorkspaceService {
     const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
     if (!theme) throw new Error("音声CaptureのThemeが見つかりません。Themeを選び直してください。");
     const syncRoot = String(this.repository.getPreference("artifactDirectory") || "").trim();
-    const themeStorageRoot = typeof theme.storage_root === "string" ? theme.storage_root.trim() : "";
+    const themeStorageRoot =
+      typeof theme.storage_root === "string" ? theme.storage_root.trim() : "";
     const root = themeStorageRoot || syncRoot;
     if (!root) return { kind: "needs_directory" };
     let themeFolder: string;
@@ -2442,21 +2981,37 @@ export class WorkspaceService {
       });
       if (discovered.status !== "ok") {
         // statusとreasonを持っているのに同じ文言へ潰すと、利用者も開発者も次の操作へ到達できない。
-        logMain("error", "workspace:managed-artifact-directory", "Theme保存先を解決できません", new Error(
-          `status=${discovered.status} reason=${"reason" in discovered ? discovered.reason : "-"} root=${root} themeId=${themeId}`,
-        ));
-        throw new Error(themeStorageResolutionMessage(discovered.status, "reason" in discovered ? String(discovered.reason) : ""));
+        logMain(
+          "error",
+          "workspace:managed-artifact-directory",
+          "Theme保存先を解決できません",
+          new Error(
+            `status=${discovered.status} reason=${"reason" in discovered ? discovered.reason : "-"} root=${root} themeId=${themeId}`,
+          ),
+        );
+        throw new Error(
+          themeStorageResolutionMessage(
+            discovered.status,
+            "reason" in discovered ? String(discovered.reason) : "",
+          ),
+        );
       }
       themeFolder = discovered.themeFolder;
     } else {
-      const planned = this.resolveThemeContentDirectory(themeId, "artifacts", { writeThemeManifest: false });
+      const planned = this.resolveThemeContentDirectory(themeId, "artifacts", {
+        writeThemeManifest: false,
+      });
       if (planned.kind === "needs_directory") return planned;
       themeFolder = path.dirname(planned.directory);
     }
     return {
       kind: "ok",
       directory: path.join(themeFolder, "Artifacts"),
-      themeMarker: { directory: themeFolder, themeId, displayName: String(theme.name || theme.title || "") },
+      themeMarker: {
+        directory: themeFolder,
+        themeId,
+        displayName: String(theme.name || theme.title || ""),
+      },
     };
   }
 
@@ -2470,15 +3025,17 @@ export class WorkspaceService {
   ): void {
     try {
       // Theme専用ルートはroot直下、共通ルートは Themes/<folder> がTheme単位のフォルダ。
-      const themeFolder = location.segments[0] === "Themes"
-        ? path.join(location.root, location.segments[0], location.segments[1] || "")
-        : location.segments.length === 1
-          ? location.root
-          : "";
+      const themeFolder =
+        location.segments[0] === "Themes"
+          ? path.join(location.root, location.segments[0], location.segments[1] || "")
+          : location.segments.length === 1
+            ? location.root
+            : "";
       if (!themeFolder) return;
       const manifestPath = path.join(themeFolder, THEME_FOLDER_MANIFEST);
       if (fs.existsSync(manifestPath)) return;
-      const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
+      const theme =
+        this.repository.get("theme", themeId) || this.repository.get("project", themeId);
       fs.mkdirSync(themeFolder, { recursive: true });
       fs.writeFileSync(
         manifestPath,
@@ -2502,27 +3059,35 @@ export class WorkspaceService {
 
     for (const file of request.files) {
       if (!fs.existsSync(file.path) || !fs.statSync(file.path).isFile()) {
-        throw new Error(`ドロップしたファイルが見つかりません（${file.name || path.basename(file.path)}）。保存済みのファイルをドラッグしてください。`);
+        throw new Error(
+          `ドロップしたファイルが見つかりません（${file.name || path.basename(file.path)}）。保存済みのファイルをドラッグしてください。`,
+        );
       }
     }
 
     try {
       fs.mkdirSync(directory, { recursive: true });
     } catch (error) {
-      throw new Error(`保存先フォルダを作成できませんでした（${directory}）。SettingsのArtifact保存先、またはThemeの保存ルートを書き込みできる場所に変更してください。${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `保存先フォルダを作成できませんでした（${directory}）。SettingsのArtifact保存先、またはThemeの保存ルートを書き込みできる場所に変更してください。${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     const files: ImportedArtifactFile[] = [];
     const copiedAt = new Date().toISOString();
     for (const file of request.files) {
       const originalName = file.name || path.basename(file.path);
-      const filename = resolveUniqueArtifactFileName(originalName, (candidate: string) => fs.existsSync(path.join(directory, candidate)));
+      const filename = resolveUniqueArtifactFileName(originalName, (candidate: string) =>
+        fs.existsSync(path.join(directory, candidate)),
+      );
       const storedPath = path.join(directory, filename);
       try {
         // COPYFILE_EXCLで既存ファイルへの上書きを防ぐ（同名回避と二重の安全策）。
         fs.copyFileSync(file.path, storedPath, fs.constants.COPYFILE_EXCL);
       } catch (error) {
-        throw new Error(`ファイルをコピーできませんでした（${originalName}）。保存先の空き容量とアクセス権を確認して、もう一度ドラッグしてください。${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+          `ファイルをコピーできませんでした（${originalName}）。保存先の空き容量とアクセス権を確認して、もう一度ドラッグしてください。${error instanceof Error ? error.message : String(error)}`,
+        );
       }
       files.push({
         filename,
@@ -2549,12 +3114,19 @@ export class WorkspaceService {
       media_type: request.mediaType,
       content: request.content,
     });
-    rejectGenericAudioArtifact({ filename: normalized.fileName, mime_type: normalized.mediaType }, "Proposal確定");
-    rejectGenericVideoArtifact({ filename: normalized.fileName, mime_type: normalized.mediaType }, "Proposal確定");
+    rejectGenericAudioArtifact(
+      { filename: normalized.fileName, mime_type: normalized.mediaType },
+      "Proposal確定",
+    );
+    rejectGenericVideoArtifact(
+      { filename: normalized.fileName, mime_type: normalized.mediaType },
+      "Proposal確定",
+    );
     const location = this.resolveThemeContentDirectory(request.themeId || null, "artifacts");
     if (location.kind === "needs_directory") return { status: "needs_directory" };
     fs.mkdirSync(location.directory, { recursive: true });
-    const materializationKey = typeof request.materializationKey === "string" ? request.materializationKey.trim() : "";
+    const materializationKey =
+      typeof request.materializationKey === "string" ? request.materializationKey.trim() : "";
     if (materializationKey && !/^[A-Za-z0-9._-]{1,200}$/.test(materializationKey)) {
       throw new Error("Artifact materialization keyが不正です。");
     }
@@ -2564,10 +3136,9 @@ export class WorkspaceService {
       : "";
     const filename = materializationKey
       ? `${parsedName.name.slice(0, Math.max(1, 180 - parsedName.ext.length - stableSuffix.length))}${stableSuffix}${parsedName.ext}`
-      : resolveUniqueArtifactFileName(
-        normalized.fileName,
-        (candidate: string) => fs.existsSync(path.join(location.directory, candidate)),
-      );
+      : resolveUniqueArtifactFileName(normalized.fileName, (candidate: string) =>
+          fs.existsSync(path.join(location.directory, candidate)),
+        );
     const storedPath = path.join(location.directory, filename);
     const tempPath = `${storedPath}.tasken-tmp`;
     let created = false;
@@ -2582,7 +3153,11 @@ export class WorkspaceService {
         // The final path is never opened for writing, so a partial write cannot
         // become a durable Artifact or poison a later retry.
         fs.rmSync(tempPath, { force: true });
-        descriptor = fs.openSync(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+        descriptor = fs.openSync(
+          tempPath,
+          fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL,
+          0o600,
+        );
         const content = Buffer.from(normalized.content, "utf8");
         let offset = 0;
         while (offset < content.length) {
@@ -2604,11 +3179,21 @@ export class WorkspaceService {
         }
       } catch (error) {
         if (descriptor !== null) {
-          try { fs.closeSync(descriptor); } catch { /* cleanup continues below */ }
+          try {
+            fs.closeSync(descriptor);
+          } catch {
+            /* cleanup continues below */
+          }
         }
         fs.rmSync(tempPath, { force: true });
-        if (error instanceof Error && error.message.startsWith("Artifactの確定先が競合しています。")) throw error;
-        throw new Error("Artifactを確定できませんでした。保存先の空き容量とアクセス権を確認して、もう一度採用してください。");
+        if (
+          error instanceof Error &&
+          error.message.startsWith("Artifactの確定先が競合しています。")
+        )
+          throw error;
+        throw new Error(
+          "Artifactを確定できませんでした。保存先の空き容量とアクセス権を確認して、もう一度採用してください。",
+        );
       }
     }
     const stat = fs.statSync(storedPath);
@@ -2651,7 +3236,7 @@ export class WorkspaceService {
         throw new Error(`GitHub Releaseを確認できませんでした。HTTP ${response.status}`);
       }
 
-      const release = await response.json() as GitHubLatestRelease;
+      const release = (await response.json()) as GitHubLatestRelease;
       const latestVersion = String(release.tag_name || "").replace(/^v/i, "");
       if (!latestVersion) throw new Error("最新バージョンを読み取れませんでした。");
 
@@ -2683,9 +3268,9 @@ export class WorkspaceService {
     const args = app.isPackaged
       ? [path.join(process.resourcesPath, "mcp", "server.mjs")]
       : [path.join(app.getAppPath(), "scripts", "mcp-server.mjs")];
-    const pendingProposalCount = this.repository.list("ai_proposal")
-      .filter((proposal) => !proposal.deleted_at && proposal.status === "pending")
-      .length;
+    const pendingProposalCount = this.repository
+      .list("ai_proposal")
+      .filter((proposal) => !proposal.deleted_at && proposal.status === "pending").length;
     return createMcpBridgeInfo({
       args,
       pendingProposalCount,
@@ -2737,7 +3322,8 @@ export class WorkspaceService {
     }
     if (request.chooseDirectory || !directory) {
       const themeDefault = this.resolveThemeContentDirectory(request.themeId, "notes");
-      const defaultPath = directory || (themeDefault.kind === "ok" ? themeDefault.directory : undefined);
+      const defaultPath =
+        directory || (themeDefault.kind === "ok" ? themeDefault.directory : undefined);
       const result = await dialog.showOpenDialog({
         title: "Markdown出力先フォルダを選択",
         defaultPath: defaultPath || undefined,
@@ -2772,7 +3358,10 @@ export class WorkspaceService {
       directory = result.filePaths[0];
     }
     fs.mkdirSync(directory, { recursive: true });
-    const filePath = path.join(directory, safePdfFileName(request.fileName || request.title || "markdown-document"));
+    const filePath = path.join(
+      directory,
+      safePdfFileName(request.fileName || request.title || "markdown-document"),
+    );
 
     // data: ページからは tasken-attachment を読めないため、一時 HTML + 相対パス画像で printToPDF する。
     const tempRoot = fs.mkdtempSync(path.join(app.getPath("temp"), "tasken-pdf-"));
@@ -2801,7 +3390,7 @@ export class WorkspaceService {
     try {
       await pdfWindow.loadFile(tempHtmlPath);
       // 画像とフォントを待ち、印刷でスクロールできない横長要素をA4本文幅へ収める。
-      const layoutReport = await pdfWindow.webContents.executeJavaScript(`
+      const layoutReport = (await pdfWindow.webContents.executeJavaScript(`
         (async () => {
           const images = Array.from(document.images || []);
           await Promise.all(images.map((img) => {
@@ -2857,7 +3446,7 @@ export class WorkspaceService {
             fittedMathCount,
           };
         })()
-      `) as {
+      `)) as {
         images?: Array<{ ok: boolean; src: string }>;
         mermaidErrorCount?: number;
         fittedMathCount?: number;
@@ -2868,7 +3457,9 @@ export class WorkspaceService {
         }
       }
       if (layoutReport?.mermaidErrorCount) {
-        warnings.push(`Mermaidを描画できない箇所が${layoutReport.mermaidErrorCount}件あります。コードを確認してください。`);
+        warnings.push(
+          `Mermaidを描画できない箇所が${layoutReport.mermaidErrorCount}件あります。コードを確認してください。`,
+        );
       }
 
       const pdf = await pdfWindow.webContents.printToPDF({
@@ -2928,7 +3519,10 @@ export class WorkspaceService {
     if (!["png", "svg", "markdown"].includes(String(request.format))) {
       throw new Error("Sketchの出力形式が不正です。");
     }
-    if (typeof request.dataUrl !== "string" || !request.dataUrl.startsWith("data:image/png;base64,")) {
+    if (
+      typeof request.dataUrl !== "string" ||
+      !request.dataUrl.startsWith("data:image/png;base64,")
+    ) {
       throw new Error("Sketch画像を作成できませんでした。");
     }
     if (typeof request.svg !== "string" || !request.svg.startsWith("<svg")) {
@@ -2940,7 +3534,9 @@ export class WorkspaceService {
 
     const format = request.format as "png" | "svg" | "markdown";
     const extension = format === "markdown" ? "md" : format;
-    const safeTitle = safeAttachmentName(typeof request.title === "string" ? request.title : "Sketch");
+    const safeTitle = safeAttachmentName(
+      typeof request.title === "string" ? request.title : "Sketch",
+    );
     const location = this.resolveThemeContentDirectory(request.themeId || null, "exports");
     const directory = location.kind === "ok" ? location.directory : app.getPath("documents");
     if (location.kind === "ok") fs.mkdirSync(directory, { recursive: true });
@@ -2961,7 +3557,10 @@ export class WorkspaceService {
       return { canceled: false, filePath: result.filePath };
     }
 
-    const companionFilePath = path.join(path.dirname(result.filePath), `${path.basename(result.filePath, ".md")}.png`);
+    const companionFilePath = path.join(
+      path.dirname(result.filePath),
+      `${path.basename(result.filePath, ".md")}.png`,
+    );
     const buffer = Buffer.from(request.dataUrl.slice("data:image/png;base64,".length), "base64");
     fs.writeFileSync(companionFilePath, buffer);
     const markdown = request.markdown.replace("{{SKETCH_IMAGE}}", path.basename(companionFilePath));
@@ -2977,7 +3576,9 @@ export class WorkspaceService {
     if (typeof request.svg !== "string" || !request.svg.startsWith("<svg")) {
       throw new Error("タイムラインのSVGを作成できませんでした。期間と項目を確認してください。");
     }
-    const safeTitle = safeAttachmentName(typeof request.title === "string" ? request.title : "Timeline");
+    const safeTitle = safeAttachmentName(
+      typeof request.title === "string" ? request.title : "Timeline",
+    );
     const result = await dialog.showSaveDialog({
       title: "スライド用タイムラインをSVGで書き出す",
       defaultPath: path.join(app.getPath("documents"), `${safeTitle || "Timeline"}.svg`),
@@ -2994,7 +3595,9 @@ export class WorkspaceService {
     }
     const request = requestValue as Partial<MermaidPowerPointSvgExportRequest>;
     const svg = validateOfficeSvg(request.svg);
-    const safeTitle = safeAttachmentName(typeof request.title === "string" ? request.title : "Mermaid");
+    const safeTitle = safeAttachmentName(
+      typeof request.title === "string" ? request.title : "Mermaid",
+    );
     const result = await dialog.showSaveDialog({
       title: "MermaidをPowerPoint用SVGで書き出す",
       defaultPath: path.join(app.getPath("documents"), `${safeTitle || "Mermaid"}.svg`),
@@ -3011,7 +3614,9 @@ export class WorkspaceService {
     }
     const request = requestValue as Partial<MermaidPowerPointPptxExportRequest>;
     const diagram = validateMermaidPptxDiagram(request.diagram);
-    const safeTitle = safeAttachmentName(typeof request.title === "string" ? request.title : "Mermaid");
+    const safeTitle = safeAttachmentName(
+      typeof request.title === "string" ? request.title : "Mermaid",
+    );
     const result = await dialog.showSaveDialog({
       title: "Mermaidを編集可能なPowerPointで書き出す",
       defaultPath: path.join(app.getPath("documents"), `${safeTitle || "Mermaid"}.pptx`),
@@ -3026,10 +3631,16 @@ export class WorkspaceService {
   applySnapshot(token: string, decisions: SnapshotDecisions): Workspace {
     const snapshot = this.pendingSnapshots.get(token);
     if (!snapshot) {
-      throw new Error("Importプレビューの有効期限が切れました。もう一度Snapshotを選択してください。");
+      throw new Error(
+        "Importプレビューの有効期限が切れました。もう一度Snapshotを選択してください。",
+      );
     }
     this.validateSnapshotMedia(snapshot);
-    const result = this.repository.applySnapshot(snapshot, decisions, snapshot.plan_revisions || []);
+    const result = this.repository.applySnapshot(
+      snapshot,
+      decisions,
+      snapshot.plan_revisions || [],
+    );
     this.pendingSnapshots.delete(token);
     return result as Workspace;
   }
@@ -3037,7 +3648,8 @@ export class WorkspaceService {
   private validateSnapshotMedia(snapshot: Workspace): void {
     validateSnapshotMediaWorkspace(snapshot, {
       repository: this.repository,
-      resolveManagedDirectory: (themeId, workspace) => this.resolveSnapshotManagedArtifactDirectory(themeId, workspace),
+      resolveManagedDirectory: (themeId, workspace) =>
+        this.resolveSnapshotManagedArtifactDirectory(themeId, workspace),
     });
   }
 
@@ -3048,7 +3660,8 @@ export class WorkspaceService {
     if (!themeId || themeId === PERSONAL_DEFAULT_THEME_ID) {
       return this.resolveThemeContentDirectory(themeId, "artifacts", { writeThemeManifest: false });
     }
-    const currentTheme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
+    const currentTheme =
+      this.repository.get("theme", themeId) || this.repository.get("project", themeId);
     if (currentTheme) return this.resolveManagedArtifactDirectory(themeId);
     const incomingTheme = [
       ...(Array.isArray(snapshot.projects) ? snapshot.projects : []),
@@ -3056,7 +3669,8 @@ export class WorkspaceService {
     ].find((theme) => theme && theme.id === themeId && !theme.deleted_at);
     if (!incomingTheme) return { kind: "needs_directory" };
     const syncRoot = String(this.repository.getPreference("artifactDirectory") || "").trim();
-    const themeStorageRoot = typeof incomingTheme.storage_root === "string" ? incomingTheme.storage_root.trim() : "";
+    const themeStorageRoot =
+      typeof incomingTheme.storage_root === "string" ? incomingTheme.storage_root.trim() : "";
     const root = themeStorageRoot || syncRoot;
     if (!root) return { kind: "needs_directory" };
     if (fs.existsSync(root)) {
@@ -3071,13 +3685,15 @@ export class WorkspaceService {
         ? { kind: "ok", directory: path.join(discovered.themeFolder, "Artifacts") }
         : { kind: "needs_directory" };
     }
-    const location = (resolveThemeContentDirectoryParts as (options: {
-      artifactDirectory?: string | null;
-      themeId?: string | null;
-      themeCode?: string | null;
-      themeStorageRoot?: string | null;
-      contentKind?: "artifacts" | "notes" | "exports";
-    }) => { kind: "needs_directory" } | { kind: "ok"; root: string; segments: string[] })({
+    const location = (
+      resolveThemeContentDirectoryParts as (options: {
+        artifactDirectory?: string | null;
+        themeId?: string | null;
+        themeCode?: string | null;
+        themeStorageRoot?: string | null;
+        contentKind?: "artifacts" | "notes" | "exports";
+      }) => { kind: "needs_directory" } | { kind: "ok"; root: string; segments: string[] }
+    )({
       artifactDirectory: syncRoot,
       themeId,
       themeCode: typeof incomingTheme.code === "string" ? incomingTheme.code : null,
