@@ -1,8 +1,8 @@
 # Android daily-driver MVP 引き継ぎ
 
-更新: 2026-08-24 20:04 JST  
+更新: 2026-08-24 22:55 JST  
 対象: #400 / #401 / #402 / #477  
-基準main: `46e7ae999548b21fb93eed6517cd3ad86e4500fd`
+基準main: `6e7390a1bdba75e12704ffe7fa0024fc9eeed482`
 
 ## 目標
 
@@ -16,12 +16,13 @@ Fold対応とAI連携は別製品として増やすのではなく、同じTask�
 
 ## 現在の結論
 
-- AndroidのTask管理、offline cache/outbox、Quick Add、Share Target、短い音声入力、Widget、canonical Capture、signed APK、compact/expanded UIはmainへ統合済みである。
+- AndroidのTask管理、offline cache/outbox、Quick Add、Share Target、短い音声入力、Widget、canonical Capture、signed APK、compact/expanded UIはmainへ統合済みである。process death / OS reboot後のDraft・Undo復元はPR #493で実装・実機検証済みである。
 - #399は実装Issueとして閉じている。
-- #400と#401はIssueのチェック欄更新が実装実態に追いついていないためopenだが、残りの中心は新規基礎機能ではなく#477の実機acceptanceである。
+- #401の最終入力acceptanceは完了した。PR #493をmainへ統合後、証拠コメントとともにcloseできる。
+- #400はFold / One UI continuityの残りがあるためopenを維持する。
 - #402はread-only AI Inbox、Work Receipt閲覧、Proposal accept/rejectまで実装済みで、human work reviewとdelegate/Context Previewは未実装である。
-- 最優先の未完journeyは、Fold7で保持中のoffline pending commandをcanonical Desktopへ戻し、pending 1→0とexactly-once収束を証明することである。
-- このjourneyは、別セッションのDesktop processが常用portとdirty worktreeを使用中のため、現時点では安全に再開できない。
+- offline pending 1→0とexactly-once収束、および入力のprocess death / OS reboot journeyは完了した。
+- 次の優先journeyは、Fold / One UI continuity、Gateway reset・sleep/wake、AI Inbox live E2Eである。
 
 ## mainへ統合済みの主要変更
 
@@ -35,9 +36,9 @@ Fold対応とAI連携は別製品として増やすのではなく、同じTask�
 | offline auth/cache             | #488 | transient 401でtoken/cacheを破棄せず、再接続中もRoom cacheを表示            |
 | Quick Add下端inset             | #490 | safe drawing / IME下端をscroll末尾で扱い、gesture barより上に保存操作を保つ |
 
-最新mergeはPR #490、merge commitは`46e7ae9`である。
+Android機能の最新main mergeはPR #490、merge commitは`46e7ae9`である。引き継ぎ文書のPR #491 / #492と別セッションの#481 / #482完了変更を含む現在のmainは`6e7390a1`である。
 
-Windows qualityとAndroid qualityはPR #490で成功している。
+PR #493はWindows quality、Android quality、永久署名workflowが成功している。
 
 ## 目標に対する現在地
 
@@ -46,7 +47,7 @@ Windows qualityとAndroid qualityはPR #490で成功している。
 | Today / Task一覧 / 検索 / filter / detail                         | mainへ統合済み                  | S23、Fold7、emulatorで描画済み                                         | 実装済み、continuityの一部が未証明            |
 | Create / title / Theme / Schedule / checklist / complete / reopen | mainへ統合済み                  | 個別操作は実機・自動testあり                                           | daily-driver連続journeyは未完                 |
 | Room cache / outbox / cursor sync                                 | #399として実装済み              | Fold7 reboot後にcacheとpending 1を保持                                 | canonical復帰後のpending 1→0が未証明          |
-| Quick Add / App Shortcut / Widget / Share Target / voice          | mainへ統合済み                  | 実発話Task、Share Target Capture、Undoをcanonical DBで照合済み         | URL share、連続入力、process-death境界が残る  |
+| Quick Add / App Shortcut / Widget / Share Target / voice          | main + PR #493                  | 実URL、Task/Capture継続入力、未送信/適用済みUndo、process death/reboot | #401の入力acceptanceはpass                    |
 | Task / Capture provenance                                         | mainへ統合済み                  | android_speech / share_targetのallowlist metadataを確認                | raw本文・音声をmetadataへ複製していない       |
 | signed release / update install                                   | #485で実装済み                  | Fold7 / S23でRoom・Keystore dataを保持した`adb install -r`を確認       | pass                                          |
 | Fold compact / expanded                                           | #486 / #490で実装済み           | Fold7 compact→expandedでQuick Addを維持し、IME中も保存操作へscroll可能 | Task選択等のcontinuityと物理hinge感触は未証明 |
@@ -88,40 +89,34 @@ Windows qualityとAndroid qualityはPR #490で成功している。
 - `emulator-5554`へsigned APKは再インストールしたが、以前のemulator dataが保持されたとは主張しない。
 - `emulator-5554`は別セッションも使用しているため、次の担当者はinstrumentation対象にしない。
 
-### 現在のsigned APK
+### PR #493のsigned APK
 
-- build対象: PR #490 head `aea9000`と同じapp treeを持つmain `46e7ae9`
-- SHA-256: `7006f19b4c1c0180447136f5ad4efcad8c87913b76ea300f21dc6d6459abb9a9`
+- build対象: PR #493 head `5aec275362afd0b8506cd5c7c57c4613b715cc8d`
+- workflow: [Android release signing run 32732631112](https://github.com/mryk814/tasuken/actions/runs/32732631112)
+- SHA-256: `afc8fbb68852c93b9b9339400155144f7a992c61bec73f575063656daf4c1929`
 - APK Signature Scheme v2 / v3 / v3.1を`apksigner`で確認した。
 - API 33+ signer SHA-256: `19d4f3f0239fae121d97bbcf362207aed6e1c41ebd98077043cf2f40e5a0b1c4`
 - key、password、lineageはrepositoryへ保存していない。
 
-## #477で次に閉じるべきjourney
+## #477で完了した入力journey
 
-### 1. offline pending 1→0のcanonical収束
+PR #493の永久署名APKをGalaxy Z Fold7へ`adb install -r`した。versionCode 3、firstInstallTime `2026-08-23 04:55:43`、ceDataInode `178442`を保持した。
 
-Fold7には`Issue477_OfflineReboot_Fold7_20260824`が送信待ち1件として残っている。
+- main v3では、未確定Draftが`am force-stop`後に消えることを実機再現した。
+- Taskで「追加して次へ」後に別Draftを入力し、force-stop後もDraft・sheet・pendingを復元した。
+- 未送信TaskのUndo対象をforce-stop後に再提示し、pending `2→1`、canonical row 0件へ収束した。
+- Share Targetから実URL `https://example.com/tasken-issue-477-url-20260824`をCaptureとして「追加して次へ」で保存した。
+- 次の未確定Capture Draftを残してOS rebootし、Draft・Capture種別・sheet・pending 2・Capture Undo対象を復元した。
+- reboot後はTailscaleアプリを開くと`tun0`が復旧し、canonical Gateway再開後にpending `2→0`へ収束した。
+- canonical DBではCreateTask / CreateCaptureのentity・event・receiptが各1件だけ生成された。
+- reboot後に復元したCapture Undoからversioned DeleteCaptureへ収束し、Captureはv2 tombstone、Delete event / receiptは各1件となった。
+- QA Taskはversioned DeleteTaskでv2 tombstoneへcleanupし、同一envelope replayが同じreceiptを返すことを確認した。
+- Captureの未送信Undoもforce-stop後の再提示からpending `1→0`、canonical row 0件へ収束した。
+- 最終Fold7画面は「今日のTaskはありません」、pending 0である。
 
-次の順序で確認する。
+入力Draftはapp-private storageへversion付きで保存し、放置7日で失効する。Undo対象は24時間保持し、復元後と継続入力後はユーザーが実行またはdismissするまで提示する。
 
-1. 別セッションが使用中のDesktop processとdirty worktreeの所有者が作業を完了するまで待つ。
-2. Windows canonical runtimeをmain `46e7ae9`で起動する。
-3. Gatewayが`127.0.0.1:48177`だけへlistenし、既存Tailscale Serveがprivate HTTPSを転送することを確認する。
-4. Fold7を既知のcanonical Gatewayへ安全にre-pairする。
-5. Androidの送信待ちが1→0になることを確認する。
-6. canonical DBでTask、Activity event、command receiptが各1回だけ生成されたことを確認する。
-7. 同じcommandのretryで二重生成されないことを確認する。
-8. QA Taskをversioned DeleteTaskでcleanupし、Delete receiptも再送安全であることを確認する。
-9. 期待値と実結果を#477へcommentする。
-
-### 2. 入力journeyの残り
-
-- Share Targetから実URL文字列をCaptureへ保存する。
-- TaskとCaptureの双方で「追加して次へ」を通す。
-- TaskとCaptureの双方で未送信Undoと適用済みUndoを通す。
-- process kill / OS reboot後もdraft、pending、Undo対象を失わないことを確認する。
-
-### 3. Fold / One UI continuity
+### 1. Fold / One UI continuity
 
 - selected Task
 - Tasks filter / search
@@ -136,7 +131,7 @@ Quick Addのcompact→expanded continuityはpassしたが、上記を代替す�
 
 Galaxy Z Fold7の物理hingeの触感や長時間利用時の快適さも、スクリーンショットでは証明できないため未検証境界として残す。
 
-### 4. Gateway運用とconflict
+### 2. Gateway運用とconflict
 
 - device revoke→API拒否→cache表示→re-pair
 - Tasken tray restart
@@ -146,7 +141,7 @@ Galaxy Z Fold7の物理hingeの触感や長時間利用時の快適さも、ス�
 - live title / Theme / Schedule conflict
 - silent overwriteをせずserver/local選択で解決
 
-### 5. AI review
+### 3. AI review
 
 - live Work Receiptを開き、offline cacheで再表示する。
 - live Task Work Proposalをaccept / rejectする。
@@ -155,35 +150,22 @@ Galaxy Z Fold7の物理hingeの触感や長時間利用時の快適さも、ス�
 
 このacceptanceを終える前に#478 / #479へ主戦場を移さない。
 
-## 現在のblocking state
+## 現在のruntime state
 
-常用port `127.0.0.1:48177`は、20:04 JSTの最新観測ではPID 52804のElectronが使用している。PIDはprocess再起動で変わるため、再開時はportと実行パスを改めて確認する。
+常用port `127.0.0.1:48177`は、22:55 JSTの最新観測ではWindows canonical runtimeのElectronだけがlistenしている。PIDは再起動で変わるため、再開時はportと実行パスを改めて確認する。
 
-processの実体は次である。
+canonical sourceは`C:\Users\ootan\AppData\Local\TaskenDevRuntime\source`、main `6e7390a1`、user-dataは`C:\Users\ootan\AppData\Local\TaskenDevRuntime\user-data`である。
 
-```text
-C:\Users\ootan\.codex\worktrees\214e\tasuken\node_modules\electron\dist\electron.exe .
-```
-
-このworktreeは`codex/481-482`で、mainに対してahead 2 / behind 8、32 pathsが未コミットまたは未追跡である。
-
-PRは作成されていない。
-
-これは別セッションの作業であり、PID停止、stash、reset、rebase、checkout、cleanupを行ってはならない。
-
-このprocessがportを解放する前にcanonical Desktopを起動したり、Tailscale Serveの転送先を変更したりすると、別セッションと#477の証拠を同時に壊す可能性がある。
+以前の保護対象だった`214e` worktreeはcleanな`codex/481-482`、head `6e7390a1`となり、常用portを使用していない。所有権不明のためcleanupは行わない。
 
 ## Git / worktreeの現在値
 
 - Windows canonical source: `C:\Users\ootan\AppData\Local\TaskenDevRuntime\source`
-- Windows branch: clean `main`
-- Windows main: `tasken-github/main`と一致
-- WSL source: `/home/ootan/src/tasuken`
-- WSL branch: clean `main`
-- WSL main: `origin/main`と一致
-- #489用worktreeとbranchはmerge後に削除済み
-- disposable Issue #489 AVDは削除済み
-- 別セッションの`214e` worktreeは保護対象
+- Windows canonical branch: clean `main`、`tasken-github/main`と一致
+- 共有checkout `C:\Users\ootan\projects\tasuken`はmainがremoteよりbehindで、`.agents/`、`.tmp-smoke/`、`artifacts/`が未追跡。所有権不明のため触らない。
+- PR #493用worktree: `C:\Users\ootan\.codex\worktrees\477d\tasuken`
+- PR #493用branch: `codex/477-input-process-death`
+- `214e` worktreeはcleanだが所有権不明のため保護対象
 
 ## 再開時のread-only確認
 
@@ -202,15 +184,15 @@ WSL mainは次で確認する。
 rtk wsl.exe --cd /home/ootan/src/tasuken -e bash -lc '/home/ootan/.local/bin/rtk git status --short --branch'
 ```
 
-`214e`のPID、port、dirty pathsが残っている間は、read-only監査だけに留める。
+所有権不明のworktree・untracked pathsは、cleanに見えても明示的な引渡しなしに削除しない。
 
 ## 次のマイルストーン
 
 次の大きな完了点は「Android Tasken MVP完成」である。
 
-その判定には、機能がmainにあることだけでなく、#477のoffline recovery、入力、Fold continuity、Gateway運用を常用構成で再現可能に通す必要がある。
+その判定には、機能がmainにあることだけでなく、#477のFold continuity、Gateway運用、AI Inbox live E2Eを常用構成で再現可能に通す必要がある。offline recoveryと入力journeyはpassした。
 
-#477を閉じた後に#400 / #401のacceptanceを実証結果へ合わせて更新し、close可否を判断する。
+PR #493のmain統合後に#401をcloseする。#400と#477は残る実機acceptanceを終えるまでopenを維持する。
 
 その後に#478、#479の順でAI human reviewとHermes delegateへ進む。
 
