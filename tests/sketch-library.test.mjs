@@ -32,7 +32,7 @@ const inbox = read("src/renderer/src/features/workspace/pages/InboxPage.tsx");
 const routing = await importBundled("src/renderer/src/pages/routes.ts");
 
 test("Sketch is an independent Knowledge shelf with a dedicated editor route", () => {
-  assert.match(routes, /id: "sketch", label: "Sketch"/);
+  assert.match(routes, /id: "sketch",\s*label: "Sketch"/);
   assert.match(routes, /id: "sketch"[\s\S]*group: "knowledge"/);
   assert.match(routes, /id: "sketch-editor", parent: "sketch"/);
   assert.match(router, /case "sketch":[\s\S]*?<SketchLibraryPage/);
@@ -64,9 +64,15 @@ test("Sketchは作って即描き始められる（#320）", () => {
   const sketchLib = readFileSync("src/renderer/src/features/workspace/lib/sketch.ts", "utf8");
 
   // 作成前にtitle / Themeを聞かない。既定titleを付けて保存し、canvasを開く。
-  assert.match(library, /async function startSketch\(mode: SketchCanvasMode, size: SketchPageSize\)/);
+  assert.match(
+    library,
+    /async function startSketch\(mode: SketchCanvasMode, size: SketchPageSize\)/,
+  );
   assert.match(library, /await saveEntity\("sketch", draft, \{ quiet: true \}\)/);
-  assert.match(library, /onClick=\{\(\) => void startSketch\("page", SKETCH_PAGE_PRESETS\.landscape\)\}/);
+  assert.match(
+    library,
+    /onClick=\{\(\) => void startSketch\("page", SKETCH_PAGE_PRESETS\.landscape\)\}/,
+  );
   assert.match(library, /export function defaultSketchTitle/);
   assert.match(sketchLib, /export const DEFAULT_SKETCH_TITLE = "無題のSketch"/);
 
@@ -81,7 +87,10 @@ test("Sketchは作って即描き始められる（#320）", () => {
 });
 
 test("Sketch canvasからmetadataを触れて、AI専用UIを常設しない（#320）", () => {
-  const sketchPage = readFileSync("src/renderer/src/features/workspace/pages/SketchPage.tsx", "utf8");
+  const sketchPage = readFileSync(
+    "src/renderer/src/features/workspace/pages/SketchPage.tsx",
+    "utf8",
+  );
 
   // `情報`をprimaryにせず、canvasを閉じずに設定できるmenuへ置く。
   assert.doesNotMatch(sketchPage, />情報<\/button>/);
@@ -96,9 +105,15 @@ test("Sketch metadata and deletion live in the detail-edit drawer", () => {
   assert.match(drawer, /type === "sketch"/);
   assert.doesNotMatch(drawer, /Sketchを開く/);
   assert.match(drawer, /SketchのThemeを更新しました/);
-  assert.match(drawer, /ThemePickerSelect[\s\S]*?saveEntity\("sketch",[\s\S]*?project_id: canonicalThemeId\(next\)/);
+  assert.match(
+    drawer,
+    /ThemePickerSelect[\s\S]*?saveEntity\("sketch",[\s\S]*?project_id: canonicalThemeId\(next\)/,
+  );
   assert.match(drawer, /fieldName="project_id"/);
-  assert.match(drawer, /entityId && removeEntity[\s\S]*?removeEntity\(type as Parameters<RemoveEntity>\[0\], entity\)/);
+  assert.match(
+    drawer,
+    /entityId && removeEntity[\s\S]*?removeEntity\(type as Parameters<RemoveEntity>\[0\], entity\)/,
+  );
   assert.doesNotMatch(editor, /Sketchを削除|deleteSketch/);
   assert.doesNotMatch(editor, /sketch-document-select|別のSketchを作る/);
   assert.match(editor, /navigate\("sketch"\)/);

@@ -57,6 +57,7 @@ Packetで不足または矛盾があるsessionに限ってsource sessionを追�
 
 外部AIからはread-only MCP tool `tasken.get_debrief_context`を使う。
 これは現在のrepositoryに関連するcanonical Session Packetと直近のTasken Debriefだけをboundedに返す。
+同じrepositoryに関連するTheme CharterのpurposeとTheme Stateのcurrent directionも、Evidenceを目的へ接続するための補助Contextとして返す。
 raw transcript、hidden reasoning、tool call列、private pathは返さず、`My decision`と`Next return`をAIが代筆してはならないことも応答契約に含める。
 Tasken UIのDaily Debriefは、未採用のtrusted hook Packetも保存時の一つの確認境界で回収できるため、全workspaceを振り返る正式導線はこちらとする。
 

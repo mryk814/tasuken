@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
 
@@ -31,6 +31,38 @@ function toolResult(value) {
       { type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) },
     ],
     structuredContent: typeof value === "string" ? undefined : value,
+  };
+}
+
+function createContextView(view, tokenBudget, payload, sourceTheme = null) {
+  const generatedAt = new Date().toISOString();
+  const sourceVersions = sourceTheme
+    ? [
+        {
+          kind: "theme",
+          id: sourceTheme.id,
+          version: sourceTheme.version ?? null,
+          updated_at: sourceTheme.updated_at ?? null,
+        },
+      ]
+    : [];
+  const hashInput = JSON.stringify({
+    view,
+    token_budget: tokenBudget,
+    source_versions: sourceVersions,
+    payload,
+  });
+
+  return {
+    schema: "tasken-context-view/v1",
+    view_id: randomUUID(),
+    view,
+    generated_at: generatedAt,
+    content_hash: createHash("sha256").update(hashInput).digest("hex"),
+    budget: { token_budget: tokenBudget },
+    source_versions: sourceVersions,
+    ...payload,
+    read_only: true,
   };
 }
 
@@ -75,6 +107,114 @@ export function createTaskenMcpServer(options = {}) {
         ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed."
         : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Write tools only queue a Proposal; tell the user to review it in Tasken before it becomes official data.",
     },
+  );
+
+  server.registerResource(
+    "theme-intent",
+    new ResourceTemplate("tasken://themes/{themeId}/intent", { list: undefined }),
+    {
+      title: "Tasken Theme Intent",
+      description:
+        "Human-written Theme Charter and current Theme State. This resource is read-only and excludes private records.",
+      mimeType: "application/json",
+    },
+    async (uri, variables) => {
+      const rawThemeId = variables.themeId;
+      const themeId = String(Array.isArray(rawThemeId) ? rawThemeId[0] : rawThemeId || "");
+      const context = await coreClient.getThemeContext({
+        theme_id: themeId,
+        limit: 1,
+        max_chars: 4_000,
+        max_hops: 1,
+        max_nodes: 10,
+        max_edges: 10,
+        token_budget: 2_000,
+      });
+      const theme =
+        context.themes?.find((candidate) => candidate.id === themeId) ||
+        context.themes?.[0] ||
+        null;
+      const content = theme
+        ? {
+            schema: "tasken-theme-intent-resource/v1",
+            theme: {
+              id: theme.id,
+              name: theme.name,
+              charter: theme.charter,
+              current_state: theme.current_state,
+              updated_at: theme.updated_at,
+            },
+            context_selection: context.context_selection || null,
+            read_only: true,
+          }
+        : { schema: "tasken-theme-intent-resource/v1", error: "theme_not_found", read_only: true };
+      return {
+        contents: [
+          { uri: uri.href, mimeType: "application/json", text: JSON.stringify(content, null, 2) },
+        ],
+      };
+    },
+  );
+
+  server.registerPrompt(
+    "debrief",
+    {
+      title: "Tasken Debrief",
+      description:
+        "Review observed work, then return judgment and next-return writing to the user.",
+      argsSchema: {
+        date: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+      },
+    },
+    ({ date }) => ({
+      description: "Prepare a Tasken Debrief without writing the user's reflection.",
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: [
+              `Use tasken.get_debrief_context${date ? ` for ${date}` : " for the relevant date"}.`,
+              "Separate observed, agent-reported, and inferred evidence.",
+              "Present a concise evidence review and ask at most one adaptive question.",
+              "Do not write My decision or Next return. Those fields must remain the user's own words.",
+            ].join("\n"),
+          },
+        },
+      ],
+    }),
+  );
+
+  server.registerPrompt(
+    "learning-column",
+    {
+      title: "Tasken Learning Column",
+      description:
+        "Find one technically interesting story grounded in the user's actual recent work.",
+      argsSchema: {
+        theme_id: z.string().trim().min(1).max(200),
+      },
+    },
+    ({ theme_id: themeId }) => ({
+      description: "Pitch or write a personal technical column from Tasken evidence.",
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: [
+              `Use tasken.get_learning_context with theme_id=${themeId}.`,
+              "First discover zero to three pitches, then select at most one.",
+              "Prefer an actual incident, a surprising technical question, a wider connection, and a return to the user's own work.",
+              "Avoid generic tutorials and previously covered material. If no pitch is genuinely interesting, recommend no column today.",
+            ].join("\n"),
+          },
+        },
+      ],
+    }),
   );
 
   server.registerTool(
@@ -255,6 +395,55 @@ export function createTaskenMcpServer(options = {}) {
     workspace_folder: optionalText,
     include_archived: z.boolean().optional(),
   };
+  const contextLookupSchema = {
+    ...repositoryLookupSchema,
+    theme_id: z.string().trim().min(1).max(200).optional(),
+  };
+  const resolveContextTheme = async (args) => {
+    if (args.theme_id) return { themeId: args.theme_id, repositoryMatch: null, error: null };
+    const { theme_id: _themeId, ...workspace } = args;
+    const match = await coreClient.findThemesForRepository(workspace);
+    if (match.themes?.length === 1) {
+      return { themeId: match.themes[0].id, repositoryMatch: match, error: null };
+    }
+    return {
+      themeId: null,
+      repositoryMatch: match,
+      error: {
+        code: match.themes?.length ? "ambiguous_theme" : "theme_not_found",
+        message: match.themes?.length
+          ? "Repositoryに複数のThemeがあります。theme_idを指定してください。"
+          : "Repositoryに関連するAI-visible Themeが見つかりません。",
+        candidates: (match.themes || []).map((theme) => ({ id: theme.id, name: theme.name })),
+      },
+    };
+  };
+  const sessionContextForWorkspace = async (workspace, sourceSession) => {
+    const clientKinds = ["codex", "claude_code", "cursor", "github_copilot", "other"];
+    const contexts = await Promise.all(
+      clientKinds.map((clientKind) =>
+        coreClient.getAgentSessionContext({
+          ...workspace,
+          client_kind: clientKind,
+          source_session: sourceSession,
+          limit: 20,
+        }),
+      ),
+    );
+    return {
+      repository_context:
+        contexts.find((context) => context.repository_context)?.repository_context || null,
+      sessions: [
+        ...new Map(
+          contexts
+            .flatMap((context) => context.sessions || [])
+            .map((session) => [session.id, session]),
+        ).values(),
+      ]
+        .sort((left, right) => String(right.started_at).localeCompare(String(left.started_at)))
+        .slice(0, 20),
+    };
+  };
   server.registerTool(
     "tasken.resolve_repository_context",
     {
@@ -354,7 +543,9 @@ export function createTaskenMcpServer(options = {}) {
             .filter((session) => !date || String(session.started_at || "").slice(0, 10) === date)
             .map((session) => [session.id, session]),
         ).values(),
-      ].sort((left, right) => String(left.started_at).localeCompare(String(right.started_at)));
+      ]
+        .sort((left, right) => String(left.started_at).localeCompare(String(right.started_at)))
+        .slice(0, 50);
       const noteContext = includeRecentDebriefs
         ? await coreClient.getRecentNotes({ limit: 50, max_chars: 8_000, include_raw_body: true })
         : null;
@@ -363,9 +554,20 @@ export function createTaskenMcpServer(options = {}) {
         .slice(0, 14);
       const repository =
         contexts.find((context) => context.repository_context)?.repository_context || null;
+      const themes = [
+        ...new Map(
+          contexts.flatMap((context) => context.themes || []).map((theme) => [theme.id, theme]),
+        ).values(),
+      ];
       return {
         date: date || null,
         repository_context: repository,
+        theme_intent: themes.map((theme) => ({
+          id: theme.id,
+          name: theme.name,
+          charter: theme.charter,
+          current_state: theme.current_state,
+        })),
         sessions,
         prior_debriefs: debriefs,
         evidence_strength: "agent_reported",
@@ -380,6 +582,211 @@ export function createTaskenMcpServer(options = {}) {
           "Raw transcripts, hidden reasoning, tool-call streams, and private paths are excluded.",
         ],
       };
+    }),
+  );
+
+  server.registerTool(
+    "tasken.get_work_context",
+    {
+      description:
+        "Return a bounded implementation context: Theme intent, optional current Task, related open work, repository, and recent Agent Sessions. This is a read-only projection, not a workspace dump.",
+      inputSchema: {
+        ...contextLookupSchema,
+        task_id: z.string().trim().min(1).max(200).optional(),
+        include_sessions: z.boolean().optional(),
+      },
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient(async (args) => {
+      const { task_id: taskId, include_sessions: includeSessions = true, ...lookup } = args;
+      const resolved = await resolveContextTheme(lookup);
+      if (resolved.error) return { view: "work", error: resolved.error, read_only: true };
+      const themeContext = await coreClient.getThemeContext({
+        theme_id: resolved.themeId,
+        limit: 20,
+        max_chars: 4_000,
+        max_hops: 1,
+        max_nodes: 40,
+        max_edges: 60,
+        token_budget: 4_000,
+      });
+      const taskContext = taskId
+        ? await coreClient.getTaskContext({
+            task_id: taskId,
+            max_items_per_type: 8,
+            max_text_length: 20_000,
+          })
+        : null;
+      const { theme_id: _themeId, ...workspace } = lookup;
+      const sessions =
+        includeSessions && Object.values(workspace).some(Boolean)
+          ? await sessionContextForWorkspace(workspace, `tasken-work-context:${randomUUID()}`)
+          : { repository_context: null, sessions: [] };
+      const theme =
+        themeContext.themes?.find((candidate) => candidate.id === resolved.themeId) ||
+        themeContext.themes?.[0] ||
+        null;
+      return createContextView(
+        "work",
+        4_000,
+        {
+          purpose: "Start or continue implementation without losing the Theme's intent.",
+          canonical_intent: theme
+            ? {
+                theme_id: theme.id,
+                name: theme.name,
+                charter: theme.charter,
+                current_state: theme.current_state,
+              }
+            : null,
+          current_task: taskContext?.task || null,
+          task_context: taskContext,
+          related_work: (themeContext.open_items || []).slice(0, 20),
+          repository_context: sessions.repository_context,
+          recent_sessions: sessions.sessions,
+          context_selection: themeContext.context_selection || null,
+          limitations: [
+            "Raw transcripts, hidden reasoning, tool-call streams, credentials, and private paths are excluded.",
+            "Only AI-visible records within the bounded relation query are included.",
+          ],
+        },
+        theme,
+      );
+    }),
+  );
+
+  server.registerTool(
+    "tasken.get_planning_context",
+    {
+      description:
+        "Return a bounded planning view of one Theme: Charter, current State, open work, recent human records, knowledge, and health.",
+      inputSchema: contextLookupSchema,
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient(async (args) => {
+      const resolved = await resolveContextTheme(args);
+      if (resolved.error) return { view: "planning", error: resolved.error, read_only: true };
+      const context = await coreClient.getThemeContext({
+        theme_id: resolved.themeId,
+        limit: 40,
+        max_chars: 6_000,
+        max_hops: 2,
+        max_nodes: 80,
+        max_edges: 120,
+        token_budget: 8_000,
+      });
+      const theme =
+        context.themes?.find((candidate) => candidate.id === resolved.themeId) ||
+        context.themes?.[0] ||
+        null;
+      return createContextView(
+        "planning",
+        8_000,
+        {
+          purpose: "Choose direction and next work while preserving unresolved questions.",
+          canonical_intent: theme
+            ? {
+                theme_id: theme.id,
+                name: theme.name,
+                charter: theme.charter,
+                current_state: theme.current_state,
+              }
+            : null,
+          open_work: context.open_items || [],
+          recent_human_records: context.recent_notes || [],
+          knowledge: context.knowledge || { knowledge_nodes: [], knowledge_edges: [] },
+          health: context.health || null,
+          context_selection: context.context_selection || null,
+        },
+        theme,
+      );
+    }),
+  );
+
+  server.registerTool(
+    "tasken.get_learning_context",
+    {
+      description:
+        "Return a bounded editorial context for a personal technical column: Theme learning interests, current questions, recent activity, sessions, and prior possible article material. Good days may yield no pitch.",
+      inputSchema: contextLookupSchema,
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient(async (args) => {
+      const resolved = await resolveContextTheme(args);
+      if (resolved.error) return { view: "learning", error: resolved.error, read_only: true };
+      const context = await coreClient.getThemeContext({
+        theme_id: resolved.themeId,
+        limit: 30,
+        max_chars: 5_000,
+        max_hops: 2,
+        max_nodes: 70,
+        max_edges: 100,
+        token_budget: 7_000,
+      });
+      const activity = await coreClient.getActivity({ theme_id: resolved.themeId, limit: 50 });
+      const recentNotes = await coreClient.getRecentNotes({
+        theme_id: resolved.themeId,
+        limit: 30,
+        max_chars: 5_000,
+      });
+      const { theme_id: _themeId, ...workspace } = args;
+      const sessions = Object.values(workspace).some(Boolean)
+        ? await sessionContextForWorkspace(workspace, `tasken-learning-context:${randomUUID()}`)
+        : { repository_context: null, sessions: [] };
+      const theme =
+        context.themes?.find((candidate) => candidate.id === resolved.themeId) ||
+        context.themes?.[0] ||
+        null;
+      const activityPayload =
+        activity.activity && typeof activity.activity === "object" ? activity.activity : activity;
+      const recentActivity = Array.isArray(activityPayload.entries)
+        ? activityPayload.entries.slice(0, 50)
+        : [];
+      return createContextView(
+        "learning",
+        7_000,
+        {
+          purpose: "Find one technically interesting story grounded in the user's actual work.",
+          canonical_intent: theme
+            ? {
+                theme_id: theme.id,
+                name: theme.name,
+                charter: theme.charter,
+                current_state: theme.current_state,
+              }
+            : null,
+          recent_activity: recentActivity,
+          recent_sessions: sessions.sessions,
+          prior_material: (recentNotes.notes || []).slice(0, 30),
+          context_selection: context.context_selection || null,
+          editorial_contract: {
+            pitch_count: "zero_to_three",
+            select_at_most: 1,
+            may_skip: true,
+            criteria: [
+              "personal_relevance",
+              "surprise",
+              "generalizability",
+              "learning_gap",
+              "technical_depth",
+              "story_quality",
+              "freshness",
+            ],
+            shape: [
+              "actual_event",
+              "interesting_question",
+              "technical_principle",
+              "wider_connection",
+              "return_to_own_work",
+            ],
+          },
+          limitations: [
+            "This view supplies editorial evidence; it does not mark anything as learned.",
+            "No article should be generated when the evidence does not support an interesting pitch.",
+          ],
+        },
+        theme,
+      );
     }),
   );
 

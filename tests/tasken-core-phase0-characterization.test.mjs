@@ -19,7 +19,7 @@ test("Phase 0: MCP inventory documents every registered read and Proposal tool",
   const readTools = registrations.filter((entry) => entry.offset < readOnlyBoundary);
   const proposalTools = registrations.filter((entry) => entry.offset > readOnlyBoundary);
 
-  assert.equal(readTools.length, 24);
+  assert.equal(readTools.length, 27);
   assert.equal(proposalTools.length, 14);
   assert.equal(new Set(registrations.map((entry) => entry.name)).size, registrations.length);
   for (const { name } of registrations) {

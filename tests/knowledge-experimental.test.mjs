@@ -7,14 +7,23 @@ const actions = readFileSync("src/renderer/src/pages/semanticActions.ts", "utf8"
 const shell = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
 const notes = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 const drawer = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
-const knowledge = readFileSync("src/renderer/src/features/workspace/pages/KnowledgePage.tsx", "utf8");
+const knowledge = readFileSync(
+  "src/renderer/src/features/workspace/pages/KnowledgePage.tsx",
+  "utf8",
+);
 const graph = readFileSync("src/shared/contextGraph.mjs", "utf8");
 const mcp = readFileSync("src/main/mcp/server.mjs", "utf8");
 const workspaceData = readFileSync("src/renderer/src/features/workspace/types.ts", "utf8");
 
 test("Knowledge route is a weak experimental tool, not the knowledge hub", () => {
-  assert.match(routes, /knowledge:\s*\{\s*id: "knowledge", label: "Knowledge", description: "既存データを読み取り、Research \/ Diagnosticとして確認します。"/);
-  assert.match(routes, /semanticRole: "tool", availability: "always", navigation: \{ group: "tools", order: 3 \}/);
+  assert.match(
+    routes,
+    /knowledge:\s*\{\s*id: "knowledge",\s*label: "Knowledge",\s*description: "既存データを読み取り、Research \/ Diagnosticとして確認します。"/,
+  );
+  assert.match(
+    routes,
+    /semanticRole: "tool",\s*availability: "always",\s*navigation: \{\s*group: "tools",\s*order: 3,?\s*\}/,
+  );
   assert.doesNotMatch(shell, /knowledgeHealthIssueCount|knowledge:\s*knowledgeHealthIssueCount/);
   assert.doesNotMatch(actions, /knowledgeAddQuestion|knowledgeQuickAdd/);
 });

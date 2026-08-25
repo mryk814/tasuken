@@ -42,3 +42,11 @@
 3. Sketch/SVG/ArtifactはPreview後だけ保存する。SVGは許可要素だけのinline内容とし、script・event属性・外部参照を拒否する。
 4. Artifact Proposalは任意パスを受け取らず、許可したinline contentをmanaged保存先へ新規ファイルとして作る。
 5. API失敗、Proposal検証失敗、保存失敗では既存Noteと入力途中の指示を変更しない。
+
+## Contextの境界契約
+
+1. Theme Charterは「なぜ続けるか」、Theme Stateは「いま何を考えているか」、Session / Activityは「何が起きたか」と役割を分ける。
+2. Taskはタイトルだけで成立し、任意の`description`を短いContext / memoとして使える。構造化入力を必須にしない。
+3. MCPへは正本を丸ごと渡さず、Work / Planning / Debrief / Learningの用途別bounded projectionを返す。
+4. Context Viewはread-onlyとし、AIがTheme State、Human reflection、Learning Historyを直接確定しない。
+5. 詳細契約の正本は[`tasken-context-architecture.md`](./tasken-context-architecture.md)とする。

@@ -176,7 +176,7 @@ test("実行中のFocusはSidebar下部から確認・再開できる（#316）"
   assert.match(app, /id: "focus:resume"/);
   assert.match(
     shell,
-    /<dt><kbd>Alt<\/kbd>\+<kbd>F<\/kbd><\/dt><dd>実行中のFocus Sessionを開く<\/dd>/,
+    /<dt>\s*<kbd>Alt<\/kbd>\+<kbd>F<\/kbd>\s*<\/dt>\s*<dd>実行中のFocus Sessionを開く<\/dd>/,
   );
 });
 

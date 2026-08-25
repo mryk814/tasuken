@@ -177,7 +177,7 @@ test("navigation, page headings and command palette share one canonical label", 
 
   // 表示名を変えてもrouteとdeep linkは触らない。
   assert.match(routes, /aliases: \[\{ id: "todo-done" \}\]/);
-  assert.match(routes, /id: "chat-refs", label: "Chat Refs"/);
+  assert.match(routes, /id: "chat-refs",\s*label: "Chat Refs"/);
 });
 
 test("Notesは本文集中表示で一覧と補助行を畳み、縦領域を本文へ回す（#292）", () => {

@@ -27,6 +27,7 @@ import {
 import { ArtifactSection } from "../components/artifacts";
 import { AiContextPreviewPanel } from "../components/AiContextPreviewPanel";
 import { AgentWorkSummaryPanel } from "../components/AgentWorkSummaryPanel";
+import { ThemeIntentPanel } from "../components/ThemeIntentPanel";
 import {
   ActionButton,
   Button,
@@ -477,6 +478,10 @@ export function ThemePage({
           タスクを追加
         </ActionButton>
       </PageHeader>
+      <ThemeIntentPanel
+        theme={theme}
+        edit={() => openDrawer({ type: "theme", mode: "edit", entity: theme })}
+      />
       <AgentWorkSummaryPanel
         domain={v2}
         themeId={theme.id}

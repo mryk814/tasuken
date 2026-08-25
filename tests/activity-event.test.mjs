@@ -646,7 +646,7 @@ test("Debrief Activity opens current entities and keeps deleted history as histo
   );
   assert.match(source, /ThemePickerSelect/);
   assert.match(source, /const openable = Boolean\(entity\)/);
-  assert.match(source, /openDrawer\(\{ type: ref\.type/);
+  assert.match(source, /openDrawer\(\{\s*type: ref\.type/);
   assert.match(source, /現在のEntityがないため、履歴のみ表示しています/);
   assert.doesNotMatch(source, /\{ id: ref\.id, title \}/);
 });

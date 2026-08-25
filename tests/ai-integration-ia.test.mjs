@@ -18,7 +18,7 @@ const aiProposalPanelSource = readFileSync(
 
 test("AI proposals use the existing AI route beside Inbox with an action count", () => {
   assert.doesNotMatch(routesSource, /\["proposal-inbox", "AI提案の確認"\]/);
-  assert.match(routesSource, /id: "ai-io", label: "AI Inbox"/);
+  assert.match(routesSource, /id: "ai-io",\s*label: "AI Inbox"/);
   assert.match(routesSource, /id: "inbox"[\s\S]*group: "cross", order: 1/);
   assert.match(routesSource, /id: "ai-io"[\s\S]*group: "cross", order: 2/);
   assert.match(routesSource, /id: "debrief"[\s\S]*group: "cross", order: 3/);
@@ -44,9 +44,9 @@ test("AI Inbox contains only the safe proposal review surface", () => {
   assert.match(aiProposalPanelSource, /処理履歴/);
   assert.match(aiProposalPanelSource, /proposalTargetLabel/);
   assert.match(aiProposalPanelSource, /quarantine/);
-  assert.match(aiProposalPanelSource, /ActionButton action="aiProposalPreview"/);
-  assert.match(aiProposalPanelSource, /ActionButton action="actionReject"/);
-  assert.match(aiProposalPanelSource, /ActionButton action="aiProposalAccept"/);
+  assert.match(aiProposalPanelSource, /ActionButton\s+action="aiProposalPreview"/);
+  assert.match(aiProposalPanelSource, /ActionButton\s+action="actionReject"/);
+  assert.match(aiProposalPanelSource, /ActionButton\s+action="aiProposalAccept"/);
   assert.doesNotMatch(aiProposalPanelSource, /danger-button/);
   assert.doesNotMatch(
     importExportPageSource,

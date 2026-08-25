@@ -510,7 +510,7 @@ test("収録物の編集保存は音声・動画の媒体属性を保持する",
   );
   assert.match(
     drawerFormPlans,
-    /transcription_status: \(base\.transcription_status as CaptureEntry\["transcription_status"\]\)/,
+    /transcription_status:\s*\(base\.transcription_status as CaptureEntry\["transcription_status"\]\)/,
   );
 });
 

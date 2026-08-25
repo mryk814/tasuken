@@ -23,7 +23,12 @@ import {
   inferArtifactLinkType,
   resolveArtifactStorageMode,
 } from "../src/shared/artifactLinks.mjs";
-import { artifactSourceEntityTypes, normalizeEntity, validateEntity, workspaceEntityTypes } from "../src/main/repositories/domain.mjs";
+import {
+  artifactSourceEntityTypes,
+  normalizeEntity,
+  validateEntity,
+  workspaceEntityTypes,
+} from "../src/main/repositories/domain.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 const routesSource = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
@@ -31,14 +36,38 @@ const workspacePageRouterSource = readFileSync(
   "src/renderer/src/features/workspace/components/WorkspacePageRouter.tsx",
   "utf8",
 );
-const artifactsComponentSource = readFileSync("src/renderer/src/features/workspace/components/artifacts.tsx", "utf8");
-const artifactEntitiesSource = readFileSync("src/renderer/src/features/workspace/lib/artifactEntities.ts", "utf8");
-const noteExportArtifactsSource = readFileSync("src/renderer/src/features/workspace/lib/noteExportArtifacts.ts", "utf8");
-const chatRefArtifactDialogSource = readFileSync("src/renderer/src/features/workspace/components/ChatRefArtifactLinkDialog.tsx", "utf8");
-const notesPageSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
-const artifactsPageSource = readFileSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx", "utf8");
-const themePageSource = readFileSync("src/renderer/src/features/workspace/pages/ThemePage.tsx", "utf8");
-const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+const artifactsComponentSource = readFileSync(
+  "src/renderer/src/features/workspace/components/artifacts.tsx",
+  "utf8",
+);
+const artifactEntitiesSource = readFileSync(
+  "src/renderer/src/features/workspace/lib/artifactEntities.ts",
+  "utf8",
+);
+const noteExportArtifactsSource = readFileSync(
+  "src/renderer/src/features/workspace/lib/noteExportArtifacts.ts",
+  "utf8",
+);
+const chatRefArtifactDialogSource = readFileSync(
+  "src/renderer/src/features/workspace/components/ChatRefArtifactLinkDialog.tsx",
+  "utf8",
+);
+const notesPageSource = readFileSync(
+  "src/renderer/src/features/workspace/pages/NotesPage.tsx",
+  "utf8",
+);
+const artifactsPageSource = readFileSync(
+  "src/renderer/src/features/workspace/pages/ArtifactsPage.tsx",
+  "utf8",
+);
+const themePageSource = readFileSync(
+  "src/renderer/src/features/workspace/pages/ThemePage.tsx",
+  "utf8",
+);
+const drawerSource = readFileSync(
+  "src/renderer/src/features/workspace/components/drawer.tsx",
+  "utf8",
+);
 const contractsSource = readFileSync("src/shared/ipc/contracts.ts", "utf8");
 
 function artifact(overrides = {}) {
@@ -73,15 +102,27 @@ test("artifactはworkspaceエンティティとして登録されている", () 
 test("artifactのvalidateEntityが必須項目とenumを検証する", () => {
   const valid = artifact();
   assert.equal(validateEntity("artifact", valid), valid);
-  assert.throws(() => validateEntity("artifact", artifact({ source_type: "unknown" })), /source_type/);
+  assert.throws(
+    () => validateEntity("artifact", artifact({ source_type: "unknown" })),
+    /source_type/,
+  );
   assert.throws(() => validateEntity("artifact", artifact({ filename: "" })), /filename/);
-  assert.throws(() => validateEntity("artifact", artifact({ generated_by: "copliot" })), /generated_by/);
+  assert.throws(
+    () => validateEntity("artifact", artifact({ generated_by: "copliot" })),
+    /generated_by/,
+  );
   assert.throws(() => validateEntity("artifact", artifact({ file_size: -1 })), /file_size/);
   validateEntity("artifact", artifact({ generated_by: "claude" }));
   validateEntity("artifact", artifact({ generated_by: null }));
   validateEntity("artifact", artifact({ origin_note_id: "note-1", export_format: "markdown" }));
-  assert.throws(() => validateEntity("artifact", artifact({ origin_note_id: 1 })), /origin_note_id/);
-  assert.throws(() => validateEntity("artifact", artifact({ export_format: "docx" })), /export_format/);
+  assert.throws(
+    () => validateEntity("artifact", artifact({ origin_note_id: 1 })),
+    /origin_note_id/,
+  );
+  assert.throws(
+    () => validateEntity("artifact", artifact({ export_format: "docx" })),
+    /export_format/,
+  );
 });
 
 test("managed / linked の validation と normalize", () => {
@@ -90,41 +131,55 @@ test("managed / linked の validation と normalize", () => {
     /stored_path/,
   );
   assert.throws(
-    () => validateEntity("artifact", artifact({
-      storage_mode: "linked",
-      stored_path: "",
-      target: "https://example.com/a.pdf",
-      link_type: "weird",
-    })),
+    () =>
+      validateEntity(
+        "artifact",
+        artifact({
+          storage_mode: "linked",
+          stored_path: "",
+          target: "https://example.com/a.pdf",
+          link_type: "weird",
+        }),
+      ),
     /link_type/,
   );
   assert.throws(
-    () => validateEntity("artifact", artifact({
-      storage_mode: "linked",
-      stored_path: "",
-      target: "",
-      link_type: "url",
-    })),
+    () =>
+      validateEntity(
+        "artifact",
+        artifact({
+          storage_mode: "linked",
+          stored_path: "",
+          target: "",
+          link_type: "url",
+        }),
+      ),
     /target/,
   );
 
-  const linked = validateEntity("artifact", artifact({
-    storage_mode: "linked",
-    stored_path: "",
-    target: "https://example.com/a.pdf",
-    link_type: "url",
-    link_status: "unknown",
-  }));
+  const linked = validateEntity(
+    "artifact",
+    artifact({
+      storage_mode: "linked",
+      stored_path: "",
+      target: "https://example.com/a.pdf",
+      link_type: "url",
+      link_status: "unknown",
+    }),
+  );
   assert.equal(linked.storage_mode, "linked");
 
   const normalized = normalizeEntity("artifact", artifact({ stored_path: "C:/a.xlsx" }));
   assert.equal(normalized.storage_mode, "managed");
 
-  const normalizedLinked = normalizeEntity("artifact", artifact({
-    storage_mode: "linked",
-    stored_path: "",
-    target: "C:/docs/report.xlsx",
-  }));
+  const normalizedLinked = normalizeEntity(
+    "artifact",
+    artifact({
+      storage_mode: "linked",
+      stored_path: "",
+      target: "C:/docs/report.xlsx",
+    }),
+  );
   assert.equal(normalizedLinked.link_type, "local_path");
 });
 
@@ -165,12 +220,18 @@ test("artifactLinks の open target / link type / promote 可否", () => {
 });
 
 test("ファイル名の分割と種別・MIME判定", () => {
-  assert.deepEqual(splitArtifactFileName("report.final.xlsx"), { base: "report.final", extension: ".xlsx" });
+  assert.deepEqual(splitArtifactFileName("report.final.xlsx"), {
+    base: "report.final",
+    extension: ".xlsx",
+  });
   assert.deepEqual(splitArtifactFileName("README"), { base: "README", extension: "" });
   assert.equal(artifactFileTypeOf("data.CSV"), "csv");
   assert.equal(artifactFileTypeOf("no-extension"), "file");
   assert.equal(artifactMimeTypeOf("chart.png"), "image/png");
-  assert.equal(artifactMimeTypeOf("slides.pptx"), "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+  assert.equal(
+    artifactMimeTypeOf("slides.pptx"),
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  );
   assert.equal(artifactMimeTypeOf("unknown.xyz"), "application/octet-stream");
 });
 
@@ -196,10 +257,9 @@ test("保存先サブフォルダはローカル日付のYYYY/MM", () => {
 });
 
 test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐する", () => {
-  assert.deepEqual(
-    resolveManagedArtifactDirectoryParts({ artifactDirectory: "" }),
-    { kind: "needs_directory" },
-  );
+  assert.deepEqual(resolveManagedArtifactDirectoryParts({ artifactDirectory: "" }), {
+    kind: "needs_directory",
+  });
   assert.deepEqual(
     resolveManagedArtifactDirectoryParts({
       artifactDirectory: "C:/tasken",
@@ -213,7 +273,12 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       themeId: "theme-1",
       themeCode: "MAT-A",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Artifacts"], source: "app_default" },
+    {
+      kind: "ok",
+      root: "C:/tasken",
+      segments: ["Themes", "MAT-A", "Artifacts"],
+      source: "app_default",
+    },
   );
   // code がなければ id。名前変更で追従しない。
   assert.deepEqual(
@@ -222,7 +287,12 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       themeId: "theme-uuid",
       themeCode: "",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "theme-uuid", "Artifacts"], source: "app_default" },
+    {
+      kind: "ok",
+      root: "C:/tasken",
+      segments: ["Themes", "theme-uuid", "Artifacts"],
+      source: "app_default",
+    },
   );
   // Theme 専用ルートがあれば共通ルートは不要。
   assert.deepEqual(
@@ -245,7 +315,12 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
       themeCode: "MAT-A",
       contentKind: "notes",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Notes"], source: "app_default" },
+    {
+      kind: "ok",
+      root: "C:/tasken",
+      segments: ["Themes", "MAT-A", "Notes"],
+      source: "app_default",
+    },
   );
   assert.deepEqual(
     resolveThemeContentDirectoryParts({
@@ -254,7 +329,12 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
       themeCode: "MAT-A",
       contentKind: "exports",
     }),
-    { kind: "ok", root: "C:/tasken", segments: ["Themes", "MAT-A", "Exports"], source: "app_default" },
+    {
+      kind: "ok",
+      root: "C:/tasken",
+      segments: ["Themes", "MAT-A", "Exports"],
+      source: "app_default",
+    },
   );
   assert.deepEqual(
     resolveThemeContentDirectoryParts({
@@ -271,13 +351,25 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
     { kind: "ok", root: "D:/themes/mat-a", segments: ["Notes"], source: "theme_override" },
   );
 
-  const notesSource = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
-  const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+  const notesSource = readFileSync(
+    "src/renderer/src/features/workspace/pages/NotesPage.tsx",
+    "utf8",
+  );
+  const drawerSource = readFileSync(
+    "src/renderer/src/features/workspace/components/drawer.tsx",
+    "utf8",
+  );
   // Markdown copy is built from the latest entity after the owner queue flush,
   // so Theme routing must not read the detached/stale selected snapshot.
   assert.match(notesSource, /const persisted = await workspaceApi\.get\("note", selected\.id\);/);
-  assert.match(notesSource, /const exportNote: Combined = \{ \.\.\.selected, \.\.\.\(persisted \|\| \{\}\), recordType: "note" as const \};/);
-  assert.match(notesSource, /const exportThemeId = str\(exportNote\.project_id \|\| exportNote\.theme_id\);/);
+  assert.match(
+    notesSource,
+    /const exportNote: Combined = \{ \.\.\.selected, \.\.\.\(persisted \|\| \{\}\), recordType: "note" as const \};/,
+  );
+  assert.match(
+    notesSource,
+    /const exportThemeId = str\(exportNote\.project_id \|\| exportNote\.theme_id\);/,
+  );
   assert.match(notesSource, /themeId: exportThemeId \|\| null/);
   assert.match(drawerSource, /themeId:\s*str\(note\.theme_id\)/);
 });
@@ -290,10 +382,22 @@ test("Artifact は親 Entity の Theme を引き継ぐ", () => {
 });
 
 test("Theme 編集に storage_root があり import に themeId を渡す", () => {
-  const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
-  const drawerPickersSource = readFileSync("src/renderer/src/features/workspace/components/drawerPickers.tsx", "utf8");
-  const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
-  const settingsSource = readFileSync("src/renderer/src/features/workspace/pages/SettingsPage.tsx", "utf8");
+  const drawerSource = readFileSync(
+    "src/renderer/src/features/workspace/components/drawer.tsx",
+    "utf8",
+  );
+  const drawerPickersSource = readFileSync(
+    "src/renderer/src/features/workspace/components/drawerPickers.tsx",
+    "utf8",
+  );
+  const workspaceAppSource = readFileSync(
+    "src/renderer/src/features/workspace/WorkspaceApp.tsx",
+    "utf8",
+  );
+  const settingsSource = readFileSync(
+    "src/renderer/src/features/workspace/pages/SettingsPage.tsx",
+    "utf8",
+  );
   assert.match(drawerSource, /ThemeStorageRootField|storage_root/);
   assert.match(drawerPickersSource, /Artifact保存ルート/);
   assert.match(workspaceAppSource, /storage_root:\s*formText\(values,\s*"storage_root"\)/);
@@ -311,7 +415,8 @@ function fakeDeletePolicyRepository(artifacts) {
   const repo = Object.create(WorkspaceDatabase.prototype);
   repo.list = (type) => (type === "artifact" ? artifacts : []);
   repo.markRemoved = (type, id, cascade) => removed.push({ type, id, cascade });
-  repo.nullifyReferences = (_parentType, targets) => nullified.push(...targets.map(([entityType, field]) => `${entityType}.${field}`));
+  repo.nullifyReferences = (_parentType, targets) =>
+    nullified.push(...targets.map(([entityType, field]) => `${entityType}.${field}`));
   return { repo, removed, nullified };
 }
 
@@ -322,7 +427,9 @@ test("親タスク削除でartifactがcascade論理削除される", () => {
     artifact({ id: "a3", source_type: "note", source_id: "task-1" }),
   ]);
   repo.applyDeletePolicy("task", "task-1");
-  assert.deepEqual(removed, [{ type: "artifact", id: "a1", cascade: { parentType: "task", parentId: "task-1" } }]);
+  assert.deepEqual(removed, [
+    { type: "artifact", id: "a1", cascade: { parentType: "task", parentId: "task-1" } },
+  ]);
 });
 
 test("メモ削除でnote/report由来のartifactがcascadeされる", () => {
@@ -332,7 +439,10 @@ test("メモ削除でnote/report由来のartifactがcascadeされる", () => {
     artifact({ id: "a3", source_type: "task", source_id: "note-1" }),
   ]);
   repo.applyDeletePolicy("note", "note-1");
-  assert.deepEqual(removed.map((entry) => entry.id), ["a1", "a2"]);
+  assert.deepEqual(
+    removed.map((entry) => entry.id),
+    ["a1", "a2"],
+  );
   assert.deepEqual(removed[0].cascade, { parentType: "note", parentId: "note-1" });
 });
 
@@ -351,7 +461,10 @@ test("Chat参照（resource）削除でchat_ref由来のartifactがcascadeされ
     artifact({ id: "a2", source_type: "chat_ref", source_id: "res-2" }),
   ]);
   repo.applyDeletePolicy("resource", "res-1");
-  assert.deepEqual(removed.map((entry) => entry.id), ["a1"]);
+  assert.deepEqual(
+    removed.map((entry) => entry.id),
+    ["a1"],
+  );
 });
 
 test("Inbox Capture削除で未整理ファイルArtifactがcascadeされる", () => {
@@ -360,28 +473,39 @@ test("Inbox Capture削除で未整理ファイルArtifactがcascadeされる", (
     artifact({ id: "a2", source_type: "capture_entry", source_id: "capture-2" }),
   ]);
   repo.applyDeletePolicy("capture_entry", "capture-1");
-  assert.deepEqual(removed.map((entry) => entry.id), ["a1"]);
+  assert.deepEqual(
+    removed.map((entry) => entry.id),
+    ["a1"],
+  );
 });
 
 test("Theme削除でtheme由来のartifactがcascadeされる", () => {
   const cascaded = [];
   const nullified = [];
   const repo = Object.create(WorkspaceDatabase.prototype);
-  repo.list = (type) => (type === "artifact"
-    ? [artifact({ id: "a1", source_type: "theme", source_id: "theme-1", theme_id: "theme-1" })]
-    : []);
+  repo.list = (type) =>
+    type === "artifact"
+      ? [artifact({ id: "a1", source_type: "theme", source_id: "theme-1", theme_id: "theme-1" })]
+      : [];
   repo.markRemoved = (type, id, cascade) => cascaded.push({ type, id, cascade });
-  repo.nullifyReferences = (_parentType, targets) => nullified.push(...targets.map(([entityType, field]) => `${entityType}.${field}`));
+  repo.nullifyReferences = (_parentType, targets) =>
+    nullified.push(...targets.map(([entityType, field]) => `${entityType}.${field}`));
   repo.applyDeletePolicy("theme", "theme-1");
-  assert.deepEqual(cascaded.filter((entry) => entry.type === "artifact").map((entry) => entry.id), ["a1"]);
+  assert.deepEqual(
+    cascaded.filter((entry) => entry.type === "artifact").map((entry) => entry.id),
+    ["a1"],
+  );
   assert.equal(nullified.includes("artifact.theme_id"), true);
 });
 
 test("Artifacts 一覧が知識整理ナビとルートに接続されている", () => {
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx"), true);
-  assert.match(routesSource, /id: "artifacts", label: "Artifacts"/);
+  assert.match(routesSource, /id: "artifacts",\s*label: "Artifacts"/);
   assert.match(routesSource, /id: "artifacts"[\s\S]*group: "knowledge"/);
-  assert.match(routesSource, /navigation: \{ group: "knowledge", parent: "knowledge", order: 5 \}/);
+  assert.match(
+    routesSource,
+    /navigation: \{\s*group: "knowledge",\s*parent: "knowledge",\s*order: 6,?\s*\}/,
+  );
   assert.match(workspacePageRouterSource, /ArtifactsPage/);
   assert.match(workspacePageRouterSource, /case "artifacts":/);
 });
@@ -417,7 +541,10 @@ test("Note書き出しをChat Ref Artifactへ双方向に接続する", () => {
   assert.match(artifactsComponentSource, /NoteからArtifactを追加/);
   assert.match(artifactsComponentSource, /originNoteId/);
   assert.match(artifactsComponentSource, /元Noteへ/);
-  assert.match(drawerSource, /themeId=\{artifactSource\.themeId\}[\s\S]{0,240}openDrawer=\{\(next\) => close\(next\)\}/);
+  assert.match(
+    drawerSource,
+    /themeId=\{artifactSource\.themeId\}[\s\S]{0,240}openDrawer=\{\(next\) => close\(next\)\}/,
+  );
   assert.match(chatRefArtifactDialogSource, /Artifactとして紐づける/);
   assert.match(noteExportArtifactsSource, /origin_note_id: exported\.noteId/);
   assert.match(noteExportArtifactsSource, /artifact\.origin_note_id === exported\.noteId/);
