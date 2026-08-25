@@ -71,10 +71,15 @@ export class TaskenCoreRuntime {
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
   readonly taskCapability: TaskCapabilityService;
 
-  constructor(userDataPath: string, persistence: CorePersistence, executeApplicationCommand: ExecuteApplicationCommand) {
+  constructor(
+    userDataPath: string,
+    persistence: CorePersistence,
+    executeApplicationCommand: ExecuteApplicationCommand,
+    onProposalCommitted?: NonNullable<Parameters<typeof createTaskenCore>[1]>["onProposalCommitted"],
+  ) {
     this.persistence = persistence;
     this.executeApplicationCommand = executeApplicationCommand;
-    const core = createTaskenCore(persistence);
+    const core = createTaskenCore(persistence, { onProposalCommitted });
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
     this.host = new TaskenCoreHost({
       userDataPath,

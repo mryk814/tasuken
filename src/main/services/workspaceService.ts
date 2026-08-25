@@ -704,6 +704,7 @@ export class WorkspaceService {
   private readonly taskenCoreClient?: {
     getTaskContext(request: { task_id: string }): Promise<unknown>;
     getThemeContext(request: { theme_id: string }): Promise<unknown>;
+    inspect?(): Promise<{ api_version: string; capabilities: string[] }>;
   };
 
   constructor(
@@ -713,6 +714,7 @@ export class WorkspaceService {
     taskenCoreClient?: {
       getTaskContext(request: { task_id: string }): Promise<unknown>;
       getThemeContext(request: { theme_id: string }): Promise<unknown>;
+      inspect?(): Promise<{ api_version: string; capabilities: string[] }>;
     },
   ) {
     this.canonicalRecoveryPath = path.join(userDataPath, "canonical-markdown-recovery.json");
@@ -3263,17 +3265,42 @@ export class WorkspaceService {
     return true;
   }
 
-  getMcpBridgeInfo(): McpBridgeInfo {
+  async getMcpBridgeInfo(): Promise<McpBridgeInfo> {
     const args = app.isPackaged
       ? [path.join(process.resourcesPath, "mcp", "server.mjs")]
       : [path.join(app.getAppPath(), "scripts", "mcp-server.mjs")];
-    const pendingProposalCount = this.repository
-      .list("ai_proposal")
-      .filter((proposal) => !proposal.deleted_at && proposal.status === "pending").length;
+    const proposals = this.repository.list("ai_proposal").filter((proposal) => !proposal.deleted_at);
+    const pendingProposalCount = proposals.filter((proposal) => proposal.status === "pending").length;
+    const latestProposal = proposals.sort((a, b) => String(b.received_at || b.updated_at || b.created_at || "")
+      .localeCompare(String(a.received_at || a.updated_at || a.created_at || "")))[0];
+    let coreDiagnostics: Partial<McpBridgeInfo> = { coreStatus: "unknown" };
+    if (this.taskenCoreClient?.inspect) {
+      try {
+        const inspected = await this.taskenCoreClient.inspect();
+        coreDiagnostics = {
+          coreStatus: "available",
+          coreApiVersion: inspected.api_version,
+          coreCapabilityCount: inspected.capabilities.length,
+        };
+      } catch (error) {
+        const code = typeof error === "object" && error && "code" in error ? String(error.code) : "CORE_UNAVAILABLE";
+        coreDiagnostics = {
+          coreStatus: "unavailable",
+          coreErrorCode: code,
+          coreErrorMessage: error instanceof Error ? error.message : String(error),
+          coreNextAction: code === "VERSION_MISMATCH"
+            ? "TaskenとMCP bridgeを同じ最新版へ更新してください。"
+            : "Taskenを起動した状態で再確認してください。",
+        };
+      }
+    }
     return createMcpBridgeInfo({
       args,
       pendingProposalCount,
       packaged: app.isPackaged,
+      ...coreDiagnostics,
+      latestProposalId: latestProposal?.id ? String(latestProposal.id) : undefined,
+      latestProposalAt: String(latestProposal?.received_at || latestProposal?.updated_at || latestProposal?.created_at || "") || undefined,
     });
   }
 

@@ -1,4 +1,5 @@
 export interface AiProposalRecord {
+  [key: string]: unknown;
   id: string;
   source: "mcp";
   source_app: string;

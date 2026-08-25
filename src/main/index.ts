@@ -2567,6 +2567,9 @@ async function startDesktopApp(): Promise<void> {
     userDataPath: app.getPath("userData"),
     persistence: workspaceRepository,
     mcpPackageSmoke,
+    onProposalCommitted: (proposals) => notifyMainWindowRefresh({
+      entities: proposals.map((entity) => ({ type: "ai_proposal", entity })),
+    }),
   }));
   if (composition.packageSmokeVerifyOnlyCompleted) {
     app.exit(0);

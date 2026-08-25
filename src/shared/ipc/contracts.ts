@@ -400,12 +400,28 @@ export interface McpBridgeInfo {
   pendingProposalCount: number;
   transport: "stdio-core";
   packaged: boolean;
+  coreStatus: "available" | "unavailable" | "unknown";
+  coreApiVersion?: string;
+  coreCapabilityCount?: number;
+  coreErrorCode?: string;
+  coreErrorMessage?: string;
+  coreNextAction?: string;
+  latestProposalId?: string;
+  latestProposalAt?: string;
 }
 
 export function createMcpBridgeInfo(input: {
   args: string[];
   pendingProposalCount: number;
   packaged: boolean;
+  coreStatus?: McpBridgeInfo["coreStatus"];
+  coreApiVersion?: string;
+  coreCapabilityCount?: number;
+  coreErrorCode?: string;
+  coreErrorMessage?: string;
+  coreNextAction?: string;
+  latestProposalId?: string;
+  latestProposalAt?: string;
 }): McpBridgeInfo {
   const command = "node";
   return {
@@ -415,6 +431,14 @@ export function createMcpBridgeInfo(input: {
     pendingProposalCount: input.pendingProposalCount,
     transport: "stdio-core",
     packaged: input.packaged,
+    coreStatus: input.coreStatus || "unknown",
+    ...(input.coreApiVersion ? { coreApiVersion: input.coreApiVersion } : {}),
+    ...(input.coreCapabilityCount === undefined ? {} : { coreCapabilityCount: input.coreCapabilityCount }),
+    ...(input.coreErrorCode ? { coreErrorCode: input.coreErrorCode } : {}),
+    ...(input.coreErrorMessage ? { coreErrorMessage: input.coreErrorMessage } : {}),
+    ...(input.coreNextAction ? { coreNextAction: input.coreNextAction } : {}),
+    ...(input.latestProposalId ? { latestProposalId: input.latestProposalId } : {}),
+    ...(input.latestProposalAt ? { latestProposalAt: input.latestProposalAt } : {}),
   };
 }
 

@@ -77,7 +77,10 @@ export type TaskenCorePersistence = AgentReadyTaskWorkspacePersistence
   & AgentContextWorkspacePersistence
   & AiProposalPersistence;
 
-export function createTaskenCore(persistence: TaskenCorePersistence) {
+export function createTaskenCore(
+  persistence: TaskenCorePersistence,
+  options: { onProposalCommitted?: ConstructorParameters<typeof WorkspaceAiProposalWriteAdapter>[1] } = {},
+) {
   const agentWorkspace = new AgentWorkspaceQueryService(new WorkspaceAgentWorkspaceReadAdapter(persistence));
   const itemQueries = new ItemQueryService(new WorkspaceItemQueryReadAdapter(persistence));
   const contentDetails = new ContentDetailQueryService(new WorkspaceContentDetailReadAdapter(persistence));
@@ -108,8 +111,8 @@ export function createTaskenCore(persistence: TaskenCorePersistence) {
     getActivity: { execute: agentContext.getActivity.bind(agentContext) },
     getContextSubgraph: { execute: agentContext.getContextSubgraph.bind(agentContext) },
     exportAiContext,
-    proposeTaskWork: new ProposeTaskWorkService(new WorkspaceAiProposalWriteAdapter(persistence)),
-    proposeRepositoryTask: new ProposeRepositoryTaskService(new WorkspaceAiProposalWriteAdapter(persistence)),
-    proposeContent: new ProposeContentService(new WorkspaceAiProposalWriteAdapter(persistence)),
+    proposeTaskWork: new ProposeTaskWorkService(new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted)),
+    proposeRepositoryTask: new ProposeRepositoryTaskService(new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted)),
+    proposeContent: new ProposeContentService(new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted)),
   };
 }

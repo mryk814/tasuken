@@ -39,6 +39,7 @@ export interface TaskenDesktopCompositionOptions<TPersistence extends DesktopPer
   userDataPath: string;
   persistence: TPersistence;
   mcpPackageSmoke?: McpPackageSmokeOptions;
+  onProposalCommitted?: ConstructorParameters<typeof TaskenCoreRuntime>[3];
 }
 
 export function applyMcpPackageSmokeUserData(
@@ -95,6 +96,7 @@ export class TaskenDesktopComposition<TPersistence extends DesktopPersistence = 
       options.userDataPath,
       this.repository,
       (command) => this.applicationCommands.execute(command),
+      options.onProposalCommitted,
     );
     const mobileState: MobileGatewayStatePort = {
       current: () => this.repository.mobileGatewayState(),

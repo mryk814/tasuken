@@ -383,7 +383,7 @@ export function SettingsPage({
           "danger",
         );
       });
-  }, [setToast]);
+  }, [data.ai_proposals, setToast]);
 
   useEffect(() => {
     setAiConfigState("loading");
@@ -700,6 +700,14 @@ export function SettingsPage({
     if (!mcpInfo) return;
     await copyMcpBridgeConfig((text) => workspaceApi.copyText(text), mcpInfo);
     setToast("MCPクライアント設定をコピーしました。", "success");
+  }
+
+  async function reloadMcpInfo() {
+    try {
+      setMcpInfo(await workspaceApi.getMcpBridgeInfo());
+    } catch (error) {
+      setToast(`MCP Bridgeの情報を取得できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    }
   }
 
   async function saveAiSettings(clearApiKey = false) {
@@ -1589,10 +1597,24 @@ export function SettingsPage({
                   <dt>Pending Proposal</dt>
                   <dd>{mcpInfo?.pendingProposalCount || 0}件</dd>
                 </div>
+                <div>
+                  <dt>Core</dt>
+                  <dd>{mcpInfo?.coreStatus === "available" ? "接続済み" : mcpInfo?.coreStatus === "unavailable" ? "接続エラー" : "確認中"}</dd>
+                </div>
+                {mcpInfo?.coreApiVersion && (
+                  <div><dt>API / Capabilities</dt><dd>{mcpInfo.coreApiVersion} / {mcpInfo.coreCapabilityCount || 0}</dd></div>
+                )}
+                {mcpInfo?.latestProposalId && (
+                  <div><dt>Latest Proposal</dt><dd className="mono-value" title={mcpInfo.latestProposalId}>{mcpInfo.latestProposalId}</dd></div>
+                )}
               </dl>
+              {mcpInfo?.coreNextAction && <p className="alert-note warning">{mcpInfo.coreErrorCode}: {mcpInfo.coreNextAction}</p>}
               <div className="settings-action-row">
                 <Button variant="secondary" disabled={!mcpInfo} onClick={copyMcpConfig}>
                   接続設定をコピー
+                </Button>
+                <Button variant="secondary" onClick={() => void reloadMcpInfo()}>
+                  状態を再確認
                 </Button>
               </div>
             </section>

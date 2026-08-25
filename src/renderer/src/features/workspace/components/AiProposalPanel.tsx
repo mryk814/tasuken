@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { IconAlertTriangle, IconArchive, IconHistory, IconPencil, IconShieldCheck } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+import { IconAlertTriangle, IconArchive, IconHistory, IconPencil, IconRefresh, IconShieldCheck } from "@tabler/icons-react";
 
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
@@ -12,6 +12,7 @@ import { validateArtifactProposal, validateSafeSvg } from "../../../../../shared
 import { stableProposalEntityId } from "../../../../../shared/proposalAcceptance.mjs";
 import { markdownSignature } from "../../../../../shared/canonicalMarkdown.mjs";
 import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations } from "../../../../../shared/repositoryContextProposal.mjs";
+import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { ActionButton, Button } from "./common";
 
 type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "sketches" | "artifacts" | "status_update" | "task_work" | "repository_contexts";
@@ -353,11 +354,34 @@ export function AiProposalPanel(props: PageProps) {
   const [preview, setPreview] = useState<ProposalPreview | null>(null);
   const [quarantineId, setQuarantineId] = useState("");
   const [quarantineReason, setQuarantineReason] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshWorkspace = useWorkspaceStore((state) => state.refresh);
   const proposals = useMemo(() => (data.ai_proposals || []).filter((proposal) => str(proposal.status) === "pending"), [data.ai_proposals]);
   const history = useMemo(() => (data.ai_proposals || [])
     .filter((proposal) => str(proposal.status) !== "pending")
     .sort((a, b) => proposalTimestamp(b).localeCompare(proposalTimestamp(a))), [data.ai_proposals]);
   const selected = proposals.find((proposal) => proposal.id === selectedId) || proposals[0] || null;
+
+  async function refreshProposals(): Promise<void> {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await refreshWorkspace();
+      setToast("Proposalを再取得しました。", "success");
+    } catch (error) {
+      setToast(`Proposalを再取得できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
+    const resyncOnFocus = () => void refreshWorkspace().catch((error) => {
+      setToast(`Proposalを再取得できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    });
+    window.addEventListener("focus", resyncOnFocus);
+    return () => window.removeEventListener("focus", resyncOnFocus);
+  }, [refreshWorkspace, setToast]);
 
   function previewProposal(proposal: BaseRecord) {
     try {
@@ -542,7 +566,12 @@ export function AiProposalPanel(props: PageProps) {
       <section className="panel proposal-inbox-panel">
         <div className="section-heading">
           <h2>Pending Proposal</h2>
-          <span className="proposal-pending-count">{proposals.length}件</span>
+          <div className="proposal-refresh-actions">
+            <span className="proposal-pending-count">{proposals.length}件</span>
+            <Button variant="secondary" compact disabled={refreshing} onClick={() => void refreshProposals()}>
+              <IconRefresh size={14} aria-hidden="true" />{refreshing ? "更新中" : "更新"}
+            </Button>
+          </div>
         </div>
         {!proposals.length && (
           <div className="empty-state proposal-empty-state">

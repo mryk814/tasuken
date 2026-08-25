@@ -16,12 +16,28 @@ function asProposal(value: Record<string, unknown> | null): AiProposalRecord | n
 }
 
 export class WorkspaceAiProposalWriteAdapter implements AiProposalWritePort {
-  constructor(private readonly persistence: CanonicalProposalPersistence) {}
+  constructor(
+    private readonly persistence: CanonicalProposalPersistence,
+    private readonly onCommitted?: (proposals: AiProposalRecord[]) => void,
+  ) {}
 
   runTransaction<T>(callback: (transaction: AiProposalTransaction) => T): T {
-    return this.persistence.runTransaction((repository) => callback({
+    const committed: AiProposalRecord[] = [];
+    const result = this.persistence.runTransaction((repository) => callback({
       get: (id) => asProposal(repository.get("ai_proposal", id, true)),
-      save: (proposal) => asProposal(repository.save("ai_proposal", { ...proposal }, { source: "mcp" }))!,
+      save: (proposal) => {
+        const saved = asProposal(repository.save("ai_proposal", { ...proposal }, { source: "mcp" }))!;
+        committed.push(saved);
+        return saved;
+      },
     }));
+    if (committed.length && this.onCommitted) {
+      try {
+        this.onCommitted(committed);
+      } catch {
+        // The canonical write has committed already; a UI notification failure must not roll it back.
+      }
+    }
+    return result;
   }
 }
