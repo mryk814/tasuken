@@ -44,12 +44,12 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 
 ## MCP inventory
 
-### Read 23 / 23 Core
+### Read 24 / 24 Core
 
 - Work selection: `search_items`, `list_open_items`, `list_agent_ready_tasks`, `get_task_assignment`
 - Task detail: `get_task_context`, `get_note`, `get_conversation`, `get_artifact_metadata`, `get_activity_entries`
 - Repository: `resolve_repository_context`, `find_themes_for_repository`, `find_tasks_for_repository`, `get_repository_context`
-- Agent session: `get_agent_session_context`
+- Agent session: `get_agent_session_context`, `get_debrief_context`
 - Theme / Knowledge: `get_theme_context`, `get_recent_notes`, `search_knowledge`, `get_knowledge_context`, `get_plan_health`, `get_knowledge_health`
 - Cross-cutting: `get_activity`, `get_context_subgraph`, `export_ai_context`
 

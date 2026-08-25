@@ -32,6 +32,8 @@ const agentSessionFields = new Set([
   "provider_label",
   "model_label",
   "source_session_id",
+  "request_events",
+  "response_checkpoints",
   "intent",
   "outcome",
 ]);
@@ -64,6 +66,19 @@ function stringList(value, field) {
     const normalized = text(entry, 1000);
     if (!normalized) throw new Error(`${field}に空の項目は指定できません。`);
     return normalized;
+  });
+}
+
+function checkpointList(value, field, maxLength) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 200)
+    throw new Error(`${field}は200件以内の配列にしてください。`);
+  return value.map((entry) => {
+    if (!isRecord(entry)) throw new Error(`${field}の項目はobjectで指定してください。`);
+    const observedAt = isoTimestamp(entry.observed_at, `${field}.observed_at`, true);
+    const checkpointText = text(entry.text, maxLength);
+    if (!checkpointText) throw new Error(`${field}.textを入力してください。`);
+    return { observed_at: observedAt, text: checkpointText };
   });
 }
 
@@ -142,6 +157,16 @@ export function normalizeAgentSession(input = {}) {
   normalized.provider_label = text(input.provider_label, 200) || null;
   normalized.model_label = text(input.model_label, 200) || null;
   normalized.source_session_id = text(input.source_session_id, 500) || null;
+  normalized.request_events = checkpointList(
+    input.request_events,
+    "agent_session.request_events",
+    4000,
+  );
+  normalized.response_checkpoints = checkpointList(
+    input.response_checkpoints,
+    "agent_session.response_checkpoints",
+    8000,
+  );
   normalized.intent = normalizeIntent(input.intent);
   normalized.outcome = normalizeOutcome(input.outcome);
   if (!sessionStatuses.has(normalized.status)) throw new Error("agent_session.statusが不正です。");
