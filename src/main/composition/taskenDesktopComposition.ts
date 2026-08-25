@@ -10,10 +10,9 @@ import {
   type MobileGatewayStatePort,
 } from "../gateway/mobile/runtimePublic.ts";
 
-type DesktopPersistence = ConstructorParameters<typeof TaskenCoreRuntime>[1]
-  & ConstructorParameters<typeof ApplicationCommandService>[0]
-  & MobileDevicePersistence
-  & {
+type DesktopPersistence = ConstructorParameters<typeof TaskenCoreRuntime>[1] &
+  ConstructorParameters<typeof ApplicationCommandService>[0] &
+  MobileDevicePersistence & {
     mobileGatewayState(): ReturnType<MobileGatewayStatePort["current"]>;
     ensureMcpPackageSmokeFixture(): unknown;
     verifyMcpPackageSmokeProposal(id: string): unknown;
@@ -33,12 +32,16 @@ export interface McpPackageSmokeOptions {
   resultPath?: string;
 }
 
-export interface McpPackageSmokeLaunchOptions extends McpPackageSmokeRootOptions, McpPackageSmokeOptions {}
+export interface McpPackageSmokeLaunchOptions
+  extends McpPackageSmokeRootOptions, McpPackageSmokeOptions {}
 
-export interface TaskenDesktopCompositionOptions<TPersistence extends DesktopPersistence = DesktopPersistence> {
+export interface TaskenDesktopCompositionOptions<
+  TPersistence extends DesktopPersistence = DesktopPersistence,
+> {
   userDataPath: string;
   persistence: TPersistence;
   mcpPackageSmoke?: McpPackageSmokeOptions;
+  notifyWorkspaceChanged?: () => void;
 }
 
 export function applyMcpPackageSmokeUserData(
@@ -79,7 +82,9 @@ export function readMcpPackageSmokeLaunchOptions(
  * Canonical Desktop composition root for the workspace database, Task application
  * service, loopback Core host, and adapters that must share that same service.
  */
-export class TaskenDesktopComposition<TPersistence extends DesktopPersistence = DesktopPersistence> {
+export class TaskenDesktopComposition<
+  TPersistence extends DesktopPersistence = DesktopPersistence,
+> {
   readonly repository: TPersistence;
   readonly applicationCommands: ApplicationCommandService;
   readonly coreRuntime: TaskenCoreRuntime;
@@ -95,6 +100,7 @@ export class TaskenDesktopComposition<TPersistence extends DesktopPersistence = 
       options.userDataPath,
       this.repository,
       (command) => this.applicationCommands.execute(command),
+      options.notifyWorkspaceChanged,
     );
     const mobileState: MobileGatewayStatePort = {
       current: () => this.repository.mobileGatewayState(),
@@ -150,7 +156,9 @@ export class TaskenDesktopComposition<TPersistence extends DesktopPersistence = 
       }
       const verification = this.repository.verifyMcpPackageSmokeProposal(options.proposalId);
       if (options.resultPath) {
-        fs.writeFileSync(path.resolve(options.resultPath), JSON.stringify(verification), { flag: "w" });
+        fs.writeFileSync(path.resolve(options.resultPath), JSON.stringify(verification), {
+          flag: "w",
+        });
       }
     }
     if (options.verifyOnly) {

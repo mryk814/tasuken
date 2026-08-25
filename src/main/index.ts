@@ -2567,6 +2567,7 @@ async function startDesktopApp(): Promise<void> {
     userDataPath: app.getPath("userData"),
     persistence: workspaceRepository,
     mcpPackageSmoke,
+    notifyWorkspaceChanged: notifyMainWindowRefresh,
   }));
   if (composition.packageSmokeVerifyOnlyCompleted) {
     app.exit(0);
