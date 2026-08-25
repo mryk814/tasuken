@@ -101,7 +101,7 @@ try {
   }
   client = await connectMcp();
   const listed = await client.listTools();
-  if (listed.tools.length !== 33) throw new Error(`Expected 33 packaged MCP tools, found ${listed.tools.length}.`);
+  if (listed.tools.length !== 36) throw new Error(`Expected 36 packaged MCP tools, found ${listed.tools.length}.`);
 
   const read = await client.callTool({
     name: "tasken.list_open_items",
