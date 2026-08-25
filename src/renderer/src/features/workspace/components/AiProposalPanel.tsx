@@ -1,21 +1,61 @@
 import { useMemo, useState } from "react";
-import { IconAlertTriangle, IconArchive, IconHistory, IconPencil, IconShieldCheck } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconArchive,
+  IconHistory,
+  IconPencil,
+  IconShieldCheck,
+} from "@tabler/icons-react";
 
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import { str, uuid } from "../lib/format";
+import { isPassiveAgentSessionProposal } from "../lib/taskenDebrief";
 import { assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
-import { applyMarkdownDiffHunks, buildMarkdownDiffHunks, diffMarkdownLines } from "../lib/markdownEditing";
-import { buildSavePlanNodeOperations, buildSaveScheduleOperations, buildSaveTaskOperations, buildSaveWaitingOperations } from "../domain-model/persistence";
+import {
+  applyMarkdownDiffHunks,
+  buildMarkdownDiffHunks,
+  diffMarkdownLines,
+} from "../lib/markdownEditing";
+import {
+  buildSavePlanNodeOperations,
+  buildSaveScheduleOperations,
+  buildSaveTaskOperations,
+  buildSaveWaitingOperations,
+} from "../domain-model/persistence";
 import type { PlanNode, Schedule, ScheduleOwnerType, Task, Waiting } from "../domain-model/types";
 import { validateArtifactProposal, validateSafeSvg } from "../../../../../shared/proposalMedia.mjs";
 import { stableProposalEntityId } from "../../../../../shared/proposalAcceptance.mjs";
 import { markdownSignature } from "../../../../../shared/canonicalMarkdown.mjs";
-import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations } from "../../../../../shared/repositoryContextProposal.mjs";
+import {
+  buildRepositoryContextProposalCandidate,
+  buildRepositoryContextProposalOperations,
+} from "../../../../../shared/repositoryContextProposal.mjs";
 import { ActionButton, Button } from "./common";
 
-type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "sketches" | "artifacts" | "status_update" | "task_work" | "repository_contexts" | "agent_sessions";
-type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge" | "sketch" | "artifact" | "task_work" | "repository_context" | "agent_session" | "reference";
+type ProposalPayloadType =
+  | "items"
+  | "notes"
+  | "links"
+  | "knowledge_nodes"
+  | "sketches"
+  | "artifacts"
+  | "status_update"
+  | "task_work"
+  | "repository_contexts"
+  | "agent_sessions";
+type CandidateType =
+  | "item"
+  | "note"
+  | "link"
+  | "knowledge_node"
+  | "knowledge_edge"
+  | "sketch"
+  | "artifact"
+  | "task_work"
+  | "repository_context"
+  | "agent_session"
+  | "reference";
 const taskEntityType = "task" as const;
 
 interface ProposalCandidate {
@@ -42,13 +82,15 @@ function nestedSummary(entry: Record<string, unknown>, field: "intent" | "outcom
 }
 
 function candidateTitle(candidate: ProposalCandidate) {
-  return str(candidate.entry.title)
-    || str(candidate.entry.label)
-    || str(candidate.entry.summary)
-    || (candidate.type === "agent_session" ? nestedSummary(candidate.entry, "intent") : "")
-    || str(candidate.entry.task_id)
-    || str(candidate.entry.relation_type)
-    || "無題";
+  return (
+    str(candidate.entry.title) ||
+    str(candidate.entry.label) ||
+    str(candidate.entry.summary) ||
+    (candidate.type === "agent_session" ? nestedSummary(candidate.entry, "intent") : "") ||
+    str(candidate.entry.task_id) ||
+    str(candidate.entry.relation_type) ||
+    "無題"
+  );
 }
 
 function parsePayload(raw: unknown, payloadType: ProposalPayloadType): Record<string, unknown> {
@@ -63,22 +105,39 @@ function wrapPayload(payload: Record<string, unknown>, payloadType: ProposalPayl
   return { [payloadType]: Array.isArray(payload) ? payload : [payload] };
 }
 
-export function buildPreview(proposal: BaseRecord, props: Pick<PageProps, "data" | "themes" | "items">): ProposalPreview {
+export function buildPreview(
+  proposal: BaseRecord,
+  props: Pick<PageProps, "data" | "themes" | "items">,
+): ProposalPreview {
   const payloadType = str(proposal.payload_type) as ProposalPayloadType;
   if (payloadType === "status_update") {
-    return { candidates: [], payloadIssues: ["status_updateは内容確認後にProposalの状態だけ更新します"] };
+    return {
+      candidates: [],
+      payloadIssues: ["status_updateは内容確認後にProposalの状態だけ更新します"],
+    };
   }
   const payload = wrapPayload(parsePayload(proposal.payload, payloadType), payloadType);
   if (payloadType === "task_work") {
-    const entries = Array.isArray(payload.task_work) ? payload.task_work as Record<string, unknown>[] : [];
+    const entries = Array.isArray(payload.task_work)
+      ? (payload.task_work as Record<string, unknown>[])
+      : [];
     if (!entries.length) throw new Error("task_workがありません。");
     return {
-      candidates: entries.map((entry) => ({ type: "task_work", entry, action: "create", issues: [] })),
-      payloadIssues: ["Work Receiptの採用はTask本文を変更せず、typed work commandとして適用します。"],
+      candidates: entries.map((entry) => ({
+        type: "task_work",
+        entry,
+        action: "create",
+        issues: [],
+      })),
+      payloadIssues: [
+        "Work Receiptの採用はTask本文を変更せず、typed work commandとして適用します。",
+      ],
     };
   }
   if (payloadType === "repository_contexts") {
-    const entries = Array.isArray(payload.repository_contexts) ? payload.repository_contexts as Record<string, unknown>[] : [];
+    const entries = Array.isArray(payload.repository_contexts)
+      ? (payload.repository_contexts as Record<string, unknown>[])
+      : [];
     if (!entries.length) throw new Error("repository_contextsがありません。");
     const contexts = (props.data.repository_contexts || []) as BaseRecord[];
     return {
@@ -93,28 +152,38 @@ export function buildPreview(proposal: BaseRecord, props: Pick<PageProps, "data"
           issues: candidate.issues,
         };
       }),
-      payloadIssues: ["RepositoryContextはcredential-free normalized projectionを確認してから保存します。local pathはAI Proposalへ公開しません。"],
+      payloadIssues: [
+        "RepositoryContextはcredential-free normalized projectionを確認してから保存します。local pathはAI Proposalへ公開しません。",
+      ],
     };
   }
   if (payloadType === "agent_sessions") {
-    const entries = Array.isArray(payload.agent_sessions) ? payload.agent_sessions as Record<string, unknown>[] : [];
+    const entries = Array.isArray(payload.agent_sessions)
+      ? (payload.agent_sessions as Record<string, unknown>[])
+      : [];
     if (!entries.length) throw new Error("agent_sessions がありません。");
     const sessions = (props.data.agent_sessions || []) as BaseRecord[];
     const candidates = entries.flatMap((entry) => {
-      const session = entry.session && typeof entry.session === "object" && !Array.isArray(entry.session)
-        ? entry.session as Record<string, unknown>
-        : null;
+      const session =
+        entry.session && typeof entry.session === "object" && !Array.isArray(entry.session)
+          ? (entry.session as Record<string, unknown>)
+          : null;
       if (!session || !str(session.id)) throw new Error("Agent Session 本体がありません。");
       const action = str(entry.action);
       const duplicate = sessions.find((candidate) => candidate.id === session.id);
-      const references = Array.isArray(entry.references) ? entry.references as Record<string, unknown>[] : [];
+      const references = Array.isArray(entry.references)
+        ? (entry.references as Record<string, unknown>[])
+        : [];
       return [
         {
           type: "agent_session" as const,
           entry: session,
           duplicate,
           action: action === "finish" ? "merge" : "create",
-          issues: action === "finish" && !duplicate ? ["終了対象の Agent Session が見つかりません。"] : [],
+          issues:
+            action === "finish" && !duplicate
+              ? ["終了対象の Agent Session が見つかりません。"]
+              : [],
         },
         ...references.map((reference) => ({
           type: "reference" as const,
@@ -126,11 +195,15 @@ export function buildPreview(proposal: BaseRecord, props: Pick<PageProps, "data"
     });
     return {
       candidates,
-      payloadIssues: ["Agent Session は確認後に保存します。終了時も開始時の意図とクライアント情報は変更しません。"],
+      payloadIssues: [
+        "Agent Session は確認後に保存します。終了時も開始時の意図とクライアント情報は変更しません。",
+      ],
     };
   }
   if (payloadType === "sketches" || payloadType === "artifacts") {
-    const entries = Array.isArray(payload[payloadType]) ? payload[payloadType] as Record<string, unknown>[] : [];
+    const entries = Array.isArray(payload[payloadType])
+      ? (payload[payloadType] as Record<string, unknown>[])
+      : [];
     if (!entries.length) throw new Error(`${payloadType}がありません。`);
     return {
       candidates: entries.map((entry) => {
@@ -140,11 +213,15 @@ export function buildPreview(proposal: BaseRecord, props: Pick<PageProps, "data"
         return {
           type: payloadType === "sketches" ? "sketch" : "artifact",
           entry,
-          theme: props.themes.find((theme) => theme.id === themeName || str(theme.name) === themeName),
+          theme: props.themes.find(
+            (theme) => theme.id === themeName || str(theme.name) === themeName,
+          ),
           action: "create",
-          issues: themeName && !props.themes.some((theme) => theme.id === themeName || str(theme.name) === themeName)
-            ? ["Themeを解決できないため未設定で保存します"]
-            : [],
+          issues:
+            themeName &&
+            !props.themes.some((theme) => theme.id === themeName || str(theme.name) === themeName)
+              ? ["Themeを解決できないため未設定で保存します"]
+              : [],
         };
       }),
       payloadIssues: [],
@@ -159,7 +236,9 @@ export function buildPreview(proposal: BaseRecord, props: Pick<PageProps, "data"
   }) as ProposalPreview;
   preview.candidates = preview.candidates.map((candidate) => {
     const hunks = noteDiffHunks(candidate);
-    return hunks.length ? { ...candidate, acceptedHunks: hunks.map((_, index) => index) } : candidate;
+    return hunks.length
+      ? { ...candidate, acceptedHunks: hunks.map((_, index) => index) }
+      : candidate;
   });
   return preview;
 }
@@ -172,11 +251,18 @@ function noteDiffHunks(candidate: ProposalCandidate) {
   );
 }
 
-export function stabilizeProposalOperations(proposalId: string, operations: SaveOperation[], stableIndexes?: number[]): SaveOperation[] {
+export function stabilizeProposalOperations(
+  proposalId: string,
+  operations: SaveOperation[],
+  stableIndexes?: number[],
+): SaveOperation[] {
   const createdIdMap = new Map<string, string>();
   operations.forEach((operation, index) => {
     if (!Number.isInteger(operation.entity.version)) {
-      createdIdMap.set(operation.entity.id, stableProposalEntityId(proposalId, operation.type, stableIndexes?.[index] ?? index));
+      createdIdMap.set(
+        operation.entity.id,
+        stableProposalEntityId(proposalId, operation.type, stableIndexes?.[index] ?? index),
+      );
     }
   });
   return operations.map((operation) => ({
@@ -184,13 +270,16 @@ export function stabilizeProposalOperations(proposalId: string, operations: Save
     entity: {
       ...operation.entity,
       id: createdIdMap.get(operation.entity.id) || operation.entity.id,
-      ...(typeof operation.entity.owner_id === "string" && createdIdMap.has(operation.entity.owner_id)
+      ...(typeof operation.entity.owner_id === "string" &&
+      createdIdMap.has(operation.entity.owner_id)
         ? { owner_id: createdIdMap.get(operation.entity.owner_id) }
         : {}),
-      ...(typeof operation.entity.source_node_id === "string" && createdIdMap.has(operation.entity.source_node_id)
+      ...(typeof operation.entity.source_node_id === "string" &&
+      createdIdMap.has(operation.entity.source_node_id)
         ? { source_node_id: createdIdMap.get(operation.entity.source_node_id) }
         : {}),
-      ...(typeof operation.entity.target_node_id === "string" && createdIdMap.has(operation.entity.target_node_id)
+      ...(typeof operation.entity.target_node_id === "string" &&
+      createdIdMap.has(operation.entity.target_node_id)
         ? { target_node_id: createdIdMap.get(operation.entity.target_node_id) }
         : {}),
     },
@@ -201,19 +290,25 @@ export function buildContentProposalDecisions(preview: ProposalPreview, forceIgn
   return preview.candidates.map((candidate, entryIndex) => ({
     entryIndex,
     type: candidate.type as "note" | "knowledge_node" | "knowledge_edge" | "artifact" | "sketch",
-    action: forceIgnore || candidate.action === "ignore" ? "ignore" as const : "accept" as const,
+    action:
+      forceIgnore || candidate.action === "ignore" ? ("ignore" as const) : ("accept" as const),
     ...(candidate.type === "note" && candidate.duplicate
       ? {
-        acceptedHunks: [...(candidate.acceptedHunks || [])],
-        beforeSignature: markdownSignature(str(candidate.duplicate.body_markdown)),
-      }
+          acceptedHunks: [...(candidate.acceptedHunks || [])],
+          beforeSignature: markdownSignature(str(candidate.duplicate.body_markdown)),
+        }
       : {}),
   }));
 }
 
-export function buildCandidateOperations(candidates: ProposalCandidate[], repositoryContexts: BaseRecord[] = []): SaveOperation[] {
+export function buildCandidateOperations(
+  candidates: ProposalCandidate[],
+  repositoryContexts: BaseRecord[] = [],
+): SaveOperation[] {
   const operations: SaveOperation[] = [];
-  for (const candidate of candidates.filter((entry) => entry.type === "agent_session" || entry.type === "reference")) {
+  for (const candidate of candidates.filter(
+    (entry) => entry.type === "agent_session" || entry.type === "reference",
+  )) {
     if (candidate.action === "ignore") continue;
     operations.push({
       action: "save",
@@ -228,14 +323,17 @@ export function buildCandidateOperations(candidates: ProposalCandidate[], reposi
       ...entry,
       action: entry.action as "create" | "merge" | "ignore",
     }));
-  operations.push(...buildRepositoryContextProposalOperations(
-    repositoryCandidates,
-    repositoryContexts,
-  ) as SaveOperation[]);
+  operations.push(
+    ...(buildRepositoryContextProposalOperations(
+      repositoryCandidates,
+      repositoryContexts,
+    ) as SaveOperation[]),
+  );
   const acceptedKnowledgeNodeIds = new Map<string, string>();
   for (const candidate of candidates.filter((entry) => entry.type === "knowledge_node")) {
     if (candidate.action === "ignore") continue;
-    const base: Record<string, unknown> = candidate.action === "merge" && candidate.duplicate ? candidate.duplicate : {};
+    const base: Record<string, unknown> =
+      candidate.action === "merge" && candidate.duplicate ? candidate.duplicate : {};
     const entry = candidate.entry;
     const id = str(base.id) || uuid();
     if (str(entry.temp_id)) acceptedKnowledgeNodeIds.set(str(entry.temp_id), id);
@@ -258,9 +356,16 @@ export function buildCandidateOperations(candidates: ProposalCandidate[], reposi
       options: { source: "imported" },
     });
   }
-  for (const candidate of candidates.filter((entry) => entry.type !== "knowledge_node" && entry.type !== "repository_context" && entry.type !== "agent_session" && entry.type !== "reference")) {
+  for (const candidate of candidates.filter(
+    (entry) =>
+      entry.type !== "knowledge_node" &&
+      entry.type !== "repository_context" &&
+      entry.type !== "agent_session" &&
+      entry.type !== "reference",
+  )) {
     if (candidate.action === "ignore") continue;
-    const base: Record<string, unknown> = candidate.action === "merge" && candidate.duplicate ? candidate.duplicate : {};
+    const base: Record<string, unknown> =
+      candidate.action === "merge" && candidate.duplicate ? candidate.duplicate : {};
     const entry = candidate.entry;
     if (candidate.type === "item") {
       const kind = str(entry.kind) || str(base.kind) || "task";
@@ -301,7 +406,12 @@ export function buildCandidateOperations(candidates: ProposalCandidate[], reposi
       const startDate = str(entry.planned_start) || null;
       const endDate = str(entry.planned_end) || null;
       if (startDate || endDate) {
-        const ownerType: ScheduleOwnerType = kind === "waiting" ? "waiting" : kind === "milestone" || kind === "period" ? "plan_node" : "task";
+        const ownerType: ScheduleOwnerType =
+          kind === "waiting"
+            ? "waiting"
+            : kind === "milestone" || kind === "period"
+              ? "plan_node"
+              : "task";
         const schedule: Schedule = {
           id: uuid(),
           owner_type: ownerType,
@@ -316,11 +426,14 @@ export function buildCandidateOperations(candidates: ProposalCandidate[], reposi
       }
     } else if (candidate.type === "note") {
       const proposedBody = str(entry.body_markdown) || str(entry.body);
-      const acceptedBody = candidate.action === "merge"
-        && candidate.duplicate
-        && candidate.acceptedHunks
-        ? applyMarkdownDiffHunks(str(candidate.duplicate.body_markdown), proposedBody, candidate.acceptedHunks)
-        : proposedBody;
+      const acceptedBody =
+        candidate.action === "merge" && candidate.duplicate && candidate.acceptedHunks
+          ? applyMarkdownDiffHunks(
+              str(candidate.duplicate.body_markdown),
+              proposedBody,
+              candidate.acceptedHunks,
+            )
+          : proposedBody;
       operations.push({
         action: "save",
         type: "note",
@@ -363,30 +476,36 @@ export function buildCandidateOperations(candidates: ProposalCandidate[], reposi
           document: {
             schema_version: 1,
             mode: "page",
-            pages: [{
-              id: uuid(),
-              title: "1",
-              width: 1200,
-              height: 850,
-              background: "dot",
-              objects: [{
+            pages: [
+              {
                 id: uuid(),
-                type: "image",
-                color: "#000000",
-                x: 40,
-                y: 40,
-                w: 1120,
-                h: 770,
-                data_url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
-              }],
-            }],
+                title: "1",
+                width: 1200,
+                height: 850,
+                background: "dot",
+                objects: [
+                  {
+                    id: uuid(),
+                    type: "image",
+                    color: "#000000",
+                    x: 40,
+                    y: 40,
+                    w: 1120,
+                    h: 770,
+                    data_url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+                  },
+                ],
+              },
+            ],
           },
         },
         options: { source: "ai_proposal" },
       });
     } else if (candidate.type === "knowledge_edge") {
-      const sourceNodeId = str(entry.source_node_id) || acceptedKnowledgeNodeIds.get(str(entry.source_temp_id)) || "";
-      const targetNodeId = str(entry.target_node_id) || acceptedKnowledgeNodeIds.get(str(entry.target_temp_id)) || "";
+      const sourceNodeId =
+        str(entry.source_node_id) || acceptedKnowledgeNodeIds.get(str(entry.source_temp_id)) || "";
+      const targetNodeId =
+        str(entry.target_node_id) || acceptedKnowledgeNodeIds.get(str(entry.target_temp_id)) || "";
       if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) continue;
       operations.push({
         action: "save",
@@ -412,10 +531,25 @@ export function AiProposalPanel(props: PageProps) {
   const [preview, setPreview] = useState<ProposalPreview | null>(null);
   const [quarantineId, setQuarantineId] = useState("");
   const [quarantineReason, setQuarantineReason] = useState("");
-  const proposals = useMemo(() => (data.ai_proposals || []).filter((proposal) => str(proposal.status) === "pending"), [data.ai_proposals]);
-  const history = useMemo(() => (data.ai_proposals || [])
-    .filter((proposal) => str(proposal.status) !== "pending")
-    .sort((a, b) => proposalTimestamp(b).localeCompare(proposalTimestamp(a))), [data.ai_proposals]);
+  const passiveSessionProposals = useMemo(
+    () => (data.ai_proposals || []).filter((proposal) => isPassiveAgentSessionProposal(proposal)),
+    [data.ai_proposals],
+  );
+  const proposals = useMemo(
+    () =>
+      (data.ai_proposals || []).filter(
+        (proposal) =>
+          str(proposal.status) === "pending" && !isPassiveAgentSessionProposal(proposal),
+      ),
+    [data.ai_proposals],
+  );
+  const history = useMemo(
+    () =>
+      (data.ai_proposals || [])
+        .filter((proposal) => str(proposal.status) !== "pending")
+        .sort((a, b) => proposalTimestamp(b).localeCompare(proposalTimestamp(a))),
+    [data.ai_proposals],
+  );
   const selected = proposals.find((proposal) => proposal.id === selectedId) || proposals[0] || null;
 
   function previewProposal(proposal: BaseRecord) {
@@ -423,7 +557,9 @@ export function AiProposalPanel(props: PageProps) {
       setSelectedId(proposal.id);
       setPreview(buildPreview(proposal, { data, themes, items }));
     } catch (error) {
-      setToast(`Proposalを解析できませんでした。${error instanceof Error ? error.message : String(error)}`);
+      setToast(
+        `Proposalを解析できませんでした。${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -435,7 +571,9 @@ export function AiProposalPanel(props: PageProps) {
         payload: { proposalId: proposal.id, decision: "reject" },
         actor: { kind: "user" },
         source: "main_ui",
-        expectedVersions: [{ type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) }],
+        expectedVersions: [
+          { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
+        ],
         issuedAt: new Date().toISOString(),
       } as CommandEnvelope);
       setToast("Work proposalを却下しました。", "success");
@@ -444,8 +582,12 @@ export function AiProposalPanel(props: PageProps) {
     }
     try {
       const rejectedPreview = buildPreview(proposal, { data, themes, items });
-      const isContentProposal = ["notes", "knowledge_nodes", "sketches", "artifacts"].includes(str(proposal.payload_type));
-      const decisions = isContentProposal ? buildContentProposalDecisions(rejectedPreview, true) : undefined;
+      const isContentProposal = ["notes", "knowledge_nodes", "sketches", "artifacts"].includes(
+        str(proposal.payload_type),
+      );
+      const decisions = isContentProposal
+        ? buildContentProposalDecisions(rejectedPreview, true)
+        : undefined;
       await executeCommand({
         commandId: `${proposal.id}:accept:v${Number(proposal.version || 0)}`,
         name: "ApplyAiProposal",
@@ -456,13 +598,19 @@ export function AiProposalPanel(props: PageProps) {
         },
         actor: { kind: "user" },
         source: "main_ui",
-        expectedVersions: [{ type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) }],
-        issuedAt: str(proposal.received_at || proposal.created_at || proposal.updated_at) || new Date(0).toISOString(),
+        expectedVersions: [
+          { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
+        ],
+        issuedAt:
+          str(proposal.received_at || proposal.created_at || proposal.updated_at) ||
+          new Date(0).toISOString(),
       } as CommandEnvelope);
       setToast("Proposalを却下しました。", "success");
       setPreview(null);
     } catch (error) {
-      setToast(`Proposalを却下できませんでした。${error instanceof Error ? error.message : String(error)}`);
+      setToast(
+        `Proposalを却下できませんでした。${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -472,11 +620,16 @@ export function AiProposalPanel(props: PageProps) {
       setToast("隔離理由を入力してください。", "warning");
       return;
     }
-    await saveEntities([{
-      action: "save",
-      type: "ai_proposal",
-      entity: { ...proposal, status: "quarantined", quarantine_reason: reason },
-    }], "Proposalを隔離しました。");
+    await saveEntities(
+      [
+        {
+          action: "save",
+          type: "ai_proposal",
+          entity: { ...proposal, status: "quarantined", quarantine_reason: reason },
+        },
+      ],
+      "Proposalを隔離しました。",
+    );
     setQuarantineId("");
     setQuarantineReason("");
     setPreview(null);
@@ -494,15 +647,24 @@ export function AiProposalPanel(props: PageProps) {
           await rejectProposal(proposal);
           return;
         }
-        if (preview.candidates.filter((entry) => entry.action !== "ignore").length !== 1) throw new Error("Work proposalは1件ずつ採用してください。");
+        if (preview.candidates.filter((entry) => entry.action !== "ignore").length !== 1)
+          throw new Error("Work proposalは1件ずつ採用してください。");
         const taskId = str(candidate.entry.task_id);
         const task = domain.tasks.find((entry) => entry.id === taskId);
         if (!task) throw new Error("対象Taskが見つかりません。Taskを再読み込みしてください。");
         const currentVersion = Number((task as unknown as BaseRecord).version || 0);
         const proposalExpectedVersion = Number(candidate.entry.expected_version);
-        if (!Number.isInteger(proposalExpectedVersion) || proposalExpectedVersion < 0) throw new Error("Work proposalにexpected_versionがありません。再取得してから報告してください。");
-        if (proposalExpectedVersion !== currentVersion) throw new Error(`Taskが更新されています（proposal: ${proposalExpectedVersion} / current: ${currentVersion}）。contextを再取得して報告し直してください。`);
-        const expectedVersions = [{ type: taskEntityType, id: task.id, version: proposalExpectedVersion }];
+        if (!Number.isInteger(proposalExpectedVersion) || proposalExpectedVersion < 0)
+          throw new Error(
+            "Work proposalにexpected_versionがありません。再取得してから報告してください。",
+          );
+        if (proposalExpectedVersion !== currentVersion)
+          throw new Error(
+            `Taskが更新されています（proposal: ${proposalExpectedVersion} / current: ${currentVersion}）。contextを再取得して報告し直してください。`,
+          );
+        const expectedVersions = [
+          { type: taskEntityType, id: task.id, version: proposalExpectedVersion },
+        ];
         await executeCommand({
           commandId: `${proposal.id}:accept`,
           name: "ApplyTaskWorkProposal",
@@ -518,36 +680,59 @@ export function AiProposalPanel(props: PageProps) {
         setToast("Work proposalを採用しました。Task本文は変更していません。", "success");
         setPreview(null);
       } catch (error) {
-        setToast(`Work proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`);
+        setToast(
+          `Work proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        );
       }
       return;
     }
     try {
       preview.candidates
-        .filter((candidate) => candidate.type !== "sketch" && candidate.type !== "artifact" && candidate.type !== "repository_context" && candidate.type !== "agent_session" && candidate.type !== "reference")
+        .filter(
+          (candidate) =>
+            candidate.type !== "sketch" &&
+            candidate.type !== "artifact" &&
+            candidate.type !== "repository_context" &&
+            candidate.type !== "agent_session" &&
+            candidate.type !== "reference",
+        )
         .forEach(assertImportCandidateSavable);
       preview.candidates
         .filter((candidate) => candidate.type === "repository_context")
         .forEach((candidate) => {
           if (candidate.action !== "ignore" && candidate.issues.length) {
-            throw new Error(`確認事項が残っているRepositoryContext候補があります: ${candidate.issues.join(" / ")}`);
+            throw new Error(
+              `確認事項が残っているRepositoryContext候補があります: ${candidate.issues.join(" / ")}`,
+            );
           }
         });
       const accepted = preview.candidates.filter((candidate) => candidate.action !== "ignore");
-      const isContentProposal = ["notes", "knowledge_nodes", "sketches", "artifacts"].includes(str(proposal.payload_type));
+      const isContentProposal = ["notes", "knowledge_nodes", "sketches", "artifacts"].includes(
+        str(proposal.payload_type),
+      );
       const decisions = isContentProposal ? buildContentProposalDecisions(preview) : undefined;
-      const rawOperations = buildCandidateOperations(preview.candidates, (data.repository_contexts || []) as BaseRecord[]);
+      const rawOperations = buildCandidateOperations(
+        preview.candidates,
+        (data.repository_contexts || []) as BaseRecord[],
+      );
       let acceptedCursor = 0;
       const acceptedDecisions = decisions?.filter((decision) => decision.action === "accept") || [];
       const operationIndexes = rawOperations.map((operation) => {
-        const matched = acceptedDecisions.slice(acceptedCursor).findIndex((decision) => decision.type === operation.type);
+        const matched = acceptedDecisions
+          .slice(acceptedCursor)
+          .findIndex((decision) => decision.type === operation.type);
         if (matched < 0) return acceptedCursor++;
         acceptedCursor += matched + 1;
         return acceptedDecisions[acceptedCursor - 1].entryIndex;
       });
-      const operations = str(proposal.payload_type) === "agent_sessions"
-        ? rawOperations
-        : stabilizeProposalOperations(proposal.id, rawOperations, isContentProposal ? operationIndexes : undefined);
+      const operations =
+        str(proposal.payload_type) === "agent_sessions"
+          ? rawOperations
+          : stabilizeProposalOperations(
+              proposal.id,
+              rawOperations,
+              isContentProposal ? operationIndexes : undefined,
+            );
       for (const candidate of accepted.filter((entry) => entry.type === "artifact")) {
         const normalized = validateArtifactProposal(candidate.entry);
         const entryIndex = preview.candidates.indexOf(candidate);
@@ -570,9 +755,17 @@ export function AiProposalPanel(props: PageProps) {
           options: { source: "ai_proposal" },
         });
       }
-      const status = accepted.length && accepted.length < preview.candidates.length ? "partially_accepted" : accepted.length ? "accepted" : "rejected";
-      const contentDecision = status === "rejected" ? "reject" as const : "accept" as const;
-      const candidates = operations.map((operation) => ({ type: operation.type, entity: operation.entity }));
+      const status =
+        accepted.length && accepted.length < preview.candidates.length
+          ? "partially_accepted"
+          : accepted.length
+            ? "accepted"
+            : "rejected";
+      const contentDecision = status === "rejected" ? ("reject" as const) : ("accept" as const);
+      const candidates = operations.map((operation) => ({
+        type: operation.type,
+        entity: operation.entity,
+      }));
       await executeCommand({
         commandId: `${proposal.id}:accept:v${Number(proposal.version || 0)}`,
         name: "ApplyAiProposal",
@@ -585,16 +778,25 @@ export function AiProposalPanel(props: PageProps) {
         source: "main_ui",
         expectedVersions: [
           { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
-          ...candidates.flatMap(({ type, entity }) => Number.isInteger(entity.version)
-            ? [{ type, id: entity.id, version: Number(entity.version) }]
-            : []),
+          ...candidates.flatMap(({ type, entity }) =>
+            Number.isInteger(entity.version)
+              ? [{ type, id: entity.id, version: Number(entity.version) }]
+              : [],
+          ),
         ],
-        issuedAt: str(proposal.received_at || proposal.created_at || proposal.updated_at) || new Date(0).toISOString(),
+        issuedAt:
+          str(proposal.received_at || proposal.created_at || proposal.updated_at) ||
+          new Date(0).toISOString(),
       } as CommandEnvelope);
-      setToast(status === "rejected" ? "Proposalを却下しました。" : "Proposalを採用しました。", "success");
+      setToast(
+        status === "rejected" ? "Proposalを却下しました。" : "Proposalを採用しました。",
+        "success",
+      );
       setPreview(null);
     } catch (error) {
-      setToast(`Proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`);
+      setToast(
+        `Proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -620,40 +822,122 @@ export function AiProposalPanel(props: PageProps) {
                 <ProposalRisk proposal={proposal} />
               </div>
               <dl className="proposal-meta-list">
-                <div><dt>Source</dt><dd>{proposalSourceLabel(proposal)}</dd></div>
-                <div><dt>Target</dt><dd>{proposalTargetLabel(proposal)}</dd></div>
-                <div><dt>Diff</dt><dd>{proposalDiffLabel(proposal)}</dd></div>
-                <div><dt>受信</dt><dd>{formatProposalDate(proposal)}</dd></div>
+                <div>
+                  <dt>Source</dt>
+                  <dd>{proposalSourceLabel(proposal)}</dd>
+                </div>
+                <div>
+                  <dt>Target</dt>
+                  <dd>{proposalTargetLabel(proposal)}</dd>
+                </div>
+                <div>
+                  <dt>Diff</dt>
+                  <dd>{proposalDiffLabel(proposal)}</dd>
+                </div>
+                <div>
+                  <dt>受信</dt>
+                  <dd>{formatProposalDate(proposal)}</dd>
+                </div>
               </dl>
-              <p className="proposal-validation-hint"><IconAlertTriangle size={14} aria-hidden="true" />検証・差分・採用範囲はPreviewで確認できます。</p>
+              <p className="proposal-validation-hint">
+                <IconAlertTriangle size={14} aria-hidden="true" />
+                検証・差分・採用範囲はPreviewで確認できます。
+              </p>
             </div>
             <div className="proposal-row-actions">
-              <ActionButton action="aiProposalPreview" compact onClick={() => previewProposal(proposal)}>Preview</ActionButton>
-              <ActionButton action="actionReject" compact onClick={() => rejectProposal(proposal)}>拒否する</ActionButton>
-              <Button variant="secondary" compact onClick={() => { setQuarantineId(proposal.id); setQuarantineReason(""); }}>隔離する</Button>
+              <ActionButton
+                action="aiProposalPreview"
+                compact
+                onClick={() => previewProposal(proposal)}
+              >
+                Preview
+              </ActionButton>
+              <ActionButton action="actionReject" compact onClick={() => rejectProposal(proposal)}>
+                拒否する
+              </ActionButton>
+              <Button
+                variant="secondary"
+                compact
+                onClick={() => {
+                  setQuarantineId(proposal.id);
+                  setQuarantineReason("");
+                }}
+              >
+                隔離する
+              </Button>
             </div>
             {quarantineId === proposal.id && (
               <div className="proposal-quarantine-form">
                 <label>
                   <span>隔離理由</span>
-                  <input value={quarantineReason} onChange={(event) => setQuarantineReason(event.target.value)} placeholder="例: 対象Themeを確認してから扱う" autoFocus />
+                  <input
+                    value={quarantineReason}
+                    onChange={(event) => setQuarantineReason(event.target.value)}
+                    placeholder="例: 対象Themeを確認してから扱う"
+                    autoFocus
+                  />
                 </label>
-                <Button variant="secondary" compact onClick={() => void quarantineProposal(proposal)}>隔離を保存</Button>
-                <Button variant="ghost" compact onClick={() => setQuarantineId("")}>戻る</Button>
+                <Button
+                  variant="secondary"
+                  compact
+                  onClick={() => void quarantineProposal(proposal)}
+                >
+                  隔離を保存
+                </Button>
+                <Button variant="ghost" compact onClick={() => setQuarantineId("")}>
+                  戻る
+                </Button>
               </div>
             )}
           </div>
         ))}
       </section>
+      {passiveSessionProposals.length > 0 && (
+        <details className="panel proposal-history session-observation-history">
+          <summary>
+            <span>
+              <IconHistory size={16} aria-hidden="true" />
+              Session observations
+            </span>
+            <strong>{passiveSessionProposals.length}件</strong>
+          </summary>
+          <p className="proposal-preview-context">
+            hookが集めた作業記録です。通知対象にはせず、Tasken
+            Debriefの保存時にまとめて確認・正式化します。
+          </p>
+          <div className="proposal-history-list">
+            {passiveSessionProposals.map((proposal) => (
+              <div className="proposal-history-row" key={proposal.id}>
+                <div>
+                  <strong>{proposalTargetLabel(proposal)}</strong>
+                  <small>
+                    {proposalSourceLabel(proposal)} / {formatProposalDate(proposal)}
+                  </small>
+                </div>
+                <span className="proposal-status proposal-status-pending">Debrief待ち</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
       {history.length > 0 && (
         <details className="panel proposal-history">
-          <summary><span><IconHistory size={16} aria-hidden="true" />処理履歴</span><strong>{history.length}件</strong></summary>
+          <summary>
+            <span>
+              <IconHistory size={16} aria-hidden="true" />
+              処理履歴
+            </span>
+            <strong>{history.length}件</strong>
+          </summary>
           <div className="proposal-history-list">
             {history.map((proposal) => (
               <div className="proposal-history-row" key={proposal.id}>
                 <div>
                   <strong>{proposalTypeLabel(proposal)}</strong>
-                  <small>{proposalSourceLabel(proposal)} / {proposalTargetLabel(proposal)} / {formatProposalDate(proposal)}</small>
+                  <small>
+                    {proposalSourceLabel(proposal)} / {proposalTargetLabel(proposal)} /{" "}
+                    {formatProposalDate(proposal)}
+                  </small>
                 </div>
                 <span className={`proposal-status proposal-status-${str(proposal.status)}`}>
                   {proposalStatusLabel(proposal)}
@@ -668,42 +952,86 @@ export function AiProposalPanel(props: PageProps) {
         <section className="panel import-preview proposal-preview-panel">
           <div className="section-heading">
             <h2>Proposal Preview</h2>
-            <span>{preview.candidates.length}件 / {proposalSourceLabel(selected)}</span>
+            <span>
+              {preview.candidates.length}件 / {proposalSourceLabel(selected)}
+            </span>
           </div>
-          <p className="proposal-preview-context">Target: {proposalTargetLabel(selected)} · {proposalDiffLabel(selected)}</p>
-          {preview.payloadIssues.length > 0 && <p className="alert-note warning">注意: {preview.payloadIssues.join(" / ")}</p>}
+          <p className="proposal-preview-context">
+            Target: {proposalTargetLabel(selected)} · {proposalDiffLabel(selected)}
+          </p>
+          {preview.payloadIssues.length > 0 && (
+            <p className="alert-note warning">注意: {preview.payloadIssues.join(" / ")}</p>
+          )}
           {preview.candidates.map((candidate, index) => (
-            <div className={`import-candidate${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`} key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}>
+            <div
+              className={`import-candidate${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`}
+              key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}
+            >
               <div>
                 <strong>{candidateTitle(candidate)}</strong>
-                <small>{candidate.type === "task_work"
-                  ? `Task ${str(candidate.entry.task_id)} / ${str(candidate.entry.action)}`
-                  : candidate.type === "repository_context"
-                    ? `RepositoryContext / ${str(candidate.entry.provider) || "unknown"} / ${str(candidate.entry.canonical_identity) || "identity unavailable"} / credential-free normalized`
-                    : `${candidate.type} / ${candidate.theme?.name || "Theme未解決"}`}{candidate.duplicate ? ` / 既存候補: ${str(candidate.duplicate.title || candidate.duplicate.label)}` : ""}</small>
-                {candidate.issues.length > 0 && <p className="field-help">確認: {candidate.issues.join(" / ")}</p>}
+                <small>
+                  {candidate.type === "task_work"
+                    ? `Task ${str(candidate.entry.task_id)} / ${str(candidate.entry.action)}`
+                    : candidate.type === "repository_context"
+                      ? `RepositoryContext / ${str(candidate.entry.provider) || "unknown"} / ${str(candidate.entry.canonical_identity) || "identity unavailable"} / credential-free normalized`
+                      : `${candidate.type} / ${candidate.theme?.name || "Theme未解決"}`}
+                  {candidate.duplicate
+                    ? ` / 既存候補: ${str(candidate.duplicate.title || candidate.duplicate.label)}`
+                    : ""}
+                </small>
+                {candidate.issues.length > 0 && (
+                  <p className="field-help">確認: {candidate.issues.join(" / ")}</p>
+                )}
                 {candidate.type === "agent_session" && (
                   <div className="proposal-agent-session-details">
-                    <span><b>Outcome</b>{nestedSummary(candidate.entry, "outcome") || "未記録"}</span>
-                    <span><b>Status</b>{str(candidate.entry.status)} · {str(candidate.entry.client_kind)}{str(candidate.entry.model_label) ? ` / ${str(candidate.entry.model_label)}` : ""}</span>
+                    <span>
+                      <b>Outcome</b>
+                      {nestedSummary(candidate.entry, "outcome") || "未記録"}
+                    </span>
+                    <span>
+                      <b>Status</b>
+                      {str(candidate.entry.status)} · {str(candidate.entry.client_kind)}
+                      {str(candidate.entry.model_label)
+                        ? ` / ${str(candidate.entry.model_label)}`
+                        : ""}
+                    </span>
                   </div>
                 )}
               </div>
-              <select value={candidate.action} onChange={(event) => setPreview((current) => current ? { ...current, candidates: current.candidates.map((entry, itemIndex) => itemIndex === index ? { ...entry, action: event.target.value } : entry) } : current)}>
+              <select
+                value={candidate.action}
+                onChange={(event) =>
+                  setPreview((current) =>
+                    current
+                      ? {
+                          ...current,
+                          candidates: current.candidates.map((entry, itemIndex) =>
+                            itemIndex === index ? { ...entry, action: event.target.value } : entry,
+                          ),
+                        }
+                      : current,
+                  )
+                }
+              >
                 <option value="create">新規作成</option>
                 {candidate.duplicate && <option value="merge">既存を更新</option>}
                 <option value="ignore">無視</option>
               </select>
-              {(candidate.type === "sketch" || (candidate.type === "artifact" && str(candidate.entry.media_type) === "image/svg+xml")) && (
+              {(candidate.type === "sketch" ||
+                (candidate.type === "artifact" &&
+                  str(candidate.entry.media_type) === "image/svg+xml")) && (
                 <img
                   className="proposal-svg-preview"
                   src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(validateSafeSvg(candidate.type === "sketch" ? candidate.entry.svg : candidate.entry.content))}`}
                   alt={`${str(candidate.entry.title) || "SVG"} Preview`}
                 />
               )}
-              {candidate.type === "artifact" && str(candidate.entry.media_type) !== "image/svg+xml" && (
-                <pre className="proposal-artifact-preview">{str(candidate.entry.content).slice(0, 4000)}</pre>
-              )}
+              {candidate.type === "artifact" &&
+                str(candidate.entry.media_type) !== "image/svg+xml" && (
+                  <pre className="proposal-artifact-preview">
+                    {str(candidate.entry.content).slice(0, 4000)}
+                  </pre>
+                )}
               {noteDiffHunks(candidate).length > 0 && (
                 <div className="proposal-note-diff" aria-label="Note変更差分">
                   {noteDiffHunks(candidate).map((hunk, hunkIndex) => (
@@ -712,19 +1040,40 @@ export function AiProposalPanel(props: PageProps) {
                         <input
                           type="checkbox"
                           checked={(candidate.acceptedHunks || []).includes(hunkIndex)}
-                          onChange={(event) => setPreview((current) => current ? {
-                            ...current,
-                            candidates: current.candidates.map((entry, itemIndex) => itemIndex === index ? {
-                              ...entry,
-                              acceptedHunks: event.target.checked
-                                ? [...(entry.acceptedHunks || []), hunkIndex].sort((a, b) => a - b)
-                                : (entry.acceptedHunks || []).filter((value) => value !== hunkIndex),
-                            } : entry),
-                          } : current)}
+                          onChange={(event) =>
+                            setPreview((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    candidates: current.candidates.map((entry, itemIndex) =>
+                                      itemIndex === index
+                                        ? {
+                                            ...entry,
+                                            acceptedHunks: event.target.checked
+                                              ? [...(entry.acceptedHunks || []), hunkIndex].sort(
+                                                  (a, b) => a - b,
+                                                )
+                                              : (entry.acceptedHunks || []).filter(
+                                                  (value) => value !== hunkIndex,
+                                                ),
+                                          }
+                                        : entry,
+                                    ),
+                                  }
+                                : current,
+                            )
+                          }
                         />
                         この変更を採用
                       </span>
-                      <pre>{hunk.lines.map((line) => `${line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "} ${line.text}`).join("\n")}</pre>
+                      <pre>
+                        {hunk.lines
+                          .map(
+                            (line) =>
+                              `${line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "} ${line.text}`,
+                          )
+                          .join("\n")}
+                      </pre>
                     </label>
                   ))}
                 </div>
@@ -732,9 +1081,15 @@ export function AiProposalPanel(props: PageProps) {
             </div>
           ))}
           <div className="form-actions">
-            <ActionButton action="actionCancel" onClick={() => setPreview(null)}>閉じる</ActionButton>
-            <ActionButton action="actionReject" onClick={() => void rejectProposal(selected)}>拒否する</ActionButton>
-            <ActionButton action="aiProposalAccept" onClick={() => void acceptProposal(selected)}>採用を保存</ActionButton>
+            <ActionButton action="actionCancel" onClick={() => setPreview(null)}>
+              閉じる
+            </ActionButton>
+            <ActionButton action="actionReject" onClick={() => void rejectProposal(selected)}>
+              拒否する
+            </ActionButton>
+            <ActionButton action="aiProposalAccept" onClick={() => void acceptProposal(selected)}>
+              採用を保存
+            </ActionButton>
           </div>
         </section>
       )}
@@ -751,7 +1106,9 @@ function proposalEntries(proposal: BaseRecord): Record<string, unknown>[] {
   if (payloadType === "status_update") return [];
   try {
     const payload = wrapPayload(parsePayload(proposal.payload, payloadType), payloadType);
-    return Array.isArray(payload[payloadType]) ? payload[payloadType] as Record<string, unknown>[] : [];
+    return Array.isArray(payload[payloadType])
+      ? (payload[payloadType] as Record<string, unknown>[])
+      : [];
   } catch {
     return [];
   }
@@ -778,12 +1135,14 @@ function proposalSourceLabel(proposal: BaseRecord): string {
 }
 
 function proposalTargetLabel(proposal: BaseRecord): string {
-  const request = proposal.request && typeof proposal.request === "object" && !Array.isArray(proposal.request)
-    ? proposal.request as Record<string, unknown>
-    : {};
-  const requestTarget = request.target && typeof request.target === "object" && !Array.isArray(request.target)
-    ? request.target as Record<string, unknown>
-    : {};
+  const request =
+    proposal.request && typeof proposal.request === "object" && !Array.isArray(proposal.request)
+      ? (proposal.request as Record<string, unknown>)
+      : {};
+  const requestTarget =
+    request.target && typeof request.target === "object" && !Array.isArray(request.target)
+      ? (request.target as Record<string, unknown>)
+      : {};
   const entries = proposalEntries(proposal);
   const target = str(requestTarget.id) || str(entries[0]?.target_id);
   const targetType = str(requestTarget.type);
@@ -794,8 +1153,10 @@ function proposalTargetLabel(proposal: BaseRecord): string {
 
 function proposalDiffLabel(proposal: BaseRecord): string {
   const entries = proposalEntries(proposal);
-  if (entries.some((entry) => str(entry.action) === "merge" || str(entry.target_id))) return "既存データの更新差分";
-  if (str(proposal.payload_type) === "artifacts" || str(proposal.payload_type) === "sketches") return "ファイル内容を確認";
+  if (entries.some((entry) => str(entry.action) === "merge" || str(entry.target_id)))
+    return "既存データの更新差分";
+  if (str(proposal.payload_type) === "artifacts" || str(proposal.payload_type) === "sketches")
+    return "ファイル内容を確認";
   return entries.length ? `${entries.length}件の新規候補` : "内容を確認";
 }
 
@@ -803,12 +1164,17 @@ function formatProposalDate(proposal: BaseRecord): string {
   const timestamp = proposalTimestamp(proposal);
   if (!timestamp) return "日付なし";
   const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? timestamp.slice(0, 10) : date.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
+  return Number.isNaN(date.getTime())
+    ? timestamp.slice(0, 10)
+    : date.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
 }
 
 function proposalRisk(proposal: BaseRecord): "update" | "file" | "create" {
   const type = str(proposal.payload_type);
-  if (proposalEntries(proposal).some((entry) => str(entry.action) === "merge" || str(entry.target_id))) return "update";
+  if (
+    proposalEntries(proposal).some((entry) => str(entry.action) === "merge" || str(entry.target_id))
+  )
+    return "update";
   if (type === "artifacts" || type === "sketches") return "file";
   return "create";
 }
@@ -817,7 +1183,12 @@ function ProposalRisk({ proposal }: { proposal: BaseRecord }) {
   const risk = proposalRisk(proposal);
   const Icon = risk === "update" ? IconPencil : risk === "file" ? IconArchive : IconShieldCheck;
   const label = risk === "update" ? "既存更新" : risk === "file" ? "ファイル確認" : "新規追加";
-  return <span className={`proposal-risk proposal-risk-${risk}`}><Icon size={14} aria-hidden="true" />{label}</span>;
+  return (
+    <span className={`proposal-risk proposal-risk-${risk}`}>
+      <Icon size={14} aria-hidden="true" />
+      {label}
+    </span>
+  );
 }
 
 function proposalStatusLabel(proposal: BaseRecord): string {

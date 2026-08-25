@@ -51,6 +51,8 @@ export interface Theme extends BaseRecord {
   repository_context_ids?: string[];
   primary_repository_context_id?: string | null;
   repository_context_detachments?: Array<Record<string, unknown>>;
+  theme_charter?: import("../../../../shared/themeRef.mjs").ThemeCharter | null;
+  theme_state?: import("../../../../shared/themeRef.mjs").ThemeState | null;
 }
 
 export interface Item extends BaseRecord {

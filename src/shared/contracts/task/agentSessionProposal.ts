@@ -1,7 +1,10 @@
 import * as z from "zod/v4";
 
 const text = (max: number) => z.string().trim().min(1).max(max);
-const timestamp = text(100).refine((value) => !Number.isNaN(Date.parse(value)), "ISO 8601 timestamp が必要です。");
+const timestamp = text(100).refine(
+  (value) => !Number.isNaN(Date.parse(value)),
+  "ISO 8601 timestamp が必要です。",
+);
 const stringList = z.array(text(1000)).max(100).optional();
 const identity = {
   idempotency_key: text(200),
@@ -27,59 +30,99 @@ const clientMetadata = {
   model_label: z.string().trim().max(200).optional(),
 };
 
-const intent = z.object({
-  summary: text(4000),
-  requested_outcome: z.string().trim().max(4000).optional(),
-  boundary: z.string().trim().max(4000).optional(),
-}).strict();
+const intent = z
+  .object({
+    summary: text(4000),
+    requested_outcome: z.string().trim().max(4000).optional(),
+    boundary: z.string().trim().max(4000).optional(),
+  })
+  .strict();
 
-const outcome = z.object({
-  summary: text(8000),
-  decisions: stringList,
-  changed_items: stringList,
-  verification: stringList,
-  remaining_work: stringList,
-  next_suggested_action: z.string().trim().max(4000).optional(),
-}).strict();
+const outcome = z
+  .object({
+    summary: text(8000),
+    decisions: stringList,
+    changed_items: stringList,
+    verification: stringList,
+    remaining_work: stringList,
+    next_suggested_action: z.string().trim().max(4000).optional(),
+  })
+  .strict();
+
+const requestEvents = z
+  .array(
+    z
+      .object({
+        observed_at: timestamp,
+        text: text(4000),
+      })
+      .strict(),
+  )
+  .max(200)
+  .optional();
+
+const responseCheckpoints = z
+  .array(
+    z
+      .object({
+        observed_at: timestamp,
+        text: text(8000),
+      })
+      .strict(),
+  )
+  .max(200)
+  .optional();
 
 export const proposeAgentSessionRequestSchema = z.discriminatedUnion("action", [
-  z.object({
-    ...identity,
-    ...relationTargets,
-    action: z.literal("start"),
-    started_at: timestamp,
-    ...clientMetadata,
-    intent,
-  }).strict(),
-  z.object({
-    ...identity,
-    action: z.literal("finish"),
-    agent_session_id: z.string().uuid(),
-    expected_version: z.number().int().positive(),
-    ended_at: timestamp,
-    status: z.enum(["completed", "blocked", "abandoned"]),
-    outcome,
-  }).strict(),
-  z.object({
-    ...identity,
-    ...relationTargets,
-    action: z.literal("capture"),
-    started_at: timestamp,
-    ended_at: timestamp,
-    status: z.enum(["completed", "blocked", "abandoned"]),
-    ...clientMetadata,
-    intent,
-    outcome,
-  }).strict(),
+  z
+    .object({
+      ...identity,
+      ...relationTargets,
+      action: z.literal("start"),
+      started_at: timestamp,
+      ...clientMetadata,
+      request_events: requestEvents,
+      response_checkpoints: responseCheckpoints,
+      intent,
+    })
+    .strict(),
+  z
+    .object({
+      ...identity,
+      action: z.literal("finish"),
+      agent_session_id: z.string().uuid(),
+      expected_version: z.number().int().positive(),
+      ended_at: timestamp,
+      status: z.enum(["completed", "blocked", "abandoned"]),
+      outcome,
+    })
+    .strict(),
+  z
+    .object({
+      ...identity,
+      ...relationTargets,
+      action: z.literal("capture"),
+      started_at: timestamp,
+      ended_at: timestamp,
+      status: z.enum(["completed", "blocked", "abandoned"]),
+      ...clientMetadata,
+      request_events: requestEvents,
+      response_checkpoints: responseCheckpoints,
+      intent,
+      outcome,
+    })
+    .strict(),
 ]);
 
-export const proposeAgentSessionResponseSchema = z.object({
-  proposal_id: z.string().uuid(),
-  agent_session_id: z.string().uuid(),
-  status: z.enum(["queued", "duplicate"]),
-  payload_type: z.literal("agent_sessions"),
-  message: text(500),
-}).strict();
+export const proposeAgentSessionResponseSchema = z
+  .object({
+    proposal_id: z.string().uuid(),
+    agent_session_id: z.string().uuid(),
+    status: z.enum(["queued", "duplicate"]),
+    payload_type: z.literal("agent_sessions"),
+    message: text(500),
+  })
+  .strict();
 
 export type ProposeAgentSessionRequest = z.output<typeof proposeAgentSessionRequestSchema>;
 export type ProposeAgentSessionResponse = z.output<typeof proposeAgentSessionResponseSchema>;

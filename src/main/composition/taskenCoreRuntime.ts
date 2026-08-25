@@ -19,6 +19,7 @@ import {
   type MobileGatewayStatePort,
   type MobileGatewayTaskWorkProposalDecisionResult,
 } from "../gateway/mobile/public.ts";
+import { withWorkspaceRefresh } from "../../shared/workspaceRefresh.ts";
 import {
   TaskCapabilityService,
   type ExecuteApplicationCommand,
@@ -35,19 +36,21 @@ import {
   type ApplicationCommandPayload,
 } from "../../shared/applicationCommand.ts";
 
-type CorePersistence = AgentReadyTaskWorkspacePersistence
-  & AgentWorkspacePersistence
-  & TaskContextWorkspacePersistence
-  & ItemQueryWorkspacePersistence
-  & ContentDetailWorkspacePersistence
-  & ActivityEntriesWorkspacePersistence
-  & ThemeContextWorkspacePersistence
-  & KnowledgeWorkspacePersistence
-  & AgentContextWorkspacePersistence
-  & WorkspaceTaskPersistence
-  & AiProposalPersistence;
+type CorePersistence = AgentReadyTaskWorkspacePersistence &
+  AgentWorkspacePersistence &
+  TaskContextWorkspacePersistence &
+  ItemQueryWorkspacePersistence &
+  ContentDetailWorkspacePersistence &
+  ActivityEntriesWorkspacePersistence &
+  ThemeContextWorkspacePersistence &
+  KnowledgeWorkspacePersistence &
+  AgentContextWorkspacePersistence &
+  WorkspaceTaskPersistence &
+  AiProposalPersistence;
 
-function proposalDecisionFailure(error: ApplicationCommandError): MobileGatewayTaskWorkProposalDecisionResult {
+function proposalDecisionFailure(
+  error: ApplicationCommandError,
+): MobileGatewayTaskWorkProposalDecisionResult {
   if (error.code === "COMMAND_ID_REUSED") return { ok: false, code: "idempotency_conflict" };
   if (error.code === "NOT_FOUND") return { ok: false, code: "not_found" };
   if (error.code === "CONFLICT" || error.code === "INVALID_TRANSITION") {
@@ -71,7 +74,12 @@ export class TaskenCoreRuntime {
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
   readonly taskCapability: TaskCapabilityService;
 
-  constructor(userDataPath: string, persistence: CorePersistence, executeApplicationCommand: ExecuteApplicationCommand) {
+  constructor(
+    userDataPath: string,
+    persistence: CorePersistence,
+    executeApplicationCommand: ExecuteApplicationCommand,
+    notifyWorkspaceChanged: () => void = () => {},
+  ) {
     this.persistence = persistence;
     this.executeApplicationCommand = executeApplicationCommand;
     const core = createTaskenCore(persistence);
@@ -103,10 +111,13 @@ export class TaskenCoreRuntime {
       getActivity: core.getActivity,
       getContextSubgraph: core.getContextSubgraph,
       exportAiContext: core.exportAiContext,
-      proposeTaskWork: core.proposeTaskWork,
-      proposeAgentSession: core.proposeAgentSession,
-      proposeRepositoryTask: core.proposeRepositoryTask,
-      proposeContent: core.proposeContent,
+      proposeTaskWork: withWorkspaceRefresh(core.proposeTaskWork, notifyWorkspaceChanged),
+      proposeAgentSession: withWorkspaceRefresh(core.proposeAgentSession, notifyWorkspaceChanged),
+      proposeRepositoryTask: withWorkspaceRefresh(
+        core.proposeRepositoryTask,
+        notifyWorkspaceChanged,
+      ),
+      proposeContent: withWorkspaceRefresh(core.proposeContent, notifyWorkspaceChanged),
     });
   }
 
@@ -114,24 +125,29 @@ export class TaskenCoreRuntime {
     return new TaskenCoreClient({ userDataPath });
   }
 
-  createMobileGateway(state: MobileGatewayStatePort, logger?: MobileGatewayLoggerPort): MobileGatewayAdapter {
+  createMobileGateway(
+    state: MobileGatewayStatePort,
+    logger?: MobileGatewayLoggerPort,
+  ): MobileGatewayAdapter {
     return new MobileGatewayAdapter({
       core: {
         status: async () => ({
           apiVersion: TASKEN_CORE_API_VERSION,
           capabilities: [TASKEN_CORE_TASK_QUERY_CAPABILITY, TASKEN_CORE_TASK_COMMAND_CAPABILITY],
         }),
-        listThemes: () => this.persistence.list("theme", false).map((theme) => ({
-          id: String(theme.id || ""),
-          name: String(theme.name || ""),
-        })),
-        listWorkReceipts: () => this.persistence.list("work_receipt", false).map((receipt) => ({
-          id: String(receipt.id || ""),
-          taskId: String(receipt.task_id || ""),
-          reportedAt: String(receipt.reported_at || ""),
-          executorLabel: String(receipt.executor_label || ""),
-          summary: String(receipt.summary || ""),
-        })),
+        listThemes: () =>
+          this.persistence.list("theme", false).map((theme) => ({
+            id: String(theme.id || ""),
+            name: String(theme.name || ""),
+          })),
+        listWorkReceipts: () =>
+          this.persistence.list("work_receipt", false).map((receipt) => ({
+            id: String(receipt.id || ""),
+            taskId: String(receipt.task_id || ""),
+            reportedAt: String(receipt.reported_at || ""),
+            executorLabel: String(receipt.executor_label || ""),
+            summary: String(receipt.summary || ""),
+          })),
         getWorkReceipt: (id) => {
           const receipt = this.persistence.get("work_receipt", id, false);
           if (!receipt) return null;
@@ -151,24 +167,30 @@ export class TaskenCoreRuntime {
             runtimeMetadata: receipt.runtime_metadata,
           };
         },
-        listTaskWorkProposals: () => this.persistence.list("ai_proposal", false)
-          .filter((proposal) => proposal.source === "mcp"
-            && proposal.payload_type === "task_work"
-            && proposal.status === "pending")
-          .map((proposal) => ({
-            id: String(proposal.id || ""),
-            version: Number(proposal.version || 0),
-            source: String(proposal.source || ""),
-            sourceApp: String(proposal.source_app || ""),
-            payloadType: String(proposal.payload_type || ""),
-            payload: proposal.payload,
-            request: proposal.request,
-            status: String(proposal.status || ""),
-            receivedAt: String(proposal.received_at || ""),
-          })),
+        listTaskWorkProposals: () =>
+          this.persistence
+            .list("ai_proposal", false)
+            .filter(
+              (proposal) =>
+                proposal.source === "mcp" &&
+                proposal.payload_type === "task_work" &&
+                proposal.status === "pending",
+            )
+            .map((proposal) => ({
+              id: String(proposal.id || ""),
+              version: Number(proposal.version || 0),
+              source: String(proposal.source || ""),
+              sourceApp: String(proposal.source_app || ""),
+              payloadType: String(proposal.payload_type || ""),
+              payload: proposal.payload,
+              request: proposal.request,
+              status: String(proposal.status || ""),
+              receivedAt: String(proposal.received_at || ""),
+            })),
         getTaskWorkProposal: (id) => {
           const proposal = this.persistence.get("ai_proposal", id, true);
-          if (!proposal || proposal.source !== "mcp" || proposal.payload_type !== "task_work") return null;
+          if (!proposal || proposal.source !== "mcp" || proposal.payload_type !== "task_work")
+            return null;
           return {
             id: String(proposal.id || ""),
             version: Number(proposal.version || 0),
@@ -191,7 +213,11 @@ export class TaskenCoreRuntime {
               issuedAt: input.issuedAt,
               payload: { proposalId: input.proposalId, decision: input.decision },
               expectedVersions: [
-                { type: "ai_proposal", id: input.proposalId, version: input.expectedProposalVersion },
+                {
+                  type: "ai_proposal",
+                  id: input.proposalId,
+                  version: input.expectedProposalVersion,
+                },
                 { type: "task", id: input.taskId, version: input.expectedTaskVersion },
               ],
             });
@@ -213,22 +239,27 @@ export class TaskenCoreRuntime {
               source: "mobile",
               issuedAt: input.issuedAt,
               payload: input.payload as unknown as ApplicationCommandPayload,
-              expectedVersions: input.name === "DeleteCapture"
-                ? [{
-                    type: "capture_entry",
-                    id: String(input.payload.captureId || ""),
-                    version: Number(input.expectedVersion),
-                  }]
-                : [],
+              expectedVersions:
+                input.name === "DeleteCapture"
+                  ? [
+                      {
+                        type: "capture_entry",
+                        id: String(input.payload.captureId || ""),
+                        version: Number(input.expectedVersion),
+                      },
+                    ]
+                  : [],
             });
             if (receipt.status === "conflict") return { ok: false, code: "entity_conflict" };
-            const capture = receipt.changes.find((change) => change.type === "capture_entry")?.entity;
+            const capture = receipt.changes.find(
+              (change) => change.type === "capture_entry",
+            )?.entity;
             if (
-              !capture
-              || typeof capture.id !== "string"
-              || !Number.isInteger(Number(capture.version))
-              || Number(capture.version) <= 0
-              || typeof capture.captured_at !== "string"
+              !capture ||
+              typeof capture.id !== "string" ||
+              !Number.isInteger(Number(capture.version)) ||
+              Number(capture.version) <= 0 ||
+              typeof capture.captured_at !== "string"
             ) {
               throw new Error("Capture command receipt is missing its canonical Capture");
             }

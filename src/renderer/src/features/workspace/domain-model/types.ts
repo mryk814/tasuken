@@ -1,7 +1,15 @@
 import type { AiMetadataFields } from "../../../../../shared/aiMetadata.mjs";
 import type { RepositoryContext } from "../../../../../shared/repositoryContext.mjs";
 import type { ExternalReference } from "../../../../../shared/externalReference.mjs";
-import type { RelationAssertion, RelationEvidenceRef, RelationLayer, RelationOrigin, RelationPredicate, RelationRef, RelationStatus } from "../../../../../shared/relationAssertion.mjs";
+import type {
+  RelationAssertion,
+  RelationEvidenceRef,
+  RelationLayer,
+  RelationOrigin,
+  RelationPredicate,
+  RelationRef,
+  RelationStatus,
+} from "../../../../../shared/relationAssertion.mjs";
 
 /**
  * AI可読の共通metadata（#294）。本文schemaは種別ごとに別のまま、
@@ -53,6 +61,11 @@ export interface AgentSessionOutcome {
   next_suggested_action?: string | null;
 }
 
+export interface AgentSessionCheckpoint {
+  observed_at: string;
+  text: string;
+}
+
 export interface AgentSession {
   [key: string]: unknown;
   id: string;
@@ -65,6 +78,8 @@ export interface AgentSession {
   provider_label?: string | null;
   model_label?: string | null;
   source_session_id?: string | null;
+  request_events?: AgentSessionCheckpoint[];
+  response_checkpoints?: AgentSessionCheckpoint[];
   intent: AgentSessionIntent;
   outcome?: AgentSessionOutcome | null;
 }
@@ -77,7 +92,8 @@ export interface CaptureEntry extends AiMetadata {
   title?: string | null;
   kind?: "inbox" | "micro_memo" | string | null;
   content_type?: "text" | "url" | "file" | "image" | "markdown" | "ink" | "audio" | "video" | null;
-  capture_method?: "audio_import" | "microphone" | "external_dictation" | "transcript_import" | null;
+  capture_method?:
+    "audio_import" | "microphone" | "external_dictation" | "transcript_import" | null;
   media_status?: "preparing" | "ready" | "failed" | null;
   transcription_status?: "not_requested" | "queued" | "processing" | "completed" | "failed" | null;
   url?: string | null;
@@ -91,13 +107,7 @@ export interface CaptureEntry extends AiMetadata {
   legacy_item_id?: string | null;
 }
 
-export type TaskState =
-  | "todo"
-  | "doing"
-  | "waiting"
-  | "review"
-  | "done"
-  | "cancelled";
+export type TaskState = "todo" | "doing" | "waiting" | "review" | "done" | "cancelled";
 
 export type TaskRepeatFrequency = "daily" | "weekly" | "monthly";
 
@@ -308,12 +318,7 @@ export interface Sketch extends AiMetadata {
 }
 
 export type KnowledgeNodeType =
-  | "source"
-  | "evidence"
-  | "claim"
-  | "question"
-  | "decision"
-  | "insight";
+  "source" | "evidence" | "claim" | "question" | "decision" | "insight";
 
 export interface KnowledgeNode {
   id: string;

@@ -1,5 +1,6 @@
 import {
   IconBulb,
+  IconBrain,
   IconChecklist,
   IconInbox,
   IconMessageCircle,
@@ -29,9 +30,11 @@ export type CanonicalRouteId =
   | "theme"
   | "themes"
   | "ai-io"
+  | "debrief"
   | "settings";
 
-export type RouteId = CanonicalRouteId
+export type RouteId =
+  | CanonicalRouteId
   | "home"
   | "todo-done"
   | "micro-memos"
@@ -75,83 +78,172 @@ export interface RouteDefinition {
  */
 export const ROUTE_DEFINITIONS = {
   today: {
-    id: "today", label: "Today", description: "今日見るものを一か所に集めます。", icon: IconSun,
-    semanticRole: "hub", availability: "always", navigation: { group: "today", order: 1 },
+    id: "today",
+    label: "Today",
+    description: "今日見るものを一か所に集めます。",
+    icon: IconSun,
+    semanticRole: "hub",
+    availability: "always",
+    navigation: { group: "today", order: 1 },
   },
   todo: {
-    id: "todo", label: "ToDo", description: "今日の作業と予定なしの仕事を整理します。", icon: IconChecklist,
-    semanticRole: "view", availability: "always", navigation: { group: "today", parent: "today", order: 2 },
+    id: "todo",
+    label: "ToDo",
+    description: "今日の作業と予定なしの仕事を整理します。",
+    icon: IconChecklist,
+    semanticRole: "view",
+    availability: "always",
+    navigation: { group: "today", parent: "today", order: 2 },
     aliases: [{ id: "todo-done" }],
   },
   waiting: {
-    id: "waiting", label: "Waiting", description: "誰を、何を、いつまで待っているかを確認します。", icon: IconTimeline,
-    semanticRole: "view", availability: "always", navigation: { group: "today", parent: "today", order: 3 },
+    id: "waiting",
+    label: "Waiting",
+    description: "誰を、何を、いつまで待っているかを確認します。",
+    icon: IconTimeline,
+    semanticRole: "view",
+    availability: "always",
+    navigation: { group: "today", parent: "today", order: 3 },
   },
   inbox: {
-    id: "inbox", label: "Inbox", description: "クイック記録を行の中で分類し、今日の作業やThemeへ接続します。", icon: IconInbox,
-    semanticRole: "hub", availability: "always", navigation: { group: "cross", order: 1 },
+    id: "inbox",
+    label: "Inbox",
+    description: "クイック記録を行の中で分類し、今日の作業やThemeへ接続します。",
+    icon: IconInbox,
+    semanticRole: "hub",
+    availability: "always",
+    navigation: { group: "cross", order: 1 },
     aliases: [{ id: "micro-memos", parent: "inbox" }],
   },
   "ai-io": {
-    id: "ai-io", label: "AI Inbox", description: "外部AIから届いたProposalを確認し、採用する内容だけをTaskenへ反映します。", icon: IconSparkles,
-    semanticRole: "tool", availability: "always", navigation: { group: "cross", order: 2 },
+    id: "ai-io",
+    label: "AI Inbox",
+    description: "外部AIから届いたProposalを確認し、採用する内容だけをTaskenへ反映します。",
+    icon: IconSparkles,
+    semanticRole: "tool",
+    availability: "always",
+    navigation: { group: "cross", order: 2 },
     aliases: [{ id: "proposal-inbox", parent: "ai-io" }],
   },
+  debrief: {
+    id: "debrief",
+    label: "Debrief",
+    description: "AIへ委任した仕事を、自分の判断と次の再開点として回収します。",
+    icon: IconBrain,
+    semanticRole: "tool",
+    availability: "always",
+    navigation: { group: "cross", order: 3 },
+  },
   timeline: {
-    id: "timeline", label: "Timeline", description: "実施事項ごとに、分析依頼・試験依頼・整理などの計画を並べます。", icon: IconTimeline,
-    semanticRole: "view", availability: "always", navigation: { group: "cross", order: 3 },
+    id: "timeline",
+    label: "Timeline",
+    description: "実施事項ごとに、分析依頼・試験依頼・整理などの計画を並べます。",
+    icon: IconTimeline,
+    semanticRole: "view",
+    availability: "always",
+    navigation: { group: "cross", order: 4 },
   },
   knowledge: {
-    id: "knowledge", label: "Knowledge", description: "既存データを読み取り、Research / Diagnosticとして確認します。", icon: IconBulb,
-    semanticRole: "tool", availability: "always", navigation: { group: "tools", order: 3 },
+    id: "knowledge",
+    label: "Knowledge",
+    description: "既存データを読み取り、Research / Diagnosticとして確認します。",
+    icon: IconBulb,
+    semanticRole: "tool",
+    availability: "always",
+    navigation: { group: "tools", order: 3 },
   },
   notes: {
-    id: "notes", label: "Notes", description: "Note・Resource・Report・Promptをまとめて扱います。Markdownを書き、関連資料を参照しながら整理できます。", icon: IconNotes,
-    semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 2 },
+    id: "notes",
+    label: "Notes",
+    description:
+      "Note・Resource・Report・Promptをまとめて扱います。Markdownを書き、関連資料を参照しながら整理できます。",
+    icon: IconNotes,
+    semanticRole: "view",
+    availability: "always",
+    navigation: { group: "knowledge", parent: "knowledge", order: 2 },
     aliases: [{ id: "prompts", parent: "notes" }],
   },
   sketch: {
-    id: "sketch", label: "Sketch", icon: IconWriting,
-    semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 3 },
+    id: "sketch",
+    label: "Sketch",
+    icon: IconWriting,
+    semanticRole: "view",
+    availability: "always",
+    navigation: { group: "knowledge", parent: "knowledge", order: 3 },
     aliases: [{ id: "sketch-editor", parent: "sketch", kind: "child" }],
   },
   studio: {
-    id: "studio", label: "Studio", description: "マイク録音と画面録画をここから始めます。録ったものはArtifactとして残り、Note等から参照できます。", icon: IconMicrophone,
-    semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 4 },
+    id: "studio",
+    label: "Studio",
+    description:
+      "マイク録音と画面録画をここから始めます。録ったものはArtifactとして残り、Note等から参照できます。",
+    icon: IconMicrophone,
+    semanticRole: "view",
+    availability: "always",
+    navigation: { group: "knowledge", parent: "knowledge", order: 4 },
   },
   "chat-refs": {
-    id: "chat-refs", label: "Chat Refs", description: "外部AIチャットをTheme単位で保管し、あとからNoteやKnowledgeに展開します。", icon: IconMessageCircle,
-    semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 5 },
+    id: "chat-refs",
+    label: "Chat Refs",
+    description: "外部AIチャットをTheme単位で保管し、あとからNoteやKnowledgeに展開します。",
+    icon: IconMessageCircle,
+    semanticRole: "view",
+    availability: "always",
+    navigation: { group: "knowledge", parent: "knowledge", order: 5 },
   },
   artifacts: {
-    id: "artifacts", label: "Artifacts", description: "AI作業や調査から生まれた Excel・画像・PDF・Markdown などの実ファイル。メモ本文・URL・Chat Refs とは役割が違います。", icon: IconPaperclip,
-    semanticRole: "view", availability: "always", navigation: { group: "knowledge", parent: "knowledge", order: 6 },
+    id: "artifacts",
+    label: "Artifacts",
+    description:
+      "AI作業や調査から生まれた Excel・画像・PDF・Markdown などの実ファイル。メモ本文・URL・Chat Refs とは役割が違います。",
+    icon: IconPaperclip,
+    semanticRole: "view",
+    availability: "always",
+    navigation: { group: "knowledge", parent: "knowledge", order: 6 },
   },
   theme: {
-    id: "theme", label: "Theme", description: "選択中の研究テーマの現在地と作業を確認します。", icon: IconBulb,
-    semanticRole: "context", availability: "requires-active-theme", navigation: { group: "themes", order: 1 },
+    id: "theme",
+    label: "Theme",
+    description: "選択中の研究テーマの現在地と作業を確認します。",
+    icon: IconBulb,
+    semanticRole: "context",
+    availability: "requires-active-theme",
+    navigation: { group: "themes", order: 1 },
     aliases: [{ id: "home" }],
   },
   themes: {
-    id: "themes", label: "Themes", description: "研究テーマごとの現在地と負荷を確認します。", icon: IconBulb,
-    semanticRole: "view", availability: "always", navigation: { group: "themes", order: 2 },
+    id: "themes",
+    label: "Themes",
+    description: "研究テーマごとの現在地と負荷を確認します。",
+    icon: IconBulb,
+    semanticRole: "view",
+    availability: "always",
+    navigation: { group: "themes", order: 2 },
   },
   settings: {
-    id: "settings", label: "Settings", icon: IconSettings,
-    semanticRole: "tool", availability: "always", navigation: { group: "tools", order: 1 },
+    id: "settings",
+    label: "Settings",
+    icon: IconSettings,
+    semanticRole: "tool",
+    availability: "always",
+    navigation: { group: "tools", order: 1 },
   },
 } as const satisfies Record<CanonicalRouteId, RouteDefinition>;
 
 const definitions = Object.values(ROUTE_DEFINITIONS) as RouteDefinition[];
 
 export const routeAliases: Record<string, string> = Object.fromEntries(
-  definitions.flatMap((definition) => (definition.aliases || []).map((alias) => [alias.id, definition.id])),
+  definitions.flatMap((definition) =>
+    (definition.aliases || []).map((alias) => [alias.id, definition.id]),
+  ),
 );
 
 const routeRedirects: Record<string, string> = Object.fromEntries(
-  definitions.flatMap((definition) => (definition.aliases || [])
-    .filter((alias) => alias.kind !== "child")
-    .map((alias) => [alias.id, definition.id])),
+  definitions.flatMap((definition) =>
+    (definition.aliases || [])
+      .filter((alias) => alias.kind !== "child")
+      .map((alias) => [alias.id, definition.id]),
+  ),
 );
 
 export const routeParent: Record<string, string> = Object.fromEntries(
@@ -179,7 +271,7 @@ export const knowledgeHubTabs = routeIdsForGroup("knowledge");
 
 export function resolveRouteId(id: string): CanonicalRouteId | undefined {
   const resolved = routeAliases[id] || id;
-  return resolved in ROUTE_DEFINITIONS ? resolved as CanonicalRouteId : undefined;
+  return resolved in ROUTE_DEFINITIONS ? (resolved as CanonicalRouteId) : undefined;
 }
 
 /** URL・保存済みrouteを、実在する子画面を潰さずに正規化する。 */

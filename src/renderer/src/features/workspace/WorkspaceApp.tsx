@@ -49,7 +49,7 @@ import { resolveActivityLogDirectory } from "./lib/activityLogDirectory";
 import { buildActivityLog } from "./lib/activityLog";
 import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
 import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
-import { buildDomainDrawerFormPlan } from "./lib/drawerFormPlans";
+import { buildDomainDrawerFormPlan, themeIntentFromForm } from "./lib/drawerFormPlans";
 import type { SaveOperation } from "./types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
 import {
@@ -1680,6 +1680,7 @@ export function WorkspaceApp() {
         name,
         code: formText(values, "code") || null,
         description: formText(values, "description"),
+        ...themeIntentFromForm(values, base),
         color: formText(values, "color") || (base.color as string) || "",
         group: formText(values, "group"),
         storage_root: formText(values, "storage_root") || null,

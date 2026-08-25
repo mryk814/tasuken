@@ -101,6 +101,7 @@ import {
   ThemeStorageRootField,
 } from "./drawerPickers";
 import { ThemeRepositoryContextFields } from "./repositoryContextFields";
+import { ThemeIntentFields } from "./ThemeIntentFields";
 import {
   TASK_STATE_LABELS,
   TASK_WORK_STATE_LABELS,
@@ -1441,6 +1442,7 @@ function EditDrawer({
             <Field label="概要">
               <textarea name="description" defaultValue={str(entity.description)} />
             </Field>
+            <ThemeIntentFields entity={entity} />
             <ThemeColorPicker value={str(entity.color)} />
             <ThemeGroupPicker value={str(entity.group)} themes={data.themes} />
             <ThemeStorageRootField value={str(entity.storage_root)} setToast={setToast} />

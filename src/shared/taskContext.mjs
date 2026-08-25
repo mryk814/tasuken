@@ -1,4 +1,15 @@
-const DEFAULT_INCLUDE = ["theme", "repository", "notes", "conversations", "artifacts", "resources", "activity", "work_receipts"];
+import { publicThemeIntent } from "./themeRef.mjs";
+
+const DEFAULT_INCLUDE = [
+  "theme",
+  "repository",
+  "notes",
+  "conversations",
+  "artifacts",
+  "resources",
+  "activity",
+  "work_receipts",
+];
 const INCLUDE_VALUES = new Set(DEFAULT_INCLUDE);
 const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|[\\/]{1,2})/;
 
@@ -21,7 +32,11 @@ export function taskContextLimits(args = {}) {
 
 export function normalizeTaskContextInclude(value) {
   if (!Array.isArray(value) || !value.length) return [...DEFAULT_INCLUDE];
-  return [...new Set(value.map((entry) => text(entry).trim()).filter((entry) => INCLUDE_VALUES.has(entry)))];
+  return [
+    ...new Set(
+      value.map((entry) => text(entry).trim()).filter((entry) => INCLUDE_VALUES.has(entry)),
+    ),
+  ];
 }
 
 export class TaskContextTextBudget {
@@ -56,24 +71,28 @@ function commonFields(record) {
 }
 
 export function publicTaskForContext(task, budget) {
-  return withPublicAi(task, {
-    ...commonFields(task),
-    title: budget.take(task.title, 500),
-    description: budget.take(task.description, 20_000),
-    state: task.state || "todo",
-    priority: task.priority || "normal",
-    project_id: task.project_id || null,
-    plan_node_id: task.plan_node_id || null,
-    parent_task_id: task.parent_task_id || null,
-    checklist_items: Array.isArray(task.checklist_items)
-      ? task.checklist_items.slice(0, 100).map((entry) => ({
-        id: text(entry?.id),
-        title: budget.take(entry?.title, 500),
-        done: Boolean(entry?.done),
-        sort_order: Number(entry?.sort_order || 0),
-      }))
-      : [],
-  }, budget);
+  return withPublicAi(
+    task,
+    {
+      ...commonFields(task),
+      title: budget.take(task.title, 500),
+      description: budget.take(task.description, 20_000),
+      state: task.state || "todo",
+      priority: task.priority || "normal",
+      project_id: task.project_id || null,
+      plan_node_id: task.plan_node_id || null,
+      parent_task_id: task.parent_task_id || null,
+      checklist_items: Array.isArray(task.checklist_items)
+        ? task.checklist_items.slice(0, 100).map((entry) => ({
+            id: text(entry?.id),
+            title: budget.take(entry?.title, 500),
+            done: Boolean(entry?.done),
+            sort_order: Number(entry?.sort_order || 0),
+          }))
+        : [],
+    },
+    budget,
+  );
 }
 
 export function publicAssignmentForContext(task, budget) {
@@ -81,7 +100,9 @@ export function publicAssignmentForContext(task, budget) {
     requester: task.requester || "unknown",
     intended_executor: task.intended_executor || "self",
     executor_identity: budget.take(task.executor_identity, 200) || null,
-    work_state: task.work_state || (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated"),
+    work_state:
+      task.work_state ||
+      (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated"),
     work_started_at: task.work_started_at || null,
     work_reported_at: task.work_reported_at || null,
     work_review_note: budget.take(task.work_review_note, 2_000) || null,
@@ -90,13 +111,20 @@ export function publicAssignmentForContext(task, budget) {
 
 export function publicThemeForContext(theme, budget) {
   if (!theme) return null;
-  return withPublicAi(theme, {
-    ...commonFields(theme),
-    name: budget.take(theme.name, 500),
-    code: budget.take(theme.code, 120) || null,
-    description: budget.take(theme.description, 10_000),
-    state: theme.state || null,
-  }, budget);
+  const intent = publicThemeIntent(theme, budget);
+  return withPublicAi(
+    theme,
+    {
+      ...commonFields(theme),
+      name: budget.take(theme.name, 500),
+      code: budget.take(theme.code, 120) || null,
+      description: budget.take(theme.description, 10_000),
+      state: theme.state || null,
+      charter: intent.charter,
+      current_state: intent.state,
+    },
+    budget,
+  );
 }
 
 export function safeExternalUrl(value) {
@@ -137,7 +165,8 @@ export function safeAiSourceRefs(value, budget = null) {
     const storageRootId = safeStorageRootId(entryValue.storage_root_id);
     const relativePath = safeRelativePath(entryValue.relative_path);
     const locatorSource = text(entryValue.locator).trim();
-    const locator = kind === "url" ? safeExternalUrl(locatorSource) : safeRelativePath(locatorSource);
+    const locator =
+      kind === "url" ? safeExternalUrl(locatorSource) : safeRelativePath(locatorSource);
     if (storageRootId && relativePath) {
       refs.push({
         kind: kind || "canonical_document",
@@ -150,35 +179,51 @@ export function safeAiSourceRefs(value, budget = null) {
       refs.push({ kind: kind || "external_system", ...(title ? { title } : {}), locator });
     }
   }
-  const safe = [...new Map(refs.map((entry) => [`${entry.kind}|${entry.locator}`, entry])).values()]
-    .sort((left, right) => `${left.kind}|${left.locator}`.localeCompare(`${right.kind}|${right.locator}`));
+  const safe = [
+    ...new Map(refs.map((entry) => [`${entry.kind}|${entry.locator}`, entry])).values(),
+  ].sort((left, right) =>
+    `${left.kind}|${left.locator}`.localeCompare(`${right.kind}|${right.locator}`),
+  );
   if (!budget) return safe;
-  return safe.map((entry) => {
-    const locator = budget.take(entry.locator, 2_000);
-    if (!locator) return null;
-    const titleValue = entry.title ? budget.take(entry.title, 500) : "";
-    const relativePathValue = entry.relative_path ? budget.take(entry.relative_path, 2_000) : "";
-    return {
-      kind: entry.kind,
-      ...(titleValue ? { title: titleValue } : {}),
-      ...(entry.storage_root_id ? { storage_root_id: entry.storage_root_id } : {}),
-      ...(relativePathValue ? { relative_path: relativePathValue } : {}),
-      locator,
-    };
-  }).filter(Boolean);
+  return safe
+    .map((entry) => {
+      const locator = budget.take(entry.locator, 2_000);
+      if (!locator) return null;
+      const titleValue = entry.title ? budget.take(entry.title, 500) : "";
+      const relativePathValue = entry.relative_path ? budget.take(entry.relative_path, 2_000) : "";
+      return {
+        kind: entry.kind,
+        ...(titleValue ? { title: titleValue } : {}),
+        ...(entry.storage_root_id ? { storage_root_id: entry.storage_root_id } : {}),
+        ...(relativePathValue ? { relative_path: relativePathValue } : {}),
+        locator,
+      };
+    })
+    .filter(Boolean);
 }
 
 export function publicAiHeader(record, budget = null) {
-  const header = record?.ai && typeof record.ai === "object" && !Array.isArray(record.ai) ? record.ai : null;
+  const header =
+    record?.ai && typeof record.ai === "object" && !Array.isArray(record.ai) ? record.ai : null;
   if (!header) return null;
-  const take = (value, limit) => budget ? budget.take(value, limit) : text(value).slice(0, limit);
+  const take = (value, limit) => (budget ? budget.take(value, limit) : text(value).slice(0, limit));
   const visibility = Array.isArray(header.ai_visibility)
-    ? [...new Set(header.ai_visibility.filter((entry) => ["m365", "coding_agent", "external_ai"].includes(entry)))].sort()
+    ? [
+        ...new Set(
+          header.ai_visibility.filter((entry) =>
+            ["m365", "coding_agent", "external_ai"].includes(entry),
+          ),
+        ),
+      ].sort()
     : [];
-  const typedRef = (value) => value && typeof value === "object" && !Array.isArray(value)
-    && text(value.type).trim() && text(value.id).trim()
-    ? { type: text(value.type).trim(), id: text(value.id).trim() }
-    : null;
+  const typedRef = (value) =>
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    text(value.type).trim() &&
+    text(value.id).trim()
+      ? { type: text(value.type).trim(), id: text(value.id).trim() }
+      : null;
   return {
     id: text(header.id).trim(),
     type: text(header.type).trim(),
@@ -225,72 +270,96 @@ export function detailLocator(type, id) {
 }
 
 export function publicNoteSummary(note, budget, relation) {
-  return withPublicAi(note, {
-    ...commonFields(note),
-    title: budget.take(note.title, 500),
-    note_type: note.note_type || "note",
-    excerpt: budget.take(note.body_markdown, 600),
-    included_because: relation.includedBecause,
-    relation_path: relation.path,
-    locator: detailLocator("note", note.id),
-  }, budget);
+  return withPublicAi(
+    note,
+    {
+      ...commonFields(note),
+      title: budget.take(note.title, 500),
+      note_type: note.note_type || "note",
+      excerpt: budget.take(note.body_markdown, 600),
+      included_because: relation.includedBecause,
+      relation_path: relation.path,
+      locator: detailLocator("note", note.id),
+    },
+    budget,
+  );
 }
 
 export function publicConversationSummary(resource, budget, relation) {
-  return withPublicAi(resource, {
-    ...commonFields(resource),
-    resource_scope: "chat_ref",
-    kind: "conversation",
-    title: budget.take(resource.title, 500),
-    description: budget.take(resource.description, 600),
-    excerpt: budget.take(resource.body_markdown, 600),
-    source_url: safeExternalUrl(resource.url),
-    message_count: Number.isFinite(Number(resource.message_count)) ? Number(resource.message_count) : null,
-    included_because: relation.includedBecause,
-    relation_path: relation.path,
-    locator: detailLocator("conversation", resource.id),
-  }, budget);
+  return withPublicAi(
+    resource,
+    {
+      ...commonFields(resource),
+      resource_scope: "chat_ref",
+      kind: "conversation",
+      title: budget.take(resource.title, 500),
+      description: budget.take(resource.description, 600),
+      excerpt: budget.take(resource.body_markdown, 600),
+      source_url: safeExternalUrl(resource.url),
+      message_count: Number.isFinite(Number(resource.message_count))
+        ? Number(resource.message_count)
+        : null,
+      included_because: relation.includedBecause,
+      relation_path: relation.path,
+      locator: detailLocator("conversation", resource.id),
+    },
+    budget,
+  );
 }
 
 export function publicResourceSummary(resource, budget, relation) {
-  return withPublicAi(resource, {
-    ...commonFields(resource),
-    title: budget.take(resource.title, 500),
-    description: budget.take(resource.description, 600),
-    source_url: safeExternalUrl(resource.url),
-    included_because: relation.includedBecause,
-    relation_path: relation.path,
-  }, budget);
+  return withPublicAi(
+    resource,
+    {
+      ...commonFields(resource),
+      title: budget.take(resource.title, 500),
+      description: budget.take(resource.description, 600),
+      source_url: safeExternalUrl(resource.url),
+      included_because: relation.includedBecause,
+      relation_path: relation.path,
+    },
+    budget,
+  );
 }
 
 export function publicArtifactMetadata(artifact, budget, relation = null) {
-  return withPublicAi(artifact, {
-    ...commonFields(artifact),
-    title: budget.take(artifact.title, 500),
-    filename: budget.take(artifact.filename, 500),
-    file_type: artifact.file_type || null,
-    mime_type: artifact.mime_type || null,
-    file_size: Number.isFinite(Number(artifact.file_size)) ? Number(artifact.file_size) : null,
-    storage_mode: artifact.storage_mode || "managed",
-    source_type: artifact.source_type || null,
-    source_id: artifact.source_id || null,
-    origin_note_id: artifact.origin_note_id || null,
-    generated_by: artifact.generated_by || null,
-    description: budget.take(artifact.description, 600),
-    ...(relation ? {
-      included_because: relation.includedBecause,
-      relation_path: relation.path,
-      locator: detailLocator("artifact", artifact.id),
-    } : {}),
-  }, budget);
+  return withPublicAi(
+    artifact,
+    {
+      ...commonFields(artifact),
+      title: budget.take(artifact.title, 500),
+      filename: budget.take(artifact.filename, 500),
+      file_type: artifact.file_type || null,
+      mime_type: artifact.mime_type || null,
+      file_size: Number.isFinite(Number(artifact.file_size)) ? Number(artifact.file_size) : null,
+      storage_mode: artifact.storage_mode || "managed",
+      source_type: artifact.source_type || null,
+      source_id: artifact.source_id || null,
+      origin_note_id: artifact.origin_note_id || null,
+      generated_by: artifact.generated_by || null,
+      description: budget.take(artifact.description, 600),
+      ...(relation
+        ? {
+            included_because: relation.includedBecause,
+            relation_path: relation.path,
+            locator: detailLocator("artifact", artifact.id),
+          }
+        : {}),
+    },
+    budget,
+  );
 }
 
 const HTTP_URL = /https?:\/\/[^\s<>\]})'"`]+/gi;
 const DANGEROUS_URL = /\b(?:file|ftp|ftps|sftp|ssh|path):(?:\/\/)?[^\s<>\]})'"`]*/gi;
 const WINDOWS_LOCAL_PATH = /(^|[^A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s,;)\]}> '"`]*/g;
 const UNIX_LOCAL_PATH = /(^|[^A-Za-z0-9/:]|:(?!\/\/))\/(?!\/)[^\s,;)\]}> '"`]*/g;
-const CREDENTIAL_LABEL = "(?:authorization(?:[_-]?token)?|client[_-]?secret|access[_-]?token|refresh[_-]?token|private[_-]?key|credentials?|cookie|password|passwd|pwd|token|secret|api[_-]?key)";
-const KEY_VALUE_CREDENTIAL = new RegExp(`(^|[^A-Za-z0-9])(${CREDENTIAL_LABEL})\\s*[:=]\\s*(?:(?:Basic|Bearer)\\s+)?(?:"[^"\\r\\n]*"|'[^'\\r\\n]*'|[^\\s,;)\\]}>]+)`, "gi");
+const CREDENTIAL_LABEL =
+  "(?:authorization(?:[_-]?token)?|client[_-]?secret|access[_-]?token|refresh[_-]?token|private[_-]?key|credentials?|cookie|password|passwd|pwd|token|secret|api[_-]?key)";
+const KEY_VALUE_CREDENTIAL = new RegExp(
+  `(^|[^A-Za-z0-9])(${CREDENTIAL_LABEL})\\s*[:=]\\s*(?:(?:Basic|Bearer)\\s+)?(?:"[^"\\r\\n]*"|'[^'\\r\\n]*'|[^\\s,;)\\]}>]+)`,
+  "gi",
+);
 const STANDALONE_CREDENTIAL = /\b(Basic|Bearer)\s+[^\s,;)\]}>]+/gi;
 const CREDENTIAL_FIELD_NAMES = new Set([
   "authorization",
@@ -331,10 +400,12 @@ export function safeReceiptValue(value) {
   if (typeof value === "string") return safeReceiptText(value);
   if (Array.isArray(value)) return value.map(safeReceiptValue);
   if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(Object.entries(value).map(([rawKey, entry]) => {
-    const key = safeReceiptText(rawKey);
-    return [key, credentialFieldName(rawKey) ? "[redacted]" : safeReceiptValue(entry)];
-  }));
+  return Object.fromEntries(
+    Object.entries(value).map(([rawKey, entry]) => {
+      const key = safeReceiptText(rawKey);
+      return [key, credentialFieldName(rawKey) ? "[redacted]" : safeReceiptValue(entry)];
+    }),
+  );
 }
 
 export function publicReceiptForContext(receipt, budget) {
@@ -344,20 +415,47 @@ export function publicReceiptForContext(receipt, budget) {
     const url = safeExternalUrl(value);
     return url ? safeScalar(url, 2_000) : null;
   };
-  const list = (value) => Array.isArray(value) ? value.slice(0, 100).map((entry) => takeSafe(entry, 1_000)).filter(Boolean) : [];
-  const rawProvenance = receipt.provenance && typeof receipt.provenance === "object" ? receipt.provenance : {};
+  const list = (value) =>
+    Array.isArray(value)
+      ? value
+          .slice(0, 100)
+          .map((entry) => takeSafe(entry, 1_000))
+          .filter(Boolean)
+      : [];
+  const rawProvenance =
+    receipt.provenance && typeof receipt.provenance === "object" ? receipt.provenance : {};
   const provenance = {};
-  for (const field of ["reported_via", "proposal_id", "imported_by", "caller", "source_session", "idempotency_key", "proposal_created_at"]) {
+  for (const field of [
+    "reported_via",
+    "proposal_id",
+    "imported_by",
+    "caller",
+    "source_session",
+    "idempotency_key",
+    "proposal_created_at",
+  ]) {
     const value = takeSafe(rawProvenance[field], 500);
     if (value) provenance[field] = value;
   }
-  const rawRepositoryContext = receipt.repository_context && typeof receipt.repository_context === "object" ? receipt.repository_context : {};
+  const rawRepositoryContext =
+    receipt.repository_context && typeof receipt.repository_context === "object"
+      ? receipt.repository_context
+      : {};
   const repositoryContext = {};
-  for (const field of ["repository_context_id", "repository_id", "provider", "repository_slug", "branch"]) {
+  for (const field of [
+    "repository_context_id",
+    "repository_id",
+    "provider",
+    "repository_slug",
+    "branch",
+  ]) {
     const value = takeSafe(rawRepositoryContext[field], 500);
     if (value) repositoryContext[field] = value;
   }
-  const rawRuntime = receipt.runtime_metadata && typeof receipt.runtime_metadata === "object" ? receipt.runtime_metadata : {};
+  const rawRuntime =
+    receipt.runtime_metadata && typeof receipt.runtime_metadata === "object"
+      ? receipt.runtime_metadata
+      : {};
   const runtimeMetadata = {};
   for (const field of ["provider", "model", "report_kind"]) {
     const value = takeSafe(rawRuntime[field], 500);
@@ -381,12 +479,12 @@ export function publicReceiptForContext(receipt, budget) {
     remaining_work: list(receipt.remaining_work),
     external_references: Array.isArray(receipt.external_references)
       ? receipt.external_references.slice(0, 100).map((entry) => ({
-        kind: safeScalar(entry?.kind, 200) || "other",
-        provider: safeScalar(entry?.provider, 200) || "unknown",
-        display_label: takeSafe(entry?.display_label, 500),
-        url: safeUrl(entry?.url),
-        external_id: takeSafe(entry?.external_id, 200) || null,
-      }))
+          kind: safeScalar(entry?.kind, 200) || "other",
+          provider: safeScalar(entry?.provider, 200) || "unknown",
+          display_label: takeSafe(entry?.display_label, 500),
+          url: safeUrl(entry?.url),
+          external_id: takeSafe(entry?.external_id, 200) || null,
+        }))
       : [],
     source_session: takeSafe(receipt.source_session, 500) || null,
     provenance,
@@ -397,17 +495,27 @@ export function publicReceiptForContext(receipt, budget) {
 
 export function workspaceIdentityProvided(workspace) {
   if (!workspace || typeof workspace !== "object" || Array.isArray(workspace)) return false;
-  return [
-    workspace.repository_id, workspace.repositoryId, workspace.cwd,
-    workspace.git_root, workspace.gitRoot, workspace.remote_url,
-    workspace.repository_slug, workspace.repositorySlug,
-  ].some((value) => Boolean(text(value).trim()))
-    || (Array.isArray(workspace.remote_urls) && workspace.remote_urls.some((value) => Boolean(text(value).trim())))
-    || (Array.isArray(workspace.remotes) && workspace.remotes.some((value) => Boolean(text(value).trim())));
+  return (
+    [
+      workspace.repository_id,
+      workspace.repositoryId,
+      workspace.cwd,
+      workspace.git_root,
+      workspace.gitRoot,
+      workspace.remote_url,
+      workspace.repository_slug,
+      workspace.repositorySlug,
+    ].some((value) => Boolean(text(value).trim())) ||
+    (Array.isArray(workspace.remote_urls) &&
+      workspace.remote_urls.some((value) => Boolean(text(value).trim()))) ||
+    (Array.isArray(workspace.remotes) &&
+      workspace.remotes.some((value) => Boolean(text(value).trim())))
+  );
 }
 
 function relationReason(edges) {
-  if (edges.some((edge) => edge.origin === "reference" || edge.origin === "task_dependency")) return "explicitly_linked";
+  if (edges.some((edge) => edge.origin === "reference" || edge.origin === "task_dependency"))
+    return "explicitly_linked";
   if (edges.some((edge) => edge.layer === "provenance")) return "provenance";
   return "asserted_relation";
 }
@@ -415,7 +523,9 @@ function relationReason(edges) {
 export function relationForNode(subgraph, type, id) {
   const path = (subgraph.paths || [])
     .filter((candidate) => candidate.to?.type === type && candidate.to?.id === id)
-    .sort((left, right) => left.hops - right.hops || left.edge_ids.length - right.edge_ids.length)[0];
+    .sort(
+      (left, right) => left.hops - right.hops || left.edge_ids.length - right.edge_ids.length,
+    )[0];
   const edgeMap = new Map((subgraph.edges || []).map((edge) => [edge.id, edge]));
   const edges = (path?.edge_ids || []).map((edgeId) => edgeMap.get(edgeId)).filter(Boolean);
   return {
@@ -441,10 +551,16 @@ export function boundedList(records, limit) {
   return {
     selected,
     omitted,
-    truncation: records.length > limit ? {
-      reason: "max_items_per_type",
-      omitted_count: omitted.length,
-      next_ids: omitted.slice(0, 10).map((entry) => text(entry.id)).filter(Boolean),
-    } : null,
+    truncation:
+      records.length > limit
+        ? {
+            reason: "max_items_per_type",
+            omitted_count: omitted.length,
+            next_ids: omitted
+              .slice(0, 10)
+              .map((entry) => text(entry.id))
+              .filter(Boolean),
+          }
+        : null,
   };
 }

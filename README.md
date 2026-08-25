@@ -93,6 +93,8 @@ MCPの検索・文脈取得toolは読み取り専用です。Note本文の全文
 
 Coding Agentは`tasken.get_task_context`へTask IDと現在のworkspace情報を渡すと、Task / assignment / Theme / RepositoryContextと、関係理由付きのNote・Conversation・Artifact・Activity・Work Receipt概要をまとめて取得できます。件数と本文長には上限があり、全文が必要な場合だけレスポンス内のstable locatorから`tasken.get_note`、`tasken.get_conversation`、`tasken.get_artifact_metadata`、`tasken.get_activity_entries`を呼びます。Artifact toolはメタデータのみを返し、外部ファイル本文やローカルパスを読みません。
 
+Themeには、人間が書く比較的安定した`Theme Charter`と、現在の方向・問いを持つ`Theme State`を保存できます。MCPでは目的別に`tasken.get_work_context`、`tasken.get_planning_context`、`tasken.get_debrief_context`、`tasken.get_learning_context`を使い分けます。`tasken://themes/{themeId}/intent` ResourceはThemeの意図だけを参照し、`debrief` / `learning-column` Promptは利用者が明示起動する作業テンプレートです。正本と投影の境界は [`docs/tasken-context-architecture.md`](./docs/tasken-context-architecture.md) を参照してください。
+
 Task作業は`start_task_work` → `append_work_receipt` → `report_task_done`または`report_task_blocked`で報告します。途中の`append_work_receipt`はWork Receiptを追加して作業中を維持し、`report_task_done`だけが人間の確認待ちへ進めます。各writeには`expected_version`、`idempotency_key`、`caller`が必要です。RepositoryContext snapshotは`repository_context_id`、provider、repository slug、branchだけを受け付け、ローカルパスやremote URLは保存しません。いずれもTask本文を上書きせず、append-only Work ReceiptをPending Proposalへ送り、人間の確認後にだけ正式データへ反映します。write toolを一切公開しない運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。Promptは補助機能であり、同じworkflowはtoolだけで完結します。
 
 Windowsインストーラーとportable版を作成:

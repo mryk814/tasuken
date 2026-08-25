@@ -6,6 +6,10 @@ const todayPageSource = readFileSync(
   "src/renderer/src/features/workspace/pages/TodayPage.tsx",
   "utf8",
 );
+const activityPanelSource = readFileSync(
+  "src/renderer/src/features/workspace/components/ActivityLogPanel.tsx",
+  "utf8",
+);
 
 test("Today page stays focused on daily tasks instead of utility controls", () => {
   assert.match(todayPageSource, /openTodayTasksWindow/);
@@ -91,13 +95,14 @@ test("Todayは日付範囲の意味ごとに扱いを分ける（#309）", () =>
   assert.doesNotMatch(todayPageSource, /handleExtendOngoingPeriod/);
 });
 
-test("Today surfaces generated Activity and configures automatic daily export", () => {
-  assert.match(todayPageSource, /id="daily-activity"/);
-  assert.match(todayPageSource, /collectActivityLogEntries/);
-  assert.match(todayPageSource, /毎日自動出力/);
-  assert.match(todayPageSource, /activityLogAutoExportTime/);
-  assert.match(todayPageSource, /Rootを設定すると自動で出力先を作ります。/);
-  assert.match(todayPageSource, /アプリ停止中の未出力分は、次回起動時に日ごとに補完します/);
+test("Debrief surfaces generated Activity and configures automatic daily export", () => {
+  assert.doesNotMatch(todayPageSource, /id="daily-activity"/);
+  assert.match(activityPanelSource, /id="daily-activity"/);
+  assert.match(activityPanelSource, /collectActivityLogEntries/);
+  assert.match(activityPanelSource, /毎日自動出力/);
+  assert.match(activityPanelSource, /activityLogAutoExportTime/);
+  assert.match(activityPanelSource, /Rootを設定すると自動で出力先を作ります。/);
+  assert.match(activityPanelSource, /アプリ停止中の未出力分は、次回起動時に日ごとに補完します/);
 });
 
 test("Settings exposes shared-folder sync status, manual sync, and conflict resolution", () => {
@@ -126,11 +131,11 @@ test("Todayのprimary actionはTask追加ひとつにする（#316）", () => {
   assert.match(header, /<Button variant="primary" onClick=\{\(\) => setShowAdd\(\(v\) => !v\)\}/);
   assert.match(header, /今日のTaskを追加/);
 
-  // コピーとActivityは常設buttonから外し、menuへ移す。
+  // コピーとDebriefは常設buttonから外し、menuへ移す。
   assert.equal(/<IconClipboard size=\{16\} \/> コピー/.test(header), false);
   assert.equal(/<IconClipboard size=\{16\} \/> Activity/.test(header), false);
   assert.match(header, /id: "copy-today",\s+label: "Todayの内容をコピー"/);
-  assert.match(header, /id: "goto-activity",\s+label: "Activityへ移動"/);
+  assert.match(header, /id: "goto-activity",\s+label: "Debriefへ移動"/);
 
   // Task作成時にThemeを選べる（#316のTask creation contract）。
   assert.match(
@@ -171,7 +176,7 @@ test("実行中のFocusはSidebar下部から確認・再開できる（#316）"
   assert.match(app, /id: "focus:resume"/);
   assert.match(
     shell,
-    /<dt><kbd>Alt<\/kbd>\+<kbd>F<\/kbd><\/dt><dd>実行中のFocus Sessionを開く<\/dd>/,
+    /<dt>\s*<kbd>Alt<\/kbd>\+<kbd>F<\/kbd>\s*<\/dt>\s*<dd>実行中のFocus Sessionを開く<\/dd>/,
   );
 });
 

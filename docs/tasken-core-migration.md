@@ -6,7 +6,7 @@ Issue #412 / #413で、Desktop・MCP・Mobileが同じapplication serviceを使�
 
 Desktop Mainが`WorkspaceDatabase`を生成して`TaskenDesktopComposition`へ注入する。compositionは`ApplicationCommandService`、`TaskenCoreRuntime`、単一の`TaskCapabilityService`を所有し、Desktop IPC、Core HTTP、Mobile adapterへ同じinstanceを渡す。Core hostは`127.0.0.1`のephemeral portだけで待ち受け、userData配下のowner-only discovery documentにAPI version、named capabilities、origin、256-bit tokenを原子的に公開する。
 
-stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 23 toolsとProposal 14 toolsはすべて認証済みCore clientを通る。
+stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 27 toolsとProposal 14 toolsはすべて認証済みCore clientを通る。
 
 ```text
 MCP client
@@ -44,12 +44,13 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 
 ## MCP inventory
 
-### Read 23 / 23 Core
+### Read 27 / 27 Core
 
 - Work selection: `search_items`, `list_open_items`, `list_agent_ready_tasks`, `get_task_assignment`
 - Task detail: `get_task_context`, `get_note`, `get_conversation`, `get_artifact_metadata`, `get_activity_entries`
 - Repository: `resolve_repository_context`, `find_themes_for_repository`, `find_tasks_for_repository`, `get_repository_context`
-- Agent session: `get_agent_session_context`
+- Agent session: `get_agent_session_context`, `get_debrief_context`
+- Purpose-built Context: `get_work_context`, `get_planning_context`, `get_learning_context`
 - Theme / Knowledge: `get_theme_context`, `get_recent_notes`, `search_knowledge`, `get_knowledge_context`, `get_plan_health`, `get_knowledge_health`
 - Cross-cutting: `get_activity`, `get_context_subgraph`, `export_ai_context`
 
@@ -84,7 +85,7 @@ Task work proposalはexpected versionとagent identityを必須にする。publi
 - contract hardening: unknown request field、unknown response field、Core停止後のqueryをfail closedにする
 - plain Node source MCP: Core停止時のstructured fail-closed、native import sentinel
 - built `mcp-dist/server.mjs`: native/Electron/inbox symbol sentinel
-- Windows packaged Desktop: Desktop Core起動後、system Nodeでbundled MCPへ接続し、33 tools、read、Proposal commandを確認
+- Windows packaged Desktop: Desktop Core起動後、system Nodeでbundled MCPへ接続し、41 tools、read、Proposal commandを確認
 - actual MCP client config: Settingsからコピーした`node <resources>/mcp/server.mjs`で接続
 - architecture audit: `main.composition`をenforced moduleにし、`src/main/index.ts`の#412 suppressionを撤去する。監査結果は65 findings / 3 new candidates / 0 blocking
 

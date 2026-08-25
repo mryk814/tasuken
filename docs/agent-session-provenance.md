@@ -15,7 +15,8 @@ Issue #498 の Phase 0 で確定した、repository・作業環境・AI session 
 | Task work の結果と人間の確認対象                                   | `WorkReceipt`            | 既存の append-only receipt                                                           | session metadata の代替、AI 報告だけでの Task 完了 |
 | 保存・更新・関連付け等の細粒度な事実                               | `ChangeEvent` / Activity | 既存 event identity と origin                                                        | session summary や日報本文                         |
 | commit、branch、PR/MR、pipeline、file 等の証拠                     | external reference       | provider-neutral kind と安全な locator                                               | provider API の raw response、credential           |
-| その日の記録の読みやすい集約                                       | NIPPO projection         | Session / Receipt / Activity / reference から都度生成                                | 新しい一次正本                                     |
+| その日のAI作業を確認するための事実集約                             | Evidence recap           | Session / Packet / Receipt / Activity / referenceから都度生成                        | 人間の判断・内省                                   |
+| AIへ委任した仕事を本人の判断へ回収する振り返り                     | Tasken Debrief           | Evidence recapを確認し、本人がDecisionとNext returnを書く                            | AIが代筆した日報                                   |
 
 ## Naming decision
 
@@ -92,7 +93,7 @@ Task 未割当、複数 Task、複数 repository を許容する。関連は既�
 3. 既存 Workspace / Snapshot / Import / Export は旧データを読み続け、追加 migration は append-only・idempotent にする。
 4. absolute local path、credential、provider API raw response、raw transcript、hidden reasoningをMCP/public projectionへ出さない。
 5. client adapter は canonical `AgentSession` inputへ変換するだけにし、新client追加でdomain schemaを変更しない。
-6. NIPPOは Session / Receipt / Activity / referenceから再生成するprojectionとし、日報用の二重正本を作らない。
+6. Evidence recapはSession / Packet / Receipt / Activity / referenceから再生成するprojectionとし、利用者が書いたHuman reflectionとNext returnだけを正本として保存する。
 
 ## Vertical-slice boundary
 
@@ -117,16 +118,18 @@ start時のintentとclient metadataはfinish時に変更できず、finishはout
 handoff queryはraw transcriptやlocal pathを返さない。
 current repositoryまたはそのWorkingCopyへ`Reference`されたSessionだけを対象にし、現在のsource session自身を除いた最新のterminal outcomeを`previous_handoff`として返す。
 
-## Phase 5 projection
+## Phase 5 Tasken Debrief
 
-NIPPO表示は新しいdaily report entityを保存せず、`AgentSession`、`Reference`、`WorkReceipt`、`ChangeEvent`、external referenceから毎回導出する。
+Evidence recapは`AgentSession`、Session Packet、`Reference`、`WorkReceipt`、`ChangeEvent`、external referenceから毎回導出する。
+利用者が書いたDecision、適応質問への回答、Next returnは再生成できないため、既存Report Noteの構造化propertyとして保存する。
 
 - Todayの`AI work`は当日のSessionをTheme・Repository横断で並べ、前日以前でもblockedまたはremaining workを持つSessionを引き継ぎとして残す。
 - Theme詳細の`Recent AI work`は同じprojectionをThemeで絞り込む。
 - 各SessionはIntent → Outcome → 残りを一続きに表示し、関連Task、Work Receipt、Activity、commit・PR/MR等のexternal referenceへ展開できる。
+- `Tasken Debrief`はEvidenceを確認した後、My decision、必要時だけ最大1問の適応質問、Next returnを本人に書かせる。Dailyを長文化せず、複数日のpatternはWeeklyで扱う。
 - WorkingCopyとのrelationは公開可能なRepositoryContextへ投影し、local pathを表示しない。
 
-client固有のraw logはprojectionへ直接渡さない。
+client固有のraw logはprojectionへ直接渡さず、Session Packetで不足または矛盾がある場合だけsafe source locatorから追加参照する。
 Codex、Claude Code、Cursor、GitHub CopilotはいずれもPhase 3の同じcanonical Agent Session contractへ正規化してから表示する。
 この契約互換は複数client fixtureで検証するが、各clientのnative log自動収集はPhase 4の別adapter作業として残す。
 
@@ -134,39 +137,39 @@ Codex、Claude Code、Cursor、GitHub CopilotはいずれもPhase 3の同じcano
 
 ### Concrete referent map
 
-| Source | Purpose | Concrete referent | Role | Order or relation | Label |
-| --- | --- | --- | --- | --- | --- |
-| client lifecycle hook | sessionの開始・入力・応答・終了を知らせる | client固有の一回のhook JSON | 一時的な観測event | 同じclient session IDで束ねる | hook event |
-| Tasken userData内のJSON | Tasken停止中を含め、完結まで欠落させない | 一つのclient sessionについて集約中の端末内レコード | local-only retry state | start → first intent → latest response → end | session observation |
-| AI Inboxの一件 | Intentとterminal Outcomeが揃ったSessionを人が確認する | 完結したcanonical AgentSession候補 | Proposal | session observationから一回だけ生成 | Agent Session record |
+| Source                  | Purpose                                                             | Concrete referent                                  | Role                   | Order or relation                                      | Label                |
+| ----------------------- | ------------------------------------------------------------------- | -------------------------------------------------- | ---------------------- | ------------------------------------------------------ | -------------------- |
+| client lifecycle hook   | sessionの開始・入力・応答・終了を知らせる                           | client固有の一回のhook JSON                        | 一時的な観測event      | 同じclient session IDで束ねる                          | hook event           |
+| Tasken userData内のJSON | Tasken停止中を含め、完結まで欠落させない                            | 一つのclient sessionについて集約中の端末内レコード | local-only retry state | start → all user requests → response checkpoints → end | session observation  |
+| Session observations    | Intentとterminal Outcomeが揃ったSession PacketをDebriefまで保持する | 完結したcanonical AgentSession候補                 | passive Proposal       | session observationから一回だけ生成                    | Agent Session record |
 
 `session observation`は正式データではない。absolute pathをrepository解決に使う場合も端末内と認証済みloopback Coreに閉じ、ProposalへはopaqueなRepositoryContext / WorkingCopy IDだけを送る。
 
 ### Collection flow
 
 ```text
-SessionStart ─┐
-first prompt ─┼→ local session observation → SessionEnd → one Agent Session Proposal → AI Inbox
-last response ┤                                   │
-SessionEnd ───┘                                   └─ Core停止中は保持して再送
+SessionStart ───────┐
+all user requests ─┼→ local session observation → SessionEnd → one Session Packet → Debrief
+response checkpoints┤                                  │
+SessionEnd ─────────┘                                  └─ Core停止中は保持して再送
 ```
 
 開始と終了を別Proposalにしないことで、開始Proposalの採用待ち中に終了hookが来てもOutcomeを失わない。
-正式AgentSessionとReferenceは従来どおりAI Inboxで採用した時だけ保存する。
+正式AgentSessionとReferenceは、AI InboxのSession observationsから個別採用した時、またはDebrief保存時の一つの確認境界で保存する。
 
 収集対象はcanonical metadataだけである。transcript fileは読まず、hidden reasoning、tool call列、client固有raw schemaを保存しない。
-最初に観測したuser promptをIntentとして固定し、最後に観測したassistant responseをOutcome候補にする。後続promptでIntentを上書きしない。
+最初に観測したuser promptをIntentとして固定しつつ、後続のuser requestとassistant response checkpointも順序付きで保持する。Outcome summaryは最後のcheckpointから作るが、途中の方針転換は捨てない。
 
 ### Client adapters
 
 同梱`agent-session-hook.mjs`はstdinのclient固有JSONを次の共通eventへ変換する。
 
-| client | lifecycle events | source session ID | Intent source | Outcome source | terminal boundary |
-| --- | --- | --- | --- | --- | --- |
-| Codex | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd` | `session_id` | first `prompt` | latest `last_assistant_message` | `SessionEnd` |
-| Claude Code | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd` | `session_id` | first `prompt` | latest `last_assistant_message` | `SessionEnd` |
-| Cursor | `sessionStart` / `beforeSubmitPrompt` / `afterAgentResponse` / `sessionEnd` | `conversation_id` / `session_id` | first `prompt` | latest response `text` | `sessionEnd` |
-| GitHub Copilot | `sessionStart` / `userPromptSubmitted` / `agentStop` / `sessionEnd` | `sessionId` / `session_id` | `initialPrompt`またはfirst `prompt` | 利用可能なresponseのみ | `sessionEnd` |
+| client         | lifecycle events                                                            | source session ID                | Intent source                       | Outcome source                  | terminal boundary |
+| -------------- | --------------------------------------------------------------------------- | -------------------------------- | ----------------------------------- | ------------------------------- | ----------------- |
+| Codex          | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`                 | `session_id`                     | first `prompt`                      | latest `last_assistant_message` | `SessionEnd`      |
+| Claude Code    | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`                 | `session_id`                     | first `prompt`                      | latest `last_assistant_message` | `SessionEnd`      |
+| Cursor         | `sessionStart` / `beforeSubmitPrompt` / `afterAgentResponse` / `sessionEnd` | `conversation_id` / `session_id` | first `prompt`                      | latest response `text`          | `sessionEnd`      |
+| GitHub Copilot | `sessionStart` / `userPromptSubmitted` / `agentStop` / `sessionEnd`         | `sessionId` / `session_id`       | `initialPrompt`またはfirst `prompt` | 利用可能なresponseのみ          | `sessionEnd`      |
 
 各clientのhook仕様は変化しうるため、adapter fixtureで互換を固定する。公式仕様で得られないOutcomeをtranscript解析で補完せず、終了理由を明示した最小handoffを作る。
 

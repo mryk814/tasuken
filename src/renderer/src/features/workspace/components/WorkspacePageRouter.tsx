@@ -1,4 +1,11 @@
-import { lazy, Suspense, useEffect, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  type ComponentType,
+  type LazyExoticComponent,
+  type ReactNode,
+} from "react";
 
 import type { PageProps, Theme } from "../types";
 import { TodayPage } from "../pages/TodayPage";
@@ -17,21 +24,37 @@ function lazyNamedPage<P>(
   exportName: string,
 ): LazyExoticComponent<ComponentType<P>> {
   return lazy(async () => {
-    const module = await loader() as Record<string, ComponentType<P>>;
+    const module = (await loader()) as Record<string, ComponentType<P>>;
     return { default: module[exportName] };
   });
 }
 
-const ArtifactsPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("artifacts"), "ArtifactsPage");
+const ArtifactsPage = lazyNamedPage<PageProps>(
+  () => loadWorkspacePage("artifacts"),
+  "ArtifactsPage",
+);
 const ChatRefsPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("chat-refs"), "ChatRefsPage");
-const ImportExportPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("ai-io"), "ImportExportPage");
+const ImportExportPage = lazyNamedPage<PageProps>(
+  () => loadWorkspacePage("ai-io"),
+  "ImportExportPage",
+);
+const DebriefPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("debrief"), "DebriefPage");
 const InboxPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("inbox"), "InboxPage");
-const KnowledgePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("knowledge"), "KnowledgePage");
+const KnowledgePage = lazyNamedPage<PageProps>(
+  () => loadWorkspacePage("knowledge"),
+  "KnowledgePage",
+);
 const NotesPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("notes"), "NotesPage");
-const SketchLibraryPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("sketch"), "SketchLibraryPage");
+const SketchLibraryPage = lazyNamedPage<PageProps>(
+  () => loadWorkspacePage("sketch"),
+  "SketchLibraryPage",
+);
 const SketchPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("sketch-editor"), "SketchPage");
 const StudioPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("studio"), "StudioPage");
-const SettingsPage = lazyNamedPage<SettingsPageProps>(() => loadWorkspacePage("settings"), "SettingsPage");
+const SettingsPage = lazyNamedPage<SettingsPageProps>(
+  () => loadWorkspacePage("settings"),
+  "SettingsPage",
+);
 const ThemePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("theme"), "ThemePage");
 const ThemesPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("themes"), "ThemesPage");
 const TimelinePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("timeline"), "TimelinePage");
@@ -101,6 +124,9 @@ export function WorkspacePageRouter({
     case "ai-io":
       page = <ImportExportPage {...common} />;
       break;
+    case "debrief":
+      page = <DebriefPage {...common} />;
+      break;
     case "settings":
       page = (
         <SettingsPage
@@ -118,7 +144,13 @@ export function WorkspacePageRouter({
   }
 
   return (
-    <Suspense fallback={<main className="workspace-route-loading" role="status"><span className="spinner" /></main>}>
+    <Suspense
+      fallback={
+        <main className="workspace-route-loading" role="status">
+          <span className="spinner" />
+        </main>
+      }
+    >
       {page}
     </Suspense>
   );

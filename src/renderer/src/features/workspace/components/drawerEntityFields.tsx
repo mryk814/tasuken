@@ -285,8 +285,13 @@ export function TaskFields({
           ))}
         </fieldset>
       )}
-      <Field label="説明">
-        <textarea name="description" defaultValue={str(entity.description)} />
+      <Field label="ひとこと / Context">
+        <textarea
+          name="description"
+          rows={2}
+          defaultValue={str(entity.description)}
+          placeholder="背景や、避けたい方向を一言だけ"
+        />
       </Field>
       {/* 完了時のひとことは説明と混ぜず、完了の記録として別に持つ（#308）。 */}
       <Field label="完了時のひとこと">

@@ -1,0 +1,364 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+
+import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
+
+const charter = {
+  schema: "tasken-theme-charter/v1",
+  purpose: "Keep human ownership while using AI.",
+  desired_outcome: "Make the next useful decision visible.",
+  principles: ["Use AI", "Keep decisions visible"],
+  learning_interests: ["Context engineering"],
+};
+const currentState = {
+  schema: "tasken-theme-state/v1",
+  current_direction: "Build the context contract.",
+  active_questions: ["Which evidence belongs in each view?"],
+  blockers: ["The boundary is not yet tested."],
+  next_frontier: "Write the first technical column.",
+};
+const theme = {
+  id: "theme-context",
+  name: "Tasken context",
+  updated_at: "2026-08-26T09:00:00.000Z",
+  charter,
+  current_state: currentState,
+};
+const repository = {
+  id: "repository-context",
+  label: "Tasuken",
+  repository_slug: "mryk814/tasuken",
+};
+
+function boundedItems(prefix, count) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `${prefix}-${index}`,
+    title: `${prefix} ${index}`,
+  }));
+}
+
+function fakeCoreClient({ ambiguous = false, sessionsPerClient = 1 } = {}) {
+  const calls = [];
+  return {
+    calls,
+    async findThemesForRepository(args) {
+      calls.push(["findThemesForRepository", args]);
+      return ambiguous
+        ? { themes: [theme, { id: "theme-other", name: "Another theme" }] }
+        : { themes: [theme] };
+    },
+    async getThemeContext(args) {
+      calls.push(["getThemeContext", args]);
+      return {
+        themes: [theme],
+        open_items: boundedItems("open", 6),
+        recent_notes: boundedItems("note", 4),
+        knowledge: { knowledge_nodes: boundedItems("knowledge", 3), knowledge_edges: [] },
+        health: { open_count: 6 },
+        context_selection: { limit: args.limit, max_chars: args.max_chars },
+      };
+    },
+    async getTaskContext(args) {
+      calls.push(["getTaskContext", args]);
+      return {
+        task: {
+          id: args.task_id,
+          title: "Continue the contract",
+          memo: "Keep this one-line context.",
+        },
+        evidence: boundedItems("evidence", 3),
+      };
+    },
+    async getActivity(args) {
+      calls.push(["getActivity", args]);
+      return { entries: boundedItems("activity", 4) };
+    },
+    async getRecentNotes(args) {
+      calls.push(["getRecentNotes", args]);
+      return {
+        notes: [{ id: "debrief-1", title: "Tasken Debrief 2026-08-26", body: "Human reflection" }],
+      };
+    },
+    async getAgentSessionContext(args) {
+      calls.push(["getAgentSessionContext", args]);
+      return {
+        repository_context: repository,
+        themes: [theme],
+        sessions: Array.from({ length: sessionsPerClient }, (_, index) => ({
+          id: `session-${args.client_kind}-${index}`,
+          started_at: `2026-08-26T${String(10 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00.000Z`,
+          summary: "Observed evidence",
+        })),
+      };
+    },
+  };
+}
+
+async function withMcp(coreClient, callback) {
+  const server = createTaskenMcpServer({ coreClient, readOnly: true });
+  const client = new Client({ name: "tasken-context-contract", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    return await callback(client);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+}
+
+const contextTools = [
+  "tasken.get_work_context",
+  "tasken.get_planning_context",
+  "tasken.get_learning_context",
+  "tasken.get_debrief_context",
+];
+
+test("context views are listed as bounded read-only MCP tools", async () => {
+  await withMcp(fakeCoreClient(), async (client) => {
+    const listed = await client.listTools();
+    const tools = new Map(listed.tools.map((tool) => [tool.name, tool]));
+    for (const name of contextTools) {
+      const tool = tools.get(name);
+      assert.ok(tool, `${name} is listed`);
+      assert.equal(tool.annotations?.readOnlyHint, true, `${name} is read-only`);
+      assert.equal(tool.annotations?.destructiveHint, false, `${name} is non-destructive`);
+      assert.equal(tool.annotations?.idempotentHint, true, `${name} is idempotent`);
+    }
+  });
+});
+
+test("Theme intent ResourceTemplate is listed and reads a bounded human intent projection", async () => {
+  const core = fakeCoreClient();
+  await withMcp(core, async (client) => {
+    const listed = await client.listResourceTemplates();
+    const template = listed.resourceTemplates.find(
+      (entry) => entry.uriTemplate === "tasken://themes/{themeId}/intent",
+    );
+    assert.ok(template);
+    assert.equal(template.name, "theme-intent");
+    assert.equal(template.mimeType, "application/json");
+
+    const result = await client.readResource({ uri: "tasken://themes/theme-context/intent" });
+    assert.equal(result.contents.length, 1);
+    assert.equal(result.contents[0].uri, "tasken://themes/theme-context/intent");
+    assert.equal(result.contents[0].mimeType, "application/json");
+    const projection = JSON.parse(result.contents[0].text);
+    assert.deepEqual(projection.theme, {
+      id: theme.id,
+      name: theme.name,
+      charter,
+      current_state: currentState,
+      updated_at: theme.updated_at,
+    });
+    assert.equal(projection.read_only, true);
+    const themeCall = core.calls.find(([name]) => name === "getThemeContext");
+    assert.deepEqual(themeCall[1], {
+      theme_id: theme.id,
+      limit: 1,
+      max_chars: 4_000,
+      max_hops: 1,
+      max_nodes: 10,
+      max_edges: 10,
+      token_budget: 2_000,
+    });
+  });
+});
+
+test("Debrief and learning-column prompts are listed and keep user-owned boundaries", async () => {
+  await withMcp(fakeCoreClient(), async (client) => {
+    const listed = await client.listPrompts();
+    const prompts = new Map(listed.prompts.map((prompt) => [prompt.name, prompt]));
+    assert.ok(prompts.has("debrief"));
+    assert.ok(prompts.has("learning-column"));
+    assert.equal(prompts.get("debrief").arguments[0].name, "date");
+    assert.equal(prompts.get("learning-column").arguments[0].name, "theme_id");
+
+    const debrief = await client.getPrompt({
+      name: "debrief",
+      arguments: { date: "2026-08-26" },
+    });
+    const debriefText = debrief.messages[0].content.text;
+    assert.match(debriefText, /tasken\.get_debrief_context for 2026-08-26/);
+    assert.match(debriefText, /at most one adaptive question/);
+    assert.match(debriefText, /Do not write My decision or Next return/);
+
+    const learning = await client.getPrompt({
+      name: "learning-column",
+      arguments: { theme_id: theme.id },
+    });
+    const learningText = learning.messages[0].content.text;
+    assert.match(learningText, /theme_id=theme-context/);
+    assert.match(learningText, /select at most one/);
+    assert.match(learningText, /no pitch is genuinely interesting/);
+  });
+});
+
+test("work context returns a bounded projection with Theme intent and optional Task", async () => {
+  const core = fakeCoreClient();
+  await withMcp(core, async (client) => {
+    const result = await client.callTool({
+      name: "tasken.get_work_context",
+      arguments: { theme_id: theme.id, task_id: "task-context", include_sessions: false },
+    });
+    assert.equal(result.isError, undefined);
+    const projection = result.structuredContent;
+    assert.deepEqual(projection.canonical_intent, {
+      theme_id: theme.id,
+      name: theme.name,
+      charter,
+      current_state: currentState,
+    });
+    assert.equal(projection.current_task.id, "task-context");
+    assert.equal(projection.related_work.length, 6);
+    assert.deepEqual(projection.recent_sessions, []);
+    assert.equal(projection.schema, "tasken-context-view/v1");
+    assert.match(projection.view_id, /^[0-9a-f-]{36}$/);
+    assert.match(projection.generated_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.match(projection.content_hash, /^[0-9a-f]{64}$/);
+    assert.deepEqual(projection.budget, { token_budget: 4_000 });
+    assert.deepEqual(projection.source_versions, [
+      {
+        kind: "theme",
+        id: theme.id,
+        version: null,
+        updated_at: theme.updated_at,
+      },
+    ]);
+    assert.equal(projection.read_only, true);
+    assert.equal("My decision" in projection, false);
+    const themeCall = core.calls.find(([name]) => name === "getThemeContext");
+    assert.deepEqual(themeCall[1], {
+      theme_id: theme.id,
+      limit: 20,
+      max_chars: 4_000,
+      max_hops: 1,
+      max_nodes: 40,
+      max_edges: 60,
+      token_budget: 4_000,
+    });
+    const taskCall = core.calls.find(([name]) => name === "getTaskContext");
+    assert.deepEqual(taskCall[1], {
+      task_id: "task-context",
+      max_items_per_type: 8,
+      max_text_length: 20_000,
+    });
+  });
+});
+
+test("planning and learning contexts preserve charter/state and bound their evidence", async () => {
+  const core = fakeCoreClient();
+  await withMcp(core, async (client) => {
+    const planning = await client.callTool({
+      name: "tasken.get_planning_context",
+      arguments: { theme_id: theme.id },
+    });
+    assert.equal(planning.isError, undefined);
+    assert.deepEqual(planning.structuredContent.canonical_intent.charter, charter);
+    assert.deepEqual(planning.structuredContent.canonical_intent.current_state, currentState);
+    assert.equal(planning.structuredContent.open_work.length, 6);
+    assert.equal(planning.structuredContent.read_only, true);
+
+    const learning = await client.callTool({
+      name: "tasken.get_learning_context",
+      arguments: { theme_id: theme.id },
+    });
+    assert.equal(learning.isError, undefined);
+    assert.deepEqual(learning.structuredContent.canonical_intent.charter, charter);
+    assert.deepEqual(learning.structuredContent.canonical_intent.current_state, currentState);
+    assert.equal(learning.structuredContent.recent_activity.length, 4);
+    assert.equal(learning.structuredContent.prior_material.length, 1);
+    assert.equal(learning.structuredContent.editorial_contract.select_at_most, 1);
+    assert.equal(learning.structuredContent.editorial_contract.may_skip, true);
+    assert.equal(learning.structuredContent.read_only, true);
+
+    const activityCall = core.calls.find(([name]) => name === "getActivity");
+    assert.deepEqual(activityCall[1], { theme_id: theme.id, limit: 50 });
+    const notesCall = core.calls.find(([name]) => name === "getRecentNotes");
+    assert.deepEqual(notesCall[1], { theme_id: theme.id, limit: 30, max_chars: 5_000 });
+  });
+});
+
+test("repository-to-theme ambiguity is explicit and does not guess for context views", async () => {
+  for (const name of [
+    "tasken.get_work_context",
+    "tasken.get_planning_context",
+    "tasken.get_learning_context",
+  ]) {
+    const core = fakeCoreClient({ ambiguous: true });
+    await withMcp(core, async (client) => {
+      const result = await client.callTool({
+        name,
+        arguments: { repository_slug: "mryk814/tasuken" },
+      });
+      assert.equal(result.isError, undefined);
+      assert.deepEqual(result.structuredContent.error, {
+        code: "ambiguous_theme",
+        message: "Repositoryに複数のThemeがあります。theme_idを指定してください。",
+        candidates: [
+          { id: theme.id, name: theme.name },
+          { id: "theme-other", name: "Another theme" },
+        ],
+      });
+      assert.equal(
+        result.structuredContent.view,
+        name.slice("tasken.get_".length, -"_context".length),
+      );
+      assert.equal(result.structuredContent.read_only, true);
+      assert.equal(core.calls.filter(([method]) => method === "getThemeContext").length, 0);
+    });
+  }
+});
+
+test("debrief context includes Theme intent but leaves human reflection fields to the user", async () => {
+  const core = fakeCoreClient();
+  await withMcp(core, async (client) => {
+    const result = await client.callTool({
+      name: "tasken.get_debrief_context",
+      arguments: {
+        repository_slug: "mryk814/tasuken",
+        date: "2026-08-26",
+        include_recent_debriefs: false,
+      },
+    });
+    assert.equal(result.isError, undefined);
+    const projection = result.structuredContent;
+    assert.equal(projection.date, "2026-08-26");
+    assert.deepEqual(projection.repository_context, repository);
+    assert.deepEqual(projection.theme_intent, [
+      { id: theme.id, name: theme.name, charter, current_state: currentState },
+    ]);
+    assert.equal(projection.sessions.length, 5);
+    assert.deepEqual(projection.prior_debriefs, []);
+    assert.equal(projection.evidence_strength, "agent_reported");
+    assert.equal(projection.read_only, true);
+    assert.deepEqual(projection.human_fields.required, ["My decision", "Next return"]);
+    assert.match(projection.human_fields.instruction, /written by the user/);
+    assert.equal("my_decision" in projection, false);
+    assert.equal("next_return" in projection, false);
+    assert.equal(
+      core.calls.some(([method]) => method === "getRecentNotes"),
+      false,
+    );
+  });
+});
+
+test("debrief context keeps the multi-client session projection bounded", async () => {
+  const core = fakeCoreClient({ sessionsPerClient: 20 });
+  await withMcp(core, async (client) => {
+    const result = await client.callTool({
+      name: "tasken.get_debrief_context",
+      arguments: {
+        repository_slug: "mryk814/tasuken",
+        date: "2026-08-26",
+        include_recent_debriefs: false,
+      },
+    });
+    assert.equal(result.isError, undefined);
+    assert.ok(result.structuredContent.sessions.length <= 50);
+  });
+});
