@@ -10,8 +10,9 @@ const aiProposalPanelSource = readFileSync("src/renderer/src/features/workspace/
 test("AI proposals use the existing AI route as a review inbox", () => {
   assert.doesNotMatch(routesSource, /\["proposal-inbox", "AI提案の確認"\]/);
   assert.match(routesSource, /id: "ai-io", label: "AI Inbox"/);
-  assert.match(routesSource, /group: "tools", order: 1/);
-  assert.match(routesSource, /group: "tools", order: 2/);
+  assert.match(routesSource, /id: "inbox"[\s\S]*group: "cross", order: 1/);
+  assert.match(routesSource, /id: "ai-io"[\s\S]*group: "cross", order: 2/);
+  assert.match(routesSource, /id: "timeline"[\s\S]*group: "cross", order: 3/);
   assert.match(routesSource, /id: "proposal-inbox", parent: "ai-io"/);
   assert.match(workspaceAppSource, /import \{ normalizeRoute, routeLabel \} from "\.\.\/\.\.\/pages\/routes"/);
   assert.doesNotMatch(workspaceAppSource, /ProposalInboxPage/);

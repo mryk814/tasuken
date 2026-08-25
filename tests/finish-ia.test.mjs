@@ -5,6 +5,7 @@ import test from "node:test";
 const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
 const uiStoreSource = readFileSync("src/renderer/src/stores/uiStore.ts", "utf8");
 const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
+const appCssSource = readFileSync("src/renderer/src/styles/app.css", "utf8");
 const pageRouterSource = readFileSync("src/renderer/src/features/workspace/components/WorkspacePageRouter.tsx", "utf8");
 const pageLoadersSource = readFileSync("src/renderer/src/features/workspace/workspacePageLoaders.ts", "utf8");
 
@@ -41,6 +42,11 @@ test("sidebar count badges are limited to action-driving counts", () => {
   assert.doesNotMatch(shellSource, /knowledgeHealthIssueCount/);
   assert.doesNotMatch(shellSource, /knowledge:\s*knowledgeHealthIssueCount/);
   assert.match(shellSource, /"ai-io": proposalCount/);
+  assert.match(shellSource, /isProposalInbox = id === "ai-io"/);
+  assert.match(shellSource, /is-attention/);
+  assert.match(shellSource, /未処理\$\{count\}件/);
+  assert.match(appCssSource, /\.count\.is-attention/);
+  assert.match(appCssSource, /is-sidebar-collapsed \.sidebar \.count\.is-attention/);
 });
 
 test("shortcut dialog lists capture window and tray-oriented entries", () => {

@@ -341,13 +341,14 @@ export function Sidebar({
   const renderNavButton = (id: string) => {
     const label = routeLabel(id);
     const count = countByRoute[id] || 0;
+    const isProposalInbox = id === "ai-io";
     const NavIcon = routeIcon(id);
     return (
       <button
         key={id}
         className={route === id ? "is-active" : ""}
         aria-current={route === id ? "page" : undefined}
-        aria-label={label}
+        aria-label={count > 0 ? `${label}、未処理${count}件` : label}
         title={collapsed ? label : undefined}
         onMouseEnter={() => preloadWorkspacePage(id)}
         onFocus={() => preloadWorkspacePage(id)}
@@ -355,7 +356,11 @@ export function Sidebar({
       >
         {NavIcon && <NavIcon className="nav-icon" size={17} stroke={1.8} aria-hidden="true" />}
         <span className="nav-label">{label}</span>
-        {count > 0 && <span className="count">{count}</span>}
+        {count > 0 && (
+          <span className={`count${isProposalInbox ? " is-attention" : ""}`} aria-label={`${count}件未処理`}>
+            {count > 99 ? "99+" : count}
+          </span>
+        )}
       </button>
     );
   };

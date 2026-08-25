@@ -94,11 +94,11 @@ export const ROUTE_DEFINITIONS = {
   },
   timeline: {
     id: "timeline", label: "Timeline", description: "実施事項ごとに、分析依頼・試験依頼・整理などの計画を並べます。", icon: IconTimeline,
-    semanticRole: "view", availability: "always", navigation: { group: "cross", order: 2 },
+    semanticRole: "view", availability: "always", navigation: { group: "cross", order: 3 },
   },
   knowledge: {
     id: "knowledge", label: "Knowledge", description: "既存データを読み取り、Research / Diagnosticとして確認します。", icon: IconBulb,
-    semanticRole: "tool", availability: "always", navigation: { group: "tools", order: 3 },
+    semanticRole: "tool", availability: "always", navigation: { group: "tools", order: 2 },
   },
   notes: {
     id: "notes", label: "Notes", description: "Note・Resource・Report・Promptをまとめて扱います。Markdownを書き、関連資料を参照しながら整理できます。", icon: IconNotes,
@@ -133,12 +133,12 @@ export const ROUTE_DEFINITIONS = {
   },
   "ai-io": {
     id: "ai-io", label: "AI Inbox", description: "外部AIから届いたProposalを確認し、採用する内容だけをTaskenへ反映します。", icon: IconSparkles,
-    semanticRole: "tool", availability: "always", navigation: { group: "tools", order: 1 },
+    semanticRole: "tool", availability: "always", navigation: { group: "cross", order: 2 },
     aliases: [{ id: "proposal-inbox", parent: "ai-io" }],
   },
   settings: {
     id: "settings", label: "Settings", icon: IconSettings,
-    semanticRole: "tool", availability: "always", navigation: { group: "tools", order: 2 },
+    semanticRole: "tool", availability: "always", navigation: { group: "tools", order: 1 },
   },
 } as const satisfies Record<CanonicalRouteId, RouteDefinition>;
 
