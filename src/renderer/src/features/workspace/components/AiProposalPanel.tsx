@@ -34,6 +34,23 @@ interface ProposalPreview {
   payloadIssues: string[];
 }
 
+function nestedSummary(entry: Record<string, unknown>, field: "intent" | "outcome") {
+  const value = entry[field];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? str((value as Record<string, unknown>).summary)
+    : "";
+}
+
+function candidateTitle(candidate: ProposalCandidate) {
+  return str(candidate.entry.title)
+    || str(candidate.entry.label)
+    || str(candidate.entry.summary)
+    || (candidate.type === "agent_session" ? nestedSummary(candidate.entry, "intent") : "")
+    || str(candidate.entry.task_id)
+    || str(candidate.entry.relation_type)
+    || "無題";
+}
+
 function parsePayload(raw: unknown, payloadType: ProposalPayloadType): Record<string, unknown> {
   if (typeof raw === "string") return JSON.parse(raw);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { [payloadType]: [] };
@@ -658,13 +675,19 @@ export function AiProposalPanel(props: PageProps) {
           {preview.candidates.map((candidate, index) => (
             <div className={`import-candidate${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`} key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}>
               <div>
-                <strong>{str(candidate.entry.title) || str(candidate.entry.label) || str(candidate.entry.summary) || str(candidate.entry.task_id) || str(candidate.entry.relation_type) || "無題"}</strong>
+                <strong>{candidateTitle(candidate)}</strong>
                 <small>{candidate.type === "task_work"
                   ? `Task ${str(candidate.entry.task_id)} / ${str(candidate.entry.action)}`
                   : candidate.type === "repository_context"
                     ? `RepositoryContext / ${str(candidate.entry.provider) || "unknown"} / ${str(candidate.entry.canonical_identity) || "identity unavailable"} / credential-free normalized`
                     : `${candidate.type} / ${candidate.theme?.name || "Theme未解決"}`}{candidate.duplicate ? ` / 既存候補: ${str(candidate.duplicate.title || candidate.duplicate.label)}` : ""}</small>
                 {candidate.issues.length > 0 && <p className="field-help">確認: {candidate.issues.join(" / ")}</p>}
+                {candidate.type === "agent_session" && (
+                  <div className="proposal-agent-session-details">
+                    <span><b>Outcome</b>{nestedSummary(candidate.entry, "outcome") || "未記録"}</span>
+                    <span><b>Status</b>{str(candidate.entry.status)} · {str(candidate.entry.client_kind)}{str(candidate.entry.model_label) ? ` / ${str(candidate.entry.model_label)}` : ""}</span>
+                  </div>
+                )}
               </div>
               <select value={candidate.action} onChange={(event) => setPreview((current) => current ? { ...current, candidates: current.candidates.map((entry, itemIndex) => itemIndex === index ? { ...entry, action: event.target.value } : entry) } : current)}>
                 <option value="create">新規作成</option>

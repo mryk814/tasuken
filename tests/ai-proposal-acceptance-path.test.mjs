@@ -672,6 +672,50 @@ test("AI Inbox applies Agent Session start and finish while keeping original int
     assert.equal(completed.status, "completed");
     assert.equal(completed.intent.summary, "Implement Issue #498");
     assert.equal(completed.outcome.summary, "Implemented");
+
+    const capturedSessionId = "8c731737-b6a2-5bf7-a9dd-50ddd53495c1";
+    const captureProposal = database.save("ai_proposal", {
+      id: "proposal-agent-session-capture",
+      source: "mcp",
+      source_app: "tasken-session-hook:codex",
+      payload_type: "agent_sessions",
+      payload: {
+        agent_sessions: [{
+          action: "capture",
+          session: {
+            id: capturedSessionId,
+            started_at: "2026-08-25T12:00:00.000Z",
+            ended_at: "2026-08-25T12:20:00.000Z",
+            status: "completed",
+            client_kind: "codex",
+            source_session_id: "thread-captured",
+            intent: { summary: "Collect a complete lifecycle", requested_outcome: null, boundary: null },
+            outcome: { summary: "Captured automatically", decisions: [], changed_items: [], verification: ["SessionEnd"], remaining_work: [], next_suggested_action: null },
+            source: "ai_proposal",
+          },
+          references: [],
+        }],
+      },
+      request: { tool: "tasken.submit_agent_session_record" },
+      status: "pending",
+      received_at: "2026-08-25T12:20:01.000Z",
+    });
+    const capturePreview = buildPreview(captureProposal, { data: { agent_sessions: [active, completed] }, themes: [], items: [] });
+    const captureCandidates = buildCandidateOperations(capturePreview.candidates)
+      .map((operation) => ({ type: operation.type, entity: operation.entity }));
+    commands.execute({
+      commandId: "proposal-agent-session-capture:accept",
+      name: "ApplyAiProposal",
+      payload: { proposal: { ...captureProposal, status: "accepted" }, candidates: captureCandidates },
+      actor: { kind: "user" },
+      source: "main_ui",
+      expectedVersions: [{ type: "ai_proposal", id: captureProposal.id, version: captureProposal.version }],
+      issuedAt: captureProposal.received_at,
+    });
+    const captured = database.get("agent_session", capturedSessionId);
+    assert.equal(captured.status, "completed");
+    assert.equal(captured.intent.summary, "Collect a complete lifecycle");
+    assert.equal(captured.outcome.summary, "Captured automatically");
   } finally {
     database.db.close();
     fs.rmSync(directory, { recursive: true, force: true });

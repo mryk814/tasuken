@@ -1491,6 +1491,21 @@ export class ApplicationCommandService {
     const operations: SaveOperation[] = [];
     const eventIds: string[] = [];
     const seen = new Set<string>();
+    const capturedAgentSessionIds = new Set(
+      currentProposal.payload_type === "agent_sessions"
+        && currentProposal.payload
+        && typeof currentProposal.payload === "object"
+        && !Array.isArray(currentProposal.payload)
+        && Array.isArray((currentProposal.payload as { agent_sessions?: unknown[] }).agent_sessions)
+        ? (currentProposal.payload as { agent_sessions: unknown[] }).agent_sessions.flatMap((entry) => {
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+          const record = entry as { action?: unknown; session?: unknown };
+          if (record.action !== "capture" || !record.session || typeof record.session !== "object" || Array.isArray(record.session)) return [];
+          const id = (record.session as { id?: unknown }).id;
+          return typeof id === "string" ? [id] : [];
+        })
+        : [],
+    );
     for (const candidate of payload.candidates) {
       const type = candidate.type;
       let candidateEntity = candidate.entity;
@@ -1534,8 +1549,17 @@ export class ApplicationCommandService {
         assertExpectedVersion(this.repository, command, type, candidateEntity.id, before);
       }
       if (type === "agent_session") {
-        if (!before && (candidateEntity.status !== "active" || candidateEntity.ended_at || candidateEntity.outcome)) {
-          throw new ApplicationCommandError("INVALID_TRANSITION", "新しい Agent Session は active で開始してください。", { id: candidateEntity.id });
+        if (!before) {
+          const isCapturedTerminalRecord = capturedAgentSessionIds.has(candidateEntity.id);
+          if (isCapturedTerminalRecord) {
+            if (!["completed", "blocked", "abandoned"].includes(String(candidateEntity.status))
+              || !candidateEntity.ended_at
+              || !candidateEntity.outcome) {
+              throw new ApplicationCommandError("INVALID_TRANSITION", "Captureする Agent Session は完結した終端記録にしてください。", { id: candidateEntity.id });
+            }
+          } else if (candidateEntity.status !== "active" || candidateEntity.ended_at || candidateEntity.outcome) {
+            throw new ApplicationCommandError("INVALID_TRANSITION", "新しい Agent Session は active で開始してください。", { id: candidateEntity.id });
+          }
         }
         if (before) {
           for (const field of ["started_at", "client_kind", "client_label", "agent_label", "provider_label", "model_label", "source_session_id", "intent"] as const) {
