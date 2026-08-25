@@ -129,3 +129,65 @@ NIPPO表示は新しいdaily report entityを保存せず、`AgentSession`、`Re
 client固有のraw logはprojectionへ直接渡さない。
 Codex、Claude Code、Cursor、GitHub CopilotはいずれもPhase 3の同じcanonical Agent Session contractへ正規化してから表示する。
 この契約互換は複数client fixtureで検証するが、各clientのnative log自動収集はPhase 4の別adapter作業として残す。
+
+## Phase 4 lifecycle collection
+
+### Concrete referent map
+
+| Source | Purpose | Concrete referent | Role | Order or relation | Label |
+| --- | --- | --- | --- | --- | --- |
+| client lifecycle hook | sessionの開始・入力・応答・終了を知らせる | client固有の一回のhook JSON | 一時的な観測event | 同じclient session IDで束ねる | hook event |
+| Tasken userData内のJSON | Tasken停止中を含め、完結まで欠落させない | 一つのclient sessionについて集約中の端末内レコード | local-only retry state | start → first intent → latest response → end | session observation |
+| AI Inboxの一件 | Intentとterminal Outcomeが揃ったSessionを人が確認する | 完結したcanonical AgentSession候補 | Proposal | session observationから一回だけ生成 | Agent Session record |
+
+`session observation`は正式データではない。absolute pathをrepository解決に使う場合も端末内と認証済みloopback Coreに閉じ、ProposalへはopaqueなRepositoryContext / WorkingCopy IDだけを送る。
+
+### Collection flow
+
+```text
+SessionStart ─┐
+first prompt ─┼→ local session observation → SessionEnd → one Agent Session Proposal → AI Inbox
+last response ┤                                   │
+SessionEnd ───┘                                   └─ Core停止中は保持して再送
+```
+
+開始と終了を別Proposalにしないことで、開始Proposalの採用待ち中に終了hookが来てもOutcomeを失わない。
+正式AgentSessionとReferenceは従来どおりAI Inboxで採用した時だけ保存する。
+
+収集対象はcanonical metadataだけである。transcript fileは読まず、hidden reasoning、tool call列、client固有raw schemaを保存しない。
+最初に観測したuser promptをIntentとして固定し、最後に観測したassistant responseをOutcome候補にする。後続promptでIntentを上書きしない。
+
+### Client adapters
+
+同梱`agent-session-hook.mjs`はstdinのclient固有JSONを次の共通eventへ変換する。
+
+| client | lifecycle events | source session ID | Intent source | Outcome source | terminal boundary |
+| --- | --- | --- | --- | --- | --- |
+| Codex | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd` | `session_id` | first `prompt` | latest `last_assistant_message` | `SessionEnd` |
+| Claude Code | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd` | `session_id` | first `prompt` | latest `last_assistant_message` | `SessionEnd` |
+| Cursor | `sessionStart` / `beforeSubmitPrompt` / `afterAgentResponse` / `sessionEnd` | `conversation_id` / `session_id` | first `prompt` | latest response `text` | `sessionEnd` |
+| GitHub Copilot | `sessionStart` / `userPromptSubmitted` / `agentStop` / `sessionEnd` | `sessionId` / `session_id` | `initialPrompt`またはfirst `prompt` | 利用可能なresponseのみ | `sessionEnd` |
+
+各clientのhook仕様は変化しうるため、adapter fixtureで互換を固定する。公式仕様で得られないOutcomeをtranscript解析で補完せず、終了理由を明示した最小handoffを作る。
+
+### Hook command
+
+開発版:
+
+```text
+node scripts/agent-session-hook.mjs --client codex
+node scripts/agent-session-hook.mjs --client claude_code
+node scripts/agent-session-hook.mjs --client cursor
+node scripts/agent-session-hook.mjs --client github_copilot
+```
+
+インストール版はTaskenの`resources/mcp/agent-session-hook.mjs`を同じ引数で起動する。
+各clientでは上表の4 eventを同じcommandへ接続する。hookは必ずJSON objectをstdoutへ返し、Tasken未起動時の診断はstderrだけに出すためagent loopを妨げない。
+
+未送信のterminal observationは次で再送できる。
+
+```text
+node agent-session-hook.mjs --flush
+```
+
+明示的な紐づけが必要な場合だけ`TASKEN_AGENT_SESSION_THEME_IDS` / `TASKEN_AGENT_SESSION_TASK_IDS`へcomma区切りのIDを渡す。未指定時はrepositoryを一意に解決し、Theme / WorkingCopyも一意な場合だけ自動で関連付ける。Task候補は自動選択しない。

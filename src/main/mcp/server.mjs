@@ -471,6 +471,39 @@ export function createTaskenMcpServer(options = {}) {
     annotations: PROPOSAL_ANNOTATIONS,
   }, withCoreClient((args) => queueAgentSession(args, "finish")));
 
+  server.registerTool("tasken.submit_agent_session_record", {
+    description: "Queue one complete Agent Session record for AI Inbox review. This is for lifecycle collectors that observed both Intent and terminal Outcome; it never stores raw transcripts or writes official data directly.",
+    inputSchema: {
+      ...agentSessionIdentity,
+      started_at: requiredTimestamp,
+      ended_at: requiredTimestamp,
+      status: z.enum(["completed", "blocked", "abandoned"]),
+      client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]),
+      client_label: z.string().trim().max(200).optional(),
+      agent_label: z.string().trim().max(200).optional(),
+      provider_label: z.string().trim().max(200).optional(),
+      model_label: z.string().trim().max(200).optional(),
+      intent: z.object({
+        summary: z.string().trim().min(1).max(4000),
+        requested_outcome: z.string().trim().max(4000).optional(),
+        boundary: z.string().trim().max(4000).optional(),
+      }).strict(),
+      outcome: z.object({
+        summary: z.string().trim().min(1).max(8000),
+        decisions: agentSessionList,
+        changed_items: agentSessionList,
+        verification: agentSessionList,
+        remaining_work: agentSessionList,
+        next_suggested_action: z.string().trim().max(4000).optional(),
+      }).strict(),
+      theme_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+      task_ids: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+      repository_context_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+      working_copy_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+    },
+    annotations: PROPOSAL_ANNOTATIONS,
+  }, withCoreClient((args) => queueAgentSession(args, "capture")));
+
   server.registerTool("tasken.start_task_work", {
     description: "Queue a proposal to start work on an assigned Task. This never writes Task state directly.",
     inputSchema: {

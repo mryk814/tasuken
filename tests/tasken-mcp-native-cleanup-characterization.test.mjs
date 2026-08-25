@@ -22,6 +22,7 @@ const readTools = [
 const proposalTools = [
   "tasken.start_task_work", "tasken.append_work_receipt", "tasken.report_task_done",
   "tasken.report_task_blocked", "tasken.start_agent_session", "tasken.finish_agent_session",
+  "tasken.submit_agent_session_record",
   "tasken.propose_repository_context", "tasken.propose_task",
   "tasken.propose_note", "tasken.propose_note_edit", "tasken.propose_knowledge",
   "tasken.propose_sketch", "tasken.propose_artifact",
@@ -71,10 +72,10 @@ test("#413 MCP production graph is Core-only and native-free", () => {
   assert.doesNotMatch(source("src/renderer/src/features/workspace/pages/SettingsPage.tsx"), /MCP Inbox|Inboxを開く|pendingFileCount/);
 });
 
-test("#413 all 23 reads and 13 proposals use Core without fallback", () => {
+test("#413 all 23 reads and 14 proposals use Core without fallback", () => {
   const mcpServer = source("src/main/mcp/server.mjs");
   assert.equal(readTools.length, 23);
-  assert.equal(proposalTools.length, 13);
+  assert.equal(proposalTools.length, 14);
   for (const toolName of readTools) assert.match(toolBlock(mcpServer, toolName), /withCoreClient/);
   for (const toolName of proposalTools) {
     const block = toolBlock(mcpServer, toolName);

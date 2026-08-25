@@ -6,7 +6,7 @@ Issue #412 / #413で、Desktop・MCP・Mobileが同じapplication serviceを使�
 
 Desktop Mainが`WorkspaceDatabase`を生成して`TaskenDesktopComposition`へ注入する。compositionは`ApplicationCommandService`、`TaskenCoreRuntime`、単一の`TaskCapabilityService`を所有し、Desktop IPC、Core HTTP、Mobile adapterへ同じinstanceを渡す。Core hostは`127.0.0.1`のephemeral portだけで待ち受け、userData配下のowner-only discovery documentにAPI version、named capabilities、origin、256-bit tokenを原子的に公開する。
 
-stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 23 toolsとProposal 13 toolsはすべて認証済みCore clientを通る。
+stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 23 toolsとProposal 14 toolsはすべて認証済みCore clientを通る。
 
 ```text
 MCP client
@@ -53,10 +53,10 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 - Theme / Knowledge: `get_theme_context`, `get_recent_notes`, `search_knowledge`, `get_knowledge_context`, `get_plan_health`, `get_knowledge_health`
 - Cross-cutting: `get_activity`, `get_context_subgraph`, `export_ai_context`
 
-### Proposal 13 / 13 Core
+### Proposal 14 / 14 Core
 
 - Task work: `start_task_work`, `append_work_receipt`, `report_task_done`, `report_task_blocked`
-- Agent session: `start_agent_session`, `finish_agent_session`
+- Agent session: `start_agent_session`, `finish_agent_session`, `submit_agent_session_record`
 - Repository/Task: `propose_repository_context`, `propose_task`
 - Content: `propose_note`, `propose_note_edit`, `propose_knowledge`, `propose_sketch`, `propose_artifact`
 

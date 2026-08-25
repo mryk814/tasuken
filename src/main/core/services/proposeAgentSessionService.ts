@@ -31,7 +31,7 @@ function digest(value: unknown) {
 }
 
 function relationEntries(
-  request: Extract<ProposeAgentSessionRequest, { action: "start" }>,
+  request: Extract<ProposeAgentSessionRequest, { action: "start" | "capture" }>,
   sessionId: string,
   proposalId: string,
 ) {
@@ -66,7 +66,7 @@ export class ProposeAgentSessionService {
   execute(input: ProposeAgentSessionRequest): ProposeAgentSessionResponse {
     const request = proposeAgentSessionRequestSchema.parse(input);
     const proposalId = uuidFrom([request.source_app, "agent_sessions", request.idempotency_key]);
-    const sessionId = request.action === "start"
+    const sessionId = request.action !== "finish"
       ? uuidFrom([request.source_app, "agent_session", request.source_session])
       : request.agent_session_id;
     const receivedAt = this.now();
@@ -121,7 +121,7 @@ export class ProposeAgentSessionService {
           );
         }
       }
-      if (request.action === "start" && transaction.getEntity("agent_session", sessionId)) {
+      if (request.action !== "finish" && transaction.getEntity("agent_session", sessionId)) {
         throw new ProposeAgentSessionError(
           "SESSION_CONFLICT",
           "同じ source_session の Agent Session はすでに存在します。",
@@ -129,10 +129,11 @@ export class ProposeAgentSessionService {
         );
       }
 
-      const session = normalizeAgentSession(request.action === "start" ? {
+      const session = normalizeAgentSession(request.action !== "finish" ? {
         id: sessionId,
         started_at: request.started_at,
-        status: "active",
+        ended_at: request.action === "capture" ? request.ended_at : null,
+        status: request.action === "capture" ? request.status : "active",
         client_kind: request.client_kind,
         client_label: request.client_label || null,
         agent_label: request.agent_label || null,
@@ -140,6 +141,7 @@ export class ProposeAgentSessionService {
         model_label: request.model_label || null,
         source_session_id: request.source_session,
         intent: request.intent,
+        outcome: request.action === "capture" ? request.outcome : null,
         source: "ai_proposal",
       } : {
         ...current,
@@ -147,7 +149,7 @@ export class ProposeAgentSessionService {
         status: request.status,
         outcome: request.outcome,
       });
-      const references = request.action === "start" ? relationEntries(request, sessionId, proposalId) : [];
+      const references = request.action !== "finish" ? relationEntries(request, sessionId, proposalId) : [];
       for (const reference of references) {
         if (!transaction.getEntity(reference.target_type, reference.target_id)) {
           throw new ProposeAgentSessionError(
@@ -165,7 +167,11 @@ export class ProposeAgentSessionService {
         payload_type: "agent_sessions",
         payload,
         request: {
-          tool: request.action === "start" ? "tasken.start_agent_session" : "tasken.finish_agent_session",
+          tool: request.action === "start"
+            ? "tasken.start_agent_session"
+            : request.action === "finish"
+              ? "tasken.finish_agent_session"
+              : "tasken.submit_agent_session_record",
           idempotency_key: request.idempotency_key,
           caller: request.caller,
           actor: request.actor,

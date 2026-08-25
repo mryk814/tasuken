@@ -19,22 +19,37 @@ const relationTargets = {
   working_copy_ids: z.array(text(200)).max(50).optional(),
 };
 
+const clientMetadata = {
+  client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]),
+  client_label: z.string().trim().max(200).optional(),
+  agent_label: z.string().trim().max(200).optional(),
+  provider_label: z.string().trim().max(200).optional(),
+  model_label: z.string().trim().max(200).optional(),
+};
+
+const intent = z.object({
+  summary: text(4000),
+  requested_outcome: z.string().trim().max(4000).optional(),
+  boundary: z.string().trim().max(4000).optional(),
+}).strict();
+
+const outcome = z.object({
+  summary: text(8000),
+  decisions: stringList,
+  changed_items: stringList,
+  verification: stringList,
+  remaining_work: stringList,
+  next_suggested_action: z.string().trim().max(4000).optional(),
+}).strict();
+
 export const proposeAgentSessionRequestSchema = z.discriminatedUnion("action", [
   z.object({
     ...identity,
     ...relationTargets,
     action: z.literal("start"),
     started_at: timestamp,
-    client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]),
-    client_label: z.string().trim().max(200).optional(),
-    agent_label: z.string().trim().max(200).optional(),
-    provider_label: z.string().trim().max(200).optional(),
-    model_label: z.string().trim().max(200).optional(),
-    intent: z.object({
-      summary: text(4000),
-      requested_outcome: z.string().trim().max(4000).optional(),
-      boundary: z.string().trim().max(4000).optional(),
-    }).strict(),
+    ...clientMetadata,
+    intent,
   }).strict(),
   z.object({
     ...identity,
@@ -43,14 +58,18 @@ export const proposeAgentSessionRequestSchema = z.discriminatedUnion("action", [
     expected_version: z.number().int().positive(),
     ended_at: timestamp,
     status: z.enum(["completed", "blocked", "abandoned"]),
-    outcome: z.object({
-      summary: text(8000),
-      decisions: stringList,
-      changed_items: stringList,
-      verification: stringList,
-      remaining_work: stringList,
-      next_suggested_action: z.string().trim().max(4000).optional(),
-    }).strict(),
+    outcome,
+  }).strict(),
+  z.object({
+    ...identity,
+    ...relationTargets,
+    action: z.literal("capture"),
+    started_at: timestamp,
+    ended_at: timestamp,
+    status: z.enum(["completed", "blocked", "abandoned"]),
+    ...clientMetadata,
+    intent,
+    outcome,
   }).strict(),
 ]);
 

@@ -407,6 +407,7 @@ test("read-only MCP mode exposes context tools and no proposal or task-work writ
     assert.equal(names.has("tasken.get_note"), true);
     assert.equal(names.has("tasken.start_task_work"), false);
     assert.equal(names.has("tasken.start_agent_session"), false);
+    assert.equal(names.has("tasken.submit_agent_session_record"), false);
     assert.equal(names.has("tasken.propose_task"), false);
     assert.equal([...names].some((name) => /delete|remove|complete_task/.test(name)), false);
   } finally {
@@ -439,7 +440,7 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
   try {
     await client.connect(transport);
     const names = new Set((await client.listTools()).tools.map((tool) => tool.name));
-    for (const name of ["tasken.start_task_work", "tasken.append_work_receipt", "tasken.report_task_done", "tasken.report_task_blocked", "tasken.start_agent_session", "tasken.finish_agent_session"]) {
+    for (const name of ["tasken.start_task_work", "tasken.append_work_receipt", "tasken.report_task_done", "tasken.report_task_blocked", "tasken.start_agent_session", "tasken.finish_agent_session", "tasken.submit_agent_session_record"]) {
       assert.equal(names.has(name), true);
     }
     const result = await client.callTool({
@@ -700,6 +701,31 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
     assert.equal(proposedSession.status, "completed");
     assert.equal(proposedSession.intent.summary, "Implement Issue #498");
     assert.equal(proposedSession.outcome.summary, "Phase 3 proposal flow implemented");
+
+    const captured = await client.callTool({
+      name: "tasken.submit_agent_session_record",
+      arguments: {
+        idempotency_key: "agent-session-capture-1",
+        caller: "Codex lifecycle hook",
+        source_session: "codex-thread-collected",
+        source_app: "tasken-session-hook:codex",
+        started_at: "2026-08-25T12:00:00.000Z",
+        ended_at: "2026-08-25T13:00:00.000Z",
+        status: "completed",
+        client_kind: "codex",
+        intent: { summary: "Collect this session without a start approval dependency" },
+        outcome: { summary: "Queued one complete session record" },
+        repository_context_ids: ["repo-session"],
+      },
+    });
+    assert.equal(captured.isError, undefined, JSON.stringify(captured));
+    assert.equal(captured.structuredContent.status, "queued");
+    assert.equal(database.get("agent_session", captured.structuredContent.agent_session_id), null);
+    const captureProposal = database.get("ai_proposal", captured.structuredContent.proposal_id);
+    assert.equal(captureProposal.payload.agent_sessions[0].action, "capture");
+    assert.equal(captureProposal.payload.agent_sessions[0].session.status, "completed");
+    assert.equal(captureProposal.payload.agent_sessions[0].session.intent.summary, "Collect this session without a start approval dependency");
+    assert.equal(captureProposal.payload.agent_sessions[0].session.outcome.summary, "Queued one complete session record");
   } finally {
     try {
       await client.close();

@@ -8,6 +8,7 @@ const schemaVersion = 1;
 const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 const packageScripts = packageJson.scripts || {};
 const manualAllowlist = {
+  "agent-session-hook.mjs": "Packaged lifecycle hook entry point bundled by build-mcp-bridge; launched by supported AI clients.",
   "audit-rules.mjs": "Internal scanner module imported by audit-consistency; not a CLI entry point.",
   "core.mjs": "Internal architecture scanner imported by audit-architecture; not a CLI entry point.",
   "generate-katex-document-css.mjs": "Manual generated CSS refresh after upgrading KaTeX; generated output is committed.",

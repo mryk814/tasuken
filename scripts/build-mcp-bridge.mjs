@@ -21,3 +21,23 @@ await build({
   },
   ssr: { noExternal: true },
 });
+
+await build({
+  configFile: false,
+  build: {
+    emptyOutDir: false,
+    minify: false,
+    outDir: path.resolve("mcp-dist"),
+    rollupOptions: {
+      input: path.resolve("scripts/agent-session-hook.mjs"),
+      output: {
+        entryFileNames: "agent-session-hook.mjs",
+        format: "es",
+        inlineDynamicImports: true,
+      },
+    },
+    ssr: true,
+    target: "node20",
+  },
+  ssr: { noExternal: true },
+});
