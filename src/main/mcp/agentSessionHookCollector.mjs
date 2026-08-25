@@ -231,19 +231,26 @@ export async function collectAgentHookEvent(clientKind, input, options = {}) {
     return merged;
   });
   if (!state.ended_at) return { status: "observed", kind: event.kind };
+  const settleDelayMs = Number.isFinite(options.settleDelayMs) ? Math.max(0, options.settleDelayMs) : 250;
+  if (settleDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, settleDelayMs));
+  const settledState = await withStateLock(filePath, () => readState(filePath));
+  if (!settledState?.ended_at) return { status: "observed", kind: event.kind };
   try {
-    const response = await submitState(state, options);
+    const response = await submitState(settledState, options);
     await fs.unlink(filePath).catch((error) => {
       if (error?.code !== "ENOENT") throw error;
     });
     return { status: "submitted", proposal_id: response.proposal_id, submission_status: response.status };
   } catch (error) {
-    state.last_submission_error = {
+    const lastSubmissionError = {
       code: typeof error?.code === "string" ? error.code : "SUBMISSION_FAILED",
       at: (options.now || (() => new Date().toISOString()))(),
     };
-    await writeState(filePath, state);
-    return { status: "pending", error_code: state.last_submission_error.code };
+    await withStateLock(filePath, async () => {
+      const latestState = await readState(filePath) || settledState;
+      await writeState(filePath, { ...latestState, last_submission_error: lastSubmissionError });
+    });
+    return { status: "pending", error_code: lastSubmissionError.code };
   }
 }
 

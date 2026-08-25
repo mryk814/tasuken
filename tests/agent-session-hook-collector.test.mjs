@@ -143,3 +143,32 @@ test("concurrent hook processes merge by observation time without corrupting sta
   assert.equal(requests[0].intent.summary, "first prompt");
   assert.equal(requests[0].outcome.summary, "latest outcome");
 });
+
+test("Stop racing SessionEnd keeps the latest outcome in the terminal observation", async (t) => {
+  const stateDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-agent-hook-"));
+  t.after(() => fs.rm(stateDirectory, { recursive: true, force: true }));
+  const unavailable = {
+    async getAgentSessionContext() { throw Object.assign(new Error("offline"), { code: "CORE_UNAVAILABLE" }); },
+    async proposeAgentSession() { throw Object.assign(new Error("offline"), { code: "CORE_UNAVAILABLE" }); },
+  };
+  const options = { stateDirectory, coreClient: unavailable, settleDelayMs: 25 };
+  await Promise.all([
+    collectAgentHookEvent("codex", {
+      hook_event_name: "SessionEnd",
+      session_id: "codex-race",
+      reason: "other",
+    }, options),
+    collectAgentHookEvent("codex", {
+      hook_event_name: "Stop",
+      session_id: "codex-race",
+      last_assistant_message: "final answer survives",
+    }, options),
+  ]);
+
+  const files = await fs.readdir(stateDirectory);
+  assert.equal(files.length, 1);
+  const state = JSON.parse(await fs.readFile(path.join(stateDirectory, files[0]), "utf8"));
+  assert.equal(state.last_outcome, "final answer survives");
+  assert.equal(state.status, "completed");
+  assert.equal(state.last_submission_error.code, "CORE_UNAVAILABLE");
+});

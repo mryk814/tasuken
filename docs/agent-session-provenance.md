@@ -190,4 +190,18 @@ node scripts/agent-session-hook.mjs --client github_copilot
 node agent-session-hook.mjs --flush
 ```
 
+### Codex user hook installation
+
+Codexのuser hookは既存の`~/.codex/hooks.json`を置換せず、Taskenが所有するcommand handlerだけを追加・更新する。
+
+```text
+npm run hooks:codex:install
+npm run hooks:codex:status
+npm run hooks:codex:uninstall
+```
+
+`install`はstandalone bundleを`~/.codex/hooks/tasken-agent-session-hook.mjs`へコピーし、`SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`を接続する。`SessionStart`では未送信terminal observationの再送も行う。再実行は冪等で、変更前の`hooks.json`はtimestamp付きbackupへ退避する。`uninstall`はTasken handlerとmanaged bundleだけを削除し、他のhookは維持する。
+
+導入後は新しいCodex sessionで`/hooks`を開き、表示されたTasken hookのcommandとsourceを確認して信頼する。信頼されるまでCodexは非managed hookを通常実行しない。
+
 明示的な紐づけが必要な場合だけ`TASKEN_AGENT_SESSION_THEME_IDS` / `TASKEN_AGENT_SESSION_TASK_IDS`へcomma区切りのIDを渡す。未指定時はrepositoryを一意に解決し、Theme / WorkingCopyも一意な場合だけ自動で関連付ける。Task候補は自動選択しない。
