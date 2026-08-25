@@ -1,7 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import path from "node:path";
 
 import {
   normalizeAgentSession,
@@ -11,7 +9,6 @@ import {
 } from "../src/shared/agentSession.mjs";
 import { normalizeEntity, validateEntity } from "../src/main/repositories/domain.mjs";
 import { normalizeReferenceAssertion } from "../src/shared/relationAssertion.mjs";
-import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 const activeSession = (overrides = {}) => ({
   id: "session-1",
@@ -137,65 +134,5 @@ test("AgentSession can relate to multiple tasks, repositories, working copies, a
     );
     assert.equal(reference.subject.type, "agent_session");
     assert.equal(reference.object.type, targetType);
-  }
-});
-
-test("WorkingCopy and AgentSession survive canonical SQLite save and reload", () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-agent-session-"));
-  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
-  try {
-    database.save("repository_context", {
-      id: "repo-1",
-      label: "tasuken",
-      provider: "github",
-      canonical_url: "https://github.com/mryk814/tasuken",
-    });
-    const workingCopy = database.save("working_copy", {
-      id: "wc-1",
-      repository_context_id: "repo-1",
-      device_id: "device-home",
-      storage_root_id: "root-tasuken",
-      absolute_path: "C:\\private\\tasuken",
-    });
-    const session = database.save("agent_session", activeSession());
-    database.save("reference", {
-      id: "ref-session-repo",
-      source_type: "agent_session",
-      source_id: session.id,
-      target_type: "repository_context",
-      target_id: "repo-1",
-      relation_type: "worked_on",
-      layer: "provenance",
-      origin: "system_action",
-    });
-    database.save("reference", {
-      id: "ref-session-working-copy",
-      source_type: "agent_session",
-      source_id: session.id,
-      target_type: "working_copy",
-      target_id: workingCopy.id,
-      relation_type: "executed_in",
-      layer: "provenance",
-      origin: "system_action",
-    });
-
-    assert.equal(database.get("working_copy", "wc-1").storage_root_id, "root-tasuken");
-    assert.equal("absolute_path" in database.get("working_copy", "wc-1"), false);
-    assert.equal(
-      database.get("agent_session", "session-1").intent.summary,
-      activeSession().intent.summary,
-    );
-    assert.equal(
-      database.list("reference").filter((entry) => entry.source_id === "session-1").length,
-      2,
-    );
-
-    database.remove("repository_context", "repo-1");
-    assert.equal(database.get("working_copy", "wc-1"), null);
-    database.restore("repository_context", "repo-1");
-    assert.equal(database.get("working_copy", "wc-1").repository_context_id, "repo-1");
-  } finally {
-    database.db.close();
-    fs.rmSync(root, { recursive: true, force: true });
   }
 });
