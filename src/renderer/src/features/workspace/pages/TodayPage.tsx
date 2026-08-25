@@ -35,6 +35,7 @@ import { findReminderSettingsView, normalizeReminderSettings } from "../lib/remi
 import { taskShelfStatus } from "../lib/taskShelves";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
+import { AgentWorkSummaryPanel } from "../components/AgentWorkSummaryPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { ChecklistProgressBadge, InlineTaskChecklist } from "../../task/public";
 import {
@@ -906,6 +907,7 @@ export function TodayPage({
   data,
   domain: v2,
   themes,
+  setActiveThemeId,
   openDrawer,
   navigate,
   openDailyScratchpad,
@@ -1728,6 +1730,18 @@ export function TodayPage({
           />
         </section>
       </div>
+
+      <AgentWorkSummaryPanel
+        domain={v2}
+        date={today}
+        includeUnresolved
+        title="AI work"
+        openDrawer={openDrawer}
+        onOpenTheme={(themeId) => {
+          setActiveThemeId(themeId);
+          navigate("theme");
+        }}
+      />
 
       <section id="daily-activity" className="panel activity-log-strip">
         <div className="section-heading">

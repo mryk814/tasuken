@@ -45,6 +45,18 @@ function workspace(overrides = {}) {
   };
 }
 
+test("workspace domain keeps pending AI proposals for the Sidebar action badge", () => {
+  const domain = adapter.buildWorkspaceDomain(workspace({
+    ai_proposals: [
+      { id: "proposal-pending", status: "pending" },
+      { id: "proposal-accepted", status: "accepted" },
+    ],
+  }));
+
+  assert.deepEqual(domain.ai_proposals.map((proposal) => proposal.id), ["proposal-pending", "proposal-accepted"]);
+  assert.equal(domain.ai_proposals.filter((proposal) => proposal.status === "pending").length, 1);
+});
+
 test("compat migration: legacy workspace conversion preserves first-class entity meanings", () => {
   const { workspace: domain, report } = adapter.legacyWorkspaceToDomainMigration(workspace({
     themes: [{ id: "theme-1", name: "Project A", status: "on_track" }],

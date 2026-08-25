@@ -661,6 +661,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pTaskDeps = castRecords<TaskDependency>(data.task_dependencies);
   const pPlanDeps = castRecords<PlanDependency>(data.plan_dependencies);
   const pKnowledgeEdges = castRecords<KnowledgeEdge>(data.knowledge_edges);
+  const pAiProposals = castRecords<Record<string, unknown> & { id: string }>(data.ai_proposals);
   const pChangeEvents = castRecords<ChangeEvent>(data.change_events);
   const pWorkReceipts = castRecords<WorkReceipt>(data.work_receipts);
   const pResources = castRecords<Resource>(data.resources);
@@ -670,7 +671,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     pProjects.length || pCaptures.length || pTasks.length ||
     pWaitings.length || pPlanNodes.length || pSchedules.length ||
     pReferences.length || pTaskDeps.length || pPlanDeps.length || pWorkingCopies.length || pAgentSessions.length ||
-    pKnowledgeEdges.length || pChangeEvents.length || pWorkReceipts.length || pResources.length || pSketches.length || pRepositoryContexts.length;
+    pKnowledgeEdges.length || pAiProposals.length || pChangeEvents.length || pWorkReceipts.length || pResources.length || pSketches.length || pRepositoryContexts.length;
 
   if (!hasPersistedDomain) return legacy;
 
@@ -692,7 +693,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     task_dependencies: mergeById(pTaskDeps, legacy.task_dependencies),
     plan_dependencies: mergeById(pPlanDeps, legacy.plan_dependencies),
     knowledge_edges: mergeById(pKnowledgeEdges, legacy.knowledge_edges),
-    ai_proposals: legacy.ai_proposals,
+    ai_proposals: pAiProposals,
     change_events: mergePersistedDomain(pChangeEvents, legacy.change_events, "legacy_item_id"),
     work_receipts: pWorkReceipts,
   };

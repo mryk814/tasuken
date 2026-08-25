@@ -104,6 +104,7 @@
     "renderer-workspace-internals": {
       "consumerPaths": [
         "src/renderer/src/features/workspace/WorkspaceApp.tsx",
+        "src/renderer/src/features/workspace/components/AgentWorkSummaryPanel.tsx",
         "src/renderer/src/features/workspace/components/AiProposalPanel.tsx",
         "src/renderer/src/features/workspace/components/ChatRefArtifactLinkDialog.tsx",
         "src/renderer/src/features/workspace/components/ContentViewer.tsx",
@@ -176,6 +177,7 @@
         "src/renderer/src/features/workspace/pages/TodoPage.tsx",
         "src/renderer/src/features/workspace/pages/WaitingPage.tsx",
         "src/renderer/src/main.tsx",
+        "tests/agent-session-projection.test.mjs",
         "tests/ai-import.test.mjs",
         "tests/ai-next-stage.test.mjs",
         "tests/inbox-ia.test.mjs",

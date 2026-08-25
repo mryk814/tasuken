@@ -116,3 +116,16 @@ start時のintentとclient metadataはfinish時に変更できず、finishはout
 
 handoff queryはraw transcriptやlocal pathを返さない。
 current repositoryまたはそのWorkingCopyへ`Reference`されたSessionだけを対象にし、現在のsource session自身を除いた最新のterminal outcomeを`previous_handoff`として返す。
+
+## Phase 5 projection
+
+NIPPO表示は新しいdaily report entityを保存せず、`AgentSession`、`Reference`、`WorkReceipt`、`ChangeEvent`、external referenceから毎回導出する。
+
+- Todayの`AI work`は当日のSessionをTheme・Repository横断で並べ、前日以前でもblockedまたはremaining workを持つSessionを引き継ぎとして残す。
+- Theme詳細の`Recent AI work`は同じprojectionをThemeで絞り込む。
+- 各SessionはIntent → Outcome → 残りを一続きに表示し、関連Task、Work Receipt、Activity、commit・PR/MR等のexternal referenceへ展開できる。
+- WorkingCopyとのrelationは公開可能なRepositoryContextへ投影し、local pathを表示しない。
+
+client固有のraw logはprojectionへ直接渡さない。
+Codex、Claude Code、Cursor、GitHub CopilotはいずれもPhase 3の同じcanonical Agent Session contractへ正規化してから表示する。
+この契約互換は複数client fixtureで検証するが、各clientのnative log自動収集はPhase 4の別adapter作業として残す。
