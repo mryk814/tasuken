@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { withWorkspaceRefresh } from "../src/main/composition/workspaceRefresh.mjs";
+import { withWorkspaceRefresh } from "../src/shared/workspaceRefresh.ts";
 
 test("successful Core proposal commands refresh the active workspace", () => {
   const notifications = [];

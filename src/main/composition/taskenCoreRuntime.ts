@@ -19,7 +19,7 @@ import {
   type MobileGatewayStatePort,
   type MobileGatewayTaskWorkProposalDecisionResult,
 } from "../gateway/mobile/public.ts";
-import { withWorkspaceRefresh } from "./workspaceRefresh.mjs";
+import { withWorkspaceRefresh } from "../../shared/workspaceRefresh.ts";
 import {
   TaskCapabilityService,
   type ExecuteApplicationCommand,
