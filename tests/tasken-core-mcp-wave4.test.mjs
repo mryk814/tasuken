@@ -34,24 +34,92 @@ const now = "2026-08-21T00:00:00.000Z";
 function fixture() {
   return {
     items: [
-      { id: "legacy-shadowed", title: "old duplicate", kind: "task", status: "todo", theme_id: "theme-visible", updated_at: "2026-08-20T00:00:00.000Z" },
-      { id: "legacy-visible", title: "Legacy needle", theme_id: "theme-visible", due_date: "2026-08-25", updated_at: "2026-08-19T00:00:00.000Z" },
+      {
+        id: "legacy-shadowed",
+        title: "old duplicate",
+        kind: "task",
+        status: "todo",
+        theme_id: "theme-visible",
+        updated_at: "2026-08-20T00:00:00.000Z",
+      },
+      {
+        id: "legacy-visible",
+        title: "Legacy needle",
+        theme_id: "theme-visible",
+        due_date: "2026-08-25",
+        updated_at: "2026-08-19T00:00:00.000Z",
+      },
     ],
     tasks: [
-      { id: "task-hidden", title: "Needle hidden newest", state: "todo", project_id: "theme-hidden", updated_at: "2026-08-23T00:00:00.000Z" },
-      { id: "task-visible", legacy_item_id: "legacy-shadowed", title: "Needle task", description: "visible", state: "doing", project_id: "theme-visible", updated_at: "2026-08-22T00:00:00.000Z" },
-      { id: "task-archived", title: "Needle archived", state: "todo", project_id: "theme-visible", deleted_at: now, updated_at: now },
+      {
+        id: "task-hidden",
+        title: "Needle hidden newest",
+        state: "todo",
+        project_id: "theme-hidden",
+        updated_at: "2026-08-23T00:00:00.000Z",
+      },
+      {
+        id: "task-visible",
+        legacy_item_id: "legacy-shadowed",
+        title: "Needle task",
+        description: "visible",
+        state: "doing",
+        project_id: "theme-visible",
+        updated_at: "2026-08-22T00:00:00.000Z",
+      },
+      {
+        id: "task-archived",
+        title: "Needle archived",
+        state: "todo",
+        project_id: "theme-visible",
+        deleted_at: now,
+        updated_at: now,
+      },
     ],
     waitings: [
-      { id: "waiting-open", title: "Needle waiting", state: "waiting", waiting_for: "review", project_id: "theme-visible", updated_at: "2026-08-18T00:00:00.000Z" },
-      { id: "waiting-received", title: "Needle received", state: "received", project_id: "theme-visible", updated_at: "2026-08-17T00:00:00.000Z" },
+      {
+        id: "waiting-open",
+        title: "Needle waiting",
+        state: "waiting",
+        waiting_for: "review",
+        project_id: "theme-visible",
+        updated_at: "2026-08-18T00:00:00.000Z",
+      },
+      {
+        id: "waiting-received",
+        title: "Needle received",
+        state: "received",
+        project_id: "theme-visible",
+        updated_at: "2026-08-17T00:00:00.000Z",
+      },
     ],
     plan_nodes: [
-      { id: "plan-open", title: "Needle milestone", type: "milestone", state: "active", project_id: "theme-visible", updated_at: "2026-08-16T00:00:00.000Z" },
+      {
+        id: "plan-open",
+        title: "Needle milestone",
+        type: "milestone",
+        state: "active",
+        project_id: "theme-visible",
+        updated_at: "2026-08-16T00:00:00.000Z",
+      },
     ],
     schedules: [
-      { id: "schedule-task", owner_type: "task", owner_id: "task-visible", start_date: "2026-08-10", end_date: "2026-08-12", updated_at: now },
-      { id: "schedule-waiting", owner_type: "waiting", owner_id: "waiting-open", start_date: "2026-08-05", end_date: "2026-08-06", updated_at: now },
+      {
+        id: "schedule-task",
+        owner_type: "task",
+        owner_id: "task-visible",
+        start_date: "2026-08-10",
+        end_date: "2026-08-12",
+        updated_at: now,
+      },
+      {
+        id: "schedule-waiting",
+        owner_type: "waiting",
+        owner_id: "waiting-open",
+        start_date: "2026-08-05",
+        end_date: "2026-08-06",
+        updated_at: now,
+      },
     ],
     themes: [
       { id: "theme-visible", name: "Visible", default_ai_visibility: ["coding_agent"] },
@@ -86,7 +154,9 @@ async function callMcp(coreClient, name, args) {
   const server = createTaskenMcpServer({
     coreClient,
     readOnly: true,
-    readContextProvider: () => { throw new Error("DB_CONSTRUCTOR_SENTINEL"); },
+    readContextProvider: () => {
+      throw new Error("DB_CONSTRUCTOR_SENTINEL");
+    },
   });
   const client = new Client({ name: "tasken-core-wave4-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -132,7 +202,10 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, visibility-before-lim
     matched_visible_count: 5,
     truncated: false,
   });
-  assert.deepEqual(core.searchItems.execute({ query: "needle", limit: 20 }).result_meta, all.result_meta);
+  assert.deepEqual(
+    core.searchItems.execute({ query: "needle", limit: 20 }).result_meta,
+    all.result_meta,
+  );
   assert.deepEqual(core.searchItems.execute({ query: "no-visible-match", limit: 1 }).result_meta, {
     contract_version: 1,
     returned_count: 0,
@@ -140,12 +213,26 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, visibility-before-lim
     truncated: false,
   });
   assert.equal(all.items.filter((item) => item.id === "legacy-shadowed").length, 1);
-  assert.equal(all.items.some((item) => item.id === "task-archived"), false);
-  assert.equal(core.searchItems.execute({ query: "needle", include_archived: true, limit: 100 }).items.some((item) => item.id === "task-archived"), true);
+  assert.equal(
+    all.items.some((item) => item.id === "task-archived"),
+    false,
+  );
+  assert.equal(
+    core.searchItems
+      .execute({ query: "needle", include_archived: true, limit: 100 })
+      .items.some((item) => item.id === "task-archived"),
+    true,
+  );
 
   const open = core.listOpenItems.execute({ limit: 100 });
-  assert.deepEqual(open.items.map((item) => item.id), ["waiting-open", "legacy-shadowed", "legacy-visible", "plan-open"]);
-  assert.equal(open.items.some((item) => item.id === "waiting-received"), false);
+  assert.deepEqual(
+    open.items.map((item) => item.id),
+    ["waiting-open", "legacy-shadowed", "legacy-visible", "plan-open"],
+  );
+  assert.equal(
+    open.items.some((item) => item.id === "waiting-received"),
+    false,
+  );
   assert.deepEqual(open.result_meta, {
     contract_version: 1,
     returned_count: 4,
@@ -161,13 +248,19 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, visibility-before-lim
     truncated: true,
   });
   assert.deepEqual(core.listOpenItems.execute({ limit: 20 }).result_meta, open.result_meta);
-  assert.deepEqual(core.listOpenItems.execute({ theme_id: "theme-missing", limit: 100 }).result_meta, {
-    contract_version: 1,
-    returned_count: 0,
-    matched_visible_count: 0,
-    truncated: false,
-  });
-  assert.equal(repository.calls.some((call) => call.type === "theme" && call.includeDeleted), true);
+  assert.deepEqual(
+    core.listOpenItems.execute({ theme_id: "theme-missing", limit: 100 }).result_meta,
+    {
+      contract_version: 1,
+      returned_count: 0,
+      matched_visible_count: 0,
+      truncated: false,
+    },
+  );
+  assert.equal(
+    repository.calls.some((call) => call.type === "theme" && call.includeDeleted),
+    true,
+  );
 });
 
 test("Wave 4 named HTTP and pure MCP paths expose both capabilities without a native DB", async () => {
@@ -180,7 +273,10 @@ test("Wave 4 named HTTP and pure MCP paths expose both capabilities without a na
     assert.ok(discovery.capabilities.includes("search_items"));
     assert.ok(discovery.capabilities.includes("list_open_items"));
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
-    assert.equal((await client.searchItems({ query: "needle", limit: 1 })).items[0].title, "Needle task");
+    assert.equal(
+      (await client.searchItems({ query: "needle", limit: 1 })).items[0].title,
+      "Needle task",
+    );
     assert.equal((await client.listOpenItems({ limit: 1 })).items[0].id, "waiting-open");
 
     const mcpSearch = await callMcp(client, "tasken.search_items", { query: "needle", limit: 1 });
@@ -199,19 +295,24 @@ test("Wave 4 named HTTP and pure MCP paths expose both capabilities without a na
     const error = await response.json();
     assert.equal(error.error.code, "VALIDATION_FAILED");
     assert.ok(error.error.details.issues.length > 0);
-    assert.doesNotMatch(JSON.stringify(error), /stack|tasken-core-wave4|token|PRIVATE_SENTINEL|Users/i);
+    assert.doesNotMatch(
+      JSON.stringify(error),
+      /stack|tasken-core-wave4|token|PRIVATE_SENTINEL|Users/i,
+    );
     await assert.rejects(
       client.searchItems({ limit: 0 }),
-      (failure) => failure instanceof TaskenCoreClientError
-        && failure.code === "VALIDATION_FAILED"
-        && failure.status === 400
-        && failure.details.issues[0].path[0] === "limit",
+      (failure) =>
+        failure instanceof TaskenCoreClientError &&
+        failure.code === "VALIDATION_FAILED" &&
+        failure.status === 400 &&
+        failure.details.issues[0].path[0] === "limit",
     );
     await assert.rejects(
       client.listAgentReadyTasks({ limit: 0 }),
-      (failure) => failure instanceof TaskenCoreClientError
-        && failure.code === "VALIDATION_FAILED"
-        && failure.details.issues[0].path[0] === "limit",
+      (failure) =>
+        failure instanceof TaskenCoreClientError &&
+        failure.code === "VALIDATION_FAILED" &&
+        failure.details.issues[0].path[0] === "limit",
     );
   } finally {
     await host.stop();
@@ -221,8 +322,20 @@ test("Wave 4 named HTTP and pure MCP paths expose both capabilities without a na
 
 test("Core HTTP errors remain lossless in the client and MCP typed error result", async () => {
   const details = { issues: [{ path: ["limit"], code: "too_small", message: "Too small" }] };
-  const coreError = new TaskenCoreClientError("VALIDATION_FAILED", "requestがschemaに適合しません。", { status: 400, details });
-  const result = await callMcp({ searchItems: async () => { throw coreError; } }, "tasken.search_items", {});
+  const coreError = new TaskenCoreClientError(
+    "VALIDATION_FAILED",
+    "requestがschemaに適合しません。",
+    { status: 400, details },
+  );
+  const result = await callMcp(
+    {
+      searchItems: async () => {
+        throw coreError;
+      },
+    },
+    "tasken.search_items",
+    {},
+  );
   assert.equal(result.isError, true);
   assert.deepEqual(result.structuredContent, {
     error: {
@@ -284,24 +397,32 @@ test("Tasken Core client errors give AI agents code-specific recovery guidance",
 
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-explicit-error-"));
   const discoveryPath = path.join(root, "tasken-core.json");
-  fs.writeFileSync(discoveryPath, JSON.stringify({
-    schema_version: 1,
-    api_version: "1",
-    origin: "http://127.0.0.1:12345",
-    token: Buffer.alloc(32, 9).toString("base64url"),
-    capabilities: ["search_items"],
-  }), { mode: 0o600 });
+  fs.writeFileSync(
+    discoveryPath,
+    JSON.stringify({
+      schema_version: 1,
+      api_version: "1",
+      origin: "http://127.0.0.1:12345",
+      token: Buffer.alloc(32, 9).toString("base64url"),
+      capabilities: ["search_items"],
+    }),
+    { mode: 0o600 },
+  );
   fs.chmodSync(discoveryPath, 0o600);
   const explicit = new TaskenCoreClient({
     discoveryPath,
-    fetch: async () => new Response(JSON.stringify({
-      error: {
-        code: "VALIDATION_FAILED",
-        message: "explicit",
-        retryable: true,
-        next_action: "明示された安全な手順です。",
-      },
-    }), { status: 400, headers: { "content-type": "application/json" } }),
+    fetch: async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "VALIDATION_FAILED",
+            message: "explicit",
+            retryable: true,
+            next_action: "明示された安全な手順です。",
+          },
+        }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      ),
   });
   try {
     await assert.rejects(explicit.searchItems({}), (error) => {
@@ -323,8 +444,8 @@ test("Wave 4 public limit rejects values outside 1..100", () => {
 test("normal Node Wave 4 MCP registrations are Core-only", () => {
   const source = fs.readFileSync("src/main/mcp/server.mjs", "utf8");
   const slice = source.slice(
-    source.indexOf('server.registerTool("tasken.search_items"'),
-    source.indexOf('server.registerTool("tasken.list_agent_ready_tasks"'),
+    source.search(/server\.registerTool\(\s*"tasken\.search_items"/),
+    source.search(/server\.registerTool\(\s*"tasken\.list_agent_ready_tasks"/),
   );
   assert.match(slice, /coreClient\.searchItems/);
   assert.match(slice, /coreClient\.listOpenItems/);

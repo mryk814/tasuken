@@ -13,7 +13,7 @@ test("Phase 0: MCP inventory documents every registered read and Proposal tool",
     "utf8",
   );
   const readOnlyBoundary = serverSource.indexOf("if (readOnly) return server;");
-  const registrations = [...serverSource.matchAll(/server\.registerTool\("([^"]+)"/g)].map(
+  const registrations = [...serverSource.matchAll(/server\.registerTool\(\s*"([^"]+)"/g)].map(
     (match) => ({ name: match[1], offset: match.index }),
   );
   const readTools = registrations.filter((entry) => entry.offset < readOnlyBoundary);

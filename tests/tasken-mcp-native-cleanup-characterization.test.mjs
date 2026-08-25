@@ -56,10 +56,11 @@ const proposalTools = [
 ];
 
 function toolBlock(value, toolName) {
-  const marker = `server.registerTool("${toolName}"`;
-  const start = value.indexOf(marker);
+  const marker = new RegExp(`server\\.registerTool\\(\\s*"${toolName.replaceAll(".", "\\.")}"`);
+  const match = marker.exec(value);
+  const start = match?.index ?? -1;
   assert.notEqual(start, -1, `${toolName} registration`);
-  const next = value.indexOf("server.registerTool(", start + marker.length);
+  const next = value.indexOf("server.registerTool(", start + (match?.[0].length ?? 0));
   return value.slice(start, next === -1 ? value.length : next);
 }
 
