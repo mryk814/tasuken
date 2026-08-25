@@ -406,6 +406,7 @@ test("read-only MCP mode exposes context tools and no proposal or task-work writ
     assert.equal(names.has("tasken.get_task_context"), true);
     assert.equal(names.has("tasken.get_note"), true);
     assert.equal(names.has("tasken.start_task_work"), false);
+    assert.equal(names.has("tasken.start_agent_session"), false);
     assert.equal(names.has("tasken.propose_task"), false);
     assert.equal([...names].some((name) => /delete|remove|complete_task/.test(name)), false);
   } finally {
@@ -438,7 +439,7 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
   try {
     await client.connect(transport);
     const names = new Set((await client.listTools()).tools.map((tool) => tool.name));
-    for (const name of ["tasken.start_task_work", "tasken.append_work_receipt", "tasken.report_task_done", "tasken.report_task_blocked"]) {
+    for (const name of ["tasken.start_task_work", "tasken.append_work_receipt", "tasken.report_task_done", "tasken.report_task_blocked", "tasken.start_agent_session", "tasken.finish_agent_session"]) {
       assert.equal(names.has(name), true);
     }
     const result = await client.callTool({
@@ -540,6 +541,165 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
     assert.equal(rejected.isError, true);
     assert.equal(database.list("ai_proposal").length, 1);
     assert.equal(fs.existsSync(inboxPath), false);
+  } finally {
+    try {
+      await client.close();
+    } finally {
+      try {
+        await host.stop();
+      } finally {
+        database.db.close();
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
+test("Agent Session MCP tools only queue reviewable start and finish proposals", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-agent-session-mcp-"));
+  fs.chmodSync(root, 0o700);
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
+  database.save("repository_context", {
+    id: "repo-session",
+    label: "Tasuken",
+    provider: "github",
+    repository_slug: "mryk814/tasuken",
+    remote_url: "https://github.com/mryk814/tasuken.git",
+  });
+  database.save("theme", {
+    id: "theme-session",
+    name: "Session provenance",
+    repository_context_ids: ["repo-session"],
+  });
+  database.save("working_copy", {
+    id: "working-copy-session",
+    repository_context_id: "repo-session",
+    device_id: "device-home",
+    storage_root_id: "root-projects",
+    worktree_identity: "codex/498-agent-session",
+    active: true,
+  });
+  database.save("agent_session", {
+    id: "prior-agent-session",
+    started_at: "2026-08-24T10:00:00.000Z",
+    ended_at: "2026-08-24T11:00:00.000Z",
+    status: "completed",
+    client_kind: "codex",
+    agent_label: "Codex",
+    source_session_id: "codex-thread-497",
+    intent: { summary: "Implement the prior slice" },
+    outcome: {
+      summary: "Prior handoff",
+      decisions: [],
+      changed_items: ["Agent Session model"],
+      verification: ["contract tests"],
+      remaining_work: ["MCP workflow"],
+    },
+  });
+  database.save("reference", {
+    id: "prior-agent-session-repo",
+    source_type: "agent_session",
+    source_id: "prior-agent-session",
+    target_type: "repository_context",
+    target_id: "repo-session",
+    relation_type: "worked_on",
+    layer: "provenance",
+    status: "asserted",
+    origin: "system_action",
+  });
+  const core = createTaskenCore(database);
+  const host = new TaskenCoreHost({ userDataPath: root, ...core });
+  await host.start();
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["scripts/mcp-server.mjs"],
+    env: { ...process.env, TASKEN_USER_DATA_DIR: root },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "tasken-agent-session-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const startArgs = {
+      idempotency_key: "agent-session-start-1",
+      caller: "Codex",
+      source_session: "codex-thread-498",
+      source_app: "codex",
+      started_at: "2026-08-25T10:00:00.000Z",
+      client_kind: "codex",
+      agent_label: "Codex",
+      model_label: "gpt-5",
+      intent: {
+        summary: "Implement Issue #498",
+        requested_outcome: "Reviewable Agent Session provenance",
+        boundary: "No direct MCP writes",
+      },
+      repository_context_ids: ["repo-session"],
+      working_copy_ids: ["working-copy-session"],
+    };
+    const started = await client.callTool({ name: "tasken.start_agent_session", arguments: startArgs });
+    assert.equal(started.isError, undefined, JSON.stringify(started));
+    assert.equal(started.structuredContent.status, "queued");
+    const sessionId = started.structuredContent.agent_session_id;
+    assert.equal(database.get("agent_session", sessionId), null, "MCP must not create official session data");
+    const startProposal = database.get("ai_proposal", started.structuredContent.proposal_id);
+    assert.equal(startProposal.payload_type, "agent_sessions");
+    assert.equal(startProposal.request.source_session, "codex-thread-498");
+    assert.equal(startProposal.payload.agent_sessions[0].session.intent.summary, "Implement Issue #498");
+    assert.deepEqual(
+      startProposal.payload.agent_sessions[0].references.map((entry) => entry.relation_type).sort(),
+      ["executed_in", "worked_on"],
+    );
+
+    database.save("agent_session", startProposal.payload.agent_sessions[0].session);
+    database.save("ai_proposal", { ...startProposal, status: "accepted" });
+    for (const reference of startProposal.payload.agent_sessions[0].references) {
+      database.save("reference", reference);
+    }
+    const duplicate = await client.callTool({ name: "tasken.start_agent_session", arguments: startArgs });
+    assert.equal(duplicate.structuredContent.status, "duplicate");
+
+    const contextRequest = {
+      remote_url: "git@github.com:mryk814/tasuken.git",
+      client_kind: "codex",
+      agent_label: "Codex",
+      source_session: "codex-thread-498",
+    };
+    assert.equal(core.getAgentSessionContext.execute(contextRequest).previous_handoff.outcome.summary, "Prior handoff");
+    const context = await client.callTool({
+      name: "tasken.get_agent_session_context",
+      arguments: contextRequest,
+    });
+    assert.equal(context.isError, undefined, JSON.stringify(context));
+    assert.equal(context.structuredContent.repository_context.id, "repo-session");
+    assert.equal(context.structuredContent.sessions.length, 2);
+    assert.equal(context.structuredContent.previous_handoff.outcome.summary, "Prior handoff");
+    assert.equal(JSON.stringify(context.structuredContent).includes("C:\\"), false);
+
+    const finishArgs = {
+      idempotency_key: "agent-session-finish-1",
+      caller: "Codex",
+      source_session: "codex-thread-498",
+      source_app: "codex",
+      agent_session_id: sessionId,
+      expected_version: 1,
+      ended_at: "2026-08-25T11:00:00.000Z",
+      status: "completed",
+      outcome: {
+        summary: "Phase 3 proposal flow implemented",
+        changed_items: ["Agent Session MCP adapter"],
+        verification: ["integration test"],
+        remaining_work: ["rendered QA"],
+      },
+    };
+    const finished = await client.callTool({ name: "tasken.finish_agent_session", arguments: finishArgs });
+    assert.equal(finished.isError, undefined, JSON.stringify(finished));
+    assert.equal(finished.structuredContent.status, "queued");
+    assert.equal(database.get("agent_session", sessionId).status, "active", "finish must also wait for human review");
+    const finishProposal = database.get("ai_proposal", finished.structuredContent.proposal_id);
+    const proposedSession = finishProposal.payload.agent_sessions[0].session;
+    assert.equal(proposedSession.status, "completed");
+    assert.equal(proposedSession.intent.summary, "Implement Issue #498");
+    assert.equal(proposedSession.outcome.summary, "Phase 3 proposal flow implemented");
   } finally {
     try {
       await client.close();

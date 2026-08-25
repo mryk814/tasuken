@@ -12,6 +12,7 @@ export interface AiProposalRecord {
 
 export interface AiProposalTransaction {
   get(id: string): AiProposalRecord | null;
+  getEntity(type: string, id: string): Record<string, unknown> | null;
   save(proposal: AiProposalRecord): AiProposalRecord;
 }
 

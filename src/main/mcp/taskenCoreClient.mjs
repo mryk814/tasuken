@@ -9,6 +9,7 @@ import {
   getConversationResponseSchema,
   getNoteResponseSchema,
   getRepositoryContextResponseSchema,
+  getAgentSessionContextResponseSchema,
   getThemeContextResponseSchema,
   getRecentNotesResponseSchema,
   searchKnowledgeResponseSchema,
@@ -19,6 +20,7 @@ import {
   getContextSubgraphResponseSchema,
   exportAiContextResponseSchema,
   proposeTaskWorkResponseSchema,
+  proposeAgentSessionResponseSchema,
   proposeRepositoryTaskResponseSchema,
   proposeContentResponseSchema,
   taskCommandResponseSchema,
@@ -29,6 +31,7 @@ import {
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
+  TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
@@ -45,6 +48,7 @@ import {
   TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+  TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
@@ -74,6 +78,7 @@ export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
   TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
+  TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY,
   TASKEN_CORE_SEARCH_KNOWLEDGE_CAPABILITY,
@@ -84,6 +89,7 @@ export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
   TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+  TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
 ]);
@@ -282,6 +288,14 @@ export class TaskenCoreClient {
 
   async proposeTaskWork(request = {}) {
     return this.request("/v1/commands/propose-task-work", TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY, request, proposeTaskWorkResponseSchema, "propose-task-work");
+  }
+
+  async getAgentSessionContext(request = {}) {
+    return this.query("get-agent-session-context", TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY, request, getAgentSessionContextResponseSchema);
+  }
+
+  async proposeAgentSession(request = {}) {
+    return this.request("/v1/commands/propose-agent-session", TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY, request, proposeAgentSessionResponseSchema, "propose-agent-session");
   }
 
   async proposeRepositoryTask(request = {}) {

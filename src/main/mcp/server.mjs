@@ -213,6 +213,18 @@ export function createTaskenMcpServer(options = {}) {
     annotations: READ_ONLY_ANNOTATIONS,
   }, withCoreClient((args) => coreClient.getRepositoryContext(args)));
 
+  server.registerTool("tasken.get_agent_session_context", {
+    description: "Resolve the current repository and return this client kind's related sessions plus its previous structured handoff. Private paths and raw transcripts are never returned.",
+    inputSchema: {
+      ...repositoryLookupSchema,
+      client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]),
+      source_session: z.string().trim().min(1).max(500),
+      agent_label: z.string().trim().min(1).max(200).optional(),
+      limit: z.number().int().positive().max(50).optional(),
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, withCoreClient((args) => coreClient.getAgentSessionContext(args)));
+
   server.registerTool("tasken.get_theme_context", {
     description: "Return themes, open work, recent notes, knowledge, and health.",
     inputSchema: {
@@ -371,6 +383,22 @@ export function createTaskenMcpServer(options = {}) {
     source: "mcp",
     source_app: sourceApp(args),
   });
+  const requiredTimestamp = z.string().trim().min(1).max(100)
+    .refine((value) => !Number.isNaN(Date.parse(value)), "ISO 8601 timestamp が必要です。");
+  const agentSessionIdentity = {
+    idempotency_key: z.string().trim().min(1).max(200),
+    caller: z.string().trim().min(1).max(200),
+    source_session: z.string().trim().min(1).max(500),
+    source_app: z.string().trim().min(1).max(120).optional(),
+  };
+  const agentSessionList = z.array(z.string().trim().min(1).max(1000)).max(100).optional();
+  const queueAgentSession = (args, action) => coreClient.proposeAgentSession({
+    ...args,
+    action,
+    actor: { kind: "ai_agent" },
+    source: "mcp",
+    source_app: sourceApp(args),
+  });
   const contentProposalIdentity = {
     idempotency_key: z.string().trim().min(1).max(200).optional(),
     caller: z.string().trim().min(1).max(200).optional(),
@@ -399,6 +427,49 @@ export function createTaskenMcpServer(options = {}) {
     source: "mcp",
     source_app: sourceApp(args),
   });
+
+  server.registerTool("tasken.start_agent_session", {
+    description: "Queue an Agent Session start proposal for AI Inbox review. It never creates official data directly.",
+    inputSchema: {
+      ...agentSessionIdentity,
+      started_at: requiredTimestamp,
+      client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]),
+      client_label: z.string().trim().max(200).optional(),
+      agent_label: z.string().trim().max(200).optional(),
+      provider_label: z.string().trim().max(200).optional(),
+      model_label: z.string().trim().max(200).optional(),
+      intent: z.object({
+        summary: z.string().trim().min(1).max(4000),
+        requested_outcome: z.string().trim().max(4000).optional(),
+        boundary: z.string().trim().max(4000).optional(),
+      }).strict(),
+      theme_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+      task_ids: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+      repository_context_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+      working_copy_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+    },
+    annotations: PROPOSAL_ANNOTATIONS,
+  }, withCoreClient((args) => queueAgentSession(args, "start")));
+
+  server.registerTool("tasken.finish_agent_session", {
+    description: "Queue an Agent Session outcome proposal for AI Inbox review. Intent and client identity stay immutable.",
+    inputSchema: {
+      ...agentSessionIdentity,
+      agent_session_id: z.string().uuid(),
+      expected_version: z.number().int().positive(),
+      ended_at: requiredTimestamp,
+      status: z.enum(["completed", "blocked", "abandoned"]),
+      outcome: z.object({
+        summary: z.string().trim().min(1).max(8000),
+        decisions: agentSessionList,
+        changed_items: agentSessionList,
+        verification: agentSessionList,
+        remaining_work: agentSessionList,
+        next_suggested_action: z.string().trim().max(4000).optional(),
+      }).strict(),
+    },
+    annotations: PROPOSAL_ANNOTATIONS,
+  }, withCoreClient((args) => queueAgentSession(args, "finish")));
 
   server.registerTool("tasken.start_task_work", {
     description: "Queue a proposal to start work on an assigned Task. This never writes Task state directly.",

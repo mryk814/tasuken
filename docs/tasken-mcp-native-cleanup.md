@@ -39,7 +39,7 @@ package版ではsystem Nodeが`resources/mcp/server.mjs`を起動する。Tasken
 
 ## Acceptance evidence
 
-1. read 22 / proposal 11 registrationsが`withCoreClient`のみを使う。
+1. read 23 / proposal 13 registrationsが`withCoreClient`のみを使う。
 2. Core停止時はtyped `CORE_UNAVAILABLE`となりDB/inboxへfallbackしない。
 3. doctorがdiscovery/auth/health/version/live capabilitiesを照合し、secret/pathを出さない。
 4. source/bundle scanにnative/Electron/inbox symbolがない。

@@ -14,5 +14,8 @@ export interface AgentWorkspaceReadPort {
   listThemes(includeArchived: boolean): AgentReadyTaskThemeRecord[];
   listRepositoryContexts(includeArchived: boolean): AgentWorkspaceRecord[];
   listWorkReceipts(includeArchived: boolean): AgentWorkspaceRecord[];
+  listWorkingCopies(includeArchived: boolean): AgentWorkspaceRecord[];
+  listAgentSessions(includeArchived: boolean): AgentWorkspaceRecord[];
+  listReferences(includeArchived: boolean): AgentWorkspaceRecord[];
   workspaceAiVisibilityDefault(): AiAudience[];
 }

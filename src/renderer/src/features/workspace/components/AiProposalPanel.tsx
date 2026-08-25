@@ -14,8 +14,8 @@ import { markdownSignature } from "../../../../../shared/canonicalMarkdown.mjs";
 import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations } from "../../../../../shared/repositoryContextProposal.mjs";
 import { ActionButton, Button } from "./common";
 
-type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "sketches" | "artifacts" | "status_update" | "task_work" | "repository_contexts";
-type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge" | "sketch" | "artifact" | "task_work" | "repository_context";
+type ProposalPayloadType = "items" | "notes" | "links" | "knowledge_nodes" | "sketches" | "artifacts" | "status_update" | "task_work" | "repository_contexts" | "agent_sessions";
+type CandidateType = "item" | "note" | "link" | "knowledge_node" | "knowledge_edge" | "sketch" | "artifact" | "task_work" | "repository_context" | "agent_session" | "reference";
 const taskEntityType = "task" as const;
 
 interface ProposalCandidate {
@@ -77,6 +77,39 @@ export function buildPreview(proposal: BaseRecord, props: Pick<PageProps, "data"
         };
       }),
       payloadIssues: ["RepositoryContextはcredential-free normalized projectionを確認してから保存します。local pathはAI Proposalへ公開しません。"],
+    };
+  }
+  if (payloadType === "agent_sessions") {
+    const entries = Array.isArray(payload.agent_sessions) ? payload.agent_sessions as Record<string, unknown>[] : [];
+    if (!entries.length) throw new Error("agent_sessions がありません。");
+    const sessions = (props.data.agent_sessions || []) as BaseRecord[];
+    const candidates = entries.flatMap((entry) => {
+      const session = entry.session && typeof entry.session === "object" && !Array.isArray(entry.session)
+        ? entry.session as Record<string, unknown>
+        : null;
+      if (!session || !str(session.id)) throw new Error("Agent Session 本体がありません。");
+      const action = str(entry.action);
+      const duplicate = sessions.find((candidate) => candidate.id === session.id);
+      const references = Array.isArray(entry.references) ? entry.references as Record<string, unknown>[] : [];
+      return [
+        {
+          type: "agent_session" as const,
+          entry: session,
+          duplicate,
+          action: action === "finish" ? "merge" : "create",
+          issues: action === "finish" && !duplicate ? ["終了対象の Agent Session が見つかりません。"] : [],
+        },
+        ...references.map((reference) => ({
+          type: "reference" as const,
+          entry: reference,
+          action: "create",
+          issues: [],
+        })),
+      ];
+    });
+    return {
+      candidates,
+      payloadIssues: ["Agent Session は確認後に保存します。終了時も開始時の意図とクライアント情報は変更しません。"],
     };
   }
   if (payloadType === "sketches" || payloadType === "artifacts") {
@@ -163,6 +196,15 @@ export function buildContentProposalDecisions(preview: ProposalPreview, forceIgn
 
 export function buildCandidateOperations(candidates: ProposalCandidate[], repositoryContexts: BaseRecord[] = []): SaveOperation[] {
   const operations: SaveOperation[] = [];
+  for (const candidate of candidates.filter((entry) => entry.type === "agent_session" || entry.type === "reference")) {
+    if (candidate.action === "ignore") continue;
+    operations.push({
+      action: "save",
+      type: candidate.type as "agent_session" | "reference",
+      entity: candidate.entry as BaseRecord,
+      options: { source: "ai_proposal" },
+    });
+  }
   const repositoryCandidates = candidates
     .filter((entry) => entry.type === "repository_context")
     .map((entry) => ({
@@ -199,7 +241,7 @@ export function buildCandidateOperations(candidates: ProposalCandidate[], reposi
       options: { source: "imported" },
     });
   }
-  for (const candidate of candidates.filter((entry) => entry.type !== "knowledge_node" && entry.type !== "repository_context")) {
+  for (const candidate of candidates.filter((entry) => entry.type !== "knowledge_node" && entry.type !== "repository_context" && entry.type !== "agent_session" && entry.type !== "reference")) {
     if (candidate.action === "ignore") continue;
     const base: Record<string, unknown> = candidate.action === "merge" && candidate.duplicate ? candidate.duplicate : {};
     const entry = candidate.entry;
@@ -465,7 +507,7 @@ export function AiProposalPanel(props: PageProps) {
     }
     try {
       preview.candidates
-        .filter((candidate) => candidate.type !== "sketch" && candidate.type !== "artifact" && candidate.type !== "repository_context")
+        .filter((candidate) => candidate.type !== "sketch" && candidate.type !== "artifact" && candidate.type !== "repository_context" && candidate.type !== "agent_session" && candidate.type !== "reference")
         .forEach(assertImportCandidateSavable);
       preview.candidates
         .filter((candidate) => candidate.type === "repository_context")
@@ -486,7 +528,9 @@ export function AiProposalPanel(props: PageProps) {
         acceptedCursor += matched + 1;
         return acceptedDecisions[acceptedCursor - 1].entryIndex;
       });
-      const operations = stabilizeProposalOperations(proposal.id, rawOperations, isContentProposal ? operationIndexes : undefined);
+      const operations = str(proposal.payload_type) === "agent_sessions"
+        ? rawOperations
+        : stabilizeProposalOperations(proposal.id, rawOperations, isContentProposal ? operationIndexes : undefined);
       for (const candidate of accepted.filter((entry) => entry.type === "artifact")) {
         const normalized = validateArtifactProposal(candidate.entry);
         const entryIndex = preview.candidates.indexOf(candidate);
@@ -701,6 +745,7 @@ function proposalTypeLabel(proposal: BaseRecord): string {
     status_update: "Status Update",
     task_work: "Task Work Receipt",
     repository_contexts: "Repository Context",
+    agent_sessions: "Agent Session",
   };
   return labels[str(proposal.payload_type)] || "Proposal";
 }

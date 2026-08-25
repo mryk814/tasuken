@@ -9,7 +9,7 @@ import type {
 export interface AgentWorkspacePersistence {
   list(type: "task", includeDeleted?: boolean): AgentReadyTaskSourceRecord[];
   list(type: "theme", includeDeleted?: boolean): AgentReadyTaskThemeRecord[];
-  list(type: "repository_context" | "work_receipt", includeDeleted?: boolean): AgentWorkspaceRecord[];
+  list(type: "repository_context" | "work_receipt" | "working_copy" | "agent_session" | "reference", includeDeleted?: boolean): AgentWorkspaceRecord[];
   readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
@@ -31,6 +31,18 @@ export class WorkspaceAgentWorkspaceReadAdapter implements AgentWorkspaceReadPor
 
   listWorkReceipts(includeArchived: boolean) {
     return this.persistence.list("work_receipt", includeArchived);
+  }
+
+  listWorkingCopies(includeArchived: boolean) {
+    return this.persistence.list("working_copy", includeArchived);
+  }
+
+  listAgentSessions(includeArchived: boolean) {
+    return this.persistence.list("agent_session", includeArchived);
+  }
+
+  listReferences(includeArchived: boolean) {
+    return this.persistence.list("reference", includeArchived);
   }
 
   workspaceAiVisibilityDefault() {

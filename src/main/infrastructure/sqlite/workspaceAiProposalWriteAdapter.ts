@@ -21,6 +21,7 @@ export class WorkspaceAiProposalWriteAdapter implements AiProposalWritePort {
   runTransaction<T>(callback: (transaction: AiProposalTransaction) => T): T {
     return this.persistence.runTransaction((repository) => callback({
       get: (id) => asProposal(repository.get("ai_proposal", id, true)),
+      getEntity: (type, id) => repository.get(type, id, false),
       save: (proposal) => asProposal(repository.save("ai_proposal", { ...proposal }, { source: "mcp" }))!,
     }));
   }

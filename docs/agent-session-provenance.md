@@ -99,3 +99,20 @@ Task 未割当、複数 Task、複数 repository を許容する。関連は既�
 最初のsliceは `WorkingCopy` と `AgentSession` の canonical contract、保存、relation、public sanitizerを通す。
 その後、Codexを一つ目のadapterとして start/finish proposal、直前handoff query、Today/Theme/Repository projectionを順に接続する。
 すべてのclient自動収集とWork/Private profile分離はこのsliceの対象外である。
+
+## Phase 3 MCP contract
+
+Phase 3 では次の3 toolを公開する。
+
+- `tasken.get_agent_session_context`: current repositoryを既存のcredential-free resolverで解決し、公開可能なRepositoryContext、Theme、Task、WorkingCopy、同じclient種別の関連Session、直前のterminal handoffを返すread-only query。
+- `tasken.start_agent_session`: caller、source app/session、開始時刻、client metadata、intent、関連IDを厳格に検証し、`agent_sessions` AI Proposalを作る。
+- `tasken.finish_agent_session`: active SessionのID・version・source sessionを照合し、terminal statusと構造化outcomeを`agent_sessions` AI Proposalとして作る。
+
+start/finishはofficial `AgentSession` や `Reference` を直接更新しない。
+利用者がAI Inboxで内容を確認し、`ApplyAiProposal` を実行した時だけcanonical dataへ反映する。
+start時のintentとclient metadataはfinish時に変更できず、finishはoutcomeだけを追加する。
+同じidempotency keyと同じrequestは、Proposal受理後や人間の採用後もduplicateとして同じsession/proposal identityを返す。
+同じkeyへ異なるrequestを送った場合はconflictとする。
+
+handoff queryはraw transcriptやlocal pathを返さない。
+current repositoryまたはそのWorkingCopyへ`Reference`されたSessionだけを対象にし、現在のsource session自身を除いた最新のterminal outcomeを`previous_handoff`として返す。

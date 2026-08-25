@@ -8,6 +8,7 @@ import {
   ListAgentReadyTasksService,
   KnowledgeQueryService,
   ProposeTaskWorkService,
+  ProposeAgentSessionService,
   ProposeRepositoryTaskService,
   ProposeContentService,
   TaskContextQueryService,
@@ -91,6 +92,7 @@ export function createTaskenCore(persistence: TaskenCorePersistence) {
     findTasksForRepository: { execute: agentWorkspace.findTasksForRepository.bind(agentWorkspace) },
     findThemesForRepository: { execute: agentWorkspace.findThemesForRepository.bind(agentWorkspace) },
     getRepositoryContext: { execute: agentWorkspace.getRepositoryContext.bind(agentWorkspace) },
+    getAgentSessionContext: { execute: agentWorkspace.getAgentSessionContext.bind(agentWorkspace) },
     getTaskAssignment: { execute: agentWorkspace.getTaskAssignment.bind(agentWorkspace) },
     getTaskContext: new TaskContextQueryService(new WorkspaceTaskContextReadAdapter(persistence)),
     searchItems: { execute: itemQueries.searchItems.bind(itemQueries) },
@@ -109,6 +111,7 @@ export function createTaskenCore(persistence: TaskenCorePersistence) {
     getContextSubgraph: { execute: agentContext.getContextSubgraph.bind(agentContext) },
     exportAiContext,
     proposeTaskWork: new ProposeTaskWorkService(new WorkspaceAiProposalWriteAdapter(persistence)),
+    proposeAgentSession: new ProposeAgentSessionService(new WorkspaceAiProposalWriteAdapter(persistence)),
     proposeRepositoryTask: new ProposeRepositoryTaskService(new WorkspaceAiProposalWriteAdapter(persistence)),
     proposeContent: new ProposeContentService(new WorkspaceAiProposalWriteAdapter(persistence)),
   };
