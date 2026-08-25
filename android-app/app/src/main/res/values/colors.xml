@@ -7,4 +7,5 @@
     <color name="tasken_widget_on_surface_variant">#74676A</color>
     <color name="tasken_widget_primary">#8A2F3B</color>
     <color name="tasken_widget_primary_container">#F7D9DE</color>
+    <color name="tasken_launcher_background">#FFF9F2</color>
 </resources>
