@@ -163,6 +163,8 @@ export function buildBootstrapWorkspace() {
     plan_dependencies: [],
     knowledge_edges: [],
     ai_proposals: [],
+    working_copies: [],
+    agent_sessions: [],
   };
 }
 
@@ -186,6 +188,8 @@ export function emptyWorkspace() {
     plan_dependencies: [],
     knowledge_edges: [],
     ai_proposals: [],
+    working_copies: [],
+    agent_sessions: [],
     plan_revisions: [],
     meta: {},
   };

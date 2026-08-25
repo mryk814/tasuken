@@ -26,6 +26,49 @@ export interface Project {
   repository_context_detachments?: Array<Record<string, unknown>>;
 }
 
+export interface WorkingCopy {
+  [key: string]: unknown;
+  id: string;
+  repository_context_id: string;
+  device_id: string;
+  storage_root_id: string;
+  worktree_identity?: string | null;
+  branch_hint?: string | null;
+  active: boolean;
+  last_seen_at?: string | null;
+}
+
+export interface AgentSessionIntent {
+  summary: string;
+  requested_outcome?: string | null;
+  boundary?: string | null;
+}
+
+export interface AgentSessionOutcome {
+  summary: string;
+  decisions: string[];
+  changed_items: string[];
+  verification: string[];
+  remaining_work: string[];
+  next_suggested_action?: string | null;
+}
+
+export interface AgentSession {
+  [key: string]: unknown;
+  id: string;
+  started_at: string;
+  ended_at?: string | null;
+  status: "active" | "completed" | "blocked" | "abandoned";
+  client_kind: "codex" | "claude_code" | "cursor" | "github_copilot" | "other";
+  client_label?: string | null;
+  agent_label?: string | null;
+  provider_label?: string | null;
+  model_label?: string | null;
+  source_session_id?: string | null;
+  intent: AgentSessionIntent;
+  outcome?: AgentSessionOutcome | null;
+}
+
 export type CaptureEntryState = "untriaged" | "triaged" | "archived";
 
 export interface CaptureEntry extends AiMetadata {
@@ -284,6 +327,9 @@ export interface KnowledgeNode {
 
 export type EntityRefType =
   | "project"
+  | "repository_context"
+  | "working_copy"
+  | "agent_session"
   | "capture_entry"
   | "task"
   | "waiting"
@@ -373,6 +419,8 @@ export interface ChangeEvent {
 export interface WorkspaceDomain {
   projects: Project[];
   repository_contexts: RepositoryContext[];
+  working_copies: WorkingCopy[];
+  agent_sessions: AgentSession[];
   capture_entries: CaptureEntry[];
   tasks: Task[];
   waitings: Waiting[];
@@ -394,6 +442,8 @@ export interface WorkspaceDomain {
 export type DomainEntity =
   | Project
   | RepositoryContext
+  | WorkingCopy
+  | AgentSession
   | CaptureEntry
   | Task
   | WorkReceipt

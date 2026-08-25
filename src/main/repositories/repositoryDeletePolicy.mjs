@@ -11,6 +11,7 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
     // Context deletion is logical, but live Theme/Task links must not dangle.
     // The repository stores a reversible, explicit detach marker.
     repository.nullifyRepositoryContextReferences(id);
+    repository.cascadeWhere("working_copy", (entry) => entry.repository_context_id === id, type, id);
   }
 
   if (type === "theme") {

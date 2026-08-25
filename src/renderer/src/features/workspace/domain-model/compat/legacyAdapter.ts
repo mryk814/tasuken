@@ -7,6 +7,7 @@
 import type { BaseRecord, Item, Link as LegacyLink, Note as LegacyNote, Theme, WorkspaceData } from "../../types";
 import type { RepositoryContext } from "../../../../../../shared/repositoryContext.mjs";
 import type {
+  AgentSession,
   CaptureEntry,
   ChangeEvent,
   EntityRefType,
@@ -29,6 +30,7 @@ import type {
   TaskState,
   Waiting,
   WaitingState,
+  WorkingCopy,
   WorkReceipt,
   WorkspaceDomain,
 } from "../types";
@@ -400,6 +402,8 @@ function emptyWorkspaceDomain(): WorkspaceDomain {
   return {
     projects: [],
     repository_contexts: [],
+    working_copies: [],
+    agent_sessions: [],
     capture_entries: [],
     tasks: [],
     waitings: [],
@@ -646,6 +650,8 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
 
   const pProjects = castRecords<Project>(data.projects);
   const pRepositoryContexts = castRecords<RepositoryContext>(data.repository_contexts);
+  const pWorkingCopies = castRecords<WorkingCopy>(data.working_copies);
+  const pAgentSessions = castRecords<AgentSession>(data.agent_sessions);
   const pCaptures = castRecords<CaptureEntry>(data.capture_entrys);
   const pTasks = castRecords<Task>(data.tasks);
   const pWaitings = castRecords<Waiting>(data.waitings);
@@ -663,7 +669,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const hasPersistedDomain =
     pProjects.length || pCaptures.length || pTasks.length ||
     pWaitings.length || pPlanNodes.length || pSchedules.length ||
-    pReferences.length || pTaskDeps.length || pPlanDeps.length ||
+    pReferences.length || pTaskDeps.length || pPlanDeps.length || pWorkingCopies.length || pAgentSessions.length ||
     pKnowledgeEdges.length || pChangeEvents.length || pWorkReceipts.length || pResources.length || pSketches.length || pRepositoryContexts.length;
 
   if (!hasPersistedDomain) return legacy;
@@ -671,6 +677,8 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   return {
     projects: mergePersistedDomain(pProjects, legacy.projects, "legacy_theme_id"),
     repository_contexts: pRepositoryContexts,
+    working_copies: pWorkingCopies,
+    agent_sessions: pAgentSessions,
     capture_entries: mergePersistedDomain(pCaptures, legacy.capture_entries, "legacy_item_id"),
     tasks: mergePersistedDomain(pTasks, legacy.tasks, "legacy_item_id"),
     waitings: mergePersistedDomain(pWaitings, legacy.waitings, "legacy_item_id"),
@@ -917,6 +925,8 @@ export function projectLegacyWorkspace(domain: WorkspaceDomain, base?: Workspace
     notes: domain.notes as WorkspaceData["notes"],
     sketches: domain.sketches as WorkspaceData["sketches"],
     repository_contexts: domain.repository_contexts as WorkspaceData["repository_contexts"],
+    working_copies: domain.working_copies as WorkspaceData["working_copies"],
+    agent_sessions: domain.agent_sessions as WorkspaceData["agent_sessions"],
     work_receipts: domain.work_receipts as WorkspaceData["work_receipts"],
     links: domain.resources.map((resource) => ({
       id: resource.id,
