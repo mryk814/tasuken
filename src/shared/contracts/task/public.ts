@@ -151,6 +151,8 @@ export {
   findTasksForRepositoryResponseSchema,
   getRepositoryContextRequestSchema,
   getRepositoryContextResponseSchema,
+  getAgentSessionContextRequestSchema,
+  getAgentSessionContextResponseSchema,
   getTaskAssignmentRequestSchema,
   getTaskAssignmentResponseSchema,
   repositoryLookupRequestSchema,
@@ -159,6 +161,8 @@ export {
   type FindTasksForRepositoryResponse,
   type GetRepositoryContextRequest,
   type GetRepositoryContextResponse,
+  type GetAgentSessionContextRequest,
+  type GetAgentSessionContextResponse,
   type GetTaskAssignmentRequest,
   type GetTaskAssignmentResponse,
   type RepositoryLookupRequest,
@@ -264,6 +268,12 @@ export {
   type ProposeTaskWorkRequest,
   type ProposeTaskWorkResponse,
 } from "./taskWorkProposal.ts";
+export {
+  proposeAgentSessionRequestSchema,
+  proposeAgentSessionResponseSchema,
+  type ProposeAgentSessionRequest,
+  type ProposeAgentSessionResponse,
+} from "./agentSessionProposal.ts";
 export {
   proposeRepositoryTaskRequestSchema,
   proposeRepositoryTaskResponseSchema,

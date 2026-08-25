@@ -910,6 +910,10 @@ export class WorkspaceDatabase {
       requireReference("repository_context", entity.primary_repository_context_id, "primary_repository_context_id");
     }
 
+    if (type === "working_copy") {
+      requireReference("repository_context", entity.repository_context_id, "repository_context_id");
+    }
+
     if (type === "task") {
       requireV2("plan_node", entity.plan_node_id, "plan_node_id");
       requireV2("task", entity.parent_task_id, "parent_task_id");

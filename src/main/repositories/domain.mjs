@@ -2,6 +2,7 @@ import { hasAiMetadataContract, normalizeAiMetadata } from "../../shared/aiMetad
 import { inferArtifactLinkType } from "../../shared/artifactLinks.mjs";
 import { normalizeActivityEvent, ACTIVITY_EVENT_KINDS } from "../../shared/activityEvent.mjs";
 import { normalizeRepositoryContext, normalizeRepositoryLinkFields } from "../../shared/repositoryContext.mjs";
+import { normalizeAgentSession, normalizeWorkingCopy } from "../../shared/agentSession.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
 import { validateAudioArtifactMetadata, validateAudioCaptureEntry, validateVideoArtifactMetadata } from "../../shared/mediaArtifact.mjs";
@@ -51,7 +52,7 @@ const knowledgeDirectionalRelationTypes = new Set(["depends_on", "causes", "lead
 const confidenceValues = new Set(["low", "medium", "high"]);
 const knowledgeStatusValues = new Set(["active", "resolved", "deprecated", "rejected"]);
 const proposalSources = new Set(["mcp", "ai_import", "manual", "embedded_llm"]);
-const proposalPayloadTypes = new Set(["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update", "task_work", "repository_contexts"]);
+const proposalPayloadTypes = new Set(["items", "notes", "links", "knowledge_nodes", "sketches", "artifacts", "status_update", "task_work", "repository_contexts", "agent_sessions"]);
 const proposalStatuses = new Set(["pending", "accepted", "rejected", "partially_accepted", "quarantined"]);
 const projectStates = new Set(["idea", "active", "paused", "closed"]);
 const captureEntryStates = new Set(["untriaged", "triaged", "archived"]);
@@ -284,6 +285,8 @@ export function validateEntity(type, input) {
   }
 
   if (type === "repository_context") normalizeRepositoryContext(input);
+  if (type === "working_copy") normalizeWorkingCopy(input);
+  if (type === "agent_session") normalizeAgentSession(input);
   if (type === "theme" || type === "project" || type === "task") normalizeRepositoryLinkFields(type, input);
 
   for (const field of isoDateFields) {
@@ -505,6 +508,13 @@ export function normalizeEntity(type, input) {
       if (!repositoryContextRecordFields.has(key)) delete normalized[key];
     }
     Object.assign(normalized, safeContext);
+  }
+  if (type === "working_copy" || type === "agent_session") {
+    const safeRecord = type === "working_copy" ? normalizeWorkingCopy(normalized) : normalizeAgentSession(normalized);
+    for (const key of Object.keys(normalized)) {
+      if (!(key in safeRecord)) delete normalized[key];
+    }
+    Object.assign(normalized, safeRecord);
   }
   if (type === "work_receipt" && normalized.external_references != null) {
     normalized.external_references = normalizeExternalReferences(normalized.external_references);

@@ -284,6 +284,8 @@ export interface WorkspaceData {
   capture_entrys: BaseRecord[];
   tasks: BaseRecord[];
   repository_contexts?: BaseRecord[];
+  working_copies: BaseRecord[];
+  agent_sessions: BaseRecord[];
   work_receipts: WorkReceipt[];
   waitings: BaseRecord[];
   plan_nodes: BaseRecord[];

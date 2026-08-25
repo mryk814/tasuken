@@ -23,6 +23,8 @@ const definitions = [
   { type: "resource", collectionKey: "resources", domainCollectionKey: "resources", label: "Resource", iconKey: "folder", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
   { type: "project", collectionKey: "projects", domainCollectionKey: "projects", label: "Theme", iconKey: "palette", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["name", "state"] },
   { type: "repository_context", collectionKey: "repository_contexts", domainCollectionKey: "repository_contexts", label: "Repository context", iconKey: "git", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["label"] },
+  { type: "working_copy", collectionKey: "working_copies", domainCollectionKey: "working_copies", label: "Working copy", iconKey: "git-branch", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["repository_context_id", "device_id", "storage_root_id"] },
+  { type: "agent_session", collectionKey: "agent_sessions", domainCollectionKey: "agent_sessions", label: "Agent session", iconKey: "robot", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["started_at", "status", "client_kind"] },
   { type: "capture_entry", collectionKey: "capture_entrys", domainCollectionKey: "capture_entries", label: "Capture", iconKey: "inbox", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["text", "captured_at", "state"] },
   { type: "task", collectionKey: "tasks", domainCollectionKey: "tasks", label: "Task", iconKey: "check", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "state"] },
   { type: "work_receipt", collectionKey: "work_receipts", domainCollectionKey: "work_receipts", label: "Work receipt", iconKey: "history", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["task_id", "executor_kind", "executor_label", "reported_at", "summary"] },
@@ -68,12 +70,13 @@ export const entityTypes = Object.freeze(entityDefinitions.map((definition) => d
 
 /** Referenceのsource/targetは、Repositoryの内部enumではなくRegistryのdomain境界を正本にする。 */
 export const referenceTargetEntityTypes = Object.freeze([
-  "project", "capture_entry", "task", "work_receipt", "waiting", "plan_node", "note", "resource",
+  "project", "repository_context", "working_copy", "agent_session", "capture_entry", "task", "work_receipt", "waiting", "plan_node", "note", "resource",
   "knowledge_node", "sketch", "artifact", "change_event",
 ]);
 export const referenceRelationTypes = Object.freeze([
   "related_to", "derived_from", "mentions", "links_to", "blocks", "supports", "contradicts", "answers",
   "depends_on", "created_for", "generated_from", "exported_from", "attached_to", "implements", "supersedes",
+  "worked_on", "executed_in", "produced", "verified_by", "handoff_for",
 ]);
 
 export function entityDefinition(type) {

@@ -15,8 +15,8 @@ test("Phase 0: MCP inventory documents every registered read and Proposal tool",
   const readTools = registrations.filter((entry) => entry.offset < readOnlyBoundary);
   const proposalTools = registrations.filter((entry) => entry.offset > readOnlyBoundary);
 
-  assert.equal(readTools.length, 22);
-  assert.equal(proposalTools.length, 11);
+  assert.equal(readTools.length, 23);
+  assert.equal(proposalTools.length, 14);
   assert.equal(new Set(registrations.map((entry) => entry.name)).size, registrations.length);
   for (const { name } of registrations) {
     assert.equal(migrationDocument.includes(`\`${name.replace(/^tasken\./, "")}\``), true, `${name} is missing from the inventory`);

@@ -7,6 +7,7 @@
 import type { BaseRecord, Item, Link as LegacyLink, Note as LegacyNote, Theme, WorkspaceData } from "../../types";
 import type { RepositoryContext } from "../../../../../../shared/repositoryContext.mjs";
 import type {
+  AgentSession,
   CaptureEntry,
   ChangeEvent,
   EntityRefType,
@@ -29,6 +30,7 @@ import type {
   TaskState,
   Waiting,
   WaitingState,
+  WorkingCopy,
   WorkReceipt,
   WorkspaceDomain,
 } from "../types";
@@ -400,6 +402,8 @@ function emptyWorkspaceDomain(): WorkspaceDomain {
   return {
     projects: [],
     repository_contexts: [],
+    working_copies: [],
+    agent_sessions: [],
     capture_entries: [],
     tasks: [],
     waitings: [],
@@ -646,6 +650,8 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
 
   const pProjects = castRecords<Project>(data.projects);
   const pRepositoryContexts = castRecords<RepositoryContext>(data.repository_contexts);
+  const pWorkingCopies = castRecords<WorkingCopy>(data.working_copies);
+  const pAgentSessions = castRecords<AgentSession>(data.agent_sessions);
   const pCaptures = castRecords<CaptureEntry>(data.capture_entrys);
   const pTasks = castRecords<Task>(data.tasks);
   const pWaitings = castRecords<Waiting>(data.waitings);
@@ -655,6 +661,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pTaskDeps = castRecords<TaskDependency>(data.task_dependencies);
   const pPlanDeps = castRecords<PlanDependency>(data.plan_dependencies);
   const pKnowledgeEdges = castRecords<KnowledgeEdge>(data.knowledge_edges);
+  const pAiProposals = castRecords<Record<string, unknown> & { id: string }>(data.ai_proposals);
   const pChangeEvents = castRecords<ChangeEvent>(data.change_events);
   const pWorkReceipts = castRecords<WorkReceipt>(data.work_receipts);
   const pResources = castRecords<Resource>(data.resources);
@@ -663,14 +670,16 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const hasPersistedDomain =
     pProjects.length || pCaptures.length || pTasks.length ||
     pWaitings.length || pPlanNodes.length || pSchedules.length ||
-    pReferences.length || pTaskDeps.length || pPlanDeps.length ||
-    pKnowledgeEdges.length || pChangeEvents.length || pWorkReceipts.length || pResources.length || pSketches.length || pRepositoryContexts.length;
+    pReferences.length || pTaskDeps.length || pPlanDeps.length || pWorkingCopies.length || pAgentSessions.length ||
+    pKnowledgeEdges.length || pAiProposals.length || pChangeEvents.length || pWorkReceipts.length || pResources.length || pSketches.length || pRepositoryContexts.length;
 
   if (!hasPersistedDomain) return legacy;
 
   return {
     projects: mergePersistedDomain(pProjects, legacy.projects, "legacy_theme_id"),
     repository_contexts: pRepositoryContexts,
+    working_copies: pWorkingCopies,
+    agent_sessions: pAgentSessions,
     capture_entries: mergePersistedDomain(pCaptures, legacy.capture_entries, "legacy_item_id"),
     tasks: mergePersistedDomain(pTasks, legacy.tasks, "legacy_item_id"),
     waitings: mergePersistedDomain(pWaitings, legacy.waitings, "legacy_item_id"),
@@ -684,7 +693,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     task_dependencies: mergeById(pTaskDeps, legacy.task_dependencies),
     plan_dependencies: mergeById(pPlanDeps, legacy.plan_dependencies),
     knowledge_edges: mergeById(pKnowledgeEdges, legacy.knowledge_edges),
-    ai_proposals: legacy.ai_proposals,
+    ai_proposals: pAiProposals,
     change_events: mergePersistedDomain(pChangeEvents, legacy.change_events, "legacy_item_id"),
     work_receipts: pWorkReceipts,
   };
@@ -917,6 +926,8 @@ export function projectLegacyWorkspace(domain: WorkspaceDomain, base?: Workspace
     notes: domain.notes as WorkspaceData["notes"],
     sketches: domain.sketches as WorkspaceData["sketches"],
     repository_contexts: domain.repository_contexts as WorkspaceData["repository_contexts"],
+    working_copies: domain.working_copies as WorkspaceData["working_copies"],
+    agent_sessions: domain.agent_sessions as WorkspaceData["agent_sessions"],
     work_receipts: domain.work_receipts as WorkspaceData["work_receipts"],
     links: domain.resources.map((resource) => ({
       id: resource.id,

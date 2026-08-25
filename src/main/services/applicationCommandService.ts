@@ -2,7 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { canonicalThemeId } from "../../shared/themeRef.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
-import { entityDefinition } from "../../shared/entityRegistry.mjs";
+import { entityDefinition, referenceRelationTypes, referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
+import { normalizeAgentSession } from "../../shared/agentSession.mjs";
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeRepositoryContext } from "../../shared/repositoryContext.mjs";
@@ -1490,6 +1491,21 @@ export class ApplicationCommandService {
     const operations: SaveOperation[] = [];
     const eventIds: string[] = [];
     const seen = new Set<string>();
+    const capturedAgentSessionIds = new Set(
+      currentProposal.payload_type === "agent_sessions"
+        && currentProposal.payload
+        && typeof currentProposal.payload === "object"
+        && !Array.isArray(currentProposal.payload)
+        && Array.isArray((currentProposal.payload as { agent_sessions?: unknown[] }).agent_sessions)
+        ? (currentProposal.payload as { agent_sessions: unknown[] }).agent_sessions.flatMap((entry) => {
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+          const record = entry as { action?: unknown; session?: unknown };
+          if (record.action !== "capture" || !record.session || typeof record.session !== "object" || Array.isArray(record.session)) return [];
+          const id = (record.session as { id?: unknown }).id;
+          return typeof id === "string" ? [id] : [];
+        })
+        : [],
+    );
     for (const candidate of payload.candidates) {
       const type = candidate.type;
       let candidateEntity = candidate.entity;
@@ -1507,6 +1523,16 @@ export class ApplicationCommandService {
           );
         }
       }
+      if (type === "agent_session") {
+        try {
+          candidateEntity = normalizeAgentSession(candidate.entity) as Entity;
+        } catch (error) {
+          throw new ApplicationCommandError(
+            "INVALID_PAYLOAD",
+            `Agent Session candidate が不正です: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
       if (type === "schedule") {
         const schedule = candidateEntity;
         if (schedule.owner_type !== "task" && schedule.owner_type !== "waiting" && schedule.owner_type !== "plan_node") {
@@ -1521,6 +1547,47 @@ export class ApplicationCommandService {
       if (before) {
         if (!expectedVersionFor(command, type, candidateEntity.id)) throw new ApplicationCommandError("CONFLICT", "既存candidateにはexpected versionが必要です。", { type, id: candidateEntity.id });
         assertExpectedVersion(this.repository, command, type, candidateEntity.id, before);
+      }
+      if (type === "agent_session") {
+        if (!before) {
+          const isCapturedTerminalRecord = capturedAgentSessionIds.has(candidateEntity.id);
+          if (isCapturedTerminalRecord) {
+            if (!["completed", "blocked", "abandoned"].includes(String(candidateEntity.status))
+              || !candidateEntity.ended_at
+              || !candidateEntity.outcome) {
+              throw new ApplicationCommandError("INVALID_TRANSITION", "Captureする Agent Session は完結した終端記録にしてください。", { id: candidateEntity.id });
+            }
+          } else if (candidateEntity.status !== "active" || candidateEntity.ended_at || candidateEntity.outcome) {
+            throw new ApplicationCommandError("INVALID_TRANSITION", "新しい Agent Session は active で開始してください。", { id: candidateEntity.id });
+          }
+        }
+        if (before) {
+          for (const field of ["started_at", "client_kind", "client_label", "agent_label", "provider_label", "model_label", "source_session_id", "intent"] as const) {
+            if (JSON.stringify(before[field] ?? null) !== JSON.stringify(candidateEntity[field] ?? null)) {
+              throw new ApplicationCommandError("INVALID_TRANSITION", `Agent Session の ${field} は終了時に変更できません。`, { id: candidateEntity.id });
+            }
+          }
+          if (before.status !== "active" || !["completed", "blocked", "abandoned"].includes(String(candidateEntity.status))) {
+            throw new ApplicationCommandError("INVALID_TRANSITION", "Agent Session は active から終端状態へのみ更新できます。", { id: candidateEntity.id });
+          }
+        }
+      }
+      if (type === "reference") {
+        referenceDefinition.parseCreate(candidateEntity);
+        if (!referenceTargetEntityTypes.includes(candidateEntity.source_type as never)
+          || !referenceTargetEntityTypes.includes(candidateEntity.target_type as never)
+          || !referenceRelationTypes.includes(candidateEntity.relation_type as never)) {
+          throw new ApplicationCommandError("INVALID_PAYLOAD", "Agent Session Reference の型または関係が不正です。", { id: candidateEntity.id });
+        }
+        for (const [side, entityType, entityId] of [
+          ["source", candidateEntity.source_type, candidateEntity.source_id],
+          ["target", candidateEntity.target_type, candidateEntity.target_id],
+        ] as const) {
+          const relatedCandidate = payload.candidates.find((entry) => entry.type === entityType && entry.entity.id === entityId)?.entity;
+          if (!relatedCandidate && !this.repository.get(entityType as EntityType, String(entityId))) {
+            throw new ApplicationCommandError("NOT_FOUND", `Agent Session Reference の ${side} が存在しません。`, { type: entityType, id: entityId });
+          }
+        }
       }
       if (type === "schedule") {
         const ownerType = String(candidateEntity.owner_type) as EntityType;

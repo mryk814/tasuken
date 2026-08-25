@@ -14,13 +14,16 @@ const readTools = [
   "tasken.get_conversation", "tasken.get_artifact_metadata", "tasken.get_activity_entries",
   "tasken.resolve_repository_context", "tasken.find_themes_for_repository",
   "tasken.find_tasks_for_repository", "tasken.get_repository_context", "tasken.get_theme_context",
+  "tasken.get_agent_session_context",
   "tasken.get_recent_notes", "tasken.search_knowledge", "tasken.get_knowledge_context",
   "tasken.get_plan_health", "tasken.get_knowledge_health", "tasken.get_activity",
   "tasken.get_context_subgraph", "tasken.export_ai_context",
 ];
 const proposalTools = [
   "tasken.start_task_work", "tasken.append_work_receipt", "tasken.report_task_done",
-  "tasken.report_task_blocked", "tasken.propose_repository_context", "tasken.propose_task",
+  "tasken.report_task_blocked", "tasken.start_agent_session", "tasken.finish_agent_session",
+  "tasken.submit_agent_session_record",
+  "tasken.propose_repository_context", "tasken.propose_task",
   "tasken.propose_note", "tasken.propose_note_edit", "tasken.propose_knowledge",
   "tasken.propose_sketch", "tasken.propose_artifact",
 ];
@@ -69,10 +72,10 @@ test("#413 MCP production graph is Core-only and native-free", () => {
   assert.doesNotMatch(source("src/renderer/src/features/workspace/pages/SettingsPage.tsx"), /MCP Inbox|Inboxを開く|pendingFileCount/);
 });
 
-test("#413 all 22 reads and 11 proposals use Core without fallback", () => {
+test("#413 all 23 reads and 14 proposals use Core without fallback", () => {
   const mcpServer = source("src/main/mcp/server.mjs");
-  assert.equal(readTools.length, 22);
-  assert.equal(proposalTools.length, 11);
+  assert.equal(readTools.length, 23);
+  assert.equal(proposalTools.length, 14);
   for (const toolName of readTools) assert.match(toolBlock(mcpServer, toolName), /withCoreClient/);
   for (const toolName of proposalTools) {
     const block = toolBlock(mcpServer, toolName);

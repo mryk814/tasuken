@@ -259,6 +259,9 @@ export const AI_UNSET_LABEL = "未設定";
 /** Entity参照の種別。置き換え先の指定など、種別を選ばせる場面で使う。 */
 export const ENTITY_REF_TYPE_LABELS: Record<EntityRefType, string> = {
   project: "Theme",
+  repository_context: "Repository",
+  working_copy: "Working Copy",
+  agent_session: "Agent Session",
   capture_entry: "Inbox",
   task: "タスク",
   waiting: "待ち",

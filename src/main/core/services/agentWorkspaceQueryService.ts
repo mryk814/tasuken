@@ -7,6 +7,8 @@ import {
 } from "../../../shared/repositoryContext.mjs";
 import { projectEntityForAi, summarizeAiExclusions } from "../../../shared/aiMetadata.mjs";
 import {
+  getAgentSessionContextRequestSchema,
+  getAgentSessionContextResponseSchema,
   findThemesForRepositoryResponseSchema,
   findTasksForRepositoryResponseSchema,
   getRepositoryContextRequestSchema,
@@ -16,6 +18,8 @@ import {
   repositoryLookupRequestSchema,
   resolveRepositoryContextResponseSchema,
   type FindThemesForRepositoryResponse,
+  type GetAgentSessionContextRequest,
+  type GetAgentSessionContextResponse,
   type FindTasksForRepositoryResponse,
   type GetRepositoryContextRequest,
   type GetRepositoryContextResponse,
@@ -24,6 +28,7 @@ import {
   type RepositoryLookupRequest,
   type ResolveRepositoryContextResponse,
 } from "../../../shared/contracts/task/public.ts";
+import { publicAgentSession, publicWorkingCopy } from "../../../shared/agentSession.mjs";
 import { AgentReadyTaskAiProjectionPolicy } from "../policies/agentReadyTaskAiProjectionPolicy.ts";
 import type { AgentWorkspaceReadPort } from "../ports/agentWorkspaceReadPort.ts";
 import { publicTaskForContext, publicThemeForContext, safeReceiptValue, TaskContextTextBudget } from "../../../shared/taskContext.mjs";
@@ -200,6 +205,78 @@ export class AgentWorkspaceQueryService {
       themes: themes.map(publicTheme),
       tasks: matchingTasks.map(publicTask),
       repository_context_id: id,
+      read_only: true,
+      ai_audience: "coding_agent",
+    });
+  }
+
+  getAgentSessionContext(input: GetAgentSessionContextRequest): GetAgentSessionContextResponse {
+    const request = getAgentSessionContextRequestSchema.parse(input);
+    const repositoryRequest = repositoryLookupRequestSchema.parse({
+      repository_context_id: request.repository_context_id,
+      repository_id: request.repository_id,
+      provider: request.provider,
+      remote_url: request.remote_url,
+      remote_urls: request.remote_urls,
+      repository_slug: request.repository_slug,
+      git_root: request.git_root,
+      cwd: request.cwd,
+      workspace_folder: request.workspace_folder,
+      include_archived: request.include_archived,
+    });
+    const repositoryMatch = this.resolveRepositoryContext(repositoryRequest);
+    const repositoryContextId = repositoryMatch.selected?.id || null;
+    const repositoryDetail = repositoryContextId
+      ? this.getRepositoryContext({ repository_context_id: repositoryContextId })
+      : null;
+    const workingCopies = repositoryContextId
+      ? this.readPort.listWorkingCopies(false)
+        .filter((copy) => copy.repository_context_id === repositoryContextId && copy.active !== false)
+        .map((copy) => publicWorkingCopy(copy))
+      : [];
+    const workingCopyIds = new Set(workingCopies.map((copy) => copy.id));
+    const relatedSessionIds = new Set<string>();
+    if (repositoryContextId) {
+      for (const reference of this.readPort.listReferences(false)) {
+        const sourceIsSession = reference.source_type === "agent_session";
+        const targetIsSession = reference.target_type === "agent_session";
+        const otherMatchesRepository = sourceIsSession
+          ? (reference.target_type === "repository_context" && reference.target_id === repositoryContextId)
+            || (reference.target_type === "working_copy" && workingCopyIds.has(String(reference.target_id)))
+          : targetIsSession
+            ? (reference.source_type === "repository_context" && reference.source_id === repositoryContextId)
+              || (reference.source_type === "working_copy" && workingCopyIds.has(String(reference.source_id)))
+            : false;
+        if (sourceIsSession && otherMatchesRepository) relatedSessionIds.add(String(reference.source_id));
+        if (targetIsSession && otherMatchesRepository) relatedSessionIds.add(String(reference.target_id));
+      }
+    }
+    const sessions = this.readPort.listAgentSessions(false)
+      .filter((session) => relatedSessionIds.has(session.id))
+      .filter((session) => session.client_kind === request.client_kind)
+      .filter((session) => !request.agent_label || session.agent_label === request.agent_label)
+      .sort((left, right) => String(right.ended_at || right.started_at).localeCompare(String(left.ended_at || left.started_at)))
+      .slice(0, request.limit ?? 20)
+      .map((session) => publicAgentSession(session));
+    const previousHandoff = sessions.find((session) => (
+      session.source_session_id !== request.source_session
+      && session.status !== "active"
+      && session.outcome
+    )) || null;
+    const themes = repositoryDetail && "themes" in repositoryDetail ? repositoryDetail.themes : [];
+    const tasks = repositoryDetail && "tasks" in repositoryDetail ? repositoryDetail.tasks : [];
+    return getAgentSessionContextResponseSchema.parse({
+      status: repositoryMatch.status,
+      reason_code: repositoryMatch.reason_code,
+      reason: repositoryMatch.reason,
+      selected: repositoryMatch.selected,
+      candidates: repositoryMatch.candidates,
+      repository_context: repositoryMatch.selected,
+      themes,
+      tasks,
+      working_copies: workingCopies,
+      sessions,
+      previous_handoff: previousHandoff,
       read_only: true,
       ai_audience: "coding_agent",
     });

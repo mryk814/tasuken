@@ -8,6 +8,7 @@ export const TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY = "resolve_reposi
 export const TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY = "find_tasks_for_repository";
 export const TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY = "find_themes_for_repository";
 export const TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY = "get_repository_context";
+export const TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY = "get_agent_session_context";
 export const TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY = "get_task_assignment";
 export const TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY = "get_task_context";
 export const TASKEN_CORE_SEARCH_ITEMS_CAPABILITY = "search_items";
@@ -26,6 +27,7 @@ export const TASKEN_CORE_GET_ACTIVITY_CAPABILITY = "get_activity";
 export const TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY = "get_context_subgraph";
 export const TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY = "export_ai_context";
 export const TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY = "propose_task_work";
+export const TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY = "propose_agent_session";
 export const TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY = "propose_repository_task";
 export const TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY = "propose_content";
 // These identify the shared Task capability contract across in-process and loopback adapters.

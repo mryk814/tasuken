@@ -10,6 +10,8 @@ import type {
   GetActivityEntriesResponse,
   GetRepositoryContextRequest,
   GetRepositoryContextResponse,
+  GetAgentSessionContextRequest,
+  GetAgentSessionContextResponse,
   GetThemeContextRequest,
   GetThemeContextResponse,
   GetArtifactMetadataRequest,
@@ -48,6 +50,8 @@ import type {
   SearchItemsResponse,
   ProposeTaskWorkRequest,
   ProposeTaskWorkResponse,
+  ProposeAgentSessionRequest,
+  ProposeAgentSessionResponse,
   ProposeRepositoryTaskRequest,
   ProposeRepositoryTaskResponse,
   ProposeContentRequest,
@@ -59,6 +63,7 @@ import {
   getTaskAssignmentRequestSchema,
   getActivityEntriesRequestSchema,
   getRepositoryContextRequestSchema,
+  getAgentSessionContextRequestSchema,
   getThemeContextRequestSchema,
   getArtifactMetadataRequestSchema,
   getConversationRequestSchema,
@@ -77,6 +82,7 @@ import {
   repositoryLookupRequestSchema,
   searchItemsRequestSchema,
   proposeTaskWorkRequestSchema,
+  proposeAgentSessionRequestSchema,
   proposeRepositoryTaskRequestSchema,
   proposeContentRequestSchema,
   taskCommandSchema,
@@ -87,6 +93,7 @@ import {
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
+  TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
@@ -103,6 +110,7 @@ import {
   TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+  TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
@@ -137,6 +145,7 @@ export interface TaskenCoreHostOptions {
   findTasksForRepository?: QueryProvider<RepositoryLookupRequest, FindTasksForRepositoryResponse>;
   findThemesForRepository?: QueryProvider<RepositoryLookupRequest, FindThemesForRepositoryResponse>;
   getRepositoryContext?: QueryProvider<GetRepositoryContextRequest, GetRepositoryContextResponse>;
+  getAgentSessionContext?: QueryProvider<GetAgentSessionContextRequest, GetAgentSessionContextResponse>;
   getTaskAssignment?: QueryProvider<GetTaskAssignmentRequest, GetTaskAssignmentResponse>;
   getTaskContext?: QueryProvider<GetTaskContextRequest, GetTaskContextResponse>;
   searchItems?: QueryProvider<SearchItemsRequest, SearchItemsResponse>;
@@ -155,6 +164,7 @@ export interface TaskenCoreHostOptions {
   getContextSubgraph?: QueryProvider<GetContextSubgraphRequest, GetContextSubgraphResponse>;
   exportAiContext?: QueryProvider<ExportAiContextRequest, ExportAiContextResponse>;
   proposeTaskWork?: QueryProvider<ProposeTaskWorkRequest, ProposeTaskWorkResponse>;
+  proposeAgentSession?: QueryProvider<ProposeAgentSessionRequest, ProposeAgentSessionResponse>;
   proposeRepositoryTask?: QueryProvider<ProposeRepositoryTaskRequest, ProposeRepositoryTaskResponse>;
   proposeContent?: QueryProvider<ProposeContentRequest, ProposeContentResponse>;
 }
@@ -198,11 +208,13 @@ function parseOperationRequest(url: string, body: unknown): unknown {
   const schema = url === "/v1/task/query" ? taskQuerySchema
     : url === "/v1/task/command" ? taskCommandSchema
     : url === "/v1/commands/propose-task-work" ? proposeTaskWorkRequestSchema
+    : url === "/v1/commands/propose-agent-session" ? proposeAgentSessionRequestSchema
     : url === "/v1/commands/propose-repository-task" ? proposeRepositoryTaskRequestSchema
     : url === "/v1/commands/propose-content" ? proposeContentRequestSchema
     : url === "/v1/queries/list-agent-ready-tasks" ? listAgentReadyTasksRequestSchema
     : url === "/v1/queries/resolve-repository-context" || url === "/v1/queries/find-tasks-for-repository" || url === "/v1/queries/find-themes-for-repository" ? repositoryLookupRequestSchema
       : url === "/v1/queries/get-repository-context" ? getRepositoryContextRequestSchema
+      : url === "/v1/queries/get-agent-session-context" ? getAgentSessionContextRequestSchema
       : url === "/v1/queries/get-task-assignment" ? getTaskAssignmentRequestSchema
         : url === "/v1/queries/get-task-context" ? getTaskContextRequestSchema
           : url === "/v1/queries/search-items" ? searchItemsRequestSchema
@@ -251,7 +263,7 @@ function publicRequestError(error: unknown) {
   if (message === "INVALID_JSON") {
     return { status: 400, body: errorResponse(message, "JSONが不正です。") };
   }
-  if (error instanceof Error && ["ProposeTaskWorkError", "ProposeRepositoryTaskError", "ProposeContentError"].includes(error.name)
+  if (error instanceof Error && ["ProposeTaskWorkError", "ProposeRepositoryTaskError", "ProposeContentError", "ProposeAgentSessionError"].includes(error.name)
     && "code" in error && error.code === "IDEMPOTENCY_CONFLICT") {
     return {
       status: 409,
@@ -259,6 +271,20 @@ function publicRequestError(error: unknown) {
         details: "details" in error && error.details && typeof error.details === "object" ? error.details as Record<string, unknown> : {},
       }),
     };
+  }
+  if (error instanceof Error && error.name === "ProposeAgentSessionError" && "code" in error) {
+    const details = "details" in error && error.details && typeof error.details === "object"
+      ? error.details as Record<string, unknown>
+      : {};
+    if (error.code === "SESSION_NOT_FOUND") {
+      return { status: 404, body: errorResponse("SESSION_NOT_FOUND", error.message, { details }) };
+    }
+    if (error.code === "SESSION_CONFLICT") {
+      return { status: 409, body: errorResponse("SESSION_CONFLICT", error.message, { details }) };
+    }
+    if (error.code === "INVALID_REFERENCE") {
+      return { status: 400, body: errorResponse("INVALID_REFERENCE", error.message, { details }) };
+    }
   }
   if (error instanceof Error && error.name === "ProposeRepositoryTaskError"
     && "code" in error && error.code === "INVALID_PROPOSAL") {
@@ -348,6 +374,7 @@ export class TaskenCoreHost {
       ...(this.options.findTasksForRepository ? [TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY] : []),
       ...(this.options.findThemesForRepository ? [TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY] : []),
       ...(this.options.getRepositoryContext ? [TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY] : []),
+      ...(this.options.getAgentSessionContext ? [TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY] : []),
       ...(this.options.getTaskAssignment ? [TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY] : []),
       ...(this.options.getTaskContext ? [TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY] : []),
       ...(this.options.searchItems ? [TASKEN_CORE_SEARCH_ITEMS_CAPABILITY] : []),
@@ -366,6 +393,7 @@ export class TaskenCoreHost {
       ...(this.options.getContextSubgraph ? [TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY] : []),
       ...(this.options.exportAiContext ? [TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY] : []),
       ...(this.options.proposeTaskWork ? [TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY] : []),
+      ...(this.options.proposeAgentSession ? [TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY] : []),
       ...(this.options.proposeRepositoryTask ? [TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY] : []),
       ...(this.options.proposeContent ? [TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY] : []),
     ];
@@ -436,6 +464,7 @@ export class TaskenCoreHost {
         ...(this.options.findTasksForRepository ? ["/v1/queries/find-tasks-for-repository"] : []),
         ...(this.options.findThemesForRepository ? ["/v1/queries/find-themes-for-repository"] : []),
         ...(this.options.getRepositoryContext ? ["/v1/queries/get-repository-context"] : []),
+        ...(this.options.getAgentSessionContext ? ["/v1/queries/get-agent-session-context"] : []),
         ...(this.options.getTaskAssignment ? ["/v1/queries/get-task-assignment"] : []),
         ...(this.options.getTaskContext ? ["/v1/queries/get-task-context"] : []),
         ...(this.options.searchItems ? ["/v1/queries/search-items"] : []),
@@ -457,6 +486,7 @@ export class TaskenCoreHost {
       const commandPaths = new Set([
         ...(this.options.taskCommand ? ["/v1/task/command"] : []),
         ...(this.options.proposeTaskWork ? ["/v1/commands/propose-task-work"] : []),
+        ...(this.options.proposeAgentSession ? ["/v1/commands/propose-agent-session"] : []),
         ...(this.options.proposeRepositoryTask ? ["/v1/commands/propose-repository-task"] : []),
         ...(this.options.proposeContent ? ["/v1/commands/propose-content"] : []),
       ]);
@@ -492,6 +522,8 @@ export class TaskenCoreHost {
           json(response, 200, this.options.taskCommand!.execute(body));
         } else if (request.url === "/v1/commands/propose-task-work") {
           json(response, 200, this.options.proposeTaskWork!.execute(body as ProposeTaskWorkRequest));
+        } else if (request.url === "/v1/commands/propose-agent-session") {
+          json(response, 200, this.options.proposeAgentSession!.execute(body as ProposeAgentSessionRequest));
         } else if (request.url === "/v1/commands/propose-repository-task") {
           json(response, 200, this.options.proposeRepositoryTask!.execute(body as ProposeRepositoryTaskRequest));
         } else if (request.url === "/v1/commands/propose-content") {
@@ -506,6 +538,8 @@ export class TaskenCoreHost {
           json(response, 200, this.options.findThemesForRepository!.execute(body as RepositoryLookupRequest));
         } else if (request.url === "/v1/queries/get-repository-context") {
           json(response, 200, this.options.getRepositoryContext!.execute(body as GetRepositoryContextRequest));
+        } else if (request.url === "/v1/queries/get-agent-session-context") {
+          json(response, 200, this.options.getAgentSessionContext!.execute(body as GetAgentSessionContextRequest));
         } else if (request.url === "/v1/queries/get-task-context") {
           json(response, 200, this.options.getTaskContext!.execute(body as GetTaskContextRequest));
         } else if (request.url === "/v1/queries/search-items") {

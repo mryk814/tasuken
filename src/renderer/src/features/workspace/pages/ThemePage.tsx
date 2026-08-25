@@ -26,6 +26,7 @@ import {
 } from "../lib/taskSections";
 import { ArtifactSection } from "../components/artifacts";
 import { AiContextPreviewPanel } from "../components/AiContextPreviewPanel";
+import { AgentWorkSummaryPanel } from "../components/AgentWorkSummaryPanel";
 import {
   ActionButton,
   Button,
@@ -476,6 +477,14 @@ export function ThemePage({
           タスクを追加
         </ActionButton>
       </PageHeader>
+      <AgentWorkSummaryPanel
+        domain={v2}
+        themeId={theme.id}
+        includeUnresolved
+        limit={6}
+        title="Recent AI work"
+        openDrawer={openDrawer}
+      />
       {/*
         Themeへ戻ったとき短時間で状況を把握するOverview（#321）。
         上から 報告書 → Task（未完了 / 完了）→ 最近のNote → Artifact の順に置き、

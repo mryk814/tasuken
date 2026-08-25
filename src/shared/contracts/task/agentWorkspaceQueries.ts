@@ -28,6 +28,13 @@ export const getRepositoryContextRequestSchema = z.object({
   include_archived: z.boolean().optional(),
 }).strict();
 
+export const getAgentSessionContextRequestSchema = repositoryLookupRequestSchema.extend({
+  client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]),
+  source_session: z.string().trim().min(1).max(500),
+  agent_label: z.string().trim().min(1).max(200).optional(),
+  limit: z.number().int().positive().max(50).optional(),
+}).strict();
+
 export const publicRepositoryContextSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -144,6 +151,40 @@ export const getRepositoryContextResponseSchema = z.union([
   getRepositoryContextMissingSchema,
 ]);
 
+const publicWorkingCopySchema = z.object({
+  id: z.string(),
+  repository_context_id: z.string(),
+  device_id: z.string(),
+  storage_root_id: z.string(),
+  worktree_identity: z.string().nullable(),
+  branch_hint: z.string().nullable(),
+  active: z.boolean(),
+  last_seen_at: z.string().nullable(),
+}).strict();
+
+const publicAgentSessionSchema = z.looseObject({
+  id: z.string(),
+  started_at: z.string(),
+  ended_at: z.string().nullable(),
+  status: z.enum(["active", "completed", "blocked", "abandoned"]),
+  client_kind: z.string(),
+  source_session_id: z.string().nullable(),
+  intent: z.looseObject({ summary: z.string() }),
+  outcome: z.looseObject({ summary: z.string() }).nullable(),
+});
+
+export const getAgentSessionContextResponseSchema = z.object({
+  ...repositoryMatchShape,
+  repository_context: publicRepositoryContextSchema.nullable(),
+  themes: z.array(publicThemeSchema),
+  tasks: z.array(publicTaskSchema),
+  working_copies: z.array(publicWorkingCopySchema),
+  sessions: z.array(publicAgentSessionSchema),
+  previous_handoff: publicAgentSessionSchema.nullable(),
+  read_only: z.literal(true),
+  ai_audience: z.literal("coding_agent"),
+}).strict();
+
 export const getTaskAssignmentResponseSchema = z.looseObject({
   task: z.looseObject({ id: z.string() }).nullable(),
   receipts: z.array(z.looseObject({ id: z.string() })),
@@ -158,5 +199,7 @@ export type FindThemesForRepositoryResponse = z.output<typeof findThemesForRepos
 export type FindTasksForRepositoryResponse = z.output<typeof findTasksForRepositoryResponseSchema>;
 export type GetRepositoryContextRequest = z.output<typeof getRepositoryContextRequestSchema>;
 export type GetRepositoryContextResponse = z.output<typeof getRepositoryContextResponseSchema>;
+export type GetAgentSessionContextRequest = z.output<typeof getAgentSessionContextRequestSchema>;
+export type GetAgentSessionContextResponse = z.output<typeof getAgentSessionContextResponseSchema>;
 export type GetTaskAssignmentRequest = z.output<typeof getTaskAssignmentRequestSchema>;
 export type GetTaskAssignmentResponse = z.output<typeof getTaskAssignmentResponseSchema>;

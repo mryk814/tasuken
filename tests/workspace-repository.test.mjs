@@ -38,6 +38,63 @@ function item(overrides = {}) {
   };
 }
 
+test("WorkingCopy and AgentSession survive canonical SQLite save and reload", () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-agent-session-"));
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  const session = {
+    id: "session-1",
+    started_at: "2026-08-25T08:00:00.000Z",
+    status: "active",
+    client_kind: "codex",
+    source_session_id: "codex-thread-1",
+    intent: { summary: "Issue #498のsession provenanceを接続する" },
+  };
+  try {
+    database.save("repository_context", {
+      id: "repo-1",
+      label: "tasuken",
+      provider: "github",
+      canonical_url: "https://github.com/mryk814/tasuken",
+    });
+    const workingCopy = database.save("working_copy", {
+      id: "wc-1",
+      repository_context_id: "repo-1",
+      device_id: "device-home",
+      storage_root_id: "root-tasuken",
+      absolute_path: "C:\\private\\tasuken",
+    });
+    database.save("agent_session", session);
+    for (const [id, targetType, targetId, relationType] of [
+      ["ref-session-repo", "repository_context", "repo-1", "worked_on"],
+      ["ref-session-working-copy", "working_copy", workingCopy.id, "executed_in"],
+    ]) {
+      database.save("reference", {
+        id,
+        source_type: "agent_session",
+        source_id: session.id,
+        target_type: targetType,
+        target_id: targetId,
+        relation_type: relationType,
+        layer: "provenance",
+        origin: "system_action",
+      });
+    }
+
+    assert.equal(database.get("working_copy", "wc-1").storage_root_id, "root-tasuken");
+    assert.equal("absolute_path" in database.get("working_copy", "wc-1"), false);
+    assert.equal(database.get("agent_session", "session-1").intent.summary, session.intent.summary);
+    assert.equal(database.list("reference").filter((entry) => entry.source_id === session.id).length, 2);
+
+    database.remove("repository_context", "repo-1");
+    assert.equal(database.get("working_copy", "wc-1"), null);
+    database.restore("repository_context", "repo-1");
+    assert.equal(database.get("working_copy", "wc-1").repository_context_id, "repo-1");
+  } finally {
+    database.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("revoked mobile devices can pair again without clearing Android data", () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-mobile-repair-workspace-"));
   const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));

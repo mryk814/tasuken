@@ -552,6 +552,176 @@ test("AiProposalPanel accepts through ApplyAiProposal without direct saveEntitie
   assert.doesNotMatch(rejectBlock, /saveEntities\(/);
 });
 
+test("AI Inbox applies Agent Session start and finish while keeping original intent immutable", () => {
+  const directory = root();
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  try {
+    database.save("repository_context", {
+      id: "repo-agent-session",
+      label: "Tasuken",
+      provider: "github",
+      repository_slug: "mryk814/tasuken",
+      remote_url: "https://github.com/mryk814/tasuken.git",
+    });
+    const sessionId = "91d9c5e6-17c8-5e3a-8a90-2fc4dfe8f4da";
+    const startProposal = database.save("ai_proposal", {
+      id: "proposal-agent-session-start",
+      source: "mcp",
+      source_app: "codex",
+      payload_type: "agent_sessions",
+      payload: {
+        agent_sessions: [{
+          action: "start",
+          session: {
+            id: sessionId,
+            started_at: "2026-08-25T10:00:00.000Z",
+            status: "active",
+            client_kind: "codex",
+            client_label: "Codex Desktop",
+            source_session_id: "thread-498",
+            intent: { summary: "Implement Issue #498", requested_outcome: null, boundary: "Proposal only" },
+            source: "ai_proposal",
+          },
+          references: [{
+            id: "ref-agent-session-repo",
+            source_type: "agent_session",
+            source_id: sessionId,
+            target_type: "repository_context",
+            target_id: "repo-agent-session",
+            relation_type: "worked_on",
+            layer: "provenance",
+            status: "asserted",
+            origin: "ai_suggested",
+            metadata: { accepted_from_proposal_id: "proposal-agent-session-start" },
+          }],
+        }],
+      },
+      request: { tool: "tasken.start_agent_session" },
+      status: "pending",
+      received_at: "2026-08-25T10:00:01.000Z",
+    });
+    const startPreview = buildPreview(startProposal, { data: { agent_sessions: [] }, themes: [], items: [] });
+    const startCandidates = buildCandidateOperations(startPreview.candidates)
+      .map((operation) => ({ type: operation.type, entity: operation.entity }));
+    const commands = new ApplicationCommandService(database);
+    commands.execute({
+      commandId: "proposal-agent-session-start:accept",
+      name: "ApplyAiProposal",
+      payload: { proposal: { ...startProposal, status: "accepted" }, candidates: startCandidates },
+      actor: { kind: "user" },
+      source: "main_ui",
+      expectedVersions: [{ type: "ai_proposal", id: startProposal.id, version: startProposal.version }],
+      issuedAt: startProposal.received_at,
+    });
+    const active = database.get("agent_session", sessionId);
+    assert.equal(active.status, "active");
+    assert.equal(active.intent.summary, "Implement Issue #498");
+    assert.equal(database.get("reference", "ref-agent-session-repo").source_id, sessionId);
+
+    const finishProposal = database.save("ai_proposal", {
+      id: "proposal-agent-session-finish",
+      source: "mcp",
+      source_app: "codex",
+      payload_type: "agent_sessions",
+      payload: {
+        agent_sessions: [{
+          action: "finish",
+          session: {
+            ...active,
+            ended_at: "2026-08-25T11:00:00.000Z",
+            status: "completed",
+            outcome: { summary: "Implemented", decisions: [], changed_items: [], verification: ["tests"], remaining_work: [], next_suggested_action: null },
+          },
+          references: [],
+        }],
+      },
+      request: { tool: "tasken.finish_agent_session" },
+      status: "pending",
+      received_at: "2026-08-25T11:00:01.000Z",
+    });
+    const finishPreview = buildPreview(finishProposal, { data: { agent_sessions: [active] }, themes: [], items: [] });
+    const finishCandidates = buildCandidateOperations(finishPreview.candidates)
+      .map((operation) => ({ type: operation.type, entity: operation.entity }));
+    const finishCommand = {
+      commandId: "proposal-agent-session-finish:accept",
+      name: "ApplyAiProposal",
+      payload: { proposal: { ...finishProposal, status: "accepted" }, candidates: finishCandidates },
+      actor: { kind: "user" },
+      source: "main_ui",
+      expectedVersions: [
+        { type: "ai_proposal", id: finishProposal.id, version: finishProposal.version },
+        { type: "agent_session", id: sessionId, version: active.version },
+      ],
+      issuedAt: finishProposal.received_at,
+    };
+    assert.throws(
+      () => commands.execute({
+        ...finishCommand,
+        commandId: "proposal-agent-session-finish:tampered",
+        payload: {
+          ...finishCommand.payload,
+          candidates: finishCandidates.map((candidate) => candidate.type === "agent_session"
+            ? { ...candidate, entity: { ...candidate.entity, intent: { ...candidate.entity.intent, summary: "Forged intent" } } }
+            : candidate),
+        },
+      }),
+      /intent/,
+    );
+    commands.execute(finishCommand);
+    const completed = database.get("agent_session", sessionId);
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.intent.summary, "Implement Issue #498");
+    assert.equal(completed.outcome.summary, "Implemented");
+
+    const capturedSessionId = "8c731737-b6a2-5bf7-a9dd-50ddd53495c1";
+    const captureProposal = database.save("ai_proposal", {
+      id: "proposal-agent-session-capture",
+      source: "mcp",
+      source_app: "tasken-session-hook:codex",
+      payload_type: "agent_sessions",
+      payload: {
+        agent_sessions: [{
+          action: "capture",
+          session: {
+            id: capturedSessionId,
+            started_at: "2026-08-25T12:00:00.000Z",
+            ended_at: "2026-08-25T12:20:00.000Z",
+            status: "completed",
+            client_kind: "codex",
+            source_session_id: "thread-captured",
+            intent: { summary: "Collect a complete lifecycle", requested_outcome: null, boundary: null },
+            outcome: { summary: "Captured automatically", decisions: [], changed_items: [], verification: ["SessionEnd"], remaining_work: [], next_suggested_action: null },
+            source: "ai_proposal",
+          },
+          references: [],
+        }],
+      },
+      request: { tool: "tasken.submit_agent_session_record" },
+      status: "pending",
+      received_at: "2026-08-25T12:20:01.000Z",
+    });
+    const capturePreview = buildPreview(captureProposal, { data: { agent_sessions: [active, completed] }, themes: [], items: [] });
+    const captureCandidates = buildCandidateOperations(capturePreview.candidates)
+      .map((operation) => ({ type: operation.type, entity: operation.entity }));
+    commands.execute({
+      commandId: "proposal-agent-session-capture:accept",
+      name: "ApplyAiProposal",
+      payload: { proposal: { ...captureProposal, status: "accepted" }, candidates: captureCandidates },
+      actor: { kind: "user" },
+      source: "main_ui",
+      expectedVersions: [{ type: "ai_proposal", id: captureProposal.id, version: captureProposal.version }],
+      issuedAt: captureProposal.received_at,
+    });
+    const captured = database.get("agent_session", capturedSessionId);
+    assert.equal(captured.status, "completed");
+    assert.equal(captured.intent.summary, "Collect a complete lifecycle");
+    assert.equal(captured.outcome.summary, "Captured automatically");
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("typed decisions preserve partial and rejected states with exactly-once receipts", () => {
   const directory = root();
   const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));

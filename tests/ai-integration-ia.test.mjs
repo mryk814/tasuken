@@ -7,11 +7,12 @@ const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/Wor
 const importExportPageSource = readFileSync("src/renderer/src/features/workspace/pages/ImportExportPage.tsx", "utf8");
 const aiProposalPanelSource = readFileSync("src/renderer/src/features/workspace/components/AiProposalPanel.tsx", "utf8");
 
-test("AI proposals use the existing AI route as a review inbox", () => {
+test("AI proposals use the existing AI route beside Inbox with an action count", () => {
   assert.doesNotMatch(routesSource, /\["proposal-inbox", "AI提案の確認"\]/);
   assert.match(routesSource, /id: "ai-io", label: "AI Inbox"/);
-  assert.match(routesSource, /group: "tools", order: 1/);
-  assert.match(routesSource, /group: "tools", order: 2/);
+  assert.match(routesSource, /id: "inbox"[\s\S]*group: "cross", order: 1/);
+  assert.match(routesSource, /id: "ai-io"[\s\S]*group: "cross", order: 2/);
+  assert.match(routesSource, /id: "timeline"[\s\S]*group: "cross", order: 3/);
   assert.match(routesSource, /id: "proposal-inbox", parent: "ai-io"/);
   assert.match(workspaceAppSource, /import \{ normalizeRoute, routeLabel \} from "\.\.\/\.\.\/pages\/routes"/);
   assert.doesNotMatch(workspaceAppSource, /ProposalInboxPage/);

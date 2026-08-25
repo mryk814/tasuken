@@ -31,3 +31,19 @@ test("workspace projection keeps active repository contexts after reload", () =>
 
   assert.deepEqual(data.repository_contexts.map((context) => context.id), ["repo-active"]);
 });
+
+test("workspace projection keeps Agent Session provenance after reload", () => {
+  const data = projectWorkspaceData({
+    working_copies: [
+      { id: "copy-active", repository_context_id: "repo-active", active: true },
+      { id: "copy-deleted", repository_context_id: "repo-active", deleted_at: "2026-08-24T00:00:00.000Z" },
+    ],
+    agent_sessions: [
+      { id: "session-active", status: "active", started_at: "2026-08-25T10:00:00+09:00" },
+      { id: "session-deleted", status: "completed", deleted_at: "2026-08-24T00:00:00.000Z" },
+    ],
+  });
+
+  assert.deepEqual(data.working_copies.map((copy) => copy.id), ["copy-active"]);
+  assert.deepEqual(data.agent_sessions.map((session) => session.id), ["session-active"]);
+});

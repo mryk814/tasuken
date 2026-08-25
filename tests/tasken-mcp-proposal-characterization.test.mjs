@@ -348,13 +348,15 @@ test("proposal validators enforce public bounds and reject private paths, creden
   }
 });
 
-test("all eleven proposal tools use their authenticated Core command owner", () => {
+test("all thirteen proposal tools use their authenticated Core command owner", () => {
   const source = fs.readFileSync("src/main/mcp/server.mjs", "utf8");
   const names = [
     "tasken.start_task_work",
     "tasken.append_work_receipt",
     "tasken.report_task_done",
     "tasken.report_task_blocked",
+    "tasken.start_agent_session",
+    "tasken.finish_agent_session",
     "tasken.propose_repository_context",
     "tasken.propose_task",
     "tasken.propose_note",
@@ -368,11 +370,12 @@ test("all eleven proposal tools use their authenticated Core command owner", () 
     assert.equal(source.split(marker).length - 1, 1, `${name} registration`);
     const block = source.slice(source.indexOf(marker), source.indexOf("server.registerTool(", source.indexOf(marker) + marker.length) === -1 ? source.length : source.indexOf("server.registerTool(", source.indexOf(marker) + marker.length));
     assert.match(block, /annotations: PROPOSAL_ANNOTATIONS/);
-    assert.match(block, index < 4 ? /queueTaskWork/ : index < 6 ? /queueRepositoryTask/ : /queueContent/);
+    assert.match(block, index < 4 ? /queueTaskWork/ : index < 6 ? /queueAgentSession/ : index < 8 ? /queueRepositoryTask/ : /queueContent/);
     assert.match(block, /withCoreClient/);
     assert.doesNotMatch(block, /queueMcpProposal/);
   }
   assert.match(source, /coreClient\.proposeTaskWork/);
+  assert.match(source, /coreClient\.proposeAgentSession/);
   assert.match(source, /coreClient\.proposeRepositoryTask/);
   assert.match(source, /coreClient\.proposeContent/);
   assert.match(source, /expected_version: z\.number\(\)\.int\(\)\.nonnegative\(\)/);

@@ -1411,6 +1411,263 @@ textarea:hover {
   font: var(--text-xs) var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+
+.agent-work-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.agent-work-panel > .section-heading {
+  padding: var(--space-3) var(--space-4);
+  margin: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.agent-work-panel > .section-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.agent-work-handoff-count {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-status-review-bd);
+  border-radius: var(--radius-sm);
+  background: var(--color-status-review-bg);
+  color: var(--color-status-review-fg);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.agent-work-list {
+  display: grid;
+}
+
+.agent-work-row {
+  border-bottom: 1px solid var(--color-border-subtle);
+  box-shadow: inset 3px 0 0 var(--color-status-idle-bd);
+}
+
+.agent-work-row:last-child {
+  border-bottom: 0;
+}
+
+.agent-work-row.status-active {
+  box-shadow: inset 3px 0 0 var(--color-status-active-bd);
+}
+
+.agent-work-row.status-blocked {
+  box-shadow: inset 3px 0 0 var(--color-status-blocked-bd);
+}
+
+.agent-work-summary {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(96px, 0.65fr) minmax(220px, 3fr) auto auto 18px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.agent-work-summary:hover {
+  background: var(--color-surface-subtle);
+}
+
+.agent-work-summary:active {
+  background: var(--color-surface-muted);
+}
+
+.agent-work-summary:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.agent-work-client,
+.agent-work-main,
+.agent-work-main span {
+  min-width: 0;
+}
+
+.agent-work-client {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.agent-work-main {
+  display: grid;
+  gap: 2px;
+}
+
+.agent-work-main strong,
+.agent-work-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-work-main span,
+.agent-work-summary time {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.agent-work-summary time {
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-session-status {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-status-idle-bd);
+  border-radius: var(--radius-sm);
+  background: var(--color-status-idle-bg);
+  color: var(--color-status-idle-fg);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.agent-session-status.status-active {
+  border-color: var(--color-status-active-bd);
+  background: var(--color-status-active-bg);
+  color: var(--color-status-active-fg);
+}
+
+.agent-session-status.status-blocked {
+  border-color: var(--color-status-blocked-bd);
+  background: var(--color-status-blocked-bg);
+  color: var(--color-status-blocked-fg);
+}
+
+.agent-work-detail {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4) calc(var(--space-4) + 3px);
+  background: var(--color-surface-subtle);
+}
+
+.agent-handoff-line {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.agent-handoff-line > div {
+  position: relative;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.agent-handoff-line > div:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 20px;
+  right: calc(var(--space-3) * -1);
+  width: var(--space-3);
+  border-top: 1px solid var(--color-border-strong);
+}
+
+.agent-handoff-line span,
+.agent-work-evidence span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.agent-handoff-line p,
+.agent-work-evidence p {
+  margin: var(--space-1) 0 0;
+  line-height: 1.45;
+}
+
+.agent-handoff-line .has-remaining {
+  border-color: var(--color-status-review-bd);
+  background: var(--color-status-review-bg);
+}
+
+.agent-work-links,
+.agent-work-evidence,
+.agent-work-receipt {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.agent-work-links button,
+.agent-work-receipt a {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  text-decoration: none;
+}
+
+.agent-work-links button:hover,
+.agent-work-receipt a:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.agent-work-links button:active,
+.agent-work-receipt a:active {
+  background: var(--color-accent-subtle-bg);
+}
+
+.agent-work-receipt,
+.agent-work-activity {
+  flex: 1 1 280px;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--color-border-strong);
+}
+
+.agent-work-receipt p,
+.agent-work-activity p {
+  flex-basis: 100%;
+}
+
+.agent-work-receipt a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.agent-work-empty {
+  padding: var(--space-5) var(--space-4);
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .agent-work-summary {
+    grid-template-columns: minmax(88px, 0.7fr) minmax(160px, 2fr) auto 18px;
+  }
+
+  .agent-work-summary time {
+    display: none;
+  }
+
+  .agent-handoff-line {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-handoff-line > div::after {
+    display: none;
+  }
+}
 .today-waiting-list {
   display: grid;
 }
@@ -10611,6 +10868,20 @@ kbd {
 }
 .import-candidate small {
   color: var(--color-text-secondary);
+}
+.proposal-agent-session-details {
+  display: grid;
+  gap: 2px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.proposal-agent-session-details span {
+  display: flex;
+  gap: var(--space-2);
+}
+.proposal-agent-session-details b {
+  min-width: 54px;
+  color: var(--color-text-primary);
 }
 .import-candidate.has-note-diff {
   flex-wrap: wrap;

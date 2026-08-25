@@ -85,6 +85,7 @@ export class TaskenCoreRuntime {
       findTasksForRepository: core.findTasksForRepository,
       findThemesForRepository: core.findThemesForRepository,
       getRepositoryContext: core.getRepositoryContext,
+      getAgentSessionContext: core.getAgentSessionContext,
       getTaskAssignment: core.getTaskAssignment,
       getTaskContext: core.getTaskContext,
       searchItems: core.searchItems,
@@ -103,6 +104,7 @@ export class TaskenCoreRuntime {
       getContextSubgraph: core.getContextSubgraph,
       exportAiContext: core.exportAiContext,
       proposeTaskWork: core.proposeTaskWork,
+      proposeAgentSession: core.proposeAgentSession,
       proposeRepositoryTask: core.proposeRepositoryTask,
       proposeContent: core.proposeContent,
     });

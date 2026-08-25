@@ -19,7 +19,8 @@
 | Chat Refs | `ChatRefsPage.tsx` | 「チャットリンク」「チャット履歴」「チャット参照」（旧見出し）。Sidebarとページ見出しはどちらも Chat Refs。外部AIチャットのURL整理。詳細の「この会話から生まれたもの」でTask / Note / Artifact / 続きConversationを最大2段階辿り、Task / Noteを作ると`derived_from`を自動記録する |
 | Artifacts | `ArtifactsPage.tsx` | 「Artifact」「添付ファイル」。UI表記は英語 Artifacts / Artifact を追加。AI/調査でできたExcel・画像・PDF・Markdown・Web Artifact（HTML）等の実ファイル一覧。Web Artifactは隔離Interactive Previewで表示し、Taskenデータ・OSファイル・ネットワークへアクセスさせない。追加はChat/Task/Note/Theme詳細から。NoteのMarkdown/PDF書き出しはChat Refを主な出所、元Noteを追跡情報として持てる。Artifact一覧の「来歴」から元Note / Conversationまで逆向きに辿れる |
 | Waiting | `WaitingPage.tsx` | 「待ち」。依頼して返答待ちのもの。Sidebar には出さず、Today の待ちリスト（近いマイルストーン横）から確認。詳細編集はドロワー |
-| AI Inbox | `ImportExportPage.tsx` | 「AI Import」「AI連携」（旧称）。外部AIから届いたProposalを検証→プレビュー→採用する安全な取り込み導線 |
+| AI Inbox | `ImportExportPage.tsx` | 「AI Import」「AI連携」（旧称）。外部AIから届いたProposalを検証→プレビュー→採用する安全な取り込み導線。SidebarではInboxの直後に置き、未処理Proposalだけをカウントバッジで示す |
+| AI work / Agent Session | `AgentWorkSummaryPanel.tsx` / `agentSessionProjection.ts` | Todayでは当日のAI作業をTheme・Repository横断で集約し、未解決handoffを残す。Theme詳細ではそのThemeのrecent sessionsを表示する。Intent→Outcome→残り、Task、Work Receipt、Activity、external referenceへ展開できる派生projectionであり、日報用の正本は作らない |
 | Note AI | `NoteAiDrawer.tsx` | Noteを見ながら右ドロワーで会話する編集支援。外部AIへ送るContextを明示確認し、返答をPending Proposalへ保存してから差分hunk単位で採用する |
 | AI Proposal | `AiProposalPanel.tsx` / Tasken Core proposal commands | 内蔵LLM・MCP・手動Importから届く安全な書き込み候補。Note / Knowledge / Sketch / Artifactの正式保存前にPreviewする |
 | M365向け AI Pack | `ThemePage.tsx` / `themeAiPackPublisher.mjs` | Themeの公開可能情報を固定7 Markdownへ投影する同期用Pack。Previewで除外・警告・文字量を確認してから更新し、AI Pack自体は正本にしない。詳細は `docs/theme-ai-pack.md` |

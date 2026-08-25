@@ -18,6 +18,8 @@ const PACKAGED_CORE_STARTUP_TIMEOUT_MS = 90_000;
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-packaged-mcp-"));
 const serverPath = path.join(path.dirname(executable), "resources", "mcp", "server.mjs");
 if (!fs.existsSync(serverPath)) throw new Error("Packaged MCP server was not found.");
+const agentSessionHookPath = path.join(path.dirname(executable), "resources", "mcp", "agent-session-hook.mjs");
+if (!fs.existsSync(agentSessionHookPath)) throw new Error("Packaged Agent Session hook was not found.");
 const canonicalDbPath = path.join(root, "research-desk.sqlite");
 const fakeDbPath = path.join(root, "fake-mcp.sqlite");
 const legacyInboxPath = path.join(root, "mcp-inbox-must-not-exist");
@@ -101,7 +103,7 @@ try {
   }
   client = await connectMcp();
   const listed = await client.listTools();
-  if (listed.tools.length !== 33) throw new Error(`Expected 33 packaged MCP tools, found ${listed.tools.length}.`);
+  if (listed.tools.length !== 37) throw new Error(`Expected 37 packaged MCP tools, found ${listed.tools.length}.`);
 
   const read = await client.callTool({
     name: "tasken.list_open_items",

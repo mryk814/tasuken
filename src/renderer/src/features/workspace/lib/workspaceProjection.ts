@@ -9,7 +9,7 @@ export const WORKSPACE_ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "projects", "capture_entrys", "tasks", "waitings", "plan_nodes",
   "schedules", "references", "task_dependencies", "plan_dependencies",
   "knowledge_edges", "change_events", "artifacts", "repository_contexts",
-  "sketches", "work_receipts",
+  "working_copies", "agent_sessions", "sketches", "work_receipts",
 ];
 
 export function emptyWorkspaceData(): WorkspaceData {

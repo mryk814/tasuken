@@ -51,6 +51,8 @@ export interface Workspace {
   ai_proposals?: Entity[];
   projects?: Entity[];
   repository_contexts?: Entity[];
+  working_copies?: Entity[];
+  agent_sessions?: Entity[];
   capture_entrys?: Entity[];
   tasks?: Entity[];
   work_receipts?: Entity[];
@@ -89,6 +91,9 @@ export interface DocumentSaveSnapshot {
 
 export type ReferenceTargetEntityType =
   | "project"
+  | "repository_context"
+  | "working_copy"
+  | "agent_session"
   | "capture_entry"
   | "task"
   | "waiting"
