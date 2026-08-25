@@ -14,12 +14,24 @@ import {
   IconSun,
 } from "@tabler/icons-react";
 
-import { crossNavigation, knowledgeHubTabs, routeIcon, routeLabel, todayHubTabs, toolNavigation } from "../../../pages/routes";
+import {
+  crossNavigation,
+  knowledgeHubTabs,
+  routeIcon,
+  routeLabel,
+  todayHubTabs,
+  toolNavigation,
+} from "../../../pages/routes";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { OpenDrawer, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { isPersonalDefaultTheme } from "../../../../../shared/personalTheme.mjs";
 import { themeColor } from "../lib/domain";
+import {
+  buildDailyDebriefEvidence,
+  findDailyDebriefNote,
+  isPassiveAgentSessionProposal,
+} from "../lib/taskenDebrief";
 import { preloadWorkspacePage } from "../workspacePageLoaders";
 
 const taskenIconUrl = new URL("../../../../../../resources/icon.png", import.meta.url).href;
@@ -52,28 +64,28 @@ function TitleBarLauncher({ launcher }: { launcher: TitleBarLauncherData }) {
   const todayLabel = launcher.todayWindowOpen ? "今日やることを収納" : "今日やることを表示";
   return (
     <div className="titlebar-launcher">
-        <button
-          type="button"
-          className={`titlebar-launcher-button${launcher.todayWindowOpen ? " is-active" : ""}`}
-          aria-label={todayLabel}
-          title={todayLabel}
-          aria-pressed={launcher.todayWindowOpen}
-          onClick={launcher.toggleTodayWindow}
-        >
-          <IconCalendarCheck size={16} aria-hidden="true" />
-          <span className="titlebar-launcher-state" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className={`titlebar-launcher-button${launcher.stickyWindowsShown ? " is-active" : ""}`}
-          aria-label="付箋を展開または収納"
-          title="付箋を展開または収納"
-          aria-pressed={launcher.stickyWindowsShown}
-          onClick={launcher.toggleStickyWindows}
-        >
-          <IconNotes size={16} aria-hidden="true" />
-          <span className="titlebar-launcher-state" aria-hidden="true" />
-        </button>
+      <button
+        type="button"
+        className={`titlebar-launcher-button${launcher.todayWindowOpen ? " is-active" : ""}`}
+        aria-label={todayLabel}
+        title={todayLabel}
+        aria-pressed={launcher.todayWindowOpen}
+        onClick={launcher.toggleTodayWindow}
+      >
+        <IconCalendarCheck size={16} aria-hidden="true" />
+        <span className="titlebar-launcher-state" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className={`titlebar-launcher-button${launcher.stickyWindowsShown ? " is-active" : ""}`}
+        aria-label="付箋を展開または収納"
+        title="付箋を展開または収納"
+        aria-pressed={launcher.stickyWindowsShown}
+        onClick={launcher.toggleStickyWindows}
+      >
+        <IconNotes size={16} aria-hidden="true" />
+        <span className="titlebar-launcher-state" aria-hidden="true" />
+      </button>
     </div>
   );
 }
@@ -126,9 +138,11 @@ export function AppTitleBar({
           title={collapsed ? "サイドバーを広げる" : "サイドバーを畳む"}
           onClick={() => setCollapsed(!collapsed)}
         >
-          {collapsed
-            ? <IconLayoutSidebarLeftExpand size={17} aria-hidden="true" />
-            : <IconLayoutSidebarLeftCollapse size={17} aria-hidden="true" />}
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand size={17} aria-hidden="true" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse size={17} aria-hidden="true" />
+          )}
         </button>
       )}
       <div className="titlebar-brand" aria-label="Tasken">
@@ -154,7 +168,7 @@ export function AppTitleBar({
             type="button"
             aria-haspopup="menu"
             aria-expanded={openMenu === "view"}
-            onClick={() => setOpenMenu((current) => current === "view" ? null : "view")}
+            onClick={() => setOpenMenu((current) => (current === "view" ? null : "view"))}
           >
             表示 <IconChevronDown size={13} aria-hidden="true" />
           </button>
@@ -170,7 +184,9 @@ export function AppTitleBar({
                 >
                   <IconMinus size={16} aria-hidden="true" />
                 </button>
-                <button type="button" onClick={() => setZoomFactor(1)}>{zoomPercent}%</button>
+                <button type="button" onClick={() => setZoomFactor(1)}>
+                  {zoomPercent}%
+                </button>
                 <button
                   type="button"
                   aria-label="拡大"
@@ -190,7 +206,11 @@ export function AppTitleBar({
                   setOpenMenu(null);
                 }}
               >
-                {themeMode === "light" ? <IconMoon size={16} aria-hidden="true" /> : <IconSun size={16} aria-hidden="true" />}
+                {themeMode === "light" ? (
+                  <IconMoon size={16} aria-hidden="true" />
+                ) : (
+                  <IconSun size={16} aria-hidden="true" />
+                )}
                 {themeMode === "light" ? "ダーク表示" : "ライト表示"}
               </button>
             </div>
@@ -202,17 +222,27 @@ export function AppTitleBar({
             type="button"
             aria-haspopup="menu"
             aria-expanded={openMenu === "help"}
-            onClick={() => setOpenMenu((current) => current === "help" ? null : "help")}
+            onClick={() => setOpenMenu((current) => (current === "help" ? null : "help"))}
           >
             ヘルプ <IconChevronDown size={13} aria-hidden="true" />
           </button>
           {openMenu === "help" && (
             <div className="titlebar-menu" role="menu" aria-label="ヘルプ">
-              <button className="titlebar-menu-item" type="button" role="menuitem" onClick={() => chooseHelpAction(openShortcuts)}>
+              <button
+                className="titlebar-menu-item"
+                type="button"
+                role="menuitem"
+                onClick={() => chooseHelpAction(openShortcuts)}
+              >
                 <IconKeyboard size={16} aria-hidden="true" />
                 ショートカット
               </button>
-              <button className="titlebar-menu-item" type="button" role="menuitem" onClick={() => chooseHelpAction(openSettings)}>
+              <button
+                className="titlebar-menu-item"
+                type="button"
+                role="menuitem"
+                onClick={() => chooseHelpAction(openSettings)}
+              >
                 <IconSettings size={16} aria-hidden="true" />
                 設定を開く
               </button>
@@ -224,17 +254,30 @@ export function AppTitleBar({
   );
 }
 
-export function AppState({ state, message, onRetry }: { state: "loading" | "error"; message?: string; onRetry?: () => void }) {
+export function AppState({
+  state,
+  message,
+  onRetry,
+}: {
+  state: "loading" | "error";
+  message?: string;
+  onRetry?: () => void;
+}) {
   return (
     <main className="standalone-state">
       <div className={`state-box ${state}`}>
         {state === "loading" ? (
-          <><span className="spinner" /><strong>作業台を読み込んでいます</strong></>
+          <>
+            <span className="spinner" />
+            <strong>作業台を読み込んでいます</strong>
+          </>
         ) : (
           <>
             <strong>作業台を読み込めませんでした</strong>
             <span>{message} アプリを再起動するか、もう一度試してください。</span>
-            <button className="primary-button" onClick={onRetry}>再試行する</button>
+            <button className="primary-button" onClick={onRetry}>
+              再試行する
+            </button>
           </>
         )}
       </div>
@@ -317,13 +360,23 @@ export function Sidebar({
   activeFocus,
   openActiveFocus,
 }: SidebarProps) {
-  const inbox = domain.capture_entries.filter((e) => e.state === "untriaged" && e.kind !== "micro_memo").length;
+  const inbox = domain.capture_entries.filter(
+    (e) => e.state === "untriaged" && e.kind !== "micro_memo",
+  ).length;
   const today = todayIso();
-  const schedulesByOwner = new Map(domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]));
+  const schedulesByOwner = new Map(
+    domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]),
+  );
   const todayCount = domain.tasks.filter((t) => {
     if (t.state === "done" || t.state === "cancelled") return false;
     const s = schedulesByOwner.get(`task:${t.id}`);
-    return t.today_date === today || (s && (s.start_date === today || s.end_date === today || (s.start_date && s.end_date && s.start_date <= today && s.end_date >= today)));
+    return (
+      t.today_date === today ||
+      (s &&
+        (s.start_date === today ||
+          s.end_date === today ||
+          (s.start_date && s.end_date && s.start_date <= today && s.end_date >= today)))
+    );
   }).length;
   const overdueTasks = domain.tasks.filter((t) => {
     if (t.state === "done" || t.state === "cancelled") return false;
@@ -331,12 +384,20 @@ export function Sidebar({
     const due = String(s?.end_date || "");
     return Boolean(due && due < today);
   }).length;
-  const proposalCount = domain.ai_proposals.filter((proposal) => proposal.status === "pending").length;
+  const proposalCount = domain.ai_proposals.filter(
+    (proposal) => proposal.status === "pending" && !isPassiveAgentSessionProposal(proposal),
+  ).length;
+  const debriefCount =
+    buildDailyDebriefEvidence(domain, today).length > 0 &&
+    !findDailyDebriefNote(domain.notes, today)
+      ? 1
+      : 0;
   const countByRoute: Record<string, number> = {
     today: todayCount,
     todo: overdueTasks,
     inbox,
     "ai-io": proposalCount,
+    debrief: debriefCount,
   };
   const renderNavButton = (id: string) => {
     const label = routeLabel(id);
@@ -363,19 +424,30 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <nav className="primary-nav nav-group" aria-label="今日の運用">
-        <div className="nav-heading"><span>今日の運用</span></div>
+        <div className="nav-heading">
+          <span>今日の運用</span>
+        </div>
         {todayHubTabs.map(renderNavButton)}
       </nav>
       <nav className="primary-nav" aria-label="横断ビュー">
-        <div className="nav-heading"><span>横断</span></div>
+        <div className="nav-heading">
+          <span>横断</span>
+        </div>
         {crossNavigation.map(renderNavButton)}
       </nav>
       <nav className="primary-nav nav-group" aria-label="知識整理">
-        <div className="nav-heading"><span>知識整理</span></div>
+        <div className="nav-heading">
+          <span>知識整理</span>
+        </div>
         {knowledgeHubTabs.map(renderNavButton)}
       </nav>
       <div className="theme-nav">
-        <div className="nav-heading"><span>テーマ別</span><button onClick={() => openDrawer({ type: "theme", mode: "edit", entity: {} })}>＋ 追加</button></div>
+        <div className="nav-heading">
+          <span>テーマ別</span>
+          <button onClick={() => openDrawer({ type: "theme", mode: "edit", entity: {} })}>
+            ＋ 追加
+          </button>
+        </div>
         <button
           className={`theme-nav-all ${route === "themes" ? "is-active" : ""}`}
           aria-current={route === "themes" ? "page" : undefined}
@@ -401,16 +473,25 @@ export function Sidebar({
               title={collapsed ? theme.name : undefined}
               onMouseEnter={() => preloadWorkspacePage("theme")}
               onFocus={() => preloadWorkspacePage("theme")}
-              onClick={() => { setActiveThemeId(theme.id); navigate("theme"); }}
+              onClick={() => {
+                setActiveThemeId(theme.id);
+                navigate("theme");
+              }}
             >
-              <span className="theme-dot" style={{ background: `var(--color-${themeColor(theme, index)})` }} aria-hidden="true" />
+              <span
+                className="theme-dot"
+                style={{ background: `var(--color-${themeColor(theme, index)})` }}
+                aria-hidden="true"
+              />
               <span className="theme-nav-label">{theme.name}</span>
             </button>
           );
         })}
       </div>
       <nav className="primary-nav utility-nav" aria-label="ツール">
-        <div className="nav-heading"><span>ツール</span></div>
+        <div className="nav-heading">
+          <span>ツール</span>
+        </div>
         {toolNavigation.map(renderNavButton)}
       </nav>
       {activeFocus && openActiveFocus && (
@@ -423,22 +504,65 @@ export function Sidebar({
 export function ShortcutDialog({ close }: { close: () => void }) {
   return (
     <div className="shortcut-overlay" onClick={close}>
-      <div className="shortcut-dialog" role="dialog" aria-label="ショートカット" onClick={(event) => event.stopPropagation()}>
-        <div className="drawer-header"><strong>ショートカット</strong><button onClick={close}>閉じる</button></div>
+      <div
+        className="shortcut-dialog"
+        role="dialog"
+        aria-label="ショートカット"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="drawer-header">
+          <strong>ショートカット</strong>
+          <button onClick={close}>閉じる</button>
+        </div>
         <dl className="shortcut-list">
-          <dt><kbd>?</kbd></dt><dd>この一覧を表示</dd>
-          <dt><kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>クイック記録</dd>
-          <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd></dt><dd>Inbox記録</dd>
-          <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd></dt><dd>付箋メモ</dd>
-          <dt>トレイ</dt><dd>今日のタスク / やったこと / 付箋メモ</dd>
-          <dt>中ボタン+ドラッグ</dt><dd>Sketchの表示位置を移動</dd>
-          <dt><kbd>Space</kbd>+ドラッグ</dt><dd>Sketchを一時的に移動</dd>
-          <dt><kbd>Ctrl</kbd>+ホイール</dt><dd>カーソル位置を基準にSketchを拡大縮小</dd>
-          <dt><kbd>Shift</kbd>+ホイール</dt><dd>Sketchを横スクロール</dd>
-          <dt><kbd>Ctrl</kbd>+<kbd>K</kbd></dt><dd>全体検索を開く</dd>
-          <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd></dt><dd>入力中に全体検索を開く</dd>
-          <dt><kbd>Alt</kbd>+<kbd>F</kbd></dt><dd>実行中のFocus Sessionを開く</dd>
-          <dt><kbd>Esc</kbd></dt><dd>パネルを閉じる（Focusは終了しない）</dd>
+          <dt>
+            <kbd>?</kbd>
+          </dt>
+          <dd>この一覧を表示</dd>
+          <dt>
+            <kbd>Alt</kbd>+<kbd>N</kbd>
+          </dt>
+          <dd>クイック記録</dd>
+          <dt>
+            <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd>
+          </dt>
+          <dd>Inbox記録</dd>
+          <dt>
+            <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd>
+          </dt>
+          <dd>付箋メモ</dd>
+          <dt>トレイ</dt>
+          <dd>今日のタスク / やったこと / 付箋メモ</dd>
+          <dt>中ボタン+ドラッグ</dt>
+          <dd>Sketchの表示位置を移動</dd>
+          <dt>
+            <kbd>Space</kbd>+ドラッグ
+          </dt>
+          <dd>Sketchを一時的に移動</dd>
+          <dt>
+            <kbd>Ctrl</kbd>+ホイール
+          </dt>
+          <dd>カーソル位置を基準にSketchを拡大縮小</dd>
+          <dt>
+            <kbd>Shift</kbd>+ホイール
+          </dt>
+          <dd>Sketchを横スクロール</dd>
+          <dt>
+            <kbd>Ctrl</kbd>+<kbd>K</kbd>
+          </dt>
+          <dd>全体検索を開く</dd>
+          <dt>
+            <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>
+          </dt>
+          <dd>入力中に全体検索を開く</dd>
+          <dt>
+            <kbd>Alt</kbd>+<kbd>F</kbd>
+          </dt>
+          <dd>実行中のFocus Sessionを開く</dd>
+          <dt>
+            <kbd>Esc</kbd>
+          </dt>
+          <dd>パネルを閉じる（Focusは終了しない）</dd>
         </dl>
       </div>
     </div>
