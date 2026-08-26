@@ -144,14 +144,11 @@ test("packaged smoke records, commits, plays and restart-checks a synthetic micr
   assert.match(source, /result\.microphonePlayback/);
 });
 
-test("packaged smoke confirms fake batch transcription and verifies the raw revision after restart", async () => {
+test("packaged smoke does not execute embedded batch transcription", async () => {
   const source = await readFile("src/main/index.ts", "utf8");
-  assert.match(source, /Tasken packaged fake provider/);
-  assert.match(source, /window\.api\.batchTranscription\.preview/);
-  assert.match(source, /window\.api\.batchTranscription\.run/);
-  assert.match(source, /batchTranscriptionCompleted/);
-  assert.match(source, /window\.api\.batchTranscription\.history/);
-  assert.match(source, /batchTranscriptionRestarted/);
+  assert.doesNotMatch(source, /Tasken packaged fake provider/);
+  assert.doesNotMatch(source, /window\.api\.batchTranscription\.(preview|run|cancel)/);
+  assert.doesNotMatch(source, /batchTranscription(Completed|Restarted|Preview|Provenance)/);
 });
 
 test("packaged smoke records an actual display source through Main authority and restart-checks it", async () => {

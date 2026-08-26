@@ -604,11 +604,7 @@ test("狭くしたNote別ウィンドウでも本文の領域が残る（#329）
   // 一覧を畳んでいるときは本文が唯一の列。760px以下でも積み上げず、列構成と高さの制約を保つ。
   assert.match(
     cssSourceForNotes,
-    /\.notes-workbench\.is-list-collapsed:not\(\.has-note-ai-drawer\) \{\s*grid-template-columns: 0px auto minmax\(0, 1fr\) !important;/,
-  );
-  assert.match(
-    cssSourceForNotes,
-    /\.notes-workbench\.has-note-ai-drawer\.is-list-collapsed \{\s*grid-template-columns: 0px auto minmax\(0, 1fr\) auto !important;/,
+    /\.notes-workbench\.is-list-collapsed \{\s*grid-template-columns: 0px auto minmax\(0, 1fr\);/,
   );
   assert.match(
     cssSourceForNotes,

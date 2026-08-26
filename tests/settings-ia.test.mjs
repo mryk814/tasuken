@@ -33,7 +33,8 @@ test("Settings uses purpose-based categories and a current-state summary", () =>
   assert.match(settings, /現在の状態/);
   assert.match(settings, /Storage/);
   assert.match(settings, /Calendar/);
-  assert.match(settings, /AI Provider/);
+  assert.match(settings, /Context & MCP/);
+  assert.doesNotMatch(settings, /AI Provider|API key|openai-native/);
   assert.match(settings, /MCP Bridge/);
   assert.match(settings, /Backups/);
   assert.match(settings, /IntegrationStatus/);
@@ -74,23 +75,16 @@ test("Settings keeps integrations together and hides details until requested", (
   assert.match(settings, /hidden=\{activeSection !== "integrations"\}/);
   assert.match(settings, /hidden=\{activeSection !== "ai-mcp"\}/);
   assert.match(settings, /<details className="settings-detail"/);
-  assert.match(settings, /Danger Zone/);
-  assert.match(settings, /APIキーを削除/);
   assert.match(settings, /接続を解除/);
   assert.match(
     settings,
     /<Button variant="secondary" disabled=\{!mcpInfo\} onClick=\{copyMcpConfig\}>\s*接続設定をコピー\s*<\/Button>/,
   );
-  assert.match(
-    settings,
-    /<Button\s*variant="primary"\s*disabled=\{aiBusy \|\| !aiModel\.trim\(\)\}\s*onClick=\{\(\) => saveAiSettings\(false\)\}\s*>/,
-  );
+  assert.doesNotMatch(settings, /AI Provider|APIキーを削除|saveAiSettings/);
 });
 
-test("Settings does not render stored secrets and remains compact at narrow widths", () => {
-  assert.match(settings, /type="password"/);
-  assert.match(settings, /保存時だけ入力。再表示しません/);
-  assert.doesNotMatch(settings, /aiConfig\.apiKey/);
+test("Settings has no embedded AI credential surface and remains compact at narrow widths", () => {
+  assert.doesNotMatch(settings, /type="password"|credentialConfigured|aiConfig\.apiKey/);
   assert.match(styles, /\.settings-layout \{[\s\S]*grid-template-columns/);
   assert.match(styles, /\.settings-category-nav \{\s*position: static;\s*display: flex/);
   assert.match(styles, /\.settings-summary-list \{\s*grid-template-columns: 1fr;/);

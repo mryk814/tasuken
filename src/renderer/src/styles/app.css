@@ -3825,12 +3825,6 @@ textarea:hover {
 .notes-workbench.is-list-collapsed {
   grid-template-columns: 0px auto minmax(0, 1fr);
 }
-.notes-workbench.has-note-ai-drawer {
-  grid-template-columns: var(--notes-list-width, minmax(220px, 0.48fr)) auto minmax(320px, 1fr) auto;
-}
-.notes-workbench.has-note-ai-drawer.is-list-collapsed {
-  grid-template-columns: 0px auto minmax(320px, 1fr) auto;
-}
 .notes-workbench.is-list-collapsed .notes-list-panel {
   overflow: hidden;
   width: 0;
@@ -3915,244 +3909,6 @@ textarea:hover {
   gap: var(--space-2);
   overflow: hidden;
   padding: var(--space-2);
-}
-.note-ai-drawer {
-  position: relative;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-}
-.note-ai-drawer.is-collapsed {
-  align-items: center;
-}
-.note-ai-resize {
-  position: absolute;
-  z-index: 2;
-  inset: 0 auto 0 -5px;
-  width: 10px;
-  cursor: col-resize;
-  touch-action: none;
-}
-.note-ai-resize::after {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 4px;
-  width: 2px;
-  background: transparent;
-}
-.note-ai-resize:hover::after {
-  background: var(--color-accent);
-}
-.note-ai-resize:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: -2px;
-}
-.note-ai-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  min-height: 44px;
-  padding: var(--space-2);
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-.note-ai-header > div:first-child {
-  display: grid;
-  min-width: 0;
-}
-.note-ai-header > div:first-child > span {
-  color: var(--action-ai-fg);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.06em;
-}
-.note-ai-header strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--text-sm);
-}
-.note-ai-header > div:last-child {
-  display: flex;
-  gap: var(--space-1);
-}
-.note-ai-drawer.is-collapsed .note-ai-header {
-  padding: var(--space-1);
-  border-bottom: 0;
-}
-.note-ai-drawer.is-collapsed .note-ai-header svg {
-  transform: rotate(180deg);
-}
-.note-ai-history {
-  flex: 1 1 auto;
-  min-height: 120px;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2);
-}
-.note-ai-empty {
-  display: grid;
-  gap: var(--space-1);
-  margin: auto;
-  color: var(--color-text-secondary);
-  text-align: center;
-  font-size: var(--text-xs);
-}
-.note-ai-turn {
-  display: grid;
-  gap: var(--space-1);
-  width: 100%;
-  padding: var(--space-2);
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text);
-  text-align: left;
-}
-.note-ai-turn:hover,
-.note-ai-turn.is-active {
-  border-color: var(--color-border);
-  background: var(--color-surface-subtle);
-}
-.note-ai-turn.is-streaming {
-  border-color: var(--action-ai-bd);
-  background: var(--action-ai-bg);
-}
-.note-ai-human {
-  justify-self: end;
-  max-width: 88%;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md) var(--radius-md) 2px var(--radius-md);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  white-space: pre-wrap;
-  font-size: var(--text-sm);
-}
-.note-ai-assistant {
-  max-height: 180px;
-  overflow: hidden;
-  white-space: pre-wrap;
-  font-size: var(--text-sm);
-  line-height: var(--lh-relaxed);
-}
-.note-ai-turn small {
-  color: var(--color-text-tertiary);
-  font: var(--text-xs) var(--font-mono);
-}
-.note-ai-result,
-.note-ai-review {
-  display: grid;
-  gap: var(--space-2);
-  max-height: 44%;
-  overflow: auto;
-  padding: var(--space-2);
-  border-top: 1px solid var(--color-border-subtle);
-}
-.note-ai-result-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-.note-ai-review > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.note-ai-diff-hunk {
-  overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-}
-.note-ai-diff-hunk > label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  background: var(--color-surface-subtle);
-  font-size: var(--text-xs);
-}
-.note-ai-diff-hunk .markdown-diff-line {
-  padding-inline: var(--space-1);
-  font-size: var(--text-xs);
-}
-.note-ai-undo {
-  margin: var(--space-2);
-}
-.note-ai-composer {
-  flex: 0 0 auto;
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface-subtle);
-}
-.note-ai-context > summary {
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-}
-.note-ai-context[open] {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-1) var(--space-2);
-}
-.note-ai-context[open] > summary,
-.note-ai-context .note-ai-resource,
-.note-ai-context .note-ai-confirm,
-.note-ai-context .inline-alert {
-  grid-column: 1 / -1;
-}
-.note-ai-context label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-width: 0;
-  font-size: var(--text-xs);
-}
-.note-ai-resource {
-  display: grid !important;
-  grid-template-columns: auto minmax(0, 1fr);
-}
-.note-ai-resource select {
-  min-width: 0;
-  padding: var(--space-1);
-  font-size: var(--text-xs);
-}
-.note-ai-provider-warning,
-.note-ai-send-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-}
-.note-ai-composer > textarea {
-  min-height: 74px;
-  max-height: 180px;
-  resize: vertical;
-}
-.note-ai-send-row button,
-.note-ai-provider-warning button {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.note-ai-composer .inline-alert {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin: 0;
-  font-size: var(--text-xs);
 }
 /* 本文集中表示（#292）。一覧・ページ見出し・日付や出力先の補助行を畳み、
    残る縦領域をすべて本文へ回す。切替とEscで元へ戻せる。 */
@@ -4767,22 +4523,6 @@ textarea:hover {
 }
 
 @media (max-width: 820px) {
-  .notes-workbench.has-note-ai-drawer {
-    grid-template-columns: 1fr !important;
-  }
-  .notes-workbench.has-note-ai-drawer .note-ai-drawer {
-    position: fixed;
-    z-index: 110;
-    top: 48px;
-    right: var(--space-2);
-    bottom: var(--space-2);
-    width: min(92vw, 430px) !important;
-    box-shadow: var(--shadow-lg);
-  }
-  .notes-workbench.has-note-ai-drawer .note-ai-drawer.is-collapsed {
-    width: 46px !important;
-    bottom: auto;
-  }
   .scratchpad-backdrop {
     padding: 0;
   }
@@ -6643,55 +6383,6 @@ textarea:hover {
   overflow: hidden;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
-}
-.ai-profile-list,
-.ai-model-list {
-  display: grid;
-  gap: var(--space-1);
-}
-.ai-profile-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  width: 100%;
-  min-width: 0;
-  padding: var(--space-2);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-subtle);
-  color: var(--color-text);
-  text-align: left;
-}
-.ai-profile-row:hover {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface-muted);
-}
-.ai-profile-row:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-.ai-profile-row.is-selected {
-  border-color: var(--color-accent);
-  box-shadow: inset 3px 0 0 var(--color-accent);
-}
-.ai-profile-row > span:first-child {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-.ai-profile-row small {
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-  overflow-wrap: anywhere;
-}
-.ai-profile-row > span:last-child {
-  flex: 0 0 auto;
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-}
-.ai-profile-meta-fields {
-  gap: var(--space-2);
 }
 .ai-capability-list {
   display: flex;
@@ -15096,31 +14787,11 @@ kbd {
   display: none;
 }
 
-/*
- * 狭幅でも本文を残す（#329）。
- *
- * 760px以下は一覧と本文を縦に積む前提で、workbenchを1列gridへ、
- * .note-preview-panel の min-height を auto へ戻していた。
- * だが一覧を畳んでいるとき（別ウィンドウ・本文集中・手動collapse）は本文が唯一の列で、
- * 積み上げると本文パネルが内容の高さまで伸び、overflow:hidden の .notes-page が
- * 本文を窓の外へ押し出す。畳んでいる間は横並びの列構成と高さの制約を保ち、
- * scrollは本文自身に持たせる。
- */
-.notes-workbench.is-list-collapsed:not(.has-note-ai-drawer) {
-  grid-template-columns: 0px auto minmax(0, 1fr) !important;
-}
-.notes-workbench.has-note-ai-drawer.is-list-collapsed {
-  grid-template-columns: 0px auto minmax(0, 1fr) auto !important;
-}
 .notes-workbench.is-list-collapsed .note-preview-panel {
   min-height: 0;
   max-height: 100%;
 }
 @media (max-width: 820px) {
-  .notes-workbench.has-note-ai-drawer,
-  .notes-workbench.has-note-ai-drawer.is-list-collapsed {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
 }
 
 /*
@@ -16169,15 +15840,6 @@ kbd {
   border-top: 1px solid var(--color-border);
 }
 
-.batch-transcription-heading,
-.batch-transcription-heading > div,
-.batch-transcription-preview-actions,
-.batch-transcription-revision > header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
 .batch-transcription-heading {
   justify-content: space-between;
 }
@@ -16219,46 +15881,6 @@ kbd {
   gap: var(--space-2);
   padding: var(--space-2) 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-
-.batch-transcription-preview {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
-}
-
-.batch-transcription-preview dl {
-  display: grid;
-  gap: var(--space-1);
-  margin: 0;
-}
-
-.batch-transcription-preview dl > div {
-  display: grid;
-  grid-template-columns: 5rem minmax(0, 1fr);
-  gap: var(--space-2);
-  font-size: var(--font-size-sm);
-}
-
-.batch-transcription-preview dt {
-  color: var(--color-text-muted);
-}
-
-.batch-transcription-preview dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.batch-transcription-cloud {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
 }
 

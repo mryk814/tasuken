@@ -5,17 +5,11 @@ import { entityTypes, type Entity, type EntityType } from "../../shared/types/wo
 import type { WorkspaceService } from "../services/workspaceService";
 import type { AutomaticSnapshotBackupService } from "../services/automaticSnapshotBackup";
 import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
-import type { AiProviderService } from "../services/aiProviderService";
 import type { CalendarService } from "../services/calendarService";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
 import { AiProposalAcceptanceService } from "../services/aiProposalAcceptanceService";
 import type { MediaCaptureService } from "../services/mediaCaptureService";
-import type { BatchTranscriptionService } from "../services/batchTranscriptionService.mjs";
-import {
-  parseBatchTranscriptionArtifactRequest,
-  parseBatchTranscriptionCancelRequest,
-  parseBatchTranscriptionRunRequest,
-} from "../../shared/batchTranscriptionIpc";
+import { parseBatchTranscriptionArtifactRequest } from "../../shared/batchTranscriptionIpc";
 import type { ScreenRecordingService } from "../services/screenRecordingService";
 import {
   parseAudioCaptureCancelRequest,
@@ -30,15 +24,18 @@ import {
   parseVideoTrimExportRequest,
   parseVideoTrimSourceRequest,
 } from "../../shared/mediaCapture";
-import { projectCommandReceiptForRenderer, projectEntityForRenderer, projectSnapshotInspectForRenderer, projectWorkspaceForRenderer } from "../rendererMediaProjection";
+import {
+  projectCommandReceiptForRenderer,
+  projectEntityForRenderer,
+  projectSnapshotInspectForRenderer,
+  projectWorkspaceForRenderer,
+} from "../rendererMediaProjection";
 import type { CommandReceipt } from "../../shared/applicationCommand";
 import { projectMediaCaptureIpcError } from "../mediaCaptureIpcError";
 import { projectScreenRecordingIpcError } from "../screenRecordingIpcError";
 import { logMain } from "../log";
 import { normalizeMediaCapturePersistence } from "../mediaCapturePersistence";
 import { registerTaskIpc, type TaskCapabilityService } from "../modules/task/public.ts";
-import { projectBatchTranscriptionIpcError } from "../batchTranscriptionIpcError";
-import { authorizeNoteAiRequest } from "../services/ai/noteContextAuthority.mjs";
 import { assertRendererBootstrapContainsNoMedia } from "../services/snapshotMediaValidation";
 import {
   isViewPreferenceId,
@@ -66,6 +63,13 @@ interface WorkspaceRepository {
   saveMany(operations: unknown): Entity[];
   remove(type: EntityType, id: string): Entity | null;
   restore(type: EntityType, id: string): Entity | null;
+}
+
+interface TranscriptionHistoryReader {
+  getHistory(artifactId: string): {
+    capture: { id?: string } | null;
+    revisions: unknown[];
+  };
 }
 
 function requireEntityType(value: unknown): EntityType {
@@ -96,13 +100,19 @@ function requireText(value: unknown, label: string): string {
 
 function requireAutomaticSnapshotConfig(value: unknown): AutomaticSnapshotBackupConfig {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("自動バックアップの設定形式が不正です。画面を再読み込みして、もう一度試してください。");
+    throw new Error(
+      "自動バックアップの設定形式が不正です。画面を再読み込みして、もう一度試してください。",
+    );
   }
   const input = value as Record<string, unknown>;
   if (typeof input.enabled !== "boolean" || typeof input.directory !== "string") {
     throw new Error("自動バックアップの設定値が不正です。設定を選び直してください。");
   }
-  if (!Number.isInteger(input.generations) || Number(input.generations) < 1 || Number(input.generations) > 20) {
+  if (
+    !Number.isInteger(input.generations) ||
+    Number(input.generations) < 1 ||
+    Number(input.generations) > 20
+  ) {
     throw new Error("バックアップの世代数は1〜20で指定してください。");
   }
   return {
@@ -151,7 +161,10 @@ function rejectTaskPersistence(type: EntityType, operation = "保存"): void {
   }
 }
 
-function requireAudioCaptureThemeId(repository: WorkspaceRepository, request: unknown): string | null {
+function requireAudioCaptureThemeId(
+  repository: WorkspaceRepository,
+  request: unknown,
+): string | null {
   const { themeId = null } = parseAudioCapturePrepareRequest(request);
   if (!themeId) return null;
   if (!repository.get("theme", themeId) && !repository.get("project", themeId)) {
@@ -164,7 +177,8 @@ function requireVideoImportRequest(repository: WorkspaceRepository, request: unk
   const parsed = parseVideoImportPrepareRequest(request);
   const ownerType = parsed.sourceType === "report" ? "note" : parsed.sourceType;
   const owner = repository.get(ownerType, parsed.sourceId) as Entity | null;
-  if (!owner || owner.deleted_at) throw new Error("動画の添付先が見つかりません。画面を再読み込みしてください。");
+  if (!owner || owner.deleted_at)
+    throw new Error("動画の添付先が見つかりません。画面を再読み込みしてください。");
   return parsed;
 }
 
@@ -191,32 +205,45 @@ export function registerIpc(
   service: WorkspaceService,
   automaticSnapshotBackup: AutomaticSnapshotBackupService,
   sharedSync: SharedFolderSyncService,
-  aiProvider: AiProviderService,
   calendar: CalendarService,
   applicationCommands: ApplicationCommandService,
   taskCapability: TaskCapabilityService,
   mediaCapture: MediaCaptureService,
-  batchTranscription: BatchTranscriptionService,
+  batchTranscription: TranscriptionHistoryReader,
   screenRecording: ScreenRecordingService,
   notifyEntitiesChanged: (types: EntityType[]) => void = () => {},
-  notifyCommandApplied: (receipt: CommandReceipt | CommandReceipt[], senderId: number, options?: { senderReceivesAll?: boolean }) => void = () => {},
+  notifyCommandApplied: (
+    receipt: CommandReceipt | CommandReceipt[],
+    senderId: number,
+    options?: { senderReceivesAll?: boolean },
+  ) => void = () => {},
   notifyTaskProjectionChanged: (types: EntityType[]) => void = () => {},
 ): void {
   const screenRecordingSenderIds = new Set<number>();
-  const aiProposalAcceptance = new AiProposalAcceptanceService(applicationCommands, service, repository);
-  registerTaskIpc({
-    channels: {
-      command: IPC.taskCommand,
-      query: IPC.taskQuery,
-      changed: IPC.taskChanged,
+  const aiProposalAcceptance = new AiProposalAcceptanceService(
+    applicationCommands,
+    service,
+    repository,
+  );
+  registerTaskIpc(
+    {
+      channels: {
+        command: IPC.taskCommand,
+        query: IPC.taskQuery,
+        changed: IPC.taskChanged,
+      },
+      handle: (channel, listener) => ipcMain.handle(channel, listener),
+      publish: publishIpc,
+      authorize: (event) => {
+        const url = new URL(
+          (event as Electron.IpcMainInvokeEvent).senderFrame?.url || "about:blank",
+        );
+        return !url.search && (url.pathname === "/" || url.pathname.endsWith("/index.html"));
+      },
     },
-    handle: (channel, listener) => ipcMain.handle(channel, listener),
-    publish: publishIpc,
-    authorize: (event) => {
-      const url = new URL((event as Electron.IpcMainInvokeEvent).senderFrame?.url || "about:blank");
-      return !url.search && (url.pathname === "/" || url.pathname.endsWith("/index.html"));
-    },
-  }, taskCapability, () => notifyTaskProjectionChanged(["task"]));
+    taskCapability,
+    () => notifyTaskProjectionChanged(["task"]),
+  );
   ipcMain.handle(IPC.workspaceLoad, () => projectWorkspaceForRenderer(service.loadWorkspace()));
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => {
     assertRendererBootstrapContainsNoMedia(legacy);
@@ -224,12 +251,20 @@ export function registerIpc(
   });
   ipcMain.handle(IPC.workspaceMeta, () => repository.getMeta());
   ipcMain.handle(IPC.activityCanonicalRootStatus, () => service.getActivityCanonicalRootStatus());
-  ipcMain.handle(IPC.activityOpenCanonicalRef, (_event, ref) => service.openActivityCanonicalRef(ref));
+  ipcMain.handle(IPC.activityOpenCanonicalRef, (_event, ref) =>
+    service.openActivityCanonicalRef(ref),
+  );
   ipcMain.handle(IPC.aiContextPreview, (_event, request) => service.getAiContextPreview(request));
   ipcMain.handle(IPC.dataHealthGet, (_event, query) => service.getDataHealth(query));
-  ipcMain.handle(IPC.dataHealthSetState, (_event, request) => service.setDataHealthIssueState(request));
-  ipcMain.handle(IPC.themeAiPackStatus, (_event, themeId) => service.getThemeAiPackStatus(requireId(themeId)));
-  ipcMain.handle(IPC.themeAiPackPreview, (_event, themeId) => service.getThemeAiPackPreview(requireId(themeId)));
+  ipcMain.handle(IPC.dataHealthSetState, (_event, request) =>
+    service.setDataHealthIssueState(request),
+  );
+  ipcMain.handle(IPC.themeAiPackStatus, (_event, themeId) =>
+    service.getThemeAiPackStatus(requireId(themeId)),
+  );
+  ipcMain.handle(IPC.themeAiPackPreview, (_event, themeId) =>
+    service.getThemeAiPackPreview(requireId(themeId)),
+  );
   ipcMain.handle(IPC.themeAiPackPublish, (_event, request) => {
     const result = service.publishThemeAiPack(request);
     const change = {
@@ -241,8 +276,12 @@ export function registerIpc(
     publishIpc(IPC.themeAiPackChanged, change);
     return result;
   });
-  ipcMain.handle(IPC.themeAiPackOpenFolder, (_event, themeId) => service.openThemeAiPackFolder(requireId(themeId)));
-  ipcMain.handle(IPC.conversationContextPreview, (_event, request) => service.getConversationContextPreview(request));
+  ipcMain.handle(IPC.themeAiPackOpenFolder, (_event, themeId) =>
+    service.openThemeAiPackFolder(requireId(themeId)),
+  );
+  ipcMain.handle(IPC.conversationContextPreview, (_event, request) =>
+    service.getConversationContextPreview(request),
+  );
   ipcMain.handle(IPC.conversationContextPublish, (_event, request) => {
     const result = service.publishConversationContext(request);
     notifyEntitiesChanged(["resource"]);
@@ -268,52 +307,57 @@ export function registerIpc(
     }
     return saved;
   });
-  ipcMain.handle(IPC.viewPreferenceGet, () => normalizeViewPreferenceEnvelope(repository.getViewPreferences()) as ViewPreferenceEnvelope);
+  ipcMain.handle(
+    IPC.viewPreferenceGet,
+    () =>
+      normalizeViewPreferenceEnvelope(repository.getViewPreferences()) as ViewPreferenceEnvelope,
+  );
   ipcMain.handle(IPC.viewPreferenceSet, (_event, id, scopeKey, value, schemaVersion) => {
-    if (!isViewPreferenceId(id)) throw new Error("未登録の表示設定です。画面を再読み込みしてください。");
+    if (!isViewPreferenceId(id))
+      throw new Error("未登録の表示設定です。画面を再読み込みしてください。");
     const definition = getViewPreferenceDefinition(id);
     const normalizedScopeKey = definition?.scope === "theme" ? requireText(scopeKey, "Theme") : "";
     const normalized = normalizeViewPreference(id, value, Number(schemaVersion) || 1);
-    const change = repository.setViewPreference(id, normalizedScopeKey, normalized, definition?.schemaVersion || 1) as ViewPreferenceChange;
+    const change = repository.setViewPreference(
+      id,
+      normalizedScopeKey,
+      normalized,
+      definition?.schemaVersion || 1,
+    ) as ViewPreferenceChange;
     publishIpc(IPC.viewPreferenceChanged, change);
     return change;
   });
-  ipcMain.handle(IPC.aiConfigGet, () => aiProvider.getConfig());
-  ipcMain.handle(IPC.aiProviderSave, (_event, update) => aiProvider.saveProviderProfile(update));
-  ipcMain.handle(IPC.aiProviderDelete, (_event, id) => aiProvider.deleteProviderProfile(id));
-  ipcMain.handle(IPC.aiModelSave, (_event, update) => aiProvider.saveModelProfile(update));
-  ipcMain.handle(IPC.aiModelDelete, (_event, id) => aiProvider.deleteModelProfile(id));
-  ipcMain.handle(IPC.aiDefaultProvider, (_event, id) => aiProvider.setDefaultProviderProfile(id));
-  ipcMain.handle(IPC.aiDefaultModel, (_event, id) => aiProvider.setDefaultModelProfile(id));
-  ipcMain.handle(IPC.aiTestConnection, (_event, request) => aiProvider.testConnection(request));
-  ipcMain.handle(IPC.aiFeatureAvailability, (_event, feature, providerProfileId, modelProfileId) => aiProvider.getFeatureAvailability(feature, providerProfileId, modelProfileId));
-  ipcMain.handle(IPC.aiNoteStreamStart, async (event, requestId, request) => {
-    const normalizedRequestId = requireId(requestId);
-    const authorizedRequest = authorizeNoteAiRequest(repository, request);
-    const cancelOnDestroyed = () => { aiProvider.cancelNoteStream(normalizedRequestId); };
-    event.sender.once("destroyed", cancelOnDestroyed);
-    try {
-      return await aiProvider.streamNote(normalizedRequestId, authorizedRequest, (streamEvent) => {
-        if (!event.sender.isDestroyed()) event.sender.send(IPC.aiNoteStreamEvent, normalizedRequestId, streamEvent);
-      });
-    } finally {
-      event.sender.removeListener("destroyed", cancelOnDestroyed);
-    }
-  });
-  ipcMain.handle(IPC.aiNoteStreamCancel, (_event, requestId) => aiProvider.cancelNoteStream(requireId(requestId)));
-  ipcMain.handle(IPC.clipboardWriteText, (_event, text) => service.writeClipboard(requireText(text, "コピーするテキスト")));
+  ipcMain.handle(IPC.clipboardWriteText, (_event, text) =>
+    service.writeClipboard(requireText(text, "コピーするテキスト")),
+  );
   ipcMain.handle(IPC.clipboardWriteHtml, (_event, payload) => service.writeClipboardHtml(payload));
-  ipcMain.handle(IPC.clipboardWriteImage, (_event, payload) => service.writeClipboardImage(payload));
+  ipcMain.handle(IPC.clipboardWriteImage, (_event, payload) =>
+    service.writeClipboardImage(payload),
+  );
   ipcMain.handle(IPC.clipboardWriteSvg, (_event, payload) => service.writeClipboardSvg(payload));
-  ipcMain.handle(IPC.fileOpen, (_event, filePath) => service.openPath(requireText(filePath, "開くファイル")));
-  ipcMain.handle(IPC.fileShowInFolder, (_event, filePath) => service.showItemInFolder(requireText(filePath, "表示するファイル")));
-  ipcMain.handle(IPC.filePathExists, (_event, filePath) => service.pathExists(requireText(filePath, "確認する場所")));
-  ipcMain.handle(IPC.fileReadPreview, (_event, filePath) => service.readFilePreview(requireText(filePath, "プレビューするファイル")));
+  ipcMain.handle(IPC.fileOpen, (_event, filePath) =>
+    service.openPath(requireText(filePath, "開くファイル")),
+  );
+  ipcMain.handle(IPC.fileShowInFolder, (_event, filePath) =>
+    service.showItemInFolder(requireText(filePath, "表示するファイル")),
+  );
+  ipcMain.handle(IPC.filePathExists, (_event, filePath) =>
+    service.pathExists(requireText(filePath, "確認する場所")),
+  );
+  ipcMain.handle(IPC.fileReadPreview, (_event, filePath) =>
+    service.readFilePreview(requireText(filePath, "プレビューするファイル")),
+  );
   ipcMain.handle(IPC.dialogChooseDirectory, (_event, title) => service.chooseDirectory(title));
   ipcMain.handle(IPC.dialogChooseFiles, (_event, title) => service.chooseFiles(title));
-  ipcMain.handle(IPC.markdownImageSave, (_event, request) => service.saveMarkdownImageAttachment(request));
-  ipcMain.handle(IPC.artifactFilesImport, (_event, request) => service.importArtifactFiles(request));
-  ipcMain.handle(IPC.artifactWebPreview, (_event, artifactId) => service.getWebArtifactPreview(requireId(artifactId)));
+  ipcMain.handle(IPC.markdownImageSave, (_event, request) =>
+    service.saveMarkdownImageAttachment(request),
+  );
+  ipcMain.handle(IPC.artifactFilesImport, (_event, request) =>
+    service.importArtifactFiles(request),
+  );
+  ipcMain.handle(IPC.artifactWebPreview, (_event, artifactId) =>
+    service.getWebArtifactPreview(requireId(artifactId)),
+  );
   ipcMain.handle(IPC.audioCapturePrepare, async (event, request) => {
     try {
       const themeId = requireAudioCaptureThemeId(repository, request);
@@ -321,11 +365,18 @@ export function registerIpc(
       const options = {
         title: "Inboxへ取り込む音声を選択",
         properties: ["openFile"],
-        filters: [{ name: "音声", extensions: ["mp3", "mpga", "wav", "webm", "ogg", "opus", "m4a", "mp4"] }],
+        filters: [
+          { name: "音声", extensions: ["mp3", "mpga", "wav", "webm", "ogg", "opus", "m4a", "mp4"] },
+        ],
       } satisfies Electron.OpenDialogOptions;
-      const selected = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+      const selected = window
+        ? await dialog.showOpenDialog(window, options)
+        : await dialog.showOpenDialog(options);
       if (selected.canceled || !selected.filePaths[0]) return { canceled: true as const };
-      return { canceled: false as const, ...mediaCapture.prepareFile(selected.filePaths[0], themeId) };
+      return {
+        canceled: false as const,
+        ...mediaCapture.prepareFile(selected.filePaths[0], themeId),
+      };
     } catch (error) {
       throw projectMediaCaptureIpcError("prepare", error);
     }
@@ -370,9 +421,12 @@ export function registerIpc(
       if (!screenRecordingSenderIds.has(event.sender.id)) {
         const senderId = event.sender.id;
         screenRecordingSenderIds.add(senderId);
-        event.sender.on("did-start-navigation", (_navigationEvent, _url, _isInPlace, isMainFrame) => {
-          if (isMainFrame) screenRecording.clearSender(senderId);
-        });
+        event.sender.on(
+          "did-start-navigation",
+          (_navigationEvent, _url, _isInPlace, isMainFrame) => {
+            if (isMainFrame) screenRecording.clearSender(senderId);
+          },
+        );
         event.sender.once("destroyed", () => {
           screenRecordingSenderIds.delete(senderId);
           screenRecording.clearSender(senderId);
@@ -438,13 +492,19 @@ export function registerIpc(
       const parsed = requireVideoImportRequest(repository, request);
       const window = BrowserWindow.fromWebContents(event.sender) || undefined;
       const options = {
-        title: parsed.storageMode === "managed" ? "Taskenへ取り込む動画を選択" : "参照する動画を選択",
+        title:
+          parsed.storageMode === "managed" ? "Taskenへ取り込む動画を選択" : "参照する動画を選択",
         properties: ["openFile"],
         filters: [{ name: "動画", extensions: ["mp4", "m4v", "mov", "webm"] }],
       } satisfies Electron.OpenDialogOptions;
-      const selected = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+      const selected = window
+        ? await dialog.showOpenDialog(window, options)
+        : await dialog.showOpenDialog(options);
       if (selected.canceled || !selected.filePaths[0]) return { canceled: true as const };
-      return { canceled: false as const, ...mediaCapture.prepareVideoFile(selected.filePaths[0], parsed) };
+      return {
+        canceled: false as const,
+        ...mediaCapture.prepareVideoFile(selected.filePaths[0], parsed),
+      };
     } catch (error) {
       throw projectMediaCaptureIpcError("prepare", error);
     }
@@ -495,7 +555,12 @@ export function registerIpc(
       screenRecordingRequestContext(event);
       return await screenRecording.applyRegionIndicator(request);
     } catch (error) {
-      logMain("error", "screen-recording:region-indicator", "録画範囲の表示を更新できません", error);
+      logMain(
+        "error",
+        "screen-recording:region-indicator",
+        "録画範囲の表示を更新できません",
+        error,
+      );
       throw projectScreenRecordingIpcError(error);
     }
   });
@@ -515,37 +580,16 @@ export function registerIpc(
       throw projectMediaCaptureIpcError("commit", error);
     }
   });
-  ipcMain.handle(IPC.batchTranscriptionPreview, (_event, request) => {
-    try {
-      return batchTranscription.preview(parseBatchTranscriptionArtifactRequest(request));
-    } catch (error) {
-      throw projectBatchTranscriptionIpcError("preview", error);
-    }
-  });
   ipcMain.handle(IPC.batchTranscriptionHistory, (_event, request) => {
-    try {
-      return batchTranscription.history(parseBatchTranscriptionArtifactRequest(request));
-    } catch (error) {
-      throw projectBatchTranscriptionIpcError("history", error);
-    }
-  });
-  ipcMain.handle(IPC.batchTranscriptionRun, async (_event, request) => {
-    try {
-      return await batchTranscription.run(parseBatchTranscriptionRunRequest(request));
-    } catch (error) {
-      throw projectBatchTranscriptionIpcError("run", error);
-    }
-  });
-  ipcMain.handle(IPC.batchTranscriptionCancel, (_event, request) => {
-    try {
-      return batchTranscription.cancel(parseBatchTranscriptionCancelRequest(request));
-    } catch (error) {
-      throw projectBatchTranscriptionIpcError("cancel", error);
-    }
+    const { artifactId } = parseBatchTranscriptionArtifactRequest(request);
+    const { capture, revisions } = batchTranscription.getHistory(artifactId);
+    return { artifactId, captureId: capture?.id || null, revisions };
   });
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));
   ipcMain.handle(IPC.appUpdateCheck, () => service.checkForUpdates());
-  ipcMain.handle(IPC.appReleasePageOpen, (_event, url) => service.openReleasePage(typeof url === "string" ? url : undefined));
+  ipcMain.handle(IPC.appReleasePageOpen, (_event, url) =>
+    service.openReleasePage(typeof url === "string" ? url : undefined),
+  );
   ipcMain.handle(IPC.mcpBridgeInfo, () => service.getMcpBridgeInfo());
   ipcMain.handle(IPC.appTitleBarTheme, (event, theme) => {
     const window = BrowserWindow.fromWebContents(event.sender);
@@ -561,12 +605,16 @@ export function registerIpc(
   ipcMain.handle(IPC.entityList, (_event, type, includeDeleted) => {
     const entityType = requireEntityType(type);
     const entities = repository.list(entityType, Boolean(includeDeleted));
-    return Array.isArray(entities) ? entities.map((entity) => projectEntityForRenderer(entityType, entity as Entity)) : entities;
+    return Array.isArray(entities)
+      ? entities.map((entity) => projectEntityForRenderer(entityType, entity as Entity))
+      : entities;
   });
   ipcMain.handle(IPC.entityGet, (_event, type, id) => {
     const entityType = requireEntityType(type);
     const entity = repository.get(entityType, requireId(id));
-    return entity && typeof entity === "object" ? projectEntityForRenderer(entityType, entity as Entity) : entity;
+    return entity && typeof entity === "object"
+      ? projectEntityForRenderer(entityType, entity as Entity)
+      : entity;
   });
   ipcMain.handle(IPC.entitySave, (_event, type, entity, options) => {
     if (!entity || typeof entity !== "object" || Array.isArray(entity)) {
@@ -575,27 +623,24 @@ export function registerIpc(
     const entityType = requireEntityType(type);
     rejectTaskPersistence(entityType);
     const normalizedEntity = normalizeMediaCapturePersistence(repository, entityType, entity);
-    const saved = repository.save(entityType, normalizedEntity as Entity, normalizeIpcSaveOptions(options));
+    const saved = repository.save(
+      entityType,
+      normalizedEntity as Entity,
+      normalizeIpcSaveOptions(options),
+    );
     notifyEntitiesChanged([entityType]);
-    return saved && typeof saved === "object" ? projectEntityForRenderer(entityType, saved as Entity) : saved;
+    return saved && typeof saved === "object"
+      ? projectEntityForRenderer(entityType, saved as Entity)
+      : saved;
   });
   ipcMain.handle(IPC.documentSave, (_event, request) => {
     const saved = service.saveCanonicalNote(request);
     notifyEntitiesChanged(documentSaveChangedTypes(request));
     return saved;
   });
-  ipcMain.handle(IPC.documentApplyAiProposal, (event, request, envelope) => {
-    const receipt = applicationCommands.executeCanonicalNoteAiProposal(envelope, (note, operations) => {
-      const input = request && typeof request === "object" && !Array.isArray(request)
-        ? request as Record<string, unknown>
-        : {};
-      return service.saveCanonicalNote({ ...input, entity: note }, operations) as import("../../shared/types/workspace").Entity;
-    });
-    notifyCommandApplied(receipt, event.sender.id);
-    return projectCommandReceiptForRenderer(receipt);
-  });
   ipcMain.handle(IPC.entitySaveMany, (_event, operations) => {
-    if (!Array.isArray(operations)) throw new Error("一括保存の内容が不正です。入力内容を確認してください。");
+    if (!Array.isArray(operations))
+      throw new Error("一括保存の内容が不正です。入力内容を確認してください。");
     const types = saveManyTypes(operations);
     if (types.includes("task")) rejectTaskPersistence("task", "一括保存");
     for (const operation of operations) {
@@ -604,30 +649,43 @@ export function registerIpc(
       const type = requireEntityType(value.type);
       value.entity = normalizeMediaCapturePersistence(repository, type, value.entity, "一括保存");
     }
-    const saved = repository.saveMany(operations.map((operation) => (
-      operation && typeof operation === "object" && !Array.isArray(operation)
-        ? { ...(operation as Record<string, unknown>), options: normalizeIpcSaveOptions((operation as Record<string, unknown>).options) }
-        : operation
-    )));
+    const saved = repository.saveMany(
+      operations.map((operation) =>
+        operation && typeof operation === "object" && !Array.isArray(operation)
+          ? {
+              ...(operation as Record<string, unknown>),
+              options: normalizeIpcSaveOptions((operation as Record<string, unknown>).options),
+            }
+          : operation,
+      ),
+    );
     notifyEntitiesChanged(types);
-    return Array.isArray(saved) ? saved.map((entity, index) => {
-      const operation = operations[index] as Record<string, unknown> | undefined;
-      const type = operation ? requireEntityType(operation.type) : null;
-      return type && entity && typeof entity === "object" ? projectEntityForRenderer(type, entity as Entity) : entity;
-    }) : saved;
+    return Array.isArray(saved)
+      ? saved.map((entity, index) => {
+          const operation = operations[index] as Record<string, unknown> | undefined;
+          const type = operation ? requireEntityType(operation.type) : null;
+          return type && entity && typeof entity === "object"
+            ? projectEntityForRenderer(type, entity as Entity)
+            : entity;
+        })
+      : saved;
   });
   ipcMain.handle(IPC.entityRemove, (_event, type, id) => {
     const entityType = requireEntityType(type);
     rejectTaskPersistence(entityType, "削除");
     const removed = repository.remove(entityType, requireId(id));
     notifyEntitiesChanged([entityType]);
-    return removed && typeof removed === "object" ? projectEntityForRenderer(entityType, removed as Entity) : removed;
+    return removed && typeof removed === "object"
+      ? projectEntityForRenderer(entityType, removed as Entity)
+      : removed;
   });
   ipcMain.handle(IPC.entityRestore, (_event, type, id) => {
     const entityType = requireEntityType(type);
     const restored = repository.restore(entityType, requireId(id));
     notifyEntitiesChanged([entityType]);
-    return restored && typeof restored === "object" ? projectEntityForRenderer(entityType, restored as Entity) : restored;
+    return restored && typeof restored === "object"
+      ? projectEntityForRenderer(entityType, restored as Entity)
+      : restored;
   });
   ipcMain.handle(IPC.applicationCommand, (event, envelope) => {
     const receipt = aiProposalAcceptance.execute(envelope);
@@ -635,15 +693,26 @@ export function registerIpc(
     return projectCommandReceiptForRenderer(receipt);
   });
   ipcMain.handle(IPC.applicationCommandBatch, (event, envelopes) => {
-    if (!Array.isArray(envelopes) || !envelopes.length) throw new Error("Application Command batchが空です。");
+    if (!Array.isArray(envelopes) || !envelopes.length)
+      throw new Error("Application Command batchが空です。");
     const receipts = applicationCommands.executeBatch(envelopes);
     notifyCommandApplied(receipts, event.sender.id);
     return receipts.map(projectCommandReceiptForRenderer);
   });
   ipcMain.handle(IPC.snapshotExport, () => service.exportSnapshot());
-  ipcMain.handle(IPC.snapshotInspect, async () => projectSnapshotInspectForRenderer(await service.inspectSnapshot()));
+  ipcMain.handle(IPC.snapshotInspect, async () =>
+    projectSnapshotInspectForRenderer(await service.inspectSnapshot()),
+  );
   ipcMain.handle(IPC.snapshotApply, (_event, token, decisions) =>
-    projectWorkspaceForRenderer(service.applySnapshot(requireId(token), decisions && typeof decisions === "object" && !Array.isArray(decisions) ? (decisions as Record<string, string>) : {})));
+    projectWorkspaceForRenderer(
+      service.applySnapshot(
+        requireId(token),
+        decisions && typeof decisions === "object" && !Array.isArray(decisions)
+          ? (decisions as Record<string, string>)
+          : {},
+      ),
+    ),
+  );
   ipcMain.handle(IPC.automaticSnapshotStatus, () => automaticSnapshotBackup.status());
   ipcMain.handle(IPC.automaticSnapshotConfigure, (_event, config) => {
     const normalized = requireAutomaticSnapshotConfig(config);
@@ -655,22 +724,25 @@ export function registerIpc(
   ipcMain.handle(IPC.automaticSnapshotRun, () => automaticSnapshotBackup.run("manual"));
   ipcMain.handle(IPC.sharedSyncStatus, () => sharedSync.status());
   ipcMain.handle(IPC.sharedSyncConfigure, (_event, directory) =>
-    sharedSync.configure(requireText(directory, "同期フォルダ")));
+    sharedSync.configure(requireText(directory, "同期フォルダ")),
+  );
   ipcMain.handle(IPC.sharedSyncDisable, () => sharedSync.disable());
   ipcMain.handle(IPC.sharedSyncNow, () => sharedSync.syncNow());
   ipcMain.handle(IPC.sharedSyncResolve, (_event, conflictId, choice) =>
-    sharedSync.resolveConflict(
-      requireId(conflictId),
-      choice === "incoming" ? "incoming" : "local",
-    ));
+    sharedSync.resolveConflict(requireId(conflictId), choice === "incoming" ? "incoming" : "local"),
+  );
   ipcMain.handle(IPC.markdownFileExport, (_event, request) => service.exportMarkdownFile(request));
   ipcMain.handle(IPC.markdownPdfExport, (_event, request) => service.exportMarkdownPdf(request));
   ipcMain.handle(IPC.sketchExport, (_event, request) => service.exportSketch(request));
-  ipcMain.handle(IPC.slideTimelineExport, (_event, request) => service.exportSlideTimeline(request));
+  ipcMain.handle(IPC.slideTimelineExport, (_event, request) =>
+    service.exportSlideTimeline(request),
+  );
   ipcMain.handle(IPC.mermaidSvgExport, (_event, request) => service.exportMermaidSvg(request));
   ipcMain.handle(IPC.mermaidPptxExport, (_event, request) => service.exportMermaidPptx(request));
   ipcMain.handle(IPC.calendarStatus, () => calendar.getStatus());
   ipcMain.handle(IPC.calendarConnect, (_event, request) => calendar.connect(request));
   ipcMain.handle(IPC.calendarDisconnect, (_event, request) => calendar.disconnect(request));
-  ipcMain.handle(IPC.calendarEvents, (_event, date) => calendar.getEvents(requireText(date, "取得する日付")));
+  ipcMain.handle(IPC.calendarEvents, (_event, date) =>
+    calendar.getEvents(requireText(date, "取得する日付")),
+  );
 }

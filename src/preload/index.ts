@@ -36,9 +36,14 @@ const api: ResearchDeskApi = {
     publish: (request) => ipcRenderer.invoke(IPC.themeAiPackPublish, request),
     openFolder: (themeId) => ipcRenderer.invoke(IPC.themeAiPackOpenFolder, themeId),
     onChanged: (callback): Unsubscribe => {
-      const handler = (_event: Electron.IpcRendererEvent, change: Parameters<typeof callback>[0]): void => callback(change);
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        change: Parameters<typeof callback>[0],
+      ): void => callback(change);
       ipcRenderer.on(IPC.themeAiPackChanged, handler);
-      return () => { ipcRenderer.removeListener(IPC.themeAiPackChanged, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.themeAiPackChanged, handler);
+      };
     },
   },
   conversationContext: {
@@ -50,29 +55,15 @@ const api: ResearchDeskApi = {
     get: (key) => ipcRenderer.invoke(IPC.preferenceGet, key),
     set: (key, value) => ipcRenderer.invoke(IPC.preferenceSet, key, value),
     getView: () => ipcRenderer.invoke(IPC.viewPreferenceGet),
-    setView: (id, scopeKey, value, schemaVersion) => ipcRenderer.invoke(IPC.viewPreferenceSet, id, scopeKey, value, schemaVersion),
+    setView: (id, scopeKey, value, schemaVersion) =>
+      ipcRenderer.invoke(IPC.viewPreferenceSet, id, scopeKey, value, schemaVersion),
     onViewChanged: (callback) => {
-      const listener = (_event: Electron.IpcRendererEvent, change: Parameters<typeof callback>[0]) => callback(change);
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        change: Parameters<typeof callback>[0],
+      ) => callback(change);
       ipcRenderer.on(IPC.viewPreferenceChanged, listener);
       return () => ipcRenderer.removeListener(IPC.viewPreferenceChanged, listener);
-    },
-  },
-  ai: {
-    getConfig: () => ipcRenderer.invoke(IPC.aiConfigGet),
-    saveProviderProfile: (update) => ipcRenderer.invoke(IPC.aiProviderSave, update),
-    deleteProviderProfile: (id) => ipcRenderer.invoke(IPC.aiProviderDelete, id),
-    saveModelProfile: (update) => ipcRenderer.invoke(IPC.aiModelSave, update),
-    deleteModelProfile: (id) => ipcRenderer.invoke(IPC.aiModelDelete, id),
-    setDefaultProviderProfile: (id) => ipcRenderer.invoke(IPC.aiDefaultProvider, id),
-    setDefaultModelProfile: (id) => ipcRenderer.invoke(IPC.aiDefaultModel, id),
-    testConnection: (request) => ipcRenderer.invoke(IPC.aiTestConnection, request),
-    featureAvailability: (feature, providerProfileId, modelProfileId) => ipcRenderer.invoke(IPC.aiFeatureAvailability, feature, providerProfileId, modelProfileId),
-    startNoteStream: (requestId, request) => ipcRenderer.invoke(IPC.aiNoteStreamStart, requestId, request),
-    cancelNoteStream: (requestId) => ipcRenderer.invoke(IPC.aiNoteStreamCancel, requestId),
-    onNoteStreamEvent: (callback): Unsubscribe => {
-      const handler = (_event: Electron.IpcRendererEvent, requestId: string, streamEvent: Parameters<typeof callback>[1]): void => callback(requestId, streamEvent);
-      ipcRenderer.on(IPC.aiNoteStreamEvent, handler);
-      return () => { ipcRenderer.removeListener(IPC.aiNoteStreamEvent, handler); };
     },
   },
   clipboard: {
@@ -119,22 +110,25 @@ const api: ResearchDeskApi = {
     exportVideoTrim: (request) => ipcRenderer.invoke(IPC.videoTrimExport, request),
   },
   batchTranscription: {
-    preview: (request) => ipcRenderer.invoke(IPC.batchTranscriptionPreview, request),
     history: (request) => ipcRenderer.invoke(IPC.batchTranscriptionHistory, request),
-    run: (request) => ipcRenderer.invoke(IPC.batchTranscriptionRun, request),
-    cancel: (request) => ipcRenderer.invoke(IPC.batchTranscriptionCancel, request),
   },
   screenRecording: {
     capabilities: () => ipcRenderer.invoke(IPC.screenRecordingCapabilities),
     listSources: () => ipcRenderer.invoke(IPC.screenRecordingListSources),
     arm: (request) => ipcRenderer.invoke(IPC.screenRecordingArm, request),
     selectRegion: (request) => ipcRenderer.invoke(IPC.screenRecordingSelectRegion, request),
-    applyRegionIndicator: (region) => ipcRenderer.invoke(IPC.screenRecordingRegionIndicatorApply, region),
+    applyRegionIndicator: (region) =>
+      ipcRenderer.invoke(IPC.screenRecordingRegionIndicatorApply, region),
     applyIndicator: (state) => ipcRenderer.invoke(IPC.recordingIndicatorApply, state),
     onIndicatorCommand: (callback) => {
-      const handler = (_event: Electron.IpcRendererEvent, command: Parameters<typeof callback>[0]): void => callback(command);
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        command: Parameters<typeof callback>[0],
+      ): void => callback(command);
       ipcRenderer.on(IPC.recordingIndicatorCommand, handler);
-      return () => { ipcRenderer.removeListener(IPC.recordingIndicatorCommand, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.recordingIndicatorCommand, handler);
+      };
     },
   },
   app: {
@@ -144,12 +138,18 @@ const api: ResearchDeskApi = {
     setTitleBarTheme: (theme) => ipcRenderer.invoke(IPC.appTitleBarTheme, theme),
     onAppFlushRequested: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, request: unknown): void => {
-        const value = request && typeof request === "object" ? request as Record<string, unknown> : {};
+        const value =
+          request && typeof request === "object" ? (request as Record<string, unknown>) : {};
         if (typeof value.requestId !== "string" || !value.requestId) return;
-        callback({ requestId: value.requestId, noteId: typeof value.noteId === "string" ? value.noteId : undefined });
+        callback({
+          requestId: value.requestId,
+          noteId: typeof value.noteId === "string" ? value.noteId : undefined,
+        });
       };
       ipcRenderer.on(IPC.appFlushRequested, handler);
-      return () => { ipcRenderer.removeListener(IPC.appFlushRequested, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.appFlushRequested, handler);
+      };
     },
     ackAppFlush: (requestId, ok) => ipcRenderer.invoke(IPC.appFlushAck, { requestId, ok }),
     getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
@@ -161,26 +161,33 @@ const api: ResearchDeskApi = {
     onTaskenRootShown: (callback): Unsubscribe => {
       const handler = (): void => callback();
       ipcRenderer.on(IPC.taskenRootShown, handler);
-      return () => { ipcRenderer.removeListener(IPC.taskenRootShown, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.taskenRootShown, handler);
+      };
     },
     showTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniShow),
     toggleTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniToggleWindow),
     setMemoStickyTarget: (request) => ipcRenderer.invoke(IPC.memoStickySetTarget, request),
-    toggleMemoStickyTargetsVisibility: () => ipcRenderer.invoke(IPC.memoStickyToggleTargetsVisibility),
+    toggleMemoStickyTargetsVisibility: () =>
+      ipcRenderer.invoke(IPC.memoStickyToggleTargetsVisibility),
     setMemoStickyTheme: (request) => ipcRenderer.invoke(IPC.memoStickySetTheme, request),
     getSatelliteWindowState: () => ipcRenderer.invoke(IPC.satelliteWindowState),
     onSatelliteWindowStateChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, state: unknown): void => {
-        const value = state && typeof state === "object" ? state as Record<string, unknown> : {};
+        const value = state && typeof state === "object" ? (state as Record<string, unknown>) : {};
         callback({
           todayOpen: value.todayOpen === true,
           openMemoIds: Array.isArray(value.openMemoIds) ? value.openMemoIds.map(String) : [],
           stickyMemoIds: Array.isArray(value.stickyMemoIds) ? value.stickyMemoIds.map(String) : [],
-          alwaysOnTopMemoIds: Array.isArray(value.alwaysOnTopMemoIds) ? value.alwaysOnTopMemoIds.map(String) : [],
+          alwaysOnTopMemoIds: Array.isArray(value.alwaysOnTopMemoIds)
+            ? value.alwaysOnTopMemoIds.map(String)
+            : [],
         });
       };
       ipcRenderer.on(IPC.satelliteWindowState, handler);
-      return () => { ipcRenderer.removeListener(IPC.satelliteWindowState, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.satelliteWindowState, handler);
+      };
     },
     openNoteWindow: (noteId) => ipcRenderer.invoke(IPC.noteWindowOpen, noteId),
     listOpenNoteWindows: () => ipcRenderer.invoke(IPC.noteWindowListOpen),
@@ -191,56 +198,81 @@ const api: ResearchDeskApi = {
         callback(Array.isArray(noteIds) ? noteIds.map(String) : []);
       };
       ipcRenderer.on(IPC.noteWindowOpenChanged, handler);
-      return () => { ipcRenderer.removeListener(IPC.noteWindowOpenChanged, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.noteWindowOpenChanged, handler);
+      };
     },
     onNoteWindowFlushRequested: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, request: unknown): void => {
-        const value = request && typeof request === "object" ? request as Record<string, unknown> : {};
+        const value =
+          request && typeof request === "object" ? (request as Record<string, unknown>) : {};
         if (typeof value.requestId !== "string" || !value.requestId) return;
-        callback({ requestId: value.requestId, noteId: typeof value.noteId === "string" ? value.noteId : undefined });
+        callback({
+          requestId: value.requestId,
+          noteId: typeof value.noteId === "string" ? value.noteId : undefined,
+        });
       };
       ipcRenderer.on(IPC.noteWindowFlushRequested, handler);
-      return () => { ipcRenderer.removeListener(IPC.noteWindowFlushRequested, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.noteWindowFlushRequested, handler);
+      };
     },
-    ackNoteWindowFlush: (requestId, ok) => ipcRenderer.invoke(IPC.noteWindowFlushAck, { requestId, ok }),
+    ackNoteWindowFlush: (requestId, ok) =>
+      ipcRenderer.invoke(IPC.noteWindowFlushAck, { requestId, ok }),
     onWorkspaceChanged: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, change: unknown): void => {
         callback(change as Parameters<typeof callback>[0]);
       };
       ipcRenderer.on(IPC.workspaceChanged, handler);
-      return () => { ipcRenderer.removeListener(IPC.workspaceChanged, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.workspaceChanged, handler);
+      };
     },
     // 切り離しウィンドウから本体へ表示を渡す（#290 / #298）。
     onOpenNote: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, noteId: string): void => callback(noteId);
       ipcRenderer.on(IPC.workspaceOpenNote, handler);
-      return () => { ipcRenderer.removeListener(IPC.workspaceOpenNote, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.workspaceOpenNote, handler);
+      };
     },
     onOpenMemo: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, memoId: string): void => callback(memoId);
       ipcRenderer.on(IPC.workspaceOpenMemo, handler);
-      return () => { ipcRenderer.removeListener(IPC.workspaceOpenMemo, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.workspaceOpenMemo, handler);
+      };
     },
     onNavigate: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, route: string): void => callback(route);
       ipcRenderer.on(IPC.workspaceNavigate, handler);
-      return () => { ipcRenderer.removeListener(IPC.workspaceNavigate, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.workspaceNavigate, handler);
+      };
     },
     onOpenTaskDetail: (callback): Unsubscribe => {
       const handler = (_event: Electron.IpcRendererEvent, taskId: string): void => {
         callback(taskId);
       };
       ipcRenderer.on(IPC.workspaceOpenTaskDetail, handler);
-      return () => { ipcRenderer.removeListener(IPC.workspaceOpenTaskDetail, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.workspaceOpenTaskDetail, handler);
+      };
     },
     onOpenTaskenRootTarget: (callback): Unsubscribe => {
-      const handler = (_event: Electron.IpcRendererEvent, request: Parameters<typeof callback>[0]): void => callback(request);
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        request: Parameters<typeof callback>[0],
+      ): void => callback(request);
       ipcRenderer.on(IPC.workspaceOpenRootTarget, handler);
-      return () => { ipcRenderer.removeListener(IPC.workspaceOpenRootTarget, handler); };
+      return () => {
+        ipcRenderer.removeListener(IPC.workspaceOpenRootTarget, handler);
+      };
     },
   },
   entities: {
-    list: (type, includeDeleted = false) => ipcRenderer.invoke(IPC.entityList, type, includeDeleted),
+    list: (type, includeDeleted = false) =>
+      ipcRenderer.invoke(IPC.entityList, type, includeDeleted),
     get: (type, id) => ipcRenderer.invoke(IPC.entityGet, type, id),
     save: (type, entity, options = {}) => ipcRenderer.invoke(IPC.entitySave, type, entity, options),
     saveMany: (operations) => ipcRenderer.invoke(IPC.entitySaveMany, operations),
@@ -249,7 +281,6 @@ const api: ResearchDeskApi = {
   },
   documents: {
     save: (request) => ipcRenderer.invoke(IPC.documentSave, request),
-    applyAiProposal: (request, envelope) => ipcRenderer.invoke(IPC.documentApplyAiProposal, request, envelope),
   },
   commands: {
     execute: (envelope) => ipcRenderer.invoke(IPC.applicationCommand, envelope),

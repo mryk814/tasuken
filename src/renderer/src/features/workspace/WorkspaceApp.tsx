@@ -2247,13 +2247,6 @@ export function WorkspaceApp() {
     ...(route === "notes"
       ? [
           {
-            id: "notes:note-ai",
-            label: "現在の文書でNote AIを開く",
-            keywords: ["AI", "chat", "diff", "原稿"],
-            category: "Commands" as const,
-            execute: () => dispatchNotesCommand("draft"),
-          },
-          {
             id: "notes:save",
             label: "現在の文書を保存",
             keywords: ["save", "保存"],
@@ -2310,13 +2303,6 @@ export function WorkspaceApp() {
             keywords: ["選択", "切り出し", "note", "抽出"],
             category: "Commands" as const,
             execute: () => dispatchNotesCommand("selection-note"),
-          },
-          {
-            id: "notes:selection-ai",
-            label: "選択範囲をAIで編集",
-            keywords: ["選択", "AI", "書き換え"],
-            category: "Commands" as const,
-            execute: () => dispatchNotesCommand("selection-ai"),
           },
         ]
       : []),

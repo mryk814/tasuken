@@ -258,7 +258,7 @@ test("本文を選択しただけでは変換toolbarを出さない（#313）", 
   assert.match(editor, /lastSelectionRangeRef\.current = range\.cloneRange\(\);/);
   assert.match(source, /"selection-task": \(\) => requestSelectionCommand\("task"\)/);
   assert.match(app, /id: "notes:selection-task",\s*label: "選択範囲からTaskを作る"/);
-  assert.match(app, /id: "notes:selection-ai",\s*label: "選択範囲をAIで編集"/);
+  assert.doesNotMatch(app, /id: "notes:selection-ai"|選択範囲をAIで編集/);
 });
 
 test("本文の全文コピーは大きなbuttonから外す（#313）", () => {
@@ -333,7 +333,6 @@ test("AI iconはAIの操作にだけ使う（#312）", () => {
 
   // Knowledge化はNotesの日常導線から撤去し、AI iconを流用する余地も残さない。
   assert.doesNotMatch(source, /Knowledge化|IconBulb/);
-  // AI Draftのように実際にAIへ渡す導線だけがAI iconを持つ。
-  assert.match(source, /label: "Note AIを開く"/);
-  assert.doesNotMatch(source, /AI Draft|DraftWorkspaceDialog|NoteAiDialog/);
+  // 内蔵AI実行導線はNotesから撤去する。
+  assert.doesNotMatch(source, /Note AIを開く|AI Draft|DraftWorkspaceDialog|NoteAiDialog/);
 });

@@ -34,23 +34,44 @@ import {
   type CanonicalMarkdownFileState,
 } from "../../../../../shared/canonicalMarkdown.mjs";
 import { isFocusSession } from "../../../../../shared/focusSession.mjs";
-import { markdownHeadingAt } from "../../../../../shared/noteAiConversation.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { ActionButton, Button, ContextMenu, EmptyState, PageHeader, ThemePickerSelect, type ContextMenuItem } from "../components/common";
+import {
+  ActionButton,
+  Button,
+  ContextMenu,
+  EmptyState,
+  PageHeader,
+  ThemePickerSelect,
+  type ContextMenuItem,
+} from "../components/common";
 import { ChatRefArtifactLinkDialog } from "../components/ChatRefArtifactLinkDialog";
 import { MarkdownHeadingIndex } from "../components/MarkdownHeadingIndex";
 import { MarkdownDiffMarkerRail } from "../components/MarkdownDiffMarkerRail";
 import { MarkdownEditorBoundary } from "../components/MarkdownEditorBoundary";
 import { MarkdownPreview } from "../components/MarkdownPreview";
-import { NoteAiDrawer, type NoteAiTarget } from "../components/NoteAiDrawer";
 import { NoteCreateMenu } from "../components/NoteCreateMenu";
 import { ToolbarMenu, type ToolbarMenuItem } from "../components/ToolbarMenu";
 import type { SelectionCommandRequest } from "../components/MarkdownRichEditor";
 import { clipboardImageFile, readFileAsDataUrl } from "../lib/clipboardImage";
 import { isChatReference } from "../lib/chatRefs";
-import { NOTES_KIND_LABELS, notesKindFromNoteType, themeColor, type NotesKind } from "../lib/domain";
+import {
+  NOTES_KIND_LABELS,
+  notesKindFromNoteType,
+  themeColor,
+  type NotesKind,
+} from "../lib/domain";
 import { str } from "../lib/format";
-import { buildMarkdownDiffHunks, buildMarkdownDiffMarkers, diffMarkdownLines, findMarkdownMatches, formatMarkdown, replaceAllMarkdownMatches, replaceMarkdownMatch, restoreMarkdownDiffHunk, type MarkdownDiffMarker } from "../lib/markdownEditing";
+import {
+  buildMarkdownDiffHunks,
+  buildMarkdownDiffMarkers,
+  diffMarkdownLines,
+  findMarkdownMatches,
+  formatMarkdown,
+  replaceAllMarkdownMatches,
+  replaceMarkdownMatch,
+  restoreMarkdownDiffHunk,
+  type MarkdownDiffMarker,
+} from "../lib/markdownEditing";
 import {
   extractMarkdownHeadings,
   HEADING_NUMBER_LEVELS,
@@ -100,9 +121,23 @@ import {
   sketchEmbedMarkdown,
   type SketchEmbedPreview,
 } from "../lib/sketchEmbed";
-import type { Artifact, BaseRecord, Entity, NoteComment, PageProps, SaveOperation, SaveOptions, Sketch } from "../types";
+import type {
+  Artifact,
+  BaseRecord,
+  Entity,
+  NoteComment,
+  PageProps,
+  SaveOperation,
+  SaveOptions,
+  Sketch,
+} from "../types";
 import { usePreference } from "../../../utils/usePreference";
-import { compactNotesBodyPreview, compareNotesRecords, type NotesPreferences, type NotesSortOrder } from "../lib/notes";
+import {
+  compactNotesBodyPreview,
+  compareNotesRecords,
+  type NotesPreferences,
+  type NotesSortOrder,
+} from "../lib/notes";
 import {
   buildNoteExportArtifactOperation,
   createNoteDocumentExport,
@@ -118,7 +153,10 @@ import {
   type MarkdownTextSelection,
   type SelectionExtractionKind,
 } from "../lib/selectionExtraction";
-import { flushPendingNoteDraftSaves, trackPendingNoteDraftSave } from "../lib/noteDraftFlushRegistry";
+import {
+  flushPendingNoteDraftSaves,
+  trackPendingNoteDraftSave,
+} from "../lib/noteDraftFlushRegistry";
 import { startLatestSaveQueue, type LatestSaveQueueState } from "../lib/noteDraftSaveQueue";
 
 type Combined = BaseRecord & { recordType: "note" | "resource" };
@@ -148,7 +186,14 @@ function SketchPickerPreview({ page }: { page: SketchPage }) {
     const context = ref.current?.getContext("2d");
     if (context) drawSketchPage(context, page);
   }, [page]);
-  return <canvas ref={ref} width={page.width} height={page.height} aria-label={`${page.title}のSketch Preview`} />;
+  return (
+    <canvas
+      ref={ref}
+      width={page.width}
+      height={page.height}
+      aria-label={`${page.title}のSketch Preview`}
+    />
+  );
 }
 
 function NotesKindIcon({ kind, size = 15 }: { kind: NotesKind; size?: number }) {
@@ -166,8 +211,10 @@ function NotesKindIcon({ kind, size = 15 }: { kind: NotesKind; size?: number }) 
 }
 
 function noteProperties(record: BaseRecord): Record<string, unknown> {
-  return record.properties_json && typeof record.properties_json === "object" && !Array.isArray(record.properties_json)
-    ? record.properties_json as Record<string, unknown>
+  return record.properties_json &&
+    typeof record.properties_json === "object" &&
+    !Array.isArray(record.properties_json)
+    ? (record.properties_json as Record<string, unknown>)
     : {};
 }
 
@@ -196,18 +243,40 @@ function noteDateLabel(value: unknown): string {
   if (!raw) return "";
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleString("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 type AutoLinkUndoEntry = { artifactId: string; previous: Artifact | null };
-type AutoLinkResult = { exported: NoteDocumentExport; chatRefs: ChatRefRecord[]; undo: AutoLinkUndoEntry[] };
+type AutoLinkResult = {
+  exported: NoteDocumentExport;
+  chatRefs: ChatRefRecord[];
+  undo: AutoLinkUndoEntry[];
+};
 
 function isWorkbenchRecord(record: Combined): boolean {
   if (record.recordType === "resource") return true;
   return record.recordType === "note";
 }
 
-export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, openDrawer, navigate, saveEntity, saveEntities, removeEntityQuiet, setToast }: PageProps) {
+export function NotesPage({
+  data,
+  themes,
+  domain,
+  activeTheme,
+  detachedNoteId,
+  openDrawer,
+  navigate,
+  saveEntity,
+  saveEntities,
+  removeEntityQuiet,
+  setToast,
+}: PageProps) {
   const [query, setQuery] = useState("");
   // 切り離しウィンドウは対象Noteが決まっているので、選択をそこへ固定する（#290）。
   const [selectedId, setSelectedId] = useState<string | null>(detachedNoteId ?? null);
@@ -216,40 +285,53 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   // Notesは書く場所としてEditを初期表示にする。Preview / Rawは必要なときだけ切り替える。
   const [previewMode, setPreviewMode] = useState<PreviewMode>("edit");
   const [prefs, setPrefs] = usePreference("notes.preferences");
-  const [resizeDraft, setResizeDraft] = useState<Partial<Pick<NotesPreferences, "listWidth" | "listCollapsed">> | null>(null);
+  const [resizeDraft, setResizeDraft] = useState<Partial<
+    Pick<NotesPreferences, "listWidth" | "listCollapsed">
+  > | null>(null);
   const resizeDraftRef = useRef(resizeDraft);
   resizeDraftRef.current = resizeDraft;
   const sketches = useMemo(() => data.sketches as Sketch[], [data.sketches]);
   const scope = prefs.scope;
   const sortOrder = prefs.sortOrder;
-  const records = useMemo<Combined[]>(() => [
-    ...domain.notes
-      .filter((note) => !isFocusSession(note as unknown as Record<string, unknown>))
-      .map((note) => ({ ...note, recordType: "note" as const } as Combined)),
-    ...domain.resources
-      .filter((resource) => !isChatReference(resource))
-      .map((resource) => ({ ...resource, recordType: "resource" as const } as Combined)),
-  ].sort((a, b) => compareNotesRecords(a, b, sortOrder)), [domain.notes, domain.resources, sortOrder]);
-  const themeId = prefs.themeId !== "all" && prefs.themeId !== ""
-    && !themes.some((t) => t.id === prefs.themeId) ? "all" : prefs.themeId;
+  const records = useMemo<Combined[]>(
+    () =>
+      [
+        ...domain.notes
+          .filter((note) => !isFocusSession(note as unknown as Record<string, unknown>))
+          .map((note) => ({ ...note, recordType: "note" as const }) as Combined),
+        ...domain.resources
+          .filter((resource) => !isChatReference(resource))
+          .map((resource) => ({ ...resource, recordType: "resource" as const }) as Combined),
+      ].sort((a, b) => compareNotesRecords(a, b, sortOrder)),
+    [domain.notes, domain.resources, sortOrder],
+  );
+  const themeId =
+    prefs.themeId !== "all" && prefs.themeId !== "" && !themes.some((t) => t.id === prefs.themeId)
+      ? "all"
+      : prefs.themeId;
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visible = useMemo(() => records.filter((record) => {
-    if (scope !== "all" && recordKind(record) !== scope) return false;
-    if (themeId === "") {
-      if (str(record.project_id || record.theme_id)) return false;
-    } else if (themeId !== "all") {
-      if (str(record.project_id || record.theme_id) !== themeId) return false;
-    }
-    if (!normalizedQuery) return true;
-    return `${str(record.title)} ${recordBody(record)} ${str(record.url || record.source_url)}`
-      .toLocaleLowerCase()
-      .includes(normalizedQuery);
-  }), [normalizedQuery, records, scope, themeId]);
+  const visible = useMemo(
+    () =>
+      records.filter((record) => {
+        if (scope !== "all" && recordKind(record) !== scope) return false;
+        if (themeId === "") {
+          if (str(record.project_id || record.theme_id)) return false;
+        } else if (themeId !== "all") {
+          if (str(record.project_id || record.theme_id) !== themeId) return false;
+        }
+        if (!normalizedQuery) return true;
+        return `${str(record.title)} ${recordBody(record)} ${str(record.url || record.source_url)}`
+          .toLocaleLowerCase()
+          .includes(normalizedQuery);
+      }),
+    [normalizedQuery, records, scope, themeId],
+  );
   const [visibleLimit, setVisibleLimit] = useState(NOTES_RENDER_BATCH_SIZE);
   const renderedRecords = visible.slice(0, visibleLimit);
   const workbenchRecords = useMemo(() => visible.filter(isWorkbenchRecord), [visible]);
   const selected = useMemo(
-    () => workbenchRecords.find((record) => record.id === selectedId) || workbenchRecords[0] || null,
+    () =>
+      workbenchRecords.find((record) => record.id === selectedId) || workbenchRecords[0] || null,
     [selectedId, workbenchRecords],
   );
   const selectedBody = selected ? recordBody(selected) : "";
@@ -257,16 +339,25 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const selectedOwnerKey = selectedOwner ? noteDraftOwnerKey(selectedOwner) : null;
   // 初回描画を空本文→実本文の二段階にせず、Preview/Editの再構築を一度にする。
   const [draftOwner, setDraftOwner] = useState<NoteDraftOwner | null>(selectedOwner);
-  const [draftBodyState, setDraftBodyState] = useState(() => normalizeRichEditorMarkdown(selectedBody));
+  const [draftBodyState, setDraftBodyState] = useState(() =>
+    normalizeRichEditorMarkdown(selectedBody),
+  );
   // 選択切替のrenderでは、前文書のsnapshotを新文書へ渡さない。切替先の保存済み本文を使う。
   const draftSnapshotState: NoteDraftSnapshot | null = draftOwner
-    ? { owner: draftOwner, body: draftBodyState, dirty: true, expectedRevision: Number(selected?.version || 0) }
+    ? {
+        owner: draftOwner,
+        body: draftBodyState,
+        dirty: true,
+        expectedRevision: Number(selected?.version || 0),
+      }
     : null;
   const draftBody = renderNoteDraftBody(selectedOwner, draftSnapshotState, selectedBody);
   const [richEditorDirty, setRichEditorDirty] = useState(false);
   const [draftState, setDraftState] = useState("");
   // 直近の正本Markdown同期の結果（#291）。署名比較では分からない外部変更・失敗を保持する。
-  const [canonicalSyncState, setCanonicalSyncState] = useState<CanonicalMarkdownFileState | null>(null);
+  const [canonicalSyncState, setCanonicalSyncState] = useState<CanonicalMarkdownFileState | null>(
+    null,
+  );
   /** 選択範囲の変換を明示commandで呼ぶための合図（#313）。 */
   const [selectionCommand, setSelectionCommand] = useState<SelectionCommandRequest | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -281,7 +372,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   const [autoLinked, setAutoLinked] = useState<AutoLinkResult | null>(null);
   const [exportLinkDialogOpen, setExportLinkDialogOpen] = useState(false);
   const [sketchPickerOpen, setSketchPickerOpen] = useState(false);
-  const [aiTarget, setAiTarget] = useState<NoteAiTarget | null>(null);
   const [pickerSketchId, setPickerSketchId] = useState("");
   const [pickerPageId, setPickerPageId] = useState("");
   const [sketchEmbeds, setSketchEmbeds] = useState<Record<string, SketchEmbedPreview>>({});
@@ -290,47 +380,54 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     title: string;
     entity: BaseRecord;
   } | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
   const listWidth = resizeDraft?.listWidth ?? prefs.listWidth;
   const listCollapsed = resizeDraft?.listCollapsed ?? prefs.listCollapsed;
   const workbenchRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
-  const handleResize = useCallback((event: React.PointerEvent) => {
-    event.preventDefault();
-    draggingRef.current = true;
-    const target = event.currentTarget as HTMLElement;
-    target.setPointerCapture(event.pointerId);
-    const workbench = workbenchRef.current;
-    if (!workbench) return;
-    const onMove = (moveEvent: PointerEvent) => {
-      if (!draggingRef.current) return;
-      const rect = workbench.getBoundingClientRect();
-      const x = moveEvent.clientX - rect.left;
-      const MIN_WIDTH = 180;
-      const COLLAPSE_THRESHOLD = 100;
-      if (x < COLLAPSE_THRESHOLD) {
-        const next = { listCollapsed: true, listWidth: MIN_WIDTH } as const;
-        resizeDraftRef.current = next;
-        setResizeDraft(next);
-      } else {
-        const clamped = Math.max(MIN_WIDTH, Math.min(x, rect.width * 0.6));
-        const next = { listCollapsed: false, listWidth: clamped } as const;
-        resizeDraftRef.current = next;
-        setResizeDraft(next);
-      }
-    };
-    const onUp = () => {
-      draggingRef.current = false;
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      const draft = resizeDraftRef.current;
-      if (draft) setPrefs((current) => ({ ...current, ...draft }));
-      resizeDraftRef.current = null;
-      setResizeDraft(null);
-    };
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-  }, [updatePrefs]);
+  const handleResize = useCallback(
+    (event: React.PointerEvent) => {
+      event.preventDefault();
+      draggingRef.current = true;
+      const target = event.currentTarget as HTMLElement;
+      target.setPointerCapture(event.pointerId);
+      const workbench = workbenchRef.current;
+      if (!workbench) return;
+      const onMove = (moveEvent: PointerEvent) => {
+        if (!draggingRef.current) return;
+        const rect = workbench.getBoundingClientRect();
+        const x = moveEvent.clientX - rect.left;
+        const MIN_WIDTH = 180;
+        const COLLAPSE_THRESHOLD = 100;
+        if (x < COLLAPSE_THRESHOLD) {
+          const next = { listCollapsed: true, listWidth: MIN_WIDTH } as const;
+          resizeDraftRef.current = next;
+          setResizeDraft(next);
+        } else {
+          const clamped = Math.max(MIN_WIDTH, Math.min(x, rect.width * 0.6));
+          const next = { listCollapsed: false, listWidth: clamped } as const;
+          resizeDraftRef.current = next;
+          setResizeDraft(next);
+        }
+      };
+      const onUp = () => {
+        draggingRef.current = false;
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        const draft = resizeDraftRef.current;
+        if (draft) setPrefs((current) => ({ ...current, ...draft }));
+        resizeDraftRef.current = null;
+        setResizeDraft(null);
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+    },
+    [updatePrefs],
+  );
   const toggleListCollapsed = useCallback(() => {
     updatePrefs({ listCollapsed: !listCollapsed });
   }, [listCollapsed, updatePrefs]);
@@ -341,7 +438,12 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   }, [documentFocus, updatePrefs]);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key === "b" && !event.shiftKey && !event.altKey) {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key === "b" &&
+        !event.shiftKey &&
+        !event.altKey
+      ) {
         event.preventDefault();
         toggleListCollapsed();
       }
@@ -354,7 +456,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     function onEscape(event: KeyboardEvent) {
       // 入力中のEscはエディタ側の操作を優先する。
       const target = event.target as HTMLElement | null;
-      if (event.key !== "Escape" || target?.closest("input, textarea, [contenteditable=true]")) return;
+      if (event.key !== "Escape" || target?.closest("input, textarea, [contenteditable=true]"))
+        return;
       event.preventDefault();
       updatePrefs({ documentFocus: false });
     }
@@ -392,64 +495,45 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     });
   }
 
-  function captureCurrentDraftSnapshot(): { selected: Combined; snapshot: NoteDraftSnapshot } | null {
+  function captureCurrentDraftSnapshot(): {
+    selected: Combined;
+    snapshot: NoteDraftSnapshot;
+  } | null {
     if (!selected || !selectedOwner) return null;
     const body = currentDraftBodyForSelected();
     return {
       selected,
-      snapshot: makeNoteDraftSnapshot(selectedOwner, body, selectedBody, Number(selected.version || 0)),
+      snapshot: makeNoteDraftSnapshot(
+        selectedOwner,
+        body,
+        selectedBody,
+        Number(selected.version || 0),
+      ),
     };
   }
 
-  function openSelectionAi(selection: MarkdownTextSelection) {
-    const source = currentDraftBodyForSelected();
-    const first = source.indexOf(selection.text);
-    const second = first >= 0 ? source.indexOf(selection.text, first + selection.text.length) : -1;
-    if (first < 0 || second >= 0) {
-      setToast("選択範囲をMarkdown本文上で一意に特定できません。Rawで選び直すか文書全体を指定してください。", "warning");
-      return;
-    }
-    setAiTarget({
-      scope: "selection", start: first, end: first + selection.text.length, text: selection.text,
-      heading: selection.heading || markdownHeadingAt(source, first),
-      baseRevision: Number(selected?.version || 0), bodySignature: markdownSignature(source), anchorOffset: first,
-    });
-  }
-
-  function openNoteAi() {
-    const textarea = textareaRef.current;
-    const body = currentDraftBodyForSelected();
-    if (textarea && (previewMode === "raw" || hasMarkdownFootnotes(draftBody)) && textarea.selectionEnd > textarea.selectionStart) {
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      setAiTarget({
-        scope: "selection", start, end, text: body.slice(start, end), heading: markdownHeadingAt(body, start),
-        baseRevision: Number(selected?.version || 0), bodySignature: markdownSignature(body), anchorOffset: start,
-      });
-      return;
-    }
-    const richAnchor = previewMode === "edit" ? richAiAnchorRef.current : null;
-    const start = richAnchor?.offset ?? textarea?.selectionStart ?? body.length;
-    setAiTarget({
-      scope: "document", start, end: start, heading: richAnchor?.heading || markdownHeadingAt(body, start),
-      baseRevision: Number(selected?.version || 0), bodySignature: markdownSignature(body), anchorOffset: start,
-    });
-  }
   const mdxMarkdownInsertRef = useRef<((markdown: string) => void) | null>(null);
-  const richAiAnchorRef = useRef<{ heading: string; offset: number } | null>(null);
-  useEffect(() => {
-    richAiAnchorRef.current = null;
-  }, [selectedOwnerKey]);
-  const selectedBodyRef = useRef<NoteDraftSnapshot | null>(selectedOwner
-    ? makeNoteDraftSnapshot(selectedOwner, selectedBody, selectedBody, Number(selected?.version || 0))
-    : null);
-  const ctxRef = useRef<{ selected: Combined | null; snapshot: NoteDraftSnapshot | null }>({ selected: null, snapshot: null });
+  const selectedBodyRef = useRef<NoteDraftSnapshot | null>(
+    selectedOwner
+      ? makeNoteDraftSnapshot(
+          selectedOwner,
+          selectedBody,
+          selectedBody,
+          Number(selected?.version || 0),
+        )
+      : null,
+  );
+  const ctxRef = useRef<{ selected: Combined | null; snapshot: NoteDraftSnapshot | null }>({
+    selected: null,
+    snapshot: null,
+  });
   const commandActionsRef = useRef<Record<string, () => void | Promise<void>>>({});
   const selectedKind = selected ? recordKind(selected) : null;
   // Markdown・PDF 出力は Note と Report だけ。Resource / Prompt は出さない。
   const showDocumentPublish = selectedKind === "note" || selectedKind === "report";
   const pickerSketch = sketches.find((entry) => entry.id === pickerSketchId) || null;
-  const pickerPage = pickerSketch?.document.pages.find((entry) => entry.id === pickerPageId) || null;
+  const pickerPage =
+    pickerSketch?.document.pages.find((entry) => entry.id === pickerPageId) || null;
   const effectiveBody = previewMode === "preview" ? selectedBody : draftBody;
   const selectedUrl = selected ? str(selected.url || selected.source_url) : "";
   const selectedProperties = selected ? noteProperties(selected) : {};
@@ -459,63 +543,87 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   );
   // 書き出しArtifactの自動追加先。記憶済みで今も存在するChatRefだけを対象にする（#288）。
   const exportTargets = useMemo(
-    () => selected ? resolveNoteExportTargets(selected, data.resources as unknown as ChatRefRecord[]) : [],
+    () =>
+      selected
+        ? resolveNoteExportTargets(selected, data.resources as unknown as ChatRefRecord[])
+        : [],
     [data.resources, selected],
   );
   const headingNumbersEnabled = headingNumberOptions.preview.headingNumbers === true;
-  const headingNumberStart = normalizeHeadingNumberStart(headingNumberOptions.preview.headingNumberStart);
-  const headingNumberLevels = normalizeHeadingNumberLevels(headingNumberOptions.preview.headingNumberLevels);
+  const headingNumberStart = normalizeHeadingNumberStart(
+    headingNumberOptions.preview.headingNumberStart,
+  );
+  const headingNumberLevels = normalizeHeadingNumberLevels(
+    headingNumberOptions.preview.headingNumberLevels,
+  );
   const headingNumberLevelSummary = headingNumberLevels.length
-    ? headingNumberLevels.map((level) => HEADING_NUMBER_LEVEL_LABELS[level as HeadingNumberLevel]).join("–")
+    ? headingNumberLevels
+        .map((level) => HEADING_NUMBER_LEVEL_LABELS[level as HeadingNumberLevel])
+        .join("–")
     : "選択なし";
-  const canonicalBinding = canonicalMarkdownBindingFromProperties(selectedProperties, { noteId: selected?.id || "" });
-  const markdownExport = canonicalBinding ? {
-    filePath: canonicalBinding.canonical_path,
-    directory: canonicalBinding.directory,
-    fileSignature: canonicalBinding.file_signature,
-    bodySignature: canonicalBinding.body_signature,
-    storageMode: "linked",
-    syncState: canonicalBinding.sync_state,
-  } : null;
+  const canonicalBinding = canonicalMarkdownBindingFromProperties(selectedProperties, {
+    noteId: selected?.id || "",
+  });
+  const markdownExport = canonicalBinding
+    ? {
+        filePath: canonicalBinding.canonical_path,
+        directory: canonicalBinding.directory,
+        fileSignature: canonicalBinding.file_signature,
+        bodySignature: canonicalBinding.body_signature,
+        storageMode: "linked",
+        syncState: canonicalBinding.sync_state,
+      }
+    : null;
   const markdownExportFilePath = str(markdownExport?.filePath);
   const markdownExportDirectory = str(markdownExport?.directory);
   const markdownExportOpenPath = markdownExportFilePath || markdownExportDirectory;
   const currentExportSignature = markdownSignature(selectedBody);
-  const markdownExportStale = Boolean(str(markdownExport?.bodySignature) && str(markdownExport?.bodySignature) !== currentExportSignature);
+  const markdownExportStale = Boolean(
+    str(markdownExport?.bodySignature) &&
+    str(markdownExport?.bodySignature) !== currentExportSignature,
+  );
   const hasMarkdownExportDirectory = Boolean(str(markdownExport?.directory));
   const draftDirty = Boolean(selected && (richEditorDirty || draftBody !== selectedBody));
   // Editのキー入力を最優先し、見出し索引など全文走査が必要な派生表示は後続レンダーへ送る。
   const deferredDraftBody = useDeferredValue(draftBody);
   const [indexedDraftBody, setIndexedDraftBody] = useState(draftBody);
-  const markdownHeadings = useMemo(() => extractMarkdownHeadings(indexedDraftBody), [indexedDraftBody]);
+  const markdownHeadings = useMemo(
+    () => extractMarkdownHeadings(indexedDraftBody),
+    [indexedDraftBody],
+  );
   const indexedLineCount = useMemo(
     () => indexedDraftBody.replace(/\r\n?/g, "\n").split("\n").length,
     [indexedDraftBody],
   );
   const sketchEmbedRefs = useMemo(() => extractSketchEmbedRefs(draftBody), [draftBody]);
   const sketchEmbedVersionKey = useMemo(
-    () => sketchEmbedRefs.map((ref) => {
-      const sketch = sketches.find((entry) => entry.id === ref.sketchId);
-      return `${ref.key}:${sketch?.version || 0}:${sketch?.updated_at || "missing"}`;
-    }).join("|"),
+    () =>
+      sketchEmbedRefs
+        .map((ref) => {
+          const sketch = sketches.find((entry) => entry.id === ref.sketchId);
+          return `${ref.key}:${sketch?.version || 0}:${sketch?.updated_at || "missing"}`;
+        })
+        .join("|"),
     [sketchEmbedRefs, sketches],
   );
   useEffect(() => {
     let active = true;
-    void Promise.all(sketchEmbedRefs.map(async (ref): Promise<SketchEmbedPreview> => {
-      const sketch = sketches.find((entry) => entry.id === ref.sketchId);
-      const page = sketch ? findSketchPage(sketch.document, ref.pageId) : null;
-      if (!sketch || !page) {
-        return { ...ref, title: sketch?.title || "参照切れのSketch", missing: true };
-      }
-      return {
-        ...ref,
-        title: sketch.title.trim() || "無題のSketch",
-        dataUrl: await renderSketchPageToDataUrl(
-          sketchCanvasMode(sketch.document) === "infinite" ? cropSketchPageToContent(page) : page,
-        ),
-      };
-    })).then((previews) => {
+    void Promise.all(
+      sketchEmbedRefs.map(async (ref): Promise<SketchEmbedPreview> => {
+        const sketch = sketches.find((entry) => entry.id === ref.sketchId);
+        const page = sketch ? findSketchPage(sketch.document, ref.pageId) : null;
+        if (!sketch || !page) {
+          return { ...ref, title: sketch?.title || "参照切れのSketch", missing: true };
+        }
+        return {
+          ...ref,
+          title: sketch.title.trim() || "無題のSketch",
+          dataUrl: await renderSketchPageToDataUrl(
+            sketchCanvasMode(sketch.document) === "infinite" ? cropSketchPageToContent(page) : page,
+          ),
+        };
+      }),
+    ).then((previews) => {
       if (!active) return;
       setSketchEmbeds(Object.fromEntries(previews.map((preview) => [preview.key, preview])));
     });
@@ -532,26 +640,28 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     [headingNumberOptions.publish, sketchEmbeds],
   );
   const searchMatches = useMemo(
-    () => searchOpen && searchQuery.trim() ? findMarkdownMatches(deferredDraftBody, searchQuery) : [],
+    () =>
+      searchOpen && searchQuery.trim() ? findMarkdownMatches(deferredDraftBody, searchQuery) : [],
     [deferredDraftBody, searchOpen, searchQuery],
   );
   // Previewは保存済み本文の表示面なので、置換はEdit / Rawだけで実行できる。
   const replaceEnabled = replaceOpen && previewMode !== "preview" && searchMatches.length > 0;
-  const replaceHint = previewMode === "preview"
-    ? "Preview表示中は置換できません。Edit または Raw へ切り替えてください。"
-    : !searchQuery.trim()
-      ? "検索語を入力すると置換できます。"
-      : !searchMatches.length
-        ? "一致がないため置換できません。検索語を確認してください。"
-        : "";
+  const replaceHint =
+    previewMode === "preview"
+      ? "Preview表示中は置換できません。Edit または Raw へ切り替えてください。"
+      : !searchQuery.trim()
+        ? "検索語を入力すると置換できます。"
+        : !searchMatches.length
+          ? "一致がないため置換できません。検索語を確認してください。"
+          : "";
   const markdownDiff = useMemo(
-    () => diffOpen && draftDirty ? diffMarkdownLines(selectedBody, deferredDraftBody) : [],
+    () => (diffOpen && draftDirty ? diffMarkdownLines(selectedBody, deferredDraftBody) : []),
     [deferredDraftBody, diffOpen, draftDirty, selectedBody],
   );
   const markdownDiffHunks = useMemo(() => buildMarkdownDiffHunks(markdownDiff), [markdownDiff]);
   const markdownDiffMarkers = useMemo(() => buildMarkdownDiffMarkers(markdownDiff), [markdownDiff]);
   const draftLineCount = useMemo(
-    () => diffOpen ? deferredDraftBody.replace(/\r\n?/g, "\n").split("\n").length : 0,
+    () => (diffOpen ? deferredDraftBody.replace(/\r\n?/g, "\n").split("\n").length : 0),
     [deferredDraftBody, diffOpen],
   );
 
@@ -586,7 +696,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     if (!current?.snapshot.dirty) return;
     void flushDraftSnapshot(current);
     // 選択切替effectが同じsnapshotを二重保存しないよう、明示flushの所有権を移す。
-    if (autosaveRef.current && sameNoteDraftOwner(autosaveRef.current.snapshot.owner, current.snapshot.owner)) {
+    if (
+      autosaveRef.current &&
+      sameNoteDraftOwner(autosaveRef.current.snapshot.owner, current.snapshot.owner)
+    ) {
       autosaveRef.current = null;
     }
   }
@@ -678,7 +791,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   closeSearchRef.current = closeMarkdownSearch;
   searchOpenRef.current = searchOpen;
 
-
   /**
    * 置換結果をEditorへ流す（#286）。
    *
@@ -759,12 +871,21 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
 
   useEffect(() => {
     const runtime = globalThis as typeof globalThis & {
-      CSS?: { highlights?: { set(name: string, value: unknown): void; delete(name: string): void } };
+      CSS?: {
+        highlights?: { set(name: string, value: unknown): void; delete(name: string): void };
+      };
       Highlight?: new (...ranges: Range[]) => unknown;
     };
     const registry = runtime.CSS?.highlights;
     registry?.delete("tasken-markdown-search");
-    if (!searchOpen || !searchQuery.trim() || previewMode !== "edit" || !registry || !runtime.Highlight) return;
+    if (
+      !searchOpen ||
+      !searchQuery.trim() ||
+      previewMode !== "edit" ||
+      !registry ||
+      !runtime.Highlight
+    )
+      return;
     const root = previewPanelRef.current?.querySelector<HTMLElement>(".note-mdx-content");
     if (!root) return;
     const needle = searchQuery.trim().toLocaleLowerCase();
@@ -794,7 +915,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
 
   useEffect(() => {
     const previous = autosaveRef.current;
-    if (previous && (!selectedOwnerKey || noteDraftOwnerKey(previous.snapshot.owner) !== selectedOwnerKey)) {
+    if (
+      previous &&
+      (!selectedOwnerKey || noteDraftOwnerKey(previous.snapshot.owner) !== selectedOwnerKey)
+    ) {
       if (autosaveTimerRef.current) {
         window.clearTimeout(autosaveTimerRef.current);
         autosaveTimerRef.current = null;
@@ -802,7 +926,12 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       void flushDraftSnapshot(previous);
     }
     selectedBodyRef.current = selectedOwner
-      ? makeNoteDraftSnapshot(selectedOwner, selectedBody, selectedBody, Number(selected?.version || 0))
+      ? makeNoteDraftSnapshot(
+          selectedOwner,
+          selectedBody,
+          selectedBody,
+          Number(selected?.version || 0),
+        )
       : null;
     setDraftOwner(selectedOwner);
     setDraftBodyState(normalizeRichEditorMarkdown(selectedBody));
@@ -817,7 +946,14 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
 
   ctxRef.current = {
     selected,
-    snapshot: selectedOwner ? makeNoteDraftSnapshot(selectedOwner, draftBody, selectedBody, Number(selected?.version || 0)) : null,
+    snapshot: selectedOwner
+      ? makeNoteDraftSnapshot(
+          selectedOwner,
+          draftBody,
+          selectedBody,
+          Number(selected?.version || 0),
+        )
+      : null,
   };
 
   // ctxRefはレンダー中に新しい選択で上書きされるため、コミット済みの値を保持する専用refを使う。
@@ -871,13 +1007,15 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
    * 保存状態（#331）。一時messageが無くても「いまどうなっているか」を必ず言う。
    * 保存直後にEditorのonChangeで一時messageが消えても、静止状態を読み取れるようにする。
    */
-  const saveStateLabel = draftState
-    || (draftDirty
+  const saveStateLabel =
+    draftState ||
+    (draftDirty
       ? "未保存の変更があります"
       : noteSaveStateLabel({ internalSaved: true, fileState: canonicalFileState }));
 
   /** 選択中のNoteが、この画面ではない別ウィンドウで編集中か（#290）。 */
-  const detachedElsewhere = !detachedNoteId && Boolean(selected && openNoteWindowIds.includes(selected.id));
+  const detachedElsewhere =
+    !detachedNoteId && Boolean(selected && openNoteWindowIds.includes(selected.id));
 
   // 別ウィンドウが編集主体のあいだ、本体はPreviewへ落として書き込ませない。
   useEffect(() => {
@@ -887,7 +1025,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   // 別ウィンドウで開いているNoteを本体から把握する（#290）。
   useEffect(() => {
     if (detachedNoteId) return;
-    void workspaceApi.listOpenNoteWindows().then(setOpenNoteWindowIds).catch(() => setOpenNoteWindowIds([]));
+    void workspaceApi
+      .listOpenNoteWindows()
+      .then(setOpenNoteWindowIds)
+      .catch(() => setOpenNoteWindowIds([]));
     return workspaceApi.onNoteWindowOpenChanged(setOpenNoteWindowIds);
   }, [detachedNoteId]);
 
@@ -909,39 +1050,40 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     const latest = await workspaceApi.get(previous.recordType, previous.id);
     const current = latest ? { ...previous, ...latest } : previous;
     const { recordType, ...entity } = current;
-    const saved = previous.recordType === "note"
-      ? await saveEntityRef.current(
-        recordType,
-        { ...entity, ...entityPatch, body_markdown: body },
-        options,
-        {
-          owner: { recordType: "note", entityId: previous.id },
-          body,
-          expectedRevision: snapshot.expectedRevision,
-        },
-      )
-      : await saveEntityRef.current(recordType, { ...entity, body_markdown: body }, options);
+    const saved =
+      previous.recordType === "note"
+        ? await saveEntityRef.current(
+            recordType,
+            { ...entity, ...entityPatch, body_markdown: body },
+            options,
+            {
+              owner: { recordType: "note", entityId: previous.id },
+              body,
+              expectedRevision: snapshot.expectedRevision,
+            },
+          )
+        : await saveEntityRef.current(recordType, { ...entity, body_markdown: body }, options);
     const ownerKey = noteDraftOwnerKey(snapshot.owner);
     const queue = draftSaveQueuesRef.current.get(ownerKey);
     const savedRevision = Number(saved.version);
-    const nextRevision = Number.isInteger(savedRevision) && savedRevision >= 0
-      ? savedRevision
-      : snapshot.expectedRevision + 1;
+    const nextRevision =
+      Number.isInteger(savedRevision) && savedRevision >= 0
+        ? savedRevision
+        : snapshot.expectedRevision + 1;
     if (queue) {
       queue.lastSavedBody = body;
       queue.lastSavedRevision = nextRevision;
     }
-    const savedBinding = canonicalMarkdownBindingFromProperties(
-      saved.properties_json,
-      { noteId: saved.id },
-    );
+    const savedBinding = canonicalMarkdownBindingFromProperties(saved.properties_json, {
+      noteId: saved.id,
+    });
     const savedFileState = canonicalMarkdownFileState(savedBinding?.sync_state);
     // 保存対象がまだ表示中のownerならEditorの基準本文も同じsnapshotへ進める。
     const currentDraft = autosaveRef.current;
     const stillEditingSavedSnapshot = Boolean(
-      currentDraft
-      && sameNoteDraftOwner(currentDraft.snapshot.owner, snapshot.owner)
-      && currentDraft.snapshot.body === body,
+      currentDraft &&
+      sameNoteDraftOwner(currentDraft.snapshot.owner, snapshot.owner) &&
+      currentDraft.snapshot.body === body,
     );
     if (selectedOwnerKeyRef.current === ownerKey && stillEditingSavedSnapshot) {
       selectedBodyRef.current = snapshot;
@@ -964,22 +1106,24 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   }
 
   function sameDraftSaveJob(left: DraftSaveJob, right: DraftSaveJob): boolean {
-    return sameNoteDraftOwner(left.request.snapshot.owner, right.request.snapshot.owner)
-      && left.request.snapshot.body === right.request.snapshot.body
-      && left.request.snapshot.expectedRevision === right.request.snapshot.expectedRevision
-      && left.options.canonicalMarkdown === right.options.canonicalMarkdown
-      && left.options.reason === right.options.reason
-      && left.options.source === right.options.source
-      && left.options.quiet === right.options.quiet
-      && JSON.stringify(left.entityPatch) === JSON.stringify(right.entityPatch);
+    return (
+      sameNoteDraftOwner(left.request.snapshot.owner, right.request.snapshot.owner) &&
+      left.request.snapshot.body === right.request.snapshot.body &&
+      left.request.snapshot.expectedRevision === right.request.snapshot.expectedRevision &&
+      left.options.canonicalMarkdown === right.options.canonicalMarkdown &&
+      left.options.reason === right.options.reason &&
+      left.options.source === right.options.source &&
+      left.options.quiet === right.options.quiet &&
+      JSON.stringify(left.entityPatch) === JSON.stringify(right.entityPatch)
+    );
   }
 
   function startDraftSaveQueue(queue: DraftSaveQueue): Promise<CanonicalMarkdownFileState> {
     return startLatestSaveQueue(queue, {
       prepare: (pending) => {
         if (
-          queue.lastSavedRevision !== null
-          && pending.request.snapshot.expectedRevision < queue.lastSavedRevision
+          queue.lastSavedRevision !== null &&
+          pending.request.snapshot.expectedRevision < queue.lastSavedRevision
         ) {
           return {
             ...pending,
@@ -1017,8 +1161,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       draftSaveQueuesRef.current.set(ownerKey, queue);
     }
     const job = { request, options, entityPatch };
-    if (queue.current && sameDraftSaveJob(queue.current, job)) return queue.inFlight || startDraftSaveQueue(queue);
-    if (queue.latest && sameDraftSaveJob(queue.latest, job)) return queue.inFlight || startDraftSaveQueue(queue);
+    if (queue.current && sameDraftSaveJob(queue.current, job))
+      return queue.inFlight || startDraftSaveQueue(queue);
+    if (queue.latest && sameDraftSaveJob(queue.latest, job))
+      return queue.inFlight || startDraftSaveQueue(queue);
     // 同じownerでは最新snapshotだけを残す。古いsnapshotを順番待ちにすると、
     // 前の保存がversionを進めた後に同じexpectedRevisionで自分自身をstaleにする。
     queue.latest = job;
@@ -1033,7 +1179,9 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     try {
       return { ok: true, fileState: await enqueueDraftSave(request, options, entityPatch) };
     } catch (error: unknown) {
-      setToastRef.current(`自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`);
+      setToastRef.current(
+        `自動保存に失敗しました。${error instanceof Error ? error.message : String(error)}`,
+      );
       return { ok: false, fileState: "none" };
     }
   }
@@ -1057,9 +1205,9 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     const latest = autosaveRef.current;
     const queue = draftSaveQueuesRef.current.get(ownerKey);
     if (
-      latest?.snapshot.dirty
-      && sameNoteDraftOwner(latest.snapshot.owner, snapshot.snapshot.owner)
-      && latest.snapshot.body !== queue?.lastSavedBody
+      latest?.snapshot.dirty &&
+      sameNoteDraftOwner(latest.snapshot.owner, snapshot.snapshot.owner) &&
+      latest.snapshot.body !== queue?.lastSavedBody
     ) {
       return saveQueuedDraft(latest, options);
     }
@@ -1072,7 +1220,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     const current = captureCurrentDraftSnapshot();
     if (current && sameNoteDraftOwner(current.snapshot.owner, targetOwner)) {
       const flushed = await flushDraftSnapshot(current);
-      if (!flushed.ok) throw new Error("本文を先に保存できませんでした。入力を保持したまま再試行してください。");
+      if (!flushed.ok)
+        throw new Error("本文を先に保存できませんでした。入力を保持したまま再試行してください。");
     }
 
     let latest = await workspaceApi.get("note", target.id);
@@ -1083,12 +1232,13 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     // patchしないよう、同じowner queueでその最新版まで確定してから再読込する。
     const pending = autosaveRef.current;
     if (
-      pending?.snapshot.dirty
-      && sameNoteDraftOwner(pending.snapshot.owner, targetOwner)
-      && pending.snapshot.body !== recordBody(latestNote)
+      pending?.snapshot.dirty &&
+      sameNoteDraftOwner(pending.snapshot.owner, targetOwner) &&
+      pending.snapshot.body !== recordBody(latestNote)
     ) {
       const flushed = await flushDraftSnapshot(pending);
-      if (!flushed.ok) throw new Error("本文を先に保存できませんでした。入力を保持したまま再試行してください。");
+      if (!flushed.ok)
+        throw new Error("本文を先に保存できませんでした。入力を保持したまま再試行してください。");
       latest = await workspaceApi.get("note", target.id);
       if (!latest) throw new Error("対象Noteが見つかりません。");
       latestNote = { ...target, ...latest, recordType: "note" };
@@ -1111,22 +1261,28 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       options,
       buildPatch(latest),
     );
-    if (!result.ok) throw new Error("Noteの設定を保存できませんでした。入力を保持したまま再試行してください。");
+    if (!result.ok)
+      throw new Error("Noteの設定を保存できませんでした。入力を保持したまま再試行してください。");
     return result.fileState;
   }
 
-  useEffect(() => () => {
-    cancelAutosaveTimer();
-    const pending = autosaveRef.current;
-    if (pending?.snapshot.dirty) void saveQueuedDraft(pending);
-  }, []);
+  useEffect(
+    () => () => {
+      cancelAutosaveTimer();
+      const pending = autosaveRef.current;
+      if (pending?.snapshot.dirty) void saveQueuedDraft(pending);
+    },
+    [],
+  );
 
   useEffect(() => {
     const onAppFlushRequested = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        handled: boolean;
-        flush: Promise<boolean> | null;
-      }>).detail;
+      const detail = (
+        event as CustomEvent<{
+          handled: boolean;
+          flush: Promise<boolean> | null;
+        }>
+      ).detail;
       if (!detail || detail.handled) return;
       detail.handled = true;
       detail.flush = flushDraftSnapshot(captureCurrentDraftSnapshot()).then((result) => result.ok);
@@ -1138,9 +1294,13 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   useEffect(() => {
     if (!detachedNoteId) return undefined;
     return workspaceApi.onNoteWindowFlushRequested((request) => {
-      const pageFlush = flushDraftSnapshot(captureCurrentDraftSnapshot()).then((result) => result.ok);
+      const pageFlush = flushDraftSnapshot(captureCurrentDraftSnapshot()).then(
+        (result) => result.ok,
+      );
       void Promise.all([pageFlush, flushPendingNoteDraftSaves()])
-        .then(([pageOk, pendingOk]) => workspaceApi.ackNoteWindowFlush(request.requestId, pageOk && pendingOk))
+        .then(([pageOk, pendingOk]) =>
+          workspaceApi.ackNoteWindowFlush(request.requestId, pageOk && pendingOk),
+        )
         .catch(() => workspaceApi.ackNoteWindowFlush(request.requestId, false));
     });
   }, [detachedNoteId, draftBody, draftDirty, selectedBody, selectedOwnerKey, saveEntity]);
@@ -1165,7 +1325,12 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
         return;
       }
       // Ctrl+R は既定では画面再読み込み。未保存本文を失わないよう置換UIを優先する（#286）。
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r" && !event.shiftKey && !event.altKey) {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "r" &&
+        !event.shiftKey &&
+        !event.altKey
+      ) {
         event.preventDefault();
         openReplaceRef.current();
         return;
@@ -1182,18 +1347,22 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
             return;
           }
           setDraftState("保存しています。");
-          const overwrite = canonicalFileState === "external_change" && window.confirm(
-            "Markdownが外部で変更されています。Taskenの本文で上書きしますか。",
-          );
+          const overwrite =
+            canonicalFileState === "external_change" &&
+            window.confirm("Markdownが外部で変更されています。Taskenの本文で上書きしますか。");
           flushDraftSnapshot(request, overwrite ? { canonicalMarkdown: "overwrite" } : {})
             .then((result) => {
               if (!result.ok) {
                 setDraftState("保存できませんでした。入力は保持しています。再試行してください。");
                 return;
               }
-              setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: result.fileState }));
+              setDraftState(
+                noteSaveStateLabel({ internalSaved: true, fileState: result.fileState }),
+              );
             })
-            .catch((error: unknown) => setDraftState(error instanceof Error ? error.message : "保存できませんでした。"));
+            .catch((error: unknown) =>
+              setDraftState(error instanceof Error ? error.message : "保存できませんでした。"),
+            );
         }
       }
     }
@@ -1203,7 +1372,14 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
 
   function copy() {
     workspaceApi
-      .copyText(visible.map((record) => `${str(record.title)}\t${NOTES_KIND_LABELS[recordKind(record)]}\t${themes.find((theme) => theme.id === (record.project_id || record.theme_id))?.name || "—"}\t${str(record.url || record.source_url)}`).join("\n"))
+      .copyText(
+        visible
+          .map(
+            (record) =>
+              `${str(record.title)}\t${NOTES_KIND_LABELS[recordKind(record)]}\t${themes.find((theme) => theme.id === (record.project_id || record.theme_id))?.name || "—"}\t${str(record.url || record.source_url)}`,
+          )
+          .join("\n"),
+      )
       .then(() => setToast("Notes一覧をコピーしました。"));
   }
 
@@ -1259,7 +1435,11 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
 
   function createRecord(kind: NotesKind) {
     if (kind === "resource") {
-      openDrawer({ type: "resource", mode: "edit", entity: { project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }) } });
+      openDrawer({
+        type: "resource",
+        mode: "edit",
+        entity: { project_id: canonicalThemeId(activeTheme?.id, { defaultPersonal: true }) },
+      });
       return;
     }
     if (kind === "prompt") {
@@ -1278,7 +1458,6 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   function openRecord(record: Combined) {
     // 一覧クリックは右ペイン選択 + 編集ドロワー（メタ・タイトル・種別の編集）。
     if (isWorkbenchRecord(record)) {
-      if (record.id !== selected?.id) setAiTarget(null);
       switchDocument(record);
     }
     openDrawer({ type: record.recordType, mode: "edit", entity: record });
@@ -1288,11 +1467,14 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     event.preventDefault();
     const items: ContextMenuItem[] = [
       { label: "編集する", onSelect: () => openRecord(record) },
-      { label: "本文を開く", onSelect: () => {
-        if (isWorkbenchRecord(record)) {
-          switchDocument(record);
-        }
-      } },
+      {
+        label: "本文を開く",
+        onSelect: () => {
+          if (isWorkbenchRecord(record)) {
+            switchDocument(record);
+          }
+        },
+      },
       { label: "タイトルをコピー", onSelect: () => workspaceApi.copyText(str(record.title)) },
     ];
     if (url) {
@@ -1319,23 +1501,26 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     if (mode === "raw") return panel.querySelector<HTMLElement>("textarea.note-main-editor-raw");
     if (mode === "preview") return panel.querySelector<HTMLElement>(".note-main-preview");
     // Edit: 選択ドラッグの自動スクロールが暴走しないよう、contenteditable の外枠だけをスクロールさせる。
-    return panel.querySelector<HTMLElement>(".note-live-editor [class*='_rootContentEditableWrapper_']")
-      || panel.querySelector<HTMLElement>(".note-mdx-content")
-      || panel.querySelector<HTMLElement>("textarea.note-main-editor-raw");
+    return (
+      panel.querySelector<HTMLElement>(
+        ".note-live-editor [class*='_rootContentEditableWrapper_']",
+      ) ||
+      panel.querySelector<HTMLElement>(".note-mdx-content") ||
+      panel.querySelector<HTMLElement>("textarea.note-main-editor-raw")
+    );
   }
 
   function modeHeadingPositions(mode: PreviewMode, element: HTMLElement): number[] {
     if (mode === "raw") {
       const lineCount = Math.max(1, draftBody.split(/\r?\n/).length);
-      return markdownHeadings.map((heading) => rawHeadingScrollTop(
-        heading.sourceLine,
-        lineCount,
-        element.scrollHeight,
-      ));
+      return markdownHeadings.map((heading) =>
+        rawHeadingScrollTop(heading.sourceLine, lineCount, element.scrollHeight),
+      );
     }
     const elementTop = element.getBoundingClientRect().top;
-    return Array.from(element.querySelectorAll<HTMLElement>("h1, h2, h3, h4"))
-      .map((heading) => element.scrollTop + heading.getBoundingClientRect().top - elementTop);
+    return Array.from(element.querySelectorAll<HTMLElement>("h1, h2, h3, h4")).map(
+      (heading) => element.scrollTop + heading.getBoundingClientRect().top - elementTop,
+    );
   }
 
   function captureModeScroll(mode: PreviewMode): NoteModeScrollAnchor {
@@ -1377,7 +1562,8 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       target?.removeEventListener("pointerdown", cleanup);
       target?.removeEventListener("touchstart", cleanup);
       target?.removeEventListener("keydown", cleanup);
-      if (modeScrollRestoreCleanupRef.current === cleanup) modeScrollRestoreCleanupRef.current = null;
+      if (modeScrollRestoreCleanupRef.current === cleanup)
+        modeScrollRestoreCleanupRef.current = null;
     };
     modeScrollRestoreCleanupRef.current = cleanup;
     window.requestAnimationFrame(() => {
@@ -1416,7 +1602,9 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   }
 
   function insertDraftMarkdown(markdown: string, selectionStart: number, selectionEnd: number) {
-    setDraftBodyForSelected((current) => `${current.slice(0, selectionStart)}${markdown}${current.slice(selectionEnd)}`);
+    setDraftBodyForSelected(
+      (current) => `${current.slice(0, selectionStart)}${markdown}${current.slice(selectionEnd)}`,
+    );
     window.setTimeout(() => {
       const position = selectionStart + markdown.length;
       textareaRef.current?.focus();
@@ -1452,21 +1640,24 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     setSketchPickerOpen(false);
   }
 
-  const previewSketchImage = useCallback(async (src: string): Promise<string> => {
-    const ref = parseSketchEmbedUrl(src);
-    if (!ref) return src;
-    const cached = sketchEmbeds[ref.key]?.dataUrl;
-    if (cached) return cached;
-    const sketch = sketches.find((entry) => entry.id === ref.sketchId);
-    const page = sketch ? findSketchPage(sketch.document, ref.pageId) : null;
-    if (page && sketch) {
-      return renderSketchPageToDataUrl(
-        sketchCanvasMode(sketch.document) === "infinite" ? cropSketchPageToContent(page) : page,
-      );
-    }
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="240"><rect width="100%" height="100%" fill="#f6f1ed"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#746a65" font-family="sans-serif" font-size="22">参照先のSketchが見つかりません</text></svg>`;
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-  }, [sketchEmbeds, sketches]);
+  const previewSketchImage = useCallback(
+    async (src: string): Promise<string> => {
+      const ref = parseSketchEmbedUrl(src);
+      if (!ref) return src;
+      const cached = sketchEmbeds[ref.key]?.dataUrl;
+      if (cached) return cached;
+      const sketch = sketches.find((entry) => entry.id === ref.sketchId);
+      const page = sketch ? findSketchPage(sketch.document, ref.pageId) : null;
+      if (page && sketch) {
+        return renderSketchPageToDataUrl(
+          sketchCanvasMode(sketch.document) === "infinite" ? cropSketchPageToContent(page) : page,
+        );
+      }
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="240"><rect width="100%" height="100%" fill="#f6f1ed"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#746a65" font-family="sans-serif" font-size="22">参照先のSketchが見つかりません</text></svg>`;
+      return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    },
+    [sketchEmbeds, sketches],
+  );
 
   function openEmbeddedSketch(event: MouseEvent<HTMLDivElement>) {
     const target = (event.target as HTMLElement).closest<HTMLElement>("[data-sketch-id]");
@@ -1528,7 +1719,7 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       setDraftOwner(selectedOwnerRef.current);
       setDraftBodyState(value);
       setRichEditorDirty(value !== selectedBodyRef.current?.body);
-      setDraftState((current) => current ? "" : current);
+      setDraftState((current) => (current ? "" : current));
     });
   }, []);
 
@@ -1540,39 +1731,38 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     setDraftState(`Markdownを読み込めませんでした。${message}`);
   }, []);
 
-  const extractSelection = useCallback(async (
-    kind: SelectionExtractionKind,
-    selection: MarkdownTextSelection,
-    title: string,
-  ) => {
-    const source = ctxRef.current.selected;
-    if (!source || source.recordType !== "note") {
-      throw new Error("元のNoteを確認できません。Noteを開き直して再度選択してください。");
-    }
-    const result = buildSelectionExtractionOperations(
-      {
-        kind,
-        title,
-        selection,
-        source: {
-          id: source.id,
-          title: str(source.title) || "無題",
-          projectId: str(source.project_id || source.theme_id) || null,
+  const extractSelection = useCallback(
+    async (kind: SelectionExtractionKind, selection: MarkdownTextSelection, title: string) => {
+      const source = ctxRef.current.selected;
+      if (!source || source.recordType !== "note") {
+        throw new Error("元のNoteを確認できません。Noteを開き直して再度選択してください。");
+      }
+      const result = buildSelectionExtractionOperations(
+        {
+          kind,
+          title,
+          selection,
+          source: {
+            id: source.id,
+            title: str(source.title) || "無題",
+            projectId: str(source.project_id || source.theme_id) || null,
+          },
         },
-      },
-      { entityId: crypto.randomUUID(), referenceId: crypto.randomUUID() },
-    );
-    await saveEntities(
-      result.operations,
-      `${kind === "task" ? "Task" : "Note"}「${result.entity.title}」を作成しました。`,
-    );
-    setRecentExtraction({
-      type: result.entityType,
-      title: result.entity.title,
-      entity: result.entity as unknown as BaseRecord,
-    });
-    setDraftState("選択範囲を切り出しました。元の本文は変更していません。");
-  }, [saveEntities]);
+        { entityId: crypto.randomUUID(), referenceId: crypto.randomUUID() },
+      );
+      await saveEntities(
+        result.operations,
+        `${kind === "task" ? "Task" : "Note"}「${result.entity.title}」を作成しました。`,
+      );
+      setRecentExtraction({
+        type: result.entityType,
+        title: result.entity.title,
+        entity: result.entity as unknown as BaseRecord,
+      });
+      setDraftState("選択範囲を切り出しました。元の本文は変更していません。");
+    },
+    [saveEntities],
+  );
 
   async function saveSelectedDraft() {
     const request = captureCurrentDraftSnapshot();
@@ -1585,10 +1775,13 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     }
     setDraftState("保存しています。");
     try {
-      const overwrite = canonicalFileState === "external_change" && window.confirm(
-        "Markdownが外部で変更されています。Taskenの本文で上書きしますか。",
+      const overwrite =
+        canonicalFileState === "external_change" &&
+        window.confirm("Markdownが外部で変更されています。Taskenの本文で上書きしますか。");
+      const result = await flushDraftSnapshot(
+        request,
+        overwrite ? { canonicalMarkdown: "overwrite" } : {},
       );
-      const result = await flushDraftSnapshot(request, overwrite ? { canonicalMarkdown: "overwrite" } : {});
       if (!result.ok) {
         setDraftState("保存できませんでした。入力は保持しています。再試行してください。");
         return;
@@ -1605,62 +1798,72 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     const targetRect = target.getBoundingClientRect();
     const topInScroll = targetRect.top - scrollRect.top + scrollEl.scrollTop;
     const maxScroll = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
-    const nextTop = Math.min(maxScroll, Math.max(0, topInScroll - scrollEl.clientHeight * fraction));
+    const nextTop = Math.min(
+      maxScroll,
+      Math.max(0, topInScroll - scrollEl.clientHeight * fraction),
+    );
     scrollEl.scrollTo({ top: nextTop, behavior: "smooth" });
   }
 
-  const jumpToMarkdownHeading = useCallback((heading: MarkdownHeadingItem) => {
-    const panel = previewPanelRef.current;
-    if (!panel) return;
-    if (previewMode === "preview") {
-      const scrollEl = modeScroller("preview");
-      const el = panel.querySelector(`#${CSS.escape(heading.id)}`) as HTMLElement | null
-        || panel.querySelector(`[data-md-heading-index="${heading.index}"]`) as HTMLElement | null;
-      if (scrollEl && el) scrollHeadingIntoView(scrollEl, el);
-      else el?.scrollIntoView({ behavior: "smooth", block: "center" });
-      return;
-    }
-    if (previewMode === "edit") {
-      const scrollEl = modeScroller("edit");
-      const content = panel.querySelector(".note-mdx-content");
-      const nodes = content?.querySelectorAll("h1, h2, h3, h4");
-      const el = nodes?.[heading.index] as HTMLElement | undefined;
-      if (scrollEl && el) scrollHeadingIntoView(scrollEl, el);
-      else el?.scrollIntoView({ behavior: "smooth", block: "center" });
-      return;
-    }
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const lines = ctxRef.current.snapshot?.body.split(/\r?\n/) || [];
-    let inCode = false;
-    let count = 0;
-    let found = -1;
-    for (let i = 0; i < lines.length; i += 1) {
-      if (lines[i].trim().startsWith("```")) {
-        inCode = !inCode;
-        continue;
+  const jumpToMarkdownHeading = useCallback(
+    (heading: MarkdownHeadingItem) => {
+      const panel = previewPanelRef.current;
+      if (!panel) return;
+      if (previewMode === "preview") {
+        const scrollEl = modeScroller("preview");
+        const el =
+          (panel.querySelector(`#${CSS.escape(heading.id)}`) as HTMLElement | null) ||
+          (panel.querySelector(`[data-md-heading-index="${heading.index}"]`) as HTMLElement | null);
+        if (scrollEl && el) scrollHeadingIntoView(scrollEl, el);
+        else el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
       }
-      if (inCode) continue;
-      if (/^#{1,4}\s+\S/.test(lines[i])) {
-        if (count === heading.index) {
-          found = i;
-          break;
+      if (previewMode === "edit") {
+        const scrollEl = modeScroller("edit");
+        const content = panel.querySelector(".note-mdx-content");
+        const nodes = content?.querySelectorAll("h1, h2, h3, h4");
+        const el = nodes?.[heading.index] as HTMLElement | undefined;
+        if (scrollEl && el) scrollHeadingIntoView(scrollEl, el);
+        else el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const lines = ctxRef.current.snapshot?.body.split(/\r?\n/) || [];
+      let inCode = false;
+      let count = 0;
+      let found = -1;
+      for (let i = 0; i < lines.length; i += 1) {
+        if (lines[i].trim().startsWith("```")) {
+          inCode = !inCode;
+          continue;
         }
-        count += 1;
+        if (inCode) continue;
+        if (/^#{1,4}\s+\S/.test(lines[i])) {
+          if (count === heading.index) {
+            found = i;
+            break;
+          }
+          count += 1;
+        }
       }
-    }
-    if (found < 0) return;
-    const before = lines.slice(0, found).join("\n");
-    const pos = before.length + (found > 0 ? 1 : 0);
-    ta.focus();
-    ta.setSelectionRange(pos, pos);
-    const lineHeight = Number.parseFloat(window.getComputedStyle(ta).lineHeight) || 20;
-    // 見出し行がビューポートの約 2/5 に来る位置へ
-    const nextTop = Math.max(0, found * lineHeight - ta.clientHeight * 0.4);
-    ta.scrollTo({ top: nextTop, behavior: "smooth" });
-  }, [previewMode]);
+      if (found < 0) return;
+      const before = lines.slice(0, found).join("\n");
+      const pos = before.length + (found > 0 ? 1 : 0);
+      ta.focus();
+      ta.setSelectionRange(pos, pos);
+      const lineHeight = Number.parseFloat(window.getComputedStyle(ta).lineHeight) || 20;
+      // 見出し行がビューポートの約 2/5 に来る位置へ
+      const nextTop = Math.max(0, found * lineHeight - ta.clientHeight * 0.4);
+      ta.scrollTo({ top: nextTop, behavior: "smooth" });
+    },
+    [previewMode],
+  );
 
-  async function updateHeadingNumberSettings(patch: { heading_numbers?: boolean; heading_number_levels?: HeadingNumberLevel[] }) {
+  async function updateHeadingNumberSettings(patch: {
+    heading_numbers?: boolean;
+    heading_number_levels?: HeadingNumberLevel[];
+  }) {
     if (!selected || selected.recordType !== "note") return;
     try {
       const target = selected;
@@ -1676,12 +1879,23 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
         },
       }));
       if (patch.heading_numbers !== undefined && patch.heading_number_levels === undefined) {
-        setToast(nextEnabled ? "見出し番号を表示します（Edit / Preview / PDF）。" : "見出し番号を非表示にしました。", "success");
+        setToast(
+          nextEnabled
+            ? "見出し番号を表示します（Edit / Preview / PDF）。"
+            : "見出し番号を非表示にしました。",
+          "success",
+        );
       } else if (patch.heading_number_levels !== undefined) {
-        setToast(`番号対象を${nextLevels.length ? nextLevels.map((level) => `h${level}`).join("・") : "なし"}にしました。`, "success");
+        setToast(
+          `番号対象を${nextLevels.length ? nextLevels.map((level) => `h${level}`).join("・") : "なし"}にしました。`,
+          "success",
+        );
       }
     } catch (error) {
-      setToast(`設定を保存できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `設定を保存できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     }
   }
 
@@ -1698,7 +1912,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
    * 出力先ChatRefが確定済みなら、書き出したArtifactを確認なしで同じ参照へ追加する（#288）。
    * 追加に失敗しても書き出したファイルと文書は触らず、通常の紐づけ導線へ戻す。
    */
-  async function autoLinkExportArtifacts(exported: NoteDocumentExport, purpose: "canonical" | "copy" | "derived" = "derived") {
+  async function autoLinkExportArtifacts(
+    exported: NoteDocumentExport,
+    purpose: "canonical" | "copy" | "derived" = "derived",
+  ) {
     // canonical保存は同じ正本ファイルを更新するだけなのでArtifactを増やさない（#291）。
     // 明示的なMarkdownコピーと派生出力（PDF・SVG等）は別ファイルとして扱う。
     if (!shouldCreateExportArtifact(exported.format, purpose)) {
@@ -1712,14 +1929,24 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     const operations: SaveOperation[] = [];
     const undo: AutoLinkUndoEntry[] = [];
     for (const chatRef of exportTargets) {
-      const { operation } = buildNoteExportArtifactOperation({ exported, chatRef, artifacts: data.artifacts });
+      const { operation } = buildNoteExportArtifactOperation({
+        exported,
+        chatRef,
+        artifacts: data.artifacts,
+      });
       const artifactId = str((operation.entity as Record<string, unknown>).id);
       operations.push(operation);
-      undo.push({ artifactId, previous: data.artifacts.find((artifact) => artifact.id === artifactId) || null });
+      undo.push({
+        artifactId,
+        previous: data.artifacts.find((artifact) => artifact.id === artifactId) || null,
+      });
     }
 
     try {
-      await saveEntities(operations, `${exported.format === "pdf" ? "PDF" : "Markdown"}を保存し、Chat Refへ追加しました。`);
+      await saveEntities(
+        operations,
+        `${exported.format === "pdf" ? "PDF" : "Markdown"}を保存し、Chat Refへ追加しました。`,
+      );
       setRecentExport(null);
       setAutoLinked({ exported, chatRefs: exportTargets, undo });
     } catch (error) {
@@ -1737,7 +1964,11 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     try {
       if (restored.length) {
         await saveEntities(
-          restored.map((entry) => ({ action: "save" as const, type: "artifact" as const, entity: entry.previous as Entity })),
+          restored.map((entry) => ({
+            action: "save" as const,
+            type: "artifact" as const,
+            entity: entry.previous as Entity,
+          })),
           "自動追加を取り消しました。",
         );
       }
@@ -1748,7 +1979,10 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       setRecentExport(autoLinked.exported);
       setAutoLinked(null);
     } catch (error) {
-      setToast(`自動追加を取り消せませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `自動追加を取り消せませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     }
   }
 
@@ -1757,12 +1991,19 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     if (!selected || !chatRefId) return;
     const target = selected;
     try {
-      await saveCurrentNoteMetadata(target, (latest) => {
-        const next = [...new Set([...noteArtifactExportTargetIds(latest), chatRefId])];
-        return { properties_json: withNoteArtifactExportTargets(noteProperties(latest), next) };
-      }, { quiet: true });
+      await saveCurrentNoteMetadata(
+        target,
+        (latest) => {
+          const next = [...new Set([...noteArtifactExportTargetIds(latest), chatRefId])];
+          return { properties_json: withNoteArtifactExportTargets(noteProperties(latest), next) };
+        },
+        { quiet: true },
+      );
     } catch (error) {
-      setToast(`Markdown出力先の記憶に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `Markdown出力先の記憶に失敗しました。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     }
   }
 
@@ -1770,12 +2011,19 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
     if (!selected) return;
     const target = selected;
     try {
-      await saveCurrentNoteMetadata(target, (latest) => ({
-        properties_json: withNoteArtifactExportTargets(noteProperties(latest), []),
-      }), { quiet: true });
+      await saveCurrentNoteMetadata(
+        target,
+        (latest) => ({
+          properties_json: withNoteArtifactExportTargets(noteProperties(latest), []),
+        }),
+        { quiet: true },
+      );
       setToast("自動追加先を解除しました。次回の書き出しでは紐づけ先を選び直します。", "success");
     } catch (error) {
-      setToast(`自動追加先を解除できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `自動追加先を解除できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     }
   }
 
@@ -1788,11 +2036,18 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       const current = captureCurrentDraftSnapshot();
       const flushed = await flushDraftSnapshot(current);
       if (!flushed.ok) {
-        setToast("Markdownを作成できませんでした。入力は保持しています。保存を再試行してください。", "danger");
+        setToast(
+          "Markdownを作成できませんでした。入力は保持しています。保存を再試行してください。",
+          "danger",
+        );
         return;
       }
       const persisted = await workspaceApi.get("note", selected.id);
-      const exportNote: Combined = { ...selected, ...(persisted || {}), recordType: "note" as const };
+      const exportNote: Combined = {
+        ...selected,
+        ...(persisted || {}),
+        recordType: "note" as const,
+      };
       const bodyForExport = str(exportNote.body_markdown);
       const exportThemeId = str(exportNote.project_id || exportNote.theme_id);
       const exportThemeName = themes.find((theme) => theme.id === exportThemeId)?.name || "";
@@ -1817,26 +2072,34 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
         storageMode: "linked",
       });
       if (changeCanonicalPath) {
-        await saveCurrentNoteMetadata(exportNote, (latest) => {
-          const latestBody = recordBody(latest);
-          const latestThemeId = str(latest.project_id || latest.theme_id);
-          const latestThemeName = themes.find((theme) => theme.id === latestThemeId)?.name || "";
-          const latestContent = publishMarkdownContent(latest, latestThemeName, latestBody);
-          const exportBinding = canonicalMarkdownBindingFromProperties(latest.properties_json, { noteId: latest.id });
-          const nextBinding = {
-            ...(exportBinding || {}),
-            binding_id: exportBinding?.binding_id || `note:${latest.id}`,
-            canonical_path: str(result.filePath),
-            directory: str(result.directory),
-            file_name: str(result.filePath).split(/[\\/]/).pop() || "",
-            body_signature: markdownSignature(latestBody),
-            file_signature: markdownSignature(latestContent),
-            sync_state: "in_sync",
-            last_synced_at: str(result.exportedAt) || new Date().toISOString(),
-            last_error: "",
-          };
-          return { properties_json: withCanonicalMarkdownBinding(noteProperties(latest), nextBinding) };
-        }, { canonicalMarkdown: "overwrite" });
+        await saveCurrentNoteMetadata(
+          exportNote,
+          (latest) => {
+            const latestBody = recordBody(latest);
+            const latestThemeId = str(latest.project_id || latest.theme_id);
+            const latestThemeName = themes.find((theme) => theme.id === latestThemeId)?.name || "";
+            const latestContent = publishMarkdownContent(latest, latestThemeName, latestBody);
+            const exportBinding = canonicalMarkdownBindingFromProperties(latest.properties_json, {
+              noteId: latest.id,
+            });
+            const nextBinding = {
+              ...(exportBinding || {}),
+              binding_id: exportBinding?.binding_id || `note:${latest.id}`,
+              canonical_path: str(result.filePath),
+              directory: str(result.directory),
+              file_name: str(result.filePath).split(/[\\/]/).pop() || "",
+              body_signature: markdownSignature(latestBody),
+              file_signature: markdownSignature(latestContent),
+              sync_state: "in_sync",
+              last_synced_at: str(result.exportedAt) || new Date().toISOString(),
+              last_error: "",
+            };
+            return {
+              properties_json: withCanonicalMarkdownBinding(noteProperties(latest), nextBinding),
+            };
+          },
+          { canonicalMarkdown: "overwrite" },
+        );
         setToast(`Markdownの保存先を変更しました。${result.filePath || ""}`, "success");
         setCanonicalSyncState("synced");
         setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: "synced" }));
@@ -1851,33 +2114,54 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       // Tasken内部は保存済みでもファイルだけ失敗しうる。片方だけの失敗を区別して示す。
       setCanonicalSyncState("failed");
       setDraftState(noteSaveStateLabel({ internalSaved: true, fileState: "failed" }));
-      setToast(`Markdownを更新できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `Markdownを更新できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     } finally {
       setMarkdownExporting(false);
     }
   }
 
-  async function exportMermaidForPowerPoint(request: { action: MermaidPowerPointAction; blockId: string; source: string }): Promise<void> {
+  async function exportMermaidForPowerPoint(request: {
+    action: MermaidPowerPointAction;
+    blockId: string;
+    source: string;
+  }): Promise<void> {
     const title = `${str(selected?.title) || "Mermaid"}-${request.blockId}`;
     try {
       const svg = await renderMermaidSvgForOffice(request.source);
       if (request.action === "copy-svg") {
         const result = await workspaceApi.copySvg({ svg });
         if (result.verified) {
-          setToast("PowerPoint編集用SVGをクリップボードへコピーしました。貼り付け結果はPowerPointのversionに依存します。", "success");
+          setToast(
+            "PowerPoint編集用SVGをクリップボードへコピーしました。貼り付け結果はPowerPointのversionに依存します。",
+            "success",
+          );
         } else {
-          setToast("WindowsのSVGクリップボード形式を確認できませんでした。SVGを書き出すか、編集可能なPowerPointを作成してください。", "warning");
+          setToast(
+            "WindowsのSVGクリップボード形式を確認できませんでした。SVGを書き出すか、編集可能なPowerPointを作成してください。",
+            "warning",
+          );
         }
         return;
       }
       if (request.action === "export-svg") {
         const result = await workspaceApi.exportMermaidSvg({ title, svg });
-        setToast(result.canceled ? "Mermaid SVG出力をキャンセルしました。" : `PowerPoint用SVGを保存しました。${result.filePath || ""}`, result.canceled ? "info" : "success");
+        setToast(
+          result.canceled
+            ? "Mermaid SVG出力をキャンセルしました。"
+            : `PowerPoint用SVGを保存しました。${result.filePath || ""}`,
+          result.canceled ? "info" : "success",
+        );
         return;
       }
       const capability = mermaidPowerPointCapabilities(request.source);
       if (!capability.nativePptx) {
-        setToast(capability.reason || "ネイティブPPTXの対象外です。SVGを書き出してください。", "warning");
+        setToast(
+          capability.reason || "ネイティブPPTXの対象外です。SVGを書き出してください。",
+          "warning",
+        );
         return;
       }
       const diagram = extractMermaidPptxDiagram(svg, request.source);
@@ -1889,9 +2173,15 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       const warningText = result.warnings.length
         ? `（注意: ${result.warnings[0]}${result.warnings.length > 1 ? ` 他${result.warnings.length - 1}件` : ""}）`
         : "";
-      setToast(`編集可能なPowerPointを保存しました。${result.filePath || ""}${warningText}`, result.warnings.length ? "warning" : "success");
+      setToast(
+        `編集可能なPowerPointを保存しました。${result.filePath || ""}${warningText}`,
+        result.warnings.length ? "warning" : "success",
+      );
     } catch (error) {
-      setToast(`MermaidのPowerPoint出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `MermaidのPowerPoint出力に失敗しました。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     }
   }
 
@@ -1905,7 +2195,9 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
       const content = publishMarkdownContent(exportNote, exportThemeName, recordBody(exportNote));
       const result = await workspaceApi.exportMarkdownPdf({
         title: str(exportNote.title),
-        html: await renderMermaidDocumentForPdf(previewDocument(content, "markdown", publishRenderOptions)),
+        html: await renderMermaidDocumentForPdf(
+          previewDocument(content, "markdown", publishRenderOptions),
+        ),
         chooseDirectory: true,
         fileName: `${str(exportNote.title) || "markdown-document"}.pdf`,
         themeId: exportThemeId || null,
@@ -1921,142 +2213,181 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
         exportedAt: str(result.exportedAt) || new Date().toISOString(),
         storageMode: "linked",
       });
-      await saveCurrentNoteMetadata(exportNote, (latest) => ({
-        properties_json: withNoteDocumentExport(noteProperties(latest), exported),
-      }), { quiet: true });
-      const warningText = result.warnings?.length ? `（注意: ${result.warnings[0]}${result.warnings.length > 1 ? ` 他${result.warnings.length - 1}件` : ""}）` : "";
-      setToast(`PDFを出力しました。${result.filePath || ""}${warningText}`, result.warnings?.length ? "warning" : "success");
+      await saveCurrentNoteMetadata(
+        exportNote,
+        (latest) => ({
+          properties_json: withNoteDocumentExport(noteProperties(latest), exported),
+        }),
+        { quiet: true },
+      );
+      const warningText = result.warnings?.length
+        ? `（注意: ${result.warnings[0]}${result.warnings.length > 1 ? ` 他${result.warnings.length - 1}件` : ""}）`
+        : "";
+      setToast(
+        `PDFを出力しました。${result.filePath || ""}${warningText}`,
+        result.warnings?.length ? "warning" : "success",
+      );
       await autoLinkExportArtifacts(exported);
     } catch (error) {
-      setToast(`PDF出力に失敗しました。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `PDF出力に失敗しました。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     } finally {
       setPdfExporting(false);
     }
   }
 
-  function handleNoteAiApplied(saved: BaseRecord, body: string) {
-    if (saved.id !== selected?.id) setAiTarget(null);
-    setSelectedId(saved.id);
-    const owner = noteDraftOwner("note", saved.id);
-    setDraftOwner(owner);
-    setDraftBodyState(body);
-    setIndexedDraftBody(body);
-    setRichEditorDirty(false);
-    setPreviewMode("edit");
-  }
-
   commandActionsRef.current = {
-    save: () => selected ? saveSelectedDraft() : setToast("保存する文書を選択してください。", "warning"),
-    edit: () => selected ? switchPreviewMode("edit") : setToast("編集する文書を選択してください。", "warning"),
-    preview: () => selected ? switchPreviewMode("preview") : setToast("表示する文書を選択してください。", "warning"),
-    format: () => selected ? formatSelectedDraft() : setToast("整形する文書を選択してください。", "warning"),
-    pdf: () => showDocumentPublish ? exportSelectedPdf() : setToast("PDF出力できるNoteまたはReportを選択してください。", "warning"),
-    folder: () => markdownExportOpenPath
-      ? openMarkdownExportDirectory(markdownExportDirectory || markdownExportFilePath)
-      : setToast("先にNoteを保存して正本Markdownの保存先を決めてください。", "warning"),
-    draft: () => selected?.recordType === "note"
-      ? openNoteAi()
-      : setToast("Note AIで扱うNoteを選択してください。", "warning"),
+    save: () =>
+      selected ? saveSelectedDraft() : setToast("保存する文書を選択してください。", "warning"),
+    edit: () =>
+      selected
+        ? switchPreviewMode("edit")
+        : setToast("編集する文書を選択してください。", "warning"),
+    preview: () =>
+      selected
+        ? switchPreviewMode("preview")
+        : setToast("表示する文書を選択してください。", "warning"),
+    format: () =>
+      selected ? formatSelectedDraft() : setToast("整形する文書を選択してください。", "warning"),
+    pdf: () =>
+      showDocumentPublish
+        ? exportSelectedPdf()
+        : setToast("PDF出力できるNoteまたはReportを選択してください。", "warning"),
+    folder: () =>
+      markdownExportOpenPath
+        ? openMarkdownExportDirectory(markdownExportDirectory || markdownExportFilePath)
+        : setToast("先にNoteを保存して正本Markdownの保存先を決めてください。", "warning"),
     // 選択範囲の変換（#313）。自動toolbarを撤去したので、ここが正規の入口。
     "selection-task": () => requestSelectionCommand("task"),
     "selection-note": () => requestSelectionCommand("note"),
-    "selection-ai": () => requestSelectionCommand("ai"),
   };
 
   /**
    * 派生出力（#331）。Note正本の`保存`と語彙を分け、出力先を選ぶ操作と混同させない。
    */
-  const headingNumberMenuItems: ToolbarMenuItem[] = showDocumentPublish ? [
-    {
-      kind: "toggle",
-      id: "heading-numbers",
-      label: "Edit・Preview・PDFに通し番号を付ける",
-      hint: "本文は書き換えません。Markdownファイル出力には含めません。",
-      checked: headingNumbersEnabled,
-      onToggle: (checked) => updateHeadingNumberSettings({ heading_numbers: checked }),
-    },
-    ...(headingNumbersEnabled ? HEADING_NUMBER_LEVELS.map((level): ToolbarMenuItem => ({
-      kind: "toggle",
-      id: `heading-level-${level}`,
-      label: HEADING_NUMBER_LEVEL_LABELS[level],
-      checked: headingNumberLevels.includes(level),
-      onToggle: (checked) => updateHeadingNumberSettings({
-        heading_number_levels: normalizeHeadingNumberLevels(
-          checked
-            ? [...headingNumberLevels, level]
-            : headingNumberLevels.filter((current) => current !== level),
-        ),
-      }),
-    })) : []),
-  ] : [];
+  const headingNumberMenuItems: ToolbarMenuItem[] = showDocumentPublish
+    ? [
+        {
+          kind: "toggle",
+          id: "heading-numbers",
+          label: "Edit・Preview・PDFに通し番号を付ける",
+          hint: "本文は書き換えません。Markdownファイル出力には含めません。",
+          checked: headingNumbersEnabled,
+          onToggle: (checked) => updateHeadingNumberSettings({ heading_numbers: checked }),
+        },
+        ...(headingNumbersEnabled
+          ? HEADING_NUMBER_LEVELS.map((level): ToolbarMenuItem => ({
+              kind: "toggle",
+              id: `heading-level-${level}`,
+              label: HEADING_NUMBER_LEVEL_LABELS[level],
+              checked: headingNumberLevels.includes(level),
+              onToggle: (checked) =>
+                updateHeadingNumberSettings({
+                  heading_number_levels: normalizeHeadingNumberLevels(
+                    checked
+                      ? [...headingNumberLevels, level]
+                      : headingNumberLevels.filter((current) => current !== level),
+                  ),
+                }),
+            }))
+          : []),
+      ]
+    : [];
 
-  const outputMenuItems: ToolbarMenuItem[] = showDocumentPublish ? [
-    { kind: "group", id: "group-export", label: "書き出し" },
-    {
-      id: "export-markdown",
-      label: markdownExporting ? "Markdownコピーを作成しています" : "Markdownコピーを作成",
-      hint: "正本Markdownとは別のファイルを作成します。",
-      disabled: markdownExporting,
-      onSelect: () => void exportSelectedMarkdown(false),
-    },
-    {
-      id: "export-pdf",
-      label: pdfExporting ? "PDFを作成しています" : "PDFを作成",
-      disabled: pdfExporting,
-      onSelect: () => void exportSelectedPdf(),
-    },
-    { kind: "group", id: "group-destination", label: "保存先" },
-    ...(markdownExportOpenPath ? [{
-      id: "open-destination",
-      label: "保存先フォルダを開く",
-      hint: markdownExportDirectory || markdownExportFilePath,
-      onSelect: () => void openMarkdownExportDirectory(markdownExportDirectory || markdownExportFilePath),
-    } as ToolbarMenuItem] : []),
-    ...(hasMarkdownExportDirectory ? [{
-      id: "change-destination",
-      label: "保存先を変更",
-      disabled: markdownExporting,
-      onSelect: () => void exportSelectedMarkdown(true),
-    } as ToolbarMenuItem] : []),
-  ] : [
-    {
-      id: "export-unavailable",
-      label: "この種別では書き出しできません",
-      disabled: true,
-      onSelect: () => {},
-    },
-  ];
+  const outputMenuItems: ToolbarMenuItem[] = showDocumentPublish
+    ? [
+        { kind: "group", id: "group-export", label: "書き出し" },
+        {
+          id: "export-markdown",
+          label: markdownExporting ? "Markdownコピーを作成しています" : "Markdownコピーを作成",
+          hint: "正本Markdownとは別のファイルを作成します。",
+          disabled: markdownExporting,
+          onSelect: () => void exportSelectedMarkdown(false),
+        },
+        {
+          id: "export-pdf",
+          label: pdfExporting ? "PDFを作成しています" : "PDFを作成",
+          disabled: pdfExporting,
+          onSelect: () => void exportSelectedPdf(),
+        },
+        { kind: "group", id: "group-destination", label: "保存先" },
+        ...(markdownExportOpenPath
+          ? [
+              {
+                id: "open-destination",
+                label: "保存先フォルダを開く",
+                hint: markdownExportDirectory || markdownExportFilePath,
+                onSelect: () =>
+                  void openMarkdownExportDirectory(
+                    markdownExportDirectory || markdownExportFilePath,
+                  ),
+              } as ToolbarMenuItem,
+            ]
+          : []),
+        ...(hasMarkdownExportDirectory
+          ? [
+              {
+                id: "change-destination",
+                label: "保存先を変更",
+                disabled: markdownExporting,
+                onSelect: () => void exportSelectedMarkdown(true),
+              } as ToolbarMenuItem,
+            ]
+          : []),
+      ]
+    : [
+        {
+          id: "export-unavailable",
+          label: "この種別では書き出しできません",
+          disabled: true,
+          onSelect: () => {},
+        },
+      ];
 
   /**
    * この文書に対する低頻度操作（#331）。
    * 同格buttonとして並べず、意味の分かる一つのlabelの下へ畳む。
    */
-  const documentMenuItems: ToolbarMenuItem[] = selected ? [
-    { kind: "group", id: "group-editor", label: "本文" },
-    { id: "format", label: "整形する", hint: "行末空白と過剰な空行を整えます", onSelect: () => formatSelectedDraft() },
-    {
-      id: "insert-sketch",
-      label: "Sketchを挿入",
-      hint: sketches.length ? "カーソル位置に既存Sketchを挿入します" : "先にSketchを作成してください",
-      disabled: previewMode !== "edit" || !sketches.length,
-      onSelect: () => showSketchPicker(),
-    },
-    { id: "copy-body", label: "本文をすべてコピー", onSelect: () => void copySelectedRaw() },
-    ...(!detachedNoteId && selected.recordType === "note" ? [{
-      kind: "group" as const, id: "group-window", label: "ウィンドウ",
-    }, {
-      id: "detach",
-      label: openNoteWindowIds.includes(selected.id) ? "別ウィンドウを前面に出す" : "別ウィンドウで開く",
-      hint: "本文を別ウィンドウへ切り離し、本体では別の画面へ移動できます",
-      onSelect: () => void detachSelectedNote(),
-    } as ToolbarMenuItem] : []),
-    { kind: "group", id: "group-ai", label: "AI" },
-    ...(selected.recordType === "note" ? [{
-      id: "ai-edit",
-      label: "Note AIを開く",
-      onSelect: () => openNoteAi(),
-    } as ToolbarMenuItem] : []),
-  ] : [];
+  const documentMenuItems: ToolbarMenuItem[] = selected
+    ? [
+        { kind: "group", id: "group-editor", label: "本文" },
+        {
+          id: "format",
+          label: "整形する",
+          hint: "行末空白と過剰な空行を整えます",
+          onSelect: () => formatSelectedDraft(),
+        },
+        {
+          id: "insert-sketch",
+          label: "Sketchを挿入",
+          hint: sketches.length
+            ? "カーソル位置に既存Sketchを挿入します"
+            : "先にSketchを作成してください",
+          disabled: previewMode !== "edit" || !sketches.length,
+          onSelect: () => showSketchPicker(),
+        },
+        { id: "copy-body", label: "本文をすべてコピー", onSelect: () => void copySelectedRaw() },
+        ...(!detachedNoteId && selected.recordType === "note"
+          ? [
+              {
+                kind: "group" as const,
+                id: "group-window",
+                label: "ウィンドウ",
+              },
+              {
+                id: "detach",
+                label: openNoteWindowIds.includes(selected.id)
+                  ? "別ウィンドウを前面に出す"
+                  : "別ウィンドウで開く",
+                hint: "本文を別ウィンドウへ切り離し、本体では別の画面へ移動できます",
+                onSelect: () => void detachSelectedNote(),
+              } as ToolbarMenuItem,
+            ]
+          : []),
+      ]
+    : [];
 
   useEffect(() => {
     const runCommand = (event: Event) => {
@@ -2068,24 +2399,43 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
   }, []);
 
   return (
-    <div className={`page notes-page${documentFocus ? " is-document-focus" : ""}${detachedNoteId ? " is-detached-note" : ""}`}>
+    <div
+      className={`page notes-page${documentFocus ? " is-document-focus" : ""}${detachedNoteId ? " is-detached-note" : ""}`}
+    >
       {/* 切り離しウィンドウでは新規作成や一覧操作を出さず、この文書の操作だけにする（#290）。 */}
-      <PageHeader route="notes" title={detachedNoteId ? str(selected?.title) || "無題のノート" : undefined}>
+      <PageHeader
+        route="notes"
+        title={detachedNoteId ? str(selected?.title) || "無題のノート" : undefined}
+      >
         {detachedNoteId ? (
           <>
-            <Button variant="secondary" onClick={() => void workspaceApi.openNoteWindowInMain("notes")}>Taskenを表示</Button>
-            <Button variant="primary" onClick={() => void workspaceApi.returnNoteWindowToMain()}>本体へ戻す</Button>
+            <Button
+              variant="secondary"
+              onClick={() => void workspaceApi.openNoteWindowInMain("notes")}
+            >
+              Taskenを表示
+            </Button>
+            <Button variant="primary" onClick={() => void workspaceApi.returnNoteWindowToMain()}>
+              本体へ戻す
+            </Button>
           </>
         ) : (
           <>
-            <Button variant="secondary" onClick={copy}>一覧をコピー</Button>
+            <Button variant="secondary" onClick={copy}>
+              一覧をコピー
+            </Button>
             {/* 作成は一つのprimary actionへ集約する。既定の種類は現在のfilterから決める（#313）。 */}
             <NoteCreateMenu defaultKind={createDefaultKind} onCreate={createRecord} />
           </>
         )}
       </PageHeader>
       <div className="filter-bar panel">
-        <input data-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル、本文、URLを検索" />
+        <input
+          data-search
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="タイトル、本文、URLを検索"
+        />
         <div className="segmented" aria-label="表示する種類">
           {[
             ["all", "すべて"],
@@ -2094,7 +2444,11 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
             ["report", "Report"],
             ["prompt", "Prompt"],
           ].map(([value, label]) => (
-            <button key={value} className={scope === value ? "is-active" : ""} onClick={() => updatePrefs({ scope: value as NoteScope })}>
+            <button
+              key={value}
+              className={scope === value ? "is-active" : ""}
+              onClick={() => updatePrefs({ scope: value as NoteScope })}
+            >
               {label}
             </button>
           ))}
@@ -2124,9 +2478,13 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
         <span>{visible.length}件</span>
       </div>
       <div
-        className={`notes-workbench${listCollapsed || documentFocus || detachedNoteId ? " is-list-collapsed" : ""}${aiTarget ? " has-note-ai-drawer" : ""}`}
+        className={`notes-workbench${listCollapsed || documentFocus || detachedNoteId ? " is-list-collapsed" : ""}`}
         ref={workbenchRef}
-        style={!listCollapsed && !documentFocus && !detachedNoteId && listWidth ? { "--notes-list-width": `${listWidth}px` } as React.CSSProperties : undefined}
+        style={
+          !listCollapsed && !documentFocus && !detachedNoteId && listWidth
+            ? ({ "--notes-list-width": `${listWidth}px` } as React.CSSProperties)
+            : undefined
+        }
       >
         {/* 切り離しウィンドウでは一覧を畳む。gridの列を保つため要素自体は残す（#290）。 */}
         <section className="panel list-page notes-list-panel">
@@ -2138,11 +2496,15 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
             const isSelected = selected?.id === record.id;
             const themeId = str(record.project_id || record.theme_id) || null;
             const theme = themes.find((entry) => entry.id === themeId);
-            const themeIndex = Math.max(0, themes.findIndex((entry) => entry.id === themeId));
+            const themeIndex = Math.max(
+              0,
+              themes.findIndex((entry) => entry.id === themeId),
+            );
             const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
-            const bodyPreview = kind === "resource"
-              ? (url || recordBodyPreview(record) || "URLなし")
-              : (recordBodyPreview(record) || url || "本文なし");
+            const bodyPreview =
+              kind === "resource"
+                ? url || recordBodyPreview(record) || "URLなし"
+                : recordBodyPreview(record) || url || "本文なし";
             return (
               <div
                 className={`note-row ${isSelected ? "is-selected" : ""}`}
@@ -2151,18 +2513,24 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                 onContextMenu={(event) => showRecordMenu(event, record, url)}
               >
                 <span className="todo-theme-bar note-theme-bar" aria-hidden="true" />
-                <button
-                  className="note-row-main"
-                  onClick={() => openRecord(record)}
-                >
+                <button className="note-row-main" onClick={() => openRecord(record)}>
                   <span className="note-row-head">
                     <span className="note-kind" title={kindLabel} aria-label={kindLabel}>
                       <NotesKindIcon kind={kind} />
                     </span>
-                    <strong className="note-row-title">{str(record.title) || (kind === "resource" ? url || "無題のResource" : "無題")}</strong>
-                    {record.recordType === "note" && comments && comments.length > 0 && <span className="comment-count" aria-label={`${comments.length}件のコメント`}>{comments.length}</span>}
+                    <strong className="note-row-title">
+                      {str(record.title) ||
+                        (kind === "resource" ? url || "無題のResource" : "無題")}
+                    </strong>
+                    {record.recordType === "note" && comments && comments.length > 0 && (
+                      <span className="comment-count" aria-label={`${comments.length}件のコメント`}>
+                        {comments.length}
+                      </span>
+                    )}
                   </span>
-                  <span className={`note-row-body ${kind === "resource" && url ? "is-url" : ""}`}>{bodyPreview}</span>
+                  <span className={`note-row-body ${kind === "resource" && url ? "is-url" : ""}`}>
+                    {bodyPreview}
+                  </span>
                   <span className="note-row-meta">
                     <span className="theme-inline">
                       <span className="chip-dot" />
@@ -2185,7 +2553,13 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
               </div>
             );
           })}
-          {!visible.length && <EmptyState title="一致する項目はありません" action="Noteを書く" onAction={() => addNote("note")} />}
+          {!visible.length && (
+            <EmptyState
+              title="一致する項目はありません"
+              action="Noteを書く"
+              onAction={() => addNote("note")}
+            />
+          )}
         </section>
         <div
           className="notes-resize-handle"
@@ -2196,12 +2570,34 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
           onPointerDown={handleResize}
           onDoubleClick={toggleListCollapsed}
           onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleListCollapsed(); }
-            if (event.key === "ArrowLeft") { event.preventDefault(); updatePrefs({ listWidth: Math.max(180, (listWidth || 280) - 40), listCollapsed: false }); }
-            if (event.key === "ArrowRight") { event.preventDefault(); updatePrefs({ listWidth: Math.min(800, (listWidth || 280) + 40), listCollapsed: false }); }
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              toggleListCollapsed();
+            }
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              updatePrefs({
+                listWidth: Math.max(180, (listWidth || 280) - 40),
+                listCollapsed: false,
+              });
+            }
+            if (event.key === "ArrowRight") {
+              event.preventDefault();
+              updatePrefs({
+                listWidth: Math.min(800, (listWidth || 280) + 40),
+                listCollapsed: false,
+              });
+            }
           }}
         />
-        {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />}
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            items={contextMenu.items}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
         <section className="panel note-preview-panel" ref={previewPanelRef}>
           {selected ? (
             <>
@@ -2209,33 +2605,54 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                   別ウィンドウが編集主体のあいだ、本体はPreviewに固定して読むだけにする。 */}
               {detachedElsewhere && (
                 <div className="note-detached-notice" role="status">
-                  <span>このノートは別ウィンドウで編集中です。ここでは内容の確認だけできます。</span>
-                  <Button variant="secondary" compact onClick={() => void detachSelectedNote()}>別ウィンドウを表示</Button>
+                  <span>
+                    このノートは別ウィンドウで編集中です。ここでは内容の確認だけできます。
+                  </span>
+                  <Button variant="secondary" compact onClick={() => void detachSelectedNote()}>
+                    別ウィンドウを表示
+                  </Button>
                 </div>
               )}
               <div className="note-preview-header">
                 <div>
-                  <h2>{str(selected.title) || (selectedKind === "resource" ? selectedUrl || "無題のResource" : "無題")}</h2>
+                  <h2>
+                    {str(selected.title) ||
+                      (selectedKind === "resource" ? selectedUrl || "無題のResource" : "無題")}
+                  </h2>
                   {(selected.created_at || selected.updated_at || draftState) && (
                     <div className="note-date-meta">
-                      {selected.created_at && <span>追加 {noteDateLabel(selected.created_at)}</span>}
-                      {selected.updated_at && <span>更新 {noteDateLabel(selected.updated_at)}</span>}
+                      {selected.created_at && (
+                        <span>追加 {noteDateLabel(selected.created_at)}</span>
+                      )}
+                      {selected.updated_at && (
+                        <span>更新 {noteDateLabel(selected.updated_at)}</span>
+                      )}
                       {recentExtraction && (
                         <button
                           type="button"
                           className="note-extraction-result"
-                          onClick={() => openDrawer({
-                            type: recentExtraction.type,
-                            entity: recentExtraction.entity as Record<string, unknown>,
-                          })}
+                          onClick={() =>
+                            openDrawer({
+                              type: recentExtraction.type,
+                              entity: recentExtraction.entity as Record<string, unknown>,
+                            })
+                          }
                         >
-                          {recentExtraction.type === "task" ? "Task" : "Note"}「{recentExtraction.title}」を開く
+                          {recentExtraction.type === "task" ? "Task" : "Note"}「
+                          {recentExtraction.title}」を開く
                         </button>
                       )}
                     </div>
                   )}
                   {selectedUrl && (
-                    <a className="note-preview-url" href={selectedUrl} target="_blank" rel="noreferrer">{selectedUrl}</a>
+                    <a
+                      className="note-preview-url"
+                      href={selectedUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {selectedUrl}
+                    </a>
                   )}
                 </div>
                 {/*
@@ -2244,17 +2661,37 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                 */}
                 <div className="note-preview-actions">
                   {/* 保存状態は保存操作の隣に置く。自動保存と手動保存の関係を読み取れるようにする（#331）。 */}
-                  <span className="note-draft-state" role="status" aria-live="polite">{saveStateLabel}</span>
-                  <Button variant="secondary" compact disabled={!draftDirty} onClick={() => {
-                    setDraftBodyForSelected(selectedBody);
-                    setRichEditorDirty(false);
-                    setDraftState("変更を戻しました。");
-                  }}>戻す</Button>
-                  <ActionButton action="notesSave" compact disabled={!draftDirty} onClick={saveSelectedDraft} />
-                  <ToolbarMenu label="この文書" title="この文書に対する操作" items={documentMenuItems} />
+                  <span className="note-draft-state" role="status" aria-live="polite">
+                    {saveStateLabel}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    compact
+                    disabled={!draftDirty}
+                    onClick={() => {
+                      setDraftBodyForSelected(selectedBody);
+                      setRichEditorDirty(false);
+                      setDraftState("変更を戻しました。");
+                    }}
+                  >
+                    戻す
+                  </Button>
+                  <ActionButton
+                    action="notesSave"
+                    compact
+                    disabled={!draftDirty}
+                    onClick={saveSelectedDraft}
+                  />
+                  <ToolbarMenu
+                    label="この文書"
+                    title="この文書に対する操作"
+                    items={documentMenuItems}
+                  />
                 </div>
               </div>
-              <div className={`document-publish-panel document-publish-strip ${markdownExportStale && showDocumentPublish ? "needs-export" : ""}`}>
+              <div
+                className={`document-publish-panel document-publish-strip ${markdownExportStale && showDocumentPublish ? "needs-export" : ""}`}
+              >
                 <div className="document-publish-title">
                   {showDocumentPublish ? (
                     <>
@@ -2264,12 +2701,18 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                           type="button"
                           title={markdownExportDirectory || markdownExportFilePath}
                           aria-label="保存先フォルダを開く"
-                          onClick={() => openMarkdownExportDirectory(markdownExportDirectory || markdownExportFilePath)}
+                          onClick={() =>
+                            openMarkdownExportDirectory(
+                              markdownExportDirectory || markdownExportFilePath,
+                            )
+                          }
                         >
                           <IconFolder size={15} stroke={1.8} />
                         </button>
                       )}
-                      {markdownExportStale && <span className="save-status save-status-error">要再出力</span>}
+                      {markdownExportStale && (
+                        <span className="save-status save-status-error">要再出力</span>
+                      )}
                     </>
                   ) : selectedKind === "resource" ? (
                     <strong>リンクメモ</strong>
@@ -2283,19 +2726,30 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                       className={previewMode === "edit" ? "is-active" : ""}
                       disabled={detachedElsewhere}
                       title={detachedElsewhere ? "別ウィンドウで編集中です" : undefined}
-                      onMouseEnter={() => { void loadMarkdownRichEditor(); }}
-                      onFocus={() => { void loadMarkdownRichEditor(); }}
+                      onMouseEnter={() => {
+                        void loadMarkdownRichEditor();
+                      }}
+                      onFocus={() => {
+                        void loadMarkdownRichEditor();
+                      }}
                       onClick={() => switchPreviewMode("edit")}
                     >
                       Edit
                     </button>
-                    <button className={previewMode === "preview" ? "is-active" : ""} onClick={() => switchPreviewMode("preview")}>Preview</button>
+                    <button
+                      className={previewMode === "preview" ? "is-active" : ""}
+                      onClick={() => switchPreviewMode("preview")}
+                    >
+                      Preview
+                    </button>
                     <button
                       className={previewMode === "raw" ? "is-active" : ""}
                       disabled={detachedElsewhere}
                       title={detachedElsewhere ? "別ウィンドウで編集中です" : undefined}
                       onClick={() => switchPreviewMode("raw")}
-                    >Raw</button>
+                    >
+                      Raw
+                    </button>
                   </div>
                   {/* Editorの高頻度操作。本体と別ウィンドウで同じ位置・順序にする（#331）。 */}
                   <Button
@@ -2325,11 +2779,17 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                       setDiffOpen((current) => !current);
                     }}
                   >
-                    {markdownDiffHunks.length ? `変更 ${markdownDiffHunks.length}か所` : "変更を確認"}
+                    {markdownDiffHunks.length
+                      ? `変更 ${markdownDiffHunks.length}か所`
+                      : "変更を確認"}
                   </Button>
                   {/* 派生出力は正本保存と語彙を分ける（#331）。`保存`とは呼ばない。 */}
                   {showDocumentPublish && (
-                    <ToolbarMenu label="見出し番号" title="見出し番号の設定" items={headingNumberMenuItems} />
+                    <ToolbarMenu
+                      label="見出し番号"
+                      title="見出し番号の設定"
+                      items={headingNumberMenuItems}
+                    />
                   )}
                   <ToolbarMenu label="出力" title="書き出しと保存先" items={outputMenuItems} />
                 </div>
@@ -2337,14 +2797,24 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
               {showDocumentPublish && exportTargets.length > 0 && (
                 <p className="note-export-target" role="status">
                   <span>
-                    書き出しはChat Ref「{exportTargets.map((chatRef) => str(chatRef.title) || "無題").join("」「")}」へ自動追加します。
+                    書き出しはChat Ref「
+                    {exportTargets.map((chatRef) => str(chatRef.title) || "無題").join("」「")}
+                    」へ自動追加します。
                   </span>
-                  <button type="button" className="text-button compact" onClick={() => void clearExportTargets()}>解除</button>
+                  <button
+                    type="button"
+                    className="text-button compact"
+                    onClick={() => void clearExportTargets()}
+                  >
+                    解除
+                  </button>
                 </p>
               )}
               {recentExport?.noteId === selected.id && (
                 <div className="note-export-handoff" role="status">
-                  <span>{recentExport.format === "pdf" ? "PDF" : "Markdown"}を書き出しました。</span>
+                  <span>
+                    {recentExport.format === "pdf" ? "PDF" : "Markdown"}を書き出しました。
+                  </span>
                   <Button
                     type="button"
                     variant="secondary"
@@ -2366,22 +2836,28 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                 <div className="note-export-handoff" role="status">
                   <span>
                     {autoLinked.exported.format === "pdf" ? "PDF" : "Markdown"}を保存し、Chat Ref「
-                    {autoLinked.chatRefs.map((chatRef) => str(chatRef.title) || "無題").join("」「")}
+                    {autoLinked.chatRefs
+                      .map((chatRef) => str(chatRef.title) || "無題")
+                      .join("」「")}
                     」へ追加しました。
                   </span>
                   <Button
                     type="button"
                     variant="secondary"
                     compact
-                    onClick={() => openDrawer({
-                      type: "resource",
-                      mode: "edit",
-                      entity: autoLinked.chatRefs[0] as unknown as Record<string, unknown>,
-                    })}
+                    onClick={() =>
+                      openDrawer({
+                        type: "resource",
+                        mode: "edit",
+                        entity: autoLinked.chatRefs[0] as unknown as Record<string, unknown>,
+                      })
+                    }
                   >
                     Chat Refを開く
                   </Button>
-                  <Button type="button" variant="secondary" compact onClick={undoAutoLink}>取り消す</Button>
+                  <Button type="button" variant="secondary" compact onClick={undoAutoLink}>
+                    取り消す
+                  </Button>
                   <button
                     type="button"
                     className="text-button compact"
@@ -2392,11 +2868,21 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                   >
                     紐づけ先を変更
                   </button>
-                  <button type="button" className="text-button compact" onClick={() => setAutoLinked(null)}>閉じる</button>
+                  <button
+                    type="button"
+                    className="text-button compact"
+                    onClick={() => setAutoLinked(null)}
+                  >
+                    閉じる
+                  </button>
                 </div>
               )}
               {searchOpen && (
-                <div className="markdown-search-bar" role="search" aria-label="Markdown本文を検索・置換">
+                <div
+                  className="markdown-search-bar"
+                  role="search"
+                  aria-label="Markdown本文を検索・置換"
+                >
                   <div className="markdown-search-row">
                     <input
                       ref={searchInputRef}
@@ -2416,10 +2902,30 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                       aria-label="本文を検索"
                     />
                     <span className="markdown-search-count" aria-live="polite">
-                      {searchMatches.length ? `${searchIndex + 1}/${searchMatches.length}` : searchQuery.trim() ? "一致なし" : "検索語を入力"}
+                      {searchMatches.length
+                        ? `${searchIndex + 1}/${searchMatches.length}`
+                        : searchQuery.trim()
+                          ? "一致なし"
+                          : "検索語を入力"}
                     </span>
-                    <Button type="button" variant="secondary" compact disabled={!searchMatches.length} onClick={() => moveSearchMatch(-1)}>前へ</Button>
-                    <Button type="button" variant="secondary" compact disabled={!searchMatches.length} onClick={() => moveSearchMatch(1)}>次へ</Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      compact
+                      disabled={!searchMatches.length}
+                      onClick={() => moveSearchMatch(-1)}
+                    >
+                      前へ
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      compact
+                      disabled={!searchMatches.length}
+                      onClick={() => moveSearchMatch(1)}
+                    >
+                      次へ
+                    </Button>
                     <Button
                       type="button"
                       variant="secondary"
@@ -2429,7 +2935,9 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                     >
                       置換
                     </Button>
-                    <Button type="button" variant="secondary" compact onClick={closeMarkdownSearch}>閉じる</Button>
+                    <Button type="button" variant="secondary" compact onClick={closeMarkdownSearch}>
+                      閉じる
+                    </Button>
                   </div>
                   {replaceOpen && (
                     <div className="markdown-search-row">
@@ -2447,8 +2955,24 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                         placeholder="置換後の文字列"
                         aria-label="置換後の文字列"
                       />
-                      <Button type="button" variant="secondary" compact disabled={!replaceEnabled} onClick={replaceCurrentMatch}>置換</Button>
-                      <Button type="button" variant="secondary" compact disabled={!replaceEnabled} onClick={replaceAllMatches}>すべて置換</Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        compact
+                        disabled={!replaceEnabled}
+                        onClick={replaceCurrentMatch}
+                      >
+                        置換
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        compact
+                        disabled={!replaceEnabled}
+                        onClick={replaceAllMatches}
+                      >
+                        すべて置換
+                      </Button>
                     </div>
                   )}
                   {replaceOpen && replaceHint && <p className="field-help">{replaceHint}</p>}
@@ -2471,49 +2995,60 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                   headingNumberOptions={headingNumberOptions.preview}
                   onSelect={jumpToMarkdownHeading}
                 />
-                {previewMode === "edit" ? hasMarkdownFootnotes(draftBody) ? (
-                  <textarea
-                    ref={textareaRef}
-                    className="note-main-editor note-main-editor-raw note-editor-footnotes"
-                    value={draftBody}
-                    onPaste={handleDraftPaste}
-                    onChange={(event) => {
-                      setDraftBodyForSelected(event.target.value);
-                      if (draftState) setDraftState("");
-                    }}
-                    aria-label="脚注を含むMarkdown本文"
-                  />
-                ) : (
-                  <MarkdownEditorBoundary
-                    key={selected.id}
-                    markdown={draftBody}
-                    resetKey={selected.id}
-                    onChange={(value) => updateRichEditorDraft(selectedOwnerKey || "", value)}
-                    onPaste={handleDraftPaste}
-                    onError={reportRichEditorError}
-                  >
-                    <Suspense fallback={<div className="note-editor-loading" role="status">エディタを読み込んでいます…</div>}>
-                      <MarkdownRichEditor
-                        ownerKey={selectedOwnerKey || ""}
-                        markdown={draftBody}
-                        headingNumberOptions={previewRenderOptions}
-                        markdownSourceRef={mdxMarkdownSourceRef}
-                        markdownInsertRef={mdxMarkdownInsertRef}
-                        onChange={(value) => updateRichEditorDraft(selectedOwnerKey || "", value)}
-                        onDirty={markRichEditorDirty}
-                        onImageUpload={uploadEditorImage}
-                        onImagePreview={previewSketchImage}
-                        onError={reportRichEditorError}
-                        onExtractSelection={selected.recordType === "note" ? extractSelection : undefined}
-                        onAiEditSelection={selected.recordType === "note" ? openSelectionAi : undefined}
-                        onCaretAnchorChange={(anchor) => { richAiAnchorRef.current = anchor; }}
-                        selectionCommand={selectionCommand}
-                        onSelectionUnavailable={() => setToast("先に本文の範囲を選択してください。", "warning")}
-                      />
-                    </Suspense>
-                  </MarkdownEditorBoundary>
+                {previewMode === "edit" ? (
+                  hasMarkdownFootnotes(draftBody) ? (
+                    <textarea
+                      ref={textareaRef}
+                      className="note-main-editor note-main-editor-raw note-editor-footnotes"
+                      value={draftBody}
+                      onPaste={handleDraftPaste}
+                      onChange={(event) => {
+                        setDraftBodyForSelected(event.target.value);
+                        if (draftState) setDraftState("");
+                      }}
+                      aria-label="脚注を含むMarkdown本文"
+                    />
+                  ) : (
+                    <MarkdownEditorBoundary
+                      key={selected.id}
+                      markdown={draftBody}
+                      resetKey={selected.id}
+                      onChange={(value) => updateRichEditorDraft(selectedOwnerKey || "", value)}
+                      onPaste={handleDraftPaste}
+                      onError={reportRichEditorError}
+                    >
+                      <Suspense
+                        fallback={
+                          <div className="note-editor-loading" role="status">
+                            エディタを読み込んでいます…
+                          </div>
+                        }
+                      >
+                        <MarkdownRichEditor
+                          ownerKey={selectedOwnerKey || ""}
+                          markdown={draftBody}
+                          headingNumberOptions={previewRenderOptions}
+                          markdownSourceRef={mdxMarkdownSourceRef}
+                          markdownInsertRef={mdxMarkdownInsertRef}
+                          onChange={(value) => updateRichEditorDraft(selectedOwnerKey || "", value)}
+                          onDirty={markRichEditorDirty}
+                          onImageUpload={uploadEditorImage}
+                          onImagePreview={previewSketchImage}
+                          onError={reportRichEditorError}
+                          onExtractSelection={
+                            selected.recordType === "note" ? extractSelection : undefined
+                          }
+                          selectionCommand={selectionCommand}
+                          onSelectionUnavailable={() =>
+                            setToast("先に本文の範囲を選択してください。", "warning")
+                          }
+                        />
+                      </Suspense>
+                    </MarkdownEditorBoundary>
+                  )
                 ) : previewMode === "preview" ? (
-                  <MarkdownPreview className="note-main-preview markdown-preview"
+                  <MarkdownPreview
+                    className="note-main-preview markdown-preview"
                     html={previewHtml(draftBody, "markdown", previewRenderOptions)}
                     onClick={openEmbeddedSketch}
                     onMermaidAction={exportMermaidForPowerPoint}
@@ -2533,32 +3068,32 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
               </div>
             </>
           ) : (
-            <EmptyState title="項目がありません" action="Noteを書く" onAction={() => addNote("note")} />
+            <EmptyState
+              title="項目がありません"
+              action="Noteを書く"
+              onAction={() => addNote("note")}
+            />
           )}
         </section>
-        {selected && selected.recordType === "note" && aiTarget && (
-          <NoteAiDrawer
-            note={selected}
-            body={currentDraftBodyForSelected()}
-            target={aiTarget}
-            proposals={data.ai_proposals || []}
-            theme={themes.find((entry) => entry.id === str(selected.project_id || selected.theme_id)) || null}
-            resources={(data.resources || []).filter((entry) => !str(selected.project_id || selected.theme_id) || str(entry.project_id || entry.theme_id) === str(selected.project_id || selected.theme_id))}
-            saveEntity={saveEntity}
-            saveEntities={saveEntities}
-            setToast={setToast}
-            onApplied={handleNoteAiApplied}
-            onClose={() => setAiTarget(null)}
-            onOpenSettings={() => navigate("settings")}
-          />
-        )}
       </div>
       {sketchPickerOpen && (
         <div className="modal-backdrop" onMouseDown={() => setSketchPickerOpen(false)}>
-          <section className="modal-card note-sketch-dialog" role="dialog" aria-modal="true" aria-labelledby="note-sketch-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section
+            className="modal-card note-sketch-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="note-sketch-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <div className="modal-card-header">
               <h2 id="note-sketch-title">Sketchを挿入</h2>
-              <button className="text-button compact" type="button" onClick={() => setSketchPickerOpen(false)}>閉じる</button>
+              <button
+                className="text-button compact"
+                type="button"
+                onClick={() => setSketchPickerOpen(false)}
+              >
+                閉じる
+              </button>
             </div>
             <label>
               Sketch
@@ -2570,19 +3105,38 @@ export function NotesPage({ data, themes, domain, activeTheme, detachedNoteId, o
                   setPickerPageId(next?.document.pages[0]?.id || "");
                 }}
               >
-                {sketches.map((sketch) => <option key={sketch.id} value={sketch.id}>{sketch.title || "無題のSketch"}</option>)}
+                {sketches.map((sketch) => (
+                  <option key={sketch.id} value={sketch.id}>
+                    {sketch.title || "無題のSketch"}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
               ページ
-              <select value={pickerPageId} onChange={(event) => setPickerPageId(event.target.value)}>
-                {pickerSketch?.document.pages.map((page, index) => <option key={page.id} value={page.id}>{index + 1}. {page.title}</option>)}
+              <select
+                value={pickerPageId}
+                onChange={(event) => setPickerPageId(event.target.value)}
+              >
+                {pickerSketch?.document.pages.map((page, index) => (
+                  <option key={page.id} value={page.id}>
+                    {index + 1}. {page.title}
+                  </option>
+                ))}
               </select>
             </label>
-            {pickerPage && <div className="note-sketch-picker-preview"><SketchPickerPreview page={pickerPage} /></div>}
+            {pickerPage && (
+              <div className="note-sketch-picker-preview">
+                <SketchPickerPreview page={pickerPage} />
+              </div>
+            )}
             <div className="modal-actions">
-              <Button variant="secondary" type="button" onClick={() => setSketchPickerOpen(false)}>取消</Button>
-              <Button variant="primary" type="button" onClick={insertSelectedSketch}>カーソル位置へ挿入</Button>
+              <Button variant="secondary" type="button" onClick={() => setSketchPickerOpen(false)}>
+                取消
+              </Button>
+              <Button variant="primary" type="button" onClick={insertSelectedSketch}>
+                カーソル位置へ挿入
+              </Button>
             </div>
           </section>
         </div>
