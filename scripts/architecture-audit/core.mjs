@@ -308,7 +308,8 @@ function inspectImport(edge, sourceModule, targetModule, policy) {
       ));
     }
   }
-  if (sourceModule?.kind === "main-application" && matchesExternal(edge.target, ["electron"])) {
+  if (["main-application", "main-core"].includes(sourceModule?.kind)
+      && matchesExternal(edge.target, ["electron"])) {
     findings.push(finding(
       "main.application_platform_import",
       edge.source,

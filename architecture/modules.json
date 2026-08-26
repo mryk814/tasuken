@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "issue": 408,
-  "rollout": "task-enforced",
+  "rollout": "task-core-mcp-enforced",
   "sourceRoots": [
     "src",
     "tests",
@@ -201,8 +201,13 @@
       "id": "main.mcp",
       "root": "src/main/mcp",
       "kind": "main-transport",
-      "status": "inventory",
-      "publicEntrypoints": [],
+      "status": "enforced",
+      "publicEntrypoints": [
+        "src/main/mcp/agentSessionHookCollector.mjs",
+        "src/main/mcp/server.mjs",
+        "src/main/mcp/taskenCoreClient.mjs"
+      ],
+      "enforcePublicApi": true,
       "owner": "mcp-architecture"
     },
     {
@@ -325,6 +330,40 @@
           "capability.surface_expansion",
           "compatibility.consumer_added",
           "main.task_legacy_logic",
+          "suppression.invalid_debt_record",
+          "suppression.expired"
+        ]
+      },
+      "core-mcp": {
+        "modules": [
+          "shared.kernel",
+          "shared.contracts.core",
+          "shared.contracts.mobile",
+          "main.core",
+          "main.mcp",
+          "main.mobile"
+        ],
+        "blockingRules": [
+          "module.undeclared_dependency",
+          "module.public_api_bypass",
+          "module.cross_module_export_all",
+          "runtime.shared_neutrality",
+          "main.application_platform_import",
+          "main.transport_repository_import",
+          "bootstrap.internal_import",
+          "contract.parallel_mjs_declaration",
+          "contract.unsafe_boundary_cast",
+          "test.cross_module_internal_import",
+          "resolver.unresolved_import",
+          "capability.ipc_registration_outside_manifest",
+          "capability.surface_expansion",
+          "compatibility.consumer_added",
+          "suppression.invalid_debt_record",
+          "suppression.expired"
+        ],
+        "globalRules": [
+          "capability.surface_expansion",
+          "compatibility.consumer_added",
           "suppression.invalid_debt_record",
           "suppression.expired"
         ]
