@@ -19,7 +19,6 @@ import {
   type MobileGatewayStatePort,
   type MobileGatewayTaskWorkProposalDecisionResult,
 } from "../gateway/mobile/public.ts";
-import { withWorkspaceRefresh } from "../../shared/workspaceRefresh.ts";
 import {
   TaskCapabilityService,
   type ExecuteApplicationCommand,
@@ -78,11 +77,13 @@ export class TaskenCoreRuntime {
     userDataPath: string,
     persistence: CorePersistence,
     executeApplicationCommand: ExecuteApplicationCommand,
-    notifyWorkspaceChanged: () => void = () => {},
+    onProposalCommitted?: NonNullable<
+      Parameters<typeof createTaskenCore>[1]
+    >["onProposalCommitted"],
   ) {
     this.persistence = persistence;
     this.executeApplicationCommand = executeApplicationCommand;
-    const core = createTaskenCore(persistence);
+    const core = createTaskenCore(persistence, { onProposalCommitted });
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
     this.host = new TaskenCoreHost({
       userDataPath,
@@ -111,13 +112,10 @@ export class TaskenCoreRuntime {
       getActivity: core.getActivity,
       getContextSubgraph: core.getContextSubgraph,
       exportAiContext: core.exportAiContext,
-      proposeTaskWork: withWorkspaceRefresh(core.proposeTaskWork, notifyWorkspaceChanged),
-      proposeAgentSession: withWorkspaceRefresh(core.proposeAgentSession, notifyWorkspaceChanged),
-      proposeRepositoryTask: withWorkspaceRefresh(
-        core.proposeRepositoryTask,
-        notifyWorkspaceChanged,
-      ),
-      proposeContent: withWorkspaceRefresh(core.proposeContent, notifyWorkspaceChanged),
+      proposeTaskWork: core.proposeTaskWork,
+      proposeAgentSession: core.proposeAgentSession,
+      proposeRepositoryTask: core.proposeRepositoryTask,
+      proposeContent: core.proposeContent,
     });
   }
 

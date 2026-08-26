@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   IconAlertTriangle,
   IconArchive,
   IconHistory,
   IconPencil,
+  IconRefresh,
   IconShieldCheck,
 } from "@tabler/icons-react";
 
@@ -32,6 +33,7 @@ import {
   buildRepositoryContextProposalOperations,
 } from "../../../../../shared/repositoryContextProposal.mjs";
 import { ActionButton, Button } from "./common";
+import { useWorkspaceStore } from "../../../stores/workspaceStore";
 
 type ProposalPayloadType =
   | "items"
@@ -531,6 +533,8 @@ export function AiProposalPanel(props: PageProps) {
   const [preview, setPreview] = useState<ProposalPreview | null>(null);
   const [quarantineId, setQuarantineId] = useState("");
   const [quarantineReason, setQuarantineReason] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshWorkspace = useWorkspaceStore((state) => state.refresh);
   const passiveSessionProposals = useMemo(
     () => (data.ai_proposals || []).filter((proposal) => isPassiveAgentSessionProposal(proposal)),
     [data.ai_proposals],
@@ -551,6 +555,33 @@ export function AiProposalPanel(props: PageProps) {
     [data.ai_proposals],
   );
   const selected = proposals.find((proposal) => proposal.id === selectedId) || proposals[0] || null;
+
+  const refreshProposals = useCallback(
+    async (showFeedback: boolean) => {
+      setRefreshing(true);
+      try {
+        await refreshWorkspace();
+        if (showFeedback) setToast("Proposalを更新しました。", "success");
+      } catch (error) {
+        if (showFeedback) {
+          setToast(
+            `Proposalを更新できませんでした。${error instanceof Error ? error.message : String(error)}`,
+            "danger",
+          );
+        }
+        // Focus復帰時は一時的な読込失敗を通知で連発せず、明示更新時だけ案内する。
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [refreshWorkspace, setToast],
+  );
+
+  useEffect(() => {
+    const resyncOnFocus = () => void refreshProposals(false);
+    window.addEventListener("focus", resyncOnFocus);
+    return () => window.removeEventListener("focus", resyncOnFocus);
+  }, [refreshProposals]);
 
   function previewProposal(proposal: BaseRecord) {
     try {
@@ -805,7 +836,17 @@ export function AiProposalPanel(props: PageProps) {
       <section className="panel proposal-inbox-panel">
         <div className="section-heading">
           <h2>Pending Proposal</h2>
-          <span className="proposal-pending-count">{proposals.length}件</span>
+          <div className="proposal-inbox-actions">
+            <span className="proposal-pending-count">{proposals.length}件</span>
+            <Button
+              variant="secondary"
+              disabled={refreshing}
+              onClick={() => void refreshProposals(true)}
+            >
+              <IconRefresh size={15} aria-hidden="true" />
+              {refreshing ? "更新中" : "更新"}
+            </Button>
+          </div>
         </div>
         {!proposals.length && (
           <div className="empty-state proposal-empty-state">

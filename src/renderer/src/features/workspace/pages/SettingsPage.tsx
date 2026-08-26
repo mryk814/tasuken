@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { mobileGatewayApi } from "../../../services/mobileGatewayApi";
@@ -85,6 +85,7 @@ export function SettingsPage({
   const [syncStatus, setSyncStatus] = useState<SharedSyncStatus | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [mcpInfo, setMcpInfo] = useState<McpBridgeInfo | null>(null);
+  const [mcpBusy, setMcpBusy] = useState(false);
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarBusy, setCalendarBusy] = useState(false);
   // AI公開範囲のworkspace既定（#294）。Theme・項目が未設定のときだけ使う。
@@ -115,6 +116,24 @@ export function SettingsPage({
   );
   const [mobileGatewayError, setMobileGatewayError] = useState("");
   const [mobilePairing, setMobilePairing] = useState<MobileGatewayPairingTicket | null>(null);
+
+  const reloadMcpInfo = useCallback(
+    async (showSuccess = true) => {
+      setMcpBusy(true);
+      try {
+        setMcpInfo(await workspaceApi.getMcpBridgeInfo());
+        if (showSuccess) setToast("MCP Bridgeの状態を更新しました。", "success");
+      } catch (error) {
+        setToast(
+          `MCP Bridgeの情報を取得できませんでした。${error instanceof Error ? error.message : String(error)}`,
+          "danger",
+        );
+      } finally {
+        setMcpBusy(false);
+      }
+    },
+    [setToast],
+  );
 
   useEffect(() => {
     const onHash = () => setActiveSection(settingsSectionFromHash(window.location.hash));
@@ -296,16 +315,8 @@ export function SettingsPage({
   }, []);
 
   useEffect(() => {
-    workspaceApi
-      .getMcpBridgeInfo()
-      .then(setMcpInfo)
-      .catch((error) => {
-        setToast(
-          `MCP Bridgeの情報を取得できませんでした。${error instanceof Error ? error.message : String(error)}`,
-          "danger",
-        );
-      });
-  }, [setToast]);
+    void reloadMcpInfo(false);
+  }, [reloadMcpInfo]);
 
   useEffect(() => {
     let canceled = false;
@@ -623,9 +634,11 @@ export function SettingsPage({
       : { label: "未接続", tone: "neutral" as const }
     : { label: "確認中", tone: "loading" as const };
   const mcpSummary = mcpInfo
-    ? mcpInfo.pendingProposalCount > 0
-      ? { label: `要確認 · ${mcpInfo.pendingProposalCount}件`, tone: "attention" as const }
-      : { label: "設定をコピーできます", tone: "neutral" as const }
+    ? mcpInfo.coreStatus === "unavailable"
+      ? { label: "Core接続エラー", tone: "error" as const }
+      : mcpInfo.pendingProposalCount > 0
+        ? { label: `要確認 · ${mcpInfo.pendingProposalCount}件`, tone: "attention" as const }
+        : { label: "設定をコピーできます", tone: "neutral" as const }
     : { label: "確認中", tone: "loading" as const };
   const automaticBackupSummary =
     automaticBackupState === "loading"
@@ -1227,10 +1240,45 @@ export function SettingsPage({
                   <dt>Pending Proposal</dt>
                   <dd>{mcpInfo?.pendingProposalCount || 0}件</dd>
                 </div>
+                <div>
+                  <dt>Core</dt>
+                  <dd>
+                    {mcpInfo?.coreStatus === "available"
+                      ? "接続済み"
+                      : mcpInfo?.coreStatus === "unavailable"
+                        ? "接続エラー"
+                        : "未確認"}
+                  </dd>
+                </div>
+                {mcpInfo?.coreApiVersion && (
+                  <div>
+                    <dt>API / Capabilities</dt>
+                    <dd>
+                      {mcpInfo.coreApiVersion} / {mcpInfo.coreCapabilityCount || 0}
+                    </dd>
+                  </div>
+                )}
+                {mcpInfo?.latestProposalId && (
+                  <div>
+                    <dt>Latest Proposal</dt>
+                    <dd className="mono-value" title={mcpInfo.latestProposalId}>
+                      {mcpInfo.latestProposalId}
+                      {mcpInfo.latestProposalAt ? ` · ${backupTime(mcpInfo.latestProposalAt)}` : ""}
+                    </dd>
+                  </div>
+                )}
               </dl>
+              {mcpInfo?.coreNextAction && (
+                <p className="alert-note warning">
+                  {mcpInfo.coreErrorCode}: {mcpInfo.coreErrorMessage} {mcpInfo.coreNextAction}
+                </p>
+              )}
               <div className="settings-action-row">
                 <Button variant="secondary" disabled={!mcpInfo} onClick={copyMcpConfig}>
                   接続設定をコピー
+                </Button>
+                <Button variant="secondary" disabled={mcpBusy} onClick={() => void reloadMcpInfo()}>
+                  {mcpBusy ? "確認中" : "状態を再確認"}
                 </Button>
               </div>
             </section>

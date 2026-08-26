@@ -53,3 +53,10 @@ test("AI Inbox contains only the safe proposal review surface", () => {
     /buildAiImportPrompt|buildAiOrganizePrompt|buildExportData/,
   );
 });
+
+test("AI Inbox can resync explicitly and quietly recovers when the window regains focus", () => {
+  assert.match(aiProposalPanelSource, /useWorkspaceStore\(\(state\) => state\.refresh\)/);
+  assert.match(aiProposalPanelSource, /window\.addEventListener\("focus", resyncOnFocus\)/);
+  assert.match(aiProposalPanelSource, /onClick=\{\(\) => void refreshProposals\(true\)\}/);
+  assert.match(aiProposalPanelSource, /Proposalを更新できませんでした/);
+});

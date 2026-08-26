@@ -107,6 +107,7 @@ test("Settings copies the exact typed MCP client config generated for the runtim
   });
   assert.equal(info.transport, "stdio-core");
   assert.equal(info.pendingProposalCount, 2);
+  assert.equal(info.coreStatus, "unknown");
   let copied = "";
   await copyMcpBridgeConfig(async (text) => {
     copied = text;
@@ -118,5 +119,9 @@ test("Settings copies the exact typed MCP client config generated for the runtim
     /copyMcpBridgeConfig\(\(text\) => workspaceApi\.copyText\(text\), mcpInfo\)/,
   );
   assert.match(settings, /label: "設定をコピーできます", tone: "neutral"/);
+  assert.match(settings, /mcpInfo\?\.coreStatus === "available"/);
+  assert.match(settings, /mcpInfo\?\.coreNextAction/);
+  assert.match(settings, /状態を再確認/);
+  assert.match(settings, /Latest Proposal/);
   assert.doesNotMatch(settings, /const mcpSummary[\s\S]{0,300}label: "正常"/);
 });

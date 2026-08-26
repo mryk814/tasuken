@@ -47,7 +47,10 @@ import {
   WorkspaceKnowledgeReadAdapter,
   type KnowledgeWorkspacePersistence,
 } from "./workspaceKnowledgeReadAdapter.ts";
-import { WorkspaceAgentContextReadAdapter, type AgentContextWorkspacePersistence } from "./workspaceAgentContextReadAdapter.ts";
+import {
+  WorkspaceAgentContextReadAdapter,
+  type AgentContextWorkspacePersistence,
+} from "./workspaceAgentContextReadAdapter.ts";
 
 export { WorkspaceAgentReadyTaskReadAdapter, type AgentReadyTaskWorkspacePersistence };
 export { WorkspaceAgentWorkspaceReadAdapter, type AgentWorkspacePersistence };
@@ -61,36 +64,64 @@ export { WorkspaceAgentContextReadAdapter, type AgentContextWorkspacePersistence
 export { WorkspaceAiProposalWriteAdapter };
 
 export interface AiProposalPersistence {
-  runTransaction<T>(callback: (repository: {
-    get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
-    save(type: string, entity: Record<string, unknown>, options?: unknown): Record<string, unknown>;
-  }) => T): T;
+  runTransaction<T>(
+    callback: (repository: {
+      get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
+      save(
+        type: string,
+        entity: Record<string, unknown>,
+        options?: unknown,
+      ): Record<string, unknown>;
+    }) => T,
+  ): T;
 }
 
-export type TaskenCorePersistence = AgentReadyTaskWorkspacePersistence
-  & AgentWorkspacePersistence
-  & TaskContextWorkspacePersistence
-  & ItemQueryWorkspacePersistence
-  & ContentDetailWorkspacePersistence
-  & ActivityEntriesWorkspacePersistence
-  & ThemeContextWorkspacePersistence
-  & KnowledgeWorkspacePersistence
-  & AgentContextWorkspacePersistence
-  & AiProposalPersistence;
+export type TaskenCorePersistence = AgentReadyTaskWorkspacePersistence &
+  AgentWorkspacePersistence &
+  TaskContextWorkspacePersistence &
+  ItemQueryWorkspacePersistence &
+  ContentDetailWorkspacePersistence &
+  ActivityEntriesWorkspacePersistence &
+  ThemeContextWorkspacePersistence &
+  KnowledgeWorkspacePersistence &
+  AgentContextWorkspacePersistence &
+  AiProposalPersistence;
 
-export function createTaskenCore(persistence: TaskenCorePersistence) {
-  const agentWorkspace = new AgentWorkspaceQueryService(new WorkspaceAgentWorkspaceReadAdapter(persistence));
+export function createTaskenCore(
+  persistence: TaskenCorePersistence,
+  options: {
+    onProposalCommitted?: ConstructorParameters<typeof WorkspaceAiProposalWriteAdapter>[1];
+  } = {},
+) {
+  const agentWorkspace = new AgentWorkspaceQueryService(
+    new WorkspaceAgentWorkspaceReadAdapter(persistence),
+  );
   const itemQueries = new ItemQueryService(new WorkspaceItemQueryReadAdapter(persistence));
-  const contentDetails = new ContentDetailQueryService(new WorkspaceContentDetailReadAdapter(persistence));
+  const contentDetails = new ContentDetailQueryService(
+    new WorkspaceContentDetailReadAdapter(persistence),
+  );
   const knowledge = new KnowledgeQueryService(new WorkspaceKnowledgeReadAdapter(persistence));
-  const agentContext = new AgentContextQueryService(new WorkspaceAgentContextReadAdapter(persistence));
+  const agentContext = new AgentContextQueryService(
+    new WorkspaceAgentContextReadAdapter(persistence),
+  );
   const agentContextPort = new WorkspaceAgentContextReadAdapter(persistence);
-  const exportAiContext = new AgentContextExportService(agentContextPort, itemQueries, knowledge, agentContext);
+  const exportAiContext = new AgentContextExportService(
+    agentContextPort,
+    itemQueries,
+    knowledge,
+    agentContext,
+  );
   return {
-    listAgentReadyTasks: new ListAgentReadyTasksService(new WorkspaceAgentReadyTaskReadAdapter(persistence)),
-    resolveRepositoryContext: { execute: agentWorkspace.resolveRepositoryContext.bind(agentWorkspace) },
+    listAgentReadyTasks: new ListAgentReadyTasksService(
+      new WorkspaceAgentReadyTaskReadAdapter(persistence),
+    ),
+    resolveRepositoryContext: {
+      execute: agentWorkspace.resolveRepositoryContext.bind(agentWorkspace),
+    },
     findTasksForRepository: { execute: agentWorkspace.findTasksForRepository.bind(agentWorkspace) },
-    findThemesForRepository: { execute: agentWorkspace.findThemesForRepository.bind(agentWorkspace) },
+    findThemesForRepository: {
+      execute: agentWorkspace.findThemesForRepository.bind(agentWorkspace),
+    },
     getRepositoryContext: { execute: agentWorkspace.getRepositoryContext.bind(agentWorkspace) },
     getAgentSessionContext: { execute: agentWorkspace.getAgentSessionContext.bind(agentWorkspace) },
     getTaskAssignment: { execute: agentWorkspace.getTaskAssignment.bind(agentWorkspace) },
@@ -100,8 +131,12 @@ export function createTaskenCore(persistence: TaskenCorePersistence) {
     getNote: { execute: contentDetails.getNote.bind(contentDetails) },
     getConversation: { execute: contentDetails.getConversation.bind(contentDetails) },
     getArtifactMetadata: { execute: contentDetails.getArtifactMetadata.bind(contentDetails) },
-    getActivityEntries: new ActivityEntriesQueryService(new WorkspaceActivityEntriesReadAdapter(persistence)),
-    getThemeContext: new ThemeContextQueryService(new WorkspaceThemeContextReadAdapter(persistence)),
+    getActivityEntries: new ActivityEntriesQueryService(
+      new WorkspaceActivityEntriesReadAdapter(persistence),
+    ),
+    getThemeContext: new ThemeContextQueryService(
+      new WorkspaceThemeContextReadAdapter(persistence),
+    ),
     getRecentNotes: { execute: knowledge.getRecentNotes.bind(knowledge) },
     searchKnowledge: { execute: knowledge.searchKnowledge.bind(knowledge) },
     getKnowledgeContext: { execute: knowledge.getKnowledgeContext.bind(knowledge) },
@@ -110,9 +145,17 @@ export function createTaskenCore(persistence: TaskenCorePersistence) {
     getActivity: { execute: agentContext.getActivity.bind(agentContext) },
     getContextSubgraph: { execute: agentContext.getContextSubgraph.bind(agentContext) },
     exportAiContext,
-    proposeTaskWork: new ProposeTaskWorkService(new WorkspaceAiProposalWriteAdapter(persistence)),
-    proposeAgentSession: new ProposeAgentSessionService(new WorkspaceAiProposalWriteAdapter(persistence)),
-    proposeRepositoryTask: new ProposeRepositoryTaskService(new WorkspaceAiProposalWriteAdapter(persistence)),
-    proposeContent: new ProposeContentService(new WorkspaceAiProposalWriteAdapter(persistence)),
+    proposeTaskWork: new ProposeTaskWorkService(
+      new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
+    ),
+    proposeAgentSession: new ProposeAgentSessionService(
+      new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
+    ),
+    proposeRepositoryTask: new ProposeRepositoryTaskService(
+      new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
+    ),
+    proposeContent: new ProposeContentService(
+      new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
+    ),
   };
 }
