@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
@@ -11,10 +11,13 @@ import {
   activityDisplayKind,
   activityThemeIds,
   buildDailyAgentSessionContexts,
-  buildActivityTimeline,
   projectActivitySessionLogEntries,
   reviewableActivityEvents,
 } from "../lib/activityTimeline";
+import {
+  ACTIVITY_TIMELINE_DAY_HEIGHT,
+  buildActivityTimelineLayout,
+} from "../lib/activityTimelineLayout";
 import {
   buildAgentWorkProjection,
   type AgentWorkProjectionRow,
@@ -109,8 +112,6 @@ type ActivityTimelineItem =
       session_row: AgentWorkProjectionRow;
       session_events: StructuredActivityEvent[];
     };
-
-type ActivityTimelineRow = ActivityTimelineItem & { gap_size: number };
 
 const ACTIVITY_DISPLAY_LABELS = {
   outcome: "成果",
@@ -261,6 +262,7 @@ export function ActivityLogPanel({
   const [expanded, setExpanded] = useState(true);
   const [expandedTimelineItemId, setExpandedTimelineItemId] = useState("");
   const [exporting, setExporting] = useState(false);
+  const activityCalendarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let canceled = false;
@@ -402,7 +404,23 @@ export function ActivityLogPanel({
       session_events: relatedEvents,
     })),
   ];
-  const timeline = buildActivityTimeline(timelineItems) as ActivityTimelineRow[];
+  const timeline = buildActivityTimelineLayout(timelineItems, { date });
+  const activityCalendarScrollKey = `${date}:${timeline
+    .map((item) => `${item.id}:${item.top}`)
+    .join("|")}`;
+  const initialActivityTop = timeline[0]?.top;
+  const expandedTimelineItem = timeline.find((item) => item.id === expandedTimelineItemId);
+  const expandedEvent =
+    expandedTimelineItem?.item_type === "event" ? expandedTimelineItem.event : null;
+  const expandedRef = expandedEvent?.entity_ref || {};
+  const expandedEntity = expandedEvent ? findActivityEntity(domain, expandedRef) : null;
+  const expandedDrawerType = isOpenableActivityEntity(expandedRef.type) ? expandedRef.type : null;
+  const expandedSessionRow =
+    expandedTimelineItem?.item_type === "session" ? expandedTimelineItem.session_row : null;
+  const expandedSession = expandedSessionRow?.session || null;
+  const expandedRelatedSessionEvents =
+    expandedTimelineItem?.item_type === "session" ? expandedTimelineItem.session_events : [];
+  const expandedEventActor = expandedEvent ? actorLabel(expandedEvent) : null;
   const hasStructuredActivity = events.length > 0 || sessionContexts.length > 0;
   const count = hasStructuredActivity
     ? timeline.length
@@ -411,6 +429,21 @@ export function ActivityLogPanel({
     input,
     projectActivitySessionLogEntries(sessionContexts, themes),
   );
+
+  useEffect(() => {
+    const calendar = activityCalendarRef.current;
+    if (!calendar) return;
+    const nowParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Tokyo",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date());
+    const hour = Number(nowParts.find((part) => part.type === "hour")?.value || 0);
+    const minute = Number(nowParts.find((part) => part.type === "minute")?.value || 0);
+    const fallbackTop = (hour * 60 + minute) * (36 / 60);
+    calendar.scrollTop = Math.max(0, (initialActivityTop ?? fallbackTop) - 36);
+  }, [activityCalendarScrollKey, initialActivityTop]);
 
   async function chooseDirectory() {
     try {
@@ -551,194 +584,261 @@ export function ActivityLogPanel({
       {expanded &&
         (hasStructuredActivity ? (
           timeline.length ? (
-            <ul
-              className="activity-event-list activity-timeline-list"
-              aria-label="Activityの時系列"
-            >
-              {timeline.map((row) => {
-                const expandedItem = expandedTimelineItemId === row.id;
-                const event = row.item_type === "event" ? row.event : null;
-                const ref = event?.entity_ref || {};
-                const entity = event ? findActivityEntity(domain, ref) : null;
-                const drawerType = isOpenableActivityEntity(ref.type) ? ref.type : null;
-                const openable = Boolean(entity && drawerType);
-                const sessionRow = row.item_type === "session" ? row.session_row : null;
-                const relatedSessionEvents = row.item_type === "session" ? row.session_events : [];
-                const session = sessionRow?.session || null;
-                const eventActor = event ? actorLabel(event) : null;
-                const title = event
-                  ? eventTitle(event, ref, entity)
-                  : session?.intent.summary || session?.client_label || "AIセッション";
-                return (
-                  <li
-                    key={row.id}
-                    className={`activity-event-row activity-timeline-row activity-timeline-row--${row.display_kind}${expandedItem ? " activity-timeline-row--expanded" : ""}`}
-                    style={{ "--activity-gap-size": `${row.gap_size}px` } as CSSProperties}
-                  >
-                    <time dateTime={row.start_at}>
-                      {session && sessionRow
-                        ? activitySessionTimeLabel({
-                            sessionRow,
-                            interval: { start_at: row.start_at, end_at: row.end_at },
-                          })
-                        : event?.local_time || localTime(row.start_at)}
-                    </time>
-                    <span className="activity-timeline-rail" aria-hidden="true" />
-                    <div className="activity-event-main activity-timeline-main">
-                      <span className="activity-timeline-meta">
-                        <ActivityThemeChips themeIds={row.theme_ids} themes={themes} />
-                        <span className="activity-event-kind activity-timeline-kind">
-                          {displayKindLabel(row.display_kind)}
-                        </span>
-                        {(session || eventActor) && (
-                          <span className="activity-timeline-actor-chip">
-                            {session ? "AI" : eventActor}
-                          </span>
-                        )}
-                        <span className="activity-timeline-origin-chip">
-                          {event
-                            ? originLabel(event)
-                            : session
-                              ? agentSessionClientLabel(session)
-                              : "AI連携"}
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        className="text-button activity-event-title activity-timeline-title"
-                        onClick={() => setExpandedTimelineItemId(expandedItem ? "" : row.id)}
-                        aria-expanded={expandedItem}
+            <>
+              <div
+                ref={activityCalendarRef}
+                className="activity-calendar"
+                aria-label="Activity の時刻カレンダー"
+              >
+                <div className="activity-calendar-day">
+                  <div className="activity-calendar-gutter" aria-hidden="true">
+                    {Array.from({ length: 25 }, (_, hour) => (
+                      <span
+                        key={hour}
+                        className="activity-calendar-hour-label"
+                        style={{ "--activity-hour-top": `${hour * 36}px` } as CSSProperties}
                       >
-                        {title}
-                      </button>
-                      {expandedItem && (
-                        <div className="activity-timeline-detail">
-                          {session ? (
-                            <>
-                              <dl className="activity-timeline-detail-grid">
-                                <div>
-                                  <dt>意図</dt>
-                                  <dd>{session.intent.summary || "未記録"}</dd>
-                                </div>
-                                <div>
-                                  <dt>結果</dt>
-                                  <dd>{session.outcome?.summary || "未記録"}</dd>
-                                </div>
-                              </dl>
-                              {sessionRow && sessionRow.repositories.length > 0 && (
-                                <div className="activity-timeline-detail-section">
-                                  <span>リポジトリ</span>
-                                  <span>
-                                    {sessionRow.repositories
-                                      .map((repository) => repository.label)
-                                      .join(" / ")}
+                        {String(hour).padStart(2, "0")}:00
+                      </span>
+                    ))}
+                  </div>
+                  <div
+                    className="activity-calendar-canvas"
+                    style={
+                      {
+                        "--activity-day-height": `${ACTIVITY_TIMELINE_DAY_HEIGHT}px`,
+                      } as CSSProperties
+                    }
+                  >
+                    {Array.from({ length: 25 }, (_, hour) => (
+                      <span
+                        key={`hour-${hour}`}
+                        className="activity-calendar-hour-line"
+                        aria-hidden="true"
+                        style={{ "--activity-hour-top": `${hour * 36}px` } as CSSProperties}
+                      />
+                    ))}
+                    {Array.from({ length: 24 }, (_, hour) => (
+                      <span
+                        key={`half-${hour}`}
+                        className="activity-calendar-half-hour-line"
+                        aria-hidden="true"
+                        style={{ "--activity-hour-top": `${hour * 36 + 18}px` } as CSSProperties}
+                      />
+                    ))}
+                    <ol className="activity-calendar-events" aria-label="Activity を時刻順に表示">
+                      {timeline.map((row) => {
+                        const event = row.item_type === "event" ? row.event : null;
+                        const ref = event?.entity_ref || {};
+                        const entity = event ? findActivityEntity(domain, ref) : null;
+                        const sessionRow = row.item_type === "session" ? row.session_row : null;
+                        const session = sessionRow?.session || null;
+                        const eventActor = event ? actorLabel(event) : null;
+                        const title = event
+                          ? eventTitle(event, ref, entity)
+                          : session?.intent.summary || session?.client_label || "AI セッション";
+                        const timeLabel =
+                          session && sessionRow
+                            ? activitySessionTimeLabel({
+                                sessionRow,
+                                interval: { start_at: row.start_at, end_at: row.end_at },
+                              })
+                            : event?.local_time || localTime(row.start_at);
+                        const laneGap = 4;
+                        const laneCount = Math.max(1, row.lane_count);
+                        const blockStyle = {
+                          "--activity-event-top": `${row.top}px`,
+                          "--activity-event-height": `${row.height}px`,
+                          "--activity-event-left": `calc(${(row.lane * 100) / laneCount}% + ${(row.lane * laneGap) / laneCount}px)`,
+                          "--activity-event-width": `calc(${100 / laneCount}% - ${((laneCount - 1) * laneGap) / laneCount}px)`,
+                        } as CSSProperties;
+                        const compact = row.height < 56;
+                        const tiny = row.height < 40;
+                        return (
+                          <li
+                            key={row.id}
+                            className={`activity-calendar-event activity-timeline-row--${row.display_kind}${compact ? " is-compact" : ""}${tiny ? " is-tiny" : ""}`}
+                            style={blockStyle}
+                          >
+                            <button
+                              type="button"
+                              className="activity-calendar-event-button"
+                              onClick={() =>
+                                setExpandedTimelineItemId((current) =>
+                                  current === row.id ? "" : row.id,
+                                )
+                              }
+                              aria-expanded={expandedTimelineItemId === row.id}
+                              aria-controls={`activity-timeline-detail-${row.id}`}
+                              aria-label={`${timeLabel}、${displayKindLabel(row.display_kind)}、${title}`}
+                            >
+                              <time
+                                className="activity-calendar-event-time"
+                                dateTime={row.start_at}
+                              >
+                                {timeLabel}
+                              </time>
+                              <span className="activity-calendar-event-title">{title}</span>
+                              <span className="activity-calendar-event-meta">
+                                <ActivityThemeChips themeIds={row.theme_ids} themes={themes} />
+                                <span className="activity-event-kind activity-timeline-kind">
+                                  {displayKindLabel(row.display_kind)}
+                                </span>
+                                {(session || eventActor) && (
+                                  <span className="activity-timeline-actor-chip">
+                                    {session ? "AI" : eventActor}
                                   </span>
-                                </div>
-                              )}
-                              {sessionRow && sessionRow.tasks.length > 0 && (
-                                <div className="activity-timeline-detail-section">
-                                  <span>関連タスク</span>
-                                  <span className="activity-timeline-detail-links">
-                                    {sessionRow.tasks.slice(0, 3).map((task) => (
-                                      <Button
-                                        key={task.id}
-                                        variant="secondary"
-                                        compact
-                                        onClick={() =>
-                                          openDrawer({
-                                            type: "task",
-                                            mode: "view",
-                                            entity: task as unknown as Record<string, unknown>,
-                                          })
-                                        }
-                                      >
-                                        {task.title}
-                                      </Button>
-                                    ))}
-                                  </span>
-                                </div>
-                              )}
-                              {relatedSessionEvents.length > 0 && (
-                                <div className="activity-timeline-detail-section">
-                                  <span>活動</span>
-                                  <ul>
-                                    {relatedSessionEvents.map((relatedEvent, index) => {
-                                      const relatedRef = relatedEvent.entity_ref || {};
-                                      const relatedEntity = findActivityEntity(domain, relatedRef);
-                                      return (
-                                        <li key={relatedEvent.id || `${row.id}:${index}`}>
-                                          {eventLabel(String(relatedEvent.event_kind || ""))}：
-                                          {eventTitle(relatedEvent, relatedRef, relatedEntity)}
-                                        </li>
-                                      );
-                                    })}
-                                  </ul>
-                                </div>
-                              )}
-                              {session.outcome?.remaining_work.length ? (
-                                <div className="activity-timeline-detail-section">
-                                  <span>残作業</span>
-                                  <ul>
-                                    {session.outcome.remaining_work.slice(0, 3).map((item) => (
-                                      <li key={item}>{item}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              ) : null}
-                            </>
-                          ) : event ? (
-                            <>
-                              {event.summary && (
-                                <p className="activity-timeline-detail-summary">{event.summary}</p>
-                              )}
-                              <dl className="activity-timeline-detail-grid">
-                                <div>
-                                  <dt>記録種別</dt>
-                                  <dd>{eventLabel(String(event.event_kind || ""))}</dd>
-                                </div>
-                                <div>
-                                  <dt>由来</dt>
-                                  <dd>{originLabel(event)}</dd>
-                                </div>
-                                {eventActor && (
-                                  <div>
-                                    <dt>実行者</dt>
-                                    <dd>{eventActor}</dd>
-                                  </div>
                                 )}
-                              </dl>
-                              {event.changed_fields?.length ? (
-                                <div className="activity-timeline-detail-section">
-                                  <span>更新項目</span>
-                                  <span>{event.changed_fields.join(" / ")}</span>
-                                </div>
-                              ) : null}
-                              {openable && entity && drawerType ? (
-                                <Button
-                                  variant="secondary"
-                                  compact
-                                  onClick={() =>
-                                    openDrawer({
-                                      type: drawerType,
-                                      mode: "view",
-                                      entity,
-                                    })
-                                  }
-                                >
-                                  {ref.type === "task" ? "タスクを開く" : "関連項目を開く"}
-                                </Button>
-                              ) : (
-                                <span className="activity-event-state">履歴のみ</span>
-                              )}
-                            </>
-                          ) : null}
+                                <span className="activity-timeline-origin-chip">
+                                  {event
+                                    ? originLabel(event)
+                                    : session
+                                      ? agentSessionClientLabel(session)
+                                      : "AI 連携"}
+                                </span>
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                </div>
+              </div>
+              {expandedTimelineItem && (
+                <section
+                  id={`activity-timeline-detail-${expandedTimelineItem.id}`}
+                  className="activity-timeline-detail activity-calendar-detail"
+                  aria-label="選択した Activity の詳細"
+                >
+                  <div className="activity-calendar-detail-heading">
+                    <span className="activity-calendar-detail-time">
+                      {expandedSession && expandedSessionRow
+                        ? activitySessionTimeLabel({
+                            sessionRow: expandedSessionRow,
+                            interval: {
+                              start_at: expandedTimelineItem.start_at,
+                              end_at: expandedTimelineItem.end_at,
+                            },
+                          })
+                        : expandedEvent?.local_time || localTime(expandedTimelineItem.start_at)}
+                    </span>
+                    <span className="activity-event-kind activity-timeline-kind">
+                      {displayKindLabel(expandedTimelineItem.display_kind)}
+                    </span>
+                  </div>
+                  {expandedSession ? (
+                    <>
+                      <dl className="activity-timeline-detail-grid">
+                        <div>
+                          <dt>意図</dt>
+                          <dd>{expandedSession.intent.summary || "未記録"}</dd>
+                        </div>
+                        <div>
+                          <dt>成果</dt>
+                          <dd>{expandedSession.outcome?.summary || "未記録"}</dd>
+                        </div>
+                      </dl>
+                      {expandedSessionRow && expandedSessionRow.repositories.length > 0 && (
+                        <div className="activity-timeline-detail-section">
+                          <span>リポジトリ</span>
+                          <span>
+                            {expandedSessionRow.repositories
+                              .map((repository) => repository.label)
+                              .join(" / ")}
+                          </span>
                         </div>
                       )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                      {expandedSessionRow && expandedSessionRow.tasks.length > 0 && (
+                        <div className="activity-timeline-detail-section">
+                          <span>関連タスク</span>
+                          <span className="activity-timeline-detail-links">
+                            {expandedSessionRow.tasks.slice(0, 3).map((task) => (
+                              <Button
+                                key={task.id}
+                                variant="secondary"
+                                compact
+                                onClick={() =>
+                                  openDrawer({
+                                    type: "task",
+                                    mode: "view",
+                                    entity: task as unknown as Record<string, unknown>,
+                                  })
+                                }
+                              >
+                                {task.title}
+                              </Button>
+                            ))}
+                          </span>
+                        </div>
+                      )}
+                      {expandedRelatedSessionEvents.length > 0 && (
+                        <div className="activity-timeline-detail-section">
+                          <span>活動</span>
+                          <ul>
+                            {expandedRelatedSessionEvents.map((relatedEvent, index) => {
+                              const relatedRef = relatedEvent.entity_ref || {};
+                              const relatedEntity = findActivityEntity(domain, relatedRef);
+                              return (
+                                <li key={relatedEvent.id || `${expandedTimelineItem.id}:${index}`}>
+                                  {eventLabel(String(relatedEvent.event_kind || ""))}：
+                                  {eventTitle(relatedEvent, relatedRef, relatedEntity)}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  ) : expandedEvent ? (
+                    <>
+                      {expandedEvent.summary && (
+                        <p className="activity-timeline-detail-summary">{expandedEvent.summary}</p>
+                      )}
+                      <dl className="activity-timeline-detail-grid">
+                        <div>
+                          <dt>記録種別</dt>
+                          <dd>{eventLabel(String(expandedEvent.event_kind || ""))}</dd>
+                        </div>
+                        <div>
+                          <dt>由来</dt>
+                          <dd>{originLabel(expandedEvent)}</dd>
+                        </div>
+                        {expandedEventActor && (
+                          <div>
+                            <dt>記録者</dt>
+                            <dd>{expandedEventActor}</dd>
+                          </div>
+                        )}
+                      </dl>
+                      {expandedEvent.changed_fields?.length ? (
+                        <div className="activity-timeline-detail-section">
+                          <span>更新項目</span>
+                          <span>{expandedEvent.changed_fields.join(" / ")}</span>
+                        </div>
+                      ) : null}
+                      {expandedEntity && expandedDrawerType ? (
+                        <Button
+                          variant="secondary"
+                          compact
+                          onClick={() =>
+                            openDrawer({
+                              type: expandedDrawerType,
+                              mode: "view",
+                              entity: expandedEntity,
+                            })
+                          }
+                        >
+                          {expandedRef.type === "task" ? "タスクを開く" : "関連項目を開く"}
+                        </Button>
+                      ) : (
+                        <span className="activity-event-state">履歴のみ</span>
+                      )}
+                    </>
+                  ) : null}
+                </section>
+              )}
+            </>
           ) : (
             <EmptyState
               title="条件に一致するActivityはありません"
