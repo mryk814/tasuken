@@ -119,6 +119,26 @@ test("task form plan normalizes reminder, section, schedule, and Artifact Theme 
   assert.equal(artifact.theme_id, "theme-1");
 });
 
+test("task form keeps hidden Repository settings while inherit mode is selected", () => {
+  const result = plan(
+    "task",
+    [
+      ["title", "Repository設定を保つ"],
+      ["repository_context_mode", "inherit"],
+    ],
+    {
+      id: "task-repository",
+      repository_context_ids: ["repo-1"],
+      primary_repository_context_id: "repo-1",
+    },
+  );
+
+  assert.equal(result.kind, "operations");
+  const task = result.operations.find((operation) => operation.type === "task").entity;
+  assert.deepEqual(task.repository_context_ids, ["repo-1"]);
+  assert.equal(task.primary_repository_context_id, "repo-1");
+});
+
 test("Conversationから作ったTaskはderived_fromを同じ保存操作列へ追加する", () => {
   const result = plan("task", [
     ["title", "会話から調査する"],

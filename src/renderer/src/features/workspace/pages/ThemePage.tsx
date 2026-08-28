@@ -265,6 +265,18 @@ export function ThemePage({
     );
   }
   const theme = activeTheme;
+  const themeRepositoryIds = new Set(
+    [
+      ...(theme.repository_context_ids || []).map(String),
+      ...(theme.primary_repository_context_id ? [String(theme.primary_repository_context_id)] : []),
+    ],
+  );
+  const themeRepositories = v2.repository_contexts.filter(
+    (repository) =>
+      themeRepositoryIds.has(String(repository.id)) &&
+      !repository.deleted_at &&
+      repository.active !== false,
+  );
 
   function toggleTaskSection(sectionId: string) {
     setThemePreference((current) => ({
@@ -482,6 +494,48 @@ export function ThemePage({
         theme={theme}
         edit={() => openDrawer({ type: "theme", mode: "edit", entity: theme })}
       />
+      <section className="panel theme-repository-panel">
+        <div className="section-heading">
+          <div>
+            <h2>Repository</h2>
+            <span>AIセッションの作業場所とThemeを結びます。</span>
+          </div>
+          <Button
+            variant="secondary"
+            compact
+            onClick={() => openDrawer({ type: "theme", mode: "edit", entity: theme })}
+          >
+            登録・変更
+          </Button>
+        </div>
+        {themeRepositories.length ? (
+          <div className="theme-repository-list">
+            {themeRepositories.map((repository) => {
+              const isPrimary = theme.primary_repository_context_id === repository.id;
+              return (
+                <div className="theme-repository-row" key={repository.id}>
+                  <IconFolder size={17} aria-hidden="true" />
+                  <span>
+                    <strong>{repository.label || repository.repository_slug || "Repository"}</strong>
+                    <small>{repository.local_path || repository.canonical_url || "場所未登録"}</small>
+                  </span>
+                  {isPrimary && <span className="theme-repository-primary">Primary</span>}
+                  {!repository.local_path && (
+                    <small className="theme-repository-warning">
+                      AIセッションの自動関連付けにはLocal pathが必要です。
+                    </small>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="theme-repository-empty">
+            <strong>Repositoryが未登録です。</strong>
+            <span>登録すると、この作業場所で集めたAIセッションをThemeへ関連付けやすくなります。</span>
+          </div>
+        )}
+      </section>
       <AgentWorkSummaryPanel
         domain={v2}
         themeId={theme.id}

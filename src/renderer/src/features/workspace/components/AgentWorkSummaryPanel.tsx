@@ -9,7 +9,7 @@ import { AI_ICON } from "../../../pages/semanticIcons";
 import type { OpenDrawer } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { EXTERNAL_REFERENCE_KIND_LABELS } from "../domain-model/labels";
-import { buildAgentWorkProjection } from "../lib/agentSessionProjection";
+import { buildAgentWorkProjection, groupAgentWorkProjection } from "../lib/agentSessionProjection";
 
 const CLIENT_LABELS: Record<string, string> = {
   codex: "Codex",
@@ -31,6 +31,7 @@ interface AgentWorkSummaryPanelProps {
   date?: string;
   themeId?: string;
   includeUnresolved?: boolean;
+  groupByTheme?: boolean;
   limit?: number;
   title?: string;
   onOpenTheme?(themeId: string): void;
@@ -51,6 +52,7 @@ export function AgentWorkSummaryPanel({
   date,
   themeId,
   includeUnresolved = false,
+  groupByTheme = false,
   limit = 8,
   title = "AI work",
   onOpenTheme,
@@ -58,6 +60,9 @@ export function AgentWorkSummaryPanel({
 }: AgentWorkSummaryPanelProps) {
   const [expandedId, setExpandedId] = useState("");
   const rows = buildAgentWorkProjection(domain, { date, themeId, includeUnresolved, limit });
+  const groups = groupByTheme
+    ? groupAgentWorkProjection(rows)
+    : [{ key: "all", themeLabel: "", repositoryLabel: "", rows }];
   const unresolvedCount = rows.filter((row) => row.unresolved).length;
 
   return (
@@ -67,11 +72,22 @@ export function AgentWorkSummaryPanel({
           {title}
           {unresolvedCount > 0 && <span className="agent-work-handoff-count">引き継ぎ {unresolvedCount}</span>}
         </h2>
-        <span>{rows.length} session</span>
+        <span>{rows.length}件</span>
       </div>
       {rows.length ? (
         <div className="agent-work-list">
-          {rows.map((row) => {
+          {groups.map((group) => (
+            <section className="agent-work-group" key={group.key}>
+              {groupByTheme && (
+                <div className="agent-work-group-heading">
+                  <span>
+                    <strong>{group.themeLabel}</strong>
+                    <small>{group.repositoryLabel}</small>
+                  </span>
+                  <small>{group.rows.length}件</small>
+                </div>
+              )}
+              {group.rows.map((row) => {
             const { session } = row;
             const expanded = expandedId === session.id;
             const timestamp = session.ended_at || session.started_at;
@@ -84,12 +100,18 @@ export function AgentWorkSummaryPanel({
                   aria-expanded={expanded}
                   onClick={() => setExpandedId(expanded ? "" : session.id)}
                 >
-                  <span className="agent-work-client" title={session.model_label || undefined}>
-                    <AI_ICON size={15} aria-hidden="true" />
-                    {session.client_label || CLIENT_LABELS[session.client_kind] || session.client_kind}
+                  <span className="agent-work-client-stack" title={session.model_label || undefined}>
+                    <span className="agent-work-client">
+                      <AI_ICON size={15} aria-hidden="true" />
+                      {session.client_label || CLIENT_LABELS[session.client_kind] || session.client_kind}
+                    </span>
+                    <span className="agent-session-identity">{row.sessionIdentity}</span>
                   </span>
                   <span className="agent-work-main">
-                    <strong>{session.outcome?.summary || session.intent.summary}</strong>
+                    <strong>{row.topic}</strong>
+                    <span className="agent-work-result">
+                      {row.result ? `結果: ${row.result}` : "結果: 作業中です。"}
+                    </span>
                     <span>
                       {[...row.themes.map((theme) => theme.name), ...row.repositories.map((repo) => repo.label)]
                         .filter(Boolean)
@@ -112,8 +134,22 @@ export function AgentWorkSummaryPanel({
                         <p>{remaining.length ? remaining.join(" / ") : "なし"}</p>
                       </div>
                     </div>
+                    <div className="agent-session-identity-detail">
+                      <span>Session</span>
+                      <code title={`${session.client_kind}:${session.source_session_id || session.id}`}>
+                        {session.client_kind}:{row.sessionIdentity}
+                      </code>
+                      <span>
+                        {row.requestCount} prompts / {row.responseCount} responses
+                      </span>
+                    </div>
                     {((onOpenTheme && row.themes.length > 0) || row.tasks.length > 0) && (
                       <div className="agent-work-links" aria-label="関連先">
+                        {row.unresolved && onOpenTheme && row.themes[0] && (
+                          <button type="button" onClick={() => onOpenTheme(row.themes[0].id)}>
+                            Themeで引き継ぎを確認
+                          </button>
+                        )}
                         {onOpenTheme && row.themes.map((theme) => (
                           <button type="button" key={theme.id} onClick={() => onOpenTheme?.(theme.id)}>
                             Theme: {theme.name}
@@ -152,7 +188,9 @@ export function AgentWorkSummaryPanel({
                 )}
               </article>
             );
-          })}
+              })}
+            </section>
+          ))}
         </div>
       ) : (
         <div className="agent-work-empty">AI sessionはまだありません。</div>

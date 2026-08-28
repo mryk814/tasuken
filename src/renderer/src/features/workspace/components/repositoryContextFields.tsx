@@ -164,7 +164,7 @@ export function ThemeRepositoryContextFields({
   };
   return (
     <section className="drawer-subsection repository-context-section">
-      <div className="section-heading"><h2>RepositoryContext</h2><span className="field-help">複数登録可。Primaryは1つです。</span></div>
+      <div className="section-heading"><h2>Repository</h2><span className="field-help">このThemeで使うRepositoryを登録・選択します。</span></div>
       <div className="repository-context-options">
         {contexts.length ? contexts.map((context) => <ContextRow
           key={String(context.id)}
@@ -179,7 +179,8 @@ export function ThemeRepositoryContextFields({
       {missingIds.map((id) => <p className="field-help" key={id}>参照 {id} は利用できません（削除済み・Archive・未登録の可能性）。</p>)}
       {selectedIds.length > 0 && <PrimaryContextSelect contexts={contexts} value={primaryId} onChange={choosePrimary} />}
       {archivedContexts.length > 0 && <details className="repository-context-archived"><summary>Archive済み ({archivedContexts.length})</summary>{archivedContexts.map((context) => <ContextRow key={String(context.id)} context={context} checked={false} onToggle={() => {}} onSave={actions.saveContext} onRestore={() => actions.restoreContext(context)} />)}</details>}
-      <div className="section-heading"><h3>新しいContextを追加</h3></div>
+      <div className="section-heading"><h3>新しいRepositoryを登録</h3></div>
+      <p className="field-help">AIセッションを自動で関連付けるにはLocal pathを登録してください。Themeを保存すると登録と紐付けが同時に完了します。</p>
       <div className="form-grid">
         <Field label="Provider">
           <select name="repository_new_provider" defaultValue="">
@@ -190,7 +191,7 @@ export function ThemeRepositoryContextFields({
         <Field label="Label"><input name="repository_new_label" placeholder="例: Tasuken" /></Field>
       </div>
       <Field label="Remote URL"><input name="repository_new_url" type="text" placeholder="HTTPS / SSH / scp" /></Field>
-      <Field label="Local path"><input name="repository_new_local_path" placeholder="absolute path" /></Field>
+      <Field label="Local path（AIセッション連携）"><input name="repository_new_local_path" placeholder="C:\\Users\\name\\projects\\example" /></Field>
       <div className="form-grid">
         <Field label="Default branch"><input name="repository_new_default_branch" placeholder="main" /></Field>
         <Field label="Subdirectory"><input name="repository_new_subdirectory" placeholder="apps/web" /></Field>
@@ -236,6 +237,7 @@ export function TaskRepositoryContextFields({
             {Object.entries(REPOSITORY_CONTEXT_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </Field>
+        {mode !== "inherit" && <input type="hidden" name="repository_context_inputs_present" value="true" />}
         {mode !== "inherit" && <ContextOptions contexts={contexts} selectedIds={selectedIds} onToggle={toggle} />}
         {mode !== "inherit" && missingIds.map((id) => <p className="field-help" key={id}>参照 {id} は利用できません（削除済み・Archive・未登録の可能性）。</p>)}
         {mode !== "inherit" && selectedIds.length > 0 && <PrimaryContextSelect contexts={contexts} value={primaryId} onChange={choosePrimary} />}

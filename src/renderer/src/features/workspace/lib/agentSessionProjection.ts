@@ -14,6 +14,11 @@ import type {
 
 export interface AgentWorkProjectionRow {
   session: AgentSession;
+  sessionIdentity: string;
+  topic: string;
+  result: string | null;
+  requestCount: number;
+  responseCount: number;
   date: string;
   themes: Project[];
   repositories: RepositoryContext[];
@@ -29,6 +34,13 @@ export interface AgentWorkProjectionOptions {
   repositoryContextId?: string;
   includeUnresolved?: boolean;
   limit?: number;
+}
+
+export interface AgentWorkProjectionGroup {
+  key: string;
+  themeLabel: string;
+  repositoryLabel: string;
+  rows: AgentWorkProjectionRow[];
 }
 
 function localDate(value: string): string {
@@ -73,6 +85,11 @@ function sessionTimestamp(session: AgentSession): string {
   return session.ended_at || session.started_at;
 }
 
+function compactSessionId(value: string): string {
+  if (value.length <= 14) return value;
+  return `${value.slice(0, 8)}…${value.slice(-4)}`;
+}
+
 export function buildAgentWorkProjection(
   domain: WorkspaceDomain,
   options: AgentWorkProjectionOptions = {},
@@ -107,12 +124,22 @@ export function buildAgentWorkProjection(
         || Boolean(session.source_session_id && event.origin?.session_id === session.source_session_id)
       ));
       const remaining = session.outcome?.remaining_work || [];
+      const themes = byIds(domain.projects, themeIds);
+      const repositories = byIds(domain.repository_contexts, repositoryIds);
+      const tasks = byIds(domain.tasks, taskIds);
+      const topic =
+        tasks.length > 0 ? `${tasks[0].title} — ${session.intent.summary}` : session.intent.summary;
       return {
         session,
+        sessionIdentity: compactSessionId(session.source_session_id || session.id),
+        topic,
+        result: session.outcome?.summary || null,
+        requestCount: session.request_events?.length || 0,
+        responseCount: session.response_checkpoints?.length || 0,
         date: localDate(sessionTimestamp(session)),
-        themes: byIds(domain.projects, themeIds),
-        repositories: byIds(domain.repository_contexts, repositoryIds),
-        tasks: byIds(domain.tasks, taskIds),
+        themes,
+        repositories,
+        tasks,
         receipts,
         activities,
         unresolved: session.status === "blocked" || remaining.length > 0,
@@ -133,4 +160,43 @@ export function buildAgentWorkProjection(
     : Math.min(handoffs.length, limit);
   return [...current.slice(0, limit - handoffLimit), ...handoffs.slice(0, handoffLimit)]
     .sort((left, right) => sessionTimestamp(right.session).localeCompare(sessionTimestamp(left.session)));
+}
+
+export function groupAgentWorkProjection(
+  rows: AgentWorkProjectionRow[],
+): AgentWorkProjectionGroup[] {
+  const groups = new Map<string, AgentWorkProjectionGroup>();
+  for (const row of rows) {
+    const themes = [...row.themes].sort((left, right) => left.name.localeCompare(right.name, "ja"));
+    const repositories = [...row.repositories].sort((left, right) =>
+      String(left.label || left.repository_slug || "Repository").localeCompare(
+        String(right.label || right.repository_slug || "Repository"),
+        "ja",
+      ),
+    );
+    const themeKey = themes.length ? themes.map((theme) => theme.id).join(":") : "unassigned";
+    const repositoryKey = repositories.length
+      ? repositories.map((repository) => repository.id).join(":")
+      : "unassigned";
+    const key = `${themeKey}|${repositoryKey}`;
+    const current = groups.get(key) || {
+      key,
+      themeLabel: themes.length ? themes.map((theme) => theme.name).join(" / ") : "Theme未割当",
+      repositoryLabel: repositories.length
+        ? repositories
+            .map((repository) => String(repository.label || repository.repository_slug || "Repository"))
+            .join(" · ")
+        : "Repository未割当",
+      rows: [],
+    };
+    current.rows.push(row);
+    groups.set(key, current);
+  }
+  return [...groups.values()].sort((left, right) => {
+    const leftUnassigned = left.themeLabel === "Theme未割当";
+    const rightUnassigned = right.themeLabel === "Theme未割当";
+    if (leftUnassigned !== rightUnassigned) return leftUnassigned ? 1 : -1;
+    const themeComparison = left.themeLabel.localeCompare(right.themeLabel, "ja");
+    return themeComparison || left.repositoryLabel.localeCompare(right.repositoryLabel, "ja");
+  });
 }

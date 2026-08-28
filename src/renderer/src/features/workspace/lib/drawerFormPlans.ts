@@ -214,8 +214,14 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       checklist_items: taskChecklistFromForm(values),
       repository_context_mode: (formText(values, "repository_context_mode") ||
         String(base.repository_context_mode || "inherit")) as Task["repository_context_mode"],
-      repository_context_ids: values.getAll("repository_context_ids").map(String),
-      primary_repository_context_id: formText(values, "primary_repository_context_id") || null,
+      repository_context_ids: hasField("repository_context_inputs_present")
+        ? values.getAll("repository_context_ids").map(String)
+        : Array.isArray(base.repository_context_ids)
+          ? base.repository_context_ids.map(String)
+          : [],
+      primary_repository_context_id: hasField("repository_context_inputs_present")
+        ? formText(values, "primary_repository_context_id") || null
+        : ((base.primary_repository_context_id as string | null) ?? null),
       repository_subdirectory: formText(values, "repository_subdirectory") || null,
       repository_branch_hint: formText(values, "repository_branch_hint") || null,
       repository_context_detachments: Array.isArray(base.repository_context_detachments)
