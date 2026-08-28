@@ -1,10 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { THEME_NONE_VALUE } from "../../../../../shared/themeRef.mjs";
-import { buildActivityLog, collectActivityLogEntries } from "../lib/activityLog";
+import { buildActivityReviewLog, collectActivityLogEntries } from "../lib/activityLog";
 import { resolveActivityLogDirectory } from "../lib/activityLogDirectory";
+import {
+  activitySessionTimeLabel,
+  agentSessionClientLabel,
+  activityDisplayKind,
+  activityThemeIds,
+  buildDailyAgentSessionContexts,
+  buildActivityTimeline,
+  projectActivitySessionLogEntries,
+  reviewableActivityEvents,
+} from "../lib/activityTimeline";
+import {
+  buildAgentWorkProjection,
+  type AgentWorkProjectionRow,
+} from "../lib/agentSessionProjection";
+import { themeColor } from "../lib/domain";
 import { findReminderSettingsView, normalizeReminderSettings } from "../lib/reminders";
 import type { PageProps } from "../types";
 import { Button, EmptyState, ThemePickerSelect } from "./common";
@@ -17,6 +32,13 @@ type StructuredActivityEvent = {
   summary?: string;
   entity_ref?: { type?: string; id?: string };
   theme_ref?: { kind?: "theme" | "none"; id?: string | null };
+  entity_type?: string;
+  actor?: { kind?: string; id?: string };
+  origin?: { kind?: string; command_id?: string; command_name?: string; session_id?: string };
+  changed_fields?: string[];
+  source_refs?: Array<Record<string, unknown>>;
+  relation_refs?: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -67,6 +89,161 @@ function eventTitle(event: StructuredActivityEvent, ref: { id?: string }, entity
   return summary && (!ref.id || !summary.includes(ref.id)) ? summary : "履歴の項目";
 }
 
+type ActivityTimelineItem =
+  | {
+      id: string;
+      item_type: "event";
+      start_at: string;
+      end_at: string;
+      display_kind: "outcome" | "record" | "organize" | "ai_work";
+      theme_ids: string[];
+      event: StructuredActivityEvent;
+    }
+  | {
+      id: string;
+      item_type: "session";
+      start_at: string;
+      end_at: string;
+      display_kind: "outcome" | "record" | "organize" | "ai_work";
+      theme_ids: string[];
+      session_row: AgentWorkProjectionRow;
+      session_events: StructuredActivityEvent[];
+    };
+
+type ActivityTimelineRow = ActivityTimelineItem & { gap_size: number };
+
+const ACTIVITY_DISPLAY_LABELS = {
+  outcome: "成果",
+  record: "記録",
+  organize: "整理",
+  ai_work: "AI作業",
+} as const;
+
+const ORIGIN_LABELS: Record<string, string> = {
+  renderer_save: "Tasken",
+  application_command: "Tasken",
+  manual: "Tasken",
+  imported: "取込",
+  quick_capture: "クイック記録",
+  mcp: "AI連携",
+  ai: "AI連携",
+  agent: "AI連携",
+  ai_agent: "AI連携",
+};
+
+const ACTOR_LABELS: Record<string, string> = {
+  user: "本人",
+  human: "本人",
+  system: "システム",
+  ai_agent: "AI",
+  agent: "AI",
+};
+
+const ACTIVITY_FILTER_OPTIONS = [
+  { value: "", label: "すべての種類" },
+  { value: "outcome", label: "成果" },
+  { value: "record", label: "記録" },
+  { value: "organize", label: "整理" },
+  { value: "ai_work", label: "AI作業" },
+] as const;
+
+function displayKindLabel(kind: ActivityTimelineItem["display_kind"]): string {
+  return ACTIVITY_DISPLAY_LABELS[kind];
+}
+
+function originLabel(event: StructuredActivityEvent): string {
+  const kind = event.origin?.kind;
+  if (!kind) return "Tasken";
+  return ORIGIN_LABELS[kind] || kind;
+}
+
+function actorLabel(event: StructuredActivityEvent): string | null {
+  const kind = event.actor?.kind;
+  if (!kind) return null;
+  return ACTOR_LABELS[kind] || kind;
+}
+
+function localTime(value?: string, fallback = "--:--"): string {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return new Intl.DateTimeFormat("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Tokyo",
+  }).format(date);
+}
+
+function findActivityEntity(
+  domain: PageProps["domain"],
+  ref: StructuredActivityEvent["entity_ref"],
+): Record<string, unknown> | null {
+  const records =
+    ref?.type === "task"
+      ? domain.tasks
+      : ref?.type === "waiting"
+        ? domain.waitings
+        : ref?.type === "note"
+          ? domain.notes
+          : ref?.type === "resource"
+            ? domain.resources
+            : ref?.type === "plan_node"
+              ? domain.plan_nodes
+              : ref?.type === "capture_entry"
+                ? domain.capture_entries
+                : ref?.type === "sketch"
+                  ? domain.sketches
+                  : [];
+  return (
+    (records.find((record) => record.id === ref?.id) as unknown as Record<string, unknown>) || null
+  );
+}
+
+function isOpenableActivityEntity(
+  type?: string,
+): type is "task" | "waiting" | "note" | "resource" | "plan_node" | "capture_entry" | "sketch" {
+  return ["task", "waiting", "note", "resource", "plan_node", "capture_entry", "sketch"].includes(
+    type || "",
+  );
+}
+
+function ActivityThemeChips({
+  themeIds,
+  themes,
+}: {
+  themeIds: string[];
+  themes: PageProps["themes"];
+}) {
+  if (!themeIds.length) {
+    return <span className="activity-timeline-theme-chip is-unassigned">Theme未設定</span>;
+  }
+  return (
+    <span className="activity-timeline-theme-chips">
+      {themeIds.map((themeId) => {
+        const theme = themes.find((candidate) => candidate.id === themeId);
+        const themeIndex = themes.findIndex((candidate) => candidate.id === themeId);
+        const color = theme ? themeColor(theme, Math.max(themeIndex, 0)) : "";
+        const label = theme?.name || "Theme不明";
+        return (
+          <span
+            key={themeId}
+            className={`activity-timeline-theme-chip${theme ? "" : " is-unassigned"}`}
+            title={label}
+            style={
+              theme
+                ? ({ "--activity-theme-color": `var(--color-${color})` } as CSSProperties)
+                : undefined
+            }
+          >
+            <span className="activity-timeline-theme-name">{label}</span>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 export function ActivityLogPanel({
   data,
   domain,
@@ -82,6 +259,7 @@ export function ActivityLogPanel({
   const [typeFilter, setTypeFilter] = useState("");
   const [rootStatus, setRootStatus] = useState(data.canonical_root_status || {});
   const [expanded, setExpanded] = useState(true);
+  const [expandedTimelineItemId, setExpandedTimelineItemId] = useState("");
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
@@ -153,23 +331,86 @@ export function ActivityLogPanel({
     },
     { label: "Capture", rows: entries.captures.map((entry) => entry.title || entry.text) },
   ].filter((group) => group.rows.length > 0);
-  const events = (entries.events as StructuredActivityEvent[]).filter(
-    (event) => event.event_kind !== "schedule_updated",
+  const allEvents = reviewableActivityEvents(entries.events as StructuredActivityEvent[]);
+  const agentSessions = buildAgentWorkProjection(domain, {
+    limit: Math.max(domain.agent_sessions.length, 1),
+  });
+  const sessionContexts = buildDailyAgentSessionContexts(agentSessions, date, allEvents);
+  const sessionOriginIds = new Set(
+    sessionContexts.flatMap(({ sessionRow }) =>
+      [sessionRow.session.id, sessionRow.session.source_session_id].filter(
+        (value): value is string => Boolean(value),
+      ),
+    ),
   );
-  const kinds = [...new Set(events.map((event) => String(event.event_kind || "")))]
-    .filter(Boolean)
-    .sort();
-  const visibleEvents = events.filter(
-    (event) =>
+  const events = allEvents.filter((event) => !sessionOriginIds.has(event.origin?.session_id || ""));
+  const visibleEvents = events.filter((event) => {
+    const themeIds = activityThemeIds(event);
+    const displayKind = activityDisplayKind({
+      eventKind: event.event_kind,
+      entityType: event.entity_ref?.type || event.entity_type,
+    });
+    return (
       (themeFilter === "all" ||
         (themeFilter === THEME_NONE_VALUE
-          ? event.theme_ref?.kind === "none"
-          : event.theme_ref?.id === themeFilter)) &&
-      (!typeFilter || event.event_kind === typeFilter),
+          ? themeIds.length === 0
+          : themeIds.includes(themeFilter))) &&
+      (!typeFilter || displayKind === typeFilter)
+    );
+  });
+  const visibleSessions = sessionContexts.filter(
+    ({ events: relatedEvents, themeIds }) =>
+      (themeFilter === "all" ||
+        (themeFilter === THEME_NONE_VALUE
+          ? themeIds.length === 0
+          : themeIds.includes(themeFilter))) &&
+      (!typeFilter ||
+        typeFilter === "ai_work" ||
+        relatedEvents.some(
+          (event) =>
+            activityDisplayKind({
+              eventKind: event.event_kind,
+              entityType: event.entity_ref?.type || event.entity_type,
+            }) === typeFilter,
+        )),
   );
-  const count = events.length
-    ? visibleEvents.length
+  const sessionDisplayKind: ActivityTimelineItem["display_kind"] =
+    typeFilter === "outcome" || typeFilter === "record" || typeFilter === "organize"
+      ? typeFilter
+      : "ai_work";
+  const timelineItems: ActivityTimelineItem[] = [
+    ...visibleEvents.map((event) => ({
+      id: `event:${String(event.id)}`,
+      item_type: "event" as const,
+      start_at: String(event.occurred_at || ""),
+      end_at: String(event.occurred_at || ""),
+      display_kind: activityDisplayKind({
+        eventKind: event.event_kind,
+        entityType: event.entity_ref?.type || event.entity_type,
+      }),
+      theme_ids: activityThemeIds(event),
+      event,
+    })),
+    ...visibleSessions.map(({ sessionRow, interval, events: relatedEvents, themeIds }) => ({
+      id: `session:${sessionRow.session.id}`,
+      item_type: "session" as const,
+      start_at: interval.start_at,
+      end_at: interval.end_at,
+      display_kind: sessionDisplayKind,
+      theme_ids: themeIds,
+      session_row: sessionRow,
+      session_events: relatedEvents,
+    })),
+  ];
+  const timeline = buildActivityTimeline(timelineItems) as ActivityTimelineRow[];
+  const hasStructuredActivity = events.length > 0 || sessionContexts.length > 0;
+  const count = hasStructuredActivity
+    ? timeline.length
     : groups.reduce((sum, group) => sum + group.rows.length, 0);
+  const activityLogContent = buildActivityReviewLog(
+    input,
+    projectActivitySessionLogEntries(sessionContexts, themes),
+  );
 
   async function chooseDirectory() {
     try {
@@ -210,7 +451,7 @@ export function ActivityLogPanel({
       const result = await workspaceApi.exportMarkdownFile({
         title: `Tasken Activity Log ${date}`,
         fileName: `tasken-activity-${date}.md`,
-        content: buildActivityLog(input),
+        content: activityLogContent,
         directory: directory || null,
         chooseDirectory: choose,
       });
@@ -241,7 +482,7 @@ export function ActivityLogPanel({
           <h2>
             Activity <span className="activity-count">{count}</span>
           </h2>
-          <p>Debriefの前に、Taskenが観測した動きを確認します。</p>
+          <p>1日の動きを時刻順に振り返ります。</p>
         </div>
         <div className="inline-actions">
           {expanded && (
@@ -252,7 +493,7 @@ export function ActivityLogPanel({
                 onChange={(event) => setDate(event.target.value)}
                 aria-label="Activity対象日"
               />
-              {events.length > 0 && (
+              {hasStructuredActivity && (
                 <>
                   <ThemePickerSelect
                     themes={themes}
@@ -268,10 +509,9 @@ export function ActivityLogPanel({
                     onChange={(event) => setTypeFilter(event.target.value)}
                     aria-label="Activity event type filter"
                   >
-                    <option value="">すべての種類</option>
-                    {kinds.map((kind) => (
-                      <option key={kind} value={kind}>
-                        {eventLabel(kind)}
+                    {ACTIVITY_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value || "all"} value={option.value}>
+                        {option.label}
                       </option>
                     ))}
                   </select>
@@ -282,7 +522,7 @@ export function ActivityLogPanel({
                 compact
                 onClick={() =>
                   void workspaceApi
-                    .copyText(buildActivityLog(input))
+                    .copyText(activityLogContent)
                     .then(() => setToast("Activity Logをコピーしました。", "success"))
                 }
               >
@@ -309,78 +549,205 @@ export function ActivityLogPanel({
         </div>
       </div>
       {expanded &&
-        (events.length ? (
-          visibleEvents.length ? (
-            <ul className="activity-event-list" aria-label="Activity events">
-              {visibleEvents.slice(0, 30).map((event) => {
-                const ref = event.entity_ref || {};
-                const records =
-                  ref.type === "task"
-                    ? domain.tasks
-                    : ref.type === "waiting"
-                      ? domain.waitings
-                      : ref.type === "note"
-                        ? domain.notes
-                        : ref.type === "resource"
-                          ? domain.resources
-                          : ref.type === "plan_node"
-                            ? domain.plan_nodes
-                            : ref.type === "capture_entry"
-                              ? domain.capture_entries
-                              : ref.type === "sketch"
-                                ? domain.sketches
-                                : [];
-                const entity = records.find((record) => record.id === ref.id);
-                const openable = Boolean(entity);
+        (hasStructuredActivity ? (
+          timeline.length ? (
+            <ul
+              className="activity-event-list activity-timeline-list"
+              aria-label="Activityの時系列"
+            >
+              {timeline.map((row) => {
+                const expandedItem = expandedTimelineItemId === row.id;
+                const event = row.item_type === "event" ? row.event : null;
+                const ref = event?.entity_ref || {};
+                const entity = event ? findActivityEntity(domain, ref) : null;
+                const drawerType = isOpenableActivityEntity(ref.type) ? ref.type : null;
+                const openable = Boolean(entity && drawerType);
+                const sessionRow = row.item_type === "session" ? row.session_row : null;
+                const relatedSessionEvents = row.item_type === "session" ? row.session_events : [];
+                const session = sessionRow?.session || null;
+                const eventActor = event ? actorLabel(event) : null;
+                const title = event
+                  ? eventTitle(event, ref, entity)
+                  : session?.intent.summary || session?.client_label || "AIセッション";
                 return (
-                  <li key={String(event.id)} className="activity-event-row">
-                    <time dateTime={String(event.occurred_at)}>
-                      {String(event.local_time || "--:--")}
+                  <li
+                    key={row.id}
+                    className={`activity-event-row activity-timeline-row activity-timeline-row--${row.display_kind}${expandedItem ? " activity-timeline-row--expanded" : ""}`}
+                    style={{ "--activity-gap-size": `${row.gap_size}px` } as CSSProperties}
+                  >
+                    <time dateTime={row.start_at}>
+                      {session && sessionRow
+                        ? activitySessionTimeLabel({
+                            sessionRow,
+                            interval: { start_at: row.start_at, end_at: row.end_at },
+                          })
+                        : event?.local_time || localTime(row.start_at)}
                     </time>
-                    <span className="activity-event-main">
-                      <span className="activity-event-kind">
-                        {eventLabel(String(event.event_kind || ""))}
-                      </span>
-                      {openable ? (
-                        <button
-                          type="button"
-                          className="text-button activity-event-title"
-                          onClick={() =>
-                            openDrawer({
-                              type: ref.type as
-                                | "task"
-                                | "waiting"
-                                | "note"
-                                | "resource"
-                                | "plan_node"
-                                | "capture_entry"
-                                | "sketch",
-                              mode: "view",
-                              entity: entity as unknown as Record<string, unknown>,
-                            })
-                          }
-                        >
-                          {eventTitle(event, ref, entity)}
-                        </button>
-                      ) : (
-                        <span
-                          className="activity-event-title"
-                          title="現在のEntityがないため、履歴のみ表示しています。"
-                        >
-                          {eventTitle(event, ref, entity)}
+                    <span className="activity-timeline-rail" aria-hidden="true" />
+                    <div className="activity-event-main activity-timeline-main">
+                      <span className="activity-timeline-meta">
+                        <ActivityThemeChips themeIds={row.theme_ids} themes={themes} />
+                        <span className="activity-event-kind activity-timeline-kind">
+                          {displayKindLabel(row.display_kind)}
                         </span>
+                        {(session || eventActor) && (
+                          <span className="activity-timeline-actor-chip">
+                            {session ? "AI" : eventActor}
+                          </span>
+                        )}
+                        <span className="activity-timeline-origin-chip">
+                          {event
+                            ? originLabel(event)
+                            : session
+                              ? agentSessionClientLabel(session)
+                              : "AI連携"}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className="text-button activity-event-title activity-timeline-title"
+                        onClick={() => setExpandedTimelineItemId(expandedItem ? "" : row.id)}
+                        aria-expanded={expandedItem}
+                      >
+                        {title}
+                      </button>
+                      {expandedItem && (
+                        <div className="activity-timeline-detail">
+                          {session ? (
+                            <>
+                              <dl className="activity-timeline-detail-grid">
+                                <div>
+                                  <dt>意図</dt>
+                                  <dd>{session.intent.summary || "未記録"}</dd>
+                                </div>
+                                <div>
+                                  <dt>結果</dt>
+                                  <dd>{session.outcome?.summary || "未記録"}</dd>
+                                </div>
+                              </dl>
+                              {sessionRow && sessionRow.repositories.length > 0 && (
+                                <div className="activity-timeline-detail-section">
+                                  <span>リポジトリ</span>
+                                  <span>
+                                    {sessionRow.repositories
+                                      .map((repository) => repository.label)
+                                      .join(" / ")}
+                                  </span>
+                                </div>
+                              )}
+                              {sessionRow && sessionRow.tasks.length > 0 && (
+                                <div className="activity-timeline-detail-section">
+                                  <span>関連タスク</span>
+                                  <span className="activity-timeline-detail-links">
+                                    {sessionRow.tasks.slice(0, 3).map((task) => (
+                                      <Button
+                                        key={task.id}
+                                        variant="secondary"
+                                        compact
+                                        onClick={() =>
+                                          openDrawer({
+                                            type: "task",
+                                            mode: "view",
+                                            entity: task as unknown as Record<string, unknown>,
+                                          })
+                                        }
+                                      >
+                                        {task.title}
+                                      </Button>
+                                    ))}
+                                  </span>
+                                </div>
+                              )}
+                              {relatedSessionEvents.length > 0 && (
+                                <div className="activity-timeline-detail-section">
+                                  <span>活動</span>
+                                  <ul>
+                                    {relatedSessionEvents.map((relatedEvent, index) => {
+                                      const relatedRef = relatedEvent.entity_ref || {};
+                                      const relatedEntity = findActivityEntity(domain, relatedRef);
+                                      return (
+                                        <li key={relatedEvent.id || `${row.id}:${index}`}>
+                                          {eventLabel(String(relatedEvent.event_kind || ""))}：
+                                          {eventTitle(relatedEvent, relatedRef, relatedEntity)}
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
+                              )}
+                              {session.outcome?.remaining_work.length ? (
+                                <div className="activity-timeline-detail-section">
+                                  <span>残作業</span>
+                                  <ul>
+                                    {session.outcome.remaining_work.slice(0, 3).map((item) => (
+                                      <li key={item}>{item}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
+                            </>
+                          ) : event ? (
+                            <>
+                              {event.summary && (
+                                <p className="activity-timeline-detail-summary">{event.summary}</p>
+                              )}
+                              <dl className="activity-timeline-detail-grid">
+                                <div>
+                                  <dt>記録種別</dt>
+                                  <dd>{eventLabel(String(event.event_kind || ""))}</dd>
+                                </div>
+                                <div>
+                                  <dt>由来</dt>
+                                  <dd>{originLabel(event)}</dd>
+                                </div>
+                                {eventActor && (
+                                  <div>
+                                    <dt>実行者</dt>
+                                    <dd>{eventActor}</dd>
+                                  </div>
+                                )}
+                              </dl>
+                              {event.changed_fields?.length ? (
+                                <div className="activity-timeline-detail-section">
+                                  <span>更新項目</span>
+                                  <span>{event.changed_fields.join(" / ")}</span>
+                                </div>
+                              ) : null}
+                              {openable && entity && drawerType ? (
+                                <Button
+                                  variant="secondary"
+                                  compact
+                                  onClick={() =>
+                                    openDrawer({
+                                      type: drawerType,
+                                      mode: "view",
+                                      entity,
+                                    })
+                                  }
+                                >
+                                  {ref.type === "task" ? "タスクを開く" : "関連項目を開く"}
+                                </Button>
+                              ) : (
+                                <span className="activity-event-state">履歴のみ</span>
+                              )}
+                            </>
+                          ) : null}
+                        </div>
                       )}
-                      {!openable && <span className="activity-event-state">履歴のみ</span>}
-                    </span>
+                    </div>
                   </li>
                 );
               })}
-              {visibleEvents.length > 30 && (
-                <li className="activity-more">ほか{visibleEvents.length - 30}件</li>
-              )}
             </ul>
           ) : (
-            <EmptyState title="条件に一致するActivityはありません" />
+            <EmptyState
+              title="条件に一致するActivityはありません"
+              action="絞り込みを解除"
+              onAction={() => {
+                setThemeFilter("all");
+                setTypeFilter("");
+              }}
+            />
           )
         ) : groups.length ? (
           <div className="activity-summary-grid">

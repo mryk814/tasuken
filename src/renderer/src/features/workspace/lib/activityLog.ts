@@ -1,13 +1,23 @@
 import type { StatusUpdate, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { compareCapturesNewestFirst } from "../domain-model/selectors";
-import { PERSONAL_DEFAULT_THEME_ID, resolveThemeRef, themeRefFromId } from "../../../../../shared/themeRef.mjs";
-import { projectActivityMarkdown, queryActivityEvents } from "../../../../../shared/activityProjection.mjs";
+import {
+  PERSONAL_DEFAULT_THEME_ID,
+  resolveThemeRef,
+  themeRefFromId,
+} from "../../../../../shared/themeRef.mjs";
+import {
+  projectActivityMarkdown,
+  queryActivityEvents,
+} from "../../../../../shared/activityProjection.mjs";
 import type { CanonicalRootStatusMap } from "../../../../../shared/types/workspace";
 
 export interface ActivityLogInput {
   date: string;
-  domain: Pick<WorkspaceDomain, "tasks" | "waitings" | "notes" | "resources" | "knowledge_nodes" | "capture_entries">;
+  domain: Pick<
+    WorkspaceDomain,
+    "tasks" | "waitings" | "notes" | "resources" | "knowledge_nodes" | "capture_entries"
+  >;
   statusUpdates: StatusUpdate[];
   themes: Theme[];
   /** Structured event source. Undefined keeps the legacy display-only path for old callers. */
@@ -64,7 +74,13 @@ export function resolveActivityTheme(themes: Theme[], projectId?: string | null)
   const ref = themeRefFromId(projectId, { legacyNullMeansPersonal: true });
   const resolved = resolveThemeRef(themes, ref);
   if (resolved.id === PERSONAL_DEFAULT_THEME_ID && !resolved.theme) {
-    return { id: PERSONAL_DEFAULT_THEME_ID, name: "個人業務", code: "", description: "", missing: false };
+    return {
+      id: PERSONAL_DEFAULT_THEME_ID,
+      name: "個人業務",
+      code: "",
+      description: "",
+      missing: false,
+    };
   }
   if (resolved.missing || !resolved.theme) {
     const id = resolved.id || PERSONAL_DEFAULT_THEME_ID;
@@ -124,21 +140,29 @@ export function collectActivityLogEntries(input: ActivityLogInput): ActivityLogE
         knowledge_nodes: domain.knowledge_nodes,
         capture_entrys: domain.capture_entries,
         references: input.references || [],
-      artifacts: input.artifacts || [],
-      roots: input.roots || {},
-      status_updates: statusUpdates,
+        artifacts: input.artifacts || [],
+        roots: input.roots || {},
+        status_updates: statusUpdates,
       },
       themes: input.themes,
       date,
       timezone: input.timezone,
     });
     const entity = (type: string, id: string) => {
-      const records = type === "task" ? domain.tasks
-        : type === "waiting" ? domain.waitings
-          : type === "note" ? domain.notes
-            : type === "resource" ? domain.resources
-              : type === "knowledge_node" ? domain.knowledge_nodes
-                : type === "capture_entry" ? domain.capture_entries : [];
+      const records =
+        type === "task"
+          ? domain.tasks
+          : type === "waiting"
+            ? domain.waitings
+            : type === "note"
+              ? domain.notes
+              : type === "resource"
+                ? domain.resources
+                : type === "knowledge_node"
+                  ? domain.knowledge_nodes
+                  : type === "capture_entry"
+                    ? domain.capture_entries
+                    : [];
       return records.find((record) => record.id === id);
     };
     const empty = {
@@ -154,17 +178,38 @@ export function collectActivityLogEntries(input: ActivityLogInput): ActivityLogE
       const type = String(event.entity_ref?.type || "");
       const id = String(event.entity_ref?.id || "");
       const current = entity(type, id);
-      if (event.event_kind === "task_completed" && current) empty.completedTasks.push(current as WorkspaceDomain["tasks"][number]);
-      else if (event.event_kind === "waiting_received" && current) empty.receivedWaitings.push(current as WorkspaceDomain["waitings"][number]);
-      else if (["note_created", "note_updated", "report_created", "report_updated", "prompt_created", "prompt_updated"].includes(String(event.event_kind)) && current) empty.notes.push(current as WorkspaceDomain["notes"][number]);
-      else if (["resource_added", "resource_updated"].includes(String(event.event_kind)) && current) empty.resources.push(current as WorkspaceDomain["resources"][number]);
-      else if (["knowledge_created", "knowledge_updated"].includes(String(event.event_kind)) && current) empty.knowledge.push(current as WorkspaceDomain["knowledge_nodes"][number]);
-      else if (type === "capture_entry" && current) empty.captures.push(current as WorkspaceDomain["capture_entries"][number]);
+      if (event.event_kind === "task_completed" && current)
+        empty.completedTasks.push(current as WorkspaceDomain["tasks"][number]);
+      else if (event.event_kind === "waiting_received" && current)
+        empty.receivedWaitings.push(current as WorkspaceDomain["waitings"][number]);
+      else if (
+        [
+          "note_created",
+          "note_updated",
+          "report_created",
+          "report_updated",
+          "prompt_created",
+          "prompt_updated",
+        ].includes(String(event.event_kind)) &&
+        current
+      )
+        empty.notes.push(current as WorkspaceDomain["notes"][number]);
+      else if (["resource_added", "resource_updated"].includes(String(event.event_kind)) && current)
+        empty.resources.push(current as WorkspaceDomain["resources"][number]);
+      else if (
+        ["knowledge_created", "knowledge_updated"].includes(String(event.event_kind)) &&
+        current
+      )
+        empty.knowledge.push(current as WorkspaceDomain["knowledge_nodes"][number]);
+      else if (type === "capture_entry" && current)
+        empty.captures.push(current as WorkspaceDomain["capture_entries"][number]);
     }
     return { ...empty, events: result.events };
   }
   const completedTasks = domain.tasks
-    .filter((task) => task.state === "done" && recordDate(task.completed_at || task.updated_at) === date)
+    .filter(
+      (task) => task.state === "done" && recordDate(task.completed_at || task.updated_at) === date,
+    )
     .sort((a, b) => String(a.title).localeCompare(String(b.title), "ja"));
   const receivedWaitings = domain.waitings
     .filter((waiting) => waiting.state === "received" && recordDate(waiting.updated_at) === date)
@@ -185,7 +230,16 @@ export function collectActivityLogEntries(input: ActivityLogInput): ActivityLogE
     .filter((entry) => recordDate(entry.captured_at) === date)
     .sort(compareCapturesNewestFirst);
 
-  return { completedTasks, receivedWaitings, notes, resources, knowledge, updates, captures, events: [] };
+  return {
+    completedTasks,
+    receivedWaitings,
+    notes,
+    resources,
+    knowledge,
+    updates,
+    captures,
+    events: [],
+  };
 }
 
 export function buildActivityLog(input: ActivityLogInput): string {
@@ -213,7 +267,8 @@ export function buildActivityLog(input: ActivityLogInput): string {
   const { date, themes } = input;
   const { completedTasks, receivedWaitings, notes, resources, knowledge, updates, captures } =
     collectActivityLogEntries(input);
-  const labelOf = (projectId?: string | null) => formatActivityThemeLabel(resolveActivityTheme(themes, projectId));
+  const labelOf = (projectId?: string | null) =>
+    formatActivityThemeLabel(resolveActivityTheme(themes, projectId));
 
   const themeIds = collectThemeIds([
     ...completedTasks.map((task) => task.project_id),
@@ -223,7 +278,9 @@ export function buildActivityLog(input: ActivityLogInput): string {
     ...knowledge.map((node) => node.project_id),
     ...updates.map((entry) => entry.theme_id),
   ]);
-  const themeDetails = themeIds.map((id) => formatActivityThemeDetail(resolveActivityTheme(themes, id)));
+  const themeDetails = themeIds.map((id) =>
+    formatActivityThemeDetail(resolveActivityTheme(themes, id)),
+  );
 
   return [
     `# Activity Log ${date}`,
@@ -234,35 +291,93 @@ export function buildActivityLog(input: ActivityLogInput): string {
     "## 完了したタスク",
     ...(completedTasks.length
       ? completedTasks.map((task) => {
-        // 完了時のひとことは本文と分けて保存しているので、記録側でも別項として出す（#308）。
-        const note = text(task.completion_note);
-        return `- [x] ${labelOf(task.project_id)} / ${task.title}${note ? ` — ${note}` : ""}`;
-      })
+          // 完了時のひとことは本文と分けて保存しているので、記録側でも別項として出す（#308）。
+          const note = text(task.completion_note);
+          return `- [x] ${labelOf(task.project_id)} / ${task.title}${note ? ` — ${note}` : ""}`;
+        })
       : ["- なし"]),
     "",
     "## 受け取ったWaiting",
-    ...(receivedWaitings.length ? receivedWaitings.map((waiting) => `- ${labelOf(waiting.project_id)} / ${waiting.title} / ${waiting.waiting_for}`) : ["- なし"]),
+    ...(receivedWaitings.length
+      ? receivedWaitings.map(
+          (waiting) =>
+            `- ${labelOf(waiting.project_id)} / ${waiting.title} / ${waiting.waiting_for}`,
+        )
+      : ["- なし"]),
     "",
     "## 作成・更新したNotes",
-    ...(notes.length ? notes.map((note) => `- ${labelOf(note.project_id)} / ${note.title}`) : ["- なし"]),
+    ...(notes.length
+      ? notes.map((note) => `- ${labelOf(note.project_id)} / ${note.title}`)
+      : ["- なし"]),
     "",
     "## 追加・更新したリンク/資料",
-    ...(resources.length ? resources.map((resource) => `- ${labelOf(resource.project_id)} / ${resource.title}${resource.url ? ` (${resource.url})` : ""}`) : ["- なし"]),
+    ...(resources.length
+      ? resources.map(
+          (resource) =>
+            `- ${labelOf(resource.project_id)} / ${resource.title}${resource.url ? ` (${resource.url})` : ""}`,
+        )
+      : ["- なし"]),
     "",
     "## Knowledge",
-    ...(knowledge.length ? knowledge.map((node) => `- ${labelOf(node.project_id)} / ${node.node_type}: ${node.title}`) : ["- なし"]),
+    ...(knowledge.length
+      ? knowledge.map((node) => `- ${labelOf(node.project_id)} / ${node.node_type}: ${node.title}`)
+      : ["- なし"]),
     "",
     "## 現在地更新",
     ...(updates.length
       ? updates.map((entry) => {
-        const theme = resolveActivityTheme(themes, entry.theme_id);
-        // Theme なしの現在地は「全体」（個人業務にしない）
-        const head = entry.theme_id ? formatActivityThemeLabel(theme) : "全体";
-        return `- ${head}: ${entry.summary || entry.next_actions || entry.risks}`;
-      })
+          const theme = resolveActivityTheme(themes, entry.theme_id);
+          // Theme なしの現在地は「全体」（個人業務にしない）
+          const head = entry.theme_id ? formatActivityThemeLabel(theme) : "全体";
+          return `- ${head}: ${entry.summary || entry.next_actions || entry.risks}`;
+        })
       : ["- なし"]),
     "",
     "## Capture / やったこと記録",
     ...(captures.length ? captures.map((entry) => `- ${entry.title || entry.text}`) : ["- なし"]),
   ].join("\n");
+}
+
+export type ActivitySessionLogEntry = {
+  time_label: string;
+  client_label: string;
+  theme_names: string[];
+  intent: string;
+  outcome?: string;
+  repository_names?: string[];
+  remaining_work?: string[];
+};
+
+function logLine(value: unknown): string {
+  return text(value).replace(/\s+/g, " ");
+}
+
+export function appendActivitySessionsToLog(
+  base: string,
+  sessions: ActivitySessionLogEntry[],
+): string {
+  if (!sessions.length) return base;
+  const rows = sessions.flatMap((session) => {
+    const heading = `- ${logLine(session.time_label)} [${logLine(session.client_label)}] ${logLine(session.intent) || "意図未記録"}`;
+    const details: string[] = [];
+    if (session.theme_names.length) {
+      details.push(`  - Theme: ${session.theme_names.map(logLine).join(" / ")}`);
+    }
+    if (logLine(session.outcome)) details.push(`  - 結果: ${logLine(session.outcome)}`);
+    if (session.repository_names?.length) {
+      details.push(`  - リポジトリ: ${session.repository_names.map(logLine).join(" / ")}`);
+    }
+    if (session.remaining_work?.length) {
+      details.push(`  - 残作業: ${session.remaining_work.map(logLine).join(" / ")}`);
+    }
+    return [heading, ...details];
+  });
+  return `${base.trimEnd()}\n\n## AI作業\n\n${rows.join("\n")}\n`;
+}
+
+export function buildActivityReviewLog(
+  input: ActivityLogInput,
+  sessions: ActivitySessionLogEntry[],
+): string {
+  return appendActivitySessionsToLog(buildActivityLog(input), sessions);
 }

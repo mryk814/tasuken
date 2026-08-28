@@ -46,7 +46,14 @@ import {
   runActivityAutoExport,
 } from "./lib/activityAutoExport";
 import { resolveActivityLogDirectory } from "./lib/activityLogDirectory";
-import { buildActivityLog } from "./lib/activityLog";
+import { buildActivityReviewLog, collectActivityLogEntries } from "./lib/activityLog";
+import { buildAgentWorkProjection } from "./lib/agentSessionProjection";
+import {
+  buildDailyAgentSessionContexts,
+  projectActivitySessionLogEntries,
+  reviewableActivityEvents,
+  type ActivitySessionEvent,
+} from "./lib/activityTimeline";
 import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
 import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
 import { buildDomainDrawerFormPlan, themeIntentFromForm } from "./lib/drawerFormPlans";
@@ -641,20 +648,35 @@ export function WorkspaceApp() {
           dates: targetDates,
           exportDate: async (targetDate) => {
             activeTargetDate = targetDate;
+            const activityInput = {
+              date: targetDate,
+              domain: fullDomain,
+              statusUpdates: fullData.status_updates || [],
+              themes: allThemes,
+              changeEvents: fullDomain.change_events as unknown as Array<Record<string, unknown>>,
+              references: fullDomain.references as unknown as Array<Record<string, unknown>>,
+              artifacts: fullData.artifacts as unknown as Array<Record<string, unknown>>,
+              roots: fullData.canonical_root_status,
+              timezone: "Asia/Tokyo",
+            };
+            const sessionEvents = reviewableActivityEvents(
+              collectActivityLogEntries(activityInput).events as ActivitySessionEvent[],
+            );
+            const sessionRows = buildAgentWorkProjection(fullDomain, {
+              limit: Math.max(fullDomain.agent_sessions.length, 1),
+            });
+            const sessionContexts = buildDailyAgentSessionContexts(
+              sessionRows,
+              targetDate,
+              sessionEvents,
+            );
             const result = await workspaceApi.exportMarkdownFile({
               title: `Tasken Activity Log ${targetDate}`,
               fileName: `tasken-activity-${targetDate}.md`,
-              content: buildActivityLog({
-                date: targetDate,
-                domain: fullDomain,
-                statusUpdates: fullData.status_updates || [],
-                themes: allThemes,
-                changeEvents: fullDomain.change_events as unknown as Array<Record<string, unknown>>,
-                references: fullDomain.references as unknown as Array<Record<string, unknown>>,
-                artifacts: fullData.artifacts as unknown as Array<Record<string, unknown>>,
-                roots: fullData.canonical_root_status,
-                timezone: "Asia/Tokyo",
-              }),
+              content: buildActivityReviewLog(
+                activityInput,
+                projectActivitySessionLogEntries(sessionContexts, allThemes),
+              ),
               directory: activeDirectory,
               chooseDirectory: false,
             });
