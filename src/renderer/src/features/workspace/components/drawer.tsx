@@ -1449,6 +1449,7 @@ function EditDrawer({
             <ThemeRepositoryContextFields
               entity={entity}
               data={data}
+              focusRepository={drawer.initialSection === "repository"}
               saveEntities={saveEntities}
               removeEntity={removeEntity}
             />

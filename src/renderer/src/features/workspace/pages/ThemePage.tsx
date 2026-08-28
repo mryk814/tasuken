@@ -265,12 +265,10 @@ export function ThemePage({
     );
   }
   const theme = activeTheme;
-  const themeRepositoryIds = new Set(
-    [
-      ...(theme.repository_context_ids || []).map(String),
-      ...(theme.primary_repository_context_id ? [String(theme.primary_repository_context_id)] : []),
-    ],
-  );
+  const themeRepositoryIds = new Set([
+    ...(theme.repository_context_ids || []).map(String),
+    ...(theme.primary_repository_context_id ? [String(theme.primary_repository_context_id)] : []),
+  ]);
   const themeRepositories = v2.repository_contexts.filter(
     (repository) =>
       themeRepositoryIds.has(String(repository.id)) &&
@@ -503,7 +501,14 @@ export function ThemePage({
           <Button
             variant="secondary"
             compact
-            onClick={() => openDrawer({ type: "theme", mode: "edit", entity: theme })}
+            onClick={() =>
+              openDrawer({
+                type: "theme",
+                mode: "edit",
+                entity: theme,
+                initialSection: "repository",
+              })
+            }
           >
             登録・変更
           </Button>
@@ -516,8 +521,12 @@ export function ThemePage({
                 <div className="theme-repository-row" key={repository.id}>
                   <IconFolder size={17} aria-hidden="true" />
                   <span>
-                    <strong>{repository.label || repository.repository_slug || "Repository"}</strong>
-                    <small>{repository.local_path || repository.canonical_url || "場所未登録"}</small>
+                    <strong>
+                      {repository.label || repository.repository_slug || "Repository"}
+                    </strong>
+                    <small>
+                      {repository.local_path || repository.canonical_url || "場所未登録"}
+                    </small>
                   </span>
                   {isPrimary && <span className="theme-repository-primary">Primary</span>}
                   {!repository.local_path && (
@@ -532,7 +541,9 @@ export function ThemePage({
         ) : (
           <div className="theme-repository-empty">
             <strong>Repositoryが未登録です。</strong>
-            <span>登録すると、この作業場所で集めたAIセッションをThemeへ関連付けやすくなります。</span>
+            <span>
+              登録すると、この作業場所で集めたAIセッションをThemeへ関連付けやすくなります。
+            </span>
           </div>
         )}
       </section>
@@ -540,10 +551,16 @@ export function ThemePage({
         domain={v2}
         themeId={theme.id}
         includeUnresolved
-        limit={6}
+        limit={3}
         title="Recent AI work"
         openDrawer={openDrawer}
+        saveEntities={saveEntities}
       />
+      <div className="theme-ai-work-actions">
+        <button type="button" className="text-button compact" onClick={() => navigate("debrief")}>
+          Debriefで見る
+        </button>
+      </div>
       {/*
         Themeへ戻ったとき短時間で状況を把握するOverview（#321）。
         上から 報告書 → Task（未完了 / 完了）→ 最近のNote → Artifact の順に置き、

@@ -11,6 +11,7 @@ import type {
   WorkingCopy,
   WorkspaceDomain,
 } from "../domain-model/types";
+import type { SaveOperation } from "../types";
 
 export interface AgentWorkProjectionRow {
   session: AgentSession;
@@ -26,6 +27,7 @@ export interface AgentWorkProjectionRow {
   receipts: WorkReceipt[];
   activities: ChangeEvent[];
   unresolved: boolean;
+  assignmentIncomplete: boolean;
 }
 
 export interface AgentWorkProjectionOptions {
@@ -33,7 +35,17 @@ export interface AgentWorkProjectionOptions {
   themeId?: string;
   repositoryContextId?: string;
   includeUnresolved?: boolean;
+  carryoverOnly?: boolean;
   limit?: number;
+}
+
+export interface AgentSessionAssignmentInput {
+  themeId: string;
+  repositoryContextId?: string | null;
+  existingThemeIds?: Iterable<string>;
+  existingRepositoryContextIds?: Iterable<string>;
+  recordedAt?: string;
+  idFactory?: () => string;
 }
 
 export interface AgentWorkProjectionGroup {
@@ -101,7 +113,9 @@ export function buildAgentWorkProjection(
   const rows = domain.agent_sessions
     .map((session) => {
       const related = referencesForSession(domain.references, session.id);
-      const themeIds = new Set(related.filter((ref) => ref.type === "project").map((ref) => ref.id));
+      const themeIds = new Set(
+        related.filter((ref) => ref.type === "project").map((ref) => ref.id),
+      );
       const taskIds = new Set(related.filter((ref) => ref.type === "task").map((ref) => ref.id));
       const repositoryIds = new Set(
         related.filter((ref) => ref.type === "repository_context").map((ref) => ref.id),
@@ -115,14 +129,18 @@ export function buildAgentWorkProjection(
         if (projectId) themeIds.add(projectId);
       }
 
-      const receipts = domain.work_receipts.filter((receipt) => (
-        related.some((ref) => ref.type === "work_receipt" && ref.id === receipt.id)
-        || (session.source_session_id && receipt.source_session === session.source_session_id)
-      ));
-      const activities = domain.change_events.filter((event) => (
-        event.origin?.session_id === session.id
-        || Boolean(session.source_session_id && event.origin?.session_id === session.source_session_id)
-      ));
+      const receipts = domain.work_receipts.filter(
+        (receipt) =>
+          related.some((ref) => ref.type === "work_receipt" && ref.id === receipt.id) ||
+          (session.source_session_id && receipt.source_session === session.source_session_id),
+      );
+      const activities = domain.change_events.filter(
+        (event) =>
+          event.origin?.session_id === session.id ||
+          Boolean(
+            session.source_session_id && event.origin?.session_id === session.source_session_id,
+          ),
+      );
       const remaining = session.outcome?.remaining_work || [];
       const themes = byIds(domain.projects, themeIds);
       const repositories = byIds(domain.repository_contexts, repositoryIds);
@@ -143,23 +161,84 @@ export function buildAgentWorkProjection(
         receipts,
         activities,
         unresolved: session.status === "blocked" || remaining.length > 0,
+        assignmentIncomplete: themes.length === 0 || repositories.length === 0,
       } satisfies AgentWorkProjectionRow;
     })
     .filter((row) => !options.themeId || row.themes.some((theme) => theme.id === options.themeId))
-    .filter((row) => !options.repositoryContextId || row.repositories.some((repo) => repo.id === options.repositoryContextId))
-    .sort((left, right) => sessionTimestamp(right.session).localeCompare(sessionTimestamp(left.session)));
+    .filter(
+      (row) =>
+        !options.repositoryContextId ||
+        row.repositories.some((repo) => repo.id === options.repositoryContextId),
+    )
+    .sort((left, right) =>
+      sessionTimestamp(right.session).localeCompare(sessionTimestamp(left.session)),
+    );
 
   if (!options.date) return rows.slice(0, limit);
+
+  if (options.carryoverOnly) {
+    return rows.filter((row) => row.date !== options.date && row.unresolved).slice(0, limit);
+  }
 
   const current = rows.filter((row) => row.date === options.date);
   if (!options.includeUnresolved) return current.slice(0, limit);
 
   const handoffs = rows.filter((row) => row.date !== options.date && row.unresolved);
-  const handoffLimit = current.length > 0
-    ? Math.min(3, handoffs.length, Math.max(0, limit - 1))
-    : Math.min(handoffs.length, limit);
-  return [...current.slice(0, limit - handoffLimit), ...handoffs.slice(0, handoffLimit)]
-    .sort((left, right) => sessionTimestamp(right.session).localeCompare(sessionTimestamp(left.session)));
+  const handoffLimit =
+    current.length > 0
+      ? Math.min(3, handoffs.length, Math.max(0, limit - 1))
+      : Math.min(handoffs.length, limit);
+  return [...current.slice(0, limit - handoffLimit), ...handoffs.slice(0, handoffLimit)].sort(
+    (left, right) => sessionTimestamp(right.session).localeCompare(sessionTimestamp(left.session)),
+  );
+}
+
+export function buildAgentSessionAssignmentOperations(
+  sessionId: string,
+  input: AgentSessionAssignmentInput,
+): SaveOperation[] {
+  const themeId = input.themeId.trim();
+  const repositoryContextId = input.repositoryContextId?.trim() || "";
+  if (!sessionId || !themeId) return [];
+
+  const existingThemeIds = new Set(input.existingThemeIds || []);
+  const existingRepositoryContextIds = new Set(input.existingRepositoryContextIds || []);
+  const targets = [
+    ...(existingThemeIds.has(themeId) ? [] : [{ type: "project" as const, id: themeId }]),
+    ...(repositoryContextId && !existingRepositoryContextIds.has(repositoryContextId)
+      ? [{ type: "repository_context" as const, id: repositoryContextId }]
+      : []),
+  ];
+  const recordedAt = input.recordedAt || new Date().toISOString();
+  const idFactory = input.idFactory || (() => crypto.randomUUID());
+
+  return targets.map((target) => {
+    const id = idFactory();
+    return {
+      action: "save",
+      type: "reference",
+      entity: {
+        id,
+        assertion_id: id,
+        subject: { type: "agent_session", id: sessionId },
+        predicate: "worked_on",
+        object: target,
+        layer: "operational",
+        status: "asserted",
+        origin: "user",
+        evidence_refs: [],
+        confidence: null,
+        metadata: {},
+        recorded_at: recordedAt,
+        superseded_by_assertion_id: null,
+        source_type: "agent_session",
+        source_id: sessionId,
+        target_type: target.type,
+        target_id: target.id,
+        relation_type: "worked_on",
+      },
+    } satisfies SaveOperation;
+  });
 }
 
 export function groupAgentWorkProjection(
@@ -184,7 +263,9 @@ export function groupAgentWorkProjection(
       themeLabel: themes.length ? themes.map((theme) => theme.name).join(" / ") : "Theme未割当",
       repositoryLabel: repositories.length
         ? repositories
-            .map((repository) => String(repository.label || repository.repository_slug || "Repository"))
+            .map((repository) =>
+              String(repository.label || repository.repository_slug || "Repository"),
+            )
             .join(" · ")
         : "Repository未割当",
       rows: [],

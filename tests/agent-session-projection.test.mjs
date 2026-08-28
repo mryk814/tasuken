@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildAgentSessionAssignmentOperations,
   buildAgentWorkProjection,
   groupAgentWorkProjection,
 } from "../src/renderer/src/features/workspace/lib/agentSessionProjection.ts";
@@ -225,6 +226,7 @@ test("Tasken Debrief evidence derives today's cross-theme/repository AI work and
   assert.equal(tasken.result, "MCP workflowを実装");
   assert.equal(tasken.requestCount, 2);
   assert.equal(tasken.responseCount, 1);
+  assert.equal(tasken.assignmentIncomplete, false);
   assert.deepEqual(
     domain,
     before,
@@ -260,6 +262,87 @@ test("unresolved handoff stays visible on the next day and Theme/repository filt
   assert.deepEqual(
     repoRows.map((row) => row.session.id),
     ["session-same-theme-repo-b", "session-other"],
+  );
+});
+
+test("作業の引き継ぎと関連付け不足を別々に判定し、carryover onlyは当日を含めない", () => {
+  const domain = domainFixture();
+  domain.agent_sessions.push({
+    id: "session-unassigned",
+    started_at: "2026-08-25T14:00:00+09:00",
+    status: "completed",
+    client_kind: "codex",
+    intent: { summary: "関連付け前の作業" },
+  });
+  const rows = buildAgentWorkProjection(domain, { date: "2026-08-25" });
+  const other = rows.find((row) => row.session.id === "session-other");
+  assert.equal(other.unresolved, false);
+  assert.equal(other.assignmentIncomplete, true);
+  const unassigned = rows.find((row) => row.session.id === "session-unassigned");
+  assert.equal(unassigned.unresolved, false);
+  assert.equal(unassigned.assignmentIncomplete, true);
+
+  const handoff = buildAgentWorkProjection(domain, {
+    date: "2026-08-25",
+    includeUnresolved: true,
+  }).find((row) => row.session.id === "session-handoff");
+  assert.equal(handoff.unresolved, true);
+  assert.equal(handoff.assignmentIncomplete, true);
+
+  const carryover = buildAgentWorkProjection(domain, {
+    date: "2026-08-25",
+    carryoverOnly: true,
+  });
+  assert.deepEqual(
+    carryover.map((row) => row.session.id),
+    ["session-handoff"],
+  );
+});
+
+test("関連付けは選択したTheme/Repositoryへのworked_on referenceだけを保存する", () => {
+  let serial = 0;
+  const operations = buildAgentSessionAssignmentOperations("session-unassigned", {
+    themeId: "theme-a",
+    repositoryContextId: "repo-a",
+    recordedAt: "2026-08-25T12:00:00+09:00",
+    idFactory: () => `assignment-${++serial}`,
+  });
+  assert.deepEqual(
+    operations.map(({ entity }) => ({
+      id: entity.id,
+      source: [entity.source_type, entity.source_id],
+      target: [entity.target_type, entity.target_id],
+      relation: entity.relation_type,
+      predicate: entity.predicate,
+      origin: entity.origin,
+    })),
+    [
+      {
+        id: "assignment-1",
+        source: ["agent_session", "session-unassigned"],
+        target: ["project", "theme-a"],
+        relation: "worked_on",
+        predicate: "worked_on",
+        origin: "user",
+      },
+      {
+        id: "assignment-2",
+        source: ["agent_session", "session-unassigned"],
+        target: ["repository_context", "repo-a"],
+        relation: "worked_on",
+        predicate: "worked_on",
+        origin: "user",
+      },
+    ],
+  );
+  assert.deepEqual(
+    buildAgentSessionAssignmentOperations("session-unassigned", {
+      themeId: "theme-a",
+      repositoryContextId: "repo-a",
+      existingThemeIds: ["theme-a"],
+      existingRepositoryContextIds: ["repo-a"],
+    }),
+    [],
   );
 });
 

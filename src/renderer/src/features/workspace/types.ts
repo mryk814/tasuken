@@ -326,6 +326,7 @@ export interface DrawerConfig {
   type: DrawerEntityType;
   mode?: "edit" | "view";
   entity: DrawerEntity;
+  initialSection?: "repository";
   commandSource?: TaskCommandEntrypoint;
   dataScope?: "full";
 }

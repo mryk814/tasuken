@@ -282,8 +282,16 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
     if (!name) return { kind: "invalid", field: "name", message: "テーマ名を入力してください。" };
     const { status: _status, ...rest } = base;
     const existingContextIds = values.getAll("repository_context_ids").map(String).filter(Boolean);
+    const newLabel = formText(values, "repository_new_label");
     const newRemoteUrl = formText(values, "repository_new_url");
     const newLocalPath = formText(values, "repository_new_local_path");
+    if (newLabel && !newRemoteUrl && !newLocalPath) {
+      return {
+        kind: "invalid",
+        field: "repository_new_local_path",
+        message: "新しいRepositoryにはRemote URLまたはLocal pathを入力してください。",
+      };
+    }
     const newContextOperations: SaveOperation[] = [];
     let newContextId: string | null = null;
     if (newRemoteUrl || newLocalPath) {
@@ -291,7 +299,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       try {
         const context = normalizeRepositoryContext({
           id: newContextId,
-          label: formText(values, "repository_new_label"),
+          label: newLabel,
           provider: formText(values, "repository_new_provider"),
           remote_url: newRemoteUrl,
           local_path: newLocalPath,

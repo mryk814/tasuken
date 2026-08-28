@@ -62,11 +62,12 @@ export function DebriefPage({
         <AgentWorkSummaryPanel
           domain={domain}
           date={today}
-          includeUnresolved
+          carryoverOnly
           groupByTheme
           limit={30}
           title="AI作業の引き継ぎ"
           openDrawer={openDrawer}
+          saveEntities={saveEntities}
           onOpenTheme={(themeId) => {
             setActiveThemeId(themeId);
             navigate("theme");
