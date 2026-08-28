@@ -265,10 +265,12 @@ export function ThemePage({
     );
   }
   const theme = activeTheme;
-  const themeRepositoryIds = new Set([
-    ...(theme.repository_context_ids || []).map(String),
-    ...(theme.primary_repository_context_id ? [String(theme.primary_repository_context_id)] : []),
-  ]);
+  const themeRepositoryIds = new Set(
+    [
+      ...(theme.repository_context_ids || []).map(String),
+      ...(theme.primary_repository_context_id ? [String(theme.primary_repository_context_id)] : []),
+    ],
+  );
   const themeRepositories = v2.repository_contexts.filter(
     (repository) =>
       themeRepositoryIds.has(String(repository.id)) &&
@@ -521,12 +523,8 @@ export function ThemePage({
                 <div className="theme-repository-row" key={repository.id}>
                   <IconFolder size={17} aria-hidden="true" />
                   <span>
-                    <strong>
-                      {repository.label || repository.repository_slug || "Repository"}
-                    </strong>
-                    <small>
-                      {repository.local_path || repository.canonical_url || "場所未登録"}
-                    </small>
+                    <strong>{repository.label || repository.repository_slug || "Repository"}</strong>
+                    <small>{repository.local_path || repository.canonical_url || "場所未登録"}</small>
                   </span>
                   {isPrimary && <span className="theme-repository-primary">Primary</span>}
                   {!repository.local_path && (
@@ -541,9 +539,7 @@ export function ThemePage({
         ) : (
           <div className="theme-repository-empty">
             <strong>Repositoryが未登録です。</strong>
-            <span>
-              登録すると、この作業場所で集めたAIセッションをThemeへ関連付けやすくなります。
-            </span>
+            <span>登録すると、この作業場所で集めたAIセッションをThemeへ関連付けやすくなります。</span>
           </div>
         )}
       </section>
