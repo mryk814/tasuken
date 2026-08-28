@@ -45,8 +45,8 @@ test("Activity calendar layout assigns deterministic lanes and reuses a lane at 
   const layout = buildActivityTimelineLayout(
     [
       { id: "long", start_at: "2026-08-28T00:00:00.000Z", end_at: "2026-08-28T02:00:00.000Z" },
-      { id: "first", start_at: "2026-08-28T00:30:00.000Z", end_at: "2026-08-28T01:00:00.000Z" },
-      { id: "reused", start_at: "2026-08-28T01:00:00.000Z", end_at: "2026-08-28T01:30:00.000Z" },
+      { id: "first", start_at: "2026-08-28T00:30:00.000Z", end_at: "2026-08-28T01:30:00.000Z" },
+      { id: "reused", start_at: "2026-08-28T01:30:00.000Z", end_at: "2026-08-28T02:30:00.000Z" },
     ],
     { date },
   );
@@ -79,11 +79,51 @@ test("Activity calendar layout clips intervals to the selected day and keeps poi
 
   assert.deepEqual(
     [crossing.start_minutes, crossing.end_minutes, crossing.top, crossing.height],
-    [1410, 1440, 846, 18],
+    [1410, 1440, 832, 32],
   );
   assert.equal(point.height, 32);
   assert.equal(
     layout.some((item) => item.id === "outside"),
     false,
+  );
+});
+
+test("Activity calendar keeps late and short controls usable within the day canvas", () => {
+  const layout = buildActivityTimelineLayout(
+    [
+      {
+        id: "late-point",
+        start_at: "2026-08-28T14:59:00.000Z",
+        end_at: "2026-08-28T14:59:00.000Z",
+      },
+      {
+        id: "short-session",
+        start_at: "2026-08-28T00:00:00.000Z",
+        end_at: "2026-08-28T00:00:30.000Z",
+      },
+      {
+        id: "visual-overlap",
+        start_at: "2026-08-28T00:30:00.000Z",
+        end_at: "2026-08-28T00:30:30.000Z",
+      },
+    ],
+    { date },
+  );
+  const latePoint = layout.find((item) => item.id === "late-point");
+  const shortSession = layout.find((item) => item.id === "short-session");
+  const visualOverlap = layout.find((item) => item.id === "visual-overlap");
+
+  assert.deepEqual(
+    [latePoint.start_minutes, latePoint.end_minutes, latePoint.top, latePoint.height],
+    [1439, 1439, 832, 32],
+  );
+  assert.equal(latePoint.top + latePoint.height, 864);
+  assert.deepEqual(
+    [shortSession.start_minutes, shortSession.end_minutes, shortSession.height],
+    [540, 540.5, 32],
+  );
+  assert.deepEqual(
+    [shortSession.lane, shortSession.lane_count, visualOverlap.lane, visualOverlap.lane_count],
+    [0, 2, 1, 2],
   );
 });

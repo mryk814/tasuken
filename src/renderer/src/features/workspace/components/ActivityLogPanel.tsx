@@ -432,7 +432,7 @@ export function ActivityLogPanel({
 
   useEffect(() => {
     const calendar = activityCalendarRef.current;
-    if (!calendar) return;
+    if (!expanded || !calendar) return;
     const nowParts = new Intl.DateTimeFormat("en-US", {
       timeZone: "Asia/Tokyo",
       hour: "2-digit",
@@ -443,7 +443,7 @@ export function ActivityLogPanel({
     const minute = Number(nowParts.find((part) => part.type === "minute")?.value || 0);
     const fallbackTop = (hour * 60 + minute) * (36 / 60);
     calendar.scrollTop = Math.max(0, (initialActivityTop ?? fallbackTop) - 36);
-  }, [activityCalendarScrollKey, initialActivityTop]);
+  }, [activityCalendarScrollKey, expanded, initialActivityTop]);
 
   async function chooseDirectory() {
     try {
@@ -789,6 +789,16 @@ export function ActivityLogPanel({
                           </ul>
                         </div>
                       )}
+                      {expandedSession.outcome?.remaining_work.length ? (
+                        <div className="activity-timeline-detail-section">
+                          <span>残作業</span>
+                          <ul>
+                            {expandedSession.outcome.remaining_work.slice(0, 3).map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                     </>
                   ) : expandedEvent ? (
                     <>

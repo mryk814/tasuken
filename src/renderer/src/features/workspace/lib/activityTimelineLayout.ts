@@ -27,6 +27,7 @@ export type ActivityTimelineLayout = {
 
 type Candidate<T extends ActivityTimelineLayoutItem> = T &
   Omit<ActivityTimelineLayout, "lane" | "lane_count"> & {
+    render_start_minutes: number;
     render_end_minutes: number;
   };
 
@@ -63,7 +64,8 @@ export function buildActivityTimelineLayout<T extends ActivityTimelineLayoutItem
   if (!bounds || !Number.isFinite(pixelsPerHour) || pixelsPerHour <= 0) return [];
 
   const pixelsPerMinute = pixelsPerHour / 60;
-  const pointMinutes = pointHeight / pixelsPerMinute;
+  const dayHeight = ACTIVITY_TIMELINE_DAY_MINUTES * pixelsPerMinute;
+  const minimumEventHeight = Math.min(pointHeight, dayHeight);
   const candidates: Candidate<T>[] = items
     .flatMap((item) => {
       const start = Date.parse(text(item.start_at));
@@ -77,19 +79,19 @@ export function buildActivityTimelineLayout<T extends ActivityTimelineLayoutItem
       const clippedEnd = Math.min(end, bounds.end);
       const startMinutes = minuteOffset(clippedStart, bounds.start);
       const endMinutes = Math.max(startMinutes, minuteOffset(clippedEnd, bounds.start));
-      const height = isPoint
-        ? pointHeight
-        : Math.max(0, (endMinutes - startMinutes) * pixelsPerMinute);
+      const semanticHeight = Math.max(0, (endMinutes - startMinutes) * pixelsPerMinute);
+      const height = Math.max(minimumEventHeight, semanticHeight);
+      const top = Math.min(startMinutes * pixelsPerMinute, dayHeight - height);
+      const renderStartMinutes = top / pixelsPerMinute;
       return [
         {
           ...item,
           start_minutes: startMinutes,
           end_minutes: endMinutes,
-          top: startMinutes * pixelsPerMinute,
+          top,
           height,
-          render_end_minutes: isPoint
-            ? Math.min(ACTIVITY_TIMELINE_DAY_MINUTES, startMinutes + pointMinutes)
-            : endMinutes,
+          render_start_minutes: renderStartMinutes,
+          render_end_minutes: renderStartMinutes + height / pixelsPerMinute,
         },
       ];
     })
@@ -112,7 +114,7 @@ export function buildActivityTimelineLayout<T extends ActivityTimelineLayoutItem
   };
 
   for (const candidate of candidates) {
-    active = active.filter((item) => item.render_end_minutes > candidate.start_minutes);
+    active = active.filter((item) => item.render_end_minutes > candidate.render_start_minutes);
     if (!active.length && cluster.length) finishCluster();
 
     const usedLanes = new Set(active.map((item) => item.lane));
@@ -127,6 +129,10 @@ export function buildActivityTimelineLayout<T extends ActivityTimelineLayoutItem
   finishCluster();
 
   return laidOut.map(
-    ({ render_end_minutes: _renderEndMinutes, ...item }) => item as T & ActivityTimelineLayout,
+    ({
+      render_start_minutes: _renderStartMinutes,
+      render_end_minutes: _renderEndMinutes,
+      ...item
+    }) => item as T & ActivityTimelineLayout,
   );
 }
