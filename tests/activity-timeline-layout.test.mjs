@@ -78,8 +78,20 @@ test("Activity calendar layout clips intervals to the selected day and keeps poi
   const point = layout.find((item) => item.id === "point");
 
   assert.deepEqual(
-    [crossing.start_minutes, crossing.end_minutes, crossing.top, crossing.height],
-    [1410, 1440, 832, 32],
+    [
+      crossing.start_minutes,
+      crossing.end_minutes,
+      crossing.anchor_top,
+      crossing.anchor_height,
+      crossing.anchor_offset,
+      crossing.top,
+      crossing.height,
+    ],
+    [1410, 1440, 846, 18, 14, 832, 32],
+  );
+  assert.deepEqual(
+    [point.anchor_top, point.anchor_height, point.anchor_offset, point.top, point.height],
+    [324, 0, 0, 324, 32],
   );
   assert.equal(point.height, 32);
   assert.equal(
@@ -114,13 +126,29 @@ test("Activity calendar keeps late and short controls usable within the day canv
   const visualOverlap = layout.find((item) => item.id === "visual-overlap");
 
   assert.deepEqual(
-    [latePoint.start_minutes, latePoint.end_minutes, latePoint.top, latePoint.height],
-    [1439, 1439, 832, 32],
+    [
+      latePoint.start_minutes,
+      latePoint.end_minutes,
+      latePoint.anchor_top,
+      latePoint.anchor_height,
+      latePoint.top,
+      latePoint.height,
+    ],
+    [1439, 1439, 863.4, 0, 832, 32],
   );
   assert.equal(latePoint.top + latePoint.height, 864);
+  assert.ok(Math.abs(latePoint.anchor_offset - 31.4) < 1e-9);
   assert.deepEqual(
-    [shortSession.start_minutes, shortSession.end_minutes, shortSession.height],
-    [540, 540.5, 32],
+    [
+      shortSession.start_minutes,
+      shortSession.end_minutes,
+      shortSession.anchor_top,
+      shortSession.anchor_height,
+      shortSession.anchor_offset,
+      shortSession.top,
+      shortSession.height,
+    ],
+    [540, 540.5, 324, 0.3, 0, 324, 32],
   );
   assert.deepEqual(
     [shortSession.lane, shortSession.lane_count, visualOverlap.lane, visualOverlap.lane_count],

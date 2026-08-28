@@ -1,7 +1,14 @@
-import type { ActivityTimelineLayout } from "./activityTimelineLayout";
-
 const BURST_WINDOW_MINUTES = 20;
 const BURST_MINIMUM_EVENTS = 3;
+
+type ActivityTimelineLayout = {
+  start_minutes: number;
+  end_minutes: number;
+  top: number;
+  height: number;
+  lane: number;
+  lane_count: number;
+};
 
 type BurstSource = ActivityTimelineLayout & {
   id: string;
@@ -9,15 +16,20 @@ type BurstSource = ActivityTimelineLayout & {
   start_at: string;
   end_at: string;
   display_kind: string;
+  origin?: string | { kind?: unknown } | null;
+  event?: { origin?: string | { kind?: unknown } | null };
   theme_ids: string[];
 };
+
+export type ActivityTimelineBurstOrigin = "tasken" | "ai" | "imported" | "unknown" | "mixed";
 
 export type ActivityTimelineBurst<T extends BurstSource> = ActivityTimelineLayout & {
   id: string;
   item_type: "burst";
   start_at: string;
   end_at: string;
-  display_kind: T["display_kind"];
+  display_kind: T["display_kind"] | "mixed";
+  origin: ActivityTimelineBurstOrigin;
   theme_ids: string[];
   events: T[];
 };
@@ -26,6 +38,40 @@ type CalendarItem<T extends BurstSource> = T | ActivityTimelineBurst<T>;
 
 function isStandalonePoint<T extends BurstSource>(item: T): boolean {
   return item.item_type === "event" && item.end_minutes <= item.start_minutes;
+}
+
+function rawOrigin(item: BurstSource): string {
+  const value = item.origin ?? item.event?.origin;
+  if (typeof value === "string") return value.trim().toLowerCase();
+  if (value && typeof value === "object")
+    return String(value.kind || "")
+      .trim()
+      .toLowerCase();
+  return "";
+}
+
+function originKind(item: BurstSource): Exclude<ActivityTimelineBurstOrigin, "mixed"> {
+  const value = rawOrigin(item);
+  if (["ai", "agent", "ai_agent", "mcp", "ai_suggested"].includes(value)) return "ai";
+  if (value === "imported") return "imported";
+  if (
+    [
+      "tasken",
+      "manual",
+      "renderer_save",
+      "application_command",
+      "quick_capture",
+      "user",
+      "human",
+      "system",
+    ].includes(value)
+  )
+    return "tasken";
+  return "unknown";
+}
+
+function uniformOrMixed<T extends string>(values: T[]): T | "mixed" {
+  return values.every((value) => value === values[0]) ? values[0] : "mixed";
 }
 
 function assignVisualLanes<T extends BurstSource>(
@@ -106,7 +152,8 @@ export function buildActivityTimelineBursts<T extends BurstSource>(
         item_type: "burst",
         start_at: burst[0].start_at,
         end_at: burst.at(-1)?.end_at || burst[0].end_at,
-        display_kind: burst[0].display_kind,
+        display_kind: uniformOrMixed(burst.map((event) => event.display_kind)),
+        origin: uniformOrMixed(burst.map(originKind)),
         theme_ids: [...new Set(burst.flatMap((event) => event.theme_ids))],
         events: burst,
         start_minutes: Math.min(...burst.map((event) => event.start_minutes)),

@@ -25,7 +25,7 @@ const { buildActivityTimelineBursts } = await importBundled(
   "src/renderer/src/features/workspace/lib/activityTimelineBurst.ts",
 );
 
-test("point bursts stay compact beside a concurrent AI session at narrow and wide widths", () => {
+test("point bursts stay within two lanes beside a concurrent AI session", () => {
   const date = "2026-08-28";
   const items = [
     {
@@ -42,6 +42,7 @@ test("point bursts stay compact beside a concurrent AI session at narrow and wid
       start_at: `2026-08-28T00:${String(index * 10).padStart(2, "0")}:00.000Z`,
       end_at: `2026-08-28T00:${String(index * 10).padStart(2, "0")}:00.000Z`,
       display_kind: "record",
+      origin: "tasken",
       theme_ids: [],
     })),
   ];
@@ -51,11 +52,61 @@ test("point bursts stay compact beside a concurrent AI session at narrow and wid
 
   assert.equal(calendarItems.filter((item) => item.item_type === "burst").length, 1);
   assert.equal(burst.events.length, 6);
+  assert.equal(burst.display_kind, "record");
+  assert.equal(burst.origin, "tasken");
+  assert.notEqual(burst.origin, "ai");
   assert.equal(session.item_type, "session");
-  for (const width of [320, 760, 1280]) {
-    assert.ok(
-      Math.max(...calendarItems.map((item) => item.lane_count)) <= 2,
-      `${width}px keeps the point burst below six lanes`,
-    );
-  }
+  assert.ok(Math.max(...calendarItems.map((item) => item.lane_count)) <= 2);
+});
+
+test("bursts derive uniform and mixed display kinds and origins from every event", () => {
+  const items = [
+    ["record", "tasken"],
+    ["record", "tasken"],
+    ["outcome", "ai"],
+  ].map(([display_kind, origin], index) => ({
+    id: `mixed-${index}`,
+    item_type: "event",
+    start_at: `2026-08-28T01:${String(index * 5).padStart(2, "0")}:00.000Z`,
+    end_at: `2026-08-28T01:${String(index * 5).padStart(2, "0")}:00.000Z`,
+    display_kind,
+    origin,
+    theme_ids: [],
+  }));
+  const [burst] = buildActivityTimelineBursts(
+    buildActivityTimelineLayout(items, {
+      date: "2026-08-28",
+    }),
+  );
+
+  assert.equal(burst.item_type, "burst");
+  assert.equal(burst.display_kind, "mixed");
+  assert.equal(burst.origin, "mixed");
+  assert.deepEqual(
+    burst.events.map((event) => [event.display_kind, event.origin]),
+    [
+      ["record", "tasken"],
+      ["record", "tasken"],
+      ["outcome", "ai"],
+    ],
+  );
+});
+
+test("event origin objects classify Tasken saves separately from AI origins", () => {
+  const items = ["manual", "renderer_save", "mcp"].map((kind, index) => ({
+    id: `origin-${index}`,
+    item_type: "event",
+    start_at: `2026-08-28T02:${String(index * 5).padStart(2, "0")}:00.000Z`,
+    end_at: `2026-08-28T02:${String(index * 5).padStart(2, "0")}:00.000Z`,
+    display_kind: "record",
+    event: { origin: { kind } },
+    theme_ids: [],
+  }));
+  const [burst] = buildActivityTimelineBursts(
+    buildActivityTimelineLayout(items, {
+      date: "2026-08-28",
+    }),
+  );
+
+  assert.equal(burst.origin, "mixed");
 });

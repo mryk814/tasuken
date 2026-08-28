@@ -13130,6 +13130,25 @@ kbd {
   border-color: var(--color-ai-bd);
   background: var(--color-ai-bg);
 }
+.activity-calendar-event.activity-timeline-row--mixed {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-raised);
+}
+.activity-calendar-time-anchor {
+  position: absolute;
+  top: var(--activity-anchor-offset);
+  left: 0;
+  z-index: 1;
+  width: 3px;
+  pointer-events: none;
+  background: currentColor;
+}
+.activity-calendar-time-anchor.is-range {
+  height: var(--activity-anchor-height);
+}
+.activity-calendar-time-anchor.is-point {
+  height: 1px;
+}
 .activity-calendar-event.is-selected {
   z-index: 2;
   border-color: var(--color-accent);
@@ -13200,18 +13219,33 @@ kbd {
 .activity-calendar-event.is-compact .activity-calendar-event-time {
   flex: 0 0 auto;
 }
-.activity-calendar-event-compact-theme,
-.activity-calendar-event.is-compact .activity-timeline-theme-chips {
+.activity-calendar-event-compact-theme {
   display: inline-flex;
+  min-width: 0;
+  max-width: 48%;
+  align-items: center;
   flex: 0 0 auto;
+  gap: 3px;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
-.activity-calendar-event.is-compact .activity-timeline-theme-chip {
-  padding: 0;
-  border: 0;
+.activity-calendar-event-compact-theme > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.activity-calendar-event-compact-theme-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--activity-theme-color, var(--color-text-tertiary));
+}
+.activity-calendar-event-compact-theme.is-unassigned .activity-calendar-event-compact-theme-dot {
+  border: 1px solid var(--color-border-strong);
   background: transparent;
-}
-.activity-calendar-event.is-compact .activity-timeline-theme-name {
-  display: none;
 }
 .activity-calendar-event.is-compact .activity-calendar-event-title {
   flex: 1 1 auto;
@@ -13535,6 +13569,20 @@ kbd {
     max-height: min(48vh, 28rem);
     margin: 0;
     border-color: var(--color-accent-subtle-bd);
+  }
+  .activity-calendar-detail-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 9;
+    padding: 0;
+    border: 0;
+    background: color-mix(in srgb, var(--color-bg) 38%, transparent);
+  }
+  .activity-calendar-detail-backdrop:hover {
+    background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+  }
+  .activity-calendar-detail-backdrop:active {
+    background: color-mix(in srgb, var(--color-bg) 46%, transparent);
   }
   .activity-event-row {
     grid-template-columns: 5.25rem 0.65rem minmax(0, 1fr);

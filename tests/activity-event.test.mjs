@@ -653,11 +653,11 @@ test("Debrief Activity combines event and AI session details without labelling e
   assert.match(source, /buildActivityReviewLog/);
   assert.match(workspaceSource, /content: buildActivityReviewLog\(/);
   assert.match(source, /buildActivityTimeline/);
-  assert.match(source, /display_kind: sessionDisplayKind/);
+  assert.match(source, /display_kind: "ai_work" as const/);
   assert.match(source, /activityThemeIds/);
   assert.match(source, /activity-timeline-theme-chip/);
   assert.match(source, /setExpandedTimelineItemId/);
-  assert.match(source, /openDrawer\(\{\s*type: drawerType/);
+  assert.match(source, /openDrawer\(\{\s*type: expandedDrawerType/);
   assert.match(source, />履歴のみ</);
   assert.doesNotMatch(source, /timeline\.slice\(0, 30\)/);
   assert.doesNotMatch(source, /relatedSessionEvents\.slice/);

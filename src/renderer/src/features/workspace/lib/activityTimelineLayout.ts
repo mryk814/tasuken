@@ -16,17 +16,31 @@ export type ActivityTimelineLayoutOptions = {
   pointHeight?: number;
 };
 
+export type ActivityTimelineAnchor = {
+  /** Exact start position on the 24-hour calendar, without hit-target adjustment. */
+  anchor_top: number;
+  /** Exact clipped duration on the calendar. Point events have a zero-height anchor. */
+  anchor_height: number;
+  /** Anchor position relative to the top of the minimum-size content rectangle. */
+  anchor_offset: number;
+};
+
 export type ActivityTimelineLayout = {
   start_minutes: number;
   end_minutes: number;
+  /** Top of the minimum-size clickable/content rectangle. May move upward near day end. */
   top: number;
+  /** Height of the clickable/content rectangle. Never smaller than the configured minimum. */
   height: number;
   lane: number;
   lane_count: number;
 };
 
+export type AnchoredActivityTimelineLayout = ActivityTimelineLayout & ActivityTimelineAnchor;
+
 type Candidate<T extends ActivityTimelineLayoutItem> = T &
-  Omit<ActivityTimelineLayout, "lane" | "lane_count"> & {
+  Omit<ActivityTimelineLayout, "lane" | "lane_count"> &
+  ActivityTimelineAnchor & {
     render_start_minutes: number;
     render_end_minutes: number;
   };
@@ -47,10 +61,10 @@ function dayBounds(date: string): { start: number; end: number } | null {
 }
 
 /**
- * Projects a selected JST day onto a fixed 24-hour coordinate system.
- * Point events retain their semantic timestamp and get a minimum visual height;
- * their rendered height is also used for lane allocation so nearby controls do
- * not sit on top of one another.
+ * Projects a selected JST day onto a fixed 24-hour coordinate system. The
+ * anchor fields preserve exact start and duration geometry. `top` and `height`
+ * describe a separate minimum-size content rectangle, which may shift upward
+ * near day end and is used for lane allocation so controls do not overlap.
  */
 export function buildActivityTimelineLayout<T extends ActivityTimelineLayoutItem>(
   items: T[],
@@ -59,7 +73,7 @@ export function buildActivityTimelineLayout<T extends ActivityTimelineLayoutItem
     pixelsPerHour = ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
     pointHeight = ACTIVITY_TIMELINE_POINT_HEIGHT,
   }: ActivityTimelineLayoutOptions,
-): Array<T & ActivityTimelineLayout> {
+): Array<T & AnchoredActivityTimelineLayout> {
   const bounds = dayBounds(date);
   if (!bounds || !Number.isFinite(pixelsPerHour) || pixelsPerHour <= 0) return [];
 
@@ -79,15 +93,19 @@ export function buildActivityTimelineLayout<T extends ActivityTimelineLayoutItem
       const clippedEnd = Math.min(end, bounds.end);
       const startMinutes = minuteOffset(clippedStart, bounds.start);
       const endMinutes = Math.max(startMinutes, minuteOffset(clippedEnd, bounds.start));
-      const semanticHeight = Math.max(0, (endMinutes - startMinutes) * pixelsPerMinute);
-      const height = Math.max(minimumEventHeight, semanticHeight);
-      const top = Math.min(startMinutes * pixelsPerMinute, dayHeight - height);
+      const anchorTop = startMinutes * pixelsPerMinute;
+      const anchorHeight = Math.max(0, (endMinutes - startMinutes) * pixelsPerMinute);
+      const height = Math.max(minimumEventHeight, anchorHeight);
+      const top = Math.min(anchorTop, dayHeight - height);
       const renderStartMinutes = top / pixelsPerMinute;
       return [
         {
           ...item,
           start_minutes: startMinutes,
           end_minutes: endMinutes,
+          anchor_top: anchorTop,
+          anchor_height: anchorHeight,
+          anchor_offset: anchorTop - top,
           top,
           height,
           render_start_minutes: renderStartMinutes,
@@ -133,6 +151,6 @@ export function buildActivityTimelineLayout<T extends ActivityTimelineLayoutItem
       render_start_minutes: _renderStartMinutes,
       render_end_minutes: _renderEndMinutes,
       ...item
-    }) => item as T & ActivityTimelineLayout,
+    }) => item as T & AnchoredActivityTimelineLayout,
   );
 }
