@@ -280,6 +280,13 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
   if (type === "theme") {
     const name = formText(values, "name");
     if (!name) return { kind: "invalid", field: "name", message: "テーマ名を入力してください。" };
+    if (formText(values, "repository_context_inline_editing") === "true") {
+      return {
+        kind: "invalid",
+        field: "repository_context_inline_editing_focus",
+        message: "Repositoryの行内編集を保存またはキャンセルしてから、Themeを保存してください。",
+      };
+    }
     const { status: _status, ...rest } = base;
     const existingContextIds = values.getAll("repository_context_ids").map(String).filter(Boolean);
     const newLabel = formText(values, "repository_new_label");

@@ -263,6 +263,12 @@ export function AgentWorkSummaryPanel({
                     </label>
                     <div className="agent-work-assignment-actions">
                       <button
+                        type="button"
+                        onClick={() => openDrawer({ type: "theme", mode: "edit", entity: {} })}
+                      >
+                        新しいThemeを作成
+                      </button>
+                      <button
                         type="submit"
                         disabled={!canSaveAssignment || savingAssignmentId === session.id}
                       >

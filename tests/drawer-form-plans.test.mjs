@@ -153,6 +153,20 @@ test("Themeの新しいRepositoryはLabelだけでは保存せず、接続先を
   );
 });
 
+test("Theme保存はRepositoryの行内編集が終わるまで止め、戻り先へfocusする", () => {
+  assert.deepEqual(
+    plan("theme", [
+      ["name", "Tasken"],
+      ["repository_context_inline_editing", "true"],
+    ]),
+    {
+      kind: "invalid",
+      field: "repository_context_inline_editing_focus",
+      message: "Repositoryの行内編集を保存またはキャンセルしてから、Themeを保存してください。",
+    },
+  );
+});
+
 test("Conversationから作ったTaskはderived_fromを同じ保存操作列へ追加する", () => {
   const result = plan("task", [
     ["title", "会話から調査する"],
