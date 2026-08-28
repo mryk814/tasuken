@@ -2945,7 +2945,17 @@ function seed(targetPath) {
   };
 }
 
-export { parseArguments, seed };
+async function withMaterialsWorkspaceDatabase(targetPath, callback) {
+  const repository = new WorkspaceDatabase(targetPath);
+  try {
+    return await callback(repository);
+  } finally {
+    repository.db.pragma("wal_checkpoint(TRUNCATE)");
+    repository.db.close();
+  }
+}
+
+export { parseArguments, seed, withMaterialsWorkspaceDatabase };
 
 const isMain =
   process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));

@@ -13,6 +13,7 @@ import {
   scanTextRules,
 } from "../scripts/architecture-audit/core.mjs";
 
+const AUDIT_SPAWN_MAX_BUFFER = 8 * 1024 * 1024;
 const fixtureRoot = path.resolve("tests/fixtures/architecture-audit");
 const policy = {
   sourceRoots: ["src", "tests"],
@@ -185,8 +186,14 @@ test("production audit is deterministic and keeps temporary composition growth v
   const output = mkdtempSync(path.join(os.tmpdir(), "tasken-architecture-audit-"));
   try {
     const args = ["scripts/audit-architecture.mjs", "--format=json", "--output-dir", output];
-    const first = spawnSync(process.execPath, args, { encoding: "utf8" });
-    const second = spawnSync(process.execPath, args, { encoding: "utf8" });
+    const first = spawnSync(process.execPath, args, {
+      encoding: "utf8",
+      maxBuffer: AUDIT_SPAWN_MAX_BUFFER,
+    });
+    const second = spawnSync(process.execPath, args, {
+      encoding: "utf8",
+      maxBuffer: AUDIT_SPAWN_MAX_BUFFER,
+    });
     assert.equal(first.status, 0, first.stderr);
     assert.equal(second.status, 0, second.stderr);
     assert.equal(first.stdout, second.stdout);
@@ -292,7 +299,7 @@ test("Task enforcement profile is blocking and clean without changing global rep
         "--output-dir",
         output,
       ],
-      { encoding: "utf8" },
+      { encoding: "utf8", maxBuffer: AUDIT_SPAWN_MAX_BUFFER },
     );
     assert.equal(result.status, 0, result.stderr);
     const report = JSON.parse(result.stdout);
