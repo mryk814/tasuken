@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import process from "node:process";
 
-import { collectAgentHookEvent, flushPendingAgentSessions } from "../src/main/mcp/agentSessionHookCollector.mjs";
+import {
+  collectAgentHookEvent,
+  flushPendingAgentSessions,
+} from "../src/main/mcp/agentSessionHookCollector.mjs";
 
 function argument(name) {
   const index = process.argv.indexOf(name);
@@ -11,23 +14,27 @@ function argument(name) {
 try {
   const clientKind = argument("--client");
   if (process.argv.includes("--flush")) {
-    const result = await flushPendingAgentSessions();
+    const result = await flushPendingAgentSessions({ maxSessions: 1 });
     process.stderr.write(`TASKEN_SESSION_HOOK ${JSON.stringify(result)}\n`);
   } else {
     const chunks = [];
     for await (const chunk of process.stdin) chunks.push(chunk);
     const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    const result = await collectAgentHookEvent(clientKind, input);
+    const result = await collectAgentHookEvent(clientKind, input, {
+      eventName: argument("--event"),
+    });
     if (result.status === "pending") {
       process.stderr.write(`TASKEN_SESSION_HOOK ${JSON.stringify(result)}\n`);
     }
   }
   process.stdout.write("{}\n");
 } catch (error) {
-  process.stderr.write(`TASKEN_SESSION_HOOK ${JSON.stringify({
-    status: "failed",
-    code: typeof error?.code === "string" ? error.code : "INVALID_HOOK_EVENT",
-    message: error instanceof Error ? error.message : String(error),
-  })}\n`);
+  process.stderr.write(
+    `TASKEN_SESSION_HOOK ${JSON.stringify({
+      status: "failed",
+      code: typeof error?.code === "string" ? error.code : "INVALID_HOOK_EVENT",
+      message: error instanceof Error ? error.message : String(error),
+    })}\n`,
+  );
   process.stdout.write("{}\n");
 }

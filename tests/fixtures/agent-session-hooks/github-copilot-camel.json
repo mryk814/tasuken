@@ -1,0 +1,29 @@
+{
+  "sessionStart": {
+    "sessionId": "copilot-camel-1",
+    "timestamp": 1787616000000,
+    "cwd": "C:\\research\\materials",
+    "source": "new",
+    "initialPrompt": "再生Al-Mg-Si材の解析結果を整理する"
+  },
+  "userPromptSubmitted": {
+    "sessionId": "copilot-camel-1",
+    "timestamp": 1787616060000,
+    "cwd": "C:\\research\\materials",
+    "prompt": "再生Al-Mg-Si材の解析結果を整理する"
+  },
+  "agentStop": {
+    "sessionId": "copilot-camel-1",
+    "timestamp": 1787616600000,
+    "cwd": "C:\\research\\materials",
+    "transcriptPath": "__TRANSCRIPT_PATH__",
+    "stopReason": "end_turn",
+    "stop_hook_active": false
+  },
+  "sessionEnd": {
+    "sessionId": "copilot-camel-1",
+    "timestamp": 1787616660000,
+    "cwd": "C:\\research\\materials",
+    "reason": "complete"
+  }
+}
