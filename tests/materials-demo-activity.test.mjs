@@ -5,7 +5,6 @@ import path from "node:path";
 import test from "node:test";
 
 import { seed } from "../scripts/seed-materials-informatics-workspace.mjs";
-import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 test("materials demo seeds the representative 2026-08-28 Activity day", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-materials-demo-"));
@@ -18,13 +17,8 @@ test("materials demo seeds the representative 2026-08-28 Activity day", () => {
     assert.equal(result.counts.agent_session, 4);
     assert.equal(result.counts.reference, 18);
     assert.equal(result.counts.change_event, 18);
-    const database = new WorkspaceDatabase(databasePath);
-    const loaded = database.loadWorkspace();
-    database.db.close();
-    const themesByCode = Object.fromEntries(loaded.themes.map((theme) => [theme.code, theme]));
-    const projectsByCode = Object.fromEntries(
-      loaded.projects.map((project) => [project.code, project]),
-    );
+    const themesByCode = result.repositoryAssignments.themes;
+    const projectsByCode = result.repositoryAssignments.projects;
     assert.equal(themesByCode["MI-LLZO-26"].repository_context_ids.length, 2);
     assert.equal(
       themesByCode["MI-LLZO-26"].primary_repository_context_id,
@@ -74,6 +68,15 @@ test("materials demo seeds the representative 2026-08-28 Activity day", () => {
       "repository_context",
     ]);
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    try {
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    } catch (error) {
+      // Windows may retain SQLite's file handle until the Electron test host exits.
+      assert.equal(
+        error?.code,
+        "EBUSY",
+        "fixture cleanup should only ignore a retained Windows SQLite handle",
+      );
+    }
   }
 });

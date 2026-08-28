@@ -2897,6 +2897,30 @@ function seed(targetPath) {
         reference.subject?.type === "agent_session" && reference.predicate === "worked_on",
     ).length,
   };
+  const repositoryAssignments = {
+    themes: Object.fromEntries(
+      loaded.themes.map((theme) => [
+        theme.code,
+        {
+          repository_context_ids: Array.isArray(theme.repository_context_ids)
+            ? [...theme.repository_context_ids]
+            : [],
+          primary_repository_context_id: theme.primary_repository_context_id || null,
+        },
+      ]),
+    ),
+    projects: Object.fromEntries(
+      loaded.projects.map((project) => [
+        project.code,
+        {
+          repository_context_ids: Array.isArray(project.repository_context_ids)
+            ? [...project.repository_context_ids]
+            : [],
+          primary_repository_context_id: project.primary_repository_context_id || null,
+        },
+      ]),
+    ),
+  };
   repository.validateSnapshotWorkspace(loaded);
   const snapshotDirectory = path.join(path.dirname(targetPath), "development-snapshots");
   fs.mkdirSync(snapshotDirectory, { recursive: true });
@@ -2917,6 +2941,7 @@ function seed(targetPath) {
     counts,
     total: Object.values(counts).reduce((sum, count) => sum + count, 0),
     representativeActivity,
+    repositoryAssignments,
   };
 }
 
