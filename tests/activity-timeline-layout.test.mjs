@@ -18,13 +18,15 @@ async function importBundled(relativePath) {
   );
 }
 
-const { buildActivityTimelineLayout } = await importBundled(
-  "src/renderer/src/features/workspace/lib/activityTimelineLayout.ts",
-);
+const {
+  ACTIVITY_TIMELINE_DAY_HEIGHT,
+  ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
+  buildActivityTimelineLayout,
+} = await importBundled("src/renderer/src/features/workspace/lib/activityTimelineLayout.ts");
 
 const date = "2026-08-28";
 
-test("Activity calendar layout maps time and duration onto the fixed 36px/hour day", () => {
+test("Activity calendar layout maps time and duration onto the review-scale day", () => {
   const layout = buildActivityTimelineLayout(
     [
       { id: "nine", start_at: "2026-08-28T00:00:00.000Z" },
@@ -37,8 +39,8 @@ test("Activity calendar layout maps time and duration onto the fixed 36px/hour d
     { date },
   );
 
-  assert.equal(layout[1].top - layout[0].top, 108);
-  assert.equal(layout[1].height, 54);
+  assert.equal(layout[1].top - layout[0].top, 3 * ACTIVITY_TIMELINE_PIXELS_PER_HOUR);
+  assert.equal(layout[1].height, 1.5 * ACTIVITY_TIMELINE_PIXELS_PER_HOUR);
 });
 
 test("Activity calendar layout assigns deterministic lanes and reuses a lane at an exact boundary", () => {
@@ -87,11 +89,19 @@ test("Activity calendar layout clips intervals to the selected day and keeps poi
       crossing.top,
       crossing.height,
     ],
-    [1410, 1440, 846, 18, 14, 832, 32],
+    [
+      1410,
+      1440,
+      23.5 * ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
+      0.5 * ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
+      10,
+      ACTIVITY_TIMELINE_DAY_HEIGHT - 32,
+      32,
+    ],
   );
   assert.deepEqual(
     [point.anchor_top, point.anchor_height, point.anchor_offset, point.top, point.height],
-    [324, 0, 0, 324, 32],
+    [9 * ACTIVITY_TIMELINE_PIXELS_PER_HOUR, 0, 0, 9 * ACTIVITY_TIMELINE_PIXELS_PER_HOUR, 32],
   );
   assert.equal(point.height, 32);
   assert.equal(
@@ -125,19 +135,20 @@ test("Activity calendar keeps late and short controls usable within the day canv
   const shortSession = layout.find((item) => item.id === "short-session");
   const visualOverlap = layout.find((item) => item.id === "visual-overlap");
 
-  assert.deepEqual(
-    [
-      latePoint.start_minutes,
-      latePoint.end_minutes,
-      latePoint.anchor_top,
-      latePoint.anchor_height,
-      latePoint.top,
-      latePoint.height,
-    ],
-    [1439, 1439, 863.4, 0, 832, 32],
+  assert.equal(latePoint.start_minutes, 1439);
+  assert.equal(latePoint.end_minutes, 1439);
+  assert.ok(
+    Math.abs(latePoint.anchor_top - (1439 / 60) * ACTIVITY_TIMELINE_PIXELS_PER_HOUR) < 1e-9,
   );
-  assert.equal(latePoint.top + latePoint.height, 864);
-  assert.ok(Math.abs(latePoint.anchor_offset - 31.4) < 1e-9);
+  assert.equal(latePoint.anchor_height, 0);
+  assert.equal(latePoint.top, ACTIVITY_TIMELINE_DAY_HEIGHT - 32);
+  assert.equal(latePoint.height, 32);
+  assert.equal(latePoint.top + latePoint.height, ACTIVITY_TIMELINE_DAY_HEIGHT);
+  assert.ok(
+    Math.abs(
+      latePoint.anchor_offset - ((1439 / 60) * ACTIVITY_TIMELINE_PIXELS_PER_HOUR - latePoint.top),
+    ) < 1e-9,
+  );
   assert.deepEqual(
     [
       shortSession.start_minutes,
@@ -148,7 +159,15 @@ test("Activity calendar keeps late and short controls usable within the day canv
       shortSession.top,
       shortSession.height,
     ],
-    [540, 540.5, 324, 0.3, 0, 324, 32],
+    [
+      540,
+      540.5,
+      9 * ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
+      (0.5 / 60) * ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
+      0,
+      9 * ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
+      32,
+    ],
   );
   assert.deepEqual(
     [shortSession.lane, shortSession.lane_count, visualOverlap.lane, visualOverlap.lane_count],
