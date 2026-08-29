@@ -278,16 +278,16 @@ test("Notesのtoolbarがpage / document / editor / outputへ分かれる（#331�
   // 文書の段は「この文書を確定する」ことだけを扱う。
   assert.match(
     source,
-    /<span className="note-draft-state" role="status" aria-live="polite">\{saveStateLabel\}<\/span>/,
+    /<span\s+className="note-draft-state"\s+role="status"\s+aria-live="polite">\s*\{saveStateLabel\}\s*<\/span>/,
   );
   assert.match(
     source,
-    /<ToolbarMenu label="この文書" title="この文書に対する操作" items=\{documentMenuItems\} \/>/,
+    /<ToolbarMenu\s+label="この文書"\s+title="この文書に対する操作"\s+items=\{documentMenuItems\}\s*\/>/,
   );
   // Editorの段はmode切替と高頻度操作、派生出力はmenuへ。
   assert.match(
     source,
-    /<ToolbarMenu label="出力" title="書き出しと保存先" items=\{outputMenuItems\} \/>/,
+    /<ToolbarMenu\s+label="出力"\s+title="書き出しと保存先"\s+items=\{outputMenuItems\}\s*\/>/,
   );
   assert.match(source, /aria-label="本文を検索・置換"/);
 
@@ -309,7 +309,7 @@ test("`保存`はNote正本の確定だけに使い、派生出力と語彙を�
   // 画面上で `保存` と表示されるbuttonは、内部Entityを確定する一つだけ。
   assert.match(
     source,
-    /<ActionButton action="notesSave" compact disabled=\{!draftDirty\} onClick=\{saveSelectedDraft\} \/>/,
+    /<ActionButton\s+action="notesSave"\s+compact\s+disabled=\{!draftDirty\}\s+onClick=\{saveSelectedDraft\}\s*\/>/,
   );
 
   // 派生出力は `保存` と呼ばない。
@@ -321,7 +321,7 @@ test("`保存`はNote正本の確定だけに使い、派生出力と語彙を�
   assert.equal(/\{markdownExporting \? "保存中" : "保存"\}/.test(source), false);
 
   // 保存状態は一時messageが無くても静止状態を言う。
-  assert.match(source, /const saveStateLabel = draftState\s*\n\s*\|\| \(draftDirty/);
+  assert.match(source, /const saveStateLabel\s*=\s*draftState\s*\|\|\s*\(draftDirty/);
   assert.match(
     source,
     /noteSaveStateLabel\(\{ internalSaved: true, fileState: canonicalFileState \}\)/,
