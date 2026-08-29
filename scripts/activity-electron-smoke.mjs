@@ -399,7 +399,7 @@ try {
   await page.waitForLoadState("domcontentloaded");
   await electronApp.evaluate(({ BrowserWindow }) => {
     const [window] = BrowserWindow.getAllWindows();
-    window?.setSize(1440, 1000);
+    window?.setSize(1440, 720);
     window?.center();
   });
   await page.getByRole("button", { name: "Today", exact: true }).waitFor();

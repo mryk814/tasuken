@@ -12735,7 +12735,7 @@ kbd {
   scrollbar-gutter: stable;
 }
 .activity-calendar {
-  max-height: min(60vh, calc(var(--activity-default-window-height, 30.25rem) + var(--space-4)));
+  max-height: calc(var(--activity-default-window-height, 30.25rem) + var(--space-4));
   padding: 0 var(--pad-card) var(--space-2);
   overflow-x: hidden;
   overflow-y: auto;
