@@ -16,6 +16,11 @@ test("Activity calendar reapplies its initial scroll when the panel reopens", ()
   assert.match(panelSource, /const ACTIVITY_CALENDAR_END_HOUR = 19;/);
   assert.match(panelSource, /calendar\.scrollTop = initialActivityTop;/);
   assert.match(panelSource, /\[activityCalendarScrollKey, expanded, initialActivityTop\]/);
+  assert.match(
+    stylesSource,
+    /max-height: calc\(var\(--activity-default-window-height, 30\.25rem\) \+ var\(--space-4\)\)/,
+  );
+  assert.doesNotMatch(stylesSource, /max-height: min\(60vh,/);
 });
 
 test("AI session detail retains labeled remaining work", () => {
