@@ -21,14 +21,16 @@ import {
 } from "./queries.ts";
 import { taskContractSchemaVersionSchema } from "./version.ts";
 
-export const taskCommandOutcomeSchema = z.object({
-  schemaVersion: taskContractSchemaVersionSchema,
-  command_id: z.string().trim().min(1),
-  name: z.enum(["CreateTask", "UpdateTask", "DeleteTask", "CompleteTask", "ReopenTask"]),
-  status: z.enum(["applied", "no_change"]),
-  task: taskReadModelSchema.nullable(),
-  event: taskEventSchema.nullable(),
-}).strict();
+export const taskCommandOutcomeSchema = z
+  .object({
+    schemaVersion: taskContractSchemaVersionSchema,
+    command_id: z.string().trim().min(1),
+    name: z.enum(["CreateTask", "UpdateTask", "DeleteTask", "CompleteTask", "ReopenTask"]),
+    status: z.enum(["applied", "no_change"]),
+    task: taskReadModelSchema.nullable(),
+    event: taskEventSchema.nullable(),
+  })
+  .strict();
 
 export const taskCommandResponseSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(true), value: taskCommandOutcomeSchema }).strict(),

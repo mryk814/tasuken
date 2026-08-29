@@ -37,26 +37,28 @@ class MemoryMobileDevicePersistence {
   pairMobileDevice(input) {
     const current = this.records.get(input.id);
     if (current && !current.revokedAt) throw new Error("duplicate mobile device");
-    const record = current ? {
-      ...current,
-      label: input.label,
-      tokenHash: input.tokenHash,
-      scopes: [...input.scopes],
-      updatedAt: input.pairedAt,
-      lastSeenAt: "",
-      revokedAt: "",
-      version: current.version + 1,
-    } : {
-      id: input.id,
-      label: input.label,
-      tokenHash: input.tokenHash,
-      scopes: [...input.scopes],
-      createdAt: input.pairedAt,
-      updatedAt: input.pairedAt,
-      lastSeenAt: "",
-      revokedAt: "",
-      version: 1,
-    };
+    const record = current
+      ? {
+          ...current,
+          label: input.label,
+          tokenHash: input.tokenHash,
+          scopes: [...input.scopes],
+          updatedAt: input.pairedAt,
+          lastSeenAt: "",
+          revokedAt: "",
+          version: current.version + 1,
+        }
+      : {
+          id: input.id,
+          label: input.label,
+          tokenHash: input.tokenHash,
+          scopes: [...input.scopes],
+          createdAt: input.pairedAt,
+          updatedAt: input.pairedAt,
+          lastSeenAt: "",
+          revokedAt: "",
+          version: 1,
+        };
     this.records.set(record.id, record);
     return this.copy(record);
   }
@@ -124,11 +126,12 @@ test("mobile pairing persists only a token hash and revocation survives restart"
       "mobile:proposal-review",
     ]);
     assert.throws(
-      () => registry.pair({
-        code: ticket.code,
-        deviceId: "device-second",
-        deviceLabel: "Second",
-      }),
+      () =>
+        registry.pair({
+          code: ticket.code,
+          deviceId: "device-second",
+          deviceLabel: "Second",
+        }),
       (error) => error?.code === "pairing_code_invalid",
     );
 
@@ -152,7 +155,12 @@ test("mobile pairing persists only a token hash and revocation survives restart"
     assert.deepEqual(restarted.authenticate(fixedToken), {
       kind: "mobile_device",
       deviceId: "device-s23",
-      scopes: ["mobile:read", "mobile:task-write", "mobile:capture-write", "mobile:proposal-review"],
+      scopes: [
+        "mobile:read",
+        "mobile:task-write",
+        "mobile:capture-write",
+        "mobile:proposal-review",
+      ],
     });
     assert.equal(restarted.revoke("device-s23")?.revokedAt, fixedNow);
     assert.equal(restarted.authenticate(fixedToken), null);
@@ -266,7 +274,10 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
       headers: { authorization: "Bearer " + paired.data.accessToken },
     });
     assert.equal(health.status, 200);
-    assert.deepEqual(await health.json(), { ok: true, deviceId: "33333333-3333-4333-8333-333333333333" });
+    assert.deepEqual(await health.json(), {
+      ok: true,
+      deviceId: "33333333-3333-4333-8333-333333333333",
+    });
 
     const withoutToken = await fetch(origin + "/v1/health");
     assert.equal(withoutToken.status, 401);
@@ -319,12 +330,22 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
     const repaired = await repairResponse.json();
     assert.equal(repaired.data.accessToken, replacementToken);
     assert.equal(repaired.data.pairedAt, currentNow);
-    assert.equal((await fetch(origin + "/v1/health", {
-      headers: { authorization: "Bearer " + fixedToken },
-    })).status, 401);
-    assert.equal((await fetch(origin + "/v1/health", {
-      headers: { authorization: "Bearer " + replacementToken },
-    })).status, 200);
+    assert.equal(
+      (
+        await fetch(origin + "/v1/health", {
+          headers: { authorization: "Bearer " + fixedToken },
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await fetch(origin + "/v1/health", {
+          headers: { authorization: "Bearer " + replacementToken },
+        })
+      ).status,
+      200,
+    );
 
     assert.equal(JSON.stringify(host.diagnostics()).includes(fixedToken), false);
     assert.equal(JSON.stringify(host.diagnostics()).includes(replacementToken), false);

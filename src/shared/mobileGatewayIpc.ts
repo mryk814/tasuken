@@ -1,7 +1,9 @@
 export interface MobileGatewayDevice {
   id: string;
   label: string;
-  scopes: Array<"mobile:read" | "mobile:task-write" | "mobile:capture-write" | "mobile:proposal-review">;
+  scopes: Array<
+    "mobile:read" | "mobile:task-write" | "mobile:capture-write" | "mobile:proposal-review"
+  >;
   createdAt: string;
   updatedAt: string;
   lastSeenAt: string;
