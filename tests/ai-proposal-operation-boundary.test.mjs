@@ -19,9 +19,16 @@ async function importBundled(relativePath) {
   );
 }
 
-const { buildCandidateOperations, buildPreview } = await importBundled(
+const { buildCandidateOperations, buildPreview, taskWorkStaleGuidance } = await importBundled(
   "src/renderer/src/features/workspace/components/AiProposalPanel.tsx",
 );
+
+test("Task Work stale guidance names the complete MCP retry contract", () => {
+  assert.equal(
+    taskWorkStaleGuidance(2, 3),
+    "Taskが更新されています（proposal: 2 / current: 3）。tasken.get_task_contextで対象を再取得し、最新versionと新しいidempotency_keyでProposalを作り直してください。",
+  );
+});
 
 test("Task Proposal keeps generated change_event outside ApplyAiProposal candidates", () => {
   const proposal = {

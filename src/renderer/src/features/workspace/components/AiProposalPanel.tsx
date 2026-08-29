@@ -60,6 +60,13 @@ type CandidateType =
   | "reference";
 const taskEntityType = "task" as const;
 
+export function taskWorkStaleGuidance(
+  proposalExpectedVersion: number,
+  currentVersion: number,
+): string {
+  return `Taskが更新されています（proposal: ${proposalExpectedVersion} / current: ${currentVersion}）。tasken.get_task_contextで対象を再取得し、最新versionと新しいidempotency_keyでProposalを作り直してください。`;
+}
+
 interface ProposalCandidate {
   type: CandidateType;
   entry: Record<string, unknown>;
@@ -693,9 +700,7 @@ export function AiProposalPanel(props: PageProps) {
             "Work proposalにexpected_versionがありません。再取得してから報告してください。",
           );
         if (proposalExpectedVersion !== currentVersion)
-          throw new Error(
-            `Taskが更新されています（proposal: ${proposalExpectedVersion} / current: ${currentVersion}）。contextを再取得して報告し直してください。`,
-          );
+          throw new Error(taskWorkStaleGuidance(proposalExpectedVersion, currentVersion));
         const expectedVersions = [
           { type: taskEntityType, id: task.id, version: proposalExpectedVersion },
         ];

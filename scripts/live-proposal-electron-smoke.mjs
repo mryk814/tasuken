@@ -26,6 +26,8 @@ if (!fs.existsSync(serverPath)) throw new Error("Tasken MCP server was not found
 
 const title = "MCP live Proposalを確認する";
 const rejectedTitle = "拒否するlive Proposal";
+const staleWorkSummary = "古いversionのWork Receiptは採用しない";
+const recoveredWorkSummary = "最新versionで再提案したWork Receipt";
 const proposalArguments = {
   idempotency_key: "electron-live-proposal-v1",
   caller: "Electron live Proposal smoke",
@@ -83,8 +85,80 @@ async function waitForPendingCount(page, expected) {
   );
 }
 
+async function waitForWorkProposalDecision(page) {
+  const outcomeHandle = await page.waitForFunction(
+    () => {
+      if (document.querySelector(".proposal-pending-count")?.textContent?.trim() === "0件") {
+        return { status: "accepted" };
+      }
+      const message = document.querySelector(".toast-message")?.textContent?.trim() || "";
+      return message.includes("Work proposalを採用できませんでした")
+        ? { status: "error", message }
+        : false;
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+  const outcome = await outcomeHandle.jsonValue();
+  assert.equal(outcome.status, "accepted", outcome.message || "Work proposal was not accepted.");
+}
+
 async function bodyText(page) {
   return page.locator("body").innerText();
+}
+
+async function callMcp(toolName, arguments_) {
+  assert.ok(mcpClient, "Tasken MCP client is not connected.");
+  const result = await mcpClient.callTool({ name: toolName, arguments: arguments_ });
+  assert.equal(result.isError, undefined, JSON.stringify(result));
+  assert.ok(
+    result.structuredContent && typeof result.structuredContent === "object",
+    `${toolName} did not return structured content.`,
+  );
+  return result.structuredContent;
+}
+
+async function getTaskContext(taskId) {
+  const context = await callMcp("tasken.get_task_context", {
+    task_id: taskId,
+    include: ["work_receipts"],
+  });
+  assert.equal(context.task?.id, taskId);
+  assert.ok(Array.isArray(context.related?.work_receipts));
+  return context;
+}
+
+function workReceiptArguments({ taskId, expectedVersion, idempotencyKey, summary }) {
+  return {
+    task_id: taskId,
+    expected_version: expectedVersion,
+    idempotency_key: idempotencyKey,
+    caller: "Electron live Proposal smoke",
+    source_session: "electron-live-proposal-task-work",
+    source_app: "electron-live-smoke",
+    executor_kind: "ai_agent",
+    executor_label: "Electron live smoke",
+    summary,
+    completed_items: ["AI InboxのTask Work Proposalを確認"],
+    changed_or_created_items: ["Work Receipt"],
+    verification: ["実Electronとstdio MCPの縦断確認"],
+    remaining_work: [],
+    reported_at: new Date().toISOString(),
+  };
+}
+
+function startTaskWorkArguments(taskId, expectedVersion) {
+  return {
+    task_id: taskId,
+    expected_version: expectedVersion,
+    idempotency_key: "electron-live-task-work-start-v1",
+    caller: "Electron live Proposal smoke",
+    source_session: "electron-live-proposal-task-work",
+    source_app: "electron-live-smoke",
+    executor_kind: "ai_agent",
+    executor_identity: "electron-live-smoke",
+    started_at: new Date().toISOString(),
+  };
 }
 
 async function closeElectron() {
@@ -175,7 +249,102 @@ try {
   await page.getByText(title, { exact: true }).waitFor();
   assert.equal(await page.getByText(title, { exact: true }).count(), 1);
 
+  const taskSearch = await callMcp("tasken.search_items", { query: title, limit: 10 });
+  const taskItem = taskSearch.items?.find(
+    (item) => item.title === title && item.locator?.tool === "tasken.get_task_context",
+  );
+  assert.ok(taskItem, "Accepted Task was not discoverable through tasken.search_items.");
+  const taskId = taskItem.locator.arguments?.task_id;
+  assert.equal(typeof taskId, "string");
+  const initialTaskContext = await getTaskContext(taskId);
+  const initialTaskVersion = Number(initialTaskContext.task.version);
+  assert.ok(
+    Number.isInteger(initialTaskVersion) && initialTaskVersion > 0,
+    "Accepted Task needs a positive version for the stale-version journey.",
+  );
+
+  const startWork = await callMcp(
+    "tasken.start_task_work",
+    startTaskWorkArguments(taskId, initialTaskVersion),
+  );
+  assert.equal(startWork.status, "queued");
   await openNavigation(page, "AI Inbox");
+  await waitForPendingCount(page, 1);
+  await page.locator(".proposal-inbox-row").getByRole("button", { name: "Preview" }).click();
+  await page.locator(".proposal-preview-panel").getByRole("button", { name: "採用を保存" }).click();
+  await waitForWorkProposalDecision(page);
+  const workingTaskContext = await getTaskContext(taskId);
+  const workingTaskVersion = Number(workingTaskContext.task.version);
+  assert.ok(
+    Number.isInteger(workingTaskVersion) && workingTaskVersion > initialTaskVersion,
+    "Starting Task Work must advance the Task version.",
+  );
+
+  const staleWorkArguments = workReceiptArguments({
+    taskId,
+    expectedVersion: workingTaskVersion - 1,
+    idempotencyKey: "electron-live-task-work-stale-v1",
+    summary: staleWorkSummary,
+  });
+  const staleWork = await callMcp("tasken.append_work_receipt", staleWorkArguments);
+  assert.equal(staleWork.status, "queued");
+  await waitForPendingCount(page, 1);
+  await page.locator(".proposal-inbox-row").getByRole("button", { name: "Preview" }).click();
+  await page.locator(".proposal-preview-panel").getByRole("button", { name: "採用を保存" }).click();
+  await page.waitForFunction(
+    () => {
+      const text = document.body.innerText;
+      return (
+        text.includes("Taskが更新されています") &&
+        text.includes("tasken.get_task_context") &&
+        text.includes("最新version") &&
+        text.includes("新しいidempotency_key")
+      );
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+  const previewReject = page
+    .locator(".proposal-preview-panel")
+    .getByRole("button", { name: "拒否する" });
+  if (await previewReject.count()) await previewReject.click();
+  else await page.locator(".proposal-inbox-row").getByText("拒否する", { exact: true }).click();
+  await waitForPendingCount(page, 0);
+
+  const refreshedTaskContext = await getTaskContext(taskId);
+  const refreshedTaskVersion = Number(refreshedTaskContext.task.version);
+  assert.ok(Number.isInteger(refreshedTaskVersion) && refreshedTaskVersion >= workingTaskVersion);
+  const recoveredWorkArguments = workReceiptArguments({
+    taskId,
+    expectedVersion: refreshedTaskVersion,
+    idempotencyKey: "electron-live-task-work-recovered-v1",
+    summary: recoveredWorkSummary,
+  });
+  const recoveredWork = await callMcp("tasken.append_work_receipt", recoveredWorkArguments);
+  assert.equal(recoveredWork.status, "queued");
+  await waitForPendingCount(page, 1);
+  await page.locator(".proposal-inbox-row").getByRole("button", { name: "Preview" }).click();
+  await page.locator(".proposal-preview-panel").getByRole("button", { name: "採用を保存" }).click();
+  await waitForWorkProposalDecision(page);
+
+  const duplicateRecoveredWork = await callMcp(
+    "tasken.append_work_receipt",
+    recoveredWorkArguments,
+  );
+  assert.equal(duplicateRecoveredWork.status, "duplicate");
+  assert.equal(duplicateRecoveredWork.proposal_id, recoveredWork.proposal_id);
+  await waitForPendingCount(page, 0);
+
+  const finalTaskContext = await getTaskContext(taskId);
+  const recoveredReceipts = finalTaskContext.related.work_receipts.filter(
+    (receipt) => receipt.summary === recoveredWorkSummary,
+  );
+  assert.equal(recoveredReceipts.length, 1);
+  assert.equal(
+    finalTaskContext.related.work_receipts.some((receipt) => receipt.summary === staleWorkSummary),
+    false,
+  );
+
   const rejected = await mcpClient.callTool({
     name: "tasken.propose_task",
     arguments: {
@@ -203,6 +372,10 @@ try {
       duplicateSuppressed: true,
       conflictGuidance: true,
       acceptedTaskVisible: true,
+      taskWorkStarted: true,
+      staleTaskWorkGuidance: true,
+      staleTaskWorkRecovered: true,
+      taskWorkAppliedOnce: true,
       rejectedTaskAbsent: true,
       embeddedProviderSurfaceAbsent: true,
     }),
