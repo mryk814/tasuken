@@ -12,7 +12,7 @@ import {
 } from "../../../shared/contextGraph.mjs";
 import { collectionKeyForEntityType, entityTypes } from "../../../shared/entityRegistry.mjs";
 import { sanitizePublicValue } from "../../../shared/publicProjection.ts";
-import { noteProjectId } from "../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../shared/themeRef.mjs";
 import {
   publicAiHeader,
   relationForNode,

@@ -3,7 +3,7 @@ import {
   displayNameFromTarget,
   inferArtifactLinkType,
 } from "../../../../../shared/artifactLinks.mjs";
-import { noteProjectId } from "../../../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import type { Resource } from "../domain-model/types";
 import type { Artifact, BaseRecord, SaveOperation } from "../types";
 import { isChatReference } from "./chatRefs";

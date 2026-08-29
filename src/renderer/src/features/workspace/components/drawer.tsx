@@ -14,7 +14,7 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { useUiStore } from "../../../stores/uiStore";
 import { noteExportSignature } from "../../../../../shared/fileExport";
-import { noteProjectId } from "../../../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import { normalizeExternalReferences } from "../../../../../shared/externalReference.mjs";
 import type {

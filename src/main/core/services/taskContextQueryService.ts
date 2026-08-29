@@ -6,7 +6,7 @@ import {
   projectContextGraph,
 } from "../../../shared/contextGraph.mjs";
 import { projectActivityJson, queryActivityEvents } from "../../../shared/activityProjection.mjs";
-import { noteProjectId } from "../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../shared/themeRef.mjs";
 import {
   publicRepositoryContext,
   resolveRepositoryContext,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { noteProjectId } from "../src/shared/noteTheme.mjs";
+import { noteProjectId } from "../src/shared/themeRef.mjs";
 
 test("Note Theme ownership prefers canonical project_id and reads legacy theme_id", () => {
   assert.equal(noteProjectId({ project_id: "theme-new", theme_id: "theme-old" }), "theme-new");

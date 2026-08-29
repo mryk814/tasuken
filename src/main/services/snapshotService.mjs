@@ -7,7 +7,7 @@ import {
   workspaceSchemaVersion,
 } from "../repositories/workspaceRepository.mjs";
 import { collectionKeyForEntityType } from "../../shared/entityRegistry.mjs";
-import { noteProjectId } from "../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../shared/themeRef.mjs";
 
 const checksum = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const MAX_SNAPSHOT_BYTES = 50 * 1024 * 1024;

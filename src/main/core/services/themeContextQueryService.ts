@@ -6,7 +6,7 @@ import {
   projectContextGraph,
 } from "../../../shared/contextGraph.mjs";
 import { publicRepositoryContext } from "../../../shared/repositoryContext.mjs";
-import { noteProjectId } from "../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../shared/themeRef.mjs";
 import {
   publicAiHeader,
   publicNoteSummary,

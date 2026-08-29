@@ -41,7 +41,7 @@ import type {
   WorkReceipt,
   WorkspaceDomain,
 } from "../types";
-import { noteProjectId } from "../../../../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../../../../shared/themeRef.mjs";
 import { PERSONAL_DEFAULT_THEME_ID, canonicalThemeId } from "../../../../../../shared/themeRef.mjs";
 
 type LegacyItemKind = "capture" | "task" | "waiting" | "plan_node";

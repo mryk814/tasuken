@@ -16,7 +16,7 @@ import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
 import { usePreference } from "../../utils/usePreference";
-import { noteProjectId } from "../../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../../shared/themeRef.mjs";
 import {
   createTaskClient,
   projectTaskDraft,

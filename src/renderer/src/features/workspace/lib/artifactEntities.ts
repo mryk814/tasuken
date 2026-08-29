@@ -3,7 +3,7 @@ import {
   displayNameFromTarget,
   inferArtifactLinkType,
 } from "../../../../../shared/artifactLinks.mjs";
-import { noteProjectId } from "../../../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import { isWebArtifact } from "../../../../../shared/webArtifact.mjs";
 import type {
   Artifact,

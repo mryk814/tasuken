@@ -8,7 +8,7 @@ import {
 } from "@tabler/icons-react";
 
 import type { ThemeAiPackPreviewResult } from "../../../../../shared/ipc/contracts";
-import { noteProjectId } from "../../../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { usePreference } from "../../../utils/usePreference";
 import { AI_ICON } from "../../../pages/semanticIcons";

@@ -1,5 +1,5 @@
 import { projectEntityForAi } from "../../../shared/aiMetadata.mjs";
-import { noteProjectId } from "../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../shared/themeRef.mjs";
 import {
   publicArtifactMetadata,
   safeExternalUrl,

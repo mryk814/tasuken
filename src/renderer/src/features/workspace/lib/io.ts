@@ -1,5 +1,5 @@
 import { todayIso, toYaml } from "../../../utils/dataFormat.js";
-import { noteProjectId } from "../../../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import type {
   BaseRecord,
   Item,

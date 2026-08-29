@@ -14,7 +14,7 @@ import {
   sanitizePublicUrl,
   sanitizePublicValue,
 } from "../../../shared/publicProjection.ts";
-import { noteProjectId } from "../../../shared/noteTheme.mjs";
+import { noteProjectId } from "../../../shared/themeRef.mjs";
 import { publicAiHeader } from "../../../shared/taskContext.mjs";
 import {
   getKnowledgeContextRequestSchema,
