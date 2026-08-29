@@ -20,6 +20,8 @@ import {
   mobileSyncResponseSchema,
   mobileTaskWorkProposalDecisionRequestSchema,
   mobileTaskWorkProposalDecisionResponseSchema,
+  mobileTaskWorkReviewRequestSchema,
+  mobileTaskWorkReviewResponseSchema,
   mobileTaskWorkProposalsRequestSchema,
   mobileTaskWorkProposalsResponseSchema,
   mobileThemeCatalogItemSchema,
@@ -631,6 +633,7 @@ function statusFor(code: MobileErrorCode) {
   if (code === "entity_conflict") return 409;
   if (code === "version_conflict") return 409;
   if (code === "proposal_conflict") return 409;
+  if (code === "work_review_conflict") return 409;
   if (code === "capability_unavailable") return 409;
   if (code === "upstream_unavailable") return 503;
   if (code === "response_too_large") return 502;
@@ -654,6 +657,8 @@ function safeMessage(code: MobileErrorCode) {
       "同じIDが既に存在するか、対象が更新済みです。再読み込みして再試行してください。",
     version_conflict: "Taskが更新されています。再読み込みして再試行してください。",
     proposal_conflict: "Proposalまたは対象Taskが更新されています。再読み込みしてください。",
+    work_review_conflict:
+      "Work Receiptまたは作業状態が更新されています。最新の内容を確認してください。",
     capability_unavailable: "必要なTasken Core capabilityを利用できません。",
     upstream_unavailable: "Tasken Coreを利用できません。Desktopの状態を確認してください。",
     response_too_large: "応答が上限を超えました。取得件数を減らしてください。",
@@ -682,6 +687,7 @@ export class MobileGatewayAdapter {
       const expectedMethod = [
         TASKEN_MOBILE_ENDPOINTS.commands,
         TASKEN_MOBILE_ENDPOINTS.proposalDecisions,
+        TASKEN_MOBILE_ENDPOINTS.workReviews,
       ].includes(request.path as never)
         ? "POST"
         : "GET";
@@ -725,6 +731,11 @@ export class MobileGatewayAdapter {
         !request.principal.scopes.includes("mobile:proposal-review")
       )
         return this.error(meta, "forbidden");
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.workReviews &&
+        !request.principal.scopes.includes("mobile:human-review")
+      )
+        return this.error(meta, "forbidden");
 
       const today =
         request.path === TASKEN_MOBILE_ENDPOINTS.today ? this.parseTodayQuery(request.query) : null;
@@ -743,6 +754,10 @@ export class MobileGatewayAdapter {
       const proposalDecision =
         request.path === TASKEN_MOBILE_ENDPOINTS.proposalDecisions
           ? mobileTaskWorkProposalDecisionRequestSchema.safeParse(request.body)
+          : null;
+      const workReview =
+        request.path === TASKEN_MOBILE_ENDPOINTS.workReviews
+          ? mobileTaskWorkReviewRequestSchema.safeParse(request.body)
           : null;
       const bootstrap =
         request.path === TASKEN_MOBILE_ENDPOINTS.bootstrap
@@ -764,6 +779,11 @@ export class MobileGatewayAdapter {
           proposalDecision.data.clientDeviceId !== request.principal.deviceId)
       )
         return this.error(meta, "validation_failed");
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.workReviews &&
+        (!workReview?.success || workReview.data.clientDeviceId !== request.principal.deviceId)
+      )
+        return this.error(meta, "validation_failed");
       if (request.path === TASKEN_MOBILE_ENDPOINTS.bootstrap && !bootstrap)
         return this.error(meta, "validation_failed");
       if (request.path === TASKEN_MOBILE_ENDPOINTS.sync && !sync)
@@ -773,6 +793,7 @@ export class MobileGatewayAdapter {
           .requestId;
       }
       if (proposalDecision?.success) diagnosticId = proposalDecision.data.requestId;
+      if (workReview?.success) diagnosticId = workReview.data.requestId;
       if (
         ![
           TASKEN_MOBILE_ENDPOINTS.today,
@@ -989,6 +1010,65 @@ export class MobileGatewayAdapter {
               decision: decision.decision,
               taskId: decision.taskId,
               taskVersion: updatedTask.value.task.version,
+            },
+          }),
+        );
+      }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.workReviews) {
+        const review = workReview?.success ? workReview.data : null;
+        if (!review) return this.error(meta, "validation_failed");
+        const receipts = [...(await this.options.core.listWorkReceipts())]
+          .filter((receipt) => receipt.taskId === review.taskId)
+          .sort(
+            (left, right) =>
+              right.reportedAt.localeCompare(left.reportedAt) || left.id.localeCompare(right.id),
+          );
+        const latestReceipt = receipts[0];
+        if (!latestReceipt) return this.error(meta, "not_found");
+        if (latestReceipt.id !== review.receiptId) return this.error(meta, "work_review_conflict");
+        const result = await this.options.core.executeTaskCommand({
+          schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+          command_id: review.commandId,
+          name: review.action === "accept" ? "AcceptTaskWork" : "ReturnTaskWork",
+          actor: { kind: "user", id: request.principal.deviceId },
+          source: "mobile",
+          issued_at: review.issuedAt,
+          payload:
+            review.action === "accept"
+              ? {
+                  task_id: review.taskId,
+                  expected_version: review.expectedTaskVersion,
+                  receipt_id: review.receiptId,
+                  complete_task: true,
+                }
+              : {
+                  task_id: review.taskId,
+                  expected_version: review.expectedTaskVersion,
+                  receipt_id: review.receiptId,
+                  review_note: review.reviewNote,
+                },
+        });
+        if (!result.ok)
+          return this.taskError(meta, result.error, {
+            name: review.action === "accept" ? "AcceptTaskWork" : "ReturnTaskWork",
+            expectedVersion: review.expectedTaskVersion,
+          });
+        if (
+          !["AcceptTaskWork", "ReturnTaskWork"].includes(result.value.name) ||
+          !result.value.task
+        ) {
+          throw new Error("Unexpected Task work review outcome");
+        }
+        return this.success(
+          mobileTaskWorkReviewResponseSchema.parse({
+            ok: true,
+            meta,
+            data: {
+              commandId: result.value.command_id,
+              commandStatus: result.value.status,
+              action: review.action,
+              receiptId: review.receiptId,
+              task: projectTask(result.value.task, true, receipts),
             },
           }),
         );
@@ -1322,6 +1402,8 @@ export class MobileGatewayAdapter {
       capabilities.push(TASKEN_MOBILE_CAPABILITIES.captureWrite);
     if (principal.scopes.includes("mobile:proposal-review"))
       capabilities.push(TASKEN_MOBILE_CAPABILITIES.proposalReview);
+    if (principal.scopes.includes("mobile:human-review"))
+      capabilities.push(TASKEN_MOBILE_CAPABILITIES.humanReview);
     return capabilities;
   }
 
@@ -1391,6 +1473,9 @@ export class MobileGatewayAdapter {
       if (error.conflict_reason === "entity_already_exists")
         return this.error(meta, "entity_conflict");
       if (error.conflict_reason === "version_conflict") {
+        if (command?.name === "AcceptTaskWork" || command?.name === "ReturnTaskWork") {
+          return this.error(meta, "work_review_conflict");
+        }
         const currentTask = taskReadModelSchema.safeParse(error.details?.current_task);
         if (
           !currentTask.success ||

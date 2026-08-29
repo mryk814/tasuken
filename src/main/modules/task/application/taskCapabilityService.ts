@@ -209,6 +209,28 @@ function applicationEnvelope(
       expectedVersions: expectedVersions(command, currentSchedule),
     };
   }
+  if (command.name === "AcceptTaskWork") {
+    return {
+      ...base,
+      payload: {
+        taskId: command.payload.task_id,
+        receiptId: command.payload.receipt_id,
+        completeTask: command.payload.complete_task,
+      },
+      expectedVersions: expectedVersions(command, currentSchedule),
+    };
+  }
+  if (command.name === "ReturnTaskWork") {
+    return {
+      ...base,
+      payload: {
+        taskId: command.payload.task_id,
+        receiptId: command.payload.receipt_id,
+        reviewNote: command.payload.review_note,
+      },
+      expectedVersions: expectedVersions(command, currentSchedule),
+    };
+  }
   return {
     ...base,
     payload: { taskId: command.payload.task_id },
@@ -251,30 +273,42 @@ function replayApplicationEnvelope(
 
   if (command.name === "CreateTask") return applicationEnvelope(command, null, null);
   if (!taskBefore || !Number.isInteger(taskBefore.version)) return null;
-  const replayCommand: TaskCommand =
-    command.name === "UpdateTask"
-      ? {
-          ...command,
-          payload: {
-            ...command.payload,
-            expected_version: Number(taskBefore.version),
-            ...(command.payload.schedule_change
-              ? {
-                  schedule_change: {
-                    ...command.payload.schedule_change,
-                    expected_version:
-                      scheduleBefore && Number.isInteger(scheduleBefore.version)
-                        ? Number(scheduleBefore.version)
-                        : null,
-                  },
-                }
-              : {}),
-          },
-        }
-      : {
-          ...command,
-          payload: { ...command.payload, expected_version: Number(taskBefore.version) },
-        };
+  let replayCommand: TaskCommand;
+  if (command.name === "UpdateTask") {
+    replayCommand = {
+      ...command,
+      payload: {
+        ...command.payload,
+        expected_version: Number(taskBefore.version),
+        ...(command.payload.schedule_change
+          ? {
+              schedule_change: {
+                ...command.payload.schedule_change,
+                expected_version:
+                  scheduleBefore && Number.isInteger(scheduleBefore.version)
+                    ? Number(scheduleBefore.version)
+                    : null,
+              },
+            }
+          : {}),
+      },
+    };
+  } else if (command.name === "AcceptTaskWork") {
+    replayCommand = {
+      ...command,
+      payload: { ...command.payload, expected_version: Number(taskBefore.version) },
+    };
+  } else if (command.name === "ReturnTaskWork") {
+    replayCommand = {
+      ...command,
+      payload: { ...command.payload, expected_version: Number(taskBefore.version) },
+    };
+  } else {
+    replayCommand = {
+      ...command,
+      payload: { ...command.payload, expected_version: Number(taskBefore.version) },
+    };
+  }
   return applicationEnvelope(replayCommand, taskBefore, scheduleBefore || null);
 }
 
@@ -322,8 +356,12 @@ function eventFor(
   } as const;
   if (command.name === "CreateTask")
     return taskEventSchema.parse({ ...eventBase, name: "TaskCreated" });
-  if (command.name === "CompleteTask")
+  if (
+    command.name === "CompleteTask" ||
+    (command.name === "AcceptTaskWork" && command.payload.complete_task)
+  ) {
     return taskEventSchema.parse({ ...eventBase, name: "TaskCompleted" });
+  }
   if (command.name === "ReopenTask")
     return taskEventSchema.parse({ ...eventBase, name: "TaskReopened" });
   if (command.name === "DeleteTask") {
@@ -331,6 +369,20 @@ function eventFor(
       ...eventBase,
       name: "TaskDeleted",
       deleted_at: task.deleted_at || command.issued_at,
+    });
+  }
+  if (command.name === "AcceptTaskWork") {
+    return taskEventSchema.parse({
+      ...eventBase,
+      name: "TaskUpdated",
+      changed_fields: ["work_state"],
+    });
+  }
+  if (command.name === "ReturnTaskWork") {
+    return taskEventSchema.parse({
+      ...eventBase,
+      name: "TaskUpdated",
+      changed_fields: ["work_state", "work_review_note"],
     });
   }
   return taskEventSchema.parse({

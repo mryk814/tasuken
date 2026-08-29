@@ -13,6 +13,7 @@ export const MOBILE_DEVICE_DEFAULT_SCOPES = Object.freeze([
   "mobile:task-write",
   "mobile:capture-write",
   "mobile:proposal-review",
+  "mobile:human-review",
 ] satisfies MobileScope[]);
 
 function effectiveScopes(scopes: readonly MobileScope[]): MobileScope[] {

@@ -46,6 +46,8 @@ const {
   mobileTaskCommandRequestSchema,
   mobileTaskWorkProposalDecisionRequestSchema,
   mobileTaskWorkProposalDecisionResponseSchema,
+  mobileTaskWorkReviewRequestSchema,
+  mobileTaskWorkReviewResponseSchema,
   mobileTaskWorkProposalsResponseSchema,
   mobileThemesRequestSchema,
   mobileThemesResponseSchema,
@@ -87,7 +89,13 @@ const now = "2026-08-21T01:00:00.000Z";
 const principal = {
   kind: "mobile_device",
   deviceId: "device-fold-7",
-  scopes: ["mobile:read", "mobile:task-write", "mobile:capture-write", "mobile:proposal-review"],
+  scopes: [
+    "mobile:read",
+    "mobile:task-write",
+    "mobile:capture-write",
+    "mobile:proposal-review",
+    "mobile:human-review",
+  ],
 };
 
 class MemoryRepository {
@@ -154,7 +162,7 @@ class MemoryRepository {
 function capability(repository = new MemoryRepository()) {
   const application = new ApplicationCommandService(repository);
   const service = new TaskCapabilityService(repository, (command) => application.execute(command));
-  return { repository, service };
+  return { repository, service, application };
 }
 
 function core(service, overrides = {}) {
@@ -457,6 +465,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     workReceiptRead: "mobile.work-receipt.read",
     proposalRead: "mobile.proposal.read",
     proposalReview: "mobile.proposal.review",
+    humanReview: "mobile.human-review",
     taskWrite: "mobile.task.write",
     captureWrite: "mobile.capture.write",
   });
@@ -469,6 +478,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     workReceipt: "/v1/work-receipt",
     proposals: "/v1/proposals",
     proposalDecisions: "/v1/proposal-decisions",
+    workReviews: "/v1/work-reviews",
     bootstrap: "/v1/bootstrap",
     sync: "/v1/sync",
     commands: "/v1/commands",
@@ -2422,6 +2432,7 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
     TASKEN_MOBILE_CAPABILITIES.taskWrite,
     TASKEN_MOBILE_CAPABILITIES.captureWrite,
     TASKEN_MOBILE_CAPABILITIES.proposalReview,
+    TASKEN_MOBILE_CAPABILITIES.humanReview,
   ]);
   const themes = await client.listThemes({
     apiVersion: 1,
@@ -3047,4 +3058,199 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
     await runtime.stop();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+function workReceiptRecords(repository) {
+  return repository.list("work_receipt").map((receipt) => ({
+    id: receipt.id,
+    taskId: receipt.task_id,
+    reportedAt: receipt.reported_at,
+    executorLabel: receipt.executor_label,
+    summary: receipt.summary,
+  }));
+}
+
+async function reportedTaskFixture(outcome = "review") {
+  const fixture = capability();
+  const adapter = gateway(fixture.service, {
+    listWorkReceipts: () => workReceiptRecords(fixture.repository),
+  });
+  const taskId = `task-human-${outcome}`;
+  const baseCreate = createRequest();
+  const created = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest({
+      requestId: `request-${taskId}`,
+      commandId: `create-${taskId}`,
+      idempotencyKey: `create-${taskId}`,
+      command: {
+        ...baseCreate.command,
+        task: {
+          ...baseCreate.command.task,
+          id: taskId,
+          title: `Human review ${outcome}`,
+          intendedExecutor: "ai_agent",
+        },
+      },
+    }),
+  });
+  assert.equal(created.status, 200);
+  fixture.application.execute({
+    commandId: `start-${taskId}`,
+    name: "StartTaskWork",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "main_ui",
+    issuedAt: "2026-08-21T01:01:00.000Z",
+    payload: { taskId, executorKind: "ai_agent", executorIdentity: "Codex" },
+    expectedVersions: [
+      { type: "task", id: taskId, version: fixture.repository.get("task", taskId).version },
+    ],
+  });
+  const receiptId = `receipt-${taskId}`;
+  fixture.application.execute({
+    commandId: `report-${taskId}`,
+    name: outcome === "blocked" ? "ReportTaskBlocked" : "ReportTaskDone",
+    actor: { kind: "ai_agent", id: "codex" },
+    source: "mcp",
+    issuedAt: "2026-08-21T01:02:00.000Z",
+    payload: {
+      taskId,
+      receipt: {
+        id: receiptId,
+        task_id: taskId,
+        executor_kind: "ai_agent",
+        executor_label: "Codex",
+        reported_at: "2026-08-21T01:02:00.000Z",
+        summary: outcome === "blocked" ? "入力が必要です" : "実装を確認してください",
+        completed_items: [],
+        changed_or_created_items: [],
+        remaining_work: outcome === "blocked" ? ["人間の回答"] : [],
+      },
+    },
+    expectedVersions: [
+      { type: "task", id: taskId, version: fixture.repository.get("task", taskId).version },
+    ],
+  });
+  return { ...fixture, adapter, taskId, receiptId };
+}
+
+function workReviewRequest(fixture, overrides = {}) {
+  const commandId = overrides.commandId || `review-${fixture.taskId}`;
+  return {
+    apiVersion: 1,
+    schemaVersion: 5,
+    requestId: `request-${commandId}`,
+    commandId,
+    idempotencyKey: commandId,
+    clientDeviceId: principal.deviceId,
+    issuedAt: "2026-08-21T01:03:00.000Z",
+    taskId: fixture.taskId,
+    expectedTaskVersion: fixture.repository.get("task", fixture.taskId).version,
+    receiptId: fixture.receiptId,
+    action: "accept",
+    reviewNote: null,
+    ...overrides,
+  };
+}
+
+test("Mobile human review accepts the latest Receipt, completes once, and replays idempotently", async () => {
+  const fixture = await reportedTaskFixture("review");
+  const request = mobileTaskWorkReviewRequestSchema.parse(workReviewRequest(fixture));
+  const first = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal,
+    body: request,
+  });
+  assert.equal(first.status, 200);
+  mobileTaskWorkReviewResponseSchema.parse(first.body);
+  assert.equal(first.body.data.task.state, "done");
+  assert.equal(first.body.data.task.workState, "accepted");
+  const eventCount = fixture.repository.list("change_event").length;
+  const replay = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal,
+    body: request,
+  });
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.data.commandStatus, "applied");
+  assert.equal(fixture.repository.list("change_event").length, eventCount);
+});
+
+test("Mobile human review returns review and blocked work with a canonical review note", async () => {
+  for (const outcome of ["review", "blocked"]) {
+    const fixture = await reportedTaskFixture(outcome);
+    const response = await fixture.adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+      principal,
+      body: workReviewRequest(fixture, {
+        commandId: `return-${fixture.taskId}`,
+        action: "return",
+        reviewNote:
+          outcome === "blocked"
+            ? "設定値はalphaです。続行してください。"
+            : "検証結果を追記してください。",
+      }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.task.workState, "ready_for_agent");
+    assert.equal(
+      fixture.repository.get("task", fixture.taskId).work_review_note,
+      outcome === "blocked"
+        ? "設定値はalphaです。続行してください。"
+        : "検証結果を追記してください。",
+    );
+  }
+});
+
+test("Mobile human review rejects missing scope, stale Task, stale Receipt, and non-mobile principals", async () => {
+  const fixture = await reportedTaskFixture("review");
+  const request = workReviewRequest(fixture);
+  const forbidden = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal: {
+      ...principal,
+      scopes: principal.scopes.filter((scope) => scope !== "mobile:human-review"),
+    },
+    body: request,
+  });
+  assert.equal(forbidden.status, 403);
+  const staleTask = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal,
+    body: {
+      ...request,
+      commandId: "stale-task-review",
+      idempotencyKey: "stale-task-review",
+      expectedTaskVersion: 0,
+    },
+  });
+  assert.equal(staleTask.status, 409);
+  assert.equal(staleTask.body.error.code, "work_review_conflict");
+  const staleReceipt = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal,
+    body: {
+      ...request,
+      commandId: "stale-receipt-review",
+      idempotencyKey: "stale-receipt-review",
+      receiptId: "receipt-old",
+    },
+  });
+  assert.equal(staleReceipt.status, 409);
+  assert.equal(staleReceipt.body.error.code, "work_review_conflict");
+  const unauthorized = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal: { kind: "ai_agent", deviceId: "agent", scopes: ["mobile:human-review"] },
+    body: request,
+  });
+  assert.equal(unauthorized.status, 401);
 });

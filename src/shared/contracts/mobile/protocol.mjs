@@ -11,6 +11,7 @@ export const TASKEN_MOBILE_CAPABILITIES = Object.freeze({
   workReceiptRead: "mobile.work-receipt.read",
   proposalRead: "mobile.proposal.read",
   proposalReview: "mobile.proposal.review",
+  humanReview: "mobile.human-review",
   taskWrite: "mobile.task.write",
   captureWrite: "mobile.capture.write",
 });
@@ -23,6 +24,7 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   workReceipt: "/v1/work-receipt",
   proposals: "/v1/proposals",
   proposalDecisions: "/v1/proposal-decisions",
+  workReviews: "/v1/work-reviews",
   bootstrap: "/v1/bootstrap",
   sync: "/v1/sync",
   commands: "/v1/commands",

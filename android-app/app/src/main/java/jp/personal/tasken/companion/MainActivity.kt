@@ -204,6 +204,8 @@ private fun TodayApp(
     val taskWorkProposals by todayViewModel.taskWorkProposals.collectAsState()
     val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
     val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
+    val humanReviewOnline by todayViewModel.humanReviewOnline.collectAsState()
+    val humanReviewState by todayViewModel.humanReviewState.collectAsState()
     val themes = themeCatalogState.themes
     val context = LocalContext.current
     val captureDraftStore = remember(context) { MobileCaptureDraftStore(context.applicationContext) }
@@ -423,6 +425,21 @@ private fun TodayApp(
             ProposalReviewUiState.Idle, is ProposalReviewUiState.Reviewing -> Unit
         }
     }
+    LaunchedEffect(humanReviewState) {
+        when (val state = humanReviewState) {
+            is HumanReviewUiState.Applied -> {
+                snackbarHostState.showSnackbar(
+                    if (state.action == "accept") "Work Receiptを承認してTaskを完了しました。" else "AIへ返信しました。",
+                )
+                todayViewModel.resetHumanReviewState()
+            }
+            is HumanReviewUiState.Error -> {
+                snackbarHostState.showSnackbar(state.message)
+                todayViewModel.resetHumanReviewState()
+            }
+            HumanReviewUiState.Idle, is HumanReviewUiState.Reviewing -> Unit
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -575,6 +592,8 @@ private fun TodayApp(
                         taskWorkProposals = taskWorkProposals.filter { it.taskId == task?.id },
                         proposalReviewOnline = proposalReviewOnline,
                         proposalReviewState = proposalReviewState,
+                        humanReviewOnline = humanReviewOnline,
+                        humanReviewState = humanReviewState,
                         themes = themes,
                         themeCatalogState = themeCatalogState,
                         onStateAction = todayViewModel::toggleTaskState,
@@ -589,6 +608,7 @@ private fun TodayApp(
                             todayViewModel.loadWorkReceipt(selectedTask.id, selectedReceiptId, force = true)
                         },
                         onProposalDecision = todayViewModel::reviewTaskWorkProposal,
+                        onHumanReview = todayViewModel::reviewTaskWork,
                     )
                 }
             },
@@ -1326,6 +1346,8 @@ internal fun TodayDetailPane(
     taskWorkProposals: List<MobileTaskWorkProposal> = emptyList(),
     proposalReviewOnline: Boolean = false,
     proposalReviewState: ProposalReviewUiState = ProposalReviewUiState.Idle,
+    humanReviewOnline: Boolean = false,
+    humanReviewState: HumanReviewUiState = HumanReviewUiState.Idle,
     themes: List<MobileTheme> = emptyList(),
     themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
         MobileThemeCatalogState.Loading()
@@ -1342,6 +1364,7 @@ internal fun TodayDetailPane(
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
     onWorkReceiptRetry: (MobileTask, String) -> Unit = { _, _ -> },
     onProposalDecision: (MobileTaskWorkProposal, String) -> Unit = { _, _ -> },
+    onHumanReview: (MobileTask, String, String?) -> Unit = { _, _, _ -> },
 ) {
     if (task == null) {
         CenteredState { Text("Taskを選んでください") }
@@ -1559,6 +1582,16 @@ internal fun TodayDetailPane(
                             }
                             WorkReceiptDetailUiState.Idle -> Unit
                         }
+                        if (task.workState in setOf("needs_human_review", "reported_done", "blocked")) {
+                            TaskWorkHumanReviewCard(
+                                task = task,
+                                receipt = receipt,
+                                detailState = workReceiptDetailState,
+                                online = humanReviewOnline,
+                                reviewState = humanReviewState,
+                                onReview = onHumanReview,
+                            )
+                        }
                     }
                 }
             }
@@ -1576,19 +1609,90 @@ internal fun TodayDetailPane(
             Button(
                 onClick = { onStateAction(task) },
                 enabled = (!task.pending || task.canChangePendingState) &&
-                    task.conflict == null && actionState !is TaskActionUiState.Saving,
+                    task.conflict == null && actionState !is TaskActionUiState.Saving &&
+                    task.workState !in setOf("needs_human_review", "reported_done", "blocked"),
             ) {
                 Text(
                     when {
                         actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
                         task.conflict != null -> "競合を解決してから操作"
                         task.pending && !task.canChangePendingState -> "同期後に操作"
+                        task.workState in setOf("needs_human_review", "reported_done", "blocked") -> "Work Receiptを確認"
                         task.pending && task.state == "done" -> "再開に変更"
                         task.pending -> "完了に変更"
                         task.state == "done" -> "再開する"
                         else -> "完了する"
                     },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskWorkHumanReviewCard(
+    task: MobileTask,
+    receipt: MobileWorkReceiptSummary,
+    detailState: WorkReceiptDetailUiState,
+    online: Boolean,
+    reviewState: HumanReviewUiState,
+    onReview: (MobileTask, String, String?) -> Unit,
+) {
+    var reviewNote by rememberSaveable(task.id, receipt.id) { mutableStateOf("") }
+    val reviewing = reviewState is HumanReviewUiState.Reviewing && reviewState.taskId == task.id
+    val liveDetail = detailState as? WorkReceiptDetailUiState.Available
+    val verifiedLatest = liveDetail?.detail?.id == receipt.id && !liveDetail.fromCache
+    val blocked = task.workState == "blocked"
+    val canReview = online && verifiedLatest && task.version > 0 && !task.pending && task.conflict == null && !reviewing
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("human-review-${task.id}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(if (blocked) "AIへ情報を返す" else "作業結果を確認", fontWeight = FontWeight.Bold)
+            when {
+                !online -> Text("Offline cache · Desktop接続時に判断できます", color = MaterialTheme.colorScheme.secondary)
+                !verifiedLatest -> Text("最新のWork Receipt詳細を読み込んでから判断してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                task.pending -> Text("送信待ちの変更を同期してから判断してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                task.conflict != null -> Text("Task競合を解決してから判断してください。", color = MaterialTheme.colorScheme.error)
+            }
+            OutlinedTextField(
+                value = reviewNote,
+                onValueChange = { if (it.length <= 2_000) reviewNote = it },
+                modifier = Modifier.fillMaxWidth().testTag("human-review-note-${task.id}"),
+                label = { Text(if (blocked) "必要な情報" else "差し戻し理由") },
+                enabled = canReview,
+                minLines = 2,
+                maxLines = 5,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!blocked) {
+                    Button(
+                        onClick = { onReview(task, "accept", null) },
+                        enabled = canReview,
+                        modifier = Modifier.testTag("human-review-accept-${task.id}"),
+                    ) {
+                        Text(if (reviewing && reviewState.action == "accept") "承認中" else "承認して完了")
+                    }
+                }
+                TextButton(
+                    onClick = { onReview(task, "return", reviewNote) },
+                    enabled = canReview && reviewNote.trim().isNotEmpty(),
+                    modifier = Modifier.testTag("human-review-return-${task.id}"),
+                ) {
+                    Text(
+                        if (reviewing && reviewState.action == "return") {
+                            "送信中"
+                        } else if (blocked) {
+                            "返信する"
+                        } else {
+                            "差し戻す"
+                        },
+                    )
+                }
             }
         }
     }

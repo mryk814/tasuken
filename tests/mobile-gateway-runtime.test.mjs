@@ -124,6 +124,7 @@ test("mobile pairing persists only a token hash and revocation survives restart"
       "mobile:task-write",
       "mobile:capture-write",
       "mobile:proposal-review",
+      "mobile:human-review",
     ]);
     assert.throws(
       () =>
@@ -143,6 +144,7 @@ test("mobile pairing persists only a token hash and revocation survives restart"
       "mobile:task-write",
       "mobile:capture-write",
       "mobile:proposal-review",
+      "mobile:human-review",
     ]);
     assert.equal(registry.authenticate(fixedToken)?.deviceId, "device-s23");
 
@@ -160,6 +162,7 @@ test("mobile pairing persists only a token hash and revocation survives restart"
         "mobile:task-write",
         "mobile:capture-write",
         "mobile:proposal-review",
+        "mobile:human-review",
       ],
     });
     assert.equal(restarted.revoke("device-s23")?.revokedAt, fixedNow);

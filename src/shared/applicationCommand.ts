@@ -176,7 +176,9 @@ export interface AppendWorkReceiptCommandPayload {
 
 export interface TaskWorkReviewCommandPayload {
   taskId: string;
+  receiptId?: string | null;
   reviewNote?: string | null;
+  completeTask?: boolean;
 }
 
 export interface CommitAudioCaptureCommandPayload {
@@ -388,6 +390,24 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     (typeof value.payload.taskId !== "string" || !value.payload.taskId.trim())
   ) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtaskIdが不正です。`);
+  }
+  if (
+    ["AcceptTaskWork", "ReturnTaskWork"].includes(name) &&
+    value.payload.receiptId !== undefined &&
+    value.payload.receiptId !== null &&
+    (typeof value.payload.receiptId !== "string" || !value.payload.receiptId.trim())
+  ) {
+    throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のreceiptIdが不正です。`);
+  }
+  if (
+    name === "AcceptTaskWork" &&
+    value.payload.completeTask !== undefined &&
+    typeof value.payload.completeTask !== "boolean"
+  ) {
+    throw new ApplicationCommandError(
+      "INVALID_PAYLOAD",
+      "AcceptTaskWorkのcompleteTaskが不正です。",
+    );
   }
   if (["AppendWorkReceipt", "ReportTaskDone", "ReportTaskBlocked"].includes(name)) {
     if (

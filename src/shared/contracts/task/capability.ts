@@ -25,7 +25,15 @@ export const taskCommandOutcomeSchema = z
   .object({
     schemaVersion: taskContractSchemaVersionSchema,
     command_id: z.string().trim().min(1),
-    name: z.enum(["CreateTask", "UpdateTask", "DeleteTask", "CompleteTask", "ReopenTask"]),
+    name: z.enum([
+      "CreateTask",
+      "UpdateTask",
+      "DeleteTask",
+      "CompleteTask",
+      "ReopenTask",
+      "AcceptTaskWork",
+      "ReturnTaskWork",
+    ]),
     status: z.enum(["applied", "no_change"]),
     task: taskReadModelSchema.nullable(),
     event: taskEventSchema.nullable(),

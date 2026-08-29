@@ -38,6 +38,7 @@ data class MobileTask(
     val canChangePendingState: Boolean = false,
     val canEditPendingChecklist: Boolean = false,
     val rejectedThemeUpdate: MobileRejectedThemeUpdate? = null,
+    val version: Int = 0,
 )
 
 @Serializable
@@ -135,6 +136,19 @@ sealed interface ProposalReviewUiState {
     data class Reviewing(val proposalId: String, val decision: String) : ProposalReviewUiState
     data class Applied(val proposalId: String, val decision: String) : ProposalReviewUiState
     data class Error(val proposalId: String, val message: String) : ProposalReviewUiState
+}
+
+sealed interface MobileHumanReviewResult {
+    data class Applied(val taskId: String, val action: String) : MobileHumanReviewResult
+    data class Conflict(val taskId: String, val message: String) : MobileHumanReviewResult
+    data class Unavailable(val taskId: String, val message: String) : MobileHumanReviewResult
+}
+
+sealed interface HumanReviewUiState {
+    data object Idle : HumanReviewUiState
+    data class Reviewing(val taskId: String, val action: String) : HumanReviewUiState
+    data class Applied(val taskId: String, val action: String) : HumanReviewUiState
+    data class Error(val taskId: String, val message: String) : HumanReviewUiState
 }
 
 sealed interface MobileWorkReceiptLoadResult {
@@ -323,6 +337,10 @@ class TodayViewModel(
     val proposalReviewOnline: StateFlow<Boolean> = mutableProposalReviewOnline.asStateFlow()
     private val mutableProposalReviewState = MutableStateFlow<ProposalReviewUiState>(ProposalReviewUiState.Idle)
     val proposalReviewState: StateFlow<ProposalReviewUiState> = mutableProposalReviewState.asStateFlow()
+    private val mutableHumanReviewOnline = MutableStateFlow(false)
+    val humanReviewOnline: StateFlow<Boolean> = mutableHumanReviewOnline.asStateFlow()
+    private val mutableHumanReviewState = MutableStateFlow<HumanReviewUiState>(HumanReviewUiState.Idle)
+    val humanReviewState: StateFlow<HumanReviewUiState> = mutableHumanReviewState.asStateFlow()
     private var workReceiptLoadJob: Job? = null
     private var observingCache = false
     private var cachedGeneratedAt = ""
@@ -368,6 +386,7 @@ class TodayViewModel(
                 (repository as? MobileGatewayRepository)?.refreshTaskWorkProposals() == true
             }
         }
+        mutableHumanReviewOnline.value = mutableProposalReviewOnline.value
         refreshExternalProjection()
         val offlineRepository = repository as? MobileOfflineTaskRepository
         if (offlineRepository != null) {
@@ -421,11 +440,13 @@ class TodayViewModel(
         applyResult(result)
         mutableProposalReviewOnline.value = result is MobileTodayResult.Available &&
             withContext(ioDispatcher) { gateway.refreshTaskWorkProposals() }
+        mutableHumanReviewOnline.value = mutableProposalReviewOnline.value
     }
 
     fun retryPairing() {
         val gateway = repository as? MobileGatewayRepository ?: return
         mutableProposalReviewOnline.value = false
+        mutableHumanReviewOnline.value = false
         cachedPairingRequired = null
         applyResult(gateway.retryPairing())
     }
@@ -476,6 +497,51 @@ class TodayViewModel(
 
     fun resetProposalReviewState() {
         mutableProposalReviewState.value = ProposalReviewUiState.Idle
+    }
+
+    fun reviewTaskWork(task: MobileTask, action: String, reviewNote: String? = null) {
+        viewModelScope.launch { reviewTaskWorkNow(task, action, reviewNote) }
+    }
+
+    internal suspend fun reviewTaskWorkNow(task: MobileTask, action: String, reviewNote: String? = null) {
+        if (action !in setOf("accept", "return")) return
+        val receipt = task.latestWorkReceipt
+        if (receipt == null || task.version <= 0) {
+            mutableHumanReviewState.value = HumanReviewUiState.Error(task.id, "最新のTaskとWork Receiptを同期してから判断してください。")
+            return
+        }
+        val normalizedNote = reviewNote?.trim()
+        if (action == "return" && normalizedNote.isNullOrEmpty()) {
+            mutableHumanReviewState.value = HumanReviewUiState.Error(task.id, "差し戻しまたは返信の内容を入力してください。")
+            return
+        }
+        if (!mutableHumanReviewOnline.value) {
+            mutableHumanReviewState.value = HumanReviewUiState.Error(task.id, "Desktopへ接続してからWork Receiptを判断してください。")
+            return
+        }
+        val gateway = repository as? MobileGatewayRepository
+        if (gateway == null) {
+            mutableHumanReviewState.value = HumanReviewUiState.Error(task.id, "この環境ではWork Receiptを判断できません。")
+            return
+        }
+        mutableHumanReviewState.value = HumanReviewUiState.Reviewing(task.id, action)
+        when (val result = withContext(ioDispatcher) { gateway.reviewTaskWork(task, action, normalizedNote) }) {
+            is MobileHumanReviewResult.Applied -> {
+                mutableHumanReviewOnline.value = true
+                mutableHumanReviewState.value = HumanReviewUiState.Applied(result.taskId, result.action)
+            }
+            is MobileHumanReviewResult.Conflict -> {
+                mutableHumanReviewState.value = HumanReviewUiState.Error(result.taskId, result.message)
+            }
+            is MobileHumanReviewResult.Unavailable -> {
+                mutableHumanReviewOnline.value = false
+                mutableHumanReviewState.value = HumanReviewUiState.Error(result.taskId, result.message)
+            }
+        }
+    }
+
+    fun resetHumanReviewState() {
+        mutableHumanReviewState.value = HumanReviewUiState.Idle
     }
 
     fun loadWorkReceipt(taskId: String, receiptId: String, force: Boolean = false) {
@@ -1068,6 +1134,14 @@ interface MobileGatewayRepository : MobileTaskRepository {
     ): MobileProposalReviewResult = MobileProposalReviewResult.Unavailable(
         proposal.id,
         "このDesktopではProposal判断を利用できません。",
+    )
+    suspend fun reviewTaskWork(
+        task: MobileTask,
+        action: String,
+        reviewNote: String?,
+    ): MobileHumanReviewResult = MobileHumanReviewResult.Unavailable(
+        task.id,
+        "このDesktopではWork Receipt判断を利用できません。",
     )
 }
 

@@ -518,6 +518,99 @@ class AndroidMobileTaskRepository(
         }
     }
 
+    override suspend fun reviewTaskWork(
+        task: MobileTask,
+        action: String,
+        reviewNote: String?,
+    ): MobileHumanReviewResult {
+        require(action in setOf("accept", "return"))
+        val receipt = task.latestWorkReceipt
+            ?: return MobileHumanReviewResult.Conflict(task.id, "最新のWork Receiptを同期してから判断してください。")
+        if (task.version <= 0) {
+            return MobileHumanReviewResult.Conflict(task.id, "最新のTaskを同期してから判断してください。")
+        }
+        val normalizedNote = reviewNote?.trim()
+        if (action == "return" && normalizedNote.isNullOrEmpty()) {
+            return MobileHumanReviewResult.Conflict(task.id, "差し戻しまたは返信の内容を入力してください。")
+        }
+        val expectedServerId = dao.syncState()?.serverId
+            ?: return MobileHumanReviewResult.Unavailable(task.id, "Taskを同期してからWork Receiptを判断してください。")
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) {
+            return MobileHumanReviewResult.Unavailable(task.id, "Desktopへ接続してからWork Receiptを判断してください。")
+        }
+        return try {
+            val commandId = UUID.randomUUID().toString()
+            val envelope = MobileTaskWorkReviewEnvelopeDto(
+                apiVersion = TASKEN_MOBILE_API_VERSION,
+                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+                requestId = UUID.randomUUID().toString(),
+                commandId = commandId,
+                idempotencyKey = commandId,
+                clientDeviceId = store.deviceId(),
+                issuedAt = Instant.now().toString(),
+                taskId = task.id,
+                expectedTaskVersion = task.version,
+                receiptId = receipt.id,
+                action = action,
+                reviewNote = if (action == "return") normalizedNote else null,
+            )
+            val response = gatewayRequest(
+                origin = configuration.origin,
+                path = "/v1/work-reviews",
+                method = "POST",
+                body = MobileHumanReviewContract.encode(envelope),
+                accessToken = token,
+            )
+            if (response.status == 401) {
+                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
+                if (confirmed) store.clearTokenIfMatches(token)
+                return MobileHumanReviewResult.Unavailable(
+                    task.id,
+                    if (confirmed) {
+                        "接続が失効しました。新しいコードで再接続してください。"
+                    } else {
+                        "Desktopへ接続できませんでした。接続を確認して再試行してください。"
+                    },
+                )
+            }
+            if (response.status == 409) {
+                val error = MobileTaskCommandContract.decodeError(response.body)
+                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+                runCatching { synchronize(configuration.origin, token, expectedServerId) }
+                return MobileHumanReviewResult.Conflict(task.id, error.error.message)
+            }
+            if (response.status == 403 || response.status == 400 || response.status == 404) {
+                val error = MobileTaskCommandContract.decodeError(response.body)
+                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+                return MobileHumanReviewResult.Unavailable(task.id, error.error.message)
+            }
+            require(response.status == 200) { "Task work review failed with HTTP ${response.status}" }
+            val decoded = MobileHumanReviewContract.decode(response.body)
+            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+            require(
+                decoded.data.commandId == commandId &&
+                    decoded.data.task.id == task.id &&
+                    decoded.data.receiptId == receipt.id &&
+                    decoded.data.action == action
+            ) { "Task work review identity does not match the request" }
+            runCatching { synchronize(configuration.origin, token, expectedServerId) }
+                .onFailure { error -> Log.w(MOBILE_GATEWAY_LOG_TAG, "Task sync after Work Receipt review failed", error) }
+            MobileHumanReviewResult.Applied(task.id, action)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: MobileOutboxServerMismatchException) {
+            MobileHumanReviewResult.Unavailable(task.id, "接続先Desktopが変わりました。再接続してください。")
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Work Receipt review failed", error)
+            MobileHumanReviewResult.Unavailable(
+                task.id,
+                "Work Receiptを判断できませんでした。DesktopとTailscale接続を確認してください。",
+            )
+        }
+    }
+
     internal suspend fun recoverInterruptedOutbox(): Int = outbox.recoverInterruptedSending()
 
     internal suspend fun synchronizeIfPaired(): Boolean {

@@ -2,11 +2,13 @@ package jp.personal.tasken.companion
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -64,8 +66,71 @@ class WorkReceiptDetailUiTest {
         assertEquals("task-1:receipt-1", retried)
     }
 
+    @Test
+    fun liveLatestReceiptEnablesAcceptAndReturnWhileCachedReceiptStaysReadOnly() {
+        var reviewed = ""
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task(),
+                    actionState = TaskActionUiState.Idle,
+                    workReceiptDetailState = WorkReceiptDetailUiState.Available(
+                        detail = detail(),
+                        fromCache = false,
+                    ),
+                    humanReviewOnline = true,
+                    onStateAction = {},
+                    onHumanReview = { _, action, note -> reviewed = "$action:${note.orEmpty()}" },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("human-review-accept-task-1").performScrollTo().performClick()
+        assertEquals("accept:", reviewed)
+        composeRule.onNodeWithTag("human-review-note-task-1").performScrollTo().performTextInput("確認を追加")
+        composeRule.onNodeWithTag("human-review-return-task-1").performClick()
+        assertEquals("return:確認を追加", reviewed)
+
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task(),
+                    actionState = TaskActionUiState.Idle,
+                    workReceiptDetailState = WorkReceiptDetailUiState.Available(
+                        detail = detail(),
+                        fromCache = true,
+                    ),
+                    humanReviewOnline = true,
+                    onStateAction = {},
+                )
+            }
+        }
+        composeRule.onNodeWithTag("human-review-accept-task-1").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("最新のWork Receipt詳細を読み込んでから判断してください。").assertIsDisplayed()
+    }
+
+    @Test
+    fun blockedReceiptOffersCanonicalReplyWithoutAccept() {
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task().copy(workState = "blocked"),
+                    actionState = TaskActionUiState.Idle,
+                    workReceiptDetailState = WorkReceiptDetailUiState.Available(detail(), fromCache = false),
+                    humanReviewOnline = true,
+                    onStateAction = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("AIへ情報を返す").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("human-review-accept-task-1").assertDoesNotExist()
+        composeRule.onNodeWithText("返信する").assertIsDisplayed()
+    }
+
     private fun task() = MobileTask(
         id = "task-1",
+        version = 4,
         title = "AI review",
         themeId = null,
         state = "review",

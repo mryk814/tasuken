@@ -1763,7 +1763,12 @@ export class ApplicationCommandService {
 
   private acceptTaskWork(command: CommandEnvelope): CommandReceipt {
     assertHumanReviewActor(command, "AcceptTaskWork");
-    const taskId = asTaskId(command.payload);
+    const payload = command.payload as {
+      taskId: string;
+      receiptId?: string | null;
+      completeTask?: boolean;
+    };
+    const taskId = asTaskId(payload);
     const current = this.repository.get("task", taskId);
     if (!current)
       throw new ApplicationCommandError("NOT_FOUND", "確認対象のTaskがありません。", {
@@ -1789,7 +1794,23 @@ export class ApplicationCommandService {
       throw new ApplicationCommandError("NOT_FOUND", "確認対象のWork Receiptがありません。", {
         id: taskId,
       });
-    const nextTask: Entity = { ...current, work_state: "accepted", work_review_note: null };
+    if (payload.receiptId && receipt.id !== payload.receiptId) {
+      throw new ApplicationCommandError(
+        "CONFLICT",
+        "Work Receiptが更新されています。最新の内容を確認し直してください。",
+        {
+          id: taskId,
+          expected_receipt_id: payload.receiptId,
+          current_receipt_id: receipt.id,
+        },
+      );
+    }
+    const nextTask: Entity = {
+      ...current,
+      work_state: "accepted",
+      work_review_note: null,
+      ...(payload.completeTask ? { state: "done", completed_at: command.issuedAt } : {}),
+    };
     taskDefinition.parseUpdate(nextTask);
     assertThemeExists(this.repository, nextTask);
     const eventKind =
@@ -1798,15 +1819,22 @@ export class ApplicationCommandService {
         : "task_work_recorded";
     const event = annotateEvent(
       command,
-      commandEvent(command, "task", taskId, "updated", current, nextTask, eventKind, {
-        type: "work_receipt",
-        id: receipt.id,
-      }),
+      commandEvent(
+        command,
+        "task",
+        taskId,
+        payload.completeTask ? "completed" : "updated",
+        current,
+        nextTask,
+        eventKind,
+        { type: "work_receipt", id: receipt.id },
+      ),
     );
     event.metadata = {
       ...((event.metadata as Record<string, unknown>) || {}),
       include_in_activity: true,
       work_action: "accepted",
+      task_completed: payload.completeTask === true,
       executor_label: workExecutorLabel(nextTask, receipt),
     };
     return persistReceipt(
@@ -1823,7 +1851,11 @@ export class ApplicationCommandService {
 
   private returnTaskWork(command: CommandEnvelope): CommandReceipt {
     assertHumanReviewActor(command, "ReturnTaskWork");
-    const payload = command.payload as { taskId: string; reviewNote?: string | null };
+    const payload = command.payload as {
+      taskId: string;
+      receiptId?: string | null;
+      reviewNote?: string | null;
+    };
     const taskId = asTaskId(payload);
     const current = this.repository.get("task", taskId);
     if (!current)
@@ -1837,10 +1869,10 @@ export class ApplicationCommandService {
         { type: "task", id: taskId },
       );
     assertExpectedVersion(this.repository, command, "task", taskId, current);
-    if (!["reported_done", "needs_human_review"].includes(currentWorkState(current)))
+    if (!["reported_done", "needs_human_review", "blocked"].includes(currentWorkState(current)))
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",
-        "確認待ちのTaskだけを差し戻せます。",
+        "確認待ちまたは停止中のTaskだけへ返信できます。",
         { id: taskId, work_state: currentWorkState(current) },
       );
     const reviewNote = typeof payload.reviewNote === "string" ? payload.reviewNote.trim() : "";
@@ -1854,6 +1886,17 @@ export class ApplicationCommandService {
       throw new ApplicationCommandError("NOT_FOUND", "差戻し対象のWork Receiptがありません。", {
         id: taskId,
       });
+    if (payload.receiptId && receipt.id !== payload.receiptId) {
+      throw new ApplicationCommandError(
+        "CONFLICT",
+        "Work Receiptが更新されています。最新の内容を確認し直してください。",
+        {
+          id: taskId,
+          expected_receipt_id: payload.receiptId,
+          current_receipt_id: receipt.id,
+        },
+      );
+    }
     const nextTask: Entity = {
       ...current,
       work_state: current.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated",

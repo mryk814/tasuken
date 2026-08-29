@@ -103,6 +103,7 @@ export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
   TASKEN_MOBILE_CAPABILITIES.proposalRead,
   TASKEN_MOBILE_CAPABILITIES.proposalReview,
+  TASKEN_MOBILE_CAPABILITIES.humanReview,
   TASKEN_MOBILE_CAPABILITIES.taskWrite,
   TASKEN_MOBILE_CAPABILITIES.captureWrite,
 ]);
@@ -112,6 +113,7 @@ export const mobileScopeSchema = z.enum([
   "mobile:task-write",
   "mobile:capture-write",
   "mobile:proposal-review",
+  "mobile:human-review",
 ]);
 
 export const mobileResponseMetaSchema = z
@@ -139,6 +141,7 @@ export const mobileErrorCodeSchema = z.enum([
   "entity_conflict",
   "version_conflict",
   "proposal_conflict",
+  "work_review_conflict",
   "capability_unavailable",
   "upstream_unavailable",
   "response_too_large",
@@ -409,6 +412,34 @@ export const mobileTaskWorkProposalDecisionResponseSchema = z
   })
   .strict();
 
+export const mobileTaskWorkReviewRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    commandId: entityIdSchema,
+    idempotencyKey: entityIdSchema,
+    clientDeviceId: entityIdSchema,
+    issuedAt: isoTimestampSchema,
+    taskId: taskIdSchema,
+    expectedTaskVersion: entityVersionSchema,
+    receiptId: entityIdSchema,
+    action: z.enum(["accept", "return"]),
+    reviewNote: z.string().trim().max(2000).nullable(),
+  })
+  .strict()
+  .refine((value) => value.commandId === value.idempotencyKey, {
+    path: ["idempotencyKey"],
+    message: "commandIdとidempotencyKeyを一致させてください。",
+  })
+  .refine(
+    (value) => (value.action === "return" ? Boolean(value.reviewNote) : value.reviewNote === null),
+    {
+      path: ["reviewNote"],
+      message: "差戻しまたはblocked返信にはreviewNoteが必要です。承認時はnullにしてください。",
+    },
+  );
+
 export const mobileChecklistItemSchema = z
   .object({
     id: entityIdSchema,
@@ -451,6 +482,22 @@ export const mobileTaskSummarySchema = z
     checklistItems: mobileChecklistSchema.default([]),
     schedule: mobileTaskScheduleSchema.nullable(),
     updatedAt: isoTimestampSchema,
+  })
+  .strict();
+
+export const mobileTaskWorkReviewResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        commandId: entityIdSchema,
+        commandStatus: z.enum(["applied", "no_change"]),
+        action: z.enum(["accept", "return"]),
+        receiptId: entityIdSchema,
+        task: mobileTaskSummarySchema,
+      })
+      .strict(),
   })
   .strict();
 
