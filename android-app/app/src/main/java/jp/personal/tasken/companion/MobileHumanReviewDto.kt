@@ -1,6 +1,7 @@
 package jp.personal.tasken.companion
 
 import java.time.OffsetDateTime
+import java.util.UUID
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -36,6 +37,31 @@ data class MobileTaskWorkReviewDataDto(
     val task: MobileTaskSummaryDto,
 )
 
+internal fun humanReviewCommandId(
+    clientDeviceId: String,
+    serverId: String,
+    taskId: String,
+    expectedTaskVersion: Int,
+    receiptId: String,
+    action: String,
+    normalizedReviewNote: String?,
+): String = UUID.nameUUIDFromBytes(
+    listOf(
+        "tasken-mobile-human-review-v1",
+        clientDeviceId,
+        serverId,
+        taskId,
+        expectedTaskVersion.toString(),
+        receiptId,
+        action,
+        normalizedReviewNote.orEmpty(),
+    )
+        .joinToString(separator = "") { value ->
+            "${value.toByteArray(Charsets.UTF_8).size}:$value"
+        }
+        .toByteArray(Charsets.UTF_8),
+).toString()
+
 class MobileHumanReviewContractException(message: String, cause: Throwable? = null) :
     IllegalArgumentException(message, cause)
 
@@ -51,6 +77,14 @@ object MobileHumanReviewContract {
     fun encode(envelope: MobileTaskWorkReviewEnvelopeDto): String {
         validateEnvelope(envelope)
         return json.encodeToString(envelope)
+    }
+
+    fun decodeEnvelope(payload: String): MobileTaskWorkReviewEnvelopeDto = try {
+        json.decodeFromString<MobileTaskWorkReviewEnvelopeDto>(payload).also(::validateEnvelope)
+    } catch (error: MobileHumanReviewContractException) {
+        throw error
+    } catch (error: Exception) {
+        throw MobileHumanReviewContractException("Work Receipt判断の送信内容が不正です。", error)
     }
 
     fun decode(payload: String): MobileTaskWorkReviewResponseDto = try {

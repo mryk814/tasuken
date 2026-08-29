@@ -1,6 +1,11 @@
 package jp.personal.tasken.companion
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -126,6 +131,63 @@ class WorkReceiptDetailUiTest {
         composeRule.onNodeWithText("AIへ情報を返す").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("human-review-accept-task-1").assertDoesNotExist()
         composeRule.onNodeWithText("返信する").assertIsDisplayed()
+    }
+
+    @Test
+    fun missingHumanReviewScopeExplainsHowToRestorePermission() {
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task(),
+                    actionState = TaskActionUiState.Idle,
+                    workReceiptDetailState = WorkReceiptDetailUiState.Available(detail(), fromCache = false),
+                    humanReviewOnline = false,
+                    humanReviewRequiresRePairing = true,
+                    onStateAction = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText(
+            "Desktopで新しいコードを発行して再ペアリングしてください。",
+            substring = true,
+        )
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("human-review-accept-task-1").performScrollTo().assertIsNotEnabled()
+    }
+
+    @Test
+    fun reviewNoteSurvivesLatestReceiptRefreshForTheSameTask() {
+        var replaceReceipt: () -> Unit = {}
+        composeRule.setContent {
+            var receiptId by remember { mutableStateOf("receipt-1") }
+            replaceReceipt = { receiptId = "receipt-2" }
+            val currentTask = task().copy(
+                latestWorkReceipt = task().latestWorkReceipt?.copy(id = receiptId),
+            )
+            MaterialTheme {
+                TodayDetailPane(
+                    task = currentTask,
+                    actionState = TaskActionUiState.Idle,
+                    workReceiptDetailState = WorkReceiptDetailUiState.Available(
+                        detail = detail().copy(id = receiptId),
+                        fromCache = false,
+                    ),
+                    humanReviewOnline = true,
+                    onStateAction = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("human-review-note-task-1")
+            .performScrollTo()
+            .performTextInput("retain this note")
+        composeRule.runOnIdle { replaceReceipt() }
+
+        composeRule.onNodeWithTag("human-review-note-task-1")
+            .performScrollTo()
+            .assertTextEquals("retain this note")
     }
 
     private fun task() = MobileTask(

@@ -16,7 +16,10 @@ import {
   quickCaptureContentType,
   quickCaptureTitle,
 } from "../../shared/quickCapture.mjs";
-import { taskCreationProvenanceSchema } from "../../shared/contracts/task/public.ts";
+import {
+  selectLatestWorkReceipt,
+  taskCreationProvenanceSchema,
+} from "../../shared/contracts/task/public.ts";
 import type {
   CanonicalNoteAiCompanion,
   Entity,
@@ -325,15 +328,15 @@ function workReceiptProvenance(
 }
 
 function latestWorkReceipt(repository: Repository, taskId: string): Entity | null {
-  return (
+  return selectLatestWorkReceipt(
     repository
       .list("work_receipt", true)
-      .filter((receipt) => receipt.task_id === taskId && !receipt.deleted_at)
-      .sort(
-        (left, right) =>
-          String(right.reported_at).localeCompare(String(left.reported_at)) ||
-          Number(right.version || 0) - Number(left.version || 0),
-      )[0] || null
+      .filter((receipt) => receipt.task_id === taskId && !receipt.deleted_at),
+    (receipt) => ({
+      id: String(receipt.id || ""),
+      reportedAt: String(receipt.reported_at || ""),
+      version: Number(receipt.version || 0),
+    }),
   );
 }
 
@@ -1813,8 +1816,9 @@ export class ApplicationCommandService {
     };
     taskDefinition.parseUpdate(nextTask);
     assertThemeExists(this.repository, nextTask);
-    const eventKind =
-      current.intended_executor === "ai_agent" || receipt.executor_kind === "ai_agent"
+    const eventKind = payload.completeTask
+      ? "task_completed"
+      : current.intended_executor === "ai_agent" || receipt.executor_kind === "ai_agent"
         ? "task_ai_accepted"
         : "task_work_recorded";
     const event = annotateEvent(

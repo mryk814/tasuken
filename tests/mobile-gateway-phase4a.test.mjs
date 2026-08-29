@@ -15,6 +15,7 @@ const bundled = await build({
       export { TaskenCoreRuntime } from "./src/main/composition/taskenCoreRuntime.ts";
       export { TaskenCoreClient } from "./src/main/mcp/taskenCoreClient.mjs";
       export { MobileGatewayAdapter, MobileGatewayClient, MobileGatewayClientError, MobileGatewayCoreUnavailableError } from "./src/main/gateway/mobile/public.ts";
+      export { selectLatestWorkReceipt } from "./src/shared/contracts/task/public.ts";
       export * from "./src/shared/contracts/mobile/public.ts";
     `,
     resolveDir: process.cwd(),
@@ -55,6 +56,7 @@ const {
   mobileTodayResponseSchema,
   mobileWorkReceiptRequestSchema,
   mobileWorkReceiptResponseSchema,
+  selectLatestWorkReceipt,
 } = mobile;
 
 const todayGolden = JSON.parse(
@@ -943,6 +945,7 @@ test("Mobile bootstrap projects the latest Work Receipt summary without raw tool
       {
         id: "receipt-old",
         taskId: "task-mobile-create",
+        version: 1,
         reportedAt: "2026-08-21T01:00:00.000Z",
         executorLabel: "Hermes",
         summary: "古い経過",
@@ -950,6 +953,7 @@ test("Mobile bootstrap projects the latest Work Receipt summary without raw tool
       {
         id: "receipt-new",
         taskId: "task-mobile-create",
+        version: 1,
         reportedAt: "2026-08-21T03:00:00.000Z",
         executorLabel: "Hermes",
         summary: "確認してほしい結果",
@@ -1000,6 +1004,26 @@ test("Mobile bootstrap projects the latest Work Receipt summary without raw tool
     query: todayQuery(),
   });
   assert.equal(today.body.data.items[0].latestWorkReceipt, undefined);
+});
+
+test("latest Work Receipt order compares ISO instants and fails closed on invalid timestamps", () => {
+  const records = [
+    {
+      id: "receipt-lexically-later",
+      reportedAt: "2026-08-21T11:00:00.000+10:00",
+      version: 9,
+    },
+    { id: "receipt-later-instant", reportedAt: "2026-08-21T01:30:00.000Z", version: 1 },
+  ];
+  assert.equal(selectLatestWorkReceipt(records, (receipt) => receipt).id, "receipt-later-instant");
+  assert.throws(
+    () =>
+      selectLatestWorkReceipt(
+        [...records, { id: "receipt-invalid", reportedAt: "2026-08-21", version: 10 }],
+        (receipt) => receipt,
+      ),
+    /valid ISO 8601 timestamp/,
+  );
 });
 
 test("Mobile Work Receipt detail exposes only bounded canonical review fields", async () => {
@@ -3064,6 +3088,7 @@ function workReceiptRecords(repository) {
   return repository.list("work_receipt").map((receipt) => ({
     id: receipt.id,
     taskId: receipt.task_id,
+    version: receipt.version,
     reportedAt: receipt.reported_at,
     executorLabel: receipt.executor_label,
     summary: receipt.summary,
@@ -3155,8 +3180,46 @@ function workReviewRequest(fixture, overrides = {}) {
   };
 }
 
-test("Mobile human review accepts the latest Receipt, completes once, and replays idempotently", async () => {
+test("Mobile human review replays once after response loss even when a newer Receipt appears", async () => {
   const fixture = await reportedTaskFixture("review");
+  const originalReceipt = fixture.repository.get("work_receipt", fixture.receiptId);
+  for (const [id, version, summary, reportedAt] of [
+    [
+      "receipt-lexically-later-earlier-instant",
+      3,
+      "時刻文字列では後、実時刻では前",
+      "2026-08-21T11:00:00.000+10:00",
+    ],
+    ["receipt-z-same-version", 2, "同instant・同versionの後順ID", "2026-08-21T10:02:00.000+09:00"],
+    ["receipt-a-same-version", 2, "同instant・同versionの先順ID", "2026-08-21T10:02:00.000+09:00"],
+  ]) {
+    fixture.repository.records.set(`work_receipt:${id}`, {
+      ...originalReceipt,
+      id,
+      version,
+      summary,
+      reported_at: reportedAt,
+    });
+  }
+  fixture.receiptId = "receipt-a-same-version";
+
+  const bootstrap = await fixture.adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
+    principal,
+    query: {
+      apiVersion: "1",
+      schemaVersion: "5",
+      requestId: "request-human-review-tie-bootstrap",
+      limit: "50",
+    },
+  });
+  assert.equal(bootstrap.status, 200);
+  assert.equal(
+    bootstrap.body.data.tasks.find((task) => task.id === fixture.taskId).latestWorkReceipt.id,
+    fixture.receiptId,
+  );
+
   const request = mobileTaskWorkReviewRequestSchema.parse(workReviewRequest(fixture));
   const first = await fixture.adapter.handle({
     method: "POST",
@@ -3168,7 +3231,22 @@ test("Mobile human review accepts the latest Receipt, completes once, and replay
   mobileTaskWorkReviewResponseSchema.parse(first.body);
   assert.equal(first.body.data.task.state, "done");
   assert.equal(first.body.data.task.workState, "accepted");
+  assert.equal(first.body.data.receiptId, fixture.receiptId);
+  const completionEvent = fixture.repository
+    .list("change_event")
+    .find((event) => event.command_id === request.commandId);
+  assert.equal(completionEvent.event_kind, "task_completed");
+  assert.equal(completionEvent.work_receipt_ref.id, fixture.receiptId);
+  assert.equal(completionEvent.metadata.work_action, "accepted");
+  assert.equal(completionEvent.metadata.task_completed, true);
   const eventCount = fixture.repository.list("change_event").length;
+  fixture.repository.records.set("work_receipt:receipt-after-response-loss", {
+    ...originalReceipt,
+    id: "receipt-after-response-loss",
+    version: 1,
+    reported_at: "2026-08-21T01:04:00.000Z",
+    summary: "応答喪失後に届いた新しい報告",
+  });
   const replay = await fixture.adapter.handle({
     method: "POST",
     path: TASKEN_MOBILE_ENDPOINTS.workReviews,
@@ -3177,7 +3255,43 @@ test("Mobile human review accepts the latest Receipt, completes once, and replay
   });
   assert.equal(replay.status, 200);
   assert.equal(replay.body.data.commandStatus, "applied");
+  assert.equal(replay.body.data.receiptId, fixture.receiptId);
+  assert.equal(replay.body.data.task.latestWorkReceipt.id, "receipt-after-response-loss");
   assert.equal(fixture.repository.list("change_event").length, eventCount);
+  assert.equal(
+    fixture.repository
+      .list("change_event")
+      .filter((event) => event.command_id === request.commandId).length,
+    1,
+  );
+});
+
+test("Core Accept without Task completion retains the work-accept Activity kind", async () => {
+  const fixture = await reportedTaskFixture("review");
+  fixture.application.execute({
+    commandId: "accept-work-without-completion",
+    name: "AcceptTaskWork",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "main_ui",
+    issuedAt: "2026-08-21T01:03:00.000Z",
+    payload: { taskId: fixture.taskId, receiptId: fixture.receiptId, completeTask: false },
+    expectedVersions: [
+      {
+        type: "task",
+        id: fixture.taskId,
+        version: fixture.repository.get("task", fixture.taskId).version,
+      },
+    ],
+  });
+  const task = fixture.repository.get("task", fixture.taskId);
+  const event = fixture.repository
+    .list("change_event")
+    .find((candidate) => candidate.command_id === "accept-work-without-completion");
+  assert.equal(task.state, "todo");
+  assert.equal(task.work_state, "accepted");
+  assert.equal(event.event_kind, "task_ai_accepted");
+  assert.equal(event.metadata.work_action, "accepted");
+  assert.equal(event.metadata.task_completed, false);
 });
 
 test("Mobile human review returns review and blocked work with a canonical review note", async () => {
@@ -3232,7 +3346,9 @@ test("Mobile human review rejects missing scope, stale Task, stale Receipt, and 
     },
   });
   assert.equal(staleTask.status, 409);
-  assert.equal(staleTask.body.error.code, "work_review_conflict");
+  assert.equal(staleTask.body.error.code, "work_review_task_conflict");
+  assert.match(staleTask.body.error.message, /Task/);
+  assert.match(staleTask.body.error.message, /再読み込み/);
   const staleReceipt = await fixture.adapter.handle({
     method: "POST",
     path: TASKEN_MOBILE_ENDPOINTS.workReviews,
@@ -3245,7 +3361,9 @@ test("Mobile human review rejects missing scope, stale Task, stale Receipt, and 
     },
   });
   assert.equal(staleReceipt.status, 409);
-  assert.equal(staleReceipt.body.error.code, "work_review_conflict");
+  assert.equal(staleReceipt.body.error.code, "work_review_receipt_conflict");
+  assert.match(staleReceipt.body.error.message, /Work Receipt/);
+  assert.match(staleReceipt.body.error.message, /最新/);
   const unauthorized = await fixture.adapter.handle({
     method: "POST",
     path: TASKEN_MOBILE_ENDPOINTS.workReviews,

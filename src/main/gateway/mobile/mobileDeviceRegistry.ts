@@ -16,10 +16,6 @@ export const MOBILE_DEVICE_DEFAULT_SCOPES = Object.freeze([
   "mobile:human-review",
 ] satisfies MobileScope[]);
 
-function effectiveScopes(scopes: readonly MobileScope[]): MobileScope[] {
-  return [...new Set([...scopes, ...MOBILE_DEVICE_DEFAULT_SCOPES])];
-}
-
 export interface MobileDeviceRecord {
   id: string;
   label: string;
@@ -104,7 +100,7 @@ function publicDevice(record: StoredMobileDeviceRecord): MobileDeviceRecord {
   return {
     id: record.id,
     label: record.label,
-    scopes: effectiveScopes(record.scopes),
+    scopes: [...record.scopes],
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     lastSeenAt: record.lastSeenAt,
@@ -192,7 +188,7 @@ export class MobileDeviceRegistry {
     const record = this.persistence.findMobileDeviceByTokenHash(sha256(accessToken));
     if (!record || record.revokedAt) return null;
     this.persistence.touchMobileDevice(record.id, this.now().toISOString());
-    return { kind: "mobile_device", deviceId: record.id, scopes: effectiveScopes(record.scopes) };
+    return { kind: "mobile_device", deviceId: record.id, scopes: [...record.scopes] };
   }
 
   listDevices(): MobileDeviceRecord[] {

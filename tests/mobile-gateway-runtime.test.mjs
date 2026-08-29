@@ -148,7 +148,7 @@ test("mobile pairing persists only a token hash and revocation survives restart"
     ]);
     assert.equal(registry.authenticate(fixedToken)?.deviceId, "device-s23");
 
-    stored.scopes = ["mobile:read", "mobile:task-write"];
+    persistence.records.get("device-s23").scopes = ["mobile:read", "mobile:task-write"];
 
     const restarted = new MobileDeviceRegistry({
       persistence,
@@ -157,14 +157,9 @@ test("mobile pairing persists only a token hash and revocation survives restart"
     assert.deepEqual(restarted.authenticate(fixedToken), {
       kind: "mobile_device",
       deviceId: "device-s23",
-      scopes: [
-        "mobile:read",
-        "mobile:task-write",
-        "mobile:capture-write",
-        "mobile:proposal-review",
-        "mobile:human-review",
-      ],
+      scopes: ["mobile:read", "mobile:task-write"],
     });
+    assert.deepEqual(restarted.listDevices()[0].scopes, ["mobile:read", "mobile:task-write"]);
     assert.equal(restarted.revoke("device-s23")?.revokedAt, fixedNow);
     assert.equal(restarted.authenticate(fixedToken), null);
   } finally {

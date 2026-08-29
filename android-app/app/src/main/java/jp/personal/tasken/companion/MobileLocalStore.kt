@@ -154,6 +154,15 @@ data class OutboxCommandEntity(
     val dependsOnCommandId: String? = null,
 )
 
+@Entity(tableName = "pending_human_review")
+data class PendingHumanReviewEntity(
+    @PrimaryKey val commandId: String,
+    val serverId: String,
+    val taskId: String,
+    val envelopeJson: String,
+    val createdAt: String,
+)
+
 @Entity(tableName = "sync_state")
 data class SyncStateEntity(
     @PrimaryKey val id: Int = SINGLETON_ID,
@@ -281,6 +290,9 @@ abstract class MobileLocalDao {
     @Query("SELECT * FROM outbox_command WHERE commandId = :commandId")
     abstract suspend fun outbox(commandId: String): OutboxCommandEntity?
 
+    @Query("SELECT * FROM pending_human_review WHERE commandId = :commandId")
+    abstract suspend fun pendingHumanReview(commandId: String): PendingHumanReviewEntity?
+
     @Query("SELECT * FROM outbox_command WHERE taskId = :taskId ORDER BY createdAt, commandId")
     abstract suspend fun outboxForTask(taskId: String): List<OutboxCommandEntity>
 
@@ -325,6 +337,9 @@ abstract class MobileLocalDao {
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     abstract suspend fun insertOutbox(command: OutboxCommandEntity)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    abstract suspend fun insertPendingHumanReview(review: PendingHumanReviewEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertSyncState(state: SyncStateEntity)
@@ -399,6 +414,26 @@ abstract class MobileLocalDao {
 
     @Query("DELETE FROM outbox_command WHERE commandId = :commandId")
     abstract suspend fun deleteOutbox(commandId: String)
+
+    @Query("DELETE FROM pending_human_review WHERE commandId = :commandId")
+    abstract suspend fun deletePendingHumanReview(commandId: String)
+
+    @Transaction
+    open suspend fun pendingHumanReviewOrInsert(review: PendingHumanReviewEntity): PendingHumanReviewEntity {
+        val existing = pendingHumanReview(review.commandId)
+        if (existing != null) return existing
+        insertPendingHumanReview(review)
+        return review
+    }
+
+    @Transaction
+    open suspend fun applyHumanReviewSuccess(commandId: String, canonicalTask: TaskCacheEntity) {
+        val current = task(canonicalTask.id)
+        if (current?.serverVersion == null || canonicalTask.serverVersion!! >= current.serverVersion) {
+            upsertTask(canonicalTask)
+        }
+        deletePendingHumanReview(commandId)
+    }
 
     @Query("DELETE FROM task_conflict WHERE commandId = :commandId")
     abstract suspend fun deleteConflict(commandId: String)
@@ -1165,8 +1200,9 @@ abstract class MobileLocalDao {
         TaskConflictEntity::class,
         WorkReceiptCacheEntity::class,
         TaskWorkProposalCacheEntity::class,
+        PendingHumanReviewEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -1194,6 +1230,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 MIGRATION_11_12,
                 MIGRATION_12_13,
                 MIGRATION_13_14,
+                MIGRATION_14_15,
             ).build().also { instance = it }
         }
     }
@@ -1369,6 +1406,16 @@ internal val MIGRATION_13_14 = object : Migration(13, 14) {
                 "WHERE envelopeJson LIKE '%\"schemaVersion\":4%'",
         )
         db.execSQL("UPDATE sync_state SET schemaVersion = 5 WHERE apiVersion = 1 AND schemaVersion = 4")
+    }
+}
+
+internal val MIGRATION_14_15 = object : Migration(14, 15) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS pending_human_review (" +
+                "commandId TEXT NOT NULL PRIMARY KEY, serverId TEXT NOT NULL, taskId TEXT NOT NULL, " +
+                "envelopeJson TEXT NOT NULL, createdAt TEXT NOT NULL)",
+        )
     }
 }
 

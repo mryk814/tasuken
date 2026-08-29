@@ -7,15 +7,15 @@ export {
   taskErrorSchema,
 } from "./errors.ts";
 
-export {
-  TASK_CONTRACT_SCHEMA_VERSION,
-  taskContractSchemaVersionSchema,
-} from "./version.ts";
+export { TASK_CONTRACT_SCHEMA_VERSION, taskContractSchemaVersionSchema } from "./version.ts";
+
+export { TASK_IPC_CHANNELS, type TaskIpcChannel } from "./transport.ts";
 
 export {
-  TASK_IPC_CHANNELS,
-  type TaskIpcChannel,
-} from "./transport.ts";
+  compareLatestWorkReceipts,
+  selectLatestWorkReceipt,
+  type WorkReceiptSelectionKey,
+} from "./workReceiptSelection.ts";
 
 export {
   taskChecklistItemSchema,
@@ -252,12 +252,19 @@ export {
 } from "./knowledgeQueries.ts";
 
 export {
-  exportAiContextPackSchema, exportAiContextRequestSchema, exportAiContextResponseSchema,
-  getActivityRequestSchema, getActivityResponseSchema,
-  getContextSubgraphRequestSchema, getContextSubgraphResponseSchema,
-  type ExportAiContextRequest, type ExportAiContextResponse,
-  type GetActivityRequest, type GetActivityResponse,
-  type GetContextSubgraphRequest, type GetContextSubgraphResponse,
+  exportAiContextPackSchema,
+  exportAiContextRequestSchema,
+  exportAiContextResponseSchema,
+  getActivityRequestSchema,
+  getActivityResponseSchema,
+  getContextSubgraphRequestSchema,
+  getContextSubgraphResponseSchema,
+  type ExportAiContextRequest,
+  type ExportAiContextResponse,
+  type GetActivityRequest,
+  type GetActivityResponse,
+  type GetContextSubgraphRequest,
+  type GetContextSubgraphResponse,
 } from "./agentContextQueries.ts";
 export {
   proposeTaskWorkRequestSchema,

@@ -1,10 +1,71 @@
 package jp.personal.tasken.companion
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class MobileHumanReviewContractTest {
+    @Test
+    fun commandIdentityIsDeterministicForTheCanonicalReviewInput() {
+        val first = humanReviewCommandId(
+            clientDeviceId = "device-1",
+            serverId = "desktop-home",
+            taskId = "task-1",
+            expectedTaskVersion = 4,
+            receiptId = "receipt-1",
+            action = "return",
+            normalizedReviewNote = "setting is alpha",
+        )
+        val retried = humanReviewCommandId(
+            clientDeviceId = "device-1",
+            serverId = "desktop-home",
+            taskId = "task-1",
+            expectedTaskVersion = 4,
+            receiptId = "receipt-1",
+            action = "return",
+            normalizedReviewNote = "setting is alpha",
+        )
+
+        assertEquals(first, retried)
+        assertNotEquals(
+            first,
+            humanReviewCommandId(
+                "device-1",
+                "desktop-home",
+                "task-1",
+                4,
+                "receipt-1",
+                "return",
+                "setting is beta",
+            ),
+        )
+        assertNotEquals(
+            first,
+            humanReviewCommandId(
+                "device-2",
+                "desktop-home",
+                "task-1",
+                4,
+                "receipt-1",
+                "return",
+                "setting is alpha",
+            ),
+        )
+        assertNotEquals(
+            first,
+            humanReviewCommandId(
+                "device-1",
+                "desktop-clone",
+                "task-1",
+                4,
+                "receipt-1",
+                "return",
+                "setting is alpha",
+            ),
+        )
+    }
+
     @Test
     fun returnEnvelopeRequiresCanonicalIdentityAndReviewNote() {
         val envelope = MobileTaskWorkReviewEnvelopeDto(

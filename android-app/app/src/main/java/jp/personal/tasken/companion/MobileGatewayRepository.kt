@@ -19,6 +19,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -35,16 +36,29 @@ private const val KEY_ORIGIN = "origin"
 private const val KEY_DEVICE_ID = "device_id"
 private const val KEY_TOKEN_CIPHERTEXT = "token_ciphertext"
 private const val KEY_TOKEN_IV = "token_iv"
+private const val KEY_SCOPES = "scopes"
 private const val KEYSTORE_ALIAS = "tasken_mobile_gateway_token"
 private const val MAX_RESPONSE_BYTES = 256 * 1024
 private const val REQUEST_TIMEOUT_MS = 5_000
 private const val MOBILE_GATEWAY_LOG_TAG = "TaskenMobileGateway"
 private val MOBILE_PROCESS_INSTANCE_ID = UUID.randomUUID().toString()
+private const val MOBILE_HUMAN_REVIEW_SCOPE = "mobile:human-review"
+private val SUPPORTED_MOBILE_SCOPES = setOf(
+    "mobile:read",
+    "mobile:task-write",
+    "mobile:capture-write",
+    "mobile:proposal-review",
+    MOBILE_HUMAN_REVIEW_SCOPE,
+)
 
 data class MobileGatewayConfiguration(
     val origin: String,
     val paired: Boolean,
+    val scopes: Set<String> = emptySet(),
 )
+
+fun MobileGatewayConfiguration.canReviewWorkReceipts(): Boolean =
+    paired && MOBILE_HUMAN_REVIEW_SCOPE in scopes
 
 data class GatewayHttpResponse(val status: Int, val body: String)
 
@@ -93,6 +107,11 @@ class MobileGatewayConnectionStore(context: Context) {
     fun configuration(): MobileGatewayConfiguration = MobileGatewayConfiguration(
         origin = preferences.getString(KEY_ORIGIN, "").orEmpty(),
         paired = readToken() != null,
+        scopes = if (readToken() == null) {
+            emptySet()
+        } else {
+            preferences.getStringSet(KEY_SCOPES, emptySet()).orEmpty().toSet()
+        },
     )
 
     fun deviceId(): String {
@@ -104,8 +123,9 @@ class MobileGatewayConnectionStore(context: Context) {
     }
 
     @Synchronized
-    fun save(origin: String, token: String) {
+    fun save(origin: String, token: String, scopes: Set<String> = emptySet()) {
         require(token.matches(Regex("^[A-Za-z0-9_-]{43}$"))) { "Access token is invalid" }
+        require(scopes.all { it in SUPPORTED_MOBILE_SCOPES }) { "Pairing scopes are invalid" }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
         val encrypted = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
@@ -113,6 +133,7 @@ class MobileGatewayConnectionStore(context: Context) {
             .putString(KEY_ORIGIN, origin)
             .putString(KEY_TOKEN_CIPHERTEXT, Base64.encodeToString(encrypted, Base64.NO_WRAP))
             .putString(KEY_TOKEN_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .putStringSet(KEY_SCOPES, scopes)
             .apply()
     }
 
@@ -141,6 +162,7 @@ class MobileGatewayConnectionStore(context: Context) {
         preferences.edit()
             .remove(KEY_TOKEN_CIPHERTEXT)
             .remove(KEY_TOKEN_IV)
+            .remove(KEY_SCOPES)
             .apply()
     }
 
@@ -540,15 +562,30 @@ class AndroidMobileTaskRepository(
         if (configuration.origin.isBlank() || token == null) {
             return MobileHumanReviewResult.Unavailable(task.id, "Desktopへ接続してからWork Receiptを判断してください。")
         }
+        if (!configuration.canReviewWorkReceipts()) {
+            return MobileHumanReviewResult.Unavailable(
+                task.id,
+                "この権限ではWork Receiptを判断できません。Desktopで新しいコードを発行して再ペアリングしてください。",
+            )
+        }
         return try {
-            val commandId = UUID.randomUUID().toString()
-            val envelope = MobileTaskWorkReviewEnvelopeDto(
+            val clientDeviceId = store.deviceId()
+            val commandId = humanReviewCommandId(
+                clientDeviceId = clientDeviceId,
+                serverId = expectedServerId,
+                taskId = task.id,
+                expectedTaskVersion = task.version,
+                receiptId = receipt.id,
+                action = action,
+                normalizedReviewNote = if (action == "return") normalizedNote else null,
+            )
+            val createdEnvelope = MobileTaskWorkReviewEnvelopeDto(
                 apiVersion = TASKEN_MOBILE_API_VERSION,
                 schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
                 requestId = UUID.randomUUID().toString(),
                 commandId = commandId,
                 idempotencyKey = commandId,
-                clientDeviceId = store.deviceId(),
+                clientDeviceId = clientDeviceId,
                 issuedAt = Instant.now().toString(),
                 taskId = task.id,
                 expectedTaskVersion = task.version,
@@ -556,11 +593,34 @@ class AndroidMobileTaskRepository(
                 action = action,
                 reviewNote = if (action == "return") normalizedNote else null,
             )
+            val pending = dao.pendingHumanReviewOrInsert(
+                PendingHumanReviewEntity(
+                    commandId = commandId,
+                    serverId = expectedServerId,
+                    taskId = task.id,
+                    envelopeJson = MobileHumanReviewContract.encode(createdEnvelope),
+                    createdAt = Instant.now().toString(),
+                ),
+            )
+            require(pending.serverId == expectedServerId && pending.taskId == task.id) {
+                "Pending Work Receipt review belongs to another Desktop or Task"
+            }
+            val envelope = MobileHumanReviewContract.decodeEnvelope(pending.envelopeJson)
+            require(
+                envelope.commandId == commandId &&
+                    envelope.idempotencyKey == commandId &&
+                    envelope.clientDeviceId == clientDeviceId &&
+                    envelope.taskId == task.id &&
+                    envelope.expectedTaskVersion == task.version &&
+                    envelope.receiptId == receipt.id &&
+                    envelope.action == action &&
+                    envelope.reviewNote == if (action == "return") normalizedNote else null
+            ) { "Pending Work Receipt review identity does not match the request" }
             val response = gatewayRequest(
                 origin = configuration.origin,
                 path = "/v1/work-reviews",
                 method = "POST",
-                body = MobileHumanReviewContract.encode(envelope),
+                body = pending.envelopeJson,
                 accessToken = token,
             )
             if (response.status == 401) {
@@ -578,13 +638,18 @@ class AndroidMobileTaskRepository(
             if (response.status == 409) {
                 val error = MobileTaskCommandContract.decodeError(response.body)
                 if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+                require(error.error.code in setOf("work_review_task_conflict", "work_review_receipt_conflict")) {
+                    "Unexpected Work Receipt review conflict code: ${error.error.code}"
+                }
+                dao.deletePendingHumanReview(commandId)
                 runCatching { synchronize(configuration.origin, token, expectedServerId) }
                 return MobileHumanReviewResult.Conflict(task.id, error.error.message)
             }
             if (response.status == 403 || response.status == 400 || response.status == 404) {
                 val error = MobileTaskCommandContract.decodeError(response.body)
                 if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-                return MobileHumanReviewResult.Unavailable(task.id, error.error.message)
+                dao.deletePendingHumanReview(commandId)
+                return MobileHumanReviewResult.Rejected(task.id, error.error.message)
             }
             require(response.status == 200) { "Task work review failed with HTTP ${response.status}" }
             val decoded = MobileHumanReviewContract.decode(response.body)
@@ -595,6 +660,7 @@ class AndroidMobileTaskRepository(
                     decoded.data.receiptId == receipt.id &&
                     decoded.data.action == action
             ) { "Task work review identity does not match the request" }
+            dao.applyHumanReviewSuccess(commandId, decoded.data.task.toCache())
             runCatching { synchronize(configuration.origin, token, expectedServerId) }
                 .onFailure { error -> Log.w(MOBILE_GATEWAY_LOG_TAG, "Task sync after Work Receipt review failed", error) }
             MobileHumanReviewResult.Applied(task.id, action)
@@ -684,10 +750,19 @@ class AndroidMobileTaskRepository(
             require(serverId.isNotBlank()) { "Pairing response serverId is missing" }
             val data = root["data"]?.jsonObject ?: error("Pairing response data is missing")
             val token = data["accessToken"]?.jsonPrimitive?.content.orEmpty()
+            val scopeList = data["scopes"]?.jsonArray?.map { scope ->
+                val primitive = scope.jsonPrimitive
+                require(primitive.isString) { "Pairing response scope is not a string" }
+                primitive.content.also {
+                    require(it in SUPPORTED_MOBILE_SCOPES) { "Pairing response scope is unsupported" }
+                }
+            } ?: error("Pairing response scopes are missing")
+            require(scopeList.isNotEmpty()) { "Pairing response scopes are empty" }
+            require(scopeList.size == scopeList.toSet().size) { "Pairing response scopes contain duplicates" }
             runBlocking {
                 if (dao.incompatibleOutboxCount(serverId) != 0) throw MobileOutboxServerMismatchException()
             }
-            store.save(normalizedOrigin, token)
+            store.save(normalizedOrigin, token, scopeList.toSet())
             loadToday()
         } catch (error: MobileOutboxServerMismatchException) {
             MobileTodayResult.Unavailable(

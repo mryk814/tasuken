@@ -141,14 +141,22 @@ sealed interface ProposalReviewUiState {
 sealed interface MobileHumanReviewResult {
     data class Applied(val taskId: String, val action: String) : MobileHumanReviewResult
     data class Conflict(val taskId: String, val message: String) : MobileHumanReviewResult
+    data class Rejected(val taskId: String, val message: String) : MobileHumanReviewResult
     data class Unavailable(val taskId: String, val message: String) : MobileHumanReviewResult
 }
 
+data class MobileHumanReviewPending(
+    val taskId: String,
+    val action: String,
+)
+
 sealed interface HumanReviewUiState {
     data object Idle : HumanReviewUiState
-    data class Reviewing(val taskId: String, val action: String) : HumanReviewUiState
+    data class Reviewing(val pending: MobileHumanReviewPending) : HumanReviewUiState
     data class Applied(val taskId: String, val action: String) : HumanReviewUiState
-    data class Error(val taskId: String, val message: String) : HumanReviewUiState
+    data class Conflict(val taskId: String, val message: String) : HumanReviewUiState
+    data class Rejected(val taskId: String, val message: String) : HumanReviewUiState
+    data class Unavailable(val taskId: String, val message: String) : HumanReviewUiState
 }
 
 sealed interface MobileWorkReceiptLoadResult {
@@ -339,6 +347,8 @@ class TodayViewModel(
     val proposalReviewState: StateFlow<ProposalReviewUiState> = mutableProposalReviewState.asStateFlow()
     private val mutableHumanReviewOnline = MutableStateFlow(false)
     val humanReviewOnline: StateFlow<Boolean> = mutableHumanReviewOnline.asStateFlow()
+    private val mutableHumanReviewRequiresRePairing = MutableStateFlow(false)
+    val humanReviewRequiresRePairing: StateFlow<Boolean> = mutableHumanReviewRequiresRePairing.asStateFlow()
     private val mutableHumanReviewState = MutableStateFlow<HumanReviewUiState>(HumanReviewUiState.Idle)
     val humanReviewState: StateFlow<HumanReviewUiState> = mutableHumanReviewState.asStateFlow()
     private var workReceiptLoadJob: Job? = null
@@ -379,6 +389,7 @@ class TodayViewModel(
     internal suspend fun loadNow() {
         mutableUiState.value = TodayUiState.Loading
         val result = withContext(ioDispatcher) { repository.loadToday() }
+        val gatewayConfiguration = (repository as? MobileGatewayRepository)?.configuration()
         mutableProposalReviewOnline.value = if (result is MobileTodayResult.PairingRequired) {
             false
         } else {
@@ -386,7 +397,10 @@ class TodayViewModel(
                 (repository as? MobileGatewayRepository)?.refreshTaskWorkProposals() == true
             }
         }
-        mutableHumanReviewOnline.value = mutableProposalReviewOnline.value
+        mutableHumanReviewOnline.value = result is MobileTodayResult.Available &&
+            gatewayConfiguration?.canReviewWorkReceipts() == true
+        mutableHumanReviewRequiresRePairing.value = gatewayConfiguration?.paired == true &&
+            !gatewayConfiguration.canReviewWorkReceipts()
         refreshExternalProjection()
         val offlineRepository = repository as? MobileOfflineTaskRepository
         if (offlineRepository != null) {
@@ -440,13 +454,16 @@ class TodayViewModel(
         applyResult(result)
         mutableProposalReviewOnline.value = result is MobileTodayResult.Available &&
             withContext(ioDispatcher) { gateway.refreshTaskWorkProposals() }
-        mutableHumanReviewOnline.value = mutableProposalReviewOnline.value
+        val configuration = gateway.configuration()
+        mutableHumanReviewOnline.value = result is MobileTodayResult.Available && configuration.canReviewWorkReceipts()
+        mutableHumanReviewRequiresRePairing.value = configuration.paired && !configuration.canReviewWorkReceipts()
     }
 
     fun retryPairing() {
         val gateway = repository as? MobileGatewayRepository ?: return
         mutableProposalReviewOnline.value = false
         mutableHumanReviewOnline.value = false
+        mutableHumanReviewRequiresRePairing.value = false
         cachedPairingRequired = null
         applyResult(gateway.retryPairing())
     }
@@ -507,35 +524,45 @@ class TodayViewModel(
         if (action !in setOf("accept", "return")) return
         val receipt = task.latestWorkReceipt
         if (receipt == null || task.version <= 0) {
-            mutableHumanReviewState.value = HumanReviewUiState.Error(task.id, "最新のTaskとWork Receiptを同期してから判断してください。")
+            mutableHumanReviewState.value = HumanReviewUiState.Conflict(task.id, "最新のTaskとWork Receiptを同期してから判断してください。")
             return
         }
         val normalizedNote = reviewNote?.trim()
         if (action == "return" && normalizedNote.isNullOrEmpty()) {
-            mutableHumanReviewState.value = HumanReviewUiState.Error(task.id, "差し戻しまたは返信の内容を入力してください。")
+            mutableHumanReviewState.value = HumanReviewUiState.Rejected(task.id, "差し戻しまたは返信の内容を入力してください。")
             return
         }
         if (!mutableHumanReviewOnline.value) {
-            mutableHumanReviewState.value = HumanReviewUiState.Error(task.id, "Desktopへ接続してからWork Receiptを判断してください。")
+            val message = if (mutableHumanReviewRequiresRePairing.value) {
+                "この権限ではWork Receiptを判断できません。Desktopで新しいコードを発行して再ペアリングしてください。"
+            } else {
+                "Desktopへ接続してからWork Receiptを判断してください。"
+            }
+            mutableHumanReviewState.value = HumanReviewUiState.Unavailable(task.id, message)
             return
         }
         val gateway = repository as? MobileGatewayRepository
         if (gateway == null) {
-            mutableHumanReviewState.value = HumanReviewUiState.Error(task.id, "この環境ではWork Receiptを判断できません。")
+            mutableHumanReviewState.value = HumanReviewUiState.Unavailable(task.id, "この環境ではWork Receiptを判断できません。")
             return
         }
-        mutableHumanReviewState.value = HumanReviewUiState.Reviewing(task.id, action)
+        mutableHumanReviewState.value = HumanReviewUiState.Reviewing(MobileHumanReviewPending(task.id, action))
         when (val result = withContext(ioDispatcher) { gateway.reviewTaskWork(task, action, normalizedNote) }) {
             is MobileHumanReviewResult.Applied -> {
                 mutableHumanReviewOnline.value = true
                 mutableHumanReviewState.value = HumanReviewUiState.Applied(result.taskId, result.action)
             }
             is MobileHumanReviewResult.Conflict -> {
-                mutableHumanReviewState.value = HumanReviewUiState.Error(result.taskId, result.message)
+                mutableHumanReviewOnline.value = true
+                mutableHumanReviewState.value = HumanReviewUiState.Conflict(result.taskId, result.message)
+            }
+            is MobileHumanReviewResult.Rejected -> {
+                mutableHumanReviewOnline.value = true
+                mutableHumanReviewState.value = HumanReviewUiState.Rejected(result.taskId, result.message)
             }
             is MobileHumanReviewResult.Unavailable -> {
                 mutableHumanReviewOnline.value = false
-                mutableHumanReviewState.value = HumanReviewUiState.Error(result.taskId, result.message)
+                mutableHumanReviewState.value = HumanReviewUiState.Unavailable(result.taskId, result.message)
             }
         }
     }

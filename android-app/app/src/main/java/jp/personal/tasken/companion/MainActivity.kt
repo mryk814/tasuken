@@ -205,6 +205,7 @@ private fun TodayApp(
     val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
     val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
     val humanReviewOnline by todayViewModel.humanReviewOnline.collectAsState()
+    val humanReviewRequiresRePairing by todayViewModel.humanReviewRequiresRePairing.collectAsState()
     val humanReviewState by todayViewModel.humanReviewState.collectAsState()
     val themes = themeCatalogState.themes
     val context = LocalContext.current
@@ -433,7 +434,15 @@ private fun TodayApp(
                 )
                 todayViewModel.resetHumanReviewState()
             }
-            is HumanReviewUiState.Error -> {
+            is HumanReviewUiState.Conflict -> {
+                snackbarHostState.showSnackbar(state.message)
+                todayViewModel.resetHumanReviewState()
+            }
+            is HumanReviewUiState.Rejected -> {
+                snackbarHostState.showSnackbar(state.message)
+                todayViewModel.resetHumanReviewState()
+            }
+            is HumanReviewUiState.Unavailable -> {
                 snackbarHostState.showSnackbar(state.message)
                 todayViewModel.resetHumanReviewState()
             }
@@ -593,6 +602,7 @@ private fun TodayApp(
                         proposalReviewOnline = proposalReviewOnline,
                         proposalReviewState = proposalReviewState,
                         humanReviewOnline = humanReviewOnline,
+                        humanReviewRequiresRePairing = humanReviewRequiresRePairing,
                         humanReviewState = humanReviewState,
                         themes = themes,
                         themeCatalogState = themeCatalogState,
@@ -1347,6 +1357,7 @@ internal fun TodayDetailPane(
     proposalReviewOnline: Boolean = false,
     proposalReviewState: ProposalReviewUiState = ProposalReviewUiState.Idle,
     humanReviewOnline: Boolean = false,
+    humanReviewRequiresRePairing: Boolean = false,
     humanReviewState: HumanReviewUiState = HumanReviewUiState.Idle,
     themes: List<MobileTheme> = emptyList(),
     themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
@@ -1588,6 +1599,7 @@ internal fun TodayDetailPane(
                                 receipt = receipt,
                                 detailState = workReceiptDetailState,
                                 online = humanReviewOnline,
+                                requiresRePairing = humanReviewRequiresRePairing,
                                 reviewState = humanReviewState,
                                 onReview = onHumanReview,
                             )
@@ -1635,11 +1647,12 @@ private fun TaskWorkHumanReviewCard(
     receipt: MobileWorkReceiptSummary,
     detailState: WorkReceiptDetailUiState,
     online: Boolean,
+    requiresRePairing: Boolean,
     reviewState: HumanReviewUiState,
     onReview: (MobileTask, String, String?) -> Unit,
 ) {
-    var reviewNote by rememberSaveable(task.id, receipt.id) { mutableStateOf("") }
-    val reviewing = reviewState is HumanReviewUiState.Reviewing && reviewState.taskId == task.id
+    var reviewNote by rememberSaveable(task.id) { mutableStateOf("") }
+    val reviewing = reviewState is HumanReviewUiState.Reviewing && reviewState.pending.taskId == task.id
     val liveDetail = detailState as? WorkReceiptDetailUiState.Available
     val verifiedLatest = liveDetail?.detail?.id == receipt.id && !liveDetail.fromCache
     val blocked = task.workState == "blocked"
@@ -1654,6 +1667,10 @@ private fun TaskWorkHumanReviewCard(
         ) {
             Text(if (blocked) "AIへ情報を返す" else "作業結果を確認", fontWeight = FontWeight.Bold)
             when {
+                requiresRePairing -> Text(
+                    "この権限では判断できません。Desktopで新しいコードを発行して再ペアリングしてください。",
+                    color = MaterialTheme.colorScheme.secondary,
+                )
                 !online -> Text("Offline cache · Desktop接続時に判断できます", color = MaterialTheme.colorScheme.secondary)
                 !verifiedLatest -> Text("最新のWork Receipt詳細を読み込んでから判断してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 task.pending -> Text("送信待ちの変更を同期してから判断してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1675,7 +1692,7 @@ private fun TaskWorkHumanReviewCard(
                         enabled = canReview,
                         modifier = Modifier.testTag("human-review-accept-${task.id}"),
                     ) {
-                        Text(if (reviewing && reviewState.action == "accept") "承認中" else "承認して完了")
+                        Text(if (reviewing && reviewState.pending.action == "accept") "承認中" else "承認して完了")
                     }
                 }
                 TextButton(
@@ -1684,7 +1701,7 @@ private fun TaskWorkHumanReviewCard(
                     modifier = Modifier.testTag("human-review-return-${task.id}"),
                 ) {
                     Text(
-                        if (reviewing && reviewState.action == "return") {
+                        if (reviewing && reviewState.pending.action == "return") {
                             "送信中"
                         } else if (blocked) {
                             "返信する"

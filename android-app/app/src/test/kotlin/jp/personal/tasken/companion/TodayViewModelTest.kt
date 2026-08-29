@@ -575,7 +575,11 @@ class TodayViewModelTest {
         var received: Triple<String, String, String?>? = null
         val repository = object : MobileGatewayRepository {
             override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
-            override fun configuration() = MobileGatewayConfiguration("https://gateway.test", paired = true)
+            override fun configuration() = MobileGatewayConfiguration(
+                "https://gateway.test",
+                paired = true,
+                scopes = setOf("mobile:human-review"),
+            )
             override fun pair(origin: String, pairingCode: String) = loadToday()
             override fun retryPairing() = MobileTodayResult.PairingRequired()
             override suspend fun refreshTaskWorkProposals() = true
@@ -610,11 +614,11 @@ class TodayViewModelTest {
     }
 
     @Test
-    fun offlineOrUnsyncedHumanReviewIsRejectedBeforeNetwork() {
+    fun unpairedOrUnsyncedHumanReviewIsRejectedBeforeNetwork() {
         var calls = 0
         val repository = object : MobileGatewayRepository {
             override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
-            override fun configuration() = MobileGatewayConfiguration("https://gateway.test", paired = true)
+            override fun configuration() = MobileGatewayConfiguration("https://gateway.test", paired = false)
             override fun pair(origin: String, pairingCode: String) = loadToday()
             override fun retryPairing() = MobileTodayResult.PairingRequired()
             override suspend fun refreshTaskWorkProposals() = false
@@ -639,11 +643,131 @@ class TodayViewModelTest {
             viewModel.reviewTaskWorkNow(task, "accept")
         }
 
-        assertTrue((viewModel.humanReviewState.value as HumanReviewUiState.Error).message.contains("Desktop"))
+        assertTrue((viewModel.humanReviewState.value as HumanReviewUiState.Unavailable).message.contains("Desktop"))
         assertEquals(0, calls)
         runBlocking { viewModel.reviewTaskWorkNow(task.copy(version = 0), "accept") }
-        assertTrue((viewModel.humanReviewState.value as HumanReviewUiState.Error).message.contains("同期"))
+        assertTrue((viewModel.humanReviewState.value as HumanReviewUiState.Conflict).message.contains("同期"))
         assertEquals(0, calls)
+    }
+
+    @Test
+    fun humanReviewAvailabilityDoesNotDependOnProposalRefresh() {
+        var calls = 0
+        val repository = object : MobileGatewayRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
+            override fun configuration() = MobileGatewayConfiguration(
+                "https://gateway.test",
+                paired = true,
+                scopes = setOf("mobile:human-review"),
+            )
+            override fun pair(origin: String, pairingCode: String) = loadToday()
+            override fun retryPairing() = MobileTodayResult.PairingRequired()
+            override suspend fun refreshTaskWorkProposals() = false
+            override suspend fun reviewTaskWork(
+                task: MobileTask,
+                action: String,
+                reviewNote: String?,
+            ): MobileHumanReviewResult {
+                calls += 1
+                return MobileHumanReviewResult.Applied(task.id, action)
+            }
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+        val task = sampleTask().copy(
+            version = 4,
+            workState = "needs_human_review",
+            latestWorkReceipt = MobileWorkReceiptSummary("receipt-1", "2026-08-23T00:00:00Z", "Hermes", "review ready"),
+        )
+
+        runBlocking {
+            viewModel.loadNow()
+            viewModel.reviewTaskWorkNow(task, "accept")
+        }
+
+        assertTrue(viewModel.humanReviewOnline.value)
+        assertEquals(1, calls)
+        assertEquals(HumanReviewUiState.Applied(task.id, "accept"), viewModel.humanReviewState.value)
+    }
+
+    @Test
+    fun humanReviewOutcomeStatesRemainDistinct() {
+        var nextResult: MobileHumanReviewResult = MobileHumanReviewResult.Applied("task-1", "accept")
+        val repository = object : MobileGatewayRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
+            override fun configuration() = MobileGatewayConfiguration(
+                "https://gateway.test",
+                paired = true,
+                scopes = setOf("mobile:human-review"),
+            )
+            override fun pair(origin: String, pairingCode: String) = loadToday()
+            override fun retryPairing() = MobileTodayResult.PairingRequired()
+            override suspend fun refreshTaskWorkProposals() = false
+            override suspend fun reviewTaskWork(
+                task: MobileTask,
+                action: String,
+                reviewNote: String?,
+            ): MobileHumanReviewResult = nextResult
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+        val task = sampleTask().copy(
+            version = 4,
+            latestWorkReceipt = MobileWorkReceiptSummary("receipt-1", "2026-08-23T00:00:00Z", "Hermes", "review ready"),
+        )
+
+        runBlocking { viewModel.loadNow() }
+        nextResult = MobileHumanReviewResult.Conflict(task.id, "Task conflict")
+        runBlocking { viewModel.reviewTaskWorkNow(task, "accept") }
+        assertEquals(HumanReviewUiState.Conflict(task.id, "Task conflict"), viewModel.humanReviewState.value)
+        assertTrue(viewModel.humanReviewOnline.value)
+
+        nextResult = MobileHumanReviewResult.Rejected(task.id, "Receipt cannot be reviewed")
+        runBlocking { viewModel.reviewTaskWorkNow(task, "accept") }
+        assertEquals(HumanReviewUiState.Rejected(task.id, "Receipt cannot be reviewed"), viewModel.humanReviewState.value)
+        assertTrue(viewModel.humanReviewOnline.value)
+
+        nextResult = MobileHumanReviewResult.Unavailable(task.id, "Gateway unavailable")
+        runBlocking { viewModel.reviewTaskWorkNow(task, "accept") }
+        assertEquals(HumanReviewUiState.Unavailable(task.id, "Gateway unavailable"), viewModel.humanReviewState.value)
+        assertEquals(false, viewModel.humanReviewOnline.value)
+    }
+
+    @Test
+    fun humanReviewRequiresNewPairingWhenScopeIsMissing() {
+        var calls = 0
+        val repository = object : MobileGatewayRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
+            override fun configuration() = MobileGatewayConfiguration(
+                "https://gateway.test",
+                paired = true,
+                scopes = setOf("mobile:read"),
+            )
+            override fun pair(origin: String, pairingCode: String) = loadToday()
+            override fun retryPairing() = MobileTodayResult.PairingRequired()
+            override suspend fun refreshTaskWorkProposals() = false
+            override suspend fun reviewTaskWork(
+                task: MobileTask,
+                action: String,
+                reviewNote: String?,
+            ): MobileHumanReviewResult {
+                calls += 1
+                return MobileHumanReviewResult.Applied(task.id, action)
+            }
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+        val task = sampleTask().copy(
+            version = 4,
+            latestWorkReceipt = MobileWorkReceiptSummary("receipt-1", "2026-08-23T00:00:00Z", "Hermes", "review ready"),
+        )
+
+        runBlocking {
+            viewModel.loadNow()
+            viewModel.reviewTaskWorkNow(task, "accept")
+        }
+
+        assertEquals(false, viewModel.humanReviewOnline.value)
+        assertTrue(viewModel.humanReviewRequiresRePairing.value)
+        assertEquals(0, calls)
+        assertTrue((viewModel.humanReviewState.value as HumanReviewUiState.Unavailable).message.contains("再ペアリング"))
     }
 
     @Test

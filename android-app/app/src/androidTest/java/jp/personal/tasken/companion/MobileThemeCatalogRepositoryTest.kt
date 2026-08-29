@@ -349,6 +349,7 @@ class MobileThemeCatalogRepositoryTest {
             assertEquals(listOf(null) + List(4) { replacementToken }, requestTokens)
             assertEquals(replacementToken, store.readToken())
             assertEquals("https://gateway.test", store.configuration().origin)
+            assertTrue(store.configuration().canReviewWorkReceipts())
             assertNull(dao.outbox(commandId))
             assertEquals(1, dao.task(taskId)?.serverVersion)
         } finally {
@@ -596,7 +597,8 @@ class MobileThemeCatalogRepositoryTest {
             "truncated": false
           },
           "data": {
-            "accessToken": "$token"
+            "accessToken": "$token",
+            "scopes": ["mobile:read", "mobile:human-review"]
           }
         }
     """.trimIndent()

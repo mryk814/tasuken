@@ -45,6 +45,7 @@ import {
 } from "../../../shared/contracts/core/public.mjs";
 import {
   TASK_CONTRACT_SCHEMA_VERSION,
+  selectLatestWorkReceipt,
   taskReadModelSchema,
   type TaskCommandResponse,
   type TaskError,
@@ -161,6 +162,7 @@ export interface MobileGatewayThemeRecord {
 export interface MobileGatewayWorkReceiptRecord {
   id: string;
   taskId: string;
+  version: number;
   reportedAt: string;
   executorLabel: string;
   summary: string;
@@ -214,13 +216,10 @@ function projectLatestWorkReceipt(
   taskId: string,
   receipts: readonly MobileGatewayWorkReceiptRecord[],
 ) {
-  const latest = receipts
-    .filter((receipt) => receipt.taskId === taskId && receipt.reportedAt && receipt.summary.trim())
-    .sort(
-      (left, right) =>
-        String(right.reportedAt).localeCompare(String(left.reportedAt)) ||
-        left.id.localeCompare(right.id),
-    )[0];
+  const latest = selectLatestWorkReceipt(
+    receipts.filter((receipt) => receipt.taskId === taskId),
+    (receipt) => receipt,
+  );
   if (!latest) return null;
   const executorLabel = latest.executorLabel.trim().slice(0, 200) || "agent";
   const summary = latest.summary.trim().slice(0, 2000);
@@ -633,7 +632,8 @@ function statusFor(code: MobileErrorCode) {
   if (code === "entity_conflict") return 409;
   if (code === "version_conflict") return 409;
   if (code === "proposal_conflict") return 409;
-  if (code === "work_review_conflict") return 409;
+  if (code === "work_review_task_conflict") return 409;
+  if (code === "work_review_receipt_conflict") return 409;
   if (code === "capability_unavailable") return 409;
   if (code === "upstream_unavailable") return 503;
   if (code === "response_too_large") return 502;
@@ -657,8 +657,10 @@ function safeMessage(code: MobileErrorCode) {
       "同じIDが既に存在するか、対象が更新済みです。再読み込みして再試行してください。",
     version_conflict: "Taskが更新されています。再読み込みして再試行してください。",
     proposal_conflict: "Proposalまたは対象Taskが更新されています。再読み込みしてください。",
-    work_review_conflict:
-      "Work Receiptまたは作業状態が更新されています。最新の内容を確認してください。",
+    work_review_task_conflict:
+      "Taskの作業状態が更新されています。再読み込みして最新の状態を確認してください。",
+    work_review_receipt_conflict:
+      "Work Receiptが更新されています。最新の報告を確認してから再実行してください。",
     capability_unavailable: "必要なTasken Core capabilityを利用できません。",
     upstream_unavailable: "Tasken Coreを利用できません。Desktopの状態を確認してください。",
     response_too_large: "応答が上限を超えました。取得件数を減らしてください。",
@@ -1017,15 +1019,6 @@ export class MobileGatewayAdapter {
       if (request.path === TASKEN_MOBILE_ENDPOINTS.workReviews) {
         const review = workReview?.success ? workReview.data : null;
         if (!review) return this.error(meta, "validation_failed");
-        const receipts = [...(await this.options.core.listWorkReceipts())]
-          .filter((receipt) => receipt.taskId === review.taskId)
-          .sort(
-            (left, right) =>
-              right.reportedAt.localeCompare(left.reportedAt) || left.id.localeCompare(right.id),
-          );
-        const latestReceipt = receipts[0];
-        if (!latestReceipt) return this.error(meta, "not_found");
-        if (latestReceipt.id !== review.receiptId) return this.error(meta, "work_review_conflict");
         const result = await this.options.core.executeTaskCommand({
           schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
           command_id: review.commandId,
@@ -1059,6 +1052,7 @@ export class MobileGatewayAdapter {
         ) {
           throw new Error("Unexpected Task work review outcome");
         }
+        const receipts = [...(await this.options.core.listWorkReceipts())];
         return this.success(
           mobileTaskWorkReviewResponseSchema.parse({
             ok: true,
@@ -1474,7 +1468,7 @@ export class MobileGatewayAdapter {
         return this.error(meta, "entity_conflict");
       if (error.conflict_reason === "version_conflict") {
         if (command?.name === "AcceptTaskWork" || command?.name === "ReturnTaskWork") {
-          return this.error(meta, "work_review_conflict");
+          return this.error(meta, "work_review_task_conflict");
         }
         const currentTask = taskReadModelSchema.safeParse(error.details?.current_task);
         if (
@@ -1500,6 +1494,13 @@ export class MobileGatewayAdapter {
             ? (command.expectedScheduleVersion ?? null)
             : null,
         });
+      }
+      if (
+        (command?.name === "AcceptTaskWork" || command?.name === "ReturnTaskWork") &&
+        typeof error.details?.expected_receipt_id === "string" &&
+        typeof error.details?.current_receipt_id === "string"
+      ) {
+        return this.error(meta, "work_review_receipt_conflict");
       }
       throw new Error("Unclassified Task conflict");
     }
