@@ -67,6 +67,8 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
       importedVideoArtifactId,
       screenRecordingArtifactId,
       screenRecordingPausedResumed: true,
+      taskenRootOpened: true,
+      taskenRootQuitCompleted: true,
       smokeTaskId: videoOwnerId,
     }),
     {
@@ -95,6 +97,36 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
       importedVideoArtifactId,
       screenRecordingArtifactId,
       screenRecordingPausedResumed: false,
+      taskenRootOpened: true,
+      taskenRootQuitCompleted: true,
+      smokeTaskId: videoOwnerId,
+    }),
+    null,
+  );
+  assert.equal(
+    restartArtifactIdsFromResult({
+      stage: "restart-ready",
+      audioArtifactId: artifactId,
+      microphoneArtifactId,
+      importedVideoArtifactId,
+      screenRecordingArtifactId,
+      screenRecordingPausedResumed: true,
+      taskenRootOpened: true,
+      taskenRootQuitCompleted: false,
+      smokeTaskId: videoOwnerId,
+    }),
+    null,
+  );
+  assert.equal(
+    restartArtifactIdsFromResult({
+      stage: "restart-ready",
+      audioArtifactId: artifactId,
+      microphoneArtifactId,
+      importedVideoArtifactId,
+      screenRecordingArtifactId,
+      screenRecordingPausedResumed: true,
+      taskenRootOpened: false,
+      taskenRootQuitCompleted: true,
       smokeTaskId: videoOwnerId,
     }),
     null,
@@ -119,6 +151,18 @@ test("desktop smoke waits for the exact pasted nodes and settled Today mini stat
   assert.match(
     source,
     /toggleResult[\s\S]*?for \(let attempt = 0;[\s\S]*?const settledBounds = todayMini\.getBounds\(\)[\s\S]*?todayMini\.isVisible\(\)[\s\S]*?todayMini\.isAlwaysOnTop\(\)[\s\S]*?settledBounds\.x === initialMiniBounds\.x[\s\S]*?settledBounds\.height === initialMiniBounds\.height[\s\S]*?todayMiniToggleRestored/,
+  );
+});
+
+test("desktop smoke opens Tasken Root and reaches will-quit through a bounded app.quit path", async () => {
+  const source = await readFile("src/main/index.ts", "utf8");
+  assert.match(
+    source,
+    /function completeInitialSmokeViaAppQuit[\s\S]*taskenRootController\.toggle\(\)[\s\S]*taskenRootController\.getWindow\(\)[\s\S]*recordSmoke\("quit-started"[\s\S]*setTimeout\([\s\S]*30_000[\s\S]*app\.quit\(\)/,
+  );
+  assert.match(
+    source,
+    /app\.on\("will-quit"[\s\S]*taskenRootClosedBeforeWillQuit[\s\S]*taskenRootController\?\.destroy\(\)[\s\S]*taskenRootQuitCompleted[\s\S]*"restart-ready"/,
   );
 });
 

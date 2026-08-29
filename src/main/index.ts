@@ -132,6 +132,8 @@ let smokeMediaCaptureService: MediaCaptureService | null = null;
 let smokeVideoSourcePath = "";
 let lastSmokeStage = "startup";
 const smokeTrace: string[] = [];
+let pendingSmokeQuitResult: Record<string, unknown> | null = null;
+let smokeQuitWatchdog: ReturnType<typeof setTimeout> | null = null;
 const readyMainWindows = new WeakSet<BrowserWindow>();
 let appQuitApproved = false;
 let appFlushPending = false;
@@ -486,6 +488,27 @@ function recordSmoke(stage: string, details: Record<string, unknown> = {}): void
     smokeResultPath,
     JSON.stringify({ stage, argv: process.argv, ...details }, null, 2),
   );
+}
+
+function completeInitialSmokeViaAppQuit(result: Record<string, unknown>): void {
+  if (!taskenRootController) throw new Error("Tasken Root controller is not ready");
+  taskenRootController.toggle();
+  const rootWindow = taskenRootController.getWindow();
+  if (!rootWindow || rootWindow.isDestroyed() || !rootWindow.isVisible()) {
+    throw new Error("Tasken Root window did not open before app quit");
+  }
+  pendingSmokeQuitResult = { ...result, taskenRootOpened: true };
+  recordSmoke("quit-started", pendingSmokeQuitResult);
+  smokeQuitWatchdog = setTimeout(() => {
+    if (!pendingSmokeQuitResult) return;
+    recordSmoke("quit-timeout", {
+      ...pendingSmokeQuitResult,
+      previousStage: lastSmokeStage,
+      trace: [...smokeTrace],
+    });
+    app.exit(1);
+  }, 30_000);
+  app.quit();
 }
 
 function tinyPcmWav(): Buffer {
@@ -2139,8 +2162,12 @@ flowchart LR
         result.screenRecordingPausedResumed &&
         (!isPackagedSmokeRequired || result.appIsPackaged),
       );
-      recordSmoke(passed ? "restart-ready" : "failed", result);
-      app.exit(passed ? 0 : 1);
+      if (!passed) {
+        recordSmoke("failed", result);
+        app.exit(1);
+        return;
+      }
+      completeInitialSmokeViaAppQuit(result);
     } catch (error) {
       console.error(error);
       recordSmoke("reload-check-failed", { error: String(error) });
@@ -2657,6 +2684,7 @@ async function startDesktopApp(): Promise<void> {
       workspaceRepository.setPreference(key, value);
     },
     getAppIconPath,
+    isAppQuitApproved: () => appQuitApproved,
     showMainTarget: (request: RootOpenRequest) => {
       const mainWindow = showMainWindow();
       const send = () => {
@@ -2787,6 +2815,22 @@ app.on("before-quit", (event) => {
 
 app.on("will-quit", () => {
   reminderController?.stop();
+  const taskenRootClosedBeforeWillQuit = taskenRootController?.getWindow() === null;
   taskenRootController?.destroy();
   globalShortcut.unregisterAll();
+  if (smokeQuitWatchdog) {
+    clearTimeout(smokeQuitWatchdog);
+    smokeQuitWatchdog = null;
+  }
+  if (pendingSmokeQuitResult) {
+    const result = pendingSmokeQuitResult;
+    pendingSmokeQuitResult = null;
+    const taskenRootQuitCompleted =
+      taskenRootClosedBeforeWillQuit && taskenRootController?.getWindow() === null;
+    recordSmoke(taskenRootQuitCompleted ? "restart-ready" : "quit-failed", {
+      ...result,
+      taskenRootClosedBeforeWillQuit,
+      taskenRootQuitCompleted,
+    });
+  }
 });
