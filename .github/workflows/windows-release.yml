@@ -44,6 +44,15 @@ jobs:
       - name: Verify tag and create Windows artifacts
         run: npm run release:check
 
+      - name: Upload Activity smoke screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: activity-packaged-smoke-${{ env.RELEASE_TAG }}
+          path: output/playwright/activity-packaged-smoke
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Verify release files
         run: npm run release:verify-artifacts
 
