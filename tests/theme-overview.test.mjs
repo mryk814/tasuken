@@ -59,6 +59,7 @@ test("Taskは未完了と完了を横並びにし、完了時刻を出す（#321
 });
 
 test("最近のNoteは本文の書き出しまで見せる（#321）", () => {
+  assert.match(themePage, /notes\.filter\(\(note\) => noteProjectId\(note\) === theme\.id\)/);
   assert.match(themePage, /className="theme-note-card"/);
   assert.match(themePage, /compactNotesBodyPreview\(note\.body_markdown, 160\)/);
   assert.match(themePage, /NOTES_KIND_LABELS\[notesKindFromNoteType\(str\(note\.note_type\)\)\]/);

@@ -1,4 +1,9 @@
-import { artifactFileTypeFromName, displayNameFromTarget, inferArtifactLinkType } from "../../../../../shared/artifactLinks.mjs";
+import {
+  artifactFileTypeFromName,
+  displayNameFromTarget,
+  inferArtifactLinkType,
+} from "../../../../../shared/artifactLinks.mjs";
+import { noteProjectId } from "../../../../../shared/noteTheme.mjs";
 import type { Resource } from "../domain-model/types";
 import type { Artifact, BaseRecord, SaveOperation } from "../types";
 import { isChatReference } from "./chatRefs";
@@ -25,7 +30,7 @@ const NOTE_EXPORT_HISTORY_LIMIT = 12;
 function propertiesOf(note: BaseRecord): Record<string, unknown> {
   const value = note.properties_json;
   return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : {};
 }
 
@@ -44,34 +49,42 @@ function normalizeExport(value: unknown, note: BaseRecord): NoteDocumentExport |
     storageMode: str(entry.storageMode) === "managed" ? "managed" : "linked",
     noteId: str(note.id),
     noteTitle: str(note.title) || "無題のNote",
-    themeId: str(note.theme_id || note.project_id) || null,
+    themeId: noteProjectId(note),
   };
 }
 
 export function noteDocumentExports(note: BaseRecord): NoteDocumentExport[] {
   const properties = propertiesOf(note);
   const stored = Array.isArray(properties.document_exports)
-    ? properties.document_exports.map((entry) => normalizeExport(entry, note)).filter(Boolean) as NoteDocumentExport[]
+    ? (properties.document_exports
+        .map((entry) => normalizeExport(entry, note))
+        .filter(Boolean) as NoteDocumentExport[])
     : [];
-  const markdownExport = normalizeExport({
-    ...(properties.markdown_export && typeof properties.markdown_export === "object"
-      ? properties.markdown_export as Record<string, unknown>
-      : {}),
-    format: "markdown",
-    storageMode: str(
-      properties.markdown_export && typeof properties.markdown_export === "object"
-        ? (properties.markdown_export as Record<string, unknown>).storageMode
-        : "",
-    ) === "linked"
-      ? "linked"
-      : "managed",
-  }, note);
+  const markdownExport = normalizeExport(
+    {
+      ...(properties.markdown_export && typeof properties.markdown_export === "object"
+        ? (properties.markdown_export as Record<string, unknown>)
+        : {}),
+      format: "markdown",
+      storageMode:
+        str(
+          properties.markdown_export && typeof properties.markdown_export === "object"
+            ? (properties.markdown_export as Record<string, unknown>).storageMode
+            : "",
+        ) === "linked"
+          ? "linked"
+          : "managed",
+    },
+    note,
+  );
   const byTarget = new Map<string, NoteDocumentExport>();
   for (const entry of [...stored, ...(markdownExport ? [markdownExport] : [])]) {
     const key = `${entry.format}:${entry.filePath.toLocaleLowerCase()}`;
     if (!byTarget.has(key)) byTarget.set(key, entry);
   }
-  return [...byTarget.values()].sort((left, right) => right.exportedAt.localeCompare(left.exportedAt));
+  return [...byTarget.values()].sort((left, right) =>
+    right.exportedAt.localeCompare(left.exportedAt),
+  );
 }
 
 export function createNoteDocumentExport(
@@ -83,7 +96,7 @@ export function createNoteDocumentExport(
     id: uuid(),
     noteId: str(note.id),
     noteTitle: str(note.title) || "無題のNote",
-    themeId: str(note.theme_id || note.project_id) || null,
+    themeId: noteProjectId(note),
   };
 }
 
@@ -91,9 +104,7 @@ export function withNoteDocumentExport(
   properties: Record<string, unknown>,
   next: NoteDocumentExport,
 ): Record<string, unknown> {
-  const previous = Array.isArray(properties.document_exports)
-    ? properties.document_exports
-    : [];
+  const previous = Array.isArray(properties.document_exports) ? properties.document_exports : [];
   const normalizedTarget = next.filePath.toLocaleLowerCase();
   return {
     ...properties,
@@ -101,7 +112,9 @@ export function withNoteDocumentExport(
       next,
       ...previous.filter((value) => {
         if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-        return str((value as Record<string, unknown>).filePath).toLocaleLowerCase() !== normalizedTarget;
+        return (
+          str((value as Record<string, unknown>).filePath).toLocaleLowerCase() !== normalizedTarget
+        );
       }),
     ].slice(0, NOTE_EXPORT_HISTORY_LIMIT),
   };
@@ -147,20 +160,26 @@ export function resolveNoteExportTargets(
       .filter((resource) => isChatReference(resource) && !str((resource as BaseRecord).deleted_at))
       .map((resource) => [str(resource.id), resource] as const),
   );
-  return ids.map((id) => byId.get(id)).filter((resource): resource is ChatRefRecord => Boolean(resource));
+  return ids
+    .map((id) => byId.get(id))
+    .filter((resource): resource is ChatRefRecord => Boolean(resource));
 }
 
 function draftChatUrls(note: BaseRecord): Set<string> {
   const workspace = propertiesOf(note).draft_workspace;
   if (!workspace || typeof workspace !== "object" || Array.isArray(workspace)) return new Set();
   const sources = Array.isArray((workspace as Record<string, unknown>).sources)
-    ? (workspace as Record<string, unknown>).sources as unknown[]
+    ? ((workspace as Record<string, unknown>).sources as unknown[])
     : [];
-  return new Set(sources.flatMap((source) => (
-    source && typeof source === "object" && !Array.isArray(source)
-      ? [str((source as Record<string, unknown>).chat_url)]
-      : []
-  )).filter(Boolean));
+  return new Set(
+    sources
+      .flatMap((source) =>
+        source && typeof source === "object" && !Array.isArray(source)
+          ? [str((source as Record<string, unknown>).chat_url)]
+          : [],
+      )
+      .filter(Boolean),
+  );
 }
 
 export function rankChatRefsForNote(
@@ -168,23 +187,29 @@ export function rankChatRefsForNote(
   note: BaseRecord,
   artifacts: Artifact[],
 ): ChatRefRecord[] {
-  const relatedIds = new Set(artifacts
-    .filter((artifact) => artifact.origin_note_id === note.id && artifact.source_type === "chat_ref")
-    .map((artifact) => artifact.source_id));
-  const sourceUrls = draftChatUrls(note);
-  const themeId = str(note.theme_id || note.project_id);
-  const score = (resource: ChatRefRecord): number => (
-    (relatedIds.has(resource.id) ? 1_000 : 0)
-    + (sourceUrls.has(str(resource.url)) ? 500 : 0)
-    + (themeId && str(resource.project_id || resource.theme_id) === themeId ? 100 : 0)
+  const relatedIds = new Set(
+    artifacts
+      .filter(
+        (artifact) => artifact.origin_note_id === note.id && artifact.source_type === "chat_ref",
+      )
+      .map((artifact) => artifact.source_id),
   );
+  const sourceUrls = draftChatUrls(note);
+  const themeId = noteProjectId(note) || "";
+  const score = (resource: ChatRefRecord): number =>
+    (relatedIds.has(resource.id) ? 1_000 : 0) +
+    (sourceUrls.has(str(resource.url)) ? 500 : 0) +
+    (themeId && str(resource.project_id || resource.theme_id) === themeId ? 100 : 0);
   return resources
     .filter(isChatReference)
-    .sort((left, right) => (
-      score(right) - score(left)
-      || str(right.updated_at || right.created_at).localeCompare(str(left.updated_at || left.created_at))
-      || str(left.title).localeCompare(str(right.title), "ja-JP")
-    ));
+    .sort(
+      (left, right) =>
+        score(right) - score(left) ||
+        str(right.updated_at || right.created_at).localeCompare(
+          str(left.updated_at || left.created_at),
+        ) ||
+        str(left.title).localeCompare(str(right.title), "ja-JP"),
+    );
 }
 
 function normalizedTarget(value: string): string {
@@ -198,13 +223,17 @@ export function buildNoteExportArtifactOperation(options: {
 }): { operation: SaveOperation; reused: boolean } {
   const { exported, chatRef, artifacts } = options;
   const targetKey = normalizedTarget(exported.filePath);
-  const existing = artifacts.find((artifact) => (
-    artifact.source_type === "chat_ref"
-    && artifact.source_id === chatRef.id
-    && artifact.origin_note_id === exported.noteId
-    && normalizedTarget(str(artifact.stored_path || artifact.target)) === targetKey
-  ));
-  const filename = displayNameFromTarget(exported.filePath, `${exported.noteTitle}.${exported.format === "pdf" ? "pdf" : "md"}`);
+  const existing = artifacts.find(
+    (artifact) =>
+      artifact.source_type === "chat_ref" &&
+      artifact.source_id === chatRef.id &&
+      artifact.origin_note_id === exported.noteId &&
+      normalizedTarget(str(artifact.stored_path || artifact.target)) === targetKey,
+  );
+  const filename = displayNameFromTarget(
+    exported.filePath,
+    `${exported.noteTitle}.${exported.format === "pdf" ? "pdf" : "md"}`,
+  );
   const managed = exported.storageMode === "managed";
   const exportedAt = exported.exportedAt || new Date().toISOString();
   return {

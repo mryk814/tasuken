@@ -16,6 +16,7 @@ import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
 import { usePreference } from "../../utils/usePreference";
+import { noteProjectId } from "../../../../shared/noteTheme.mjs";
 import {
   createTaskClient,
   projectTaskDraft,
@@ -544,7 +545,7 @@ export function WorkspaceApp() {
       ...fullData,
       themes,
       items: fullData.items.filter((i) => match(i.theme_id)),
-      notes: fullData.notes.filter((n) => match(n.theme_id)),
+      notes: fullData.notes.filter((note) => match(noteProjectId(note))),
       links: fullData.links.filter((l) => match(l.theme_id)),
       status_updates: fullData.status_updates.filter((u) => match(u.theme_id)),
       knowledge_nodes: fullData.knowledge_nodes.filter((k) => match(k.theme_id)),

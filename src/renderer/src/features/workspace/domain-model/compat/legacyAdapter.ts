@@ -4,7 +4,14 @@
  * 責任: 旧 Item/Link/Theme/Dependency の読み込み・Domain変換・移行・逆投影（export互換）。
  * ここに新しい業務ロジックを追加しない。新機能はDomain Entityに直接実装すること。
  */
-import type { BaseRecord, Item, Link as LegacyLink, Note as LegacyNote, Theme, WorkspaceData } from "../../types";
+import type {
+  BaseRecord,
+  Item,
+  Link as LegacyLink,
+  Note as LegacyNote,
+  Theme,
+  WorkspaceData,
+} from "../../types";
 import type { RepositoryContext } from "../../../../../../shared/repositoryContext.mjs";
 import type {
   AgentSession,
@@ -34,6 +41,7 @@ import type {
   WorkReceipt,
   WorkspaceDomain,
 } from "../types";
+import { noteProjectId } from "../../../../../../shared/noteTheme.mjs";
 import { PERSONAL_DEFAULT_THEME_ID, canonicalThemeId } from "../../../../../../shared/themeRef.mjs";
 
 type LegacyItemKind = "capture" | "task" | "waiting" | "plan_node";
@@ -169,9 +177,11 @@ function projectStateFromLegacy(theme: Theme): ProjectState {
 
 function classifyLegacyItem(item: Item): LegacyItemKind {
   if (item.status === "inbox") return "capture";
-  if (item.kind === "idea" && item.status !== "done" && item.status !== "archived") return "capture";
+  if (item.kind === "idea" && item.status !== "done" && item.status !== "archived")
+    return "capture";
   if (item.kind === "waiting" || item.status === "waiting") return "waiting";
-  if (item.kind === "milestone" || item.kind === "period" || item.level === "plan") return "plan_node";
+  if (item.kind === "milestone" || item.kind === "period" || item.level === "plan")
+    return "plan_node";
   return "task";
 }
 
@@ -196,13 +206,14 @@ function scheduleFromLegacyItem(
   if (!start && !end) return { schedule: null, dueDateOnly: false };
 
   const dueDateOnly = !start && !item.planned_end && Boolean(item.due_date);
-  const dateKind = start && end && start !== end
-    ? "range"
-    : item.kind === "milestone"
-      ? "point"
-      : start && !end
+  const dateKind =
+    start && end && start !== end
+      ? "range"
+      : item.kind === "milestone"
         ? "point"
-        : "deadline";
+        : start && !end
+          ? "point"
+          : "deadline";
 
   return {
     schedule: {
@@ -212,12 +223,14 @@ function scheduleFromLegacyItem(
       start_date: start,
       end_date: end,
       date_kind: dateKind,
-      confidence: item.schedule_confidence === "rough" || item.schedule_confidence === "tentative"
-        ? item.schedule_confidence
-        : "fixed",
-      granularity: item.date_granularity === "week" || item.date_granularity === "month"
-        ? item.date_granularity
-        : "day",
+      confidence:
+        item.schedule_confidence === "rough" || item.schedule_confidence === "tentative"
+          ? item.schedule_confidence
+          : "fixed",
+      granularity:
+        item.date_granularity === "week" || item.date_granularity === "month"
+          ? item.date_granularity
+          : "day",
       baseline_start: nullableText(item.baseline_start),
       baseline_end: nullableText(item.baseline_end),
       actual_start: nullableText(item.actual_start),
@@ -228,7 +241,11 @@ function scheduleFromLegacyItem(
   };
 }
 
-function changeEventForLegacyItem(entityType: EntityRefType, entityId: string, item: Item): ChangeEvent {
+function changeEventForLegacyItem(
+  entityType: EntityRefType,
+  entityId: string,
+  item: Item,
+): ChangeEvent {
   return {
     id: legacyId("change-event", item.id),
     entity_type: entityType,
@@ -260,9 +277,12 @@ function migrateProject(theme: Theme): Project {
 
 function migrateNote(note: LegacyNote): Note {
   const { theme_id: _legacyThemeId, ...canonicalNote } = note;
+  const projectId = Object.prototype.hasOwnProperty.call(note, "project_id")
+    ? noteProjectId(note)
+    : canonicalThemeId(noteProjectId(note), { legacyNullMeansPersonal: true });
   return {
     ...canonicalNote,
-    project_id: canonicalThemeId(note.theme_id, { legacyNullMeansPersonal: true }),
+    project_id: projectId,
   };
 }
 
@@ -292,9 +312,11 @@ function migrateKnowledgeNode(
       ? { source_type: "resource" as const, source_id: node.source_link_id }
       : node.source_item_id
         ? {
-          source_type: itemRefsByLegacyId.get(node.source_item_id)?.type || "task" as const,
-          source_id: itemRefsByLegacyId.get(node.source_item_id)?.id || legacyId("task", node.source_item_id),
-        }
+            source_type: itemRefsByLegacyId.get(node.source_item_id)?.type || ("task" as const),
+            source_id:
+              itemRefsByLegacyId.get(node.source_item_id)?.id ||
+              legacyId("task", node.source_item_id),
+          }
         : { source_type: null, source_id: null };
 
   return {
@@ -375,7 +397,14 @@ export function legacyItemToDomain(item: Item, _context: LegacyContext): LegacyC
     };
   }
 
-  const scheduleOwner = kind === "waiting" ? "waiting" : kind === "plan_node" ? "plan_node" : kind === "task" ? "task" : null;
+  const scheduleOwner =
+    kind === "waiting"
+      ? "waiting"
+      : kind === "plan_node"
+        ? "plan_node"
+        : kind === "task"
+          ? "task"
+          : null;
   // Unknown legacy fields are not silently dropped at the compatibility
   // boundary when they carry user content or a managed-file reference.
   const rawItem = item as unknown as Record<string, unknown>;
@@ -383,7 +412,9 @@ export function legacyItemToDomain(item: Item, _context: LegacyContext): LegacyC
   for (const field of ["body_markdown", "body", "file_path", "stored_path", "original_path"]) {
     if (rawItem[field] != null) rawEntity[field] = rawItem[field];
   }
-  const scheduleResult = scheduleOwner ? scheduleFromLegacyItem(item, scheduleOwner, id) : { schedule: null, dueDateOnly: false };
+  const scheduleResult = scheduleOwner
+    ? scheduleFromLegacyItem(item, scheduleOwner, id)
+    : { schedule: null, dueDateOnly: false };
   if (scheduleResult.dueDateOnly) {
     warnings.push(`Item ${item.id} had due_date only; mapped to Schedule.end_date.`);
   }
@@ -453,7 +484,13 @@ function emptyMigrationReport(legacyItems: number): MigrationReport {
   };
 }
 
-function pushParentReference(workspace: WorkspaceDomain, child: LegacyItemRef, parent: LegacyItemRef, childLegacyId: string, parentLegacyId: string): void {
+function pushParentReference(
+  workspace: WorkspaceDomain,
+  child: LegacyItemRef,
+  parent: LegacyItemRef,
+  childLegacyId: string,
+  parentLegacyId: string,
+): void {
   workspace.references.push({
     id: legacyId("parent-reference", `${parentLegacyId}-${childLegacyId}`),
     source_type: child.type,
@@ -465,7 +502,12 @@ function pushParentReference(workspace: WorkspaceDomain, child: LegacyItemRef, p
   });
 }
 
-function applyParentLinks(workspace: WorkspaceDomain, items: Item[], itemRefsByLegacyId: Map<string, LegacyItemRef>, report: MigrationReport): void {
+function applyParentLinks(
+  workspace: WorkspaceDomain,
+  items: Item[],
+  itemRefsByLegacyId: Map<string, LegacyItemRef>,
+  report: MigrationReport,
+): void {
   const planNodesById = new Map(workspace.plan_nodes.map((node) => [node.id, node]));
   const tasksById = new Map(workspace.tasks.map((task) => [task.id, task]));
   const waitingsById = new Map(workspace.waitings.map((waiting) => [waiting.id, waiting]));
@@ -531,30 +573,41 @@ function updateCreatedCounts(workspace: WorkspaceDomain, report: MigrationReport
  * a migration cannot discard a body/file record merely because its Theme is
  * currently unavailable.
  */
-export function normalizeLegacyThemeReferences(data: WorkspaceData, report: MigrationReport): WorkspaceData {
+export function normalizeLegacyThemeReferences(
+  data: WorkspaceData,
+  report: MigrationReport,
+): WorkspaceData {
   const knownThemeIds = new Set([
     PERSONAL_DEFAULT_THEME_ID,
     ...(data.themes || []).map((theme) => theme.id),
   ]);
 
-  const normalizeCollection = <T extends BaseRecord>(records: T[] | undefined, entityType: string): T[] => (records || []).map((record) => {
-    const raw = record.theme_id;
-    const normalized = canonicalThemeId(raw, { legacyNullMeansPersonal: true });
-    if (typeof raw === "string" && raw.trim() && !knownThemeIds.has(normalized || "")) {
-      report.warningCounts.invalidThemeRef += 1;
-      report.invalidThemeRefs.push({ entityType, entityId: record.id, themeId: raw.trim() });
-      report.warnings.push(`${entityType} ${record.id} references unknown Theme ${raw.trim()}.`);
-    }
-    if (record.project_id != null && raw != null) {
-      const projectId = canonicalThemeId(record.project_id);
-      if (projectId && normalized && projectId !== normalized) {
+  const normalizeCollection = <T extends BaseRecord>(
+    records: T[] | undefined,
+    entityType: string,
+  ): T[] =>
+    (records || []).map((record) => {
+      const raw = record.theme_id;
+      const normalized = canonicalThemeId(raw, { legacyNullMeansPersonal: true });
+      if (typeof raw === "string" && raw.trim() && !knownThemeIds.has(normalized || "")) {
         report.warningCounts.invalidThemeRef += 1;
-        report.invalidThemeRefs.push({ entityType, entityId: record.id, themeId: `${raw} / ${record.project_id}` });
-        report.warnings.push(`${entityType} ${record.id} has conflicting theme_id/project_id.`);
+        report.invalidThemeRefs.push({ entityType, entityId: record.id, themeId: raw.trim() });
+        report.warnings.push(`${entityType} ${record.id} references unknown Theme ${raw.trim()}.`);
       }
-    }
-    return { ...record, theme_id: normalized };
-  });
+      if (record.project_id != null && raw != null) {
+        const projectId = canonicalThemeId(record.project_id);
+        if (projectId && normalized && projectId !== normalized) {
+          report.warningCounts.invalidThemeRef += 1;
+          report.invalidThemeRefs.push({
+            entityType,
+            entityId: record.id,
+            themeId: `${raw} / ${record.project_id}`,
+          });
+          report.warnings.push(`${entityType} ${record.id} has conflicting theme_id/project_id.`);
+        }
+      }
+      return { ...record, theme_id: normalized };
+    });
 
   return {
     ...data,
@@ -593,11 +646,15 @@ export function legacyWorkspaceToDomainMigration(data: WorkspaceData): DomainMig
     if (result.schedule) workspace.schedules.push(result.schedule);
     workspace.change_events.push(result.changeEvent);
     report.warnings.push(...result.warnings);
-    if (result.warnings.some((warning) => warning.includes("unknown kind"))) report.warningCounts.unknownKindToTask += 1;
-    if (result.warnings.some((warning) => warning.includes("due_date only"))) report.warningCounts.dueDateOnlyToScheduleEnd += 1;
+    if (result.warnings.some((warning) => warning.includes("unknown kind")))
+      report.warningCounts.unknownKindToTask += 1;
+    if (result.warnings.some((warning) => warning.includes("due_date only")))
+      report.warningCounts.dueDateOnlyToScheduleEnd += 1;
   }
 
-  workspace.knowledge_nodes = (normalizedData.knowledge_nodes || []).map((node) => migrateKnowledgeNode(node, itemRefsByLegacyId));
+  workspace.knowledge_nodes = (normalizedData.knowledge_nodes || []).map((node) =>
+    migrateKnowledgeNode(node, itemRefsByLegacyId),
+  );
   applyParentLinks(workspace, normalizedItems, itemRefsByLegacyId, report);
   updateCreatedCounts(workspace, report);
 
@@ -668,10 +725,24 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pSketches = castRecords<Sketch>(data.sketches);
 
   const hasPersistedDomain =
-    pProjects.length || pCaptures.length || pTasks.length ||
-    pWaitings.length || pPlanNodes.length || pSchedules.length ||
-    pReferences.length || pTaskDeps.length || pPlanDeps.length || pWorkingCopies.length || pAgentSessions.length ||
-    pKnowledgeEdges.length || pAiProposals.length || pChangeEvents.length || pWorkReceipts.length || pResources.length || pSketches.length || pRepositoryContexts.length;
+    pProjects.length ||
+    pCaptures.length ||
+    pTasks.length ||
+    pWaitings.length ||
+    pPlanNodes.length ||
+    pSchedules.length ||
+    pReferences.length ||
+    pTaskDeps.length ||
+    pPlanDeps.length ||
+    pWorkingCopies.length ||
+    pAgentSessions.length ||
+    pKnowledgeEdges.length ||
+    pAiProposals.length ||
+    pChangeEvents.length ||
+    pWorkReceipts.length ||
+    pResources.length ||
+    pSketches.length ||
+    pRepositoryContexts.length;
 
   if (!hasPersistedDomain) return legacy;
 
@@ -752,15 +823,39 @@ export interface MigrationOperations {
 export function buildLegacyMigrationOperations(data: WorkspaceData): MigrationOperations {
   const { workspace: derived, report } = legacyWorkspaceToDomainMigration(data);
 
-  const persistedProjectIds = new Set(castRecords<Project>(data.projects).flatMap((p) => [p.id, p.legacy_theme_id].filter(Boolean) as string[]));
-  const persistedTaskIds = new Set(castRecords<Task>(data.tasks).flatMap((t) => [t.id, t.legacy_item_id].filter(Boolean) as string[]));
-  const persistedWaitingIds = new Set(castRecords<Waiting>(data.waitings).flatMap((w) => [w.id, w.legacy_item_id].filter(Boolean) as string[]));
-  const persistedPlanNodeIds = new Set(castRecords<PlanNode>(data.plan_nodes).flatMap((p) => [p.id, p.legacy_item_id].filter(Boolean) as string[]));
-  const persistedCaptureIds = new Set(castRecords<CaptureEntry>(data.capture_entrys).flatMap((c) => [c.id, c.legacy_item_id].filter(Boolean) as string[]));
+  const persistedProjectIds = new Set(
+    castRecords<Project>(data.projects).flatMap(
+      (p) => [p.id, p.legacy_theme_id].filter(Boolean) as string[],
+    ),
+  );
+  const persistedTaskIds = new Set(
+    castRecords<Task>(data.tasks).flatMap(
+      (t) => [t.id, t.legacy_item_id].filter(Boolean) as string[],
+    ),
+  );
+  const persistedWaitingIds = new Set(
+    castRecords<Waiting>(data.waitings).flatMap(
+      (w) => [w.id, w.legacy_item_id].filter(Boolean) as string[],
+    ),
+  );
+  const persistedPlanNodeIds = new Set(
+    castRecords<PlanNode>(data.plan_nodes).flatMap(
+      (p) => [p.id, p.legacy_item_id].filter(Boolean) as string[],
+    ),
+  );
+  const persistedCaptureIds = new Set(
+    castRecords<CaptureEntry>(data.capture_entrys).flatMap(
+      (c) => [c.id, c.legacy_item_id].filter(Boolean) as string[],
+    ),
+  );
   const persistedScheduleIds = new Set(castRecords<Schedule>(data.schedules).map((s) => s.id));
   const persistedResourceIds = new Set(castRecords<Resource>(data.resources).map((r) => r.id));
-  const persistedTaskDepIds = new Set(castRecords<TaskDependency>(data.task_dependencies).map((d) => d.id));
-  const persistedPlanDepIds = new Set(castRecords<PlanDependency>(data.plan_dependencies).map((d) => d.id));
+  const persistedTaskDepIds = new Set(
+    castRecords<TaskDependency>(data.task_dependencies).map((d) => d.id),
+  );
+  const persistedPlanDepIds = new Set(
+    castRecords<PlanDependency>(data.plan_dependencies).map((d) => d.id),
+  );
 
   type Entity = import("../../types").Entity;
   type SaveOp = import("../../types").SaveOperation;
@@ -772,47 +867,92 @@ export function buildLegacyMigrationOperations(data: WorkspaceData): MigrationOp
 
   for (const proj of derived.projects) {
     if (isNew(proj.id, proj.legacy_theme_id, persistedProjectIds)) {
-      ops.push({ action: "save", type: "project", entity: proj as unknown as Entity, options: { source: src } });
+      ops.push({
+        action: "save",
+        type: "project",
+        entity: proj as unknown as Entity,
+        options: { source: src },
+      });
     }
   }
   for (const t of derived.tasks) {
     if (isNew(t.id, t.legacy_item_id, persistedTaskIds)) {
-      ops.push({ action: "save", type: "task", entity: t as unknown as Entity, options: { source: src } });
+      ops.push({
+        action: "save",
+        type: "task",
+        entity: t as unknown as Entity,
+        options: { source: src },
+      });
     }
   }
   for (const w of derived.waitings) {
     if (isNew(w.id, w.legacy_item_id, persistedWaitingIds)) {
-      ops.push({ action: "save", type: "waiting", entity: w as unknown as Entity, options: { source: src } });
+      ops.push({
+        action: "save",
+        type: "waiting",
+        entity: w as unknown as Entity,
+        options: { source: src },
+      });
     }
   }
   for (const p of derived.plan_nodes) {
     if (isNew(p.id, p.legacy_item_id, persistedPlanNodeIds)) {
-      ops.push({ action: "save", type: "plan_node", entity: p as unknown as Entity, options: { source: src } });
+      ops.push({
+        action: "save",
+        type: "plan_node",
+        entity: p as unknown as Entity,
+        options: { source: src },
+      });
     }
   }
   for (const c of derived.capture_entries) {
     if (isNew(c.id, c.legacy_item_id, persistedCaptureIds)) {
-      ops.push({ action: "save", type: "capture_entry", entity: c as unknown as Entity, options: { source: src } });
+      ops.push({
+        action: "save",
+        type: "capture_entry",
+        entity: c as unknown as Entity,
+        options: { source: src },
+      });
     }
   }
   for (const s of derived.schedules) {
     if (!persistedScheduleIds.has(s.id)) {
-      ops.push({ action: "save", type: "schedule", entity: s as unknown as Entity, options: { source: src } });
+      ops.push({
+        action: "save",
+        type: "schedule",
+        entity: s as unknown as Entity,
+        options: { source: src },
+      });
     }
   }
   for (const r of derived.resources) {
     if (!persistedResourceIds.has(r.id)) {
-      ops.push({ action: "save", type: "resource", entity: r as unknown as Entity, options: { source: src } });
+      ops.push({
+        action: "save",
+        type: "resource",
+        entity: r as unknown as Entity,
+        options: { source: src },
+      });
     }
   }
   for (const td of derived.task_dependencies) {
     if (isNew(td.id, null, persistedTaskDepIds)) {
-      ops.push({ action: "save", type: "task_dependency", entity: td as unknown as Entity, options: { source: src } });
+      ops.push({
+        action: "save",
+        type: "task_dependency",
+        entity: td as unknown as Entity,
+        options: { source: src },
+      });
     }
   }
   for (const pd of derived.plan_dependencies) {
     if (isNew(pd.id, null, persistedPlanDepIds)) {
-      ops.push({ action: "save", type: "plan_dependency", entity: pd as unknown as Entity, options: { source: src } });
+      ops.push({
+        action: "save",
+        type: "plan_dependency",
+        entity: pd as unknown as Entity,
+        options: { source: src },
+      });
     }
   }
 
@@ -824,10 +964,15 @@ export function buildLegacyMigrationOperations(data: WorkspaceData): MigrationOp
 }
 
 function scheduleByOwner(domain: WorkspaceDomain): Map<string, Schedule> {
-  return new Map(domain.schedules.map((schedule) => [`${schedule.owner_type}:${schedule.owner_id}`, schedule]));
+  return new Map(
+    domain.schedules.map((schedule) => [`${schedule.owner_type}:${schedule.owner_id}`, schedule]),
+  );
 }
 
-export function projectLegacyWorkspace(domain: WorkspaceDomain, base?: WorkspaceData): WorkspaceData {
+export function projectLegacyWorkspace(
+  domain: WorkspaceDomain,
+  base?: WorkspaceData,
+): WorkspaceData {
   const schedules = scheduleByOwner(domain);
   const itemFromTask = (task: Task): Item => {
     const schedule = schedules.get(`task:${task.id}`);
@@ -876,7 +1021,12 @@ export function projectLegacyWorkspace(domain: WorkspaceDomain, base?: Workspace
     return {
       id: planNode.legacy_item_id || planNode.id,
       title: planNode.title,
-      kind: planNode.type === "milestone" ? "milestone" : planNode.type === "deliverable" ? "deliverable" : "period",
+      kind:
+        planNode.type === "milestone"
+          ? "milestone"
+          : planNode.type === "deliverable"
+            ? "deliverable"
+            : "period",
       level: "plan",
       theme_id: planNode.project_id,
       parent_item_id: planNode.parent_plan_node_id,

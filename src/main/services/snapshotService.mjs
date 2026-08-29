@@ -2,8 +2,12 @@ import AdmZip from "adm-zip";
 import crypto from "node:crypto";
 import fs from "node:fs";
 
-import { workspaceEntityTypes, workspaceSchemaVersion } from "../repositories/workspaceRepository.mjs";
+import {
+  workspaceEntityTypes,
+  workspaceSchemaVersion,
+} from "../repositories/workspaceRepository.mjs";
 import { collectionKeyForEntityType } from "../../shared/entityRegistry.mjs";
+import { noteProjectId } from "../../shared/noteTheme.mjs";
 
 const checksum = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const MAX_SNAPSHOT_BYTES = 50 * 1024 * 1024;
@@ -11,7 +15,9 @@ const MAX_ENTRY_BYTES = 10 * 1024 * 1024;
 
 function readEntryText(entry, name) {
   if (entry.header.size > MAX_ENTRY_BYTES) {
-    throw new Error(`${name}が大きすぎます。Snapshotを分割するか、不要なデータを削除してください。`);
+    throw new Error(
+      `${name}が大きすぎます。Snapshotを分割するか、不要なデータを削除してください。`,
+    );
   }
   return entry.getData().toString("utf8");
 }
@@ -28,17 +34,23 @@ function summaryMarkdown(workspace) {
     ...themes.flatMap((theme) => {
       const related = items.filter((item) => item.theme_id === theme.id && item.status !== "done");
       const milestones = related.filter((item) => item.kind === "milestone");
-      const waiting = related.filter((item) => item.kind === "waiting" || item.status === "waiting");
-      const recentNotes = notes.filter((note) => note.theme_id === theme.id).slice(0, 5);
+      const waiting = related.filter(
+        (item) => item.kind === "waiting" || item.status === "waiting",
+      );
+      const recentNotes = notes.filter((note) => noteProjectId(note) === theme.id).slice(0, 5);
       return [
         `## ${theme.name}`,
         theme.description || "",
         "",
         "### Milestones",
-        ...(milestones.length ? milestones.map((item) => `- ${item.planned_end || "予定なし"} ${item.title}`) : ["- なし"]),
+        ...(milestones.length
+          ? milestones.map((item) => `- ${item.planned_end || "予定なし"} ${item.title}`)
+          : ["- なし"]),
         "",
         "### Open Items",
-        ...(related.length ? related.map((item) => `- [ ] ${item.planned_end || "予定なし"} ${item.title}`) : ["- なし"]),
+        ...(related.length
+          ? related.map((item) => `- [ ] ${item.planned_end || "予定なし"} ${item.title}`)
+          : ["- なし"]),
         "",
         "### Waiting",
         ...(waiting.length ? waiting.map((item) => `- ${item.title}`) : ["- なし"]),
@@ -89,9 +101,11 @@ export function readSnapshot(filePath) {
   }
   const zip = new AdmZip(filePath);
   const manifestEntry = zip.getEntry("manifest.json");
-  if (!manifestEntry) throw new Error("manifest.jsonがないため、TaskenのSnapshotとして読み込めません。");
+  if (!manifestEntry)
+    throw new Error("manifest.jsonがないため、TaskenのSnapshotとして読み込めません。");
   const manifest = JSON.parse(readEntryText(manifestEntry, "manifest.json"));
-  if (manifest.format !== "research-desk-workspace") throw new Error("対応していないSnapshot形式です。");
+  if (manifest.format !== "research-desk-workspace")
+    throw new Error("対応していないSnapshot形式です。");
   if (manifest.schemaVersion > workspaceSchemaVersion) {
     throw new Error("このSnapshotは新しいバージョンで作成されています。アプリを更新してください。");
   }
@@ -107,15 +121,22 @@ export function readSnapshot(filePath) {
     }
     const text = readEntryText(entry, name);
     if (manifest.files?.[name] && checksum(text) !== manifest.files[name]) {
-      throw new Error(`${name}のチェックサムが一致しません。Snapshotが破損している可能性があります。`);
+      throw new Error(
+        `${name}のチェックサムが一致しません。Snapshotが破損している可能性があります。`,
+      );
     }
     workspace[key] = JSON.parse(text);
   }
   const revisionsEntry = zip.getEntry("plan_revisions.json");
   if (revisionsEntry) {
     const text = readEntryText(revisionsEntry, "plan_revisions.json");
-    if (manifest.files?.["plan_revisions.json"] && checksum(text) !== manifest.files["plan_revisions.json"]) {
-      throw new Error("plan_revisions.jsonのチェックサムが一致しません。Snapshotが破損している可能性があります。");
+    if (
+      manifest.files?.["plan_revisions.json"] &&
+      checksum(text) !== manifest.files["plan_revisions.json"]
+    ) {
+      throw new Error(
+        "plan_revisions.jsonのチェックサムが一致しません。Snapshotが破損している可能性があります。",
+      );
     }
     workspace.plan_revisions = JSON.parse(text);
   } else {
