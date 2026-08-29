@@ -16,6 +16,7 @@ import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
 import { usePreference } from "../../utils/usePreference";
+import { noteProjectId } from "../../../../shared/themeRef.mjs";
 import {
   createTaskClient,
   projectTaskDraft,
@@ -544,7 +545,7 @@ export function WorkspaceApp() {
       ...fullData,
       themes,
       items: fullData.items.filter((i) => match(i.theme_id)),
-      notes: fullData.notes.filter((n) => match(n.theme_id)),
+      notes: fullData.notes.filter((note) => match(noteProjectId(note))),
       links: fullData.links.filter((l) => match(l.theme_id)),
       status_updates: fullData.status_updates.filter((u) => match(u.theme_id)),
       knowledge_nodes: fullData.knowledge_nodes.filter((k) => match(k.theme_id)),
@@ -2247,13 +2248,6 @@ export function WorkspaceApp() {
     ...(route === "notes"
       ? [
           {
-            id: "notes:note-ai",
-            label: "現在の文書でNote AIを開く",
-            keywords: ["AI", "chat", "diff", "原稿"],
-            category: "Commands" as const,
-            execute: () => dispatchNotesCommand("draft"),
-          },
-          {
             id: "notes:save",
             label: "現在の文書を保存",
             keywords: ["save", "保存"],
@@ -2310,13 +2304,6 @@ export function WorkspaceApp() {
             keywords: ["選択", "切り出し", "note", "抽出"],
             category: "Commands" as const,
             execute: () => dispatchNotesCommand("selection-note"),
-          },
-          {
-            id: "notes:selection-ai",
-            label: "選択範囲をAIで編集",
-            keywords: ["選択", "AI", "書き換え"],
-            category: "Commands" as const,
-            execute: () => dispatchNotesCommand("selection-ai"),
           },
         ]
       : []),

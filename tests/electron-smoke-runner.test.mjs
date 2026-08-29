@@ -67,6 +67,8 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
       importedVideoArtifactId,
       screenRecordingArtifactId,
       screenRecordingPausedResumed: true,
+      taskenRootOpened: true,
+      taskenRootQuitCompleted: true,
       smokeTaskId: videoOwnerId,
     }),
     {
@@ -95,6 +97,36 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
       importedVideoArtifactId,
       screenRecordingArtifactId,
       screenRecordingPausedResumed: false,
+      taskenRootOpened: true,
+      taskenRootQuitCompleted: true,
+      smokeTaskId: videoOwnerId,
+    }),
+    null,
+  );
+  assert.equal(
+    restartArtifactIdsFromResult({
+      stage: "restart-ready",
+      audioArtifactId: artifactId,
+      microphoneArtifactId,
+      importedVideoArtifactId,
+      screenRecordingArtifactId,
+      screenRecordingPausedResumed: true,
+      taskenRootOpened: true,
+      taskenRootQuitCompleted: false,
+      smokeTaskId: videoOwnerId,
+    }),
+    null,
+  );
+  assert.equal(
+    restartArtifactIdsFromResult({
+      stage: "restart-ready",
+      audioArtifactId: artifactId,
+      microphoneArtifactId,
+      importedVideoArtifactId,
+      screenRecordingArtifactId,
+      screenRecordingPausedResumed: true,
+      taskenRootOpened: false,
+      taskenRootQuitCompleted: true,
       smokeTaskId: videoOwnerId,
     }),
     null,
@@ -122,6 +154,18 @@ test("desktop smoke waits for the exact pasted nodes and settled Today mini stat
   );
 });
 
+test("desktop smoke opens Tasken Root and reaches will-quit through a bounded app.quit path", async () => {
+  const source = await readFile("src/main/index.ts", "utf8");
+  assert.match(
+    source,
+    /function completeInitialSmokeViaAppQuit[\s\S]*taskenRootController\.toggle\(\)[\s\S]*taskenRootController\.getWindow\(\)[\s\S]*recordSmoke\("quit-started"[\s\S]*setTimeout\([\s\S]*30_000[\s\S]*app\.quit\(\)/,
+  );
+  assert.match(
+    source,
+    /app\.on\("will-quit"[\s\S]*taskenRootClosedBeforeWillQuit[\s\S]*taskenRootController\?\.destroy\(\)[\s\S]*taskenRootQuitCompleted[\s\S]*"restart-ready"/,
+  );
+});
+
 test("packaged smoke records, commits, plays and restart-checks a synthetic microphone capture", async () => {
   const source = await readFile("src/main/index.ts", "utf8");
   assert.match(source, /use-fake-device-for-media-stream/);
@@ -144,14 +188,11 @@ test("packaged smoke records, commits, plays and restart-checks a synthetic micr
   assert.match(source, /result\.microphonePlayback/);
 });
 
-test("packaged smoke confirms fake batch transcription and verifies the raw revision after restart", async () => {
+test("packaged smoke does not execute embedded batch transcription", async () => {
   const source = await readFile("src/main/index.ts", "utf8");
-  assert.match(source, /Tasken packaged fake provider/);
-  assert.match(source, /window\.api\.batchTranscription\.preview/);
-  assert.match(source, /window\.api\.batchTranscription\.run/);
-  assert.match(source, /batchTranscriptionCompleted/);
-  assert.match(source, /window\.api\.batchTranscription\.history/);
-  assert.match(source, /batchTranscriptionRestarted/);
+  assert.doesNotMatch(source, /Tasken packaged fake provider/);
+  assert.doesNotMatch(source, /window\.api\.batchTranscription\.(preview|run|cancel)/);
+  assert.doesNotMatch(source, /batchTranscription(Completed|Restarted|Preview|Provenance)/);
 });
 
 test("packaged smoke records an actual display source through Main authority and restart-checks it", async () => {

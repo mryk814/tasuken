@@ -95,6 +95,8 @@ export interface Note extends BaseRecord {
   body_markdown?: string;
   note_type?: string;
   content_format?: string;
+  project_id?: string | null;
+  /** Legacy read compatibility. New writes use project_id. */
   theme_id?: string | null;
   item_id?: string | null;
   source_url?: string;

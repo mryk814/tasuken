@@ -398,6 +398,32 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
   }
 });
 
+test("Wave 6 Theme context uses canonical Note project_id for visibility", () => {
+  const workspace = fixture();
+  workspace.notes.push(
+    {
+      id: "note-canonical-private",
+      title: "Canonical private",
+      body_markdown: "PRIVATE_CANONICAL_THEME_CONTEXT",
+      project_id: "theme-hidden",
+      theme_id: "theme-wave6",
+      updated_at: now,
+    },
+    {
+      id: "note-canonical-public",
+      title: "Canonical public",
+      body_markdown: "canonical public theme context",
+      project_id: "theme-wave6",
+      theme_id: "theme-hidden",
+      updated_at: now,
+    },
+  );
+  const core = createTaskenCore(new FixturePersistence(workspace));
+  const serialized = JSON.stringify(core.getThemeContext.execute({ theme_id: "theme-wave6" }));
+  assert.match(serialized, /note-canonical-public|Canonical public/);
+  assert.doesNotMatch(serialized, /note-canonical-private|PRIVATE_CANONICAL_THEME_CONTEXT/);
+});
+
 test("Wave 6 capabilities fail before fetch and malformed responses fail closed", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave6-client-"));
   const discoveryPath = path.join(root, "tasken-core.json");

@@ -1,4 +1,5 @@
 import { projectEntityForAi } from "../../../shared/aiMetadata.mjs";
+import { noteProjectId } from "../../../shared/themeRef.mjs";
 import {
   publicArtifactMetadata,
   safeExternalUrl,
@@ -25,10 +26,12 @@ const TASK_CONTEXT_GUIDANCE = {
   tool: "tasken.get_task_context",
   description: "関連Taskのbounded contextを再取得する。",
 };
-const SEARCH_GUIDANCE = [{
-  tool: "tasken.search_items",
-  description: "stable IDが不明な場合にAI公開対象を検索し直す。",
-}];
+const SEARCH_GUIDANCE = [
+  {
+    tool: "tasken.search_items",
+    description: "stable IDが不明な場合にAI公開対象を検索し直す。",
+  },
+];
 
 function text(value: unknown) {
   return value == null ? "" : String(value);
@@ -58,7 +61,8 @@ function visibility(
   themes: ContentDetailRecord[],
   workspaceDefault: AiAudience[],
 ) {
-  const themeId = record.project_id || record.theme_id || null;
+  const themeId =
+    type === "note" ? noteProjectId(record) : record.project_id || record.theme_id || null;
   const theme = themes.find((candidate) => String(candidate.id) === String(themeId)) || null;
   return projectEntityForAi(type, record, {
     audience: AUDIENCE,
@@ -95,7 +99,12 @@ export class ContentDetailQueryService {
     const themes = this.port.list("theme", true);
     const notes = this.port.list("note", includeArchived);
     const candidate = notes.find((record) => String(record.id) === noteId);
-    const filtered = visibleRecord("note", candidate, themes, this.port.workspaceAiVisibilityDefault());
+    const filtered = visibleRecord(
+      "note",
+      candidate,
+      themes,
+      this.port.workspaceAiVisibilityDefault(),
+    );
     if (!filtered.record) return notFound("note_id", noteId, "Note");
 
     const maxTextLength = taskContextLimits(request).maxTextLength;
@@ -106,7 +115,7 @@ export class ContentDetailQueryService {
         id: filtered.record.id,
         title: filtered.record.title,
         note_type: filtered.record.note_type || "note",
-        project_id: filtered.record.project_id || filtered.record.theme_id || null,
+        project_id: noteProjectId(filtered.record),
         body_markdown: budget.take(body),
         version: Number(filtered.record.version || 0),
         created_at: filtered.record.created_at || null,
@@ -120,7 +129,8 @@ export class ContentDetailQueryService {
         TASK_CONTEXT_GUIDANCE,
         {
           tool: "tasken.propose_note_edit",
-          description: "書き換えが必要なら、Proposal toolが利用可能な場合だけ利用者レビュー用の編集案をqueueする。",
+          description:
+            "書き換えが必要なら、Proposal toolが利用可能な場合だけ利用者レビュー用の編集案をqueueする。",
         },
       ],
     };
@@ -132,8 +142,15 @@ export class ContentDetailQueryService {
     const includeArchived = Boolean(request.include_archived);
     const themes = this.port.list("theme", true);
     const resources = this.port.list("resource", includeArchived);
-    const candidate = resources.find((record) => String(record.id) === conversationId && record.resource_scope === "chat_ref");
-    const filtered = visibleRecord("resource", candidate, themes, this.port.workspaceAiVisibilityDefault());
+    const candidate = resources.find(
+      (record) => String(record.id) === conversationId && record.resource_scope === "chat_ref",
+    );
+    const filtered = visibleRecord(
+      "resource",
+      candidate,
+      themes,
+      this.port.workspaceAiVisibilityDefault(),
+    );
     if (!filtered.record) return notFound("conversation_id", conversationId, "Conversation");
 
     const maxTextLength = taskContextLimits(request).maxTextLength;
@@ -161,7 +178,8 @@ export class ContentDetailQueryService {
         TASK_CONTEXT_GUIDANCE,
         {
           tool: "tasken.propose_note",
-          description: "会話から記録を残すなら、Proposal toolが利用可能な場合だけ利用者レビュー用Note案をqueueする。",
+          description:
+            "会話から記録を残すなら、Proposal toolが利用可能な場合だけ利用者レビュー用Note案をqueueする。",
         },
       ],
     };
@@ -174,7 +192,12 @@ export class ContentDetailQueryService {
     const themes = this.port.list("theme", true);
     const artifacts = this.port.list("artifact", includeArchived);
     const candidate = artifacts.find((record) => String(record.id) === artifactId);
-    const filtered = visibleRecord("artifact", candidate, themes, this.port.workspaceAiVisibilityDefault());
+    const filtered = visibleRecord(
+      "artifact",
+      candidate,
+      themes,
+      this.port.workspaceAiVisibilityDefault(),
+    );
     if (!filtered.record) return notFound("artifact_id", artifactId, "Artifact");
 
     const budget = new TaskContextTextBudget(taskContextLimits(request).maxTextLength);
@@ -185,10 +208,14 @@ export class ContentDetailQueryService {
       ai_audience: AUDIENCE,
       next_tools: [
         TASK_CONTEXT_GUIDANCE,
-        ...(filtered.record.origin_note_id ? [{
-          tool: "tasken.get_note",
-          description: `origin Note ${filtered.record.origin_note_id} の本文を読む。`,
-        }] : []),
+        ...(filtered.record.origin_note_id
+          ? [
+              {
+                tool: "tasken.get_note",
+                description: `origin Note ${filtered.record.origin_note_id} の本文を読む。`,
+              },
+            ]
+          : []),
       ],
     };
   }

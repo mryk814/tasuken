@@ -258,7 +258,7 @@ test("本文を選択しただけでは変換toolbarを出さない（#313）", 
   assert.match(editor, /lastSelectionRangeRef\.current = range\.cloneRange\(\);/);
   assert.match(source, /"selection-task": \(\) => requestSelectionCommand\("task"\)/);
   assert.match(app, /id: "notes:selection-task",\s*label: "選択範囲からTaskを作る"/);
-  assert.match(app, /id: "notes:selection-ai",\s*label: "選択範囲をAIで編集"/);
+  assert.doesNotMatch(app, /id: "notes:selection-ai"|選択範囲をAIで編集/);
 });
 
 test("本文の全文コピーは大きなbuttonから外す（#313）", () => {
@@ -278,16 +278,16 @@ test("Notesのtoolbarがpage / document / editor / outputへ分かれる（#331�
   // 文書の段は「この文書を確定する」ことだけを扱う。
   assert.match(
     source,
-    /<span className="note-draft-state" role="status" aria-live="polite">\{saveStateLabel\}<\/span>/,
+    /<span\s+className="note-draft-state"\s+role="status"\s+aria-live="polite">\s*\{saveStateLabel\}\s*<\/span>/,
   );
   assert.match(
     source,
-    /<ToolbarMenu label="この文書" title="この文書に対する操作" items=\{documentMenuItems\} \/>/,
+    /<ToolbarMenu\s+label="この文書"\s+title="この文書に対する操作"\s+items=\{documentMenuItems\}\s*\/>/,
   );
   // Editorの段はmode切替と高頻度操作、派生出力はmenuへ。
   assert.match(
     source,
-    /<ToolbarMenu label="出力" title="書き出しと保存先" items=\{outputMenuItems\} \/>/,
+    /<ToolbarMenu\s+label="出力"\s+title="書き出しと保存先"\s+items=\{outputMenuItems\}\s*\/>/,
   );
   assert.match(source, /aria-label="本文を検索・置換"/);
 
@@ -309,7 +309,7 @@ test("`保存`はNote正本の確定だけに使い、派生出力と語彙を�
   // 画面上で `保存` と表示されるbuttonは、内部Entityを確定する一つだけ。
   assert.match(
     source,
-    /<ActionButton action="notesSave" compact disabled=\{!draftDirty\} onClick=\{saveSelectedDraft\} \/>/,
+    /<ActionButton\s+action="notesSave"\s+compact\s+disabled=\{!draftDirty\}\s+onClick=\{saveSelectedDraft\}\s*\/>/,
   );
 
   // 派生出力は `保存` と呼ばない。
@@ -321,7 +321,7 @@ test("`保存`はNote正本の確定だけに使い、派生出力と語彙を�
   assert.equal(/\{markdownExporting \? "保存中" : "保存"\}/.test(source), false);
 
   // 保存状態は一時messageが無くても静止状態を言う。
-  assert.match(source, /const saveStateLabel = draftState\s*\n\s*\|\| \(draftDirty/);
+  assert.match(source, /const saveStateLabel\s*=\s*draftState\s*\|\|\s*\(draftDirty/);
   assert.match(
     source,
     /noteSaveStateLabel\(\{ internalSaved: true, fileState: canonicalFileState \}\)/,
@@ -333,7 +333,6 @@ test("AI iconはAIの操作にだけ使う（#312）", () => {
 
   // Knowledge化はNotesの日常導線から撤去し、AI iconを流用する余地も残さない。
   assert.doesNotMatch(source, /Knowledge化|IconBulb/);
-  // AI Draftのように実際にAIへ渡す導線だけがAI iconを持つ。
-  assert.match(source, /label: "Note AIを開く"/);
-  assert.doesNotMatch(source, /AI Draft|DraftWorkspaceDialog|NoteAiDialog/);
+  // 内蔵AI実行導線はNotesから撤去する。
+  assert.doesNotMatch(source, /Note AIを開く|AI Draft|DraftWorkspaceDialog|NoteAiDialog/);
 });

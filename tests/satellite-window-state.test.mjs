@@ -427,7 +427,7 @@ test("generic entity save IPCはMain内部timestampを公開せずMedia identity
   );
   assert.match(
     registerIpcSource,
-    /repository\.save\(entityType, normalizedEntity(?: as Entity)?, normalizeIpcSaveOptions\(options\)\)/,
+    /repository\.save\(\s*entityType,\s*normalizedEntity(?: as Entity)?,\s*normalizeIpcSaveOptions\(options\),?\s*\)/,
   );
   assert.doesNotMatch(registerIpcSource, /repository\.save\(entityType, entity, options\)/);
   assert.doesNotMatch(registerIpcSource, /updatedAt|__canonicalOperationAt/);
@@ -604,11 +604,7 @@ test("狭くしたNote別ウィンドウでも本文の領域が残る（#329）
   // 一覧を畳んでいるときは本文が唯一の列。760px以下でも積み上げず、列構成と高さの制約を保つ。
   assert.match(
     cssSourceForNotes,
-    /\.notes-workbench\.is-list-collapsed:not\(\.has-note-ai-drawer\) \{\s*grid-template-columns: 0px auto minmax\(0, 1fr\) !important;/,
-  );
-  assert.match(
-    cssSourceForNotes,
-    /\.notes-workbench\.has-note-ai-drawer\.is-list-collapsed \{\s*grid-template-columns: 0px auto minmax\(0, 1fr\) auto !important;/,
+    /\.notes-workbench\.is-list-collapsed \{\s*grid-template-columns: 0px auto minmax\(0, 1fr\);/,
   );
   assert.match(
     cssSourceForNotes,
@@ -648,7 +644,7 @@ test("同じNoteを二つのEditorで黙って同時編集させない（#290）
   // 別ウィンドウが編集主体のあいだ、本体はPreviewへ固定して書き込ませない。
   assert.match(
     notesSource,
-    /const detachedElsewhere = !detachedNoteId && Boolean\(selected && openNoteWindowIds\.includes\(selected\.id\)\)/,
+    /const detachedElsewhere =\s*!detachedNoteId\s*&&\s*Boolean\(\s*selected\s*&&\s*openNoteWindowIds\.includes\(selected\.id\)\s*\)/,
   );
   assert.match(notesSource, /if \(detachedElsewhere\) setPreviewMode\("preview"\);/);
   assert.match(notesSource, /このノートは別ウィンドウで編集中です。/);
@@ -656,7 +652,7 @@ test("同じNoteを二つのEditorで黙って同時編集させない（#290）
   // 常設buttonから「この文書」menuの項目へ移した（#331）。意味の切り替えは維持する。
   assert.match(
     notesSource,
-    /openNoteWindowIds\.includes\(selected\.id\) \? "別ウィンドウを前面に出す" : "別ウィンドウで開く"/,
+    /openNoteWindowIds\.includes\(selected\.id\)\s*\?\s*"別ウィンドウを前面に出す"\s*:\s*"別ウィンドウで開く"/,
   );
   // 切り離す前に本体の未保存分を確定させ、別ウィンドウが古い本文を読まないようにする。
   assert.match(

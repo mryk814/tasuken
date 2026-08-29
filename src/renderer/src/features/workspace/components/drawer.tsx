@@ -14,6 +14,7 @@ import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { useUiStore } from "../../../stores/uiStore";
 import { noteExportSignature } from "../../../../../shared/fileExport";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import { normalizeExternalReferences } from "../../../../../shared/externalReference.mjs";
 import type {
@@ -1391,7 +1392,7 @@ function EditDrawer({
       return {
         sourceType: (isReport ? "report" : "note") as "report" | "note",
         sourceId: entityId,
-        themeId: str(entity.theme_id) || null,
+        themeId: noteProjectId(entity),
       };
     }
     if (type === "capture_entry") {
@@ -2091,7 +2092,8 @@ function NoteDetailDrawer({
   const [markdownExporting, setMarkdownExporting] = useState(false);
   const [pdfExporting, setPdfExporting] = useState(false);
   const comments = note.comments || [];
-  const theme = data.themes.find((entry) => entry.id === note.theme_id);
+  const themeId = noteProjectId(note);
+  const theme = data.themes.find((entry) => entry.id === themeId);
   const contentFormat =
     str(note.content_format) || (note.note_type === "artifact" ? "markdown" : "plain");
   const isArtifact = note.note_type === "artifact" || ["markdown", "html"].includes(contentFormat);
@@ -2260,7 +2262,7 @@ function NoteDetailDrawer({
         directory: str(markdownExport?.directory) || null,
         chooseDirectory,
         fileName: `${note.title || "markdown-document"}.md`,
-        themeId: str(note.theme_id) || null,
+        themeId,
       });
       if (result.canceled) {
         setToast("Markdown出力をキャンセルしました。", "info");
@@ -2301,7 +2303,7 @@ function NoteDetailDrawer({
         ),
         chooseDirectory: true,
         fileName: `${note.title || "markdown-document"}.pdf`,
-        themeId: str(note.theme_id) || null,
+        themeId,
       });
       if (result.canceled) {
         setToast("PDF出力をキャンセルしました。", "info");
@@ -2574,7 +2576,7 @@ function NoteDetailDrawer({
           sourceType={isReport ? "report" : "note"}
           sourceId={str(note.id)}
           originNoteId={str(note.id)}
-          themeId={note.theme_id || null}
+          themeId={themeId}
           artifacts={data.artifacts || []}
           data={data}
           openDrawer={(next) => close(next)}

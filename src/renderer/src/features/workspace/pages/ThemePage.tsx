@@ -8,6 +8,7 @@ import {
 } from "@tabler/icons-react";
 
 import type { ThemeAiPackPreviewResult } from "../../../../../shared/ipc/contracts";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { usePreference } from "../../../utils/usePreference";
 import { AI_ICON } from "../../../pages/semanticIcons";
@@ -265,12 +266,10 @@ export function ThemePage({
     );
   }
   const theme = activeTheme;
-  const themeRepositoryIds = new Set(
-    [
-      ...(theme.repository_context_ids || []).map(String),
-      ...(theme.primary_repository_context_id ? [String(theme.primary_repository_context_id)] : []),
-    ],
-  );
+  const themeRepositoryIds = new Set([
+    ...(theme.repository_context_ids || []).map(String),
+    ...(theme.primary_repository_context_id ? [String(theme.primary_repository_context_id)] : []),
+  ]);
   const themeRepositories = v2.repository_contexts.filter(
     (repository) =>
       themeRepositoryIds.has(String(repository.id)) &&
@@ -312,7 +311,7 @@ export function ThemePage({
     .filter((entry) => entry.theme_id === theme.id)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const latest = updates[0];
-  const themeNotes = notes.filter((note) => note.theme_id === theme.id);
+  const themeNotes = notes.filter((note) => noteProjectId(note) === theme.id);
   const reportNotes = themeNotes
     .filter((note) => note.note_type === "report")
     .sort((a, b) =>
@@ -523,8 +522,12 @@ export function ThemePage({
                 <div className="theme-repository-row" key={repository.id}>
                   <IconFolder size={17} aria-hidden="true" />
                   <span>
-                    <strong>{repository.label || repository.repository_slug || "Repository"}</strong>
-                    <small>{repository.local_path || repository.canonical_url || "場所未登録"}</small>
+                    <strong>
+                      {repository.label || repository.repository_slug || "Repository"}
+                    </strong>
+                    <small>
+                      {repository.local_path || repository.canonical_url || "場所未登録"}
+                    </small>
                   </span>
                   {isPrimary && <span className="theme-repository-primary">Primary</span>}
                   {!repository.local_path && (
@@ -539,7 +542,9 @@ export function ThemePage({
         ) : (
           <div className="theme-repository-empty">
             <strong>Repositoryが未登録です。</strong>
-            <span>登録すると、この作業場所で集めたAIセッションをThemeへ関連付けやすくなります。</span>
+            <span>
+              登録すると、この作業場所で集めたAIセッションをThemeへ関連付けやすくなります。
+            </span>
           </div>
         )}
       </section>

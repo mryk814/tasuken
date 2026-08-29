@@ -7,7 +7,10 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export function createSmokePaths(tempRoot = os.tmpdir(), requestedRunId = "") {
-  const runId = `${requestedRunId || "run"}-${process.pid}-${Date.now()}-${randomUUID()}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const runId = `${requestedRunId || "run"}-${process.pid}-${Date.now()}-${randomUUID()}`.replace(
+    /[^a-zA-Z0-9_-]/g,
+    "_",
+  );
   const runRoot = path.resolve(tempRoot, `tasken-smoke-${runId}`);
   return {
     runId,
@@ -28,7 +31,13 @@ export function buildElectronSmokeArgs(paths, options = {}) {
     `--user-data-dir=${paths.userDataDir}`,
     `--smoke-result-path=${paths.resultPath}`,
   ];
-  if (options.restartArtifactId && options.restartMicrophoneArtifactId && options.restartImportedVideoArtifactId && options.restartScreenRecordingArtifactId && options.restartVideoOwnerId) {
+  if (
+    options.restartArtifactId &&
+    options.restartMicrophoneArtifactId &&
+    options.restartImportedVideoArtifactId &&
+    options.restartScreenRecordingArtifactId &&
+    options.restartVideoOwnerId
+  ) {
     args.push(
       "--smoke-restart-check",
       `--smoke-media-artifact-id=${options.restartArtifactId}`,
@@ -44,27 +53,55 @@ export function buildElectronSmokeArgs(paths, options = {}) {
 
 export function restartArtifactIdFromResult(value) {
   const id = value?.stage === "restart-ready" ? value?.audioArtifactId : "";
-  if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) return null;
+  if (
+    typeof id !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+  )
+    return null;
   return id;
 }
 
 export function restartArtifactIdsFromResult(value) {
   const audioArtifactId = restartArtifactIdFromResult(value);
   const microphoneArtifactId = value?.stage === "restart-ready" ? value?.microphoneArtifactId : "";
-  const importedVideoArtifactId = value?.stage === "restart-ready" ? value?.importedVideoArtifactId : "";
-  const screenRecordingArtifactId = value?.stage === "restart-ready" ? value?.screenRecordingArtifactId : "";
-  const screenRecordingPausedResumed = value?.stage === "restart-ready" && value?.screenRecordingPausedResumed === true;
+  const importedVideoArtifactId =
+    value?.stage === "restart-ready" ? value?.importedVideoArtifactId : "";
+  const screenRecordingArtifactId =
+    value?.stage === "restart-ready" ? value?.screenRecordingArtifactId : "";
+  const screenRecordingPausedResumed =
+    value?.stage === "restart-ready" && value?.screenRecordingPausedResumed === true;
+  const taskenRootOpened = value?.stage === "restart-ready" && value?.taskenRootOpened === true;
+  const taskenRootQuitCompleted =
+    value?.stage === "restart-ready" && value?.taskenRootQuitCompleted === true;
   const videoOwnerId = value?.stage === "restart-ready" ? value?.smokeTaskId : "";
-  if (!audioArtifactId
-    || typeof microphoneArtifactId !== "string"
-    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(microphoneArtifactId)
-    || typeof importedVideoArtifactId !== "string"
-    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(importedVideoArtifactId)
-    || typeof screenRecordingArtifactId !== "string"
-    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(screenRecordingArtifactId)
-    || !screenRecordingPausedResumed
-    || typeof videoOwnerId !== "string" || !videoOwnerId.trim()) return null;
-  return { audioArtifactId, microphoneArtifactId, importedVideoArtifactId, screenRecordingArtifactId, videoOwnerId };
+  if (
+    !audioArtifactId ||
+    typeof microphoneArtifactId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      microphoneArtifactId,
+    ) ||
+    typeof importedVideoArtifactId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      importedVideoArtifactId,
+    ) ||
+    typeof screenRecordingArtifactId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      screenRecordingArtifactId,
+    ) ||
+    !screenRecordingPausedResumed ||
+    !taskenRootOpened ||
+    !taskenRootQuitCompleted ||
+    typeof videoOwnerId !== "string" ||
+    !videoOwnerId.trim()
+  )
+    return null;
+  return {
+    audioArtifactId,
+    microphoneArtifactId,
+    importedVideoArtifactId,
+    screenRecordingArtifactId,
+    videoOwnerId,
+  };
 }
 
 function electronExecutable(cwd = process.cwd()) {
@@ -74,7 +111,8 @@ function electronExecutable(cwd = process.cwd()) {
     const candidate = path.join(candidateRoot, "node_modules", "electron", "dist", executable);
     if (existsSync(candidate)) return candidate;
     const parent = path.dirname(candidateRoot);
-    if (parent === candidateRoot) return path.join(cwd, "node_modules", "electron", "dist", executable);
+    if (parent === candidateRoot)
+      return path.join(cwd, "node_modules", "electron", "dist", executable);
     candidateRoot = parent;
   }
 }
@@ -87,7 +125,9 @@ function smokeLaunchSpec(cwd = process.cwd()) {
 
   const xvfb = spawnSync("sh", ["-c", "command -v xvfb-run"], { encoding: "utf8" });
   if (xvfb.status !== 0) {
-    throw new Error("WSL/LinuxでElectronスモークを実行するには xvfb が必要です。README.mdの依存パッケージをインストールしてください。");
+    throw new Error(
+      "WSL/LinuxでElectronスモークを実行するには xvfb が必要です。README.mdの依存パッケージをインストールしてください。",
+    );
   }
   return {
     command: "xvfb-run",
@@ -99,17 +139,30 @@ function spawnSmokeProcess(launch, args, options) {
   return spawn(launch.command, [...launch.prefixArgs, ...args], options);
 }
 
-export function runElectronSmoke({ cwd = process.cwd(), tempRoot = os.tmpdir(), executablePath = "", packaged = false } = {}) {
+export function runElectronSmoke({
+  cwd = process.cwd(),
+  tempRoot = os.tmpdir(),
+  executablePath = "",
+  packaged = false,
+} = {}) {
   const paths = createSmokePaths(tempRoot);
   mkdirSync(paths.userDataDir, { recursive: true });
-  console.log(JSON.stringify({ smokeRunId: paths.runId, userDataDir: paths.userDataDir, resultPath: paths.resultPath }));
+  console.log(
+    JSON.stringify({
+      smokeRunId: paths.runId,
+      userDataDir: paths.userDataDir,
+      resultPath: paths.resultPath,
+    }),
+  );
   let launch;
   try {
     launch = executablePath
       ? { command: path.resolve(executablePath), prefixArgs: [] }
       : smokeLaunchSpec(cwd);
   } catch (error) {
-    console.error(`Electron smoke could not start: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `Electron smoke could not start: ${error instanceof Error ? error.message : String(error)}`,
+    );
     process.exitCode = 1;
     return { paths, child: null };
   }
@@ -126,25 +179,37 @@ export function runElectronSmoke({ cwd = process.cwd(), tempRoot = os.tmpdir(), 
   child.on("exit", (code, signal) => {
     let restartArtifactIds = null;
     try {
-      if (existsSync(paths.resultPath)) restartArtifactIds = restartArtifactIdsFromResult(JSON.parse(readFileSync(paths.resultPath, "utf8")));
+      if (existsSync(paths.resultPath))
+        restartArtifactIds = restartArtifactIdsFromResult(
+          JSON.parse(readFileSync(paths.resultPath, "utf8")),
+        );
     } catch (error) {
       console.error(`Electron smoke result is invalid: ${String(error)}`);
     }
     if (code !== 0 || signal !== null || !restartArtifactIds) {
-      console.error(`Electron smoke failed before restart check; preserving diagnostics at ${paths.runRoot}`);
+      console.error(
+        `Electron smoke failed before restart check; preserving diagnostics at ${paths.runRoot}`,
+      );
       process.exitCode = 1;
       return;
     }
-    const restarted = spawnSmokeProcess(launch, buildElectronSmokeArgs(paths, {
-      packaged,
-      restartArtifactId: restartArtifactIds.audioArtifactId,
-      restartMicrophoneArtifactId: restartArtifactIds.microphoneArtifactId,
-      restartImportedVideoArtifactId: restartArtifactIds.importedVideoArtifactId,
-      restartScreenRecordingArtifactId: restartArtifactIds.screenRecordingArtifactId,
-      restartVideoOwnerId: restartArtifactIds.videoOwnerId,
-    }), {
-      cwd, env: process.env, stdio: "inherit", windowsHide: true,
-    });
+    const restarted = spawnSmokeProcess(
+      launch,
+      buildElectronSmokeArgs(paths, {
+        packaged,
+        restartArtifactId: restartArtifactIds.audioArtifactId,
+        restartMicrophoneArtifactId: restartArtifactIds.microphoneArtifactId,
+        restartImportedVideoArtifactId: restartArtifactIds.importedVideoArtifactId,
+        restartScreenRecordingArtifactId: restartArtifactIds.screenRecordingArtifactId,
+        restartVideoOwnerId: restartArtifactIds.videoOwnerId,
+      }),
+      {
+        cwd,
+        env: process.env,
+        stdio: "inherit",
+        windowsHide: true,
+      },
+    );
     restarted.on("error", (error) => {
       console.error(`Electron smoke restart could not start: ${error.message}`);
       process.exitCode = 1;
@@ -152,7 +217,9 @@ export function runElectronSmoke({ cwd = process.cwd(), tempRoot = os.tmpdir(), 
     restarted.on("exit", (restartCode, restartSignal) => {
       let passed = false;
       try {
-        passed = existsSync(paths.resultPath) && JSON.parse(readFileSync(paths.resultPath, "utf8")).stage === "passed";
+        passed =
+          existsSync(paths.resultPath) &&
+          JSON.parse(readFileSync(paths.resultPath, "utf8")).stage === "passed";
       } catch (error) {
         console.error(`Electron smoke restart result is invalid: ${String(error)}`);
       }
@@ -165,5 +232,6 @@ export function runElectronSmoke({ cwd = process.cwd(), tempRoot = os.tmpdir(), 
   return { paths, child };
 }
 
-const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+const isMain =
+  process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
 if (isMain) runElectronSmoke();

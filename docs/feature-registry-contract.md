@@ -6,18 +6,9 @@
 
 ```ts
 export type FeatureMaturity =
-  | "core"
-  | "supporting"
-  | "experimental"
-  | "diagnostic"
-  | "dormant"
-  | "deprecated";
+  "core" | "supporting" | "experimental" | "diagnostic" | "dormant" | "deprecated";
 
-export type ExpectedFrequency =
-  | "daily"
-  | "weekly"
-  | "occasional"
-  | "research";
+export type ExpectedFrequency = "daily" | "weekly" | "occasional" | "research";
 
 export interface FeatureDefinition {
   id: string;
@@ -78,7 +69,7 @@ export interface FeatureUsageSummary {
 - Entityはあるが開くsurface / locatorが無い
 - experimental機能が無印でprimary navigationへ出ている
 - deprecated機能が新規Entityを作れる
--同じaction labelが異なるcommandを呼ぶ
+  -同じaction labelが異なるcommandを呼ぶ
 - README / route label / Atlas名称の不一致
 
 ## Initial Capability Groups
@@ -115,7 +106,7 @@ source-output
   web-artifacts
 
 ai-context
-  note-ai
+  agent-session
   ai-proposal-review
   mcp-context
   work-receipts

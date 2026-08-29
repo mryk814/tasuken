@@ -1,6 +1,6 @@
 {
   "name": "tasken",
-  "version": "0.1.41",
+  "version": "0.1.42",
   "description": "研究開発職向けの長期スケジュール・タスク・メモ管理デスクトップアプリ",
   "author": "ootan",
   "private": true,
@@ -35,6 +35,10 @@
     "smoke:desktop": "npm run build && node scripts/run-electron-smoke.mjs",
     "smoke:desktop:focused": "node scripts/run-electron-smoke.mjs",
     "smoke:desktop:packaged": "node scripts/run-packaged-electron-smoke.mjs",
+    "smoke:activity:packaged": "node scripts/activity-electron-smoke.mjs release/win-unpacked/Tasken.exe",
+    "smoke:proposal-live": "npm run build && npm run build:mcp && node scripts/live-proposal-electron-smoke.mjs",
+    "smoke:proposal-live:focused": "node scripts/live-proposal-electron-smoke.mjs",
+    "smoke:proposal-live:packaged": "node scripts/live-proposal-electron-smoke.mjs release/win-unpacked/Tasken.exe",
     "smoke:mcp-package": "node scripts/mcp-package-smoke.mjs",
     "audit:responsive": "node scripts/responsive-audit.mjs",
     "audit:materials-demo": "node scripts/audit-materials-demo.mjs",
@@ -44,6 +48,7 @@
     "workspace:materials-demo": "node scripts/run-electron-node.mjs scripts/seed-materials-informatics-workspace.mjs --apply-local",
     "workspace:materials-demo:today": "node scripts/run-electron-node.mjs scripts/update-materials-informatics-workspace.mjs --apply-local --mode refresh",
     "workspace:materials-demo:add": "node scripts/run-electron-node.mjs scripts/update-materials-informatics-workspace.mjs --apply-local --mode add",
+    "workspace:agent-session-entry-demo": "node scripts/seed-agent-session-entry-demo.mjs",
     "smoke:model": "electron --no-sandbox scripts/model-smoke.mjs",
     "mcp": "node scripts/mcp-server.mjs",
     "rebuild:electron": "electron-rebuild --force -w better-sqlite3",
@@ -55,7 +60,7 @@
     "release:verify-version": "node scripts/verify-release-version.mjs",
     "release:verify-artifacts": "node scripts/verify-release-artifacts.mjs",
     "release:checksum": "node scripts/write-release-checksums.mjs",
-    "release:check": "node scripts/assert-windows-build-host.mjs && npm run release:verify-version && npm run ci && npm run package && npm run release:verify-artifacts && npm run smoke:desktop:packaged && npm run smoke:mcp-package"
+    "release:check": "node scripts/assert-windows-build-host.mjs && npm run release:verify-version && npm run ci && npm run package && npm run release:verify-artifacts && npm run smoke:desktop:packaged && npm run smoke:activity:packaged && npm run smoke:proposal-live:packaged && npm run smoke:mcp-package"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",

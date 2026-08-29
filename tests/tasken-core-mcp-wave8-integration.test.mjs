@@ -14,56 +14,224 @@ import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenC
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 
 const bundled = await build({
-  stdin: { contents: `
+  stdin: {
+    contents: `
     export { TaskenCoreHost } from "./src/main/infrastructure/http/taskenCoreHost.ts";
     export { createTaskenCore } from "./src/main/infrastructure/sqlite/public.ts";
-  `, resolveDir: process.cwd() },
-  bundle: true, platform: "node", format: "esm", write: false, logLevel: "silent",
+  `,
+    resolveDir: process.cwd(),
+  },
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  write: false,
+  logLevel: "silent",
 });
-const { TaskenCoreHost, createTaskenCore } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`);
+const { TaskenCoreHost, createTaskenCore } = await import(
+  `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
+);
 
 const now = "2026-08-21T00:00:00.000Z";
 const record = (id, fields = {}) => ({ id, created_at: now, updated_at: now, ...fields });
 
 function fixture() {
-  const theme = record("theme-wave8", { name: "Wave 8", state: "active", repository_context_ids: ["repo-wave8"], default_ai_visibility: ["coding_agent"] });
-  const m365Theme = record("theme-m365", { name: "M365 only", state: "active", default_ai_visibility: ["m365"] });
+  const theme = record("theme-wave8", {
+    name: "Wave 8",
+    state: "active",
+    repository_context_ids: ["repo-wave8"],
+    default_ai_visibility: ["coding_agent"],
+  });
+  const m365Theme = record("theme-m365", {
+    name: "M365 only",
+    state: "active",
+    default_ai_visibility: ["m365"],
+  });
   const task = record("task-wave8", { title: "Visible task", state: "todo", project_id: theme.id });
-  const hidden = record("task-hidden", { title: "PRIVATE", state: "todo", project_id: theme.id, ai_visibility: [] });
-  const event = buildActivityEvent({ id: "event-wave8", entity_type: "task", entity_id: task.id, event_kind: "task_work_recorded", occurred_at: "2026-08-20T15:30:00.000Z", after: task, summary: "safe", metadata: { dedupe_key: "wave8" } });
-  const hiddenEvent = buildActivityEvent({ id: "event-hidden", entity_type: "task", entity_id: hidden.id, event_kind: "task_work_recorded", occurred_at: "2026-08-20T15:31:00.000Z", after: hidden, summary: "PRIVATE", metadata: { dedupe_key: "wave8-hidden" } });
-  const note = record("note-wave8", { title: "Visible note", body_markdown: "body token=SECRET C:/private/note.md", project_id: theme.id });
-  const knowledge = record("knowledge-wave8", { title: "Contradicted claim", body: "body", node_type: "claim", theme_id: theme.id });
-  const evidence = record("knowledge-evidence", { title: "Evidence", body: "evidence", node_type: "evidence", theme_id: theme.id, source_type: "task", source_id: task.id });
+  const hidden = record("task-hidden", {
+    title: "PRIVATE",
+    state: "todo",
+    project_id: theme.id,
+    ai_visibility: [],
+  });
+  const event = buildActivityEvent({
+    id: "event-wave8",
+    entity_type: "task",
+    entity_id: task.id,
+    event_kind: "task_work_recorded",
+    occurred_at: "2026-08-20T15:30:00.000Z",
+    after: task,
+    summary: "safe",
+    metadata: { dedupe_key: "wave8" },
+  });
+  const hiddenEvent = buildActivityEvent({
+    id: "event-hidden",
+    entity_type: "task",
+    entity_id: hidden.id,
+    event_kind: "task_work_recorded",
+    occurred_at: "2026-08-20T15:31:00.000Z",
+    after: hidden,
+    summary: "PRIVATE",
+    metadata: { dedupe_key: "wave8-hidden" },
+  });
+  const note = record("note-wave8", {
+    title: "Visible note",
+    body_markdown: "body token=SECRET C:/private/note.md",
+    project_id: theme.id,
+  });
+  const knowledge = record("knowledge-wave8", {
+    title: "Contradicted claim",
+    body: "body",
+    node_type: "claim",
+    theme_id: theme.id,
+  });
+  const evidence = record("knowledge-evidence", {
+    title: "Evidence",
+    body: "evidence",
+    node_type: "evidence",
+    theme_id: theme.id,
+    source_type: "task",
+    source_id: task.id,
+  });
   return {
-    themes: [theme, m365Theme], tasks: [task, hidden, record("task-m365", { title: "M365 task", state: "todo", project_id: m365Theme.id })], waitings: [], plan_nodes: [], schedules: [], items: [],
-    notes: [note, record("note-m365", { title: "M365 note", body_markdown: "m365 body", project_id: m365Theme.id })], knowledge_nodes: [knowledge, evidence, record("knowledge-m365", { title: "M365 question", body: "m365", node_type: "question", theme_id: m365Theme.id })], knowledge_edges: [record("knowledge-support", { source_node_id: evidence.id, target_node_id: knowledge.id, relation_type: "supports" }), record("knowledge-contradiction", { source_node_id: knowledge.id, target_node_id: evidence.id, relation_type: "contradicts" })], links: [],
-    resources: [record("resource-wave8", { title: "Resource", project_id: theme.id, url: "https://user:pass@example.com/private?token=SECRET#frag", local_path: "C:/private/resource.md", token: "SECRET" }), record("resource-m365", { title: "M365 resource", project_id: m365Theme.id, url: "https://example.com/m365" })],
-    repository_contexts: [record("repo-wave8", { label: "Repo", provider: "github", canonical_url: "https://github.com/mryk814/tasuken", canonical_identity: "github.com/mryk814/tasuken", repository_slug: "mryk814/tasuken", local_path: "C:/private/repo", active: true })],
-    references: [record("ref-task-note", { source_type: "task", source_id: task.id, target_type: "note", target_id: note.id, relation_type: "related_to" }), record("ref-note-knowledge", { source_type: "note", source_id: note.id, target_type: "knowledge_node", target_id: knowledge.id, relation_type: "answers" }), record("ref-hidden-public-endpoints", { source_type: "task", source_id: task.id, target_type: "knowledge_node", target_id: knowledge.id, relation_type: "related_to", ai_visibility: [] })],
+    themes: [theme, m365Theme],
+    tasks: [
+      task,
+      hidden,
+      record("task-m365", { title: "M365 task", state: "todo", project_id: m365Theme.id }),
+    ],
+    waitings: [],
+    plan_nodes: [],
+    schedules: [],
+    items: [],
+    notes: [
+      note,
+      record("note-m365", {
+        title: "M365 note",
+        body_markdown: "m365 body",
+        project_id: m365Theme.id,
+      }),
+    ],
+    knowledge_nodes: [
+      knowledge,
+      evidence,
+      record("knowledge-m365", {
+        title: "M365 question",
+        body: "m365",
+        node_type: "question",
+        theme_id: m365Theme.id,
+      }),
+    ],
+    knowledge_edges: [
+      record("knowledge-support", {
+        source_node_id: evidence.id,
+        target_node_id: knowledge.id,
+        relation_type: "supports",
+      }),
+      record("knowledge-contradiction", {
+        source_node_id: knowledge.id,
+        target_node_id: evidence.id,
+        relation_type: "contradicts",
+      }),
+    ],
+    links: [],
+    resources: [
+      record("resource-wave8", {
+        title: "Resource",
+        project_id: theme.id,
+        url: "https://user:pass@example.com/private?token=SECRET#frag",
+        local_path: "C:/private/resource.md",
+        token: "SECRET",
+      }),
+      record("resource-m365", {
+        title: "M365 resource",
+        project_id: m365Theme.id,
+        url: "https://example.com/m365",
+      }),
+    ],
+    repository_contexts: [
+      record("repo-wave8", {
+        label: "Repo",
+        provider: "github",
+        canonical_url: "https://github.com/mryk814/tasuken",
+        canonical_identity: "github.com/mryk814/tasuken",
+        repository_slug: "mryk814/tasuken",
+        local_path: "C:/private/repo",
+        active: true,
+      }),
+    ],
+    references: [
+      record("ref-task-note", {
+        source_type: "task",
+        source_id: task.id,
+        target_type: "note",
+        target_id: note.id,
+        relation_type: "related_to",
+      }),
+      record("ref-note-knowledge", {
+        source_type: "note",
+        source_id: note.id,
+        target_type: "knowledge_node",
+        target_id: knowledge.id,
+        relation_type: "answers",
+      }),
+      record("ref-hidden-public-endpoints", {
+        source_type: "task",
+        source_id: task.id,
+        target_type: "knowledge_node",
+        target_id: knowledge.id,
+        relation_type: "related_to",
+        ai_visibility: [],
+      }),
+    ],
     change_events: [event, hiddenEvent],
   };
 }
 
 class FixturePersistence {
-  constructor(workspace) { this.workspace = workspace; }
-  list(type, includeDeleted = false) {
-    return [...(this.workspace[`${type}s`] || [])].filter((entry) => includeDeleted || !entry.deleted_at)
-      .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")) || String(a.id).localeCompare(String(b.id)));
+  constructor(workspace) {
+    this.workspace = workspace;
   }
-  readPreference(key) { assert.equal(key, "aiVisibilityDefault"); return ["coding_agent"]; }
+  list(type, includeDeleted = false) {
+    return [...(this.workspace[`${type}s`] || [])]
+      .filter((entry) => includeDeleted || !entry.deleted_at)
+      .sort(
+        (a, b) =>
+          String(b.updated_at || "").localeCompare(String(a.updated_at || "")) ||
+          String(a.id).localeCompare(String(b.id)),
+      );
+  }
+  readPreference(key) {
+    assert.equal(key, "aiVisibilityDefault");
+    return ["coding_agent"];
+  }
   readWorkspaceSnapshot(includeDeleted = false) {
-    return Object.fromEntries(Object.entries(this.workspace).map(([key, value]) => [key, Array.isArray(value) ? value.filter((entry) => includeDeleted || !entry.deleted_at) : value]));
+    return Object.fromEntries(
+      Object.entries(this.workspace).map(([key, value]) => [
+        key,
+        Array.isArray(value) ? value.filter((entry) => includeDeleted || !entry.deleted_at) : value,
+      ]),
+    );
   }
 }
 
 async function mcpCall(coreClient, name, args) {
-  const server = createTaskenMcpServer({ coreClient, readOnly: true, readContextProvider: () => { throw new Error("READ_ONLY_CONTEXT_FALLBACK_SENTINEL"); } });
+  const server = createTaskenMcpServer({
+    coreClient,
+    readOnly: true,
+    readContextProvider: () => {
+      throw new Error("READ_ONLY_CONTEXT_FALLBACK_SENTINEL");
+    },
+  });
   const client = new Client({ name: "wave8-integration", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  await server.connect(serverTransport); await client.connect(clientTransport);
-  try { return await client.callTool({ name, arguments: args }); }
-  finally { await client.close(); await server.close(); }
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    return await client.callTool({ name, arguments: args });
+  } finally {
+    await client.close();
+    await server.close();
+  }
 }
 
 function healthMarkdown(markdown) {
@@ -82,9 +250,28 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
     await host.start();
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
     const cases = [
-      ["tasken.get_activity", { date: "2026-08-21", timezone: "Asia/Tokyo", limit: 1 }, "getActivity"],
-      ["tasken.get_context_subgraph", { entity_type: "task", entity_id: "task-wave8" }, "getContextSubgraph"],
-      ["tasken.export_ai_context", { format: "json", scope: "open_items", max_items: 1, max_notes: 1, max_knowledge_nodes: 1, max_chars: 20 }, "exportAiContext"],
+      [
+        "tasken.get_activity",
+        { date: "2026-08-21", timezone: "Asia/Tokyo", limit: 1 },
+        "getActivity",
+      ],
+      [
+        "tasken.get_context_subgraph",
+        { entity_type: "task", entity_id: "task-wave8" },
+        "getContextSubgraph",
+      ],
+      [
+        "tasken.export_ai_context",
+        {
+          format: "json",
+          scope: "open_items",
+          max_items: 1,
+          max_notes: 1,
+          max_knowledge_nodes: 1,
+          max_chars: 20,
+        },
+        "exportAiContext",
+      ],
     ];
     for (const [tool, request, method] of cases) {
       const inProcess = core[method].execute(request);
@@ -93,11 +280,16 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
       if (method === "exportAiContext") {
         assert.match(overHttp.generated_at, /^20\d\d-/);
         assert.match(overMcp.generated_at, /^20\d\d-/);
-        delete inProcess.generated_at; delete overHttp.generated_at; delete overMcp.generated_at;
+        delete inProcess.generated_at;
+        delete overHttp.generated_at;
+        delete overMcp.generated_at;
       }
       if (method === "getContextSubgraph") {
         for (const response of [inProcess, overHttp, overMcp]) {
-          assert.equal(response.edges.some((edge) => edge.assertion_id === "ref-hidden-public-endpoints"), false);
+          assert.equal(
+            response.edges.some((edge) => edge.assertion_id === "ref-hidden-public-endpoints"),
+            false,
+          );
           assert.doesNotMatch(JSON.stringify(response), /ref-hidden-public-endpoints/);
         }
       }
@@ -112,22 +304,46 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
     assert.equal(mcpMarkdown.content[0].text, markdown);
     assert.equal(mcpMarkdown.structuredContent, undefined);
 
-    const legacy = new ReadOnlyTaskenContext("wave8-health-parity.sqlite", { audience: "coding_agent", aiVisibilityDefault: ["coding_agent"], workspace: fixture() });
+    const legacy = new ReadOnlyTaskenContext("wave8-health-parity.sqlite", {
+      audience: "coding_agent",
+      aiVisibilityDefault: ["coding_agent"],
+      workspace: fixture(),
+    });
     try {
       const legacyJson = legacy.toolExportAiContext({ format: "json" });
       const coreJson = core.exportAiContext.execute({ format: "json" });
       const httpJson = await client.exportAiContext({ format: "json" });
-      const mcpJson = (await mcpCall(client, "tasken.export_ai_context", { format: "json" })).structuredContent;
+      const mcpJson = (await mcpCall(client, "tasken.export_ai_context", { format: "json" }))
+        .structuredContent;
       const healthKeys = [
-        "claims_without_evidence", "contradicted_claims", "evidence_without_source", "isolated_nodes", "issues",
-        "open_count", "open_plan_nodes", "open_tasks", "open_waitings", "overdue_items", "stale_decisions",
-        "unresolved_questions", "unscheduled_items", "waiting_items",
+        "claims_without_evidence",
+        "contradicted_claims",
+        "evidence_without_source",
+        "isolated_nodes",
+        "issues",
+        "open_count",
+        "open_plan_nodes",
+        "open_tasks",
+        "open_waitings",
+        "overdue_items",
+        "stale_decisions",
+        "unresolved_questions",
+        "unscheduled_items",
+        "waiting_items",
       ];
       assert.deepEqual(Object.keys(legacyJson.health).sort(), healthKeys);
       for (const response of [coreJson, httpJson, mcpJson]) {
         assert.deepEqual(Object.keys(response.health).sort(), healthKeys);
         assert.deepEqual(response.health, legacyJson.health);
-        for (const transportKey of ["result_meta", "ai_audience", "read_only", "next_tools", "truncated", "plan", "knowledge"]) {
+        for (const transportKey of [
+          "result_meta",
+          "ai_audience",
+          "read_only",
+          "next_tools",
+          "truncated",
+          "plan",
+          "knowledge",
+        ]) {
           assert.equal(transportKey in response.health, false, transportKey);
         }
       }
@@ -135,74 +351,283 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
       const legacyMarkdown = legacy.toolExportAiContext({ format: "markdown" });
       const coreMarkdown = core.exportAiContext.execute({ format: "markdown" });
       const httpMarkdown = await client.exportAiContext({ format: "markdown" });
-      const mcpHealthMarkdown = (await mcpCall(client, "tasken.export_ai_context", { format: "markdown" })).content[0].text;
+      const mcpHealthMarkdown = (
+        await mcpCall(client, "tasken.export_ai_context", { format: "markdown" })
+      ).content[0].text;
       for (const response of [coreMarkdown, httpMarkdown, mcpHealthMarkdown]) {
         assert.equal(healthMarkdown(response), healthMarkdown(legacyMarkdown));
       }
-    } finally { legacy.close(); }
-  } finally { await host.stop(); fs.rmSync(root, { recursive: true, force: true }); }
+    } finally {
+      legacy.close();
+    }
+  } finally {
+    await host.stop();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Wave 8 applies visibility before caps and recursively removes secret/path/resource fields", () => {
   const core = createTaskenCore(new FixturePersistence(fixture()));
-  const activity = core.getActivity.execute({ date: "2026-08-21", timezone: "Asia/Tokyo", limit: 1 });
-  assert.deepEqual(activity.events.map((entry) => entry.id), ["event-wave8"]);
+  const activity = core.getActivity.execute({
+    date: "2026-08-21",
+    timezone: "Asia/Tokyo",
+    limit: 1,
+  });
+  assert.deepEqual(
+    activity.events.map((entry) => entry.id),
+    ["event-wave8"],
+  );
   assert.equal(activity.result_meta.matched_visible_count, 1);
   const graph = core.getContextSubgraph.execute({ entity_type: "task", entity_id: "task-wave8" });
   assert.ok(graph.nodes.some((node) => node.id === "task-wave8"));
   assert.ok(graph.nodes.some((node) => node.id === "note-wave8"));
   assert.ok(graph.nodes.some((node) => node.id === "knowledge-wave8"));
-  assert.equal(graph.nodes.some((node) => node.id === "task-hidden"), false);
-  assert.equal(graph.paths.some((entry) => entry.hops === 2), true);
-  const exported = core.exportAiContext.execute({ format: "json", max_items: 1, max_notes: 1, max_knowledge_nodes: 1, max_chars: 20 });
+  assert.equal(
+    graph.nodes.some((node) => node.id === "task-hidden"),
+    false,
+  );
+  assert.equal(
+    graph.paths.some((entry) => entry.hops === 2),
+    true,
+  );
+  const exported = core.exportAiContext.execute({
+    format: "json",
+    max_items: 1,
+    max_notes: 1,
+    max_knowledge_nodes: 1,
+    max_chars: 20,
+  });
   assert.equal(exported.resources[0].source_url, "https://example.com/private");
   assert.equal("local_path" in exported.resources[0], false);
   assert.equal("token" in exported.resources[0], false);
-  assert.doesNotMatch(JSON.stringify({ graph, exported }), /PRIVATE|user:pass|token=SECRET|C:\/private|#frag|local_path/);
+  assert.doesNotMatch(
+    JSON.stringify({ graph, exported }),
+    /PRIVATE|user:pass|token=SECRET|C:\/private|#frag|local_path/,
+  );
   const m365 = core.exportAiContext.execute({ format: "json", audience: "m365" });
-  assert.deepEqual(m365.themes.map((entry) => entry.id), ["theme-m365"]);
-  assert.deepEqual(m365.items.map((entry) => entry.id), ["task-m365"]);
-  assert.deepEqual(m365.notes.map((entry) => entry.id), ["note-m365"]);
-  assert.deepEqual(m365.knowledge_nodes.map((entry) => entry.id), ["knowledge-m365"]);
-  assert.deepEqual(m365.resources.map((entry) => entry.id), ["resource-m365"]);
+  assert.deepEqual(
+    m365.themes.map((entry) => entry.id),
+    ["theme-m365"],
+  );
+  assert.deepEqual(
+    m365.items.map((entry) => entry.id),
+    ["task-m365"],
+  );
+  assert.deepEqual(
+    m365.notes.map((entry) => entry.id),
+    ["note-m365"],
+  );
+  assert.deepEqual(
+    m365.knowledge_nodes.map((entry) => entry.id),
+    ["knowledge-m365"],
+  );
+  assert.deepEqual(
+    m365.resources.map((entry) => entry.id),
+    ["resource-m365"],
+  );
   assert.equal(m365.ai_audience, "m365");
+});
+
+test("Wave 8 context subgraph uses canonical Note project_id for visibility", () => {
+  const workspace = fixture();
+  workspace.notes.push(
+    record("note-canonical-private", {
+      title: "Canonical private",
+      body_markdown: "PRIVATE_CANONICAL_SUBGRAPH",
+      project_id: "theme-m365",
+      theme_id: "theme-wave8",
+    }),
+    record("note-canonical-public", {
+      title: "Canonical public",
+      body_markdown: "canonical public subgraph",
+      project_id: "theme-wave8",
+      theme_id: "theme-m365",
+    }),
+  );
+  workspace.references.push(
+    record("ref-canonical-private", {
+      source_type: "task",
+      source_id: "task-wave8",
+      target_type: "note",
+      target_id: "note-canonical-private",
+      relation_type: "related_to",
+    }),
+    record("ref-canonical-public", {
+      source_type: "task",
+      source_id: "task-wave8",
+      target_type: "note",
+      target_id: "note-canonical-public",
+      relation_type: "related_to",
+    }),
+  );
+  const core = createTaskenCore(new FixturePersistence(workspace));
+  const result = core.getContextSubgraph.execute({ entity_type: "task", entity_id: "task-wave8" });
+  const serialized = JSON.stringify(result);
+  assert.match(serialized, /note-canonical-public/);
+  assert.equal(
+    result.nodes.some((node) => node.id === "note-canonical-private"),
+    false,
+  );
+  assert.doesNotMatch(serialized, /PRIVATE_CANONICAL_SUBGRAPH/);
 });
 
 test("Wave 8 public inputs, named capabilities, and nested responses fail closed", async () => {
   const core = createTaskenCore(new FixturePersistence(fixture()));
-  assert.throws(() => core.getActivity.execute({ event_kinds: Array.from({ length: 21 }, () => "kind") }));
-  assert.throws(() => core.getContextSubgraph.execute({ entity_type: "task", entity_id: "task-wave8", max_edges: 0 }));
+  assert.throws(() =>
+    core.getActivity.execute({ event_kinds: Array.from({ length: 21 }, () => "kind") }),
+  );
+  assert.throws(() =>
+    core.getContextSubgraph.execute({ entity_type: "task", entity_id: "task-wave8", max_edges: 0 }),
+  );
   assert.throws(() => core.exportAiContext.execute({ format: "json", max_items: 101 }));
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave8-client-"));
   const discoveryPath = path.join(root, "tasken-core.json");
-  fs.writeFileSync(discoveryPath, JSON.stringify({ schema_version: 1, api_version: "1", origin: "http://127.0.0.1:43210", token: Buffer.alloc(32, 7).toString("base64url"), capabilities: [] }), { mode: 0o600 });
+  fs.writeFileSync(
+    discoveryPath,
+    JSON.stringify({
+      schema_version: 1,
+      api_version: "1",
+      origin: "http://127.0.0.1:43210",
+      token: Buffer.alloc(32, 7).toString("base64url"),
+      capabilities: [],
+    }),
+    { mode: 0o600 },
+  );
   fs.chmodSync(discoveryPath, 0o600);
   try {
     let fetchCalls = 0;
-    const noCapability = new TaskenCoreClient({ discoveryPath, fetch: async () => { fetchCalls += 1; } });
-    for (const [method, request] of [["getActivity", {}], ["getContextSubgraph", { entity_type: "task", entity_id: "x" }], ["exportAiContext", {}]]) {
-      await assert.rejects(noCapability[method](request), (error) => error instanceof TaskenCoreClientError && error.code === "CAPABILITY_UNAVAILABLE");
+    const noCapability = new TaskenCoreClient({
+      discoveryPath,
+      fetch: async () => {
+        fetchCalls += 1;
+      },
+    });
+    for (const [method, request] of [
+      ["getActivity", {}],
+      ["getContextSubgraph", { entity_type: "task", entity_id: "x" }],
+      ["exportAiContext", {}],
+    ]) {
+      await assert.rejects(
+        noCapability[method](request),
+        (error) =>
+          error instanceof TaskenCoreClientError && error.code === "CAPABILITY_UNAVAILABLE",
+      );
     }
     assert.equal(fetchCalls, 0);
-    fs.writeFileSync(discoveryPath, JSON.stringify({ schema_version: 1, api_version: "1", origin: "http://127.0.0.1:43210", token: Buffer.alloc(32, 7).toString("base64url"), capabilities: ["get_activity"] }), { mode: 0o600 });
-    const malformed = new TaskenCoreClient({ discoveryPath, fetch: async () => new Response(JSON.stringify({ schema_version: 1, timezone: "UTC", date: null, events: [], excluded_count: 0, excluded_reasons: [], truncated: false, activity: { schema_version: 1, timezone: "UTC", date: null, events: [], excluded_count: 0, excluded_reasons: [], truncated: false, nested_extra: true }, format: "json", result_meta: { contract_version: 1, returned_count: 0, matched_visible_count: 0, truncated: false }, ai_audience: "coding_agent", read_only: true }), { status: 200, headers: { "content-type": "application/json", "x-tasken-core-version": "1" } }) });
-    await assert.rejects(malformed.getActivity({}), (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE");
+    fs.writeFileSync(
+      discoveryPath,
+      JSON.stringify({
+        schema_version: 1,
+        api_version: "1",
+        origin: "http://127.0.0.1:43210",
+        token: Buffer.alloc(32, 7).toString("base64url"),
+        capabilities: ["get_activity"],
+      }),
+      { mode: 0o600 },
+    );
+    const malformed = new TaskenCoreClient({
+      discoveryPath,
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            schema_version: 1,
+            timezone: "UTC",
+            date: null,
+            events: [],
+            excluded_count: 0,
+            excluded_reasons: [],
+            truncated: false,
+            activity: {
+              schema_version: 1,
+              timezone: "UTC",
+              date: null,
+              events: [],
+              excluded_count: 0,
+              excluded_reasons: [],
+              truncated: false,
+              nested_extra: true,
+            },
+            format: "json",
+            result_meta: {
+              contract_version: 1,
+              returned_count: 0,
+              matched_visible_count: 0,
+              truncated: false,
+            },
+            ai_audience: "coding_agent",
+            read_only: true,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json", "x-tasken-core-version": "1" },
+          },
+        ),
+    });
+    await assert.rejects(
+      malformed.getActivity({}),
+      (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE",
+    );
 
-    const unsafeGraph = structuredClone(core.getContextSubgraph.execute({ entity_type: "task", entity_id: "task-wave8" }));
+    const unsafeGraph = structuredClone(
+      core.getContextSubgraph.execute({ entity_type: "task", entity_id: "task-wave8" }),
+    );
     unsafeGraph.nodes[0].access_token = "MALICIOUS_RESPONSE_SECRET";
-    fs.writeFileSync(discoveryPath, JSON.stringify({ schema_version: 1, api_version: "1", origin: "http://127.0.0.1:43210", token: Buffer.alloc(32, 7).toString("base64url"), capabilities: ["get_context_subgraph"] }), { mode: 0o600 });
-    const unsafeGraphClient = new TaskenCoreClient({ discoveryPath, fetch: async () => new Response(JSON.stringify(unsafeGraph), { status: 200, headers: { "content-type": "application/json", "x-tasken-core-version": "1" } }) });
-    await assert.rejects(unsafeGraphClient.getContextSubgraph({ entity_type: "task", entity_id: "task-wave8" }), (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE");
+    fs.writeFileSync(
+      discoveryPath,
+      JSON.stringify({
+        schema_version: 1,
+        api_version: "1",
+        origin: "http://127.0.0.1:43210",
+        token: Buffer.alloc(32, 7).toString("base64url"),
+        capabilities: ["get_context_subgraph"],
+      }),
+      { mode: 0o600 },
+    );
+    const unsafeGraphClient = new TaskenCoreClient({
+      discoveryPath,
+      fetch: async () =>
+        new Response(JSON.stringify(unsafeGraph), {
+          status: 200,
+          headers: { "content-type": "application/json", "x-tasken-core-version": "1" },
+        }),
+    });
+    await assert.rejects(
+      unsafeGraphClient.getContextSubgraph({ entity_type: "task", entity_id: "task-wave8" }),
+      (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE",
+    );
 
     const unsafeExport = structuredClone(core.exportAiContext.execute({ format: "json" }));
     unsafeExport.resources[0].constructor = "prototype-pollution";
-    fs.writeFileSync(discoveryPath, JSON.stringify({ schema_version: 1, api_version: "1", origin: "http://127.0.0.1:43210", token: Buffer.alloc(32, 7).toString("base64url"), capabilities: ["export_ai_context"] }), { mode: 0o600 });
-    const unsafeExportClient = new TaskenCoreClient({ discoveryPath, fetch: async () => new Response(JSON.stringify(unsafeExport), { status: 200, headers: { "content-type": "application/json", "x-tasken-core-version": "1" } }) });
-    await assert.rejects(unsafeExportClient.exportAiContext({ format: "json" }), (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE");
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    fs.writeFileSync(
+      discoveryPath,
+      JSON.stringify({
+        schema_version: 1,
+        api_version: "1",
+        origin: "http://127.0.0.1:43210",
+        token: Buffer.alloc(32, 7).toString("base64url"),
+        capabilities: ["export_ai_context"],
+      }),
+      { mode: 0o600 },
+    );
+    const unsafeExportClient = new TaskenCoreClient({
+      discoveryPath,
+      fetch: async () =>
+        new Response(JSON.stringify(unsafeExport), {
+          status: 200,
+          headers: { "content-type": "application/json", "x-tasken-core-version": "1" },
+        }),
+    });
+    await assert.rejects(
+      unsafeExportClient.exportAiContext({ format: "json" }),
+      (error) => error instanceof TaskenCoreClientError && error.code === "INVALID_RESPONSE",
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Wave 8 MCP registrations contain no legacy read-context fallback", () => {
   const source = fs.readFileSync(new URL("../src/main/mcp/server.mjs", import.meta.url), "utf8");
-  for (const method of ["toolGetActivity", "toolGetContextSubgraph", "toolExportAiContext"]) assert.equal(source.includes(`context.${method}`), false, method);
+  for (const method of ["toolGetActivity", "toolGetContextSubgraph", "toolExportAiContext"])
+    assert.equal(source.includes(`context.${method}`), false, method);
 });

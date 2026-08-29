@@ -41,18 +41,6 @@ import type {
   SlideTimelineExportResult,
 } from "../slideTimelineExport";
 import type {
-  AiConnectionTestResult,
-  AiFeature,
-  AiFeatureAvailability,
-  AiModelProfileUpdate,
-  AiNoteGenerateRequest,
-  AiNoteGenerateResult,
-  AiStreamEvent,
-  AiProviderConfig,
-  AiProviderProfileUpdate,
-  AiTestConnectionRequest,
-} from "../ai";
-import type {
   CalendarConnectRequest,
   CalendarConnectionStatus,
   CalendarDisconnectRequest,
@@ -88,11 +76,7 @@ import type {
 } from "../mediaCapture";
 import type {
   BatchTranscriptionArtifactRequest,
-  BatchTranscriptionCancelRequest,
   BatchTranscriptionHistoryResult,
-  BatchTranscriptionPreviewResult,
-  BatchTranscriptionRunRequest,
-  BatchTranscriptionRunResult,
 } from "../batchTranscriptionIpc";
 import type {
   ArmedScreenRecordingProjection,
@@ -182,10 +166,7 @@ export const IPC = {
   mediaArtifactInspect: "media-artifact:inspect",
   videoTrimSource: "video-trim:source",
   videoTrimExport: "video-trim:export",
-  batchTranscriptionPreview: "batch-transcription:preview",
   batchTranscriptionHistory: "batch-transcription:history",
-  batchTranscriptionRun: "batch-transcription:run",
-  batchTranscriptionCancel: "batch-transcription:cancel",
   appReload: "app:reload",
   appUpdateCheck: "app:update-check",
   appReleasePageOpen: "app:release-page-open",
@@ -232,7 +213,6 @@ export const IPC = {
   entitySave: "entity:save",
   entitySaveMany: "entity:save-many",
   documentSave: "document:save",
-  documentApplyAiProposal: "document:apply-ai-proposal",
   entityRemove: "entity:remove",
   entityRestore: "entity:restore",
   snapshotExport: "snapshot:export",
@@ -252,18 +232,6 @@ export const IPC = {
   slideTimelineExport: "slide-timeline:export",
   mermaidSvgExport: "mermaid:svg-export",
   mermaidPptxExport: "mermaid:pptx-export",
-  aiConfigGet: "ai:config-get",
-  aiProviderSave: "ai:provider-save",
-  aiProviderDelete: "ai:provider-delete",
-  aiModelSave: "ai:model-save",
-  aiModelDelete: "ai:model-delete",
-  aiDefaultProvider: "ai:default-provider",
-  aiDefaultModel: "ai:default-model",
-  aiTestConnection: "ai:test-connection",
-  aiFeatureAvailability: "ai:feature-availability",
-  aiNoteStreamStart: "ai:note-stream-start",
-  aiNoteStreamEvent: "ai:note-stream-event",
-  aiNoteStreamCancel: "ai:note-stream-cancel",
   calendarStatus: "calendar:status",
   calendarConnect: "calendar:connect",
   calendarDisconnect: "calendar:disconnect",
@@ -400,12 +368,28 @@ export interface McpBridgeInfo {
   pendingProposalCount: number;
   transport: "stdio-core";
   packaged: boolean;
+  coreStatus: "available" | "unavailable" | "unknown";
+  coreApiVersion?: string;
+  coreCapabilityCount?: number;
+  coreErrorCode?: string;
+  coreErrorMessage?: string;
+  coreNextAction?: string;
+  latestProposalId?: string;
+  latestProposalAt?: string;
 }
 
 export function createMcpBridgeInfo(input: {
   args: string[];
   pendingProposalCount: number;
   packaged: boolean;
+  coreStatus?: McpBridgeInfo["coreStatus"];
+  coreApiVersion?: string;
+  coreCapabilityCount?: number;
+  coreErrorCode?: string;
+  coreErrorMessage?: string;
+  coreNextAction?: string;
+  latestProposalId?: string;
+  latestProposalAt?: string;
 }): McpBridgeInfo {
   const command = "node";
   return {
@@ -415,6 +399,16 @@ export function createMcpBridgeInfo(input: {
     pendingProposalCount: input.pendingProposalCount,
     transport: "stdio-core",
     packaged: input.packaged,
+    coreStatus: input.coreStatus || "unknown",
+    ...(input.coreApiVersion ? { coreApiVersion: input.coreApiVersion } : {}),
+    ...(input.coreCapabilityCount === undefined
+      ? {}
+      : { coreCapabilityCount: input.coreCapabilityCount }),
+    ...(input.coreErrorCode ? { coreErrorCode: input.coreErrorCode } : {}),
+    ...(input.coreErrorMessage ? { coreErrorMessage: input.coreErrorMessage } : {}),
+    ...(input.coreNextAction ? { coreNextAction: input.coreNextAction } : {}),
+    ...(input.latestProposalId ? { latestProposalId: input.latestProposalId } : {}),
+    ...(input.latestProposalAt ? { latestProposalAt: input.latestProposalAt } : {}),
   };
 }
 
@@ -713,27 +707,6 @@ export interface ResearchDeskApi {
     ): Promise<ViewPreferenceChange>;
     onViewChanged(callback: (change: ViewPreferenceChange) => void): () => void;
   };
-  ai: {
-    getConfig(): Promise<AiProviderConfig>;
-    saveProviderProfile(update: AiProviderProfileUpdate): Promise<AiProviderConfig>;
-    deleteProviderProfile(id: string): Promise<AiProviderConfig>;
-    saveModelProfile(update: AiModelProfileUpdate): Promise<AiProviderConfig>;
-    deleteModelProfile(id: string): Promise<AiProviderConfig>;
-    setDefaultProviderProfile(id: string): Promise<AiProviderConfig>;
-    setDefaultModelProfile(id: string): Promise<AiProviderConfig>;
-    testConnection(request: AiTestConnectionRequest): Promise<AiConnectionTestResult>;
-    featureAvailability(
-      feature: AiFeature,
-      providerProfileId?: string,
-      modelProfileId?: string,
-    ): Promise<AiFeatureAvailability>;
-    startNoteStream(
-      requestId: string,
-      request: AiNoteGenerateRequest,
-    ): Promise<AiNoteGenerateResult>;
-    cancelNoteStream(requestId: string): Promise<boolean>;
-    onNoteStreamEvent(callback: (requestId: string, event: AiStreamEvent) => void): () => void;
-  };
   clipboard: {
     writeText(text: string): Promise<boolean>;
     writeHtml(payload: { html: string; text: string }): Promise<boolean>;
@@ -790,10 +763,7 @@ export interface ResearchDeskApi {
     exportVideoTrim(request: VideoTrimExportRequest): Promise<VideoTrimExportResult>;
   };
   batchTranscription: {
-    preview(request: BatchTranscriptionArtifactRequest): Promise<BatchTranscriptionPreviewResult>;
     history(request: BatchTranscriptionArtifactRequest): Promise<BatchTranscriptionHistoryResult>;
-    run(request: BatchTranscriptionRunRequest): Promise<BatchTranscriptionRunResult>;
-    cancel(request: BatchTranscriptionCancelRequest): Promise<BatchTranscriptionRunResult>;
   };
   screenRecording: {
     capabilities(): Promise<ScreenRecordingEnvironment>;
@@ -858,10 +828,6 @@ export interface ResearchDeskApi {
   documents: {
     /** Note / Report本文の保存とcanonical Markdown更新を同じuse caseで行う。 */
     save(request: DocumentSaveRequest): Promise<Entity>;
-    applyAiProposal(
-      request: DocumentSaveRequest,
-      envelope: CommandEnvelope,
-    ): Promise<CommandReceipt>;
   };
   commands: {
     execute(envelope: CommandEnvelope): Promise<CommandReceipt>;

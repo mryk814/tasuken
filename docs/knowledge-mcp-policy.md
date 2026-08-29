@@ -8,7 +8,7 @@ TaskenはElectron + React + SQLiteのローカルデスクトップアプリと�
 
 ## 基本方針
 
-TaskenにGitHub Copilotの非公式serviceを直接埋め込むことはしない。外部AIが参照できる「思考と作業の文脈DB」を基本にしつつ、利用者が明示設定したOpenAI APIだけはNote編集の短い経路として使う。どちらの書き込みもSafe Write Proposalへ合流する。
+Taskenに推論serviceを直接埋め込まない。外部Agentが参照できる「思考と作業の文脈DB」を基本にし、MCPや手動Importからの書き込みはSafe Write Proposalへ合流する。
 
 優先順は以下とする。
 
@@ -64,13 +64,7 @@ NoteとKnowledgeの責務は以下で固定する。
 `KnowledgeNode`はNoteの置き換えではない。Noteは自由入力の素材、KnowledgeNodeはあとから使えるように抽出された構造化知識として扱う。最初は`source_note_id`で、どのメモから生まれたかを追跡する。
 
 ```ts
-type KnowledgeNodeType =
-  | "source"
-  | "evidence"
-  | "claim"
-  | "question"
-  | "decision"
-  | "insight";
+type KnowledgeNodeType = "source" | "evidence" | "claim" | "question" | "decision" | "insight";
 
 type KnowledgeNode = {
   id: string;
@@ -172,12 +166,7 @@ Note詳細またはAI Import画面に「このメモを構造化」ボタン、�
 MCPや外部AIに渡す文脈を、単なるタスク一覧ではなく「考えの構造」として渡す。
 
 ```ts
-type AiContextScope =
-  | "active_theme"
-  | "selected_theme"
-  | "recent"
-  | "open_items"
-  | "knowledge";
+type AiContextScope = "active_theme" | "selected_theme" | "recent" | "open_items" | "knowledge";
 ```
 
 ExportにはTheme、Open Items、Recent Notes、Recent Status Updates、Links、KnowledgeNode、KnowledgeRelation、unresolved Questions、active Claims、Decisions、Evidence、Plan Health、Knowledge Healthを含める。
@@ -256,16 +245,15 @@ Taskenを外部AIから参照できるようにする。インストール版は
 Phase 1のread-only toolsは以下とする。
 
 ```ts
-tools:
-  - tasken.search_items
-  - tasken.list_open_items
-  - tasken.get_theme_context
-  - tasken.get_recent_notes
-  - tasken.search_knowledge
-  - tasken.get_knowledge_context
-  - tasken.get_plan_health
-  - tasken.get_knowledge_health
-  - tasken.export_ai_context
+tools: -tasken.search_items -
+  tasken.list_open_items -
+  tasken.get_theme_context -
+  tasken.get_recent_notes -
+  tasken.search_knowledge -
+  tasken.get_knowledge_context -
+  tasken.get_plan_health -
+  tasken.get_knowledge_health -
+  tasken.export_ai_context;
 ```
 
 tool仕様例は以下とする。
@@ -327,11 +315,10 @@ Note、Knowledgeに加えてSketchとArtifactを対象にする。Sketchは安�
 write toolsは以下とする。
 
 ```ts
-tools:
-  - tasken.propose_task
-  - tasken.propose_note
-  - tasken.propose_note_edit
-  - tasken.propose_knowledge
+tools: -tasken.propose_task -
+  tasken.propose_note -
+  tasken.propose_note_edit -
+  tasken.propose_knowledge;
 ```
 
 ```ts
@@ -339,12 +326,7 @@ type AiProposal = {
   id: string;
   source: "mcp" | "ai_import" | "manual";
   source_app?: string;
-  payload_type:
-    | "items"
-    | "notes"
-    | "links"
-    | "knowledge_nodes"
-    | "status_update";
+  payload_type: "items" | "notes" | "links" | "knowledge_nodes" | "status_update";
   payload: unknown;
   status: "pending" | "accepted" | "rejected" | "partially_accepted";
   created_at: string;

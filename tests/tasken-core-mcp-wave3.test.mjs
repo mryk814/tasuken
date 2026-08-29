@@ -388,6 +388,61 @@ test("Wave 3 preserves graph/text bounds and redacts receipt, URL, and local pat
   }
 });
 
+test("Wave 3 Task context uses canonical Note project_id for visibility", () => {
+  const workspace = fixture();
+  workspace.themes.push({
+    id: "theme-private-note",
+    name: "Private Note Theme",
+    default_ai_visibility: [],
+    updated_at: now,
+  });
+  workspace.notes.push(
+    {
+      id: "note-canonical-private",
+      title: "Canonical private",
+      body_markdown: "PRIVATE_CANONICAL_TASK_CONTEXT",
+      project_id: "theme-private-note",
+      theme_id: "theme-visible",
+      updated_at: "2026-08-22T00:00:00.000Z",
+    },
+    {
+      id: "note-canonical-public",
+      title: "Canonical public",
+      body_markdown: "canonical public task context",
+      project_id: "theme-visible",
+      theme_id: "theme-private-note",
+      updated_at: "2026-08-22T00:00:01.000Z",
+    },
+  );
+  workspace.references.push(
+    {
+      id: "ref-canonical-private",
+      source_type: "task",
+      source_id: "task-visible",
+      target_type: "note",
+      target_id: "note-canonical-private",
+      relation_type: "context",
+    },
+    {
+      id: "ref-canonical-public",
+      source_type: "task",
+      source_id: "task-visible",
+      target_type: "note",
+      target_id: "note-canonical-public",
+      relation_type: "context",
+    },
+  );
+  const core = createTaskenCore(new FixtureRepository(workspace));
+  const result = core.getTaskContext.execute({ task_id: "task-visible", max_items_per_type: 100 });
+  const serialized = JSON.stringify(result);
+  assert.match(serialized, /note-canonical-public|canonical public task context/);
+  assert.equal(
+    result.related.notes.some((note) => note.id === "note-canonical-private"),
+    false,
+  );
+  assert.doesNotMatch(serialized, /PRIVATE_CANONICAL_TASK_CONTEXT/);
+});
+
 test("Work Receipt sanitizer rejects URL-like locators, local paths, and short authorization credentials across public fields", () => {
   const hostileCases = [
     {

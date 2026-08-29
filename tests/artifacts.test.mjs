@@ -364,18 +364,19 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
   assert.match(notesSource, /const persisted = await workspaceApi\.get\("note", selected\.id\);/);
   assert.match(
     notesSource,
-    /const exportNote: Combined = \{ \.\.\.selected, \.\.\.\(persisted \|\| \{\}\), recordType: "note" as const \};/,
+    /const exportNote: Combined = \{[\s\S]*?\.\.\.selected,[\s\S]*?\.\.\.\(persisted \|\| \{\}\),[\s\S]*?recordType: "note" as const,[\s\S]*?\};/,
   );
   assert.match(
     notesSource,
     /const exportThemeId = str\(exportNote\.project_id \|\| exportNote\.theme_id\);/,
   );
   assert.match(notesSource, /themeId: exportThemeId \|\| null/);
-  assert.match(drawerSource, /themeId:\s*str\(note\.theme_id\)/);
+  assert.match(drawerSource, /const themeId = noteProjectId\(note\);/);
 });
 
 test("Artifact は親 Entity の Theme を引き継ぐ", () => {
   assert.match(artifactEntitiesSource, /export function resolveArtifactThemeId/);
+  assert.match(artifactEntitiesSource, /return noteProjectId\(note\);/);
   assert.match(artifactsComponentSource, /effectiveThemeId/);
   assert.match(artifactsComponentSource, /parentThemeId/);
   assert.match(artifactEntitiesSource, /buildArtifactThemeSyncOperations/);
