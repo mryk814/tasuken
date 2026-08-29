@@ -524,7 +524,10 @@ export function buildCandidateOperations(
       });
     }
   }
-  return operations;
+  // change_event is an audit record produced when canonical entities are saved.
+  // ApplyAiProposal owns that audit write; sending it back as a candidate makes
+  // an otherwise valid Proposal impossible to accept.
+  return operations.filter((operation) => operation.type !== "change_event");
 }
 
 export function AiProposalPanel(props: PageProps) {
