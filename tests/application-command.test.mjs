@@ -1234,7 +1234,7 @@ test("Command Palette source is attached to the new Drawer after dirty-form flus
   );
   assert.match(source, /commandSource: "command_palette"/);
   assert.match(source, /entrypoint: drawer\?\.commandSource \|\| "main_ui"/);
-  assert.match(source, /taskClient\.(create|update|complete|reopen)/);
+  assert.match(source, /taskClient\.applyEdit\(/);
   assert.doesNotMatch(source, /pendingCommandSource/);
 });
 
