@@ -2,6 +2,7 @@ package jp.personal.tasken.companion
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -22,7 +23,7 @@ class CaptureDraftRecreationTest {
 
         composeRule.activityRule.scenario.recreate()
 
-        composeRule.onNodeWithText("Taskを追加").assertIsDisplayed()
+        composeRule.onNodeWithTag("capture-submit-close").assertIsDisplayed()
         composeRule.onNodeWithText("rotationdraft").assertIsDisplayed()
     }
 }

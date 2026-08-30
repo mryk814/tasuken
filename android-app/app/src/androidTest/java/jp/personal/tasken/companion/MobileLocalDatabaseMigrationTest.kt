@@ -674,6 +674,49 @@ class MobileLocalDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrationFourteenToFifteenPreservesTaskAndSyncStateAndAddsPendingHumanReviewStorage() {
+        helper.createDatabase(DatabaseName, 14).apply {
+            execSQL(
+                "INSERT INTO sync_state " +
+                    "(id, serverId, apiVersion, schemaVersion, cursor, lastSuccessfulSyncAt, lastAttemptAt, lastError) " +
+                    "VALUES (1, 'desktop-home', 1, 5, 'cursor-14', '2026-08-30T01:00:00Z', " +
+                    "'2026-08-30T01:00:00Z', NULL)",
+            )
+            execSQL(
+                "INSERT INTO task_cache " +
+                    "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, " +
+                    "optimisticCommandId, conflictCommandId, checklistJson) VALUES " +
+                    "('task-14', 7, 'Review task', NULL, 'review', 'needs_human_review', NULL, " +
+                    "'2026-08-30T01:00:00Z', NULL, NULL, '[]')",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 15, true, MIGRATION_14_15).use { db ->
+            db.query("SELECT serverVersion, title FROM task_cache WHERE id = 'task-14'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(7, cursor.getInt(0))
+                assertEquals("Review task", cursor.getString(1))
+            }
+            db.query("SELECT serverId, cursor FROM sync_state WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("desktop-home", cursor.getString(0))
+                assertEquals("cursor-14", cursor.getString(1))
+            }
+            db.execSQL(
+                "INSERT INTO pending_human_review (commandId, serverId, taskId, envelopeJson, createdAt) " +
+                    "VALUES ('review-command-14', 'desktop-home', 'task-14', '{\"commandId\":\"review-command-14\"}', " +
+                    "'2026-08-30T01:00:00Z')",
+            )
+            db.query("SELECT taskId, serverId FROM pending_human_review WHERE commandId = 'review-command-14'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("task-14", cursor.getString(0))
+                assertEquals("desktop-home", cursor.getString(1))
+            }
+        }
+    }
+
     private companion object {
         const val DatabaseName = "mobile-migration-test"
     }

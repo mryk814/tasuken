@@ -13,11 +13,8 @@ export const MOBILE_DEVICE_DEFAULT_SCOPES = Object.freeze([
   "mobile:task-write",
   "mobile:capture-write",
   "mobile:proposal-review",
+  "mobile:human-review",
 ] satisfies MobileScope[]);
-
-function effectiveScopes(scopes: readonly MobileScope[]): MobileScope[] {
-  return [...new Set([...scopes, ...MOBILE_DEVICE_DEFAULT_SCOPES])];
-}
 
 export interface MobileDeviceRecord {
   id: string;
@@ -94,14 +91,16 @@ function sha256(value: string): string {
 }
 
 function pairingDigest(value: string): Buffer {
-  return createHash("sha256").update("tasken-mobile-pairing:" + value, "utf8").digest();
+  return createHash("sha256")
+    .update("tasken-mobile-pairing:" + value, "utf8")
+    .digest();
 }
 
 function publicDevice(record: StoredMobileDeviceRecord): MobileDeviceRecord {
   return {
     id: record.id,
     label: record.label,
-    scopes: effectiveScopes(record.scopes),
+    scopes: [...record.scopes],
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     lastSeenAt: record.lastSeenAt,
@@ -136,7 +135,8 @@ export class MobileDeviceRegistry {
 
   issuePairing(): MobilePairingTicket {
     const code = this.createPairingCode();
-    if (!PAIRING_CODE_PATTERN.test(code)) throw new Error("Mobile pairing code generator returned an invalid value");
+    if (!PAIRING_CODE_PATTERN.test(code))
+      throw new Error("Mobile pairing code generator returned an invalid value");
     const expiresAtMs = this.now().getTime() + this.pairingTtlMs;
     this.pendingPairing = { digest: pairingDigest(code), expiresAtMs };
     return { code, expiresAt: new Date(expiresAtMs).toISOString() };
@@ -150,18 +150,22 @@ export class MobileDeviceRegistry {
     const pending = this.pendingPairing;
     const suppliedDigest = pairingDigest(input.code);
     const valid = Boolean(
-      pending
-      && this.now().getTime() <= pending.expiresAtMs
-      && pending.digest.length === suppliedDigest.length
-      && timingSafeEqual(pending.digest, suppliedDigest),
+      pending &&
+      this.now().getTime() <= pending.expiresAtMs &&
+      pending.digest.length === suppliedDigest.length &&
+      timingSafeEqual(pending.digest, suppliedDigest),
     );
     if (!valid) {
-      throw new MobileDeviceRegistryError("pairing_code_invalid", "Pairing code is invalid or expired");
+      throw new MobileDeviceRegistryError(
+        "pairing_code_invalid",
+        "Pairing code is invalid or expired",
+      );
     }
     this.pendingPairing = null;
 
     const accessToken = this.createAccessToken();
-    if (!ACCESS_TOKEN_PATTERN.test(accessToken)) throw new Error("Mobile access token generator returned an invalid value");
+    if (!ACCESS_TOKEN_PATTERN.test(accessToken))
+      throw new Error("Mobile access token generator returned an invalid value");
     const pairedAt = this.now().toISOString();
     try {
       const record = this.persistence.pairMobileDevice({
@@ -173,7 +177,9 @@ export class MobileDeviceRegistry {
       });
       return { accessToken, device: publicDevice(record) };
     } catch (error) {
-      throw new MobileDeviceRegistryError("entity_conflict", "Mobile device already exists", { cause: error });
+      throw new MobileDeviceRegistryError("entity_conflict", "Mobile device already exists", {
+        cause: error,
+      });
     }
   }
 
@@ -182,7 +188,7 @@ export class MobileDeviceRegistry {
     const record = this.persistence.findMobileDeviceByTokenHash(sha256(accessToken));
     if (!record || record.revokedAt) return null;
     this.persistence.touchMobileDevice(record.id, this.now().toISOString());
-    return { kind: "mobile_device", deviceId: record.id, scopes: effectiveScopes(record.scopes) };
+    return { kind: "mobile_device", deviceId: record.id, scopes: [...record.scopes] };
   }
 
   listDevices(): MobileDeviceRecord[] {

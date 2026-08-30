@@ -45,6 +45,7 @@ const MOBILE_DEVICE_SCOPES = Object.freeze([
   "mobile:task-write",
   "mobile:capture-write",
   "mobile:proposal-review",
+  "mobile:human-review",
 ]);
 
 const now = () => new Date().toISOString();

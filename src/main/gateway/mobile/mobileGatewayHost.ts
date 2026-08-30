@@ -17,10 +17,7 @@ import type {
   MobileGatewayResponse,
   MobileGatewayStatePort,
 } from "./mobileGatewayAdapter.ts";
-import {
-  MobileDeviceRegistry,
-  MobileDeviceRegistryError,
-} from "./mobileDeviceRegistry.ts";
+import { MobileDeviceRegistry, MobileDeviceRegistryError } from "./mobileDeviceRegistry.ts";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 48_177;
@@ -71,7 +68,12 @@ class MobileGatewayHostRequestError extends Error {
   }
 }
 
-function json(response: ServerResponse, status: number, body: unknown, headers: Readonly<Record<string, string>> = {}) {
+function json(
+  response: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Readonly<Record<string, string>> = {},
+) {
   const encoded = JSON.stringify(body);
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -91,7 +93,9 @@ function bearerToken(request: IncomingMessage): string {
 }
 
 function rateKey(value: string): string {
-  return createHash("sha256").update(value || "anonymous", "utf8").digest("hex");
+  return createHash("sha256")
+    .update(value || "anonymous", "utf8")
+    .digest("hex");
 }
 
 async function requestBody(request: IncomingMessage): Promise<unknown> {
@@ -126,6 +130,10 @@ function safeMessage(code: MobileErrorCode): string {
     entity_conflict: "同じ端末またはTask IDが既に存在します。",
     version_conflict: "Taskが更新されています。再読み込みして再試行してください。",
     proposal_conflict: "Proposalまたは対象Taskが更新されています。再読み込みしてください。",
+    work_review_task_conflict:
+      "Taskの作業状態が更新されています。再読み込みして最新の状態を確認してください。",
+    work_review_receipt_conflict:
+      "Work Receiptが更新されています。最新の報告を確認してから再実行してください。",
     capability_unavailable: "必要なTasken Core capabilityを利用できません。",
     upstream_unavailable: "Tasken Coreを利用できません。Desktopの状態を確認してください。",
     response_too_large: "requestまたはresponseが上限を超えました。",
@@ -185,7 +193,7 @@ export class MobileGatewayHost {
     this.server = null;
     if (!server) return;
     await new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
+      server.close((error) => (error ? reject(error) : resolve()));
       server.closeIdleConnections?.();
       server.closeAllConnections?.();
     });
@@ -233,7 +241,8 @@ export class MobileGatewayHost {
       error: {
         code,
         message: safeMessage(code),
-        retryable: code === "rate_limited" || code === "upstream_unavailable" || code === "internal_error",
+        retryable:
+          code === "rate_limited" || code === "upstream_unavailable" || code === "internal_error",
       },
     });
   }
@@ -256,7 +265,8 @@ export class MobileGatewayHost {
       if (path === TASKEN_MOBILE_ENDPOINTS.pair) {
         if (method !== "POST") throw new MobileGatewayHostRequestError("method_not_allowed");
         const pairKey = "pair:" + (request.socket.remoteAddress || "unknown");
-        if (!this.takeRate(pairKey, PAIR_REQUESTS_PER_WINDOW)) throw new MobileGatewayHostRequestError("rate_limited");
+        if (!this.takeRate(pairKey, PAIR_REQUESTS_PER_WINDOW))
+          throw new MobileGatewayHostRequestError("rate_limited");
         const parsed = mobilePairRequestSchema.safeParse(await requestBody(request));
         if (!parsed.success) throw new MobileGatewayHostRequestError("validation_failed");
         const result = this.options.devices.pair({
@@ -295,7 +305,8 @@ export class MobileGatewayHost {
       }
       const query: Record<string, string> = {};
       for (const [key, value] of url.searchParams) {
-        if (Object.prototype.hasOwnProperty.call(query, key)) throw new MobileGatewayHostRequestError("validation_failed");
+        if (Object.prototype.hasOwnProperty.call(query, key))
+          throw new MobileGatewayHostRequestError("validation_failed");
         query[key] = value;
       }
       const result: MobileGatewayResponse = await this.options.adapter.handle({
@@ -311,19 +322,31 @@ export class MobileGatewayHost {
       let code: MobileErrorCode = "internal_error";
       if (error instanceof MobileGatewayHostRequestError) code = error.code;
       if (error instanceof MobileDeviceRegistryError) code = error.code;
-      const status = code === "unauthorized" || code === "pairing_code_invalid" ? 401
-        : code === "forbidden" ? 403
-          : code === "not_found" || code === "theme_not_found" ? 404
-            : code === "method_not_allowed" ? 405
-              : code === "rate_limited" ? 429
-                : code === "entity_conflict" || code === "version_conflict" ? 409
-                  : code === "response_too_large" ? 413
-                    : code === "internal_error" ? 500
-                      : 400;
+      const status =
+        code === "unauthorized" || code === "pairing_code_invalid"
+          ? 401
+          : code === "forbidden"
+            ? 403
+            : code === "not_found" || code === "theme_not_found"
+              ? 404
+              : code === "method_not_allowed"
+                ? 405
+                : code === "rate_limited"
+                  ? 429
+                  : code === "entity_conflict" || code === "version_conflict"
+                    ? 409
+                    : code === "response_too_large"
+                      ? 413
+                      : code === "internal_error"
+                        ? 500
+                        : 400;
       this.record(method, path || "/", status, deviceId);
       if (code === "internal_error") {
         try {
-          this.options.logger?.warn({ id: this.latestRequest?.at || "unknown", location: "MobileGatewayHost.handle" });
+          this.options.logger?.warn({
+            id: this.latestRequest?.at || "unknown",
+            location: "MobileGatewayHost.handle",
+          });
         } catch {
           // Logging must not replace the sanitized API response.
         }

@@ -214,6 +214,7 @@ fun MobileTodayResponseDto.toResult(): MobileTodayResult.Available = MobileToday
     tasks = data.items.map {
         MobileTask(
             id = it.id.trim(),
+            version = it.version,
             title = it.title.trim(),
             themeId = it.themeId?.trim(),
             state = it.state,

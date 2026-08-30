@@ -40,7 +40,9 @@ const sourceMap: Record<TaskCommand["source"], ApplicationCommandSource> = {
 };
 
 function applicationSource(command: TaskCommand): ApplicationCommandSource {
-  return command.source === "desktop" && command.entrypoint ? command.entrypoint : sourceMap[command.source];
+  return command.source === "desktop" && command.entrypoint
+    ? command.entrypoint
+    : sourceMap[command.source];
 }
 
 function taskError(
@@ -62,11 +64,12 @@ function taskError(
 function structuredConflictReason(error: ApplicationCommandError): TaskConflictReason | undefined {
   const reason = error.details?.conflictReason;
   if (
-    reason === "command_fingerprint_mismatch"
-    || reason === "entity_already_exists"
-    || reason === "version_conflict"
-    || reason === "other_conflict"
-  ) return reason;
+    reason === "command_fingerprint_mismatch" ||
+    reason === "entity_already_exists" ||
+    reason === "version_conflict" ||
+    reason === "other_conflict"
+  )
+    return reason;
   if (error.code === "COMMAND_ID_REUSED") return "command_fingerprint_mismatch";
   if (error.code !== "CONFLICT") return undefined;
   return "other_conflict";
@@ -103,8 +106,11 @@ function expectedVersions(
   const versions: Array<{ type: "task" | "schedule"; id: string; version: number }> = [
     { type: "task", id: command.payload.task_id, version: command.payload.expected_version },
   ];
-  if (command.name === "UpdateTask" && command.payload.schedule_change?.expected_version !== null
-    && command.payload.schedule_change?.expected_version !== undefined) {
+  if (
+    command.name === "UpdateTask" &&
+    command.payload.schedule_change?.expected_version !== null &&
+    command.payload.schedule_change?.expected_version !== undefined
+  ) {
     versions.push({
       type: "schedule",
       id: String(currentSchedule?.id || command.command_id),
@@ -145,7 +151,11 @@ function materializedSchedule(
   };
 }
 
-function applicationEnvelope(command: TaskCommand, current: Entity | null, currentSchedule: Entity | null): CommandEnvelope {
+function applicationEnvelope(
+  command: TaskCommand,
+  current: Entity | null,
+  currentSchedule: Entity | null,
+): CommandEnvelope {
   const base = {
     commandId: command.command_id,
     name: command.name,
@@ -180,7 +190,9 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null, curre
       payload: {
         taskId: command.payload.task_id,
         completionNote: command.payload.completion_note,
-        ...(command.payload.changes ? { task: materializedTask(command, current, command.payload.changes) } : {}),
+        ...(command.payload.changes
+          ? { task: materializedTask(command, current, command.payload.changes) }
+          : {}),
       },
       expectedVersions: expectedVersions(command, currentSchedule),
     };
@@ -190,7 +202,31 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null, curre
       ...base,
       payload: {
         taskId: command.payload.task_id,
-        ...(command.payload.changes ? { task: materializedTask(command, current, command.payload.changes) } : {}),
+        ...(command.payload.changes
+          ? { task: materializedTask(command, current, command.payload.changes) }
+          : {}),
+      },
+      expectedVersions: expectedVersions(command, currentSchedule),
+    };
+  }
+  if (command.name === "AcceptTaskWork") {
+    return {
+      ...base,
+      payload: {
+        taskId: command.payload.task_id,
+        receiptId: command.payload.receipt_id,
+        completeTask: command.payload.complete_task,
+      },
+      expectedVersions: expectedVersions(command, currentSchedule),
+    };
+  }
+  if (command.name === "ReturnTaskWork") {
+    return {
+      ...base,
+      payload: {
+        taskId: command.payload.task_id,
+        receiptId: command.payload.receipt_id,
+        reviewNote: command.payload.review_note,
       },
       expectedVersions: expectedVersions(command, currentSchedule),
     };
@@ -202,14 +238,19 @@ function applicationEnvelope(command: TaskCommand, current: Entity | null, curre
   };
 }
 
-function eventSnapshot(event: Entity | undefined, field: "before_json" | "after_json"): Entity | null | undefined {
+function eventSnapshot(
+  event: Entity | undefined,
+  field: "before_json" | "after_json",
+): Entity | null | undefined {
   if (!event) return undefined;
   const serialized = event[field];
   if (serialized === null) return null;
   if (typeof serialized !== "string") return undefined;
   try {
     const parsed = JSON.parse(serialized) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Entity : undefined;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Entity)
+      : undefined;
   } catch {
     return undefined;
   }
@@ -219,7 +260,8 @@ function replayApplicationEnvelope(
   persistence: WorkspaceTaskPersistence,
   command: TaskCommand,
 ): CommandEnvelope | null {
-  const events = persistence.list("change_event", true)
+  const events = persistence
+    .list("change_event", true)
     .filter((event) => event.command_id === command.command_id);
   if (events.length === 0) return null;
 
@@ -231,28 +273,42 @@ function replayApplicationEnvelope(
 
   if (command.name === "CreateTask") return applicationEnvelope(command, null, null);
   if (!taskBefore || !Number.isInteger(taskBefore.version)) return null;
-  const replayCommand: TaskCommand = command.name === "UpdateTask"
-    ? {
-        ...command,
-        payload: {
-          ...command.payload,
-          expected_version: Number(taskBefore.version),
-          ...(command.payload.schedule_change
-            ? {
-                schedule_change: {
-                  ...command.payload.schedule_change,
-                  expected_version: scheduleBefore && Number.isInteger(scheduleBefore.version)
+  let replayCommand: TaskCommand;
+  if (command.name === "UpdateTask") {
+    replayCommand = {
+      ...command,
+      payload: {
+        ...command.payload,
+        expected_version: Number(taskBefore.version),
+        ...(command.payload.schedule_change
+          ? {
+              schedule_change: {
+                ...command.payload.schedule_change,
+                expected_version:
+                  scheduleBefore && Number.isInteger(scheduleBefore.version)
                     ? Number(scheduleBefore.version)
                     : null,
-                },
-              }
-            : {}),
-        },
-      }
-    : {
-        ...command,
-        payload: { ...command.payload, expected_version: Number(taskBefore.version) },
-      };
+              },
+            }
+          : {}),
+      },
+    };
+  } else if (command.name === "AcceptTaskWork") {
+    replayCommand = {
+      ...command,
+      payload: { ...command.payload, expected_version: Number(taskBefore.version) },
+    };
+  } else if (command.name === "ReturnTaskWork") {
+    replayCommand = {
+      ...command,
+      payload: { ...command.payload, expected_version: Number(taskBefore.version) },
+    };
+  } else {
+    replayCommand = {
+      ...command,
+      payload: { ...command.payload, expected_version: Number(taskBefore.version) },
+    };
+  }
   return applicationEnvelope(replayCommand, taskBefore, scheduleBefore || null);
 }
 
@@ -261,15 +317,20 @@ function mergeNonOverlappingUpdate(command: TaskCommand, current: Entity | null)
   if (Number(current.version) === command.payload.expected_version) return command;
   const changes = command.payload.changes;
   if (!changes) {
-    return { ...command, payload: { ...command.payload, expected_version: Number(current.version) } };
+    return {
+      ...command,
+      payload: { ...command.payload, expected_version: Number(current.version) },
+    };
   }
   if (!command.payload.base) return command;
   const canMerge = Object.keys(changes).every((key) => {
     const currentValue = current[key];
     const baseValue = command.payload.base?.[key as keyof typeof command.payload.base];
     const intendedValue = changes[key as keyof typeof changes];
-    return JSON.stringify(currentValue) === JSON.stringify(baseValue)
-      || JSON.stringify(currentValue) === JSON.stringify(intendedValue);
+    return (
+      JSON.stringify(currentValue) === JSON.stringify(baseValue) ||
+      JSON.stringify(currentValue) === JSON.stringify(intendedValue)
+    );
   });
   if (!canMerge) return command;
   return {
@@ -278,7 +339,11 @@ function mergeNonOverlappingUpdate(command: TaskCommand, current: Entity | null)
   };
 }
 
-function eventFor(command: TaskCommand, receipt: CommandReceipt, task: TaskReadModel): TaskEvent | null {
+function eventFor(
+  command: TaskCommand,
+  receipt: CommandReceipt,
+  task: TaskReadModel,
+): TaskEvent | null {
   if (receipt.status === "no_change") return null;
   const eventBase = {
     schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
@@ -289,11 +354,36 @@ function eventFor(command: TaskCommand, receipt: CommandReceipt, task: TaskReadM
     actor: command.actor,
     task,
   } as const;
-  if (command.name === "CreateTask") return taskEventSchema.parse({ ...eventBase, name: "TaskCreated" });
-  if (command.name === "CompleteTask") return taskEventSchema.parse({ ...eventBase, name: "TaskCompleted" });
-  if (command.name === "ReopenTask") return taskEventSchema.parse({ ...eventBase, name: "TaskReopened" });
+  if (command.name === "CreateTask")
+    return taskEventSchema.parse({ ...eventBase, name: "TaskCreated" });
+  if (
+    command.name === "CompleteTask" ||
+    (command.name === "AcceptTaskWork" && command.payload.complete_task)
+  ) {
+    return taskEventSchema.parse({ ...eventBase, name: "TaskCompleted" });
+  }
+  if (command.name === "ReopenTask")
+    return taskEventSchema.parse({ ...eventBase, name: "TaskReopened" });
   if (command.name === "DeleteTask") {
-    return taskEventSchema.parse({ ...eventBase, name: "TaskDeleted", deleted_at: task.deleted_at || command.issued_at });
+    return taskEventSchema.parse({
+      ...eventBase,
+      name: "TaskDeleted",
+      deleted_at: task.deleted_at || command.issued_at,
+    });
+  }
+  if (command.name === "AcceptTaskWork") {
+    return taskEventSchema.parse({
+      ...eventBase,
+      name: "TaskUpdated",
+      changed_fields: ["work_state"],
+    });
+  }
+  if (command.name === "ReturnTaskWork") {
+    return taskEventSchema.parse({
+      ...eventBase,
+      name: "TaskUpdated",
+      changed_fields: ["work_state", "work_review_note"],
+    });
   }
   return taskEventSchema.parse({
     ...eventBase,
@@ -307,14 +397,18 @@ function eventFor(command: TaskCommand, receipt: CommandReceipt, task: TaskReadM
 
 function mappedApplicationError(error: unknown): TaskError {
   if (error instanceof ApplicationCommandError) {
-    const code = error.code === "NOT_FOUND" || error.code === "CONFLICT" || error.code === "INVALID_TRANSITION"
-      ? error.code
-      : error.code === "COMMAND_ID_REUSED"
-        ? "CONFLICT"
-        : "INVALID_COMMAND";
+    const code =
+      error.code === "NOT_FOUND" || error.code === "CONFLICT" || error.code === "INVALID_TRANSITION"
+        ? error.code
+        : error.code === "COMMAND_ID_REUSED"
+          ? "CONFLICT"
+          : "INVALID_COMMAND";
     return taskError(code, error.message, error.details, structuredConflictReason(error));
   }
-  return taskError("INTERNAL_ERROR", "Task処理を完了できませんでした。再読み込みして再試行してください。");
+  return taskError(
+    "INTERNAL_ERROR",
+    "Task処理を完了できませんでした。再読み込みして再試行してください。",
+  );
 }
 
 /** Transport-neutral Task use-case entrypoint shared by IPC, HTTP, and MCP adapters. */
@@ -323,7 +417,10 @@ export class TaskCapabilityService {
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
   private readonly persistence: WorkspaceTaskPersistence;
 
-  constructor(persistence: WorkspaceTaskPersistence, executeApplicationCommand: ExecuteApplicationCommand) {
+  constructor(
+    persistence: WorkspaceTaskPersistence,
+    executeApplicationCommand: ExecuteApplicationCommand,
+  ) {
     this.persistence = persistence;
     this.queries = new TaskQueryHandler(new SqliteTaskRepository(persistence));
     this.executeApplicationCommand = executeApplicationCommand;
@@ -333,13 +430,15 @@ export class TaskCapabilityService {
     const parsed = parseTaskCommand(input);
     if (!parsed.ok) return parsed;
     let command = parsed.value;
-    const taskId = command.name === "CreateTask" ? command.payload.task.id : command.payload.task_id;
+    const taskId =
+      command.name === "CreateTask" ? command.payload.task.id : command.payload.task_id;
     try {
       const replayEnvelope = replayApplicationEnvelope(this.persistence, command);
       if (replayEnvelope) {
         const receipt = this.executeApplicationCommand(replayEnvelope);
-        const changed = receipt.changes.find((change) => change.type === "task")?.entity
-          || this.queries.getTask(taskId, true);
+        const changed =
+          receipt.changes.find((change) => change.type === "task")?.entity ||
+          this.queries.getTask(taskId, true);
         if (!changed) return { ok: false, error: taskError("NOT_FOUND", "Taskが見つかりません。") };
         const task = projectTask(changed, this.queries.getTaskSchedule(taskId));
         return {
@@ -355,12 +454,13 @@ export class TaskCapabilityService {
         };
       }
       const current = this.queries.getTask(taskId, true);
-      if (command.name === "UpdateTask" && !current) return { ok: false, error: taskError("NOT_FOUND", "更新対象のTaskがありません。") };
+      if (command.name === "UpdateTask" && !current)
+        return { ok: false, error: taskError("NOT_FOUND", "更新対象のTaskがありません。") };
       const currentSchedule = current ? this.queries.getTaskSchedule(taskId) : null;
       if (
-        command.name === "UpdateTask"
-        && command.payload.schedule_change
-        && (command.payload.schedule_change.base !== null) !== (currentSchedule !== null)
+        command.name === "UpdateTask" &&
+        command.payload.schedule_change &&
+        (command.payload.schedule_change.base !== null) !== (currentSchedule !== null)
       ) {
         return {
           ok: false,
@@ -373,7 +473,9 @@ export class TaskCapabilityService {
         };
       }
       command = mergeNonOverlappingUpdate(command, current);
-      const receipt = this.executeApplicationCommand(applicationEnvelope(command, current, currentSchedule));
+      const receipt = this.executeApplicationCommand(
+        applicationEnvelope(command, current, currentSchedule),
+      );
       if (receipt.status === "conflict") {
         const currentTask = this.queries.getTask(taskId, true);
         const latestSchedule = currentTask ? this.queries.getTaskSchedule(taskId) : null;
@@ -387,8 +489,9 @@ export class TaskCapabilityService {
           ),
         };
       }
-      const changed = receipt.changes.find((change) => change.type === "task")?.entity
-        || this.queries.getTask(taskId, true);
+      const changed =
+        receipt.changes.find((change) => change.type === "task")?.entity ||
+        this.queries.getTask(taskId, true);
       if (!changed) return { ok: false, error: taskError("NOT_FOUND", "Taskが見つかりません。") };
       const task = projectTask(changed, this.queries.getTaskSchedule(taskId));
       const outcome: TaskCommandOutcome = {
@@ -422,7 +525,10 @@ export class TaskCapabilityService {
       const result = this.query(parsed.value);
       return { ok: true, value: taskQueryResultSchema.parse(result) };
     } catch {
-      return { ok: false, error: taskError("INTERNAL_ERROR", "Taskを読み込めませんでした。再試行してください。") };
+      return {
+        ok: false,
+        error: taskError("INTERNAL_ERROR", "Taskを読み込めませんでした。再試行してください。"),
+      };
     }
   }
 
@@ -439,13 +545,19 @@ export class TaskCapabilityService {
 
     if (query.name === "ListTaskChanges") {
       const cursor = query.parameters.cursor || "";
-      const filtered = this.queries.listTasks(true)
-        .sort((left, right) => String(left.updated_at).localeCompare(String(right.updated_at)) || String(left.id).localeCompare(String(right.id)))
+      const filtered = this.queries
+        .listTasks(true)
+        .sort(
+          (left, right) =>
+            String(left.updated_at).localeCompare(String(right.updated_at)) ||
+            String(left.id).localeCompare(String(right.id)),
+        )
         .filter((task) => `${String(task.updated_at)}|${String(task.id)}` > cursor);
       const page = filtered.slice(0, query.parameters.limit);
-      const nextCursor = page.length > 0
-        ? `${String(page.at(-1)?.updated_at)}|${String(page.at(-1)?.id)}`
-        : query.parameters.cursor || null;
+      const nextCursor =
+        page.length > 0
+          ? `${String(page.at(-1)?.updated_at)}|${String(page.at(-1)?.id)}`
+          : query.parameters.cursor || null;
       return {
         schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
         query_id: query.query_id,
@@ -456,11 +568,25 @@ export class TaskCapabilityService {
       };
     }
 
-    const filtered = this.queries.listTasks(query.name === "ListTasks" ? query.parameters.include_deleted : false)
-      .filter((task) => query.parameters.project_id === undefined || task.project_id === query.parameters.project_id)
-      .filter((task) => !query.parameters.states?.length || query.parameters.states.includes(task.state as never))
-      .filter((task) => query.name !== "ListTodayTasks" || task.today_date === query.parameters.date)
-      .sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)) || String(left.id).localeCompare(String(right.id)));
+    const filtered = this.queries
+      .listTasks(query.name === "ListTasks" ? query.parameters.include_deleted : false)
+      .filter(
+        (task) =>
+          query.parameters.project_id === undefined ||
+          task.project_id === query.parameters.project_id,
+      )
+      .filter(
+        (task) =>
+          !query.parameters.states?.length || query.parameters.states.includes(task.state as never),
+      )
+      .filter(
+        (task) => query.name !== "ListTodayTasks" || task.today_date === query.parameters.date,
+      )
+      .sort(
+        (left, right) =>
+          String(right.updated_at).localeCompare(String(left.updated_at)) ||
+          String(left.id).localeCompare(String(right.id)),
+      );
     const cursorIndex = query.parameters.cursor
       ? filtered.findIndex((task) => task.id === query.parameters.cursor)
       : -1;

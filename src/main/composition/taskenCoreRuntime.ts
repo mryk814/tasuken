@@ -142,6 +142,7 @@ export class TaskenCoreRuntime {
           this.persistence.list("work_receipt", false).map((receipt) => ({
             id: String(receipt.id || ""),
             taskId: String(receipt.task_id || ""),
+            version: Number(receipt.version || 0),
             reportedAt: String(receipt.reported_at || ""),
             executorLabel: String(receipt.executor_label || ""),
             summary: String(receipt.summary || ""),
@@ -152,6 +153,7 @@ export class TaskenCoreRuntime {
           return {
             id: String(receipt.id || ""),
             taskId: String(receipt.task_id || ""),
+            version: Number(receipt.version || 0),
             executorKind: String(receipt.executor_kind || "unknown"),
             executorLabel: String(receipt.executor_label || ""),
             startedAt: receipt.started_at ? String(receipt.started_at) : null,

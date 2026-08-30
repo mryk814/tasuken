@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -179,7 +180,7 @@ class CaptureThemePickerUiTest {
         composeRule.onNodeWithTag("capture-kind-capture").performClick()
 
         composeRule.runOnIdle { assertEquals(MobileCaptureKind.Capture, selectedKind.value) }
-        composeRule.onNodeWithText("思いついたことをそのまま").assertExists()
+        composeRule.onNodeWithTag("capture-kind-capture").assertIsSelected()
     }
 
     @Test
