@@ -69,7 +69,6 @@
         "src/main/services/screenRecordingGrantRegistry.mjs",
         "src/main/services/themeAiPackPublisher.mjs",
         "src/shared/activityProjection.mjs",
-        "src/shared/activityRootRegistry.mjs",
         "src/shared/aiContextPreview.mjs",
         "src/shared/aiMetadata.mjs",
         "src/shared/batchTranscription.mjs",

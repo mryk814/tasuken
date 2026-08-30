@@ -21,7 +21,6 @@
     "contract.parallel_mjs_declaration|src/main/services/screenRecordingGrantRegistry.mjs|src/main/services/screenRecordingGrantRegistry.d.mts",
     "contract.parallel_mjs_declaration|src/main/services/themeAiPackPublisher.mjs|src/main/services/themeAiPackPublisher.d.mts",
     "contract.parallel_mjs_declaration|src/shared/activityProjection.mjs|src/shared/activityProjection.d.mts",
-    "contract.parallel_mjs_declaration|src/shared/activityRootRegistry.mjs|src/shared/activityRootRegistry.d.mts",
     "contract.parallel_mjs_declaration|src/shared/aiContextPreview.mjs|src/shared/aiContextPreview.d.mts",
     "contract.parallel_mjs_declaration|src/shared/aiMetadata.mjs|src/shared/aiMetadata.d.mts",
     "contract.parallel_mjs_declaration|src/shared/batchTranscription.mjs|src/shared/batchTranscription.d.mts",

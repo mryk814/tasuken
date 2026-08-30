@@ -14,6 +14,8 @@ import {
   queryActivityEvents,
 } from "../src/shared/activityProjection.mjs";
 import {
+  ACTIVITY_ARTIFACT_ROOT_ID,
+  ACTIVITY_SYNC_ROOT_ID,
   buildActivityRootRegistry,
   publicActivityRootStatus,
 } from "../src/shared/activityRootRegistry.mjs";
@@ -495,6 +497,41 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
   ]) {
     assert.equal(serialized.includes(secret), false, secret);
   }
+});
+
+test("activity root registry keeps stable IDs and reports unavailable roots without paths", () => {
+  assert.equal(ACTIVITY_SYNC_ROOT_ID, "sync");
+  assert.equal(ACTIVITY_ARTIFACT_ROOT_ID, "artifact-directory");
+  assert.deepEqual(buildActivityRootRegistry(), {});
+  assert.deepEqual(publicActivityRootStatus(), {});
+  const roots = buildActivityRootRegistry({
+    artifactDirectory: " C:/activity-common ",
+    themes: [
+      { id: "alpha", storage_root: " D:/activity-alpha " },
+      { id: "beta" },
+      { id: " " },
+    ],
+  });
+  assert.deepEqual(roots, {
+    sync: "C:/activity-common",
+    "artifact-directory": "C:/activity-common",
+    "tasken-sync": "C:/activity-common",
+    alpha: "D:/activity-alpha",
+    "theme:alpha": "D:/activity-alpha",
+    beta: "C:/activity-common",
+    "theme:beta": "C:/activity-common",
+  });
+  assert.deepEqual(publicActivityRootStatus(
+    { available: "C:/ready", missing: "C:/missing", inaccessible: "C:/inaccessible" },
+    (root) => {
+      if (root === "C:/inaccessible") throw new Error("root unavailable");
+      return root === "C:/ready";
+    },
+  ), {
+    available: { status: "ok" },
+    missing: { status: "broken" },
+    inaccessible: { status: "broken" },
+  });
 });
 
 test("canonical root identity survives root changes and public status never exposes paths", () => {
