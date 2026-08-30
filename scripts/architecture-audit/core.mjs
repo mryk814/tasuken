@@ -315,7 +315,7 @@ function inspectImport(edge, sourceModule, targetModule, policy) {
       edge.source,
       edge.line,
       edge.target,
-      "Main application code imports Electron directly.",
+      "Main application/Core code imports Electron directly.",
       "Depend on a port and provide its Electron implementation from the composition root.",
     ));
   }
