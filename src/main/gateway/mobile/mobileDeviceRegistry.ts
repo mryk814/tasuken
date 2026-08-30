@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 
 import type { MobilePrincipal } from "./mobileGatewayAdapter.ts";
-import type { MobileScope } from "../../../shared/contracts/mobile/public.ts";
+import { TASKEN_MOBILE_SCOPES, type MobileScope } from "../../../shared/contracts/mobile/public.ts";
 
 const ACCESS_TOKEN_BYTES = 32;
 const ACCESS_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -9,12 +9,12 @@ const PAIRING_CODE_PATTERN = /^\d{8}$/;
 const DEFAULT_PAIRING_TTL_MS = 5 * 60 * 1_000;
 
 export const MOBILE_DEVICE_DEFAULT_SCOPES = Object.freeze([
-  "mobile:read",
-  "mobile:context-read",
-  "mobile:task-write",
-  "mobile:capture-write",
-  "mobile:proposal-review",
-  "mobile:human-review",
+  TASKEN_MOBILE_SCOPES.read,
+  TASKEN_MOBILE_SCOPES.contextRead,
+  TASKEN_MOBILE_SCOPES.taskWrite,
+  TASKEN_MOBILE_SCOPES.captureWrite,
+  TASKEN_MOBILE_SCOPES.proposalReview,
+  TASKEN_MOBILE_SCOPES.humanReview,
 ] satisfies MobileScope[]);
 
 export interface MobileDeviceRecord {
@@ -162,8 +162,6 @@ export class MobileDeviceRegistry {
         "Pairing code is invalid or expired",
       );
     }
-    this.pendingPairing = null;
-
     const accessToken = this.createAccessToken();
     if (!ACCESS_TOKEN_PATTERN.test(accessToken))
       throw new Error("Mobile access token generator returned an invalid value");
@@ -176,6 +174,7 @@ export class MobileDeviceRegistry {
         scopes: [...MOBILE_DEVICE_DEFAULT_SCOPES],
         pairedAt,
       });
+      this.pendingPairing = null;
       return { accessToken, device: publicDevice(record) };
     } catch (error) {
       throw new MobileDeviceRegistryError("entity_conflict", "Mobile device already exists", {

@@ -38,15 +38,10 @@ import {
   normalizeReferenceAssertion,
   referenceAssertionIdentity,
 } from "../../shared/relationAssertion.mjs";
+import { TASKEN_MOBILE_SCOPES } from "../../shared/contracts/mobile/public.mjs";
 
 const SCHEMA_VERSION = 6;
-const MOBILE_DEVICE_SCOPES = Object.freeze([
-  "mobile:read",
-  "mobile:task-write",
-  "mobile:capture-write",
-  "mobile:proposal-review",
-  "mobile:human-review",
-]);
+const MOBILE_DEVICE_SCOPES = Object.freeze(Object.values(TASKEN_MOBILE_SCOPES));
 
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();

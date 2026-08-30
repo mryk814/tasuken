@@ -24,6 +24,7 @@ import {
   TASKEN_MOBILE_API_VERSION,
   TASKEN_MOBILE_CAPABILITIES,
   TASKEN_MOBILE_MAX_ITEMS,
+  TASKEN_MOBILE_SCOPES,
   TASKEN_MOBILE_SCHEMA_VERSION,
   parseTaskLocator,
 } from "./public.mjs";
@@ -111,12 +112,12 @@ export const mobileCapabilitySchema = z.enum([
 ]);
 
 export const mobileScopeSchema = z.enum([
-  "mobile:read",
-  "mobile:task-write",
-  "mobile:capture-write",
-  "mobile:proposal-review",
-  "mobile:human-review",
-  "mobile:context-read",
+  TASKEN_MOBILE_SCOPES.read,
+  TASKEN_MOBILE_SCOPES.contextRead,
+  TASKEN_MOBILE_SCOPES.taskWrite,
+  TASKEN_MOBILE_SCOPES.captureWrite,
+  TASKEN_MOBILE_SCOPES.proposalReview,
+  TASKEN_MOBILE_SCOPES.humanReview,
 ]);
 
 export const mobileResponseMetaSchema = z

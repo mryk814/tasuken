@@ -4,6 +4,15 @@ export const TASKEN_MOBILE_MAX_ITEMS = 50;
 export const TASKEN_MOBILE_MAX_RESPONSE_BYTES = 256 * 1024;
 export const TASKEN_MOBILE_CLIENT_TIMEOUT_MS = 5_000;
 
+export const TASKEN_MOBILE_SCOPES = Object.freeze({
+  read: "mobile:read",
+  contextRead: "mobile:context-read",
+  taskWrite: "mobile:task-write",
+  captureWrite: "mobile:capture-write",
+  proposalReview: "mobile:proposal-review",
+  humanReview: "mobile:human-review",
+});
+
 const TASK_LOCATOR_PREFIX = "tasken://task/";
 
 function isWellFormedUnicode(value) {

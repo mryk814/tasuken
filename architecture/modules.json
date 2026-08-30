@@ -28,7 +28,7 @@
     "main.transport": ["main.application", "main.task", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.application": ["main.task", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.core": ["shared", "shared.kernel", "shared.contracts.task"],
-    "main.infrastructure": ["main.task", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.infrastructure": ["main.task", "shared", "shared.kernel", "shared.contracts.mobile", "shared.contracts.task", "shared.ipc"],
     "main.task": ["shared", "shared.kernel", "shared.contracts.task"],
     "main.mcp": ["shared", "shared.kernel", "shared.contracts.core", "shared.contracts.mobile", "shared.contracts.task", "shared.ipc"],
     "main.mobile": ["shared", "shared.kernel", "shared.contracts.core", "shared.contracts.mobile", "shared.contracts.task"],

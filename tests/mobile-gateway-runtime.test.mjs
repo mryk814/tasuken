@@ -169,6 +169,36 @@ test("mobile pairing persists only a token hash and revocation survives restart"
   }
 });
 
+test("pairing ticket remains retryable when persistence fails before commit", () => {
+  class FlakyMobileDevicePersistence extends MemoryMobileDevicePersistence {
+    attempts = 0;
+
+    pairMobileDevice(input) {
+      this.attempts += 1;
+      if (this.attempts === 1) throw new Error("temporary persistence failure");
+      return super.pairMobileDevice(input);
+    }
+  }
+
+  const persistence = new FlakyMobileDevicePersistence();
+  const registry = new MobileDeviceRegistry({
+    persistence,
+    now: () => new Date(fixedNow),
+    createPairingCode: () => "12345678",
+    createAccessToken: () => fixedToken,
+  });
+  const ticket = registry.issuePairing();
+  const input = {
+    code: ticket.code,
+    deviceId: "device-retry",
+    deviceLabel: "Retry fixture",
+  };
+
+  assert.throws(() => registry.pair(input));
+  assert.equal(registry.pair(input).accessToken, fixedToken);
+  assert.equal(persistence.attempts, 2);
+});
+
 test("revoked mobile devices can pair again with the same stable Android id", () => {
   const persistence = new MemoryMobileDevicePersistence();
   try {
