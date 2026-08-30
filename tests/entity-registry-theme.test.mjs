@@ -18,6 +18,7 @@ import { diagnoseWorkspaceRawRecord } from "../src/shared/entityDiagnostics.mjs"
 import {
   PERSONAL_DEFAULT_THEME_ID,
   canonicalThemeId,
+  isPersonalDefaultThemeId,
   resolveThemeRef,
   themePickerOptions,
 } from "../src/shared/themeRef.mjs";
@@ -117,6 +118,8 @@ test("ThemeRefはpersonal defaultとThemeなしを別のcanonical値として扱
   assert.equal(canonicalThemeId(null), null);
   assert.equal(canonicalThemeId(""), null);
   assert.equal(canonicalThemeId(null, { defaultPersonal: true }), PERSONAL_DEFAULT_THEME_ID);
+  assert.equal(isPersonalDefaultThemeId(PERSONAL_DEFAULT_THEME_ID), true);
+  assert.equal(isPersonalDefaultThemeId("theme-a"), false);
   assert.equal(resolveThemeRef([], null, { legacyNullMeansPersonal: true }).id, PERSONAL_DEFAULT_THEME_ID);
   assert.equal(resolveThemeRef([], null).id, null);
   assert.deepEqual(themePickerOptions([{ id: PERSONAL_DEFAULT_THEME_ID, name: "個人業務" }, { id: "theme-a", name: "A" }], { allowNone: true }), [
