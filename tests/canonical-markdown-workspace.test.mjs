@@ -926,16 +926,61 @@ test("外部変更時はdraftをDBへ保持してconflictにし、明示overwrit
     assert.equal(canonicalBinding(conflicted).sync_state, "conflict");
 
     const overwritten = service.saveCanonicalNote(
-      saveRequest(fixture.database.get("note", "note-conflict"), "Tasken overwrite", {
+      saveRequest(fixture.database.get("note", "note-conflict"), "Tasken draft", {
         canonicalMarkdown: "overwrite",
       }),
     );
+    assert.equal(overwritten.body_markdown, conflicted.body_markdown);
     assert.equal(canonicalBinding(overwritten).sync_state, "in_sync");
     assert.equal(readFileSync(filePath, "utf8"), canonicalContent(overwritten));
     assert.equal(
       canonicalBinding(overwritten).file_signature,
       markdownSignature(readFileSync(filePath, "utf8")),
     );
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("正本Markdownの保存先復旧後は本文を変更せず再試行して同一pathへ同期する", () => {
+  const fixture = createFixture("tasken-canonical-retry");
+  try {
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    fixture.database.save("note", {
+      id: "note-retry",
+      title: "Retry",
+      body_markdown: "初期本文",
+    });
+    const first = service.saveCanonicalNote(
+      saveRequest(fixture.database.get("note", "note-retry"), "保存済み本文"),
+    );
+    const filePath = canonicalBinding(first).canonical_path;
+    assert.ok(filePath.startsWith(`${fixture.syncRoot}${path.sep}`));
+    const backupPath = `${filePath}.fixture-backup`;
+    fs.renameSync(filePath, backupPath);
+    fs.mkdirSync(filePath);
+
+    const unavailable = service.saveCanonicalNote(
+      saveRequest(first, "Markdownだけ未同期の本文"),
+    );
+    assert.equal(unavailable.body_markdown, "Markdownだけ未同期の本文");
+    assert.equal(canonicalBinding(unavailable).sync_state, "unavailable");
+    assert.equal(
+      fixture.database.get("note", "note-retry").body_markdown,
+      unavailable.body_markdown,
+    );
+
+    fs.rmdirSync(filePath);
+    fs.renameSync(backupPath, filePath);
+    const retried = service.saveCanonicalNote(
+      saveRequest(unavailable, unavailable.body_markdown),
+    );
+    assert.equal(retried.body_markdown, unavailable.body_markdown);
+    assert.equal(canonicalBinding(retried).canonical_path, filePath);
+    assert.equal(canonicalBinding(retried).sync_state, "in_sync");
+    assert.equal(readFileSync(filePath, "utf8"), canonicalContent(retried));
+    assert.equal(canonicalBinding(retried).last_synced_revision, retried.version);
+    assert.equal(fixture.database.list("artifact").length, 0);
   } finally {
     closeFixture(fixture);
   }
