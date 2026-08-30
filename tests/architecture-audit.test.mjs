@@ -33,6 +33,13 @@ const policy = {
       publicEntrypoints: ["src/renderer/features/tasks/public.ts"],
       allowedDependencies: ["renderer.notes"],
     },
+    {
+      id: "main.core.fixture",
+      root: "src/main/core",
+      kind: "main-core",
+      publicEntrypoints: [],
+      allowedDependencies: [],
+    },
   ],
   compositionRoots: [],
   capabilities: { rendererAdapterPaths: [], ipcRegistrarPaths: [] },
@@ -318,6 +325,174 @@ test("Task enforcement profile is blocking and clean without changing global rep
   } finally {
     rmSync(output, { recursive: true, force: true });
   }
+});
+
+test("Core and MCP enforcement profile is blocking and clean", () => {
+  const output = mkdtempSync(path.join(os.tmpdir(), "tasken-architecture-core-mcp-enforced-"));
+  try {
+    const manifest = JSON.parse(readFileSync("architecture/modules.json", "utf8"));
+    const profile = manifest.enforcement.profiles["core-mcp"];
+    assert.deepEqual(profile.modules, [
+      "shared.kernel",
+      "shared.contracts.core",
+      "shared.contracts.mobile",
+      "main.core",
+      "main.mcp",
+      "main.mobile",
+    ]);
+    assert.equal(profile.blockingRules.includes("module.public_api_bypass"), true);
+    assert.equal(profile.blockingRules.includes("contract.parallel_mjs_declaration"), true);
+    assert.equal(profile.blockingRules.includes("contract.unsafe_boundary_cast"), true);
+    assert.equal(profile.blockingRules.includes("main.transport_repository_import"), true);
+    assert.equal(
+      profile.blockingRules.includes("capability.ipc_registration_outside_manifest"),
+      true,
+    );
+    assert.deepEqual(manifest.modules.find((entry) => entry.id === "main.mcp")?.publicEntrypoints, [
+      "src/main/mcp/agentSessionHookCollector.mjs",
+      "src/main/mcp/server.mjs",
+      "src/main/mcp/taskenCoreClient.mjs",
+    ]);
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/audit-architecture.mjs",
+        "--enforce",
+        "core-mcp",
+        "--format=json",
+        "--output-dir",
+        output,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.mode, "enforced:core-mcp");
+    assert.equal(report.summary.blockingFindings, 0);
+    assert.deepEqual(
+      report.modules
+        .filter((entry) =>
+          [
+            "shared.kernel",
+            "shared.contracts.core",
+            "shared.contracts.mobile",
+            "main.core",
+            "main.mcp",
+            "main.mobile",
+          ].includes(entry.id),
+        )
+        .map((entry) => [entry.id, entry.status]),
+      [
+        ["main.core", "enforced"],
+        ["main.mcp", "enforced"],
+        ["main.mobile", "enforced"],
+        ["shared.contracts.core", "enforced"],
+        ["shared.contracts.mobile", "enforced"],
+        ["shared.kernel", "enforced"],
+      ],
+    );
+    assert.match(
+      readFileSync(path.join(output, "report.md"), "utf8"),
+      /Rollout: enforced:core-mcp/,
+    );
+  } finally {
+    rmSync(output, { recursive: true, force: true });
+  }
+});
+
+test("Core and MCP enforcement blocks MCP private imports, mobile repositories, and unsafe contracts", () => {
+  const report = analyze({
+    policy: {
+      ...policy,
+      modules: [
+        ...policy.modules,
+        {
+          id: "main.mcp.fixture",
+          root: "src/main/mcp",
+          kind: "main-transport",
+          publicEntrypoints: ["src/main/mcp/public.ts"],
+          allowedDependencies: [],
+          enforcePublicApi: true,
+        },
+        {
+          id: "main.mobile.fixture",
+          root: "src/main/mobile",
+          kind: "main-transport",
+          publicEntrypoints: [],
+          allowedDependencies: ["main.infrastructure.fixture"],
+        },
+        {
+          id: "main.infrastructure.fixture",
+          root: "src/main/infrastructure",
+          kind: "main-infrastructure",
+          publicEntrypoints: [],
+          allowedDependencies: [],
+        },
+        {
+          id: "shared.contracts.core.fixture",
+          root: "src/shared/contracts/core",
+          kind: "shared-contract",
+          publicEntrypoints: [],
+          allowedDependencies: [],
+        },
+      ],
+    },
+    enforcement: {
+      id: "core-mcp",
+      modules: [
+        "main.mcp.fixture",
+        "main.core.fixture",
+        "main.mobile.fixture",
+        "main.infrastructure.fixture",
+        "shared.contracts.core.fixture",
+      ],
+      blockingRules: [
+        "module.public_api_bypass",
+        "main.transport_repository_import",
+        "contract.unsafe_boundary_cast",
+      ],
+      globalRules: [],
+    },
+  });
+  const expectedFindings = [
+    ["src/main/core/platform-import.ts", "module.public_api_bypass"],
+    ["src/main/mcp/private.ts", "main.transport_repository_import"],
+    ["src/main/mobile/transport.ts", "main.transport_repository_import"],
+    ["src/shared/contracts/core/unsafe.ts", "contract.unsafe_boundary_cast"],
+  ];
+  for (const [source, ruleId] of expectedFindings) {
+    const finding = report.findings.find(
+      (entry) => entry.source === source && entry.ruleId === ruleId,
+    );
+    assert.equal(finding?.severity, "blocking", `${source} should block ${ruleId}`);
+  }
+});
+
+test("Core and MCP enforcement blocks Electron imports and unregistered IPC", () => {
+  const report = analyze({
+    enforcement: {
+      id: "core-mcp",
+      modules: ["main.core.fixture"],
+      blockingRules: [
+        "main.application_platform_import",
+        "capability.ipc_registration_outside_manifest",
+      ],
+      globalRules: [],
+    },
+  });
+  const finding = report.findings.find(
+    (entry) =>
+      entry.source === "src/main/core/platform-import.ts" &&
+      entry.ruleId === "main.application_platform_import",
+  );
+  assert.equal(finding?.severity, "blocking");
+  assert.match(finding?.alternative || "", /port/);
+  const ipcFinding = report.findings.find(
+    (entry) =>
+      entry.source === "src/main/core/platform-import.ts" &&
+      entry.ruleId === "capability.ipc_registration_outside_manifest",
+  );
+  assert.equal(ipcFinding?.severity, "blocking");
 });
 
 test("Task enforcement blocks malformed suppression debt records", () => {

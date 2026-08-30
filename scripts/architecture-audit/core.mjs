@@ -308,13 +308,14 @@ function inspectImport(edge, sourceModule, targetModule, policy) {
       ));
     }
   }
-  if (sourceModule?.kind === "main-application" && matchesExternal(edge.target, ["electron"])) {
+  if (["main-application", "main-core"].includes(sourceModule?.kind)
+      && matchesExternal(edge.target, ["electron"])) {
     findings.push(finding(
       "main.application_platform_import",
       edge.source,
       edge.line,
       edge.target,
-      "Main application code imports Electron directly.",
+      "Main application/Core code imports Electron directly.",
       "Depend on a port and provide its Electron implementation from the composition root.",
     ));
   }
