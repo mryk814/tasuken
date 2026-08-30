@@ -230,6 +230,14 @@ function recordBody(record: Combined): string {
   return str(record.body_markdown);
 }
 
+function needsCanonicalMarkdownRetry(record: Combined | null): boolean {
+  if (record?.recordType !== "note") return false;
+  const binding = canonicalMarkdownBindingFromProperties(record.properties_json, {
+    noteId: record.id,
+  });
+  return Boolean(binding && binding.sync_state !== "in_sync");
+}
+
 function recordBodyPreview(record: Combined, limit = 180): string {
   return compactNotesBodyPreview(recordBody(record), limit);
 }
@@ -501,13 +509,16 @@ export function NotesPage({
   } | null {
     if (!selected || !selectedOwner) return null;
     const body = currentDraftBodyForSelected();
+    const base = selectedBodyRef.current;
     return {
       selected,
       snapshot: makeNoteDraftSnapshot(
         selectedOwner,
         body,
         selectedBody,
-        Number(selected.version || 0),
+        base && sameNoteDraftOwner(base.owner, selectedOwner)
+          ? base.expectedRevision
+          : Number(selected.version || 0),
       ),
     };
   }
@@ -915,6 +926,22 @@ export function NotesPage({
 
   useEffect(() => {
     const previous = autosaveRef.current;
+    const previousSaved = selectedBodyRef.current;
+    const liveBody = currentDraftBodyForSelected();
+    const queue = selectedOwnerKey ? draftSaveQueuesRef.current.get(selectedOwnerKey) : null;
+    const ownSaveCompleted = Boolean(
+      queue &&
+      queue.lastSavedRevision === Number(selected?.version || 0) &&
+      queue.lastSavedBody === selectedBody,
+    );
+    const differsFromInFlight = Boolean(
+      queue?.current && liveBody !== queue.current.request.snapshot.body,
+    );
+    const keepPendingDraft = Boolean(
+      sameNoteDraftOwner(previousSaved?.owner, selectedOwner) &&
+      (liveBody !== previousSaved?.body || differsFromInFlight) &&
+      liveBody !== selectedBody,
+    );
     if (
       previous &&
       (!selectedOwnerKey || noteDraftOwnerKey(previous.snapshot.owner) !== selectedOwnerKey)
@@ -925,24 +952,29 @@ export function NotesPage({
       }
       void flushDraftSnapshot(previous);
     }
-    selectedBodyRef.current = selectedOwner
-      ? makeNoteDraftSnapshot(
-          selectedOwner,
-          selectedBody,
-          selectedBody,
-          Number(selected?.version || 0),
-        )
-      : null;
+    // 本文が同じmetadata更新は、編集中の本文を変えず新しいrevisionへ接続できる。
+    if (!keepPendingDraft || ownSaveCompleted || previousSaved?.body === selectedBody) {
+      selectedBodyRef.current = selectedOwner
+        ? makeNoteDraftSnapshot(
+            selectedOwner,
+            selectedBody,
+            selectedBody,
+            Number(selected?.version || 0),
+          )
+        : null;
+    }
     setDraftOwner(selectedOwner);
-    setDraftBodyState(normalizeRichEditorMarkdown(selectedBody));
-    setIndexedDraftBody(normalizeRichEditorMarkdown(selectedBody));
-    setRichEditorDirty(false);
+    // 保存応答はbaseだけを進める。応答を待つ間に入力された同ownerの本文は残す。
+    const nextDraftBody = normalizeRichEditorMarkdown(keepPendingDraft ? liveBody : selectedBody);
+    setDraftBodyState(nextDraftBody);
+    setIndexedDraftBody(nextDraftBody);
+    setRichEditorDirty(keepPendingDraft);
     setDraftState("");
     setDiffOpen(false);
     setSearchIndex(0);
     setAutoLinked(null);
     setRecentExtraction(null);
-  }, [selectedOwnerKey, selectedBody]);
+  }, [selectedOwnerKey, selectedBody, selected?.version]);
 
   ctxRef.current = {
     selected,
@@ -1002,6 +1034,7 @@ export function NotesPage({
     if (!written) return "pending";
     return written === markdownSignature(currentDraftBody() || selectedBody) ? "synced" : "pending";
   })();
+  const canSaveSelectedDraft = draftDirty || needsCanonicalMarkdownRetry(selected);
 
   /**
    * 保存状態（#331）。一時messageが無くても「いまどうなっているか」を必ず言う。
@@ -1041,7 +1074,12 @@ export function NotesPage({
     const expectedOwner = noteDraftOwner(previous.recordType, previous.id);
     if (!sameNoteDraftOwner(snapshot.owner, expectedOwner)) return "none";
     const body = snapshot.body;
-    if (body === recordBody(previous) && Object.keys(entityPatch).length === 0) return "none";
+    if (
+      body === recordBody(previous) &&
+      Object.keys(entityPatch).length === 0 &&
+      !needsCanonicalMarkdownRetry(previous)
+    )
+      return "none";
     // Note は本文必須。Resource は空メモも許す（リンクを見ながらの下書き）。
     if (previous.recordType === "note" && !body.trim()) return "none";
     // Theme選択など別の保存経路が先に完了しても、古いselected行で本文保存が
@@ -1085,8 +1123,11 @@ export function NotesPage({
       sameNoteDraftOwner(currentDraft.snapshot.owner, snapshot.owner) &&
       currentDraft.snapshot.body === body,
     );
+    if (selectedOwnerKeyRef.current === ownerKey) {
+      // 自分の保存成功で確定したbaseだけを進める。別writerの更新には追従しない。
+      selectedBodyRef.current = makeNoteDraftSnapshot(snapshot.owner, body, body, nextRevision);
+    }
     if (selectedOwnerKeyRef.current === ownerKey && stillEditingSavedSnapshot) {
-      selectedBodyRef.current = snapshot;
       autosaveRef.current = {
         selected: { ...previous, ...saved, recordType: previous.recordType },
         snapshot: makeNoteDraftSnapshot(snapshot.owner, body, body, nextRevision),
@@ -1196,7 +1237,8 @@ export function NotesPage({
     options: SaveOptions = {},
   ): Promise<DraftSaveResult> {
     cancelAutosaveTimer();
-    if (!snapshot?.snapshot.dirty) return { ok: true, fileState: "none" };
+    if (!snapshot || (!snapshot.snapshot.dirty && !needsCanonicalMarkdownRetry(snapshot.selected)))
+      return { ok: true, fileState: "none" };
     const ownerKey = noteDraftOwnerKey(snapshot.snapshot.owner);
     const first = await saveQueuedDraft(snapshot, options);
     if (!first.ok) return first;
@@ -1338,32 +1380,7 @@ export function NotesPage({
       if ((event.ctrlKey || event.metaKey) && event.key === "s") {
         event.preventDefault();
         cancelAutosaveTimer();
-        const request = captureCurrentDraftSnapshot();
-        const s = request?.selected;
-        const body = request?.snapshot.body || "";
-        if (request?.snapshot.dirty && s) {
-          if (s.recordType === "note" && !body.trim()) {
-            setDraftState("本文を空にしたままでは保存できません。内容を入力してください。");
-            return;
-          }
-          setDraftState("保存しています。");
-          const overwrite =
-            canonicalFileState === "external_change" &&
-            window.confirm("Markdownが外部で変更されています。Taskenの本文で上書きしますか。");
-          flushDraftSnapshot(request, overwrite ? { canonicalMarkdown: "overwrite" } : {})
-            .then((result) => {
-              if (!result.ok) {
-                setDraftState("保存できませんでした。入力は保持しています。再試行してください。");
-                return;
-              }
-              setDraftState(
-                noteSaveStateLabel({ internalSaved: true, fileState: result.fileState }),
-              );
-            })
-            .catch((error: unknown) =>
-              setDraftState(error instanceof Error ? error.message : "保存できませんでした。"),
-            );
-        }
+        void commandActionsRef.current.save();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -1767,7 +1784,8 @@ export function NotesPage({
   async function saveSelectedDraft() {
     const request = captureCurrentDraftSnapshot();
     const body = request?.snapshot.body || "";
-    if (!request || !request.snapshot.dirty) return;
+    if (!request || (!request.snapshot.dirty && !needsCanonicalMarkdownRetry(request.selected)))
+      return;
     const { selected: current } = request;
     if (current.recordType === "note" && !body.trim()) {
       setDraftState("本文を空にしたままでは保存できません。内容を入力してください。");
@@ -2679,7 +2697,7 @@ export function NotesPage({
                   <ActionButton
                     action="notesSave"
                     compact
-                    disabled={!draftDirty}
+                    disabled={!canSaveSelectedDraft}
                     onClick={saveSelectedDraft}
                   />
                   <ToolbarMenu
