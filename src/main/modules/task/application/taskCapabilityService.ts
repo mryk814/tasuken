@@ -90,7 +90,7 @@ function projectSchedule(entity: Entity | null): TaskScheduleReadModel | null {
   });
 }
 
-function projectTask(entity: Entity, schedule: Entity | null): TaskReadModel {
+export function projectTaskReadModel(entity: Entity, schedule: Entity | null): TaskReadModel {
   const projection = Object.fromEntries(
     Object.keys(taskReadModelSchema.shape)
       .filter((key) => key !== "schedule" && Object.prototype.hasOwnProperty.call(entity, key))
@@ -98,6 +98,8 @@ function projectTask(entity: Entity, schedule: Entity | null): TaskReadModel {
   );
   return taskReadModelSchema.parse({ ...projection, schedule: projectSchedule(schedule) });
 }
+
+const projectTask = projectTaskReadModel;
 
 function expectedVersions(
   command: Exclude<TaskCommand, { name: "CreateTask" }>,
@@ -345,6 +347,18 @@ function eventFor(
   task: TaskReadModel,
 ): TaskEvent | null {
   if (receipt.status === "no_change") return null;
+  const persistedChangedFields = receipt.eventChanges?.find(
+    (change) =>
+      change.type === "change_event" &&
+      String(
+        change.entity.entity_id ||
+          (change.entity.entity_ref as { id?: unknown } | undefined)?.id ||
+          "",
+      ) === task.id,
+  )?.entity.changed_fields;
+  const changedFields = Array.isArray(persistedChangedFields)
+    ? persistedChangedFields.filter((field): field is string => typeof field === "string")
+    : [];
   const eventBase = {
     schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     event_id: receipt.events[0] || command.command_id,
@@ -388,10 +402,12 @@ function eventFor(
   return taskEventSchema.parse({
     ...eventBase,
     name: "TaskUpdated",
-    changed_fields: [
-      ...Object.keys(command.payload.changes || {}),
-      ...(command.payload.schedule_change ? ["schedule"] : []),
-    ],
+    changed_fields: changedFields.length
+      ? changedFields
+      : [
+          ...Object.keys(command.payload.changes || {}),
+          ...(command.payload.schedule_change ? ["schedule"] : []),
+        ],
   });
 }
 

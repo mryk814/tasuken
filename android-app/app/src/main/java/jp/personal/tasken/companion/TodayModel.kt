@@ -10,8 +10,8 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -157,6 +157,17 @@ sealed interface HumanReviewUiState {
     data class Conflict(val taskId: String, val message: String) : HumanReviewUiState
     data class Rejected(val taskId: String, val message: String) : HumanReviewUiState
     data class Unavailable(val taskId: String, val message: String) : HumanReviewUiState
+}
+
+sealed interface TaskDelegationUiState {
+    data object Idle : TaskDelegationUiState
+    data class PreviewLoading(val taskId: String) : TaskDelegationUiState
+    data class PreviewAvailable(val preview: MobileTaskContextPreview) : TaskDelegationUiState
+    data class Delegating(val taskId: String) : TaskDelegationUiState
+    data class Applied(val taskId: String) : TaskDelegationUiState
+    data class Conflict(val taskId: String, val message: String) : TaskDelegationUiState
+    data class Rejected(val taskId: String, val message: String) : TaskDelegationUiState
+    data class Unavailable(val taskId: String, val message: String) : TaskDelegationUiState
 }
 
 sealed interface MobileWorkReceiptLoadResult {
@@ -351,6 +362,10 @@ class TodayViewModel(
     val humanReviewRequiresRePairing: StateFlow<Boolean> = mutableHumanReviewRequiresRePairing.asStateFlow()
     private val mutableHumanReviewState = MutableStateFlow<HumanReviewUiState>(HumanReviewUiState.Idle)
     val humanReviewState: StateFlow<HumanReviewUiState> = mutableHumanReviewState.asStateFlow()
+    private val mutableTaskDelegationState = MutableStateFlow<TaskDelegationUiState>(TaskDelegationUiState.Idle)
+    val taskDelegationState: StateFlow<TaskDelegationUiState> = mutableTaskDelegationState.asStateFlow()
+    private val mutablePendingSafeShare = MutableStateFlow<MobileSafeShareDto?>(null)
+    val pendingSafeShare: StateFlow<MobileSafeShareDto?> = mutablePendingSafeShare.asStateFlow()
     private var workReceiptLoadJob: Job? = null
     private var observingCache = false
     private var cachedGeneratedAt = ""
@@ -569,6 +584,61 @@ class TodayViewModel(
 
     fun resetHumanReviewState() {
         mutableHumanReviewState.value = HumanReviewUiState.Idle
+    }
+
+    fun previewTaskContext(task: MobileTask) {
+        viewModelScope.launch { previewTaskContextNow(task) }
+    }
+
+    internal suspend fun previewTaskContextNow(task: MobileTask) {
+        val gateway = repository as? MobileGatewayRepository
+        if (gateway == null) {
+            mutableTaskDelegationState.value = TaskDelegationUiState.Unavailable(task.id, "この環境ではAI委任を利用できません。")
+            return
+        }
+        mutableTaskDelegationState.value = TaskDelegationUiState.PreviewLoading(task.id)
+        mutableTaskDelegationState.value = when (val result = withContext(ioDispatcher) { gateway.previewTaskContext(task) }) {
+            is MobileTaskContextPreviewResult.Available -> TaskDelegationUiState.PreviewAvailable(result.preview)
+            is MobileTaskContextPreviewResult.Unavailable -> TaskDelegationUiState.Unavailable(result.taskId, result.message)
+        }
+    }
+
+    fun delegateTask(task: MobileTask, expectedResult: String?, instruction: String?) {
+        viewModelScope.launch { delegateTaskNow(task, expectedResult, instruction) }
+    }
+
+    internal suspend fun delegateTaskNow(task: MobileTask, expectedResult: String?, instruction: String?) {
+        val preview = (mutableTaskDelegationState.value as? TaskDelegationUiState.PreviewAvailable)?.preview
+        if (preview == null || preview.taskId != task.id || preview.taskVersion != task.version) {
+            mutableTaskDelegationState.value = TaskDelegationUiState.Conflict(task.id, "Context Previewを確認してから委任してください。")
+            return
+        }
+        val gateway = repository as? MobileGatewayRepository
+        if (gateway == null) {
+            mutableTaskDelegationState.value = TaskDelegationUiState.Unavailable(task.id, "この環境ではAI委任を利用できません。")
+            return
+        }
+        mutableTaskDelegationState.value = TaskDelegationUiState.Delegating(task.id)
+        when (val result = withContext(ioDispatcher) { gateway.delegateTask(task, preview, expectedResult, instruction) }) {
+            is MobileTaskDelegationResult.Applied -> {
+                mutableTaskDelegationState.value = TaskDelegationUiState.Applied(result.taskId)
+                mutablePendingSafeShare.value = result.safeShare
+            }
+            is MobileTaskDelegationResult.Conflict -> mutableTaskDelegationState.value =
+                TaskDelegationUiState.Conflict(result.taskId, result.message)
+            is MobileTaskDelegationResult.Rejected -> mutableTaskDelegationState.value =
+                TaskDelegationUiState.Rejected(result.taskId, result.message)
+            is MobileTaskDelegationResult.Unavailable -> mutableTaskDelegationState.value =
+                TaskDelegationUiState.Unavailable(result.taskId, result.message)
+        }
+    }
+
+    fun consumeSafeShare(share: MobileSafeShareDto) {
+        if (mutablePendingSafeShare.value == share) mutablePendingSafeShare.value = null
+    }
+
+    fun resetTaskDelegationState() {
+        mutableTaskDelegationState.value = TaskDelegationUiState.Idle
     }
 
     fun loadWorkReceipt(taskId: String, receiptId: String, force: Boolean = false) {
@@ -1169,6 +1239,17 @@ interface MobileGatewayRepository : MobileTaskRepository {
     ): MobileHumanReviewResult = MobileHumanReviewResult.Unavailable(
         task.id,
         "このDesktopではWork Receipt判断を利用できません。",
+    )
+    suspend fun previewTaskContext(task: MobileTask): MobileTaskContextPreviewResult =
+        MobileTaskContextPreviewResult.Unavailable(task.id, "このDesktopではContext Previewを利用できません。")
+    suspend fun delegateTask(
+        task: MobileTask,
+        preview: MobileTaskContextPreview,
+        expectedResult: String?,
+        instruction: String?,
+    ): MobileTaskDelegationResult = MobileTaskDelegationResult.Unavailable(
+        task.id,
+        "このDesktopではAI委任を利用できません。",
     )
 }
 

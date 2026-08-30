@@ -130,6 +130,7 @@ function safeMessage(code: MobileErrorCode): string {
     entity_conflict: "同じ端末またはTask IDが既に存在します。",
     version_conflict: "Taskが更新されています。再読み込みして再試行してください。",
     proposal_conflict: "Proposalまたは対象Taskが更新されています。再読み込みしてください。",
+    context_stale: "Taskの公開Contextが更新されています。もう一度Previewしてから委任してください。",
     work_review_task_conflict:
       "Taskの作業状態が更新されています。再読み込みして最新の状態を確認してください。",
     work_review_receipt_conflict:

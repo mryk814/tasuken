@@ -3,8 +3,16 @@ import { SqliteTaskRepository } from "./infrastructure/sqliteTaskRepository.ts";
 import { TaskCommandHandler, type TaskCommandRuntime } from "./application/taskCommandHandler.ts";
 import { TaskQueryHandler } from "./application/taskQueryHandler.ts";
 
-export { TaskCapabilityService, type ExecuteApplicationCommand } from "./application/taskCapabilityService.ts";
-export { createTaskHttpAdapter, type TaskHttpRequest, type TaskHttpResponse } from "./transport/http/taskHttpAdapter.ts";
+export {
+  TaskCapabilityService,
+  projectTaskReadModel,
+  type ExecuteApplicationCommand,
+} from "./application/taskCapabilityService.ts";
+export {
+  createTaskHttpAdapter,
+  type TaskHttpRequest,
+  type TaskHttpResponse,
+} from "./transport/http/taskHttpAdapter.ts";
 export {
   createTaskMcpAdapter,
   TASK_MCP_OPERATIONS,
@@ -16,7 +24,11 @@ export { registerTaskIpc, type TaskIpcHost } from "./transport/ipc/registerTaskI
 export { normalizeTaskAssignment } from "./domain/taskAssignment.ts";
 
 export type { TaskCommandRuntime } from "./application/taskCommandHandler.ts";
-export type { TaskEntityAccess, TaskRepository, WorkspaceTaskPersistence } from "./ports/taskRepository.ts";
+export type {
+  TaskEntityAccess,
+  TaskRepository,
+  WorkspaceTaskPersistence,
+} from "./ports/taskRepository.ts";
 
 export {
   assertHumanAcceptBeforeTaskCompletion,
@@ -31,7 +43,10 @@ export {
   validateTaskScheduleWrite,
 } from "./application/taskPolicy.ts";
 
-export function createTaskModule(persistence: WorkspaceTaskPersistence, runtime: TaskCommandRuntime) {
+export function createTaskModule(
+  persistence: WorkspaceTaskPersistence,
+  runtime: TaskCommandRuntime,
+) {
   const repository = new SqliteTaskRepository(persistence);
   return {
     commands: new TaskCommandHandler(repository, runtime),

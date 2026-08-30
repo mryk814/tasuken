@@ -2,7 +2,7 @@
   "ok": true,
   "meta": {
     "apiVersion": 1,
-    "schemaVersion": 5,
+    "schemaVersion": 6,
     "serverId": "desktop-home",
     "serverRevision": 42,
     "generatedAt": "2026-08-21T01:00:00.000Z",
@@ -18,18 +18,10 @@
       "reportedAt": "2026-08-21T01:20:00.000Z",
       "reportKind": "report",
       "summary": "Androidから確認できる変更です。",
-      "completedItems": [
-        "Mobile Gateway detail contract"
-      ],
-      "changedOrCreatedItems": [
-        "src/shared/contracts/mobile/schema.ts"
-      ],
-      "verification": [
-        "node --test tests/mobile-gateway-phase4a.test.mjs"
-      ],
-      "remainingWork": [
-        "Fold7 final signoff"
-      ],
+      "completedItems": ["Mobile Gateway detail contract"],
+      "changedOrCreatedItems": ["src/shared/contracts/mobile/schema.ts"],
+      "verification": ["node --test tests/mobile-gateway-phase4a.test.mjs"],
+      "remainingWork": ["Fold7 final signoff"],
       "externalReferences": [
         {
           "kind": "pull_request",

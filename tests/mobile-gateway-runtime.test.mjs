@@ -121,6 +121,7 @@ test("mobile pairing persists only a token hash and revocation survives restart"
     assert.equal(paired.accessToken, fixedToken);
     assert.deepEqual(paired.device.scopes, [
       "mobile:read",
+      "mobile:context-read",
       "mobile:task-write",
       "mobile:capture-write",
       "mobile:proposal-review",
@@ -141,6 +142,7 @@ test("mobile pairing persists only a token hash and revocation survives restart"
     assert.equal(JSON.stringify(stored).includes(fixedToken), false);
     assert.deepEqual(stored.scopes, [
       "mobile:read",
+      "mobile:context-read",
       "mobile:task-write",
       "mobile:capture-write",
       "mobile:proposal-review",
@@ -256,7 +258,7 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         apiVersion: 1,
-        schemaVersion: 5,
+        schemaVersion: 6,
         requestId: "11111111-1111-4111-8111-111111111111",
         pairingCode: ticket.code,
         clientDeviceId: "33333333-3333-4333-8333-333333333333",
@@ -299,7 +301,7 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         apiVersion: 1,
-        schemaVersion: 5,
+        schemaVersion: 6,
         requestId: "22222222-2222-4222-8222-222222222222",
         pairingCode: ticket.code,
         clientDeviceId: "44444444-4444-4444-8444-444444444444",
@@ -317,7 +319,7 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         apiVersion: 1,
-        schemaVersion: 5,
+        schemaVersion: 6,
         requestId: "55555555-5555-4555-8555-555555555555",
         pairingCode: repairTicket.code,
         clientDeviceId: "33333333-3333-4333-8333-333333333333",

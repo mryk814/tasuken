@@ -13,6 +13,9 @@ import {
   mobileCaptureCommandResponseSchema,
   mobileCommandRequestSchema,
   mobileTaskCommandResponseSchema,
+  mobileTaskContextPreviewRequestSchema,
+  mobileTaskDelegationRequestSchema,
+  mobileTaskDelegationResponseSchema,
   mobileErrorResponseSchema,
   mobileHealthResponseSchema,
   mobileResponseMetaSchema,
@@ -40,6 +43,7 @@ import {
 } from "../../../shared/contracts/mobile/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
+  TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
 } from "../../../shared/contracts/core/public.mjs";
@@ -52,6 +56,11 @@ import {
   type TaskQueryResponse,
   type TaskReadModel,
 } from "../../../shared/contracts/task/public.ts";
+import {
+  createTaskDelegationSafeShare,
+  MOBILE_TASK_CONTEXT_INPUT,
+  projectTaskContextPreview,
+} from "./taskContextPreview.ts";
 const REQUIRED_CORE_CAPABILITIES = [
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
@@ -107,6 +116,40 @@ export interface MobileGatewayCaptureCommand {
   expectedVersion?: number;
 }
 
+export interface MobileGatewayTaskDelegationCommand {
+  commandId: string;
+  taskId: string;
+  expectedTaskVersion: number;
+  agent: "hermes";
+  expectedResult?: string;
+  instruction?: string;
+  contextFingerprint: string;
+  actorId: string;
+  issuedAt: string;
+  responseMeta: MobileResponseMeta;
+}
+
+export type MobileGatewayTaskDelegationResult =
+  | {
+      ok: true;
+      commandId: string;
+      status: "applied" | "no_change";
+      task: TaskReadModel;
+      latestWorkReceipt: MobileGatewayWorkReceiptRecord | null;
+      responseMeta: MobileResponseMeta;
+    }
+  | {
+      ok: false;
+      code: Extract<
+        MobileErrorCode,
+        | "idempotency_conflict"
+        | "context_stale"
+        | "version_conflict"
+        | "not_found"
+        | "validation_failed"
+      >;
+    };
+
 export type MobileGatewayCaptureCommandResult =
   | {
       ok: true;
@@ -152,6 +195,10 @@ export interface MobileGatewayCorePort {
   executeCaptureCommand(
     input: MobileGatewayCaptureCommand,
   ): Promise<MobileGatewayCaptureCommandResult> | MobileGatewayCaptureCommandResult;
+  getTaskContext(input: unknown): Promise<unknown> | unknown;
+  delegateTaskToAgent(
+    input: MobileGatewayTaskDelegationCommand,
+  ): Promise<MobileGatewayTaskDelegationResult> | MobileGatewayTaskDelegationResult;
 }
 
 export interface MobileGatewayThemeRecord {
@@ -632,6 +679,7 @@ function statusFor(code: MobileErrorCode) {
   if (code === "entity_conflict") return 409;
   if (code === "version_conflict") return 409;
   if (code === "proposal_conflict") return 409;
+  if (code === "context_stale") return 409;
   if (code === "work_review_task_conflict") return 409;
   if (code === "work_review_receipt_conflict") return 409;
   if (code === "capability_unavailable") return 409;
@@ -657,6 +705,7 @@ function safeMessage(code: MobileErrorCode) {
       "同じIDが既に存在するか、対象が更新済みです。再読み込みして再試行してください。",
     version_conflict: "Taskが更新されています。再読み込みして再試行してください。",
     proposal_conflict: "Proposalまたは対象Taskが更新されています。再読み込みしてください。",
+    context_stale: "Taskの公開Contextが更新されています。もう一度Previewしてから委任してください。",
     work_review_task_conflict:
       "Taskの作業状態が更新されています。再読み込みして最新の状態を確認してください。",
     work_review_receipt_conflict:
@@ -690,6 +739,7 @@ export class MobileGatewayAdapter {
         TASKEN_MOBILE_ENDPOINTS.commands,
         TASKEN_MOBILE_ENDPOINTS.proposalDecisions,
         TASKEN_MOBILE_ENDPOINTS.workReviews,
+        TASKEN_MOBILE_ENDPOINTS.taskDelegations,
       ].includes(request.path as never)
         ? "POST"
         : "GET";
@@ -700,10 +750,20 @@ export class MobileGatewayAdapter {
         request.path === TASKEN_MOBILE_ENDPOINTS.commands
           ? mobileCommandRequestSchema.safeParse(request.body)
           : null;
+      const delegationRequest =
+        request.path === TASKEN_MOBILE_ENDPOINTS.taskDelegations
+          ? mobileTaskDelegationRequestSchema.safeParse(request.body)
+          : null;
       if (
         request.path === TASKEN_MOBILE_ENDPOINTS.commands &&
         (!commandRequest?.success ||
           commandRequest.data.clientDeviceId !== request.principal.deviceId)
+      )
+        return this.error(meta, "validation_failed");
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.taskDelegations &&
+        (!delegationRequest?.success ||
+          delegationRequest.data.actorId !== request.principal.deviceId)
       )
         return this.error(meta, "validation_failed");
 
@@ -728,6 +788,16 @@ export class MobileGatewayAdapter {
           : "mobile:task-write";
         if (!request.principal.scopes.includes(requiredScope)) return this.error(meta, "forbidden");
       }
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.taskContextPreview &&
+        !request.principal.scopes.includes("mobile:context-read")
+      )
+        return this.error(meta, "forbidden");
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.taskDelegations &&
+        !request.principal.scopes.includes("mobile:task-write")
+      )
+        return this.error(meta, "forbidden");
       if (
         request.path === TASKEN_MOBILE_ENDPOINTS.proposalDecisions &&
         !request.principal.scopes.includes("mobile:proposal-review")
@@ -767,6 +837,10 @@ export class MobileGatewayAdapter {
           : null;
       const sync =
         request.path === TASKEN_MOBILE_ENDPOINTS.sync ? this.parseSyncQuery(request.query) : null;
+      const contextPreview =
+        request.path === TASKEN_MOBILE_ENDPOINTS.taskContextPreview
+          ? this.parseTaskContextPreviewQuery(request.query)
+          : null;
       if (request.path === TASKEN_MOBILE_ENDPOINTS.today && !today)
         return this.error(meta, "validation_failed");
       if (request.path === TASKEN_MOBILE_ENDPOINTS.themes && !themes)
@@ -790,12 +864,16 @@ export class MobileGatewayAdapter {
         return this.error(meta, "validation_failed");
       if (request.path === TASKEN_MOBILE_ENDPOINTS.sync && !sync)
         return this.error(meta, "validation_failed");
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.taskContextPreview && !contextPreview)
+        return this.error(meta, "validation_failed");
       if (today || themes || workReceipt || proposals || bootstrap || sync) {
         diagnosticId = (today || themes || workReceipt || proposals || bootstrap || sync)!
           .requestId;
       }
       if (proposalDecision?.success) diagnosticId = proposalDecision.data.requestId;
       if (workReview?.success) diagnosticId = workReview.data.requestId;
+      if (contextPreview) diagnosticId = contextPreview.requestId;
+      if (delegationRequest?.success) diagnosticId = delegationRequest.data.requestId;
       if (
         ![
           TASKEN_MOBILE_ENDPOINTS.today,
@@ -804,6 +882,7 @@ export class MobileGatewayAdapter {
           TASKEN_MOBILE_ENDPOINTS.proposals,
           TASKEN_MOBILE_ENDPOINTS.bootstrap,
           TASKEN_MOBILE_ENDPOINTS.sync,
+          TASKEN_MOBILE_ENDPOINTS.taskContextPreview,
         ].includes(request.path as never) &&
         Object.keys(request.query || {}).length > 0
       ) {
@@ -827,13 +906,97 @@ export class MobileGatewayAdapter {
       ) {
         return this.error(meta, "capability_unavailable");
       }
+      if (
+        [
+          TASKEN_MOBILE_ENDPOINTS.taskContextPreview,
+          TASKEN_MOBILE_ENDPOINTS.taskDelegations,
+        ].includes(request.path as never) &&
+        !coreStatus.capabilities.includes(TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY)
+      ) {
+        return this.error(meta, "capability_unavailable");
+      }
 
       if (request.path === TASKEN_MOBILE_ENDPOINTS.health) {
         return this.success(
           mobileHealthResponseSchema.parse({
             ok: true,
             meta,
-            data: { status: "ready", capabilities: this.capabilities(request.principal) },
+            data: {
+              status: "ready",
+              capabilities: this.capabilities(request.principal, coreStatus.capabilities),
+            },
+          }),
+        );
+      }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.taskContextPreview) {
+        const context = await this.options.core.getTaskContext({
+          task_id: contextPreview!.taskId,
+          ...MOBILE_TASK_CONTEXT_INPUT,
+        });
+        if (
+          context &&
+          typeof context === "object" &&
+          !Array.isArray(context) &&
+          (context as { ok?: unknown }).ok === false
+        ) {
+          const code = (context as { error?: { code?: unknown } }).error?.code;
+          return this.error(meta, code === "not_found" ? "not_found" : "validation_failed");
+        }
+        return this.success(projectTaskContextPreview(context, meta));
+      }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.taskDelegations) {
+        const delegation = delegationRequest?.success ? delegationRequest.data : null;
+        if (!delegation) return this.error(meta, "validation_failed");
+        const result = await this.options.core.delegateTaskToAgent({
+          commandId: delegation.commandId,
+          taskId: delegation.taskId,
+          expectedTaskVersion: delegation.expectedTaskVersion,
+          agent: delegation.agent,
+          ...(delegation.expectedResult ? { expectedResult: delegation.expectedResult } : {}),
+          ...(delegation.instruction ? { instruction: delegation.instruction } : {}),
+          contextFingerprint: delegation.contextFingerprint,
+          actorId: request.principal.deviceId,
+          issuedAt: delegation.issuedAt,
+          responseMeta: meta,
+        });
+        if (!result.ok) {
+          if (result.code !== "version_conflict") return this.error(meta, result.code);
+          const current = await this.options.core.executeTaskQuery({
+            schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+            query_id: `${delegation.requestId}:current-task`,
+            name: "GetTask",
+            parameters: { task_id: delegation.taskId },
+          });
+          if (!current.ok || current.value.name !== "GetTask" || !current.value.task) {
+            throw new Error("Delegation version conflict is missing its canonical Task");
+          }
+          return this.error(meta, "version_conflict", false, {
+            currentTask: projectTask(current.value.task, true),
+            intendedAction: "DelegateTaskToAgent",
+            expectedVersion: delegation.expectedTaskVersion,
+            conflictField: "task",
+            expectedScheduleVersion: null,
+          });
+        }
+        return this.success(
+          mobileTaskDelegationResponseSchema.parse({
+            ok: true,
+            meta: result.responseMeta,
+            data: {
+              commandId: result.commandId,
+              status: result.status,
+              task: projectTask(
+                result.task,
+                true,
+                result.latestWorkReceipt ? [result.latestWorkReceipt] : [],
+              ),
+              safeShare: createTaskDelegationSafeShare({
+                taskId: result.task.id,
+                title: result.task.title,
+                ...(delegation.expectedResult ? { expectedResult: delegation.expectedResult } : {}),
+                ...(delegation.instruction ? { instruction: delegation.instruction } : {}),
+              }),
+            },
           }),
         );
       }
@@ -1284,6 +1447,23 @@ export class MobileGatewayAdapter {
     return parsed.success ? parsed.data : null;
   }
 
+  private parseTaskContextPreviewQuery(query: MobileGatewayRequest["query"]) {
+    const values = query || {};
+    if (
+      Object.keys(values).some(
+        (key) => !["apiVersion", "schemaVersion", "requestId", "taskId"].includes(key),
+      )
+    )
+      return null;
+    const parsed = mobileTaskContextPreviewRequestSchema.safeParse({
+      apiVersion: Number(values.apiVersion),
+      schemaVersion: Number(values.schemaVersion),
+      requestId: values.requestId,
+      taskId: values.taskId,
+    });
+    return parsed.success ? parsed.data : null;
+  }
+
   private parseBootstrapQuery(query: MobileGatewayRequest["query"]) {
     const values = query || {};
     if (
@@ -1380,7 +1560,10 @@ export class MobileGatewayAdapter {
     }
   }
 
-  private capabilities(principal: MobilePrincipal): MobileCapability[] {
+  private capabilities(
+    principal: MobilePrincipal,
+    coreCapabilities: readonly string[],
+  ): MobileCapability[] {
     const capabilities: MobileCapability[] = [TASKEN_MOBILE_CAPABILITIES.health];
     if (principal.scopes.includes("mobile:read")) {
       capabilities.push(
@@ -1390,6 +1573,11 @@ export class MobileGatewayAdapter {
         TASKEN_MOBILE_CAPABILITIES.proposalRead,
       );
     }
+    if (
+      principal.scopes.includes("mobile:context-read") &&
+      coreCapabilities.includes(TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY)
+    )
+      capabilities.push(TASKEN_MOBILE_CAPABILITIES.taskContextPreviewRead);
     if (principal.scopes.includes("mobile:task-write"))
       capabilities.push(TASKEN_MOBILE_CAPABILITIES.taskWrite);
     if (principal.scopes.includes("mobile:capture-write"))
@@ -1431,7 +1619,8 @@ export class MobileGatewayAdapter {
     retryable = false,
     conflict?: {
       currentTask: ReturnType<typeof projectTask>;
-      intendedAction: "UpdateTask" | "CompleteTask" | "ReopenTask" | "DeleteTask";
+      intendedAction:
+        "UpdateTask" | "CompleteTask" | "ReopenTask" | "DeleteTask" | "DelegateTaskToAgent";
       expectedVersion: number;
       conflictField: "task" | "schedule";
       expectedScheduleVersion: number | null;

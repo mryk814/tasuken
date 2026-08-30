@@ -31,8 +31,10 @@ import {
   parseCommandEnvelope,
   type ApplyAiProposalCommandPayload,
   type ApplicationCommandName,
+  type CommandEntityChange,
   type CommandEnvelope,
   type CommandReceipt,
+  type CommandResponseMetaSnapshot,
   type ExpectedVersion,
 } from "../../shared/applicationCommand";
 import { applicationCommandSources } from "../../shared/applicationCommand";
@@ -43,6 +45,7 @@ import {
   currentTaskWorkState as currentWorkState,
   normalizeCanonicalTask,
   normalizeTaskForSave,
+  projectTaskReadModel,
   taskChangeType as changeType,
   taskFromPayload as asTask,
   taskIdFromPayload as asTaskId,
@@ -457,6 +460,7 @@ function receiptFor(
   status: CommandReceipt["status"],
   changes: Array<{ type: EntityType; entity: Entity }> = [],
   events: string[] = [],
+  resultSnapshot?: CommandReceipt["resultSnapshot"],
 ): CommandReceipt {
   const saved = changes.map(({ type, entity }) => savedRef(type, entity));
   return {
@@ -469,6 +473,7 @@ function receiptFor(
     warnings: [],
     revisions: saved,
     changes,
+    ...(resultSnapshot ? { resultSnapshot } : {}),
   };
 }
 
@@ -728,12 +733,13 @@ function persistReceipt(
   operations: SaveOperation[],
   eventIds: string[],
   changeTypes: EntityType[],
+  resultSnapshot?: (changes: CommandEntityChange[]) => CommandReceipt["resultSnapshot"],
 ): CommandReceipt {
   const saved = repository.saveMany(operations);
   const changes = saved
     .map((entity, index) => ({ type: operations[index].type, entity }))
     .filter(({ type }) => changeTypes.includes(type));
-  const baseReceipt = receiptFor(command, "applied", changes, eventIds);
+  const baseReceipt = receiptFor(command, "applied", changes, eventIds, resultSnapshot?.(changes));
   const serializedReceipt = JSON.stringify(baseReceipt);
   for (const eventId of eventIds) {
     const event = repository.get("change_event", eventId, true);
@@ -786,6 +792,7 @@ function persistNoChange(
   command: CommandEnvelope,
   taskId: string,
   current: Entity,
+  resultSnapshot?: CommandReceipt["resultSnapshot"],
 ): CommandReceipt {
   const marker: Entity = {
     id: randomUUID(),
@@ -809,7 +816,7 @@ function persistNoChange(
     before_json: JSON.stringify(current),
     after_json: JSON.stringify(current),
   };
-  const receipt = receiptFor(command, "no_change", [], [marker.id]);
+  const receipt = receiptFor(command, "no_change", [], [marker.id], resultSnapshot);
   repository.saveMany([
     {
       action: "save",
@@ -818,6 +825,24 @@ function persistNoChange(
     },
   ]);
   return receipt;
+}
+
+function taskDelegationResultSnapshot(
+  repository: Repository,
+  task: Entity,
+  responseMeta: CommandResponseMetaSnapshot,
+): NonNullable<CommandReceipt["resultSnapshot"]> {
+  const schedules = repository
+    .list("schedule")
+    .filter((schedule) => schedule.owner_type === "task" && schedule.owner_id === task.id);
+  if (schedules.length > 1) {
+    throw new Error(`Taskにactive Scheduleが複数あります: ${task.id}`);
+  }
+  return {
+    task: projectTaskReadModel(task, schedules[0] || null) as unknown as Entity,
+    latestWorkReceipt: latestWorkReceipt(repository, task.id),
+    responseMeta: { ...responseMeta },
+  };
 }
 
 function assertExpectedVersion(
@@ -877,6 +902,12 @@ export class ApplicationCommandService {
 
   execute(input: unknown): CommandReceipt {
     const command = parseCommandEnvelope(input);
+    if (command.name === "DelegateTaskToAgent") {
+      throw new ApplicationCommandError(
+        "INVALID_ENVELOPE",
+        "Task委任はcontext fingerprintを検証する専用経路から実行してください。",
+      );
+    }
     if (
       command.name === "CommitAudioCapture" ||
       command.name === "CommitVideoArtifact" ||
@@ -891,6 +922,31 @@ export class ApplicationCommandService {
       throw new ApplicationCommandError("INVALID_ENVELOPE", "Command sourceが不正です。");
     return this.repository.runTransaction((transactionRepository) =>
       new ApplicationCommandService(transactionRepository).executeParsed(command),
+    );
+  }
+
+  executeTaskDelegation(
+    input: unknown,
+    currentContextFingerprint: () => string,
+    responseMeta: CommandResponseMetaSnapshot,
+  ): CommandReceipt {
+    const command = parseCommandEnvelope(input);
+    if (
+      command.name !== "DelegateTaskToAgent" ||
+      command.source !== "mobile" ||
+      command.actor.kind !== "user"
+    ) {
+      throw new ApplicationCommandError(
+        "INVALID_ENVELOPE",
+        "Task委任は認証済みMobile user専用です。",
+      );
+    }
+    return this.repository.runTransaction((transactionRepository) =>
+      new ApplicationCommandService(transactionRepository).executeParsedTaskDelegation(
+        command,
+        currentContextFingerprint,
+        responseMeta,
+      ),
     );
   }
 
@@ -917,6 +973,7 @@ export class ApplicationCommandService {
     const commands = inputs.map((input) => parseCommandEnvelope(input));
     for (const command of commands) {
       if (
+        command.name === "DelegateTaskToAgent" ||
         command.name === "CommitAudioCapture" ||
         command.name === "CommitVideoArtifact" ||
         command.name === "CommitTrimmedVideoArtifact"
@@ -1123,6 +1180,109 @@ export class ApplicationCommandService {
     throw new ApplicationCommandError(
       "INVALID_ENVELOPE",
       `Command handlerが登録されていません: ${command.name}`,
+    );
+  }
+
+  private executeParsedTaskDelegation(
+    command: CommandEnvelope,
+    currentContextFingerprint: () => string,
+    responseMeta: CommandResponseMetaSnapshot,
+  ): CommandReceipt {
+    // Response-loss retries must resolve their immutable receipt before consulting mutable context.
+    const previous = readIdempotent(this.repository, command);
+    if (previous) return previous;
+    const payload = command.payload as {
+      taskId: string;
+      agent: "hermes";
+      contextFingerprint: string;
+    };
+    const current = this.repository.get("task", payload.taskId);
+    if (!current) {
+      throw new ApplicationCommandError("NOT_FOUND", "委任対象のTaskがありません。", {
+        taskId: payload.taskId,
+      });
+    }
+    const trustedFingerprint = currentContextFingerprint();
+    if (payload.contextFingerprint !== trustedFingerprint) {
+      throw new ApplicationCommandError(
+        "CONFLICT",
+        "Taskの公開Contextが更新されています。再Previewしてから委任してください。",
+        { taskId: payload.taskId, conflictReason: "context_stale" },
+      );
+    }
+    if (!expectedVersionFor(command, "task", payload.taskId)) {
+      throw new ApplicationCommandError(
+        "CONFLICT",
+        "Task委任にはTaskのexpected versionが必要です。",
+        { taskId: payload.taskId, conflictReason: "version_conflict" },
+      );
+    }
+    assertExpectedVersion(this.repository, command, "task", payload.taskId, current);
+    if (["done", "cancelled"].includes(String(current.state))) {
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        "完了または取消済みのTaskは委任できません。再開してから委任してください。",
+        { taskId: payload.taskId },
+      );
+    }
+    if (
+      current.intended_executor === "ai_agent" &&
+      current.executor_identity === "Hermes" &&
+      String(current.work_state || "ready_for_agent") === "ready_for_agent"
+    ) {
+      return persistNoChange(
+        this.repository,
+        command,
+        payload.taskId,
+        current,
+        taskDelegationResultSnapshot(this.repository, current, responseMeta),
+      );
+    }
+    let task: Entity;
+    try {
+      task = normalizeTaskForSave(
+        { ...current, intended_executor: "ai_agent", executor_identity: "Hermes" },
+        current,
+      );
+    } catch (error) {
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        error instanceof Error ? error.message : "作業中のTaskは委任できません。",
+        { taskId: payload.taskId },
+      );
+    }
+    taskDefinition.parseUpdate(task);
+    assertThemeExists(this.repository, task);
+    const event = annotateEvent(
+      command,
+      commandEvent(command, "task", task.id, "updated", current, task),
+    );
+    const metadata =
+      event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+        ? (event.metadata as Record<string, unknown>)
+        : {};
+    event.metadata = {
+      ...metadata,
+      include_in_activity: true,
+      work_action: "delegated",
+      context_fingerprint: payload.contextFingerprint,
+    };
+    return persistReceipt(
+      this.repository,
+      command,
+      [
+        { action: "save", type: "task", entity: task },
+        { action: "save", type: "change_event", entity: event },
+      ],
+      [event.id],
+      ["task"],
+      (changes) => {
+        const savedTask = changes.find(
+          (change) => change.type === "task" && change.entity.id === payload.taskId,
+        )?.entity;
+        if (!savedTask) throw new Error("Task委任結果のsnapshotを作成できませんでした。");
+        return taskDelegationResultSnapshot(this.repository, savedTask, responseMeta);
+      },
     );
   }
 

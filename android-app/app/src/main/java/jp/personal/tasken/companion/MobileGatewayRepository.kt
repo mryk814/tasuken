@@ -43,12 +43,14 @@ private const val REQUEST_TIMEOUT_MS = 5_000
 private const val MOBILE_GATEWAY_LOG_TAG = "TaskenMobileGateway"
 private val MOBILE_PROCESS_INSTANCE_ID = UUID.randomUUID().toString()
 private const val MOBILE_HUMAN_REVIEW_SCOPE = "mobile:human-review"
+private const val MOBILE_CONTEXT_READ_SCOPE = "mobile:context-read"
 private val SUPPORTED_MOBILE_SCOPES = setOf(
     "mobile:read",
     "mobile:task-write",
     "mobile:capture-write",
     "mobile:proposal-review",
     MOBILE_HUMAN_REVIEW_SCOPE,
+    MOBILE_CONTEXT_READ_SCOPE,
 )
 
 data class MobileGatewayConfiguration(
@@ -59,6 +61,9 @@ data class MobileGatewayConfiguration(
 
 fun MobileGatewayConfiguration.canReviewWorkReceipts(): Boolean =
     paired && MOBILE_HUMAN_REVIEW_SCOPE in scopes
+
+fun MobileGatewayConfiguration.canReadTaskContext(): Boolean =
+    paired && MOBILE_CONTEXT_READ_SCOPE in scopes
 
 data class GatewayHttpResponse(val status: Int, val body: String)
 
@@ -415,7 +420,17 @@ class AndroidMobileTaskRepository(
             require(response.status == 200) { "Task Work Proposal request failed with HTTP ${response.status}" }
             val decoded = MobileProposalContract.decodeList(response.body)
             if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-            dao.replaceTaskWorkProposals(decoded.data.proposals.map { it.toCache(decoded.meta) })
+            val previousProposalIds = dao.taskWorkProposals(expectedServerId).mapTo(mutableSetOf()) { it.id }
+            val deliveries = decoded.data.proposals
+                .filterNot { it.id in previousProposalIds }
+                .map { dao.pendingProposalNotification(expectedServerId, it, decoded.meta.generatedAt) }
+            dao.replaceTaskWorkProposalsAndQueueNotifications(
+                serverId = expectedServerId,
+                proposals = decoded.data.proposals.map { it.toCache(decoded.meta) },
+                deliveries = deliveries,
+                observedAt = decoded.meta.generatedAt,
+            )
+            deliverPendingTaskNotifications()
             true
         } catch (error: CancellationException) {
             throw error
@@ -677,7 +692,213 @@ class AndroidMobileTaskRepository(
         }
     }
 
+    override suspend fun previewTaskContext(task: MobileTask): MobileTaskContextPreviewResult {
+        if (task.version <= 0) return MobileTaskContextPreviewResult.Unavailable(
+            task.id,
+            "最新のTaskを同期してからContext Previewを開いてください。",
+        )
+        val expectedServerId = dao.syncState()?.serverId
+            ?: return MobileTaskContextPreviewResult.Unavailable(task.id, "Taskを同期してからContext Previewを開いてください。")
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) {
+            return MobileTaskContextPreviewResult.Unavailable(task.id, "Desktopへ接続してからContext Previewを開いてください。")
+        }
+        if (!configuration.canReadTaskContext()) {
+            return MobileTaskContextPreviewResult.Unavailable(
+                task.id,
+                "この端末にはContext Previewの権限がありません。Desktopで新しいコードを発行して再ペアリングしてください。",
+            )
+        }
+        return try {
+            val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
+            val taskId = URLEncoder.encode(task.id, Charsets.UTF_8.name())
+            val response = gatewayRequest(
+                origin = configuration.origin,
+                path = "/v1/task-context-preview?apiVersion=$TASKEN_MOBILE_API_VERSION" +
+                    "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId&taskId=$taskId",
+                method = "GET",
+                body = null,
+                accessToken = token,
+            )
+            if (response.status == 401) {
+                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
+                if (confirmed) store.clearTokenIfMatches(token)
+                return MobileTaskContextPreviewResult.Unavailable(
+                    task.id,
+                    if (confirmed) "ペアリングが失効しました。Desktopで新しいコードを発行して再ペアリングしてください。"
+                    else "Desktopへ接続できません。接続を確認して再試行してください。",
+                )
+            }
+            if (response.status == 403) return MobileTaskContextPreviewResult.Unavailable(
+                task.id,
+                "この端末にはContext Previewの権限がありません。Desktopで新しいコードを発行して再ペアリングしてください。",
+            )
+            if (response.status == 404) return MobileTaskContextPreviewResult.Unavailable(
+                task.id,
+                "Context Previewを利用できません。Desktopを更新して再試行してください。",
+            )
+            require(response.status == 200) { "Task context preview failed with HTTP ${response.status}" }
+            val decoded = MobileTaskDelegationContract.decodePreview(response.body)
+            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+            val preview = MobileTaskDelegationContract.toPreview(decoded)
+            require(preview.taskId == task.id && preview.taskVersion == task.version) {
+                "Task context preview identity does not match the selected Task"
+            }
+            MobileTaskContextPreviewResult.Available(preview)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: MobileOutboxServerMismatchException) {
+            MobileTaskContextPreviewResult.Unavailable(task.id, "接続先のDesktopが変わりました。再ペアリングして再試行してください。")
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Task context preview failed", error)
+            MobileTaskContextPreviewResult.Unavailable(
+                task.id,
+                "Context Previewを取得できませんでした。Desktopとの接続を確認して再試行してください。",
+            )
+        }
+    }
+
+    override suspend fun delegateTask(
+        task: MobileTask,
+        preview: MobileTaskContextPreview,
+        expectedResult: String?,
+        instruction: String?,
+    ): MobileTaskDelegationResult {
+        val normalizedResult = normalizeDelegationInput(expectedResult)
+        val normalizedInstruction = normalizeDelegationInput(instruction)
+        if (preview.taskId != task.id || preview.taskVersion != task.version || preview.fingerprint.isBlank()) {
+            return MobileTaskDelegationResult.Conflict(task.id, "Context Previewが古くなりました。内容を確認し直してから委任してください。")
+        }
+        val expectedServerId = dao.syncState()?.serverId
+            ?: return MobileTaskDelegationResult.Unavailable(task.id, "Taskを同期してから委任してください。")
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) {
+            return MobileTaskDelegationResult.Unavailable(task.id, "Desktopへ接続してから委任してください。")
+        }
+        if (!configuration.paired || "mobile:task-write" !in configuration.scopes) {
+            return MobileTaskDelegationResult.Unavailable(
+                task.id,
+                "この端末には委任権限がありません。Desktopで新しいコードを発行して再ペアリングしてください。",
+            )
+        }
+        return try {
+            val actorId = store.deviceId()
+            val commandId = taskDelegationCommandId(
+                clientDeviceId = actorId,
+                serverId = expectedServerId,
+                taskId = task.id,
+                expectedTaskVersion = task.version,
+                fingerprint = preview.fingerprint,
+                expectedResult = normalizedResult,
+                instruction = normalizedInstruction,
+            )
+            val created = MobileTaskDelegationEnvelopeDto(
+                apiVersion = TASKEN_MOBILE_API_VERSION,
+                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+                requestId = UUID.randomUUID().toString(),
+                commandId = commandId,
+                taskId = task.id,
+                expectedTaskVersion = task.version,
+                agent = "hermes",
+                expectedResult = normalizedResult,
+                instruction = normalizedInstruction,
+                issuedAt = Instant.now().toString(),
+                actorId = actorId,
+                contextFingerprint = preview.fingerprint,
+            )
+            val pending = dao.pendingTaskDelegationOrInsert(
+                PendingTaskDelegationEntity(
+                    commandId = commandId,
+                    serverId = expectedServerId,
+                    taskId = task.id,
+                    contextFingerprint = preview.fingerprint,
+                    envelopeJson = MobileTaskDelegationContract.encode(created),
+                    createdAt = Instant.now().toString(),
+                ),
+            )
+            require(
+                pending.serverId == expectedServerId && pending.taskId == task.id &&
+                    pending.contextFingerprint == preview.fingerprint
+            ) { "Pending delegation belongs to another Desktop, Task, or Context Preview" }
+            pending.successJson?.let { saved ->
+                val replay = MobileTaskDelegationContract.decodeDelegation(saved)
+                require(replay.data.commandId == commandId && replay.data.task.id == task.id)
+                return MobileTaskDelegationResult.Applied(task.id, replay.data.safeShare)
+            }
+            val envelope = MobileTaskDelegationContract.decodeEnvelope(pending.envelopeJson)
+            require(
+                envelope.commandId == commandId && envelope.taskId == task.id &&
+                    envelope.expectedTaskVersion == task.version && envelope.agent == "hermes" &&
+                    envelope.contextFingerprint == preview.fingerprint && envelope.actorId == actorId
+            ) { "Pending delegation identity does not match the request" }
+            val response = gatewayRequest(
+                origin = configuration.origin,
+                path = "/v1/task-delegations",
+                method = "POST",
+                body = pending.envelopeJson,
+                accessToken = token,
+            )
+            if (response.status == 401) {
+                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
+                if (confirmed) store.clearTokenIfMatches(token)
+                return MobileTaskDelegationResult.Unavailable(
+                    task.id,
+                    if (confirmed) "ペアリングが失効しました。Desktopで新しいコードを発行して再ペアリングしてください。"
+                    else "Desktopへ接続できません。接続を確認して再試行してください。",
+                )
+            }
+            if (response.status == 409) {
+                val error = MobileTaskCommandContract.decodeError(response.body)
+                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+                return MobileTaskDelegationResult.Conflict(
+                    task.id,
+                    when (error.error.code) {
+                        "context_stale" -> "Context Previewが古くなりました。もう一度内容を確認してから委任してください。"
+                        "version_conflict" -> "Taskが更新されました。Context Previewを確認し直して再試行してください。"
+                        "idempotency_conflict" -> "同じ委任IDに別の内容が紐付いています。入力を確認してから再試行してください。"
+                        else -> error.error.message
+                    },
+                )
+            }
+            if (response.status == 400 || response.status == 403 || response.status == 404) {
+                val error = MobileTaskCommandContract.decodeError(response.body)
+                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+                return MobileTaskDelegationResult.Rejected(task.id, error.error.message)
+            }
+            require(response.status == 200) { "Task delegation failed with HTTP ${response.status}" }
+            val decoded = MobileTaskDelegationContract.decodeDelegation(response.body)
+            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+            require(decoded.data.commandId == commandId && decoded.data.task.id == task.id) {
+                "Task delegation response identity does not match the request"
+            }
+            dao.applyTaskDelegationSuccess(commandId, decoded.data.task.toCache(), response.body)
+            MobileTaskDelegationResult.Applied(task.id, decoded.data.safeShare)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: MobileOutboxServerMismatchException) {
+            MobileTaskDelegationResult.Unavailable(task.id, "接続先のDesktopが変わりました。再ペアリングして再試行してください。")
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Task delegation failed", error)
+            MobileTaskDelegationResult.Unavailable(
+                task.id,
+                "委任を確認できませんでした。入力は保持されています。Desktopとの接続を確認して再試行してください。",
+            )
+        }
+    }
+
     internal suspend fun recoverInterruptedOutbox(): Int = outbox.recoverInterruptedSending()
+
+    internal suspend fun deliverPendingTaskNotifications() {
+        try {
+            MobileTaskNotifications.drain(context.applicationContext, dao)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Task notification delivery failed; sync remains successful", error)
+        }
+    }
 
     internal suspend fun synchronizeIfPaired(): Boolean {
         val configuration = store.configuration()
@@ -796,6 +1017,7 @@ class AndroidMobileTaskRepository(
                     sendMobileCommand(configuration.origin, token, serverId, envelope)
                 }
                 synchronize(configuration.origin, token, serverId)
+                deliverPendingTaskNotifications()
                 try {
                     refreshThemes(configuration.origin, token)
                 } catch (error: Exception) {

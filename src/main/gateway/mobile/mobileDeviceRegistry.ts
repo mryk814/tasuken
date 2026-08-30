@@ -10,6 +10,7 @@ const DEFAULT_PAIRING_TTL_MS = 5 * 60 * 1_000;
 
 export const MOBILE_DEVICE_DEFAULT_SCOPES = Object.freeze([
   "mobile:read",
+  "mobile:context-read",
   "mobile:task-write",
   "mobile:capture-write",
   "mobile:proposal-review",

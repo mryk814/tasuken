@@ -8,7 +8,7 @@ class MobileSyncContractTest {
     private val meta = """
         "meta": {
           "apiVersion": 1,
-          "schemaVersion": 5,
+          "schemaVersion": 6,
           "serverId": "desktop-home",
           "serverRevision": 42,
           "generatedAt": "2026-08-22T01:00:00Z",

@@ -72,9 +72,13 @@ class MobileEntryRequestTest {
     }
 
     @Test
-    fun rejects_empty_share_unknown_scheme_and_invalid_task_id() {
+    fun rejects_empty_share_unknown_scheme_and_ambiguous_task_locator() {
         assertSame(MobileEntryRequest.None, MobileEntryRequestResolver.resolve(Intent.ACTION_SEND, null, "text/plain", " ", 5))
         assertSame(MobileEntryRequest.None, MobileEntryRequestResolver.resolve(Intent.ACTION_VIEW, "https://example.com", null, null, 6))
-        assertSame(MobileEntryRequest.None, MobileEntryRequestResolver.resolve(Intent.ACTION_VIEW, "tasken://task/not-an-id", null, null, 7))
+        assertEquals(
+            MobileEntryRequest.Task(7, MobileEntrySource.DeepLink, "not-an-id"),
+            MobileEntryRequestResolver.resolve(Intent.ACTION_VIEW, "tasken://task/not-an-id", null, null, 7),
+        )
+        assertSame(MobileEntryRequest.None, MobileEntryRequestResolver.resolve(Intent.ACTION_VIEW, "tasken://task/a/b", null, null, 8))
     }
 }

@@ -20,7 +20,7 @@ class MobileTaskCommandContractTest {
                   "ok": false,
                   "meta": {
                     "apiVersion": 1,
-                    "schemaVersion": 5,
+                    "schemaVersion": 6,
                     "serverId": "server-1",
                     "serverRevision": 8,
                     "generatedAt": "2026-08-24T00:00:00Z",
@@ -203,7 +203,7 @@ class MobileTaskCommandContractTest {
     fun deleteTaskUsesVersionedStateEnvelopeAndConflictContract() {
         val envelope = MobileTaskStateEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 5,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
             requestId = "request-delete",
             commandId = "command-delete",
             idempotencyKey = "command-delete",
@@ -291,7 +291,7 @@ class MobileTaskCommandContractTest {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 5,
+                "schemaVersion": 6,
                 "serverId": "server-1",
                 "serverRevision": 8,
                 "generatedAt": "2026-08-23T00:00:00Z",
@@ -324,7 +324,7 @@ class MobileTaskCommandContractTest {
         expectedScheduleVersion: Int?,
     ) = MobileTaskUpdateEnvelopeDto(
         apiVersion = 1,
-        schemaVersion = 5,
+        schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
         requestId = "request-1",
         commandId = "command-1",
         idempotencyKey = "command-1",
@@ -342,7 +342,7 @@ class MobileTaskCommandContractTest {
 
     private fun createEnvelope(provenance: MobileTaskCreationProvenanceDto) = MobileCreateTaskEnvelopeDto(
         apiVersion = 1,
-        schemaVersion = 5,
+        schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
         requestId = "request-create",
         commandId = "command-create",
         idempotencyKey = "command-create",
@@ -363,7 +363,7 @@ class MobileTaskCommandContractTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",
@@ -392,7 +392,7 @@ class MobileTaskCommandContractTest {
           "ok": false,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",
@@ -428,7 +428,7 @@ class MobileTaskCommandContractTest {
           "ok": false,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",

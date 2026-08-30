@@ -9,6 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { build } from "esbuild";
 
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
+import { formatTaskLocator } from "../src/shared/contracts/mobile/public.mjs";
 
 async function importBundled(relativePath) {
   const result = await build({
@@ -19,15 +20,19 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 }
 
-const { ApplicationCommandService } = await importBundled("src/main/services/applicationCommandService.ts");
+const { ApplicationCommandService } = await importBundled(
+  "src/main/services/applicationCommandService.ts",
+);
 const { TaskenCoreHost } = await importBundled("src/main/infrastructure/http/taskenCoreHost.ts");
 const { createTaskenCore } = await importBundled("src/main/infrastructure/sqlite/public.ts");
 
 const FIXED_AT = "2026-08-09T04:00:00.000Z";
-const TASK_ID = "task-ai-collaboration-e2e";
+const TASK_ID = "task /?#%+@ 日本語🚀";
 const THEME_ID = "theme-ai-collaboration-e2e";
 const NOTE_ID = "note-ai-collaboration-e2e";
 const REPOSITORY_CONTEXT_ID = "repository-ai-collaboration-e2e";
@@ -79,27 +84,33 @@ function createLegacyFixture() {
   const dbPath = path.join(root, "workspace.sqlite");
   const database = new WorkspaceDatabase(dbPath);
   database.bootstrap({
-    themes: [{
-      id: THEME_ID,
-      name: "Legacy AI collaboration Theme",
-      code: "AIE2E",
-      default_ai_visibility: ["coding_agent"],
-    }],
-    tasks: [{
-      id: TASK_ID,
-      title: "Legacy Task for AI collaboration",
-      description: "The Task body must survive every AI proposal unchanged.",
-      state: "todo",
-      theme_id: THEME_ID,
-    }],
-    notes: [{
-      id: NOTE_ID,
-      title: "Implementation context",
-      body_markdown: "Use the typed proposal and human review boundaries.",
-      theme_id: THEME_ID,
-      ai_visibility: ["coding_agent"],
-      ai_summary: "Typed proposal implementation context",
-    }],
+    themes: [
+      {
+        id: THEME_ID,
+        name: "Legacy AI collaboration Theme",
+        code: "AIE2E",
+        default_ai_visibility: ["coding_agent"],
+      },
+    ],
+    tasks: [
+      {
+        id: TASK_ID,
+        title: "Legacy Task for AI collaboration",
+        description: "The Task body must survive every AI proposal unchanged.",
+        state: "todo",
+        theme_id: THEME_ID,
+      },
+    ],
+    notes: [
+      {
+        id: NOTE_ID,
+        title: "Implementation context",
+        body_markdown: "Use the typed proposal and human review boundaries.",
+        theme_id: THEME_ID,
+        ai_visibility: ["coding_agent"],
+        ai_summary: "Typed proposal implementation context",
+      },
+    ],
   });
 
   const legacyTask = database.get("task", TASK_ID);
@@ -123,18 +134,25 @@ function createLegacyFixture() {
   });
 
   const service = new ApplicationCommandService(database);
-  service.execute(command("UpdateTask", {
-    task: {
-      ...legacyTask,
-      project_id: THEME_ID,
-      requester: "human",
-      intended_executor: "ai_agent",
-      executor_identity: "fixture-agent",
-      work_state: "ready_for_agent",
-      repository_context_ids: [REPOSITORY_CONTEXT_ID],
-      primary_repository_context_id: REPOSITORY_CONTEXT_ID,
-    },
-  }, "migrate-and-assign-task", [{ type: "task", id: TASK_ID, version: legacyTask.version }]));
+  service.execute(
+    command(
+      "UpdateTask",
+      {
+        task: {
+          ...legacyTask,
+          project_id: THEME_ID,
+          requester: "human",
+          intended_executor: "ai_agent",
+          executor_identity: "fixture-agent",
+          work_state: "ready_for_agent",
+          repository_context_ids: [REPOSITORY_CONTEXT_ID],
+          primary_repository_context_id: REPOSITORY_CONTEXT_ID,
+        },
+      },
+      "migrate-and-assign-task",
+      [{ type: "task", id: TASK_ID, version: legacyTask.version }],
+    ),
+  );
   database.save("reference", {
     id: "reference-note-task-e2e",
     source_type: "note",
@@ -177,18 +195,34 @@ function canonicalProposal(database, proposalId, root) {
   return proposal;
 }
 
-function proposalDecisionCommand(database, proposal, decision, commandId = `${proposal.id}:${decision}`) {
+function proposalDecisionCommand(
+  database,
+  proposal,
+  decision,
+  commandId = `${proposal.id}:${decision}`,
+) {
   const task = database.get("task", TASK_ID);
-  return command("ApplyTaskWorkProposal", {
-    proposalId: proposal.id,
-    decision,
-  }, commandId, [
-    { type: "task", id: TASK_ID, version: task.version },
-    { type: "ai_proposal", id: proposal.id, version: proposal.version },
-  ]);
+  return command(
+    "ApplyTaskWorkProposal",
+    {
+      proposalId: proposal.id,
+      decision,
+    },
+    commandId,
+    [
+      { type: "task", id: TASK_ID, version: task.version },
+      { type: "ai_proposal", id: proposal.id, version: proposal.version },
+    ],
+  );
 }
 
-function decideProposal(service, database, proposal, decision, commandId = `${proposal.id}:${decision}`) {
+function decideProposal(
+  service,
+  database,
+  proposal,
+  decision,
+  commandId = `${proposal.id}:${decision}`,
+) {
   return service.execute(proposalDecisionCommand(database, proposal, decision, commandId));
 }
 
@@ -208,13 +242,15 @@ function receiptArguments(provider, expectedVersion, idempotencyKey, summary) {
     changed_or_created_items: ["tests/ai-collaboration-e2e.test.mjs"],
     verification: ["actual stdio MCP"],
     remaining_work: [],
-    external_references: [{
-      kind: "issue",
-      provider: "github",
-      display_label: "#364",
-      url: "https://github.com/mryk814/tasuken/issues/364?utm_source=fixture#evidence",
-      external_id: "364",
-    }],
+    external_references: [
+      {
+        kind: "issue",
+        provider: "github",
+        display_label: "#364",
+        url: "https://github.com/mryk814/tasuken/issues/364?utm_source=fixture#evidence",
+        external_id: "364",
+      },
+    ],
     reported_at: FIXED_AT,
     provider: provider.provider,
     model: provider.model,
@@ -223,16 +259,24 @@ function receiptArguments(provider, expectedVersion, idempotencyKey, summary) {
 
 function injectProposalDecisionFailure(database) {
   const normalRunTransaction = database.runTransaction.bind(database);
-  database.runTransaction = (callback) => normalRunTransaction((repository) => callback({
-    ...repository,
-    saveMany(operations) {
-      const result = repository.saveMany(operations);
-      if (operations.some((operation) => operation.type === "ai_proposal" && operation.entity?.status === "accepted")) {
-        throw new Error("injected proposal decision failure");
-      }
-      return result;
-    },
-  }));
+  database.runTransaction = (callback) =>
+    normalRunTransaction((repository) =>
+      callback({
+        ...repository,
+        saveMany(operations) {
+          const result = repository.saveMany(operations);
+          if (
+            operations.some(
+              (operation) =>
+                operation.type === "ai_proposal" && operation.entity?.status === "accepted",
+            )
+          ) {
+            throw new Error("injected proposal decision failure");
+          }
+          return result;
+        },
+      }),
+    );
   return () => {
     database.runTransaction = normalRunTransaction;
   };
@@ -284,12 +328,13 @@ function semanticContract(database, finalContext) {
         summary: receipt.summary,
         runtime_metadata: receipt.runtime_metadata,
       })),
-      has_receipt_backlink: finalContext.context_graph.edges.some((edge) => (
-        edge.source.type === "work_receipt"
-        && edge.target.type === "task"
-        && edge.target.id === TASK_ID
-        && edge.predicate === "created_for"
-      )),
+      has_receipt_backlink: finalContext.context_graph.edges.some(
+        (edge) =>
+          edge.source.type === "work_receipt" &&
+          edge.target.type === "task" &&
+          edge.target.id === TASK_ID &&
+          edge.predicate === "created_for",
+      ),
     },
   };
 }
@@ -297,17 +342,24 @@ function semanticContract(database, finalContext) {
 function withoutRuntimeProvenance(contract) {
   return {
     ...contract,
-    receipts: contract.receipts.map(({ runtime_metadata: _runtimeMetadata, ...receipt }) => receipt),
+    receipts: contract.receipts.map(
+      ({ runtime_metadata: _runtimeMetadata, ...receipt }) => receipt,
+    ),
     context: {
       ...contract.context,
-      work_receipts: contract.context.work_receipts.map(({ runtime_metadata: _runtimeMetadata, ...receipt }) => receipt),
+      work_receipts: contract.context.work_receipts.map(
+        ({ runtime_metadata: _runtimeMetadata, ...receipt }) => receipt,
+      ),
     },
   };
 }
 
 async function runProviderScenario(provider) {
   const fixture = createLegacyFixture();
-  let host = new TaskenCoreHost({ userDataPath: fixture.root, ...createTaskenCore(fixture.database) });
+  let host = new TaskenCoreHost({
+    userDataPath: fixture.root,
+    ...createTaskenCore(fixture.database),
+  });
   await host.start();
   assertDiscoveryOwnerOnly(fixture.root);
   let client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"), fixture.root);
@@ -344,17 +396,30 @@ async function runProviderScenario(provider) {
     const duplicateStart = await callTaskWork(client, "tasken.start_task_work", startArguments);
     assert.equal(queuedStart.status, "queued");
     assert.equal(duplicateStart.status, "duplicate");
-    const startProposal = canonicalProposal(fixture.database, queuedStart.proposal_id, fixture.root);
+    const startProposal = canonicalProposal(
+      fixture.database,
+      queuedStart.proposal_id,
+      fixture.root,
+    );
     decideProposal(fixture.service, fixture.database, startProposal, "accept");
     assert.equal(fixture.database.get("task", TASK_ID).work_state, "in_progress");
-    assert.equal(fixture.database.get("task", TASK_ID).description, "The Task body must survive every AI proposal unchanged.");
+    assert.equal(
+      fixture.database.get("task", TASK_ID).description,
+      "The Task body must survive every AI proposal unchanged.",
+    );
     assert.deepEqual(
-      fixture.database.list("change_event").find((event) => event.command_id === `${startProposal.id}:accept:work`)?.metadata.repository_context,
+      fixture.database
+        .list("change_event")
+        .find((event) => event.command_id === `${startProposal.id}:accept:work`)?.metadata
+        .repository_context,
       REPOSITORY_CONTEXT,
     );
 
     const proposalCountAfterStart = fixture.database.list("ai_proposal").length;
-    assert.equal((await callTaskWork(client, "tasken.start_task_work", startArguments)).status, "duplicate");
+    assert.equal(
+      (await callTaskWork(client, "tasken.start_task_work", startArguments)).status,
+      "duplicate",
+    );
     assert.equal(fs.existsSync(path.join(fixture.root, "mcp-inbox")), false);
     assert.equal(fixture.database.list("ai_proposal").length, proposalCountAfterStart);
 
@@ -364,25 +429,38 @@ async function runProviderScenario(provider) {
       "fixture-progress-1",
       "Interim receipt remains in progress.",
     );
-    const queuedProgress = await callTaskWork(client, "tasken.append_work_receipt", progressArguments);
-    let progressProposal = canonicalProposal(fixture.database, queuedProgress.proposal_id, fixture.root);
+    const queuedProgress = await callTaskWork(
+      client,
+      "tasken.append_work_receipt",
+      progressArguments,
+    );
+    let progressProposal = canonicalProposal(
+      fixture.database,
+      queuedProgress.proposal_id,
+      fixture.root,
+    );
     progressProposal = fixture.database.save("ai_proposal", {
       ...progressProposal,
       payload: {
-        task_work: [{
-          ...progressProposal.payload.task_work[0],
-          runtime_metadata: {
-            ...progressProposal.payload.task_work[0].runtime_metadata,
-            secret: "must-not-persist",
-            diagnostic_path: "C:/private/provider.log",
+        task_work: [
+          {
+            ...progressProposal.payload.task_work[0],
+            runtime_metadata: {
+              ...progressProposal.payload.task_work[0].runtime_metadata,
+              secret: "must-not-persist",
+              diagnostic_path: "C:/private/provider.log",
+            },
           },
-        }],
+        ],
       },
     });
     decideProposal(fixture.service, fixture.database, progressProposal, "accept");
     assert.equal(fixture.database.get("task", TASK_ID).work_state, "in_progress");
     assert.equal(fixture.database.list("work_receipt").length, 1);
-    assert.deepEqual(fixture.database.get("work_receipt", progressProposal.id).runtime_metadata, provider);
+    assert.deepEqual(
+      fixture.database.get("work_receipt", progressProposal.id).runtime_metadata,
+      provider,
+    );
 
     const rejectedDoneArguments = receiptArguments(
       provider,
@@ -390,8 +468,16 @@ async function runProviderScenario(provider) {
       "fixture-done-rejected",
       "This report is rejected by the human reviewer.",
     );
-    const queuedRejected = await callTaskWork(client, "tasken.report_task_done", rejectedDoneArguments);
-    const rejectedProposal = canonicalProposal(fixture.database, queuedRejected.proposal_id, fixture.root);
+    const queuedRejected = await callTaskWork(
+      client,
+      "tasken.report_task_done",
+      rejectedDoneArguments,
+    );
+    const rejectedProposal = canonicalProposal(
+      fixture.database,
+      queuedRejected.proposal_id,
+      fixture.root,
+    );
     const beforeRejectTask = fixture.database.get("task", TASK_ID);
     decideProposal(fixture.service, fixture.database, rejectedProposal, "reject");
     assert.equal(fixture.database.get("ai_proposal", rejectedProposal.id).status, "rejected");
@@ -410,7 +496,14 @@ async function runProviderScenario(provider) {
     const beforeRollback = durableSnapshot(fixture.database);
     const restoreTransactions = injectProposalDecisionFailure(fixture.database);
     assert.throws(
-      () => decideProposal(fixture.service, fixture.database, doneProposal, "accept", `${doneProposal.id}:rollback`),
+      () =>
+        decideProposal(
+          fixture.service,
+          fixture.database,
+          doneProposal,
+          "accept",
+          `${doneProposal.id}:rollback`,
+        ),
       /injected proposal decision failure/,
     );
     restoreTransactions();
@@ -428,46 +521,63 @@ async function runProviderScenario(provider) {
     };
     const retryDone = fixture.service.execute(doneDecision);
     assert.deepEqual(retryDone, acceptedDone);
-    assert.deepEqual({
-      receipts: fixture.database.list("work_receipt").length,
-      proposals: fixture.database.list("ai_proposal").length,
-      events: fixture.database.list("change_event").length,
-    }, countsBeforeRetry);
+    assert.deepEqual(
+      {
+        receipts: fixture.database.list("work_receipt").length,
+        proposals: fixture.database.list("ai_proposal").length,
+        events: fixture.database.list("change_event").length,
+      },
+      countsBeforeRetry,
+    );
 
     const reviewTask = fixture.database.get("task", TASK_ID);
-    assert.throws(() => fixture.service.execute(command(
-      "CompleteTask",
-      { taskId: TASK_ID },
-      "ai-direct-complete",
-      [{ type: "task", id: TASK_ID, version: reviewTask.version }],
-      { actor: { kind: "ai_agent", id: "fixture-agent" }, source: "mcp" },
-    )), /AI agentはTaskを直接変更・完了できません/);
-    assert.throws(() => fixture.service.execute(command(
-      "UpdateTask",
-      { task: { ...reviewTask, description: "destructive overwrite" } },
-      "ai-destructive-overwrite",
-      [{ type: "task", id: TASK_ID, version: reviewTask.version }],
-      { actor: { kind: "ai_agent", id: "fixture-agent" }, source: "mcp" },
-    )), /AI agentはTaskを直接変更・完了できません/);
-    assert.throws(() => fixture.database.save("task", {
-      ...reviewTask,
-      state: "done",
-    }), /work_state=accepted/);
+    assert.throws(
+      () =>
+        fixture.service.execute(
+          command(
+            "CompleteTask",
+            { taskId: TASK_ID },
+            "ai-direct-complete",
+            [{ type: "task", id: TASK_ID, version: reviewTask.version }],
+            { actor: { kind: "ai_agent", id: "fixture-agent" }, source: "mcp" },
+          ),
+        ),
+      /AI agentはTaskを直接変更・完了できません/,
+    );
+    assert.throws(
+      () =>
+        fixture.service.execute(
+          command(
+            "UpdateTask",
+            { task: { ...reviewTask, description: "destructive overwrite" } },
+            "ai-destructive-overwrite",
+            [{ type: "task", id: TASK_ID, version: reviewTask.version }],
+            { actor: { kind: "ai_agent", id: "fixture-agent" }, source: "mcp" },
+          ),
+        ),
+      /AI agentはTaskを直接変更・完了できません/,
+    );
+    assert.throws(
+      () =>
+        fixture.database.save("task", {
+          ...reviewTask,
+          state: "done",
+        }),
+      /work_state=accepted/,
+    );
 
-    fixture.service.execute(command(
-      "AcceptTaskWork",
-      { taskId: TASK_ID },
-      "human-accept-work",
-      [{ type: "task", id: TASK_ID, version: reviewTask.version }],
-    ));
+    fixture.service.execute(
+      command("AcceptTaskWork", { taskId: TASK_ID }, "human-accept-work", [
+        { type: "task", id: TASK_ID, version: reviewTask.version },
+      ]),
+    );
     const acceptedTask = fixture.database.get("task", TASK_ID);
     assert.equal(acceptedTask.work_state, "accepted");
-    fixture.service.execute(command(
-      "CompleteTask",
-      { taskId: TASK_ID },
-      "human-complete-task",
-      [{ type: "task", id: TASK_ID, version: acceptedTask.version }],
-    ));
+    fixture.service.execute(
+      command("CompleteTask", { taskId: TASK_ID }, "human-complete-task", [
+        { type: "task", id: TASK_ID, version: acceptedTask.version },
+      ]),
+    );
     assert.equal(fixture.database.get("task", TASK_ID).state, "done");
 
     await client.close();
@@ -475,16 +585,27 @@ async function runProviderScenario(provider) {
     fixture.database.db.close();
     fixture.database = new WorkspaceDatabase(fixture.dbPath);
     fixture.service = new ApplicationCommandService(fixture.database);
-    host = new TaskenCoreHost({ userDataPath: fixture.root, ...createTaskenCore(fixture.database) });
+    host = new TaskenCoreHost({
+      userDataPath: fixture.root,
+      ...createTaskenCore(fixture.database),
+    });
     await host.start();
     assertDiscoveryOwnerOnly(fixture.root);
     client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"), fixture.root);
-    const finalContext = await callTaskWork(client, "tasken.get_task_context", { task_id: TASK_ID });
+    const finalContext = await callTaskWork(client, "tasken.get_task_context", {
+      task_locator: formatTaskLocator(TASK_ID),
+    });
     assert.equal(finalContext.task.state, "done");
     assert.equal(finalContext.related.work_receipts.length, 2);
     assert.ok(finalContext.context_graph.edges.some((edge) => edge.predicate === "created_for"));
-    assert.ok(fixture.database.list("change_event").some((event) => event.event_kind === "task_ai_accepted"));
-    assert.ok(fixture.database.list("change_event").some((event) => event.event_kind === "task_completed"));
+    assert.ok(
+      fixture.database
+        .list("change_event")
+        .some((event) => event.event_kind === "task_ai_accepted"),
+    );
+    assert.ok(
+      fixture.database.list("change_event").some((event) => event.event_kind === "task_completed"),
+    );
     return semanticContract(fixture.database, finalContext);
   } finally {
     await client.close().catch(() => {});
@@ -505,7 +626,9 @@ test("legacy SQLite + actual stdio MCPでAI協働をhuman completionまで原子
     FAKE_PROVIDERS.map((provider) => [provider, provider]),
   );
   assert.deepEqual(
-    contracts.map((contract) => contract.context.work_receipts.map((receipt) => receipt.runtime_metadata)),
+    contracts.map((contract) =>
+      contract.context.work_receipts.map((receipt) => receipt.runtime_metadata),
+    ),
     FAKE_PROVIDERS.map((provider) => [provider, provider]),
   );
 });

@@ -101,6 +101,12 @@ export class TaskenDesktopComposition<
       this.repository,
       (command) => this.applicationCommands.execute(command),
       options.onProposalCommitted,
+      (command, currentContextFingerprint, responseMeta) =>
+        this.applicationCommands.executeTaskDelegation(
+          command,
+          currentContextFingerprint,
+          responseMeta,
+        ),
     );
     const mobileState: MobileGatewayStatePort = {
       current: () => this.repository.mobileGatewayState(),

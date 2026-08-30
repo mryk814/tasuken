@@ -1,5 +1,7 @@
-export type CanonicalMarkdownFileState = "none" | "synced" | "pending" | "external_change" | "failed" | "conflict" | "unavailable";
-export type CanonicalMarkdownSyncState = "in_sync" | "internal_ahead" | "file_ahead" | "conflict" | "unavailable";
+export type CanonicalMarkdownFileState =
+  "none" | "synced" | "pending" | "external_change" | "failed" | "conflict" | "unavailable";
+export type CanonicalMarkdownSyncState =
+  "in_sync" | "internal_ahead" | "file_ahead" | "conflict" | "unavailable";
 
 export interface CanonicalMarkdownBinding {
   schema_version: number;
@@ -23,6 +25,7 @@ export interface CanonicalMarkdownBinding {
 }
 
 export const CANONICAL_MARKDOWN_SCHEMA_VERSION: number;
+export function sha256Hex(bytes: Uint8Array): string;
 
 export function buildCanonicalMarkdownContent(options?: {
   title?: string;
@@ -31,9 +34,18 @@ export function buildCanonicalMarkdownContent(options?: {
   body?: string;
 }): string;
 
-export function normalizeCanonicalMarkdownBinding(value?: unknown, options?: { noteId?: string }): CanonicalMarkdownBinding;
-export function canonicalMarkdownBindingFromProperties(properties?: unknown, options?: { noteId?: string }): CanonicalMarkdownBinding | null;
-export function withCanonicalMarkdownBinding(properties?: unknown, binding?: unknown): Record<string, unknown>;
+export function normalizeCanonicalMarkdownBinding(
+  value?: unknown,
+  options?: { noteId?: string },
+): CanonicalMarkdownBinding;
+export function canonicalMarkdownBindingFromProperties(
+  properties?: unknown,
+  options?: { noteId?: string },
+): CanonicalMarkdownBinding | null;
+export function withCanonicalMarkdownBinding(
+  properties?: unknown,
+  binding?: unknown,
+): Record<string, unknown>;
 export function canonicalMarkdownFileState(syncState?: string): CanonicalMarkdownFileState;
 
 export type CanonicalMarkdownWritePlan =

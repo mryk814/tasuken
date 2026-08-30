@@ -7,4 +7,7 @@ export {
   TASKEN_MOBILE_MAX_ITEMS,
   TASKEN_MOBILE_MAX_RESPONSE_BYTES,
   TASKEN_MOBILE_SCHEMA_VERSION,
+  formatTaskLocator,
+  parseCanonicalTaskId,
+  parseTaskLocator,
 } from "./public.mjs";

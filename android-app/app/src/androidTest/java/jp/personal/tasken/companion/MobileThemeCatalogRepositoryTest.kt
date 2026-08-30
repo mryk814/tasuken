@@ -32,7 +32,7 @@ class MobileThemeCatalogRepositoryTest {
             SyncStateEntity(
                 serverId = "server-1",
                 apiVersion = 1,
-                schemaVersion = 5,
+                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
                 cursor = "task-cursor",
                 lastSuccessfulSyncAt = "2026-08-22T01:00:00Z",
                 lastAttemptAt = "2026-08-22T01:00:00Z",
@@ -480,7 +480,7 @@ class MobileThemeCatalogRepositoryTest {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 5,
+                "schemaVersion": 6,
                 "serverId": "server-1",
                 "serverRevision": $revision,
                 "generatedAt": "2026-08-22T02:00:00Z",
@@ -499,7 +499,7 @@ class MobileThemeCatalogRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 7,
             "generatedAt": "2026-08-22T02:00:00Z",
@@ -518,7 +518,7 @@ class MobileThemeCatalogRepositoryTest {
           "ok": false,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 7,
             "generatedAt": "2026-08-22T02:00:00Z",
@@ -541,7 +541,7 @@ class MobileThemeCatalogRepositoryTest {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 5,
+                "schemaVersion": 6,
                 "serverId": "$serverId",
                 "serverRevision": 7,
                 "generatedAt": "2026-08-22T02:00:00Z",
@@ -561,7 +561,7 @@ class MobileThemeCatalogRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T02:00:00Z",
@@ -590,7 +590,7 @@ class MobileThemeCatalogRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "$serverId",
             "serverRevision": 7,
             "generatedAt": "2026-08-22T02:00:00Z",

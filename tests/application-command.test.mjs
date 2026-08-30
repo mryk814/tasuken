@@ -86,6 +86,35 @@ function envelope(name, payload, commandId, expectedVersions = []) {
   };
 }
 
+test("Task delegation rejects malformed Unicode IDs at the Application Command boundary", () => {
+  const taskEntityType = "task";
+  const base = {
+    commandId: "delegate-invalid-unicode",
+    name: "DelegateTaskToAgent",
+    actor: { kind: "user", id: "mobile-user" },
+    source: "mobile",
+    issuedAt: "2026-08-30T01:00:00.000Z",
+    payload: {
+      taskId: "task-valid",
+      agent: "hermes",
+      contextFingerprint: `sha256:${"a".repeat(64)}`,
+    },
+    expectedVersions: [{ type: taskEntityType, id: "task-valid", version: 1 }],
+  };
+  assert.throws(
+    () => parseCommandEnvelope({ ...base, payload: { ...base.payload, taskId: "\ud800" } }),
+    /payload/u,
+  );
+  assert.throws(
+    () =>
+      parseCommandEnvelope({
+        ...base,
+        expectedVersions: [{ type: taskEntityType, id: "\ud800", version: 1 }],
+      }),
+    /expectedVersions/u,
+  );
+});
+
 test("Task commands keep Theme/schedule/event fields identical across create entry points", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);

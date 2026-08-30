@@ -25,7 +25,7 @@ class MobileThemeContractTest {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 5,
+                "schemaVersion": 6,
                 "serverId": " server-1 ",
                 "serverRevision": 4,
                 "generatedAt": "2026-08-22T01:00:00Z",
@@ -55,7 +55,7 @@ class MobileThemeContractTest {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 5,
+                "schemaVersion": 6,
                 "serverId": "server-1",
                 "serverRevision": 4,
                 "generatedAt": "2026-08-22T01:00:00Z",
@@ -97,7 +97,7 @@ class MobileThemeContractTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 4,
             "generatedAt": "2026-08-22T01:00:00Z",
