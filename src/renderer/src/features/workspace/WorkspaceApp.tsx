@@ -17,10 +17,8 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
 import { usePreference } from "../../utils/usePreference";
 import { noteProjectId } from "../../../../shared/themeRef.mjs";
+import { createTaskClient, projectTaskDraft } from "../task/public";
 import {
-  createTaskClient,
-  projectTaskDraft,
-  projectTaskPatch,
   type BaseRecord,
   type ContentViewerTarget,
   type DocumentSaveReferenceCompanion,
@@ -1083,32 +1081,18 @@ export function WorkspaceApp() {
     try {
       if (type === "task") {
         const existing = fullDomain.tasks.find((candidate) => candidate.id === entity.id);
-        const isCompleting = Boolean(
-          existing && existing.state !== "done" && entity.state === "done",
-        );
-        const isReopening = Boolean(
-          existing && existing.state === "done" && entity.state !== "done",
-        );
-        const taskId = entity.id as string;
         const context = {
           commandId: uuid(),
           issuedAt: new Date().toISOString(),
           entrypoint: drawer?.commandSource || "main_ui",
         } as const;
-        const expectedVersion = Number((existing as unknown as Entity | undefined)?.version || 0);
-        const outcome = !existing
-          ? await taskClient.create(projectTaskDraft(entity), context)
-          : isCompleting
-            ? await taskClient.complete(
-                taskId,
-                expectedVersion,
-                entity.completion_note as string | null,
-                projectTaskPatch(entity),
-                context,
-              )
-            : isReopening
-              ? await taskClient.reopen(taskId, expectedVersion, projectTaskPatch(entity), context)
-              : await taskClient.update(taskId, expectedVersion, projectTaskPatch(entity), context);
+        const outcome = await taskClient.applyEdit(
+          projectTaskDraft(entity),
+          existing
+            ? { state: existing.state, version: Number((existing as unknown as Entity).version || 0) }
+            : null,
+          context,
+        );
         if (!outcome.task) throw new Error("Task commandの結果にTaskがありません。");
         applyExternalSave("task", outcome.task as unknown as Entity);
         if (!options.quiet)

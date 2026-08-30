@@ -15,7 +15,7 @@ const bundled = await build({
         registerTaskIpc,
       } from "./src/main/modules/task/public.ts";
       export { TASK_CONTRACT_SCHEMA_VERSION } from "./src/shared/contracts/task/public.ts";
-      export { createTaskClient } from "./src/renderer/src/features/task/api/taskClient.ts";
+      export { createTaskClient, projectTaskDraft } from "./src/renderer/src/features/task/public.ts";
     `,
     resolveDir: process.cwd(),
   },
@@ -34,6 +34,7 @@ const {
   createTaskMcpAdapter,
   registerTaskIpc,
   createTaskClient,
+  projectTaskDraft,
 } = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
 );
@@ -633,6 +634,97 @@ test("Task capability preserves create, update, complete, reopen, and delete ver
   assert.equal(removed.value.task.version, 5);
   assert.equal(removed.value.event.name, "TaskDeleted");
   assert.equal(typeof removed.value.task.deleted_at, "string");
+});
+
+test("Renderer Task edit selects lifecycle commands through the public client and preserves versions", async () => {
+  const { service, repository } = capability();
+  const commands = [];
+  const execute = async (command) => {
+    commands.push(command);
+    return service.executeCommand(command);
+  };
+  const client = createTaskClient({ create: execute, update: execute, complete: execute, reopen: execute });
+  const context = (name) => ({
+    commandId: `renderer-edit-${name}`,
+    issuedAt: now,
+    actor: { kind: "user", id: "actor-1" },
+    entrypoint: "main_ui",
+  });
+  const draft = createCommand("desktop", "renderer-edit").payload.task;
+  const created = await client.applyEdit(draft, null, context("create"));
+  assert.equal(created.task.version, 1);
+  assert.equal(created.event.name, "TaskCreated");
+
+  const editedDraft = projectTaskDraft({ ...created.task, title: "Edited", renderer_only: true });
+  const updated = await client.applyEdit(editedDraft, created.task, context("update"));
+  assert.equal(updated.task.version, 2);
+  assert.equal(updated.task.title, "Edited");
+  assert.equal(updated.event.name, "TaskUpdated");
+
+  const completed = await client.applyEdit(
+    { ...editedDraft, state: "done", completion_note: "Finished" },
+    updated.task,
+    context("complete"),
+  );
+  assert.equal(completed.task.version, 3);
+  assert.equal(completed.task.completion_note, "Finished");
+  assert.equal(completed.event.name, "TaskCompleted");
+
+  const stillDone = await client.applyEdit(
+    { ...projectTaskDraft(completed.task), title: "Edited after completion" },
+    completed.task,
+    context("still-done"),
+  );
+  assert.equal(stillDone.task.version, 4);
+  assert.equal(stillDone.event.name, "TaskUpdated");
+
+  const reopened = await client.applyEdit(
+    { ...projectTaskDraft(stillDone.task), state: "doing" },
+    stillDone.task,
+    context("reopen"),
+  );
+  assert.equal(reopened.task.version, 5);
+  // ReopenTask keeps the existing application semantics: a reopened Task is todo.
+  assert.equal(reopened.task.state, "todo");
+  assert.equal(reopened.event.name, "TaskReopened");
+  assert.equal(repository.get("task", draft.id).version, 5);
+  assert.deepEqual(commands.map((command) => command.name), [
+    "CreateTask", "UpdateTask", "CompleteTask", "UpdateTask", "ReopenTask",
+  ]);
+  assert.deepEqual(commands.slice(1).map((command) => command.payload.expected_version), [1, 2, 3, 4]);
+  assert.equal(commands[4].payload.changes.state, "doing");
+  assert.ok(commands.every((command) => command.source === "desktop" && command.entrypoint === "main_ui"));
+  assert.ok(commands.every((command) => command.actor.id === "actor-1" && command.issued_at === now));
+  assert.ok(commands.slice(1).every((command) => !("id" in command.payload.changes)));
+  assert.equal("renderer_only" in commands[1].payload.changes, false);
+  assert.equal(editedDraft.state, "todo");
+});
+
+test("Renderer Task edit preserves conflict details and transport failures without changing the draft", async () => {
+  const { service, repository } = capability();
+  const execute = async (command) => service.executeCommand(command);
+  const client = createTaskClient({ create: execute, update: execute });
+  const draft = createCommand("desktop", "renderer-conflict").payload.task;
+  const created = await client.applyEdit(draft, null, { commandId: "renderer-conflict-create", issuedAt: now });
+  await client.applyEdit({ ...draft, title: "Saved elsewhere" }, created.task, {
+    commandId: "renderer-conflict-update", issuedAt: now,
+  });
+  const staleDraft = { ...draft, title: "Unsaved edit" };
+  await assert.rejects(
+    client.applyEdit(staleDraft, created.task, { commandId: "renderer-conflict-stale", issuedAt: now }),
+    (error) => error.name === "TaskClientError" && error.code === "CONFLICT" && error.retryable === false,
+  );
+  assert.equal(repository.get("task", draft.id).title, "Saved elsewhere");
+  assert.equal(repository.get("task", draft.id).version, 2);
+  assert.equal(staleDraft.title, "Unsaved edit");
+
+  const failure = new Error("Task transport unavailable");
+  const failingClient = createTaskClient({ update: async () => { throw failure; } });
+  await assert.rejects(
+    failingClient.applyEdit(staleDraft, created.task, { commandId: "renderer-transport-failed", issuedAt: now }),
+    (error) => error === failure,
+  );
+  assert.equal(staleDraft.title, "Unsaved edit");
 });
 
 test("Task IPC rejects capability access from a non-main window with a structured error", () => {
