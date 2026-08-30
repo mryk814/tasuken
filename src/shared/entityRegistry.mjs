@@ -7,13 +7,10 @@
  * the fields that carry Theme identity.  SQLite/import rows may remain raw
  * records, but every application boundary resolves through this registry.
  */
-/** @typedef {"theme" | "item" | "note" | "link" | "view" | "status_update" | "source_record" | "entity_source" | "field_definition" | "field_value" | "log_entry" | "import_batch" | "knowledge_node" | "ai_proposal" | "resource" | "project" | "repository_context" | "working_copy" | "agent_session" | "capture_entry" | "task" | "waiting" | "plan_node" | "schedule" | "reference" | "task_dependency" | "plan_dependency" | "knowledge_edge" | "change_event" | "work_receipt" | "artifact" | "sketch"} RegistryEntityType */
 /** @typedef {(typeof referenceTargetEntityTypes)[number]} ReferenceTargetEntityType */
 /** @typedef {(typeof referenceRelationTypes)[number]} ReferenceRelationType */
-/** @typedef {{ readonly type: RegistryEntityType, readonly collectionKey: string, readonly domainCollectionKey: string | null, readonly label: string, readonly iconKey: string, readonly projection: "legacy" | "canonical", readonly themePolicy: "none" | "optional" | "required", readonly themeField: string | null, readonly legacyThemeFields: readonly string[], readonly requiredFields: readonly string[], readonly payloadKind: "record", readonly parseCreate: (payload: unknown) => Record<string, unknown>, readonly parseUpdate: (payload: unknown) => Record<string, unknown>, readonly referencePolicy: Readonly<{ themeField: string | null, legacyThemeFields: readonly string[] }>, readonly activityPolicy: Readonly<{ tracked: boolean, projection: "legacy" | "canonical" }> }} EntityDefinition */
 
-/** @type {Array<{ type: RegistryEntityType, collectionKey: string, domainCollectionKey?: string | null, label: string, iconKey: string, projection: "legacy" | "canonical", themePolicy: "none" | "optional" | "required", themeField: string | null, legacyThemeFields?: readonly string[], requiredFields: readonly string[] }>} */
-const definitions = [
+const definitions = /** @type {const} */ ([
   { type: "theme", collectionKey: "themes", label: "Theme", iconKey: "palette", projection: "legacy", themePolicy: "none", themeField: null, requiredFields: ["name"] },
   { type: "item", collectionKey: "items", label: "Item", iconKey: "check", projection: "legacy", themePolicy: "optional", themeField: "theme_id", requiredFields: ["title"] },
   { type: "note", collectionKey: "notes", domainCollectionKey: "notes", label: "Note", iconKey: "note", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
@@ -46,7 +43,10 @@ const definitions = [
   { type: "change_event", collectionKey: "change_events", domainCollectionKey: "change_events", label: "Change event", iconKey: "history", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["entity_type", "entity_id", "changed_at", "change_type", "source"] },
   { type: "artifact", collectionKey: "artifacts", label: "Artifact", iconKey: "file", projection: "legacy", themePolicy: "optional", themeField: "theme_id", requiredFields: ["title", "filename", "source_type", "source_id"] },
   { type: "sketch", collectionKey: "sketches", domainCollectionKey: "sketches", label: "Sketch", iconKey: "pencil", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
-];
+]);
+
+/** @typedef {(typeof definitions)[number]["type"]} RegistryEntityType */
+/** @typedef {{ readonly type: RegistryEntityType, readonly collectionKey: string, readonly domainCollectionKey: string | null, readonly label: string, readonly iconKey: string, readonly projection: "legacy" | "canonical", readonly themePolicy: "none" | "optional" | "required", readonly themeField: string | null, readonly legacyThemeFields: readonly string[], readonly requiredFields: readonly string[], readonly payloadKind: "record", readonly parseCreate: (payload: unknown) => Record<string, unknown>, readonly parseUpdate: (payload: unknown) => Record<string, unknown>, readonly referencePolicy: Readonly<{ themeField: string | null, legacyThemeFields: readonly string[] }>, readonly activityPolicy: Readonly<{ tracked: boolean, projection: "legacy" | "canonical" }> }} EntityDefinition */
 
 /** @param {RegistryEntityType} type @param {unknown} payload */
 function parseCreatePayload(type, payload) {
@@ -59,7 +59,9 @@ function parseUpdatePayload(type, payload) {
 }
 
 /** @type {readonly EntityDefinition[]} */
-export const entityDefinitions = Object.freeze(definitions.map((definition) => Object.freeze({
+export const entityDefinitions = Object.freeze(definitions.map(
+  /** @param {{ type: RegistryEntityType, collectionKey: string, domainCollectionKey?: string | null, label: string, iconKey: string, projection: "legacy" | "canonical", themePolicy: "none" | "optional" | "required", themeField: string | null, legacyThemeFields?: readonly string[], requiredFields: readonly string[] }} definition */
+  (definition) => Object.freeze({
   ...definition,
   requiredFields: Object.freeze([...definition.requiredFields]),
   legacyThemeFields: Object.freeze([...(definition.legacyThemeFields || [])]),
@@ -72,7 +74,8 @@ export const entityDefinitions = Object.freeze(definitions.map((definition) => O
     legacyThemeFields: Object.freeze([...(definition.legacyThemeFields || [])]),
   }),
   activityPolicy: Object.freeze({ tracked: true, projection: definition.projection }),
-})));
+}),
+));
 
 /** @type {Map<string, EntityDefinition>} */
 const definitionsByType = new Map(entityDefinitions.map((definition) => [definition.type, definition]));
