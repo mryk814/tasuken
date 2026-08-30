@@ -35,7 +35,6 @@
     "contract.parallel_mjs_declaration|src/shared/mediaArtifact.mjs|src/shared/mediaArtifact.d.mts",
     "contract.parallel_mjs_declaration|src/shared/relationAssertion.mjs|src/shared/relationAssertion.d.mts",
     "contract.parallel_mjs_declaration|src/shared/repositoryContext.mjs|src/shared/repositoryContext.d.mts",
-    "contract.parallel_mjs_declaration|src/shared/repositoryContextProposal.mjs|src/shared/repositoryContextProposal.d.mts",
     "contract.parallel_mjs_declaration|src/shared/scheduleSemantics.mjs|src/shared/scheduleSemantics.d.mts",
     "contract.parallel_mjs_declaration|src/shared/screenRecording.mjs|src/shared/screenRecording.d.mts",
     "contract.parallel_mjs_declaration|src/shared/screenRecordingEdit.mjs|src/shared/screenRecordingEdit.d.mts",

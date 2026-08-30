@@ -1,21 +1,44 @@
 import { normalizeRepositoryContext, publicRepositoryContext } from "./repositoryContext.mjs";
 
+type ProposalAction = "create" | "merge" | "ignore";
+type UnknownRecord = Record<string, unknown>;
+
+type RepositoryContextProposalInput = {
+  provider?: unknown;
+  label?: unknown;
+  remote_url?: unknown;
+  local_path?: unknown;
+  web_url?: unknown;
+  repository_slug?: unknown;
+  subdirectory?: unknown;
+  default_branch?: unknown;
+  reason?: unknown;
+};
+
+export interface RepositoryContextProposalCandidate {
+  entry: UnknownRecord;
+  normalized?: UnknownRecord;
+  duplicate?: UnknownRecord;
+  action: ProposalAction;
+  issues: string[];
+}
+
 const PROPOSAL_ACTIONS = new Set(["create", "merge", "ignore"]);
 
-function text(value) {
+function text(value: unknown): string {
   return value == null ? "" : String(value).trim();
 }
 
-function plainObject(value) {
+function plainObject(value: unknown): value is UnknownRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function contextVersion(context) {
+function contextVersion(context: UnknownRecord): number {
   return Number(context?.version || 0);
 }
 
 /** Build the credential-free MCP proposal input without overriding provider inference. */
-export function repositoryContextProposalInput(args = {}) {
+export function repositoryContextProposalInput(args: RepositoryContextProposalInput = {}) {
   const provider = text(args.provider);
   return {
     action: "create",
@@ -39,14 +62,17 @@ export function repositoryContextProposalInput(args = {}) {
  * the preview projection. MCP proposals intentionally cannot create a local
  * context: local paths stay in the user-controlled Theme/Task UI.
  */
-export function buildRepositoryContextProposalCandidate(input, contexts = []) {
+export function buildRepositoryContextProposalCandidate(
+  input: UnknownRecord,
+  contexts: UnknownRecord[] = [],
+): RepositoryContextProposalCandidate {
   if (!plainObject(input)) throw new Error("repository_contextsの候補はJSON objectにしてください。");
   const requestedAction = text(input.action);
-  const action = PROPOSAL_ACTIONS.has(requestedAction) ? requestedAction : "ignore";
+  const action = (PROPOSAL_ACTIONS.has(requestedAction) ? requestedAction : "ignore") as ProposalAction;
   const targetId = text(input.target_id);
   const target = targetId ? contexts.find((context) => String(context.id) === targetId) : undefined;
-  const issues = [];
-  let normalized;
+  const issues: string[] = [];
+  let normalized: UnknownRecord | undefined;
   try {
     normalized = normalizeRepositoryContext(input);
   } catch (error) {
@@ -89,7 +115,11 @@ export function buildRepositoryContextProposalCandidate(input, contexts = []) {
  * operations. The caller must still save the proposal status in the same
  * transaction/batch as these operations.
  */
-export function buildRepositoryContextProposalOperations(candidates, contexts, idFactory = () => crypto.randomUUID()) {
+export function buildRepositoryContextProposalOperations(
+  candidates: RepositoryContextProposalCandidate[],
+  contexts: UnknownRecord[],
+  idFactory: () => string = () => crypto.randomUUID(),
+): Array<{ action: "save"; type: "repository_context"; entity: UnknownRecord; options: { source: string } }> {
   return candidates.flatMap((candidate) => {
     if (candidate.action === "ignore") return [];
     if (candidate.issues?.length) throw new Error(`確認事項が残っているRepositoryContext候補があります: ${candidate.issues.join(" / ")}`);
@@ -104,7 +134,7 @@ export function buildRepositoryContextProposalOperations(candidates, contexts, i
         throw new Error("RepositoryContextのmerge対象がPreview後に更新されています。再読み込みしてPreviewし直してください。");
       }
     }
-    const entity = {
+    const entity: UnknownRecord = {
       ...(candidate.action === "merge" && target ? target : {}),
       ...candidate.normalized,
       id: candidate.action === "merge" && target ? target.id : candidate.normalized.id || idFactory(),

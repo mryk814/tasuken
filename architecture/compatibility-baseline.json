@@ -83,7 +83,6 @@
         "src/shared/mediaArtifact.mjs",
         "src/shared/relationAssertion.mjs",
         "src/shared/repositoryContext.mjs",
-        "src/shared/repositoryContextProposal.mjs",
         "src/shared/scheduleSemantics.mjs",
         "src/shared/screenRecording.mjs",
         "src/shared/screenRecordingEdit.mjs",

@@ -6,7 +6,7 @@ import {
   type ProposeRepositoryTaskRequest,
   type ProposeRepositoryTaskResponse,
 } from "../../../shared/contracts/task/public.ts";
-import { buildRepositoryContextProposalCandidate } from "../../../shared/repositoryContextProposal.mjs";
+import { buildRepositoryContextProposalCandidate } from "../../../shared/repositoryContextProposal.ts";
 import type { AiProposalRecord, AiProposalWritePort } from "../ports/aiProposalWritePort.ts";
 
 export class ProposeRepositoryTaskError extends Error {
