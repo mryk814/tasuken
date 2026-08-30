@@ -21,6 +21,8 @@ import {
   publicNoteSummary,
   publicReceiptForContext,
   publicResourceSummary,
+  safeReceiptText,
+  safeReceiptValue,
   publicTaskForContext,
   publicThemeForContext,
   relationForNode,
@@ -420,7 +422,7 @@ export class TaskContextQueryService {
         id: event.id,
         occurred_at: event.occurred_at,
         event_kind: event.event_kind,
-        summary: budget.take(event.summary, 1_000),
+        summary: budget.take(safeReceiptText(event.summary), 1_000),
         actor: event.actor,
         origin: event.origin,
         work_receipt_ref: event.work_receipt_ref || null,
@@ -437,7 +439,7 @@ export class TaskContextQueryService {
     }
 
     const publicRepositoryContexts = includeSet.has("repository")
-      ? taskRepositoryContexts.map(publicRepositoryContext)
+      ? taskRepositoryContexts.map(publicRepositoryContext).map(safeReceiptValue)
       : [];
     const selectionIncluded = [
       contextSelectionEntry("task", taskOutput, { reason: "seed" }),

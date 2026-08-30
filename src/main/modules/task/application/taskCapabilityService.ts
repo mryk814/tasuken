@@ -90,14 +90,28 @@ function projectSchedule(entity: Entity | null): TaskScheduleReadModel | null {
   });
 }
 
-function projectTask(entity: Entity, schedule: Entity | null): TaskReadModel {
+function normalizeChecklistItemsForReadModel(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    const record = item as Record<string, unknown>;
+    return record.completed_at === "" ? { ...record, completed_at: null } : item;
+  });
+}
+
+export function projectTaskReadModel(entity: Entity, schedule: Entity | null): TaskReadModel {
   const projection = Object.fromEntries(
     Object.keys(taskReadModelSchema.shape)
       .filter((key) => key !== "schedule" && Object.prototype.hasOwnProperty.call(entity, key))
-      .map((key) => [key, entity[key]]),
+      .map((key) => [
+        key,
+        key === "checklist_items" ? normalizeChecklistItemsForReadModel(entity[key]) : entity[key],
+      ]),
   );
   return taskReadModelSchema.parse({ ...projection, schedule: projectSchedule(schedule) });
 }
+
+const projectTask = projectTaskReadModel;
 
 function expectedVersions(
   command: Exclude<TaskCommand, { name: "CreateTask" }>,
@@ -345,6 +359,18 @@ function eventFor(
   task: TaskReadModel,
 ): TaskEvent | null {
   if (receipt.status === "no_change") return null;
+  const persistedChangedFields = receipt.eventChanges?.find(
+    (change) =>
+      change.type === "change_event" &&
+      String(
+        change.entity.entity_id ||
+          (change.entity.entity_ref as { id?: unknown } | undefined)?.id ||
+          "",
+      ) === task.id,
+  )?.entity.changed_fields;
+  const changedFields = Array.isArray(persistedChangedFields)
+    ? persistedChangedFields.filter((field): field is string => typeof field === "string")
+    : [];
   const eventBase = {
     schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     event_id: receipt.events[0] || command.command_id,
@@ -388,10 +414,12 @@ function eventFor(
   return taskEventSchema.parse({
     ...eventBase,
     name: "TaskUpdated",
-    changed_fields: [
-      ...Object.keys(command.payload.changes || {}),
-      ...(command.payload.schedule_change ? ["schedule"] : []),
-    ],
+    changed_fields: changedFields.length
+      ? changedFields
+      : [
+          ...Object.keys(command.payload.changes || {}),
+          ...(command.payload.schedule_change ? ["schedule"] : []),
+        ],
   });
 }
 

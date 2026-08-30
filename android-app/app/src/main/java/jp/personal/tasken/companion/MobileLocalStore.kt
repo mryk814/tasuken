@@ -163,6 +163,118 @@ data class PendingHumanReviewEntity(
     val createdAt: String,
 )
 
+@Entity(
+    tableName = "pending_task_delegation",
+    indices = [Index(value = ["serverId", "taskId"])],
+)
+data class PendingTaskDelegationEntity(
+    @PrimaryKey val commandId: String,
+    val serverId: String,
+    val taskId: String,
+    val contextFingerprint: String,
+    val envelopeJson: String,
+    val successJson: String? = null,
+    val createdAt: String,
+)
+
+@Entity(
+    tableName = "task_notification_delivery",
+    indices = [Index(value = ["serverId", "taskId"])],
+)
+data class TaskNotificationDeliveryEntity(
+    @PrimaryKey val deliveryId: String,
+    val serverId: String,
+    val taskId: String,
+    val taskVersion: Int,
+    val workState: String,
+    val receiptId: String?,
+    val state: String,
+    val createdAt: String,
+    val deliveredAt: String? = null,
+)
+
+private fun taskNotificationSignal(task: TaskCacheEntity): String? = when (task.workState) {
+    "blocked" -> "blocked"
+    "needs_human_review" -> "needs_human_review"
+    "reported_done" -> "agent_done"
+    else -> null
+}
+
+internal fun TaskNotificationDeliveryEntity.matchesCurrentState(
+    task: TaskCacheEntity?,
+    proposal: TaskWorkProposalCacheEntity?,
+): Boolean = when (workState) {
+    "pending_proposal" ->
+        receiptId != null && proposal?.id == receiptId && proposal.taskId == taskId && proposal.serverId == serverId
+    "blocked", "needs_human_review", "agent_done" ->
+        task != null && taskNotificationSignal(task) == workState && task.latestReceiptId == receiptId
+    else -> false
+}
+
+private fun TaskCacheEntity.notificationDelivery(
+    serverId: String,
+    signal: String,
+    state: String,
+    observedAt: String,
+): TaskNotificationDeliveryEntity {
+    val version = requireNotNull(serverVersion)
+    val receipt = latestReceiptId.orEmpty()
+    val id = listOf("tasken-notification-v1", serverId, id, version.toString(), signal, receipt)
+        .joinToString("\u0000")
+    return TaskNotificationDeliveryEntity(
+        deliveryId = java.util.UUID.nameUUIDFromBytes(id.toByteArray(Charsets.UTF_8)).toString(),
+        serverId = serverId,
+        taskId = this.id,
+        taskVersion = version,
+        workState = signal,
+        receiptId = latestReceiptId,
+        state = state,
+        createdAt = observedAt.ifBlank { java.time.Instant.now().toString() },
+    )
+}
+
+private fun taskNotificationDelivery(
+    serverId: String,
+    taskId: String,
+    taskVersion: Int,
+    signal: String,
+    receiptId: String?,
+    state: String,
+    observedAt: String,
+): TaskNotificationDeliveryEntity {
+    val source = listOf(
+        "tasken-notification-v1",
+        serverId,
+        taskId,
+        taskVersion.toString(),
+        signal,
+        receiptId.orEmpty(),
+    ).joinToString("\u0000")
+    return TaskNotificationDeliveryEntity(
+        deliveryId = java.util.UUID.nameUUIDFromBytes(source.toByteArray(Charsets.UTF_8)).toString(),
+        serverId = serverId,
+        taskId = taskId,
+        taskVersion = taskVersion,
+        workState = signal,
+        receiptId = receiptId,
+        state = state,
+        createdAt = observedAt.ifBlank { java.time.Instant.now().toString() },
+    )
+}
+
+private fun proposalNotificationBaseline(
+    serverId: String,
+    observedAt: String,
+): TaskNotificationDeliveryEntity = taskNotificationDelivery(
+    serverId = serverId,
+    taskId = "proposal-baseline",
+    taskVersion = 0,
+    signal = "proposal_baseline",
+    receiptId = null,
+    state = "known",
+    observedAt = observedAt,
+)
+
 @Entity(tableName = "sync_state")
 data class SyncStateEntity(
     @PrimaryKey val id: Int = SINGLETON_ID,
@@ -287,11 +399,38 @@ abstract class MobileLocalDao {
     @Query("SELECT * FROM task_work_proposal_cache WHERE id = :proposalId AND serverId = :serverId")
     abstract suspend fun taskWorkProposal(proposalId: String, serverId: String): TaskWorkProposalCacheEntity?
 
+    @Query("SELECT * FROM task_work_proposal_cache WHERE serverId = :serverId")
+    abstract suspend fun taskWorkProposals(serverId: String): List<TaskWorkProposalCacheEntity>
+
     @Query("SELECT * FROM outbox_command WHERE commandId = :commandId")
     abstract suspend fun outbox(commandId: String): OutboxCommandEntity?
 
     @Query("SELECT * FROM pending_human_review WHERE commandId = :commandId")
     abstract suspend fun pendingHumanReview(commandId: String): PendingHumanReviewEntity?
+
+    @Query("SELECT * FROM pending_task_delegation WHERE commandId = :commandId")
+    abstract suspend fun pendingTaskDelegation(commandId: String): PendingTaskDelegationEntity?
+
+    @Query(
+        "SELECT * FROM task_notification_delivery " +
+            "WHERE serverId = :serverId AND state = 'pending' ORDER BY createdAt, deliveryId",
+    )
+    abstract suspend fun pendingTaskNotificationDeliveries(serverId: String): List<TaskNotificationDeliveryEntity>
+
+    @Query(
+        "SELECT * FROM task_notification_delivery " +
+            "WHERE serverId = :serverId AND state = 'delivered' ORDER BY createdAt, deliveryId",
+    )
+    abstract suspend fun deliveredTaskNotificationDeliveries(serverId: String): List<TaskNotificationDeliveryEntity>
+
+    @Query(
+        "UPDATE task_notification_delivery SET state = 'cancelled' " +
+            "WHERE deliveryId = :deliveryId AND serverId = :serverId AND state = 'delivered'",
+    )
+    abstract suspend fun markTaskNotificationCancelled(deliveryId: String, serverId: String): Int
+
+    @Query("SELECT COUNT(*) FROM task_notification_delivery WHERE serverId = :serverId AND workState = 'proposal_baseline'")
+    abstract suspend fun proposalNotificationBaselineCount(serverId: String): Int
 
     @Query("SELECT * FROM outbox_command WHERE taskId = :taskId ORDER BY createdAt, commandId")
     abstract suspend fun outboxForTask(taskId: String): List<OutboxCommandEntity>
@@ -341,6 +480,12 @@ abstract class MobileLocalDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     abstract suspend fun insertPendingHumanReview(review: PendingHumanReviewEntity)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    abstract suspend fun insertPendingTaskDelegation(delegation: PendingTaskDelegationEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract suspend fun insertTaskNotificationDelivery(delivery: TaskNotificationDeliveryEntity): Long
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertSyncState(state: SyncStateEntity)
 
@@ -356,8 +501,21 @@ abstract class MobileLocalDao {
     @Query("DELETE FROM task_cache WHERE todayDate = :date AND optimisticCommandId IS NULL AND conflictCommandId IS NULL")
     abstract suspend fun deleteCanonicalToday(date: String)
 
+    @Query(
+        "DELETE FROM task_cache WHERE todayDate = :date " +
+            "AND optimisticCommandId IS NULL AND conflictCommandId IS NULL " +
+            "AND id NOT IN (:taskIds)",
+    )
+    abstract suspend fun deleteCanonicalTodayNotIn(date: String, taskIds: List<String>)
+
     @Query("DELETE FROM task_cache WHERE optimisticCommandId IS NULL AND conflictCommandId IS NULL")
     abstract suspend fun deleteCanonicalTasks()
+
+    @Query(
+        "DELETE FROM task_cache WHERE optimisticCommandId IS NULL AND conflictCommandId IS NULL " +
+            "AND id NOT IN (:taskIds)",
+    )
+    abstract suspend fun deleteCanonicalTasksNotIn(taskIds: List<String>)
 
     @Query("DELETE FROM task_cache WHERE id = :taskId AND optimisticCommandId IS NULL AND conflictCommandId IS NULL")
     abstract suspend fun deleteCanonicalTask(taskId: String)
@@ -382,6 +540,37 @@ abstract class MobileLocalDao {
         deleteTaskWorkProposals()
         if (proposals.isNotEmpty()) upsertTaskWorkProposals(proposals)
     }
+
+    @Transaction
+    open suspend fun replaceTaskWorkProposalsAndQueueNotifications(
+        serverId: String,
+        proposals: List<TaskWorkProposalCacheEntity>,
+        deliveries: List<TaskNotificationDeliveryEntity>,
+        observedAt: String,
+    ) {
+        val initialized = proposalNotificationBaselineCount(serverId) != 0
+        deleteTaskWorkProposals()
+        if (proposals.isNotEmpty()) upsertTaskWorkProposals(proposals)
+        if (initialized) {
+            deliveries.forEach { insertTaskNotificationDelivery(it) }
+        } else {
+            insertTaskNotificationDelivery(proposalNotificationBaseline(serverId, observedAt))
+        }
+    }
+
+    internal fun pendingProposalNotification(
+        serverId: String,
+        proposal: MobileTaskWorkProposalDto,
+        observedAt: String,
+    ): TaskNotificationDeliveryEntity = taskNotificationDelivery(
+        serverId = serverId,
+        taskId = proposal.task.id,
+        taskVersion = proposal.task.version,
+        signal = "pending_proposal",
+        receiptId = proposal.id,
+        state = "pending",
+        observedAt = observedAt,
+    )
 
     @Query(
         "SELECT * FROM outbox_command " +
@@ -418,6 +607,22 @@ abstract class MobileLocalDao {
     @Query("DELETE FROM pending_human_review WHERE commandId = :commandId")
     abstract suspend fun deletePendingHumanReview(commandId: String)
 
+    @Query("UPDATE pending_task_delegation SET successJson = :successJson WHERE commandId = :commandId")
+    abstract suspend fun recordTaskDelegationSuccess(commandId: String, successJson: String)
+
+    @Query(
+        "UPDATE task_notification_delivery SET state = 'delivered', deliveredAt = :deliveredAt " +
+            "WHERE deliveryId = :deliveryId AND serverId = :serverId AND state = 'pending'",
+    )
+    abstract suspend fun markTaskNotificationDelivered(
+        deliveryId: String,
+        serverId: String,
+        deliveredAt: String,
+    ): Int
+
+    @Query("DELETE FROM task_notification_delivery WHERE serverId != :serverId")
+    abstract suspend fun deleteTaskNotificationDeliveriesFromOtherServers(serverId: String): Int
+
     @Transaction
     open suspend fun pendingHumanReviewOrInsert(review: PendingHumanReviewEntity): PendingHumanReviewEntity {
         val existing = pendingHumanReview(review.commandId)
@@ -427,12 +632,29 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
+    open suspend fun pendingTaskDelegationOrInsert(
+        delegation: PendingTaskDelegationEntity,
+    ): PendingTaskDelegationEntity {
+        val existing = pendingTaskDelegation(delegation.commandId)
+        if (existing != null) return existing
+        insertPendingTaskDelegation(delegation)
+        return delegation
+    }
+
+    @Transaction
     open suspend fun applyHumanReviewSuccess(commandId: String, canonicalTask: TaskCacheEntity) {
-        val current = task(canonicalTask.id)
-        if (current?.serverVersion == null || canonicalTask.serverVersion!! >= current.serverVersion) {
-            upsertTask(canonicalTask)
-        }
+        upsertCanonicalTaskIfNotOlder(canonicalTask)
         deletePendingHumanReview(commandId)
+    }
+
+    @Transaction
+    open suspend fun applyTaskDelegationSuccess(
+        commandId: String,
+        canonicalTask: TaskCacheEntity,
+        successJson: String,
+    ) {
+        upsertCanonicalTaskIfNotOlder(canonicalTask)
+        recordTaskDelegationSuccess(commandId, successJson)
     }
 
     @Query("DELETE FROM task_conflict WHERE commandId = :commandId")
@@ -652,19 +874,40 @@ abstract class MobileLocalDao {
 
     @Transaction
     open suspend fun replaceToday(date: String, tasks: List<TaskCacheEntity>, syncState: SyncStateEntity) {
-        deleteCanonicalToday(date)
-        tasks.forEach { upsertTask(it) }
+        tasks.forEach { upsertCanonicalTaskIfNotOlder(it) }
+        if (tasks.isEmpty()) {
+            deleteCanonicalToday(date)
+        } else {
+            deleteCanonicalTodayNotIn(date, tasks.map(TaskCacheEntity::id))
+        }
         upsertSyncState(syncState)
     }
 
     @Transaction
     open suspend fun applyBootstrap(tasks: List<TaskCacheEntity>, syncState: SyncStateEntity) {
-        deleteCanonicalTasks()
+        val previousSyncState = this.syncState()
+        val serverId = requireNotNull(syncState.serverId)
+        val initialBaseline = previousSyncState?.serverId != serverId
+        val previousTasks = tasks.associate { incoming -> incoming.id to task(incoming.id) }
         tasks.forEach { incoming ->
-            val current = task(incoming.id)
-            if (current == null || (current.optimisticCommandId == null && current.conflictCommandId == null)) {
-                upsertTask(incoming)
+            val previous = previousTasks[incoming.id]
+            if (upsertCanonicalTaskIfNotOlder(incoming)) {
+                if (initialBaseline) {
+                    seedTaskNotification(incoming, serverId, syncState.lastSuccessfulSyncAt.orEmpty())
+                } else {
+                    queueTaskNotificationIfNeeded(
+                        previous = previous,
+                        incoming = incoming,
+                        serverId = serverId,
+                        observedAt = syncState.lastSuccessfulSyncAt.orEmpty(),
+                    )
+                }
             }
+        }
+        if (tasks.isEmpty()) {
+            deleteCanonicalTasks()
+        } else {
+            deleteCanonicalTasksNotIn(tasks.map(TaskCacheEntity::id))
         }
         upsertSyncState(syncState)
     }
@@ -674,6 +917,7 @@ abstract class MobileLocalDao {
         val serverId = requireNotNull(syncState.serverId)
         require(serverId.isNotBlank())
         if (incompatibleOutboxCount(serverId) != 0) return false
+        deleteTaskNotificationDeliveriesFromOtherServers(serverId)
         invalidateThemeCatalogForServer(serverId, syncState.lastAttemptAt ?: syncState.lastSuccessfulSyncAt.orEmpty())
         applyBootstrap(tasks, syncState)
         return true
@@ -690,12 +934,44 @@ abstract class MobileLocalDao {
         require(incompatibleOutboxCount(serverId) == 0)
         tombstoneIds.forEach { deleteCanonicalTask(it) }
         upserts.forEach { incoming ->
-            val current = task(incoming.id)
-            if (current == null || (current.optimisticCommandId == null && current.conflictCommandId == null)) {
-                upsertTask(incoming)
+            val previous = task(incoming.id)
+            if (upsertCanonicalTaskIfNotOlder(incoming)) {
+                queueTaskNotificationIfNeeded(
+                    previous = previous,
+                    incoming = incoming,
+                    serverId = serverId,
+                    observedAt = syncState.lastSuccessfulSyncAt.orEmpty(),
+                )
             }
         }
         upsertSyncState(syncState)
+    }
+
+    private suspend fun upsertCanonicalTaskIfNotOlder(incoming: TaskCacheEntity): Boolean {
+        val current = task(incoming.id)
+        if (current?.optimisticCommandId != null || current?.conflictCommandId != null) return false
+        val currentVersion = current?.serverVersion
+        val incomingVersion = incoming.serverVersion
+        if (currentVersion != null && (incomingVersion == null || incomingVersion < currentVersion)) return false
+        upsertTask(incoming)
+        return true
+    }
+
+    private suspend fun seedTaskNotification(task: TaskCacheEntity, serverId: String, observedAt: String) {
+        taskNotificationSignal(task)?.let { signal ->
+            insertTaskNotificationDelivery(task.notificationDelivery(serverId, signal, "known", observedAt))
+        }
+    }
+
+    private suspend fun queueTaskNotificationIfNeeded(
+        previous: TaskCacheEntity?,
+        incoming: TaskCacheEntity,
+        serverId: String,
+        observedAt: String,
+    ) {
+        val signal = taskNotificationSignal(incoming) ?: return
+        if (previous?.workState == incoming.workState && previous?.latestReceiptId == incoming.latestReceiptId) return
+        insertTaskNotificationDelivery(incoming.notificationDelivery(serverId, signal, "pending", observedAt))
     }
 
     @Transaction
@@ -1201,8 +1477,10 @@ abstract class MobileLocalDao {
         WorkReceiptCacheEntity::class,
         TaskWorkProposalCacheEntity::class,
         PendingHumanReviewEntity::class,
+        PendingTaskDelegationEntity::class,
+        TaskNotificationDeliveryEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -1231,6 +1509,7 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 MIGRATION_12_13,
                 MIGRATION_13_14,
                 MIGRATION_14_15,
+                MIGRATION_15_16,
             ).build().also { instance = it }
         }
     }
@@ -1415,6 +1694,41 @@ internal val MIGRATION_14_15 = object : Migration(14, 15) {
             "CREATE TABLE IF NOT EXISTS pending_human_review (" +
                 "commandId TEXT NOT NULL PRIMARY KEY, serverId TEXT NOT NULL, taskId TEXT NOT NULL, " +
                 "envelopeJson TEXT NOT NULL, createdAt TEXT NOT NULL)",
+        )
+    }
+}
+
+internal val MIGRATION_15_16 = object : Migration(15, 16) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "UPDATE outbox_command SET envelopeJson = " +
+                "REPLACE(envelopeJson, '\"schemaVersion\":5', '\"schemaVersion\":6') " +
+                "WHERE envelopeJson LIKE '%\"schemaVersion\":5%'",
+        )
+        db.execSQL(
+            "UPDATE pending_human_review SET envelopeJson = " +
+                "REPLACE(envelopeJson, '\"schemaVersion\":5', '\"schemaVersion\":6') " +
+                "WHERE envelopeJson LIKE '%\"schemaVersion\":5%'",
+        )
+        db.execSQL("UPDATE sync_state SET schemaVersion = 6 WHERE apiVersion = 1 AND schemaVersion = 5")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS pending_task_delegation (" +
+                "commandId TEXT NOT NULL PRIMARY KEY, serverId TEXT NOT NULL, taskId TEXT NOT NULL, " +
+                "contextFingerprint TEXT NOT NULL, envelopeJson TEXT NOT NULL, successJson TEXT, createdAt TEXT NOT NULL)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_pending_task_delegation_serverId_taskId " +
+                "ON pending_task_delegation (serverId, taskId)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS task_notification_delivery (" +
+                "deliveryId TEXT NOT NULL PRIMARY KEY, serverId TEXT NOT NULL, taskId TEXT NOT NULL, " +
+                "taskVersion INTEGER NOT NULL, workState TEXT NOT NULL, receiptId TEXT, state TEXT NOT NULL, " +
+                "createdAt TEXT NOT NULL, deliveredAt TEXT)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_task_notification_delivery_serverId_taskId " +
+                "ON task_notification_delivery (serverId, taskId)",
         )
     }
 }

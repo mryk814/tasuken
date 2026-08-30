@@ -34,7 +34,7 @@ class MobileHumanReviewRepositoryTest {
             SyncStateEntity(
                 serverId = "server-1",
                 apiVersion = 1,
-                schemaVersion = 5,
+                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
                 cursor = "cursor-1",
                 lastSuccessfulSyncAt = "2026-08-26T00:00:00Z",
                 lastAttemptAt = "2026-08-26T00:00:00Z",
@@ -212,7 +212,7 @@ class MobileHumanReviewRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 42,
             "generatedAt": "2026-08-26T00:00:01Z",
@@ -248,7 +248,7 @@ class MobileHumanReviewRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 42,
             "generatedAt": "2026-08-30T00:00:00Z",

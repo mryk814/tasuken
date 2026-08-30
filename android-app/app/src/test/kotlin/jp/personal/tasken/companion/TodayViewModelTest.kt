@@ -490,6 +490,68 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun safeShareRemainsPendingUntilTheMatchingShareIsConsumed() {
+        val task = sampleTask().copy(version = 3, workState = "not_delegated")
+        val previewData = MobileTaskContextPreviewDataDto(
+            contextFingerprint = "fingerprint-1",
+            task = MobileTaskContextPreviewTaskDto(
+                id = task.id,
+                version = task.version,
+                title = task.title,
+                description = null,
+                state = task.state,
+                workState = task.workState.orEmpty(),
+                updatedAt = task.updatedAt,
+            ),
+            related = MobileTaskContextPreviewRelatedDto(),
+            contextSelection = MobileTaskContextSelectionDto(schema = "task-context-selection/v1", truncated = false),
+        )
+        val preview = MobileTaskContextPreview(
+            taskId = task.id,
+            taskVersion = task.version,
+            fingerprint = previewData.contextFingerprint,
+            title = task.title,
+            includedCount = 0,
+            excludedCount = 0,
+            truncated = false,
+            warnings = emptyList(),
+            data = previewData,
+        )
+        val share = MobileSafeShareDto(
+            mimeType = "text/plain",
+            title = task.title,
+            taskId = task.id,
+            taskLocator = "tasken://task/${task.id}",
+            text = "Delegate ${task.title}",
+        )
+        val repository = object : MobileGatewayRepository {
+            override fun loadToday() = MobileTodayResult.Available(listOf(task), "2026-08-30T00:00:00Z")
+            override fun configuration() = MobileGatewayConfiguration("https://gateway.test", paired = true)
+            override fun pair(origin: String, pairingCode: String) = loadToday()
+            override fun retryPairing() = MobileTodayResult.PairingRequired()
+            override suspend fun previewTaskContext(task: MobileTask) = MobileTaskContextPreviewResult.Available(preview)
+            override suspend fun delegateTask(
+                task: MobileTask,
+                preview: MobileTaskContextPreview,
+                expectedResult: String?,
+                instruction: String?,
+            ) = MobileTaskDelegationResult.Applied(task.id, share)
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+
+        runBlocking {
+            viewModel.previewTaskContextNow(task)
+            viewModel.delegateTaskNow(task, "PR", null)
+        }
+
+        assertEquals(share, viewModel.pendingSafeShare.value)
+        viewModel.consumeSafeShare(share.copy(taskId = "other"))
+        assertEquals(share, viewModel.pendingSafeShare.value)
+        viewModel.consumeSafeShare(share)
+        assertNull(viewModel.pendingSafeShare.value)
+    }
+
+    @Test
     fun pairFailureKeepsPairingFormAndOrigin() {
         val repository = object : MobileTaskRepository, MobileGatewayRepository {
             override fun loadToday() = MobileTodayResult.PairingRequired("https://old.example.ts.net")

@@ -1,6 +1,7 @@
 import { entityTypes, type Entity, type EntityType } from "./types/workspace.ts";
 import { normalizeExternalReferences } from "./externalReference.mjs";
 import type { ExternalReference } from "./externalReference.mjs";
+import { isWellFormedUnicode } from "./kernel/public.ts";
 
 export const applicationCommandNames = [
   "CreateTask",
@@ -9,6 +10,7 @@ export const applicationCommandNames = [
   "DeleteCapture",
   "CreateTaskFromCapture",
   "UpdateTask",
+  "DelegateTaskToAgent",
   "CompleteTask",
   "ReopenTask",
   "CompleteTaskWithLearning",
@@ -93,6 +95,14 @@ export interface UpdateTaskCommandPayload {
   task: Entity;
   schedule?: Entity | null;
   references?: Entity[];
+}
+
+export interface DelegateTaskToAgentCommandPayload {
+  taskId: string;
+  agent: "hermes";
+  expectedResult?: string;
+  instruction?: string;
+  contextFingerprint: string;
 }
 
 export interface TaskIdCommandPayload {
@@ -201,6 +211,7 @@ export type ApplicationCommandPayload =
   | DeleteCaptureCommandPayload
   | CreateTaskFromCaptureCommandPayload
   | UpdateTaskCommandPayload
+  | DelegateTaskToAgentCommandPayload
   | TaskIdCommandPayload
   | CompleteTaskWithLearningCommandPayload
   | EndFocusSessionCommandPayload
@@ -232,6 +243,15 @@ export interface CommandEntityChange {
   entity: Entity;
 }
 
+export interface CommandResponseMetaSnapshot {
+  apiVersion: number;
+  schemaVersion: number;
+  serverId: string;
+  serverRevision: number;
+  generatedAt: string;
+  truncated: boolean;
+}
+
 export interface CommandReceipt {
   commandId: string;
   name: ApplicationCommandName;
@@ -242,6 +262,12 @@ export interface CommandReceipt {
   warnings: string[];
   revisions: Array<{ type: EntityType; id: string; version: number }>;
   changes: CommandEntityChange[];
+  /** Immutable transport result captured inside the command transaction for response-loss replay. */
+  resultSnapshot?: {
+    task?: Entity;
+    latestWorkReceipt?: Entity | null;
+    responseMeta?: CommandResponseMetaSnapshot;
+  };
   /** Actual committed change_event rows, kept separate from domain entity deltas. */
   eventChanges?: CommandEntityChange[];
 }
@@ -323,6 +349,7 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
           typeof item.type !== "string" ||
           !entityTypes.includes(item.type as EntityType) ||
           typeof item.id !== "string" ||
+          !isWellFormedUnicode(item.id) ||
           !Number.isInteger(item.version)
         );
       }))
@@ -377,6 +404,36 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     (typeof value.payload.taskId !== "string" || !value.payload.taskId.trim())
   ) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtaskIdが不正です。`);
+  }
+  if (name === "DelegateTaskToAgent") {
+    const allowedKeys = new Set([
+      "taskId",
+      "agent",
+      "expectedResult",
+      "instruction",
+      "contextFingerprint",
+    ]);
+    if (
+      Object.keys(value.payload).some((key) => !allowedKeys.has(key)) ||
+      typeof value.payload.taskId !== "string" ||
+      value.payload.taskId.length < 1 ||
+      value.payload.taskId.length > 200 ||
+      value.payload.taskId !== value.payload.taskId.trim() ||
+      !isWellFormedUnicode(value.payload.taskId) ||
+      value.payload.agent !== "hermes" ||
+      typeof value.payload.contextFingerprint !== "string" ||
+      !/^sha256:[0-9a-f]{64}$/u.test(value.payload.contextFingerprint) ||
+      [value.payload.expectedResult, value.payload.instruction].some(
+        (entry) =>
+          entry !== undefined &&
+          (typeof entry !== "string" || !entry.trim() || entry.length > 2000),
+      )
+    ) {
+      throw new ApplicationCommandError(
+        "INVALID_PAYLOAD",
+        "DelegateTaskToAgentのpayloadが不正です。",
+      );
+    }
   }
   if (
     [

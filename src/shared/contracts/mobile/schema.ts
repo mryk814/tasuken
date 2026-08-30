@@ -24,7 +24,9 @@ import {
   TASKEN_MOBILE_API_VERSION,
   TASKEN_MOBILE_CAPABILITIES,
   TASKEN_MOBILE_MAX_ITEMS,
+  TASKEN_MOBILE_SCOPES,
   TASKEN_MOBILE_SCHEMA_VERSION,
+  parseTaskLocator,
 } from "./public.mjs";
 
 const apiVersionSchema = z.literal(TASKEN_MOBILE_API_VERSION);
@@ -104,16 +106,18 @@ export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.proposalRead,
   TASKEN_MOBILE_CAPABILITIES.proposalReview,
   TASKEN_MOBILE_CAPABILITIES.humanReview,
+  TASKEN_MOBILE_CAPABILITIES.taskContextPreviewRead,
   TASKEN_MOBILE_CAPABILITIES.taskWrite,
   TASKEN_MOBILE_CAPABILITIES.captureWrite,
 ]);
 
 export const mobileScopeSchema = z.enum([
-  "mobile:read",
-  "mobile:task-write",
-  "mobile:capture-write",
-  "mobile:proposal-review",
-  "mobile:human-review",
+  TASKEN_MOBILE_SCOPES.read,
+  TASKEN_MOBILE_SCOPES.contextRead,
+  TASKEN_MOBILE_SCOPES.taskWrite,
+  TASKEN_MOBILE_SCOPES.captureWrite,
+  TASKEN_MOBILE_SCOPES.proposalReview,
+  TASKEN_MOBILE_SCOPES.humanReview,
 ]);
 
 export const mobileResponseMetaSchema = z
@@ -143,6 +147,7 @@ export const mobileErrorCodeSchema = z.enum([
   "proposal_conflict",
   "work_review_task_conflict",
   "work_review_receipt_conflict",
+  "context_stale",
   "capability_unavailable",
   "upstream_unavailable",
   "response_too_large",
@@ -486,6 +491,225 @@ export const mobileTaskSummarySchema = z
   })
   .strict();
 
+export const mobileTaskContextFingerprintSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
+
+const mobileContextRefSchema = z
+  .object({
+    type: z.string().trim().min(1).max(100),
+    id: z.string().trim().min(1).max(200),
+  })
+  .strict();
+
+const mobileContextAiSchema = z
+  .object({
+    visibility: z.array(z.enum(["m365", "coding_agent", "external_ai"])).max(3),
+    visibilitySource: z.enum(["entity", "theme", "workspace_default"]).nullable(),
+    authority: z
+      .enum(["user_confirmed", "imported", "ai_generated", "inferred", "external_source"])
+      .nullable(),
+    freshness: z.enum(["current", "stale", "superseded", "unknown"]),
+    summaryAuthority: z
+      .enum(["user_confirmed", "rule_generated", "ai_generated", "excerpt"])
+      .nullable(),
+  })
+  .strict();
+
+const mobileContextRelationStepSchema = z
+  .object({
+    from: mobileContextRefSchema,
+    predicate: z.string().trim().max(300).nullable(),
+    to: mobileContextRefSchema,
+    status: z.string().trim().max(100).nullable(),
+    reason: z.string().trim().max(1000).nullable(),
+  })
+  .strict();
+
+const mobileContextSelectionEntrySchema = z
+  .object({
+    ref: mobileContextRefSchema,
+    reason: z.string().trim().max(1000).nullable(),
+    title: z.string().trim().max(500).nullable(),
+    ai: mobileContextAiSchema.nullable(),
+    relationPath: z.array(mobileContextRelationStepSchema).max(100),
+  })
+  .strict();
+
+const mobileContextSelectionExclusionSchema = z
+  .object({
+    ref: mobileContextRefSchema,
+    reason: z.string().trim().min(1).max(1000),
+    count: z.number().int().positive(),
+  })
+  .strict();
+
+const mobileContextEntitySchema = z
+  .object({
+    ref: mobileContextRefSchema,
+    version: entityVersionSchema,
+    title: z.string().trim().max(500).nullable(),
+    summary: z.string().trim().max(4000).nullable(),
+    includedBecause: z.string().trim().max(1000).nullable(),
+    ai: mobileContextAiSchema.nullable(),
+    relationPath: z.array(mobileContextRelationStepSchema).max(100),
+    artifact: z
+      .object({
+        filename: z.string().trim().max(500).nullable(),
+        fileType: z.string().trim().max(200).nullable(),
+        mimeType: z.string().trim().max(200).nullable(),
+        fileSize: z.number().nonnegative().nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+const mobileContextActivitySchema = z
+  .object({
+    id: entityIdSchema,
+    eventKind: z.string().trim().min(1).max(100),
+    occurredAt: isoTimestampSchema,
+    summary: z.string().trim().max(2000),
+    includedBecause: z.literal("recent_activity"),
+  })
+  .strict();
+
+export const mobileTaskContextPreviewRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    taskId: taskIdSchema,
+  })
+  .strict();
+
+export const mobileTaskContextPreviewResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        contextFingerprint: mobileTaskContextFingerprintSchema,
+        task: z
+          .object({
+            id: taskIdSchema,
+            version: entityVersionSchema,
+            title: z.string().trim().min(1).max(500),
+            description: z.string().trim().max(4000).nullable(),
+            state: z.string().trim().min(1).max(100),
+            workState: taskWorkStateSchema,
+            updatedAt: isoTimestampSchema.nullable(),
+            ai: mobileContextAiSchema.nullable(),
+          })
+          .strict(),
+        theme: mobileContextEntitySchema.nullable(),
+        repositoryContexts: z
+          .array(
+            z
+              .object({
+                id: entityIdSchema,
+                label: z.string().trim().min(1).max(500),
+                provider: z.string().trim().min(1).max(100),
+                repositorySlug: z.string().trim().max(500).nullable(),
+                defaultBranch: z.string().trim().max(500).nullable(),
+              })
+              .strict(),
+          )
+          .max(25),
+        related: z
+          .object({
+            notes: z.array(mobileContextEntitySchema).max(25),
+            conversations: z.array(mobileContextEntitySchema).max(25),
+            artifacts: z.array(mobileContextEntitySchema).max(25),
+            resources: z.array(mobileContextEntitySchema).max(25),
+            activity: z.array(mobileContextActivitySchema).max(25),
+          })
+          .strict(),
+        contextSelection: z
+          .object({
+            schema: z.literal("tasken-context-selection/v1"),
+            included: z.array(mobileContextSelectionEntrySchema).max(200),
+            excluded: z.array(mobileContextSelectionExclusionSchema).max(200),
+            truncated: z.boolean(),
+          })
+          .strict(),
+        warnings: z
+          .array(
+            z
+              .object({
+                code: z.string().trim().min(1).max(100),
+                message: z.string().trim().min(1).max(1000),
+              })
+              .strict(),
+          )
+          .max(50),
+        truncation: z
+          .array(
+            z
+              .object({
+                section: z.string().trim().min(1).max(100),
+                reason: z.string().trim().min(1).max(100),
+                omittedCount: z.number().int().nonnegative().nullable(),
+                used: z.number().int().nonnegative().nullable(),
+                limit: z.number().int().nonnegative().nullable(),
+              })
+              .strict(),
+          )
+          .max(50),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const mobileTaskDelegationRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    commandId: entityIdSchema,
+    taskId: taskIdSchema,
+    expectedTaskVersion: entityVersionSchema,
+    agent: z.literal("hermes"),
+    expectedResult: z.string().trim().min(1).max(2000).optional(),
+    instruction: z.string().trim().min(1).max(2000).optional(),
+    contextFingerprint: mobileTaskContextFingerprintSchema,
+    issuedAt: isoTimestampSchema,
+    actorId: entityIdSchema,
+  })
+  .strict();
+
+export const mobileTaskDelegationResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        commandId: entityIdSchema,
+        status: z.enum(["applied", "no_change"]),
+        task: mobileTaskSummarySchema,
+        safeShare: z
+          .object({
+            mimeType: z.literal("text/plain"),
+            title: z.string().trim().min(1).max(500),
+            taskId: taskIdSchema,
+            taskLocator: z.string().trim().min(1).max(2000),
+            instruction: z.string().trim().max(4000).nullable(),
+            text: z.string().trim().min(1).max(8000),
+          })
+          .strict()
+          .superRefine((value, context) => {
+            if (parseTaskLocator(value.taskLocator) !== value.taskId) {
+              context.addIssue({
+                code: "custom",
+                path: ["taskLocator"],
+                message: "taskLocatorは同じTask IDのcanonical locatorである必要があります。",
+              });
+            }
+          }),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const mobileTaskWorkReviewResponseSchema = z
   .object({
     ok: z.literal(true),
@@ -505,7 +729,13 @@ export const mobileTaskWorkReviewResponseSchema = z
 export const mobileVersionConflictSchema = z
   .object({
     currentTask: mobileTaskSummarySchema,
-    intendedAction: z.enum(["UpdateTask", "CompleteTask", "ReopenTask", "DeleteTask"]),
+    intendedAction: z.enum([
+      "UpdateTask",
+      "CompleteTask",
+      "ReopenTask",
+      "DeleteTask",
+      "DelegateTaskToAgent",
+    ]),
     expectedVersion: entityVersionSchema,
     conflictField: z.enum(["task", "schedule"]),
     expectedScheduleVersion: entityVersionSchema.nullable(),
@@ -1106,6 +1336,14 @@ export type MobileTaskWorkProposalDecisionResponse = z.output<
   typeof mobileTaskWorkProposalDecisionResponseSchema
 >;
 export type MobileTaskSummary = z.output<typeof mobileTaskSummarySchema>;
+export type MobileTaskContextPreviewRequest = z.output<
+  typeof mobileTaskContextPreviewRequestSchema
+>;
+export type MobileTaskContextPreviewResponse = z.output<
+  typeof mobileTaskContextPreviewResponseSchema
+>;
+export type MobileTaskDelegationRequest = z.output<typeof mobileTaskDelegationRequestSchema>;
+export type MobileTaskDelegationResponse = z.output<typeof mobileTaskDelegationResponseSchema>;
 export type MobileThemeCatalogItem = z.output<typeof mobileThemeCatalogItemSchema>;
 export type MobileThemesRequest = z.output<typeof mobileThemesRequestSchema>;
 export type MobileThemesResponse = z.output<typeof mobileThemesResponseSchema>;

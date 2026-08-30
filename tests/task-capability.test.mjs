@@ -34,7 +34,9 @@ const {
   createTaskMcpAdapter,
   registerTaskIpc,
   createTaskClient,
-} = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`);
+} = await import(
+  `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
+);
 
 const now = "2026-08-17T13:30:00.000Z";
 
@@ -59,7 +61,9 @@ test("Preload configures Zod without JIT before importing Task contracts", async
     write: false,
     logLevel: "silent",
   });
-  const preloadContract = await import(`data:text/javascript;base64,${Buffer.from(preloadContractBundle.outputFiles[0].text).toString("base64")}`);
+  const preloadContract = await import(
+    `data:text/javascript;base64,${Buffer.from(preloadContractBundle.outputFiles[0].text).toString("base64")}`
+  );
   const OriginalFunction = globalThis.Function;
   globalThis.Function = function blockedFunctionConstructor() {
     throw new Error("Function constructor must not run at the Preload contract boundary");
@@ -83,7 +87,9 @@ class MemoryRepository {
   }
 
   list(type, includeDeleted = false) {
-    return [...this.records.values()].filter((entity) => entity.type === type && (includeDeleted || !entity.deleted_at));
+    return [...this.records.values()].filter(
+      (entity) => entity.type === type && (includeDeleted || !entity.deleted_at),
+    );
   }
 
   get(type, id, includeDeleted = false) {
@@ -115,7 +121,12 @@ class MemoryRepository {
   remove(type, id) {
     const current = this.records.get(`${type}:${id}`);
     if (!current) return null;
-    const deleted = { ...current, deleted_at: now, updated_at: now, version: Number(current.version) + 1 };
+    const deleted = {
+      ...current,
+      deleted_at: now,
+      updated_at: now,
+      version: Number(current.version) + 1,
+    };
     this.records.set(`${type}:${id}`, deleted);
     return { ...deleted };
   }
@@ -349,28 +360,32 @@ test("Task application boundary rejects a second active Schedule for the same ow
   });
   assert.equal(first.status, "applied");
   const current = repository.get("task", task.id);
-  assert.throws(() => application.execute({
-    commandId: "application-schedule-second",
-    name: "UpdateTask",
-    actor: { kind: "user" },
-    source: "main_ui",
-    issuedAt: now,
-    payload: {
-      task: current,
-      schedule: {
-        id: "schedule-second",
-        owner_type: "task",
-        owner_id: task.id,
-        start_date: "2026-08-23",
-        end_date: "2026-08-23",
-        date_kind: "point",
-        range_semantics: null,
-        confidence: "fixed",
-        granularity: "day",
-      },
-    },
-    expectedVersions: [{ type: "task", id: task.id, version: current.version }],
-  }), /active Scheduleを1件だけ/);
+  assert.throws(
+    () =>
+      application.execute({
+        commandId: "application-schedule-second",
+        name: "UpdateTask",
+        actor: { kind: "user" },
+        source: "main_ui",
+        issuedAt: now,
+        payload: {
+          task: current,
+          schedule: {
+            id: "schedule-second",
+            owner_type: "task",
+            owner_id: task.id,
+            start_date: "2026-08-23",
+            end_date: "2026-08-23",
+            date_kind: "point",
+            range_semantics: null,
+            confidence: "fixed",
+            granularity: "day",
+          },
+        },
+        expectedVersions: [{ type: "task", id: task.id, version: current.version }],
+      }),
+    /active Scheduleを1件だけ/,
+  );
 });
 
 test("CreateTask stores validated capture provenance only on its canonical change event", () => {
@@ -392,21 +407,28 @@ test("CreateTask stores validated capture provenance only on its canonical chang
 
   assert.equal(response.ok, true);
   assert.deepEqual(repository.list("change_event")[0].metadata.provenance, provenance);
-  assert.equal(Object.hasOwn(repository.get("task", "task-capture-provenance"), "provenance"), false);
+  assert.equal(
+    Object.hasOwn(repository.get("task", "task-capture-provenance"), "provenance"),
+    false,
+  );
 
-  assert.throws(() => application.execute({
-    commandId: "application-invalid-provenance",
-    name: "CreateTask",
-    actor: { kind: "user" },
-    source: "main_ui",
-    issuedAt: now,
-    payload: {
-      task: {
-        ...createCommand("mobile", "invalid-provenance").payload.task,
-      },
-      provenance: { ...provenance, shared_mime_type: null },
-    },
-  }), /provenance/);
+  assert.throws(
+    () =>
+      application.execute({
+        commandId: "application-invalid-provenance",
+        name: "CreateTask",
+        actor: { kind: "user" },
+        source: "main_ui",
+        issuedAt: now,
+        payload: {
+          task: {
+            ...createCommand("mobile", "invalid-provenance").payload.task,
+          },
+          provenance: { ...provenance, shared_mime_type: null },
+        },
+      }),
+    /provenance/,
+  );
 });
 
 test("Desktop, HTTP, and authorized MCP use the same Task application handler semantics", () => {
@@ -422,8 +444,10 @@ test("Desktop, HTTP, and authorized MCP use the same Task application handler se
   });
 
   const mcp = capability();
-  const mcpResponse = createTaskMcpAdapter(mcp.service, { allowDirectWrites: true })
-    .invoke("task.create", createCommand("mcp", "mcp"));
+  const mcpResponse = createTaskMcpAdapter(mcp.service, { allowDirectWrites: true }).invoke(
+    "task.create",
+    createCommand("mcp", "mcp"),
+  );
 
   assert.equal(desktopResponse.ok, true);
   assert.equal(httpResponse.status, 200);
@@ -449,12 +473,45 @@ test("Task query returns a bounded public read model through HTTP and MCP adapte
     name: "ListTodayTasks",
     parameters: { date: "2026-08-17", project_id: "theme-personal-default", limit: 10 },
   };
-  const http = createTaskHttpAdapter(service).handle({ method: "POST", path: "/v1/task/queries", body: query, authorized: true });
+  const http = createTaskHttpAdapter(service).handle({
+    method: "POST",
+    path: "/v1/task/queries",
+    body: query,
+    authorized: true,
+  });
   const mcp = createTaskMcpAdapter(service).invoke("task.list_today", query);
   assert.equal(http.status, 200);
   assert.deepEqual(http.body, mcp);
   assert.equal(mcp.value.items.length, 1);
   assert.equal(Object.hasOwn(mcp.value.items[0], "type"), false);
+});
+
+test("Task query normalizes a legacy empty checklist completion timestamp", () => {
+  const { repository, service } = capability();
+  service.executeCommand(createCommand("desktop", "legacy-checklist"));
+  const key = "task:task-legacy-checklist";
+  repository.records.set(key, {
+    ...repository.records.get(key),
+    checklist_items: [
+      {
+        id: "check-legacy-empty-completed-at",
+        title: "Legacy checklist item",
+        done: false,
+        sort_order: 0,
+        completed_at: "",
+      },
+    ],
+  });
+
+  const result = service.executeQuery({
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+    query_id: "query-legacy-checklist",
+    name: "ListTodayTasks",
+    parameters: { date: "2026-08-17", limit: 10 },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.value.items[0].checklist_items[0].completed_at, null);
 });
 
 test("MCP direct Task writes are proposal-only by default and HTTP checks authorization", () => {
@@ -470,10 +527,22 @@ test("MCP direct Task writes are proposal-only by default and HTTP checks author
   });
   assert.equal(mcp.ok, false);
   assert.equal(mcp.error.code, "FORBIDDEN");
-  assert.deepEqual(mcpAdapter.operations.map((operation) => operation.name), [
-    "task.create", "task.update", "task.delete", "task.complete", "task.reopen", "task.get", "task.list_today",
-  ]);
-  assert.match(mcpAdapter.operations.find((operation) => operation.name === "task.update").concurrency, /expected_version/);
+  assert.deepEqual(
+    mcpAdapter.operations.map((operation) => operation.name),
+    [
+      "task.create",
+      "task.update",
+      "task.delete",
+      "task.complete",
+      "task.reopen",
+      "task.get",
+      "task.list_today",
+    ],
+  );
+  assert.match(
+    mcpAdapter.operations.find((operation) => operation.name === "task.update").concurrency,
+    /expected_version/,
+  );
   assert.equal(http.status, 403);
   assert.equal(http.body.ok, false);
   assert.equal(http.body.error.code, "FORBIDDEN");
@@ -484,11 +553,15 @@ test("Electron IPC registrar validates through the same service and publishes a 
   const handlers = new Map();
   const published = [];
   const changed = [];
-  registerTaskIpc({
-    channels: { command: "task:command", query: "task:query", changed: "task:changed" },
-    handle: (channel, listener) => handlers.set(channel, listener),
-    publish: (channel, payload) => published.push({ channel, payload }),
-  }, service, () => changed.push(["task"]));
+  registerTaskIpc(
+    {
+      channels: { command: "task:command", query: "task:query", changed: "task:changed" },
+      handle: (channel, listener) => handlers.set(channel, listener),
+      publish: (channel, payload) => published.push({ channel, payload }),
+    },
+    service,
+    () => changed.push(["task"]),
+  );
 
   const response = handlers.get("task:command")({}, createCommand("desktop", "ipc"));
   assert.equal(response.ok, true);
@@ -496,12 +569,15 @@ test("Electron IPC registrar validates through the same service and publishes a 
   assert.equal(published[0].payload.name, "TaskCreated");
   assert.deepEqual(changed, [["task"]]);
 
-  const query = handlers.get("task:query")({}, {
-    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
-    query_id: "query-ipc",
-    name: "GetTask",
-    parameters: { task_id: "task-ipc" },
-  });
+  const query = handlers.get("task:query")(
+    {},
+    {
+      schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+      query_id: "query-ipc",
+      name: "GetTask",
+      parameters: { task_id: "task-ipc" },
+    },
+  );
   assert.equal(query.ok, true);
   assert.equal(query.value.task.id, "task-ipc");
 });
@@ -562,13 +638,19 @@ test("Task capability preserves create, update, complete, reopen, and delete ver
 test("Task IPC rejects capability access from a non-main window with a structured error", () => {
   const { service } = capability();
   const handlers = new Map();
-  registerTaskIpc({
-    channels: { command: "task:command", query: "task:query", changed: "task:changed" },
-    handle: (channel, listener) => handlers.set(channel, listener),
-    publish: () => assert.fail("denied command must not publish"),
-    authorize: () => false,
-  }, service);
-  const response = handlers.get("task:command")({ sender: "today-mini" }, createCommand("desktop", "forbidden-window"));
+  registerTaskIpc(
+    {
+      channels: { command: "task:command", query: "task:query", changed: "task:changed" },
+      handle: (channel, listener) => handlers.set(channel, listener),
+      publish: () => assert.fail("denied command must not publish"),
+      authorize: () => false,
+    },
+    service,
+  );
+  const response = handlers.get("task:command")(
+    { sender: "today-mini" },
+    createCommand("desktop", "forbidden-window"),
+  );
   assert.deepEqual(response, {
     ok: false,
     error: {
@@ -606,13 +688,31 @@ test("Renderer Task client resyncs by query before delivering an event with a ta
     reopen: async () => assert.fail("not used"),
     get: async () => {
       getCalls += 1;
-      return { ok: true, value: { schemaVersion: TASK_CONTRACT_SCHEMA_VERSION, query_id: "resync", name: "GetTask", task: taskV3 } };
+      return {
+        ok: true,
+        value: {
+          schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+          query_id: "resync",
+          name: "GetTask",
+          task: taskV3,
+        },
+      };
     },
     listToday: async (query) => ({
       ok: true,
-      value: { schemaVersion: TASK_CONTRACT_SCHEMA_VERSION, query_id: query.query_id, name: "ListTodayTasks", date: "2026-08-17", items: [taskV1], next_cursor: null },
+      value: {
+        schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+        query_id: query.query_id,
+        name: "ListTodayTasks",
+        date: "2026-08-17",
+        items: [taskV1],
+        next_cursor: null,
+      },
     }),
-    subscribe: (listener) => { eventListener = listener; return () => {}; },
+    subscribe: (listener) => {
+      eventListener = listener;
+      return () => {};
+    },
   };
   const client = createTaskClient(capability);
   await client.listToday({ date: "2026-08-17", queryId: "initial" });
@@ -656,17 +756,33 @@ test("Renderer Task client reports a failed gap resync instead of swallowing it"
     delete: async () => assert.fail("not used"),
     complete: async () => assert.fail("not used"),
     reopen: async () => assert.fail("not used"),
-    get: async () => { throw new Error("resync unavailable"); },
+    get: async () => {
+      throw new Error("resync unavailable");
+    },
     listToday: async (query) => ({
       ok: true,
-      value: { schemaVersion: TASK_CONTRACT_SCHEMA_VERSION, query_id: query.query_id, name: "ListTodayTasks", date: "2026-08-17", items: [taskV1], next_cursor: null },
+      value: {
+        schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+        query_id: query.query_id,
+        name: "ListTodayTasks",
+        date: "2026-08-17",
+        items: [taskV1],
+        next_cursor: null,
+      },
     }),
-    subscribe: (listener) => { eventListener = listener; return () => {}; },
+    subscribe: (listener) => {
+      eventListener = listener;
+      return () => {};
+    },
   };
   const client = createTaskClient(capability);
   await client.listToday({ date: "2026-08-17", queryId: "initial-error" });
   let delivered = false;
-  const reported = new Promise((resolve) => client.subscribe(() => { delivered = true; }, resolve));
+  const reported = new Promise((resolve) =>
+    client.subscribe(() => {
+      delivered = true;
+    }, resolve),
+  );
   eventListener({
     schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
     event_id: "event-gap-error",

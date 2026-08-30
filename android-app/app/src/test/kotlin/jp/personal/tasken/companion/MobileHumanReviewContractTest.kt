@@ -70,7 +70,7 @@ class MobileHumanReviewContractTest {
     fun returnEnvelopeRequiresCanonicalIdentityAndReviewNote() {
         val envelope = MobileTaskWorkReviewEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 5,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
             requestId = "request-1",
             commandId = "command-1",
             idempotencyKey = "command-1",
@@ -101,7 +101,7 @@ class MobileHumanReviewContractTest {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 5,
+                "schemaVersion": 6,
                 "serverId": "desktop-home",
                 "serverRevision": 12,
                 "generatedAt": "2026-08-26T00:00:01Z",

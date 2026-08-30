@@ -56,7 +56,7 @@ class MobileProposalContractTest {
     fun decisionContractBindsDeviceVersionsAndDecision() {
         val envelope = MobileTaskWorkProposalDecisionEnvelopeDto(
             apiVersion = 1,
-            schemaVersion = 5,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
             requestId = "request-proposal",
             commandId = "command-proposal",
             idempotencyKey = "command-proposal",

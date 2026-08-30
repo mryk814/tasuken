@@ -19,6 +19,7 @@ import java.time.OffsetDateTime
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -1606,14 +1607,17 @@ class MobileOutboxWorker(
     override suspend fun doWork(): Result {
         val repository = AndroidMobileTaskRepository(applicationContext, scheduleOutboxOnStart = false)
         repository.recoverInterruptedOutbox()
-        val result = try {
-            if (repository.synchronizeIfPaired()) Result.success() else Result.retry()
+        val synchronized = try {
+            repository.synchronizeIfPaired()
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Log.w("TaskenOutbox", "Outbox sync failed and will be retried", error)
-            Result.retry()
+            false
         }
+        if (synchronized) repository.deliverPendingTaskNotifications()
         TaskenTodayWidget.updateAllNow(applicationContext)
-        return result
+        return if (synchronized) Result.success() else Result.retry()
     }
 }
 
@@ -1624,13 +1628,16 @@ class MobileBackgroundSyncWorker(
     override suspend fun doWork(): Result {
         val repository = AndroidMobileTaskRepository(applicationContext, scheduleOutboxOnStart = false)
         repository.recoverInterruptedOutbox()
-        val result = try {
-            if (repository.synchronizeIfPaired()) Result.success() else Result.retry()
+        val synchronized = try {
+            repository.synchronizeIfPaired()
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Log.w("TaskenBackgroundSync", "Background sync failed and will be retried", error)
-            Result.retry()
+            false
         }
+        if (synchronized) repository.deliverPendingTaskNotifications()
         TaskenTodayWidget.updateAllNow(applicationContext)
-        return result
+        return if (synchronized) Result.success() else Result.retry()
     }
 }

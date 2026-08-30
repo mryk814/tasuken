@@ -7,6 +7,7 @@ export interface MobileGatewayDevice {
     | "mobile:capture-write"
     | "mobile:proposal-review"
     | "mobile:human-review"
+    | "mobile:context-read"
   >;
   createdAt: string;
   updatedAt: string;
