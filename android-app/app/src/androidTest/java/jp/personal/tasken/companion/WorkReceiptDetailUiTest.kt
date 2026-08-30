@@ -5,7 +5,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -72,7 +71,7 @@ class WorkReceiptDetailUiTest {
     }
 
     @Test
-    fun liveLatestReceiptEnablesAcceptAndReturnWhileCachedReceiptStaysReadOnly() {
+    fun liveLatestReceiptEnablesAcceptAndReturn() {
         var reviewed = ""
         composeRule.setContent {
             MaterialTheme {
@@ -95,7 +94,10 @@ class WorkReceiptDetailUiTest {
         composeRule.onNodeWithTag("human-review-note-task-1").performScrollTo().performTextInput("確認を追加")
         composeRule.onNodeWithTag("human-review-return-task-1").performClick()
         assertEquals("return:確認を追加", reviewed)
+    }
 
+    @Test
+    fun cachedReceiptKeepsHumanReviewReadOnly() {
         composeRule.setContent {
             MaterialTheme {
                 TodayDetailPane(
@@ -130,7 +132,7 @@ class WorkReceiptDetailUiTest {
 
         composeRule.onNodeWithText("AIへ情報を返す").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("human-review-accept-task-1").assertDoesNotExist()
-        composeRule.onNodeWithText("返信する").assertIsDisplayed()
+        composeRule.onNodeWithTag("human-review-return-task-1").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -160,6 +162,7 @@ class WorkReceiptDetailUiTest {
     @Test
     fun reviewNoteSurvivesLatestReceiptRefreshForTheSameTask() {
         var replaceReceipt: () -> Unit = {}
+        var reviewed = ""
         composeRule.setContent {
             var receiptId by remember { mutableStateOf("receipt-1") }
             replaceReceipt = { receiptId = "receipt-2" }
@@ -176,6 +179,7 @@ class WorkReceiptDetailUiTest {
                     ),
                     humanReviewOnline = true,
                     onStateAction = {},
+                    onHumanReview = { _, action, note -> reviewed = "$action:${note.orEmpty()}" },
                 )
             }
         }
@@ -185,9 +189,10 @@ class WorkReceiptDetailUiTest {
             .performTextInput("retain this note")
         composeRule.runOnIdle { replaceReceipt() }
 
-        composeRule.onNodeWithTag("human-review-note-task-1")
+        composeRule.onNodeWithTag("human-review-return-task-1")
             .performScrollTo()
-            .assertTextEquals("retain this note")
+            .performClick()
+        assertEquals("return:retain this note", reviewed)
     }
 
     private fun task() = MobileTask(
