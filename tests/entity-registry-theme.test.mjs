@@ -8,8 +8,10 @@ import {
   assertEntityPayload,
   collectionKeyForEntityType,
   domainCollectionKeyForEntityType,
+  entityDefinitionForCollection,
   entityDefinitions,
   entityTypes,
+  rawRecordBoundary,
   themeFieldForEntityType,
 } from "../src/shared/entityRegistry.mjs";
 import { diagnoseWorkspaceRawRecord } from "../src/shared/entityDiagnostics.mjs";
@@ -56,6 +58,14 @@ test("Entity Registryは全typeのcollection/schema/Theme policyを一意に解�
   assert.throws(() => assertEntityPayload("task", { entityType: "note" }), /一致しません/);
   assert.doesNotThrow(() => assertEntityPayload("field_value", { entity_type: "task" }));
   assert.equal(domainCollectionKeyForEntityType("legacy-unknown"), null);
+  for (const definition of entityDefinitions) {
+    assert.equal(entityDefinitionForCollection(definition.collectionKey)?.type, definition.type);
+  }
+  assert.equal(entityDefinitionForCollection("unknown_collection"), null);
+  assert.deepEqual(rawRecordBoundary, {
+    kind: "raw-record-boundary",
+    description: "DB/importのRecordはこの境界で検証し、domainへ直接持ち込まない",
+  });
 });
 
 test("RegistryのcollectionKeyはcanonical WorkspaceDataの全collectionに実在する", async () => {

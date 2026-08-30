@@ -1,3 +1,5 @@
+// @ts-check
+
 /**
  * Workspace entity contract.
  *
@@ -5,6 +7,12 @@
  * the fields that carry Theme identity.  SQLite/import rows may remain raw
  * records, but every application boundary resolves through this registry.
  */
+/** @typedef {"theme" | "item" | "note" | "link" | "view" | "status_update" | "source_record" | "entity_source" | "field_definition" | "field_value" | "log_entry" | "import_batch" | "knowledge_node" | "ai_proposal" | "resource" | "project" | "repository_context" | "working_copy" | "agent_session" | "capture_entry" | "task" | "waiting" | "plan_node" | "schedule" | "reference" | "task_dependency" | "plan_dependency" | "knowledge_edge" | "change_event" | "work_receipt" | "artifact" | "sketch"} RegistryEntityType */
+/** @typedef {(typeof referenceTargetEntityTypes)[number]} ReferenceTargetEntityType */
+/** @typedef {(typeof referenceRelationTypes)[number]} ReferenceRelationType */
+/** @typedef {{ readonly type: RegistryEntityType, readonly collectionKey: string, readonly domainCollectionKey: string | null, readonly label: string, readonly iconKey: string, readonly projection: "legacy" | "canonical", readonly themePolicy: "none" | "optional" | "required", readonly themeField: string | null, readonly legacyThemeFields: readonly string[], readonly requiredFields: readonly string[], readonly payloadKind: "record", readonly parseCreate: (payload: unknown) => Record<string, unknown>, readonly parseUpdate: (payload: unknown) => Record<string, unknown>, readonly referencePolicy: Readonly<{ themeField: string | null, legacyThemeFields: readonly string[] }>, readonly activityPolicy: Readonly<{ tracked: boolean, projection: "legacy" | "canonical" }> }} EntityDefinition */
+
+/** @type {Array<{ type: RegistryEntityType, collectionKey: string, domainCollectionKey?: string | null, label: string, iconKey: string, projection: "legacy" | "canonical", themePolicy: "none" | "optional" | "required", themeField: string | null, legacyThemeFields?: readonly string[], requiredFields: readonly string[] }>} */
 const definitions = [
   { type: "theme", collectionKey: "themes", label: "Theme", iconKey: "palette", projection: "legacy", themePolicy: "none", themeField: null, requiredFields: ["name"] },
   { type: "item", collectionKey: "items", label: "Item", iconKey: "check", projection: "legacy", themePolicy: "optional", themeField: "theme_id", requiredFields: ["title"] },
@@ -40,22 +48,25 @@ const definitions = [
   { type: "sketch", collectionKey: "sketches", domainCollectionKey: "sketches", label: "Sketch", iconKey: "pencil", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
 ];
 
+/** @param {RegistryEntityType} type @param {unknown} payload */
 function parseCreatePayload(type, payload) {
   return assertEntityPayload(type, payload);
 }
 
+/** @param {RegistryEntityType} type @param {unknown} payload */
 function parseUpdatePayload(type, payload) {
   return assertEntityPayload(type, payload);
 }
 
+/** @type {readonly EntityDefinition[]} */
 export const entityDefinitions = Object.freeze(definitions.map((definition) => Object.freeze({
   ...definition,
   requiredFields: Object.freeze([...definition.requiredFields]),
   legacyThemeFields: Object.freeze([...(definition.legacyThemeFields || [])]),
   domainCollectionKey: definition.domainCollectionKey || null,
   payloadKind: "record",
-  parseCreate: (payload) => parseCreatePayload(definition.type, payload),
-  parseUpdate: (payload) => parseUpdatePayload(definition.type, payload),
+  parseCreate: /** @param {unknown} payload */ (payload) => parseCreatePayload(definition.type, payload),
+  parseUpdate: /** @param {unknown} payload */ (payload) => parseUpdatePayload(definition.type, payload),
   referencePolicy: Object.freeze({
     themeField: definition.themeField,
     legacyThemeFields: Object.freeze([...(definition.legacyThemeFields || [])]),
@@ -63,61 +74,74 @@ export const entityDefinitions = Object.freeze(definitions.map((definition) => O
   activityPolicy: Object.freeze({ tracked: true, projection: definition.projection }),
 })));
 
+/** @type {Map<string, EntityDefinition>} */
 const definitionsByType = new Map(entityDefinitions.map((definition) => [definition.type, definition]));
 const definitionsByCollection = new Map(entityDefinitions.map((definition) => [definition.collectionKey, definition]));
 
+/** @type {readonly RegistryEntityType[]} */
 export const entityTypes = Object.freeze(entityDefinitions.map((definition) => definition.type));
 
 /** Referenceのsource/targetは、Repositoryの内部enumではなくRegistryのdomain境界を正本にする。 */
-export const referenceTargetEntityTypes = Object.freeze([
+export const referenceTargetEntityTypes = Object.freeze(/** @type {const} */ ([
   "project", "repository_context", "working_copy", "agent_session", "capture_entry", "task", "work_receipt", "waiting", "plan_node", "note", "resource",
   "knowledge_node", "sketch", "artifact", "change_event",
-]);
-export const referenceRelationTypes = Object.freeze([
+]));
+export const referenceRelationTypes = Object.freeze(/** @type {const} */ ([
   "related_to", "derived_from", "mentions", "links_to", "blocks", "supports", "contradicts", "answers",
   "depends_on", "created_for", "generated_from", "exported_from", "attached_to", "implements", "supersedes",
   "worked_on", "executed_in", "produced", "verified_by", "handoff_for",
-]);
+]));
 
+/** @param {RegistryEntityType} type @returns {EntityDefinition} */
 export function entityDefinition(type) {
   const definition = definitionsByType.get(type);
   if (!definition) throw new Error(`未知のEntity typeです: ${String(type)}`);
   return definition;
 }
 
+/** @param {string} collectionKey @returns {EntityDefinition | null} */
 export function entityDefinitionForCollection(collectionKey) {
   return definitionsByCollection.get(collectionKey) || null;
 }
 
+/** @param {RegistryEntityType} type @returns {string} */
 export function collectionKeyForEntityType(type) {
   return entityDefinition(type).collectionKey;
 }
 
+/** @param {string} type @returns {string | null} */
 export function domainCollectionKeyForEntityType(type) {
   return definitionsByType.get(type)?.domainCollectionKey || null;
 }
 
+/** @param {RegistryEntityType} type @returns {readonly string[]} */
 export function requiredFieldsForEntityType(type) {
   return entityDefinition(type).requiredFields;
 }
 
+/** @param {RegistryEntityType} type @returns {string | null} */
 export function themeFieldForEntityType(type) {
   return entityDefinition(type).themeField;
 }
 
+/** @param {RegistryEntityType} type @returns {readonly string[]} */
 export function legacyThemeFieldsForEntityType(type) {
   return entityDefinition(type).legacyThemeFields;
 }
 
+/** @param {string} type @returns {RegistryEntityType} */
 export function assertEntityType(type) {
-  return entityDefinition(type).type;
+  // entityDefinition performs the runtime lookup and rejects unknown boundary input.
+  return entityDefinition(/** @type {RegistryEntityType} */ (type)).type;
 }
 
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
 function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 /** Reject a typed envelope or payload whose declared type does not match its route. */
+/** @param {RegistryEntityType} type @param {unknown} payload @returns {Record<string, unknown>} */
 export function assertEntityPayload(type, payload) {
   assertEntityType(type);
   if (!isRecord(payload)) throw new Error(`${type}のpayloadはRecordである必要があります。`);
@@ -131,14 +155,17 @@ export function assertEntityPayload(type, payload) {
   return payload;
 }
 
+/** @param {unknown} envelope @returns {Record<string, unknown>} */
 export function assertEntityEnvelope(envelope) {
   if (!isRecord(envelope) || typeof envelope.type !== "string") {
     throw new Error("Entity envelopeのtypeが不正です。");
   }
-  assertEntityPayload(envelope.type, envelope.entity ?? envelope.payload);
+  // assertEntityPayload validates the declared type before accepting the raw envelope.
+  assertEntityPayload(/** @type {RegistryEntityType} */ (envelope.type), envelope.entity ?? envelope.payload);
   return envelope;
 }
 
+/** @type {Readonly<{ kind: "raw-record-boundary", description: string }>} */
 export const rawRecordBoundary = Object.freeze({
   kind: "raw-record-boundary",
   description: "DB/importのRecordはこの境界で検証し、domainへ直接持ち込まない",

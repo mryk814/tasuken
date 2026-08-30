@@ -76,7 +76,6 @@
         "src/shared/conversationContext.mjs",
         "src/shared/dataHealth.mjs",
         "src/shared/entityDiagnostics.mjs",
-        "src/shared/entityRegistry.mjs",
         "src/shared/externalReference.mjs",
         "src/shared/latestRequest.mjs",
         "src/shared/mediaArtifact.mjs",

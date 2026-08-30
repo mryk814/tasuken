@@ -28,7 +28,6 @@
     "contract.parallel_mjs_declaration|src/shared/conversationContext.mjs|src/shared/conversationContext.d.mts",
     "contract.parallel_mjs_declaration|src/shared/dataHealth.mjs|src/shared/dataHealth.d.mts",
     "contract.parallel_mjs_declaration|src/shared/entityDiagnostics.mjs|src/shared/entityDiagnostics.d.mts",
-    "contract.parallel_mjs_declaration|src/shared/entityRegistry.mjs|src/shared/entityRegistry.d.mts",
     "contract.parallel_mjs_declaration|src/shared/externalReference.mjs|src/shared/externalReference.d.mts",
     "contract.parallel_mjs_declaration|src/shared/latestRequest.mjs|src/shared/latestRequest.d.mts",
     "contract.parallel_mjs_declaration|src/shared/mediaArtifact.mjs|src/shared/mediaArtifact.d.mts",
