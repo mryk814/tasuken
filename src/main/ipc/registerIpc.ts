@@ -149,10 +149,10 @@ function saveManyTypes(operations: unknown[]): EntityType[] {
 }
 
 export function documentSaveChangedTypes(request: unknown): EntityType[] {
-  // Stable Internal Links are derived inside WorkspaceService from the
-  // canonical Markdown body, so the request does not enumerate every changed
-  // Reference. Always refresh both projections after a successful Note save.
-  return ["note", "reference"];
+  // Document保存はcanonical Markdownからstable link Referenceを再計算し、
+  // Note/Report所属ArtifactのThemeも同期する。requestだけでは派生差分を
+  // 列挙できないため、成功後は3投影を再読込する。
+  return ["note", "reference", "artifact"];
 }
 
 function rejectTaskPersistence(type: EntityType, operation = "保存"): void {

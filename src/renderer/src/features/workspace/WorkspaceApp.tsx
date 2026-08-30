@@ -65,7 +65,6 @@ import {
   ShortcutDialog,
   type TitleBarLauncherData,
 } from "./components/shell";
-import { buildArtifactThemeSyncOperations } from "./lib/artifactEntities";
 import { ContentViewer } from "./components/ContentViewer";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
@@ -1931,29 +1930,6 @@ export function WorkspaceApp() {
           [lineageCompanion],
         );
         finishSave(saved);
-        return true;
-      }
-    }
-
-    // Note の Theme 変更時は添付 Artifact の theme_id も揃える（ファイルは動かさない）。
-    if (type === "note" && entity.id) {
-      const noteThemeId = (entity.project_id as string | null) || null;
-      const syncOps = buildArtifactThemeSyncOperations(data.artifacts || [], {
-        sourceTypes: ["note", "report"],
-        sourceId: String(entity.id),
-        themeId: noteThemeId,
-      });
-      if (syncOps.length) {
-        const ops: SaveOperation[] = [
-          { action: "save", type: "note", entity: entity as Entity },
-          ...syncOps,
-        ];
-        if (options.quiet) {
-          await saveWorkspaceEntities(ops);
-        } else {
-          await saveEntities(ops, base.id ? "変更を保存しました。" : "メモを追加しました。");
-        }
-        finishSave(entity as Entity);
         return true;
       }
     }
