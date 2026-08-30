@@ -90,11 +90,23 @@ function projectSchedule(entity: Entity | null): TaskScheduleReadModel | null {
   });
 }
 
+function normalizeChecklistItemsForReadModel(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    const record = item as Record<string, unknown>;
+    return record.completed_at === "" ? { ...record, completed_at: null } : item;
+  });
+}
+
 export function projectTaskReadModel(entity: Entity, schedule: Entity | null): TaskReadModel {
   const projection = Object.fromEntries(
     Object.keys(taskReadModelSchema.shape)
       .filter((key) => key !== "schedule" && Object.prototype.hasOwnProperty.call(entity, key))
-      .map((key) => [key, entity[key]]),
+      .map((key) => [
+        key,
+        key === "checklist_items" ? normalizeChecklistItemsForReadModel(entity[key]) : entity[key],
+      ]),
   );
   return taskReadModelSchema.parse({ ...projection, schedule: projectSchedule(schedule) });
 }
