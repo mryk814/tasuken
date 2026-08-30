@@ -70,3 +70,22 @@ baseline. Transport-to-repository imports, cross-module export-all, unsafe
 contract casts, unresolved imports, and unregistered IPC handlers are also
 blocking. Compatibility growth and malformed/expired suppressions remain global
 blocking rules for this profile as well.
+
+## Required quality checks
+
+The stable GitHub check names are `windows-quality` (Windows quality workflow)
+and `android-quality` (Android quality workflow). Both run for every pull request
+targeting `main` and every push to `main`, including the exact merge commit.
+Trigger-level path filters are intentionally absent: a filtered-out required
+workflow would leave a non-Android pull request waiting for a check that never starts.
+
+Workflow configuration alone does not enable GitHub enforcement. Configure
+`main` protection separately, with explicit approval, to require both check names
+from the GitHub Actions app, require an up-to-date branch, and enforce the checks
+for administrators too. Preserve existing conversation-resolution and other
+protection settings. Missing, pending, or failed required checks must block merge.
+
+Verify the effective rules and the required-status-checks / enforce-admins API
+responses after configuration. Observe a non-Android pull request receive both
+checks, remain blocked while pending, and become mergeable after both succeed.
+The current integration strategy is `push: main` revalidation, not a merge queue.

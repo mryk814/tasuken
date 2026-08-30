@@ -14,6 +14,24 @@ import {
 } from "../scripts/architecture-audit/core.mjs";
 
 const AUDIT_SPAWN_MAX_BUFFER = 8 * 1024 * 1024;
+
+test("quality workflows always produce stable required checks for main", () => {
+  for (const [file, workflowName, job] of [
+    ["windows-quality.yml", "Windows quality", "windows-quality"],
+    ["android-quality.yml", "Android quality", "android-quality"],
+  ]) {
+    const source = readFileSync(path.resolve(".github/workflows", file), "utf8").replace(/\r\n/g, "\n");
+    const triggers = source.slice(source.indexOf("\non:"), source.indexOf("\npermissions:"));
+    assert.match(source, new RegExp(`^name: ${workflowName}$`, "m"));
+    assert.match(triggers, /^  pull_request:\n    branches:\n      - main(?:\n|$)/m);
+    assert.match(triggers, /^  push:\n    branches:\n      - main(?:\n|$)/m);
+    assert.doesNotMatch(triggers, /^\s+(?:paths|paths-ignore):/m);
+    assert.match(source, new RegExp(`^  ${job}:$`, "m"));
+    // Job ids are the check names; a job-level alias, skip, or soft failure would weaken the gate.
+    assert.doesNotMatch(source, /^    (?:name|if|continue-on-error):/m);
+  }
+});
+
 const fixtureRoot = path.resolve("tests/fixtures/architecture-audit");
 const policy = {
   sourceRoots: ["src", "tests"],
