@@ -1,8 +1,12 @@
 # Android daily-driver MVP 引き継ぎ
 
-更新: 2026-08-24 23:13 JST  
-対象: #400 / #401 / #402 / #477  
-実装基準main: PR #493 merge `b2d02a41f667fe14beaae2adadfbb55b70246fc0`
+- 更新: 2026-08-31 JST
+- 対象: #398 / #402 / #477 / #397
+- 実装基準main: `152ee29c`
+
+2026-08-31の更新では、GitHubのIssueとPR、および上記commitのコードだけを照合した。
+テスト、実機操作、稼働Gatewayの確認、Discord送信は行っていない。
+下記の2026-08-24の証拠は、その時点の端末とAPKに対する履歴であり、現在の常用構成の検証結果ではない。
 
 ## 目標
 
@@ -16,13 +20,13 @@ Fold対応とAI連携は別製品として増やすのではなく、同じTask�
 
 ## 現在の結論
 
-- AndroidのTask管理、offline cache/outbox、Quick Add、Share Target、短い音声入力、Widget、canonical Capture、signed APK、compact/expanded UIはmainへ統合済みである。process death / OS reboot後のDraft・Undo復元はPR #493で実装・実機検証済みである。
-- #399は実装Issueとして閉じている。
-- #401の最終入力acceptanceは完了し、PR #493のmain統合後に受け入れ基準を全件checkしてcloseした。
-- #400はFold / One UI continuityの残りがあるためopenを維持する。
-- #402はread-only AI Inbox、Work Receipt閲覧、Proposal accept/rejectまで実装済みで、human work reviewとdelegate/Context Previewは未実装である。
-- offline pending 1→0とexactly-once収束、および入力のprocess death / OS reboot journeyは完了した。
-- 次の優先journeyは、Fold / One UI continuity、Gateway reset・sleep/wake、AI Inbox live E2Eである。
+- AndroidのTask管理、offline cache/outbox、入力、Widget、canonical Capture、署名付きAPK、adaptive UIはmainへ統合済みで、#399 / #400 / #401はclosedである。
+- [PR #508](https://github.com/mryk814/tasuken/pull/508)でWork ReceiptのAccept / Returnとblocked返信を統合し、#478はclosedである。
+- [PR #509](https://github.com/mryk814/tasuken/pull/509)でContext Preview、agent-ready委任、安全な共有、AI状態の通知を統合し、#479はclosedである。
+- #398 / #402 / #477 / #397はopenである。
+  #402と#397のIssue本文には統合前の未実装記載が残るため、実装状況は上記PRとコードを根拠にする。
+- 次は[Issue #477](https://github.com/mryk814/tasuken/issues/477)の受入れを、Galaxy S23とFold emulatorで確認する。
+  Galaxy Z Fold7は実利用端末として扱い、事前検証や物理hingeの感触を完了条件にしない。
 
 ## mainへ統合済みの主要変更
 
@@ -35,27 +39,36 @@ Fold対応とAI連携は別製品として増やすのではなく、同じTask�
 | DeleteTask retry               | #487 | versioned receiptとdeleted eventを保存し、Undo retryをidempotent化          |
 | offline auth/cache             | #488 | transient 401でtoken/cacheを破棄せず、再接続中もRoom cacheを表示            |
 | Quick Add下端inset             | #490 | safe drawing / IME下端をscroll末尾で扱い、gesture barより上に保存操作を保つ |
+| 入力のprocess death復元        | #493 | DraftとUndo対象を保存し、再起動後も入力を継続する                          |
+| Work Receiptの人間レビュー     | #508 | Accept / Returnとblocked返信をcanonical commandへ接続する                 |
+| AIへの委任                     | #509 | Context Preview、agent-ready、安全な共有、通知を接続する                  |
 
-Android機能の最新main mergeはPR #493、merge commitは`b2d02a41`である。
+PR #508のmerge commitは`fb108504`、PR #509は`68edac1c`であり、実装基準mainは両方を含む。
 
-PR #493はWindows quality、Android quality、永久署名workflowが成功している。
+PRに記録された検証結果は各PR時点の証拠として参照し、この文書更新で再実行した結果とは扱わない。
 
 ## 目標に対する現在地
 
-| 領域                                                              | 実装                            | 実機・E2E証拠                                                          | 判定                                          |
+| 領域                                                              | 現実装                          | 過去の証拠                                                             | 次回の確認                                    |
 | ----------------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------- |
-| Today / Task一覧 / 検索 / filter / detail                         | mainへ統合済み                  | S23、Fold7、emulatorで描画済み                                         | 実装済み、continuityの一部が未証明            |
-| Create / title / Theme / Schedule / checklist / complete / reopen | mainへ統合済み                  | 個別操作は実機・自動testあり                                           | daily-driver連続journeyは未完                 |
-| Room cache / outbox / cursor sync                                 | #399として実装済み              | Fold7 reboot後にcacheとpending 1を保持                                 | canonical復帰後のpending 1→0が未証明          |
-| Quick Add / App Shortcut / Widget / Share Target / voice          | main（#493）                    | 実URL、Task/Capture継続入力、未送信/適用済みUndo、process death/reboot | #401をclose                                   |
-| Task / Capture provenance                                         | mainへ統合済み                  | android_speech / share_targetのallowlist metadataを確認                | raw本文・音声をmetadataへ複製していない       |
-| signed release / update install                                   | #485で実装済み                  | Fold7 / S23でRoom・Keystore dataを保持した`adb install -r`を確認       | pass                                          |
-| Fold compact / expanded                                           | #486 / #490で実装済み           | Fold7 compact→expandedでQuick Addを維持し、IME中も保存操作へscroll可能 | Task選択等のcontinuityと物理hinge感触は未証明 |
-| AI Inbox / Work Receipt / Proposal                                | read/review surfaceまで実装済み | live Work Receipt / Proposalの最終E2Eは未完                            | 部分達成                                      |
-| Hermes delegate / Context Preview / notification                  | 未実装                          | 証拠なし                                                               | #479                                          |
-| Work Receipt Accept / Return / blocked返信                        | 未実装                          | 証拠なし                                                               | #478                                          |
+| Today / Task一覧 / 検索 / filter / detail                         | mainへ統合済み                  | S23、Fold7、emulatorで描画済み                                         | 今回の構成で状態の継続を確認                  |
+| Create / title / Theme / Schedule / checklist / complete / reopen | mainへ統合済み                  | 個別操作の実機検証と自動testあり                                       | 常用構成での連続journey                       |
+| Room cache / outbox / cursor sync                                 | #399として実装済み              | 8/24にFold7のpending 1→0とcanonical exactly-once収束を確認               | 常用構成での復帰                              |
+| Quick Add / App Shortcut / Widget / Share Target / voice          | main（#493）                    | 実URL、Task/Capture継続入力、未送信/適用済みUndo、process death/reboot | #477に残るS23実発話とWidget表示               |
+| Task / Capture provenance                                         | mainへ統合済み                  | android_speech / share_targetのallowlist metadataを確認                | S23入力の修正結果とcanonical provenance      |
+| signed release / update install                                   | #485で実装済み                  | 8/24にFold7 / S23のRoomとKeystore dataを保持したupdate installを確認   | 今回選ぶAPKで保持を確認                        |
+| Fold compact / expanded                                           | #400として実装済み              | Fold7 compact→expandedでQuick Addを維持し、IME中も保存操作へscroll可能 | Fold emulatorで選択、入力、scrollの継続を確認 |
+| AI Inbox / Work Receipt / Proposal                                | read/review surfaceを実装済み   | Gateway契約とAndroid cacheのテストあり                                | live Gatewayを通す一連のreview                |
+| Hermes delegate / Context Preview / notification                  | #509で統合済み                  | PRに契約、Android、実機検証の記録あり                                  | S23で委任から通知まで確認                     |
+| Work Receipt Accept / Return / blocked返信                        | #508で統合済み                  | PRに契約、Android、実機検証の記録あり                                  | S23でcanonical結果と再送を確認                |
 
-## 実機・build証拠
+pending 1→0の履歴は[2026-08-24のIssueコメント](https://github.com/mryk814/tasuken/issues/477#issuecomment-5395294972)を参照する。
+現在の端末、稼働Gateway、APKでの再検証は未実施である。
+
+## 2026-08-24の実機とbuild証拠
+
+当時の実装基準mainは、PR #493 merge `b2d02a41f667fe14beaae2adadfbb55b70246fc0`である。
+PR #493ではWindows quality、Android quality、永久署名workflowが成功した。
 
 ### Galaxy Z Fold7
 
@@ -98,7 +111,7 @@ PR #493はWindows quality、Android quality、永久署名workflowが成功し�
 - API 33+ signer SHA-256: `19d4f3f0239fae121d97bbcf362207aed6e1c41ebd98077043cf2f40e5a0b1c4`
 - key、password、lineageはrepositoryへ保存していない。
 
-## #477で完了した入力journey
+## 2026-08-24に完了した入力journey
 
 PR #493の永久署名APKをGalaxy Z Fold7へ`adb install -r`した。versionCode 3、firstInstallTime `2026-08-23 04:55:43`、ceDataInode `178442`を保持した。
 
@@ -116,41 +129,83 @@ PR #493の永久署名APKをGalaxy Z Fold7へ`adb install -r`した。versionCod
 
 入力Draftはapp-private storageへversion付きで保存し、放置7日で失効する。Undo対象は24時間保持し、復元後と継続入力後はユーザーが実行またはdismissするまで提示する。
 
-### 1. Fold / One UI continuity
+## 次回の受入れ手順
 
-- selected Task
-- Tasks filter / search
-- list scroll位置
-- rotation
-- background / restore
-- dialog / sheetの安全な復元またはdismiss
-- One UI launcher上のWidget Small / Medium / Large / Wide
-- hinge上に主要controlが重ならないことの物理確認
+以下は未実施の手順である。
+実機操作、APKのupdate install、実データ変更、端末のrevoke、runtimeの停止や再起動、PCのsleep、Tailscale設定変更は、対象と影響を示して許可を得てから行う。
+外部への送信やIssue更新は、その操作の直前に別途承認を得る。
+今回の文書更新は、これらを実行する許可を含まない。
 
-Quick Addのcompact→expanded continuityはpassしたが、上記を代替する証拠ではない。
+受入れではS23をcompact画面と端末固有動作の対象、Fold emulatorをadaptive layoutの対象とする。
+使用するAPKとGatewayのcommitを固定し、[release signing手順](./android-release-signing.md)に沿って署名、APK hash、update前後のデータ保持を記録する。
+debug APKの初回ART遅延とrelease APKの起動時間は分けて記録する。
 
-Galaxy Z Fold7の物理hingeの触感や長時間利用時の快適さも、スクリーンショットでは証明できないため未検証境界として残す。
+### 1. 入力とadaptive UI
+
+1. Fold emulatorでTaskを選び、filter、search、list scroll位置、Quick Addの未保存入力を保持したままcompactとexpandedを往復する。
+2. rotationとbackground / restoreを行い、選択と入力を保持し、dialog / sheetが安全に復元またはdismissされることを確認する。
+3. list-detailへの切替、hinge付近の操作要素、IME表示時の保存操作を確認し、各状態のスクリーンショットを残す。
+4. S23のOne UI launcherでWidgetのSmall / Medium / Large / Wideを確認し、表示とtap targetを記録する。
+5. S23で実発話からfinal textを得て修正し、Task保存後のcanonical Task、Activity、provenanceを照合する。
 
 ### 2. Gateway運用とconflict
 
-- device revoke→API拒否→cache表示→re-pair
-- Tasken tray restart
-- Windows restart
-- PC sleep / wake
-- Tailscale reconnect
-- live title / Theme / Schedule conflict
-- silent overwriteをせずserver/local選択で解決
+1. 対象runtimeを特定し、loopback bind、Tailscale Serveのprivate HTTPS、Funnel未使用を確認する。
+2. 許可されたテスト端末のrevokeからAPI拒否、再pairingまで通し、既存cacheとpending commandの扱いを記録する。
+3. Taskenのtray常駐、Tasken再起動、Windows再起動、PC sleep / wake、Tailscale再接続を一つずつ行い、Gateway状態とS23の復帰結果を残す。
+4. Gateway停止中のTask操作をqueueし、復帰後のpending 1→0、canonical entity、event、receiptの件数を照合する。
+5. title / Theme / Scheduleの競合でserver/localの意図を保持し、選択後の結果を確認する。
+
+再pairing時は、[公開scope定義](../src/shared/contracts/mobile/protocol.mjs)の6権限と端末へ実際に付与された権限を照合する。
+`mobile:read`、`mobile:context-read`、`mobile:task-write`、`mobile:capture-write`、`mobile:proposal-review`、`mobile:human-review`を区別し、旧tokenの権限不足を暗黙に補わない。
+通信障害時の未検証401と、接続先serverが一致する正式なunauthorized応答の扱いは、[Android repository](../android-app/app/src/main/java/jp/personal/tasken/companion/MobileGatewayRepository.kt)に従って確認する。
 
 ### 3. AI review
 
-- live Work Receiptを開き、offline cacheで再表示する。
-- live Task Work Proposalをaccept / rejectする。
-- stale Proposal / stale Task / offline時に危険な操作を無効化する。
-- agent tokenではapproveできず、mobile review scopeだけが許可されることを確認する。
+1. S23でContext Previewを確認してTaskをHermesへ委任し、canonical Taskのexecutorとagent-ready状態を照合する。
+2. 共有内容にstable Task locatorがあり、資格情報、ローカルパス、非公開Contextがないことを確認する。
+   Discord送信は送信先と内容を示して承認を得た場合だけ行い、送信しなければ未検証として残す。
+3. Hermesが既存MCPでlocatorからContextを取得し、Work ReceiptまたはProposalを返した後、Androidで通知と詳細を確認する。
+4. Work Receiptをoffline cacheでも再表示し、onlineで最新ReceiptのAccept / Returnとblocked返信をそれぞれ確認する。
+   Proposalのaccept / rejectは別の操作として確認する。
+5. stale Task、stale Receipt、stale Proposal、offline、失効端末、権限不足で許可されない操作が実行されないことを確認する。
+   Proposal判断は`mobile:proposal-review`、人間のAccept / Returnは`mobile:human-review`を必要とし、agent tokenではどちらも判断できない。
+6. 応答喪失後の同一command再送でTaskとReceiptのidentityが変わらず、canonical結果が一度だけ適用されることを照合する。
 
-このacceptanceを終える前に#478 / #479へ主戦場を移さない。
+### focused testsと証拠の記録
 
-## 現在のruntime state
+CLIの事前検証候補は次の既存テストに限定する。
+これらのテストを通しても、常用Gateway、Androidの実画面、One UI launcher、Discord送信を確認したことにはならない。
+
+| 対象 | 既存テスト |
+| --- | --- |
+| pairing、失効、loopback | [mobile-gateway-runtime.test.mjs](../tests/mobile-gateway-runtime.test.mjs) |
+| Proposalと人間レビューの契約、再送、権限 | [mobile-gateway-phase4a.test.mjs](../tests/mobile-gateway-phase4a.test.mjs) |
+| Context Preview、委任、locator | [mobile-gateway-agent-delegation.test.mjs](../tests/mobile-gateway-agent-delegation.test.mjs) |
+| 実stdio MCPとcanonical人間完了 | [ai-collaboration-e2e.test.mjs](../tests/ai-collaboration-e2e.test.mjs) |
+
+既存の実stdio MCPテストは、人間AcceptをApplication Commandへ直接渡す。
+Mobile Gateway経由のreviewやAndroid操作は、上記手順で別に確認する。
+端末側は既存の`MobileHumanReviewRepositoryTest`、`MobileTaskDelegationRepositoryTest`、`MobileTaskNotificationIsolationTest`、`WorkReceiptDetailUiTest`を、使用許可のある対象で実行する。
+
+各手順の実施後は、次の欄を埋める。
+過去のpassを今回の実結果欄へコピーしない。
+
+| 記録欄 | 記録する内容 |
+| --- | --- |
+| 構成 | 実施日時、端末、OS、app commit、APK versionとhash、Gateway commit |
+| 操作と期待値 | 手順番号、入力、期待する表示とcanonical結果 |
+| 実結果 | pass / fail / 未実施、画面やlogの証拠への参照 |
+| 正本との照合 | Task / Receipt / Proposal / commandのID、version、eventとreceiptの件数 |
+| 後始末 | 許可されたQAデータ、token、proxy、emulator設定の処置と残件 |
+| 未検証 | 実行できなかった境界と再開条件 |
+
+token、pairing code、秘密値、実データ本文は証拠へ含めない。
+QAデータの後始末も許可された対象だけに限定し、残したものは理由と再開手順を記録する。
+
+## 2026-08-24のruntime観測
+
+以下は2026-08-24 23:13 JSTの観測記録であり、2026-08-31の稼働状態を示さない。
 
 常用port `127.0.0.1:48177`は、23:13 JSTの最新観測ではWindows canonical runtimeのElectronだけがlistenしている。PIDは再起動で変わるため、再開時はportと実行パスを改めて確認する。
 
@@ -158,7 +213,7 @@ canonical sourceは`C:\Users\ootan\AppData\Local\TaskenDevRuntime\source`、clea
 
 以前の保護対象だった`214e` worktreeはcleanな`codex/481-482`、head `6e7390a1`となり、常用portを使用していない。所有権不明のためcleanupは行わない。
 
-## Git / worktreeの現在値
+## 2026-08-24のGitとworktree観測
 
 - Windows canonical source: `C:\Users\ootan\AppData\Local\TaskenDevRuntime\source`
 - Windows canonical branch: clean `main`、`tasken-github/main`と一致
@@ -168,31 +223,27 @@ canonical sourceは`C:\Users\ootan\AppData\Local\TaskenDevRuntime\source`、clea
 
 ## 再開時のread-only確認
 
-最初に次だけを確認し、dirty stateを巻き戻さない。
+Windowsの対象checkoutを明示し、最初に次だけを確認する。
+dirty stateを巻き戻さず、WSLや別worktreeへ対象を広げない。
 
 ```powershell
+rtk where.exe rtk
+rtk --version
 rtk git status --short --branch
+rtk git stash list
+rtk git rev-parse HEAD
 rtk gh issue view 477 --comments
-rtk adb devices -l
-rtk powershell.exe -NoProfile -Command "Get-NetTCPConnection -LocalPort 48177 -State Listen -ErrorAction SilentlyContinue"
 ```
 
-WSL mainは次で確認する。
-
-```powershell
-rtk wsl.exe --cd /home/ootan/src/tasuken -e bash -lc '/home/ootan/.local/bin/rtk git status --short --branch'
-```
-
-所有権不明のworktree・untracked pathsは、cleanに見えても明示的な引渡しなしに削除しない。
+端末と稼働runtimeの確認は、今回の対象と操作許可を確定してから行う。
+所有権不明のworktreeやuntracked pathsは、cleanに見えても明示的な引渡しなしに削除しない。
 
 ## 次のマイルストーン
 
 次の大きな完了点は「Android Tasken MVP完成」である。
 
-その判定には、機能がmainにあることだけでなく、#477のFold continuity、Gateway運用、AI Inbox live E2Eを常用構成で再現可能に通す必要がある。offline recoveryと入力journeyはpassした。
+その判定には、#477の残る手順をS23とFold emulatorの常用構成で通し、現在のAPKとGatewayに対する証拠を残す必要がある。
+#400 / #401 / #478 / #479はclosedであり、機能を作り直す段階ではない。
+受入れ結果を基に#398 / #402 / #477 / #397のclose可否を再判定する。
 
-#401はcloseした。#400と#477は残る実機acceptanceを終えるまでopenを維持する。
-
-その後に#478、#479の順でAI human reviewとHermes delegateへ進む。
-
-remote relay / managed syncの採否やDesktop大規模architecture整理は、Android daily-driverのdogfood結果を得るまで主戦場に戻さない。
+remote relay / managed syncを扱う#427は保留のままとし、Desktop依存が日常利用の実害になった時点で評価を再開する。
