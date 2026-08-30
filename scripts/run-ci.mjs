@@ -14,6 +14,7 @@ const steps = [
   ["Strict consistency audit", "audit:consistency", ["--strict", "--format=json"]],
   ["Architecture inventory (report-only)", "audit:architecture", []],
   ["Task architecture enforcement", "audit:architecture", ["--enforce", "task"]],
+  ["Core and MCP architecture enforcement", "audit:architecture", ["--enforce", "core-mcp"]],
   ["Script inventory audit", "audit:scripts", []],
   ["Renderer and main build", "build", []],
   ["Focused Electron smoke", "smoke:desktop:focused", []],
