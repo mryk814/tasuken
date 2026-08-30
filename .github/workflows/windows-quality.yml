@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
+  windows-quality:
     runs-on: windows-latest
     timeout-minutes: 45
 
