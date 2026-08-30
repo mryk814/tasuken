@@ -41,7 +41,7 @@ export interface TaskenDesktopCompositionOptions<
   userDataPath: string;
   persistence: TPersistence;
   mcpPackageSmoke?: McpPackageSmokeOptions;
-  notifyWorkspaceChanged?: () => void;
+  onProposalCommitted?: ConstructorParameters<typeof TaskenCoreRuntime>[3];
 }
 
 export function applyMcpPackageSmokeUserData(
@@ -100,7 +100,13 @@ export class TaskenDesktopComposition<
       options.userDataPath,
       this.repository,
       (command) => this.applicationCommands.execute(command),
-      options.notifyWorkspaceChanged,
+      options.onProposalCommitted,
+      (command, currentContextFingerprint, responseMeta) =>
+        this.applicationCommands.executeTaskDelegation(
+          command,
+          currentContextFingerprint,
+          responseMeta,
+        ),
     );
     const mobileState: MobileGatewayStatePort = {
       current: () => this.repository.mobileGatewayState(),

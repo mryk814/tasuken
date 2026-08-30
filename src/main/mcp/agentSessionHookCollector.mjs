@@ -3,11 +3,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { resolveTaskenUserDataPath } from "../../shared/taskenPaths.mjs";
+import { extractGitHubCopilotOutcome } from "./agentSessionHookAdapters/githubCopilot.mjs";
 import { TaskenCoreClient } from "./taskenCoreClient.mjs";
 
 const CLIENT_KINDS = new Set(["codex", "claude_code", "cursor", "github_copilot"]);
-const STATE_SCHEMA_VERSION = 2;
+const STATE_SCHEMA_VERSION = 3;
+const RECEIPT_SCHEMA_VERSION = 1;
 const MAX_SESSION_CHECKPOINTS = 200;
+const LOCK_OWNER_FILE = "owner.json";
+const LOCK_STALE_MS = 35_000;
 
 function text(value, max) {
   return typeof value === "string" ? sanitizeText(value).trim().slice(0, max) : "";
@@ -38,8 +42,8 @@ function timestamp(value, fallback) {
   return fallback;
 }
 
-function eventName(input) {
-  return String(input.hook_event_name || input.hookEventName || input.event || "")
+function eventName(input, explicitEvent = "") {
+  return String(explicitEvent || input.hook_event_name || input.hookEventName || input.event || "")
     .replace(/[^A-Za-z]/g, "")
     .toLowerCase();
 }
@@ -64,14 +68,19 @@ function statusFrom(reason) {
   return "completed";
 }
 
-export function normalizeAgentHookEvent(clientKind, input, now = () => new Date().toISOString()) {
+export function normalizeAgentHookEvent(
+  clientKind,
+  input,
+  now = () => new Date().toISOString(),
+  options = {},
+) {
   if (!CLIENT_KINDS.has(clientKind)) throw new Error(`未対応のclient_kindです: ${clientKind}`);
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("hook inputはJSON objectが必要です。");
   const sourceSession = sessionId(input);
   if (!sourceSession) throw new Error("hook inputにsession IDがありません。");
   const observedAt = timestamp(input.timestamp, now());
-  const name = eventName(input);
+  const name = eventName(input, options.eventName);
   const base = {
     client_kind: clientKind,
     source_session: sourceSession,
@@ -99,7 +108,11 @@ export function normalizeAgentHookEvent(clientKind, input, now = () => new Date(
       ...base,
       kind: "progress",
       outcome: text(
-        input.last_assistant_message || input.lastAssistantMessage || input.text || input.response,
+        options.outcome ||
+          input.last_assistant_message ||
+          input.lastAssistantMessage ||
+          input.text ||
+          input.response,
         8000,
       ),
       reason: text(input.status || input.stop_reason || input.stopReason, 200),
@@ -143,19 +156,121 @@ async function readState(filePath) {
   }
 }
 
-async function withStateLock(filePath, callback) {
+function receiptPath(filePath) {
+  return filePath.replace(/\.json$/, ".submitted.json");
+}
+
+function pendingStatePath(filePath, state) {
+  const generation = createHash("sha256")
+    .update(`${state.client_kind}\0${state.source_session}\0${state.started_at}`)
+    .digest("hex")
+    .slice(0, 16);
+  return filePath.replace(/\.json$/, `-${generation}.json`);
+}
+
+function isLaterLifecycle(event, receipt) {
+  return (
+    event.kind === "start" &&
+    typeof receipt?.ended_at === "string" &&
+    event.observed_at > receipt.ended_at
+  );
+}
+
+function processIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+async function readLockOwner(lockPath) {
+  try {
+    const owner = JSON.parse(await fs.readFile(path.join(lockPath, LOCK_OWNER_FILE), "utf8"));
+    return owner && typeof owner === "object" ? owner : null;
+  } catch {
+    // Missing or partial owner metadata falls back to the directory lease age.
+    return null;
+  }
+}
+
+async function staleLock(lockPath, staleAfterMs) {
+  const owner = await readLockOwner(lockPath);
+  if (owner && !processIsAlive(owner.pid)) return true;
+  try {
+    const stat = await fs.stat(lockPath);
+    return Date.now() - stat.mtimeMs >= staleAfterMs;
+  } catch (error) {
+    return error?.code === "ENOENT";
+  }
+}
+
+async function claimStaleLock(lockPath, staleAfterMs) {
+  if (!(await staleLock(lockPath, staleAfterMs))) return false;
+  const tombstonePath = `${lockPath}.stale-${randomUUID()}`;
+  try {
+    await fs.rename(lockPath, tombstonePath);
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.code === "EACCES" || error?.code === "EPERM") {
+      return false;
+    }
+    throw error;
+  }
+  await fs.rm(tombstonePath, { recursive: true, force: true });
+  return true;
+}
+
+async function releaseStateLock(lockPath, ownerToken) {
+  const owner = await readLockOwner(lockPath);
+  if (owner?.token !== ownerToken) return;
+  const tombstonePath = `${lockPath}.released-${ownerToken}`;
+  try {
+    await fs.rename(lockPath, tombstonePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  const claimedOwner = await readLockOwner(tombstonePath);
+  if (claimedOwner?.token !== ownerToken) {
+    await fs.rename(tombstonePath, lockPath).catch(() => {
+      // Another owner may already hold the canonical path; never delete its tombstone.
+    });
+    return;
+  }
+  await fs.rm(tombstonePath, { recursive: true, force: true });
+}
+
+async function withStateLock(filePath, callback, options = {}) {
   const lockPath = `${filePath}.lock`;
+  const staleAfterMs = Number.isFinite(options.lockStaleMs)
+    ? Math.max(1_000, options.lockStaleMs)
+    : LOCK_STALE_MS;
   await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
   for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       await fs.mkdir(lockPath, { mode: 0o700 });
+      const ownerToken = randomUUID();
       try {
+        await fs.writeFile(
+          path.join(lockPath, LOCK_OWNER_FILE),
+          `${JSON.stringify({
+            pid: process.pid,
+            token: ownerToken,
+            created_at: new Date().toISOString(),
+          })}\n`,
+          { encoding: "utf8", mode: 0o600 },
+        );
         return await callback();
       } finally {
-        await fs.rmdir(lockPath).catch(() => {});
+        await releaseStateLock(lockPath, ownerToken).catch(() => {
+          // A later hook can recover this owner-scoped lock through the PID/lease check.
+        });
       }
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
+      if (await claimStaleLock(lockPath, staleAfterMs)) continue;
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
@@ -289,7 +404,12 @@ async function submitState(state, options = {}) {
   const reason = text(state.end_reason, 200) || "session_end";
   return client.proposeAgentSession({
     action: "capture",
-    idempotency_key: `${state.client_kind}:${state.source_session}:terminal:v1`,
+    idempotency_key: `${state.client_kind}:${state.source_session}:terminal:v2:${createHash(
+      "sha256",
+    )
+      .update(`${state.client_kind}\0${state.source_session}\0${state.started_at}`)
+      .digest("hex")
+      .slice(0, 16)}`,
     caller: `${state.client_kind} lifecycle hook`,
     source: "mcp",
     source_app: `tasken-session-hook:${state.client_kind}`,
@@ -317,43 +437,100 @@ async function submitState(state, options = {}) {
 }
 
 export async function collectAgentHookEvent(clientKind, input, options = {}) {
-  const event = normalizeAgentHookEvent(clientKind, input, options.now);
-  if (event.kind === "ignored") return { status: "ignored", event: eventName(input) };
+  const explicitEvent = options.eventName || "";
+  const normalizedName = eventName(input, explicitEvent);
+  const extractedOutcome =
+    clientKind === "github_copilot" && (normalizedName === "agentstop" || normalizedName === "stop")
+      ? await extractGitHubCopilotOutcome(input, options)
+      : "";
+  const event = normalizeAgentHookEvent(clientKind, input, options.now, {
+    eventName: explicitEvent,
+    outcome: extractedOutcome,
+  });
+  if (event.kind === "ignored") return { status: "ignored", event: normalizedName };
   const directory = stateDirectory(options);
   const filePath = path.join(directory, `${stateKey(clientKind, event.source_session)}.json`);
-  const state = await withStateLock(filePath, async () => {
-    const merged = mergeEvent(await readState(filePath), event);
-    await writeState(filePath, merged);
-    return merged;
-  });
+  const observation = await withStateLock(
+    filePath,
+    async () => {
+      const submittedPath = receiptPath(filePath);
+      const receipt = await readState(submittedPath);
+      if (receipt && !isLaterLifecycle(event, receipt)) return { duplicate: true };
+      let generationCutoff = typeof receipt?.ended_at === "string" ? receipt.ended_at : "";
+      let current = await readState(filePath);
+      if (current?.ended_at && event.kind === "start" && event.observed_at > current.ended_at) {
+        generationCutoff = current.ended_at;
+        const pendingPath = pendingStatePath(filePath, current);
+        if (!(await readState(pendingPath))) await writeState(pendingPath, current);
+        await fs.unlink(filePath).catch((error) => {
+          if (error?.code !== "ENOENT") throw error;
+        });
+        current = null;
+      }
+      if (typeof current?.generation_cutoff === "string") {
+        generationCutoff = current.generation_cutoff;
+      }
+      if (generationCutoff && event.observed_at <= generationCutoff) {
+        return { stale: true };
+      }
+      const merged = mergeEvent(current, event);
+      if (generationCutoff) merged.generation_cutoff = generationCutoff;
+      await writeState(filePath, merged);
+      if (receipt) {
+        await fs.unlink(submittedPath).catch((error) => {
+          if (error?.code !== "ENOENT") throw error;
+        });
+      }
+      return { state: merged };
+    },
+    options,
+  );
+  if (observation.duplicate) return { status: "duplicate", kind: event.kind };
+  if (observation.stale) return { status: "stale", kind: event.kind };
+  const state = observation.state;
   if (!state.ended_at) return { status: "observed", kind: event.kind };
   const settleDelayMs = Number.isFinite(options.settleDelayMs)
     ? Math.max(0, options.settleDelayMs)
     : 250;
   if (settleDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, settleDelayMs));
-  const settledState = await withStateLock(filePath, () => readState(filePath));
-  if (!settledState?.ended_at) return { status: "observed", kind: event.kind };
-  try {
-    const response = await submitState(settledState, options);
-    await fs.unlink(filePath).catch((error) => {
-      if (error?.code !== "ENOENT") throw error;
-    });
-    return {
-      status: "submitted",
-      proposal_id: response.proposal_id,
-      submission_status: response.status,
-    };
-  } catch (error) {
-    const lastSubmissionError = {
-      code: typeof error?.code === "string" ? error.code : "SUBMISSION_FAILED",
-      at: (options.now || (() => new Date().toISOString()))(),
-    };
-    await withStateLock(filePath, async () => {
-      const latestState = (await readState(filePath)) || settledState;
-      await writeState(filePath, { ...latestState, last_submission_error: lastSubmissionError });
-    });
-    return { status: "pending", error_code: lastSubmissionError.code };
-  }
+  return withStateLock(
+    filePath,
+    async () => {
+      const submittedPath = receiptPath(filePath);
+      if (await readState(submittedPath)) {
+        await fs.unlink(filePath).catch(() => {});
+        return { status: "duplicate", kind: event.kind };
+      }
+      const settledState = await readState(filePath);
+      if (!settledState?.ended_at) return { status: "observed", kind: event.kind };
+      try {
+        const response = await submitState(settledState, options);
+        await writeState(submittedPath, {
+          schema_version: RECEIPT_SCHEMA_VERSION,
+          started_at: settledState.started_at,
+          ended_at: settledState.ended_at,
+          submitted_at: (options.now || (() => new Date().toISOString()))(),
+        });
+        await fs.unlink(filePath).catch((error) => {
+          if (error?.code !== "ENOENT") throw error;
+        });
+        return {
+          status: "submitted",
+          proposal_id: response.proposal_id,
+          submission_status: response.status,
+        };
+      } catch (error) {
+        const lastSubmissionError = {
+          code: typeof error?.code === "string" ? error.code : "SUBMISSION_FAILED",
+          at: (options.now || (() => new Date().toISOString()))(),
+        };
+        const latestState = (await readState(filePath)) || settledState;
+        await writeState(filePath, { ...latestState, last_submission_error: lastSubmissionError });
+        return { status: "pending", error_code: lastSubmissionError.code };
+      }
+    },
+    options,
+  );
 }
 
 export async function flushPendingAgentSessions(options = {}) {
@@ -367,17 +544,42 @@ export async function flushPendingAgentSessions(options = {}) {
   }
   let submitted = 0;
   let pending = 0;
-  for (const name of names.filter((entry) => /^[a-f0-9]{64}\.json$/.test(entry))) {
+  let terminalSessions = 0;
+  const maxSessions = Number.isFinite(options.maxSessions)
+    ? Math.max(0, Math.floor(options.maxSessions))
+    : Number.POSITIVE_INFINITY;
+  for (const name of names.filter((entry) =>
+    /^[a-f0-9]{64}(?:-[a-f0-9]{16})?\.json$/.test(entry),
+  )) {
+    if (terminalSessions >= maxSessions) break;
     const filePath = path.join(directory, name);
-    const state = await readState(filePath);
-    if (!state?.ended_at) continue;
-    try {
-      await submitState(state, options);
-      await fs.unlink(filePath);
-      submitted += 1;
-    } catch {
-      pending += 1;
-    }
+    await withStateLock(
+      filePath,
+      async () => {
+        const submittedPath = receiptPath(filePath);
+        if (await readState(submittedPath)) {
+          await fs.unlink(filePath).catch(() => {});
+          return;
+        }
+        const state = await readState(filePath);
+        if (!state?.ended_at) return;
+        terminalSessions += 1;
+        try {
+          await submitState(state, options);
+          await writeState(submittedPath, {
+            schema_version: RECEIPT_SCHEMA_VERSION,
+            started_at: state.started_at,
+            ended_at: state.ended_at,
+            submitted_at: (options.now || (() => new Date().toISOString()))(),
+          });
+          await fs.unlink(filePath);
+          submitted += 1;
+        } catch {
+          pending += 1;
+        }
+      },
+      options,
+    );
   }
   return { submitted, pending };
 }

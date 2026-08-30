@@ -1,0 +1,33 @@
+{
+  "SessionStart": {
+    "hook_event_name": "SessionStart",
+    "session_id": "copilot-vscode-1",
+    "timestamp": "2026-08-25T00:00:00.000Z",
+    "cwd": "C:\\research\\materials",
+    "source": "new",
+    "initial_prompt": "析出強化材のレビュー資料をまとめる"
+  },
+  "UserPromptSubmit": {
+    "hook_event_name": "UserPromptSubmit",
+    "session_id": "copilot-vscode-1",
+    "timestamp": "2026-08-25T00:01:00.000Z",
+    "cwd": "C:\\research\\materials",
+    "prompt": "析出強化材のレビュー資料をまとめる"
+  },
+  "Stop": {
+    "hook_event_name": "Stop",
+    "session_id": "copilot-vscode-1",
+    "timestamp": "2026-08-25T00:10:00.000Z",
+    "cwd": "C:\\research\\materials",
+    "transcript_path": "__TRANSCRIPT_PATH__",
+    "stop_reason": "end_turn",
+    "stop_hook_active": false
+  },
+  "SessionEnd": {
+    "hook_event_name": "SessionEnd",
+    "session_id": "copilot-vscode-1",
+    "timestamp": "2026-08-25T00:11:00.000Z",
+    "cwd": "C:\\research\\materials",
+    "reason": "complete"
+  }
+}

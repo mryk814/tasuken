@@ -208,7 +208,7 @@ test("Notes Edit and Preview share the rendered document style contract", () => 
   const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
   assert.match(source, /contentEditableClassName="note-mdx-content markdown-preview"/);
-  assert.match(source, /<MarkdownPreview className="note-main-preview markdown-preview"/);
+  assert.match(source, /<MarkdownPreview\s+className="note-main-preview markdown-preview"/);
   assert.match(source, /className="note-main-editor note-main-editor-raw note-editor-footnotes"/);
   assert.match(source, /const mermaidCodeBlockDescriptor/);
   assert.match(source, /Editor:\s*MermaidCodeBlockEditor/);
@@ -849,7 +849,7 @@ test("notes editor exposes persisted Mermaid width controls", () => {
   assert.match(source, /preserveEditorViewport\(editorRootRef\.current/);
   assert.match(source, /const previewMeta = withMermaidWidthMeta\(props\.meta, null\)/);
   assert.match(source, /const LazyMermaidPreview = memo\(MarkdownPreview, \(\) => true\)/);
-  assert.match(source, /<LazyMermaidPreview key=\{rendered\}/);
+  assert.match(source, /<LazyMermaidPreview\s+key=\{rendered\}/);
   assert.match(source, /draftWidth === null \? "" : " is-custom-width"/);
   assert.match(
     styles,
@@ -1029,13 +1029,13 @@ test("notes page keeps mode switches draft-only and autosaves when the note leav
   // queue; the app-level registry keeps it awaitable after this page unmounts.
   assert.match(
     source,
-    /import \{ flushPendingNoteDraftSaves, trackPendingNoteDraftSave \} from "\.\.\/lib\/noteDraftFlushRegistry";/,
+    /import\s*\{\s*flushPendingNoteDraftSaves,\s*trackPendingNoteDraftSave,?\s*\}\s*from "\.\.\/lib\/noteDraftFlushRegistry";/,
   );
   assert.match(
     source,
-    /useEffect\(\(\) => \(\) => \{\s*cancelAutosaveTimer\(\);\s*const pending = autosaveRef\.current;\s*if \(pending\?\.snapshot\.dirty\) void saveQueuedDraft\(pending\);/,
+    /useEffect\(\s*\(\) => \(\) => \{\s*cancelAutosaveTimer\(\);\s*const pending = autosaveRef\.current;\s*if \(pending\?\.snapshot\.dirty\) void saveQueuedDraft\(pending\);/,
   );
-  assert.match(source, /\}, \[\]\);/);
+  assert.match(source, /\},\s*\[\],?\s*\);/);
   assert.doesNotMatch(source, /\[selected\?\.id, saveEntity, setToast\]/);
 });
 
@@ -1053,7 +1053,7 @@ test("notes page keeps scroll position when switching edit, preview, and raw mod
   // Edit 面は contenteditable の外枠がスクロールし、末尾余白を選択範囲から分離する。
   assert.match(
     source,
-    /querySelector<HTMLElement>\("\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]"\)/,
+    /querySelector<HTMLElement>\(\s*"\.note-live-editor \[class\*='_rootContentEditableWrapper_'\]",?\s*\)/,
   );
   assert.match(source, /switchPreviewMode\("edit"\)/);
   assert.match(source, /switchPreviewMode\("preview"\)/);

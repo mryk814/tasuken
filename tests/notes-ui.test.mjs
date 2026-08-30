@@ -3,7 +3,11 @@ import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import vm from "node:vm";
 import { build } from "esbuild";
+import ts from "typescript";
+
+import * as canonicalMarkdown from "../src/shared/canonicalMarkdown.mjs";
 
 async function importBundled(relativePath) {
   const result = await build({
@@ -20,6 +24,420 @@ async function importBundled(relativePath) {
 }
 
 const notes = await importBundled("src/renderer/src/features/workspace/lib/notes.ts");
+const draftIdentity = await importBundled(
+  "src/renderer/src/features/workspace/lib/noteDraftIdentity.ts",
+);
+const draftQueue = await importBundled(
+  "src/renderer/src/features/workspace/lib/noteDraftSaveQueue.ts",
+);
+const draftFlush = await importBundled(
+  "src/renderer/src/features/workspace/lib/noteDraftFlushRegistry.ts",
+);
+const format = await importBundled("src/renderer/src/features/workspace/lib/format.ts");
+const markdown = await importBundled("src/renderer/src/features/workspace/lib/markdown.ts");
+
+// Exercise the real renderer event callbacks without opening Electron or copying
+// their save decisions into the test. Only the editor/IPC boundary is a fixture.
+function noteSaveHarness(syncState, { confirmOverwrite = true, holdSave = false } = {}) {
+  const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
+  const tree = ts.createSourceFile(
+    "NotesPage.tsx",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const functions = new Map();
+  let saveButton;
+  let saveCommand;
+  let commandAssignment;
+  let keyboardEffect;
+  let selectedBodyEffect;
+  let autosaveEffect;
+  let saveEnabledDeclaration = "";
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name) functions.set(node.name.text, node);
+    if (ts.isVariableDeclaration(node) && node.name.getText(tree) === "canSaveSelectedDraft") {
+      saveEnabledDeclaration = `const ${node.getText(tree)};`;
+    }
+    if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(tree) === "ActionButton") {
+      if (
+        node.attributes.properties.some(
+          (attr) => attr.name?.getText(tree) === "action" && attr.initializer?.text === "notesSave",
+        )
+      )
+        saveButton = node;
+    }
+    if (ts.isBinaryExpression(node) && node.left.getText(tree) === "commandActionsRef.current") {
+      commandAssignment = node;
+      saveCommand = node.right.properties.find(
+        (property) => property.name?.getText(tree) === "save",
+      )?.initializer;
+    }
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.getText(tree) === "useEffect" &&
+      node.arguments[0]?.getText(tree).includes('window.addEventListener("keydown", handleKeyDown)')
+    ) {
+      keyboardEffect = node.arguments[0];
+    }
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.getText(tree) === "useEffect" &&
+      node.arguments[0]?.getText(tree).includes("const previous = autosaveRef.current;")
+    ) {
+      selectedBodyEffect = node.arguments[0];
+    }
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.getText(tree) === "useEffect" &&
+      node.arguments[0]?.getText(tree).includes("void autoSaveDraft(autosaveRef.current)")
+    ) {
+      autosaveEffect = node.arguments[0];
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(tree);
+  assert.ok(saveButton && saveCommand && keyboardEffect, "保存button・command・Ctrl+Sの実配線");
+  const buttonExpression = (name) =>
+    saveButton.attributes.properties
+      .find((attr) => attr.name?.getText(tree) === name)
+      .initializer.expression.getText(tree);
+  const names = [
+    "recordBody",
+    "needsCanonicalMarkdownRetry",
+    "currentDraftBodyForSelected",
+    "captureCurrentDraftSnapshot",
+    "persistDraftSnapshot",
+    "cancelAutosaveTimer",
+    "sameDraftSaveJob",
+    "startDraftSaveQueue",
+    "enqueueDraftSave",
+    "saveQueuedDraft",
+    "autoSaveDraft",
+    "flushDraftSnapshot",
+    "saveSelectedDraft",
+  ];
+  const note = {
+    recordType: "note",
+    id: "retry-note",
+    title: "保存の再試行",
+    version: 7,
+    body_markdown: "内部へ保存済みの本文",
+    properties_json: {
+      canonical_markdown: { sync_state: syncState, canonical_path: "fixture/note.md" },
+    },
+  };
+  const owner = draftIdentity.noteDraftOwner("note", note.id);
+  const snapshot = draftIdentity.makeNoteDraftSnapshot(
+    owner,
+    note.body_markdown,
+    note.body_markdown,
+    note.version,
+  );
+  let editorBody = note.body_markdown;
+  const records = new Map([[note.id, note]]);
+  const listeners = new Map();
+  const savedRequests = [];
+  const messages = [];
+  const timers = [];
+  let releaseSave;
+  const saveGate = holdSave
+    ? new Promise((resolve) => {
+        releaseSave = resolve;
+      })
+    : Promise.resolve();
+  const context = {
+    ...canonicalMarkdown,
+    ...draftIdentity,
+    ...draftQueue,
+    ...draftFlush,
+    str: format.str,
+    selected: note,
+    selectedOwner: owner,
+    selectedBody: note.body_markdown,
+    selectedOwnerKey: draftIdentity.noteDraftOwnerKey(owner),
+    selectedOwnerKeyRef: { current: draftIdentity.noteDraftOwnerKey(owner) },
+    draftSnapshotState: snapshot,
+    draftDirty: false,
+    draftBody: note.body_markdown,
+    richEditorDirty: false,
+    canonicalFileState: canonicalMarkdown.canonicalMarkdownFileState(syncState),
+    mdxMarkdownSourceRef: {
+      current: { ownerKey: draftIdentity.noteDraftOwnerKey(owner), getMarkdown: () => editorBody },
+    },
+    autosaveRef: { current: { selected: note, snapshot } },
+    autosaveTimerRef: { current: null },
+    selectedBodyRef: { current: snapshot },
+    draftSaveQueuesRef: { current: new Map() },
+    commandActionsRef: { current: {} },
+    setDraftState: (message) => messages.push(message),
+    setDraftOwner: (nextOwner) => {
+      context.draftOwner = nextOwner;
+    },
+    setDraftBodyState: (body) => {
+      context.draftBody = body;
+    },
+    setRichEditorDirty: (dirty) => {
+      context.richEditorDirty = dirty;
+    },
+    setIndexedDraftBody: () => {},
+    setDiffOpen: () => {},
+    setSearchIndex: () => {},
+    setAutoLinked: () => {},
+    setRecentExtraction: () => {},
+    normalizeRichEditorMarkdown: markdown.normalizeRichEditorMarkdown,
+    setCanonicalSyncState: (state) => {
+      context.canonicalFileState = state;
+    },
+    setToastRef: { current: (message) => messages.push(message) },
+    setToast: (message) => messages.push(message),
+    workspaceApi: { get: async (_type, id) => records.get(id) },
+    saveEntityRef: {
+      current: async (type, entity, options, documentSnapshot) => {
+        savedRequests.push({ type, entity, options, documentSnapshot });
+        if (documentSnapshot.expectedRevision !== records.get(entity.id).version)
+          throw new Error("Noteが更新済みです。古い編集画面を閉じて再試行してください。");
+        await saveGate;
+        const saved = {
+          ...entity,
+          version: entity.version + 1,
+          properties_json: {
+            canonical_markdown: {
+              ...entity.properties_json.canonical_markdown,
+              sync_state: "in_sync",
+            },
+          },
+        };
+        records.set(saved.id, saved);
+        return saved;
+      },
+    },
+    window: {
+      clearTimeout: () => {},
+      confirm: () => confirmOverwrite,
+      setTimeout: (callback) => {
+        timers.push(callback);
+        return timers.length;
+      },
+      addEventListener: (type, listener) => listeners.set(type, listener),
+      removeEventListener: (type) => listeners.delete(type),
+    },
+  };
+  const code = [
+    ...names.filter((name) => functions.has(name)).map((name) => functions.get(name).getText(tree)),
+    saveEnabledDeclaration,
+    `globalThis.saveButtonDisabled = () => (${buttonExpression("disabled")});`,
+    `globalThis.clickSave = () => (${buttonExpression("onClick")})();`,
+    `${commandAssignment.getText(tree)};`,
+    "globalThis.commandSave = commandActionsRef.current.save;",
+    `globalThis.receiveSelectedBody = ${selectedBodyEffect.getText(tree)};`,
+    `globalThis.scheduleAutosave = ${autosaveEffect.getText(tree)};`,
+    `(${keyboardEffect.getText(tree)})();`,
+  ].join("\n");
+  vm.runInNewContext(ts.transpile(code, { target: ts.ScriptTarget.ES2022 }), context);
+  return {
+    context,
+    note,
+    savedRequests,
+    messages,
+    releaseSave,
+    edit(body) {
+      editorBody = body;
+      context.draftBody = body;
+      context.richEditorDirty = true;
+      context.draftDirty = body !== context.selectedBody;
+      context.draftSnapshotState = draftIdentity.makeNoteDraftSnapshot(
+        owner,
+        body,
+        note.body_markdown,
+        note.version,
+      );
+      context.autosaveRef.current = { selected: note, snapshot: context.draftSnapshotState };
+    },
+    receiveSavedBody(body, version, patch = {}) {
+      context.selected = { ...note, ...patch, body_markdown: body, version };
+      records.set(note.id, context.selected);
+      context.selectedBody = body;
+      context.receiveSelectedBody();
+    },
+    async startAutosave() {
+      context.scheduleAutosave();
+      assert.equal(timers.length, 1);
+      timers[0]();
+      await new Promise(setImmediate);
+    },
+    async finishSave() {
+      releaseSave?.();
+      await draftFlush.flushPendingNoteDraftSaves();
+      await new Promise(setImmediate);
+    },
+    select(nextNote) {
+      records.set(nextNote.id, nextNote);
+      context.selected = nextNote;
+      context.selectedOwner = draftIdentity.noteDraftOwner(nextNote.recordType, nextNote.id);
+      context.selectedOwnerKey = draftIdentity.noteDraftOwnerKey(context.selectedOwner);
+      context.selectedOwnerKeyRef.current = context.selectedOwnerKey;
+      context.selectedBody = nextNote.body_markdown;
+      context.receiveSelectedBody();
+    },
+    async save(entrypoint) {
+      if (entrypoint === "button") {
+        assert.equal(
+          context.saveButtonDisabled(),
+          false,
+          "Markdownだけ未同期でも保存buttonを押せる",
+        );
+        await context.clickSave();
+      } else if (entrypoint === "command") {
+        await context.commandSave();
+      } else {
+        let prevented = false;
+        listeners.get("keydown")({
+          ctrlKey: true,
+          key: "s",
+          preventDefault: () => {
+            prevented = true;
+          },
+        });
+        assert.equal(prevented, true);
+      }
+      await draftFlush.flushPendingNoteDraftSaves();
+      await new Promise(setImmediate);
+    },
+  };
+}
+
+test("Markdownだけ未同期のNoteは本文を変えず保存button・command・Ctrl+Sから再試行できる（#291）", async (t) => {
+  for (const entrypoint of ["button", "command", "keyboard"]) {
+    await t.test(entrypoint, async () => {
+      const harness = noteSaveHarness("internal_ahead");
+      await harness.save(entrypoint);
+      assert.equal(harness.savedRequests.length, 1, "同じNoteの保存経路へ再試行を送る");
+      const request = harness.savedRequests[0];
+      assert.equal(request.type, "note");
+      assert.equal(request.entity.body_markdown, harness.note.body_markdown);
+      assert.equal(request.documentSnapshot.body, harness.note.body_markdown);
+      assert.equal(request.documentSnapshot.expectedRevision, 7);
+      assert.equal(harness.context.canonicalFileState, "synced");
+      assert.ok(harness.messages.includes("すべての変更を保存しました"));
+    });
+  }
+});
+
+test("未同期の再試行は保存先復旧と競合確認を扱い、同期済みNoteを再保存しない（#291）", async (t) => {
+  for (const state of ["unavailable", "conflict"]) {
+    await t.test(state, async () => {
+      const harness = noteSaveHarness(state);
+      await harness.save("button");
+      assert.equal(harness.savedRequests.length, 1);
+      assert.equal(
+        harness.savedRequests[0].options.canonicalMarkdown,
+        state === "conflict" ? "overwrite" : undefined,
+      );
+      assert.equal(harness.context.canonicalFileState, "synced");
+    });
+  }
+  const declined = noteSaveHarness("conflict", { confirmOverwrite: false });
+  await declined.save("keyboard");
+  assert.equal(
+    declined.savedRequests[0].options.canonicalMarkdown,
+    undefined,
+    "確認を断ると外部Markdownを上書きしない",
+  );
+  const synced = noteSaveHarness("in_sync");
+  assert.equal(synced.context.saveButtonDisabled(), true);
+  await synced.save("command");
+  await synced.save("keyboard");
+  assert.equal(synced.savedRequests.length, 0);
+});
+
+test("保存応答で同じNoteの正本が進んでも保存中の追加入力を戻さない（#291）", async () => {
+  const harness = noteSaveHarness("in_sync", { holdSave: true });
+  harness.edit("応答した一つ前の本文");
+  await harness.startAutosave();
+  harness.edit("保存中に追加した最新の本文");
+  await harness.finishSave();
+  harness.receiveSavedBody("応答した一つ前の本文", 8);
+  assert.equal(harness.context.draftBody, "保存中に追加した最新の本文");
+  assert.equal(harness.context.richEditorDirty, true);
+  assert.equal(harness.context.selectedBodyRef.current.body, "応答した一つ前の本文");
+  assert.equal(harness.context.selectedBodyRef.current.expectedRevision, 8);
+  await harness.save("command");
+  assert.equal(harness.savedRequests[1].documentSnapshot.expectedRevision, 8);
+  assert.equal(harness.savedRequests[1].documentSnapshot.body, "保存中に追加した最新の本文");
+});
+
+test("別writerの更新中に未保存本文があると元revisionで競合を検出する（#291）", async () => {
+  const harness = noteSaveHarness("in_sync");
+  harness.edit("v7から編集した本文");
+  harness.receiveSavedBody("別writerのv8本文", 8);
+  await harness.save("command");
+  assert.equal(harness.savedRequests[0].documentSnapshot.expectedRevision, 7);
+  assert.equal(harness.context.draftBody, "v7から編集した本文");
+  assert.ok(harness.messages.some((message) => message.includes("Noteが更新済みです")));
+});
+
+test("本文が同じmetadata更新後も未保存本文を最新Theme・revisionと保存できる（#291）", async () => {
+  const harness = noteSaveHarness("in_sync");
+  harness.edit("Theme変更中に編集中の本文");
+  harness.receiveSavedBody(harness.note.body_markdown, 8, { project_id: "updated-theme" });
+  await harness.save("command");
+  assert.equal(harness.savedRequests[0].documentSnapshot.expectedRevision, 8);
+  assert.equal(harness.savedRequests[0].documentSnapshot.body, "Theme変更中に編集中の本文");
+  assert.equal(harness.savedRequests[0].entity.project_id, "updated-theme");
+  assert.equal(harness.context.canonicalFileState, "synced");
+  assert.equal(
+    harness.messages.some((message) => message.includes("Noteが更新済みです")),
+    false,
+  );
+});
+
+test("保存中に元本文へUndoした入力も保存応答で戻さない（#291）", async () => {
+  const harness = noteSaveHarness("in_sync", { holdSave: true });
+  harness.edit("保存中の変更本文");
+  await harness.startAutosave();
+  harness.edit(harness.note.body_markdown);
+  harness.receiveSavedBody("保存中の変更本文", 8);
+  await harness.finishSave();
+  assert.equal(harness.context.draftBody, harness.note.body_markdown);
+  assert.equal(harness.context.richEditorDirty, true);
+  await harness.save("command");
+  assert.equal(harness.savedRequests[1].documentSnapshot.body, harness.note.body_markdown);
+  assert.equal(harness.savedRequests[1].documentSnapshot.expectedRevision, 8);
+});
+
+test("新しい未保存入力がなければ同じNoteの外部更新・保存応答を受け入れる（#291）", () => {
+  const external = noteSaveHarness("in_sync");
+  external.receiveSavedBody("別ウィンドウで更新した本文", 8);
+  assert.equal(external.context.draftBody, "別ウィンドウで更新した本文");
+  assert.equal(external.context.richEditorDirty, false);
+  const ownSave = noteSaveHarness("in_sync");
+  ownSave.edit("今回保存した本文");
+  ownSave.receiveSavedBody("今回保存した本文", 8);
+  assert.equal(ownSave.context.draftBody, "今回保存した本文");
+  assert.equal(ownSave.context.richEditorDirty, false);
+});
+
+test("Noteを切り替えると前の未保存本文をflushし、切替先の本文だけを表示する（#291）", async () => {
+  const harness = noteSaveHarness("in_sync");
+  harness.edit("切替前のNoteへ保存する本文");
+  harness.select({
+    ...harness.note,
+    id: "next-note",
+    body_markdown: "切替先だけの本文",
+    version: 3,
+  });
+  await draftFlush.flushPendingNoteDraftSaves();
+  await new Promise(setImmediate);
+  assert.equal(harness.savedRequests.length, 1);
+  assert.equal(harness.savedRequests[0].entity.id, "retry-note");
+  assert.equal(harness.savedRequests[0].documentSnapshot.body, "切替前のNoteへ保存する本文");
+  assert.equal(harness.context.draftBody, "切替先だけの本文");
+  assert.equal(harness.context.richEditorDirty, false);
+  assert.equal(harness.context.selectedBodyRef.current.owner.entityId, "next-note");
+  assert.equal(harness.context.selectedBodyRef.current.expectedRevision, 3);
+});
 
 test("Notes defaults to Note and keeps deterministic date ordering", () => {
   assert.equal(notes.DEFAULT_NOTES_PREFS.scope, "note");
@@ -258,7 +676,7 @@ test("本文を選択しただけでは変換toolbarを出さない（#313）", 
   assert.match(editor, /lastSelectionRangeRef\.current = range\.cloneRange\(\);/);
   assert.match(source, /"selection-task": \(\) => requestSelectionCommand\("task"\)/);
   assert.match(app, /id: "notes:selection-task",\s*label: "選択範囲からTaskを作る"/);
-  assert.match(app, /id: "notes:selection-ai",\s*label: "選択範囲をAIで編集"/);
+  assert.doesNotMatch(app, /id: "notes:selection-ai"|選択範囲をAIで編集/);
 });
 
 test("本文の全文コピーは大きなbuttonから外す（#313）", () => {
@@ -278,16 +696,16 @@ test("Notesのtoolbarがpage / document / editor / outputへ分かれる（#331�
   // 文書の段は「この文書を確定する」ことだけを扱う。
   assert.match(
     source,
-    /<span className="note-draft-state" role="status" aria-live="polite">\{saveStateLabel\}<\/span>/,
+    /<span\s+className="note-draft-state"\s+role="status"\s+aria-live="polite">\s*\{saveStateLabel\}\s*<\/span>/,
   );
   assert.match(
     source,
-    /<ToolbarMenu label="この文書" title="この文書に対する操作" items=\{documentMenuItems\} \/>/,
+    /<ToolbarMenu\s+label="この文書"\s+title="この文書に対する操作"\s+items=\{documentMenuItems\}\s*\/>/,
   );
   // Editorの段はmode切替と高頻度操作、派生出力はmenuへ。
   assert.match(
     source,
-    /<ToolbarMenu label="出力" title="書き出しと保存先" items=\{outputMenuItems\} \/>/,
+    /<ToolbarMenu\s+label="出力"\s+title="書き出しと保存先"\s+items=\{outputMenuItems\}\s*\/>/,
   );
   assert.match(source, /aria-label="本文を検索・置換"/);
 
@@ -309,7 +727,7 @@ test("`保存`はNote正本の確定だけに使い、派生出力と語彙を�
   // 画面上で `保存` と表示されるbuttonは、内部Entityを確定する一つだけ。
   assert.match(
     source,
-    /<ActionButton action="notesSave" compact disabled=\{!draftDirty\} onClick=\{saveSelectedDraft\} \/>/,
+    /<ActionButton\s+action="notesSave"\s+compact\s+disabled=\{!canSaveSelectedDraft\}\s+onClick=\{saveSelectedDraft\}\s*\/>/,
   );
 
   // 派生出力は `保存` と呼ばない。
@@ -321,7 +739,7 @@ test("`保存`はNote正本の確定だけに使い、派生出力と語彙を�
   assert.equal(/\{markdownExporting \? "保存中" : "保存"\}/.test(source), false);
 
   // 保存状態は一時messageが無くても静止状態を言う。
-  assert.match(source, /const saveStateLabel = draftState\s*\n\s*\|\| \(draftDirty/);
+  assert.match(source, /const saveStateLabel\s*=\s*draftState\s*\|\|\s*\(draftDirty/);
   assert.match(
     source,
     /noteSaveStateLabel\(\{ internalSaved: true, fileState: canonicalFileState \}\)/,
@@ -333,7 +751,6 @@ test("AI iconはAIの操作にだけ使う（#312）", () => {
 
   // Knowledge化はNotesの日常導線から撤去し、AI iconを流用する余地も残さない。
   assert.doesNotMatch(source, /Knowledge化|IconBulb/);
-  // AI Draftのように実際にAIへ渡す導線だけがAI iconを持つ。
-  assert.match(source, /label: "Note AIを開く"/);
-  assert.doesNotMatch(source, /AI Draft|DraftWorkspaceDialog|NoteAiDialog/);
+  // 内蔵AI実行導線はNotesから撤去する。
+  assert.doesNotMatch(source, /Note AIを開く|AI Draft|DraftWorkspaceDialog|NoteAiDialog/);
 });

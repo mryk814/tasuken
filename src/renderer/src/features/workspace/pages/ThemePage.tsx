@@ -8,6 +8,7 @@ import {
 } from "@tabler/icons-react";
 
 import type { ThemeAiPackPreviewResult } from "../../../../../shared/ipc/contracts";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { usePreference } from "../../../utils/usePreference";
 import { AI_ICON } from "../../../pages/semanticIcons";
@@ -265,6 +266,16 @@ export function ThemePage({
     );
   }
   const theme = activeTheme;
+  const themeRepositoryIds = new Set([
+    ...(theme.repository_context_ids || []).map(String),
+    ...(theme.primary_repository_context_id ? [String(theme.primary_repository_context_id)] : []),
+  ]);
+  const themeRepositories = v2.repository_contexts.filter(
+    (repository) =>
+      themeRepositoryIds.has(String(repository.id)) &&
+      !repository.deleted_at &&
+      repository.active !== false,
+  );
 
   function toggleTaskSection(sectionId: string) {
     setThemePreference((current) => ({
@@ -300,7 +311,7 @@ export function ThemePage({
     .filter((entry) => entry.theme_id === theme.id)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const latest = updates[0];
-  const themeNotes = notes.filter((note) => note.theme_id === theme.id);
+  const themeNotes = notes.filter((note) => noteProjectId(note) === theme.id);
   const reportNotes = themeNotes
     .filter((note) => note.note_type === "report")
     .sort((a, b) =>
@@ -482,14 +493,75 @@ export function ThemePage({
         theme={theme}
         edit={() => openDrawer({ type: "theme", mode: "edit", entity: theme })}
       />
+      <section className="panel theme-repository-panel">
+        <div className="section-heading">
+          <div>
+            <h2>Repository</h2>
+            <span>AIセッションの作業場所とThemeを結びます。</span>
+          </div>
+          <Button
+            variant="secondary"
+            compact
+            onClick={() =>
+              openDrawer({
+                type: "theme",
+                mode: "edit",
+                entity: theme,
+                initialSection: "repository",
+              })
+            }
+          >
+            登録・変更
+          </Button>
+        </div>
+        {themeRepositories.length ? (
+          <div className="theme-repository-list">
+            {themeRepositories.map((repository) => {
+              const isPrimary = theme.primary_repository_context_id === repository.id;
+              return (
+                <div className="theme-repository-row" key={repository.id}>
+                  <IconFolder size={17} aria-hidden="true" />
+                  <span>
+                    <strong>
+                      {repository.label || repository.repository_slug || "Repository"}
+                    </strong>
+                    <small>
+                      {repository.local_path || repository.canonical_url || "場所未登録"}
+                    </small>
+                  </span>
+                  {isPrimary && <span className="theme-repository-primary">Primary</span>}
+                  {!repository.local_path && (
+                    <small className="theme-repository-warning">
+                      AIセッションの自動関連付けにはLocal pathが必要です。
+                    </small>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="theme-repository-empty">
+            <strong>Repositoryが未登録です。</strong>
+            <span>
+              登録すると、この作業場所で集めたAIセッションをThemeへ関連付けやすくなります。
+            </span>
+          </div>
+        )}
+      </section>
       <AgentWorkSummaryPanel
         domain={v2}
         themeId={theme.id}
         includeUnresolved
-        limit={6}
+        limit={3}
         title="Recent AI work"
         openDrawer={openDrawer}
+        saveEntities={saveEntities}
       />
+      <div className="theme-ai-work-actions">
+        <button type="button" className="text-button compact" onClick={() => navigate("debrief")}>
+          Debriefで見る
+        </button>
+      </div>
       {/*
         Themeへ戻ったとき短時間で状況を把握するOverview（#321）。
         上から 報告書 → Task（未完了 / 完了）→ 最近のNote → Artifact の順に置き、

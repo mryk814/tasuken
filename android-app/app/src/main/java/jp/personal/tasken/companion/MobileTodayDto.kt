@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 internal const val TASKEN_MOBILE_API_VERSION = 1
-internal const val TASKEN_MOBILE_SCHEMA_VERSION = 5
+internal const val TASKEN_MOBILE_SCHEMA_VERSION = 6
 
 @Serializable
 data class MobileTodayResponseDto(
@@ -214,6 +214,7 @@ fun MobileTodayResponseDto.toResult(): MobileTodayResult.Available = MobileToday
     tasks = data.items.map {
         MobileTask(
             id = it.id.trim(),
+            version = it.version,
             title = it.title.trim(),
             themeId = it.themeId?.trim(),
             state = it.state,

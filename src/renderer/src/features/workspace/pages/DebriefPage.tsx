@@ -3,6 +3,7 @@ import { IconArrowUpRight, IconCalendarStats, IconCircleCheck } from "@tabler/ic
 import { todayIso } from "../../../utils/dataFormat.js";
 import { PageHeader } from "../components/common";
 import { ActivityLogPanel } from "../components/ActivityLogPanel";
+import { AgentWorkSummaryPanel } from "../components/AgentWorkSummaryPanel";
 import { TaskenDebriefPanel } from "../components/TaskenDebriefPanel";
 import { TaskenWeeklyDebriefPanel } from "../components/TaskenWeeklyDebriefPanel";
 import { readTaskenDebrief } from "../lib/taskenDebrief";
@@ -18,6 +19,8 @@ export function DebriefPage({
   openContentViewer,
   setToast,
   openDrawer,
+  setActiveThemeId,
+  navigate,
 }: PageProps) {
   const today = todayIso();
   const history = notes
@@ -55,6 +58,20 @@ export function DebriefPage({
           executeCommand={executeCommand}
           openContentViewer={openContentViewer}
           setToast={setToast}
+        />
+        <AgentWorkSummaryPanel
+          domain={domain}
+          date={today}
+          carryoverOnly
+          groupByTheme
+          limit={30}
+          title="AI作業の引き継ぎ"
+          openDrawer={openDrawer}
+          saveEntities={saveEntities}
+          onOpenTheme={(themeId) => {
+            setActiveThemeId(themeId);
+            navigate("theme");
+          }}
         />
         <TaskenWeeklyDebriefPanel
           date={today}

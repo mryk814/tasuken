@@ -33,7 +33,9 @@ const {
   getConversationResponseSchema,
   getArtifactMetadataRequestSchema,
   getArtifactMetadataResponseSchema,
-} = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`);
+} = await import(
+  `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
+);
 
 const now = "2026-08-21T00:00:00.000Z";
 
@@ -102,25 +104,27 @@ function fixture() {
         updated_at: now,
       },
     ],
-    artifacts: [{
-      id: "artifact-visible",
-      title: "Artifact",
-      filename: "report.json",
-      file_type: "json",
-      mime_type: "application/json",
-      file_size: 42,
-      storage_mode: "managed",
-      source_type: "task",
-      source_id: "task-1",
-      origin_note_id: "note-visible",
-      generated_by: "Codex",
-      description: "Artifact metadata",
-      stored_path: "C:/private/report.json",
-      original_path: "/home/private/source.json",
-      body: "EXTERNAL_FILE_CONTENT_SENTINEL",
-      project_id: visibleTheme.id,
-      updated_at: now,
-    }],
+    artifacts: [
+      {
+        id: "artifact-visible",
+        title: "Artifact",
+        filename: "report.json",
+        file_type: "json",
+        mime_type: "application/json",
+        file_size: 42,
+        storage_mode: "managed",
+        source_type: "task",
+        source_id: "task-1",
+        origin_note_id: "note-visible",
+        generated_by: "Codex",
+        description: "Artifact metadata",
+        stored_path: "C:/private/report.json",
+        original_path: "/home/private/source.json",
+        body: "EXTERNAL_FILE_CONTENT_SENTINEL",
+        project_id: visibleTheme.id,
+        updated_at: now,
+      },
+    ],
   };
 }
 
@@ -132,8 +136,15 @@ class FixturePersistence {
 
   list(type, includeDeleted = false) {
     this.calls.push({ operation: "list", type, includeDeleted });
-    const collection = { theme: "themes", note: "notes", resource: "resources", artifact: "artifacts" }[type];
-    return (this.workspace[collection] || []).filter((record) => includeDeleted || !record.deleted_at);
+    const collection = {
+      theme: "themes",
+      note: "notes",
+      resource: "resources",
+      artifact: "artifacts",
+    }[type];
+    return (this.workspace[collection] || []).filter(
+      (record) => includeDeleted || !record.deleted_at,
+    );
   }
 
   readPreference(key) {
@@ -204,7 +215,36 @@ test("Wave 5 preserves detail budgets, Chat Ref URL policy, and Artifact path/co
   assert.equal("stored_path" in artifact.artifact, false);
   assert.equal("original_path" in artifact.artifact, false);
   assert.equal("body" in artifact.artifact, false);
-  assert.doesNotMatch(JSON.stringify(artifact), /EXTERNAL_FILE_CONTENT_SENTINEL|C:\\private|\/home\/private/);
+  assert.doesNotMatch(
+    JSON.stringify(artifact),
+    /EXTERNAL_FILE_CONTENT_SENTINEL|C:\\private|\/home\/private/,
+  );
+});
+
+test("Wave 5 Note detail visibility prefers canonical project_id over legacy theme_id", () => {
+  const { workspace, service } = serviceFixture();
+  workspace.notes.push(
+    {
+      id: "note-canonical-private",
+      title: "Canonical private",
+      body_markdown: "PRIVATE_CANONICAL_DETAIL",
+      project_id: "theme-hidden",
+      theme_id: "theme-visible",
+      updated_at: now,
+    },
+    {
+      id: "note-canonical-public",
+      title: "Canonical public",
+      body_markdown: "canonical public detail",
+      project_id: "theme-visible",
+      theme_id: "theme-hidden",
+      updated_at: now,
+    },
+  );
+  assert.equal(service.getNote({ note_id: "note-canonical-private" }).error?.code, "not_found");
+  const visible = service.getNote({ note_id: "note-canonical-public" });
+  assert.equal(visible.note?.project_id, "theme-visible");
+  assert.match(visible.note?.body_markdown || "", /canonical public detail/);
 });
 
 test("Wave 5 read adapter remains narrow and does not invoke a write API", () => {
@@ -223,24 +263,50 @@ test("Wave 5 read adapter remains narrow and does not invoke a write API", () =>
 });
 
 test("Wave 5 shared request/response contracts are strict at the detail boundary", () => {
-  assert.equal(getNoteRequestSchema.safeParse({ note_id: "note-1", unexpected: true }).success, false);
-  assert.equal(getConversationRequestSchema.safeParse({ conversation_id: "conversation-1", unexpected: true }).success, false);
-  assert.equal(getArtifactMetadataRequestSchema.safeParse({ artifact_id: "artifact-1", unexpected: true }).success, false);
+  assert.equal(
+    getNoteRequestSchema.safeParse({ note_id: "note-1", unexpected: true }).success,
+    false,
+  );
+  assert.equal(
+    getConversationRequestSchema.safeParse({ conversation_id: "conversation-1", unexpected: true })
+      .success,
+    false,
+  );
+  assert.equal(
+    getArtifactMetadataRequestSchema.safeParse({ artifact_id: "artifact-1", unexpected: true })
+      .success,
+    false,
+  );
 
   const { service } = serviceFixture();
   const note = service.getNote({ note_id: "note-visible", max_text_length: 8 });
-  const conversation = service.getConversation({ conversation_id: "conversation-visible", max_text_length: 8 });
+  const conversation = service.getConversation({
+    conversation_id: "conversation-visible",
+    max_text_length: 8,
+  });
   const artifact = service.getArtifactMetadata({ artifact_id: "artifact-visible" });
   assert.equal(getNoteResponseSchema.safeParse(note).success, true);
   assert.equal(getConversationResponseSchema.safeParse(conversation).success, true);
   assert.equal(getArtifactMetadataResponseSchema.safeParse(artifact).success, true);
-  assert.equal(getNoteResponseSchema.safeParse(service.getNote({ note_id: "missing" })).success, true);
-  assert.equal(getNoteResponseSchema.safeParse({
-    ...service.getNote({ note_id: "missing" }),
-    error: { code: "not_found", message: "missing", artifact_id: "artifact-1" },
-  }).success, false);
-  assert.equal(getArtifactMetadataResponseSchema.safeParse({
-    ...artifact,
-    artifact: { ...artifact.artifact, ai: { ...artifact.artifact.ai, stored_path: "C:/private" } },
-  }).success, false);
+  assert.equal(
+    getNoteResponseSchema.safeParse(service.getNote({ note_id: "missing" })).success,
+    true,
+  );
+  assert.equal(
+    getNoteResponseSchema.safeParse({
+      ...service.getNote({ note_id: "missing" }),
+      error: { code: "not_found", message: "missing", artifact_id: "artifact-1" },
+    }).success,
+    false,
+  );
+  assert.equal(
+    getArtifactMetadataResponseSchema.safeParse({
+      ...artifact,
+      artifact: {
+        ...artifact.artifact,
+        ai: { ...artifact.artifact.ai, stored_path: "C:/private" },
+      },
+    }).success,
+    false,
+  );
 });

@@ -42,11 +42,10 @@ import {
 import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
-import { AiProviderService } from "./services/aiProviderService";
-import { BatchTranscriptionService } from "./services/batchTranscriptionService.mjs";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
+import { applyEmbeddedAiRetirementMigration } from "./services/embeddedAiRetirementMigration";
 import { createSnapshot, readSnapshot } from "./services/snapshotService.mjs";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
@@ -133,6 +132,8 @@ let smokeMediaCaptureService: MediaCaptureService | null = null;
 let smokeVideoSourcePath = "";
 let lastSmokeStage = "startup";
 const smokeTrace: string[] = [];
+let pendingSmokeQuitResult: Record<string, unknown> | null = null;
+let smokeQuitWatchdog: ReturnType<typeof setTimeout> | null = null;
 const readyMainWindows = new WeakSet<BrowserWindow>();
 let appQuitApproved = false;
 let appFlushPending = false;
@@ -430,9 +431,6 @@ interface SmokeCreatedResult {
   audioArtifactId?: string;
   audioMetadataLoaded?: boolean;
   audioRangeVerified?: boolean;
-  batchTranscriptionPreview?: boolean;
-  batchTranscriptionCompleted?: boolean;
-  batchTranscriptionProvenance?: boolean;
   microphoneArtifactId?: string;
   microphoneRecorded?: boolean;
   microphonePlayback?: boolean;
@@ -490,6 +488,27 @@ function recordSmoke(stage: string, details: Record<string, unknown> = {}): void
     smokeResultPath,
     JSON.stringify({ stage, argv: process.argv, ...details }, null, 2),
   );
+}
+
+function completeInitialSmokeViaAppQuit(result: Record<string, unknown>): void {
+  if (!taskenRootController) throw new Error("Tasken Root controller is not ready");
+  taskenRootController.toggle();
+  const rootWindow = taskenRootController.getWindow();
+  if (!rootWindow || rootWindow.isDestroyed() || !rootWindow.isVisible()) {
+    throw new Error("Tasken Root window did not open before app quit");
+  }
+  pendingSmokeQuitResult = { ...result, taskenRootOpened: true };
+  recordSmoke("quit-started", pendingSmokeQuitResult);
+  smokeQuitWatchdog = setTimeout(() => {
+    if (!pendingSmokeQuitResult) return;
+    recordSmoke("quit-timeout", {
+      ...pendingSmokeQuitResult,
+      previousStage: lastSmokeStage,
+      trace: [...smokeTrace],
+    });
+    app.exit(1);
+  }, 30_000);
+  app.quit();
 }
 
 function tinyPcmWav(): Buffer {
@@ -1464,40 +1483,18 @@ flowchart LR
       if (serialized.includes("stored_path") || serialized.includes("original_path") || serialized.includes("target")) {
         throw new Error("audio Artifact leaked a path to Renderer");
       }
-      const transcriptionPreview = await window.api.batchTranscription.preview({ artifactId: committed.artifactId });
-      if (!transcriptionPreview.available || transcriptionPreview.provider.processing_mode !== "local"
-        || transcriptionPreview.provider.sends_audio_to_provider) throw new Error("fake batch transcription Preview mismatch");
-      const transcription = await window.api.batchTranscription.run({
-        artifactId: committed.artifactId,
-        operationId: transcriptionPreview.operationId,
-        confirmationToken: transcriptionPreview.confirmationToken,
-      });
-      const revision = transcription.revision;
       return {
         artifactId: committed.artifactId,
         metadataLoaded: durationMs >= 90 && durationMs <= 110,
-        transcriptionPreview: true,
-        transcriptionCompleted: revision.status === "completed" && revision.raw_text === "Tasken packaged fake transcript",
-        transcriptionProvenance: revision.source_artifact_id === committed.artifactId
-          && revision.provider_profile_id === "tasken-smoke-provider"
-          && revision.model_id === "tasken-smoke-transcriber"
-          && revision.processing_mode === "local"
-          && revision.language === "ja",
       };
     })()
   `)) as {
     artifactId: string;
     metadataLoaded: boolean;
-    transcriptionPreview: boolean;
-    transcriptionCompleted: boolean;
-    transcriptionProvenance: boolean;
   };
   created.audioArtifactId = audioSmoke.artifactId;
   created.audioMetadataLoaded = audioSmoke.metadataLoaded;
   created.audioRangeVerified = await verifySmokeMediaRange(audioSmoke.artifactId);
-  created.batchTranscriptionPreview = audioSmoke.transcriptionPreview;
-  created.batchTranscriptionCompleted = audioSmoke.transcriptionCompleted;
-  created.batchTranscriptionProvenance = audioSmoke.transcriptionProvenance;
 
   const microphoneSmoke = (await window.webContents.executeJavaScript(`
     (async () => {
@@ -2148,9 +2145,6 @@ flowchart LR
         result.settingsReloadRestored &&
         result.audioMetadataLoaded &&
         result.audioRangeVerified &&
-        result.batchTranscriptionPreview &&
-        result.batchTranscriptionCompleted &&
-        result.batchTranscriptionProvenance &&
         result.microphoneRecorded &&
         result.microphonePlayback &&
         result.microphoneCaptureMethod &&
@@ -2168,8 +2162,12 @@ flowchart LR
         result.screenRecordingPausedResumed &&
         (!isPackagedSmokeRequired || result.appIsPackaged),
       );
-      recordSmoke(passed ? "restart-ready" : "failed", result);
-      app.exit(passed ? 0 : 1);
+      if (!passed) {
+        recordSmoke("failed", result);
+        app.exit(1);
+        return;
+      }
+      completeInitialSmokeViaAppQuit(result);
     } catch (error) {
       console.error(error);
       recordSmoke("reload-check-failed", { error: String(error) });
@@ -2206,15 +2204,6 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
       const artifact = await window.api.entities.get("artifact", ${JSON.stringify(smokeMediaArtifactId)});
       if (!artifact || artifact.media_kind !== "audio" || artifact.mime_type !== "audio/wav") throw new Error("restarted imported audio Artifact missing");
       if (JSON.stringify(artifact).includes("stored_path")) throw new Error("restarted audio Artifact leaked path");
-      const transcription = await window.api.batchTranscription.history({ artifactId: artifact.id });
-      const revision = transcription.revisions.at(-1);
-      const transcriptionRestarted = transcription.revisions.length === 1
-        && revision?.status === "completed"
-        && revision.raw_text === "Tasken packaged fake transcript"
-        && revision.source_artifact_id === artifact.id
-        && revision.provider_profile_id === "tasken-smoke-provider"
-        && revision.model_id === "tasken-smoke-transcriber"
-        && revision.processing_mode === "local";
       const playable = await new Promise((resolve, reject) => {
         const audio = new Audio();
         const timer = setTimeout(() => reject(new Error("restart audio playback timeout")), 15000);
@@ -2283,12 +2272,11 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
       };
       const importedVideo = await verifyVideo(${JSON.stringify(smokeImportedVideoArtifactId)}, "imported video", null, ["video/webm"]);
       const screenRecording = await verifyVideo(${JSON.stringify(smokeScreenRecordingArtifactId)}, "screen recording", "screen_recording", ["video/mp4", "video/webm"]);
-      return { artifactId: artifact.id, playable, transcriptionRestarted, microphoneArtifactId: microphoneArtifact.id, microphonePlayable, importedVideo, screenRecording };
+      return { artifactId: artifact.id, playable, microphoneArtifactId: microphoneArtifact.id, microphonePlayable, importedVideo, screenRecording };
     })()
   `)) as {
     artifactId: string;
     playable: boolean;
-    transcriptionRestarted: boolean;
     microphoneArtifactId: string;
     microphonePlayable: boolean;
     importedVideo: {
@@ -2315,7 +2303,6 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
   const passed =
     renderer.playable &&
     rangeVerified &&
-    renderer.transcriptionRestarted &&
     renderer.microphonePlayable &&
     microphoneRangeVerified &&
     renderer.importedVideo.canPlay &&
@@ -2334,7 +2321,6 @@ async function runSmokeRestartTest(window: BrowserWindow): Promise<void> {
     audioArtifactId: renderer.artifactId,
     playable: renderer.playable,
     rangeVerified,
-    batchTranscriptionRestarted: renderer.transcriptionRestarted,
     microphoneArtifactId: renderer.microphoneArtifactId,
     microphonePlayable: renderer.microphonePlayable,
     microphoneRangeVerified,
@@ -2557,6 +2543,7 @@ function installScreenRecordingDisplayHandler(screenRecording: ScreenRecordingSe
 async function startDesktopApp(): Promise<void> {
   await app.whenReady();
   migrateLegacyUserDataIfNeeded();
+  applyEmbeddedAiRetirementMigration(app.getPath("userData"));
   configureMainLog(app.getPath("userData"));
   installMainPerformanceDiagnostics();
   registerAttachmentProtocol();
@@ -2567,7 +2554,13 @@ async function startDesktopApp(): Promise<void> {
     userDataPath: app.getPath("userData"),
     persistence: workspaceRepository,
     mcpPackageSmoke,
-    notifyWorkspaceChanged: notifyMainWindowRefresh,
+    onProposalCommitted: (proposals) =>
+      notifyMainWindowRefresh({
+        entities: proposals.map((proposal) => ({
+          type: "ai_proposal",
+          entity: { ...proposal },
+        })),
+      }),
   }));
   if (composition.packageSmokeVerifyOnlyCompleted) {
     app.exit(0);
@@ -2608,68 +2601,7 @@ async function startDesktopApp(): Promise<void> {
     resolveManagedDirectory: (themeId) => workspaceService.resolveManagedArtifactDirectory(themeId),
     openPath: (filePath) => shell.openPath(filePath),
   });
-  const aiProvider = new AiProviderService(app.getPath("userData"));
   const batchTranscriptionRepository = new BatchTranscriptionRepository(workspaceRepository);
-  const batchTranscription = new BatchTranscriptionService({
-    repository: batchTranscriptionRepository,
-    entityRepository: workspaceRepository,
-    mediaCapture,
-    providerRegistry: isSmokeTest
-      ? {
-          resolve: () => ({
-            binding: {
-              feature: "transcript_batch",
-              provider_profile_id: "tasken-smoke-provider",
-              provider_label: "Tasken packaged fake provider",
-              model_profile_id: "tasken-smoke-model",
-              model_id: "tasken-smoke-transcriber",
-              processing_mode: "local",
-              enabled: true,
-              credential_configured: false,
-              model_lifecycle: "available",
-              capabilities: ["batch_transcription", "local_processing"],
-              max_file_size: 1024 * 1024,
-              supported_mime_types: ["audio/wav", "audio/webm"],
-            },
-            provider: {
-              providerProfileId: "tasken-smoke-provider",
-              transcribe: ({
-                source,
-                fileSize,
-              }: {
-                source: { fileDescriptor: number };
-                fileSize: number;
-              }) => {
-                const bytes = Buffer.alloc(fileSize);
-                const count = fs.readSync(source.fileDescriptor, bytes, 0, fileSize, 0);
-                if (count !== fileSize || !bytes.subarray(0, 4).equals(Buffer.from("RIFF")))
-                  throw new Error("fake transcription source mismatch");
-                return Promise.resolve({
-                  rawText: "Tasken packaged fake transcript",
-                  language: "ja",
-                });
-              },
-            },
-          }),
-        }
-      : { resolve: () => aiProvider.resolveBatchTranscriptionProvider() },
-    confirmationSecret: workspaceRepository.ensureMeta(
-      "batch_transcription_confirmation_secret",
-      `${randomUUID()}${randomUUID()}`,
-    ),
-    resolveVisibility: (artifact: Entity | null) => {
-      const themeId = typeof artifact?.theme_id === "string" ? artifact.theme_id : null;
-      const theme = themeId
-        ? workspaceRepository.get("theme", themeId) || workspaceRepository.get("project", themeId)
-        : null;
-      return resolveAiVisibility({
-        entity: artifact,
-        theme,
-        workspaceDefault: workspaceRepository.getPreference("aiVisibilityDefault"),
-      }).audiences;
-    },
-    notifyChanged: () => notifyMainWindowRefresh(),
-  });
   const screenRecording = new ScreenRecordingService();
   installScreenRecordingDisplayHandler(screenRecording);
   smokeMediaCaptureService = isSmokeTest ? mediaCapture : null;
@@ -2691,14 +2623,13 @@ async function startDesktopApp(): Promise<void> {
     workspaceService,
     automaticSnapshotBackup,
     sharedFolderSyncService,
-    aiProvider,
     new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) =>
       shell.openExternal(url),
     ),
     applicationCommands,
     composition.taskCapability,
     mediaCapture,
-    batchTranscription,
+    batchTranscriptionRepository,
     screenRecording,
     (types) => {
       notifyMainWindowRefresh();
@@ -2753,6 +2684,7 @@ async function startDesktopApp(): Promise<void> {
       workspaceRepository.setPreference(key, value);
     },
     getAppIconPath,
+    isAppQuitApproved: () => appQuitApproved,
     showMainTarget: (request: RootOpenRequest) => {
       const mainWindow = showMainWindow();
       const send = () => {
@@ -2883,6 +2815,22 @@ app.on("before-quit", (event) => {
 
 app.on("will-quit", () => {
   reminderController?.stop();
+  const taskenRootClosedBeforeWillQuit = taskenRootController?.getWindow() === null;
   taskenRootController?.destroy();
   globalShortcut.unregisterAll();
+  if (smokeQuitWatchdog) {
+    clearTimeout(smokeQuitWatchdog);
+    smokeQuitWatchdog = null;
+  }
+  if (pendingSmokeQuitResult) {
+    const result = pendingSmokeQuitResult;
+    pendingSmokeQuitResult = null;
+    const taskenRootQuitCompleted =
+      taskenRootClosedBeforeWillQuit && taskenRootController?.getWindow() === null;
+    recordSmoke(taskenRootQuitCompleted ? "restart-ready" : "quit-failed", {
+      ...result,
+      taskenRootClosedBeforeWillQuit,
+      taskenRootQuitCompleted,
+    });
+  }
 });

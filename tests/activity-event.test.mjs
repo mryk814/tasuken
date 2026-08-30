@@ -639,15 +639,29 @@ test("workspace root resolver follows artifactDirectory changes without rewritin
   await rm(directory, { recursive: true, force: true });
 });
 
-test("Debrief Activity opens current entities and keeps deleted history as history-only", async () => {
+test("Debrief Activity combines event and AI session details without labelling empty time", async () => {
   const source = await readFile(
     "src/renderer/src/features/workspace/components/ActivityLogPanel.tsx",
     "utf8",
   );
+  const workspaceSource = await readFile(
+    "src/renderer/src/features/workspace/WorkspaceApp.tsx",
+    "utf8",
+  );
   assert.match(source, /ThemePickerSelect/);
-  assert.match(source, /const openable = Boolean\(entity\)/);
-  assert.match(source, /openDrawer\(\{\s*type: ref\.type/);
-  assert.match(source, /現在のEntityがないため、履歴のみ表示しています/);
+  assert.match(source, /buildDailyAgentSessionContexts/);
+  assert.match(source, /buildActivityReviewLog/);
+  assert.match(workspaceSource, /content: buildActivityReviewLog\(/);
+  assert.match(source, /buildActivityTimeline/);
+  assert.match(source, /display_kind: "ai_work" as const/);
+  assert.match(source, /activityThemeIds/);
+  assert.match(source, /activity-timeline-theme-chip/);
+  assert.match(source, /setExpandedTimelineItemId/);
+  assert.match(source, /openDrawer\(\{\s*type: expandedDrawerType/);
+  assert.match(source, />履歴のみ</);
+  assert.doesNotMatch(source, /timeline\.slice\(0, 30\)/);
+  assert.doesNotMatch(source, /relatedSessionEvents\.slice/);
+  assert.doesNotMatch(source, /観測記録なし|空白時間/);
   assert.doesNotMatch(source, /\{ id: ref\.id, title \}/);
 });
 
@@ -724,7 +738,7 @@ test("schema v3 migrates a real legacy row idempotently without parsing plain af
 
   const first = new WorkspaceDatabase(file);
   const migrated = first.get("change_event", "legacy-event", true);
-  assert.equal(first.getMeta().schemaVersion, 5);
+  assert.equal(first.getMeta().schemaVersion, 6);
   assert.equal(migrated.event_kind, "task_created");
   assert.deepEqual(migrated.entity_ref, { type: "task", id: "task-legacy" });
   assert.equal(migrated.metadata.migrated_from, "legacy_change_event");

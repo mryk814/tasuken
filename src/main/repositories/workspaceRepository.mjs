@@ -24,17 +24,24 @@ import {
   legacyThemeFieldsForEntityType,
   themeFieldForEntityType,
 } from "../../shared/entityRegistry.mjs";
-import { buildActivityEvent, migrateChangeEvent, normalizeActivityEvent, activityEventDedupeKey } from "../../shared/activityEvent.mjs";
-import { buildActivityRootRegistry, publicActivityRootStatus } from "../../shared/activityRootRegistry.mjs";
-import { normalizeReferenceAssertion, referenceAssertionIdentity } from "../../shared/relationAssertion.mjs";
+import {
+  buildActivityEvent,
+  migrateChangeEvent,
+  normalizeActivityEvent,
+  activityEventDedupeKey,
+} from "../../shared/activityEvent.mjs";
+import {
+  buildActivityRootRegistry,
+  publicActivityRootStatus,
+} from "../../shared/activityRootRegistry.mjs";
+import {
+  normalizeReferenceAssertion,
+  referenceAssertionIdentity,
+} from "../../shared/relationAssertion.mjs";
+import { TASKEN_MOBILE_SCOPES } from "../../shared/contracts/mobile/public.mjs";
 
-const SCHEMA_VERSION = 5;
-const MOBILE_DEVICE_SCOPES = Object.freeze([
-  "mobile:read",
-  "mobile:task-write",
-  "mobile:capture-write",
-  "mobile:proposal-review",
-]);
+const SCHEMA_VERSION = 6;
+const MOBILE_DEVICE_SCOPES = Object.freeze(Object.values(TASKEN_MOBILE_SCOPES));
 
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
@@ -81,16 +88,7 @@ function parseMobileDeviceRow(row) {
 }
 
 function contentOf(entity) {
-  const {
-    id,
-    created_at,
-    updated_at,
-    deleted_at,
-    device_id,
-    source,
-    version,
-    ...data
-  } = entity;
+  const { id, created_at, updated_at, deleted_at, device_id, source, version, ...data } = entity;
   return data;
 }
 
@@ -100,13 +98,23 @@ function isPlainObject(value) {
 
 function normalizeTaskenRootUsage(value) {
   if (!isPlainObject(value)) return {};
-  return Object.fromEntries(Object.entries(value).slice(0, 500).flatMap(([key, record]) => {
-    if (!key || key.length > 240 || !isPlainObject(record)) return [];
-    const count = Number(record.count);
-    const lastUsedAt = typeof record.lastUsedAt === "string" ? record.lastUsedAt : "";
-    if (!Number.isFinite(count) || count < 0 || !lastUsedAt || Number.isNaN(Date.parse(lastUsedAt))) return [];
-    return [[key, { count: Math.min(1_000_000, Math.floor(count)), lastUsedAt }]];
-  }));
+  return Object.fromEntries(
+    Object.entries(value)
+      .slice(0, 500)
+      .flatMap(([key, record]) => {
+        if (!key || key.length > 240 || !isPlainObject(record)) return [];
+        const count = Number(record.count);
+        const lastUsedAt = typeof record.lastUsedAt === "string" ? record.lastUsedAt : "";
+        if (
+          !Number.isFinite(count) ||
+          count < 0 ||
+          !lastUsedAt ||
+          Number.isNaN(Date.parse(lastUsedAt))
+        )
+          return [];
+        return [[key, { count: Math.min(1_000_000, Math.floor(count)), lastUsedAt }]];
+      }),
+  );
 }
 
 function automaticSnapshotGenerations(value) {
@@ -135,7 +143,8 @@ export class WorkspaceDatabase {
       );
     `);
     const current = Number(
-      this.db.prepare("SELECT value FROM workspace_meta WHERE key = 'schema_version'").get()?.value || 0,
+      this.db.prepare("SELECT value FROM workspace_meta WHERE key = 'schema_version'").get()
+        ?.value || 0,
     );
     if (current > SCHEMA_VERSION) {
       throw new Error(`DB schema version ${current}は、このアプリでは読み込めません。`);
@@ -143,7 +152,8 @@ export class WorkspaceDatabase {
     const migrations = [
       {
         version: 1,
-        up: () => this.db.exec(`
+        up: () =>
+          this.db.exec(`
           CREATE TABLE IF NOT EXISTS entities (
             entity_type TEXT NOT NULL,
             id TEXT NOT NULL,
@@ -180,7 +190,8 @@ export class WorkspaceDatabase {
       },
       {
         version: 2,
-        up: () => this.db.exec(`
+        up: () =>
+          this.db.exec(`
           CREATE TABLE IF NOT EXISTS sync_entity_heads (
             entity_type TEXT NOT NULL,
             entity_id TEXT NOT NULL,
@@ -221,12 +232,10 @@ export class WorkspaceDatabase {
           // Activity migration is intentionally idempotent. The old columns
           // remain in data_json so snapshots and older readers retain access
           // to the original record while structured fields become canonical.
-          const rows = this.db.prepare(
-            "SELECT * FROM entities WHERE entity_type = 'change_event'",
-          ).all();
-          const target = this.db.prepare(
-            "SELECT * FROM entities WHERE entity_type = ? AND id = ?",
-          );
+          const rows = this.db
+            .prepare("SELECT * FROM entities WHERE entity_type = 'change_event'")
+            .all();
+          const target = this.db.prepare("SELECT * FROM entities WHERE entity_type = ? AND id = ?");
           const update = this.db.prepare(
             "UPDATE entities SET data_json = ? WHERE entity_type = 'change_event' AND id = ?",
           );
@@ -234,7 +243,11 @@ export class WorkspaceDatabase {
             const event = parseRow(row);
             const after = (() => {
               if (event.after_json && typeof event.after_json === "object") return event.after_json;
-              try { return event.after_json ? JSON.parse(event.after_json) : null; } catch { return null; }
+              try {
+                return event.after_json ? JSON.parse(event.after_json) : null;
+              } catch {
+                return null;
+              }
             })();
             const targetRow = after || target.get(event.entity_type, event.entity_id);
             // after_json is already a plain entity. Only SQLite rows need
@@ -247,7 +260,8 @@ export class WorkspaceDatabase {
       },
       {
         version: 4,
-        up: () => this.db.exec(`
+        up: () =>
+          this.db.exec(`
           CREATE TABLE IF NOT EXISTS transcription_operations (
             operation_id TEXT PRIMARY KEY,
             artifact_id TEXT NOT NULL,
@@ -270,7 +284,8 @@ export class WorkspaceDatabase {
       },
       {
         version: 5,
-        up: () => this.db.exec(`
+        up: () =>
+          this.db.exec(`
           CREATE TABLE IF NOT EXISTS mobile_devices (
             id TEXT PRIMARY KEY,
             label TEXT NOT NULL,
@@ -289,15 +304,65 @@ export class WorkspaceDatabase {
             ON mobile_devices(revoked_at, updated_at DESC);
         `),
       },
+      {
+        version: 6,
+        up: () => {
+          const retiredAt = new Date().toISOString();
+          const rows = this.db
+            .prepare("SELECT * FROM entities WHERE entity_type IN ('artifact', 'capture_entry')")
+            .all();
+          const update = this.db.prepare(
+            "UPDATE entities SET data_json = ? WHERE entity_type = ? AND id = ?",
+          );
+          for (const row of rows) {
+            const entity = parseRow(row);
+            if (!Array.isArray(entity.transcription_revisions)) continue;
+            let changed = false;
+            const revisions = entity.transcription_revisions.map((value) => {
+              if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+              if (value.status !== "queued" && value.status !== "processing") return value;
+              changed = true;
+              return {
+                ...value,
+                status: "failed",
+                raw_text: "",
+                started_at:
+                  typeof value.started_at === "string" && value.started_at
+                    ? value.started_at
+                    : retiredAt,
+                completed_at: retiredAt,
+                error_code: "provider_failure",
+              };
+            });
+            if (!changed) continue;
+            update.run(
+              JSON.stringify(
+                contentOf({
+                  ...entity,
+                  transcription_status: "failed",
+                  transcription_revisions: revisions,
+                }),
+              ),
+              row.entity_type,
+              entity.id,
+            );
+          }
+          this.db.exec("DROP TABLE IF EXISTS transcription_operations");
+        },
+      },
     ];
     const applyMigrations = this.db.transaction(() => {
       for (const migration of migrations) {
         if (migration.version <= current) continue;
         migration.up();
-        this.db.prepare(`
+        this.db
+          .prepare(
+            `
           INSERT INTO workspace_meta(key, value) VALUES('schema_version', ?)
           ON CONFLICT(key) DO UPDATE SET value = excluded.value
-        `).run(String(migration.version));
+        `,
+          )
+          .run(String(migration.version));
       }
     });
     applyMigrations();
@@ -311,7 +376,10 @@ export class WorkspaceDatabase {
   }
 
   getViewPreferences() {
-    const raw = this.ensureMeta("view_preferences", JSON.stringify({ schemaVersion: 1, revision: 0, values: {} }));
+    const raw = this.ensureMeta(
+      "view_preferences",
+      JSON.stringify({ schemaVersion: 1, revision: 0, values: {} }),
+    );
     try {
       const parsed = JSON.parse(raw);
       const values = isPlainObject(parsed?.values) ? parsed.values : {};
@@ -335,10 +403,14 @@ export class WorkspaceDatabase {
         [`${id}::${scopeKey || ""}`]: { schemaVersion: Number(schemaVersion) || 1, value },
       },
     };
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO workspace_meta(key, value) VALUES('view_preferences', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run(JSON.stringify(next));
+    `,
+      )
+      .run(JSON.stringify(next));
     return {
       id,
       scopeKey: scopeKey || "",
@@ -349,12 +421,15 @@ export class WorkspaceDatabase {
   }
 
   getDataHealthState() {
-    const raw = this.ensureMeta("data_health_issue_states", JSON.stringify({
-      schema: DATA_HEALTH_STATE_SCHEMA,
-      revision: 0,
-      updatedAt: "",
-      issues: {},
-    }));
+    const raw = this.ensureMeta(
+      "data_health_issue_states",
+      JSON.stringify({
+        schema: DATA_HEALTH_STATE_SCHEMA,
+        revision: 0,
+        updatedAt: "",
+        issues: {},
+      }),
+    );
     try {
       return normalizeDataHealthState(JSON.parse(raw));
     } catch {
@@ -364,16 +439,28 @@ export class WorkspaceDatabase {
 
   setDataHealthState(expectedRevision, value) {
     const transaction = this.db.transaction(() => {
-      const fallback = JSON.stringify({ schema: DATA_HEALTH_STATE_SCHEMA, revision: 0, updatedAt: "", issues: {} });
-      this.db.prepare("INSERT INTO workspace_meta(key, value) VALUES('data_health_issue_states', ?) ON CONFLICT(key) DO NOTHING").run(fallback);
-      const row = this.db.prepare("SELECT value FROM workspace_meta WHERE key = 'data_health_issue_states'").get();
+      const fallback = JSON.stringify({
+        schema: DATA_HEALTH_STATE_SCHEMA,
+        revision: 0,
+        updatedAt: "",
+        issues: {},
+      });
+      this.db
+        .prepare(
+          "INSERT INTO workspace_meta(key, value) VALUES('data_health_issue_states', ?) ON CONFLICT(key) DO NOTHING",
+        )
+        .run(fallback);
+      const row = this.db
+        .prepare("SELECT value FROM workspace_meta WHERE key = 'data_health_issue_states'")
+        .get();
       let parsed;
       try {
         parsed = normalizeDataHealthState(JSON.parse(row.value));
       } catch {
         parsed = normalizeDataHealthState(null);
       }
-      if (parsed.revision !== expectedRevision) throw new Error("Data Health state revision conflict");
+      if (parsed.revision !== expectedRevision)
+        throw new Error("Data Health state revision conflict");
       const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
       const next = normalizeDataHealthState({
         schema: DATA_HEALTH_STATE_SCHEMA,
@@ -381,7 +468,10 @@ export class WorkspaceDatabase {
         updatedAt: source.updatedAt,
         issues: source.issues,
       });
-      const result = this.db.prepare("UPDATE workspace_meta SET value = ? WHERE key = 'data_health_issue_states' AND value = ?")
+      const result = this.db
+        .prepare(
+          "UPDATE workspace_meta SET value = ? WHERE key = 'data_health_issue_states' AND value = ?",
+        )
         .run(JSON.stringify(next), row.value);
       if (result.changes !== 1) throw new Error("Data Health state revision conflict");
       return next;
@@ -398,7 +488,9 @@ export class WorkspaceDatabase {
       activeGroups: this.readPreference("activeGroups"),
       activeGroup: this.readPreference("activeGroup"),
       aiVisibilityDefault: this.readPreference("aiVisibilityDefault"),
-      entityCount: this.db.prepare("SELECT COUNT(*) AS count FROM entities WHERE deleted_at IS NULL").get().count,
+      entityCount: this.db
+        .prepare("SELECT COUNT(*) AS count FROM entities WHERE deleted_at IS NULL")
+        .get().count,
       syncPendingCount: this.syncPendingCount(),
       syncConflictCount: this.syncConflictCount(),
     };
@@ -417,14 +509,18 @@ export class WorkspaceDatabase {
     }
     if (key === "activeGroup") return this.ensureMeta("active_group", "");
     if (key === "activityLogDirectory") return this.ensureMeta("activity_log_directory", "");
-    if (key === "activityLogAutoExportTime") return this.ensureMeta("activity_log_auto_export_time", "");
-    if (key === "activityLogLastAutoExportDate") return this.ensureMeta("activity_log_last_auto_export_date", "");
+    if (key === "activityLogAutoExportTime")
+      return this.ensureMeta("activity_log_auto_export_time", "");
+    if (key === "activityLogLastAutoExportDate")
+      return this.ensureMeta("activity_log_last_auto_export_date", "");
     if (key === "artifactDirectory") return this.ensureMeta("artifact_directory", "");
     if (key === "sharedSyncDirectory") return this.ensureMeta("shared_sync_directory", "");
-    if (key === "sharedSyncEnabled") return this.ensureMeta("shared_sync_enabled", "false") === "true";
+    if (key === "sharedSyncEnabled")
+      return this.ensureMeta("shared_sync_enabled", "false") === "true";
     if (key === "sharedSyncLastAt") return this.ensureMeta("shared_sync_last_at", "");
     if (key === "sharedSyncLastError") return this.ensureMeta("shared_sync_last_error", "");
-    if (key === "taskenRoot.globalShortcut") return this.ensureMeta("tasken_root_global_shortcut", "");
+    if (key === "taskenRoot.globalShortcut")
+      return this.ensureMeta("tasken_root_global_shortcut", "");
     if (key === "taskenRoot.usage.v1") {
       const raw = this.ensureMeta("tasken_root_usage_v1", "{}");
       try {
@@ -433,10 +529,14 @@ export class WorkspaceDatabase {
         return {};
       }
     }
-    if (key === "automaticSnapshotBackupEnabled") return this.ensureMeta("automatic_snapshot_backup_enabled", "true") === "true";
-    if (key === "automaticSnapshotBackupDirectory") return this.ensureMeta("automatic_snapshot_backup_directory", "");
+    if (key === "automaticSnapshotBackupEnabled")
+      return this.ensureMeta("automatic_snapshot_backup_enabled", "true") === "true";
+    if (key === "automaticSnapshotBackupDirectory")
+      return this.ensureMeta("automatic_snapshot_backup_directory", "");
     if (key === "automaticSnapshotBackupGenerations") {
-      return automaticSnapshotGenerations(this.ensureMeta("automatic_snapshot_backup_generations", "5"));
+      return automaticSnapshotGenerations(
+        this.ensureMeta("automatic_snapshot_backup_generations", "5"),
+      );
     }
     // AI公開範囲のworkspace既定（#294）。Entity・Themeが未設定のときだけ使う。
     if (key === "aiVisibilityDefault") {
@@ -452,7 +552,8 @@ export class WorkspaceDatabase {
 
   /** Read a Core query preference without materializing its default in workspace_meta. */
   readPreference(key) {
-    const readMeta = (metaKey) => this.db.prepare("SELECT value FROM workspace_meta WHERE key = ?").get(metaKey)?.value;
+    const readMeta = (metaKey) =>
+      this.db.prepare("SELECT value FROM workspace_meta WHERE key = ?").get(metaKey)?.value;
     if (key === "themeMode") return readMeta("theme_mode") ?? "light";
     if (key === "activeGroups") {
       const value = readMeta("active_groups");
@@ -481,132 +582,197 @@ export class WorkspaceDatabase {
   setPreference(key, value) {
     if (key === "themeMode") {
       if (!["light", "dark"].includes(value)) throw new Error("カラーモードの値が不正です。");
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('theme_mode', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(value);
+      `,
+        )
+        .run(value);
       return value;
     }
     if (key === "activeGroups") {
       if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
         throw new Error("表示グループの値が不正です。");
       }
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('active_groups', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(JSON.stringify(value));
+      `,
+        )
+        .run(JSON.stringify(value));
       return value;
     }
     if (key === "activityLogDirectory") {
       const directory = typeof value === "string" ? value : "";
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('activity_log_directory', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(directory);
+      `,
+        )
+        .run(directory);
       return directory;
     }
     if (key === "activityLogAutoExportTime") {
-      const time = typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : "";
-      this.db.prepare(`
+      const time =
+        typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : "";
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('activity_log_auto_export_time', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(time);
+      `,
+        )
+        .run(time);
       return time;
     }
     if (key === "activityLogLastAutoExportDate") {
       const date = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('activity_log_last_auto_export_date', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(date);
+      `,
+        )
+        .run(date);
       return date;
     }
     if (key === "artifactDirectory") {
       const directory = typeof value === "string" ? value : "";
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('artifact_directory', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(directory);
+      `,
+        )
+        .run(directory);
       return directory;
     }
     if (key === "sharedSyncDirectory") {
       const directory = typeof value === "string" ? value : "";
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('shared_sync_directory', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(directory);
+      `,
+        )
+        .run(directory);
       return directory;
     }
     if (key === "sharedSyncEnabled") {
       const enabled = Boolean(value);
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('shared_sync_enabled', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(enabled ? "true" : "false");
+      `,
+        )
+        .run(enabled ? "true" : "false");
       return enabled;
     }
     if (key === "sharedSyncLastAt" || key === "sharedSyncLastError") {
       const metaKey = key === "sharedSyncLastAt" ? "shared_sync_last_at" : "shared_sync_last_error";
       const text = typeof value === "string" ? value : "";
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES(?, ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(metaKey, text);
+      `,
+        )
+        .run(metaKey, text);
       return text;
     }
     if (key === "taskenRoot.globalShortcut") {
       const shortcut = typeof value === "string" ? value.trim().slice(0, 160) : "";
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('tasken_root_global_shortcut', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(shortcut);
+      `,
+        )
+        .run(shortcut);
       return shortcut;
     }
     if (key === "taskenRoot.usage.v1") {
       const usage = normalizeTaskenRootUsage(value);
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('tasken_root_usage_v1', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(JSON.stringify(usage));
+      `,
+        )
+        .run(JSON.stringify(usage));
       return usage;
     }
     if (key === "automaticSnapshotBackupEnabled") {
       const enabled = Boolean(value);
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('automatic_snapshot_backup_enabled', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(enabled ? "true" : "false");
+      `,
+        )
+        .run(enabled ? "true" : "false");
       return enabled;
     }
     if (key === "automaticSnapshotBackupDirectory") {
       const directory = typeof value === "string" ? value.trim() : "";
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('automatic_snapshot_backup_directory', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(directory);
+      `,
+        )
+        .run(directory);
       return directory;
     }
     if (key === "automaticSnapshotBackupGenerations") {
       const generations = automaticSnapshotGenerations(value);
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('automatic_snapshot_backup_generations', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(String(generations));
+      `,
+        )
+        .run(String(generations));
       return generations;
     }
     if (key === "aiVisibilityDefault") {
       const audiences = normalizeAiVisibility(value) || [];
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT INTO workspace_meta(key, value) VALUES('ai_visibility_default', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(JSON.stringify(audiences));
+      `,
+        )
+        .run(JSON.stringify(audiences));
       return audiences;
     }
     if (key !== "activeGroup") throw new Error(`未対応の設定です: ${key}`);
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO workspace_meta(key, value) VALUES('active_group', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run(String(value || ""));
+    `,
+      )
+      .run(String(value || ""));
     return value;
   }
 
@@ -640,14 +806,16 @@ export class WorkspaceDatabase {
   /** Read the current persisted workspace without creating or updating records. */
   readWorkspaceSnapshot(includeDeleted = false) {
     const result = {};
-    for (const type of workspaceEntityTypes) result[collectionKeyForEntityType(type)] = this.list(type, includeDeleted);
-    result.plan_revisions = this.db.prepare(
-      "SELECT * FROM plan_revisions ORDER BY changed_at DESC",
-    ).all().map((row) => ({
-      ...row,
-      old: JSON.parse(row.old_json),
-      next: JSON.parse(row.new_json),
-    }));
+    for (const type of workspaceEntityTypes)
+      result[collectionKeyForEntityType(type)] = this.list(type, includeDeleted);
+    result.plan_revisions = this.db
+      .prepare("SELECT * FROM plan_revisions ORDER BY changed_at DESC")
+      .all()
+      .map((row) => ({
+        ...row,
+        old: JSON.parse(row.old_json),
+        next: JSON.parse(row.new_json),
+      }));
     result.meta = this.getMeta();
     result.canonical_root_status = this.getActivityCanonicalRootStatus();
     return result;
@@ -661,13 +829,17 @@ export class WorkspaceDatabase {
   }
 
   getActivityCanonicalRootStatus() {
-    return publicActivityRootStatus(this.getActivityCanonicalRootPaths(), (root) => fs.existsSync(root));
+    return publicActivityRootStatus(this.getActivityCanonicalRootPaths(), (root) =>
+      fs.existsSync(root),
+    );
   }
 
   get(type, id, includeDeleted = false) {
-    const row = this.db.prepare(
-      `SELECT * FROM entities WHERE entity_type = ? AND id = ? ${includeDeleted ? "" : "AND deleted_at IS NULL"}`,
-    ).get(type, String(id));
+    const row = this.db
+      .prepare(
+        `SELECT * FROM entities WHERE entity_type = ? AND id = ? ${includeDeleted ? "" : "AND deleted_at IS NULL"}`,
+      )
+      .get(type, String(id));
     return parseRow(row);
   }
 
@@ -703,19 +875,22 @@ export class WorkspaceDatabase {
 
   verifyMcpPackageSmokeProposal(proposalId) {
     const proposal = this.get("ai_proposal", proposalId, true);
-    const matching = this.list("ai_proposal", true).filter((entry) => (
-      entry.source_app === "package-smoke"
-      && entry.request?.idempotency_key === "package-smoke-note-v1"
-    ));
-    const verified = proposal
-      && proposal.status === "pending"
-      && proposal.source === "mcp"
-      && proposal.source_app === "package-smoke"
-      && proposal.payload_type === "notes"
-      && proposal.payload?.notes?.[0]?.title === "Packaged MCP Smoke Proposal"
-      && proposal.payload?.notes?.[0]?.body === "Pending review from the packaged MCP smoke."
-      && matching.length === 1;
-    if (!verified) throw new Error("packaged Desktopのcanonical ai_proposalを検証できませんでした。");
+    const matching = this.list("ai_proposal", true).filter(
+      (entry) =>
+        entry.source_app === "package-smoke" &&
+        entry.request?.idempotency_key === "package-smoke-note-v1",
+    );
+    const verified =
+      proposal &&
+      proposal.status === "pending" &&
+      proposal.source === "mcp" &&
+      proposal.source_app === "package-smoke" &&
+      proposal.payload_type === "notes" &&
+      proposal.payload?.notes?.[0]?.title === "Packaged MCP Smoke Proposal" &&
+      proposal.payload?.notes?.[0]?.body === "Pending review from the packaged MCP smoke." &&
+      matching.length === 1;
+    if (!verified)
+      throw new Error("packaged Desktopのcanonical ai_proposalを検証できませんでした。");
     return { proposal_id: proposal.id, status: proposal.status, matching_count: matching.length };
   }
 
@@ -726,36 +901,45 @@ export class WorkspaceDatabase {
     const transaction = this.db.transaction(() => {
       const beforeByKey = new Map();
       for (const operation of operations) {
-        if (!operation || operation.action !== "save" || operation.type === "change_event") continue;
+        if (!operation || operation.action !== "save" || operation.type === "change_event")
+          continue;
         const id = String(operation.entity?.id || "");
         if (!id) continue;
         beforeByKey.set(`${operation.type}:${id}`, this.get(operation.type, id, true));
       }
       return operations.map((operation) => {
-      if (!operation || operation.action !== "save") {
-        throw new Error("saveManyではaction=saveのみ利用できます。");
-      }
-      if (operation.type !== "change_event") {
-        return this.saveWithinTransaction(operation.type, operation.entity, operation.options || {});
-      }
-      const raw = operation.entity || {};
-      const type = String(raw.entity_ref?.type || raw.entity_type || "");
-      const id = String(raw.entity_ref?.id || raw.entity_id || "");
-      const before = beforeByKey.get(`${type}:${id}`) || null;
-      const after = (() => {
-        try { return raw.after_json ? JSON.parse(raw.after_json) : null; } catch { return null; }
-      })();
-      const event = buildActivityEvent({
-        ...raw,
-        before: raw.before_json ?? before,
-        after: raw.after_json ?? after,
-        before_json: raw.before_json ?? (before ? JSON.stringify(before) : null),
-        after_json: raw.after_json ?? (after ? JSON.stringify(after) : null),
-        // Direct renderer saves have no command identity, so their event kind
-        // is recalculated with the pre-save record (create vs update).
-        event_kind: raw.command_id || raw.command_name ? raw.event_kind : undefined,
-      });
-      return this.saveWithinTransaction("change_event", event, operation.options || {});
+        if (!operation || operation.action !== "save") {
+          throw new Error("saveManyではaction=saveのみ利用できます。");
+        }
+        if (operation.type !== "change_event") {
+          return this.saveWithinTransaction(
+            operation.type,
+            operation.entity,
+            operation.options || {},
+          );
+        }
+        const raw = operation.entity || {};
+        const type = String(raw.entity_ref?.type || raw.entity_type || "");
+        const id = String(raw.entity_ref?.id || raw.entity_id || "");
+        const before = beforeByKey.get(`${type}:${id}`) || null;
+        const after = (() => {
+          try {
+            return raw.after_json ? JSON.parse(raw.after_json) : null;
+          } catch {
+            return null;
+          }
+        })();
+        const event = buildActivityEvent({
+          ...raw,
+          before: raw.before_json ?? before,
+          after: raw.after_json ?? after,
+          before_json: raw.before_json ?? (before ? JSON.stringify(before) : null),
+          after_json: raw.after_json ?? (after ? JSON.stringify(after) : null),
+          // Direct renderer saves have no command identity, so their event kind
+          // is recalculated with the pre-save record (create vs update).
+          event_kind: raw.command_id || raw.command_name ? raw.event_kind : undefined,
+        });
+        return this.saveWithinTransaction("change_event", event, operation.options || {});
       });
     });
     return transaction();
@@ -763,16 +947,24 @@ export class WorkspaceDatabase {
 
   /** Application Command専用。読み取りとsaveWithinTransactionを同じtransactionへ束ねる。 */
   runTransaction(callback) {
-    const transaction = this.db.transaction(() => callback({
-      list: (type, includeDeleted = false) => this.list(type, includeDeleted),
-      get: (type, id, includeDeleted = false) => this.get(type, id, includeDeleted),
-      save: (type, entity, options = {}) => this.saveWithinTransaction(type, entity, options),
-      saveMany: (operations) => operations.map((operation) => {
-        if (!operation || operation.action !== "save") throw new Error("Application Commandの保存内容が不正です。");
-        return this.saveWithinTransaction(operation.type, operation.entity, operation.options || {});
+    const transaction = this.db.transaction(() =>
+      callback({
+        list: (type, includeDeleted = false) => this.list(type, includeDeleted),
+        get: (type, id, includeDeleted = false) => this.get(type, id, includeDeleted),
+        save: (type, entity, options = {}) => this.saveWithinTransaction(type, entity, options),
+        saveMany: (operations) =>
+          operations.map((operation) => {
+            if (!operation || operation.action !== "save")
+              throw new Error("Application Commandの保存内容が不正です。");
+            return this.saveWithinTransaction(
+              operation.type,
+              operation.entity,
+              operation.options || {},
+            );
+          }),
+        remove: (type, id) => this.removeWithinTransaction(type, id),
       }),
-      remove: (type, id) => this.removeWithinTransaction(type, id),
-    }));
+    );
     return transaction();
   }
 
@@ -780,43 +972,57 @@ export class WorkspaceDatabase {
     assertEntityType(type);
     const id = String(input.id || uuid());
     const normalizedActivityInput = type === "change_event" ? normalizeActivityEvent(input) : input;
-    const requestedDedupeKey = type === "change_event" ? activityEventDedupeKey(normalizedActivityInput) : "";
-    const dedupedExisting = type === "change_event" && requestedDedupeKey
-      ? this.list("change_event", true).find((candidate) => activityEventDedupeKey(candidate) === requestedDedupeKey)
-      : null;
+    const requestedDedupeKey =
+      type === "change_event" ? activityEventDedupeKey(normalizedActivityInput) : "";
+    const dedupedExisting =
+      type === "change_event" && requestedDedupeKey
+        ? this.list("change_event", true).find(
+            (candidate) => activityEventDedupeKey(candidate) === requestedDedupeKey,
+          )
+        : null;
     const existing = dedupedExisting || this.get(type, id, true);
-    if (type === "work_receipt" && existing) throw new Error("Work Receiptはappend-onlyです。既存Receiptを更新できません。");
+    if (type === "work_receipt" && existing)
+      throw new Error("Work Receiptはappend-onlyです。既存Receiptを更新できません。");
     const persistedId = existing?.id || id;
-    const canAggregateActivity = type === "change_event" && dedupedExisting
-      && !normalizedActivityInput.command_id
-      && !normalizedActivityInput.command_name
-      && normalizedActivityInput.origin?.kind === "renderer_save";
+    const canAggregateActivity =
+      type === "change_event" &&
+      dedupedExisting &&
+      !normalizedActivityInput.command_id &&
+      !normalizedActivityInput.command_name &&
+      normalizedActivityInput.origin?.kind === "renderer_save";
     const activityInput = canAggregateActivity
       ? buildActivityEvent({
-        ...normalizedActivityInput,
-        id: persistedId,
-        // A session event is an aggregate: keep the session-start before and
-        // replace only its latest after/occurred_at fields.
-        before_json: dedupedExisting.before_json !== undefined
-          ? dedupedExisting.before_json
-          : normalizedActivityInput.before_json,
-        after_json: normalizedActivityInput.after_json,
-      })
+          ...normalizedActivityInput,
+          id: persistedId,
+          // A session event is an aggregate: keep the session-start before and
+          // replace only its latest after/occurred_at fields.
+          before_json:
+            dedupedExisting.before_json !== undefined
+              ? dedupedExisting.before_json
+              : normalizedActivityInput.before_json,
+          after_json: normalizedActivityInput.after_json,
+        })
       : normalizedActivityInput;
-    const requestedTimestamp = typeof options.__canonicalOperationAt === "string" && !Number.isNaN(Date.parse(options.__canonicalOperationAt))
-      ? options.__canonicalOperationAt
-      : "";
+    const requestedTimestamp =
+      typeof options.__canonicalOperationAt === "string" &&
+      !Number.isNaN(Date.parse(options.__canonicalOperationAt))
+        ? options.__canonicalOperationAt
+        : "";
     const timestamp = requestedTimestamp || now();
     let protectedInput = activityInput;
     if (type === "resource" && options.__conversationContextPublicationWrite !== true) {
       protectedInput = { ...activityInput };
-      if (existing && Object.prototype.hasOwnProperty.call(existing, "conversation_context_publication")) {
+      if (
+        existing &&
+        Object.prototype.hasOwnProperty.call(existing, "conversation_context_publication")
+      ) {
         protectedInput.conversation_context_publication = existing.conversation_context_publication;
       } else {
         delete protectedInput.conversation_context_publication;
       }
     }
-    const normalizedInput = type === "task" ? normalizeTaskAssignment(protectedInput, existing) : protectedInput;
+    const normalizedInput =
+      type === "task" ? normalizeTaskAssignment(protectedInput, existing) : protectedInput;
     const entity = normalizeEntity(type, {
       ...normalizedInput,
       id: persistedId,
@@ -831,7 +1037,9 @@ export class WorkspaceDatabase {
     this.validateGraph(type, entity);
 
     if (type === "item" && existing) this.recordPlanRevision(existing, entity, options.reason);
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO entities(
         entity_type, id, data_json, created_at, updated_at, deleted_at, device_id, source, version
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -842,17 +1050,19 @@ export class WorkspaceDatabase {
         device_id = excluded.device_id,
         source = excluded.source,
         version = excluded.version
-    `).run(
-      type,
-      persistedId,
-      JSON.stringify(contentOf(entity)),
-      entity.created_at,
-      entity.updated_at,
-      entity.deleted_at,
-      entity.device_id,
-      entity.source,
-      entity.version,
-    );
+    `,
+      )
+      .run(
+        type,
+        persistedId,
+        JSON.stringify(contentOf(entity)),
+        entity.created_at,
+        entity.updated_at,
+        entity.deleted_at,
+        entity.device_id,
+        entity.source,
+        entity.version,
+      );
     const saved = this.get(type, persistedId);
     if (!options.skipSync) this.enqueueSyncEntity(type, saved, options.syncParents);
     return saved;
@@ -907,7 +1117,11 @@ export class WorkspaceDatabase {
       for (const contextId of entity.repository_context_ids || []) {
         requireReference("repository_context", contextId, "repository_context_ids");
       }
-      requireReference("repository_context", entity.primary_repository_context_id, "primary_repository_context_id");
+      requireReference(
+        "repository_context",
+        entity.primary_repository_context_id,
+        "primary_repository_context_id",
+      );
     }
 
     if (type === "working_copy") {
@@ -968,12 +1182,14 @@ export class WorkspaceDatabase {
     const allIds = new Map();
     for (const type of workspaceEntityTypes) {
       const records = snapshot[collectionKeyForEntityType(type)] || [];
-      if (!Array.isArray(records)) throw new Error(`${collectionKeyForEntityType(type)}は配列で指定してください。`);
+      if (!Array.isArray(records))
+        throw new Error(`${collectionKeyForEntityType(type)}は配列で指定してください。`);
       const ids = new Set();
       const everyId = new Set();
       for (const record of records) {
         if (!isPlainObject(record)) throw new Error(`${type}のレコード構造が不正です。`);
-        if (typeof record.id !== "string" || !record.id.trim()) throw new Error(`${type}.idがありません。`);
+        if (typeof record.id !== "string" || !record.id.trim())
+          throw new Error(`${type}.idがありません。`);
         validateEntity(type, record);
         everyId.add(String(record.id));
         if (!record.deleted_at) ids.add(String(record.id));
@@ -994,23 +1210,42 @@ export class WorkspaceDatabase {
         requireSnapshotReference(type, record, "theme", record.theme_id, "theme_id");
         requireSnapshotReference(type, record, "item", record.item_id, "item_id");
         requireSnapshotReference(type, record, "note", record.note_id, "note_id");
-        requireSnapshotReference(type, record, "source_record", record.source_record_id, "source_record_id");
+        requireSnapshotReference(
+          type,
+          record,
+          "source_record",
+          record.source_record_id,
+          "source_record_id",
+        );
         requireSnapshotReference(type, record, "item", record.parent_item_id, "parent_item_id");
-        requireSnapshotReference(type, record, "field_definition", record.field_definition_id, "field_definition_id");
+        requireSnapshotReference(
+          type,
+          record,
+          "field_definition",
+          record.field_definition_id,
+          "field_definition_id",
+        );
         requireSnapshotReference(type, record, "note", record.source_note_id, "source_note_id");
         requireSnapshotReference(type, record, "link", record.source_link_id, "source_link_id");
         requireSnapshotReference(type, record, "item", record.source_item_id, "source_item_id");
         if (type === "field_value" || type === "entity_source") {
-          if (!workspaceEntityTypes.includes(record.entity_type)) throw new Error(`${type}.entity_typeが不正です。`);
+          if (!workspaceEntityTypes.includes(record.entity_type))
+            throw new Error(`${type}.entity_typeが不正です。`);
           requireSnapshotReference(type, record, record.entity_type, record.entity_id, "entity_id");
         }
 
         // v2 domain references
         const requireV2Ref = (targetType, id, field) => {
           if (!id || record.deleted_at) return;
-          if (field === "project_id" && (activeIds.get("project")?.has(String(id)) || activeIds.get("theme")?.has(String(id)))) return;
+          if (
+            field === "project_id" &&
+            (activeIds.get("project")?.has(String(id)) || activeIds.get("theme")?.has(String(id)))
+          )
+            return;
           if (field !== "project_id" && activeIds.get(targetType)?.has(String(id))) return;
-          throw new Error(`${type}.${field}がSnapshot内に存在しない${targetType}を参照しています。`);
+          throw new Error(
+            `${type}.${field}がSnapshot内に存在しない${targetType}を参照しています。`,
+          );
         };
 
         // Snapshotも同じRegistry契約を使う。canonical project_idと、
@@ -1028,12 +1263,26 @@ export class WorkspaceDatabase {
         }
         if (type === "theme" || type === "project" || type === "task") {
           for (const contextId of record.repository_context_ids || []) {
-            requireSnapshotReference(type, record, "repository_context", contextId, "repository_context_ids");
+            requireSnapshotReference(
+              type,
+              record,
+              "repository_context",
+              contextId,
+              "repository_context_ids",
+            );
           }
-          requireSnapshotReference(type, record, "repository_context", record.primary_repository_context_id, "primary_repository_context_id");
+          requireSnapshotReference(
+            type,
+            record,
+            "repository_context",
+            record.primary_repository_context_id,
+            "primary_repository_context_id",
+          );
           for (const marker of record.repository_context_detachments || []) {
             if (!allIds.get("repository_context")?.has(String(marker.contextId))) {
-              throw new Error(`${type}.repository_context_detachmentsがSnapshot内に存在しないrepository_contextを記録しています。`);
+              throw new Error(
+                `${type}.repository_context_detachmentsがSnapshot内に存在しないrepository_contextを記録しています。`,
+              );
             }
           }
         }
@@ -1071,7 +1320,11 @@ export class WorkspaceDatabase {
           requireV2Ref(record.triaged_to_type, record.triaged_to_id, "triaged_to_id");
         }
         if (type === "artifact") {
-          requireV2Ref(artifactSourceEntityTypes[record.source_type], record.source_id, "source_id");
+          requireV2Ref(
+            artifactSourceEntityTypes[record.source_type],
+            record.source_id,
+            "source_id",
+          );
           requireV2Ref("note", record.origin_note_id, "origin_note_id");
         }
       }
@@ -1087,7 +1340,11 @@ export class WorkspaceDatabase {
 
   validateSnapshotItemParentGraph(items) {
     for (const item of items.filter((entry) => !entry.deleted_at)) {
-      assertItemParentAcyclic(items, item, "Snapshot内のItem親子関係が循環しています。Import前に親Itemを修正してください。");
+      assertItemParentAcyclic(
+        items,
+        item,
+        "Snapshot内のItem親子関係が循環しています。Import前に親Itemを修正してください。",
+      );
     }
   }
 
@@ -1099,7 +1356,10 @@ export class WorkspaceDatabase {
       const seen = new Set([String(task.id)]);
       let currentId = String(task.parent_task_id);
       while (currentId) {
-        if (seen.has(currentId)) throw new Error("Snapshot内のTask親子関係が循環しています。Import前に親Taskを修正してください。");
+        if (seen.has(currentId))
+          throw new Error(
+            "Snapshot内のTask親子関係が循環しています。Import前に親Taskを修正してください。",
+          );
         seen.add(currentId);
         currentId = String(byId.get(currentId)?.parent_task_id || "");
       }
@@ -1114,7 +1374,10 @@ export class WorkspaceDatabase {
       const seen = new Set([String(node.id)]);
       let currentId = String(node.parent_plan_node_id);
       while (currentId) {
-        if (seen.has(currentId)) throw new Error("Snapshot内のPlanNode親子関係が循環しています。Import前に親PlanNodeを修正してください。");
+        if (seen.has(currentId))
+          throw new Error(
+            "Snapshot内のPlanNode親子関係が循環しています。Import前に親PlanNodeを修正してください。",
+          );
         seen.add(currentId);
         currentId = String(byId.get(currentId)?.parent_plan_node_id || "");
       }
@@ -1129,7 +1392,9 @@ export class WorkspaceDatabase {
         .map((d) => [String(d.task_id), String(d.depends_on_task_id)]);
       edges.push([String(dep.task_id), String(dep.depends_on_task_id)]);
       if (hasPath(edges, String(dep.depends_on_task_id), String(dep.task_id))) {
-        throw new Error("Snapshot内のTaskDependencyが循環しています。Import前に依存関係を修正してください。");
+        throw new Error(
+          "Snapshot内のTaskDependencyが循環しています。Import前に依存関係を修正してください。",
+        );
       }
     }
   }
@@ -1142,49 +1407,60 @@ export class WorkspaceDatabase {
         .map((d) => [String(d.plan_node_id), String(d.depends_on_plan_node_id)]);
       edges.push([String(dep.plan_node_id), String(dep.depends_on_plan_node_id)]);
       if (hasPath(edges, String(dep.depends_on_plan_node_id), String(dep.plan_node_id))) {
-        throw new Error("Snapshot内のPlanDependencyが循環しています。Import前に依存関係を修正してください。");
+        throw new Error(
+          "Snapshot内のPlanDependencyが循環しています。Import前に依存関係を修正してください。",
+        );
       }
     }
   }
 
   validateSnapshotKnowledgeEdgeGraph(edges) {
-    for (const edge of edges.filter((entry) => !entry.deleted_at && isKnowledgeDirectionalRelationType(entry.relation_type))) {
+    for (const edge of edges.filter(
+      (entry) => !entry.deleted_at && isKnowledgeDirectionalRelationType(entry.relation_type),
+    )) {
       if (!edge.source_node_id || !edge.target_node_id) continue;
       const graph = edges
-        .filter((entry) => !entry.deleted_at && String(entry.id) !== String(edge.id) && isKnowledgeDirectionalRelationType(entry.relation_type))
+        .filter(
+          (entry) =>
+            !entry.deleted_at &&
+            String(entry.id) !== String(edge.id) &&
+            isKnowledgeDirectionalRelationType(entry.relation_type),
+        )
         .map((entry) => [String(entry.source_node_id), String(entry.target_node_id)]);
       graph.push([String(edge.source_node_id), String(edge.target_node_id)]);
       if (hasPath(graph, String(edge.target_node_id), String(edge.source_node_id))) {
-        throw new Error("Snapshot内のKnowledgeEdgeが循環しています。Import前にrelationの向きを修正してください。");
+        throw new Error(
+          "Snapshot内のKnowledgeEdgeが循環しています。Import前にrelationの向きを修正してください。",
+        );
       }
     }
   }
 
   recordPlanRevision(oldItem, newItem, reason = "") {
-    const fields = [
-      "planned_start",
-      "planned_end",
-      "due_date",
-    ];
+    const fields = ["planned_start", "planned_end", "due_date"];
     const oldValues = Object.fromEntries(fields.map((field) => [field, oldItem[field] ?? null]));
     const newValues = Object.fromEntries(fields.map((field) => [field, newItem[field] ?? null]));
     if (JSON.stringify(oldValues) === JSON.stringify(newValues)) return;
     const timestamp = now();
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO plan_revisions(
         id, item_id, changed_at, changed_by_device_id, old_json, new_json, reason, related_note_id, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      uuid(),
-      newItem.id,
-      timestamp,
-      this.deviceId,
-      JSON.stringify(oldValues),
-      JSON.stringify(newValues),
-      reason || null,
-      newItem.related_note_id || null,
-      timestamp,
-    );
+    `,
+      )
+      .run(
+        uuid(),
+        newItem.id,
+        timestamp,
+        this.deviceId,
+        JSON.stringify(oldValues),
+        JSON.stringify(newValues),
+        reason || null,
+        newItem.related_note_id || null,
+        timestamp,
+      );
   }
 
   remove(type, id) {
@@ -1212,11 +1488,15 @@ export class WorkspaceDatabase {
       const existing = this.get(type, id, true);
       if (!existing) return null;
       const timestamp = now();
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         UPDATE entities
         SET deleted_at = NULL, updated_at = ?, device_id = ?, version = version + 1
         WHERE entity_type = ? AND id = ?
-      `).run(timestamp, this.deviceId, type, String(id));
+      `,
+        )
+        .run(timestamp, this.deviceId, type, String(id));
       this.restoreCascadeChildren(type, String(id));
       if (type === "repository_context") this.restoreRepositoryContextReferences(String(id));
       const restored = this.get(type, id);
@@ -1234,7 +1514,9 @@ export class WorkspaceDatabase {
     for (const [entityType, field] of targets) {
       for (const entity of this.list(entityType)) {
         if (entity[field] !== removedId) continue;
-        const detached = Array.isArray(entity.detached_references) ? entity.detached_references : [];
+        const detached = Array.isArray(entity.detached_references)
+          ? entity.detached_references
+          : [];
         this.saveWithinTransaction(entityType, {
           ...entity,
           [field]: null,
@@ -1296,11 +1578,15 @@ export class WorkspaceDatabase {
     const timestamp = now();
     const data = contentOf(existing);
     if (cascade) data.cascade_deleted_by = cascade;
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       UPDATE entities
       SET data_json = ?, deleted_at = ?, updated_at = ?, device_id = ?, version = version + 1
       WHERE entity_type = ? AND id = ?
-    `).run(JSON.stringify(data), timestamp, timestamp, this.deviceId, type, id);
+    `,
+      )
+      .run(JSON.stringify(data), timestamp, timestamp, this.deviceId, type, id);
     this.enqueueSyncEntity(type, this.get(type, id, true));
   }
 
@@ -1312,11 +1598,15 @@ export class WorkspaceDatabase {
         if (marker?.parentType !== parentType || marker?.parentId !== parentId) continue;
         const { cascade_deleted_by: _marker, ...data } = contentOf(entity);
         const timestamp = now();
-        this.db.prepare(`
+        this.db
+          .prepare(
+            `
           UPDATE entities
           SET data_json = ?, deleted_at = NULL, updated_at = ?, device_id = ?, version = version + 1
           WHERE entity_type = ? AND id = ?
-        `).run(JSON.stringify(data), timestamp, this.deviceId, entityType, entity.id);
+        `,
+          )
+          .run(JSON.stringify(data), timestamp, this.deviceId, entityType, entity.id);
         this.enqueueSyncEntity(entityType, this.get(entityType, entity.id, true));
       }
     }
@@ -1326,8 +1616,12 @@ export class WorkspaceDatabase {
   restoreDetachedReferences(parentType, parentId) {
     for (const entityType of workspaceEntityTypes) {
       for (const entity of this.list(entityType)) {
-        const detached = Array.isArray(entity.detached_references) ? entity.detached_references : [];
-        const matching = detached.filter((entry) => entry.parentType === parentType && entry.parentId === parentId);
+        const detached = Array.isArray(entity.detached_references)
+          ? entity.detached_references
+          : [];
+        const matching = detached.filter(
+          (entry) => entry.parentType === parentType && entry.parentId === parentId,
+        );
         if (!matching.length) continue;
         const next = { ...entity };
         for (const entry of matching) {
@@ -1347,13 +1641,16 @@ export class WorkspaceDatabase {
         const detachments = Array.isArray(entity.repository_context_detachments)
           ? entity.repository_context_detachments
           : [];
-        const matching = detachments.filter((entry) => (
-          entry?.kind === "repository_context_detachment"
-          && String(entry.contextId || "") === String(contextId)
-        ));
+        const matching = detachments.filter(
+          (entry) =>
+            entry?.kind === "repository_context_detachment" &&
+            String(entry.contextId || "") === String(contextId),
+        );
         if (!matching.length) continue;
 
-        let restoredIds = [...new Set((entity.repository_context_ids || []).map(String).filter(Boolean))];
+        const restoredIds = [
+          ...new Set((entity.repository_context_ids || []).map(String).filter(Boolean)),
+        ];
         for (const entry of matching) {
           if (restoredIds.includes(String(entry.contextId))) continue;
           const index = Number.isInteger(entry.previousIndex)
@@ -1361,8 +1658,9 @@ export class WorkspaceDatabase {
             : restoredIds.length;
           restoredIds.splice(index, 0, String(entry.contextId));
         }
-        const restoredPrimary = entity.primary_repository_context_id
-          || (matching.some((entry) => entry.wasPrimary) ? String(contextId) : null);
+        const restoredPrimary =
+          entity.primary_repository_context_id ||
+          (matching.some((entry) => entry.wasPrimary) ? String(contextId) : null);
         const remaining = detachments.filter((entry) => !matching.includes(entry));
         const next = {
           ...entity,
@@ -1406,21 +1704,25 @@ export class WorkspaceDatabase {
       source: normalizedInput.source || fallbackSource,
       version: Number(normalizedInput.version) || 1,
     };
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT OR REPLACE INTO entities(
         entity_type, id, data_json, created_at, updated_at, deleted_at, device_id, source, version
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      type,
-      entity.id,
-      JSON.stringify(contentOf(entity)),
-      entity.created_at,
-      entity.updated_at,
-      entity.deleted_at,
-      entity.device_id,
-      entity.source,
-      entity.version,
-    );
+    `,
+      )
+      .run(
+        type,
+        entity.id,
+        JSON.stringify(contentOf(entity)),
+        entity.created_at,
+        entity.updated_at,
+        entity.deleted_at,
+        entity.device_id,
+        entity.source,
+        entity.version,
+      );
   }
 
   previewSnapshot(snapshot) {
@@ -1431,11 +1733,13 @@ export class WorkspaceDatabase {
         const local = this.get(type, incoming.id, true);
         let category = "new";
         if (local) {
-          const sameContent = JSON.stringify(contentOf(local)) === JSON.stringify(contentOf(incoming))
-            && Boolean(local.deleted_at) === Boolean(incoming.deleted_at);
+          const sameContent =
+            JSON.stringify(contentOf(local)) === JSON.stringify(contentOf(incoming)) &&
+            Boolean(local.deleted_at) === Boolean(incoming.deleted_at);
           if (sameContent) category = "same";
           else if (Number(incoming.version || 1) > Number(local.version || 1)) category = "update";
-          else if (Number(incoming.version || 1) < Number(local.version || 1)) category = "local_newer";
+          else if (Number(incoming.version || 1) < Number(local.version || 1))
+            category = "local_newer";
           else category = "conflict";
         }
         changes.push({
@@ -1464,31 +1768,43 @@ export class WorkspaceDatabase {
         }
         if (action === "ignore") continue;
         if (action === "create" && change.local) {
-          throw new Error("既存データがあるため、Snapshotのcreateでは上書きできません。updateまたはduplicateを選んでください。");
+          throw new Error(
+            "既存データがあるため、Snapshotのcreateでは上書きできません。updateまたはduplicateを選んでください。",
+          );
         }
         if (action === "update" && !change.local) {
-          throw new Error("既存データがないため、Snapshotのupdateは実行できません。createを選んでください。");
+          throw new Error(
+            "既存データがないため、Snapshotのupdateは実行できません。createを選んでください。",
+          );
         }
         if (action === "duplicate") {
-          this.insertImported(change.type, {
-            ...change.incoming,
-            id: uuid(),
-            source: "snapshot",
-            version: 1,
-          }, "snapshot");
+          this.insertImported(
+            change.type,
+            {
+              ...change.incoming,
+              id: uuid(),
+              source: "snapshot",
+              version: 1,
+            },
+            "snapshot",
+          );
         } else {
           this.insertImported(change.type, change.incoming, "snapshot", change.local);
         }
         applied.push({ key: change.key, action });
       }
       for (const revision of revisions) this.insertPlanRevision(revision);
-      this.insertImported("import_batch", {
-        id: uuid(),
-        source: "snapshot",
-        status: "completed",
-        count: applied.length,
-        created_at: now(),
-      }, "snapshot");
+      this.insertImported(
+        "import_batch",
+        {
+          id: uuid(),
+          source: "snapshot",
+          status: "completed",
+          count: applied.length,
+          created_at: now(),
+        },
+        "snapshot",
+      );
     });
     transaction();
     return { applied, workspace: this.loadWorkspace() };
@@ -1496,21 +1812,25 @@ export class WorkspaceDatabase {
 
   insertPlanRevision(revision) {
     if (!revision?.id || !revision.item_id || !revision.changed_at) return;
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT OR IGNORE INTO plan_revisions(
         id, item_id, changed_at, changed_by_device_id, old_json, new_json, reason, related_note_id, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      revision.id,
-      revision.item_id,
-      revision.changed_at,
-      revision.changed_by_device_id || this.deviceId,
-      JSON.stringify(revision.old || {}),
-      JSON.stringify(revision.next || {}),
-      revision.reason || null,
-      revision.related_note_id || null,
-      revision.created_at || revision.changed_at,
-    );
+    `,
+      )
+      .run(
+        revision.id,
+        revision.item_id,
+        revision.changed_at,
+        revision.changed_by_device_id || this.deviceId,
+        JSON.stringify(revision.old || {}),
+        JSON.stringify(revision.next || {}),
+        revision.reason || null,
+        revision.related_note_id || null,
+        revision.created_at || revision.changed_at,
+      );
   }
   mobileGatewayState() {
     return {
@@ -1523,7 +1843,9 @@ export class WorkspaceDatabase {
   pairMobileDevice(input) {
     const id = String(input?.id || "").trim();
     const label = String(input?.label || "").trim();
-    const tokenHash = String(input?.tokenHash || "").trim().toLowerCase();
+    const tokenHash = String(input?.tokenHash || "")
+      .trim()
+      .toLowerCase();
     const scopes = Array.isArray(input?.scopes) ? [...new Set(input.scopes)] : [];
     const pairedAt = String(input?.pairedAt || "").trim();
     if (!id || !label || !pairedAt || !/^[a-f0-9]{64}$/.test(tokenHash)) {
@@ -1533,30 +1855,48 @@ export class WorkspaceDatabase {
       throw new Error("Mobile device scopes are invalid");
     }
     const pair = this.db.transaction(() => {
-      const existing = this.db.prepare(`
+      const existing = this.db
+        .prepare(
+          `
         SELECT * FROM mobile_devices WHERE id = ?
-      `).get(id);
+      `,
+        )
+        .get(id);
       if (!existing) {
-        this.db.prepare(`
+        this.db
+          .prepare(
+            `
           INSERT INTO mobile_devices(
             id, label, token_hash, scopes_json, created_at, updated_at,
             last_seen_at, revoked_at, deleted_at, version, source
           ) VALUES (?, ?, ?, ?, ?, ?, '', '', NULL, 1, 'pairing')
-        `).run(id, label, tokenHash, JSON.stringify(scopes), pairedAt, pairedAt);
+        `,
+          )
+          .run(id, label, tokenHash, JSON.stringify(scopes), pairedAt, pairedAt);
       } else {
         if (existing.deleted_at !== null || existing.revoked_at === "") {
           throw new Error("Mobile device already exists");
         }
-        this.db.prepare(`
+        this.db
+          .prepare(
+            `
           UPDATE mobile_devices
           SET label = ?, token_hash = ?, scopes_json = ?, updated_at = ?,
               last_seen_at = '', revoked_at = '', version = version + 1
           WHERE id = ? AND deleted_at IS NULL AND revoked_at <> ''
-        `).run(label, tokenHash, JSON.stringify(scopes), pairedAt, id);
+        `,
+          )
+          .run(label, tokenHash, JSON.stringify(scopes), pairedAt, id);
       }
-      return parseMobileDeviceRow(this.db.prepare(`
+      return parseMobileDeviceRow(
+        this.db
+          .prepare(
+            `
         SELECT * FROM mobile_devices WHERE id = ? AND deleted_at IS NULL
-      `).get(id));
+      `,
+          )
+          .get(id),
+      );
     });
     const paired = pair();
     if (!paired) throw new Error("Mobile device record was not paired");
@@ -1564,69 +1904,107 @@ export class WorkspaceDatabase {
   }
 
   findMobileDeviceByTokenHash(tokenHash) {
-    const hash = String(tokenHash || "").trim().toLowerCase();
+    const hash = String(tokenHash || "")
+      .trim()
+      .toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(hash)) return null;
-    return parseMobileDeviceRow(this.db.prepare(`
+    return parseMobileDeviceRow(
+      this.db
+        .prepare(
+          `
       SELECT * FROM mobile_devices
       WHERE token_hash = ? AND deleted_at IS NULL
-    `).get(hash));
+    `,
+        )
+        .get(hash),
+    );
   }
 
   listMobileDevices() {
-    return this.db.prepare(`
+    return this.db
+      .prepare(
+        `
       SELECT * FROM mobile_devices
       WHERE deleted_at IS NULL
       ORDER BY created_at DESC, id ASC
-    `).all().map(parseMobileDeviceRow);
+    `,
+      )
+      .all()
+      .map(parseMobileDeviceRow);
   }
 
   revokeMobileDevice(id, revokedAt) {
     const deviceId = String(id || "").trim();
     const timestamp = String(revokedAt || "").trim();
     if (!deviceId || !timestamp) return null;
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       UPDATE mobile_devices
       SET revoked_at = ?, updated_at = ?, version = version + 1
       WHERE id = ? AND deleted_at IS NULL AND revoked_at = ''
-    `).run(timestamp, timestamp, deviceId);
-    return parseMobileDeviceRow(this.db.prepare(`
+    `,
+      )
+      .run(timestamp, timestamp, deviceId);
+    return parseMobileDeviceRow(
+      this.db
+        .prepare(
+          `
       SELECT * FROM mobile_devices WHERE id = ? AND deleted_at IS NULL
-    `).get(deviceId));
+    `,
+        )
+        .get(deviceId),
+    );
   }
 
   touchMobileDevice(id, lastSeenAt) {
     const deviceId = String(id || "").trim();
     const timestamp = String(lastSeenAt || "").trim();
     if (!deviceId || !timestamp) return;
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       UPDATE mobile_devices
       SET last_seen_at = ?, updated_at = ?, version = version + 1
       WHERE id = ? AND deleted_at IS NULL AND revoked_at = ''
-    `).run(timestamp, timestamp, deviceId);
+    `,
+      )
+      .run(timestamp, timestamp, deviceId);
   }
-
 
   nextSyncSequence() {
     const current = Number(this.ensureMeta("sync_device_sequence", "0")) || 0;
     const next = current + 1;
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO workspace_meta(key, value) VALUES('sync_device_sequence', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run(String(next));
+    `,
+      )
+      .run(String(next));
     return next;
   }
 
   syncHead(type, id) {
-    return this.db.prepare(
-      "SELECT revision_id FROM sync_entity_heads WHERE entity_type = ? AND entity_id = ?",
-    ).get(type, String(id))?.revision_id || "";
+    return (
+      this.db
+        .prepare(
+          "SELECT revision_id FROM sync_entity_heads WHERE entity_type = ? AND entity_id = ?",
+        )
+        .get(type, String(id))?.revision_id || ""
+    );
   }
 
   setSyncHead(type, id, revisionId) {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO sync_entity_heads(entity_type, entity_id, revision_id) VALUES(?, ?, ?)
       ON CONFLICT(entity_type, entity_id) DO UPDATE SET revision_id = excluded.revision_id
-    `).run(type, String(id), revisionId);
+    `,
+      )
+      .run(type, String(id), revisionId);
   }
 
   enqueueSyncEntity(type, entity, parentRevisionIds) {
@@ -1636,7 +2014,9 @@ export class WorkspaceDatabase {
     const currentHead = this.syncHead(type, entity.id);
     const parents = Array.isArray(parentRevisionIds)
       ? [...new Set(parentRevisionIds.filter((entry) => typeof entry === "string" && entry))]
-      : currentHead ? [currentHead] : [];
+      : currentHead
+        ? [currentHead]
+        : [];
     const timestamp = now();
     const packet = {
       format: "tasken-sync-change",
@@ -1652,10 +2032,14 @@ export class WorkspaceDatabase {
       entity,
       createdAt: timestamp,
     };
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO sync_outbox(change_id, device_sequence, payload_json, created_at)
       VALUES(?, ?, ?, ?)
-    `).run(changeId, sequence, JSON.stringify(packet), timestamp);
+    `,
+      )
+      .run(changeId, sequence, JSON.stringify(packet), timestamp);
     this.setSyncHead(type, entity.id, changeId);
     return packet;
   }
@@ -1676,70 +2060,98 @@ export class WorkspaceDatabase {
   }
 
   pendingSyncChanges() {
-    return this.db.prepare(`
+    return this.db
+      .prepare(
+        `
       SELECT change_id, device_sequence, payload_json
       FROM sync_outbox
       WHERE published_at IS NULL
       ORDER BY device_sequence
-    `).all().map((row) => ({
-      changeId: row.change_id,
-      deviceSequence: row.device_sequence,
-      packet: JSON.parse(row.payload_json),
-    }));
+    `,
+      )
+      .all()
+      .map((row) => ({
+        changeId: row.change_id,
+        deviceSequence: row.device_sequence,
+        packet: JSON.parse(row.payload_json),
+      }));
   }
 
   markSyncPublished(changeId) {
-    this.db.prepare("UPDATE sync_outbox SET published_at = ? WHERE change_id = ?")
+    this.db
+      .prepare("UPDATE sync_outbox SET published_at = ? WHERE change_id = ?")
       .run(now(), changeId);
   }
 
   syncPendingCount() {
-    return Number(this.db.prepare(
-      "SELECT COUNT(*) AS count FROM sync_outbox WHERE published_at IS NULL",
-    ).get()?.count || 0);
+    return Number(
+      this.db.prepare("SELECT COUNT(*) AS count FROM sync_outbox WHERE published_at IS NULL").get()
+        ?.count || 0,
+    );
   }
 
   syncConflictCount() {
-    return Number(this.db.prepare("SELECT COUNT(*) AS count FROM sync_conflicts").get()?.count || 0);
+    return Number(
+      this.db.prepare("SELECT COUNT(*) AS count FROM sync_conflicts").get()?.count || 0,
+    );
   }
 
   syncCursor(deviceId) {
-    return Number(this.db.prepare(
-      "SELECT last_sequence FROM sync_device_cursors WHERE device_id = ?",
-    ).get(deviceId)?.last_sequence || 0);
+    return Number(
+      this.db
+        .prepare("SELECT last_sequence FROM sync_device_cursors WHERE device_id = ?")
+        .get(deviceId)?.last_sequence || 0,
+    );
   }
 
   setSyncCursor(deviceId, sequence) {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO sync_device_cursors(device_id, last_sequence, updated_at) VALUES(?, ?, ?)
       ON CONFLICT(device_id) DO UPDATE SET
         last_sequence = MAX(sync_device_cursors.last_sequence, excluded.last_sequence),
         updated_at = excluded.updated_at
-    `).run(deviceId, Number(sequence) || 0, now());
+    `,
+      )
+      .run(deviceId, Number(sequence) || 0, now());
   }
 
   adoptSyncWorkspace(workspaceId) {
     if (!this.isEmpty()) {
-      throw new Error("この端末には既存データがあります。空のTaskenから同期フォルダへ参加してください。");
+      throw new Error(
+        "この端末には既存データがあります。空のTaskenから同期フォルダへ参加してください。",
+      );
     }
     if (typeof workspaceId !== "string" || !workspaceId.trim()) {
       throw new Error("同期先のWorkspace IDが不正です。");
     }
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO workspace_meta(key, value) VALUES('workspace_id', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run(workspaceId);
+    `,
+      )
+      .run(workspaceId);
     this.workspaceId = workspaceId;
     return workspaceId;
   }
 
   applySyncPacket(packet) {
-    if (!isPlainObject(packet) || packet.format !== "tasken-sync-change" || packet.formatVersion !== 1) {
+    if (
+      !isPlainObject(packet) ||
+      packet.format !== "tasken-sync-change" ||
+      packet.formatVersion !== 1
+    ) {
       throw new Error("同期差分の形式が不正です。");
     }
     if (packet.workspaceId !== this.workspaceId) throw new Error("別のWorkspaceの同期差分です。");
     assertEntityType(packet.entityType);
-    if (!isPlainObject(packet.entity) || String(packet.entity.id || "") !== String(packet.entityId || "")) {
+    if (
+      !isPlainObject(packet.entity) ||
+      String(packet.entity.id || "") !== String(packet.entityId || "")
+    ) {
       throw new Error("同期差分のEntityが不正です。");
     }
     validateEntity(packet.entityType, packet.entity);
@@ -1751,25 +2163,31 @@ export class WorkspaceDatabase {
         ? packet.parentRevisionIds.filter((entry) => typeof entry === "string")
         : [];
       const currentHead = this.syncHead(type, id);
-      if (currentHead === revisionId) return { status: "duplicate", entity: this.get(type, id, true) };
+      if (currentHead === revisionId)
+        return { status: "duplicate", entity: this.get(type, id, true) };
       const local = this.get(type, id, true);
       const canApply = !local || !currentHead || incomingParents.includes(currentHead);
       if (canApply) {
         this.insertImported(type, packet.entity, "sync", local);
         this.setSyncHead(type, id, revisionId);
-        this.db.prepare("DELETE FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?").run(type, id);
+        this.db
+          .prepare("DELETE FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?")
+          .run(type, id);
         return { status: "applied", type, entity: this.get(type, id, true) };
       }
 
-      const existingConflict = this.db.prepare(
-        "SELECT * FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?",
-      ).get(type, id);
+      const existingConflict = this.db
+        .prepare("SELECT * FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?")
+        .get(type, id);
       const existingIncomingRevision = existingConflict?.incoming_revision_id || "";
-      const shouldAdvanceIncoming = !existingConflict || incomingParents.includes(existingIncomingRevision);
+      const shouldAdvanceIncoming =
+        !existingConflict || incomingParents.includes(existingIncomingRevision);
       if (shouldAdvanceIncoming) {
         const conflictId = existingConflict?.id || uuid();
         const timestamp = now();
-        this.db.prepare(`
+        this.db
+          .prepare(
+            `
           INSERT INTO sync_conflicts(
             id, entity_type, entity_id, local_revision_id, incoming_revision_id,
             packet_json, created_at, updated_at
@@ -1778,16 +2196,18 @@ export class WorkspaceDatabase {
             incoming_revision_id = excluded.incoming_revision_id,
             packet_json = excluded.packet_json,
             updated_at = excluded.updated_at
-        `).run(
-          conflictId,
-          type,
-          id,
-          currentHead,
-          revisionId,
-          JSON.stringify(packet),
-          existingConflict?.created_at || timestamp,
-          timestamp,
-        );
+        `,
+          )
+          .run(
+            conflictId,
+            type,
+            id,
+            currentHead,
+            revisionId,
+            JSON.stringify(packet),
+            existingConflict?.created_at || timestamp,
+            timestamp,
+          );
       }
       return { status: "conflict", type, entity: local };
     });
@@ -1795,21 +2215,24 @@ export class WorkspaceDatabase {
   }
 
   listSyncConflicts() {
-    return this.db.prepare("SELECT * FROM sync_conflicts ORDER BY updated_at DESC").all().map((row) => {
-      const packet = JSON.parse(row.packet_json);
-      return {
-        id: row.id,
-        entityType: row.entity_type,
-        entityId: row.entity_id,
-        localRevisionId: row.local_revision_id,
-        incomingRevisionId: row.incoming_revision_id,
-        local: this.get(row.entity_type, row.entity_id, true),
-        incoming: packet.entity,
-        incomingDeviceId: packet.deviceId,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      };
-    });
+    return this.db
+      .prepare("SELECT * FROM sync_conflicts ORDER BY updated_at DESC")
+      .all()
+      .map((row) => {
+        const packet = JSON.parse(row.packet_json);
+        return {
+          id: row.id,
+          entityType: row.entity_type,
+          entityId: row.entity_id,
+          localRevisionId: row.local_revision_id,
+          incomingRevisionId: row.incoming_revision_id,
+          local: this.get(row.entity_type, row.entity_id, true),
+          incoming: packet.entity,
+          incomingDeviceId: packet.deviceId,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        };
+      });
   }
 
   resolveSyncConflict(conflictId, choice) {
@@ -1823,7 +2246,11 @@ export class WorkspaceDatabase {
       if (!chosen) throw new Error("競合を解決するデータがありません。");
       if (choice === "incoming") this.insertImported(row.entity_type, chosen, "sync", local);
       const parents = [row.local_revision_id, row.incoming_revision_id].filter(Boolean);
-      const resolution = this.enqueueSyncEntity(row.entity_type, this.get(row.entity_type, row.entity_id, true), parents);
+      const resolution = this.enqueueSyncEntity(
+        row.entity_type,
+        this.get(row.entity_type, row.entity_id, true),
+        parents,
+      );
       this.db.prepare("DELETE FROM sync_conflicts WHERE id = ?").run(conflictId);
       return {
         type: row.entity_type,

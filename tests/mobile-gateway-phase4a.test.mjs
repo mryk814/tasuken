@@ -15,6 +15,7 @@ const bundled = await build({
       export { TaskenCoreRuntime } from "./src/main/composition/taskenCoreRuntime.ts";
       export { TaskenCoreClient } from "./src/main/mcp/taskenCoreClient.mjs";
       export { MobileGatewayAdapter, MobileGatewayClient, MobileGatewayClientError, MobileGatewayCoreUnavailableError } from "./src/main/gateway/mobile/public.ts";
+      export { selectLatestWorkReceipt } from "./src/shared/contracts/task/public.ts";
       export * from "./src/shared/contracts/mobile/public.ts";
     `,
     resolveDir: process.cwd(),
@@ -26,7 +27,9 @@ const bundled = await build({
   logLevel: "silent",
 });
 
-const mobile = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`);
+const mobile = await import(
+  `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
+);
 const {
   ApplicationCommandService,
   MobileGatewayAdapter,
@@ -44,6 +47,8 @@ const {
   mobileTaskCommandRequestSchema,
   mobileTaskWorkProposalDecisionRequestSchema,
   mobileTaskWorkProposalDecisionResponseSchema,
+  mobileTaskWorkReviewRequestSchema,
+  mobileTaskWorkReviewResponseSchema,
   mobileTaskWorkProposalsResponseSchema,
   mobileThemesRequestSchema,
   mobileThemesResponseSchema,
@@ -51,33 +56,49 @@ const {
   mobileTodayResponseSchema,
   mobileWorkReceiptRequestSchema,
   mobileWorkReceiptResponseSchema,
+  selectLatestWorkReceipt,
 } = mobile;
 
-const todayGolden = JSON.parse(readFileSync(
-  new URL("../contracts/mobile/v1/today-response.golden.json", import.meta.url),
-  "utf8",
-));
+const todayGolden = JSON.parse(
+  readFileSync(
+    new URL("../contracts/mobile/v1/today-response.golden.json", import.meta.url),
+    "utf8",
+  ),
+);
 
-const themesGolden = JSON.parse(readFileSync(
-  new URL("../contracts/mobile/v1/themes-response.golden.json", import.meta.url),
-  "utf8",
-));
+const themesGolden = JSON.parse(
+  readFileSync(
+    new URL("../contracts/mobile/v1/themes-response.golden.json", import.meta.url),
+    "utf8",
+  ),
+);
 
-const workReceiptGolden = JSON.parse(readFileSync(
-  new URL("../contracts/mobile/v1/work-receipt-response.golden.json", import.meta.url),
-  "utf8",
-));
+const workReceiptGolden = JSON.parse(
+  readFileSync(
+    new URL("../contracts/mobile/v1/work-receipt-response.golden.json", import.meta.url),
+    "utf8",
+  ),
+);
 
-const taskWorkProposalsGolden = JSON.parse(readFileSync(
-  new URL("../contracts/mobile/v1/task-work-proposals-response.golden.json", import.meta.url),
-  "utf8",
-));
+const taskWorkProposalsGolden = JSON.parse(
+  readFileSync(
+    new URL("../contracts/mobile/v1/task-work-proposals-response.golden.json", import.meta.url),
+    "utf8",
+  ),
+);
 
 const now = "2026-08-21T01:00:00.000Z";
 const principal = {
   kind: "mobile_device",
   deviceId: "device-fold-7",
-  scopes: ["mobile:read", "mobile:task-write", "mobile:capture-write", "mobile:proposal-review"],
+  scopes: [
+    "mobile:read",
+    "mobile:task-write",
+    "mobile:capture-write",
+    "mobile:proposal-review",
+    "mobile:human-review",
+    "mobile:context-read",
+  ],
 };
 
 class MemoryRepository {
@@ -92,7 +113,9 @@ class MemoryRepository {
   }
 
   list(type, includeDeleted = false) {
-    return [...this.records.values()].filter((entity) => entity.type === type && (includeDeleted || !entity.deleted_at));
+    return [...this.records.values()].filter(
+      (entity) => entity.type === type && (includeDeleted || !entity.deleted_at),
+    );
   }
 
   get(type, id, includeDeleted = false) {
@@ -124,7 +147,12 @@ class MemoryRepository {
   remove(type, id) {
     const current = this.records.get(`${type}:${id}`);
     if (!current) return null;
-    const deleted = { ...current, deleted_at: now, updated_at: now, version: Number(current.version) + 1 };
+    const deleted = {
+      ...current,
+      deleted_at: now,
+      updated_at: now,
+      version: Number(current.version) + 1,
+    };
     this.records.set(`${type}:${id}`, deleted);
     return { ...deleted };
   }
@@ -137,18 +165,25 @@ class MemoryRepository {
 function capability(repository = new MemoryRepository()) {
   const application = new ApplicationCommandService(repository);
   const service = new TaskCapabilityService(repository, (command) => application.execute(command));
-  return { repository, service };
+  return { repository, service, application };
 }
 
 function core(service, overrides = {}) {
   return {
-    status: async () => ({ apiVersion: "1", capabilities: ["task.query", "task.command"] }),
+    status: async () => ({
+      apiVersion: "1",
+      capabilities: ["task.query", "task.command", "get_task_context"],
+    }),
     listThemes: () => [{ id: "theme-personal-default", name: "Personal" }],
     listWorkReceipts: () => [],
     getWorkReceipt: () => null,
     executeTaskQuery: (input) => service.executeQuery(input),
     executeTaskCommand: (input) => service.executeCommand(input),
-    executeCaptureCommand: () => { throw new Error("Capture command is not configured for this test"); },
+    executeCaptureCommand: () => {
+      throw new Error("Capture command is not configured for this test");
+    },
+    getTaskContext: () => ({ ok: false, error: { code: "not_found" } }),
+    delegateTaskToAgent: () => ({ ok: false, code: "validation_failed" }),
     ...overrides,
   };
 }
@@ -166,7 +201,7 @@ function gateway(service, overrides = {}, options = {}) {
 function todayQuery(overrides = {}) {
   return {
     apiVersion: "1",
-    schemaVersion: "5",
+    schemaVersion: "6",
     requestId: "request-today",
     date: "2026-08-21",
     limit: "20",
@@ -177,7 +212,7 @@ function todayQuery(overrides = {}) {
 function createRequest(overrides = {}) {
   return {
     apiVersion: 1,
-    schemaVersion: 5,
+    schemaVersion: 6,
     requestId: "request-mobile-create",
     commandId: "command-mobile-create",
     idempotencyKey: "command-mobile-create",
@@ -203,7 +238,7 @@ function createRequest(overrides = {}) {
 function captureRequest(overrides = {}) {
   return {
     apiVersion: 1,
-    schemaVersion: 5,
+    schemaVersion: 6,
     requestId: "request-mobile-capture",
     commandId: "command-mobile-capture",
     idempotencyKey: "command-mobile-capture",
@@ -236,7 +271,7 @@ function stateRequest(name, expectedVersion, overrides = {}) {
   const suffix = name === "CompleteTask" ? "complete" : name === "ReopenTask" ? "reopen" : "delete";
   return {
     apiVersion: 1,
-    schemaVersion: 5,
+    schemaVersion: 6,
     requestId: `request-mobile-${suffix}`,
     commandId: `command-mobile-${suffix}`,
     idempotencyKey: `command-mobile-${suffix}`,
@@ -262,22 +297,25 @@ test("canonical Today golden is accepted and malformed responses fail closed", (
     ...structuredClone(todayGolden),
     data: { ...todayGolden.data, ...patch },
   });
-  const withFirstItem = (patch) => withData({
-    items: [{ ...todayGolden.data.items[0], ...patch }, ...todayGolden.data.items.slice(1)],
-  });
+  const withFirstItem = (patch) =>
+    withData({
+      items: [{ ...todayGolden.data.items[0], ...patch }, ...todayGolden.data.items.slice(1)],
+    });
   const missingTitle = structuredClone(todayGolden);
   delete missingTitle.data.items[0].title;
 
   for (const invalid of [
     { ...structuredClone(todayGolden), ok: false },
     withMeta({ apiVersion: 2 }),
-    withMeta({ schemaVersion: 6 }),
+    withMeta({ schemaVersion: 7 }),
     withMeta({ generatedAt: "not-a-timestamp" }),
     withData({ date: "2026-02-30" }),
-    withData({ items: Array.from({ length: 51 }, (_, index) => ({
-      ...todayGolden.data.items[0],
-      id: `task-${index}`,
-    })) }),
+    withData({
+      items: Array.from({ length: 51 }, (_, index) => ({
+        ...todayGolden.data.items[0],
+        id: `task-${index}`,
+      })),
+    }),
     withFirstItem({ id: " " }),
     withFirstItem({ id: "x".repeat(201) }),
     withFirstItem({ state: "invalid" }),
@@ -291,11 +329,13 @@ test("canonical Today golden is accepted and malformed responses fail closed", (
 
   const nonUuidEntityIds = withFirstItem({ id: "task-contract-id", themeId: "theme-contract-id" });
   assert.equal(mobileTodayResponseSchema.safeParse(nonUuidEntityIds).success, true);
-  const padded = mobileTodayResponseSchema.parse(withFirstItem({
-    id: "  task-contract-id  ",
-    title: "  Padded title  ",
-    themeId: "  theme-contract-id  ",
-  }));
+  const padded = mobileTodayResponseSchema.parse(
+    withFirstItem({
+      id: "  task-contract-id  ",
+      title: "  Padded title  ",
+      themeId: "  theme-contract-id  ",
+    }),
+  );
   assert.deepEqual(
     {
       id: padded.data.items[0].id,
@@ -306,15 +346,25 @@ test("canonical Today golden is accepted and malformed responses fail closed", (
   );
   assert.equal(mobileTodayResponseSchema.safeParse(withMeta({ truncated: true })).success, true);
   assert.equal(mobileTodayResponseSchema.safeParse(withData({ nextCursor: "" })).success, true);
-  assert.equal(mobileTodayResponseSchema.safeParse(withFirstItem({
-    checklistItems: [
-      { id: "duplicate", title: "A", done: false, sortOrder: 0, completedAt: null },
-      { id: "duplicate", title: "B", done: false, sortOrder: 1, completedAt: null },
-    ],
-  })).success, false);
-  assert.equal(mobileTodayResponseSchema.safeParse(withFirstItem({
-    checklistItems: [{ id: "valid", title: " ", done: false, sortOrder: 0, completedAt: null }],
-  })).success, false);
+  assert.equal(
+    mobileTodayResponseSchema.safeParse(
+      withFirstItem({
+        checklistItems: [
+          { id: "duplicate", title: "A", done: false, sortOrder: 0, completedAt: null },
+          { id: "duplicate", title: "B", done: false, sortOrder: 1, completedAt: null },
+        ],
+      }),
+    ).success,
+    false,
+  );
+  assert.equal(
+    mobileTodayResponseSchema.safeParse(
+      withFirstItem({
+        checklistItems: [{ id: "valid", title: " ", done: false, sortOrder: 0, completedAt: null }],
+      }),
+    ).success,
+    false,
+  );
 });
 
 test("canonical Theme catalog golden is narrow and malformed responses fail closed", () => {
@@ -335,9 +385,10 @@ test("canonical Theme catalog golden is narrow and malformed responses fail clos
     meta: { ...themesGolden.meta, ...meta },
     data: { ...themesGolden.data, ...data },
   });
-  const withFirstTheme = (patch) => withData({
-    themes: [{ ...themesGolden.data.themes[0], ...patch }, ...themesGolden.data.themes.slice(1)],
-  });
+  const withFirstTheme = (patch) =>
+    withData({
+      themes: [{ ...themesGolden.data.themes[0], ...patch }, ...themesGolden.data.themes.slice(1)],
+    });
   const missingTitle = structuredClone(themesGolden);
   delete missingTitle.data.themes[0].title;
 
@@ -345,7 +396,12 @@ test("canonical Theme catalog golden is narrow and malformed responses fail clos
     withFirstTheme({ title: "" }),
     withFirstTheme({ title: "x".repeat(501) }),
     withFirstTheme({ rawPath: "C:/private/theme" }),
-    withData({ themes: Array.from({ length: 51 }, (_, index) => ({ id: `theme-${index}`, title: `Theme ${index}` })) }),
+    withData({
+      themes: Array.from({ length: 51 }, (_, index) => ({
+        id: `theme-${index}`,
+        title: `Theme ${index}`,
+      })),
+    }),
     withData({ themes: [themesGolden.data.themes[0], themesGolden.data.themes[0]] }),
     withData({ themes: [...themesGolden.data.themes].reverse() }),
     withData({ nextCursor: "" }),
@@ -358,38 +414,55 @@ test("canonical Theme catalog golden is narrow and malformed responses fail clos
     assert.equal(mobileThemesResponseSchema.safeParse(invalid).success, false);
   }
 
-  assert.equal(mobileThemesRequestSchema.safeParse({
-    apiVersion: 1,
-    schemaVersion: 5,
-    requestId: "request-themes",
-    limit: 50,
-  }).success, true);
-  assert.equal(mobileThemesResponseSchema.safeParse(withData({
-    themes: Array.from({ length: 50 }, (_, index) => ({
-      id: `theme-${String(index).padStart(2, "0")}`,
-      title: `Theme ${index}`,
-    })),
-  })).success, true);
-  assert.equal(mobileThemesRequestSchema.safeParse({
-    apiVersion: 1,
-    schemaVersion: 5,
-    requestId: "request-themes-page-2",
-    cursor,
-    limit: 50,
-  }).success, true);
-  assert.equal(mobileThemesRequestSchema.safeParse({
-    apiVersion: 1,
-    schemaVersion: 5,
-    requestId: "request-themes-trimmed-cursor",
-    cursor: ` ${cursor} `,
-    limit: 50,
-  }).success, false);
-  assert.equal(mobileThemesRequestSchema.safeParse({
-    apiVersion: 1,
-    schemaVersion: 5,
-    requestId: "request-themes",
-    limit: 51,
-  }).success, false);
+  assert.equal(
+    mobileThemesRequestSchema.safeParse({
+      apiVersion: 1,
+      schemaVersion: 6,
+      requestId: "request-themes",
+      limit: 50,
+    }).success,
+    true,
+  );
+  assert.equal(
+    mobileThemesResponseSchema.safeParse(
+      withData({
+        themes: Array.from({ length: 50 }, (_, index) => ({
+          id: `theme-${String(index).padStart(2, "0")}`,
+          title: `Theme ${index}`,
+        })),
+      }),
+    ).success,
+    true,
+  );
+  assert.equal(
+    mobileThemesRequestSchema.safeParse({
+      apiVersion: 1,
+      schemaVersion: 6,
+      requestId: "request-themes-page-2",
+      cursor,
+      limit: 50,
+    }).success,
+    true,
+  );
+  assert.equal(
+    mobileThemesRequestSchema.safeParse({
+      apiVersion: 1,
+      schemaVersion: 6,
+      requestId: "request-themes-trimmed-cursor",
+      cursor: ` ${cursor} `,
+      limit: 50,
+    }).success,
+    false,
+  );
+  assert.equal(
+    mobileThemesRequestSchema.safeParse({
+      apiVersion: 1,
+      schemaVersion: 6,
+      requestId: "request-themes",
+      limit: 51,
+    }).success,
+    false,
+  );
 });
 
 test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, versions, and ambiguous idempotency", () => {
@@ -400,6 +473,8 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     workReceiptRead: "mobile.work-receipt.read",
     proposalRead: "mobile.proposal.read",
     proposalReview: "mobile.proposal.review",
+    humanReview: "mobile.human-review",
+    taskContextPreviewRead: "mobile.task-context-preview.read",
     taskWrite: "mobile.task.write",
     captureWrite: "mobile.capture.write",
   });
@@ -412,41 +487,53 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     workReceipt: "/v1/work-receipt",
     proposals: "/v1/proposals",
     proposalDecisions: "/v1/proposal-decisions",
+    workReviews: "/v1/work-reviews",
+    taskContextPreview: "/v1/task-context-preview",
+    taskDelegations: "/v1/task-delegations",
     bootstrap: "/v1/bootstrap",
     sync: "/v1/sync",
     commands: "/v1/commands",
   });
   const valid = createRequest();
   assert.equal(mobileTaskCommandRequestSchema.safeParse(valid).success, true);
-  assert.equal(mobileTaskCommandRequestSchema.safeParse({
-    ...valid,
-    command: {
-      name: "UpdateTask",
-      taskId: "task-mobile-create",
-      expectedScheduleVersion: null,
-      expectedVersion: 1,
-      changes: { todayDate: "2026-08-22" },
-      base: { todayDate: null },
-    },
-  }).success, true);
-  assert.equal(mobileTaskCommandRequestSchema.safeParse({
-    ...valid,
-    command: { name: "DeleteTask", taskId: "task-mobile-create", expectedVersion: 1 },
-  }).success, true);
-  assert.equal(mobileTaskCommandRequestSchema.safeParse({
-    ...valid,
-    command: {
-      name: "UpdateTask",
-      taskId: "task-mobile-create",
-      expectedScheduleVersion: null,
-      expectedVersion: 1,
-      changes: { plannedSchedule: { startTime: "10:00", durationMinutes: 90 } },
-      base: { plannedSchedule: { startTime: null, durationMinutes: null } },
-    },
-  }).success, false);
+  assert.equal(
+    mobileTaskCommandRequestSchema.safeParse({
+      ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
+        expectedVersion: 1,
+        changes: { todayDate: "2026-08-22" },
+        base: { todayDate: null },
+      },
+    }).success,
+    true,
+  );
+  assert.equal(
+    mobileTaskCommandRequestSchema.safeParse({
+      ...valid,
+      command: { name: "DeleteTask", taskId: "task-mobile-create", expectedVersion: 1 },
+    }).success,
+    true,
+  );
+  assert.equal(
+    mobileTaskCommandRequestSchema.safeParse({
+      ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
+        expectedVersion: 1,
+        changes: { plannedSchedule: { startTime: "10:00", durationMinutes: 90 } },
+        base: { plannedSchedule: { startTime: null, durationMinutes: null } },
+      },
+    }).success,
+    false,
+  );
   for (const invalid of [
     { ...valid, apiVersion: 2 },
-    { ...valid, schemaVersion: 6 },
+    { ...valid, schemaVersion: 7 },
     { ...valid, actor: { kind: "user", id: "forged" } },
     { ...valid, source: "android" },
     { ...valid, command: { name: "CompleteTask", taskId: "task-mobile-create" } },
@@ -498,24 +585,32 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
   ]) {
     assert.equal(mobileTaskCommandRequestSchema.safeParse(invalid).success, false);
   }
-  assert.equal(mobileTodayRequestSchema.safeParse({
-    apiVersion: 1,
-    schemaVersion: 5,
-    requestId: "request-today",
-    date: "2026-08-21",
-    limit: 51,
-  }).success, false);
+  assert.equal(
+    mobileTodayRequestSchema.safeParse({
+      apiVersion: 1,
+      schemaVersion: 6,
+      requestId: "request-today",
+      date: "2026-08-21",
+      limit: 51,
+    }).success,
+    false,
+  );
 });
 
 test("Mobile UpdateTask maps Today schedule to the canonical task field", async () => {
   const { service } = capability();
   const adapter = gateway(service);
-  assert.equal((await adapter.handle({
-    method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.commands,
-    principal,
-    body: createRequest(),
-  })).status, 200);
+  assert.equal(
+    (
+      await adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: createRequest(),
+      })
+    ).status,
+    200,
+  );
 
   const scheduled = await adapter.handle({
     method: "POST",
@@ -571,12 +666,17 @@ test("Mobile checklist projection and UpdateTask preserve canonical item semanti
       return service.executeCommand(input);
     },
   });
-  assert.equal((await adapter.handle({
-    method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.commands,
-    principal,
-    body: createRequest(),
-  })).status, 200);
+  assert.equal(
+    (
+      await adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: createRequest(),
+      })
+    ).status,
+    200,
+  );
 
   const checklistItems = [
     { id: "check-second", title: "二番目", done: false, sortOrder: 1, completedAt: null },
@@ -630,32 +730,38 @@ test("Mobile Schedule update derives canonical semantics and keeps Schedule iden
       return service.executeCommand(input);
     },
   });
-  assert.equal((await adapter.handle({
-    method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.commands,
-    principal,
-    body: createRequest(),
-  })).status, 200);
+  assert.equal(
+    (
+      await adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: createRequest(),
+      })
+    ).status,
+    200,
+  );
 
-  const update = async (commandId, expectedVersion, expectedScheduleVersion, changes, base) => adapter.handle({
-    method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.commands,
-    principal,
-    body: {
-      ...createRequest(),
-      requestId: `request-${commandId}`,
-      commandId,
-      idempotencyKey: commandId,
-      command: {
-        name: "UpdateTask",
-        taskId: "task-mobile-create",
-        expectedVersion,
-        expectedScheduleVersion,
-        changes: { schedule: changes },
-        base: { schedule: base },
+  const update = async (commandId, expectedVersion, expectedScheduleVersion, changes, base) =>
+    adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.commands,
+      principal,
+      body: {
+        ...createRequest(),
+        requestId: `request-${commandId}`,
+        commandId,
+        idempotencyKey: commandId,
+        command: {
+          name: "UpdateTask",
+          taskId: "task-mobile-create",
+          expectedVersion,
+          expectedScheduleVersion,
+          changes: { schedule: changes },
+          base: { schedule: base },
+        },
       },
-    },
-  });
+    });
 
   const deadline = { startDate: null, endDate: "2026-08-24", rangeSemantics: null };
   const created = await update("command-mobile-schedule-create", 1, null, deadline, null);
@@ -702,16 +808,27 @@ test("Mobile Schedule update derives canonical semantics and keeps Schedule iden
   assert.equal(repository.list("change_event", true).length, eventsAfterEdit);
 
   const canonicalSchedule = repository.get("schedule", "command-mobile-schedule-create", true);
-  repository.records.set("schedule:command-mobile-schedule-create", { ...canonicalSchedule, date_kind: "deadline" });
+  repository.records.set("schedule:command-mobile-schedule-create", {
+    ...canonicalSchedule,
+    date_kind: "deadline",
+  });
   const legacyProjection = await adapter.handle({
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
     principal,
-    query: { apiVersion: "1", schemaVersion: "5", requestId: "request-legacy-schedule", limit: "50" },
+    query: {
+      apiVersion: "1",
+      schemaVersion: "6",
+      requestId: "request-legacy-schedule",
+      limit: "50",
+    },
   });
   assert.equal(legacyProjection.status, 200);
   assert.equal(legacyProjection.body.data.tasks[0].schedule.dateKind, "range");
-  assert.equal(repository.get("schedule", "command-mobile-schedule-create", true).date_kind, "deadline");
+  assert.equal(
+    repository.get("schedule", "command-mobile-schedule-create", true).date_kind,
+    "deadline",
+  );
   repository.records.set("schedule:command-mobile-schedule-create", canonicalSchedule);
 
   const clearedValue = { startDate: null, endDate: null, rangeSemantics: null };
@@ -735,32 +852,42 @@ test("Mobile Schedule update derives canonical semantics and keeps Schedule iden
 test("Mobile Schedule conflict remains valid when only the canonical Schedule version advanced", async () => {
   const { service } = capability();
   const setup = gateway(service);
-  assert.equal((await setup.handle({
-    method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.commands,
-    principal,
-    body: createRequest(),
-  })).status, 200);
+  assert.equal(
+    (
+      await setup.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: createRequest(),
+      })
+    ).status,
+    200,
+  );
   const deadline = { startDate: null, endDate: "2026-08-24", rangeSemantics: null };
-  assert.equal((await setup.handle({
-    method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.commands,
-    principal,
-    body: {
-      ...createRequest(),
-      requestId: "request-schedule-conflict-setup",
-      commandId: "command-schedule-conflict-setup",
-      idempotencyKey: "command-schedule-conflict-setup",
-      command: {
-        name: "UpdateTask",
-        taskId: "task-mobile-create",
-        expectedVersion: 1,
-        expectedScheduleVersion: null,
-        changes: { schedule: deadline },
-        base: { schedule: null },
-      },
-    },
-  })).status, 200);
+  assert.equal(
+    (
+      await setup.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: {
+          ...createRequest(),
+          requestId: "request-schedule-conflict-setup",
+          commandId: "command-schedule-conflict-setup",
+          idempotencyKey: "command-schedule-conflict-setup",
+          command: {
+            name: "UpdateTask",
+            taskId: "task-mobile-create",
+            expectedVersion: 1,
+            expectedScheduleVersion: null,
+            changes: { schedule: deadline },
+            base: { schedule: null },
+          },
+        },
+      })
+    ).status,
+    200,
+  );
   const queried = service.executeQuery({
     schemaVersion: 2,
     query_id: "query-schedule-conflict",
@@ -799,7 +926,9 @@ test("Mobile Schedule conflict remains valid when only the canonical Schedule ve
         taskId: "task-mobile-create",
         expectedVersion: currentTask.version,
         expectedScheduleVersion: currentTask.schedule.version - 1,
-        changes: { schedule: { startDate: "2026-08-22", endDate: "2026-08-24", rangeSemantics: null } },
+        changes: {
+          schedule: { startDate: "2026-08-22", endDate: "2026-08-24", rangeSemantics: null },
+        },
         base: { schedule: deadline },
       },
     },
@@ -807,9 +936,15 @@ test("Mobile Schedule conflict remains valid when only the canonical Schedule ve
   assert.equal(response.status, 409);
   assert.equal(response.body.error.conflict.conflictField, "schedule");
   assert.equal(response.body.error.conflict.expectedVersion, currentTask.version);
-  assert.equal(response.body.error.conflict.expectedScheduleVersion, currentTask.schedule.version - 1);
+  assert.equal(
+    response.body.error.conflict.expectedScheduleVersion,
+    currentTask.schedule.version - 1,
+  );
   assert.equal(response.body.error.conflict.currentTask.version, currentTask.version);
-  assert.equal(response.body.error.conflict.currentTask.schedule.version, currentTask.schedule.version);
+  assert.equal(
+    response.body.error.conflict.currentTask.schedule.version,
+    currentTask.schedule.version,
+  );
 });
 
 test("Mobile bootstrap projects the latest Work Receipt summary without raw tool output", async () => {
@@ -819,6 +954,7 @@ test("Mobile bootstrap projects the latest Work Receipt summary without raw tool
       {
         id: "receipt-old",
         taskId: "task-mobile-create",
+        version: 1,
         reportedAt: "2026-08-21T01:00:00.000Z",
         executorLabel: "Hermes",
         summary: "古い経過",
@@ -826,23 +962,29 @@ test("Mobile bootstrap projects the latest Work Receipt summary without raw tool
       {
         id: "receipt-new",
         taskId: "task-mobile-create",
+        version: 1,
         reportedAt: "2026-08-21T03:00:00.000Z",
         executorLabel: "Hermes",
         summary: "確認してほしい結果",
       },
     ],
   });
-  assert.equal((await adapter.handle({
-    method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.commands,
-    principal,
-    body: createRequest({
-      command: {
-        ...createRequest().command,
-        task: { ...createRequest().command.task, id: "task-mobile-create" },
-      },
-    }),
-  })).status, 200);
+  assert.equal(
+    (
+      await adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: createRequest({
+          command: {
+            ...createRequest().command,
+            task: { ...createRequest().command.task, id: "task-mobile-create" },
+          },
+        }),
+      })
+    ).status,
+    200,
+  );
   repository.records.set("task:task-mobile-create", {
     ...repository.records.get("task:task-mobile-create"),
     work_state: "needs_human_review",
@@ -852,7 +994,7 @@ test("Mobile bootstrap projects the latest Work Receipt summary without raw tool
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
     principal,
-    query: { apiVersion: "1", schemaVersion: "5", requestId: "request-receipt", limit: "50" },
+    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-receipt", limit: "50" },
   });
   assert.equal(bootstrap.status, 200);
   assert.deepEqual(bootstrap.body.data.tasks[0].latestWorkReceipt, {
@@ -873,15 +1015,38 @@ test("Mobile bootstrap projects the latest Work Receipt summary without raw tool
   assert.equal(today.body.data.items[0].latestWorkReceipt, undefined);
 });
 
+test("latest Work Receipt order compares ISO instants and fails closed on invalid timestamps", () => {
+  const records = [
+    {
+      id: "receipt-lexically-later",
+      reportedAt: "2026-08-21T11:00:00.000+10:00",
+      version: 9,
+    },
+    { id: "receipt-later-instant", reportedAt: "2026-08-21T01:30:00.000Z", version: 1 },
+  ];
+  assert.equal(selectLatestWorkReceipt(records, (receipt) => receipt).id, "receipt-later-instant");
+  assert.throws(
+    () =>
+      selectLatestWorkReceipt(
+        [...records, { id: "receipt-invalid", reportedAt: "2026-08-21", version: 10 }],
+        (receipt) => receipt,
+      ),
+    /valid ISO 8601 timestamp/,
+  );
+});
+
 test("Mobile Work Receipt detail exposes only bounded canonical review fields", async () => {
   assert.deepEqual(mobileWorkReceiptResponseSchema.parse(workReceiptGolden), workReceiptGolden);
-  assert.equal(mobileWorkReceiptRequestSchema.safeParse({
-    apiVersion: 1,
-    schemaVersion: 5,
-    requestId: "request-work-receipt",
-    taskId: "task-ai-review",
-    receiptId: "receipt-ai-review",
-  }).success, true);
+  assert.equal(
+    mobileWorkReceiptRequestSchema.safeParse({
+      apiVersion: 1,
+      schemaVersion: 6,
+      requestId: "request-work-receipt",
+      taskId: "task-ai-review",
+      receiptId: "receipt-ai-review",
+    }).success,
+    true,
+  );
   const { service } = capability();
   const adapter = gateway(service, {
     getWorkReceipt: () => ({
@@ -896,14 +1061,21 @@ test("Mobile Work Receipt detail exposes only bounded canonical review fields", 
       changedOrCreatedItems: ["src/shared/contracts/mobile/schema.ts"],
       verification: ["node --test tests/mobile-gateway-phase4a.test.mjs"],
       remainingWork: ["Fold7 final signoff"],
-      externalReferences: [{
-        kind: "pull_request",
-        provider: "github",
-        display_label: "PR #472",
-        url: "https://github.com/mryk814/tasuken/pull/472",
-        external_id: "472",
-      }],
-      runtimeMetadata: { provider: "openai", model: "codex", report_kind: "report", reasoning: "hidden" },
+      externalReferences: [
+        {
+          kind: "pull_request",
+          provider: "github",
+          display_label: "PR #472",
+          url: "https://github.com/mryk814/tasuken/pull/472",
+          external_id: "472",
+        },
+      ],
+      runtimeMetadata: {
+        provider: "openai",
+        model: "codex",
+        report_kind: "report",
+        reasoning: "hidden",
+      },
       toolOutput: "hidden",
       reasoning: "hidden",
     }),
@@ -914,7 +1086,7 @@ test("Mobile Work Receipt detail exposes only bounded canonical review fields", 
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "5",
+      schemaVersion: "6",
       requestId: "request-work-receipt",
       taskId: "task-ai-review",
       receiptId: "receipt-ai-review",
@@ -943,31 +1115,41 @@ test("Mobile Work Receipt detail rejects cross-Task lookup and truncates oversiz
       changedOrCreatedItems: [],
       verification: [],
       remainingWork: [],
-      externalReferences: [{
-        kind: "pull_request",
-        provider: "github",
-        display_label: "PR #472",
-        url: "https://github.com/mryk814/tasuken/pull/472?token=must-not-leave#review",
-        external_id: "472",
-      }],
+      externalReferences: [
+        {
+          kind: "pull_request",
+          provider: "github",
+          display_label: "PR #472",
+          url: "https://github.com/mryk814/tasuken/pull/472?token=must-not-leave#review",
+          external_id: "472",
+        },
+      ],
       runtimeMetadata: { report_kind: "blocked" },
     }),
   });
   const query = {
     apiVersion: "1",
-    schemaVersion: "5",
+    schemaVersion: "6",
     requestId: "request-large",
     taskId: "task-owner",
     receiptId: "receipt-large",
   };
-  const response = await adapter.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.workReceipt, principal, query });
+  const response = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.workReceipt,
+    principal,
+    query,
+  });
   assert.equal(response.status, 200);
   assert.equal(response.body.meta.truncated, true);
   assert.equal(response.body.data.receipt.reportKind, "blocked");
   assert.equal(response.body.data.receipt.summary.length, 10000);
   assert.equal(response.body.data.receipt.completedItems.length, 20);
   assert.ok(response.body.data.receipt.completedItems.every((item) => item.length <= 400));
-  assert.equal(response.body.data.receipt.externalReferences[0].url, "https://github.com/mryk814/tasuken/pull/472");
+  assert.equal(
+    response.body.data.receipt.externalReferences[0].url,
+    "https://github.com/mryk814/tasuken/pull/472",
+  );
 
   const crossTask = await adapter.handle({
     method: "GET",
@@ -984,15 +1166,20 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
     mobileTaskWorkProposalsResponseSchema.parse(taskWorkProposalsGolden),
     taskWorkProposalsGolden,
   );
-  assert.equal(mobileTaskWorkProposalsResponseSchema.safeParse({
-    ...structuredClone(taskWorkProposalsGolden),
-    data: {
-      proposals: [{
-        ...taskWorkProposalsGolden.data.proposals[0],
-        runtimeMetadata: { reasoning: "must stay on Desktop" },
-      }],
-    },
-  }).success, false);
+  assert.equal(
+    mobileTaskWorkProposalsResponseSchema.safeParse({
+      ...structuredClone(taskWorkProposalsGolden),
+      data: {
+        proposals: [
+          {
+            ...taskWorkProposalsGolden.data.proposals[0],
+            runtimeMetadata: { reasoning: "must stay on Desktop" },
+          },
+        ],
+      },
+    }).success,
+    false,
+  );
 
   const { repository } = capability();
   const application = new ApplicationCommandService(repository);
@@ -1030,17 +1217,19 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
     source_app: "hermes-discord",
     payload_type: "task_work",
     payload: {
-      task_work: [{
-        action: "start",
-        task_id: "task-proposal-review",
-        expected_version: 1,
-        caller: "Hermes",
-        executor_kind: "ai_agent",
-        executor_identity: "Hermes",
-        started_at: null,
-        repository_context: { repository_slug: "mryk814/tasuken", branch: "secret-branch" },
-        runtime_metadata: { provider: "hidden", reasoning: "hidden" },
-      }],
+      task_work: [
+        {
+          action: "start",
+          task_id: "task-proposal-review",
+          expected_version: 1,
+          caller: "Hermes",
+          executor_kind: "ai_agent",
+          executor_identity: "Hermes",
+          started_at: null,
+          repository_context: { repository_slug: "mryk814/tasuken", branch: "secret-branch" },
+          runtime_metadata: { provider: "hidden", reasoning: "hidden" },
+        },
+      ],
     },
     request: {
       caller: "Hermes",
@@ -1055,7 +1244,7 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.proposals,
     principal,
-    query: { apiVersion: "1", schemaVersion: "5", requestId: "request-proposals", limit: "50" },
+    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-proposals", limit: "50" },
   });
   assert.equal(proposalList.status, 200);
   assert.equal(proposalList.body.data.proposals.length, 1);
@@ -1094,7 +1283,7 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
 
   const decisionBody = {
     apiVersion: 1,
-    schemaVersion: 5,
+    schemaVersion: 6,
     requestId: "request-proposal-accept",
     commandId: "command-proposal-accept",
     idempotencyKey: "command-proposal-accept",
@@ -1152,12 +1341,16 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
     source: "mcp",
     source_app: "codex",
     payload_type: "task_work",
-    payload: { task_work: [{
-      action: "start",
-      task_id: "task-proposal-review",
-      expected_version: 1,
-      caller: "Codex",
-    }] },
+    payload: {
+      task_work: [
+        {
+          action: "start",
+          task_id: "task-proposal-review",
+          expected_version: 1,
+          caller: "Codex",
+        },
+      ],
+    },
     request: { caller: "Codex" },
     status: "pending",
     received_at: "2026-08-21T01:01:00.000Z",
@@ -1166,7 +1359,12 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.proposals,
     principal,
-    query: { apiVersion: "1", schemaVersion: "5", requestId: "request-stale-proposal", limit: "50" },
+    query: {
+      apiVersion: "1",
+      schemaVersion: "6",
+      requestId: "request-stale-proposal",
+      limit: "50",
+    },
   });
   assert.equal(staleList.body.data.proposals[0].stale, true);
   const staleAccept = await adapter.handle({
@@ -1240,12 +1438,17 @@ test("Mobile UpdateTask maps Theme to canonical project_id, normalizes null to P
       return service.executeCommand(input);
     },
   });
-  assert.equal((await adapter.handle({
-    method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.commands,
-    principal,
-    body: createRequest(),
-  })).status, 200);
+  assert.equal(
+    (
+      await adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: createRequest(),
+      })
+    ).status,
+    200,
+  );
 
   const attached = await adapter.handle({
     method: "POST",
@@ -1380,7 +1583,10 @@ test("Phase 4A Today is scope-gated, Core-delegated, bounded, and path/secret fr
     "version",
     "workState",
   ]);
-  assert.doesNotMatch(JSON.stringify(response.body), /C:\/private|secret|token\.txt|repository_subdirectory|ai_source_refs/);
+  assert.doesNotMatch(
+    JSON.stringify(response.body),
+    /C:\/private|secret|token\.txt|repository_subdirectory|ai_source_refs/,
+  );
 
   const forbidden = await adapter.handle({
     method: "GET",
@@ -1419,7 +1625,12 @@ test("Phase 4A Today is scope-gated, Core-delegated, bounded, and path/secret fr
 test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes only id/title", async () => {
   const { service } = capability();
   const catalog = [
-    { id: "theme-gamma", name: "Gamma", description: "C:/private/theme-gamma", accessToken: "secret-gamma" },
+    {
+      id: "theme-gamma",
+      name: "Gamma",
+      description: "C:/private/theme-gamma",
+      accessToken: "secret-gamma",
+    },
     { id: "theme-alpha", name: "Alpha", repository_subdirectory: "/private/alpha" },
     { id: "theme-beta", name: "Beta", ai_source_refs: [{ locator: "C:/secret/token.txt" }] },
   ];
@@ -1428,7 +1639,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal,
-    query: { apiVersion: "1", schemaVersion: "5", requestId: "request-themes-1", limit: "2" },
+    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-themes-1", limit: "2" },
   });
   assert.equal(first.status, 200);
   assert.equal(first.body.meta.truncated, true);
@@ -1439,7 +1650,10 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
   const firstCursor = decodeTaskenMobileThemeCursor(first.body.data.nextCursor);
   assert.equal(firstCursor?.position, 2);
   assert.match(firstCursor?.fingerprint || "", /^[0-9a-f]{64}$/);
-  assert.doesNotMatch(JSON.stringify(first.body), /private|secret|token|description|repository|source/i);
+  assert.doesNotMatch(
+    JSON.stringify(first.body),
+    /private|secret|token|description|repository|source/i,
+  );
 
   const second = await adapter.handle({
     method: "GET",
@@ -1447,7 +1661,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "5",
+      schemaVersion: "6",
       requestId: "request-themes-2",
       cursor: first.body.data.nextCursor,
       limit: "2",
@@ -1464,7 +1678,12 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal,
-    query: { apiVersion: "1", schemaVersion: "5", requestId: "request-themes-stale", cursor: "theme-missing" },
+    query: {
+      apiVersion: "1",
+      schemaVersion: "6",
+      requestId: "request-themes-stale",
+      cursor: "theme-missing",
+    },
   });
   assert.equal(invalidCursor.status, 400);
   assert.equal(invalidCursor.body.error.code, "validation_failed");
@@ -1475,7 +1694,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "5",
+      schemaVersion: "6",
       requestId: "request-themes-trimmed",
       cursor: ` ${first.body.data.nextCursor} `,
     },
@@ -1490,7 +1709,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "5",
+      schemaVersion: "6",
       requestId: "request-themes-changed",
       cursor: first.body.data.nextCursor,
       limit: "2",
@@ -1508,7 +1727,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal,
-    query: { apiVersion: "1", schemaVersion: "5", requestId: "request-themes-duplicate" },
+    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-themes-duplicate" },
   });
   assert.equal(duplicateCatalog.status, 500);
   assert.equal(duplicateCatalog.body.error.code, "internal_error");
@@ -1517,7 +1736,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal: { ...principal, scopes: ["mobile:task-write"] },
-    query: { apiVersion: "1", schemaVersion: "5", requestId: "request-themes-forbidden" },
+    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-themes-forbidden" },
   });
   assert.equal(forbidden.status, 403);
 
@@ -1525,7 +1744,12 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal,
-    query: { apiVersion: "1", schemaVersion: "5", requestId: "request-themes-invalid", includeArchived: "true" },
+    query: {
+      apiVersion: "1",
+      schemaVersion: "6",
+      requestId: "request-themes-invalid",
+      includeArchived: "true",
+    },
   });
   assert.equal(unknownQuery.status, 400);
   assert.equal(unknownQuery.body.error.code, "validation_failed");
@@ -1577,7 +1801,10 @@ test("CreateTask preserves strict capture provenance through replay without stor
     source_audio_available: false,
     shared_mime_type: null,
   });
-  assert.doesNotMatch(JSON.stringify(mobileCapability.repository.list("change_event")[0].metadata), /音声で作成したTask/);
+  assert.doesNotMatch(
+    JSON.stringify(mobileCapability.repository.list("change_event")[0].metadata),
+    /音声で作成したTask/,
+  );
 
   const replay = await adapter.handle({
     method: "POST",
@@ -1805,7 +2032,12 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
     method: "POST",
     path: TASKEN_MOBILE_ENDPOINTS.commands,
     principal,
-    body: createRequest({ command: { ...createRequest().command, task: { ...createRequest().command.task, title: "Changed" } } }),
+    body: createRequest({
+      command: {
+        ...createRequest().command,
+        task: { ...createRequest().command.task, title: "Changed" },
+      },
+    }),
   });
   assert.equal(conflict.status, 409);
   assert.equal(conflict.body.error.code, "idempotency_conflict");
@@ -1861,7 +2093,11 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
       change_type: mobileEvent.change_type,
       command_name: mobileEvent.command_name,
       after: canonicalTask(JSON.parse(mobileEvent.after_json)),
-      attribution: { actor_kind: mobileEvent.actor_kind, actor_id: "normalized", command_source: "normalized" },
+      attribution: {
+        actor_kind: mobileEvent.actor_kind,
+        actor_id: "normalized",
+        command_source: "normalized",
+      },
     },
     {
       entity_type: desktopEvent.entity_type,
@@ -1869,7 +2105,11 @@ test("Phase 4A CreateTask derives actor/source, matches Desktop semantics, and u
       change_type: desktopEvent.change_type,
       command_name: desktopEvent.command_name,
       after: canonicalTask(JSON.parse(desktopEvent.after_json)),
-      attribution: { actor_kind: desktopEvent.actor_kind, actor_id: "normalized", command_source: "normalized" },
+      attribution: {
+        actor_kind: desktopEvent.actor_kind,
+        actor_id: "normalized",
+        command_source: "normalized",
+      },
     },
   );
   assert.deepEqual(
@@ -2095,13 +2335,25 @@ test("Mobile CompleteTask and ReopenTask require canonical expectedVersion and p
 
 test("Phase 4A fails closed on Core version/capability and client uses separate HTTPS bearer", async () => {
   const { service } = capability();
-  const mismatch = gateway(service, { status: async () => ({ apiVersion: "999", capabilities: ["task.query", "task.command"] }) });
-  const response = await mismatch.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.health, principal });
+  const mismatch = gateway(service, {
+    status: async () => ({ apiVersion: "999", capabilities: ["task.query", "task.command"] }),
+  });
+  const response = await mismatch.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.health,
+    principal,
+  });
   assert.equal(response.status, 409);
   assert.equal(response.body.error.code, "version_mismatch");
 
-  const missing = gateway(service, { status: async () => ({ apiVersion: "1", capabilities: ["task.query"] }) });
-  const missingResponse = await missing.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.health, principal });
+  const missing = gateway(service, {
+    status: async () => ({ apiVersion: "1", capabilities: ["task.query"] }),
+  });
+  const missingResponse = await missing.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.health,
+    principal,
+  });
   assert.equal(missingResponse.body.error.code, "capability_unavailable");
 
   const writeOnlyPrincipal = { ...principal, scopes: ["mobile:task-write"] };
@@ -2133,9 +2385,17 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   assert.equal(coreStatusCalls, 0);
 
   const warnings = [];
-  const unexpected = gateway(service, { status: async () => { throw new Error("secret body token"); } }, {
-    logger: { warn: (event) => warnings.push(event) },
-  });
+  const unexpected = gateway(
+    service,
+    {
+      status: async () => {
+        throw new Error("secret body token");
+      },
+    },
+    {
+      logger: { warn: (event) => warnings.push(event) },
+    },
+  );
   const unexpectedResponse = await unexpected.handle({
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.health,
@@ -2147,10 +2407,20 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   assert.deepEqual(warnings, [{ id: "unknown", location: "MobileGatewayAdapter.handle" }]);
   assert.doesNotMatch(JSON.stringify(warnings), /secret|token/);
 
-  const unavailable = gateway(service, {
-    status: async () => { throw new MobileGatewayCoreUnavailableError(); },
-  }, { logger: { warn: (event) => warnings.push(event) } });
-  const unavailableResponse = await unavailable.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.health, principal });
+  const unavailable = gateway(
+    service,
+    {
+      status: async () => {
+        throw new MobileGatewayCoreUnavailableError();
+      },
+    },
+    { logger: { warn: (event) => warnings.push(event) } },
+  );
+  const unavailableResponse = await unavailable.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.health,
+    principal,
+  });
   assert.equal(unavailableResponse.status, 503);
   assert.equal(unavailableResponse.body.error.code, "upstream_unavailable");
   assert.equal(unavailableResponse.body.error.retryable, true);
@@ -2163,7 +2433,12 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
     baseUrl: "https://desktop.tailnet.ts.net",
     accessToken,
     fetch: async (url, init) => {
-      seen.push({ url, method: init.method, body: init.body, authorization: init.headers.authorization });
+      seen.push({
+        url,
+        method: init.method,
+        body: init.body,
+        authorization: init.headers.authorization,
+      });
       const authorized = init.headers.authorization === `Bearer ${accessToken}`;
       const result = await adapter.handle({
         method: init.method,
@@ -2173,7 +2448,10 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
         ...(init.body ? { body: JSON.parse(init.body) } : {}),
       });
       const body = JSON.stringify(result.body);
-      return new Response(body, { status: result.status, headers: { ...result.headers, "content-length": String(Buffer.byteLength(body)) } });
+      return new Response(body, {
+        status: result.status,
+        headers: { ...result.headers, "content-length": String(Buffer.byteLength(body)) },
+      });
     },
   });
   const health = await client.health();
@@ -2184,13 +2462,15 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
     TASKEN_MOBILE_CAPABILITIES.syncRead,
     TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
     TASKEN_MOBILE_CAPABILITIES.proposalRead,
+    TASKEN_MOBILE_CAPABILITIES.taskContextPreviewRead,
     TASKEN_MOBILE_CAPABILITIES.taskWrite,
     TASKEN_MOBILE_CAPABILITIES.captureWrite,
     TASKEN_MOBILE_CAPABILITIES.proposalReview,
+    TASKEN_MOBILE_CAPABILITIES.humanReview,
   ]);
   const themes = await client.listThemes({
     apiVersion: 1,
-    schemaVersion: 5,
+    schemaVersion: 6,
     requestId: "request-client-themes",
     limit: 50,
   });
@@ -2205,43 +2485,57 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
     accessToken,
     fetch: async (url) => {
       legacyRequests.push(new URL(url).pathname);
-      return new Response(JSON.stringify({
-        ok: false,
-        meta: { ...themesGolden.meta, serverId: "legacy-desktop", truncated: false },
-        error: {
-          code: "not_found",
-          message: "Mobile API endpointが見つかりません。",
-          retryable: false,
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          meta: { ...themesGolden.meta, serverId: "legacy-desktop", truncated: false },
+          error: {
+            code: "not_found",
+            message: "Mobile API endpointが見つかりません。",
+            retryable: false,
+          },
+        }),
+        {
+          status: 404,
+          headers: { "x-tasken-mobile-api-version": "1" },
         },
-      }), {
-        status: 404,
-        headers: { "x-tasken-mobile-api-version": "1" },
-      });
+      );
     },
   });
-  await assert.rejects(legacyDesktop.listThemes({
-    apiVersion: 1,
-    schemaVersion: 5,
-    requestId: "request-legacy-themes",
-    limit: 50,
-  }), (error) => error instanceof MobileGatewayClientError && error.code === "not_found");
+  await assert.rejects(
+    legacyDesktop.listThemes({
+      apiVersion: 1,
+      schemaVersion: 6,
+      requestId: "request-legacy-themes",
+      limit: 50,
+    }),
+    (error) => error instanceof MobileGatewayClientError && error.code === "not_found",
+  );
   assert.deepEqual(legacyRequests, [TASKEN_MOBILE_ENDPOINTS.themes]);
 
-  const created = await client.executeTaskCommand(createRequest({
-    requestId: "request-client-create",
-    commandId: "command-client-create",
-    idempotencyKey: "command-client-create",
-    command: { ...createRequest().command, task: { ...createRequest().command.task, id: "task-client-create" } },
-  }));
+  const created = await client.executeTaskCommand(
+    createRequest({
+      requestId: "request-client-create",
+      commandId: "command-client-create",
+      idempotencyKey: "command-client-create",
+      command: {
+        ...createRequest().command,
+        task: { ...createRequest().command.task, id: "task-client-create" },
+      },
+    }),
+  );
   assert.equal(created.data.status, "applied");
   const today = await client.listToday({
     apiVersion: 1,
-    schemaVersion: 5,
+    schemaVersion: 6,
     requestId: "request-client-today",
     date: "2026-08-21",
     limit: 20,
   });
-  assert.equal(today.data.items.some((item) => item.id === "task-client-create"), true);
+  assert.equal(
+    today.data.items.some((item) => item.id === "task-client-create"),
+    true,
+  );
   const todayCall = seen.find((entry) => entry.url.includes("/v1/today?"));
   assert.ok(todayCall);
   assert.equal(todayCall.method, "GET");
@@ -2250,8 +2544,14 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   assert.ok(themesCall);
   assert.equal(themesCall.method, "GET");
   assert.equal(themesCall.body, undefined);
-  assert.equal(seen.every((entry) => entry.url.startsWith("https://desktop.tailnet.ts.net/v1/")), true);
-  assert.equal(seen.every((entry) => entry.authorization === `Bearer ${accessToken}`), true);
+  assert.equal(
+    seen.every((entry) => entry.url.startsWith("https://desktop.tailnet.ts.net/v1/")),
+    true,
+  );
+  assert.equal(
+    seen.every((entry) => entry.authorization === `Bearer ${accessToken}`),
+    true,
+  );
 
   const writeOnlyClient = new MobileGatewayClient({
     baseUrl: "https://desktop.tailnet.ts.net",
@@ -2264,26 +2564,37 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
         query: Object.fromEntries(new URL(url).searchParams),
         ...(init.body ? { body: JSON.parse(init.body) } : {}),
       });
-      return new Response(JSON.stringify(result.body), { status: result.status, headers: result.headers });
+      return new Response(JSON.stringify(result.body), {
+        status: result.status,
+        headers: result.headers,
+      });
     },
   });
-  const writeOnlyCreated = await writeOnlyClient.executeTaskCommand(createRequest({
-    requestId: "request-write-only-create",
-    commandId: "command-write-only-create",
-    idempotencyKey: "command-write-only-create",
-    command: {
-      ...createRequest().command,
-      task: { ...createRequest().command.task, id: "task-write-only-create" },
-    },
-  }));
+  const writeOnlyCreated = await writeOnlyClient.executeTaskCommand(
+    createRequest({
+      requestId: "request-write-only-create",
+      commandId: "command-write-only-create",
+      idempotencyKey: "command-write-only-create",
+      command: {
+        ...createRequest().command,
+        task: { ...createRequest().command.task, id: "task-write-only-create" },
+      },
+    }),
+  );
   assert.equal(writeOnlyCreated.data.status, "applied");
-  assert.throws(() => new MobileGatewayClient({ baseUrl: "http://127.0.0.1:1234", accessToken }), /private HTTPS/);
+  assert.throws(
+    () => new MobileGatewayClient({ baseUrl: "http://127.0.0.1:1234", accessToken }),
+    /private HTTPS/,
+  );
 });
 
 test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose tombstones and server reset", async () => {
   const { repository, service } = capability();
   const adapter = gateway(service);
-  for (const [id, title] of [["task-sync-a", "同期A"], ["task-sync-b", "同期B"]]) {
+  for (const [id, title] of [
+    ["task-sync-a", "同期A"],
+    ["task-sync-b", "同期B"],
+  ]) {
     const response = await adapter.handle({
       method: "POST",
       path: TASKEN_MOBILE_ENDPOINTS.commands,
@@ -2292,7 +2603,10 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
         requestId: `request-${id}`,
         commandId: `command-${id}`,
         idempotencyKey: `command-${id}`,
-        command: { ...createRequest().command, task: { ...createRequest().command.task, id, title } },
+        command: {
+          ...createRequest().command,
+          task: { ...createRequest().command.task, id, title },
+        },
       }),
     });
     assert.equal(response.status, 200);
@@ -2302,10 +2616,13 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
     principal,
-    query: { apiVersion: "1", schemaVersion: "5", requestId: "request-bootstrap", limit: "50" },
+    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-bootstrap", limit: "50" },
   });
   assert.equal(bootstrap.status, 200);
-  assert.deepEqual(bootstrap.body.data.tasks.map((task) => task.id).sort(), ["task-sync-a", "task-sync-b"]);
+  assert.deepEqual(bootstrap.body.data.tasks.map((task) => task.id).sort(), [
+    "task-sync-a",
+    "task-sync-b",
+  ]);
   assert.equal(bootstrap.body.data.hasMore, false);
   const cursor = bootstrap.body.data.nextCursor;
   assert.equal(typeof cursor, "string");
@@ -2325,9 +2642,25 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
     deleted_at: "2026-08-21T03:00:00.000Z",
   });
 
-  const syncQuery = { apiVersion: "1", schemaVersion: "5", requestId: "request-sync", cursor, limit: "1" };
-  const firstPage = await adapter.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.sync, principal, query: syncQuery });
-  const retriedPage = await adapter.handle({ method: "GET", path: TASKEN_MOBILE_ENDPOINTS.sync, principal, query: syncQuery });
+  const syncQuery = {
+    apiVersion: "1",
+    schemaVersion: "6",
+    requestId: "request-sync",
+    cursor,
+    limit: "1",
+  };
+  const firstPage = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.sync,
+    principal,
+    query: syncQuery,
+  });
+  const retriedPage = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.sync,
+    principal,
+    query: syncQuery,
+  });
   assert.deepEqual(retriedPage.body.data, firstPage.body.data);
   assert.equal(firstPage.body.data.hasMore, true);
   assert.equal(firstPage.body.data.changes[0].kind, "upsert");
@@ -2340,17 +2673,25 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
     query: { ...syncQuery, requestId: "request-sync-2", cursor: firstPage.body.data.nextCursor },
   });
   assert.equal(secondPage.body.data.hasMore, false);
-  assert.deepEqual(secondPage.body.data.changes, [{
-    kind: "tombstone",
-    entityType: "task",
-    id: "task-sync-b",
-    version: 2,
-    updatedAt: "2026-08-21T03:00:00.000Z",
-  }]);
+  assert.deepEqual(secondPage.body.data.changes, [
+    {
+      kind: "tombstone",
+      entityType: "task",
+      id: "task-sync-b",
+      version: 2,
+      updatedAt: "2026-08-21T03:00:00.000Z",
+    },
+  ]);
 
-  const resetAdapter = gateway(service, {}, {
-    state: { current: () => ({ serverId: "desktop-restored", serverRevision: 1, generatedAt: now }) },
-  });
+  const resetAdapter = gateway(
+    service,
+    {},
+    {
+      state: {
+        current: () => ({ serverId: "desktop-restored", serverRevision: 1, generatedAt: now }),
+      },
+    },
+  );
   const resetResponse = await resetAdapter.handle({
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.sync,
@@ -2364,20 +2705,29 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
 test("Mobile bootstrap rederives dateKind when stored schedule kind disagrees with dates", async () => {
   const { repository, service } = capability();
   const adapter = gateway(service);
-  assert.equal((await adapter.handle({
-    method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.commands,
-    principal,
-    body: createRequest({
-      requestId: "request-mismatch-create",
-      commandId: "command-mismatch-create",
-      idempotencyKey: "command-mismatch-create",
-      command: {
-        ...createRequest().command,
-        task: { ...createRequest().command.task, id: "task-datekind-mismatch", title: "日付種別ずれ" },
-      },
-    }),
-  })).status, 200);
+  assert.equal(
+    (
+      await adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: createRequest({
+          requestId: "request-mismatch-create",
+          commandId: "command-mismatch-create",
+          idempotencyKey: "command-mismatch-create",
+          command: {
+            ...createRequest().command,
+            task: {
+              ...createRequest().command.task,
+              id: "task-datekind-mismatch",
+              title: "日付種別ずれ",
+            },
+          },
+        }),
+      })
+    ).status,
+    200,
+  );
 
   repository.records.set("schedule:sched-datekind-mismatch", {
     type: "schedule",
@@ -2401,7 +2751,12 @@ test("Mobile bootstrap rederives dateKind when stored schedule kind disagrees wi
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
     principal,
-    query: { apiVersion: "1", schemaVersion: "5", requestId: "request-bootstrap-mismatch", limit: "50" },
+    query: {
+      apiVersion: "1",
+      schemaVersion: "6",
+      requestId: "request-bootstrap-mismatch",
+      limit: "50",
+    },
   });
   assert.equal(bootstrap.status, 200);
   const task = bootstrap.body.data.tasks.find((item) => item.id === "task-datekind-mismatch");
@@ -2413,12 +2768,17 @@ test("Mobile bootstrap rederives dateKind when stored schedule kind disagrees wi
 test("Mobile UpdateTask auto-merges a different-field race and returns canonical same-field conflict", async () => {
   const { service } = capability();
   const adapter = gateway(service);
-  assert.equal((await adapter.handle({
-    method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.commands,
-    principal,
-    body: createRequest(),
-  })).status, 200);
+  assert.equal(
+    (
+      await adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: createRequest(),
+      })
+    ).status,
+    200,
+  );
 
   const priorityUpdate = service.executeCommand({
     schemaVersion: 2,
@@ -2461,7 +2821,11 @@ test("Mobile UpdateTask auto-merges a different-field race and returns canonical
     actor: { kind: "user", id: "desktop-user" },
     source: "desktop",
     issued_at: now,
-    payload: { task_id: "task-mobile-create", expected_version: 3, changes: { title: "Desktop title" } },
+    payload: {
+      task_id: "task-mobile-create",
+      expected_version: 3,
+      changes: { title: "Desktop title" },
+    },
   });
   assert.equal(desktopTitle.ok, true);
 
@@ -2495,26 +2859,40 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
   const unauthorizedClient = new MobileGatewayClient({
     baseUrl: "https://desktop.tailnet.ts.net",
     accessToken,
-    fetch: async () => new Response(JSON.stringify({
-      ok: false,
-      meta: { apiVersion: 1, schemaVersion: 5, serverId: "desktop", serverRevision: 1, generatedAt: now, truncated: false },
-      error: { code: "unauthorized", message: `leak ${accessToken}`, retryable: false },
-    }), { status: 401, headers: { "x-tasken-mobile-api-version": "1" } }),
+    fetch: async () =>
+      new Response(
+        JSON.stringify({
+          ok: false,
+          meta: {
+            apiVersion: 1,
+            schemaVersion: 6,
+            serverId: "desktop",
+            serverRevision: 1,
+            generatedAt: now,
+            truncated: false,
+          },
+          error: { code: "unauthorized", message: `leak ${accessToken}`, retryable: false },
+        }),
+        { status: 401, headers: { "x-tasken-mobile-api-version": "1" } },
+      ),
   });
-  await assert.rejects(unauthorizedClient.health(), (error) => (
-    error instanceof MobileGatewayClientError
-      && error.code === "unauthorized"
-      && !error.message.includes(accessToken)
-  ));
+  await assert.rejects(
+    unauthorizedClient.health(),
+    (error) =>
+      error instanceof MobileGatewayClientError &&
+      error.code === "unauthorized" &&
+      !error.message.includes(accessToken),
+  );
 
   const oversized = new MobileGatewayClient({
     baseUrl: "https://desktop.tailnet.ts.net",
     accessToken,
     maxResponseBytes: 32,
-    fetch: async () => new Response("{}", {
-      status: 200,
-      headers: { "content-length": "999", "x-tasken-mobile-api-version": "1" },
-    }),
+    fetch: async () =>
+      new Response("{}", {
+        status: 200,
+        headers: { "content-length": "999", "x-tasken-mobile-api-version": "1" },
+      }),
   });
   await assert.rejects(oversized.health(), (error) => error.code === "response_too_large");
 
@@ -2524,19 +2902,26 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
     baseUrl: "https://desktop.tailnet.ts.net",
     accessToken,
     maxResponseBytes: 32,
-    fetch: async () => new Response(new ReadableStream({
-      pull(controller) {
-        pulls += 1;
-        controller.enqueue(new Uint8Array(20));
-        if (pulls === 10) controller.close();
-      },
-      cancel() {
-        cancelled = true;
-      },
-    }, { highWaterMark: 0 }), {
-      status: 200,
-      headers: { "x-tasken-mobile-api-version": "1" },
-    }),
+    fetch: async () =>
+      new Response(
+        new ReadableStream(
+          {
+            pull(controller) {
+              pulls += 1;
+              controller.enqueue(new Uint8Array(20));
+              if (pulls === 10) controller.close();
+            },
+            cancel() {
+              cancelled = true;
+            },
+          },
+          { highWaterMark: 0 },
+        ),
+        {
+          status: 200,
+          headers: { "x-tasken-mobile-api-version": "1" },
+        },
+      ),
   });
   await assert.rejects(unbounded.health(), (error) => error.code === "response_too_large");
   assert.equal(cancelled, true);
@@ -2546,9 +2931,10 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
     baseUrl: "https://desktop.tailnet.ts.net",
     accessToken,
     timeoutMs: 5,
-    fetch: async (_url, init) => new Promise((_resolve, reject) => {
-      init.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-    }),
+    fetch: async (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      }),
   });
   await assert.rejects(timeout.health(), (error) => error.code === "gateway_unavailable");
 
@@ -2557,14 +2943,18 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
     baseUrl: "https://desktop.tailnet.ts.net",
     accessToken,
     timeoutMs: 5,
-    fetch: async () => new Response(new ReadableStream({
-      cancel() {
-        stalledCancelled = true;
-      },
-    }), {
-      status: 200,
-      headers: { "x-tasken-mobile-api-version": "1" },
-    }),
+    fetch: async () =>
+      new Response(
+        new ReadableStream({
+          cancel() {
+            stalledCancelled = true;
+          },
+        }),
+        {
+          status: 200,
+          headers: { "x-tasken-mobile-api-version": "1" },
+        },
+      ),
   });
   await assert.rejects(stalledBody.health(), (error) => error.code === "gateway_unavailable");
   assert.equal(stalledCancelled, true);
@@ -2573,15 +2963,20 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
     readFileSync("src/main/gateway/mobile/mobileGatewayAdapter.ts", "utf8"),
     readFileSync("src/main/gateway/mobile/mobileGatewayClient.ts", "utf8"),
   ].join("\n");
-  assert.doesNotMatch(sources, /better-sqlite3|workspaceRepository|readOnlyContext|tasken-core\.json|taskenCoreDiscovery|node:fs|electron/);
-  await assert.doesNotReject(build({
-    entryPoints: ["src/main/gateway/mobile/public.ts"],
-    bundle: true,
-    platform: "browser",
-    format: "esm",
-    write: false,
-    logLevel: "silent",
-  }));
+  assert.doesNotMatch(
+    sources,
+    /better-sqlite3|workspaceRepository|readOnlyContext|tasken-core\.json|taskenCoreDiscovery|node:fs|electron/,
+  );
+  await assert.doesNotReject(
+    build({
+      entryPoints: ["src/main/gateway/mobile/public.ts"],
+      bundle: true,
+      platform: "browser",
+      format: "esm",
+      write: false,
+      logLevel: "silent",
+    }),
+  );
 });
 
 test("Phase 4A production Runtime shares one Task service across Desktop, Core HTTP, and Mobile", async () => {
@@ -2591,7 +2986,9 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
   if (enforcesPosixOwnerMode) chmodSync(root, 0o700);
   const repository = new MemoryRepository();
   const application = new ApplicationCommandService(repository);
-  const runtime = new TaskenCoreRuntime(root, repository, (command) => application.execute(command));
+  const runtime = new TaskenCoreRuntime(root, repository, (command) =>
+    application.execute(command),
+  );
   const client = runtime.createClient(root);
   try {
     await runtime.start();
@@ -2611,7 +3008,7 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
       method: "GET",
       path: TASKEN_MOBILE_ENDPOINTS.themes,
       principal,
-      query: { apiVersion: "1", schemaVersion: "5", requestId: "request-runtime-themes" },
+      query: { apiVersion: "1", schemaVersion: "6", requestId: "request-runtime-themes" },
     });
     assert.equal(themeCatalog.status, 200);
     assert.deepEqual(themeCatalog.body.data, {
@@ -2628,7 +3025,7 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
     assert.equal(created.status, 200);
 
     const query = {
-    schemaVersion: 2,
+      schemaVersion: 2,
       query_id: "query-shared-task",
       name: "GetTask",
       parameters: { task_id: "task-mobile-create", include_deleted: false },
@@ -2642,21 +3039,23 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
     );
     const malformedClient = new TaskenCoreClient({
       discoveryPath: path.join(root, "tasken-core.json"),
-      fetch: async () => new Response(JSON.stringify({ ...coreHttpRead, leaked: "must-not-pass" }), {
-        status: 200,
-        headers: {
-          "content-type": "application/json",
-          "x-tasken-core-version": "1",
-        },
-      }),
+      fetch: async () =>
+        new Response(JSON.stringify({ ...coreHttpRead, leaked: "must-not-pass" }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "x-tasken-core-version": "1",
+          },
+        }),
     });
     await assert.rejects(
       malformedClient.executeTaskQuery(query),
-      (error) => error?.code === "INVALID_RESPONSE" && !JSON.stringify(error).includes("must-not-pass"),
+      (error) =>
+        error?.code === "INVALID_RESPONSE" && !JSON.stringify(error).includes("must-not-pass"),
     );
 
     const update = {
-    schemaVersion: 2,
+      schemaVersion: 2,
       command_id: "command-core-http-update",
       name: "UpdateTask",
       actor: { kind: "user", id: "desktop-user" },
@@ -2693,4 +3092,293 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
     await runtime.stop();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+function workReceiptRecords(repository) {
+  return repository.list("work_receipt").map((receipt) => ({
+    id: receipt.id,
+    taskId: receipt.task_id,
+    version: receipt.version,
+    reportedAt: receipt.reported_at,
+    executorLabel: receipt.executor_label,
+    summary: receipt.summary,
+  }));
+}
+
+async function reportedTaskFixture(outcome = "review") {
+  const fixture = capability();
+  const adapter = gateway(fixture.service, {
+    listWorkReceipts: () => workReceiptRecords(fixture.repository),
+  });
+  const taskId = `task-human-${outcome}`;
+  const baseCreate = createRequest();
+  const created = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest({
+      requestId: `request-${taskId}`,
+      commandId: `create-${taskId}`,
+      idempotencyKey: `create-${taskId}`,
+      command: {
+        ...baseCreate.command,
+        task: {
+          ...baseCreate.command.task,
+          id: taskId,
+          title: `Human review ${outcome}`,
+          intendedExecutor: "ai_agent",
+        },
+      },
+    }),
+  });
+  assert.equal(created.status, 200);
+  fixture.application.execute({
+    commandId: `start-${taskId}`,
+    name: "StartTaskWork",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "main_ui",
+    issuedAt: "2026-08-21T01:01:00.000Z",
+    payload: { taskId, executorKind: "ai_agent", executorIdentity: "Codex" },
+    expectedVersions: [
+      { type: "task", id: taskId, version: fixture.repository.get("task", taskId).version },
+    ],
+  });
+  const receiptId = `receipt-${taskId}`;
+  fixture.application.execute({
+    commandId: `report-${taskId}`,
+    name: outcome === "blocked" ? "ReportTaskBlocked" : "ReportTaskDone",
+    actor: { kind: "ai_agent", id: "codex" },
+    source: "mcp",
+    issuedAt: "2026-08-21T01:02:00.000Z",
+    payload: {
+      taskId,
+      receipt: {
+        id: receiptId,
+        task_id: taskId,
+        executor_kind: "ai_agent",
+        executor_label: "Codex",
+        reported_at: "2026-08-21T01:02:00.000Z",
+        summary: outcome === "blocked" ? "入力が必要です" : "実装を確認してください",
+        completed_items: [],
+        changed_or_created_items: [],
+        remaining_work: outcome === "blocked" ? ["人間の回答"] : [],
+      },
+    },
+    expectedVersions: [
+      { type: "task", id: taskId, version: fixture.repository.get("task", taskId).version },
+    ],
+  });
+  return { ...fixture, adapter, taskId, receiptId };
+}
+
+function workReviewRequest(fixture, overrides = {}) {
+  const commandId = overrides.commandId || `review-${fixture.taskId}`;
+  return {
+    apiVersion: 1,
+    schemaVersion: 6,
+    requestId: `request-${commandId}`,
+    commandId,
+    idempotencyKey: commandId,
+    clientDeviceId: principal.deviceId,
+    issuedAt: "2026-08-21T01:03:00.000Z",
+    taskId: fixture.taskId,
+    expectedTaskVersion: fixture.repository.get("task", fixture.taskId).version,
+    receiptId: fixture.receiptId,
+    action: "accept",
+    reviewNote: null,
+    ...overrides,
+  };
+}
+
+test("Mobile human review replays once after response loss even when a newer Receipt appears", async () => {
+  const fixture = await reportedTaskFixture("review");
+  const originalReceipt = fixture.repository.get("work_receipt", fixture.receiptId);
+  for (const [id, version, summary, reportedAt] of [
+    [
+      "receipt-lexically-later-earlier-instant",
+      3,
+      "時刻文字列では後、実時刻では前",
+      "2026-08-21T11:00:00.000+10:00",
+    ],
+    ["receipt-z-same-version", 2, "同instant・同versionの後順ID", "2026-08-21T10:02:00.000+09:00"],
+    ["receipt-a-same-version", 2, "同instant・同versionの先順ID", "2026-08-21T10:02:00.000+09:00"],
+  ]) {
+    fixture.repository.records.set(`work_receipt:${id}`, {
+      ...originalReceipt,
+      id,
+      version,
+      summary,
+      reported_at: reportedAt,
+    });
+  }
+  fixture.receiptId = "receipt-a-same-version";
+
+  const bootstrap = await fixture.adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
+    principal,
+    query: {
+      apiVersion: "1",
+      schemaVersion: "6",
+      requestId: "request-human-review-tie-bootstrap",
+      limit: "50",
+    },
+  });
+  assert.equal(bootstrap.status, 200);
+  assert.equal(
+    bootstrap.body.data.tasks.find((task) => task.id === fixture.taskId).latestWorkReceipt.id,
+    fixture.receiptId,
+  );
+
+  const request = mobileTaskWorkReviewRequestSchema.parse(workReviewRequest(fixture));
+  const first = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal,
+    body: request,
+  });
+  assert.equal(first.status, 200);
+  mobileTaskWorkReviewResponseSchema.parse(first.body);
+  assert.equal(first.body.data.task.state, "done");
+  assert.equal(first.body.data.task.workState, "accepted");
+  assert.equal(first.body.data.receiptId, fixture.receiptId);
+  const completionEvent = fixture.repository
+    .list("change_event")
+    .find((event) => event.command_id === request.commandId);
+  assert.equal(completionEvent.event_kind, "task_completed");
+  assert.equal(completionEvent.work_receipt_ref.id, fixture.receiptId);
+  assert.equal(completionEvent.metadata.work_action, "accepted");
+  assert.equal(completionEvent.metadata.task_completed, true);
+  const eventCount = fixture.repository.list("change_event").length;
+  fixture.repository.records.set("work_receipt:receipt-after-response-loss", {
+    ...originalReceipt,
+    id: "receipt-after-response-loss",
+    version: 1,
+    reported_at: "2026-08-21T01:04:00.000Z",
+    summary: "応答喪失後に届いた新しい報告",
+  });
+  const replay = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal,
+    body: request,
+  });
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.data.commandStatus, "applied");
+  assert.equal(replay.body.data.receiptId, fixture.receiptId);
+  assert.equal(replay.body.data.task.latestWorkReceipt.id, "receipt-after-response-loss");
+  assert.equal(fixture.repository.list("change_event").length, eventCount);
+  assert.equal(
+    fixture.repository
+      .list("change_event")
+      .filter((event) => event.command_id === request.commandId).length,
+    1,
+  );
+});
+
+test("Core Accept without Task completion retains the work-accept Activity kind", async () => {
+  const fixture = await reportedTaskFixture("review");
+  fixture.application.execute({
+    commandId: "accept-work-without-completion",
+    name: "AcceptTaskWork",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "main_ui",
+    issuedAt: "2026-08-21T01:03:00.000Z",
+    payload: { taskId: fixture.taskId, receiptId: fixture.receiptId, completeTask: false },
+    expectedVersions: [
+      {
+        type: "task",
+        id: fixture.taskId,
+        version: fixture.repository.get("task", fixture.taskId).version,
+      },
+    ],
+  });
+  const task = fixture.repository.get("task", fixture.taskId);
+  const event = fixture.repository
+    .list("change_event")
+    .find((candidate) => candidate.command_id === "accept-work-without-completion");
+  assert.equal(task.state, "todo");
+  assert.equal(task.work_state, "accepted");
+  assert.equal(event.event_kind, "task_ai_accepted");
+  assert.equal(event.metadata.work_action, "accepted");
+  assert.equal(event.metadata.task_completed, false);
+});
+
+test("Mobile human review returns review and blocked work with a canonical review note", async () => {
+  for (const outcome of ["review", "blocked"]) {
+    const fixture = await reportedTaskFixture(outcome);
+    const response = await fixture.adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+      principal,
+      body: workReviewRequest(fixture, {
+        commandId: `return-${fixture.taskId}`,
+        action: "return",
+        reviewNote:
+          outcome === "blocked"
+            ? "設定値はalphaです。続行してください。"
+            : "検証結果を追記してください。",
+      }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.task.workState, "ready_for_agent");
+    assert.equal(
+      fixture.repository.get("task", fixture.taskId).work_review_note,
+      outcome === "blocked"
+        ? "設定値はalphaです。続行してください。"
+        : "検証結果を追記してください。",
+    );
+  }
+});
+
+test("Mobile human review rejects missing scope, stale Task, stale Receipt, and non-mobile principals", async () => {
+  const fixture = await reportedTaskFixture("review");
+  const request = workReviewRequest(fixture);
+  const forbidden = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal: {
+      ...principal,
+      scopes: principal.scopes.filter((scope) => scope !== "mobile:human-review"),
+    },
+    body: request,
+  });
+  assert.equal(forbidden.status, 403);
+  const staleTask = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal,
+    body: {
+      ...request,
+      commandId: "stale-task-review",
+      idempotencyKey: "stale-task-review",
+      expectedTaskVersion: 0,
+    },
+  });
+  assert.equal(staleTask.status, 409);
+  assert.equal(staleTask.body.error.code, "work_review_task_conflict");
+  assert.match(staleTask.body.error.message, /Task/);
+  assert.match(staleTask.body.error.message, /再読み込み/);
+  const staleReceipt = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal,
+    body: {
+      ...request,
+      commandId: "stale-receipt-review",
+      idempotencyKey: "stale-receipt-review",
+      receiptId: "receipt-old",
+    },
+  });
+  assert.equal(staleReceipt.status, 409);
+  assert.equal(staleReceipt.body.error.code, "work_review_receipt_conflict");
+  assert.match(staleReceipt.body.error.message, /Work Receipt/);
+  assert.match(staleReceipt.body.error.message, /最新/);
+  const unauthorized = await fixture.adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.workReviews,
+    principal: { kind: "ai_agent", deviceId: "agent", scopes: ["mobile:human-review"] },
+    body: request,
+  });
+  assert.equal(unauthorized.status, 401);
 });

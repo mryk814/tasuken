@@ -316,7 +316,7 @@ test("画面録画のpause→即stop等は単一transition queueで直列化す�
 test("main-frame navigationは旧screen source token ledgerを即時clearする", () => {
   assert.match(
     registerIpc,
-    /event\.sender\.on\("did-start-navigation"[\s\S]*?if \(isMainFrame\) screenRecording\.clearSender\(senderId\)/,
+    /event\.sender\.on\(\s*"did-start-navigation"[\s\S]*?if\s*\(\s*isMainFrame\s*\)\s*screenRecording\.clearSender\(\s*senderId\s*\)/,
   );
 });
 

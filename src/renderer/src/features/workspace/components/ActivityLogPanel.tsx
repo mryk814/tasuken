@@ -1,10 +1,39 @@
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { THEME_NONE_VALUE } from "../../../../../shared/themeRef.mjs";
-import { buildActivityLog, collectActivityLogEntries } from "../lib/activityLog";
+import { buildActivityReviewLog, collectActivityLogEntries } from "../lib/activityLog";
 import { resolveActivityLogDirectory } from "../lib/activityLogDirectory";
+import {
+  activitySessionTimeLabel,
+  agentSessionClientLabel,
+  activityDisplayKind,
+  activityThemeIds,
+  buildDailyAgentSessionContexts,
+  projectActivitySessionLogEntries,
+  reviewableActivityEvents,
+} from "../lib/activityTimeline";
+import {
+  ACTIVITY_TIMELINE_DAY_HEIGHT,
+  ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
+  buildActivityTimelineLayout,
+} from "../lib/activityTimelineLayout";
+import {
+  buildActivityTimelineBursts,
+  type ActivityTimelineBurstOrigin,
+} from "../lib/activityTimelineBurst";
+import {
+  buildAgentWorkProjection,
+  type AgentWorkProjectionRow,
+} from "../lib/agentSessionProjection";
+import { themeColor } from "../lib/domain";
 import { findReminderSettingsView, normalizeReminderSettings } from "../lib/reminders";
 import type { PageProps } from "../types";
 import { Button, EmptyState, ThemePickerSelect } from "./common";
@@ -17,7 +46,23 @@ type StructuredActivityEvent = {
   summary?: string;
   entity_ref?: { type?: string; id?: string };
   theme_ref?: { kind?: "theme" | "none"; id?: string | null };
+  entity_type?: string;
+  actor?: { kind?: string; id?: string };
+  origin?: { kind?: string; command_id?: string; command_name?: string; session_id?: string };
+  changed_fields?: string[];
+  source_refs?: Array<Record<string, unknown>>;
+  relation_refs?: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
 };
+
+const ACTIVITY_CALENDAR_START_HOUR = 8;
+const ACTIVITY_CALENDAR_END_HOUR = 19;
+const ACTIVITY_CALENDAR_EDGE_INSET = 8;
+const ACTIVITY_CALENDAR_POINT_MARK_MINUTES = 10;
+const ACTIVITY_CALENDAR_POINT_MARK_HEIGHT =
+  (ACTIVITY_TIMELINE_PIXELS_PER_HOUR * ACTIVITY_CALENDAR_POINT_MARK_MINUTES) / 60;
+const ACTIVITY_CALENDAR_WINDOW_HEIGHT =
+  (ACTIVITY_CALENDAR_END_HOUR - ACTIVITY_CALENDAR_START_HOUR) * ACTIVITY_TIMELINE_PIXELS_PER_HOUR;
 
 const EVENT_LABELS: Record<string, string> = {
   task_checklist_checked: "チェック済み",
@@ -67,6 +112,206 @@ function eventTitle(event: StructuredActivityEvent, ref: { id?: string }, entity
   return summary && (!ref.id || !summary.includes(ref.id)) ? summary : "履歴の項目";
 }
 
+type ActivityTimelineItem =
+  | {
+      id: string;
+      item_type: "event";
+      start_at: string;
+      end_at: string;
+      display_kind: "outcome" | "record" | "organize" | "ai_work";
+      theme_ids: string[];
+      event: StructuredActivityEvent;
+    }
+  | {
+      id: string;
+      item_type: "session";
+      start_at: string;
+      end_at: string;
+      display_kind: "outcome" | "record" | "organize" | "ai_work";
+      theme_ids: string[];
+      session_row: AgentWorkProjectionRow;
+      session_events: StructuredActivityEvent[];
+    };
+
+const ACTIVITY_DISPLAY_LABELS = {
+  outcome: "成果",
+  record: "記録",
+  organize: "整理",
+  ai_work: "AI作業",
+  mixed: "複数種別",
+} as const;
+
+const ORIGIN_LABELS: Record<string, string> = {
+  renderer_save: "Tasken",
+  application_command: "Tasken",
+  manual: "Tasken",
+  imported: "取込",
+  quick_capture: "クイック記録",
+  user: "Tasken",
+  human: "Tasken",
+  system: "Tasken",
+  mcp: "AI連携",
+  ai: "AI連携",
+  agent: "AI連携",
+  ai_agent: "AI連携",
+};
+
+const ACTOR_LABELS: Record<string, string> = {
+  user: "本人",
+  human: "本人",
+  system: "システム",
+  ai_agent: "AI",
+  agent: "AI",
+};
+
+const ACTIVITY_FILTER_OPTIONS = [
+  { value: "", label: "すべての種類" },
+  { value: "outcome", label: "成果" },
+  { value: "record", label: "記録" },
+  { value: "organize", label: "整理" },
+  { value: "ai_work", label: "AI作業" },
+] as const;
+
+function displayKindLabel(kind: keyof typeof ACTIVITY_DISPLAY_LABELS): string {
+  return ACTIVITY_DISPLAY_LABELS[kind];
+}
+
+function burstOriginLabel(origin: ActivityTimelineBurstOrigin): string {
+  return {
+    tasken: "Tasken変更",
+    ai: "AI連携",
+    imported: "取込",
+    unknown: "由来不明",
+    mixed: "複数の由来",
+  }[origin];
+}
+
+function originLabel(event: StructuredActivityEvent): string {
+  const kind = event.origin?.kind;
+  if (!kind) return "Tasken";
+  return ORIGIN_LABELS[kind] || kind;
+}
+
+function actorLabel(event: StructuredActivityEvent): string | null {
+  const kind = event.actor?.kind;
+  if (!kind) return null;
+  return ACTOR_LABELS[kind] || kind;
+}
+
+function isAiActivityEvent(event: StructuredActivityEvent): boolean {
+  return (
+    event.actor?.kind === "agent" ||
+    event.actor?.kind === "ai_agent" ||
+    event.origin?.kind === "mcp" ||
+    event.origin?.kind === "agent" ||
+    event.origin?.kind === "ai_agent"
+  );
+}
+
+function localTime(value?: string, fallback = "--:--"): string {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return new Intl.DateTimeFormat("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Tokyo",
+  }).format(date);
+}
+
+function localDate(value?: string): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "Asia/Tokyo",
+  }).formatToParts(parsed);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((candidate) => candidate.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function findActivityEntity(
+  domain: PageProps["domain"],
+  ref: StructuredActivityEvent["entity_ref"],
+): Record<string, unknown> | null {
+  const records =
+    ref?.type === "task"
+      ? domain.tasks
+      : ref?.type === "waiting"
+        ? domain.waitings
+        : ref?.type === "note"
+          ? domain.notes
+          : ref?.type === "resource"
+            ? domain.resources
+            : ref?.type === "plan_node"
+              ? domain.plan_nodes
+              : ref?.type === "capture_entry"
+                ? domain.capture_entries
+                : ref?.type === "sketch"
+                  ? domain.sketches
+                  : [];
+  return (
+    (records.find((record) => record.id === ref?.id) as unknown as Record<string, unknown>) || null
+  );
+}
+
+function isOpenableActivityEntity(
+  type?: string,
+): type is "task" | "waiting" | "note" | "resource" | "plan_node" | "capture_entry" | "sketch" {
+  return ["task", "waiting", "note", "resource", "plan_node", "capture_entry", "sketch"].includes(
+    type || "",
+  );
+}
+
+function ActivityThemeChips({
+  themeIds,
+  themes,
+}: {
+  themeIds: string[];
+  themes: PageProps["themes"];
+}) {
+  if (!themeIds.length) {
+    return <span className="activity-timeline-theme-chip is-unassigned">Theme未設定</span>;
+  }
+  return (
+    <span className="activity-timeline-theme-chips">
+      {themeIds.map((themeId) => {
+        const theme = themes.find((candidate) => candidate.id === themeId);
+        const themeIndex = themes.findIndex((candidate) => candidate.id === themeId);
+        const color = theme ? themeColor(theme, Math.max(themeIndex, 0)) : "";
+        const label = theme?.name || "Theme不明";
+        return (
+          <span
+            key={themeId}
+            className={`activity-timeline-theme-chip${theme ? "" : " is-unassigned"}`}
+            title={label}
+            style={
+              theme
+                ? ({ "--activity-theme-color": `var(--color-${color})` } as CSSProperties)
+                : undefined
+            }
+          >
+            <span className="activity-timeline-theme-name">{label}</span>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function activityThemeSummary(themeIds: string[], themes: PageProps["themes"]): string {
+  if (!themeIds.length) return "Theme未設定";
+  const labels = themeIds.map(
+    (themeId) => themes.find((candidate) => candidate.id === themeId)?.name || "Theme不明",
+  );
+  return labels.length > 1 ? `${labels[0]} +${labels.length - 1}` : labels[0];
+}
+
 export function ActivityLogPanel({
   data,
   domain,
@@ -82,7 +327,14 @@ export function ActivityLogPanel({
   const [typeFilter, setTypeFilter] = useState("");
   const [rootStatus, setRootStatus] = useState(data.canonical_root_status || {});
   const [expanded, setExpanded] = useState(true);
+  const [expandedTimelineItemId, setExpandedTimelineItemId] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [isNarrowActivity, setIsNarrowActivity] = useState(
+    () => window.matchMedia("(max-width: 760px)").matches,
+  );
+  const activityCalendarRef = useRef<HTMLDivElement>(null);
+  const activityDetailRef = useRef<HTMLElement>(null);
+  const activityEventButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   useEffect(() => {
     let canceled = false;
@@ -104,6 +356,13 @@ export function ActivityLogPanel({
   }, [setToast]);
 
   useEffect(() => setRootStatus(data.canonical_root_status || {}), [data.canonical_root_status]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 760px)");
+    const update = (event: MediaQueryListEvent) => setIsNarrowActivity(event.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     void Promise.all([
@@ -153,23 +412,116 @@ export function ActivityLogPanel({
     },
     { label: "Capture", rows: entries.captures.map((entry) => entry.title || entry.text) },
   ].filter((group) => group.rows.length > 0);
-  const events = (entries.events as StructuredActivityEvent[]).filter(
-    (event) => event.event_kind !== "schedule_updated",
+  const allEvents = reviewableActivityEvents(entries.events as StructuredActivityEvent[]);
+  const agentSessions = buildAgentWorkProjection(domain, {
+    limit: Math.max(domain.agent_sessions.length, 1),
+  });
+  const sessionContexts = buildDailyAgentSessionContexts(agentSessions, date, allEvents);
+  const sessionOriginIds = new Set(
+    sessionContexts.flatMap(({ sessionRow }) =>
+      [sessionRow.session.id, sessionRow.session.source_session_id].filter(
+        (value): value is string => Boolean(value),
+      ),
+    ),
   );
-  const kinds = [...new Set(events.map((event) => String(event.event_kind || "")))]
-    .filter(Boolean)
-    .sort();
-  const visibleEvents = events.filter(
-    (event) =>
+  const events = allEvents.filter((event) => !sessionOriginIds.has(event.origin?.session_id || ""));
+  const datedEvents = events.filter((event) => localDate(event.occurred_at) === date);
+  const visibleEvents = datedEvents.filter((event) => {
+    const themeIds = activityThemeIds(event);
+    const displayKind = activityDisplayKind({
+      eventKind: event.event_kind,
+      entityType: event.entity_ref?.type || event.entity_type,
+    });
+    return (
       (themeFilter === "all" ||
         (themeFilter === THEME_NONE_VALUE
-          ? event.theme_ref?.kind === "none"
-          : event.theme_ref?.id === themeFilter)) &&
-      (!typeFilter || event.event_kind === typeFilter),
+          ? themeIds.length === 0
+          : themeIds.includes(themeFilter))) &&
+      (!typeFilter || displayKind === typeFilter)
+    );
+  });
+  const visibleSessions = sessionContexts.filter(
+    ({ events: relatedEvents, themeIds }) =>
+      (themeFilter === "all" ||
+        (themeFilter === THEME_NONE_VALUE
+          ? themeIds.length === 0
+          : themeIds.includes(themeFilter))) &&
+      (!typeFilter ||
+        typeFilter === "ai_work" ||
+        relatedEvents.some(
+          (event) =>
+            activityDisplayKind({
+              eventKind: event.event_kind,
+              entityType: event.entity_ref?.type || event.entity_type,
+            }) === typeFilter,
+        )),
   );
-  const count = events.length
-    ? visibleEvents.length
+  const timelineItems: ActivityTimelineItem[] = [
+    ...visibleEvents.map((event) => ({
+      id: `event:${String(event.id)}`,
+      item_type: "event" as const,
+      start_at: String(event.occurred_at || ""),
+      end_at: String(event.occurred_at || ""),
+      display_kind: activityDisplayKind({
+        eventKind: event.event_kind,
+        entityType: event.entity_ref?.type || event.entity_type,
+      }),
+      theme_ids: activityThemeIds(event),
+      event,
+    })),
+    ...visibleSessions.map(({ sessionRow, interval, events: relatedEvents, themeIds }) => ({
+      id: `session:${sessionRow.session.id}`,
+      item_type: "session" as const,
+      start_at: interval.start_at,
+      end_at: interval.end_at,
+      display_kind: "ai_work" as const,
+      theme_ids: themeIds,
+      session_row: sessionRow,
+      session_events: relatedEvents,
+    })),
+  ];
+  const timeline = buildActivityTimelineLayout(timelineItems, { date });
+  const calendarTimeline = buildActivityTimelineBursts(timeline);
+  const activityCalendarScrollKey = `${date}:${calendarTimeline
+    .map((item) => `${item.id}:${item.top}`)
+    .join("|")}`;
+  const initialActivityTop =
+    ACTIVITY_CALENDAR_START_HOUR * ACTIVITY_TIMELINE_PIXELS_PER_HOUR - ACTIVITY_CALENDAR_EDGE_INSET;
+  const expandedTimelineItem = calendarTimeline.find((item) => item.id === expandedTimelineItemId);
+  const expandedEvent =
+    expandedTimelineItem?.item_type === "event" ? expandedTimelineItem.event : null;
+  const expandedRef = expandedEvent?.entity_ref || {};
+  const expandedEntity = expandedEvent ? findActivityEntity(domain, expandedRef) : null;
+  const expandedDrawerType = isOpenableActivityEntity(expandedRef.type) ? expandedRef.type : null;
+  const expandedSessionRow =
+    expandedTimelineItem?.item_type === "session" ? expandedTimelineItem.session_row : null;
+  const expandedSession = expandedSessionRow?.session || null;
+  const expandedRelatedSessionEvents =
+    expandedTimelineItem?.item_type === "session" ? expandedTimelineItem.session_events : [];
+  const expandedBurstEvents =
+    expandedTimelineItem?.item_type === "burst" ? expandedTimelineItem.events : [];
+  const expandedEventActor = expandedEvent ? actorLabel(expandedEvent) : null;
+  const hasStructuredActivity = allEvents.length > 0 || agentSessions.length > 0;
+  const hasSelectedDateActivity = datedEvents.length > 0 || sessionContexts.length > 0;
+  const hasActiveFilter = themeFilter !== "all" || Boolean(typeFilter);
+  const count = hasStructuredActivity
+    ? timeline.length
     : groups.reduce((sum, group) => sum + group.rows.length, 0);
+  const activityLogContent = buildActivityReviewLog(
+    input,
+    projectActivitySessionLogEntries(sessionContexts, themes),
+  );
+
+  useEffect(() => {
+    const calendar = activityCalendarRef.current;
+    if (!expanded || !calendar) return;
+    calendar.scrollTop = initialActivityTop;
+  }, [activityCalendarScrollKey, expanded, initialActivityTop]);
+
+  useEffect(() => {
+    if (!expandedTimelineItemId) return;
+    requestAnimationFrame(() => activityDetailRef.current?.focus());
+  }, [expandedTimelineItemId, isNarrowActivity]);
 
   async function chooseDirectory() {
     try {
@@ -204,13 +556,49 @@ export function ActivityLogPanel({
     }
   }
 
+  function closeTimelineDetail() {
+    const itemId = expandedTimelineItemId;
+    setExpandedTimelineItemId("");
+    requestAnimationFrame(() => activityEventButtonRefs.current[itemId]?.focus());
+  }
+
+  function handleTimelineDetailKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeTimelineDetail();
+      return;
+    }
+    if (!isNarrowActivity || event.key !== "Tab") return;
+    const detail = activityDetailRef.current;
+    if (!detail) return;
+    const focusable = Array.from(
+      detail.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+    if (!focusable.length) {
+      event.preventDefault();
+      detail.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1) || first;
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === detail)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   async function exportLog(choose: boolean) {
     setExporting(true);
     try {
       const result = await workspaceApi.exportMarkdownFile({
         title: `Tasken Activity Log ${date}`,
         fileName: `tasken-activity-${date}.md`,
-        content: buildActivityLog(input),
+        content: activityLogContent,
         directory: directory || null,
         chooseDirectory: choose,
       });
@@ -234,6 +622,53 @@ export function ActivityLogPanel({
     }
   }
 
+  function renderEmptyActivityCalendar() {
+    return (
+      <div
+        ref={activityCalendarRef}
+        className="activity-calendar"
+        aria-label="Activity の空の時刻カレンダー"
+      >
+        <div className="activity-calendar-day">
+          <div className="activity-calendar-gutter" aria-hidden="true">
+            {Array.from({ length: 25 }, (_, hour) => (
+              <span
+                key={hour}
+                className="activity-calendar-hour-label"
+                style={{ "--activity-hour-top": `${hour * 36}px` } as CSSProperties}
+              >
+                {String(hour).padStart(2, "0")}:00
+              </span>
+            ))}
+          </div>
+          <div
+            className="activity-calendar-canvas"
+            style={
+              { "--activity-day-height": `${ACTIVITY_TIMELINE_DAY_HEIGHT}px` } as CSSProperties
+            }
+          >
+            {Array.from({ length: 25 }, (_, hour) => (
+              <span
+                key={`hour-${hour}`}
+                className="activity-calendar-hour-line"
+                aria-hidden="true"
+                style={{ "--activity-hour-top": `${hour * 36}px` } as CSSProperties}
+              />
+            ))}
+            {Array.from({ length: 24 }, (_, hour) => (
+              <span
+                key={`half-${hour}`}
+                className="activity-calendar-half-hour-line"
+                aria-hidden="true"
+                style={{ "--activity-hour-top": `${hour * 36 + 18}px` } as CSSProperties}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <section id="daily-activity" className="panel activity-log-strip debrief-activity-panel">
       <div className="section-heading">
@@ -241,7 +676,7 @@ export function ActivityLogPanel({
           <h2>
             Activity <span className="activity-count">{count}</span>
           </h2>
-          <p>Debriefの前に、Taskenが観測した動きを確認します。</p>
+          <p>1日の動きを時刻順に振り返ります。</p>
         </div>
         <div className="inline-actions">
           {expanded && (
@@ -252,7 +687,7 @@ export function ActivityLogPanel({
                 onChange={(event) => setDate(event.target.value)}
                 aria-label="Activity対象日"
               />
-              {events.length > 0 && (
+              {hasStructuredActivity && (
                 <>
                   <ThemePickerSelect
                     themes={themes}
@@ -268,10 +703,9 @@ export function ActivityLogPanel({
                     onChange={(event) => setTypeFilter(event.target.value)}
                     aria-label="Activity event type filter"
                   >
-                    <option value="">すべての種類</option>
-                    {kinds.map((kind) => (
-                      <option key={kind} value={kind}>
-                        {eventLabel(kind)}
+                    {ACTIVITY_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value || "all"} value={option.value}>
+                        {option.label}
                       </option>
                     ))}
                   </select>
@@ -282,7 +716,7 @@ export function ActivityLogPanel({
                 compact
                 onClick={() =>
                   void workspaceApi
-                    .copyText(buildActivityLog(input))
+                    .copyText(activityLogContent)
                     .then(() => setToast("Activity Logをコピーしました。", "success"))
                 }
               >
@@ -309,78 +743,455 @@ export function ActivityLogPanel({
         </div>
       </div>
       {expanded &&
-        (events.length ? (
-          visibleEvents.length ? (
-            <ul className="activity-event-list" aria-label="Activity events">
-              {visibleEvents.slice(0, 30).map((event) => {
-                const ref = event.entity_ref || {};
-                const records =
-                  ref.type === "task"
-                    ? domain.tasks
-                    : ref.type === "waiting"
-                      ? domain.waitings
-                      : ref.type === "note"
-                        ? domain.notes
-                        : ref.type === "resource"
-                          ? domain.resources
-                          : ref.type === "plan_node"
-                            ? domain.plan_nodes
-                            : ref.type === "capture_entry"
-                              ? domain.capture_entries
-                              : ref.type === "sketch"
-                                ? domain.sketches
-                                : [];
-                const entity = records.find((record) => record.id === ref.id);
-                const openable = Boolean(entity);
-                return (
-                  <li key={String(event.id)} className="activity-event-row">
-                    <time dateTime={String(event.occurred_at)}>
-                      {String(event.local_time || "--:--")}
-                    </time>
-                    <span className="activity-event-main">
-                      <span className="activity-event-kind">
-                        {eventLabel(String(event.event_kind || ""))}
+        (hasStructuredActivity ? (
+          calendarTimeline.length ? (
+            <div className={`activity-calendar-layout${expandedTimelineItem ? " has-detail" : ""}`}>
+              <div
+                ref={activityCalendarRef}
+                className="activity-calendar"
+                aria-label="Activity の時刻カレンダー"
+                style={
+                  {
+                    "--activity-default-window-height": `${ACTIVITY_CALENDAR_WINDOW_HEIGHT}px`,
+                  } as CSSProperties
+                }
+              >
+                <div className="activity-calendar-day">
+                  <div className="activity-calendar-gutter" aria-hidden="true">
+                    {Array.from({ length: 25 }, (_, hour) => (
+                      <span
+                        key={hour}
+                        className="activity-calendar-hour-label"
+                        style={
+                          {
+                            "--activity-hour-top": `${hour * ACTIVITY_TIMELINE_PIXELS_PER_HOUR}px`,
+                          } as CSSProperties
+                        }
+                      >
+                        {String(hour).padStart(2, "0")}:00
                       </span>
-                      {openable ? (
-                        <button
-                          type="button"
-                          className="text-button activity-event-title"
-                          onClick={() =>
-                            openDrawer({
-                              type: ref.type as
-                                | "task"
-                                | "waiting"
-                                | "note"
-                                | "resource"
-                                | "plan_node"
-                                | "capture_entry"
-                                | "sketch",
-                              mode: "view",
-                              entity: entity as unknown as Record<string, unknown>,
+                    ))}
+                  </div>
+                  <div
+                    className="activity-calendar-canvas"
+                    style={
+                      {
+                        "--activity-day-height": `${ACTIVITY_TIMELINE_DAY_HEIGHT}px`,
+                        "--activity-point-anchor-height": `${ACTIVITY_CALENDAR_POINT_MARK_HEIGHT}px`,
+                      } as CSSProperties
+                    }
+                  >
+                    {Array.from({ length: 25 }, (_, hour) => (
+                      <span
+                        key={`hour-${hour}`}
+                        className="activity-calendar-hour-line"
+                        aria-hidden="true"
+                        style={
+                          {
+                            "--activity-hour-top": `${hour * ACTIVITY_TIMELINE_PIXELS_PER_HOUR}px`,
+                          } as CSSProperties
+                        }
+                      />
+                    ))}
+                    {Array.from({ length: 24 }, (_, hour) => (
+                      <span
+                        key={`half-${hour}`}
+                        className="activity-calendar-half-hour-line"
+                        aria-hidden="true"
+                        style={
+                          {
+                            "--activity-hour-top": `${
+                              hour * ACTIVITY_TIMELINE_PIXELS_PER_HOUR +
+                              ACTIVITY_TIMELINE_PIXELS_PER_HOUR / 2
+                            }px`,
+                          } as CSSProperties
+                        }
+                      />
+                    ))}
+                    <ol className="activity-calendar-events" aria-label="Activity を時刻順に表示">
+                      {calendarTimeline.map((row) => {
+                        const event = row.item_type === "event" ? row.event : null;
+                        const burst = row.item_type === "burst" ? row : null;
+                        const ref = event?.entity_ref || {};
+                        const entity = event ? findActivityEntity(domain, ref) : null;
+                        const sessionRow = row.item_type === "session" ? row.session_row : null;
+                        const session = sessionRow?.session || null;
+                        const eventActor = event ? actorLabel(event) : null;
+                        const title = event
+                          ? eventTitle(event, ref, entity)
+                          : burst
+                            ? `${burst.events.length}件のActivity`
+                            : session?.intent.summary || session?.client_label || "AI セッション";
+                        const timeLabel =
+                          session && sessionRow
+                            ? activitySessionTimeLabel({
+                                sessionRow,
+                                interval: { start_at: row.start_at, end_at: row.end_at },
+                              })
+                            : burst
+                              ? `${localTime(burst.events[0]?.start_at)}–${localTime(burst.events.at(-1)?.end_at)}`
+                              : event?.local_time || localTime(row.start_at);
+                        const originText = event
+                          ? originLabel(event)
+                          : session
+                            ? agentSessionClientLabel(session)
+                            : burst
+                              ? burstOriginLabel(burst.origin)
+                              : "由来不明";
+                        const timeAnchors = burst
+                          ? burst.events.map((burstEvent) => ({
+                              id: burstEvent.id,
+                              offset: burstEvent.anchor_top - row.top,
+                              height: burstEvent.anchor_height,
+                            }))
+                          : "anchor_offset" in row && "anchor_height" in row
+                            ? [
+                                {
+                                  id: row.id,
+                                  offset: row.anchor_offset,
+                                  height: row.anchor_height,
+                                },
+                              ]
+                            : [];
+                        const laneGap = 4;
+                        const laneCount = Math.max(1, row.lane_count);
+                        const firstThemeId = row.theme_ids[0];
+                        const firstTheme = themes.find(
+                          (candidate) => candidate.id === firstThemeId,
+                        );
+                        const firstThemeIndex = themes.findIndex(
+                          (candidate) => candidate.id === firstThemeId,
+                        );
+                        const blockStyle = {
+                          "--activity-event-top": `${row.top}px`,
+                          "--activity-event-height": `${row.height}px`,
+                          "--activity-event-left": `calc(${(row.lane * 100) / laneCount}% + ${(row.lane * laneGap) / laneCount}px)`,
+                          "--activity-event-width": `calc(${100 / laneCount}% - ${((laneCount - 1) * laneGap) / laneCount}px)`,
+                          "--activity-theme-color": firstTheme
+                            ? `var(--color-${themeColor(firstTheme, Math.max(firstThemeIndex, 0))})`
+                            : "var(--color-text-tertiary)",
+                        } as CSSProperties;
+                        const compact = row.height < 56;
+                        const themeSummary = activityThemeSummary(row.theme_ids, themes);
+                        const isRange = timeAnchors.some((anchor) => anchor.height > 0);
+                        const sourceMarker = session
+                          ? agentSessionClientLabel(session)
+                          : event && isAiActivityEvent(event)
+                            ? "AI"
+                            : burst?.events.some(
+                                  (burstEvent) =>
+                                    burstEvent.item_type === "event" &&
+                                    isAiActivityEvent(burstEvent.event),
+                                )
+                              ? "AI含む"
+                              : null;
+                        return (
+                          <li
+                            key={row.id}
+                            className={`activity-calendar-event activity-timeline-row--${row.display_kind}${compact ? " is-compact" : ""}${isRange ? " is-range-event" : " is-point-event"}${expandedTimelineItemId === row.id ? " is-selected" : ""}`}
+                            style={blockStyle}
+                          >
+                            {timeAnchors.map((anchor) => (
+                              <span
+                                key={`anchor:${anchor.id}`}
+                                className={`activity-calendar-time-anchor${anchor.height <= 0 ? " is-point" : " is-range"}`}
+                                aria-hidden="true"
+                                style={
+                                  {
+                                    "--activity-anchor-offset": `${anchor.offset}px`,
+                                    "--activity-anchor-height": `${anchor.height}px`,
+                                  } as CSSProperties
+                                }
+                              />
+                            ))}
+                            <button
+                              type="button"
+                              className="activity-calendar-event-button"
+                              ref={(element) => {
+                                activityEventButtonRefs.current[row.id] = element;
+                              }}
+                              onClick={() =>
+                                setExpandedTimelineItemId((current) =>
+                                  current === row.id ? "" : row.id,
+                                )
+                              }
+                              aria-expanded={expandedTimelineItemId === row.id}
+                              aria-controls={`activity-timeline-detail-${row.id}`}
+                              aria-label={`${timeLabel}、${displayKindLabel(row.display_kind)}、${originText}、${themeSummary}、${title}`}
+                            >
+                              <span className="activity-calendar-event-title">{title}</span>
+                              {sourceMarker && (
+                                <span className="activity-calendar-event-source" aria-hidden="true">
+                                  {sourceMarker}
+                                </span>
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                </div>
+              </div>
+              {expandedTimelineItem && (
+                <>
+                  {isNarrowActivity && (
+                    <button
+                      type="button"
+                      className="activity-calendar-detail-backdrop"
+                      aria-label="Activity詳細を閉じる"
+                      tabIndex={-1}
+                      onClick={closeTimelineDetail}
+                    />
+                  )}
+                  <section
+                    ref={activityDetailRef}
+                    id={`activity-timeline-detail-${expandedTimelineItem.id}`}
+                    className="activity-timeline-detail activity-calendar-detail"
+                    role={isNarrowActivity ? "dialog" : "region"}
+                    aria-modal={isNarrowActivity || undefined}
+                    aria-label="選択した Activity の詳細"
+                    tabIndex={-1}
+                    onKeyDown={handleTimelineDetailKeyDown}
+                  >
+                    <div className="activity-calendar-detail-heading">
+                      <span className="activity-calendar-detail-time">
+                        {expandedSession && expandedSessionRow
+                          ? activitySessionTimeLabel({
+                              sessionRow: expandedSessionRow,
+                              interval: {
+                                start_at: expandedTimelineItem.start_at,
+                                end_at: expandedTimelineItem.end_at,
+                              },
                             })
-                          }
-                        >
-                          {eventTitle(event, ref, entity)}
-                        </button>
-                      ) : (
-                        <span
-                          className="activity-event-title"
-                          title="現在のEntityがないため、履歴のみ表示しています。"
-                        >
-                          {eventTitle(event, ref, entity)}
-                        </span>
-                      )}
-                      {!openable && <span className="activity-event-state">履歴のみ</span>}
-                    </span>
-                  </li>
-                );
-              })}
-              {visibleEvents.length > 30 && (
-                <li className="activity-more">ほか{visibleEvents.length - 30}件</li>
+                          : expandedEvent?.local_time || localTime(expandedTimelineItem.start_at)}
+                      </span>
+                      <span className="activity-event-kind activity-timeline-kind">
+                        {displayKindLabel(expandedTimelineItem.display_kind)}
+                      </span>
+                      <span className="activity-timeline-origin-chip">
+                        {expandedSession
+                          ? agentSessionClientLabel(expandedSession)
+                          : expandedTimelineItem.item_type === "burst"
+                            ? burstOriginLabel(expandedTimelineItem.origin)
+                            : expandedEvent
+                              ? originLabel(expandedEvent)
+                              : "由来不明"}
+                      </span>
+                      <ActivityThemeChips
+                        themeIds={expandedTimelineItem.theme_ids}
+                        themes={themes}
+                      />
+                      <Button variant="secondary" compact onClick={closeTimelineDetail}>
+                        詳細を閉じる
+                      </Button>
+                    </div>
+                    {expandedBurstEvents.length ? (
+                      <div className="activity-timeline-detail-section activity-calendar-burst-detail">
+                        <span>{expandedBurstEvents.length}件のActivity</span>
+                        <ul>
+                          {expandedBurstEvents.map((burstEvent) => {
+                            const burstEventDetail = burstEvent as Extract<
+                              ActivityTimelineItem & { start_minutes: number },
+                              { item_type: "event" }
+                            >;
+                            const burstRef = burstEventDetail.event.entity_ref || {};
+                            const burstEntity = findActivityEntity(domain, burstRef);
+                            const burstDrawerType = isOpenableActivityEntity(burstRef.type)
+                              ? burstRef.type
+                              : null;
+                            const burstActor = actorLabel(burstEventDetail.event);
+                            return (
+                              <li key={burstEvent.id}>
+                                <div className="activity-calendar-burst-meta">
+                                  <time dateTime={burstEvent.start_at}>
+                                    {burstEventDetail.event.local_time ||
+                                      localTime(burstEvent.start_at)}
+                                  </time>
+                                  <ActivityThemeChips
+                                    themeIds={burstEvent.theme_ids}
+                                    themes={themes}
+                                  />
+                                  <span className="activity-event-kind activity-timeline-kind">
+                                    {displayKindLabel(burstEvent.display_kind)}
+                                  </span>
+                                  {burstActor === "AI" && (
+                                    <span className="activity-timeline-actor-chip">
+                                      {burstActor}
+                                    </span>
+                                  )}
+                                  <span className="activity-timeline-origin-chip">
+                                    {originLabel(burstEventDetail.event)}
+                                  </span>
+                                </div>
+                                <span>
+                                  {eventTitle(burstEventDetail.event, burstRef, burstEntity)}
+                                </span>
+                                {burstEntity && burstDrawerType && (
+                                  <Button
+                                    variant="secondary"
+                                    compact
+                                    onClick={() =>
+                                      openDrawer({
+                                        type: burstDrawerType,
+                                        mode: burstDrawerType === "task" ? "edit" : "view",
+                                        entity: burstEntity,
+                                      })
+                                    }
+                                  >
+                                    {burstDrawerType === "task" ? "編集" : "開く"}
+                                  </Button>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ) : expandedSession ? (
+                      <>
+                        <dl className="activity-timeline-detail-grid">
+                          <div>
+                            <dt>意図</dt>
+                            <dd>{expandedSession.intent.summary || "未記録"}</dd>
+                          </div>
+                          <div>
+                            <dt>成果</dt>
+                            <dd>{expandedSession.outcome?.summary || "未記録"}</dd>
+                          </div>
+                        </dl>
+                        {typeFilter && typeFilter !== "ai_work" && (
+                          <p className="activity-timeline-detail-summary">
+                            関連活動に
+                            {displayKindLabel(typeFilter as ActivityTimelineItem["display_kind"])}
+                            があるため表示しています。
+                          </p>
+                        )}
+                        {expandedSessionRow && expandedSessionRow.repositories.length > 0 && (
+                          <div className="activity-timeline-detail-section">
+                            <span>リポジトリ</span>
+                            <span>
+                              {expandedSessionRow.repositories
+                                .map((repository) => repository.label)
+                                .join(" / ")}
+                            </span>
+                          </div>
+                        )}
+                        {expandedSessionRow && expandedSessionRow.tasks.length > 0 && (
+                          <div className="activity-timeline-detail-section">
+                            <span>関連タスク</span>
+                            <span className="activity-timeline-detail-links">
+                              {expandedSessionRow.tasks.slice(0, 3).map((task) => (
+                                <Button
+                                  key={task.id}
+                                  variant="secondary"
+                                  compact
+                                  onClick={() =>
+                                    openDrawer({
+                                      type: "task",
+                                      mode: "edit",
+                                      entity: task as unknown as Record<string, unknown>,
+                                    })
+                                  }
+                                >
+                                  {task.title}
+                                </Button>
+                              ))}
+                            </span>
+                          </div>
+                        )}
+                        {expandedRelatedSessionEvents.length > 0 && (
+                          <div className="activity-timeline-detail-section">
+                            <span>活動</span>
+                            <ul>
+                              {expandedRelatedSessionEvents.map((relatedEvent, index) => {
+                                const relatedRef = relatedEvent.entity_ref || {};
+                                const relatedEntity = findActivityEntity(domain, relatedRef);
+                                return (
+                                  <li
+                                    key={relatedEvent.id || `${expandedTimelineItem.id}:${index}`}
+                                  >
+                                    {eventLabel(String(relatedEvent.event_kind || ""))}：
+                                    {eventTitle(relatedEvent, relatedRef, relatedEntity)}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        )}
+                        {expandedSession.outcome?.remaining_work.length ? (
+                          <div className="activity-timeline-detail-section">
+                            <span>残作業</span>
+                            <ul>
+                              {expandedSession.outcome.remaining_work.slice(0, 3).map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : expandedEvent ? (
+                      <>
+                        {expandedEvent.summary && (
+                          <p className="activity-timeline-detail-summary">
+                            {expandedEvent.summary}
+                          </p>
+                        )}
+                        <dl className="activity-timeline-detail-grid">
+                          <div>
+                            <dt>記録種別</dt>
+                            <dd>{eventLabel(String(expandedEvent.event_kind || ""))}</dd>
+                          </div>
+                          <div>
+                            <dt>由来</dt>
+                            <dd>{originLabel(expandedEvent)}</dd>
+                          </div>
+                          {expandedEventActor && (
+                            <div>
+                              <dt>記録者</dt>
+                              <dd>{expandedEventActor}</dd>
+                            </div>
+                          )}
+                        </dl>
+                        {expandedEvent.changed_fields?.length ? (
+                          <div className="activity-timeline-detail-section">
+                            <span>更新項目</span>
+                            <span>{expandedEvent.changed_fields.join(" / ")}</span>
+                          </div>
+                        ) : null}
+                        {expandedEntity && expandedDrawerType ? (
+                          <Button
+                            variant="secondary"
+                            compact
+                            onClick={() =>
+                              openDrawer({
+                                type: expandedDrawerType,
+                                mode: expandedDrawerType === "task" ? "edit" : "view",
+                                entity: expandedEntity,
+                              })
+                            }
+                          >
+                            {expandedRef.type === "task" ? "タスクを編集" : "関連項目を開く"}
+                          </Button>
+                        ) : (
+                          <span className="activity-event-state">履歴のみ</span>
+                        )}
+                      </>
+                    ) : null}
+                  </section>
+                </>
               )}
-            </ul>
+            </div>
+          ) : hasSelectedDateActivity && hasActiveFilter ? (
+            <EmptyState
+              title="条件に一致するActivityはありません"
+              action="絞り込みを解除"
+              onAction={() => {
+                setThemeFilter("all");
+                setTypeFilter("");
+              }}
+            />
           ) : (
-            <EmptyState title="条件に一致するActivityはありません" />
+            renderEmptyActivityCalendar()
           )
         ) : groups.length ? (
           <div className="activity-summary-grid">
@@ -402,7 +1213,7 @@ export function ActivityLogPanel({
             ))}
           </div>
         ) : (
-          <EmptyState title="タスクの完了やNoteの更新が自動でここにまとまります" />
+          renderEmptyActivityCalendar()
         ))}
       {expanded && (
         <div className="activity-auto-export">

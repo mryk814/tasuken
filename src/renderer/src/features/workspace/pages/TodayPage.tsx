@@ -1482,6 +1482,7 @@ export function TodayPage({
         includeUnresolved
         title="AI work"
         openDrawer={openDrawer}
+        saveEntities={saveEntities}
         onOpenTheme={(themeId) => {
           setActiveThemeId(themeId);
           navigate("theme");

@@ -99,7 +99,22 @@ export function createTaskClient(capability: TaskCapability) {
     return remember(value.task);
   };
 
-  return {
+  const client = {
+    applyEdit(
+      task: TaskDraft,
+      previous: Pick<TaskReadModel, "state" | "version"> | null,
+      context: TaskMutationContext,
+    ): Promise<TaskCommandOutcome> {
+      if (!previous) return client.create(task, context);
+      const { id, ...changes } = task;
+      if (previous.state !== "done" && task.state === "done") {
+        return client.complete(id, previous.version, task.completion_note, changes, context);
+      }
+      if (previous.state === "done" && task.state !== "done") {
+        return client.reopen(id, previous.version, changes, context);
+      }
+      return client.update(id, previous.version, changes, context);
+    },
     create(task: TaskDraft, context: TaskMutationContext) {
       return run(capability.create(createTaskCommandSchema.parse({
         ...mutationBase(context),
@@ -121,7 +136,7 @@ export function createTaskClient(capability: TaskCapability) {
         payload: { task_id: taskId, expected_version: expectedVersion },
       })));
     },
-    complete(taskId: string, expectedVersion: number, completionNote: string | null, changes: TaskPatch, context: TaskMutationContext) {
+    complete(taskId: string, expectedVersion: number, completionNote: TaskDraft["completion_note"], changes: TaskPatch, context: TaskMutationContext) {
       return run(capability.complete(completeTaskCommandSchema.parse({
         ...mutationBase(context),
         name: "CompleteTask",
@@ -170,6 +185,7 @@ export function createTaskClient(capability: TaskCapability) {
       });
     },
   };
+  return client;
 }
 
 export function projectTaskDraft(value: Record<string, unknown>): TaskDraft {
@@ -179,10 +195,4 @@ export function projectTaskDraft(value: Record<string, unknown>): TaskDraft {
       .map((key) => [key, value[key]]),
   );
   return taskDraftSchema.parse(projection);
-}
-
-export function projectTaskPatch(value: Record<string, unknown>): TaskPatch {
-  const draft = projectTaskDraft(value);
-  const { id: _id, ...changes } = draft;
-  return taskPatchSchema.parse(changes);
 }

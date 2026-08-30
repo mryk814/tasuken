@@ -43,6 +43,7 @@ export const THEME_NONE_VALUE: string;
 export const THEME_CHARTER_SCHEMA: ThemeCharter["schema"];
 export const THEME_STATE_SCHEMA: ThemeState["schema"];
 export function normalizeThemeId(value: unknown): string | null;
+export function noteProjectId(note: object | null | undefined): string | null;
 export function defaultThemeRef(): ThemeRef;
 export function noneThemeRef(): ThemeRef;
 export function themeRefFromId(

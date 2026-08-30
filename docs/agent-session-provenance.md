@@ -150,38 +150,38 @@ Codex、Claude Code、Cursor、GitHub CopilotはいずれもPhase 3の同じcano
 ```text
 SessionStart ───────┐
 all user requests ─┼→ local session observation → SessionEnd → one Session Packet → Debrief
-response checkpoints┤                                  │
-SessionEnd ─────────┘                                  └─ Core停止中は保持して再送
+response checkpoints┤          │                       │
+SessionEnd ─────────┘          └─ Stopで結果を観測     └─ Core停止中は保持して再送
 ```
 
 開始と終了を別Proposalにしないことで、開始Proposalの採用待ち中に終了hookが来てもOutcomeを失わない。
 正式AgentSessionとReferenceは、AI InboxのSession observationsから個別採用した時、またはDebrief保存時の一つの確認境界で保存する。
 
-収集対象はcanonical metadataだけである。transcript fileは読まず、hidden reasoning、tool call列、client固有raw schemaを保存しない。
+収集対象はcanonical metadataだけである。GitHub Copilotの`agentStop` / `Stop`だけは、そのhookが指すローカルJSONLをadapter境界で一時的に読む。読み込み対象は`COPILOT_HOME/session-state`（未指定時は`~/.copilot/session-state`）のreal path配下にある通常fileへ限定し、上限を超える本文は末尾だけを読む。root agentの最後の`assistant.message.data.content`だけを取り出し、raw transcript、path、user/tool event、subagent結果、hidden reasoning、client固有raw schemaはsession observationにもProposalにも保存しない。ファイルを読めない場合も終了理由だけで収集を継続する。
 最初に観測したuser promptをIntentとして固定しつつ、後続のuser requestとassistant response checkpointも順序付きで保持する。Outcome summaryは最後のcheckpointから作るが、途中の方針転換は捨てない。
 
 ### Client adapters
 
 同梱`agent-session-hook.mjs`はstdinのclient固有JSONを次の共通eventへ変換する。
 
-| client         | lifecycle events                                                            | source session ID                | Intent source                       | Outcome source                  | terminal boundary |
-| -------------- | --------------------------------------------------------------------------- | -------------------------------- | ----------------------------------- | ------------------------------- | ----------------- |
-| Codex          | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`                 | `session_id`                     | first `prompt`                      | latest `last_assistant_message` | `SessionEnd`      |
-| Claude Code    | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`                 | `session_id`                     | first `prompt`                      | latest `last_assistant_message` | `SessionEnd`      |
-| Cursor         | `sessionStart` / `beforeSubmitPrompt` / `afterAgentResponse` / `sessionEnd` | `conversation_id` / `session_id` | first `prompt`                      | latest response `text`          | `sessionEnd`      |
-| GitHub Copilot | `sessionStart` / `userPromptSubmitted` / `agentStop` / `sessionEnd`         | `sessionId` / `session_id`       | `initialPrompt`またはfirst `prompt` | 利用可能なresponseのみ          | `sessionEnd`      |
+| client         | lifecycle events                                                                                                                       | source session ID                | Intent source                       | Outcome source                                | terminal boundary |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ----------------------------------- | --------------------------------------------- | ----------------- |
+| Codex          | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`                                                                            | `session_id`                     | first `prompt`                      | latest `last_assistant_message`               | `SessionEnd`      |
+| Claude Code    | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`                                                                            | `session_id`                     | first `prompt`                      | latest `last_assistant_message`               | `SessionEnd`      |
+| Cursor         | `sessionStart` / `beforeSubmitPrompt` / `afterAgentResponse` / `sessionEnd`                                                            | `conversation_id` / `session_id` | first `prompt`                      | latest response `text`                        | `sessionEnd`      |
+| GitHub Copilot | `sessionStart` / `userPromptSubmitted` / `agentStop` / `sessionEnd`、または`SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd` | `sessionId` / `session_id`       | `initialPrompt`またはfirst `prompt` | `agentStop`が指す最後のroot assistant message | `sessionEnd`      |
 
-各clientのhook仕様は変化しうるため、adapter fixtureで互換を固定する。公式仕様で得られないOutcomeをtranscript解析で補完せず、終了理由を明示した最小handoffを作る。
+GitHub Copilotは設定eventがcamelCaseならcamelCase payload、PascalCaseならVS Code互換snake_case payloadを渡す。両形式をfixtureで固定し、commandの`--event`をpayloadより優先する。`transcriptPath`は`agentStop` / `Stop`だけに存在し、`sessionEnd` / `SessionEnd`には存在しない。詳細は[GitHub Copilot hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference)と[CLI configuration directory](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference)を正本とする。
 
 ### Hook command
 
 開発版:
 
 ```text
-node scripts/agent-session-hook.mjs --client codex
-node scripts/agent-session-hook.mjs --client claude_code
-node scripts/agent-session-hook.mjs --client cursor
-node scripts/agent-session-hook.mjs --client github_copilot
+node scripts/agent-session-hook.mjs --client codex --event SessionStart
+node scripts/agent-session-hook.mjs --client claude_code --event UserPromptSubmit
+node scripts/agent-session-hook.mjs --client cursor --event afterAgentResponse
+node scripts/agent-session-hook.mjs --client github_copilot --event agentStop
 ```
 
 インストール版はTaskenの`resources/mcp/agent-session-hook.mjs`を同じ引数で起動する。
@@ -206,5 +206,19 @@ npm run hooks:codex:uninstall
 `install`はstandalone bundleを`~/.codex/hooks/tasken-agent-session-hook.mjs`へコピーし、`SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`を接続する。`SessionStart`では未送信terminal observationの再送も行う。再実行は冪等で、変更前の`hooks.json`はtimestamp付きbackupへ退避する。`uninstall`はTasken handlerとmanaged bundleだけを削除し、他のhookは維持する。
 
 導入後は新しいCodex sessionで`/hooks`を開き、表示されたTasken hookのcommandとsourceを確認して信頼する。信頼されるまでCodexは非managed hookを通常実行しない。
+
+### GitHub Copilot user hook installation
+
+Copilot CLIにはTasken専用のuser hook fileを追加し、既存fileやinline hooksを変更しない。Windowsでは`%USERPROFILE%\.copilot\hooks\tasken-agent-session.json`、macOS/Linuxでは`~/.copilot/hooks/tasken-agent-session.json`、`COPILOT_HOME`指定時はその`hooks`配下を使う。
+
+```text
+npm run hooks:copilot:install
+npm run hooks:copilot:status
+npm run hooks:copilot:uninstall
+```
+
+設定は公式version 1形式で、`sessionStart` / `userPromptSubmitted` / `agentStop` / `sessionEnd`の各commandへ対応する`--event`を明示する。導入後はCopilot CLIを再起動する。`install` / `uninstall`はTasken専用fileとmanaged bundleだけを扱い、他のuser / repository / plugin hookを維持する。
+
+送信成功後は本文を持たない小さなreceiptだけをローカルに残す。同じterminal hookが再送された場合はreceiptで収束させ、Coreへ二つ目のSessionを作らない。後日の新しい`SessionStart`はそのsession IDの新しいlifecycleとして分離し、直前の終了時刻以前に遅着したStart / Endはstaleとして無視する。新しいactive stateを書き終えてから直前receiptを外すため、停止や競合で世代境界だけが失われることはない。
 
 明示的な紐づけが必要な場合だけ`TASKEN_AGENT_SESSION_THEME_IDS` / `TASKEN_AGENT_SESSION_TASK_IDS`へcomma区切りのIDを渡す。未指定時はrepositoryを一意に解決し、Theme / WorkingCopyも一意な場合だけ自動で関連付ける。Task候補は自動選択しない。

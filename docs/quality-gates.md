@@ -28,8 +28,10 @@ full-testは全tests/*.test.mjsをnpm test経由で実行する。globはNodeの
 
 ## リリース
 
-`npm run release:check`はWindows x64 host専用で、version検証 → `npm run ci` → Windows ABI rebuildを含むpackage → 配布物検証 → packaged Electron smoke → packaged MCP smokeを通す。
+`npm run release:check`はWindows x64 host専用で、version検証 → `npm run ci` → Windows ABI rebuildを含むpackage → 配布物検証 → packaged Electron smoke → packaged Activity実画面smoke → packaged live MCP Proposal smoke → packaged MCP smokeを通す。
 GitHub ActionsのWindows runnerがこのコマンドを実行し、`release/`にNSIS installerとportableを作る。workflowは配布物とSHA-256 checksumをGitHub Releaseへ登録する。
+
+packaged Activity実画面smokeは、一時userDataへ材料研究者の代表的な1日をseedし、Debriefの2026-08-28を実際に開く。08:00–19:00の初期表示、rangeとpoint、Theme色、AI作業だけのsource chip、詳細表示、Task編集への直行、横方向のclipがないことをDOMと描画寸法で確認する。標準幅のスクリーンショットは`output/playwright/activity-packaged-smoke/`へ出力し、`Windows release` workflowのartifactとして14日間保持する。
 
 ## Audits
 

@@ -18,6 +18,7 @@ const steps = [
   ["Script inventory audit", "audit:scripts", []],
   ["Renderer and main build", "build", []],
   ["Focused Electron smoke", "smoke:desktop:focused", []],
+  ["Live MCP Proposal Electron smoke", "smoke:proposal-live:focused", []],
 ];
 
 for (const [label, script, scriptArgs] of steps) {

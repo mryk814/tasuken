@@ -119,6 +119,54 @@ test("task form plan normalizes reminder, section, schedule, and Artifact Theme 
   assert.equal(artifact.theme_id, "theme-1");
 });
 
+test("task form keeps hidden Repository settings while inherit mode is selected", () => {
+  const result = plan(
+    "task",
+    [
+      ["title", "Repository設定を保つ"],
+      ["repository_context_mode", "inherit"],
+    ],
+    {
+      id: "task-repository",
+      repository_context_ids: ["repo-1"],
+      primary_repository_context_id: "repo-1",
+    },
+  );
+
+  assert.equal(result.kind, "operations");
+  const task = result.operations.find((operation) => operation.type === "task").entity;
+  assert.deepEqual(task.repository_context_ids, ["repo-1"]);
+  assert.equal(task.primary_repository_context_id, "repo-1");
+});
+
+test("Themeの新しいRepositoryはLabelだけでは保存せず、接続先を案内する", () => {
+  assert.deepEqual(
+    plan("theme", [
+      ["name", "Tasken"],
+      ["repository_new_label", "Tasuken"],
+    ]),
+    {
+      kind: "invalid",
+      field: "repository_new_local_path",
+      message: "新しいRepositoryにはRemote URLまたはLocal pathを入力してください。",
+    },
+  );
+});
+
+test("Theme保存はRepositoryの行内編集が終わるまで止め、戻り先へfocusする", () => {
+  assert.deepEqual(
+    plan("theme", [
+      ["name", "Tasken"],
+      ["repository_context_inline_editing", "true"],
+    ]),
+    {
+      kind: "invalid",
+      field: "repository_context_inline_editing_focus",
+      message: "Repositoryの行内編集を保存またはキャンセルしてから、Themeを保存してください。",
+    },
+  );
+});
+
 test("Conversationから作ったTaskはderived_fromを同じ保存操作列へ追加する", () => {
   const result = plan("task", [
     ["title", "会話から調査する"],

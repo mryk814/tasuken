@@ -70,31 +70,31 @@ flowchart LR
 
 ## 2. Surface Map
 
-| Surface | 一言で言うと | 主に扱う正本 | 種別 | 現在の位置づけ |
-|---|---|---|---|---|
-| Today | 今日実行する | Task / Schedule | Projection / Hub | Core daily |
-| ToDo | 未完了・予定なしを整理する | Task / Schedule | Projection | Core daily |
-| Waiting | 外部待ちを確認する | Waiting | Entity view | Supporting / usage review |
-| Inbox | まだ意味を決めていない入力 | CaptureEntry / Memo | Intake hub | Core daily, simplify |
-| Timeline | 中長期計画をTheme横断で見る | Task / Schedule | Projection | Supporting |
-| Notes | Markdown文書を作る・読む | Note / Resource | Workbench | Core daily |
-| Sketch | 手描き・図を作る | Sketch | Authoring tool | Core secondary |
-| Chat Refs | 外部AI会話を保管・参照する | Resource / Conversation | Source library | Supporting, growing |
-| Artifacts | 実ファイル・Media・Web成果物 | Artifact | Output library | Core, growing |
-| Theme | 一つのThemeの現在地 | Theme + related entities | Projection / Context | Core |
-| Themes | Theme横断の一覧 | Theme | Portfolio view | Supporting |
-| AI Inbox | AIからの変更案を確認する | AiProposal | Review boundary | Supporting / Experimental |
-| Knowledge | Relation・既存Knowledgeを診断する | Relation / KnowledgeNode | Research / Diagnostic | Experimental |
-| Settings | 保存・接続・AI・表示を設定する | Preferences / Profiles | Tool | Supporting |
+| Surface   | 一言で言うと                      | 主に扱う正本             | 種別                  | 現在の位置づけ            |
+| --------- | --------------------------------- | ------------------------ | --------------------- | ------------------------- |
+| Today     | 今日実行する                      | Task / Schedule          | Projection / Hub      | Core daily                |
+| ToDo      | 未完了・予定なしを整理する        | Task / Schedule          | Projection            | Core daily                |
+| Waiting   | 外部待ちを確認する                | Waiting                  | Entity view           | Supporting / usage review |
+| Inbox     | まだ意味を決めていない入力        | CaptureEntry / Memo      | Intake hub            | Core daily, simplify      |
+| Timeline  | 中長期計画をTheme横断で見る       | Task / Schedule          | Projection            | Supporting                |
+| Notes     | Markdown文書を作る・読む          | Note / Resource          | Workbench             | Core daily                |
+| Sketch    | 手描き・図を作る                  | Sketch                   | Authoring tool        | Core secondary            |
+| Chat Refs | 外部AI会話を保管・参照する        | Resource / Conversation  | Source library        | Supporting, growing       |
+| Artifacts | 実ファイル・Media・Web成果物      | Artifact                 | Output library        | Core, growing             |
+| Theme     | 一つのThemeの現在地               | Theme + related entities | Projection / Context  | Core                      |
+| Themes    | Theme横断の一覧                   | Theme                    | Portfolio view        | Supporting                |
+| AI Inbox  | AIからの変更案を確認する          | AiProposal               | Review boundary       | Supporting / Experimental |
+| Knowledge | Relation・既存Knowledgeを診断する | Relation / KnowledgeNode | Research / Diagnostic | Experimental              |
+| Settings  | 保存・接続・AI・表示を設定する    | Preferences / Profiles   | Tool                  | Supporting                |
 
 ### Satellite surfaces
 
-| Surface | 役割 | 正本 |
-|---|---|---|
-| Quick Capture | どこからでも入力 | CaptureEntry / Task等 |
-| Sticky Memo | Memoをデスクトップ表示 | 同じMemo Entity |
-| Today Mini | Todayを小窓表示 | 同じTask Projection |
-| Detached Note | Noteを別Windowで編集 | 同じNote Entity |
+| Surface        | 役割                     | 正本                    |
+| -------------- | ------------------------ | ----------------------- |
+| Quick Capture  | どこからでも入力         | CaptureEntry / Task等   |
+| Sticky Memo    | Memoをデスクトップ表示   | 同じMemo Entity         |
+| Today Mini     | Todayを小窓表示          | 同じTask Projection     |
+| Detached Note  | Noteを別Windowで編集     | 同じNote Entity         |
 | Media Recorder | Voice / Screen Recording | CaptureEntry + Artifact |
 
 Satellite Windowは新しい正本を作らず、本体と同じCommand・Selector・Preferenceを利用する。
@@ -209,15 +209,14 @@ URL、本文、ファイル、会話ログを一つの曖昧な「関連資料�
 ### AI cluster
 
 ```text
-Note AI / AI Inbox / MCP / AI Pack / Context Preview / Provider Settings
+AI Inbox / MCP / Agent Session / AI Pack / Context Preview
 ```
 
-- Note AI: 生成・相談
 - AI Inbox: 書き込み案の人間確認
-- MCP: 外部Agentとの読取・作業報告
+- MCP: 外部AgentへのContext提供と安全なProposal受領
+- Agent Session: 外部AgentのIntent・Outcome・Work Receipt・残作業
 - AI Pack: OneDrive向けProjection
 - Context Preview: 渡す内容の確認
-- Provider Settings: 接続・能力
 
 同じAI機能ではなく、AI境界の異なる段階。
 
@@ -233,14 +232,14 @@ Activity Event / Work Receipt / Status Update / Plan Revision / Relation
 
 全capabilityへ次の状態を一つ付ける。
 
-| State | 意味 | UI原則 |
-|---|---|---|
-| `core` | 日常ループの中心 | 主導線へ置く |
-| `supporting` | 特定場面で明確に使う | 二次導線／Contextual UI |
-| `experimental` | 価値検証中 | Experimental表示、撤去可能な境界 |
-| `diagnostic` | 研究・修復・状態確認 | Settings / Advanced / Knowledge等 |
-| `dormant` | 現在ほぼ使っていない | 隠す／畳む／再設計判断 |
-| `deprecated` | 置換済み | 新規作成不可、移行・読取のみ |
+| State          | 意味                 | UI原則                            |
+| -------------- | -------------------- | --------------------------------- |
+| `core`         | 日常ループの中心     | 主導線へ置く                      |
+| `supporting`   | 特定場面で明確に使う | 二次導線／Contextual UI           |
+| `experimental` | 価値検証中           | Experimental表示、撤去可能な境界  |
+| `diagnostic`   | 研究・修復・状態確認 | Settings / Advanced / Knowledge等 |
+| `dormant`      | 現在ほぼ使っていない | 隠す／畳む／再設計判断            |
+| `deprecated`   | 置換済み             | 新規作成不可、移行・読取のみ      |
 
 現時点の仮置き:
 
@@ -252,7 +251,7 @@ supporting:
   Waiting, Timeline, Themes, Sketch, Chat Refs, Settings, AI Inbox
 
 experimental:
-  Voice Capture, Screen Recording, Web Artifact, Source Anchor, Note AI再設計
+  Voice Capture, Screen Recording, Web Artifact, Source Anchor, Agent連携再設計
 
 diagnostic:
   Knowledge / Context Graph diagnostics, Data Health
@@ -293,16 +292,16 @@ UI component単位ではなく、利用者にとって意味のあるcapability�
 - primary commandの最終実行時刻と概算回数
 - dataは存在するが入口が無い機能
 - routeはあるが長期間利用されない機能
--同じcapabilityに複数primary entryがある状態
+  -同じcapabilityに複数primary entryがある状態
 
 ### 表示例
 
-| Capability | Maturity | Last used | Data | Entrypoints | Finding |
-|---|---|---:|---:|---:|---|
-| Notes | core | today | 184 | 3 | healthy |
-| Waiting | supporting | 64 days | 2 | 1 | review |
-| Knowledge manual create | dormant? | never | 7 | 2 | UI may be unnecessary |
-| AI Inbox | supporting | 21 days | 4 | 1 | occasional, keep contextual |
+| Capability              | Maturity   | Last used | Data | Entrypoints | Finding                     |
+| ----------------------- | ---------- | --------: | ---: | ----------: | --------------------------- |
+| Notes                   | core       |     today |  184 |           3 | healthy                     |
+| Waiting                 | supporting |   64 days |    2 |           1 | review                      |
+| Knowledge manual create | dormant?   |     never |    7 |           2 | UI may be unnecessary       |
+| AI Inbox                | supporting |   21 days |    4 |           1 | occasional, keep contextual |
 
 利用回数だけで自動削除・降格しない。判断材料として使う。
 
@@ -314,7 +313,7 @@ UI component単位ではなく、利用者にとって意味のあるcapability�
 - Featureにprimary surfaceが複数ある
 - Entityが存在するが、開くlocator / surfaceが無い
 - 画面は存在するが目的・正本Entityが未定義
--同じlabelのactionが異なるCommandを呼ぶ
+  -同じlabelのactionが異なるCommandを呼ぶ
 - experimental capabilityが通常導線へ無印で出ている
 - deprecated capabilityから新規Entityを作れる
 - README / routes / Product Atlasの名称が不一致

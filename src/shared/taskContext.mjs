@@ -71,12 +71,13 @@ function commonFields(record) {
 }
 
 export function publicTaskForContext(task, budget) {
+  const takeSafe = (value, limit) => budget.take(safeReceiptText(value), limit);
   return withPublicAi(
     task,
     {
       ...commonFields(task),
-      title: budget.take(task.title, 500),
-      description: budget.take(task.description, 20_000),
+      title: takeSafe(task.title, 500),
+      description: takeSafe(task.description, 20_000),
       state: task.state || "todo",
       priority: task.priority || "normal",
       project_id: task.project_id || null,
@@ -85,7 +86,7 @@ export function publicTaskForContext(task, budget) {
       checklist_items: Array.isArray(task.checklist_items)
         ? task.checklist_items.slice(0, 100).map((entry) => ({
             id: text(entry?.id),
-            title: budget.take(entry?.title, 500),
+            title: takeSafe(entry?.title, 500),
             done: Boolean(entry?.done),
             sort_order: Number(entry?.sort_order || 0),
           }))
@@ -96,29 +97,31 @@ export function publicTaskForContext(task, budget) {
 }
 
 export function publicAssignmentForContext(task, budget) {
+  const takeSafe = (value, limit) => budget.take(safeReceiptText(value), limit);
   return {
     requester: task.requester || "unknown",
     intended_executor: task.intended_executor || "self",
-    executor_identity: budget.take(task.executor_identity, 200) || null,
+    executor_identity: takeSafe(task.executor_identity, 200) || null,
     work_state:
       task.work_state ||
       (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated"),
     work_started_at: task.work_started_at || null,
     work_reported_at: task.work_reported_at || null,
-    work_review_note: budget.take(task.work_review_note, 2_000) || null,
+    work_review_note: takeSafe(task.work_review_note, 2_000) || null,
   };
 }
 
 export function publicThemeForContext(theme, budget) {
   if (!theme) return null;
-  const intent = publicThemeIntent(theme, budget);
+  const intent = publicThemeIntent(safeReceiptValue(theme), budget);
+  const takeSafe = (value, limit) => budget.take(safeReceiptText(value), limit);
   return withPublicAi(
     theme,
     {
       ...commonFields(theme),
-      name: budget.take(theme.name, 500),
-      code: budget.take(theme.code, 120) || null,
-      description: budget.take(theme.description, 10_000),
+      name: takeSafe(theme.name, 500),
+      code: takeSafe(theme.code, 120) || null,
+      description: takeSafe(theme.description, 10_000),
       state: theme.state || null,
       charter: intent.charter,
       current_state: intent.state,
@@ -161,7 +164,7 @@ export function safeAiSourceRefs(value, budget = null) {
   for (const entryValue of Array.isArray(value) ? value.slice(0, 100) : []) {
     if (!entryValue || typeof entryValue !== "object" || Array.isArray(entryValue)) continue;
     const kind = text(entryValue.kind).trim();
-    const title = text(entryValue.title).trim().slice(0, 500);
+    const title = safeReceiptText(entryValue.title).trim().slice(0, 500);
     const storageRootId = safeStorageRootId(entryValue.storage_root_id);
     const relativePath = safeRelativePath(entryValue.relative_path);
     const locatorSource = text(entryValue.locator).trim();
@@ -206,7 +209,8 @@ export function publicAiHeader(record, budget = null) {
   const header =
     record?.ai && typeof record.ai === "object" && !Array.isArray(record.ai) ? record.ai : null;
   if (!header) return null;
-  const take = (value, limit) => (budget ? budget.take(value, limit) : text(value).slice(0, limit));
+  const take = (value, limit) =>
+    budget ? budget.take(safeReceiptText(value), limit) : safeReceiptText(value).slice(0, limit);
   const visibility = Array.isArray(header.ai_visibility)
     ? [
         ...new Set(
@@ -270,13 +274,14 @@ export function detailLocator(type, id) {
 }
 
 export function publicNoteSummary(note, budget, relation) {
+  const takeSafe = (value, limit) => budget.take(safeReceiptText(value), limit);
   return withPublicAi(
     note,
     {
       ...commonFields(note),
-      title: budget.take(note.title, 500),
+      title: takeSafe(note.title, 500),
       note_type: note.note_type || "note",
-      excerpt: budget.take(note.body_markdown, 600),
+      excerpt: takeSafe(note.body_markdown, 600),
       included_because: relation.includedBecause,
       relation_path: relation.path,
       locator: detailLocator("note", note.id),
@@ -286,15 +291,16 @@ export function publicNoteSummary(note, budget, relation) {
 }
 
 export function publicConversationSummary(resource, budget, relation) {
+  const takeSafe = (value, limit) => budget.take(safeReceiptText(value), limit);
   return withPublicAi(
     resource,
     {
       ...commonFields(resource),
       resource_scope: "chat_ref",
       kind: "conversation",
-      title: budget.take(resource.title, 500),
-      description: budget.take(resource.description, 600),
-      excerpt: budget.take(resource.body_markdown, 600),
+      title: takeSafe(resource.title, 500),
+      description: takeSafe(resource.description, 600),
+      excerpt: takeSafe(resource.body_markdown, 600),
       source_url: safeExternalUrl(resource.url),
       message_count: Number.isFinite(Number(resource.message_count))
         ? Number(resource.message_count)
@@ -308,12 +314,13 @@ export function publicConversationSummary(resource, budget, relation) {
 }
 
 export function publicResourceSummary(resource, budget, relation) {
+  const takeSafe = (value, limit) => budget.take(safeReceiptText(value), limit);
   return withPublicAi(
     resource,
     {
       ...commonFields(resource),
-      title: budget.take(resource.title, 500),
-      description: budget.take(resource.description, 600),
+      title: takeSafe(resource.title, 500),
+      description: takeSafe(resource.description, 600),
       source_url: safeExternalUrl(resource.url),
       included_because: relation.includedBecause,
       relation_path: relation.path,
@@ -323,12 +330,13 @@ export function publicResourceSummary(resource, budget, relation) {
 }
 
 export function publicArtifactMetadata(artifact, budget, relation = null) {
+  const takeSafe = (value, limit) => budget.take(safeReceiptText(value), limit);
   return withPublicAi(
     artifact,
     {
       ...commonFields(artifact),
-      title: budget.take(artifact.title, 500),
-      filename: budget.take(artifact.filename, 500),
+      title: takeSafe(artifact.title, 500),
+      filename: takeSafe(artifact.filename, 500),
       file_type: artifact.file_type || null,
       mime_type: artifact.mime_type || null,
       file_size: Number.isFinite(Number(artifact.file_size)) ? Number(artifact.file_size) : null,
@@ -337,7 +345,7 @@ export function publicArtifactMetadata(artifact, budget, relation = null) {
       source_id: artifact.source_id || null,
       origin_note_id: artifact.origin_note_id || null,
       generated_by: artifact.generated_by || null,
-      description: budget.take(artifact.description, 600),
+      description: takeSafe(artifact.description, 600),
       ...(relation
         ? {
             included_because: relation.includedBecause,
@@ -361,6 +369,14 @@ const KEY_VALUE_CREDENTIAL = new RegExp(
   "gi",
 );
 const STANDALONE_CREDENTIAL = /\b(Basic|Bearer)\s+[^\s,;)\]}>]+/gi;
+const HIDDEN_REASONING_BLOCK =
+  /<(?:analysis|thinking|reasoning)>[\s\S]*?<\/(?:analysis|thinking|reasoning)>|\[(?:analysis|thinking|reasoning)\][\s\S]*?\[\/(?:analysis|thinking|reasoning)\]/gi;
+const HIDDEN_REASONING_LINE =
+  /(^|\r?\n)\s*(?:chain[ -]of[ -]thought|hidden reasoning|internal reasoning)\s*:\s*[^\r\n]*/gi;
+const PRIVATE_KEY_BLOCK =
+  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/gi;
+const HIGH_CONFIDENCE_TOKEN =
+  /(?:\b(?:gh[pousr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255}|glpat-[A-Za-z0-9_-]{20,255}|(?:AKIA|ASIA)[A-Z0-9]{16}|sk-(?:proj-)?[A-Za-z0-9_-]{20,255}|sk_(?:live|test)_[A-Za-z0-9]{16,255}|AIza[A-Za-z0-9_-]{35}|npm_[A-Za-z0-9]{20,255})\b|\bxox[baprs]-[A-Za-z0-9-]{20,255})/g;
 const CREDENTIAL_FIELD_NAMES = new Set([
   "authorization",
   "authorizationtoken",
@@ -386,12 +402,16 @@ function credentialFieldName(value) {
 /** Remove URL credentials, unsupported URL-like locators, local paths, and authentication material. */
 export function safeReceiptText(value) {
   let result = text(value);
+  result = result.replace(HIDDEN_REASONING_BLOCK, "[redacted-reasoning]");
+  result = result.replace(HIDDEN_REASONING_LINE, "$1[redacted-reasoning]");
+  result = result.replace(PRIVATE_KEY_BLOCK, "[redacted-private-key]");
   result = result.replace(HTTP_URL, (url) => safeExternalUrl(url) || "[redacted-url]");
   result = result.replace(DANGEROUS_URL, "[redacted-url]");
   result = result.replace(WINDOWS_LOCAL_PATH, "$1[redacted-local-path]");
   result = result.replace(UNIX_LOCAL_PATH, "$1[redacted-local-path]");
   result = result.replace(KEY_VALUE_CREDENTIAL, "$1$2=[redacted]");
   result = result.replace(STANDALONE_CREDENTIAL, "$1 [redacted]");
+  result = result.replace(HIGH_CONFIDENCE_TOKEN, "[redacted-token]");
   return result;
 }
 

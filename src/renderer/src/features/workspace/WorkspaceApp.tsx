@@ -16,10 +16,9 @@ import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
 import { usePreference } from "../../utils/usePreference";
+import { noteProjectId } from "../../../../shared/themeRef.mjs";
+import { createTaskClient, projectTaskDraft } from "../task/public";
 import {
-  createTaskClient,
-  projectTaskDraft,
-  projectTaskPatch,
   type BaseRecord,
   type ContentViewerTarget,
   type DocumentSaveReferenceCompanion,
@@ -46,7 +45,14 @@ import {
   runActivityAutoExport,
 } from "./lib/activityAutoExport";
 import { resolveActivityLogDirectory } from "./lib/activityLogDirectory";
-import { buildActivityLog } from "./lib/activityLog";
+import { buildActivityReviewLog, collectActivityLogEntries } from "./lib/activityLog";
+import { buildAgentWorkProjection } from "./lib/agentSessionProjection";
+import {
+  buildDailyAgentSessionContexts,
+  projectActivitySessionLogEntries,
+  reviewableActivityEvents,
+  type ActivitySessionEvent,
+} from "./lib/activityTimeline";
 import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
 import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
 import { buildDomainDrawerFormPlan, themeIntentFromForm } from "./lib/drawerFormPlans";
@@ -537,7 +543,7 @@ export function WorkspaceApp() {
       ...fullData,
       themes,
       items: fullData.items.filter((i) => match(i.theme_id)),
-      notes: fullData.notes.filter((n) => match(n.theme_id)),
+      notes: fullData.notes.filter((note) => match(noteProjectId(note))),
       links: fullData.links.filter((l) => match(l.theme_id)),
       status_updates: fullData.status_updates.filter((u) => match(u.theme_id)),
       knowledge_nodes: fullData.knowledge_nodes.filter((k) => match(k.theme_id)),
@@ -641,20 +647,35 @@ export function WorkspaceApp() {
           dates: targetDates,
           exportDate: async (targetDate) => {
             activeTargetDate = targetDate;
+            const activityInput = {
+              date: targetDate,
+              domain: fullDomain,
+              statusUpdates: fullData.status_updates || [],
+              themes: allThemes,
+              changeEvents: fullDomain.change_events as unknown as Array<Record<string, unknown>>,
+              references: fullDomain.references as unknown as Array<Record<string, unknown>>,
+              artifacts: fullData.artifacts as unknown as Array<Record<string, unknown>>,
+              roots: fullData.canonical_root_status,
+              timezone: "Asia/Tokyo",
+            };
+            const sessionEvents = reviewableActivityEvents(
+              collectActivityLogEntries(activityInput).events as ActivitySessionEvent[],
+            );
+            const sessionRows = buildAgentWorkProjection(fullDomain, {
+              limit: Math.max(fullDomain.agent_sessions.length, 1),
+            });
+            const sessionContexts = buildDailyAgentSessionContexts(
+              sessionRows,
+              targetDate,
+              sessionEvents,
+            );
             const result = await workspaceApi.exportMarkdownFile({
               title: `Tasken Activity Log ${targetDate}`,
               fileName: `tasken-activity-${targetDate}.md`,
-              content: buildActivityLog({
-                date: targetDate,
-                domain: fullDomain,
-                statusUpdates: fullData.status_updates || [],
-                themes: allThemes,
-                changeEvents: fullDomain.change_events as unknown as Array<Record<string, unknown>>,
-                references: fullDomain.references as unknown as Array<Record<string, unknown>>,
-                artifacts: fullData.artifacts as unknown as Array<Record<string, unknown>>,
-                roots: fullData.canonical_root_status,
-                timezone: "Asia/Tokyo",
-              }),
+              content: buildActivityReviewLog(
+                activityInput,
+                projectActivitySessionLogEntries(sessionContexts, allThemes),
+              ),
               directory: activeDirectory,
               chooseDirectory: false,
             });
@@ -1060,32 +1081,18 @@ export function WorkspaceApp() {
     try {
       if (type === "task") {
         const existing = fullDomain.tasks.find((candidate) => candidate.id === entity.id);
-        const isCompleting = Boolean(
-          existing && existing.state !== "done" && entity.state === "done",
-        );
-        const isReopening = Boolean(
-          existing && existing.state === "done" && entity.state !== "done",
-        );
-        const taskId = entity.id as string;
         const context = {
           commandId: uuid(),
           issuedAt: new Date().toISOString(),
           entrypoint: drawer?.commandSource || "main_ui",
         } as const;
-        const expectedVersion = Number((existing as unknown as Entity | undefined)?.version || 0);
-        const outcome = !existing
-          ? await taskClient.create(projectTaskDraft(entity), context)
-          : isCompleting
-            ? await taskClient.complete(
-                taskId,
-                expectedVersion,
-                entity.completion_note as string | null,
-                projectTaskPatch(entity),
-                context,
-              )
-            : isReopening
-              ? await taskClient.reopen(taskId, expectedVersion, projectTaskPatch(entity), context)
-              : await taskClient.update(taskId, expectedVersion, projectTaskPatch(entity), context);
+        const outcome = await taskClient.applyEdit(
+          projectTaskDraft(entity),
+          existing
+            ? { state: existing.state, version: Number((existing as unknown as Entity).version || 0) }
+            : null,
+          context,
+        );
         if (!outcome.task) throw new Error("Task commandの結果にTaskがありません。");
         applyExternalSave("task", outcome.task as unknown as Entity);
         if (!options.quiet)
@@ -2225,13 +2232,6 @@ export function WorkspaceApp() {
     ...(route === "notes"
       ? [
           {
-            id: "notes:note-ai",
-            label: "現在の文書でNote AIを開く",
-            keywords: ["AI", "chat", "diff", "原稿"],
-            category: "Commands" as const,
-            execute: () => dispatchNotesCommand("draft"),
-          },
-          {
             id: "notes:save",
             label: "現在の文書を保存",
             keywords: ["save", "保存"],
@@ -2288,13 +2288,6 @@ export function WorkspaceApp() {
             keywords: ["選択", "切り出し", "note", "抽出"],
             category: "Commands" as const,
             execute: () => dispatchNotesCommand("selection-note"),
-          },
-          {
-            id: "notes:selection-ai",
-            label: "選択範囲をAIで編集",
-            keywords: ["選択", "AI", "書き換え"],
-            category: "Commands" as const,
-            execute: () => dispatchNotesCommand("selection-ai"),
           },
         ]
       : []),

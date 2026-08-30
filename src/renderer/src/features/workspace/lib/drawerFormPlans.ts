@@ -214,8 +214,14 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       checklist_items: taskChecklistFromForm(values),
       repository_context_mode: (formText(values, "repository_context_mode") ||
         String(base.repository_context_mode || "inherit")) as Task["repository_context_mode"],
-      repository_context_ids: values.getAll("repository_context_ids").map(String),
-      primary_repository_context_id: formText(values, "primary_repository_context_id") || null,
+      repository_context_ids: hasField("repository_context_inputs_present")
+        ? values.getAll("repository_context_ids").map(String)
+        : Array.isArray(base.repository_context_ids)
+          ? base.repository_context_ids.map(String)
+          : [],
+      primary_repository_context_id: hasField("repository_context_inputs_present")
+        ? formText(values, "primary_repository_context_id") || null
+        : ((base.primary_repository_context_id as string | null) ?? null),
       repository_subdirectory: formText(values, "repository_subdirectory") || null,
       repository_branch_hint: formText(values, "repository_branch_hint") || null,
       repository_context_detachments: Array.isArray(base.repository_context_detachments)
@@ -274,10 +280,25 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
   if (type === "theme") {
     const name = formText(values, "name");
     if (!name) return { kind: "invalid", field: "name", message: "テーマ名を入力してください。" };
+    if (formText(values, "repository_context_inline_editing") === "true") {
+      return {
+        kind: "invalid",
+        field: "repository_context_inline_editing_focus",
+        message: "Repositoryの行内編集を保存またはキャンセルしてから、Themeを保存してください。",
+      };
+    }
     const { status: _status, ...rest } = base;
     const existingContextIds = values.getAll("repository_context_ids").map(String).filter(Boolean);
+    const newLabel = formText(values, "repository_new_label");
     const newRemoteUrl = formText(values, "repository_new_url");
     const newLocalPath = formText(values, "repository_new_local_path");
+    if (newLabel && !newRemoteUrl && !newLocalPath) {
+      return {
+        kind: "invalid",
+        field: "repository_new_local_path",
+        message: "新しいRepositoryにはRemote URLまたはLocal pathを入力してください。",
+      };
+    }
     const newContextOperations: SaveOperation[] = [];
     let newContextId: string | null = null;
     if (newRemoteUrl || newLocalPath) {
@@ -285,7 +306,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       try {
         const context = normalizeRepositoryContext({
           id: newContextId,
-          label: formText(values, "repository_new_label"),
+          label: newLabel,
           provider: formText(values, "repository_new_provider"),
           remote_url: newRemoteUrl,
           local_path: newLocalPath,

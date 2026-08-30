@@ -95,6 +95,8 @@ export interface Note extends BaseRecord {
   body_markdown?: string;
   note_type?: string;
   content_format?: string;
+  project_id?: string | null;
+  /** Legacy read compatibility. New writes use project_id. */
   theme_id?: string | null;
   item_id?: string | null;
   source_url?: string;
@@ -326,6 +328,7 @@ export interface DrawerConfig {
   type: DrawerEntityType;
   mode?: "edit" | "view";
   entity: DrawerEntity;
+  initialSection?: "repository";
   commandSource?: TaskCommandEntrypoint;
   dataScope?: "full";
 }
@@ -416,4 +419,3 @@ export interface PageProps {
   snapshotPreview: SnapshotPreview | null;
   setSnapshotPreview(preview: SnapshotPreview | null): void;
 }
-export { createTaskClient, projectTaskDraft, projectTaskPatch } from "../task/api/taskClient";

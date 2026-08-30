@@ -3,6 +3,7 @@ import {
   displayNameFromTarget,
   inferArtifactLinkType,
 } from "../../../../../shared/artifactLinks.mjs";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import { isWebArtifact } from "../../../../../shared/webArtifact.mjs";
 import type {
   Artifact,
@@ -15,14 +16,26 @@ import type {
 import { uuid } from "./format";
 
 export function buildManagedArtifactOperations(
-  files: Array<{ filename: string; storedPath: string; originalPath: string; fileSize: number; mimeType: string; fileType: string; copiedAt?: string }>,
+  files: Array<{
+    filename: string;
+    storedPath: string;
+    originalPath: string;
+    fileSize: number;
+    mimeType: string;
+    fileType: string;
+    copiedAt?: string;
+  }>,
   sourceType: ArtifactSourceType,
   sourceId: string,
   themeId?: string | null,
 ): SaveOperation[] {
   const now = new Date().toISOString();
   return files.map((file) => {
-    const isWeb = isWebArtifact({ filename: file.filename, file_type: file.fileType, mime_type: file.mimeType });
+    const isWeb = isWebArtifact({
+      filename: file.filename,
+      file_type: file.fileType,
+      mime_type: file.mimeType,
+    });
     return {
       action: "save",
       type: "artifact",
@@ -141,11 +154,12 @@ export function buildArtifactThemeSyncOperations(
   if (!source.sourceId) return [];
   const nextTheme = source.themeId || null;
   return (artifacts || [])
-    .filter((artifact) => (
-      source.sourceTypes.includes(artifact.source_type)
-      && artifact.source_id === source.sourceId
-      && String(artifact.theme_id || "") !== String(nextTheme || "")
-    ))
+    .filter(
+      (artifact) =>
+        source.sourceTypes.includes(artifact.source_type) &&
+        artifact.source_id === source.sourceId &&
+        String(artifact.theme_id || "") !== String(nextTheme || ""),
+    )
     .map((artifact) => ({
       action: "save",
       type: "artifact",
@@ -164,16 +178,18 @@ export function resolveArtifactThemeId(options: {
   form?: HTMLFormElement | null;
 }): string | null {
   const { sourceType, sourceId, themeId, data } = options;
-  const form = options.form
-    || (typeof document !== "undefined"
+  const form =
+    options.form ||
+    (typeof document !== "undefined"
       ? document.querySelector<HTMLFormElement>("aside.drawer form.drawer-form")
       : null);
   if (form) {
     for (const fieldName of ["project_id", "theme_id"] as const) {
       const named = form.elements.namedItem(fieldName);
-      const field = named && !(named instanceof RadioNodeList) && "value" in named
-        ? named as { value: string }
-        : null;
+      const field =
+        named && !(named instanceof RadioNodeList) && "value" in named
+          ? (named as { value: string })
+          : null;
       if (field) {
         const fromForm = String(field.value || "").trim();
         return fromForm || null;
@@ -190,10 +206,12 @@ export function resolveArtifactThemeId(options: {
     }
     if (sourceType === "note" || sourceType === "report") {
       const note = (data.notes || []).find((entry) => entry.id === sourceId);
-      return String(note?.theme_id || "").trim() || null;
+      return noteProjectId(note);
     }
     if (sourceType === "chat_ref") {
-      const resource = [...(data.resources || []), ...(data.links || [])].find((entry) => entry.id === sourceId);
+      const resource = [...(data.resources || []), ...(data.links || [])].find(
+        (entry) => entry.id === sourceId,
+      );
       return String(resource?.project_id || resource?.theme_id || "").trim() || null;
     }
   }

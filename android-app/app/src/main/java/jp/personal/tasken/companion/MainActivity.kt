@@ -204,8 +204,17 @@ private fun TodayApp(
     val taskWorkProposals by todayViewModel.taskWorkProposals.collectAsState()
     val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
     val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
+    val humanReviewOnline by todayViewModel.humanReviewOnline.collectAsState()
+    val humanReviewRequiresRePairing by todayViewModel.humanReviewRequiresRePairing.collectAsState()
+    val humanReviewState by todayViewModel.humanReviewState.collectAsState()
+    val taskDelegationState by todayViewModel.taskDelegationState.collectAsState()
+    val pendingSafeShare by todayViewModel.pendingSafeShare.collectAsState()
     val themes = themeCatalogState.themes
     val context = LocalContext.current
+    var notificationsEnabled by remember(context) {
+        mutableStateOf(MobileTaskNotifications.canPost(context))
+    }
+    var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
     val captureDraftStore = remember(context) { MobileCaptureDraftStore(context.applicationContext) }
     val restoredCaptureDraft = remember(captureDraftStore) { captureDraftStore.load() }
     val restoredUndoTarget = remember(captureDraftStore) { captureDraftStore.loadUndoTarget() }
@@ -228,6 +237,15 @@ private fun TodayApp(
         } else {
             speechState = ShortSpeechUiState.Error("マイク権限がありません。手入力はそのまま使えます。")
         }
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        notificationsEnabled = MobileTaskNotifications.canPost(context)
+        notificationPermissionDenied = !granted
+    }
+    LaunchedEffect(pendingSafeShare, context) {
+        val share = pendingSafeShare ?: return@LaunchedEffect
+        context.startActivity(MobileSafeShare.chooserIntent(share))
+        todayViewModel.consumeSafeShare(share)
     }
     val requestSpeechRecognition = {
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -290,9 +308,13 @@ private fun TodayApp(
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, todayViewModel) {
+    DisposableEffect(lifecycleOwner, todayViewModel, context) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) todayViewModel.load()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsEnabled = MobileTaskNotifications.canPost(context)
+                if (notificationsEnabled) notificationPermissionDenied = false
+                todayViewModel.load()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -423,6 +445,29 @@ private fun TodayApp(
             ProposalReviewUiState.Idle, is ProposalReviewUiState.Reviewing -> Unit
         }
     }
+    LaunchedEffect(humanReviewState) {
+        when (val state = humanReviewState) {
+            is HumanReviewUiState.Applied -> {
+                snackbarHostState.showSnackbar(
+                    if (state.action == "accept") "Work Receiptを承認してTaskを完了しました。" else "AIへ返信しました。",
+                )
+                todayViewModel.resetHumanReviewState()
+            }
+            is HumanReviewUiState.Conflict -> {
+                snackbarHostState.showSnackbar(state.message)
+                todayViewModel.resetHumanReviewState()
+            }
+            is HumanReviewUiState.Rejected -> {
+                snackbarHostState.showSnackbar(state.message)
+                todayViewModel.resetHumanReviewState()
+            }
+            is HumanReviewUiState.Unavailable -> {
+                snackbarHostState.showSnackbar(state.message)
+                todayViewModel.resetHumanReviewState()
+            }
+            HumanReviewUiState.Idle, is HumanReviewUiState.Reviewing -> Unit
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -438,6 +483,28 @@ private fun TodayApp(
                     )
                 },
                 actions = {
+                    if (
+                        android.os.Build.VERSION.SDK_INT >= 33 &&
+                        !notificationsEnabled &&
+                        paneState.activeSection == AppSection.Ai
+                    ) {
+                        TextButton(
+                            onClick = {
+                                if (notificationPermissionDenied) {
+                                    context.startActivity(
+                                        Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                            putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                        },
+                                    )
+                                } else {
+                                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
+                            modifier = Modifier.testTag("notification-permission-action"),
+                        ) {
+                            Text(if (notificationPermissionDenied) "通知設定" else "通知を有効化")
+                        }
+                    }
                     if (conflictCount > 0) {
                         Surface(
                             color = MaterialTheme.colorScheme.errorContainer,
@@ -575,6 +642,10 @@ private fun TodayApp(
                         taskWorkProposals = taskWorkProposals.filter { it.taskId == task?.id },
                         proposalReviewOnline = proposalReviewOnline,
                         proposalReviewState = proposalReviewState,
+                        humanReviewOnline = humanReviewOnline,
+                        humanReviewRequiresRePairing = humanReviewRequiresRePairing,
+                        humanReviewState = humanReviewState,
+                        taskDelegationState = taskDelegationState,
                         themes = themes,
                         themeCatalogState = themeCatalogState,
                         onStateAction = todayViewModel::toggleTaskState,
@@ -589,6 +660,9 @@ private fun TodayApp(
                             todayViewModel.loadWorkReceipt(selectedTask.id, selectedReceiptId, force = true)
                         },
                         onProposalDecision = todayViewModel::reviewTaskWorkProposal,
+                        onHumanReview = todayViewModel::reviewTaskWork,
+                        onTaskContextPreview = todayViewModel::previewTaskContext,
+                        onTaskDelegate = todayViewModel::delegateTask,
                     )
                 }
             },
@@ -1326,6 +1400,10 @@ internal fun TodayDetailPane(
     taskWorkProposals: List<MobileTaskWorkProposal> = emptyList(),
     proposalReviewOnline: Boolean = false,
     proposalReviewState: ProposalReviewUiState = ProposalReviewUiState.Idle,
+    humanReviewOnline: Boolean = false,
+    humanReviewRequiresRePairing: Boolean = false,
+    humanReviewState: HumanReviewUiState = HumanReviewUiState.Idle,
+    taskDelegationState: TaskDelegationUiState = TaskDelegationUiState.Idle,
     themes: List<MobileTheme> = emptyList(),
     themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
         MobileThemeCatalogState.Loading()
@@ -1342,6 +1420,9 @@ internal fun TodayDetailPane(
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
     onWorkReceiptRetry: (MobileTask, String) -> Unit = { _, _ -> },
     onProposalDecision: (MobileTaskWorkProposal, String) -> Unit = { _, _ -> },
+    onHumanReview: (MobileTask, String, String?) -> Unit = { _, _, _ -> },
+    onTaskContextPreview: (MobileTask) -> Unit = {},
+    onTaskDelegate: (MobileTask, String?, String?) -> Unit = { _, _, _ -> },
 ) {
     if (task == null) {
         CenteredState { Text("Taskを選んでください") }
@@ -1508,6 +1589,14 @@ internal fun TodayDetailPane(
             )
             Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
+            if (task.workState == "not_delegated") {
+                TaskDelegationCard(
+                    task = task,
+                    state = taskDelegationState,
+                    onPreview = onTaskContextPreview,
+                    onDelegate = onTaskDelegate,
+                )
+            }
             taskWorkProposals.forEach { proposal ->
                 TaskWorkProposalReviewCard(
                     proposal = proposal,
@@ -1559,6 +1648,17 @@ internal fun TodayDetailPane(
                             }
                             WorkReceiptDetailUiState.Idle -> Unit
                         }
+                        if (task.workState in setOf("needs_human_review", "reported_done", "blocked")) {
+                            TaskWorkHumanReviewCard(
+                                task = task,
+                                receipt = receipt,
+                                detailState = workReceiptDetailState,
+                                online = humanReviewOnline,
+                                requiresRePairing = humanReviewRequiresRePairing,
+                                reviewState = humanReviewState,
+                                onReview = onHumanReview,
+                            )
+                        }
                     }
                 }
             }
@@ -1576,19 +1676,333 @@ internal fun TodayDetailPane(
             Button(
                 onClick = { onStateAction(task) },
                 enabled = (!task.pending || task.canChangePendingState) &&
-                    task.conflict == null && actionState !is TaskActionUiState.Saving,
+                    task.conflict == null && actionState !is TaskActionUiState.Saving &&
+                    task.workState !in setOf("needs_human_review", "reported_done", "blocked"),
             ) {
                 Text(
                     when {
                         actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
                         task.conflict != null -> "競合を解決してから操作"
                         task.pending && !task.canChangePendingState -> "同期後に操作"
+                        task.workState in setOf("needs_human_review", "reported_done", "blocked") -> "Work Receiptを確認"
                         task.pending && task.state == "done" -> "再開に変更"
                         task.pending -> "完了に変更"
                         task.state == "done" -> "再開する"
                         else -> "完了する"
                     },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskDelegationCard(
+    task: MobileTask,
+    state: TaskDelegationUiState,
+    onPreview: (MobileTask) -> Unit,
+    onDelegate: (MobileTask, String?, String?) -> Unit,
+) {
+    var expectedResult by rememberSaveable(task.id) { mutableStateOf("") }
+    var instruction by rememberSaveable(task.id) { mutableStateOf("") }
+    val preview = (state as? TaskDelegationUiState.PreviewAvailable)?.preview?.takeIf { it.taskId == task.id }
+    val loading = state is TaskDelegationUiState.PreviewLoading && state.taskId == task.id
+    val delegating = state is TaskDelegationUiState.Delegating && state.taskId == task.id
+    val message = when (state) {
+        is TaskDelegationUiState.Conflict -> state.takeIf { it.taskId == task.id }?.message
+        is TaskDelegationUiState.Rejected -> state.takeIf { it.taskId == task.id }?.message
+        is TaskDelegationUiState.Unavailable -> state.takeIf { it.taskId == task.id }?.message
+        else -> null
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("task-delegation-${task.id}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("AIへ任せる", fontWeight = FontWeight.Bold)
+            Text("担当AI: Hermes", color = MaterialTheme.colorScheme.onSecondaryContainer)
+            OutlinedTextField(
+                value = expectedResult,
+                onValueChange = { if (it.length <= 2_000) expectedResult = it },
+                modifier = Modifier.fillMaxWidth().testTag("task-delegation-expected-${task.id}"),
+                label = { Text("期待する結果（任意）") },
+                minLines = 1,
+                maxLines = 3,
+                enabled = !loading && !delegating,
+            )
+            OutlinedTextField(
+                value = instruction,
+                onValueChange = { if (it.length <= 2_000) instruction = it },
+                modifier = Modifier.fillMaxWidth().testTag("task-delegation-instruction-${task.id}"),
+                label = { Text("追加指示（任意）") },
+                minLines = 1,
+                maxLines = 3,
+                enabled = !loading && !delegating,
+            )
+            when {
+                loading -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.padding(2.dp))
+                    Text("Context Previewを確認中")
+                }
+                preview != null -> TaskContextPreviewContent(preview)
+                message != null -> Text(message, color = MaterialTheme.colorScheme.error)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { onPreview(task) },
+                    enabled = !loading && !delegating && !task.pending && task.conflict == null,
+                    modifier = Modifier.testTag("task-delegation-preview-${task.id}"),
+                ) { Text("Context Previewを確認") }
+                Button(
+                    onClick = { onDelegate(task, expectedResult, instruction) },
+                    enabled = preview != null && !delegating && !task.pending && task.conflict == null,
+                    modifier = Modifier.testTag("task-delegation-submit-${task.id}"),
+                ) { Text(if (delegating) "委任中" else "Hermesへ委任") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskContextPreviewContent(preview: MobileTaskContextPreview) {
+    val data = preview.data
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("task-context-preview-content-${preview.taskId}"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            "Context Preview: 含む ${preview.includedCount}件、除外 ${preview.excludedCount}件" +
+                if (preview.truncated) "（一部省略）" else "",
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            "Task v${data.task.version} · ${data.task.state} / ${data.task.workState}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        data.task.description?.takeIf(String::isNotBlank)?.let { description ->
+            PreviewText(
+                label = "Task本文",
+                text = description,
+                modifier = Modifier.testTag("task-context-preview-description-${preview.taskId}"),
+            )
+        }
+        PreviewAiPolicy(
+            label = "Task",
+            ai = data.task.ai,
+            modifier = Modifier.testTag("task-context-preview-policy-${preview.taskId}"),
+        )
+        data.theme?.let { PreviewContextEntity("Theme", it) }
+        if (data.repositoryContexts.isNotEmpty()) {
+            Text("Repository", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+            data.repositoryContexts.forEach { repository ->
+                PreviewText(
+                    label = repository.label,
+                    text = listOfNotNull(
+                        repository.provider,
+                        repository.repositorySlug,
+                        repository.defaultBranch?.let { "branch $it" },
+                    ).joinToString(" · "),
+                )
+            }
+        }
+        PreviewContextEntities("Note", data.related.notes)
+        PreviewContextEntities("Conversation", data.related.conversations)
+        PreviewContextEntities("Artifact", data.related.artifacts)
+        PreviewContextEntities("Resource", data.related.resources)
+        if (data.related.activity.isNotEmpty()) {
+            Text("Activity", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+            data.related.activity.forEach { activity ->
+                PreviewText(
+                    label = "${activity.eventKind} · ${activity.occurredAt}",
+                    text = "${activity.summary}\n選定理由: ${activity.includedBecause}",
+                )
+            }
+        }
+        if (data.contextSelection.included.isNotEmpty()) {
+            Text("選定理由", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+            data.contextSelection.included.forEachIndexed { index, selected ->
+                val relationReasons = selected.relationPath.mapNotNull { step ->
+                    step.reason ?: step.predicate
+                }
+                PreviewText(
+                    label = "${selected.ref.type}: ${selected.title ?: selected.ref.id}",
+                    text = buildList {
+                        add("理由: ${selected.reason ?: "明示なし"}")
+                        if (relationReasons.isNotEmpty()) add("関連: ${relationReasons.joinToString(" → ")}")
+                    }.joinToString("\n"),
+                    modifier = Modifier.testTag("task-context-preview-selection-${preview.taskId}-$index"),
+                )
+                PreviewAiPolicy("選定対象", selected.ai)
+            }
+        }
+        if (data.contextSelection.excluded.isNotEmpty()) {
+            Text("除外", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+            data.contextSelection.excluded.forEach { excluded ->
+                Text(
+                    "${excluded.ref.type} · ${excluded.reason} · ${excluded.count}件",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (data.truncation.isNotEmpty()) {
+            Text("省略", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+            data.truncation.forEach { truncated ->
+                val amount = listOfNotNull(
+                    truncated.used?.let { "使用 $it" },
+                    truncated.limit?.let { "上限 $it" },
+                    truncated.omittedCount?.let { "省略 $it" },
+                ).joinToString(" · ")
+                Text(
+                    "${truncated.section} · ${truncated.reason}" + if (amount.isBlank()) "" else " · $amount",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        preview.warnings.forEach { warning ->
+            Text(warning, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+        Text(
+            "Context fingerprint: ${preview.fingerprint}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun PreviewContextEntities(label: String, entities: List<MobileTaskContextEntityDto>) {
+    if (entities.isEmpty()) return
+    Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+    entities.forEach { PreviewContextEntity(label, it) }
+}
+
+@Composable
+private fun PreviewContextEntity(label: String, entity: MobileTaskContextEntityDto) {
+    val relationReasons = entity.relationPath.mapNotNull { step -> step.reason ?: step.predicate }
+    val artifactMetadata = entity.artifact?.let { artifact ->
+        listOfNotNull(artifact.filename, artifact.fileType, artifact.mimeType).joinToString(" · ")
+    }.orEmpty()
+    val detail = buildList {
+        entity.summary?.takeIf(String::isNotBlank)?.let(::add)
+        entity.includedBecause?.let { add("選定理由: $it") }
+        if (relationReasons.isNotEmpty()) add("関連: ${relationReasons.joinToString(" → ")}")
+        if (artifactMetadata.isNotBlank()) add(artifactMetadata)
+    }.joinToString("\n")
+    PreviewText(
+        label = "$label: ${entity.title ?: entity.ref.id}",
+        text = detail.ifBlank { "本文なし" },
+    )
+    PreviewAiPolicy(label, entity.ai)
+}
+
+@Composable
+private fun PreviewAiPolicy(
+    label: String,
+    ai: MobileTaskContextPreviewAiDto?,
+    modifier: Modifier = Modifier,
+) {
+    val policy = ai?.let {
+        buildList {
+            add("可視性 ${it.visibility.joinToString("/")}")
+            it.visibilitySource?.let { source -> add("根拠 $source") }
+            it.authority?.let { authority -> add("権限 $authority") }
+            add("鮮度 ${it.freshness}")
+            it.summaryAuthority?.let { authority -> add("要約権限 $authority") }
+        }.joinToString(" · ")
+    } ?: "メタデータなし"
+    Text(
+        "$label AI共有: $policy",
+        modifier = modifier,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun PreviewText(label: String, text: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+        Text(text, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun TaskWorkHumanReviewCard(
+    task: MobileTask,
+    receipt: MobileWorkReceiptSummary,
+    detailState: WorkReceiptDetailUiState,
+    online: Boolean,
+    requiresRePairing: Boolean,
+    reviewState: HumanReviewUiState,
+    onReview: (MobileTask, String, String?) -> Unit,
+) {
+    var reviewNote by rememberSaveable(task.id) { mutableStateOf("") }
+    val reviewing = reviewState is HumanReviewUiState.Reviewing && reviewState.pending.taskId == task.id
+    val liveDetail = detailState as? WorkReceiptDetailUiState.Available
+    val verifiedLatest = liveDetail?.detail?.id == receipt.id && !liveDetail.fromCache
+    val blocked = task.workState == "blocked"
+    val canReview = online && verifiedLatest && task.version > 0 && !task.pending && task.conflict == null && !reviewing
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("human-review-${task.id}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(if (blocked) "AIへ情報を返す" else "作業結果を確認", fontWeight = FontWeight.Bold)
+            when {
+                requiresRePairing -> Text(
+                    "この権限では判断できません。Desktopで新しいコードを発行して再ペアリングしてください。",
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                !online -> Text("Offline cache · Desktop接続時に判断できます", color = MaterialTheme.colorScheme.secondary)
+                !verifiedLatest -> Text("最新のWork Receipt詳細を読み込んでから判断してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                task.pending -> Text("送信待ちの変更を同期してから判断してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                task.conflict != null -> Text("Task競合を解決してから判断してください。", color = MaterialTheme.colorScheme.error)
+            }
+            OutlinedTextField(
+                value = reviewNote,
+                onValueChange = { if (it.length <= 2_000) reviewNote = it },
+                modifier = Modifier.fillMaxWidth().testTag("human-review-note-${task.id}"),
+                label = { Text(if (blocked) "必要な情報" else "差し戻し理由") },
+                enabled = canReview,
+                minLines = 2,
+                maxLines = 5,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!blocked) {
+                    Button(
+                        onClick = { onReview(task, "accept", null) },
+                        enabled = canReview,
+                        modifier = Modifier.testTag("human-review-accept-${task.id}"),
+                    ) {
+                        Text(if (reviewing && reviewState.pending.action == "accept") "承認中" else "承認して完了")
+                    }
+                }
+                TextButton(
+                    onClick = { onReview(task, "return", reviewNote) },
+                    enabled = canReview && reviewNote.trim().isNotEmpty(),
+                    modifier = Modifier.testTag("human-review-return-${task.id}"),
+                ) {
+                    Text(
+                        if (reviewing && reviewState.pending.action == "return") {
+                            "送信中"
+                        } else if (blocked) {
+                            "返信する"
+                        } else {
+                            "差し戻す"
+                        },
+                    )
+                }
             }
         }
     }

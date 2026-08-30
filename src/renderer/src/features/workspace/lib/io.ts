@@ -1,4 +1,5 @@
 import { todayIso, toYaml } from "../../../utils/dataFormat.js";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import type {
   BaseRecord,
   Item,
@@ -13,7 +14,12 @@ import type {
 import { KIND_LABELS, KNOWLEDGE_NODE_LABELS, STATUS_LABELS } from "./domain";
 import { addDays } from "./format";
 import { domainToItems } from "../domain-model/compat/itemProjection";
-import type { KnowledgeEdge, Resource, TaskDependency, WorkspaceDomain } from "../domain-model/types";
+import type {
+  KnowledgeEdge,
+  Resource,
+  TaskDependency,
+  WorkspaceDomain,
+} from "../domain-model/types";
 
 export interface ExportData {
   themes: Theme[];
@@ -31,7 +37,7 @@ export interface ExportData {
 export function noteProperties(note: object): Record<string, unknown> {
   const properties = (note as { properties_json?: unknown }).properties_json;
   return properties && typeof properties === "object" && !Array.isArray(properties)
-    ? properties as Record<string, unknown>
+    ? (properties as Record<string, unknown>)
     : {};
 }
 
@@ -56,7 +62,14 @@ interface BuildExportArgs {
   scope: string;
 }
 
-export function buildExportData({ data, domain, themes, items, activeTheme, scope }: BuildExportArgs): ExportData {
+export function buildExportData({
+  data,
+  domain,
+  themes,
+  items,
+  activeTheme,
+  scope,
+}: BuildExportArgs): ExportData {
   const today = todayIso();
   const horizon = scope === "week" ? 7 : scope === "month" ? 30 : scope === "quarter" ? 90 : null;
   const v2Items = domainToItems(domain);
@@ -81,25 +94,34 @@ export function buildExportData({ data, domain, themes, items, activeTheme, scop
       source_record_id: r.source_record_id || null,
     }));
   const legacyLinkIds = new Set((data.links || []).map((l) => l.id));
-  const mergedLinks: Link[] = [...(data.links || []), ...resourcesAsLinks.filter((r) => !legacyLinkIds.has(r.id))];
+  const mergedLinks: Link[] = [
+    ...(data.links || []),
+    ...resourcesAsLinks.filter((r) => !legacyLinkIds.has(r.id)),
+  ];
   let scopedLinks = mergedLinks;
   let scopedKnowledgeNodes = data.knowledge_nodes || [];
   let scopedThemes = themes;
   if (scope === "theme" && activeTheme) {
     scopedThemes = [activeTheme];
     scopedItems = mergedItems.filter((item) => item.theme_id === activeTheme.id);
-    scopedNotes = scopedNotes.filter((note) => note.theme_id === activeTheme.id);
+    scopedNotes = scopedNotes.filter((note) => noteProjectId(note) === activeTheme.id);
     scopedLinks = scopedLinks.filter((link) => link.theme_id === activeTheme.id);
     scopedKnowledgeNodes = scopedKnowledgeNodes.filter((node) => node.theme_id === activeTheme.id);
   } else if (horizon) {
     scopedItems = mergedItems.filter(inHorizon);
   } else if (scope === "open") {
-    scopedItems = mergedItems.filter((item) => item.status !== "done" && item.status !== "cancelled");
+    scopedItems = mergedItems.filter(
+      (item) => item.status !== "done" && item.status !== "cancelled",
+    );
   } else if (scope === "waiting") {
-    scopedItems = mergedItems.filter((item) => item.kind === "waiting" || item.status === "waiting");
+    scopedItems = mergedItems.filter(
+      (item) => item.kind === "waiting" || item.status === "waiting",
+    );
   } else if (scope === "recent_notes") {
     scopedItems = [];
-    scopedNotes = [...scopedNotes].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))).slice(0, 20);
+    scopedNotes = [...scopedNotes]
+      .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))
+      .slice(0, 20);
   } else if (scope === "milestones") {
     scopedItems = mergedItems.filter((item) => item.kind === "milestone");
   }
@@ -107,19 +129,22 @@ export function buildExportData({ data, domain, themes, items, activeTheme, scop
   const themeIds = new Set(
     [
       ...scopedItems.map((item) => item.theme_id),
-      ...scopedNotes.map((note) => note.theme_id),
+      ...scopedNotes.map(noteProjectId),
       ...scopedLinks.map((link) => link.theme_id),
       ...scopedKnowledgeNodes.map((node) => node.theme_id),
     ].filter(Boolean) as string[],
   );
   const knowledgeIds = new Set(scopedKnowledgeNodes.map((node) => node.id));
-  if (scope !== "all" && scope !== "theme") scopedThemes = themes.filter((theme) => themeIds.has(theme.id));
+  if (scope !== "all" && scope !== "theme")
+    scopedThemes = themes.filter((theme) => themeIds.has(theme.id));
   return {
     themes: scopedThemes,
     items: scopedItems,
     notes: scopedNotes,
     links: scopedLinks,
-    status_updates: (data.status_updates || []).filter((entry) => !themeIds.size || (entry.theme_id != null && themeIds.has(entry.theme_id))),
+    status_updates: (data.status_updates || []).filter(
+      (entry) => !themeIds.size || (entry.theme_id != null && themeIds.has(entry.theme_id)),
+    ),
     log_entries: (data.log_entries || []).filter((entry) => {
       const themeId = entry.theme_id as string | undefined;
       return !themeIds.size || (themeId != null && themeIds.has(themeId));
@@ -130,8 +155,9 @@ export function buildExportData({ data, domain, themes, items, activeTheme, scop
       return itemIds.has(dep.task_id) || itemIds.has(dep.depends_on_task_id);
     }),
     knowledge_nodes: scopedKnowledgeNodes,
-    knowledge_edges: (domain.knowledge_edges || []).filter((edge) =>
-      knowledgeIds.has(edge.source_node_id) || knowledgeIds.has(edge.target_node_id)),
+    knowledge_edges: (domain.knowledge_edges || []).filter(
+      (edge) => knowledgeIds.has(edge.source_node_id) || knowledgeIds.has(edge.target_node_id),
+    ),
   };
 }
 
@@ -156,27 +182,49 @@ function renderItemSection(items: Item[]): string[] {
   const sorted = sortItemsForExport(items);
   const milestones = sorted.filter((item) => item.kind === "milestone");
   const waiting = sorted.filter((item) => item.kind === "waiting" || item.status === "waiting");
-  const tasks = sorted.filter((item) => item.kind !== "milestone" && item.kind !== "waiting" && item.status !== "waiting");
+  const tasks = sorted.filter(
+    (item) => item.kind !== "milestone" && item.kind !== "waiting" && item.status !== "waiting",
+  );
   const lines: string[] = [];
   if (tasks.length) {
-    lines.push("### Items", ...tasks.map((item) => `- [${item.status === "done" ? "x" : " "}] ${item.planned_end || "予定なし"} ${item.priority === "high" ? "!" : ""} ${item.title}`), "");
+    lines.push(
+      "### Items",
+      ...tasks.map(
+        (item) =>
+          `- [${item.status === "done" ? "x" : " "}] ${item.planned_end || "予定なし"} ${item.priority === "high" ? "!" : ""} ${item.title}`,
+      ),
+      "",
+    );
   }
   if (milestones.length) {
-    lines.push("### Milestones", ...milestones.map((item) => `- ${item.planned_end || "予定なし"} ${item.title}`), "");
+    lines.push(
+      "### Milestones",
+      ...milestones.map((item) => `- ${item.planned_end || "予定なし"} ${item.title}`),
+      "",
+    );
   }
   if (waiting.length) {
-    lines.push("### Waiting", ...waiting.map((item) => `- ${item.planned_end || "予定なし"} ${item.title}`), "");
+    lines.push(
+      "### Waiting",
+      ...waiting.map((item) => `- ${item.planned_end || "予定なし"} ${item.title}`),
+      "",
+    );
   }
   if (!lines.length) lines.push("### Items", "- なし", "");
   return lines;
 }
 
 function renderKnowledgeSection(nodes: KnowledgeNode[], relations: KnowledgeEdge[] = []): string[] {
-  const activeByType = (type: string) => nodes.filter((node) => node.node_type === type && (node.status || "active") === "active");
-  const evidenceIds = new Set(nodes.filter((node) => node.node_type === "evidence").map((node) => node.id));
+  const activeByType = (type: string) =>
+    nodes.filter((node) => node.node_type === type && (node.status || "active") === "active");
+  const evidenceIds = new Set(
+    nodes.filter((node) => node.node_type === "evidence").map((node) => node.id),
+  );
   const claimsWithoutEvidence = activeByType("claim").filter((claim) => {
     const supportTargets = relations
-      .filter((relation) => relation.source_node_id === claim.id && relation.relation_type === "supports")
+      .filter(
+        (relation) => relation.source_node_id === claim.id && relation.relation_type === "supports",
+      )
       .map((relation) => relation.target_node_id);
     return supportTargets.every((id) => !evidenceIds.has(String(id)));
   });
@@ -184,20 +232,39 @@ function renderKnowledgeSection(nodes: KnowledgeNode[], relations: KnowledgeEdge
   const nodeTitle = (id?: string) => nodes.find((node) => node.id === id)?.title || "不明";
   return [
     "### Questions",
-    ...(activeByType("question").length ? activeByType("question").map((node) => `- ${node.title}`) : ["- なし"]),
+    ...(activeByType("question").length
+      ? activeByType("question").map((node) => `- ${node.title}`)
+      : ["- なし"]),
     "",
     "### Claims",
-    ...(activeByType("claim").length ? activeByType("claim").map((node) => `- ${node.title}`) : ["- なし"]),
+    ...(activeByType("claim").length
+      ? activeByType("claim").map((node) => `- ${node.title}`)
+      : ["- なし"]),
     "",
     "### Evidence",
-    ...(activeByType("evidence").length ? activeByType("evidence").map((node) => `- ${node.title}`) : ["- なし"]),
+    ...(activeByType("evidence").length
+      ? activeByType("evidence").map((node) => `- ${node.title}`)
+      : ["- なし"]),
     "",
     "### Decisions",
-    ...(activeByType("decision").length ? activeByType("decision").map((node) => `- ${node.title}`) : ["- なし"]),
+    ...(activeByType("decision").length
+      ? activeByType("decision").map((node) => `- ${node.title}`)
+      : ["- なし"]),
     "",
     "### Risks / Contradictions",
-    ...(contradictions.length ? contradictions.map((relation) => `- ${nodeTitle(relation.source_node_id)} contradicts ${nodeTitle(relation.target_node_id)}`) : ["- なし"]),
-    ...(claimsWithoutEvidence.length ? ["", "### Claims Without Evidence", ...claimsWithoutEvidence.map((node) => `- ${node.title}`)] : []),
+    ...(contradictions.length
+      ? contradictions.map(
+          (relation) =>
+            `- ${nodeTitle(relation.source_node_id)} contradicts ${nodeTitle(relation.target_node_id)}`,
+        )
+      : ["- なし"]),
+    ...(claimsWithoutEvidence.length
+      ? [
+          "",
+          "### Claims Without Evidence",
+          ...claimsWithoutEvidence.map((node) => `- ${node.title}`),
+        ]
+      : []),
     "",
   ];
 }
@@ -205,18 +272,21 @@ function renderKnowledgeSection(nodes: KnowledgeNode[], relations: KnowledgeEdge
 export function exportMarkdown(data: ExportData): string {
   const sections = data.themes.flatMap((theme) => {
     const items = data.items.filter((item) => item.theme_id === theme.id);
-    const notes = data.notes.filter((note) => note.theme_id === theme.id);
+    const notes = data.notes.filter((note) => noteProjectId(note) === theme.id);
     const updates = data.status_updates
       .filter((entry) => entry.theme_id === theme.id)
       .sort((a, b) => String(b.date).localeCompare(String(a.date)));
     const itemIds = new Set(items.map((item) => item.id));
-    const taskDeps = data.task_dependencies.filter((dep) =>
-      itemIds.has(dep.task_id) || itemIds.has(dep.depends_on_task_id));
+    const taskDeps = data.task_dependencies.filter(
+      (dep) => itemIds.has(dep.task_id) || itemIds.has(dep.depends_on_task_id),
+    );
     const knowledgeNodes = data.knowledge_nodes.filter((node) => node.theme_id === theme.id);
     const knowledgeIds = new Set(knowledgeNodes.map((node) => node.id));
-    const knowledgeEdges = data.knowledge_edges.filter((edge) =>
-      knowledgeIds.has(edge.source_node_id) || knowledgeIds.has(edge.target_node_id));
-    const itemTitle = (id?: string) => data.items.find((item) => item.id === id)?.title || id || "不明";
+    const knowledgeEdges = data.knowledge_edges.filter(
+      (edge) => knowledgeIds.has(edge.source_node_id) || knowledgeIds.has(edge.target_node_id),
+    );
+    const itemTitle = (id?: string) =>
+      data.items.find((item) => item.id === id)?.title || id || "不明";
     return [
       `## Theme: ${theme.name}`,
       theme.description || "",
@@ -227,34 +297,52 @@ export function exportMarkdown(data: ExportData): string {
       ...renderItemSection(items),
       "### Dependencies",
       ...(taskDeps.length
-        ? taskDeps.map((dep) => `- ${itemTitle(dep.task_id)} -> ${itemTitle(dep.depends_on_task_id)}`)
+        ? taskDeps.map(
+            (dep) => `- ${itemTitle(dep.task_id)} -> ${itemTitle(dep.depends_on_task_id)}`,
+          )
         : ["- なし"]),
       "",
       "### Notes",
-      ...(notes.length ? notes.map((note) => `- **${note.title}**: ${formatNoteBody(note.body_markdown ?? "")}`) : ["- なし"]),
+      ...(notes.length
+        ? notes.map((note) => `- **${note.title}**: ${formatNoteBody(note.body_markdown ?? "")}`)
+        : ["- なし"]),
       "",
       "### Knowledge",
       ...(knowledgeNodes.length
-        ? knowledgeNodes.map((node) => `- ${KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}: ${node.title}${node.body ? `: ${formatNoteBody(node.body)}` : ""}`)
+        ? knowledgeNodes.map(
+            (node) =>
+              `- ${KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}: ${node.title}${node.body ? `: ${formatNoteBody(node.body)}` : ""}`,
+          )
         : ["- なし"]),
       "",
       ...renderKnowledgeSection(knowledgeNodes, knowledgeEdges),
     ];
   });
   const unscopedItems = data.items.filter((item) => !item.theme_id);
-  const unscopedNotes = data.notes.filter((note) => !note.theme_id);
+  const unscopedNotes = data.notes.filter((note) => !noteProjectId(note));
   const unscopedKnowledgeNodes = data.knowledge_nodes.filter((node) => !node.theme_id);
-  if (unscopedItems.length || unscopedNotes.length || unscopedKnowledgeNodes.length || !sections.length) {
+  if (
+    unscopedItems.length ||
+    unscopedNotes.length ||
+    unscopedKnowledgeNodes.length ||
+    !sections.length
+  ) {
     sections.push(
       "## Themeなし",
       "",
       ...renderItemSection(unscopedItems),
       "### Notes",
-      ...(unscopedNotes.length ? unscopedNotes.map((note) => `- **${note.title}**: ${formatNoteBody(note.body_markdown ?? "")}`) : ["- なし"]),
+      ...(unscopedNotes.length
+        ? unscopedNotes.map(
+            (note) => `- **${note.title}**: ${formatNoteBody(note.body_markdown ?? "")}`,
+          )
+        : ["- なし"]),
       "",
       "### Knowledge",
       ...(unscopedKnowledgeNodes.length
-        ? unscopedKnowledgeNodes.map((node) => `- ${KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}: ${node.title}`)
+        ? unscopedKnowledgeNodes.map(
+            (node) => `- ${KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}: ${node.title}`,
+          )
         : ["- なし"]),
       "",
       ...renderKnowledgeSection(unscopedKnowledgeNodes, data.knowledge_edges),
@@ -299,8 +387,17 @@ export function exportProgressReport(data: ExportData): string {
   const weekStart = addDays(today, -6);
   const soon = addDays(today, 14);
   const completed = data.items
-    .filter((item) => item.status === "done" && String(item.completed_at || item.actual_end || item.updated_at || "").slice(0, 10) >= weekStart)
-    .sort((a, b) => String(b.completed_at || b.actual_end || b.updated_at || "").localeCompare(String(a.completed_at || a.actual_end || a.updated_at || "")));
+    .filter(
+      (item) =>
+        item.status === "done" &&
+        String(item.completed_at || item.actual_end || item.updated_at || "").slice(0, 10) >=
+          weekStart,
+    )
+    .sort((a, b) =>
+      String(b.completed_at || b.actual_end || b.updated_at || "").localeCompare(
+        String(a.completed_at || a.actual_end || a.updated_at || ""),
+      ),
+    );
   const delayed = data.items
     .filter((item) => isOpen(item) && itemDate(item) && itemDate(item) < today)
     .sort((a, b) => itemDate(a).localeCompare(itemDate(b)));
@@ -308,7 +405,10 @@ export function exportProgressReport(data: ExportData): string {
     .filter((item) => isOpen(item) && (item.kind === "waiting" || item.status === "waiting"))
     .sort((a, b) => itemDate(a).localeCompare(itemDate(b)));
   const milestones = data.items
-    .filter((item) => isOpen(item) && item.kind === "milestone" && itemDate(item) && itemDate(item) <= soon)
+    .filter(
+      (item) =>
+        isOpen(item) && item.kind === "milestone" && itemDate(item) && itemDate(item) <= soon,
+    )
     .sort((a, b) => itemDate(a).localeCompare(itemDate(b)));
   const risks = data.status_updates
     .filter((entry) => entry.risks)
@@ -342,16 +442,31 @@ export function exportProgressReport(data: ExportData): string {
     ...(delayed.length ? delayed.map(itemLine) : ["- なし"]),
     "",
     "## Waiting",
-    ...(waiting.length ? waiting.map((item) => `${itemLine(item)}${item.waiting_for ? ` / 相手: ${item.waiting_for}` : ""}${item.next_action ? ` / 次: ${item.next_action}` : ""}`) : ["- なし"]),
+    ...(waiting.length
+      ? waiting.map(
+          (item) =>
+            `${itemLine(item)}${item.waiting_for ? ` / 相手: ${item.waiting_for}` : ""}${item.next_action ? ` / 次: ${item.next_action}` : ""}`,
+        )
+      : ["- なし"]),
     "",
     "## 近いマイルストーン",
     ...(milestones.length ? milestones.map(itemLine) : ["- なし"]),
     "",
     "## リスク",
-    ...(risks.length ? risks.map((entry) => `- ${entry.date || "日付なし"} / ${data.themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}: ${entry.risks}`) : ["- なし"]),
+    ...(risks.length
+      ? risks.map(
+          (entry) =>
+            `- ${entry.date || "日付なし"} / ${data.themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}: ${entry.risks}`,
+        )
+      : ["- なし"]),
     "",
     "## 次アクション",
-    ...(nextActions.length ? nextActions.map((entry) => `- ${entry.date || "日付なし"} / ${data.themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}: ${entry.next_actions}`) : ["- なし"]),
+    ...(nextActions.length
+      ? nextActions.map(
+          (entry) =>
+            `- ${entry.date || "日付なし"} / ${data.themes.find((theme) => theme.id === entry.theme_id)?.name || "全体"}: ${entry.next_actions}`,
+        )
+      : ["- なし"]),
     "",
     "## AIに依頼したい時の補足",
     "- 上の内容をもとに、過不足の確認、優先順位案、報告文への整形を依頼できます。",

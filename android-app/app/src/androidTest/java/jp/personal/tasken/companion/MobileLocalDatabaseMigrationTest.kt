@@ -653,7 +653,9 @@ class MobileLocalDatabaseMigrationTest {
                 "SELECT envelopeJson, state, captureId FROM outbox_command WHERE commandId = 'command-13'",
             ).use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(5, MobileTaskCommandContract.decodeCreateEnvelope(cursor.getString(0)).schemaVersion)
+                // This historical migration preserves the then-current v5 envelope. It must not
+                // be decoded through the current v6-only network contract.
+                assertTrue(cursor.getString(0).contains("\"schemaVersion\":5"))
                 assertEquals("pending", cursor.getString(1))
                 assertTrue(cursor.isNull(2))
             }
@@ -670,6 +672,121 @@ class MobileLocalDatabaseMigrationTest {
                 assertTrue(cursor.moveToFirst())
                 assertTrue(cursor.isNull(0))
                 assertEquals("2026-08-23T01:00:00Z", cursor.getString(1))
+            }
+        }
+    }
+
+    @Test
+    fun migrationFourteenToFifteenPreservesTaskAndSyncStateAndAddsPendingHumanReviewStorage() {
+        helper.createDatabase(DatabaseName, 14).apply {
+            execSQL(
+                "INSERT INTO sync_state " +
+                    "(id, serverId, apiVersion, schemaVersion, cursor, lastSuccessfulSyncAt, lastAttemptAt, lastError) " +
+                    "VALUES (1, 'desktop-home', 1, 5, 'cursor-14', '2026-08-30T01:00:00Z', " +
+                    "'2026-08-30T01:00:00Z', NULL)",
+            )
+            execSQL(
+                "INSERT INTO task_cache " +
+                    "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, " +
+                    "optimisticCommandId, conflictCommandId, checklistJson) VALUES " +
+                    "('task-14', 7, 'Review task', NULL, 'review', 'needs_human_review', NULL, " +
+                    "'2026-08-30T01:00:00Z', NULL, NULL, '[]')",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 15, true, MIGRATION_14_15).use { db ->
+            db.query("SELECT serverVersion, title FROM task_cache WHERE id = 'task-14'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(7, cursor.getInt(0))
+                assertEquals("Review task", cursor.getString(1))
+            }
+            db.query("SELECT serverId, cursor FROM sync_state WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("desktop-home", cursor.getString(0))
+                assertEquals("cursor-14", cursor.getString(1))
+            }
+            db.execSQL(
+                "INSERT INTO pending_human_review (commandId, serverId, taskId, envelopeJson, createdAt) " +
+                    "VALUES ('review-command-14', 'desktop-home', 'task-14', '{\"commandId\":\"review-command-14\"}', " +
+                    "'2026-08-30T01:00:00Z')",
+            )
+            db.query("SELECT taskId, serverId FROM pending_human_review WHERE commandId = 'review-command-14'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("task-14", cursor.getString(0))
+                assertEquals("desktop-home", cursor.getString(1))
+            }
+        }
+    }
+
+    @Test
+    fun migrationFifteenToSixteenPreservesTaskAndHumanReviewAndAddsDelegationAndNotificationStorage() {
+        helper.createDatabase(DatabaseName, 15).apply {
+            execSQL(
+                "INSERT INTO sync_state " +
+                    "(id, serverId, apiVersion, schemaVersion, cursor, lastSuccessfulSyncAt, lastAttemptAt, lastError) " +
+                    "VALUES (1, 'desktop-home', 1, 5, 'cursor-15', '2026-08-30T01:00:00Z', " +
+                    "'2026-08-30T01:00:00Z', NULL)",
+            )
+            execSQL(
+                "INSERT INTO task_cache " +
+                    "(id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, optimisticCommandId, conflictCommandId, checklistJson) " +
+                    "VALUES ('task-15', 8, 'Delegation task', NULL, 'todo', 'not_delegated', NULL, '2026-08-30T01:00:00Z', NULL, NULL, '[]')",
+            )
+            execSQL(
+                "INSERT INTO pending_human_review (commandId, serverId, taskId, envelopeJson, createdAt) " +
+                    "VALUES ('review-15', 'desktop-home', 'task-15', '{\"schemaVersion\":5}', " +
+                    "'2026-08-30T01:00:00Z')",
+            )
+            execSQL(
+                "INSERT INTO outbox_command " +
+                    "(commandId, idempotencyKey, requestId, clientDeviceId, issuedAt, commandName, " +
+                    "envelopeJson, serverId, state, attemptCount, createdAt, lastAttemptAt, lastError, " +
+                    "taskId, dependsOnCommandId, captureId) VALUES " +
+                    "('command-15', 'command-15', 'request-15', 'device-1', '2026-08-30T01:00:00Z', " +
+                    "'UpdateTask', '{\"apiVersion\":1,\"schemaVersion\":5}', 'desktop-home', " +
+                    "'pending', 0, '2026-08-30T01:00:00Z', NULL, NULL, 'task-15', NULL, NULL)",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(DatabaseName, 16, true, MIGRATION_15_16).use { db ->
+            db.query("SELECT serverVersion, title FROM task_cache WHERE id = 'task-15'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(8, cursor.getInt(0))
+                assertEquals("Delegation task", cursor.getString(1))
+            }
+            db.query("SELECT taskId, envelopeJson FROM pending_human_review WHERE commandId = 'review-15'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("task-15", cursor.getString(0))
+                assertTrue(cursor.getString(1).contains("\"schemaVersion\":6"))
+            }
+            db.query("SELECT envelopeJson FROM outbox_command WHERE commandId = 'command-15'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertTrue(cursor.getString(0).contains("\"schemaVersion\":6"))
+            }
+            db.query("SELECT schemaVersion, cursor FROM sync_state WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(6, cursor.getInt(0))
+                assertEquals("cursor-15", cursor.getString(1))
+            }
+            db.execSQL(
+                "INSERT INTO pending_task_delegation " +
+                    "(commandId, serverId, taskId, contextFingerprint, envelopeJson, successJson, createdAt) " +
+                    "VALUES ('delegate-15', 'desktop-home', 'task-15', 'fingerprint', '{}', NULL, '2026-08-30T01:00:00Z')",
+            )
+            db.execSQL(
+                "INSERT INTO task_notification_delivery " +
+                    "(deliveryId, serverId, taskId, taskVersion, workState, receiptId, state, createdAt, deliveredAt) " +
+                    "VALUES ('notice-15', 'desktop-home', 'task-15', 8, 'agent_done', NULL, 'pending', '2026-08-30T01:00:00Z', NULL)",
+            )
+            db.query("SELECT contextFingerprint FROM pending_task_delegation WHERE commandId = 'delegate-15'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("fingerprint", cursor.getString(0))
+            }
+            db.query("SELECT state FROM task_notification_delivery WHERE deliveryId = 'notice-15'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("pending", cursor.getString(0))
             }
         }
     }

@@ -23,7 +23,7 @@ function rightRotate(value, amount) {
   return (value >>> amount) | (value << (32 - amount));
 }
 
-function sha256Hex(bytes) {
+export function sha256Hex(bytes) {
   const blockLength = 64;
   const paddedLength = Math.ceil((bytes.length + 9) / blockLength) * blockLength;
   const padded = new Uint8Array(paddedLength);
@@ -49,8 +49,14 @@ function sha256Hex(bytes) {
       words[index] = lengthView.getUint32(offset + index * 4);
     }
     for (let index = 16; index < 64; index += 1) {
-      const s0 = rightRotate(words[index - 15], 7) ^ rightRotate(words[index - 15], 18) ^ (words[index - 15] >>> 3);
-      const s1 = rightRotate(words[index - 2], 17) ^ rightRotate(words[index - 2], 19) ^ (words[index - 2] >>> 10);
+      const s0 =
+        rightRotate(words[index - 15], 7) ^
+        rightRotate(words[index - 15], 18) ^
+        (words[index - 15] >>> 3);
+      const s1 =
+        rightRotate(words[index - 2], 17) ^
+        rightRotate(words[index - 2], 19) ^
+        (words[index - 2] >>> 10);
       words[index] = (words[index - 16] + s0 + words[index - 7] + s1) >>> 0;
     }
 
@@ -108,7 +114,12 @@ function numberOrNull(value) {
  * Note本文から保存するポータブルMarkdownを組み立てる。RendererとMainで
  * 同じ本文を使うため、ここにはファイルI/OやElectron依存を置かない。
  */
-export function buildCanonicalMarkdownContent({ title = "", themeName = "", updatedAt = "", body = "" } = {}) {
+export function buildCanonicalMarkdownContent({
+  title = "",
+  themeName = "",
+  updatedAt = "",
+  body = "",
+} = {}) {
   const metadata = [
     "---",
     `title: ${JSON.stringify(String(title ?? ""))}`,
@@ -116,7 +127,9 @@ export function buildCanonicalMarkdownContent({ title = "", themeName = "", upda
     text(updatedAt) ? `updated_at: ${JSON.stringify(text(updatedAt))}` : "",
     "---",
     "",
-  ].filter((line) => line !== "").join("\n");
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
   const sourceBody = String(body ?? "");
   const bodyWithTrailingNewline = sourceBody.endsWith("\n") ? sourceBody : `${sourceBody}\n`;
   return `${metadata}\n${bodyWithTrailingNewline}`;
@@ -128,13 +141,18 @@ export function buildCanonicalMarkdownContent({ title = "", themeName = "", upda
  */
 export function normalizeCanonicalMarkdownBinding(value = {}, { noteId = "" } = {}) {
   const source = isPlainObject(value) ? value : {};
-  const canonicalPath = text(source.canonical_path || source.canonicalPath || source.filePath || source.path);
+  const canonicalPath = text(
+    source.canonical_path || source.canonicalPath || source.filePath || source.path,
+  );
   const syncState = CANONICAL_SYNC_STATES.has(source.sync_state)
     ? source.sync_state
-    : (canonicalPath && text(source.file_signature || source.fileSignature) ? "in_sync" : "unavailable");
+    : canonicalPath && text(source.file_signature || source.fileSignature)
+      ? "in_sync"
+      : "unavailable";
   return {
     schema_version: Number(source.schema_version) || CANONICAL_MARKDOWN_SCHEMA_VERSION,
-    binding_id: text(source.binding_id || source.bindingId) || (text(noteId) ? `note:${text(noteId)}` : ""),
+    binding_id:
+      text(source.binding_id || source.bindingId) || (text(noteId) ? `note:${text(noteId)}` : ""),
     mode: "linked_canonical",
     canonical_path: canonicalPath,
     directory: text(source.directory),
@@ -176,12 +194,17 @@ export function withCanonicalMarkdownBinding(properties = {}, binding = {}) {
 
 export function canonicalMarkdownFileState(syncState) {
   switch (syncState) {
-    case "in_sync": return "synced";
+    case "in_sync":
+      return "synced";
     case "conflict":
-    case "file_ahead": return "external_change";
-    case "internal_ahead": return "failed";
-    case "unavailable": return "pending";
-    default: return "none";
+    case "file_ahead":
+      return "external_change";
+    case "internal_ahead":
+      return "failed";
+    case "unavailable":
+      return "pending";
+    default:
+      return "none";
   }
 }
 
@@ -232,17 +255,29 @@ export function planCanonicalMarkdownWrite({
   // ファイルが消えている場合は作り直す。外部変更として止めない。
   if (!fileExists) return { action: "write" };
 
-  if (currentFileSignature != null && lastWrittenSignature && currentFileSignature !== lastWrittenSignature) {
+  if (
+    currentFileSignature != null &&
+    lastWrittenSignature &&
+    currentFileSignature !== lastWrittenSignature
+  ) {
     // 前回Taskenが書いた内容と、いまのファイルが違う = 外部で変更された。
     // 内容がたまたま同じなら、わざわざ確認を出さない。
     if (currentFileSignature === nextSignature) return { action: "skip", reason: "unchanged" };
-    return { action: "confirm", reason: "external_change", externalSignature: currentFileSignature };
+    return {
+      action: "confirm",
+      reason: "external_change",
+      externalSignature: currentFileSignature,
+    };
   }
 
   // 既存bindingに前回署名がない場合も、存在するファイルを黙って上書きしない。
   if (currentFileSignature != null && !lastWrittenSignature) {
     if (currentFileSignature === nextSignature) return { action: "skip", reason: "unchanged" };
-    return { action: "confirm", reason: "external_change", externalSignature: currentFileSignature };
+    return {
+      action: "confirm",
+      reason: "external_change",
+      externalSignature: currentFileSignature,
+    };
   }
 
   if (currentFileSignature != null && currentFileSignature === nextSignature) {

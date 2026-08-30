@@ -5,6 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 
 import { entityTypes } from "../../shared/entityRegistry.mjs";
+import { parseCanonicalTaskId, parseTaskLocator } from "../../shared/contracts/mobile/public.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
@@ -295,9 +296,16 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.get_task_context",
     {
       description:
-        "Return bounded, AI-visible Task context: assignment, Theme, RepositoryContext match, explicit/provenance-related summaries, Activity, and Work Receipts. Summary items contain stable locators instead of full bodies.",
+        "Return bounded, AI-visible Task context by raw task_id or canonical task_locator: assignment, Theme, RepositoryContext match, explicit/provenance-related summaries, Activity, and Work Receipts. Summary items contain stable locators instead of full bodies.",
       inputSchema: {
-        task_id: z.string().trim().min(1).max(200),
+        task_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .refine((value) => parseCanonicalTaskId(value) !== null)
+          .optional(),
+        task_locator: z.string().trim().min(1).max(2000).optional(),
         include: z
           .array(
             z.enum([
@@ -321,7 +329,29 @@ export function createTaskenMcpServer(options = {}) {
       },
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    withCoreClient((args) => coreClient.getTaskContext(args)),
+    withCoreClient((args) => {
+      const { task_id: taskId, task_locator: taskLocator, ...options } = args;
+      if (Boolean(taskId) === Boolean(taskLocator)) {
+        return {
+          error: {
+            code: "invalid_task_reference",
+            message: "task_idまたはtask_locatorのどちらか一方を指定してください。",
+          },
+          read_only: true,
+        };
+      }
+      const resolvedTaskId = taskLocator ? parseTaskLocator(taskLocator) : taskId;
+      if (!resolvedTaskId) {
+        return {
+          error: {
+            code: "invalid_task_locator",
+            message: "canonical task_locatorを確認してください。",
+          },
+          read_only: true,
+        };
+      }
+      return coreClient.getTaskContext({ ...options, task_id: resolvedTaskId });
+    }),
   );
 
   server.registerTool(

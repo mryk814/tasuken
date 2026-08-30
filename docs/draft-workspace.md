@@ -1,7 +1,7 @@
 # 旧 Draft Workspace data
 
-独立したDraft Workspace UIはIssue #314で撤去し、Notes右側の`NoteAiDrawer`へ統合した。
-既存の`properties_json.draft_workspace.sources`は削除せず、Note IDに紐づく旧会話履歴としてread-only表示する。
+独立したDraft WorkspaceとNote AI UIは撤去済みである。
 
-新しいAI返答は`ai_proposal`へPendingで保存する。途中tokenは保存せず、採用時だけApplication Commandを通してNoteの`body_markdown`とcanonical Markdownを更新する。
-したがってWorking Draftの正本は引き続きNote本文だけであり、旧Draftデータへ新規書込みする経路はない。
+既存Noteの`properties_json.draft_workspace`は未知フィールドとして読込・保存時に保持する。専用表示、追記、再依頼、内蔵AI実行の経路は持たない。
+
+外部Agentから返る新しいNote変更案は`ai_proposal`へPendingで保存し、利用者のPreview／採用後だけApplication Commandを通してNote本文とcanonical Markdownを更新する。

@@ -6,17 +6,29 @@ import type {
   SaveOptions,
   Workspace,
 } from "../../../shared/types/workspace";
-import type { ArtifactFileImportRequest, MarkdownImageAttachmentRequest } from "../../../shared/attachments";
-import type { AppUpdateCheckResult, SatelliteWindowStatePayload } from "../../../shared/ipc/contracts";
+import type {
+  ArtifactFileImportRequest,
+  MarkdownImageAttachmentRequest,
+} from "../../../shared/attachments";
+import type {
+  AppUpdateCheckResult,
+  SatelliteWindowStatePayload,
+} from "../../../shared/ipc/contracts";
 import type { CommandEnvelope } from "../../../shared/applicationCommand";
-import type { MarkdownFileExportRequest, MarkdownPdfExportRequest } from "../../../shared/fileExport";
+import type {
+  MarkdownFileExportRequest,
+  MarkdownPdfExportRequest,
+} from "../../../shared/fileExport";
 import type { SketchExportRequest } from "../../../shared/sketchExport";
 import type {
   MermaidPowerPointPptxExportRequest,
   MermaidPowerPointSvgExportRequest,
   MermaidSvgClipboardRequest,
 } from "../../../shared/mermaidPowerPoint";
-import type { ImageClipboardRequest, SlideTimelineExportRequest } from "../../../shared/slideTimelineExport";
+import type {
+  ImageClipboardRequest,
+  SlideTimelineExportRequest,
+} from "../../../shared/slideTimelineExport";
 import type { CalendarConnectRequest, CalendarDisconnectRequest } from "../../../shared/calendar";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
@@ -62,10 +74,14 @@ export const workspaceApi = {
   onThemeAiPackChanged(callback: Parameters<Window["api"]["themeAiPack"]["onChanged"]>[0]) {
     return desktopApi().themeAiPack.onChanged(callback);
   },
-  previewConversationContext(request: Parameters<Window["api"]["conversationContext"]["preview"]>[0]) {
+  previewConversationContext(
+    request: Parameters<Window["api"]["conversationContext"]["preview"]>[0],
+  ) {
     return desktopApi().conversationContext.preview(request);
   },
-  publishConversationContext(request: Parameters<Window["api"]["conversationContext"]["publish"]>[0]) {
+  publishConversationContext(
+    request: Parameters<Window["api"]["conversationContext"]["publish"]>[0],
+  ) {
     return desktopApi().conversationContext.publish(request);
   },
   removeConversationContext(conversationId: string) {
@@ -82,9 +98,6 @@ export const workspaceApi = {
   },
   saveDocument(request: DocumentSaveRequest) {
     return desktopApi().documents.save(request);
-  },
-  applyCanonicalNoteAiProposal(request: DocumentSaveRequest, envelope: CommandEnvelope) {
-    return desktopApi().documents.applyAiProposal(request, envelope);
   },
   get(type: EntityType, id: string) {
     return desktopApi().entities.get(type, id);
@@ -122,42 +135,6 @@ export const workspaceApi = {
   },
   onViewPreferenceChanged(callback: Parameters<Window["api"]["preferences"]["onViewChanged"]>[0]) {
     return desktopApi().preferences.onViewChanged(callback);
-  },
-  getAiConfig() {
-    return desktopApi().ai.getConfig();
-  },
-  saveAiProviderProfile(update: import("../../../shared/ai").AiProviderProfileUpdate) {
-    return desktopApi().ai.saveProviderProfile(update);
-  },
-  deleteAiProviderProfile(id: string) {
-    return desktopApi().ai.deleteProviderProfile(id);
-  },
-  saveAiModelProfile(update: import("../../../shared/ai").AiModelProfileUpdate) {
-    return desktopApi().ai.saveModelProfile(update);
-  },
-  deleteAiModelProfile(id: string) {
-    return desktopApi().ai.deleteModelProfile(id);
-  },
-  setDefaultAiProviderProfile(id: string) {
-    return desktopApi().ai.setDefaultProviderProfile(id);
-  },
-  setDefaultAiModelProfile(id: string) {
-    return desktopApi().ai.setDefaultModelProfile(id);
-  },
-  testAiConnection(request: import("../../../shared/ai").AiTestConnectionRequest) {
-    return desktopApi().ai.testConnection(request);
-  },
-  getAiFeatureAvailability(feature: import("../../../shared/ai").AiFeature, providerProfileId?: string, modelProfileId?: string) {
-    return desktopApi().ai.featureAvailability(feature, providerProfileId, modelProfileId);
-  },
-  startNoteAiStream(requestId: string, request: import("../../../shared/ai").AiNoteGenerateRequest) {
-    return desktopApi().ai.startNoteStream(requestId, request);
-  },
-  cancelNoteAiStream(requestId: string) {
-    return desktopApi().ai.cancelNoteStream(requestId);
-  },
-  onNoteAiStreamEvent(callback: Parameters<Window["api"]["ai"]["onNoteStreamEvent"]>[0]) {
-    return desktopApi().ai.onNoteStreamEvent(callback);
   },
   copyText(text: string) {
     return desktopApi().clipboard.writeText(text);
@@ -216,7 +193,9 @@ export const workspaceApi = {
   startMediaRecording(request: import("../../../shared/mediaCapture").MediaRecordingStartRequest) {
     return desktopApi().mediaCapture.startRecording(request);
   },
-  appendMediaRecording(request: import("../../../shared/mediaCapture").MediaRecordingAppendRequest) {
+  appendMediaRecording(
+    request: import("../../../shared/mediaCapture").MediaRecordingAppendRequest,
+  ) {
     return desktopApi().mediaCapture.appendRecording(request);
   },
   pauseMediaRecording(sessionId: string) {
@@ -235,19 +214,27 @@ export const workspaceApi = {
     return desktopApi().screenRecording.listSources();
   },
   /** 録画中インジケータへ表示状態を送る。終了時はnullで畳む（#383）。 */
-  applyRecordingIndicator(state: import("../../../shared/ipc/contracts").RecordingIndicatorState | null) {
+  applyRecordingIndicator(
+    state: import("../../../shared/ipc/contracts").RecordingIndicatorState | null,
+  ) {
     return desktopApi().screenRecording.applyIndicator(state);
   },
-  onRecordingIndicatorCommand(callback: (command: import("../../../shared/ipc/contracts").RecordingIndicatorCommand) => void) {
+  onRecordingIndicatorCommand(
+    callback: (command: import("../../../shared/ipc/contracts").RecordingIndicatorCommand) => void,
+  ) {
     return desktopApi().screenRecording.onIndicatorCommand(callback);
   },
-  armScreenRecording(request: import("../../../shared/screenRecording.mjs").ScreenRecordingArmRequest) {
+  armScreenRecording(
+    request: import("../../../shared/screenRecording.mjs").ScreenRecordingArmRequest,
+  ) {
     return desktopApi().screenRecording.arm(request);
   },
   selectScreenRecordingRegion(sourceToken: string) {
     return desktopApi().screenRecording.selectRegion({ sourceToken });
   },
-  applyScreenRecordingRegionIndicator(region: import("../../../shared/screenRecording.mjs").ScreenRecordingRegionSelection | null) {
+  applyScreenRecordingRegionIndicator(
+    region: import("../../../shared/screenRecording.mjs").ScreenRecordingRegionSelection | null,
+  ) {
     return desktopApi().screenRecording.applyRegionIndicator(region);
   },
   prepareVideoImport(request: import("../../../shared/mediaCapture").VideoImportPrepareRequest) {
@@ -274,17 +261,8 @@ export const workspaceApi = {
   exportVideoTrim(request: import("../../../shared/mediaCapture").VideoTrimExportRequest) {
     return desktopApi().mediaCapture.exportVideoTrim(request);
   },
-  previewBatchTranscription(artifactId: string) {
-    return desktopApi().batchTranscription.preview({ artifactId });
-  },
   getBatchTranscriptionHistory(artifactId: string) {
     return desktopApi().batchTranscription.history({ artifactId });
-  },
-  runBatchTranscription(request: import("../../../shared/batchTranscriptionIpc").BatchTranscriptionRunRequest) {
-    return desktopApi().batchTranscription.run(request);
-  },
-  cancelBatchTranscription(artifactId: string, operationId: string) {
-    return desktopApi().batchTranscription.cancel({ artifactId, operationId });
   },
   reload() {
     return desktopApi().app.reload();
@@ -379,7 +357,9 @@ export const workspaceApi = {
   automaticSnapshotStatus() {
     return desktopApi().snapshots.automaticStatus();
   },
-  configureAutomaticSnapshot(config: Parameters<Window["api"]["snapshots"]["configureAutomatic"]>[0]) {
+  configureAutomaticSnapshot(
+    config: Parameters<Window["api"]["snapshots"]["configureAutomatic"]>[0],
+  ) {
     return desktopApi().snapshots.configureAutomatic(config);
   },
   runAutomaticSnapshot() {

@@ -14,12 +14,15 @@ import {
 } from "../infrastructure/sqlite/public.ts";
 import {
   MobileGatewayAdapter,
+  MOBILE_TASK_CONTEXT_INPUT,
   type MobileGatewayCaptureCommandResult,
   type MobileGatewayLoggerPort,
   type MobileGatewayStatePort,
+  type MobileGatewayTaskDelegationResult,
   type MobileGatewayTaskWorkProposalDecisionResult,
+  type MobileGatewayWorkReceiptRecord,
+  taskContextFingerprint,
 } from "../gateway/mobile/public.ts";
-import { withWorkspaceRefresh } from "../../shared/workspaceRefresh.ts";
 import {
   TaskCapabilityService,
   type ExecuteApplicationCommand,
@@ -28,13 +31,24 @@ import {
 import { TaskenCoreClient } from "../mcp/taskenCoreClient.mjs";
 import {
   TASKEN_CORE_API_VERSION,
+  TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
 } from "../../shared/contracts/core/public.mjs";
 import {
   ApplicationCommandError,
   type ApplicationCommandPayload,
+  type CommandReceipt,
 } from "../../shared/applicationCommand.ts";
+import {
+  TASK_CONTRACT_SCHEMA_VERSION,
+  taskIdSchema,
+  taskReadModelSchema,
+} from "../../shared/contracts/task/public.ts";
+import {
+  mobileResponseMetaSchema,
+  type MobileResponseMeta,
+} from "../../shared/contracts/mobile/public.ts";
 
 type CorePersistence = AgentReadyTaskWorkspacePersistence &
   AgentWorkspacePersistence &
@@ -47,6 +61,17 @@ type CorePersistence = AgentReadyTaskWorkspacePersistence &
   AgentContextWorkspacePersistence &
   WorkspaceTaskPersistence &
   AiProposalPersistence;
+
+function mobileWorkReceipt(receipt: Record<string, unknown>): MobileGatewayWorkReceiptRecord {
+  return {
+    id: String(receipt.id || ""),
+    taskId: String(receipt.task_id || ""),
+    version: Number(receipt.version || 0),
+    reportedAt: String(receipt.reported_at || ""),
+    executorLabel: String(receipt.executor_label || ""),
+    summary: String(receipt.summary || ""),
+  };
+}
 
 function proposalDecisionFailure(
   error: ApplicationCommandError,
@@ -68,21 +93,49 @@ function captureCommandFailure(error: ApplicationCommandError): MobileGatewayCap
   return { ok: false, code: "validation_failed" };
 }
 
+function delegationFailure(error: ApplicationCommandError): MobileGatewayTaskDelegationResult {
+  if (error.code === "COMMAND_ID_REUSED") return { ok: false, code: "idempotency_conflict" };
+  if (error.code === "NOT_FOUND") return { ok: false, code: "not_found" };
+  if (error.code === "CONFLICT") {
+    return {
+      ok: false,
+      code:
+        error.details?.conflictReason === "context_stale" ? "context_stale" : "version_conflict",
+    };
+  }
+  return { ok: false, code: "validation_failed" };
+}
+
 export class TaskenCoreRuntime {
   private readonly host: TaskenCoreHost;
   private readonly persistence: CorePersistence;
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
+  private readonly taskContext: ReturnType<typeof createTaskenCore>["getTaskContext"];
+  private readonly executeTaskDelegation?: (
+    command: unknown,
+    currentContextFingerprint: () => string,
+    responseMeta: MobileResponseMeta,
+  ) => CommandReceipt;
   readonly taskCapability: TaskCapabilityService;
 
   constructor(
     userDataPath: string,
     persistence: CorePersistence,
     executeApplicationCommand: ExecuteApplicationCommand,
-    notifyWorkspaceChanged: () => void = () => {},
+    onProposalCommitted?: NonNullable<
+      Parameters<typeof createTaskenCore>[1]
+    >["onProposalCommitted"],
+    executeTaskDelegation?: (
+      command: unknown,
+      currentContextFingerprint: () => string,
+      responseMeta: MobileResponseMeta,
+    ) => CommandReceipt,
   ) {
     this.persistence = persistence;
     this.executeApplicationCommand = executeApplicationCommand;
-    const core = createTaskenCore(persistence);
+    const core = createTaskenCore(persistence, { onProposalCommitted });
+    this.taskContext = core.getTaskContext;
+    this.executeTaskDelegation = executeTaskDelegation;
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
     this.host = new TaskenCoreHost({
       userDataPath,
@@ -111,13 +164,10 @@ export class TaskenCoreRuntime {
       getActivity: core.getActivity,
       getContextSubgraph: core.getContextSubgraph,
       exportAiContext: core.exportAiContext,
-      proposeTaskWork: withWorkspaceRefresh(core.proposeTaskWork, notifyWorkspaceChanged),
-      proposeAgentSession: withWorkspaceRefresh(core.proposeAgentSession, notifyWorkspaceChanged),
-      proposeRepositoryTask: withWorkspaceRefresh(
-        core.proposeRepositoryTask,
-        notifyWorkspaceChanged,
-      ),
-      proposeContent: withWorkspaceRefresh(core.proposeContent, notifyWorkspaceChanged),
+      proposeTaskWork: core.proposeTaskWork,
+      proposeAgentSession: core.proposeAgentSession,
+      proposeRepositoryTask: core.proposeRepositoryTask,
+      proposeContent: core.proposeContent,
     });
   }
 
@@ -133,27 +183,25 @@ export class TaskenCoreRuntime {
       core: {
         status: async () => ({
           apiVersion: TASKEN_CORE_API_VERSION,
-          capabilities: [TASKEN_CORE_TASK_QUERY_CAPABILITY, TASKEN_CORE_TASK_COMMAND_CAPABILITY],
+          capabilities: [
+            TASKEN_CORE_TASK_QUERY_CAPABILITY,
+            TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+            TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
+          ],
         }),
         listThemes: () =>
           this.persistence.list("theme", false).map((theme) => ({
             id: String(theme.id || ""),
             name: String(theme.name || ""),
           })),
-        listWorkReceipts: () =>
-          this.persistence.list("work_receipt", false).map((receipt) => ({
-            id: String(receipt.id || ""),
-            taskId: String(receipt.task_id || ""),
-            reportedAt: String(receipt.reported_at || ""),
-            executorLabel: String(receipt.executor_label || ""),
-            summary: String(receipt.summary || ""),
-          })),
+        listWorkReceipts: () => this.persistence.list("work_receipt", false).map(mobileWorkReceipt),
         getWorkReceipt: (id) => {
           const receipt = this.persistence.get("work_receipt", id, false);
           if (!receipt) return null;
           return {
             id: String(receipt.id || ""),
             taskId: String(receipt.task_id || ""),
+            version: Number(receipt.version || 0),
             executorKind: String(receipt.executor_kind || "unknown"),
             executorLabel: String(receipt.executor_label || ""),
             startedAt: receipt.started_at ? String(receipt.started_at) : null,
@@ -276,6 +324,72 @@ export class TaskenCoreRuntime {
             };
           } catch (error) {
             if (error instanceof ApplicationCommandError) return captureCommandFailure(error);
+            throw error;
+          }
+        },
+        getTaskContext: (input) =>
+          this.taskContext.execute(input as Parameters<typeof this.taskContext.execute>[0]),
+        delegateTaskToAgent: (input) => {
+          if (!this.executeTaskDelegation) return { ok: false, code: "validation_failed" };
+          const command = {
+            commandId: input.commandId,
+            name: "DelegateTaskToAgent",
+            actor: { kind: "user", id: input.actorId },
+            source: "mobile",
+            issuedAt: input.issuedAt,
+            payload: {
+              taskId: input.taskId,
+              agent: input.agent,
+              ...(input.expectedResult ? { expectedResult: input.expectedResult } : {}),
+              ...(input.instruction ? { instruction: input.instruction } : {}),
+              contextFingerprint: input.contextFingerprint,
+            },
+            expectedVersions: [
+              { type: "task", id: input.taskId, version: input.expectedTaskVersion },
+            ],
+          };
+          try {
+            const receipt = this.executeTaskDelegation(
+              command,
+              () =>
+                taskContextFingerprint(
+                  this.taskContext.execute({
+                    task_id: taskIdSchema.parse(input.taskId),
+                    ...MOBILE_TASK_CONTEXT_INPUT,
+                  }),
+                ),
+              input.responseMeta,
+            );
+            if (receipt.status === "conflict") {
+              throw new Error("Task delegation returned an unclassified conflict receipt");
+            }
+            const taskSnapshot = taskReadModelSchema.safeParse(receipt.resultSnapshot?.task);
+            const responseMeta = mobileResponseMetaSchema.safeParse(
+              receipt.resultSnapshot?.responseMeta,
+            );
+            const latestWorkReceipt = receipt.resultSnapshot?.latestWorkReceipt;
+            if (!taskSnapshot.success || taskSnapshot.data.id !== input.taskId) {
+              throw new Error("Task delegation receipt is missing its canonical Task snapshot");
+            }
+            if (!responseMeta.success) {
+              throw new Error("Task delegation receipt is missing its immutable response metadata");
+            }
+            if (
+              latestWorkReceipt !== null &&
+              (!latestWorkReceipt || latestWorkReceipt.task_id !== input.taskId)
+            ) {
+              throw new Error("Task delegation receipt has an invalid Work Receipt snapshot");
+            }
+            return {
+              ok: true,
+              commandId: receipt.commandId,
+              status: receipt.status,
+              task: taskSnapshot.data,
+              latestWorkReceipt: latestWorkReceipt ? mobileWorkReceipt(latestWorkReceipt) : null,
+              responseMeta: responseMeta.data,
+            };
+          } catch (error) {
+            if (error instanceof ApplicationCommandError) return delegationFailure(error);
             throw error;
           }
         },

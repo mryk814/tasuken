@@ -273,7 +273,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
                 val taskIntent = openAppIntent(
                     context,
                     widgetId * 100 + index + 1,
-                    "tasken://task/${task.id}?source=widget",
+                    "${MobileTaskLocator.format(task.id)}?source=widget",
                 )
                 setTextViewText(buttonId, when {
                     task.hasConflict -> "!"

@@ -32,7 +32,7 @@ class MobileThemeCatalogRepositoryTest {
             SyncStateEntity(
                 serverId = "server-1",
                 apiVersion = 1,
-                schemaVersion = 5,
+                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
                 cursor = "task-cursor",
                 lastSuccessfulSyncAt = "2026-08-22T01:00:00Z",
                 lastAttemptAt = "2026-08-22T01:00:00Z",
@@ -349,6 +349,7 @@ class MobileThemeCatalogRepositoryTest {
             assertEquals(listOf(null) + List(4) { replacementToken }, requestTokens)
             assertEquals(replacementToken, store.readToken())
             assertEquals("https://gateway.test", store.configuration().origin)
+            assertTrue(store.configuration().canReviewWorkReceipts())
             assertNull(dao.outbox(commandId))
             assertEquals(1, dao.task(taskId)?.serverVersion)
         } finally {
@@ -479,7 +480,7 @@ class MobileThemeCatalogRepositoryTest {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 5,
+                "schemaVersion": 6,
                 "serverId": "server-1",
                 "serverRevision": $revision,
                 "generatedAt": "2026-08-22T02:00:00Z",
@@ -498,7 +499,7 @@ class MobileThemeCatalogRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 7,
             "generatedAt": "2026-08-22T02:00:00Z",
@@ -517,7 +518,7 @@ class MobileThemeCatalogRepositoryTest {
           "ok": false,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 7,
             "generatedAt": "2026-08-22T02:00:00Z",
@@ -540,7 +541,7 @@ class MobileThemeCatalogRepositoryTest {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 5,
+                "schemaVersion": 6,
                 "serverId": "$serverId",
                 "serverRevision": 7,
                 "generatedAt": "2026-08-22T02:00:00Z",
@@ -560,7 +561,7 @@ class MobileThemeCatalogRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T02:00:00Z",
@@ -589,14 +590,15 @@ class MobileThemeCatalogRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "serverId": "$serverId",
             "serverRevision": 7,
             "generatedAt": "2026-08-22T02:00:00Z",
             "truncated": false
           },
           "data": {
-            "accessToken": "$token"
+            "accessToken": "$token",
+            "scopes": ["mobile:read", "mobile:human-review"]
           }
         }
     """.trimIndent()

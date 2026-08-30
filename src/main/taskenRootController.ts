@@ -3,13 +3,18 @@ import path from "node:path";
 import { BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
 
 import { IPC, type RootOpenRequest, type RootShortcutState } from "../shared/ipc/contracts";
-import { DEFAULT_ROOT_SHORTCUT, normalizeRootShortcut, ROOT_SHORTCUT_PREFERENCE_KEY } from "../shared/taskenRoot";
+import {
+  DEFAULT_ROOT_SHORTCUT,
+  normalizeRootShortcut,
+  ROOT_SHORTCUT_PREFERENCE_KEY,
+} from "../shared/taskenRoot";
 
 interface TaskenRootControllerOptions {
   getPreference: (key: string) => unknown;
   setPreference: (key: string, value: unknown) => void;
   getAppIconPath: () => string;
   showMainTarget: (request: RootOpenRequest) => void;
+  isAppQuitApproved?: () => boolean;
 }
 
 export interface TaskenRootController {
@@ -21,7 +26,9 @@ export interface TaskenRootController {
   getWindow(): BrowserWindow | null;
 }
 
-export function createTaskenRootController(options: TaskenRootControllerOptions): TaskenRootController {
+export function createTaskenRootController(
+  options: TaskenRootControllerOptions,
+): TaskenRootController {
   let window: BrowserWindow | null = null;
   let activeShortcut = "";
   let shortcutState: RootShortcutState = { shortcut: DEFAULT_ROOT_SHORTCUT, registered: false };
@@ -53,6 +60,7 @@ export function createTaskenRootController(options: TaskenRootControllerOptions)
     });
     rootWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     rootWindow.on("close", (event) => {
+      if (options.isAppQuitApproved?.() === true) return;
       event.preventDefault();
       rootWindow.hide();
     });
@@ -73,7 +81,9 @@ export function createTaskenRootController(options: TaskenRootControllerOptions)
     const display = screen.getDisplayNearestPoint(cursor);
     const bounds = window.getBounds();
     const x = Math.round(display.workArea.x + (display.workArea.width - bounds.width) / 2);
-    const y = Math.round(display.workArea.y + Math.max(40, (display.workArea.height - bounds.height) * 0.22));
+    const y = Math.round(
+      display.workArea.y + Math.max(40, (display.workArea.height - bounds.height) * 0.22),
+    );
     window.setPosition(x, y, false);
     window.show();
     window.focus();
@@ -89,7 +99,9 @@ export function createTaskenRootController(options: TaskenRootControllerOptions)
     else positionAndShow();
   }
 
-  function registerShortcut(shortcut = normalizeRootShortcut(options.getPreference(ROOT_SHORTCUT_PREFERENCE_KEY))): RootShortcutState {
+  function registerShortcut(
+    shortcut = normalizeRootShortcut(options.getPreference(ROOT_SHORTCUT_PREFERENCE_KEY)),
+  ): RootShortcutState {
     if (activeShortcut) globalShortcut.unregister(activeShortcut);
     activeShortcut = "";
     const normalized = normalizeRootShortcut(shortcut);
@@ -104,14 +116,22 @@ export function createTaskenRootController(options: TaskenRootControllerOptions)
     shortcutState = {
       shortcut: normalized,
       registered,
-      error: registered ? undefined : registrationError || "このショートカットは他のアプリまたはTasken内で使用されています。",
+      error: registered
+        ? undefined
+        : registrationError || "このショートカットは他のアプリまたはTasken内で使用されています。",
     };
     return shortcutState;
   }
 
   function registerIpc(): void {
-    ipcMain.handle(IPC.taskenRootHide, () => { hide(); return true; });
-    ipcMain.handle(IPC.taskenRootToggle, () => { toggle(); return true; });
+    ipcMain.handle(IPC.taskenRootHide, () => {
+      hide();
+      return true;
+    });
+    ipcMain.handle(IPC.taskenRootToggle, () => {
+      toggle();
+      return true;
+    });
     ipcMain.handle(IPC.taskenRootShortcutGet, () => shortcutState);
     ipcMain.handle(IPC.taskenRootShortcutSet, (_event, value: unknown) => {
       const previous = shortcutState.shortcut;
@@ -125,7 +145,8 @@ export function createTaskenRootController(options: TaskenRootControllerOptions)
       return state;
     });
     ipcMain.handle(IPC.taskenRootOpen, (_event, request: RootOpenRequest) => {
-      if (!request || typeof request.kind !== "string" || typeof request.id !== "string") return false;
+      if (!request || typeof request.kind !== "string" || typeof request.id !== "string")
+        return false;
       hide();
       options.showMainTarget(request);
       return true;
@@ -137,7 +158,9 @@ export function createTaskenRootController(options: TaskenRootControllerOptions)
     registerShortcut: () => {
       const preferred = normalizeRootShortcut(options.getPreference(ROOT_SHORTCUT_PREFERENCE_KEY));
       const state = registerShortcut(preferred);
-      return state.registered || preferred === DEFAULT_ROOT_SHORTCUT ? state : registerShortcut(DEFAULT_ROOT_SHORTCUT);
+      return state.registered || preferred === DEFAULT_ROOT_SHORTCUT
+        ? state
+        : registerShortcut(DEFAULT_ROOT_SHORTCUT);
     },
     toggle,
     hide,
@@ -147,6 +170,6 @@ export function createTaskenRootController(options: TaskenRootControllerOptions)
       if (window && !window.isDestroyed()) window.destroy();
       window = null;
     },
-    getWindow: () => window && !window.isDestroyed() ? window : null,
+    getWindow: () => (window && !window.isDestroyed() ? window : null),
   };
 }

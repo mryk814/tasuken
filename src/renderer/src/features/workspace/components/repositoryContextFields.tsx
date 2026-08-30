@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { normalizeRepositoryContext, REPOSITORY_PROVIDERS, type RepositoryContext } from "../../../../../shared/repositoryContext.mjs";
 import type { DrawerConfig, DrawerEntity, RemoveEntity, SaveEntities, SaveOperation, WorkspaceData } from "../types";
@@ -21,6 +21,7 @@ function ContextRow({
   onDelete,
   onArchive,
   onRestore,
+  onEditingChange,
 }: {
   context: RepositoryContext;
   checked: boolean;
@@ -29,6 +30,7 @@ function ContextRow({
   onDelete?: () => Promise<void>;
   onArchive?: () => Promise<void>;
   onRestore?: () => Promise<void>;
+  onEditingChange?: (editing: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(contextLabel(context));
@@ -36,11 +38,20 @@ function ContextRow({
   const [localPath, setLocalPath] = useState(String(context.local_path || ""));
   const [branch, setBranch] = useState(String(context.default_branch || ""));
   const isArchived = context.active === false;
+  const setEditingState = (next: boolean) => {
+    setEditing(next);
+    onEditingChange?.(next);
+  };
   async function save() {
     if (!onSave) return;
     const normalized = normalizeRepositoryContext({ ...context, id: context.id, label, remote_url: remoteUrl, local_path: localPath, default_branch: branch, active: !isArchived });
     await onSave({ ...context, ...normalized, id: context.id } as RepositoryContext);
-    setEditing(false);
+    setEditingState(false);
+  }
+  async function closeEditThen(action?: () => Promise<void>) {
+    if (!action) return;
+    await action();
+    setEditingState(false);
   }
   return (
     <div className={`repository-context-row${isArchived ? " is-archived" : ""}`}>
@@ -51,10 +62,10 @@ function ContextRow({
         </label>
       ) : <span className="repository-context-option"><span><strong>{contextLabel(context)}</strong><small>Archive · {contextTarget(context)}</small></span></span>}
       <div className="repository-context-row-actions">
-        {onSave && <button type="button" className="text-button compact" onClick={() => setEditing((current) => !current)}>{editing ? "閉じる" : "編集"}</button>}
-        {isArchived && onRestore && <button type="button" className="text-button compact" onClick={() => void onRestore()}>復元</button>}
-        {!isArchived && onArchive && <button type="button" className="text-button compact" onClick={() => void onArchive()}>Archive</button>}
-        {!isArchived && onDelete && <button type="button" className="text-button compact danger-text" onClick={() => void onDelete()}>削除</button>}
+        {onSave && <button type="button" className="text-button compact" onClick={() => setEditingState(!editing)}>{editing ? "閉じる" : "編集"}</button>}
+        {isArchived && onRestore && <button type="button" className="text-button compact" onClick={() => void closeEditThen(onRestore)}>復元</button>}
+        {!isArchived && onArchive && <button type="button" className="text-button compact" onClick={() => void closeEditThen(onArchive)}>Archive</button>}
+        {!isArchived && onDelete && <button type="button" className="text-button compact danger-text" onClick={() => void closeEditThen(onDelete)}>削除</button>}
       </div>
       {editing && <div className="repository-context-edit form-grid">
         <Field label="Label"><input value={label} onChange={(event) => setLabel(event.target.value)} /></Field>
@@ -129,14 +140,17 @@ function useContextActions(saveEntities?: SaveEntities, removeEntity?: RemoveEnt
 export function ThemeRepositoryContextFields({
   entity,
   data,
+  focusRepository = false,
   saveEntities,
   removeEntity,
 }: {
   entity: DrawerConfig["entity"];
   data: WorkspaceData;
+  focusRepository?: boolean;
   saveEntities?: SaveEntities;
   removeEntity?: RemoveEntity;
 }) {
+  const sectionRef = useRef<HTMLElement | null>(null);
   const allContexts = (data.repository_contexts || []) as unknown as RepositoryContext[];
   const contexts = allContexts.filter((context) => !context.deleted_at && context.active !== false);
   const archivedContexts = allContexts.filter((context) => !context.deleted_at && context.active === false);
@@ -146,8 +160,14 @@ export function ThemeRepositoryContextFields({
     const initialPrimary = String(entity.primary_repository_context_id || "");
     return selectedIds.includes(initialPrimary) ? initialPrimary : selectedIds[0] || "";
   });
+  const [inlineEditingIds, setInlineEditingIds] = useState<string[]>([]);
   const missingIds = initialIds.filter((id) => !contexts.some((context) => String(context.id) === id));
   const actions = useContextActions(saveEntities, removeEntity);
+  useEffect(() => {
+    if (!focusRepository) return;
+    sectionRef.current?.scrollIntoView({ block: "start" });
+    sectionRef.current?.focus({ preventScroll: true });
+  }, [focusRepository]);
   const toggle = (id: string) => setSelectedIds((current) => {
     if (!current.includes(id)) return [...current, id];
     const next = current.filter((value) => value !== id);
@@ -162,9 +182,42 @@ export function ThemeRepositoryContextFields({
     if (!selectedIds.includes(id)) setSelectedIds((current) => [...current, id]);
     setPrimaryId(id);
   };
+  const setInlineEditing = (id: string, editing: boolean) => {
+    setInlineEditingIds((current) => {
+      if (editing) return current.includes(id) ? current : [...current, id];
+      return current.filter((currentId) => currentId !== id);
+    });
+  };
+  const focusInlineEditing = () => {
+    sectionRef.current
+      ?.querySelector<HTMLElement>(".repository-context-edit input, .repository-context-edit button")
+      ?.focus();
+  };
   return (
-    <section className="drawer-subsection repository-context-section">
-      <div className="section-heading"><h2>RepositoryContext</h2><span className="field-help">複数登録可。Primaryは1つです。</span></div>
+    <section
+      className="drawer-subsection repository-context-section"
+      ref={sectionRef}
+      tabIndex={-1}
+    >
+      <div className="section-heading"><h2>Repository</h2><span className="field-help">このThemeで使うRepositoryを登録・選択します。</span></div>
+      <input
+        type="hidden"
+        name="repository_context_inline_editing"
+        value={inlineEditingIds.length > 0 ? "true" : ""}
+      />
+      {inlineEditingIds.length > 0 && (
+        <div className="field-help">
+          <p>Repositoryの行内編集を保存またはキャンセルしてから、Themeを保存してください。</p>
+          <button
+            type="button"
+            name="repository_context_inline_editing_focus"
+            className="text-button compact"
+            onClick={focusInlineEditing}
+          >
+            行内編集へ戻る
+          </button>
+        </div>
+      )}
       <div className="repository-context-options">
         {contexts.length ? contexts.map((context) => <ContextRow
           key={String(context.id)}
@@ -174,12 +227,14 @@ export function ThemeRepositoryContextFields({
           onSave={actions.saveContext}
           onDelete={async () => { await actions.deleteContext(context); removeSelection(String(context.id)); }}
           onArchive={async () => { await actions.archiveContext(context); removeSelection(String(context.id)); }}
+          onEditingChange={(editing) => setInlineEditing(String(context.id), editing)}
         />) : <p className="field-help">登録済みのRepositoryContextはありません。</p>}
       </div>
       {missingIds.map((id) => <p className="field-help" key={id}>参照 {id} は利用できません（削除済み・Archive・未登録の可能性）。</p>)}
       {selectedIds.length > 0 && <PrimaryContextSelect contexts={contexts} value={primaryId} onChange={choosePrimary} />}
-      {archivedContexts.length > 0 && <details className="repository-context-archived"><summary>Archive済み ({archivedContexts.length})</summary>{archivedContexts.map((context) => <ContextRow key={String(context.id)} context={context} checked={false} onToggle={() => {}} onSave={actions.saveContext} onRestore={() => actions.restoreContext(context)} />)}</details>}
-      <div className="section-heading"><h3>新しいContextを追加</h3></div>
+      {archivedContexts.length > 0 && <details className="repository-context-archived"><summary>Archive済み ({archivedContexts.length})</summary>{archivedContexts.map((context) => <ContextRow key={String(context.id)} context={context} checked={false} onToggle={() => {}} onSave={actions.saveContext} onRestore={() => actions.restoreContext(context)} onEditingChange={(editing) => setInlineEditing(String(context.id), editing)} />)}</details>}
+      <div className="section-heading"><h3>新しいRepositoryを登録</h3></div>
+      <p className="field-help">AIセッションを自動で関連付けるにはLocal pathを登録してください。Themeを保存すると登録と紐付けが同時に完了します。</p>
       <div className="form-grid">
         <Field label="Provider">
           <select name="repository_new_provider" defaultValue="">
@@ -190,7 +245,7 @@ export function ThemeRepositoryContextFields({
         <Field label="Label"><input name="repository_new_label" placeholder="例: Tasuken" /></Field>
       </div>
       <Field label="Remote URL"><input name="repository_new_url" type="text" placeholder="HTTPS / SSH / scp" /></Field>
-      <Field label="Local path"><input name="repository_new_local_path" placeholder="absolute path" /></Field>
+      <Field label="Local path（AIセッション連携）"><input name="repository_new_local_path" placeholder="C:\\Users\\name\\projects\\example" /></Field>
       <div className="form-grid">
         <Field label="Default branch"><input name="repository_new_default_branch" placeholder="main" /></Field>
         <Field label="Subdirectory"><input name="repository_new_subdirectory" placeholder="apps/web" /></Field>
@@ -236,6 +291,7 @@ export function TaskRepositoryContextFields({
             {Object.entries(REPOSITORY_CONTEXT_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </Field>
+        {mode !== "inherit" && <input type="hidden" name="repository_context_inputs_present" value="true" />}
         {mode !== "inherit" && <ContextOptions contexts={contexts} selectedIds={selectedIds} onToggle={toggle} />}
         {mode !== "inherit" && missingIds.map((id) => <p className="field-help" key={id}>参照 {id} は利用できません（削除済み・Archive・未登録の可能性）。</p>)}
         {mode !== "inherit" && selectedIds.length > 0 && <PrimaryContextSelect contexts={contexts} value={primaryId} onChange={choosePrimary} />}
