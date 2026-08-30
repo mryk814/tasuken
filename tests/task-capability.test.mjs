@@ -15,7 +15,11 @@ const bundled = await build({
         registerTaskIpc,
       } from "./src/main/modules/task/public.ts";
       export { TASK_CONTRACT_SCHEMA_VERSION } from "./src/shared/contracts/task/public.ts";
-      export { createTaskClient, projectTaskDraft } from "./src/renderer/src/features/task/public.ts";
+      export {
+        createTaskClient,
+        planTaskEdit,
+        projectTaskDraft,
+      } from "./src/renderer/src/features/task/public.ts";
     `,
     resolveDir: process.cwd(),
   },
@@ -34,6 +38,7 @@ const {
   createTaskMcpAdapter,
   registerTaskIpc,
   createTaskClient,
+  planTaskEdit,
   projectTaskDraft,
 } = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
@@ -636,7 +641,55 @@ test("Task capability preserves create, update, complete, reopen, and delete ver
   assert.equal(typeof removed.value.task.deleted_at, "string");
 });
 
-test("Renderer Task edit selects lifecycle commands through the public client and preserves versions", async () => {
+test("Renderer Task edit plan selects lifecycle commands through the feature public interface", () => {
+  const draft = createCommand("desktop", "renderer-edit-plan").payload.task;
+  assert.deepEqual(planTaskEdit(draft, null), {
+    name: "CreateTask",
+    expectedVersion: null,
+  });
+  assert.deepEqual(planTaskEdit({ ...draft, title: "Updated" }, { state: "todo", version: 4 }), {
+    name: "UpdateTask",
+    expectedVersion: 4,
+  });
+  assert.deepEqual(
+    planTaskEdit({ ...draft, state: "done", completion_note: "Finished" }, { state: "doing", version: 5 }),
+    { name: "CompleteTask", expectedVersion: 5 },
+  );
+  assert.deepEqual(planTaskEdit({ ...draft, state: "todo" }, { state: "done", version: 6 }), {
+    name: "ReopenTask",
+    expectedVersion: 6,
+  });
+  assert.deepEqual(planTaskEdit({ ...draft, state: "done" }, { state: "done", version: 7 }), {
+    name: "UpdateTask",
+    expectedVersion: 7,
+  });
+  assert.deepEqual(planTaskEdit({ state: "done" }, { state: "todo", version: 8 }), {
+    name: "CompleteTask",
+    expectedVersion: 8,
+  });
+  assert.deepEqual(planTaskEdit({ state: "legacy_state" }, { state: "done", version: 9 }), {
+    name: "ReopenTask",
+    expectedVersion: 9,
+  });
+  assert.deepEqual(planTaskEdit({ state: undefined }, { state: "done", version: 10 }), {
+    name: "ReopenTask",
+    expectedVersion: 10,
+  });
+  assert.deepEqual(planTaskEdit({ state: undefined }, { state: "todo", version: 11 }), {
+    name: "UpdateTask",
+    expectedVersion: 11,
+  });
+  assert.deepEqual(planTaskEdit({ state: null }, { state: "done", version: 12 }), {
+    name: "ReopenTask",
+    expectedVersion: 12,
+  });
+  assert.deepEqual(planTaskEdit({ state: null }, { state: "todo", version: 13 }), {
+    name: "UpdateTask",
+    expectedVersion: 13,
+  });
+});
+
+test("Renderer Task edit applies the public lifecycle plan and preserves versions", async () => {
   const { service, repository } = capability();
   const commands = [];
   const execute = async (command) => {

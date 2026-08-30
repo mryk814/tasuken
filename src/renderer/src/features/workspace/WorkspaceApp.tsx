@@ -17,7 +17,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
 import { usePreference } from "../../utils/usePreference";
 import { noteProjectId } from "../../../../shared/themeRef.mjs";
-import { createTaskClient, projectTaskDraft } from "../task/public";
+import { createTaskClient, planTaskEdit, projectTaskDraft } from "../task/public";
 import {
   type BaseRecord,
   type ContentViewerTarget,
@@ -1462,16 +1462,18 @@ export function WorkspaceApp() {
       for (const taskOperation of taskOperations) {
         const task = taskOperation.entity;
         const existing = fullDomain.tasks.find((candidate) => candidate.id === task.id);
+        const plan = planTaskEdit(
+          { state: task.state },
+          existing
+            ? { state: existing.state, version: Number((existing as unknown as Entity).version || 0) }
+            : null,
+        );
         const scheduleOperation = operations.find(
           (operation) =>
             operation.type === "schedule" &&
             operation.entity.owner_type === "task" &&
             operation.entity.owner_id === task.id,
         );
-        const isCompleting = Boolean(
-          existing && existing.state !== "done" && task.state === "done",
-        );
-        const isReopening = Boolean(existing && existing.state === "done" && task.state !== "done");
         const existingSchedule = scheduleOperation
           ? fullDomain.schedules.find((schedule) => schedule.id === scheduleOperation.entity.id)
           : undefined;
@@ -1485,15 +1487,9 @@ export function WorkspaceApp() {
           .map((operation) => operation.entity);
         const envelope: CommandEnvelope = {
           commandId: uuid(),
-          name: !existing
-            ? "CreateTask"
-            : isCompleting
-              ? "CompleteTask"
-              : isReopening
-                ? "ReopenTask"
-                : "UpdateTask",
+          name: plan.name,
           payload:
-            !existing || (!isCompleting && !isReopening)
+            plan.name === "CreateTask" || plan.name === "UpdateTask"
               ? {
                   task,
                   schedule: scheduleOperation?.entity || null,
@@ -1508,12 +1504,12 @@ export function WorkspaceApp() {
                 },
           actor: { kind: "user" },
           source,
-          expectedVersions: existing
+          expectedVersions: plan.expectedVersion !== null
             ? [
                 {
                   type: "task",
                   id: task.id,
-                  version: Number((existing as unknown as Entity).version || 0),
+                  version: plan.expectedVersion,
                 },
                 ...(existingSchedule
                   ? [
