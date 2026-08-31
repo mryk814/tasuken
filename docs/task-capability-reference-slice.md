@@ -60,15 +60,15 @@ Task単体の5 Commandは新capabilityで表現できる。
 一方、現行Rendererの一部はTaskとSchedule / Referenceを同じApplication Command transactionで保存する。
 この複合処理をTask v1 DTOへ無理に混ぜず、旧facadeを互換境界として維持する。
 
-### #406の単件Task保存の移行（2026-08-31）
+### #406のTask保存のCommand選択（2026-08-31）
 
-単件Taskの編集は、`taskClient.applyEdit` が作成、通常更新、完了、再開のCommandを選ぶ。
-Workspaceは現在のstateとversion、入力、Commandの識別情報を渡し、成功結果の表示への反映と通知を担当する。
-これまでWorkspaceにあったCommand選択と、`workspace/types.ts` 経由のTask client再exportは撤去した。
+`features/task` の `planTaskEdit` が作成、通常更新、完了、再開のCommandとTask expected versionを選ぶ。`taskClient.applyEdit` と、Task + Schedule / Referenceを同じApplication Command transactionで保存する複合経路は、この同じplanを使う。
+Workspaceは複合payload、Schedule expected version、source、receiptによるsnapshot反映と通知を担当する。複合処理をTask v1 DTOへ混ぜず、既存のtransaction境界は維持する。
+これまでWorkspaceにあったTask state比較によるCommand選択と、`workspace/types.ts` 経由のTask client再exportは撤去した。
 WorkspaceのUIはReactとChecklistを既に利用しているため、既存のfeature public入口を使い、今回のための別entrypointは追加しない。
 
 `tests/task-capability.test.mjs` は同じpublic入口から、四つの操作、expectedVersion、競合と保存失敗の伝播を検証する。
-TaskとSchedule / Referenceの複合保存、複数Taskの一括操作はこの変更に含めない。
+複数Taskの一括操作はこの変更に含めない。
 
 残るconsumer移行は #406 で行う。
 

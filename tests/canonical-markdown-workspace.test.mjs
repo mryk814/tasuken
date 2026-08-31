@@ -158,6 +158,189 @@ function expectedCommandFingerprint(command) {
   });
 }
 
+function artifactForThemeSync(overrides = {}) {
+  return {
+    id: "artifact-theme-sync",
+    title: "Theme sync artifact",
+    filename: "theme-sync.txt",
+    file_type: "txt",
+    mime_type: "text/plain",
+    file_size: 1,
+    stored_path: "C:/artifacts/theme-sync.txt",
+    original_path: "C:/downloads/theme-sync.txt",
+    source_type: "note",
+    source_id: "note-artifact-theme-sync",
+    ...overrides,
+  };
+}
+
+test("Document保存はNote/Report由来の未削除ArtifactのThemeを同期する", () => {
+  const fixture = createFixture("tasken-document-artifact-theme-sync");
+  try {
+    fixture.database.save("project", { id: "theme-before", name: "Before", state: "active" });
+    fixture.database.save("project", { id: "theme-after", name: "After", state: "active" });
+    fixture.database.save("theme", { id: "theme-before", name: "Before" });
+    fixture.database.save("theme", { id: "theme-after", name: "After" });
+    fixture.database.save("note", {
+      id: "note-artifact-theme-sync",
+      title: "Artifact Theme Sync",
+      body_markdown: "before",
+      project_id: "theme-before",
+    });
+    fixture.database.save("artifact", artifactForThemeSync({
+      id: "artifact-owned-note",
+      title: "Owned note artifact",
+      source_type: "note",
+      source_id: "note-artifact-theme-sync",
+      theme_id: "theme-before",
+    }));
+    fixture.database.save("artifact", artifactForThemeSync({
+      id: "artifact-owned-report",
+      title: "Owned report artifact",
+      source_type: "report",
+      source_id: "note-artifact-theme-sync",
+      theme_id: "theme-before",
+    }));
+    fixture.database.save("note", {
+      id: "another-note",
+      title: "Unrelated owner",
+      body_markdown: "unrelated",
+    });
+    fixture.database.save("artifact", artifactForThemeSync({
+      id: "artifact-unrelated",
+      title: "Unrelated artifact",
+      source_type: "note",
+      source_id: "another-note",
+      theme_id: "theme-before",
+    }));
+    fixture.database.save("artifact", artifactForThemeSync({
+      id: "artifact-deleted",
+      title: "Deleted artifact",
+      source_type: "note",
+      source_id: "note-artifact-theme-sync",
+      theme_id: "theme-before",
+    }));
+    fixture.database.remove("artifact", "artifact-deleted");
+
+    const workspace = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const initial = fixture.database.get("note", "note-artifact-theme-sync");
+    const ownedNote = fixture.database.get("artifact", "artifact-owned-note");
+    const ownedReport = fixture.database.get("artifact", "artifact-owned-report");
+    const saved = workspace.saveCanonicalNote(
+      saveRequest({ ...initial, project_id: "theme-after" }, "after"),
+    );
+
+    assert.equal(saved.project_id, "theme-after");
+    assert.equal(fixture.database.get("artifact", ownedNote.id).theme_id, "theme-after");
+    assert.equal(fixture.database.get("artifact", ownedReport.id).theme_id, "theme-after");
+    assert.equal(
+      fixture.database.get("artifact", ownedNote.id).version,
+      Number(ownedNote.version || 0) + 1,
+    );
+    assert.equal(
+      fixture.database.get("artifact", ownedReport.id).version,
+      Number(ownedReport.version || 0) + 1,
+    );
+    const savedWithoutTheme = workspace.saveCanonicalNote(
+      saveRequest({ ...saved, project_id: null }, "after"),
+    );
+    assert.equal(savedWithoutTheme.project_id, null);
+    assert.equal(fixture.database.get("artifact", ownedNote.id).theme_id, null);
+    assert.equal(fixture.database.get("artifact", ownedReport.id).theme_id, null);
+    assert.equal(
+      fixture.database.get("artifact", ownedNote.id).version,
+      Number(ownedNote.version || 0) + 2,
+    );
+    assert.equal(
+      fixture.database.get("artifact", ownedReport.id).version,
+      Number(ownedReport.version || 0) + 2,
+    );
+    workspace.saveCanonicalNote(saveRequest(savedWithoutTheme, "after"));
+    assert.equal(
+      fixture.database.get("artifact", ownedNote.id).version,
+      Number(ownedNote.version || 0) + 2,
+    );
+    assert.equal(
+      fixture.database.get("artifact", ownedReport.id).version,
+      Number(ownedReport.version || 0) + 2,
+    );
+    assert.equal(fixture.database.get("artifact", "artifact-unrelated").theme_id, "theme-before");
+    const deleted = fixture.database.get("artifact", "artifact-deleted", true);
+    assert.equal(deleted.theme_id, "theme-before");
+    assert.ok(deleted.deleted_at);
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("Document保存はArtifact更新失敗時にNote・Artifact・stable linkをtransaction rollbackする", () => {
+  const fixture = createFixture("tasken-document-artifact-theme-rollback");
+  try {
+    fixture.database.save("project", { id: "theme-before", name: "Before", state: "active" });
+    fixture.database.save("project", { id: "theme-after", name: "After", state: "active" });
+    fixture.database.save("theme", { id: "theme-before", name: "Before" });
+    fixture.database.save("theme", { id: "theme-after", name: "After" });
+    fixture.database.save("note", {
+      id: "note-artifact-theme-rollback",
+      title: "Artifact Theme Rollback",
+      body_markdown: "[[task:stable-task-rollback|before]]",
+      project_id: "theme-before",
+    });
+    fixture.database.save("task", {
+      id: "stable-task-rollback",
+      title: "Stable target",
+      state: "todo",
+    });
+    fixture.database.save("artifact", artifactForThemeSync({
+      id: "artifact-theme-rollback",
+      title: "Rollback artifact",
+      source_type: "note",
+      source_id: "note-artifact-theme-rollback",
+      theme_id: "theme-before",
+    }));
+    const workspace = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const initial = workspace.saveCanonicalNote(
+      saveRequest(
+        fixture.database.get("note", "note-artifact-theme-rollback"),
+        "[[task:stable-task-rollback|before]]",
+      ),
+    );
+    const stableReference = fixture.database
+      .list("reference", true)
+      .find((reference) => reference.metadata?.syntax === "typed-stable-link/v1");
+    assert.ok(stableReference);
+    const beforeArtifact = fixture.database.get("artifact", "artifact-theme-rollback");
+    fixture.database.db.exec(`
+      CREATE TRIGGER fail_artifact_theme_sync
+      BEFORE UPDATE ON entities
+      WHEN NEW.entity_type = 'artifact' AND NEW.id = 'artifact-theme-rollback'
+      BEGIN
+        SELECT RAISE(ABORT, 'injected artifact theme update failure');
+      END;
+    `);
+
+    assert.throws(
+      () =>
+        workspace.saveCanonicalNote(
+          saveRequest({ ...initial, project_id: "theme-after" }, "after"),
+        ),
+      /Tasken内部への保存に失敗/,
+    );
+    const afterNote = fixture.database.get("note", initial.id);
+    const afterArtifact = fixture.database.get("artifact", beforeArtifact.id);
+    const afterReference = fixture.database.get("reference", stableReference.id, true);
+    assert.equal(afterNote.project_id, "theme-before");
+    assert.equal(afterNote.body_markdown, "[[task:stable-task-rollback|before]]");
+    assert.equal(afterNote.version, initial.version);
+    assert.equal(afterArtifact.theme_id, "theme-before");
+    assert.equal(afterArtifact.version, beforeArtifact.version);
+    assert.equal(afterReference.deleted_at, null);
+    assert.equal(afterReference.version, stableReference.version);
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
 test("Note AI accept couples canonical file, Note, Proposal, and command receipt", () => {
   const fixture = createFixture("tasken-note-ai-canonical-apply");
   try {
