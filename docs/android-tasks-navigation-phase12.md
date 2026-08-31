@@ -4,6 +4,16 @@ Issue: #400
 
 This phase adds the first Room-backed Tasks surface beside Today. It advances, but does not close, the Android Companion MVP issue.
 
+## Shared Desktop concepts (2026-08-31)
+
+- The Android destination is now labeled `ToDo`, matching Desktop. Its route key remains `AppSection.Tasks`, so saved navigation and deep links are unchanged.
+- The open filter is labeled `未完了`: it includes todo, doing, waiting, and review, not only doing. Completed Tasks offer `未完了に戻す`; pending completion can be changed with `未完了に変更`. Commands and human-review restrictions are unchanged.
+- Today, ToDo, and AI Task/Proposal cards display the related Theme name from the existing catalog. Long names wrap to at most two lines; unknown or unavailable catalog entries do not expose raw IDs or invent a Theme name.
+- Catalog updates use the existing observed state, including cached/offline names. This adds no Theme color payload, filter, persistence, or write path.
+- Regression coverage is in `TaskListContextUiTest`, `TaskListFilterTest`, `TaskEntryFlowUiTest`, and `TaskStateActionUiTest`. Fixture rendering does not replace the live Gateway/device acceptance tracked in #477.
+
+The sections below record the original Phase 12 implementation and validation, not the current completion status of #400 or #402.
+
 ## Tasks surface
 
 - Compact navigation now has one canonical route each for `Today`, `Tasks`, and `追加`.

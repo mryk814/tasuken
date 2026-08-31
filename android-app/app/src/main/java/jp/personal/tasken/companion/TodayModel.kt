@@ -1116,7 +1116,7 @@ class TodayPaneState(
         }
         captureOpen = true
         captureVoiceStartRequested = requestVoice
-        captureInputFocusRequested = false
+        captureInputFocusRequested = source == MobileCaptureSource.AndroidApp && !requestVoice
     }
 
     fun consumeVoiceStartRequest() {

@@ -110,6 +110,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -159,7 +160,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun TaskenTheme(content: @Composable () -> Unit) {
+internal fun TaskenTheme(content: @Composable () -> Unit) {
     val isDark =
         (LocalConfiguration.current.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
@@ -342,7 +343,7 @@ private fun TodayApp(
                     keyboardController?.hide()
                     handledEntryToken = entryRequest.token
                 } else if (uiState is TodayUiState.Empty || uiState is TodayUiState.Error) {
-                    snackbarHostState.showSnackbar("Taskを開けませんでした。Tasksを同期して再試行してください。")
+                    snackbarHostState.showSnackbar("Taskを開けませんでした。ToDoを同期して再試行してください。")
                     handledEntryToken = entryRequest.token
                 }
             }
@@ -477,7 +478,7 @@ private fun TodayApp(
                     Text(
                         when (paneState.activeSection) {
                             AppSection.Today -> "Today"
-                            AppSection.Tasks -> "Tasks"
+                            AppSection.Tasks -> "ToDo"
                             AppSection.Ai -> "AI"
                         },
                     )
@@ -557,7 +558,7 @@ private fun TodayApp(
                         coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
                     },
                     icon = { Text("All") },
-                    label = { Text("Tasks") },
+                    label = { Text("ToDo") },
                 )
                 NavigationBarItem(
                     selected = paneState.activeSection == AppSection.Ai,
@@ -598,6 +599,7 @@ private fun TodayApp(
                     when (paneState.activeSection) {
                         AppSection.Today -> TodayListPane(
                             uiState = uiState,
+                            themes = themes,
                             paneState = paneState,
                             onRetry = todayViewModel::load,
                             onRetryPairing = todayViewModel::retryPairing,
@@ -607,6 +609,7 @@ private fun TodayApp(
                         AppSection.Tasks -> TasksListPane(
                             uiState = uiState,
                             tasks = allTasks,
+                            themes = themes,
                             paneState = paneState,
                             onRetry = todayViewModel::load,
                             onRetryPairing = todayViewModel::retryPairing,
@@ -616,6 +619,7 @@ private fun TodayApp(
                         AppSection.Ai -> AiInboxListPane(
                             uiState = uiState,
                             tasks = allTasks,
+                            themes = themes,
                             proposals = taskWorkProposals,
                             paneState = paneState,
                             onRetry = todayViewModel::load,
@@ -723,15 +727,7 @@ internal fun CaptureTaskSheet(
         .only(WindowInsetsSides.Bottom),
 ) {
     val focusRequester = remember(draft.draftId) { FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    LaunchedEffect(draft.draftId, requestInputFocus) {
-        if (requestInputFocus) {
-            focusRequester.requestFocus()
-            keyboardController?.show()
-            onInputFocusHandled()
-        }
-    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -739,6 +735,15 @@ internal fun CaptureTaskSheet(
             WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
         },
     ) {
+        val keyboardController = LocalSoftwareKeyboardController.current
+        LaunchedEffect(draft.draftId, requestInputFocus, sheetState.isVisible) {
+            // Request focus in the sheet's window after its opening transition.
+            if (requestInputFocus && sheetState.isVisible) {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+                onInputFocusHandled()
+            }
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -747,11 +752,17 @@ internal fun CaptureTaskSheet(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Quick Add", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text(
-                "入力元: ${captureSourceLabel(draft.source)}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (draft.kind == MobileCaptureKind.Task) "Taskを追加" else "Captureを追加",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
             )
+            if (draft.source != MobileCaptureSource.AndroidApp) {
+                Text(
+                    "入力元: ${captureSourceLabel(draft.source)}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MobileCaptureKind.entries.forEach { kind ->
                     FilterChip(
@@ -790,31 +801,6 @@ internal fun CaptureTaskSheet(
                 }),
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
             )
-            CaptureThemePicker(
-                draftId = draft.draftId,
-                themeId = draft.projectId,
-                themes = themes,
-                catalogState = themeCatalogState,
-                enabled = state !is CaptureUiState.Saving,
-                onThemeSelected = onThemeSelected,
-            )
-            val speechBusy = speechState is ShortSpeechUiState.Listening ||
-                speechState is ShortSpeechUiState.Partial ||
-                speechState is ShortSpeechUiState.Processing
-            OutlinedButton(
-                onClick = if (speechBusy) onStopVoice else onStartVoice,
-                enabled = state !is CaptureUiState.Saving,
-            ) {
-                Text(if (speechBusy) "音声を確定" else "🎙 音声で入力")
-            }
-            Text(
-                speechStatusText(speechState, draft),
-                color = if (speechState is ShortSpeechUiState.Error) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
             Row(
                 modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
@@ -835,6 +821,31 @@ internal fun CaptureTaskSheet(
                     Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
                 }
             }
+            CaptureThemePicker(
+                draftId = draft.draftId,
+                themeId = draft.projectId,
+                themes = themes,
+                catalogState = themeCatalogState,
+                enabled = state !is CaptureUiState.Saving,
+                onThemeSelected = onThemeSelected,
+            )
+            val speechBusy = speechState is ShortSpeechUiState.Listening ||
+                speechState is ShortSpeechUiState.Partial ||
+                speechState is ShortSpeechUiState.Processing
+            OutlinedButton(
+                onClick = if (speechBusy) onStopVoice else onStartVoice,
+                enabled = state !is CaptureUiState.Saving,
+            ) {
+                Text(if (speechBusy) "音声を確定" else "音声で入力")
+            }
+            Text(
+                speechStatusText(speechState, draft),
+                color = if (speechState is ShortSpeechUiState.Error) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
             Spacer(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -960,6 +971,7 @@ private fun speechStatusText(state: ShortSpeechUiState, draft: MobileCaptureDraf
 @Composable
 private fun TodayListPane(
     uiState: TodayUiState,
+    themes: List<MobileTheme>,
     paneState: TodayPaneState,
     onRetry: () -> Unit,
     onRetryPairing: () -> Unit,
@@ -974,14 +986,15 @@ private fun TodayListPane(
         TodayUiState.Empty -> CenteredState { Text("今日のTaskはありません") }
         is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
         is TodayUiState.Error -> GatewayErrorState(uiState, onRetry, onRetryPairing)
-        is TodayUiState.Cached -> CachedTodayPane(uiState, paneState, onRetryPairing, onTaskSelected)
-        is TodayUiState.Success -> TodayTaskList(uiState.tasks, paneState, onTaskSelected)
+        is TodayUiState.Cached -> CachedTodayPane(uiState, themes, paneState, onRetryPairing, onTaskSelected)
+        is TodayUiState.Success -> TodayTaskList(uiState.tasks, paneState, onTaskSelected, themes = themes)
     }
 }
 
 @Composable
 private fun CachedTodayPane(
     state: TodayUiState.Cached,
+    themes: List<MobileTheme>,
     paneState: TodayPaneState,
     onRetryPairing: () -> Unit,
     onTaskSelected: (String) -> Unit,
@@ -1011,7 +1024,7 @@ private fun CachedTodayPane(
             }
         } else {
             Box(modifier = Modifier.weight(1f)) {
-                TodayTaskList(state.tasks, paneState, onTaskSelected)
+                TodayTaskList(state.tasks, paneState, onTaskSelected, themes = themes)
             }
         }
     }
@@ -1064,9 +1077,10 @@ internal fun filterCachedTasks(
 }
 
 @Composable
-private fun TasksListPane(
+internal fun TasksListPane(
     uiState: TodayUiState,
     tasks: List<MobileTask>,
+    themes: List<MobileTheme>,
     paneState: TodayPaneState,
     onRetry: () -> Unit,
     onRetryPairing: () -> Unit,
@@ -1078,7 +1092,7 @@ private fun TasksListPane(
         uiState is TodayUiState.Error && tasks.isEmpty() -> GatewayErrorState(uiState, onRetry, onRetryPairing)
         uiState is TodayUiState.Loading && tasks.isEmpty() -> CenteredState {
             CircularProgressIndicator()
-            Text("Tasksを読み込んでいます")
+            Text("ToDoを読み込んでいます")
         }
         else -> {
             val filtered = filterCachedTasks(tasks, paneState.taskSearch, paneState.taskFilter)
@@ -1095,7 +1109,7 @@ private fun TasksListPane(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     listOf(
-                        TaskListFilter.Open to "進行中",
+                        TaskListFilter.Open to "未完了",
                         TaskListFilter.Done to "完了",
                         TaskListFilter.All to "すべて",
                     ).forEach { (filter, label) ->
@@ -1114,7 +1128,7 @@ private fun TasksListPane(
                         }
                     }
                 } else {
-                    TodayTaskList(filtered, paneState, onTaskSelected, allTasksMode = true)
+                    TodayTaskList(filtered, paneState, onTaskSelected, allTasksMode = true, themes = themes)
                 }
             }
         }
@@ -1122,9 +1136,10 @@ private fun TasksListPane(
 }
 
 @Composable
-private fun AiInboxListPane(
+internal fun AiInboxListPane(
     uiState: TodayUiState,
     tasks: List<MobileTask>,
+    themes: List<MobileTheme>,
     proposals: List<MobileTaskWorkProposal>,
     paneState: TodayPaneState,
     onRetry: () -> Unit,
@@ -1197,6 +1212,7 @@ private fun AiInboxListPane(
                                             color = MaterialTheme.colorScheme.tertiary,
                                         )
                                     }
+                                    TaskThemeLabel(proposal.themeId, themes)
                                     Text(
                                         "${proposal.caller} · ${proposal.sourceApp}",
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1246,6 +1262,7 @@ private fun AiInboxListPane(
                                     verticalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
                                     Text(task.title, fontWeight = FontWeight.SemiBold)
+                                    TaskThemeLabel(task.themeId, themes)
                                     Text(
                                         taskWorkStateLabel(task.workState ?: ""),
                                         color = MaterialTheme.colorScheme.primary,
@@ -1320,11 +1337,12 @@ private fun PairingPane(
 
 
 @Composable
-private fun TodayTaskList(
+internal fun TodayTaskList(
     tasks: List<MobileTask>,
     paneState: TodayPaneState,
     onTaskSelected: (String) -> Unit,
     allTasksMode: Boolean = false,
+    themes: List<MobileTheme>,
 ) {
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = if (allTasksMode) paneState.taskListScrollIndex else paneState.listScrollIndex,
@@ -1366,10 +1384,16 @@ private fun TodayTaskList(
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(task.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(task.title, fontWeight = FontWeight.SemiBold)
+                        TaskThemeLabel(task.themeId, themes)
+                    }
                     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (task.pending) {
                             Surface(
@@ -1389,6 +1413,24 @@ private fun TodayTaskList(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TaskThemeLabel(themeId: String?, themes: List<MobileTheme>) {
+    val theme = themes.firstOrNull { it.id == themeId } ?: return
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = RoundedCornerShape(7.dp),
+    ) {
+        Text(
+            theme.title,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1443,6 +1485,26 @@ internal fun TodayDetailPane(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(task.title, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("状態  ${taskStateLabel(task.state)}")
+            Button(
+                onClick = { onStateAction(task) },
+                enabled = (!task.pending || task.canChangePendingState) &&
+                    task.conflict == null && actionState !is TaskActionUiState.Saving &&
+                    task.workState !in setOf("needs_human_review", "reported_done", "blocked"),
+            ) {
+                Text(
+                    when {
+                        actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
+                        task.conflict != null -> "競合を解決してから操作"
+                        task.pending && !task.canChangePendingState -> "同期後に操作"
+                        task.workState in setOf("needs_human_review", "reported_done", "blocked") -> "Work Receiptを確認"
+                        task.pending && task.state == "done" -> "未完了に変更"
+                        task.pending -> "完了に変更"
+                        task.state == "done" -> "未完了に戻す"
+                        else -> "完了する"
+                    },
+                )
+            }
             OutlinedTextField(
                 value = titleDraft,
                 onValueChange = { if (it.length <= 500) titleDraft = it },
@@ -1491,7 +1553,7 @@ internal fun TodayDetailPane(
                             Text("Desktop  ${taskStateLabel(conflict.serverState)}  v${conflict.serverVersion}")
                             val localAction = when (conflict.intendedAction) {
                                 "CompleteTask" -> "完了"
-                                "ReopenTask" -> "再開"
+                                "ReopenTask" -> "未完了に戻す"
                                 "DeleteTask" -> "削除"
                                 else -> "変更"
                             }
@@ -1587,7 +1649,6 @@ internal fun TodayDetailPane(
                 },
                 onSave = { onChecklistUpdate(task, it) },
             )
-            Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
             if (task.workState == "not_delegated") {
                 TaskDelegationCard(
@@ -1673,25 +1734,6 @@ internal fun TodayDetailPane(
                 Text(if (task.todayDate == today.toString()) "今日から外す" else "今日に入れる")
             }
             Text("更新  ${task.updatedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(
-                onClick = { onStateAction(task) },
-                enabled = (!task.pending || task.canChangePendingState) &&
-                    task.conflict == null && actionState !is TaskActionUiState.Saving &&
-                    task.workState !in setOf("needs_human_review", "reported_done", "blocked"),
-            ) {
-                Text(
-                    when {
-                        actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
-                        task.conflict != null -> "競合を解決してから操作"
-                        task.pending && !task.canChangePendingState -> "同期後に操作"
-                        task.workState in setOf("needs_human_review", "reported_done", "blocked") -> "Work Receiptを確認"
-                        task.pending && task.state == "done" -> "再開に変更"
-                        task.pending -> "完了に変更"
-                        task.state == "done" -> "再開する"
-                        else -> "完了する"
-                    },
-                )
-            }
         }
     }
 }

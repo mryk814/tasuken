@@ -40,7 +40,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("再開する").performScrollTo().assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("未完了に戻す").performScrollTo().assertIsDisplayed().assertIsEnabled()
     }
 
     @Test
@@ -66,7 +66,26 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("再開に変更").performScrollTo().assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("未完了に変更").performScrollTo().assertIsDisplayed().assertIsEnabled()
+    }
+
+    @Test
+    fun humanReviewWorkStatesKeepStateActionDisabled() {
+        val workState = mutableStateOf("needs_human_review")
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    sampleTask().copy(workState = workState.value),
+                    TaskActionUiState.Idle,
+                    onStateAction = {},
+                )
+            }
+        }
+
+        listOf("needs_human_review", "reported_done", "blocked").forEach { state ->
+            composeRule.runOnIdle { workState.value = state }
+            composeRule.onNodeWithText("Work Receiptを確認").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
+        }
     }
 
     @Test
