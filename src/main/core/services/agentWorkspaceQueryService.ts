@@ -5,7 +5,13 @@ import {
   resolveRepositoryContext,
   resolveTaskRepositoryContexts,
 } from "../../../shared/repositoryContext.mjs";
-import { projectEntityForAi, summarizeAiExclusions } from "../../../shared/aiMetadata.mjs";
+import { localDate } from "../../../shared/activityProjection.mjs";
+import {
+  isAiAudienceAllowed,
+  projectEntityForAi,
+  resolveAiVisibility,
+  summarizeAiExclusions,
+} from "../../../shared/aiMetadata.mjs";
 import {
   getAgentSessionContextRequestSchema,
   getAgentSessionContextResponseSchema,
@@ -31,7 +37,12 @@ import {
 import { publicAgentSession, publicWorkingCopy } from "../../../shared/agentSession.mjs";
 import { AgentReadyTaskAiProjectionPolicy } from "../policies/agentReadyTaskAiProjectionPolicy.ts";
 import type { AgentWorkspaceReadPort } from "../ports/agentWorkspaceReadPort.ts";
-import { publicTaskForContext, publicThemeForContext, safeReceiptValue, TaskContextTextBudget } from "../../../shared/taskContext.mjs";
+import {
+  publicTaskForContext,
+  publicThemeForContext,
+  safeReceiptValue,
+  TaskContextTextBudget,
+} from "../../../shared/taskContext.mjs";
 
 interface TaskRepositoryResolution {
   mode: unknown;
@@ -116,7 +127,9 @@ export class AgentWorkspaceQueryService {
       contexts,
       themes: projectedThemes,
     });
-    const matchedContextIds = new Set<string>(((result.matched_context_ids || []) as unknown[]).map(String));
+    const matchedContextIds = new Set<string>(
+      ((result.matched_context_ids || []) as unknown[]).map(String),
+    );
     return findThemesForRepositoryResponseSchema.parse({
       ...publicMatch(result),
       themes: ((result.themes || []) as Record<string, any>[]).map(publicTheme),
@@ -136,7 +149,9 @@ export class AgentWorkspaceQueryService {
     const { tasks, projectedThemes, visibilityThemes } = this.projected(includeArchived);
     const visibleIds = new Set<string>();
     for (const theme of projectedThemes) {
-      for (const id of Array.isArray(theme.repository_context_ids) ? theme.repository_context_ids : []) {
+      for (const id of Array.isArray(theme.repository_context_ids)
+        ? theme.repository_context_ids
+        : []) {
         visibleIds.add(String(id));
       }
     }
@@ -194,7 +209,9 @@ export class AgentWorkspaceQueryService {
       });
     }
     const { tasks, projectedThemes, visibilityThemes } = this.projected(includeArchived);
-    const themes = projectedThemes.filter((theme) => (theme.repository_context_ids || []).map(String).includes(id));
+    const themes = projectedThemes.filter((theme) =>
+      (theme.repository_context_ids || []).map(String).includes(id),
+    );
     const themesById = new Map(visibilityThemes.map((theme) => [String(theme.id), theme]));
     const matchingTasks = tasks.records.filter((task) => {
       const theme = themesById.get(String(task.project_id || task.theme_id || ""));
@@ -224,15 +241,30 @@ export class AgentWorkspaceQueryService {
       workspace_folder: request.workspace_folder,
       include_archived: request.include_archived,
     });
+    const hasRepositoryLookup = [
+      repositoryRequest.repository_context_id,
+      repositoryRequest.repository_id,
+      repositoryRequest.provider,
+      repositoryRequest.remote_url,
+      repositoryRequest.remote_urls,
+      repositoryRequest.repository_slug,
+      repositoryRequest.git_root,
+      repositoryRequest.cwd,
+      repositoryRequest.workspace_folder,
+    ].some((value) => (Array.isArray(value) ? value.length > 0 : Boolean(value)));
+    const globalDaily = Boolean(request.date) && !hasRepositoryLookup;
     const repositoryMatch = this.resolveRepositoryContext(repositoryRequest);
     const repositoryContextId = repositoryMatch.selected?.id || null;
     const repositoryDetail = repositoryContextId
       ? this.getRepositoryContext({ repository_context_id: repositoryContextId })
       : null;
     const workingCopies = repositoryContextId
-      ? this.readPort.listWorkingCopies(false)
-        .filter((copy) => copy.repository_context_id === repositoryContextId && copy.active !== false)
-        .map((copy) => publicWorkingCopy(copy))
+      ? this.readPort
+          .listWorkingCopies(false)
+          .filter(
+            (copy) => copy.repository_context_id === repositoryContextId && copy.active !== false,
+          )
+          .map((copy) => publicWorkingCopy(copy))
       : [];
     const workingCopyIds = new Set(workingCopies.map((copy) => copy.id));
     const relatedSessionIds = new Set<string>();
@@ -241,28 +273,148 @@ export class AgentWorkspaceQueryService {
         const sourceIsSession = reference.source_type === "agent_session";
         const targetIsSession = reference.target_type === "agent_session";
         const otherMatchesRepository = sourceIsSession
-          ? (reference.target_type === "repository_context" && reference.target_id === repositoryContextId)
-            || (reference.target_type === "working_copy" && workingCopyIds.has(String(reference.target_id)))
+          ? (reference.target_type === "repository_context" &&
+              reference.target_id === repositoryContextId) ||
+            (reference.target_type === "working_copy" &&
+              workingCopyIds.has(String(reference.target_id)))
           : targetIsSession
-            ? (reference.source_type === "repository_context" && reference.source_id === repositoryContextId)
-              || (reference.source_type === "working_copy" && workingCopyIds.has(String(reference.source_id)))
+            ? (reference.source_type === "repository_context" &&
+                reference.source_id === repositoryContextId) ||
+              (reference.source_type === "working_copy" &&
+                workingCopyIds.has(String(reference.source_id)))
             : false;
-        if (sourceIsSession && otherMatchesRepository) relatedSessionIds.add(String(reference.source_id));
-        if (targetIsSession && otherMatchesRepository) relatedSessionIds.add(String(reference.target_id));
+        if (sourceIsSession && otherMatchesRepository)
+          relatedSessionIds.add(String(reference.source_id));
+        if (targetIsSession && otherMatchesRepository)
+          relatedSessionIds.add(String(reference.target_id));
       }
     }
-    const sessions = this.readPort.listAgentSessions(false)
-      .filter((session) => relatedSessionIds.has(session.id))
-      .filter((session) => session.client_kind === request.client_kind)
+    const workspaceDefault = this.readPort.workspaceAiVisibilityDefault();
+    const themesById = new Map(
+      (globalDaily ? this.readPort.listThemes(true) : []).map((theme) => [String(theme.id), theme]),
+    );
+    const tasksById = new Map(
+      (globalDaily ? this.readPort.listTasks(false) : []).map((task) => [String(task.id), task]),
+    );
+    const workingCopyRepositoryIds = new Map(
+      (globalDaily ? this.readPort.listWorkingCopies(false) : []).map((copy) => [
+        String(copy.id),
+        String(copy.repository_context_id || ""),
+      ]),
+    );
+    const themeIdsByRepositoryId = new Map<string, string[]>();
+    for (const theme of themesById.values()) {
+      for (const repositoryId of [
+        ...(Array.isArray(theme.repository_context_ids) ? theme.repository_context_ids : []),
+        theme.primary_repository_context_id,
+      ]) {
+        if (!repositoryId) continue;
+        const themeIds = themeIdsByRepositoryId.get(String(repositoryId)) || [];
+        themeIds.push(String(theme.id));
+        themeIdsByRepositoryId.set(String(repositoryId), themeIds);
+      }
+    }
+    const targetsBySessionId = new Map<string, { type: string; id: string }[]>();
+    const repositoryIdsBySessionId = new Map<string, string[]>();
+    if (globalDaily) {
+      for (const reference of this.readPort.listReferences(false)) {
+        const sourceIsSession = reference.source_type === "agent_session";
+        const targetIsSession = reference.target_type === "agent_session";
+        const sessionId = sourceIsSession
+          ? reference.source_id
+          : targetIsSession
+            ? reference.target_id
+            : null;
+        const targetType = sourceIsSession
+          ? reference.target_type
+          : targetIsSession
+            ? reference.source_type
+            : null;
+        const targetId = sourceIsSession
+          ? reference.target_id
+          : targetIsSession
+            ? reference.source_id
+            : null;
+        if (!sessionId || !targetType || !targetId) continue;
+        if (targetType === "project" || targetType === "task") {
+          const targets = targetsBySessionId.get(String(sessionId)) || [];
+          targets.push({ type: String(targetType), id: String(targetId) });
+          targetsBySessionId.set(String(sessionId), targets);
+        }
+        const repositoryId =
+          targetType === "repository_context"
+            ? String(targetId)
+            : targetType === "working_copy"
+              ? workingCopyRepositoryIds.get(String(targetId))
+              : "";
+        if (repositoryId) {
+          const repositoryIds = repositoryIdsBySessionId.get(String(sessionId)) || [];
+          repositoryIds.push(repositoryId);
+          repositoryIdsBySessionId.set(String(sessionId), repositoryIds);
+        }
+      }
+    }
+    const dailySessionIsVisible = (session: Record<string, any>) => {
+      if (!isAiAudienceAllowed(resolveAiVisibility({ workspaceDefault }).audiences, "coding_agent"))
+        return false;
+      return (
+        (targetsBySessionId.get(String(session.id)) || []).every((target) => {
+          if (target.type === "project") {
+            const theme = themesById.get(target.id);
+            return (
+              Boolean(theme) &&
+              projectEntityForAi("theme", theme, {
+                audience: "coding_agent",
+                theme,
+                workspaceDefault,
+              }).included
+            );
+          }
+          const task = tasksById.get(target.id);
+          if (!task) return false;
+          const theme = themesById.get(String(task.project_id || task.theme_id || "")) || null;
+          return projectEntityForAi("task", task, {
+            audience: "coding_agent",
+            theme,
+            workspaceDefault,
+          }).included;
+        }) &&
+        (repositoryIdsBySessionId.get(String(session.id)) || []).every((repositoryId) =>
+          (themeIdsByRepositoryId.get(repositoryId) || []).every((themeId) => {
+            const theme = themesById.get(themeId);
+            return (
+              Boolean(theme) &&
+              projectEntityForAi("theme", theme, {
+                audience: "coding_agent",
+                theme,
+                workspaceDefault,
+              }).included
+            );
+          }),
+        )
+      );
+    };
+    const sessions = this.readPort
+      .listAgentSessions(false)
+      .filter((session) => globalDaily || relatedSessionIds.has(session.id))
+      .filter((session) => !request.date || localDate(session.started_at) === request.date)
+      .filter((session) => !globalDaily || dailySessionIsVisible(session))
+      .filter((session) => !request.client_kind || session.client_kind === request.client_kind)
       .filter((session) => !request.agent_label || session.agent_label === request.agent_label)
-      .sort((left, right) => String(right.ended_at || right.started_at).localeCompare(String(left.ended_at || left.started_at)))
+      .sort((left, right) =>
+        String(right.ended_at || right.started_at).localeCompare(
+          String(left.ended_at || left.started_at),
+        ),
+      )
       .slice(0, request.limit ?? 20)
       .map((session) => publicAgentSession(session));
-    const previousHandoff = sessions.find((session) => (
-      session.source_session_id !== request.source_session
-      && session.status !== "active"
-      && session.outcome
-    )) || null;
+    const previousHandoff =
+      sessions.find(
+        (session) =>
+          session.source_session_id !== request.source_session &&
+          session.status !== "active" &&
+          session.outcome,
+      ) || null;
     const themes = repositoryDetail && "themes" in repositoryDetail ? repositoryDetail.themes : [];
     const tasks = repositoryDetail && "tasks" in repositoryDetail ? repositoryDetail.tasks : [];
     return getAgentSessionContextResponseSchema.parse({
@@ -285,10 +437,23 @@ export class AgentWorkspaceQueryService {
   getTaskAssignment(input: GetTaskAssignmentRequest): GetTaskAssignmentResponse {
     const request = getTaskAssignmentRequestSchema.parse(input);
     const includeArchived = Boolean(request.include_archived);
-    const task = this.readPort.listTasks(includeArchived).find((candidate) => candidate.id === request.task_id);
-    if (!task) return getTaskAssignmentResponseSchema.parse({ task: null, receipts: [], task_id: request.task_id, read_only: true, ai_audience: "coding_agent" });
+    const task = this.readPort
+      .listTasks(includeArchived)
+      .find((candidate) => candidate.id === request.task_id);
+    if (!task)
+      return getTaskAssignmentResponseSchema.parse({
+        task: null,
+        receipts: [],
+        task_id: request.task_id,
+        read_only: true,
+        ai_audience: "coding_agent",
+      });
     const themes = this.readPort.listThemes(true);
-    const filtered = this.projection.project([task], themes, this.readPort.workspaceAiVisibilityDefault());
+    const filtered = this.projection.project(
+      [task],
+      themes,
+      this.readPort.workspaceAiVisibilityDefault(),
+    );
     if (!filtered.records.length) {
       return getTaskAssignmentResponseSchema.parse({
         task: null,
@@ -299,7 +464,9 @@ export class AgentWorkspaceQueryService {
         ...summarizeAiExclusions(filtered.exclusions),
       });
     }
-    const theme = themes.find((candidate) => candidate.id === String(task.project_id || task.theme_id || ""));
+    const theme = themes.find(
+      (candidate) => candidate.id === String(task.project_id || task.theme_id || ""),
+    );
     const resolution = taskRepositoryResolution({
       task,
       theme,
@@ -308,7 +475,8 @@ export class AgentWorkspaceQueryService {
     const limit = request.limit ?? 50;
     return getTaskAssignmentResponseSchema.parse({
       task: filtered.records[0],
-      receipts: this.readPort.listWorkReceipts(includeArchived)
+      receipts: this.readPort
+        .listWorkReceipts(includeArchived)
         .filter((receipt) => receipt.task_id === request.task_id)
         .slice(0, limit),
       repository_contexts: resolution.contexts.map(publicRepositoryContext),

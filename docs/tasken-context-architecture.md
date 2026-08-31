@@ -77,12 +77,13 @@ Context Viewはcanonical dataを複製保存しない。すべてread-only、bou
 
 ### Debrief Context
 
-一日の判断を本人へ戻すための既存View。
+一日の記録から日報草稿を作るためのread-only View。
 
 - 当日のSession PacketとEvidence strength
+- 当日のActivity
 - 関連Themeのpurpose・current direction
-- 直近のHuman reflection
-- AIは`My decision`と`Next return`を代筆しない
+- 直近のReport Note
+- AIは人の回答、判断、完了を推測で埋めない
 
 ### Learning Context
 
@@ -101,7 +102,7 @@ Taskenは、正本を毎回丸ごとpromptへ詰め込まない。常時見せ�
 
 MCPのsurfaceは制御主体で分ける。
 
-- Prompt: 利用者がDebriefやLearning Columnを明示的に始める入口
+- Prompt: 利用者が「Tasken日報」（`daily-report`）やLearning Columnを明示的に始める入口
 - Resource: Taskenが管理するCharter / Stateの安定したread-only参照
 - Tool: AIが目的に応じてWork / Planning / Debrief / Learning Contextを取得する操作
 - Task: MCP仕様ではexperimentalのため、Taskenの中心モデルには依存しない
@@ -137,7 +138,7 @@ Session、Memory、Trace、Stateは統合しない。
 
 ## Non-negotiable compatibility conditions
 
-1. 既存Theme、Task、Status Update、Session Packet、Debrief、Snapshot、Import / Exportを読み続ける。
+1. 既存Theme、Task、Status Update、Session Packet、旧Debrief資料、Report Note、Snapshot、Import / Exportを読み続ける。
 2. Themeの概要`description`と日付付きStatus UpdateをCharter / Stateへ黙って移行しない。
 3. 空のCharter / Stateを入力必須にせず、既存Themeをそのまま保存・表示できる。
 4. MCPの既存`get_task_context`、`get_theme_context`、`get_debrief_context`のread-only・visibility・bounded契約を弱めない。

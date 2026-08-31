@@ -16,7 +16,7 @@ Issue #498 の Phase 0 で確定した、repository・作業環境・AI session 
 | 保存・更新・関連付け等の細粒度な事実                               | `ChangeEvent` / Activity | 既存 event identity と origin                                                        | session summary や日報本文                         |
 | commit、branch、PR/MR、pipeline、file 等の証拠                     | external reference       | provider-neutral kind と安全な locator                                               | provider API の raw response、credential           |
 | その日のAI作業を確認するための事実集約                             | Evidence recap           | Session / Packet / Receipt / Activity / referenceから都度生成                        | 人間の判断・内省                                   |
-| AIへ委任した仕事を本人の判断へ回収する振り返り                     | Tasken Debrief           | Evidence recapを確認し、本人がDecisionとNext returnを書く                            | AIが代筆した日報                                   |
+| 一日の記録から日報草稿を作り、後から回答を追記する導線             | Tasken Debrief           | ActivityとSessionを確認し、AI Inboxで採用したReport NoteをNotesで編集する            | AIによる人の回答・完了の捏造                       |
 
 ## Naming decision
 
@@ -93,7 +93,7 @@ Task 未割当、複数 Task、複数 repository を許容する。関連は既�
 3. 既存 Workspace / Snapshot / Import / Export は旧データを読み続け、追加 migration は append-only・idempotent にする。
 4. absolute local path、credential、provider API raw response、raw transcript、hidden reasoningをMCP/public projectionへ出さない。
 5. client adapter は canonical `AgentSession` inputへ変換するだけにし、新client追加でdomain schemaを変更しない。
-6. Evidence recapはSession / Packet / Receipt / Activity / referenceから再生成するprojectionとし、利用者が書いたHuman reflectionとNext returnだけを正本として保存する。
+6. Evidence recapはSession / Packet / Receipt / Activity / referenceから再生成するprojectionとし、日報草稿とNotesで人が追記した回答を混ぜない。
 
 ## Vertical-slice boundary
 
@@ -121,12 +121,14 @@ current repositoryまたはそのWorkingCopyへ`Reference`されたSessionだけ
 ## Phase 5 Tasken Debrief
 
 Evidence recapは`AgentSession`、Session Packet、`Reference`、`WorkReceipt`、`ChangeEvent`、external referenceから毎回導出する。
-利用者が書いたDecision、適応質問への回答、Next returnは再生成できないため、既存Report Noteの構造化propertyとして保存する。
+日報はClaude CodeなどのMCP prompt「Tasken日報」（`daily-report`）から、当日Activityとrepository関連Sessionを使って草稿として提案する。
 
 - Todayの`AI work`は当日のSessionをTheme・Repository横断で並べ、前日以前でもblockedまたはremaining workを持つSessionを引き継ぎとして残す。
 - Theme詳細の`Recent AI work`は同じprojectionをThemeで絞り込む。
 - 各SessionはIntent → Outcome → 残りを一続きに表示し、関連Task、Work Receipt、Activity、commit・PR/MR等のexternal referenceへ展開できる。
-- `Tasken Debrief`はEvidenceを確認した後、My decision、必要時だけ最大1問の適応質問、Next returnを本人に書かせる。Dailyを長文化せず、複数日のpatternはWeeklyで扱う。
+- `Tasken Debrief`はActivityを最上部に表示し、その下でAI作業をカードとして確認する。カードはhoverまたはfocusでIntent、Outcome、残り、記録された確認をpreviewする。
+- AIは当日の根拠に沿う可変の問いと空の回答欄を含むReport草稿をproposalとして送る。人はAI Inboxで採用した後、NotesのMarkdownを編集して回答する。
+- `tasken.propose_note`はReport Proposalを作るだけで、採用前にNoteを保存せず、TaskやReferenceを作らない。採用後は`properties_json.daily_report.date`で対象日を識別する。
 - WorkingCopyとのrelationは公開可能なRepositoryContextへ投影し、local pathを表示しない。
 
 client固有のraw logはprojectionへ直接渡さず、Session Packetで不足または矛盾がある場合だけsafe source locatorから追加参照する。

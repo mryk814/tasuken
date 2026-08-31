@@ -1,4 +1,3 @@
-import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import type { BaseRecord } from "../types";
 import type { AgentSession, WorkspaceDomain } from "../domain-model/types";
 import { agentSessionHasContent, agentSessionHookSourceApps } from "./agentSessionProjection.ts";
@@ -52,7 +51,24 @@ export interface TaskenDebriefRecord {
 
 interface DebriefNote {
   id: string;
+  note_type?: string | null;
+  deleted_at?: string | null;
   properties_json?: Record<string, unknown>;
+}
+
+export function dailyReportDate(note: DebriefNote): string | null {
+  if (note.deleted_at || note.note_type !== "report") return null;
+  const report = record(note.properties_json?.daily_report);
+  return typeof report?.date === "string" ? report.date : null;
+}
+
+export function buildDailyReportRequest(date: string): string {
+  return [
+    `${date} の日報をTasken MCPでまとめてください。`,
+    `tasken.get_debrief_contextにdate: "${date}", include_recent_debriefs: falseを指定して、この日の通常ActivityとAI Sessionを確認してください。daily-reportコマンドの当日ではなく、ここで指定した日付を使ってください。Repositoryで絞らず、収集済みの一日の作業全体を扱い、raw logは再収集しないでください。`,
+    "取得したContextのwriting_guidanceに沿って、作業ごとの成果・記録された判断・未解決事項をまとめてください。回答や人間の判断を推測で埋めず、採用後に人間がNotesのMarkdownへ追記する問いとして残してください。",
+    `草稿はtasken.propose_noteのnote_type: "report", report_date: "${date}"で提案してください。Theme未指定は個人業務です。正式保存はAI Inboxでの確認・採用に委ねてください。`,
+  ].join("\n\n");
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -168,24 +184,6 @@ export function buildDailyDebriefEvidence(
   );
 }
 
-export function selectAdaptiveQuestion(evidence: DebriefSessionEvidence[]): string | null {
-  if (evidence.some((entry) => entry.status === "blocked" || entry.remainingWork.length > 0)) {
-    return "残っている最初の障害と、試せる代替策は何か？";
-  }
-  if (
-    evidence.some(
-      (entry) =>
-        entry.hasContent && entry.status === "completed" && entry.verification.length === 0,
-    )
-  ) {
-    return "何を確認できれば、自分の判断として完了と言える？";
-  }
-  if (evidence.some((entry) => entry.requests.length > 1)) {
-    return "途中で方針を変えたとき、判断を変えた観測事実は何だった？";
-  }
-  return null;
-}
-
 export function readTaskenDebrief(note: DebriefNote | undefined): TaskenDebriefRecord | null {
   const value = record(note?.properties_json?.tasken_debrief);
   if (!value || value.schema_version !== TASKEN_DEBRIEF_SCHEMA_VERSION) return null;
@@ -223,164 +221,5 @@ export function findDailyDebriefNote<T extends DebriefNote>(
   notes: T[],
   date: string,
 ): T | undefined {
-  return notes.find((note) => {
-    const debrief = readTaskenDebrief(note);
-    return (
-      debrief?.kind === "daily" && debrief.period_start === date && debrief.period_end === date
-    );
-  });
-}
-
-export function weeklyDebriefPeriod(date: string): { start: string; end: string } {
-  const end = new Date(`${date}T12:00:00`);
-  const start = new Date(end);
-  start.setDate(start.getDate() - 6);
-  return { start: localDate(start.toISOString()), end: date };
-}
-
-export function dailyDebriefsForPeriod<T extends DebriefNote>(
-  notes: T[],
-  start: string,
-  end: string,
-): Array<{ note: T; debrief: TaskenDebriefRecord }> {
-  return notes
-    .flatMap((note) => {
-      const debrief = readTaskenDebrief(note);
-      return debrief?.kind === "daily" && debrief.period_start >= start && debrief.period_end <= end
-        ? [{ note, debrief }]
-        : [];
-    })
-    .sort((left, right) => left.debrief.period_start.localeCompare(right.debrief.period_start));
-}
-
-export function findWeeklyDebriefNote<T extends DebriefNote>(
-  notes: T[],
-  start: string,
-  end: string,
-): T | undefined {
-  return notes.find((note) => {
-    const debrief = readTaskenDebrief(note);
-    return (
-      debrief?.kind === "weekly" && debrief.period_start === start && debrief.period_end === end
-    );
-  });
-}
-
-export function buildWeeklyDebriefMarkdown(
-  daily: Array<{ debrief: TaskenDebriefRecord }>,
-  debrief: TaskenDebriefRecord,
-): string {
-  const reflection = debrief.weekly_reflection;
-  return [
-    `# Tasken Debrief Weekly — ${debrief.period_start}–${debrief.period_end}`,
-    "",
-    "## Daily decisions",
-    "",
-    ...(daily.length
-      ? daily.flatMap(({ debrief: entry }) => [`### ${entry.period_start}`, entry.decision, ""])
-      : ["この期間のDaily Debriefはありません。", ""]),
-    "## Repeated pattern",
-    "",
-    reflection?.repeated_pattern || "",
-    "",
-    "## Stalled return",
-    "",
-    reflection?.stalled_return || "",
-    "",
-    "## Delegation boundary",
-    "",
-    reflection?.delegation_boundary || "",
-    "",
-  ].join("\n");
-}
-
-export function buildTaskenDebriefMarkdown(
-  date: string,
-  evidence: DebriefSessionEvidence[],
-  debrief: TaskenDebriefRecord,
-): string {
-  const evidenceLines = evidence.length
-    ? evidence.flatMap((entry) => [
-        `### ${entry.outcome}`,
-        `- Intent: ${entry.intent}`,
-        `- Client: ${entry.clientKind}`,
-        `- Evidence: ${entry.strength}`,
-        ...(entry.verification.length ? [`- Verification: ${entry.verification.join(" / ")}`] : []),
-        ...(entry.remainingWork.length ? [`- Remaining: ${entry.remainingWork.join(" / ")}`] : []),
-        "",
-      ])
-    : ["対象となるAI sessionはありません。", ""];
-  return [
-    `# Tasken Debrief — ${date}`,
-    "",
-    "## Evidence",
-    "",
-    ...evidenceLines,
-    ...(debrief.evidence_corrections.length
-      ? [
-          "## Evidence corrections",
-          "",
-          ...debrief.evidence_corrections.map((entry) => `- ${entry}`),
-          "",
-        ]
-      : []),
-    "## My decision",
-    "",
-    debrief.decision,
-    "",
-    ...(debrief.adaptive_question
-      ? [
-          "## One question",
-          "",
-          `> ${debrief.adaptive_question}`,
-          "",
-          debrief.adaptive_answer || "",
-          "",
-        ]
-      : []),
-    "## Next return",
-    "",
-    debrief.next_return.resume_state === "not_planned"
-      ? "今は再開しない。"
-      : `- Trigger: ${debrief.next_return.trigger}\n- First action: ${debrief.next_return.first_action}`,
-    "",
-  ].join("\n");
-}
-
-export function buildAgentSessionAcceptanceCommand(proposal: BaseRecord): CommandEnvelope | null {
-  const payload = proposalPayload(proposal);
-  const entries = Array.isArray(payload?.agent_sessions) ? payload.agent_sessions : [];
-  const candidates: Array<{ type: "agent_session" | "reference"; entity: BaseRecord }> = [];
-  for (const entry of entries) {
-    const candidate = record(entry);
-    const session = record(candidate?.session);
-    const references = Array.isArray(candidate?.references)
-      ? candidate.references.map(record).filter(Boolean)
-      : [];
-    if (session && stringValue(session.id)) {
-      candidates.push({ type: "agent_session", entity: session as BaseRecord });
-    }
-    for (const reference of references) {
-      if (reference && stringValue(reference.id)) {
-        candidates.push({ type: "reference", entity: reference as BaseRecord });
-      }
-    }
-  }
-  if (!candidates.length) return null;
-  return {
-    commandId: `${proposal.id}:debrief-accept:v${Number(proposal.version || 0)}`,
-    name: "ApplyAiProposal",
-    payload: {
-      proposal: { ...proposal, status: "accepted" },
-      candidates,
-    },
-    actor: { kind: "user" },
-    source: "main_ui",
-    expectedVersions: [
-      { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
-    ],
-    issuedAt:
-      stringValue(proposal.received_at || proposal.created_at || proposal.updated_at) ||
-      new Date().toISOString(),
-  };
+  return notes.find((note) => dailyReportDate(note) === date);
 }

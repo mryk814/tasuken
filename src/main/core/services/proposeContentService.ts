@@ -40,7 +40,10 @@ function canonicalRequestMetadata(request: Record<string, unknown>) {
   return metadata;
 }
 
-function proposalDigest(payload: Record<string, unknown>, request: Record<string, unknown>): string {
+function proposalDigest(
+  payload: Record<string, unknown>,
+  request: Record<string, unknown>,
+): string {
   return digest({ payload, request: canonicalRequestMetadata(request) });
 }
 
@@ -50,16 +53,34 @@ function legacyRequestMatches(
   incomingRequest: Record<string, unknown>,
 ): boolean {
   const request = existing.request || {};
-  if (["caller", "actor", "source", "source_session"].some((field) => Object.prototype.hasOwnProperty.call(request, field))) return false;
-  if (request.tool !== incomingRequest.tool || request.idempotency_key !== incomingRequest.idempotency_key) return false;
-  if (Object.prototype.hasOwnProperty.call(request, "target")
-    && JSON.stringify(request.target) !== JSON.stringify(incomingRequest.target)) return false;
+  if (
+    ["caller", "actor", "source", "source_session"].some((field) =>
+      Object.prototype.hasOwnProperty.call(request, field),
+    )
+  )
+    return false;
+  if (
+    request.tool !== incomingRequest.tool ||
+    request.idempotency_key !== incomingRequest.idempotency_key
+  )
+    return false;
+  if (
+    Object.prototype.hasOwnProperty.call(request, "target") &&
+    JSON.stringify(request.target) !== JSON.stringify(incomingRequest.target)
+  )
+    return false;
   if (incomingRequest.repository_context != null) return false;
   return request.payload_digest === digest(payload);
 }
 
-function proposalId(sourceApp: string, payloadType: ContentProposalPayloadType, idempotencyKey: string): string {
-  const hash = createHash("sha256").update(`${sourceApp}\0${payloadType}\0${idempotencyKey}`).digest("hex");
+function proposalId(
+  sourceApp: string,
+  payloadType: ContentProposalPayloadType,
+  idempotencyKey: string,
+): string {
+  const hash = createHash("sha256")
+    .update(`${sourceApp}\0${payloadType}\0${idempotencyKey}`)
+    .digest("hex");
   const uuidHex = `${hash.slice(0, 12)}5${hash.slice(13, 16)}8${hash.slice(17, 32)}`;
   return `${uuidHex.slice(0, 8)}-${uuidHex.slice(8, 12)}-${uuidHex.slice(12, 16)}-${uuidHex.slice(16, 20)}-${uuidHex.slice(20, 32)}`;
 }
@@ -72,59 +93,79 @@ function payloadFor(request: ProposeContentRequest): {
   if (request.kind === "note_create") {
     return {
       payloadType: "notes",
-      payload: { notes: [{
-        action: "create",
-        title: request.title,
-        body: request.body,
-        theme: request.theme || "",
-        note_type: request.note_type || "memo",
-        reason: request.reason || "",
-      }] },
+      payload: {
+        notes: [
+          {
+            action: "create",
+            title: request.title,
+            body: request.body,
+            theme: request.theme || "",
+            note_type: request.note_type || "memo",
+            ...(request.report_date ? { report_date: request.report_date } : {}),
+            reason: request.reason || "",
+          },
+        ],
+      },
     };
   }
   if (request.kind === "note_edit") {
     return {
       payloadType: "notes",
-      payload: { notes: [{
-        action: "merge",
-        target_id: request.note_id,
-        base_version: request.base_version,
-        title: request.title,
-        body: request.body,
-        reason: request.reason,
-      }] },
+      payload: {
+        notes: [
+          {
+            action: "merge",
+            target_id: request.note_id,
+            base_version: request.base_version,
+            title: request.title,
+            body: request.body,
+            reason: request.reason,
+          },
+        ],
+      },
       target: { type: "note", id: request.note_id, base_version: request.base_version },
     };
   }
   if (request.kind === "knowledge_create") {
     return {
       payloadType: "knowledge_nodes",
-      payload: { knowledge_nodes: [{
-        action: "create",
-        title: request.title,
-        body: request.body || "",
-        node_type: request.node_type || "insight",
-        theme: request.theme || "",
-        confidence: request.confidence || "medium",
-        reason: request.reason || "",
-      }] },
+      payload: {
+        knowledge_nodes: [
+          {
+            action: "create",
+            title: request.title,
+            body: request.body || "",
+            node_type: request.node_type || "insight",
+            theme: request.theme || "",
+            confidence: request.confidence || "medium",
+            reason: request.reason || "",
+          },
+        ],
+      },
     };
   }
   if (request.kind === "sketch_create") {
     try {
       validateSafeSvg(request.svg);
     } catch (error) {
-      throw new ProposeContentError("VALIDATION_FAILED", error instanceof Error ? error.message : "SVGが不正です。");
+      throw new ProposeContentError(
+        "VALIDATION_FAILED",
+        error instanceof Error ? error.message : "SVGが不正です。",
+      );
     }
     return {
       payloadType: "sketches",
-      payload: { sketches: [{
-        action: "create",
-        title: request.title,
-        svg: request.svg,
-        theme: request.theme || "",
-        reason: request.reason || "",
-      }] },
+      payload: {
+        sketches: [
+          {
+            action: "create",
+            title: request.title,
+            svg: request.svg,
+            theme: request.theme || "",
+            reason: request.reason || "",
+          },
+        ],
+      },
     };
   }
   const artifact = {
@@ -139,7 +180,10 @@ function payloadFor(request: ProposeContentRequest): {
   try {
     validateArtifactProposal(artifact);
   } catch (error) {
-    throw new ProposeContentError("VALIDATION_FAILED", error instanceof Error ? error.message : "Artifactが不正です。");
+    throw new ProposeContentError(
+      "VALIDATION_FAILED",
+      error instanceof Error ? error.message : "Artifactが不正です。",
+    );
   }
   return { payloadType: "artifacts", payload: { artifacts: [artifact] } };
 }
@@ -165,7 +209,10 @@ export class ProposeContentService {
       repository_context: request.repository_context || null,
       ...(target ? { target } : {}),
     };
-    if (Buffer.byteLength(JSON.stringify({ payload, request: proposalRequestBase }), "utf8") > MAX_CANONICAL_PROPOSAL_BYTES) {
+    if (
+      Buffer.byteLength(JSON.stringify({ payload, request: proposalRequestBase }), "utf8") >
+      MAX_CANONICAL_PROPOSAL_BYTES
+    ) {
       throw new ProposeContentError("PROPOSAL_TOO_LARGE", "Proposalは64KiB以下にしてください。");
     }
     const payloadDigest = proposalDigest(payload, proposalRequestBase);
@@ -176,7 +223,11 @@ export class ProposeContentService {
       if (existing) {
         const existingDigest = proposalDigest(existing.payload, existing.request || {});
         const matchesLegacy = legacyRequestMatches(existing, payload, proposalRequestBase);
-        if (existing.source !== "mcp" || existing.payload_type !== payloadType || (!matchesLegacy && existingDigest !== payloadDigest)) {
+        if (
+          existing.source !== "mcp" ||
+          existing.payload_type !== payloadType ||
+          (!matchesLegacy && existingDigest !== payloadDigest)
+        ) {
           throw new ProposeContentError(
             "IDEMPOTENCY_CONFLICT",
             "同じidempotency_keyへ異なる内容を送信できません。",
@@ -203,9 +254,10 @@ export class ProposeContentService {
       proposal_id: id,
       status,
       payload_type: payloadType,
-      message: status === "queued"
-        ? "TaskenのAI連携にProposalとして送りました。TaskenでPreviewして採用してください。"
-        : "同じidempotency_keyのProposalはすでに受信済みです。",
+      message:
+        status === "queued"
+          ? "TaskenのAI連携にProposalとして送りました。TaskenでPreviewして採用してください。"
+          : "同じidempotency_keyのProposalはすでに受信済みです。",
     });
   }
 }

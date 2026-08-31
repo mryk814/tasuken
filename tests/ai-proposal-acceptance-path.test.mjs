@@ -13,6 +13,7 @@ import {
   markdownSignature,
 } from "../src/shared/canonicalMarkdown.mjs";
 import { stableProposalEntityId } from "../src/shared/proposalAcceptance.mjs";
+import { PERSONAL_DEFAULT_THEME_ID } from "../src/shared/themeRef.mjs";
 
 async function importBundled(relativePath) {
   const result = await build({
@@ -666,6 +667,7 @@ test("Note create and edit acceptance keep canonical Markdown, DB, Proposal, rec
   const managed = path.join(directory, "managed");
   fs.mkdirSync(managed);
   const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  database.loadWorkspace();
   database.setPreference("artifactDirectory", managed);
   const workspace = new WorkspaceService(database, directory, () => "2026-08-21T01:00:00.000Z");
   const acceptance = new AiProposalAcceptanceService(
@@ -769,6 +771,7 @@ test("Note create and edit acceptance keep canonical Markdown, DB, Proposal, rec
             title: "Canonical create",
             body: "created body",
             note_type: "report",
+            report_date: "2026-08-31",
             reason: "test",
           },
         ],
@@ -786,6 +789,8 @@ test("Note create and edit acceptance keep canonical Markdown, DB, Proposal, rec
     });
     assert.equal(created.body_markdown, "created body");
     assert.equal(created.note_type, "report");
+    assert.deepEqual(created.properties_json.daily_report, { date: "2026-08-31" });
+    assert.equal(created.project_id, PERSONAL_DEFAULT_THEME_ID);
     assert.equal(details.getNote({ note_id: created.id }).note.note_type, "report");
     assert.equal(database.get("ai_proposal", createProposal.id).status, "accepted");
     assert.equal(createReceipt.changes.length, 2);
@@ -906,6 +911,7 @@ test("canonical Note create recovers file-first DB failure and restart retry wri
   fs.mkdirSync(managed);
   const databasePath = path.join(directory, "workspace.sqlite3");
   const database = new WorkspaceDatabase(databasePath);
+  database.loadWorkspace();
   database.setPreference("artifactDirectory", managed);
   let closed = false;
   let recovered = null;
@@ -1430,6 +1436,7 @@ test("Note edit verifies target/base version and applies only signed accepted hu
   const managed = path.join(directory, "managed");
   fs.mkdirSync(managed);
   const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  database.loadWorkspace();
   database.setPreference("artifactDirectory", managed);
   const workspace = new WorkspaceService(database, directory, () => "2026-08-21T04:00:00.000Z");
   try {

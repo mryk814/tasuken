@@ -163,6 +163,7 @@ export function WorkspaceApp() {
   const setActiveThemeId = useUiStore((state) => state.setActiveThemeId);
   const [drawer, setDrawer] = useState<DrawerConfig | null>(null);
   const [contentViewer, setContentViewer] = useState<ContentViewerTarget | null>(null);
+  const [notesEditorSelectionId, setNotesEditorSelectionId] = useState<string | null>(null);
   const toast = useUiStore((state) => state.toast);
   const toastToneValue = useUiStore((state) => state.toastTone);
   const setToast = useUiStore((state) => state.setToast);
@@ -891,9 +892,21 @@ export function WorkspaceApp() {
       if (!(await saveDirtyDrawerForm())) return;
       drawerGeneration.current += 1;
       setDrawer(null);
+      setNotesEditorSelectionId(null);
       const normalized = normalizeRoute(next);
       location.hash = normalized;
       setRoute(normalized);
+    })();
+  }
+
+  function openNoteForEditing(noteId: string) {
+    void (async () => {
+      if (!(await saveDirtyDrawerForm())) return;
+      drawerGeneration.current += 1;
+      setDrawer(null);
+      setNotesEditorSelectionId(noteId);
+      location.hash = "notes";
+      setRoute("notes");
     })();
   }
 
@@ -2357,6 +2370,8 @@ export function WorkspaceApp() {
     setActiveThemeId,
     route,
     navigate,
+    notesEditorSelectionId,
+    openNoteForEditing,
     detachedNoteId,
     openDrawer,
     openSketchEditor,

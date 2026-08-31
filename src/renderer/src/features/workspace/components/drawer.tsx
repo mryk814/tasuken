@@ -1449,6 +1449,28 @@ function EditDrawer({
       ? ((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entityId) ||
         (entity as unknown as Task)
       : null;
+  const prepareAiDelegation =
+    taskForWorkSection && saveEntities
+      ? async () => {
+          try {
+            await saveEntities(
+              buildSaveTaskOperations(
+                {
+                  ...taskForWorkSection,
+                  intended_executor: "ai_agent",
+                  work_state: "ready_for_agent",
+                },
+                { reason: "prepared_for_ai_agent" },
+              ),
+              "AIへの依頼を準備しました。Coding Agent側でTasken MCPからこのTaskを取得できます。",
+            );
+            return true;
+          } catch {
+            // saveEntities already reports the save error; keep the form and executor unchanged.
+            return false;
+          }
+        }
+      : undefined;
   const taskChecklistEditorKey =
     type === "task" ? `${entityId}:${str(entity._focusChecklistItem)}` : "";
   const workspaceAiVisibilityDefault = workspaceAiVisibility(data);
@@ -1584,6 +1606,8 @@ function EditDrawer({
             onChecklistSavePending={registerChecklistSave}
             onChecklistSaved={markChecklistSaved}
             onChecklistDraftChange={markChecklistDraftChange}
+            onPrepareAiDelegation={prepareAiDelegation}
+            hasUnsavedChanges={isFormDirty}
           />
         )}
         {type === "waiting" && <WaitingFields entity={entity} data={data} />}

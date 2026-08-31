@@ -49,27 +49,46 @@ function activityFixture() {
     state: "doing",
     project_id: visibleTheme.id,
   };
-  const events = Array.from({ length: 101 }, (_, index) => buildActivityEvent({
-    id: `event-${String(index).padStart(3, "0")}`,
-    entity_type: "task",
-    entity_id: task.id,
-    event_kind: "task_work_recorded",
-    occurred_at: occurredAt(index),
-    after: task,
-    summary: index === 100 ? `Latest ${"X".repeat(30_000)}` : `Work ${index}`,
-    metadata: { dedupe_key: `work-${index}` },
-    canonical_refs: index === 100 ? [
-      { kind: "canonical_markdown", storage_root_id: "activity_artifacts", relative_path: "safe/report.md" },
-      { kind: "canonical_markdown", locator: "C:\\Users\\private\\report.md" },
-    ] : [],
-    source_refs: index === 100 ? [
-      { type: "source_record", id: "source-safe" },
-      { kind: "url", locator: "https://example.com/source" },
-      { kind: "canonical_document", locator: "/home/private/source.md" },
-    ] : [],
-    relation_refs: index === 100 ? [{ type: "artifact", id: "artifact-safe", relation: "generated" }] : [],
-    work_receipt_ref: index === 100 ? { type: "work_receipt", id: "receipt-safe" } : null,
-  }));
+  const hiddenTask = {
+    id: "task-hidden",
+    title: "Hidden",
+    state: "todo",
+    project_id: hiddenTheme.id,
+  };
+  const events = Array.from({ length: 101 }, (_, index) =>
+    buildActivityEvent({
+      id: `event-${String(index).padStart(3, "0")}`,
+      entity_type: "task",
+      entity_id: task.id,
+      event_kind: "task_work_recorded",
+      occurred_at: occurredAt(index),
+      after: task,
+      summary: index === 100 ? `Latest ${"X".repeat(30_000)}` : `Work ${index}`,
+      metadata: { dedupe_key: `work-${index}` },
+      canonical_refs:
+        index === 100
+          ? [
+              {
+                kind: "canonical_markdown",
+                storage_root_id: "activity_artifacts",
+                relative_path: "safe/report.md",
+              },
+              { kind: "canonical_markdown", locator: "C:\\Users\\private\\report.md" },
+            ]
+          : [],
+      source_refs:
+        index === 100
+          ? [
+              { type: "source_record", id: "source-safe" },
+              { kind: "url", locator: "https://example.com/source" },
+              { kind: "canonical_document", locator: "/home/private/source.md" },
+            ]
+          : [],
+      relation_refs:
+        index === 100 ? [{ type: "artifact", id: "artifact-safe", relation: "generated" }] : [],
+      work_receipt_ref: index === 100 ? { type: "work_receipt", id: "receipt-safe" } : null,
+    }),
+  );
   events.push({
     id: "legacy-event",
     entity_type: "task",
@@ -80,42 +99,65 @@ function activityFixture() {
     summary: "Legacy completion",
   });
   // Same dedupe key: only the later event may survive projection.
-  events.push(buildActivityEvent({
-    id: "dedupe-older",
-    entity_type: "task",
-    entity_id: task.id,
-    event_kind: "task_work_recorded",
-    occurred_at: "2026-08-18T00:00:00.000Z",
-    after: task,
-    summary: "Older duplicate",
-    metadata: { dedupe_key: "same-work" },
-  }));
-  events.push(buildActivityEvent({
-    id: "dedupe-newer",
-    entity_type: "task",
-    entity_id: task.id,
-    event_kind: "task_work_recorded",
-    occurred_at: "2026-08-18T01:00:00.000Z",
-    after: task,
-    summary: "Newer duplicate",
-    metadata: { dedupe_key: "same-work" },
-  }));
+  events.push(
+    buildActivityEvent({
+      id: "dedupe-older",
+      entity_type: "task",
+      entity_id: task.id,
+      event_kind: "task_work_recorded",
+      occurred_at: "2026-08-18T00:00:00.000Z",
+      after: task,
+      summary: "Older duplicate",
+      metadata: { dedupe_key: "same-work" },
+    }),
+  );
+  events.push(
+    buildActivityEvent({
+      id: "dedupe-newer",
+      entity_type: "task",
+      entity_id: task.id,
+      event_kind: "task_work_recorded",
+      occurred_at: "2026-08-18T01:00:00.000Z",
+      after: task,
+      summary: "Newer duplicate",
+      metadata: { dedupe_key: "same-work" },
+    }),
+  );
+  events.push(
+    buildActivityEvent({
+      id: "hidden-day-event",
+      entity_type: "task",
+      entity_id: hiddenTask.id,
+      event_kind: "task_work_recorded",
+      occurred_at: "2026-08-20T12:00:00.000Z",
+      after: hiddenTask,
+      summary: "Hidden day activity",
+    }),
+  );
   return {
     themes: [visibleTheme, hiddenTheme],
     tasks: [
       task,
-      { id: "task-hidden", title: "Hidden", state: "todo", project_id: hiddenTheme.id },
-      { id: "task-deleted", title: "Deleted", state: "done", project_id: visibleTheme.id, deleted_at: "2026-08-20T00:00:00.000Z" },
+      hiddenTask,
+      {
+        id: "task-deleted",
+        title: "Deleted",
+        state: "done",
+        project_id: visibleTheme.id,
+        deleted_at: "2026-08-20T00:00:00.000Z",
+      },
     ],
     change_events: events,
-    references: [{
-      id: "reference-safe",
-      source_type: "task",
-      source_id: task.id,
-      target_type: "note",
-      target_id: "note-safe",
-      relation_type: "context",
-    }],
+    references: [
+      {
+        id: "reference-safe",
+        source_type: "task",
+        source_id: task.id,
+        target_type: "note",
+        target_id: "note-safe",
+        relation_type: "context",
+      },
+    ],
     canonical_root_status: { activity_artifacts: { status: "ok" } },
   };
 }
@@ -147,13 +189,33 @@ test("Task Activity Core query preserves legacy projection, visibility, refs, an
   assert.equal(page.events.length, 100);
   assert.equal(page.events[0].id, "event-100");
   assert.equal(page.events[0].summary.length > 30_000, true);
-  assert.equal(page.events.some((event) => event.id === "legacy-event"), false);
-  assert.equal(page.events.some((event) => event.id === "dedupe-older"), false);
-  assert.equal(page.events.some((event) => event.id === "dedupe-newer"), false);
+  assert.equal(
+    page.events.some((event) => event.id === "legacy-event"),
+    false,
+  );
+  assert.equal(
+    page.events.some((event) => event.id === "dedupe-older"),
+    false,
+  );
+  assert.equal(
+    page.events.some((event) => event.id === "dedupe-newer"),
+    false,
+  );
   assert.deepEqual(page.events[0].work_receipt_ref, { type: "work_receipt", id: "receipt-safe" });
-  assert.equal(page.events[0].relation_refs.some((ref) => ref.type === "artifact" && ref.id === "artifact-safe"), true);
-  assert.equal(page.events[0].relation_refs.some((ref) => ref.type === "note" && ref.id === "note-safe"), true);
-  assert.equal(page.events[0].source_refs.some((ref) => ref.web_url === "https://example.com/source"), true);
+  assert.equal(
+    page.events[0].relation_refs.some(
+      (ref) => ref.type === "artifact" && ref.id === "artifact-safe",
+    ),
+    true,
+  );
+  assert.equal(
+    page.events[0].relation_refs.some((ref) => ref.type === "note" && ref.id === "note-safe"),
+    true,
+  );
+  assert.equal(
+    page.events[0].source_refs.some((ref) => ref.web_url === "https://example.com/source"),
+    true,
+  );
   assert.equal(JSON.stringify(page).includes("Users\\private"), false);
   assert.equal(JSON.stringify(page).includes("/home/private"), false);
   assert.deepEqual(page.result_meta, {
@@ -172,7 +234,33 @@ test("Task Activity Core query preserves legacy projection, visibility, refs, an
   assert.equal(hidden.error.code, missing.error.code);
   assert.equal(hidden.error.message, missing.error.message);
   assert.equal(service.execute({ task_id: "task-deleted" }).error.code, "not_found");
-  assert.equal(service.execute({ task_id: "task-deleted", include_archived: true }).events.length, 0);
+  assert.equal(
+    service.execute({ task_id: "task-deleted", include_archived: true }).events.length,
+    0,
+  );
+});
+
+test("Daily Activity Core query uses the canonical local day and retains AI visibility bounds", () => {
+  const service = new ActivityEntriesQueryService(new FixturePort(activityFixture()));
+
+  const page = service.execute({ date: "2026-08-20", limit: 100 });
+  assert.equal(page.date, "2026-08-20");
+  assert.equal(page.events.length, 100);
+  assert.equal(
+    page.events.every((event) => event.local_date === "2026-08-20"),
+    true,
+  );
+  assert.equal(
+    page.events.some((event) => event.id === "hidden-day-event"),
+    false,
+  );
+  assert.equal(JSON.stringify(page).includes("Users\\private"), false);
+  assert.deepEqual(page.next_tools, []);
+  assert.throws(() => service.execute({}), /task_id|date/);
+  assert.throws(
+    () => service.execute({ task_id: "task-visible", date: "2026-08-20" }),
+    /task_id|date/,
+  );
 });
 
 test("Activity adapter reads an empty WorkspaceDatabase without creating the default Theme", () => {
@@ -193,36 +281,59 @@ test("Activity adapter reads an empty WorkspaceDatabase without creating the def
 function legacyActivityContext(count) {
   const theme = { id: "theme", name: "Theme", default_ai_visibility: ["coding_agent"] };
   const task = { id: "task", title: "Task", state: "doing", project_id: theme.id };
-  const hiddenTask = { id: "task-hidden", title: "Hidden", state: "doing", project_id: theme.id, ai_visibility: [] };
-  const deletedTask = { id: "task-deleted", title: "Deleted", state: "done", project_id: theme.id, deleted_at: "2026-08-21T00:00:00.000Z" };
-  const events = Array.from({ length: count }, (_, index) => buildActivityEvent({
-    id: index === count - 1 ? "tie-z" : index === count - 2 ? "tie-a" : `event-${String(index).padStart(3, "0")}`,
-    entity_type: "task",
-    entity_id: task.id,
-    event_kind: "task_work_recorded",
-    occurred_at: index >= count - 2 ? "2026-08-21T12:00:00.000Z" : occurredAt(index),
-    after: task,
-    summary: `Activity ${index}`,
-    metadata: { dedupe_key: `legacy-work-${index}` },
-  }));
-  events.unshift(buildActivityEvent({
-    id: "hidden-newest",
-    entity_type: "task",
-    entity_id: hiddenTask.id,
-    event_kind: "task_work_recorded",
-    occurred_at: "2026-08-22T00:00:00.000Z",
-    after: hiddenTask,
-    metadata: { dedupe_key: "hidden-newest" },
-  }));
-  events.push(buildActivityEvent({
-    id: "deleted-event",
-    entity_type: "task",
-    entity_id: deletedTask.id,
-    event_kind: "task_completed",
-    occurred_at: "2026-08-21T00:00:00.000Z",
-    after: deletedTask,
-    metadata: { dedupe_key: "deleted-event" },
-  }));
+  const hiddenTask = {
+    id: "task-hidden",
+    title: "Hidden",
+    state: "doing",
+    project_id: theme.id,
+    ai_visibility: [],
+  };
+  const deletedTask = {
+    id: "task-deleted",
+    title: "Deleted",
+    state: "done",
+    project_id: theme.id,
+    deleted_at: "2026-08-21T00:00:00.000Z",
+  };
+  const events = Array.from({ length: count }, (_, index) =>
+    buildActivityEvent({
+      id:
+        index === count - 1
+          ? "tie-z"
+          : index === count - 2
+            ? "tie-a"
+            : `event-${String(index).padStart(3, "0")}`,
+      entity_type: "task",
+      entity_id: task.id,
+      event_kind: "task_work_recorded",
+      occurred_at: index >= count - 2 ? "2026-08-21T12:00:00.000Z" : occurredAt(index),
+      after: task,
+      summary: `Activity ${index}`,
+      metadata: { dedupe_key: `legacy-work-${index}` },
+    }),
+  );
+  events.unshift(
+    buildActivityEvent({
+      id: "hidden-newest",
+      entity_type: "task",
+      entity_id: hiddenTask.id,
+      event_kind: "task_work_recorded",
+      occurred_at: "2026-08-22T00:00:00.000Z",
+      after: hiddenTask,
+      metadata: { dedupe_key: "hidden-newest" },
+    }),
+  );
+  events.push(
+    buildActivityEvent({
+      id: "deleted-event",
+      entity_type: "task",
+      entity_id: deletedTask.id,
+      event_kind: "task_completed",
+      occurred_at: "2026-08-21T00:00:00.000Z",
+      after: deletedTask,
+      metadata: { dedupe_key: "deleted-event" },
+    }),
+  );
   return new ReadOnlyTaskenContext("ignored", {
     workspace: { themes: [theme], tasks: [task, hiddenTask, deletedTask], change_events: events },
   });
@@ -240,7 +351,11 @@ test("#423 legacy Task Activity applies visibility and descending order before i
         matched_visible_count: count,
         truncated: count > 100,
       });
-      if (count >= 2) assert.deepEqual(result.events.slice(0, 2).map((event) => event.id), ["tie-z", "tie-a"]);
+      if (count >= 2)
+        assert.deepEqual(
+          result.events.slice(0, 2).map((event) => event.id),
+          ["tie-z", "tie-a"],
+        );
       assert.equal(JSON.stringify(result).includes("hidden-newest"), false);
     } finally {
       context.close();
@@ -253,9 +368,18 @@ test("#423 legacy Task Activity applies visibility and descending order before i
     assert.equal(defaults.limit, 50);
     assert.equal(defaults.result_meta.returned_count, 50);
     assert.equal(defaults.result_meta.truncated, false);
-    assert.equal(context.toolGetActivityEntries({ task_id: "task-hidden" }).error.code, "not_found");
-    assert.equal(context.toolGetActivityEntries({ task_id: "task-deleted" }).error.code, "not_found");
-    const archived = context.toolGetActivityEntries({ task_id: "task-deleted", include_archived: true });
+    assert.equal(
+      context.toolGetActivityEntries({ task_id: "task-hidden" }).error.code,
+      "not_found",
+    );
+    assert.equal(
+      context.toolGetActivityEntries({ task_id: "task-deleted" }).error.code,
+      "not_found",
+    );
+    const archived = context.toolGetActivityEntries({
+      task_id: "task-deleted",
+      include_archived: true,
+    });
     assert.equal(archived.events.length, 1);
     assert.equal(archived.events[0].metadata.entity_status, "deleted");
   } finally {

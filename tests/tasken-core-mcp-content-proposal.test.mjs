@@ -115,7 +115,7 @@ test("five content tools persist exact canonical proposals over actual stdio/Cor
     assert.match(client.getInstructions() || "", /Theme, not a Task or Reference relation/);
     assert.ok(noteTool);
     assert.ok(noteEditTool);
-    assert.match(noteTool.description || "", /Note display type is `memo`; Report is `report`/);
+    assert.match(noteTool.description || "", /Note display type is `note`; Report is `report`/);
     assert.match(noteTool.description || "", /does not create a Task or Reference relation/);
     assert.match(noteTool.inputSchema.properties.body.description || "", /Markdown body/);
     assert.match(noteEditTool.inputSchema.properties.body.description || "", /Markdown body/);
@@ -127,7 +127,7 @@ test("five content tools persist exact canonical proposals over actual stdio/Cor
           title: "New note",
           body: "Body",
           theme: "Theme",
-          note_type: "report",
+          note_type: "note",
           reason: "Evidence",
         },
       ],
@@ -193,11 +193,23 @@ test("five content tools persist exact canonical proposals over actual stdio/Cor
           title: "New note",
           body: "Body",
           theme: "Theme",
-          note_type: "report",
+          note_type: "memo",
           reason: "Evidence",
         },
       ],
     });
+    for (const noteType of ["report", "prompt"]) {
+      const proposal = await callProposal(client, "tasken.propose_note", {
+        ...baseArgs(`note-${noteType}`),
+        title: `New ${noteType}`,
+        body: "Body",
+        note_type: noteType,
+        ...(noteType === "report" ? { report_date: "2026-08-31" } : {}),
+      });
+      const entry = database.get("ai_proposal", proposal.proposal_id).payload.notes[0];
+      assert.equal(entry.note_type, noteType);
+      assert.equal(entry.report_date, noteType === "report" ? "2026-08-31" : undefined);
+    }
     assert.deepEqual(proposals[1].payload, {
       notes: [
         {
@@ -284,10 +296,22 @@ test("five content tools persist exact canonical proposals over actual stdio/Cor
 
     const invalidNoteType = await client.callTool({
       name: "tasken.propose_note",
-      arguments: { ...calls[0][1], idempotency_key: "note-invalid-type", note_type: "protocol" },
+      arguments: { ...calls[0][1], idempotency_key: "note-invalid-type", note_type: "memo" },
     });
     assert.equal(invalidNoteType.isError, true);
-    assert.match(JSON.stringify(invalidNoteType), /memo.*report.*prompt/);
+    assert.match(JSON.stringify(invalidNoteType), /note.*report.*prompt/);
+    const invalidReportDate = await client.callTool({
+      name: "tasken.propose_note",
+      arguments: {
+        ...baseArgs("note-invalid-report-date"),
+        title: "Prompt cannot carry a report date",
+        body: "Body",
+        note_type: "prompt",
+        report_date: "2026-08-31",
+      },
+    });
+    assert.equal(invalidReportDate.isError, true);
+    assert.match(JSON.stringify(invalidReportDate), /report_date.*report/);
 
     const legacySeed = await callProposal(client, "tasken.propose_note", {
       ...baseArgs("legacy-row-retry"),

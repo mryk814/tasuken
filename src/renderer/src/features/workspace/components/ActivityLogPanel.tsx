@@ -7,7 +7,6 @@ import {
 } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
-import { todayIso } from "../../../utils/dataFormat.js";
 import { THEME_NONE_VALUE } from "../../../../../shared/themeRef.mjs";
 import { buildActivityReviewLog, collectActivityLogEntries } from "../lib/activityLog";
 import { resolveActivityLogDirectory } from "../lib/activityLogDirectory";
@@ -318,8 +317,12 @@ export function ActivityLogPanel({
   themes,
   openDrawer,
   setToast,
-}: Pick<PageProps, "data" | "domain" | "themes" | "openDrawer" | "setToast">) {
-  const [date, setDate] = useState(todayIso());
+  date,
+  onDateChange,
+}: Pick<PageProps, "data" | "domain" | "themes" | "openDrawer" | "setToast"> & {
+  date: string;
+  onDateChange(date: string): void;
+}) {
   const [directory, setDirectory] = useState("");
   const [autoExportTime, setAutoExportTime] = useState("");
   const [filePath, setFilePath] = useState("");
@@ -684,7 +687,9 @@ export function ActivityLogPanel({
               <input
                 type="date"
                 value={date}
-                onChange={(event) => setDate(event.target.value)}
+                onChange={(event) => {
+                  if (event.target.value) onDateChange(event.target.value);
+                }}
                 aria-label="Activity対象日"
               />
               {hasStructuredActivity && (

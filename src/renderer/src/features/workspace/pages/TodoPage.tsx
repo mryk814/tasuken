@@ -358,7 +358,7 @@ export function TodoPage({
   function openTaskDetail(task: Task, schedule?: Schedule) {
     openDrawer({
       type: "task",
-      mode: "view",
+      mode: "edit",
       entity: { ...task, _schedule: schedule } as Record<string, unknown>,
     });
   }

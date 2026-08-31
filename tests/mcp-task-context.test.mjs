@@ -62,9 +62,28 @@ function contextFixture() {
     updated_at: "2026-08-09T02:00:00.000Z",
   };
   const notes = [
-    { id: "note-1", title: "Decision", body_markdown: "Detailed decision body", project_id: theme.id, updated_at: "2026-08-09T03:00:00.000Z" },
-    { id: "note-2", title: "Older note", body_markdown: "Older body", project_id: theme.id, updated_at: "2026-08-09T01:00:00.000Z" },
-    { id: "note-hidden", title: "Private", body_markdown: "must never leak", project_id: theme.id, ai_visibility: [], updated_at: "2026-08-09T04:00:00.000Z" },
+    {
+      id: "note-1",
+      title: "Decision",
+      body_markdown: "Detailed decision body",
+      project_id: theme.id,
+      updated_at: "2026-08-09T03:00:00.000Z",
+    },
+    {
+      id: "note-2",
+      title: "Older note",
+      body_markdown: "Older body",
+      project_id: theme.id,
+      updated_at: "2026-08-09T01:00:00.000Z",
+    },
+    {
+      id: "note-hidden",
+      title: "Private",
+      body_markdown: "must never leak",
+      project_id: theme.id,
+      ai_visibility: [],
+      updated_at: "2026-08-09T04:00:00.000Z",
+    },
   ];
   const conversation = {
     id: "conversation-1",
@@ -99,11 +118,46 @@ function contextFixture() {
     updated_at: "2026-08-09T02:10:00.000Z",
   };
   const references = [
-    { id: "ref-note-1", source_type: "task", source_id: task.id, target_type: "note", target_id: "note-1", relation_type: "context" },
-    { id: "ref-note-2", source_type: "task", source_id: task.id, target_type: "note", target_id: "note-2", relation_type: "context" },
-    { id: "ref-note-hidden", source_type: "task", source_id: task.id, target_type: "note", target_id: "note-hidden", relation_type: "context" },
-    { id: "ref-conversation", source_type: "task", source_id: task.id, target_type: "resource", target_id: conversation.id, relation_type: "context" },
-    { id: "ref-resource", source_type: "task", source_id: task.id, target_type: "resource", target_id: resource.id, relation_type: "context" },
+    {
+      id: "ref-note-1",
+      source_type: "task",
+      source_id: task.id,
+      target_type: "note",
+      target_id: "note-1",
+      relation_type: "context",
+    },
+    {
+      id: "ref-note-2",
+      source_type: "task",
+      source_id: task.id,
+      target_type: "note",
+      target_id: "note-2",
+      relation_type: "context",
+    },
+    {
+      id: "ref-note-hidden",
+      source_type: "task",
+      source_id: task.id,
+      target_type: "note",
+      target_id: "note-hidden",
+      relation_type: "context",
+    },
+    {
+      id: "ref-conversation",
+      source_type: "task",
+      source_id: task.id,
+      target_type: "resource",
+      target_id: conversation.id,
+      relation_type: "context",
+    },
+    {
+      id: "ref-resource",
+      source_type: "task",
+      source_id: task.id,
+      target_type: "resource",
+      target_id: resource.id,
+      relation_type: "context",
+    },
   ];
   const receipt = {
     id: "receipt-1",
@@ -116,9 +170,25 @@ function contextFixture() {
     changed_or_created_items: ["readOnlyContext.mjs"],
     verification: ["focused tests"],
     remaining_work: ["human review"],
-    repository_context: { cwd: "C:/private/repo", repository_context_id: "repo-1", provider: "github", repository_slug: "mryk814/tasuken", branch: "codex/issue-279-task-context" },
-    runtime_metadata: { provider: "openai", model: "gpt-5", report_kind: "done", diagnostic_path: "C:/private/diagnostic.json" },
-    provenance: { reported_via: "mcp", caller: "codex", private_path: "C:/private/provenance.json", secret: "must never leak provenance" },
+    repository_context: {
+      cwd: "C:/private/repo",
+      repository_context_id: "repo-1",
+      provider: "github",
+      repository_slug: "mryk814/tasuken",
+      branch: "codex/issue-279-task-context",
+    },
+    runtime_metadata: {
+      provider: "openai",
+      model: "gpt-5",
+      report_kind: "done",
+      diagnostic_path: "C:/private/diagnostic.json",
+    },
+    provenance: {
+      reported_via: "mcp",
+      caller: "codex",
+      private_path: "C:/private/provenance.json",
+      secret: "must never leak provenance",
+    },
     updated_at: "2026-08-09T02:40:00.000Z",
   };
   return new ReadOnlyTaskenContext("in-memory.sqlite", {
@@ -130,17 +200,19 @@ function contextFixture() {
       artifacts: [artifact],
       references,
       work_receipts: [receipt],
-      repository_contexts: [{
-        id: "repo-1",
-        label: "Tasuken",
-        provider: "github",
-        canonical_url: "https://github.com/mryk814/tasuken",
-        canonical_identity: "github.com/mryk814/tasuken",
-        repository_slug: "mryk814/tasuken",
-        remote_aliases: ["git@github.com:mryk814/tasuken.git"],
-        local_path: "C:/private/tasuken",
-        active: true,
-      }],
+      repository_contexts: [
+        {
+          id: "repo-1",
+          label: "Tasuken",
+          provider: "github",
+          canonical_url: "https://github.com/mryk814/tasuken",
+          canonical_identity: "github.com/mryk814/tasuken",
+          repository_slug: "mryk814/tasuken",
+          remote_aliases: ["git@github.com:mryk814/tasuken.git"],
+          local_path: "C:/private/tasuken",
+          active: true,
+        },
+      ],
       change_events: [
         buildActivityEvent({
           id: "event-1",
@@ -201,11 +273,26 @@ test("get_task_context returns bounded related summaries, safe locators, reposit
       repository_slug: "mryk814/tasuken",
       branch: "codex/issue-279-task-context",
     });
-    assert.deepEqual(result.related.work_receipts[0].runtime_metadata, { provider: "openai", model: "gpt-5", report_kind: "done" });
+    assert.deepEqual(result.related.work_receipts[0].runtime_metadata, {
+      provider: "openai",
+      model: "gpt-5",
+      report_kind: "done",
+    });
     assert.equal(result.context_selection.schema, "tasken-context-selection/v1");
-    assert.ok(result.context_selection.included.some((entry) => entry.ref.type === "resource" && entry.ref.id === "conversation-1"));
-    assert.equal(result.context_selection.included.some((entry) => entry.ref.type === "conversation"), false);
-    assert.ok(result.context_selection.excluded.some((entry) => entry.ref.type === "note" && entry.ref.id === "note-hidden"));
+    assert.ok(
+      result.context_selection.included.some(
+        (entry) => entry.ref.type === "resource" && entry.ref.id === "conversation-1",
+      ),
+    );
+    assert.equal(
+      result.context_selection.included.some((entry) => entry.ref.type === "conversation"),
+      false,
+    );
+    assert.ok(
+      result.context_selection.excluded.some(
+        (entry) => entry.ref.type === "note" && entry.ref.id === "note-hidden",
+      ),
+    );
     const preview = previewTaskCoding(result);
     assert.deepEqual(
       preview.included.map((entry) => entry.ref),
@@ -231,7 +318,12 @@ test("Task context budgets AI metadata, rejects private source roots, and keeps 
       ai_summary: "S".repeat(12_000),
       ai_visibility: ["coding_agent"],
       ai_source_refs: [
-        { kind: "canonical_document", locator: "ignored", storage_root_id: "C:\\Users\\private", relative_path: "Notes/source.md" },
+        {
+          kind: "canonical_document",
+          locator: "ignored",
+          storage_root_id: "C:\\Users\\private",
+          relative_path: "Notes/source.md",
+        },
         { kind: "file", locator: "C:\\Users\\private\\secret.md" },
         { kind: "url", locator: "https://alice:secret@example.com/private" },
       ],
@@ -242,17 +334,26 @@ test("Task context budgets AI metadata, rejects private source roots, and keeps 
     assert.equal(bounded.truncation.text.used, 1_000);
     assert.equal(bounded.context_selection.estimated_characters, 1_000);
     assert.doesNotMatch(serialized, /C:\\\\Users|alice:secret|secret\.md/);
-    assert.doesNotMatch(JSON.stringify(previewTaskCoding(bounded)), /C:\\\\Users|alice:secret|secret\.md/);
+    assert.doesNotMatch(
+      JSON.stringify(previewTaskCoding(bounded)),
+      /C:\\\\Users|alice:secret|secret\.md/,
+    );
 
     const repositoryOnly = context.toolGetTaskContext({
       task_id: "task-1",
       include: ["repository"],
       max_text_length: 5_000,
     });
-    const graphRefs = repositoryOnly.context_graph.nodes.map((node) => `${node.type}:${node.id}`).sort();
+    const graphRefs = repositoryOnly.context_graph.nodes
+      .map((node) => `${node.type}:${node.id}`)
+      .sort();
     assert.deepEqual(graphRefs, ["task:task-1"]);
     assert.equal(JSON.stringify(repositoryOnly.context_graph).includes("Decision"), false);
-    assert.ok(repositoryOnly.context_selection.excluded.some((entry) => entry.ref.id === "note-1" && entry.reason === "include_not_requested"));
+    assert.ok(
+      repositoryOnly.context_selection.excluded.some(
+        (entry) => entry.ref.id === "note-1" && entry.reason === "include_not_requested",
+      ),
+    );
     assert.deepEqual(
       previewTaskCoding(repositoryOnly).included.map((entry) => entry.ref),
       repositoryOnly.context_selection.included.map((entry) => entry.ref),
@@ -265,11 +366,21 @@ test("Task context budgets AI metadata, rejects private source roots, and keeps 
 test("Theme Coding uses the common bounded relation query and Preview preserves its exact selection", () => {
   const context = contextFixture();
   try {
-    const result = context.toolGetThemeContext({ theme_id: "theme-1", max_chars: 5_000, max_hops: 2 });
+    const result = context.toolGetThemeContext({
+      theme_id: "theme-1",
+      max_chars: 5_000,
+      max_hops: 2,
+    });
     assert.equal(result.error, undefined);
     assert.equal(result.context_selection.seed.type, "theme");
-    assert.ok(result.context_selection.relations.some((edge) => edge.predicate === "uses_repository_context"));
-    assert.ok(result.open_items.some((entry) => entry.entity_type === "task" && entry.id === "task-1"));
+    assert.ok(
+      result.context_selection.relations.some(
+        (edge) => edge.predicate === "uses_repository_context",
+      ),
+    );
+    assert.ok(
+      result.open_items.some((entry) => entry.entity_type === "task" && entry.id === "task-1"),
+    );
     assert.ok(result.context_selection.excluded.some((entry) => entry.ref.id === "note-hidden"));
     const preview = previewThemeCoding(result);
     assert.deepEqual(
@@ -291,7 +402,12 @@ test("Theme repository contexts remain attributed by each Theme edge when the gr
   const context = new ReadOnlyTaskenContext("ignored", {
     workspace: {
       themes: [
-        { id: "theme-a", name: "A", state: "active", repository_context_ids: ["repo-shared", "repo-a"] },
+        {
+          id: "theme-a",
+          name: "A",
+          state: "active",
+          repository_context_ids: ["repo-shared", "repo-a"],
+        },
         { id: "theme-b", name: "B", state: "active", repository_context_ids: ["repo-shared"] },
       ],
       repository_contexts: [
@@ -303,7 +419,10 @@ test("Theme repository contexts remain attributed by each Theme edge when the gr
   try {
     const result = context.toolGetThemeContext({ theme_id: "theme-a", max_hops: 2, max_nodes: 20 });
     assert.deepEqual(
-      result.theme_repository_contexts.map((entry) => ({ theme_id: entry.theme_id, context_ids: entry.context_ids })),
+      result.theme_repository_contexts.map((entry) => ({
+        theme_id: entry.theme_id,
+        context_ids: entry.context_ids,
+      })),
       [
         { theme_id: "theme-a", context_ids: ["repo-a", "repo-shared"] },
         { theme_id: "theme-b", context_ids: ["repo-shared"] },
@@ -322,7 +441,10 @@ test("task detail tools require stable IDs, preserve AI visibility, and never re
     assert.equal(note.truncated, true);
     assert.equal(context.toolGetNote({ note_id: "note-hidden" }).error.code, "not_found");
 
-    const conversation = context.toolGetConversation({ conversation_id: "conversation-1", max_text_length: 12 });
+    const conversation = context.toolGetConversation({
+      conversation_id: "conversation-1",
+      max_text_length: 12,
+    });
     assert.equal(conversation.conversation.body_markdown.length, 12);
     assert.equal(conversation.conversation.source_url, "https://example.com/chat/1");
 
@@ -348,20 +470,22 @@ test("task work proposal retries are idempotent and reject key reuse with differ
     sourceApp: "codex",
     idempotencyKey: "session-1-report-1",
     payload: {
-      task_work: [{
-        action: "report_blocked",
-        task_id: "task-1",
-        expected_version: 4,
-        caller: "Codex",
-        source_session: "session-1",
-        executor_kind: "ai_agent",
-        executor_label: "Codex",
-        summary: "Need credentials",
-        completed_items: ["checked configuration"],
-        changed_or_created_items: [],
-        verification: [],
-        remaining_work: ["provide credentials"],
-      }],
+      task_work: [
+        {
+          action: "report_blocked",
+          task_id: "task-1",
+          expected_version: 4,
+          caller: "Codex",
+          source_session: "session-1",
+          executor_kind: "ai_agent",
+          executor_label: "Codex",
+          summary: "Need credentials",
+          completed_items: ["checked configuration"],
+          changed_or_created_items: [],
+          verification: [],
+          remaining_work: ["provide credentials"],
+        },
+      ],
     },
     request: { tool: "tasken.report_task_blocked", caller: "Codex" },
   };
@@ -371,19 +495,33 @@ test("task work proposal retries are idempotent and reject key reuse with differ
     assert.equal(first.proposal_id, retry.proposal_id);
     assert.equal(retry.status, "duplicate");
     assert.equal(fs.readdirSync(inboxPath).filter((name) => name.endsWith(".json")).length, 1);
-    assert.throws(() => queueMcpProposal({
-      ...base,
-      payload: { task_work: [{ ...base.payload.task_work[0], summary: "Different blocker" }] },
-    }), /異なる内容/);
-    assert.throws(() => queueMcpProposal({
-      ...base,
-      idempotencyKey: "session-1-private-repository-context",
-      payload: { task_work: [{
-        ...base.payload.task_work[0],
-        repository_context: { repository_context_id: "repo-1", cwd: "C:/private/tasuken" },
-      }] },
-    }), /非公開field/);
-    const envelope = validateMcpProposalEnvelope(JSON.parse(fs.readFileSync(path.join(inboxPath, fs.readdirSync(inboxPath)[0]), "utf8")));
+    assert.throws(
+      () =>
+        queueMcpProposal({
+          ...base,
+          payload: { task_work: [{ ...base.payload.task_work[0], summary: "Different blocker" }] },
+        }),
+      /異なる内容/,
+    );
+    assert.throws(
+      () =>
+        queueMcpProposal({
+          ...base,
+          idempotencyKey: "session-1-private-repository-context",
+          payload: {
+            task_work: [
+              {
+                ...base.payload.task_work[0],
+                repository_context: { repository_context_id: "repo-1", cwd: "C:/private/tasuken" },
+              },
+            ],
+          },
+        }),
+      /非公開field/,
+    );
+    const envelope = validateMcpProposalEnvelope(
+      JSON.parse(fs.readFileSync(path.join(inboxPath, fs.readdirSync(inboxPath)[0]), "utf8")),
+    );
     assert.equal(envelope.request.idempotency_key, "session-1-report-1");
     assert.match(envelope.request.payload_digest, /^[0-9a-f]{64}$/);
   } finally {
@@ -409,7 +547,10 @@ test("read-only MCP mode exposes context tools and no proposal or task-work writ
     assert.equal(names.has("tasken.start_agent_session"), false);
     assert.equal(names.has("tasken.submit_agent_session_record"), false);
     assert.equal(names.has("tasken.propose_task"), false);
-    assert.equal([...names].some((name) => /delete|remove|complete_task/.test(name)), false);
+    assert.equal(
+      [...names].some((name) => /delete|remove|complete_task/.test(name)),
+      false,
+    );
   } finally {
     await client.close();
   }
@@ -440,7 +581,15 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
   try {
     await client.connect(transport);
     const names = new Set((await client.listTools()).tools.map((tool) => tool.name));
-    for (const name of ["tasken.start_task_work", "tasken.append_work_receipt", "tasken.report_task_done", "tasken.report_task_blocked", "tasken.start_agent_session", "tasken.finish_agent_session", "tasken.submit_agent_session_record"]) {
+    for (const name of [
+      "tasken.start_task_work",
+      "tasken.append_work_receipt",
+      "tasken.report_task_done",
+      "tasken.report_task_blocked",
+      "tasken.start_agent_session",
+      "tasken.finish_agent_session",
+      "tasken.submit_agent_session_record",
+    ]) {
       assert.equal(names.has(name), true);
     }
     const result = await client.callTool({
@@ -481,9 +630,11 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
     assert.equal(proposal.request.idempotency_key, "session-1-blocked-1");
     assert.deepEqual(proposal.request.actor, { kind: "ai_agent" });
     assert.equal(proposal.request.source, "mcp");
-    const persistedRow = database.db.prepare(
-      "SELECT entity_type, version, data_json FROM entities WHERE entity_type = ? AND id = ?",
-    ).get("ai_proposal", proposal.id);
+    const persistedRow = database.db
+      .prepare(
+        "SELECT entity_type, version, data_json FROM entities WHERE entity_type = ? AND id = ?",
+      )
+      .get("ai_proposal", proposal.id);
     assert.equal(persistedRow.entity_type, "ai_proposal");
     assert.equal(persistedRow.version, 1);
     assert.equal(JSON.parse(persistedRow.data_json).status, "pending");
@@ -567,10 +718,24 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
     repository_slug: "mryk814/tasuken",
     remote_url: "https://github.com/mryk814/tasuken.git",
   });
+  database.save("repository_context", {
+    id: "repo-session-hidden",
+    label: "Private work",
+    provider: "github",
+    repository_slug: "private/work",
+    remote_url: "https://github.com/private/work.git",
+  });
   database.save("theme", {
     id: "theme-session",
     name: "Session provenance",
     repository_context_ids: ["repo-session"],
+    default_ai_visibility: ["coding_agent"],
+  });
+  database.save("theme", {
+    id: "theme-session-hidden",
+    name: "Private session provenance",
+    default_ai_visibility: [],
+    repository_context_ids: ["repo-session-hidden"],
   });
   database.save("working_copy", {
     id: "working-copy-session",
@@ -578,6 +743,14 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
     device_id: "device-home",
     storage_root_id: "root-projects",
     worktree_identity: "codex/498-agent-session",
+    active: true,
+  });
+  database.save("working_copy", {
+    id: "working-copy-session-hidden",
+    repository_context_id: "repo-session-hidden",
+    device_id: "device-home",
+    storage_root_id: "root-projects",
+    worktree_identity: "private/work",
     active: true,
   });
   database.save("agent_session", {
@@ -608,7 +781,85 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
     status: "asserted",
     origin: "system_action",
   });
+  database.save("agent_session", {
+    id: "daily-visible-session",
+    started_at: "2026-08-25T10:00:00.000Z",
+    ended_at: "2026-08-25T11:00:00.000Z",
+    status: "completed",
+    client_kind: "claude_code",
+    source_session_id: "claude-daily-1",
+    request_events: [{ observed_at: "2026-08-25T10:00:00.000Z", text: "Private raw request" }],
+    response_checkpoints: [
+      { observed_at: "2026-08-25T11:00:00.000Z", text: "Private raw checkpoint" },
+    ],
+    intent: { summary: "Daily visible work" },
+    outcome: {
+      summary: "Completed visible work",
+      decisions: [],
+      changed_items: [],
+      verification: [],
+      remaining_work: [],
+    },
+  });
+  database.save("agent_session", {
+    id: "daily-hidden-session",
+    started_at: "2026-08-25T10:00:00.000Z",
+    ended_at: "2026-08-25T11:00:00.000Z",
+    status: "completed",
+    client_kind: "cursor",
+    source_session_id: "cursor-daily-1",
+    intent: { summary: "Private daily work" },
+    outcome: {
+      summary: "Hidden work",
+      decisions: [],
+      changed_items: [],
+      verification: [],
+      remaining_work: [],
+    },
+  });
+  database.save("reference", {
+    id: "daily-visible-session-theme",
+    source_type: "agent_session",
+    source_id: "daily-visible-session",
+    target_type: "repository_context",
+    target_id: "repo-session",
+    relation_type: "worked_on",
+    layer: "provenance",
+    status: "asserted",
+    origin: "system_action",
+  });
+  database.save("reference", {
+    id: "daily-hidden-session-theme",
+    source_type: "agent_session",
+    source_id: "daily-hidden-session",
+    target_type: "working_copy",
+    target_id: "working-copy-session-hidden",
+    relation_type: "executed_in",
+    layer: "provenance",
+    status: "asserted",
+    origin: "system_action",
+  });
+  database.remove("theme", "theme-session-hidden");
+  assert.ok(database.get("theme", "theme-session-hidden", true).deleted_at);
   const core = createTaskenCore(database);
+  const dailySessions = core.getAgentSessionContext.execute({
+    date: "2026-08-25",
+    source_session: "tasken-daily-report",
+  });
+  assert.deepEqual(
+    dailySessions.sessions.map((session) => session.id),
+    ["daily-visible-session"],
+  );
+  assert.equal("request_events" in dailySessions.sessions[0], false);
+  assert.equal("response_checkpoints" in dailySessions.sessions[0], false);
+  assert.deepEqual(
+    core.getAgentSessionContext.execute({
+      date: "2026-08-25",
+      repository_slug: "missing/repository",
+      source_session: "tasken-daily-report",
+    }).sessions,
+    [],
+  );
   const host = new TaskenCoreHost({ userDataPath: root, ...core });
   await host.start();
   const transport = new StdioClientTransport({
@@ -637,15 +888,25 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
       repository_context_ids: ["repo-session"],
       working_copy_ids: ["working-copy-session"],
     };
-    const started = await client.callTool({ name: "tasken.start_agent_session", arguments: startArgs });
+    const started = await client.callTool({
+      name: "tasken.start_agent_session",
+      arguments: startArgs,
+    });
     assert.equal(started.isError, undefined, JSON.stringify(started));
     assert.equal(started.structuredContent.status, "queued");
     const sessionId = started.structuredContent.agent_session_id;
-    assert.equal(database.get("agent_session", sessionId), null, "MCP must not create official session data");
+    assert.equal(
+      database.get("agent_session", sessionId),
+      null,
+      "MCP must not create official session data",
+    );
     const startProposal = database.get("ai_proposal", started.structuredContent.proposal_id);
     assert.equal(startProposal.payload_type, "agent_sessions");
     assert.equal(startProposal.request.source_session, "codex-thread-498");
-    assert.equal(startProposal.payload.agent_sessions[0].session.intent.summary, "Implement Issue #498");
+    assert.equal(
+      startProposal.payload.agent_sessions[0].session.intent.summary,
+      "Implement Issue #498",
+    );
     assert.deepEqual(
       startProposal.payload.agent_sessions[0].references.map((entry) => entry.relation_type).sort(),
       ["executed_in", "worked_on"],
@@ -656,7 +917,10 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
     for (const reference of startProposal.payload.agent_sessions[0].references) {
       database.save("reference", reference);
     }
-    const duplicate = await client.callTool({ name: "tasken.start_agent_session", arguments: startArgs });
+    const duplicate = await client.callTool({
+      name: "tasken.start_agent_session",
+      arguments: startArgs,
+    });
     assert.equal(duplicate.structuredContent.status, "duplicate");
 
     const contextRequest = {
@@ -665,7 +929,10 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
       agent_label: "Codex",
       source_session: "codex-thread-498",
     };
-    assert.equal(core.getAgentSessionContext.execute(contextRequest).previous_handoff.outcome.summary, "Prior handoff");
+    assert.equal(
+      core.getAgentSessionContext.execute(contextRequest).previous_handoff.outcome.summary,
+      "Prior handoff",
+    );
     const context = await client.callTool({
       name: "tasken.get_agent_session_context",
       arguments: contextRequest,
@@ -692,10 +959,17 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
         remaining_work: ["rendered QA"],
       },
     };
-    const finished = await client.callTool({ name: "tasken.finish_agent_session", arguments: finishArgs });
+    const finished = await client.callTool({
+      name: "tasken.finish_agent_session",
+      arguments: finishArgs,
+    });
     assert.equal(finished.isError, undefined, JSON.stringify(finished));
     assert.equal(finished.structuredContent.status, "queued");
-    assert.equal(database.get("agent_session", sessionId).status, "active", "finish must also wait for human review");
+    assert.equal(
+      database.get("agent_session", sessionId).status,
+      "active",
+      "finish must also wait for human review",
+    );
     const finishProposal = database.get("ai_proposal", finished.structuredContent.proposal_id);
     const proposedSession = finishProposal.payload.agent_sessions[0].session;
     assert.equal(proposedSession.status, "completed");
@@ -724,8 +998,14 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
     const captureProposal = database.get("ai_proposal", captured.structuredContent.proposal_id);
     assert.equal(captureProposal.payload.agent_sessions[0].action, "capture");
     assert.equal(captureProposal.payload.agent_sessions[0].session.status, "completed");
-    assert.equal(captureProposal.payload.agent_sessions[0].session.intent.summary, "Collect this session without a start approval dependency");
-    assert.equal(captureProposal.payload.agent_sessions[0].session.outcome.summary, "Queued one complete session record");
+    assert.equal(
+      captureProposal.payload.agent_sessions[0].session.intent.summary,
+      "Collect this session without a start approval dependency",
+    );
+    assert.equal(
+      captureProposal.payload.agent_sessions[0].session.outcome.summary,
+      "Queued one complete session record",
+    );
   } finally {
     try {
       await client.close();

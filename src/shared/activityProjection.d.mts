@@ -54,7 +54,13 @@ export interface ActivityProjectionQuery {
   include_match_metadata?: boolean;
 }
 
+export function localDate(value: unknown, timezone?: string): string;
 export function queryActivityEvents(input?: ActivityProjectionQuery): ActivityProjectionResult;
-export function projectActivityMarkdown(result: ActivityProjectionResult, options?: { title?: string; date?: string | null }): string;
+export function projectActivityMarkdown(
+  result: ActivityProjectionResult,
+  options?: { title?: string; date?: string | null },
+): string;
 export function projectActivityJson(result: ActivityProjectionResult): ActivityProjectionResult;
-export function projectActivityMcp(result: ActivityProjectionResult): ActivityProjectionResult & { read_only: true };
+export function projectActivityMcp(
+  result: ActivityProjectionResult,
+): ActivityProjectionResult & { read_only: true };

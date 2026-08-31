@@ -348,7 +348,7 @@ write系toolには`create_*`ではなく`propose_*`を使う。
 
 MCP接続時とNoteの作成・編集tool schemaで、次の契約を案内する。
 
-- `note_type`はNote=`memo`、Report=`report`、Prompt=`prompt`。未知の型は推測して置換せず、入力エラーとして返す。Previewと採用経路でもこの3種類を保つ。
+- `note_type`はNote=`note`、Report=`report`、Prompt=`prompt`。MCP境界でだけ`note`を内部の`memo`へ正規化し、Previewと採用経路は内部の3種類を保つ。未知の型（`memo`を含む）は推測して置換せず、入力エラーとして返す。
 - 成功時に返るのはProposal IDであり、Note IDではない。人間がTaskenで採用してから正式なNoteになる。
 - 作成時に渡せる関連先は`theme`。Markdown本文からTask・Referenceの関連は作られず、このtoolでそれらを直接紐付けることもできない。
 - Markdownは本文とは別の`title`を使い、同じタイトルをH1で繰り返さない。短いNoteは見出しなし、長い文書は必要に応じてH2/H3を使う。見出し番号はUIに任せる。
