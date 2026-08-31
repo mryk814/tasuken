@@ -9,6 +9,12 @@ Issue #296 の Context Preview と Data Health は、AIへ渡す内容と公開�
 - RendererからMainへ渡す値は`audience`とtyped `{type,id}`だけです。absolute path、本文、relation queryは受け取りません。
 - 表示はseed、included / excluded、relation path、asserted / suggested相当のstatus、visibility、freshness、authority、truncation、推定sizeです。表示上の上限を超える場合は、表示件数と残件数を明記します。
 
+### TaskからCoding Agentへ依頼する
+
+未完了でまだ委任していない自分のTaskは、詳細の「AIへ依頼を準備」で`intended_executor=ai_agent`として保存します。永続化境界が`work_state=ready_for_agent`へ正規化するため、Coding AgentはTasken MCPから対象Taskと同じproducerのContextを取得できます。
+
+この操作は外部Agentを起動・送信しません。保存後に詳細へ現れる「AIへの依頼」から「依頼文をコピー」し、Coding Agentへ貼り付けて作業を始めます。コピーするのはTask ID・タイトル・`tasken.get_task_context`の取得案内だけです。「AIへ渡る内容を確認」を開くと、Context Previewで実際に渡るincluded / excludedも確認できます。作業中、Receipt確認待ち、確認済み、完了・中止Taskは担当を切り替えないため、この準備操作を出しません。
+
 ## Data Health
 
 固定rule registryが次を検出します。

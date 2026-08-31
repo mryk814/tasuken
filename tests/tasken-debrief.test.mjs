@@ -110,6 +110,40 @@ test("Daily Debrief reads canonical sessions and passive hook proposals without 
   );
 });
 
+test("Daily Debrief groups a UTC morning session under its local date", () => {
+  const previousTimeZone = process.env.TZ;
+  process.env.TZ = "Asia/Tokyo";
+  try {
+    const domain = domainFixture();
+    const source = domain.agent_sessions[0];
+    domain.agent_sessions = [
+      {
+        ...source,
+        id: "session-jst-morning",
+        source_session_id: "jst-morning-source",
+        started_at: "2026-08-30T23:50:00.000Z",
+      },
+      {
+        ...source,
+        id: "session-date-only",
+        source_session_id: "date-only-source",
+        started_at: "2026-08-31",
+      },
+    ];
+    domain.ai_proposals = [];
+
+    const evidence = buildDailyDebriefEvidence(domain, "2026-08-31");
+
+    assert.deepEqual(
+      evidence.map((entry) => entry.sourceSessionId),
+      ["jst-morning-source", "date-only-source"],
+    );
+  } finally {
+    if (previousTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimeZone;
+  }
+});
+
 test("saving a Debrief can accept all included Agent Session candidates at one review boundary", () => {
   const proposal = domainFixture().ai_proposals[0];
   const command = buildAgentSessionAcceptanceCommand(proposal);
@@ -122,6 +156,60 @@ test("saving a Debrief can accept all included Agent Session candidates at one r
   assert.deepEqual(command.expectedVersions, [
     { type: "ai_proposal", id: "proposal-1", version: 1 },
   ]);
+});
+
+test("provenanceが確かな空hook終了sessionは残しつつ作業や要確認を偽装しない", () => {
+  const domain = domainFixture();
+  domain.agent_sessions = [
+    {
+      ...domain.agent_sessions[0],
+      intent: { summary: "" },
+      outcome: null,
+      request_events: [],
+      response_checkpoints: [],
+    },
+  ];
+  domain.ai_proposals = [
+    {
+      id: "proposal-empty-hook",
+      status: "accepted",
+      source_app: "tasken-session-hook:codex",
+      payload_type: "agent_sessions",
+      payload: { agent_sessions: [{ action: "capture", session: domain.agent_sessions[0] }] },
+    },
+  ];
+  const evidence = buildDailyDebriefEvidence(domain, "2026-08-25");
+  assert.equal(evidence.length, 1, "metadata-only records must not be deleted");
+  assert.equal(evidence[0].outcome, "結果の記録なし");
+  assert.equal(evidence[0].hasContent, false);
+  assert.equal(selectAdaptiveQuestion(evidence), null);
+});
+
+test("provenance不明の終了sessionは内容を失わない", () => {
+  const domain = domainFixture();
+  domain.ai_proposals = [];
+  domain.agent_sessions = [
+    {
+      ...domain.agent_sessions[0],
+      intent: { summary: "通常MCPの依頼" },
+      outcome: {
+        summary: "通常MCPの構造化結果",
+        decisions: ["採用"],
+        changed_items: ["Task"],
+        verification: [],
+        remaining_work: [],
+      },
+      request_events: [],
+      response_checkpoints: [],
+    },
+  ];
+
+  const evidence = buildDailyDebriefEvidence(domain, "2026-08-25");
+  assert.equal(evidence[0].hasContent, true);
+  assert.equal(
+    selectAdaptiveQuestion(evidence),
+    "何を確認できれば、自分の判断として完了と言える？",
+  );
 });
 
 test("human reflection is structured canonical data and generated Evidence stays readable", () => {

@@ -10,9 +10,11 @@ import {
 
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
+import { NOTE_TYPE_LABELS } from "../lib/domain";
 import { str, uuid } from "../lib/format";
 import { isPassiveAgentSessionProposal } from "../lib/taskenDebrief";
 import { assertImportCandidateSavable, parseAiImportPayload } from "../lib/aiImport.js";
+import { previewHtml } from "../lib/markdown";
 import {
   applyMarkdownDiffHunks,
   buildMarkdownDiffHunks,
@@ -33,6 +35,7 @@ import {
   buildRepositoryContextProposalOperations,
 } from "../../../../../shared/repositoryContextProposal.ts";
 import { ActionButton, Button } from "./common";
+import { MarkdownPreview } from "./MarkdownPreview";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
 
 type ProposalPayloadType =
@@ -100,6 +103,22 @@ function candidateTitle(candidate: ProposalCandidate) {
     str(candidate.entry.relation_type) ||
     "無題"
   );
+}
+
+function candidateMeta(candidate: ProposalCandidate) {
+  if (candidate.type === "task_work") {
+    return `Task ${str(candidate.entry.task_id)} / ${str(candidate.entry.action)}`;
+  }
+  if (candidate.type === "repository_context") {
+    return `RepositoryContext / ${str(candidate.entry.provider) || "unknown"} / ${str(candidate.entry.canonical_identity) || "identity unavailable"} / credential-free normalized`;
+  }
+  if (candidate.type === "note" && candidate.action === "create") {
+    const theme = candidate.theme?.name || (str(candidate.entry.theme) ? "Theme未解決" : "");
+    return [NOTE_TYPE_LABELS[str(candidate.entry.note_type)] || "Note", theme]
+      .filter(Boolean)
+      .join(" / ");
+  }
+  return `${candidate.type} / ${candidate.theme?.name || "Theme未解決"}`;
 }
 
 function parsePayload(raw: unknown, payloadType: ProposalPayloadType): Record<string, unknown> {
@@ -1019,11 +1038,7 @@ export function AiProposalPanel(props: PageProps) {
               <div>
                 <strong>{candidateTitle(candidate)}</strong>
                 <small>
-                  {candidate.type === "task_work"
-                    ? `Task ${str(candidate.entry.task_id)} / ${str(candidate.entry.action)}`
-                    : candidate.type === "repository_context"
-                      ? `RepositoryContext / ${str(candidate.entry.provider) || "unknown"} / ${str(candidate.entry.canonical_identity) || "identity unavailable"} / credential-free normalized`
-                      : `${candidate.type} / ${candidate.theme?.name || "Theme未解決"}`}
+                  {candidateMeta(candidate)}
                   {candidate.duplicate
                     ? ` / 既存候補: ${str(candidate.duplicate.title || candidate.duplicate.label)}`
                     : ""}
@@ -1066,6 +1081,18 @@ export function AiProposalPanel(props: PageProps) {
                 {candidate.duplicate && <option value="merge">既存を更新</option>}
                 <option value="ignore">無視</option>
               </select>
+              {candidate.type === "note" && candidate.action === "create" && (
+                <details
+                  className="proposal-note-preview"
+                  open={str(candidate.entry.body).length <= 1200}
+                >
+                  <summary>本文を確認</summary>
+                  <MarkdownPreview
+                    className="proposal-note-markdown markdown-preview"
+                    html={previewHtml(str(candidate.entry.body), "markdown")}
+                  />
+                </details>
+              )}
               {(candidate.type === "sketch" ||
                 (candidate.type === "artifact" &&
                   str(candidate.entry.media_type) === "image/svg+xml")) && (

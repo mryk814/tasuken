@@ -26,3 +26,15 @@ test("Note consumers use the canonical Theme resolver", () => {
     assert.match(readFileSync(file, "utf8"), /noteProjectId/);
   }
 });
+
+test("Theme group filtering keeps unscoped Notes in the canonical renderer projection", () => {
+  const workspaceApp = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+  assert.match(
+    workspaceApp,
+    /notes: fullData\.notes\.filter\(\(note\) => !noteProjectId\(note\) \|\| match\(noteProjectId\(note\)\)\),/,
+  );
+  assert.match(
+    workspaceApp,
+    /notes: fullDomain\.notes\.filter\(\(note\) => !noteProjectId\(note\) \|\| match\(noteProjectId\(note\)\)\),/,
+  );
+});

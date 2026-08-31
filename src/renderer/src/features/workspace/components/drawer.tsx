@@ -244,11 +244,15 @@ function TaskWorkSection({
   receipts,
   executeCommand,
   setToast,
+  data,
+  openDrawer,
 }: {
   task: Task;
   receipts: WorkReceipt[];
   executeCommand?: ExecuteCommand;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
+  data?: WorkspaceData;
+  openDrawer?: (drawer: DrawerConfig) => void;
 }) {
   const [summary, setSummary] = useState("");
   const [completedItems, setCompletedItems] = useState("");
@@ -279,7 +283,24 @@ function TaskWorkSection({
     task.intended_executor !== "self" ||
     workState !== "not_delegated" ||
     hasWorkHistory;
+  const isAiDelegationReady =
+    task.intended_executor === "ai_agent" && workState === "ready_for_agent";
   const [workOpen, setWorkOpen] = useState(hasWorkHistory || workState !== "not_delegated");
+  const copyAiRequest = async () => {
+    try {
+      await workspaceApi.copyText(
+        [
+          `Task ID: ${task.id}`,
+          `タイトル: ${task.title}`,
+          "",
+          `Tasken MCPの tasken.get_task_context に task_id="${task.id}" を渡し、このTaskを読み、公開Contextと完了条件を確認して着手してください。`,
+        ].join("\n"),
+      );
+      setToast("AIへの依頼文をコピーしました。", "success");
+    } catch {
+      setToast("AIへの依頼文をコピーできませんでした。もう一度お試しください。", "danger");
+    }
+  };
   const run = async (
     name: CommandEnvelope["name"],
     payload: CommandEnvelope["payload"],
@@ -343,7 +364,7 @@ function TaskWorkSection({
       "Work Receiptを追加しました。人間の確認待ちです。",
     );
   };
-  if (!executeCommand || !hasDelegatedWork) return null;
+  if (!hasDelegatedWork || (!executeCommand && !isAiDelegationReady)) return null;
   return (
     <details
       className="drawer-subsection drawer-disclosure task-work-disclosure"
@@ -352,7 +373,7 @@ function TaskWorkSection({
     >
       <summary aria-labelledby="task-work-heading">
         <span className="drawer-disclosure-title" id="task-work-heading">
-          作業履歴
+          {isAiDelegationReady ? "AIへの依頼" : "作業履歴"}
         </span>
         <span className="drawer-disclosure-meta">担当: {executorLabel}</span>
         <StatusBadge
@@ -363,6 +384,31 @@ function TaskWorkSection({
         />
       </summary>
       <div className="drawer-disclosure-body">
+        {isAiDelegationReady && (
+          <>
+            <p className="field-help">
+              このTaskはCoding AgentがTasken MCPから取得できます。ここから外部Agentは起動しません。
+            </p>
+            <button className="secondary-button" type="button" onClick={() => void copyAiRequest()}>
+              <IconCopyPlus size={16} />
+              依頼文をコピー
+            </button>
+            {data && openDrawer && (
+              <details className="drawer-subsection drawer-disclosure">
+                <summary>
+                  <span className="drawer-disclosure-title">AIへ渡る内容を確認</span>
+                </summary>
+                <div className="drawer-disclosure-body">
+                  <AiContextPreviewPanel
+                    scope={{ type: "task", id: task.id }}
+                    data={data}
+                    openDrawer={openDrawer}
+                  />
+                </div>
+              </details>
+            )}
+          </>
+        )}
         {sortedReceipts.length > 0 ? (
           <div className="task-learning-list" aria-label="Work Receipt一覧">
             {sortedReceipts.map((receipt) => (
@@ -844,6 +890,10 @@ export function EntityDrawer({
       (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
     const requiresHumanAcceptance =
       task.intended_executor === "ai_agent" && taskWorkState !== "accepted";
+    const canPrepareAiDelegation =
+      !["done", "cancelled"].includes(task.state) &&
+      (task.intended_executor === "self" || !task.intended_executor) &&
+      taskWorkState === "not_delegated";
     const learningNotes = (data.notes || [])
       .filter((note) => note.item_id === task.id && note.note_type === "learning")
       .sort((a, b) =>
@@ -889,6 +939,15 @@ export function EntityDrawer({
         completeTask ? "完了と学びを保存しました。" : "学びを保存しました。",
       );
       if (completeTask) close();
+    };
+    const prepareAiDelegation = async () => {
+      await saveEntities(
+        buildSaveTaskOperations(
+          { ...task, intended_executor: "ai_agent", work_state: "ready_for_agent" },
+          { reason: "prepared_for_ai_agent" },
+        ),
+        "AIへの依頼を準備しました。Coding Agent側でTasken MCPからこのTaskを取得できます。",
+      );
     };
     return (
       <aside className="drawer">
@@ -953,12 +1012,15 @@ export function EntityDrawer({
             )}
           </dl>
           <TaskWorkSection
+            key={`${task.id}:${task.work_state || task.intended_executor || "not_delegated"}`}
             task={task}
             receipts={
               (data.work_receipts || []) as unknown as import("../domain-model/types").WorkReceipt[]
             }
             executeCommand={executeCommand}
             setToast={setToast}
+            data={data}
+            openDrawer={(next) => close(next)}
           />
           <details className="drawer-subsection drawer-disclosure task-related-disclosure">
             <summary>
@@ -1025,6 +1087,15 @@ export function EntityDrawer({
             </div>
           </details>
           <div className="drawer-actions">
+            {canPrepareAiDelegation && (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void prepareAiDelegation()}
+              >
+                AIへ依頼を準備
+              </button>
+            )}
             <button className="primary-button" onClick={() => startFocusSession?.(task.id)}>
               <IconClock size={16} />
               集中して作業する
@@ -1373,6 +1444,11 @@ function EditDrawer({
             }
           : entity) as unknown as DrawerConfig["entity"])
       : entity;
+  const taskForWorkSection =
+    type === "task" && entityId
+      ? ((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entityId) ||
+        (entity as unknown as Task)
+      : null;
   const taskChecklistEditorKey =
     type === "task" ? `${entityId}:${str(entity._focusChecklistItem)}` : "";
   const workspaceAiVisibilityDefault = workspaceAiVisibility(data);
@@ -1565,16 +1641,15 @@ function EditDrawer({
           workspaceDefault={workspaceAiVisibilityDefault}
         />
       </form>
-      {type === "task" && entityId && (
+      {taskForWorkSection && (
         <TaskWorkSection
-          task={
-            ((data.tasks || []) as unknown as Task[]).find(
-              (candidate) => candidate.id === entityId,
-            ) || (entity as unknown as Task)
-          }
+          key={`${taskForWorkSection.id}:${taskForWorkSection.work_state || taskForWorkSection.intended_executor || "not_delegated"}`}
+          task={taskForWorkSection}
           receipts={(data.work_receipts || []) as unknown as WorkReceipt[]}
           executeCommand={_executeCommand}
           setToast={setToast}
+          data={data}
+          openDrawer={(next) => close(next)}
         />
       )}
       <div className="drawer-edit-footer">

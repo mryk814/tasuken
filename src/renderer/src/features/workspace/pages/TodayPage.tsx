@@ -1055,7 +1055,7 @@ export function TodayPage({
   function handleOpenExecutionWindowTask(row: ExecutionWindowTaskRow) {
     openDrawer({
       type: "task",
-      mode: "edit",
+      mode: "view",
       entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown>,
     });
   }
@@ -1065,7 +1065,7 @@ export function TodayPage({
       if (row.v2.type === "task") {
         openDrawer({
           type: "task",
-          mode: "edit",
+          mode: "view",
           entity: { ...row.v2.task, _schedule: row.v2.schedule } as Record<string, unknown>,
         });
         return;
@@ -1125,7 +1125,7 @@ export function TodayPage({
   function handleOpenPeriodTask(row: OngoingPeriodTaskRow) {
     openDrawer({
       type: "task",
-      mode: "edit",
+      mode: "view",
       entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown>,
     });
   }
@@ -1141,7 +1141,7 @@ export function TodayPage({
   function handleOpenCandidateTask(row: DailyPlanningRow) {
     openDrawer({
       type: "task",
-      mode: "edit",
+      mode: "view",
       entity: { ...row.task, _schedule: row.schedule } as Record<string, unknown>,
     });
   }

@@ -39,17 +39,10 @@ export function DebriefPage({
         <div className="debrief-section-heading">
           <div>
             <span>NOW</span>
-            <h2>今日の委任を回収する</h2>
+            <h2>結果を確認して、次の一手へ</h2>
           </div>
           <time>{today}</time>
         </div>
-        <ActivityLogPanel
-          data={data}
-          domain={domain}
-          themes={themes}
-          openDrawer={openDrawer}
-          setToast={setToast}
-        />
         <TaskenDebriefPanel
           date={today}
           domain={domain}
@@ -73,6 +66,16 @@ export function DebriefPage({
             navigate("theme");
           }}
         />
+        <details className="panel debrief-activity-details">
+          <summary>時系列の記録を見る</summary>
+          <ActivityLogPanel
+            data={data}
+            domain={domain}
+            themes={themes}
+            openDrawer={openDrawer}
+            setToast={setToast}
+          />
+        </details>
         <TaskenWeeklyDebriefPanel
           date={today}
           notes={notes}

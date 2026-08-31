@@ -47,6 +47,16 @@ test("AI Inbox contains only the safe proposal review surface", () => {
   assert.match(aiProposalPanelSource, /ActionButton\s+action="aiProposalPreview"/);
   assert.match(aiProposalPanelSource, /ActionButton\s+action="actionReject"/);
   assert.match(aiProposalPanelSource, /ActionButton\s+action="aiProposalAccept"/);
+  assert.match(
+    aiProposalPanelSource,
+    /NOTE_TYPE_LABELS\[str\(candidate\.entry\.note_type\)\] \|\| "Note"/,
+  );
+  assert.match(
+    aiProposalPanelSource,
+    /candidate\.type === "note" && candidate\.action === "create"/,
+  );
+  assert.match(aiProposalPanelSource, /<MarkdownPreview/);
+  assert.match(aiProposalPanelSource, /previewHtml\(str\(candidate\.entry\.body\), "markdown"\)/);
   assert.doesNotMatch(aiProposalPanelSource, /danger-button/);
   assert.doesNotMatch(
     importExportPageSource,

@@ -213,6 +213,10 @@ export function TaskFields({
   const preservedWorkState =
     str(entity.work_state) ||
     (intendedExecutor === "ai_agent" ? "ready_for_agent" : "not_delegated");
+  const willPrepareAiDelegation =
+    intendedExecutor === "ai_agent" && preservedWorkState === "not_delegated";
+  const isAiDelegationReady =
+    intendedExecutor === "ai_agent" && preservedWorkState === "ready_for_agent";
   return (
     <>
       <Field label="タイトル">
@@ -530,6 +534,17 @@ export function TaskFields({
             placeholder="例: Codex / 山田"
           />
         </Field>
+        {willPrepareAiDelegation && (
+          <p className="field-help">
+            保存するとAIへ依頼できる状態になります。外部Agentは起動せず、Coding AgentがTasken
+            MCPから取得します。
+          </p>
+        )}
+        {isAiDelegationReady && (
+          <p className="field-help">
+            AIへ依頼できる状態です。Coding AgentはTasken MCPから取得します。
+          </p>
+        )}
         <input type="hidden" name="work_state" value={preservedWorkState} readOnly />
       </section>
       {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}

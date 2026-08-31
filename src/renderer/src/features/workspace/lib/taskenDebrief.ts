@@ -1,6 +1,7 @@
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import type { BaseRecord } from "../types";
 import type { AgentSession, WorkspaceDomain } from "../domain-model/types";
+import { agentSessionHasContent, agentSessionHookSourceApps } from "./agentSessionProjection.ts";
 
 export const TASKEN_DEBRIEF_SCHEMA_VERSION = 1;
 
@@ -21,6 +22,7 @@ export interface DebriefSessionEvidence {
   verification: string[];
   remainingWork: string[];
   strength: DebriefEvidenceStrength;
+  hasContent: boolean;
   proposal?: BaseRecord;
 }
 
@@ -68,8 +70,7 @@ function stringList(value: unknown): string[] {
 }
 
 function localDate(value: string): string {
-  const explicitLocalDate = /^(\d{4}-\d{2}-\d{2})(?:T|$)/.exec(value)?.[1];
-  if (explicitLocalDate) return explicitLocalDate;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value.slice(0, 10);
   const year = date.getFullYear();
@@ -89,7 +90,11 @@ function checkpoints(value: unknown): Array<{ observedAt: string; text: string }
   });
 }
 
-function evidenceFromSession(session: AgentSession, proposal?: BaseRecord): DebriefSessionEvidence {
+function evidenceFromSession(
+  session: AgentSession,
+  proposal?: BaseRecord,
+  sourceApp?: string,
+): DebriefSessionEvidence {
   return {
     id: proposal ? `proposal:${proposal.id}` : `session:${session.id}`,
     sessionId: session.id,
@@ -99,12 +104,14 @@ function evidenceFromSession(session: AgentSession, proposal?: BaseRecord): Debr
     endedAt: session.ended_at || null,
     status: session.status,
     intent: session.intent.summary,
-    outcome: session.outcome?.summary || "作業中です。",
+    outcome:
+      session.outcome?.summary || (session.status === "active" ? "作業中です。" : "結果の記録なし"),
     requests: checkpoints(session.request_events),
     responses: checkpoints(session.response_checkpoints),
     verification: session.outcome?.verification || [],
     remainingWork: session.outcome?.remaining_work || [],
     strength: "agent_reported",
+    hasContent: agentSessionHasContent(session, sourceApp),
     proposal,
   };
 }
@@ -143,9 +150,10 @@ export function buildDailyDebriefEvidence(
   domain: WorkspaceDomain,
   date: string,
 ): DebriefSessionEvidence[] {
+  const hookSourceApps = agentSessionHookSourceApps(domain.ai_proposals);
   const canonical = domain.agent_sessions
     .filter((session) => localDate(session.started_at) === date)
-    .map((session) => evidenceFromSession(session));
+    .map((session) => evidenceFromSession(session, undefined, hookSourceApps.get(session.id)));
   const canonicalSourceIds = new Set(canonical.map((entry) => entry.sourceSessionId));
   const pending = domain.ai_proposals.flatMap((proposal) => {
     const base = proposal as BaseRecord;
@@ -153,7 +161,7 @@ export function buildDailyDebriefEvidence(
     return sessionsFromProposal(base)
       .filter((session) => localDate(session.started_at) === date)
       .filter((session) => !canonicalSourceIds.has(session.source_session_id || session.id))
-      .map((session) => evidenceFromSession(session, base));
+      .map((session) => evidenceFromSession(session, base, hookSourceApps.get(session.id)));
   });
   return [...canonical, ...pending].sort((left, right) =>
     left.startedAt.localeCompare(right.startedAt),
@@ -164,7 +172,12 @@ export function selectAdaptiveQuestion(evidence: DebriefSessionEvidence[]): stri
   if (evidence.some((entry) => entry.status === "blocked" || entry.remainingWork.length > 0)) {
     return "残っている最初の障害と、試せる代替策は何か？";
   }
-  if (evidence.some((entry) => entry.status === "completed" && entry.verification.length === 0)) {
+  if (
+    evidence.some(
+      (entry) =>
+        entry.hasContent && entry.status === "completed" && entry.verification.length === 0,
+    )
+  ) {
     return "何を確認できれば、自分の判断として完了と言える？";
   }
   if (evidence.some((entry) => entry.requests.length > 1)) {

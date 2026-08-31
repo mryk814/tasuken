@@ -6,6 +6,10 @@ const todayPageSource = readFileSync(
   "src/renderer/src/features/workspace/pages/TodayPage.tsx",
   "utf8",
 );
+const todoPageSource = readFileSync(
+  "src/renderer/src/features/workspace/pages/TodoPage.tsx",
+  "utf8",
+);
 const activityPanelSource = readFileSync(
   "src/renderer/src/features/workspace/components/ActivityLogPanel.tsx",
   "utf8",
@@ -71,10 +75,26 @@ test("Today and related lists share overdue urgency styling", () => {
   );
 });
 
-test("Today opens task rows directly in edit mode and shows lightweight reminder time", () => {
+test("Task名は詳細を開き、そこから既存の編集・AI依頼準備へ進める", () => {
   assert.match(todayPageSource, /reminderMeta/);
   assert.match(todayPageSource, /IconClock/);
-  assert.match(todayPageSource, /type: "task",\s*mode: "edit"/);
+  assert.match(todoPageSource, /function openTaskDetail[\s\S]*?type: "task",\s*mode: "view"/);
+  assert.match(
+    todayPageSource,
+    /function handleOpenExecutionWindowTask[\s\S]*?type: "task",\s*mode: "view"/,
+  );
+  assert.match(
+    todayPageSource,
+    /if \(row\.v2\.type === "task"\)[\s\S]*?type: "task",\s*mode: "view"/,
+  );
+  assert.match(
+    todayPageSource,
+    /function handleOpenPeriodTask[\s\S]*?type: "task",\s*mode: "view"/,
+  );
+  assert.match(
+    todayPageSource,
+    /function handleOpenCandidateTask[\s\S]*?type: "task",\s*mode: "view"/,
+  );
 });
 
 test("Todayは日付範囲の意味ごとに扱いを分ける（#309）", () => {

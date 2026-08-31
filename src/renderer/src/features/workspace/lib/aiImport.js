@@ -3,11 +3,50 @@ const PAYLOAD_KEYS = new Set(["items", "notes", "links", "knowledge_nodes", "kno
 const ITEM_KINDS = new Set(["task", "milestone", "period", "waiting", "reminder", "idea"]);
 const ITEM_STATUSES = new Set(["todo", "doing", "waiting", "review", "done", "inbox"]);
 const PRIORITIES = new Set(["normal", "high"]);
-const NOTE_TYPES = new Set(["memo", "decision", "meeting", "experiment", "analysis", "ai_chat", "learning", "reflection"]);
-const LINK_TYPES = new Set(["chatgpt", "copilot", "github", "paper", "notebook", "document", "other"]);
+const NOTE_TYPES = new Set([
+  "memo",
+  "report",
+  "prompt",
+  "decision",
+  "meeting",
+  "experiment",
+  "analysis",
+  "ai_chat",
+  "learning",
+  "reflection",
+]);
+const LINK_TYPES = new Set([
+  "chatgpt",
+  "copilot",
+  "github",
+  "paper",
+  "notebook",
+  "document",
+  "other",
+]);
 const ALLOWED_PROTOCOLS = new Set(["https:", "http:", "mailto:"]);
-const KNOWLEDGE_NODE_TYPES = new Set(["source", "evidence", "claim", "question", "decision", "insight"]);
-const KNOWLEDGE_RELATION_TYPES = new Set(["supports", "contradicts", "explains", "causes", "example_of", "generalizes", "depends_on", "derived_from", "answers", "raises", "similar_to", "leads_to"]);
+const KNOWLEDGE_NODE_TYPES = new Set([
+  "source",
+  "evidence",
+  "claim",
+  "question",
+  "decision",
+  "insight",
+]);
+const KNOWLEDGE_RELATION_TYPES = new Set([
+  "supports",
+  "contradicts",
+  "explains",
+  "causes",
+  "example_of",
+  "generalizes",
+  "depends_on",
+  "derived_from",
+  "answers",
+  "raises",
+  "similar_to",
+  "leads_to",
+]);
 const CONFIDENCE = new Set(["low", "medium", "high"]);
 const KNOWLEDGE_STATUSES = new Set(["active", "resolved", "deprecated", "rejected"]);
 const IMPORT_ACTIONS = new Set(["create", "merge", "ignore"]);
@@ -33,7 +72,7 @@ export const AI_IMPORT_SCHEMA = `{
       "reason": "候補にした理由、merge/ignoreの根拠",
       "title": "string 必須",
       "theme": "既存Theme名。分からなければ空文字",
-      "note_type": "memo | decision | meeting | experiment | analysis | ai_chat | learning | reflection",
+      "note_type": "memo | report | prompt | decision | meeting | experiment | analysis | ai_chat | learning | reflection",
       "body": "string 必須",
       "source_url": "https/http URL または空文字"
     }
@@ -83,9 +122,11 @@ export function isAllowedImportUrl(value) {
 }
 
 export function isIsoLocalDate(value) {
-  return typeof value === "string"
-    && /^\d{4}-\d{2}-\d{2}$/.test(value)
-    && !Number.isNaN(new Date(`${value}T00:00:00`).getTime());
+  return (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(new Date(`${value}T00:00:00`).getTime())
+  );
 }
 
 function text(value) {
@@ -121,7 +162,9 @@ function resolveTheme(themeValue, themes) {
 function normalizeArray(payload, key) {
   const value = payload[key];
   if (value == null) return [];
-  return Array.isArray(value) ? value.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry)) : [];
+  return Array.isArray(value)
+    ? value.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    : [];
 }
 
 export function parseAiImportPayload(raw, themes, collections) {
@@ -136,14 +179,33 @@ export function parseAiImportPayload(raw, themes, collections) {
     .filter((key) => !PAYLOAD_KEYS.has(key))
     .map((key) => `${key}はAI Import対象外のため無視します`);
   const candidates = [
-    ...normalizeArray(payload, "items").map((entry) => normalizeItem(entry, themes, collections.items || [])),
-    ...normalizeArray(payload, "notes").map((entry) => normalizeNote(entry, themes, collections.notes || [])),
-    ...normalizeArray(payload, "links").map((entry) => normalizeLink(entry, themes, collections.links || [])),
-    ...normalizeArray(payload, "knowledge_nodes").map((entry, index) => normalizeKnowledgeNode(entry, index, themes, collections.knowledge_nodes || [])),
+    ...normalizeArray(payload, "items").map((entry) =>
+      normalizeItem(entry, themes, collections.items || []),
+    ),
+    ...normalizeArray(payload, "notes").map((entry) =>
+      normalizeNote(entry, themes, collections.notes || []),
+    ),
+    ...normalizeArray(payload, "links").map((entry) =>
+      normalizeLink(entry, themes, collections.links || []),
+    ),
+    ...normalizeArray(payload, "knowledge_nodes").map((entry, index) =>
+      normalizeKnowledgeNode(entry, index, themes, collections.knowledge_nodes || []),
+    ),
   ];
-  candidates.push(...normalizeArray(payload, "knowledge_edges").map((entry) =>
-    normalizeKnowledgeEdge(entry, candidates, collections.knowledge_nodes || [], collections.knowledge_edges || [])));
-  if (!candidates.length) throw new Error("items、notes、links、knowledge_nodes、knowledge_edgesのいずれかを含めてください。");
+  candidates.push(
+    ...normalizeArray(payload, "knowledge_edges").map((entry) =>
+      normalizeKnowledgeEdge(
+        entry,
+        candidates,
+        collections.knowledge_nodes || [],
+        collections.knowledge_edges || [],
+      ),
+    ),
+  );
+  if (!candidates.length)
+    throw new Error(
+      "items、notes、links、knowledge_nodes、knowledge_edgesのいずれかを含めてください。",
+    );
   return { candidates, payloadIssues };
 }
 
@@ -163,8 +225,14 @@ function candidateBase(type, entry, themes, collection) {
   if (!title) issues.push("titleがありません");
   if (text(entry.theme) && !theme) issues.push("Themeを解決できません");
   if (targetId && !targeted) issues.push("編集対象が見つかりません");
-  if (targeted && entry.base_version != null && Number(entry.base_version) !== Number(targeted.version)) {
-    issues.push(`編集対象が更新されています（提案 ${Number(entry.base_version)} / 現在 ${Number(targeted.version)}）`);
+  if (
+    targeted &&
+    entry.base_version != null &&
+    Number(entry.base_version) !== Number(targeted.version)
+  ) {
+    issues.push(
+      `編集対象が更新されています（提案 ${Number(entry.base_version)} / 現在 ${Number(targeted.version)}）`,
+    );
   }
   if (duplicate && ["done", "archived"].includes(text(duplicate.status))) {
     issues.push("完了済みまたはarchivedの既存候補への更新です");
@@ -193,7 +261,8 @@ function normalizeNote(entry, themes, collection) {
   const base = candidateBase("note", entry, themes, collection);
   const sourceUrl = text(entry.source_url);
   if (!text(entry.body)) base.issues.push("bodyがありません");
-  if (sourceUrl && !isAllowedImportUrl(sourceUrl)) base.issues.push("source_urlはhttps、http、mailtoのみ使えます");
+  if (sourceUrl && !isAllowedImportUrl(sourceUrl))
+    base.issues.push("source_urlはhttps、http、mailtoのみ使えます");
   const normalized = {
     action: enumValue(entry.action, IMPORT_ACTIONS, "", base.issues, "action"),
     reason: text(entry.reason),
@@ -231,7 +300,13 @@ function normalizeKnowledgeNode(entry, index, themes, collection) {
     action: enumValue(entry.action, IMPORT_ACTIONS, "", base.issues, "action"),
     reason: text(entry.reason),
     temp_id: text(entry.temp_id) || `knowledge_node_${index + 1}`,
-    node_type: enumValue(entry.node_type, KNOWLEDGE_NODE_TYPES, "insight", base.issues, "node_type"),
+    node_type: enumValue(
+      entry.node_type,
+      KNOWLEDGE_NODE_TYPES,
+      "insight",
+      base.issues,
+      "node_type",
+    ),
     title: text(entry.title),
     body: text(entry.body),
     theme: text(entry.theme),
@@ -248,18 +323,39 @@ function normalizeKnowledgeNode(entry, index, themes, collection) {
 
 function normalizeKnowledgeEdge(entry, nodeCandidates, nodes, collection) {
   const issues = [];
-  const relationType = enumValue(entry.relation_type, KNOWLEDGE_RELATION_TYPES, "supports", issues, "relation_type");
+  const relationType = enumValue(
+    entry.relation_type,
+    KNOWLEDGE_RELATION_TYPES,
+    "supports",
+    issues,
+    "relation_type",
+  );
   const sourceTempId = text(entry.source_temp_id);
   const targetTempId = text(entry.target_temp_id);
   const sourceNodeId = text(entry.source_node_id);
   const targetNodeId = text(entry.target_node_id);
   const sourceKnown = Boolean(sourceNodeId && nodes.some((node) => node.id === sourceNodeId));
   const targetKnown = Boolean(targetNodeId && nodes.some((node) => node.id === targetNodeId));
-  const sourceCandidate = sourceTempId && nodeCandidates.some((candidate) => candidate.type === "knowledge_node" && candidate.entry.temp_id === sourceTempId);
-  const targetCandidate = targetTempId && nodeCandidates.some((candidate) => candidate.type === "knowledge_node" && candidate.entry.temp_id === targetTempId);
-  if (!sourceKnown && !sourceCandidate) issues.push("source_temp_idまたはsource_node_idを解決できません");
-  if (!targetKnown && !targetCandidate) issues.push("target_temp_idまたはtarget_node_idを解決できません");
-  if ((sourceNodeId && sourceNodeId === targetNodeId) || (sourceTempId && sourceTempId === targetTempId)) {
+  const sourceCandidate =
+    sourceTempId &&
+    nodeCandidates.some(
+      (candidate) =>
+        candidate.type === "knowledge_node" && candidate.entry.temp_id === sourceTempId,
+    );
+  const targetCandidate =
+    targetTempId &&
+    nodeCandidates.some(
+      (candidate) =>
+        candidate.type === "knowledge_node" && candidate.entry.temp_id === targetTempId,
+    );
+  if (!sourceKnown && !sourceCandidate)
+    issues.push("source_temp_idまたはsource_node_idを解決できません");
+  if (!targetKnown && !targetCandidate)
+    issues.push("target_temp_idまたはtarget_node_idを解決できません");
+  if (
+    (sourceNodeId && sourceNodeId === targetNodeId) ||
+    (sourceTempId && sourceTempId === targetTempId)
+  ) {
     issues.push("edgeの自己参照はできません");
   }
   const normalized = {
@@ -272,14 +368,19 @@ function normalizeKnowledgeEdge(entry, nodeCandidates, nodes, collection) {
     relation_type: relationType,
     description: text(entry.description),
   };
-  return finishCandidate({ type: "knowledge_edge", duplicate: findDuplicateEdge(collection, normalized), issues }, normalized);
+  return finishCandidate(
+    { type: "knowledge_edge", duplicate: findDuplicateEdge(collection, normalized), issues },
+    normalized,
+  );
 }
 
 function findDuplicateEdge(collection, entry) {
-  return collection.find((edge) =>
-    edge.source_node_id === entry.source_node_id
-    && edge.target_node_id === entry.target_node_id
-    && edge.relation_type === entry.relation_type);
+  return collection.find(
+    (edge) =>
+      edge.source_node_id === entry.source_node_id &&
+      edge.target_node_id === entry.target_node_id &&
+      edge.relation_type === entry.relation_type,
+  );
 }
 
 function finishCandidate(base, entry) {
@@ -288,7 +389,10 @@ function finishCandidate(base, entry) {
   return {
     ...base,
     entry,
-    action: base.issues.length && requestedAction !== "ignore" ? "ignore" : requestedAction || defaultAction,
+    action:
+      base.issues.length && requestedAction !== "ignore"
+        ? "ignore"
+        : requestedAction || defaultAction,
     sourceRecordTitle: "貼り付けAI出力",
   };
 }

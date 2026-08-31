@@ -67,3 +67,28 @@ test("Task Proposal keeps generated change_event outside ApplyAiProposal candida
     false,
   );
 });
+
+test("Note Proposal keeps an omitted Theme unset while retaining its Report type", () => {
+  const preview = buildPreview(
+    {
+      id: "proposal-note-without-theme",
+      payload_type: "notes",
+      payload: {
+        notes: [
+          {
+            action: "create",
+            title: "QA protocol report",
+            body: "## Protocol\n\n$\\sigma = L/(RA)$",
+            note_type: "report",
+          },
+        ],
+      },
+    },
+    { data: { notes: [] }, themes: [], items: [] },
+  );
+
+  assert.equal(preview.candidates[0].action, "create");
+  assert.equal(preview.candidates[0].theme, undefined);
+  assert.deepEqual(preview.candidates[0].issues, []);
+  assert.equal(preview.candidates[0].entry.note_type, "report");
+});

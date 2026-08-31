@@ -209,6 +209,24 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
     drawer,
     /!\["done", "cancelled"\]\.includes\(task\.state\) &&\s*!\["accepted", "reported_done", "needs_human_review", "in_progress"\]\.includes\(\s*workState,?\s*\)/,
   );
+  assert.match(drawer, /AIへ依頼を準備/);
+  assert.match(drawer, /intended_executor: "ai_agent", work_state: "ready_for_agent"/);
+  assert.match(drawer, /Coding AgentがTasken MCPから取得できます/);
+  assert.match(drawer, /workspaceApi\.copyText\(/);
+  assert.match(drawer, /tasken\.get_task_context に task_id=/);
+  assert.match(drawer, /AIへ渡る内容を確認/);
+  assert.doesNotMatch(
+    drawer,
+    /useEffect\(\(\) => \{\s*if \(isAiDelegationReady\) setWorkOpen\(true\);/,
+  );
+  assert.match(
+    drawer,
+    /key=\{`\$\{task\.id\}:\$\{task\.work_state \|\| task\.intended_executor \|\| "not_delegated"\}`\}/,
+  );
+  assert.match(
+    drawer,
+    /key=\{`\$\{taskForWorkSection\.id\}:\$\{taskForWorkSection\.work_state \|\| taskForWorkSection\.intended_executor \|\| "not_delegated"\}`\}/,
+  );
 
   const repo = repository();
   const service = new ApplicationCommandService(repo);

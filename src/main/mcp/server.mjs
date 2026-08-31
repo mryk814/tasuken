@@ -25,6 +25,8 @@ const optionalLimit = z.number().int().positive().max(100).optional();
 const optionalWave7ThemeId = z.string().trim().min(1).max(200).optional();
 const optionalWave7Query = z.string().trim().min(1).max(1000).optional();
 const optionalWave7NodeTypes = z.array(z.string().trim().min(1).max(100)).max(8).optional();
+const NOTE_MARKDOWN_BODY_DESCRIPTION =
+  "Markdown body. Keep the title in the separate title field; do not repeat it as an H1. Short notes need no heading; longer notes may use ##/###. Let the UI number headings instead of typing numbers. Supported rendering includes inline $...$, display $$...$$ on its own line, ```mermaid fenced code, and > [!INSIGHT] (MEMO). These are authoring recommendations, not validation: do not wrap the whole body in a code fence or imply that Markdown creates Task, Reference, or other relations.";
 
 function toolResult(value) {
   return {
@@ -106,7 +108,7 @@ export function createTaskenMcpServer(options = {}) {
     {
       instructions: readOnly
         ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed."
-        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Write tools only queue a Proposal; tell the user to review it in Tasken before it becomes official data.",
+        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Write tools only queue a Proposal. A successful write returns a Proposal ID, not a Note ID; tell the user to review and accept it in Tasken before it becomes official data. A Note proposal may carry a Theme, not a Task or Reference relation.",
     },
   );
 
@@ -1329,11 +1331,11 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.propose_note",
     {
       description:
-        "Queue a new Note proposal. This does not create the Note until the user accepts it in Tasken.",
+        "Queue a new Note proposal. Note display type is `memo`; Report is `report`; Prompt is `prompt`. This does not create the Note until the user accepts it in Tasken. A successful result returns a Proposal ID, not a Note ID. When provided, theme is the only association; this does not create a Task or Reference relation.",
       inputSchema: {
         ...contentProposalBase,
         title: z.string().trim().min(1).max(200),
-        body: z.string().min(1).max(200000),
+        body: z.string().min(1).max(200000).describe(NOTE_MARKDOWN_BODY_DESCRIPTION),
         theme: optionalText,
         note_type: z.enum(["memo", "report", "prompt"]).optional(),
         reason: z.string().max(2000).optional(),
@@ -1354,7 +1356,7 @@ export function createTaskenMcpServer(options = {}) {
         note_id: z.string().trim().min(1),
         base_version: z.number().int().positive(),
         title: z.string().trim().min(1).max(200),
-        body: z.string().max(200000),
+        body: z.string().max(200000).describe(NOTE_MARKDOWN_BODY_DESCRIPTION),
         reason: z.string().trim().min(1).max(2000),
         source_app: z.string().trim().min(1).max(120).optional(),
       },
