@@ -13,8 +13,8 @@ function domainFixture() {
   const hookSession = {
     id: "session-pending",
     source_session_id: "codex-source",
-    started_at: "2026-08-25T10:00:00+09:00",
-    ended_at: "2026-08-25T11:00:00+09:00",
+    started_at: new Date(2026, 7, 25, 10).toISOString(),
+    ended_at: new Date(2026, 7, 25, 11).toISOString(),
     status: "completed",
     client_kind: "codex",
     intent: { summary: "Prepare the daily report" },
@@ -25,8 +25,12 @@ function domainFixture() {
       verification: [],
       remaining_work: [],
     },
-    request_events: [{ observed_at: "2026-08-25T10:00:00+09:00", text: "Write protocol" }],
-    response_checkpoints: [{ observed_at: "2026-08-25T11:00:00+09:00", text: "Saved as a Note" }],
+    request_events: [
+      { observed_at: new Date(2026, 7, 25, 10).toISOString(), text: "Write protocol" },
+    ],
+    response_checkpoints: [
+      { observed_at: new Date(2026, 7, 25, 11).toISOString(), text: "Saved as a Note" },
+    ],
   };
   const proposal = {
     id: "proposal-1",
@@ -41,8 +45,8 @@ function domainFixture() {
         ...hookSession,
         id: "session-canonical",
         source_session_id: "canonical-source",
-        started_at: "2026-08-25T08:00:00+09:00",
-        ended_at: "2026-08-25T09:00:00+09:00",
+        started_at: new Date(2026, 7, 25, 8).toISOString(),
+        ended_at: new Date(2026, 7, 25, 9).toISOString(),
       },
     ],
     ai_proposals: [proposal],

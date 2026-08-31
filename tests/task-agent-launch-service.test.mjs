@@ -163,13 +163,16 @@ test("Task agent launch rejects stale, unavailable, private, and no-longer-ready
 
     const unavailableRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-agent-launch-"));
     const unavailable = fixture(unavailableRoot);
+    const unavailableOptions = await unavailable.service.getTaskAgentLaunchOptions({
+      taskId: "task-1",
+    });
     await assert.rejects(
       unavailable.service.launchTaskAgent({
         taskId: "task-1",
         clientId: "github_copilot",
         repositoryContextId: "repository-1",
         expectedTaskVersion: 4,
-        expectedLocalPath: unavailable.repositoryPath,
+        expectedLocalPath: unavailableOptions.repositories[0].localPath,
       }),
       /Copilot CLIが見つかりません/,
     );
@@ -251,7 +254,7 @@ test("Task agent launch displays the resolved directory instead of a junction pa
     const options = await item.service.getTaskAgentLaunchOptions({ taskId: "task-1" });
     assert.equal(
       options.repositories[0].localPath,
-      normalizeLocalRepositoryPath(fs.realpathSync(item.repositoryPath)),
+      normalizeLocalRepositoryPath(await fs.promises.realpath(item.repositoryPath)),
     );
     assert.notEqual(options.repositories[0].localPath, normalizeLocalRepositoryPath(junctionPath));
     const otherPath = path.join(root, "other-repository");
