@@ -6,6 +6,8 @@ Issue #412 / #413で、Desktop・MCP・Mobileが同じapplication serviceを使�
 
 Desktop Mainが`WorkspaceDatabase`を生成して`TaskenDesktopComposition`へ注入する。compositionは`ApplicationCommandService`、`TaskenCoreRuntime`、単一の`TaskCapabilityService`を所有し、Desktop IPC、Core HTTP、Mobile adapterへ同じinstanceを渡す。Core hostは`127.0.0.1`のephemeral portだけで待ち受け、userData配下のowner-only discovery documentにAPI version、named capabilities、origin、256-bit tokenを原子的に公開する。
 
+Windowsでdiscoveryのrenameが`EPERM`になった場合だけ、50ms間隔で最大3回試行する。既存discoveryを先に削除せず、回復しない場合は元のエラーで起動を失敗させ、待ち受けserverを閉じる。`node --test tests/tasken-core-discovery.test.mjs`で一過性エラーからの回復、恒久失敗時の既存ファイル保全と一時ファイル・serverの後始末を検証する。
+
 stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 27 toolsとProposal 14 toolsはすべて認証済みCore clientを通る。
 
 ```text
