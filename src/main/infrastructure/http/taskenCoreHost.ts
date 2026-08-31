@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs/promises";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
+import { setTimeout } from "node:timers/promises";
 
 import type {
   FindTasksForRepositoryResponse,
@@ -343,7 +344,18 @@ async function atomicWriteDiscovery(filePath: string, document: DiscoveryDocumen
     } catch {
       // Windows ACL is inherited from userData; chmod is best effort there.
     }
-    await fs.rename(temporary, filePath);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await fs.rename(temporary, filePath);
+        break;
+      } catch (error) {
+        if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM" || attempt === 2) {
+          throw error;
+        }
+        // Retry a brief Windows rename denial without removing the current discovery.
+        await setTimeout(50);
+      }
+    }
     try {
       await fs.chmod(filePath, 0o600);
     } catch {
