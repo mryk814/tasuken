@@ -239,6 +239,12 @@ function receiptExternalReferences(receipt: WorkReceipt) {
   }
 }
 
+function taskAgentErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message
+    ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "")
+    : "選択肢を再読込して、もう一度お試しください。";
+}
+
 function TaskWorkSection({
   task,
   receipts,
@@ -246,6 +252,8 @@ function TaskWorkSection({
   setToast,
   data,
   openDrawer,
+  hasUnsavedChanges = false,
+  showAgentLaunch = false,
 }: {
   task: Task;
   receipts: WorkReceipt[];
@@ -253,6 +261,8 @@ function TaskWorkSection({
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   data?: WorkspaceData;
   openDrawer?: (drawer: DrawerConfig) => void;
+  hasUnsavedChanges?: boolean;
+  showAgentLaunch?: boolean;
 }) {
   const [summary, setSummary] = useState("");
   const [completedItems, setCompletedItems] = useState("");
@@ -261,6 +271,14 @@ function TaskWorkSection({
   const [remainingWork, setRemainingWork] = useState("");
   const [reviewNote, setReviewNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [launchOptions, setLaunchOptions] = useState<Awaited<
+    ReturnType<typeof workspaceApi.getTaskAgentLaunchOptions>
+  > | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
+  const [launchLoading, setLaunchLoading] = useState(false);
+  const [launchInFlight, setLaunchInFlight] = useState(false);
+  const [launchError, setLaunchError] = useState("");
   const workState =
     task.work_state ||
     (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
@@ -279,13 +297,77 @@ function TaskWorkSection({
     (executorKind === "ai_agent" ? "AI agent" : executorKind === "human" ? "人" : "自分");
   const hasWorkHistory = sortedReceipts.length > 0;
   const hasDelegatedWork =
-    task.requester !== "self" ||
-    task.intended_executor !== "self" ||
+    (task.requester || "self") !== "self" ||
+    (task.intended_executor || "self") !== "self" ||
     workState !== "not_delegated" ||
     hasWorkHistory;
   const isAiDelegationReady =
     task.intended_executor === "ai_agent" && workState === "ready_for_agent";
-  const [workOpen, setWorkOpen] = useState(hasWorkHistory || workState !== "not_delegated");
+  const canLaunchTaskAgent =
+    !["done", "cancelled"].includes(task.state) && (isAiDelegationReady || showAgentLaunch);
+  const [workOpen, setWorkOpen] = useState(
+    hasWorkHistory || workState !== "not_delegated" || canLaunchTaskAgent,
+  );
+  const selectedClient = launchOptions?.clients.find(
+    (client) => client.id === selectedClientId && client.available,
+  );
+  const selectedRepository = launchOptions?.repositories.find(
+    (repository) => repository.id === selectedRepositoryId,
+  );
+  const loadTaskAgentLaunchOptions = async () => {
+    if (launchLoading) return;
+    setLaunchLoading(true);
+    setLaunchError("");
+    try {
+      const next = await workspaceApi.getTaskAgentLaunchOptions({ taskId: task.id });
+      setLaunchOptions(next);
+      setSelectedClientId((current) => {
+        if (next.clients.some((client) => client.id === current && client.available))
+          return current;
+        return next.clients.find((client) => client.available)?.id || "";
+      });
+      setSelectedRepositoryId((current) => {
+        if (next.repositories.some((repository) => repository.id === current)) return current;
+        return next.repositories[0]?.id || "";
+      });
+    } catch (error) {
+      setLaunchOptions(null);
+      setLaunchError(`起動先を読み込めませんでした。${taskAgentErrorMessage(error)}`);
+    } finally {
+      setLaunchLoading(false);
+    }
+  };
+  const launchTaskAgent = async () => {
+    if (
+      hasUnsavedChanges ||
+      launchLoading ||
+      launchInFlight ||
+      !launchOptions ||
+      !selectedClient ||
+      !selectedRepository
+    ) {
+      return;
+    }
+    setLaunchInFlight(true);
+    setLaunchError("");
+    try {
+      const result = await workspaceApi.launchTaskAgent({
+        taskId: task.id,
+        clientId: selectedClient.id,
+        repositoryContextId: selectedRepository.id,
+        expectedTaskVersion: launchOptions.taskVersion,
+        expectedLocalPath: selectedRepository.localPath,
+      });
+      setToast(
+        `${result.clientLabel}を開きました。実行状況は開いた画面で確認してください。`,
+        "success",
+      );
+    } catch (error) {
+      setLaunchError(`AIを起動できませんでした。${taskAgentErrorMessage(error)}`);
+    } finally {
+      setLaunchInFlight(false);
+    }
+  };
   const copyAiRequest = async () => {
     try {
       await workspaceApi.copyText(
@@ -364,7 +446,9 @@ function TaskWorkSection({
       "Work Receiptを追加しました。人間の確認待ちです。",
     );
   };
-  if (!hasDelegatedWork || (!executeCommand && !isAiDelegationReady)) return null;
+  if ((!hasDelegatedWork && !canLaunchTaskAgent) || (!executeCommand && !isAiDelegationReady)) {
+    return null;
+  }
   return (
     <details
       className="drawer-subsection drawer-disclosure task-work-disclosure"
@@ -373,7 +457,7 @@ function TaskWorkSection({
     >
       <summary aria-labelledby="task-work-heading">
         <span className="drawer-disclosure-title" id="task-work-heading">
-          {isAiDelegationReady ? "AIへの依頼" : "作業履歴"}
+          {canLaunchTaskAgent ? "AIへの依頼" : "作業履歴"}
         </span>
         <span className="drawer-disclosure-meta">担当: {executorLabel}</span>
         <StatusBadge
@@ -386,80 +470,172 @@ function TaskWorkSection({
       <div className="drawer-disclosure-body">
         {isAiDelegationReady && (
           <>
-            <p className="field-help">
-              このTaskはCoding AgentがTasken MCPから取得できます。ここから外部Agentは起動しません。
-            </p>
+            <p className="field-help">このTaskはCoding AgentがTasken MCPから取得できます。</p>
             <button className="secondary-button" type="button" onClick={() => void copyAiRequest()}>
               <IconCopyPlus size={16} />
               依頼文をコピー
             </button>
-            {data && openDrawer && (
-              <details className="drawer-subsection drawer-disclosure">
-                <summary>
-                  <span className="drawer-disclosure-title">AIへ渡る内容を確認</span>
-                </summary>
-                <div className="drawer-disclosure-body">
-                  <AiContextPreviewPanel
-                    scope={{ type: "task", id: task.id }}
-                    data={data}
-                    openDrawer={openDrawer}
-                  />
-                </div>
-              </details>
-            )}
           </>
         )}
-        {sortedReceipts.length > 0 ? (
-          <div className="task-learning-list" aria-label="Work Receipt一覧">
-            {sortedReceipts.map((receipt) => (
-              <article className="task-learning-item" key={receipt.id}>
-                <div className="section-heading">
-                  <strong>{receipt.executor_label}</strong>
-                  <small>{formatDate(receipt.reported_at)}</small>
-                </div>
-                <p>{receipt.summary}</p>
-                {receipt.completed_items?.length > 0 && (
-                  <p>
-                    <strong>完了:</strong> {receipt.completed_items.join("、")}
-                  </p>
-                )}
-                {receipt.changed_or_created_items?.length > 0 && (
-                  <p>
-                    <strong>変更・作成:</strong> {receipt.changed_or_created_items.join("、")}
-                  </p>
-                )}
-                {receipt.verification?.length ? (
-                  <p>
-                    <strong>検証:</strong> {receipt.verification.join("、")}
-                  </p>
-                ) : null}
-                {receipt.remaining_work?.length ? (
-                  <p>
-                    <strong>残り:</strong> {receipt.remaining_work.join("、")}
-                  </p>
-                ) : null}
-                {receiptExternalReferences(receipt).length > 0 && (
-                  <div className="task-work-external-references" aria-label="External references">
-                    {receiptExternalReferences(receipt).map((reference) => (
-                      <a
-                        key={`${reference.kind}:${reference.url}`}
-                        href={reference.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={EXTERNAL_REFERENCE_KIND_LABELS[reference.kind]}
+        {canLaunchTaskAgent && (
+          <details
+            className="drawer-subsection drawer-disclosure task-agent-launch"
+            onToggle={(event) => {
+              if (event.currentTarget.open && !launchOptions && !launchLoading) {
+                void loadTaskAgentLaunchOptions();
+              }
+            }}
+          >
+            <summary>
+              <span className="drawer-disclosure-title">AIを起動して渡す</span>
+            </summary>
+            <div className="drawer-disclosure-body">
+              {hasUnsavedChanges && (
+                <p className="field-help">変更を保存してからAIを起動してください。</p>
+              )}
+              {launchLoading && <p className="field-help">起動先を確認しています。</p>}
+              {launchError && (
+                <p className="alert-note danger" role="alert">
+                  {launchError}
+                </p>
+              )}
+              {launchOptions && (
+                <>
+                  {!selectedClient ? (
+                    <p className="alert-note warning">
+                      利用できるAIクライアントがありません。Claude CodeまたはGitHub
+                      Copilotを導入してから再読込してください。
+                    </p>
+                  ) : (
+                    <Field label="AIクライアント">
+                      <select
+                        value={selectedClientId}
+                        onChange={(event) => setSelectedClientId(event.target.value)}
+                        disabled={launchInFlight}
                       >
-                        {reference.display_label}
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p className="field-help">まだ作業報告はありません。</p>
+                        {launchOptions.clients
+                          .filter((client) => client.available)
+                          .map((client) => (
+                            <option key={client.id} value={client.id}>
+                              {client.label}
+                            </option>
+                          ))}
+                      </select>
+                    </Field>
+                  )}
+                  {!selectedRepository ? (
+                    <p className="alert-note warning">
+                      Themeのリポジトリ設定でローカルパスを設定してください。
+                    </p>
+                  ) : (
+                    <Field label="リポジトリ">
+                      <select
+                        value={selectedRepositoryId}
+                        onChange={(event) => setSelectedRepositoryId(event.target.value)}
+                        disabled={launchInFlight}
+                      >
+                        {launchOptions.repositories.map((repository) => (
+                          <option key={repository.id} value={repository.id}>
+                            {repository.label}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  )}
+                  {selectedClient && selectedRepository && (
+                    <div className="task-agent-launch-confirmation">
+                      <code>{selectedRepository.localPath}</code>
+                      <strong>{task.title}</strong>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={hasUnsavedChanges || launchLoading || launchInFlight}
+                        onClick={() => void launchTaskAgent()}
+                      >
+                        {launchInFlight ? "起動しています…" : `${selectedClient.label}で起動`}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+              <button
+                className="text-button compact"
+                type="button"
+                disabled={launchLoading || launchInFlight}
+                onClick={() => void loadTaskAgentLaunchOptions()}
+              >
+                選択肢を再読込
+              </button>
+            </div>
+          </details>
         )}
-        {!["done", "cancelled"].includes(task.state) &&
+        {isAiDelegationReady && data && openDrawer && (
+          <details className="drawer-subsection drawer-disclosure">
+            <summary>
+              <span className="drawer-disclosure-title">AIへ渡る内容を確認</span>
+            </summary>
+            <div className="drawer-disclosure-body">
+              <AiContextPreviewPanel
+                scope={{ type: "task", id: task.id }}
+                data={data}
+                openDrawer={openDrawer}
+              />
+            </div>
+          </details>
+        )}
+        {hasDelegatedWork &&
+          (sortedReceipts.length > 0 ? (
+            <div className="task-learning-list" aria-label="Work Receipt一覧">
+              {sortedReceipts.map((receipt) => (
+                <article className="task-learning-item" key={receipt.id}>
+                  <div className="section-heading">
+                    <strong>{receipt.executor_label}</strong>
+                    <small>{formatDate(receipt.reported_at)}</small>
+                  </div>
+                  <p>{receipt.summary}</p>
+                  {receipt.completed_items?.length > 0 && (
+                    <p>
+                      <strong>完了:</strong> {receipt.completed_items.join("、")}
+                    </p>
+                  )}
+                  {receipt.changed_or_created_items?.length > 0 && (
+                    <p>
+                      <strong>変更・作成:</strong> {receipt.changed_or_created_items.join("、")}
+                    </p>
+                  )}
+                  {receipt.verification?.length ? (
+                    <p>
+                      <strong>検証:</strong> {receipt.verification.join("、")}
+                    </p>
+                  ) : null}
+                  {receipt.remaining_work?.length ? (
+                    <p>
+                      <strong>残り:</strong> {receipt.remaining_work.join("、")}
+                    </p>
+                  ) : null}
+                  {receiptExternalReferences(receipt).length > 0 && (
+                    <div className="task-work-external-references" aria-label="External references">
+                      {receiptExternalReferences(receipt).map((reference) => (
+                        <a
+                          key={`${reference.kind}:${reference.url}`}
+                          href={reference.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={EXTERNAL_REFERENCE_KIND_LABELS[reference.kind]}
+                        >
+                          {reference.display_label}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="field-help">まだ作業報告はありません。</p>
+          ))}
+        {hasDelegatedWork &&
+          !["done", "cancelled"].includes(task.state) &&
           !["accepted", "reported_done", "needs_human_review", "in_progress"].includes(
             workState,
           ) && (
@@ -482,7 +658,7 @@ function TaskWorkSection({
               作業を開始する
             </button>
           )}
-        {workState === "in_progress" && (
+        {hasDelegatedWork && workState === "in_progress" && (
           <form className="form-grid" onSubmit={report}>
             <Field label="報告の概要">
               <textarea
@@ -1512,170 +1688,174 @@ function EditDrawer({
   return (
     <aside className="drawer">
       <DrawerHeader title={title} close={close} />
-      <form
-        id={editFormId}
-        ref={registerEditForm}
-        className="drawer-form"
-        data-entity-type={type}
-        onSubmit={saveForm}
-        key={`${type}:${entityId || "new"}:${str(entity.theme_id)}:${str(entity.parent_item_id)}`}
-      >
-        {type === "task" && entityId && (
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => startFocusSession?.(entityId)}
-          >
-            <IconClock size={16} />
-            集中して作業する
-          </button>
-        )}
-        {type === "theme" && (
-          <>
-            <Field label="テーマ名">
-              <input name="name" autoFocus defaultValue={str(entity.name)} />
-            </Field>
-            <Field label="識別子">
-              <input name="code" defaultValue={str(entity.code)} placeholder="例: MAT-A" />
-            </Field>
-            <Field label="概要">
-              <textarea name="description" defaultValue={str(entity.description)} />
-            </Field>
-            <ThemeIntentFields entity={entity} />
-            <ThemeColorPicker value={str(entity.color)} />
-            <ThemeGroupPicker value={str(entity.group)} themes={data.themes} />
-            <ThemeStorageRootField value={str(entity.storage_root)} setToast={setToast} />
-            <ThemeRepositoryContextFields
-              entity={entity}
-              data={data}
-              focusRepository={drawer.initialSection === "repository"}
-              saveEntities={saveEntities}
-              removeEntity={removeEntity}
-            />
-            <ThemeAiVisibilityField
-              value={entity.default_ai_visibility as AiAudience[] | null | undefined}
-              workspaceDefault={workspaceAiVisibilityDefault}
-            />
-          </>
-        )}
-        {type === "note" && <NoteFields entity={entity} data={data} />}
-        {type === "resource" && <ResourceFields entity={entity} data={data} />}
-        {type === "status_update" && (
-          <>
-            <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
-            <Field label="日付">
-              <input name="date" type="date" defaultValue={str(entity.date) || todayIso()} />
-            </Field>
-            <Field label="状態">
-              <select name="status" defaultValue={str(entity.status) || "on_track"}>
-                {Object.entries(THEME_STATUS_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="概要">
-              <textarea name="summary" autoFocus defaultValue={str(entity.summary)} />
-            </Field>
-            <Field label="進捗">
-              <input
-                name="progress"
-                type="number"
-                min="0"
-                max="100"
-                defaultValue={num(entity.progress)}
+      <div className="drawer-edit-body">
+        <form
+          id={editFormId}
+          ref={registerEditForm}
+          className="drawer-form"
+          data-entity-type={type}
+          onSubmit={saveForm}
+          key={`${type}:${entityId || "new"}:${str(entity.theme_id)}:${str(entity.parent_item_id)}`}
+        >
+          {type === "task" && entityId && (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => startFocusSession?.(entityId)}
+            >
+              <IconClock size={16} />
+              集中して作業する
+            </button>
+          )}
+          {type === "theme" && (
+            <>
+              <Field label="テーマ名">
+                <input name="name" autoFocus defaultValue={str(entity.name)} />
+              </Field>
+              <Field label="識別子">
+                <input name="code" defaultValue={str(entity.code)} placeholder="例: MAT-A" />
+              </Field>
+              <Field label="概要">
+                <textarea name="description" defaultValue={str(entity.description)} />
+              </Field>
+              <ThemeIntentFields entity={entity} />
+              <ThemeColorPicker value={str(entity.color)} />
+              <ThemeGroupPicker value={str(entity.group)} themes={data.themes} />
+              <ThemeStorageRootField value={str(entity.storage_root)} setToast={setToast} />
+              <ThemeRepositoryContextFields
+                entity={entity}
+                data={data}
+                focusRepository={drawer.initialSection === "repository"}
+                saveEntities={saveEntities}
+                removeEntity={removeEntity}
               />
-            </Field>
-            <Field label="リスク">
-              <textarea name="risks" defaultValue={str(entity.risks)} />
-            </Field>
-            <Field label="次アクション">
-              <textarea name="next_actions" defaultValue={str(entity.next_actions)} />
-            </Field>
-          </>
-        )}
-        {type === "knowledge_node" && <KnowledgeNodeFields entity={entity} data={data} />}
-        {type === "knowledge_edge" && <KnowledgeEdgeFields entity={entity} data={data} />}
-        {type === "task" && (
-          <TaskFields
-            key={taskChecklistEditorKey}
-            entity={taskFormEntity}
+              <ThemeAiVisibilityField
+                value={entity.default_ai_visibility as AiAudience[] | null | undefined}
+                workspaceDefault={workspaceAiVisibilityDefault}
+              />
+            </>
+          )}
+          {type === "note" && <NoteFields entity={entity} data={data} />}
+          {type === "resource" && <ResourceFields entity={entity} data={data} />}
+          {type === "status_update" && (
+            <>
+              <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
+              <Field label="日付">
+                <input name="date" type="date" defaultValue={str(entity.date) || todayIso()} />
+              </Field>
+              <Field label="状態">
+                <select name="status" defaultValue={str(entity.status) || "on_track"}>
+                  {Object.entries(THEME_STATUS_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="概要">
+                <textarea name="summary" autoFocus defaultValue={str(entity.summary)} />
+              </Field>
+              <Field label="進捗">
+                <input
+                  name="progress"
+                  type="number"
+                  min="0"
+                  max="100"
+                  defaultValue={num(entity.progress)}
+                />
+              </Field>
+              <Field label="リスク">
+                <textarea name="risks" defaultValue={str(entity.risks)} />
+              </Field>
+              <Field label="次アクション">
+                <textarea name="next_actions" defaultValue={str(entity.next_actions)} />
+              </Field>
+            </>
+          )}
+          {type === "knowledge_node" && <KnowledgeNodeFields entity={entity} data={data} />}
+          {type === "knowledge_edge" && <KnowledgeEdgeFields entity={entity} data={data} />}
+          {type === "task" && (
+            <TaskFields
+              key={taskChecklistEditorKey}
+              entity={taskFormEntity}
+              data={data}
+              saveEntities={saveEntities}
+              onChecklistSavePending={registerChecklistSave}
+              onChecklistSaved={markChecklistSaved}
+              onChecklistDraftChange={markChecklistDraftChange}
+              onPrepareAiDelegation={prepareAiDelegation}
+              hasUnsavedChanges={isFormDirty}
+            />
+          )}
+          {type === "waiting" && <WaitingFields entity={entity} data={data} />}
+          {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
+          {type === "capture_entry" && (
+            <>
+              {!entityId && (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => {
+                    // 録音の入口はStudioへ移した（#383）。手数を増やさないよう導線は残す。
+                    close();
+                    navigate?.("studio");
+                    requestInboxRecorder();
+                  }}
+                >
+                  <IconMicrophone size={16} />
+                  マイクで録音
+                </button>
+              )}
+              <CaptureEntryFields entity={entity} />
+            </>
+          )}
+          {type === "sketch" && (
+            <>
+              <Field label="タイトル">
+                <input name="title" autoFocus defaultValue={str(entity.title)} />
+              </Field>
+              <ThemeSelect
+                themes={data.themes}
+                value={str(entity.project_id)}
+                fieldName="project_id"
+              />
+              {entity.id && (
+                <dl className="sketch-drawer-meta">
+                  <dt>ページ</dt>
+                  <dd>
+                    {entity.document &&
+                    sketchCanvasMode(entity.document as Sketch["document"]) === "infinite"
+                      ? "Infinite Canvas"
+                      : `${(entity.document as Sketch["document"] | undefined)?.pages.length || 1}ページ`}
+                  </dd>
+                  <dt>更新</dt>
+                  <dd>{formatDate(entity.updated_at)}</dd>
+                </dl>
+              )}
+            </>
+          )}
+          {/* AI共通metadata（#294）。通常編集の主目的を圧迫しないよう折りたたみで置く。 */}
+          <AiContextFields
+            type={type}
+            entity={entity}
+            themes={data.themes}
+            workspaceDefault={workspaceAiVisibilityDefault}
+          />
+        </form>
+        {taskForWorkSection && (
+          <TaskWorkSection
+            key={`${taskForWorkSection.id}:${taskForWorkSection.work_state || taskForWorkSection.intended_executor || "not_delegated"}`}
+            task={taskForWorkSection}
+            receipts={(data.work_receipts || []) as unknown as WorkReceipt[]}
+            executeCommand={_executeCommand}
+            setToast={setToast}
             data={data}
-            saveEntities={saveEntities}
-            onChecklistSavePending={registerChecklistSave}
-            onChecklistSaved={markChecklistSaved}
-            onChecklistDraftChange={markChecklistDraftChange}
-            onPrepareAiDelegation={prepareAiDelegation}
+            openDrawer={(next) => close(next)}
             hasUnsavedChanges={isFormDirty}
+            showAgentLaunch
           />
         )}
-        {type === "waiting" && <WaitingFields entity={entity} data={data} />}
-        {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
-        {type === "capture_entry" && (
-          <>
-            {!entityId && (
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => {
-                  // 録音の入口はStudioへ移した（#383）。手数を増やさないよう導線は残す。
-                  close();
-                  navigate?.("studio");
-                  requestInboxRecorder();
-                }}
-              >
-                <IconMicrophone size={16} />
-                マイクで録音
-              </button>
-            )}
-            <CaptureEntryFields entity={entity} />
-          </>
-        )}
-        {type === "sketch" && (
-          <>
-            <Field label="タイトル">
-              <input name="title" autoFocus defaultValue={str(entity.title)} />
-            </Field>
-            <ThemeSelect
-              themes={data.themes}
-              value={str(entity.project_id)}
-              fieldName="project_id"
-            />
-            {entity.id && (
-              <dl className="sketch-drawer-meta">
-                <dt>ページ</dt>
-                <dd>
-                  {entity.document &&
-                  sketchCanvasMode(entity.document as Sketch["document"]) === "infinite"
-                    ? "Infinite Canvas"
-                    : `${(entity.document as Sketch["document"] | undefined)?.pages.length || 1}ページ`}
-                </dd>
-                <dt>更新</dt>
-                <dd>{formatDate(entity.updated_at)}</dd>
-              </dl>
-            )}
-          </>
-        )}
-        {/* AI共通metadata（#294）。通常編集の主目的を圧迫しないよう折りたたみで置く。 */}
-        <AiContextFields
-          type={type}
-          entity={entity}
-          themes={data.themes}
-          workspaceDefault={workspaceAiVisibilityDefault}
-        />
-      </form>
-      {taskForWorkSection && (
-        <TaskWorkSection
-          key={`${taskForWorkSection.id}:${taskForWorkSection.work_state || taskForWorkSection.intended_executor || "not_delegated"}`}
-          task={taskForWorkSection}
-          receipts={(data.work_receipts || []) as unknown as WorkReceipt[]}
-          executeCommand={_executeCommand}
-          setToast={setToast}
-          data={data}
-          openDrawer={(next) => close(next)}
-        />
-      )}
+      </div>
       <div className="drawer-edit-footer">
         <div className="drawer-edit-actions">
           <button

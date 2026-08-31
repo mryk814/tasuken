@@ -591,6 +591,10 @@ export function registerIpc(
     service.openReleasePage(typeof url === "string" ? url : undefined),
   );
   ipcMain.handle(IPC.mcpBridgeInfo, () => service.getMcpBridgeInfo());
+  ipcMain.handle(IPC.taskAgentLaunchOptions, (_event, request) =>
+    service.getTaskAgentLaunchOptions(request),
+  );
+  ipcMain.handle(IPC.taskAgentLaunch, (_event, request) => service.launchTaskAgent(request));
   ipcMain.handle(IPC.appTitleBarTheme, (event, theme) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window) return false;

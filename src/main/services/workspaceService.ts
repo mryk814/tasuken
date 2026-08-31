@@ -34,6 +34,10 @@ import type {
   FilePreviewReadResult,
   WebArtifactPreviewResult,
   McpBridgeInfo,
+  TaskAgentLaunchOptions,
+  TaskAgentLaunchOptionsRequest,
+  TaskAgentLaunchRequest,
+  TaskAgentLaunchResult,
   AiContextPreviewRequest,
   AiContextPreviewResult,
   DataHealthQuery,
@@ -44,6 +48,8 @@ import type {
   ThemeAiPackStatusResult,
 } from "../../shared/ipc/contracts";
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
+import { TaskAgentLaunchService } from "./taskAgentLaunchService";
+import { getTaskAgentClients, launchTaskAgentProcess } from "./taskAgentProcess";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import {
   validateMermaidPptxDiagram,
@@ -706,6 +712,7 @@ export class WorkspaceService {
     getThemeContext(request: { theme_id: string }): Promise<unknown>;
     inspect(): Promise<{ api_version: string; capabilities: string[] }>;
   };
+  private readonly taskAgentLaunch: TaskAgentLaunchService;
 
   constructor(
     private readonly repository: WorkspaceRepository,
@@ -728,6 +735,13 @@ export class WorkspaceService {
       "conversation-context-recovery",
     );
     this.taskenCoreClient = taskenCoreClient;
+    this.taskAgentLaunch = new TaskAgentLaunchService({
+      repository,
+      userDataPath,
+      getMcpBridgeInfo: () => this.getMcpBridgeInfo(),
+      getTaskAgentClients,
+      launchTaskAgentProcess,
+    });
   }
 
   loadWorkspace(includeDeleted = false): unknown {
@@ -3346,6 +3360,16 @@ export class WorkspaceService {
           )
         : undefined,
     });
+  }
+
+  getTaskAgentLaunchOptions(
+    request: TaskAgentLaunchOptionsRequest,
+  ): Promise<TaskAgentLaunchOptions> {
+    return this.taskAgentLaunch.getTaskAgentLaunchOptions(request);
+  }
+
+  launchTaskAgent(request: TaskAgentLaunchRequest): Promise<TaskAgentLaunchResult> {
+    return this.taskAgentLaunch.launchTaskAgent(request);
   }
 
   async exportSnapshot(): Promise<{ canceled: boolean; filePath?: string }> {

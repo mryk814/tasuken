@@ -6414,7 +6414,8 @@ textarea:hover {
 }
 /* 編集項目だけが伸びてスクロール。保存 / Artifact / 削除は下部に固定する */
 .drawer-form,
-.drawer-content {
+.drawer-content,
+.drawer-edit-body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -6423,6 +6424,12 @@ textarea:hover {
   padding: var(--space-3) var(--space-4);
   overflow-x: hidden;
   overflow-y: auto;
+}
+.drawer-edit-body > .drawer-form {
+  flex: 0 0 auto;
+  min-height: auto;
+  padding: 0;
+  overflow: visible;
 }
 .drawer-edit-footer {
   flex: 0 0 auto;
@@ -6441,7 +6448,8 @@ textarea:hover {
 .drawer-edit-actions .primary-button {
   margin-right: auto;
 }
-.drawer-form label {
+.drawer-form label,
+.drawer-edit-body .task-work-disclosure label {
   display: grid;
   gap: var(--space-1);
   color: var(--color-text-secondary);
@@ -13248,6 +13256,23 @@ kbd {
 .task-work-external-references a:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
+}
+.task-agent-launch-confirmation {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+}
+.task-agent-launch-confirmation > code {
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.task-agent-launch-confirmation > .secondary-button {
+  justify-self: start;
+  margin-top: var(--space-1);
 }
 
 /* --- Sketch workspace --- */

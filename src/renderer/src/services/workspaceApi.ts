@@ -121,6 +121,14 @@ export const workspaceApi = {
   executeCommands(envelopes: CommandEnvelope[]) {
     return desktopApi().commands.executeBatch(envelopes);
   },
+  getTaskAgentLaunchOptions(
+    request: Parameters<Window["api"]["app"]["getTaskAgentLaunchOptions"]>[0],
+  ) {
+    return desktopApi().app.getTaskAgentLaunchOptions(request);
+  },
+  launchTaskAgent(request: Parameters<Window["api"]["app"]["launchTaskAgent"]>[0]) {
+    return desktopApi().app.launchTaskAgent(request);
+  },
   setPreference(key: string, value: unknown) {
     return desktopApi().preferences.set(key, value);
   },
