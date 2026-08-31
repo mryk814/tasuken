@@ -40,7 +40,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("再開する").performScrollTo().assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("未完了に戻す").performScrollTo().assertIsDisplayed().assertIsEnabled()
     }
 
     @Test
@@ -66,7 +66,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("再開に変更").performScrollTo().assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("未完了に変更").performScrollTo().assertIsDisplayed().assertIsEnabled()
     }
 
     @Test

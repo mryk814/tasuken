@@ -132,7 +132,7 @@ class TaskEntryFlowUiTest {
 
         capture("03-detail-open")
         composeRule.onNodeWithText("完了する").assertIsDisplayed().performClick()
-        composeRule.onNodeWithText("再開する").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("未完了に戻す").assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertEquals("todo", task.value.state) }
         capture("04-detail-reopened")
     }
