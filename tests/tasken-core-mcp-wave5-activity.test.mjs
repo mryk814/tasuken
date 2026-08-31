@@ -16,6 +16,7 @@ const bundled = await build({
   stdin: {
     contents: `
       export { ActivityEntriesQueryService } from "./src/main/core/services/activityEntriesQueryService.ts";
+      export { AgentWorkspaceQueryService } from "./src/main/core/services/agentWorkspaceQueryService.ts";
       export { WorkspaceActivityEntriesReadAdapter } from "./src/main/infrastructure/sqlite/workspaceActivityEntriesReadAdapter.ts";
     `,
     resolveDir: process.cwd(),
@@ -26,7 +27,11 @@ const bundled = await build({
   write: false,
   logLevel: "silent",
 });
-const { ActivityEntriesQueryService, WorkspaceActivityEntriesReadAdapter } = await import(
+const {
+  ActivityEntriesQueryService,
+  AgentWorkspaceQueryService,
+  WorkspaceActivityEntriesReadAdapter,
+} = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
 );
 
@@ -261,6 +266,68 @@ test("Daily Activity Core query uses the canonical local day and retains AI visi
     () => service.execute({ task_id: "task-visible", date: "2026-08-20" }),
     /task_id|date/,
   );
+});
+
+test("daily Activity and Session queries use the runtime local day without changing Task Activity", () => {
+  const previousTimeZone = process.env.TZ;
+  process.env.TZ = "UTC";
+  try {
+    const workspace = activityFixture();
+    workspace.change_events = [
+      "2026-08-30T23:59:59.000Z",
+      "2026-08-31T16:00:00.000Z",
+      "2026-09-01T00:00:00.000Z",
+    ].map((occurredAt, index) =>
+      buildActivityEvent({
+        id: `boundary-${index}`,
+        entity_type: "task",
+        entity_id: "task-visible",
+        event_kind: "task_work_recorded",
+        occurred_at: occurredAt,
+        after: workspace.tasks[0],
+        summary: `Boundary ${index}`,
+        metadata: { dedupe_key: `boundary-${index}` },
+      }),
+    );
+    const activity = new ActivityEntriesQueryService(new FixturePort(workspace));
+    assert.deepEqual(
+      activity.execute({ date: "2026-08-31" }).events.map((event) => [event.id, event.local_date]),
+      [["boundary-1", "2026-08-31"]],
+    );
+    assert.equal(
+      activity
+        .execute({ task_id: "task-visible" })
+        .events.find((event) => event.id === "boundary-1").local_date,
+      "2026-09-01",
+    );
+
+    const sessions = new AgentWorkspaceQueryService({
+      listTasks: () => [],
+      listThemes: () => [],
+      listRepositoryContexts: () => [],
+      listWorkReceipts: () => [],
+      listWorkingCopies: () => [],
+      listReferences: () => [],
+      workspaceAiVisibilityDefault: () => ["coding_agent"],
+      listAgentSessions: () =>
+        workspace.change_events.map((event) => ({
+          id: event.id,
+          started_at: event.occurred_at,
+          status: "active",
+          client_kind: "codex",
+          intent: { summary: event.summary },
+        })),
+    });
+    assert.deepEqual(
+      sessions
+        .getAgentSessionContext({ date: "2026-08-31", source_session: "daily-boundary" })
+        .sessions.map((session) => session.id),
+      ["boundary-1"],
+    );
+  } finally {
+    if (previousTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimeZone;
+  }
 });
 
 test("Activity adapter reads an empty WorkspaceDatabase without creating the default Theme", () => {

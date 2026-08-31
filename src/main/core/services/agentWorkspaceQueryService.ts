@@ -394,10 +394,13 @@ export class AgentWorkspaceQueryService {
         )
       );
     };
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const sessions = this.readPort
       .listAgentSessions(false)
       .filter((session) => globalDaily || relatedSessionIds.has(session.id))
-      .filter((session) => !request.date || localDate(session.started_at) === request.date)
+      .filter(
+        (session) => !request.date || localDate(session.started_at, timezone) === request.date,
+      )
       .filter((session) => !globalDaily || dailySessionIsVisible(session))
       .filter((session) => !request.client_kind || session.client_kind === request.client_kind)
       .filter((session) => !request.agent_label || session.agent_label === request.agent_label)

@@ -57,6 +57,7 @@ export class ActivityEntriesQueryService {
           themes: snapshot.visibilityThemes,
           references: workspace.references || [],
           date: request.date,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           audience: AUDIENCE,
           workspaceDefault: snapshot.workspaceAiVisibilityDefault,
           roots: workspace.canonical_root_status || {},

@@ -9,7 +9,7 @@ import type {
   Task,
   WorkReceipt,
   WorkspaceDomain,
-} from "../domain-model/types";
+} from "./types";
 import type { SaveOperation } from "../types";
 
 export interface AgentWorkProjectionRow {

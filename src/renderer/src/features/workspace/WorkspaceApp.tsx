@@ -46,7 +46,7 @@ import {
 } from "./lib/activityAutoExport";
 import { resolveActivityLogDirectory } from "./lib/activityLogDirectory";
 import { buildActivityReviewLog, collectActivityLogEntries } from "./lib/activityLog";
-import { buildAgentWorkProjection } from "./lib/agentSessionProjection";
+import { buildAgentWorkProjection } from "./domain-model/agentSessionProjection";
 import {
   buildDailyAgentSessionContexts,
   projectActivitySessionLogEntries,

@@ -36,7 +36,7 @@ const DAILY_REPORT_WRITING_GUIDANCE = [
   "Use short paragraphs and bullets; optional sections such as 今日進んだこと, 判断・未解決事項, 振り返り are a starting point, not fields to fill. Omit unsupported or empty sections and incidental tool statistics or terminology reviews. Keep the title separate (日報 YYYY-MM-DD); do not repeat it as an H1. Use only identifiers or links actually present in the context, without claiming they create Task relations.",
   "End with one or two adaptive questions grounded in a specific incident in this day's evidence, not a generic daily questionnaire. Prefer one useful question; add a second only for a distinct useful perspective. Ask what informed a choice, what would resolve an uncertainty, or what small experiment could test a pattern. Do not assume failure, feelings, or a decision not in the record. If evidence is too thin, say so instead of fabricating a question. Leave a blank > 回答： after each question; never fill human answers.",
   "Respect visibility and truncation. If evidence is partial, briefly state the coverage limit instead of implying a complete day. Prior reports and human answers are not evidence of today's work and must not be overwritten.",
-  "To save, use tasken.propose_note with note_type `report` and report_date from the context. Omit theme_id unless the user specified a Theme, so the report belongs to 個人業務. The user reviews and accepts the proposal in AI Inbox, then edits the Markdown in Notes. Report the returned Proposal ID as pending, not as a saved Note. Do not complete Tasks or create relations as a side effect.",
+  "To save, use tasken.propose_note with note_type `report` and report_date from the context. Omit theme unless the user specified a Theme, so the report belongs to 個人業務. The user reviews and accepts the proposal in AI Inbox, then edits the Markdown in Notes. Report the returned Proposal ID as pending, not as a saved Note. Do not complete Tasks or create relations as a side effect.",
 ].join("\n\n");
 
 function toolResult(value) {
@@ -178,7 +178,7 @@ export function createTaskenMcpServer(options = {}) {
         "Prepare a factual daily report draft from bounded Activity and Agent Session evidence.",
     },
     () => {
-      const reportDate = localDate(new Date());
+      const reportDate = localDate(new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone);
       return {
         description: "Prepare a daily report draft without inventing the user's answers.",
         messages: [
@@ -598,7 +598,6 @@ export function createTaskenMcpServer(options = {}) {
         ...new Map(
           contexts
             .flatMap((context) => context.sessions || [])
-            .filter((session) => !date || localDate(session.started_at) === date)
             .map((session) => [session.id, session]),
         ).values(),
       ]

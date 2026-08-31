@@ -503,8 +503,12 @@ function TaskWorkSection({
                 <>
                   {!selectedClient ? (
                     <p className="alert-note warning">
-                      利用できるAIクライアントがありません。Claude CodeまたはGitHub
-                      Copilotを導入してから再読込してください。
+                      {Array.from(
+                        new Set(
+                          launchOptions.clients.map((client) => client.reason).filter(Boolean),
+                        ),
+                      ).join(" ") ||
+                        "利用できるAIクライアントがありません。選択肢を再読込してください。"}
                     </p>
                   ) : (
                     <Field label="AIクライアント">

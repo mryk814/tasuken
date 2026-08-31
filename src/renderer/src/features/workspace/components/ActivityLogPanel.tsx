@@ -31,7 +31,7 @@ import {
 import {
   buildAgentWorkProjection,
   type AgentWorkProjectionRow,
-} from "../lib/agentSessionProjection";
+} from "../domain-model/agentSessionProjection";
 import { themeColor } from "../lib/domain";
 import { findReminderSettingsView, normalizeReminderSettings } from "../lib/reminders";
 import type { PageProps } from "../types";

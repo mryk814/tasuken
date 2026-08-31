@@ -1,6 +1,9 @@
 import type { BaseRecord } from "../types";
 import type { AgentSession, WorkspaceDomain } from "../domain-model/types";
-import { agentSessionHasContent, agentSessionHookSourceApps } from "./agentSessionProjection.ts";
+import {
+  agentSessionHasContent,
+  agentSessionHookSourceApps,
+} from "../domain-model/agentSessionProjection.ts";
 
 export const TASKEN_DEBRIEF_SCHEMA_VERSION = 1;
 

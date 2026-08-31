@@ -119,7 +119,7 @@ function fakeCoreClient({ ambiguous = false, sessionsPerClient = 1 } = {}) {
 }
 
 async function withMcp(coreClient, callback) {
-  const server = createTaskenMcpServer({ coreClient, readOnly: true });
+  const server = createTaskenMcpServer({ coreClient, readOnly: false });
   const client = new Client({ name: "tasken-context-contract", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -218,6 +218,11 @@ test("Daily report and learning-column prompts are listed and keep user-owned bo
     assert.match(guidance, /Separate observed facts, agent-reported results, and inference/);
     assert.match(guidance, /never fill human answers/);
     assert.match(guidance, /Prior reports and human answers.*must not be overwritten/);
+    const tools = await client.listTools();
+    const noteSchema = tools.tools.find((tool) => tool.name === "tasken.propose_note").inputSchema;
+    const themeArgument = guidance.match(/Omit (\w+) unless the user specified a Theme/)[1];
+    assert.ok(Object.hasOwn(noteSchema.properties, themeArgument));
+    assert.equal(themeArgument, "theme");
     const learning = await client.getPrompt({
       name: "learning-column",
       arguments: { theme_id: theme.id },
@@ -279,6 +284,29 @@ test("work context returns a bounded projection with Theme intent and optional T
       max_text_length: 20_000,
     });
   });
+});
+
+test("daily-report prompt uses the runtime local date at the UTC/JST day boundary", async (t) => {
+  const previousTimeZone = process.env.TZ;
+  process.env.TZ = "UTC";
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-08-31T16:00:00.000Z") });
+  try {
+    await withMcp(fakeCoreClient(), async (client) => {
+      const prompt = await client.getPrompt({ name: "daily-report" });
+      assert.match(prompt.messages[0].content.text, /with date=2026-08-31,/);
+      const context = await client.callTool({
+        name: "tasken.get_debrief_context",
+        arguments: { date: "2026-08-26", include_recent_debriefs: false },
+      });
+      // The Core owns date selection; the MCP adapter must preserve its selected sessions.
+      assert.equal(context.structuredContent.sessions.length, 1);
+      assert.equal(context.structuredContent.sessions[0].id, "session-daily-0");
+    });
+  } finally {
+    t.mock.timers.reset();
+    if (previousTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimeZone;
+  }
 });
 
 test("planning and learning contexts preserve charter/state and bound their evidence", async () => {

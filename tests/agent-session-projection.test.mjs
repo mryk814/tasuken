@@ -7,7 +7,7 @@ import {
   buildAgentSessionAssignmentOperations,
   buildAgentWorkProjection,
   groupAgentWorkProjection,
-} from "../src/renderer/src/features/workspace/lib/agentSessionProjection.ts";
+} from "../src/renderer/src/features/workspace/domain-model/agentSessionProjection.ts";
 import { crossNavigation, toolNavigation } from "../src/renderer/src/pages/routes.ts";
 
 function domainFixture() {

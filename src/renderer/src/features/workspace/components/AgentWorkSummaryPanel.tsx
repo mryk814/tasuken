@@ -10,7 +10,7 @@ import {
   buildAgentWorkProjection,
   groupAgentWorkProjection,
   type AgentWorkProjectionRow,
-} from "../lib/agentSessionProjection";
+} from "../domain-model/agentSessionProjection";
 
 const CLIENT_LABELS: Record<string, string> = {
   codex: "Codex",

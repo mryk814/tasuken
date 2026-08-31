@@ -75,25 +75,25 @@ test("Today and related lists share overdue urgency styling", () => {
   );
 });
 
-test("Task名は詳細を開き、そこから既存の編集・AI依頼準備へ進める", () => {
+test("Task名から閲覧・編集・AI依頼を行う編集画面へ直接入れる", () => {
   assert.match(todayPageSource, /reminderMeta/);
   assert.match(todayPageSource, /IconClock/);
-  assert.match(todoPageSource, /function openTaskDetail[\s\S]*?type: "task",\s*mode: "view"/);
+  assert.match(todoPageSource, /function openTaskDetail[\s\S]*?type: "task",\s*mode: "edit"/);
   assert.match(
     todayPageSource,
-    /function handleOpenExecutionWindowTask[\s\S]*?type: "task",\s*mode: "view"/,
+    /function handleOpenExecutionWindowTask[\s\S]*?type: "task",\s*mode: "edit"/,
   );
   assert.match(
     todayPageSource,
-    /if \(row\.v2\.type === "task"\)[\s\S]*?type: "task",\s*mode: "view"/,
+    /if \(row\.v2\.type === "task"\)[\s\S]*?type: "task",\s*mode: "edit"/,
   );
   assert.match(
     todayPageSource,
-    /function handleOpenPeriodTask[\s\S]*?type: "task",\s*mode: "view"/,
+    /function handleOpenPeriodTask[\s\S]*?type: "task",\s*mode: "edit"/,
   );
   assert.match(
     todayPageSource,
-    /function handleOpenCandidateTask[\s\S]*?type: "task",\s*mode: "view"/,
+    /function handleOpenCandidateTask[\s\S]*?type: "task",\s*mode: "edit"/,
   );
 });
 
