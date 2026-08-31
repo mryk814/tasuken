@@ -81,19 +81,19 @@ const registryModule = await importBundled("src/main/satelliteWindowRegistry.ts"
 ]);
 const ipcRegistration = await importBundled("src/main/ipc/registerIpc.ts", [electronMockPlugin]);
 
-test("document:saveはstable linkとcompanionのReferenceをrenderer再読込通知へ含める", () => {
-  assert.deepEqual(ipcRegistration.documentSaveChangedTypes({}), ["note", "reference"]);
+test("document:saveはstable linkと所属Artifactをrenderer再読込通知へ含める", () => {
+  assert.deepEqual(ipcRegistration.documentSaveChangedTypes({}), ["note", "reference", "artifact"]);
   assert.deepEqual(
     ipcRegistration.documentSaveChangedTypes({
       companions: [{ action: "save", type: "reference", entity: {} }],
     }),
-    ["note", "reference"],
+    ["note", "reference", "artifact"],
   );
   assert.deepEqual(
     ipcRegistration.documentSaveChangedTypes({
       companions: [{ action: "save", type: "artifact", entity: {} }],
     }),
-    ["note", "reference"],
+    ["note", "reference", "artifact"],
   );
 });
 

@@ -2133,10 +2133,27 @@ export class WorkspaceService {
         Boolean(reference && !reference.deleted_at),
       )
       .map((reference) => String(reference.id));
+    const nextThemeId = typeof note.project_id === "string" && note.project_id ? note.project_id : null;
+    const artifactThemeOperations = this.repository
+      .list("artifact", true)
+      .filter(
+        (artifact) =>
+          !artifact.deleted_at &&
+          ["note", "report"].includes(String(artifact.source_type || "")) &&
+          String(artifact.source_id || "") === String(note.id || "") &&
+          String(artifact.theme_id || "") !== String(nextThemeId || ""),
+      )
+      .map((artifact) => ({
+        action: "save" as const,
+        type: "artifact",
+        entity: { ...artifact, theme_id: nextThemeId },
+        options: {},
+      }));
     const relationOperations = [
       ...companions,
       ...stableLinkOperations,
       ...canonicalNoteAiOperations(noteAiCompanion),
+      ...artifactThemeOperations,
     ];
     if (staleLinkIds.length) {
       return this.repository.runTransaction((transaction) => {

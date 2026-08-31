@@ -17,7 +17,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
 import { usePreference } from "../../utils/usePreference";
 import { noteProjectId } from "../../../../shared/themeRef.mjs";
-import { createTaskClient, projectTaskDraft } from "../task/public";
+import { createTaskClient, planTaskEdit, projectTaskDraft } from "../task/public";
 import {
   type BaseRecord,
   type ContentViewerTarget,
@@ -65,7 +65,6 @@ import {
   ShortcutDialog,
   type TitleBarLauncherData,
 } from "./components/shell";
-import { buildArtifactThemeSyncOperations } from "./lib/artifactEntities";
 import { ContentViewer } from "./components/ContentViewer";
 import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
@@ -1463,16 +1462,18 @@ export function WorkspaceApp() {
       for (const taskOperation of taskOperations) {
         const task = taskOperation.entity;
         const existing = fullDomain.tasks.find((candidate) => candidate.id === task.id);
+        const plan = planTaskEdit(
+          { state: task.state },
+          existing
+            ? { state: existing.state, version: Number((existing as unknown as Entity).version || 0) }
+            : null,
+        );
         const scheduleOperation = operations.find(
           (operation) =>
             operation.type === "schedule" &&
             operation.entity.owner_type === "task" &&
             operation.entity.owner_id === task.id,
         );
-        const isCompleting = Boolean(
-          existing && existing.state !== "done" && task.state === "done",
-        );
-        const isReopening = Boolean(existing && existing.state === "done" && task.state !== "done");
         const existingSchedule = scheduleOperation
           ? fullDomain.schedules.find((schedule) => schedule.id === scheduleOperation.entity.id)
           : undefined;
@@ -1486,15 +1487,9 @@ export function WorkspaceApp() {
           .map((operation) => operation.entity);
         const envelope: CommandEnvelope = {
           commandId: uuid(),
-          name: !existing
-            ? "CreateTask"
-            : isCompleting
-              ? "CompleteTask"
-              : isReopening
-                ? "ReopenTask"
-                : "UpdateTask",
+          name: plan.name,
           payload:
-            !existing || (!isCompleting && !isReopening)
+            plan.name === "CreateTask" || plan.name === "UpdateTask"
               ? {
                   task,
                   schedule: scheduleOperation?.entity || null,
@@ -1509,12 +1504,12 @@ export function WorkspaceApp() {
                 },
           actor: { kind: "user" },
           source,
-          expectedVersions: existing
+          expectedVersions: plan.expectedVersion !== null
             ? [
                 {
                   type: "task",
                   id: task.id,
-                  version: Number((existing as unknown as Entity).version || 0),
+                  version: plan.expectedVersion,
                 },
                 ...(existingSchedule
                   ? [
@@ -1931,29 +1926,6 @@ export function WorkspaceApp() {
           [lineageCompanion],
         );
         finishSave(saved);
-        return true;
-      }
-    }
-
-    // Note の Theme 変更時は添付 Artifact の theme_id も揃える（ファイルは動かさない）。
-    if (type === "note" && entity.id) {
-      const noteThemeId = (entity.project_id as string | null) || null;
-      const syncOps = buildArtifactThemeSyncOperations(data.artifacts || [], {
-        sourceTypes: ["note", "report"],
-        sourceId: String(entity.id),
-        themeId: noteThemeId,
-      });
-      if (syncOps.length) {
-        const ops: SaveOperation[] = [
-          { action: "save", type: "note", entity: entity as Entity },
-          ...syncOps,
-        ];
-        if (options.quiet) {
-          await saveWorkspaceEntities(ops);
-        } else {
-          await saveEntities(ops, base.id ? "変更を保存しました。" : "メモを追加しました。");
-        }
-        finishSave(entity as Entity);
         return true;
       }
     }

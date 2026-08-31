@@ -311,6 +311,13 @@ Obsidianのように、メモを蓄積できる機能。
 - メモ種別を持てる
 - 作成日時・更新日時を持てる
 
+### 本文と関連情報の保存
+
+Noteの編集フォームは、Theme変更を含めてDocument保存を通す。
+保存時に本文から生成するReferenceと、そのNoteを参照する未削除のNote/Report ArtifactのThemeを、Noteと同じDB transactionで更新する。
+Themeが変わらないArtifactは更新せず、保存成功後にNote、Reference、Artifactの表示を再読込する。
+外部Markdownへの保存失敗は既存の同期状態と再試行で扱い、DB transactionと外部ファイル書込みを同一の原子的操作とはしない。
+
 ### 将来的に欲しい機能
 
 - バックリンク

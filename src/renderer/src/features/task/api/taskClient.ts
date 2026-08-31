@@ -46,6 +46,28 @@ export interface TaskChange {
   resynced: boolean;
 }
 
+export type TaskEditPlan =
+  | { name: "CreateTask"; expectedVersion: null }
+  | { name: "UpdateTask" | "CompleteTask" | "ReopenTask"; expectedVersion: number };
+
+/**
+ * Chooses the Task lifecycle command from the persisted and proposed states.
+ * Composite Application Commands reuse this plan while retaining their Schedule/Reference payloads.
+ */
+export function planTaskEdit(
+  task: { state: unknown },
+  previous: Pick<TaskReadModel, "state" | "version"> | null,
+): TaskEditPlan {
+  if (!previous) return { name: "CreateTask", expectedVersion: null };
+  if (previous.state !== "done" && task.state === "done") {
+    return { name: "CompleteTask", expectedVersion: previous.version };
+  }
+  if (previous.state === "done" && task.state !== "done") {
+    return { name: "ReopenTask", expectedVersion: previous.version };
+  }
+  return { name: "UpdateTask", expectedVersion: previous.version };
+}
+
 export class TaskClientError extends Error {
   readonly code: TaskError["code"];
   readonly retryable: boolean;
@@ -105,15 +127,16 @@ export function createTaskClient(capability: TaskCapability) {
       previous: Pick<TaskReadModel, "state" | "version"> | null,
       context: TaskMutationContext,
     ): Promise<TaskCommandOutcome> {
-      if (!previous) return client.create(task, context);
       const { id, ...changes } = task;
-      if (previous.state !== "done" && task.state === "done") {
-        return client.complete(id, previous.version, task.completion_note, changes, context);
+      const plan = planTaskEdit(task, previous);
+      if (plan.name === "CreateTask") return client.create(task, context);
+      if (plan.name === "CompleteTask") {
+        return client.complete(id, plan.expectedVersion, task.completion_note, changes, context);
       }
-      if (previous.state === "done" && task.state !== "done") {
-        return client.reopen(id, previous.version, changes, context);
+      if (plan.name === "ReopenTask") {
+        return client.reopen(id, plan.expectedVersion, changes, context);
       }
-      return client.update(id, previous.version, changes, context);
+      return client.update(id, plan.expectedVersion, changes, context);
     },
     create(task: TaskDraft, context: TaskMutationContext) {
       return run(capability.create(createTaskCommandSchema.parse({

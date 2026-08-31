@@ -1710,6 +1710,8 @@ test("WorkspaceApp maps reachable mixed flows to named commands and preserves ot
   assert.match(todo, /duplicateTask/);
   assert.match(timeline, /timelineAddDependencyOperations/);
   assert.match(workspaceApp, /executeCommands\(envelopes\)/);
+  assert.match(workspaceApp, /planTaskEdit\(/);
+  assert.doesNotMatch(workspaceApp, /isCompleting|isReopening/);
   assert.match(workspaceApp, /taskClient\.delete\(/);
   assert.match(registerIpc, /rejectTaskPersistence\(entityType\)/);
   assert.match(registerIpc, /types\.includes\("task"\)/);
