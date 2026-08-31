@@ -278,6 +278,7 @@ export function NotesPage({
   domain,
   activeTheme,
   detachedNoteId,
+  notesEditorSelectionId,
   openDrawer,
   navigate,
   saveEntity,
@@ -288,6 +289,7 @@ export function NotesPage({
   const [query, setQuery] = useState("");
   // 切り離しウィンドウは対象Noteが決まっているので、選択をそこへ固定する（#290）。
   const [selectedId, setSelectedId] = useState<string | null>(detachedNoteId ?? null);
+  const [dismissedEditorSelectionId, setDismissedEditorSelectionId] = useState<string | null>(null);
   // 別ウィンドウで開いているNote。正本はMainのwindow registryなので購読するだけ。
   const [openNoteWindowIds, setOpenNoteWindowIds] = useState<string[]>([]);
   // Notesは書く場所としてEditを初期表示にする。Preview / Rawは必要なときだけ切り替える。
@@ -337,10 +339,17 @@ export function NotesPage({
   const [visibleLimit, setVisibleLimit] = useState(NOTES_RENDER_BATCH_SIZE);
   const renderedRecords = visible.slice(0, visibleLimit);
   const workbenchRecords = useMemo(() => visible.filter(isWorkbenchRecord), [visible]);
+  const editorSelectedRecord =
+    notesEditorSelectionId && notesEditorSelectionId !== dismissedEditorSelectionId
+      ? records.find((record) => record.id === notesEditorSelectionId)
+      : null;
   const selected = useMemo(
     () =>
-      workbenchRecords.find((record) => record.id === selectedId) || workbenchRecords[0] || null,
-    [selectedId, workbenchRecords],
+      editorSelectedRecord ||
+      workbenchRecords.find((record) => record.id === selectedId) ||
+      workbenchRecords[0] ||
+      null,
+    [editorSelectedRecord, selectedId, workbenchRecords],
   );
   const selectedBody = selected ? recordBody(selected) : "";
   const selectedOwner = selected ? noteDraftOwner(selected.recordType, selected.id) : null;
@@ -697,6 +706,7 @@ export function NotesPage({
   function updatePrefs(patch: Partial<NotesPreferences>) {
     // scope / Themeの変更で選択文書がvisibleから外れる場合も、切替前のsnapshotを確定する。
     if (patch.scope !== undefined || patch.themeId !== undefined) {
+      setDismissedEditorSelectionId(notesEditorSelectionId);
       flushCurrentDraft();
     }
     setPrefs((current) => ({ ...current, ...patch }));
@@ -718,6 +728,7 @@ export function NotesPage({
   function switchDocument(next: Combined | null): void {
     const nextOwnerKey = next ? noteDraftOwnerKey(noteDraftOwner(next.recordType, next.id)) : null;
     if (nextOwnerKey !== selectedOwnerKey) flushCurrentDraft();
+    setDismissedEditorSelectionId(notesEditorSelectionId);
     setSelectedId(next?.id || null);
     if (next) setPreviewMode("edit");
   }

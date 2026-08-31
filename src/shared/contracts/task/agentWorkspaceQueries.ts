@@ -36,12 +36,19 @@ export const getRepositoryContextRequestSchema = z
 
 export const getAgentSessionContextRequestSchema = repositoryLookupRequestSchema
   .extend({
-    client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]),
+    client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]).optional(),
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
     source_session: z.string().trim().min(1).max(500),
     agent_label: z.string().trim().min(1).max(200).optional(),
     limit: z.number().int().positive().max(50).optional(),
   })
-  .strict();
+  .strict()
+  .refine(({ client_kind, date }) => Boolean(client_kind) || Boolean(date), {
+    message: "client_kind is required unless date is specified",
+  });
 
 export const publicRepositoryContextSchema = z
   .object({

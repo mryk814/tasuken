@@ -344,6 +344,18 @@ type AiProposal = {
 
 write系toolには`create_*`ではなく`propose_*`を使う。
 
+### Note登録時の案内
+
+MCP接続時とNoteの作成・編集tool schemaで、次の契約を案内する。
+
+- `note_type`はNote=`note`、Report=`report`、Prompt=`prompt`。MCP境界でだけ`note`を内部の`memo`へ正規化し、Previewと採用経路は内部の3種類を保つ。未知の型（`memo`を含む）は推測して置換せず、入力エラーとして返す。
+- 成功時に返るのはProposal IDであり、Note IDではない。人間がTaskenで採用してから正式なNoteになる。
+- 作成時に渡せる関連先は`theme`。Markdown本文からTask・Referenceの関連は作られず、このtoolでそれらを直接紐付けることもできない。
+- Markdownは本文とは別の`title`を使い、同じタイトルをH1で繰り返さない。短いNoteは見出しなし、長い文書は必要に応じてH2/H3を使う。見出し番号はUIに任せる。
+- 数式は`$...$`、独立行の`$$...$$`、図は`mermaid`コードブロック、補足は`> [!INSIGHT]`を使える。本文全体をコードブロックで囲まない。
+
+型・権限・容量の検証と、Markdownの書き方の推奨は区別する。見出しの存在や推奨書式からの逸脱だけでは登録を拒否しない。
+
 Task作業報告だけは既存TaskへのApplication Commandを提案する専用workflowとして、`tasken.start_task_work`、`tasken.append_work_receipt`、`tasken.report_task_done`、`tasken.report_task_blocked`を提供する。BridgeはTask本文やstateを直接更新せず、`task_work` ProposalをInboxへ送る。途中のReceipt追加と最終報告はtyped Application Commandを分け、Appendは`in_progress`を維持し、Doneだけが`needs_human_review`へ進む。Task Work Proposalのaccept/rejectはMain-owned `ApplyTaskWorkProposal`で行い、canonical Proposalからtyped commandを再構築してTask / Receipt / ChangeEvent / Proposal statusを一つのSQLite transactionへ保存する。全操作にTaskの`expected_version`、再試行用`idempotency_key`、`caller`を必須とし、任意で`source_session`、実行時刻、RepositoryContextを記録する。RepositoryContextは`repository_context_id`、provider、repository slug、branchだけの公開whitelistとし、cwd、git root、workspace folder、remote URLは受理も永続化もしない。同じkeyと同じpayloadの再送は同一Proposalとして扱い、異なるpayloadでのkey再利用は拒否する。Done / Blockedはいずれもappend-only Work Receiptであり、Task完了や正式な状態変更は人間のPreview採用後にApplication Command境界で行う。
 
 ## AI Import統合

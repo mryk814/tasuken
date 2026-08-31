@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  agentSessionHasContent,
+  agentSessionHookSourceApps,
   buildAgentSessionAssignmentOperations,
   buildAgentWorkProjection,
   groupAgentWorkProjection,
-} from "../src/renderer/src/features/workspace/lib/agentSessionProjection.ts";
+} from "../src/renderer/src/features/workspace/domain-model/agentSessionProjection.ts";
 import { crossNavigation, toolNavigation } from "../src/renderer/src/pages/routes.ts";
 
 function domainFixture() {
@@ -234,6 +236,106 @@ test("Tasken Debrief evidence derives today's cross-theme/repository AI work and
   );
 });
 
+test("確かな空hook記録だけを畳み、通常MCP結果と自動Activityは内容判定を変えない", () => {
+  const domain = domainFixture();
+  const hookMetadataOnly = {
+    id: "session-hook-metadata-only",
+    started_at: "2026-08-25T14:30:00+09:00",
+    ended_at: "2026-08-25T14:31:00+09:00",
+    status: "completed",
+    client_kind: "codex",
+    request_events: [],
+    response_checkpoints: [],
+    intent: { summary: "Session lifecycle hookで開始を観測しました。" },
+    outcome: {
+      summary: "Session lifecycle hookが終了を観測しました（user_exit）。",
+      decisions: [],
+      changed_items: [],
+      verification: ["collector: codex / end reason: user_exit"],
+      remaining_work: [],
+    },
+  };
+  domain.agent_sessions.push({
+    id: "session-manual-no-checkpoints",
+    started_at: "2026-08-25T14:30:00+09:00",
+    ended_at: "2026-08-25T14:31:00+09:00",
+    status: "completed",
+    client_kind: "codex",
+    request_events: [],
+    response_checkpoints: [],
+    intent: { summary: "手動MCP依頼" },
+    outcome: {
+      summary: "構造化した手動の結果",
+      decisions: ["採用する"],
+      changed_items: ["Task"],
+      verification: ["確認済み"],
+      remaining_work: [],
+    },
+  });
+  domain.agent_sessions.push(hookMetadataOnly);
+  domain.agent_sessions.push({
+    ...hookMetadataOnly,
+    id: "session-hook-with-checkpoint",
+    request_events: [{ observed_at: "2026-08-25T14:32:00+09:00", text: "実際の依頼" }],
+  });
+  domain.agent_sessions.push({ ...hookMetadataOnly, id: "session-missing-provenance" });
+  domain.ai_proposals.push(
+    {
+      id: "proposal-hook-accepted",
+      status: "accepted",
+      source_app: "tasken-session-hook:codex",
+      payload_type: "agent_sessions",
+      payload: { agent_sessions: [{ action: "capture", session: hookMetadataOnly }] },
+    },
+    {
+      id: "proposal-hook-pending",
+      status: "pending",
+      source_app: "tasken-session-hook:codex",
+      payload_type: "agent_sessions",
+      payload: {
+        agent_sessions: [
+          {
+            action: "capture",
+            session: domain.agent_sessions.find(
+              (session) => session.id === "session-hook-with-checkpoint",
+            ),
+          },
+        ],
+      },
+    },
+  );
+  domain.change_events.push({
+    id: "event-hook-metadata-only",
+    entity_type: "agent_session",
+    entity_id: hookMetadataOnly.id,
+    changed_at: "2026-08-25T14:31:00+09:00",
+    change_type: "created",
+    source: "ai",
+    origin: { kind: "agent", session_id: hookMetadataOnly.id },
+    summary: "Agent Sessionを記録",
+  });
+
+  const hookSourceApps = agentSessionHookSourceApps(domain.ai_proposals);
+  const rows = new Map(
+    buildAgentWorkProjection(domain, { limit: 20 }).map((row) => [row.session.id, row]),
+  );
+  const metadataOnly = rows.get(hookMetadataOnly.id);
+
+  assert.equal(
+    agentSessionHasContent(metadataOnly.session, hookSourceApps.get(metadataOnly.session.id)),
+    false,
+  );
+  assert.equal(metadataOnly.presentation, "record");
+  assert.equal(rows.get("session-manual-no-checkpoints").presentation, "content");
+  assert.equal(rows.get("session-hook-with-checkpoint").presentation, "record");
+  const requestOnly = rows.get("session-hook-with-checkpoint").session;
+  requestOnly.response_checkpoints = [
+    { observed_at: "2026-08-25T14:33:00+09:00", text: "依頼内容を確認しました。" },
+  ];
+  assert.equal(agentSessionHasContent(requestOnly, hookSourceApps.get(requestOnly.id)), true);
+  assert.equal(rows.get("session-missing-provenance").presentation, "content");
+});
+
 test("unresolved handoff stays visible on the next day and Theme/repository filters remain independent", () => {
   const domain = domainFixture();
   const rows = buildAgentWorkProjection(domain, {
@@ -243,9 +345,9 @@ test("unresolved handoff stays visible on the next day and Theme/repository filt
   });
   assert.deepEqual(
     rows.map((row) => row.session.id),
-    ["session-same-theme-repo-b", "session-today", "session-handoff"],
+    ["session-handoff", "session-same-theme-repo-b", "session-today"],
   );
-  assert.equal(rows[2].unresolved, true);
+  assert.equal(rows[0].unresolved, true);
 
   const limitedRows = buildAgentWorkProjection(domain, {
     date: "2026-08-25",

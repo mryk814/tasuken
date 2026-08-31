@@ -2,11 +2,23 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const workspaceAppSource = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
+const workspaceAppSource = readFileSync(
+  "src/renderer/src/features/workspace/WorkspaceApp.tsx",
+  "utf8",
+);
 const uiStoreSource = readFileSync("src/renderer/src/stores/uiStore.ts", "utf8");
-const shellSource = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
-const pageRouterSource = readFileSync("src/renderer/src/features/workspace/components/WorkspacePageRouter.tsx", "utf8");
-const pageLoadersSource = readFileSync("src/renderer/src/features/workspace/workspacePageLoaders.ts", "utf8");
+const shellSource = readFileSync(
+  "src/renderer/src/features/workspace/components/shell.tsx",
+  "utf8",
+);
+const pageRouterSource = readFileSync(
+  "src/renderer/src/features/workspace/components/WorkspacePageRouter.tsx",
+  "utf8",
+);
+const pageLoadersSource = readFileSync(
+  "src/renderer/src/features/workspace/workspacePageLoaders.ts",
+  "utf8",
+);
 
 test("toast tone is explicit state instead of message-regex inference", () => {
   assert.match(uiStoreSource, /toastTone/);
@@ -28,8 +40,11 @@ test("workspace keeps Today immediate and loads the other pages outside the star
   assert.match(shellSource, /onMouseEnter=\{\(\) => preloadWorkspacePage\(id\)\}/);
 });
 
-test("sidebar navigation closes the drawer before changing pages", () => {
-  assert.match(workspaceAppSource, /if \(!\(await saveDirtyDrawerForm\(\)\)\) return;\s+drawerGeneration\.current \+= 1;\s+setDrawer\(null\);\s+const normalized = normalizeRoute\(next\);/);
+test("sidebar navigation closes the drawer and clears the selected note before changing pages", () => {
+  assert.match(
+    workspaceAppSource,
+    /if \(!\(await saveDirtyDrawerForm\(\)\)\) return;\s+drawerGeneration\.current \+= 1;\s+setDrawer\(null\);\s+setNotesEditorSelectionId\(null\);\s+const normalized = normalizeRoute\(next\);/,
+  );
 });
 
 test("sidebar count badges are limited to action-driving counts", () => {

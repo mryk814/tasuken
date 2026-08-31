@@ -209,6 +209,24 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
     drawer,
     /!\["done", "cancelled"\]\.includes\(task\.state\) &&\s*!\["accepted", "reported_done", "needs_human_review", "in_progress"\]\.includes\(\s*workState,?\s*\)/,
   );
+  assert.match(drawer, /AIへ依頼を準備/);
+  assert.match(drawer, /intended_executor: "ai_agent", work_state: "ready_for_agent"/);
+  assert.match(drawer, /Coding AgentがTasken MCPから取得できます/);
+  assert.match(drawer, /workspaceApi\.copyText\(/);
+  assert.match(drawer, /tasken\.get_task_context に task_id=/);
+  assert.match(drawer, /AIへ渡る内容を確認/);
+  assert.doesNotMatch(
+    drawer,
+    /useEffect\(\(\) => \{\s*if \(isAiDelegationReady\) setWorkOpen\(true\);/,
+  );
+  assert.match(
+    drawer,
+    /key=\{`\$\{task\.id\}:\$\{task\.work_state \|\| task\.intended_executor \|\| "not_delegated"\}`\}/,
+  );
+  assert.match(
+    drawer,
+    /key=\{`\$\{taskForWorkSection\.id\}:\$\{taskForWorkSection\.work_state \|\| taskForWorkSection\.intended_executor \|\| "not_delegated"\}`\}/,
+  );
 
   const repo = repository();
   const service = new ApplicationCommandService(repo);
@@ -293,6 +311,30 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
       }),
     /AcceptTaskWork/,
   );
+});
+
+test("TodayとToDoのTaskクリックは編集DrawerからAI依頼を準備できる", () => {
+  const today = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
+  const todo = readFileSync("src/renderer/src/features/workspace/pages/TodoPage.tsx", "utf8");
+  const drawer = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
+  const taskFields = readFileSync(
+    "src/renderer/src/features/workspace/components/drawerEntityFields.tsx",
+    "utf8",
+  );
+
+  assert.doesNotMatch(today, /type: "task",\s*mode: "view"/);
+  assert.doesNotMatch(todo, /type: "task",\s*mode: "view"/);
+  assert.match(drawer, /onPrepareAiDelegation=\{prepareAiDelegation\}/);
+  assert.match(drawer, /hasUnsavedChanges=\{isFormDirty\}/);
+  assert.match(drawer, /catch \{\s*(?:\/\/[^\n]*\n\s*)?return false;\s*\}/);
+  assert.match(
+    taskFields,
+    /setIntendedExecutor\("ai_agent"\);\s*setPreparedWorkState\("ready_for_agent"\);/,
+  );
+  assert.match(taskFields, /disabled=\{preparingAiDelegation \|\| hasUnsavedChanges\}/);
+  assert.match(taskFields, /変更を保存すると準備できます。/);
+  assert.match(taskFields, /if \(!\(await onPrepareAiDelegation\(\)\)\) return;/);
+  assert.match(taskFields, /name="work_state" value=\{preservedWorkState\}/);
 });
 
 test("AI report stays needs_human_review and cannot complete before human accept", () => {

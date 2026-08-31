@@ -1412,289 +1412,171 @@ textarea:hover {
   font-variant-numeric: tabular-nums;
 }
 
-.tasken-debrief-panel {
-  padding: 0;
-  overflow: hidden;
-  border-color: color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+.daily-work-panel,
+.daily-report-panel {
+  padding: var(--space-4);
+  overflow: visible;
 }
 
-.tasken-debrief-heading {
-  display: flex;
-  align-items: stretch;
-  min-height: 58px;
+.daily-work-panel > .section-heading,
+.daily-report-panel > .section-heading {
+  padding: 0 0 var(--space-3);
 }
 
-.tasken-debrief-toggle {
-  flex: 1;
+.daily-work-grid {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto 18px;
-  align-items: center;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border: 0;
-  background: color-mix(in srgb, var(--color-accent) 4%, var(--color-surface));
-  color: var(--color-text);
-  text-align: left;
 }
 
-.tasken-debrief-toggle:hover {
-  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
-}
-
-.tasken-debrief-toggle:active {
-  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
-}
-
-.tasken-debrief-toggle:focus-visible,
-.tasken-debrief-open-note:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: -2px;
-}
-
-.tasken-debrief-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-md);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-}
-
-.tasken-debrief-toggle > span:nth-child(2) {
-  display: grid;
-  gap: 1px;
+.daily-work-card {
+  position: relative;
   min-width: 0;
-}
-
-.tasken-debrief-toggle strong {
-  font-size: var(--text-md);
-}
-
-.tasken-debrief-toggle small {
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-}
-
-.tasken-debrief-complete {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 2px var(--space-2);
-  border: 1px solid var(--color-success-bd);
-  border-radius: var(--radius-sm);
-  background: var(--color-success-bg);
-  color: var(--color-success-strong);
-  font-size: var(--text-xs);
-  font-weight: 700;
-}
-
-.tasken-debrief-open-note {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 0 var(--space-4);
-  border: 0;
-  border-left: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-
-.tasken-debrief-open-note:hover {
-  color: var(--color-accent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   background: var(--color-surface-subtle);
 }
 
-.tasken-debrief-open-note:active {
+.daily-work-card.needs-attention {
+  border-top: 3px solid var(--color-status-review-bd);
+}
+
+.daily-work-card.is-previewing {
+  z-index: 3;
+}
+
+.daily-work-card-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  height: 210px;
+  padding: var(--space-3);
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.daily-work-card-summary:hover {
   background: var(--color-surface-muted);
 }
 
-.tasken-debrief-flow {
-  padding: var(--space-4);
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface);
+.daily-work-card-summary:active {
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
 }
 
-.tasken-debrief-step {
-  position: relative;
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  gap: var(--space-4);
-  padding: 0 0 var(--space-5);
+.daily-work-card-summary:focus-visible,
+.daily-work-card-preview:focus-visible,
+.daily-work-records > summary:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
 }
 
-.tasken-debrief-step:last-child {
-  padding-bottom: 0;
-}
-
-.tasken-debrief-step::before {
-  content: "";
-  position: absolute;
-  top: 25px;
-  bottom: 0;
-  left: 12px;
-  width: 2px;
-  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-border));
-}
-
-.tasken-debrief-step:last-child::before {
-  display: none;
-}
-
-.tasken-debrief-step-label {
+.daily-work-card-meta {
   display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  padding-top: 2px;
-}
-
-.tasken-debrief-step-label > span {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font: var(--text-xs) var(--font-mono);
-}
-
-.tasken-debrief-step.is-required .tasken-debrief-step-label > span {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-}
-
-.tasken-debrief-step-label strong {
-  padding-top: 4px;
-  font-size: var(--text-sm);
-}
-
-.tasken-debrief-step-body {
-  display: grid;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.tasken-debrief-step-body label {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.tasken-debrief-step-body label > span {
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  font-weight: 700;
-}
-
-.tasken-debrief-step-body textarea {
-  min-height: auto;
-  resize: vertical;
-}
-
-.tasken-debrief-evidence-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--space-2);
-}
-
-.tasken-debrief-evidence {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-subtle);
-}
-
-.tasken-debrief-evidence > div {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-xs);
-}
-
-.tasken-debrief-evidence strong {
-  font-size: var(--text-sm);
-}
-
-.tasken-debrief-evidence p,
-.tasken-debrief-evidence small {
-  margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--text-xs);
 }
 
-.tasken-debrief-evidence small.has-remaining {
-  color: var(--color-status-blocked-fg);
+.daily-work-card-meta time {
+  font-variant-numeric: tabular-nums;
 }
 
-.evidence-strength {
-  padding: 1px var(--space-2);
-  border: 1px solid var(--color-status-review-bd);
-  border-radius: var(--radius-sm);
-  background: var(--color-status-review-bg);
+.daily-work-card-summary > strong,
+.daily-work-card-result,
+.daily-work-card-attention {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.daily-work-card-summary > strong {
+  font-size: var(--text-sm);
+}
+
+.daily-work-card-result {
+  -webkit-line-clamp: 3;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.daily-work-card-summary > :last-child {
+  margin-top: auto;
+}
+
+.daily-work-card-attention {
   color: var(--color-status-review-fg);
+  font-size: var(--text-xs);
+}
+
+.daily-work-card-preview {
+  position: absolute;
+  top: calc(100% - 8px);
+  left: -1px;
+  right: -1px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+
+.daily-work-card-preview dl {
+  margin: 0;
+}
+
+.daily-work-card-preview.is-above {
+  top: auto;
+  bottom: calc(100% - 8px);
+}
+
+.daily-work-card-preview dt {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
+.daily-work-card-preview dd {
+  margin: 2px 0 var(--space-3);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.daily-work-card-preview small,
+.daily-report-panel > p,
 .tasken-debrief-empty {
-  margin: 0;
   color: var(--color-text-secondary);
+}
+
+.daily-report-panel > p {
+  margin: 0 0 var(--space-3);
   font-size: var(--text-sm);
 }
 
-.tasken-debrief-checkbox {
-  display: flex !important;
-  align-items: center;
-  gap: var(--space-2) !important;
-}
-
-.tasken-debrief-checkbox input {
-  width: auto;
-}
-
-.tasken-weekly-debrief {
-  margin-top: calc(var(--space-3) * -1);
-  border-top-color: transparent;
-}
-
-.tasken-weekly-debrief .tasken-debrief-mark {
-  background: var(--color-surface-subtle);
+.daily-work-records > summary {
+  padding: var(--space-3) 0;
   color: var(--color-text-secondary);
+  cursor: pointer;
 }
 
-.tasken-weekly-decisions {
-  display: grid;
-  gap: var(--space-1);
-  margin-bottom: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-left: 2px solid var(--color-border-strong);
-  background: var(--color-surface-subtle);
+.daily-work-records > summary:hover {
+  color: var(--color-accent);
 }
 
-.tasken-weekly-decisions p {
-  display: grid;
-  grid-template-columns: 3.5rem minmax(0, 1fr);
-  gap: var(--space-2);
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-
-.tasken-weekly-decisions time {
-  color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
+.daily-work-records > summary:active {
+  background: var(--color-surface-muted);
 }
 
 .debrief-page {
@@ -1705,38 +1587,6 @@ textarea:hover {
 .debrief-current {
   display: grid;
   gap: var(--space-3);
-}
-
-.debrief-section-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.debrief-section-heading > div {
-  display: grid;
-  gap: 2px;
-}
-
-.debrief-section-heading span {
-  color: var(--color-accent);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-}
-
-.debrief-section-heading h2 {
-  margin: 0;
-  font-size: var(--text-xl);
-}
-
-.debrief-section-heading time,
-.debrief-section-heading small {
-  color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
 }
 
 .debrief-activity-panel {
@@ -1821,22 +1671,6 @@ textarea:hover {
 .debrief-history-empty {
   margin: var(--space-4) 0 0;
   color: var(--color-text-tertiary);
-}
-
-@media (max-width: 760px) {
-  .tasken-debrief-open-note {
-    padding: 0 var(--space-3);
-    font-size: 0;
-  }
-
-  .tasken-debrief-step {
-    grid-template-columns: 1fr;
-    gap: var(--space-2);
-  }
-
-  .tasken-debrief-step::before {
-    display: none;
-  }
 }
 
 .agent-work-panel {
@@ -1999,10 +1833,31 @@ textarea:hover {
   box-shadow: inset 3px 0 0 var(--color-status-blocked-bd);
 }
 
+.agent-work-records > summary:focus-visible,
+.proposal-note-preview > summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.agent-work-records > summary:hover,
+.proposal-note-preview > summary:hover {
+  color: var(--color-accent);
+}
+
+.agent-work-records > summary:active,
+.proposal-note-preview > summary:active {
+  background: var(--color-surface-muted);
+}
+
+.agent-work-row.presentation-attention {
+  background: var(--color-status-review-bg);
+  box-shadow: inset 3px 0 0 var(--color-status-review-bd);
+}
+
 .agent-work-summary {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(96px, 0.65fr) minmax(220px, 3fr) auto auto 18px;
+  grid-template-columns: minmax(0, 1fr) auto 18px;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
@@ -2026,15 +1881,10 @@ textarea:hover {
 }
 
 .agent-work-client,
-.agent-work-client-stack,
 .agent-work-main,
-.agent-work-main span {
+.agent-work-main span,
+.agent-work-meta {
   min-width: 0;
-}
-
-.agent-work-client-stack {
-  display: grid;
-  gap: 2px;
 }
 
 .agent-work-client {
@@ -2046,15 +1896,6 @@ textarea:hover {
   font-weight: 700;
 }
 
-.agent-session-identity {
-  overflow: hidden;
-  color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .agent-work-main {
   display: grid;
   gap: 2px;
@@ -2062,19 +1903,38 @@ textarea:hover {
 
 .agent-work-main strong,
 .agent-work-main span {
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
-.agent-work-main span,
-.agent-work-summary time {
+.agent-work-main strong {
+  line-height: 1.35;
+}
+
+.agent-work-main span {
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
 }
 
 .agent-work-main .agent-work-result {
   color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.agent-work-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  max-width: 300px;
+}
+
+.agent-work-summary time {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
 }
 
 .agent-work-summary time {
@@ -2111,9 +1971,14 @@ textarea:hover {
   background: var(--color-surface-subtle);
 }
 
+.agent-work-assignment {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+}
+
 .agent-work-assignment-trigger {
   display: inline-flex;
-  margin: 0 var(--space-4) var(--space-3) auto;
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--color-status-review-bd);
   border-radius: var(--radius-sm);
@@ -2133,8 +1998,7 @@ textarea:hover {
   grid-template-columns: minmax(150px, 1fr) minmax(180px, 1fr) auto;
   align-items: end;
   gap: var(--space-2);
-  padding: 0 var(--space-4) var(--space-3) calc(var(--space-4) + 3px);
-  background: var(--color-surface-subtle);
+  width: 100%;
 }
 
 .agent-work-assignment-editor label {
@@ -2292,16 +2156,48 @@ textarea:hover {
   text-align: center;
 }
 
-@media (max-width: 900px) {
-  .agent-work-summary {
-    grid-template-columns: minmax(88px, 0.7fr) minmax(140px, 2fr) auto minmax(54px, auto) 18px;
-  }
+.agent-work-records {
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-subtle);
+}
 
-  .agent-work-summary time {
-    display: block;
-    line-height: 1.25;
-    text-align: right;
-    white-space: normal;
+.agent-work-records > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.agent-work-records > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-work-records > summary::after {
+  content: "›";
+  color: var(--color-text-tertiary);
+  font-size: var(--text-lg);
+}
+
+.agent-work-records[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.agent-work-records small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.agent-work-record-list {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+@media (max-width: 900px) {
+  .agent-work-meta {
+    max-width: 180px;
   }
 
   .agent-work-assignment-editor {
@@ -6518,7 +6414,8 @@ textarea:hover {
 }
 /* 編集項目だけが伸びてスクロール。保存 / Artifact / 削除は下部に固定する */
 .drawer-form,
-.drawer-content {
+.drawer-content,
+.drawer-edit-body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -6527,6 +6424,12 @@ textarea:hover {
   padding: var(--space-3) var(--space-4);
   overflow-x: hidden;
   overflow-y: auto;
+}
+.drawer-edit-body > .drawer-form {
+  flex: 0 0 auto;
+  min-height: auto;
+  padding: 0;
+  overflow: visible;
 }
 .drawer-edit-footer {
   flex: 0 0 auto;
@@ -6545,7 +6448,8 @@ textarea:hover {
 .drawer-edit-actions .primary-button {
   margin-right: auto;
 }
-.drawer-form label {
+.drawer-form label,
+.drawer-edit-body .task-work-disclosure label {
   display: grid;
   gap: var(--space-1);
   color: var(--color-text-secondary);
@@ -11276,6 +11180,18 @@ kbd {
   border: 1px solid var(--color-border-subtle);
   background: var(--color-surface);
 }
+.import-candidate:has(> .proposal-note-preview) {
+  flex-wrap: wrap;
+}
+.proposal-note-preview {
+  flex: 1 1 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.proposal-note-preview > summary {
+  cursor: pointer;
+  margin-bottom: var(--space-2);
+}
 .proposal-artifact-preview {
   flex: 1 0 100%;
   max-height: 280px;
@@ -13340,6 +13256,23 @@ kbd {
 .task-work-external-references a:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
+}
+.task-agent-launch-confirmation {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+}
+.task-agent-launch-confirmation > code {
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.task-agent-launch-confirmation > .secondary-button {
+  justify-self: start;
+  margin-top: var(--space-1);
 }
 
 /* --- Sketch workspace --- */

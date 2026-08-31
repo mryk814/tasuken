@@ -34,6 +34,10 @@ import type {
   FilePreviewReadResult,
   WebArtifactPreviewResult,
   McpBridgeInfo,
+  TaskAgentLaunchOptions,
+  TaskAgentLaunchOptionsRequest,
+  TaskAgentLaunchRequest,
+  TaskAgentLaunchResult,
   AiContextPreviewRequest,
   AiContextPreviewResult,
   DataHealthQuery,
@@ -44,6 +48,8 @@ import type {
   ThemeAiPackStatusResult,
 } from "../../shared/ipc/contracts";
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
+import { TaskAgentLaunchService } from "./taskAgentLaunchService";
+import { getTaskAgentClients, launchTaskAgentProcess } from "./taskAgentProcess";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import {
   validateMermaidPptxDiagram,
@@ -97,7 +103,7 @@ import {
 } from "../../shared/canonicalMarkdown.mjs";
 import { validateArtifactProposal } from "../../shared/proposalMedia.mjs";
 import { THEME_FOLDER_MANIFEST, buildThemeFolderManifest } from "../../shared/storageResolver.mjs";
-import { PERSONAL_DEFAULT_THEME_ID } from "../../shared/themeRef.mjs";
+import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../shared/themeRef.mjs";
 import {
   buildActivityRootRegistry,
   publicActivityRootStatus,
@@ -706,6 +712,7 @@ export class WorkspaceService {
     getThemeContext(request: { theme_id: string }): Promise<unknown>;
     inspect(): Promise<{ api_version: string; capabilities: string[] }>;
   };
+  private readonly taskAgentLaunch: TaskAgentLaunchService;
 
   constructor(
     private readonly repository: WorkspaceRepository,
@@ -728,6 +735,13 @@ export class WorkspaceService {
       "conversation-context-recovery",
     );
     this.taskenCoreClient = taskenCoreClient;
+    this.taskAgentLaunch = new TaskAgentLaunchService({
+      repository,
+      userDataPath,
+      getMcpBridgeInfo: () => this.getMcpBridgeInfo(),
+      getTaskAgentClients,
+      launchTaskAgentProcess,
+    });
   }
 
   loadWorkspace(includeDeleted = false): unknown {
@@ -2133,7 +2147,8 @@ export class WorkspaceService {
         Boolean(reference && !reference.deleted_at),
       )
       .map((reference) => String(reference.id));
-    const nextThemeId = typeof note.project_id === "string" && note.project_id ? note.project_id : null;
+    const nextThemeId =
+      typeof note.project_id === "string" && note.project_id ? note.project_id : null;
     const artifactThemeOperations = this.repository
       .list("artifact", true)
       .filter(
@@ -2179,10 +2194,19 @@ export class WorkspaceService {
 
   saveCanonicalNote(requestValue: unknown, companionValue?: unknown): Record<string, unknown> {
     const request = normalizeDocumentSaveRequest(requestValue);
-    const input = { ...request.entity, body_markdown: request.snapshot.body };
     const noteId = request.snapshot.owner.entityId;
-    const noteAiCompanion = normalizeCanonicalNoteAiCompanion(companionValue, noteId);
     const current = this.repository.get("note", noteId, true);
+    const requestedProjectId = Object.hasOwn(request.entity, "project_id")
+      ? request.entity.project_id
+      : current?.project_id;
+    const input = {
+      ...request.entity,
+      body_markdown: request.snapshot.body,
+      project_id: canonicalThemeId(requestedProjectId, {
+        defaultPersonal: true,
+      }),
+    };
+    const noteAiCompanion = normalizeCanonicalNoteAiCompanion(companionValue, noteId);
     const actualRevision = Number(current?.version || 0);
     if (actualRevision !== request.snapshot.expectedRevision) {
       throw new Error(
@@ -3336,6 +3360,16 @@ export class WorkspaceService {
           )
         : undefined,
     });
+  }
+
+  getTaskAgentLaunchOptions(
+    request: TaskAgentLaunchOptionsRequest,
+  ): Promise<TaskAgentLaunchOptions> {
+    return this.taskAgentLaunch.getTaskAgentLaunchOptions(request);
+  }
+
+  launchTaskAgent(request: TaskAgentLaunchRequest): Promise<TaskAgentLaunchResult> {
+    return this.taskAgentLaunch.launchTaskAgent(request);
   }
 
   async exportSnapshot(): Promise<{ canceled: boolean; filePath?: string }> {

@@ -46,7 +46,7 @@ import {
 } from "./lib/activityAutoExport";
 import { resolveActivityLogDirectory } from "./lib/activityLogDirectory";
 import { buildActivityReviewLog, collectActivityLogEntries } from "./lib/activityLog";
-import { buildAgentWorkProjection } from "./lib/agentSessionProjection";
+import { buildAgentWorkProjection } from "./domain-model/agentSessionProjection";
 import {
   buildDailyAgentSessionContexts,
   projectActivitySessionLogEntries,
@@ -163,6 +163,7 @@ export function WorkspaceApp() {
   const setActiveThemeId = useUiStore((state) => state.setActiveThemeId);
   const [drawer, setDrawer] = useState<DrawerConfig | null>(null);
   const [contentViewer, setContentViewer] = useState<ContentViewerTarget | null>(null);
+  const [notesEditorSelectionId, setNotesEditorSelectionId] = useState<string | null>(null);
   const toast = useUiStore((state) => state.toast);
   const toastToneValue = useUiStore((state) => state.toastTone);
   const setToast = useUiStore((state) => state.setToast);
@@ -542,7 +543,7 @@ export function WorkspaceApp() {
       ...fullData,
       themes,
       items: fullData.items.filter((i) => match(i.theme_id)),
-      notes: fullData.notes.filter((note) => match(noteProjectId(note))),
+      notes: fullData.notes.filter((note) => !noteProjectId(note) || match(noteProjectId(note))),
       links: fullData.links.filter((l) => match(l.theme_id)),
       status_updates: fullData.status_updates.filter((u) => match(u.theme_id)),
       knowledge_nodes: fullData.knowledge_nodes.filter((k) => match(k.theme_id)),
@@ -573,7 +574,7 @@ export function WorkspaceApp() {
       plan_nodes,
       schedules: fullDomain.schedules.filter((s) => ownerSet.has(ownerKey(s))),
       knowledge_nodes: fullDomain.knowledge_nodes.filter((k) => match(k.project_id)),
-      notes: fullDomain.notes.filter((n) => match(n.project_id)),
+      notes: fullDomain.notes.filter((note) => !noteProjectId(note) || match(noteProjectId(note))),
       resources: fullDomain.resources.filter((r) => match(r.project_id)),
       task_dependencies: fullDomain.task_dependencies.filter(
         (d) => taskIds.has(d.task_id) && taskIds.has(d.depends_on_task_id),
@@ -891,9 +892,21 @@ export function WorkspaceApp() {
       if (!(await saveDirtyDrawerForm())) return;
       drawerGeneration.current += 1;
       setDrawer(null);
+      setNotesEditorSelectionId(null);
       const normalized = normalizeRoute(next);
       location.hash = normalized;
       setRoute(normalized);
+    })();
+  }
+
+  function openNoteForEditing(noteId: string) {
+    void (async () => {
+      if (!(await saveDirtyDrawerForm())) return;
+      drawerGeneration.current += 1;
+      setDrawer(null);
+      setNotesEditorSelectionId(noteId);
+      location.hash = "notes";
+      setRoute("notes");
     })();
   }
 
@@ -1088,7 +1101,10 @@ export function WorkspaceApp() {
         const outcome = await taskClient.applyEdit(
           projectTaskDraft(entity),
           existing
-            ? { state: existing.state, version: Number((existing as unknown as Entity).version || 0) }
+            ? {
+                state: existing.state,
+                version: Number((existing as unknown as Entity).version || 0),
+              }
             : null,
           context,
         );
@@ -1465,7 +1481,10 @@ export function WorkspaceApp() {
         const plan = planTaskEdit(
           { state: task.state },
           existing
-            ? { state: existing.state, version: Number((existing as unknown as Entity).version || 0) }
+            ? {
+                state: existing.state,
+                version: Number((existing as unknown as Entity).version || 0),
+              }
             : null,
         );
         const scheduleOperation = operations.find(
@@ -1504,24 +1523,25 @@ export function WorkspaceApp() {
                 },
           actor: { kind: "user" },
           source,
-          expectedVersions: plan.expectedVersion !== null
-            ? [
-                {
-                  type: "task",
-                  id: task.id,
-                  version: plan.expectedVersion,
-                },
-                ...(existingSchedule
-                  ? [
-                      {
-                        type: "schedule" as const,
-                        id: existingSchedule.id,
-                        version: Number((existingSchedule as unknown as Entity).version || 0),
-                      },
-                    ]
-                  : []),
-              ]
-            : [],
+          expectedVersions:
+            plan.expectedVersion !== null
+              ? [
+                  {
+                    type: "task",
+                    id: task.id,
+                    version: plan.expectedVersion,
+                  },
+                  ...(existingSchedule
+                    ? [
+                        {
+                          type: "schedule" as const,
+                          id: existingSchedule.id,
+                          version: Number((existingSchedule as unknown as Entity).version || 0),
+                        },
+                      ]
+                    : []),
+                ]
+              : [],
           issuedAt: new Date().toISOString(),
         };
         envelopes.push(envelope);
@@ -2350,6 +2370,8 @@ export function WorkspaceApp() {
     setActiveThemeId,
     route,
     navigate,
+    notesEditorSelectionId,
+    openNoteForEditing,
     detachedNoteId,
     openDrawer,
     openSketchEditor,

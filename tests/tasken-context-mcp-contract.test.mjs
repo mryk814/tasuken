@@ -76,6 +76,24 @@ function fakeCoreClient({ ambiguous = false, sessionsPerClient = 1 } = {}) {
       calls.push(["getActivity", args]);
       return { entries: boundedItems("activity", 4) };
     },
+    async getActivityEntries(args) {
+      calls.push(["getActivityEntries", args]);
+      return {
+        date: args.date,
+        events: [{ id: "activity-day-1", local_date: args.date, summary: "Observed day activity" }],
+        limit: args.limit,
+        truncated: false,
+        result_meta: {
+          contract_version: 1,
+          returned_count: 1,
+          matched_visible_count: 1,
+          truncated: false,
+        },
+        read_only: true,
+        ai_audience: "coding_agent",
+        next_tools: [],
+      };
+    },
     async getRecentNotes(args) {
       calls.push(["getRecentNotes", args]);
       return {
@@ -88,8 +106,11 @@ function fakeCoreClient({ ambiguous = false, sessionsPerClient = 1 } = {}) {
         repository_context: repository,
         themes: [theme],
         sessions: Array.from({ length: sessionsPerClient }, (_, index) => ({
-          id: `session-${args.client_kind}-${index}`,
-          started_at: `2026-08-26T${String(10 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00.000Z`,
+          id: `session-${args.client_kind || "daily"}-${index}`,
+          started_at:
+            index === 0
+              ? "2026-08-25T15:30:00.000Z"
+              : `2026-08-26T${String(10 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00.000Z`,
           summary: "Observed evidence",
         })),
       };
@@ -98,7 +119,7 @@ function fakeCoreClient({ ambiguous = false, sessionsPerClient = 1 } = {}) {
 }
 
 async function withMcp(coreClient, callback) {
-  const server = createTaskenMcpServer({ coreClient, readOnly: true });
+  const server = createTaskenMcpServer({ coreClient, readOnly: false });
   const client = new Client({ name: "tasken-context-contract", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -169,24 +190,39 @@ test("Theme intent ResourceTemplate is listed and reads a bounded human intent p
   });
 });
 
-test("Debrief and learning-column prompts are listed and keep user-owned boundaries", async () => {
+test("Daily report and learning-column prompts are listed and keep user-owned boundaries", async () => {
   await withMcp(fakeCoreClient(), async (client) => {
     const listed = await client.listPrompts();
     const prompts = new Map(listed.prompts.map((prompt) => [prompt.name, prompt]));
-    assert.ok(prompts.has("debrief"));
+    assert.ok(prompts.has("daily-report"));
+    assert.equal(prompts.has("debrief"), false);
     assert.ok(prompts.has("learning-column"));
-    assert.equal(prompts.get("debrief").arguments[0].name, "date");
+    assert.equal(prompts.get("daily-report").title, "Tasken日報");
+    assert.equal(prompts.get("daily-report").arguments, undefined);
     assert.equal(prompts.get("learning-column").arguments[0].name, "theme_id");
 
-    const debrief = await client.getPrompt({
-      name: "debrief",
-      arguments: { date: "2026-08-26" },
-    });
+    const debrief = await client.getPrompt({ name: "daily-report" });
     const debriefText = debrief.messages[0].content.text;
-    assert.match(debriefText, /tasken\.get_debrief_context for 2026-08-26/);
-    assert.match(debriefText, /at most one adaptive question/);
-    assert.match(debriefText, /Do not write My decision or Next return/);
-
+    assert.match(debriefText, /tasken\.get_debrief_context with date=\d{4}-\d{2}-\d{2}/);
+    assert.match(debriefText, /one or two adaptive questions/);
+    assert.match(debriefText, /daily report draft/);
+    assert.match(debriefText, /report_date/);
+    assert.match(debriefText, /include_recent_debriefs=false, and no repository filter/);
+    const context = await client.callTool({
+      name: "tasken.get_debrief_context",
+      arguments: { date: "2026-08-31", include_recent_debriefs: false },
+    });
+    const guidance = context.structuredContent.writing_guidance;
+    assert.ok(debriefText.includes(guidance));
+    assert.match(guidance, /Group related work by Theme or Task/);
+    assert.match(guidance, /Separate observed facts, agent-reported results, and inference/);
+    assert.match(guidance, /never fill human answers/);
+    assert.match(guidance, /Prior reports and human answers.*must not be overwritten/);
+    const tools = await client.listTools();
+    const noteSchema = tools.tools.find((tool) => tool.name === "tasken.propose_note").inputSchema;
+    const themeArgument = guidance.match(/Omit (\w+) unless the user specified a Theme/)[1];
+    assert.ok(Object.hasOwn(noteSchema.properties, themeArgument));
+    assert.equal(themeArgument, "theme");
     const learning = await client.getPrompt({
       name: "learning-column",
       arguments: { theme_id: theme.id },
@@ -248,6 +284,29 @@ test("work context returns a bounded projection with Theme intent and optional T
       max_text_length: 20_000,
     });
   });
+});
+
+test("daily-report prompt uses the runtime local date at the UTC/JST day boundary", async (t) => {
+  const previousTimeZone = process.env.TZ;
+  process.env.TZ = "UTC";
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-08-31T16:00:00.000Z") });
+  try {
+    await withMcp(fakeCoreClient(), async (client) => {
+      const prompt = await client.getPrompt({ name: "daily-report" });
+      assert.match(prompt.messages[0].content.text, /with date=2026-08-31,/);
+      const context = await client.callTool({
+        name: "tasken.get_debrief_context",
+        arguments: { date: "2026-08-26", include_recent_debriefs: false },
+      });
+      // The Core owns date selection; the MCP adapter must preserve its selected sessions.
+      assert.equal(context.structuredContent.sessions.length, 1);
+      assert.equal(context.structuredContent.sessions[0].id, "session-daily-0");
+    });
+  } finally {
+    t.mock.timers.reset();
+    if (previousTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimeZone;
+  }
 });
 
 test("planning and learning contexts preserve charter/state and bound their evidence", async () => {
@@ -314,7 +373,7 @@ test("repository-to-theme ambiguity is explicit and does not guess for context v
   }
 });
 
-test("debrief context includes Theme intent but leaves human reflection fields to the user", async () => {
+test("debrief context includes bounded daily Activity and leaves report adoption to the user", async () => {
   const core = fakeCoreClient();
   await withMcp(core, async (client) => {
     const result = await client.callTool({
@@ -336,10 +395,34 @@ test("debrief context includes Theme intent but leaves human reflection fields t
     assert.deepEqual(projection.prior_debriefs, []);
     assert.equal(projection.evidence_strength, "agent_reported");
     assert.equal(projection.read_only, true);
-    assert.deepEqual(projection.human_fields.required, ["My decision", "Next return"]);
-    assert.match(projection.human_fields.instruction, /written by the user/);
-    assert.equal("my_decision" in projection, false);
-    assert.equal("next_return" in projection, false);
+    assert.equal(
+      projection.sessions.some((session) => session.id === "session-codex-0"),
+      true,
+    );
+    assert.deepEqual(projection.daily_activity.events, [
+      { id: "activity-day-1", local_date: "2026-08-26", summary: "Observed day activity" },
+    ]);
+    assert.deepEqual(
+      core.calls.filter(([method]) => method === "getActivityEntries").map(([, args]) => args),
+      [{ date: "2026-08-26", limit: 100 }],
+    );
+    assert.deepEqual(
+      core.calls
+        .filter(([method]) => method === "getAgentSessionContext")
+        .map(([, args]) => ({
+          client_kind: args.client_kind,
+          date: args.date,
+          limit: args.limit,
+        })),
+      [
+        { client_kind: "codex", date: "2026-08-26", limit: 50 },
+        { client_kind: "claude_code", date: "2026-08-26", limit: 50 },
+        { client_kind: "cursor", date: "2026-08-26", limit: 50 },
+        { client_kind: "github_copilot", date: "2026-08-26", limit: 50 },
+        { client_kind: "other", date: "2026-08-26", limit: 50 },
+      ],
+    );
+    assert.equal("human_fields" in projection, false);
     assert.equal(
       core.calls.some(([method]) => method === "getRecentNotes"),
       false,

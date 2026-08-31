@@ -393,6 +393,8 @@ export interface PageProps {
   setActiveThemeId(id: string): void;
   route: string;
   navigate(next: string): void;
+  notesEditorSelectionId: string | null;
+  openNoteForEditing(noteId: string): void;
   /**
    * 切り離しNoteウィンドウで開いているNoteのID（#290）。
    * 本体では undefined。設定されている画面は一覧や外枠を出さず、この一件へ集中する。

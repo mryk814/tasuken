@@ -8,13 +8,13 @@ import type {
   Reference,
   Task,
   WorkReceipt,
-  WorkingCopy,
   WorkspaceDomain,
-} from "../domain-model/types";
+} from "./types";
 import type { SaveOperation } from "../types";
 
 export interface AgentWorkProjectionRow {
   session: AgentSession;
+  sessionHasContent: boolean;
   sessionIdentity: string;
   topic: string;
   result: string | null;
@@ -26,6 +26,7 @@ export interface AgentWorkProjectionRow {
   tasks: Task[];
   receipts: WorkReceipt[];
   activities: ChangeEvent[];
+  presentation: "attention" | "content" | "record";
   unresolved: boolean;
   assignmentIncomplete: boolean;
 }
@@ -102,12 +103,88 @@ function compactSessionId(value: string): string {
   return `${value.slice(0, 8)}…${value.slice(-4)}`;
 }
 
+const SESSION_HOOK_SOURCE_APP_PREFIX = "tasken-session-hook:";
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function proposalPayload(proposal: Record<string, unknown>): Record<string, unknown> | null {
+  const raw = proposal.payload;
+  if (typeof raw === "string") {
+    try {
+      return record(JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  }
+  return record(raw);
+}
+
+export function agentSessionHookSourceApps(
+  proposals: WorkspaceDomain["ai_proposals"],
+): Map<string, string> {
+  const sourceApps = new Map<string, string>();
+  for (const proposal of proposals) {
+    if (proposal.status !== "accepted" && proposal.status !== "pending") {
+      continue;
+    }
+    if (proposal.payload_type !== "agent_sessions") continue;
+    const sourceApp = typeof proposal.source_app === "string" ? proposal.source_app : "";
+    if (!sourceApp.startsWith(SESSION_HOOK_SOURCE_APP_PREFIX)) continue;
+    const payload = proposalPayload(proposal);
+    const entries = Array.isArray(payload?.agent_sessions) ? payload.agent_sessions : [];
+    for (const entry of entries) {
+      const sessionId = record(record(entry)?.session)?.id;
+      if (typeof sessionId === "string" && sessionId) sourceApps.set(sessionId, sourceApp);
+    }
+  }
+  return sourceApps;
+}
+
+export function agentSessionHasContent(session: AgentSession, sourceApp?: string | null): boolean {
+  if (session.status === "active") return true;
+  return !(
+    sourceApp?.startsWith(SESSION_HOOK_SOURCE_APP_PREFIX) &&
+    (session.response_checkpoints?.length || 0) === 0
+  );
+}
+
+function presentationForSession({
+  sessionHasContent,
+  unresolved,
+}: Pick<
+  AgentWorkProjectionRow,
+  "sessionHasContent" | "unresolved"
+>): AgentWorkProjectionRow["presentation"] {
+  if (unresolved) return "attention";
+  return sessionHasContent ? "content" : "record";
+}
+
+function presentationOrder(value: AgentWorkProjectionRow["presentation"]): number {
+  return value === "attention" ? 0 : value === "content" ? 1 : 2;
+}
+
+function prioritizeRows(rows: AgentWorkProjectionRow[]): AgentWorkProjectionRow[] {
+  return [...rows].sort((left, right) => {
+    const presentationComparison =
+      presentationOrder(left.presentation) - presentationOrder(right.presentation);
+    return (
+      presentationComparison ||
+      sessionTimestamp(right.session).localeCompare(sessionTimestamp(left.session))
+    );
+  });
+}
+
 export function buildAgentWorkProjection(
   domain: WorkspaceDomain,
   options: AgentWorkProjectionOptions = {},
 ): AgentWorkProjectionRow[] {
   const workingCopies = new Map(domain.working_copies.map((copy) => [copy.id, copy]));
   const taskById = new Map(domain.tasks.map((task) => [task.id, task]));
+  const hookSourceApps = agentSessionHookSourceApps(domain.ai_proposals);
   const limit = options.limit ?? 20;
 
   const rows = domain.agent_sessions
@@ -147,8 +224,11 @@ export function buildAgentWorkProjection(
       const tasks = byIds(domain.tasks, taskIds);
       const topic =
         tasks.length > 0 ? `${tasks[0].title} — ${session.intent.summary}` : session.intent.summary;
-      return {
+      const unresolved = session.status === "blocked" || remaining.length > 0;
+      const sessionHasContent = agentSessionHasContent(session, hookSourceApps.get(session.id));
+      const row = {
         session,
+        sessionHasContent,
         sessionIdentity: compactSessionId(session.source_session_id || session.id),
         topic,
         result: session.outcome?.summary || null,
@@ -160,8 +240,12 @@ export function buildAgentWorkProjection(
         tasks,
         receipts,
         activities,
-        unresolved: session.status === "blocked" || remaining.length > 0,
+        unresolved,
         assignmentIncomplete: themes.length === 0 || repositories.length === 0,
+      } satisfies Omit<AgentWorkProjectionRow, "presentation">;
+      return {
+        ...row,
+        presentation: presentationForSession(row),
       } satisfies AgentWorkProjectionRow;
     })
     .filter((row) => !options.themeId || row.themes.some((theme) => theme.id === options.themeId))
@@ -169,28 +253,22 @@ export function buildAgentWorkProjection(
       (row) =>
         !options.repositoryContextId ||
         row.repositories.some((repo) => repo.id === options.repositoryContextId),
-    )
-    .sort((left, right) =>
-      sessionTimestamp(right.session).localeCompare(sessionTimestamp(left.session)),
     );
 
-  if (!options.date) return rows.slice(0, limit);
+  if (!options.date) return prioritizeRows(rows).slice(0, limit);
 
   if (options.carryoverOnly) {
-    return rows.filter((row) => row.date !== options.date && row.unresolved).slice(0, limit);
+    return prioritizeRows(rows.filter((row) => row.date !== options.date && row.unresolved)).slice(
+      0,
+      limit,
+    );
   }
 
   const current = rows.filter((row) => row.date === options.date);
-  if (!options.includeUnresolved) return current.slice(0, limit);
+  if (!options.includeUnresolved) return prioritizeRows(current).slice(0, limit);
 
   const handoffs = rows.filter((row) => row.date !== options.date && row.unresolved);
-  const handoffLimit =
-    current.length > 0
-      ? Math.min(3, handoffs.length, Math.max(0, limit - 1))
-      : Math.min(handoffs.length, limit);
-  return [...current.slice(0, limit - handoffLimit), ...handoffs.slice(0, handoffLimit)].sort(
-    (left, right) => sessionTimestamp(right.session).localeCompare(sessionTimestamp(left.session)),
-  );
+  return prioritizeRows([...current, ...handoffs]).slice(0, limit);
 }
 
 export function buildAgentSessionAssignmentOperations(

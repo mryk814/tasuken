@@ -68,6 +68,8 @@ export function TaskFields({
   onChecklistSavePending,
   onChecklistSaved,
   onChecklistDraftChange,
+  onPrepareAiDelegation,
+  hasUnsavedChanges = false,
 }: {
   entity: DrawerConfig["entity"];
   data: WorkspaceData;
@@ -75,6 +77,8 @@ export function TaskFields({
   onChecklistSavePending?: (promise: Promise<boolean>) => void;
   onChecklistSaved?: () => void;
   onChecklistDraftChange?: () => void;
+  onPrepareAiDelegation?: () => Promise<boolean>;
+  hasUnsavedChanges?: boolean;
 }) {
   const schedule = findSchedule(data, "task", str(entity.id), entity._schedule);
   const taskSections = listTaskSections(data.views || [], str(entity.project_id));
@@ -103,6 +107,20 @@ export function TaskFields({
   );
   const canAutoSaveChecklist = Boolean(entity.id && saveEntities);
   const entityId = str(entity.id);
+  const intendedExecutorValue = str(entity.intended_executor);
+  const initialIntendedExecutor = Object.prototype.hasOwnProperty.call(
+    TASK_INTENDED_EXECUTOR_LABELS,
+    intendedExecutorValue,
+  )
+    ? intendedExecutorValue
+    : "self";
+  const [intendedExecutor, setIntendedExecutor] = useState(initialIntendedExecutor);
+  const [preparedWorkState, setPreparedWorkState] = useState<string | null>(null);
+  const [preparingAiDelegation, setPreparingAiDelegation] = useState(false);
+  const preservedWorkState =
+    preparedWorkState ||
+    str(entity.work_state) ||
+    (intendedExecutor === "ai_agent" ? "ready_for_agent" : "not_delegated");
   useEffect(() => {
     if (!activeChecklistItemId) return;
     const input = checklistInputRefs.current[activeChecklistItemId];
@@ -137,12 +155,9 @@ export function TaskFields({
         parent_task_id: (entity.parent_task_id as string | null) ?? null,
         state: (str(entity.state) || "todo") as Task["state"],
         requester: (str(entity.requester) || "self") as Task["requester"],
-        intended_executor: (str(entity.intended_executor) || "self") as Task["intended_executor"],
+        intended_executor: intendedExecutor as Task["intended_executor"],
         executor_identity: (entity.executor_identity as string | null) ?? null,
-        work_state: (str(entity.work_state) ||
-          (str(entity.intended_executor) === "ai_agent"
-            ? "ready_for_agent"
-            : "not_delegated")) as Task["work_state"],
+        work_state: preservedWorkState as Task["work_state"],
         work_started_at: (entity.work_started_at as string | null) ?? null,
         work_reported_at: (entity.work_reported_at as string | null) ?? null,
         work_review_note: (entity.work_review_note as string | null) ?? null,
@@ -202,17 +217,26 @@ export function TaskFields({
   const preservedSectionId =
     normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)) || "";
   const preservedShelf = normalizeTaskShelf(entity.planning_shelf) || "";
-  const intendedExecutorValue = str(entity.intended_executor);
-  const initialIntendedExecutor = Object.prototype.hasOwnProperty.call(
-    TASK_INTENDED_EXECUTOR_LABELS,
-    intendedExecutorValue,
-  )
-    ? intendedExecutorValue
-    : "self";
-  const [intendedExecutor, setIntendedExecutor] = useState(initialIntendedExecutor);
-  const preservedWorkState =
-    str(entity.work_state) ||
-    (intendedExecutor === "ai_agent" ? "ready_for_agent" : "not_delegated");
+  const willPrepareAiDelegation =
+    intendedExecutor === "ai_agent" && preservedWorkState === "not_delegated";
+  const isAiDelegationReady =
+    intendedExecutor === "ai_agent" && preservedWorkState === "ready_for_agent";
+  const canPrepareAiDelegation =
+    Boolean(onPrepareAiDelegation) &&
+    !["done", "cancelled"].includes(str(entity.state)) &&
+    (intendedExecutor === "self" || !intendedExecutor) &&
+    preservedWorkState === "not_delegated";
+  async function prepareAiDelegation() {
+    if (!onPrepareAiDelegation || preparingAiDelegation) return;
+    setPreparingAiDelegation(true);
+    try {
+      if (!(await onPrepareAiDelegation())) return;
+      setIntendedExecutor("ai_agent");
+      setPreparedWorkState("ready_for_agent");
+    } finally {
+      setPreparingAiDelegation(false);
+    }
+  }
   return (
     <>
       <Field label="タイトル">
@@ -530,6 +554,30 @@ export function TaskFields({
             placeholder="例: Codex / 山田"
           />
         </Field>
+        {willPrepareAiDelegation && (
+          <p className="field-help">
+            保存するとAIへ依頼できる状態になります。外部Agentは起動せず、Coding AgentがTasken
+            MCPから取得します。
+          </p>
+        )}
+        {isAiDelegationReady && (
+          <p className="field-help">
+            AIへ依頼できる状態です。Coding AgentはTasken MCPから取得します。
+          </p>
+        )}
+        {canPrepareAiDelegation && (
+          <>
+            {hasUnsavedChanges && <p className="field-help">変更を保存すると準備できます。</p>}
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={preparingAiDelegation || hasUnsavedChanges}
+              onClick={() => void prepareAiDelegation()}
+            >
+              AIへ依頼を準備
+            </button>
+          </>
+        )}
         <input type="hidden" name="work_state" value={preservedWorkState} readOnly />
       </section>
       {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}

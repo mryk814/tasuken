@@ -2,164 +2,93 @@
 
 ## Product decision
 
-Tasken Debriefは、AIとの作業を自動で日報化する機能ではない。
-AIへ委任した仕事を証拠とともに見直し、利用者自身の判断として回収し、次に戻る条件へ接続する振り返りである。
+Tasken Debriefは、その日の記録を読み返し、日報をAIへ依頼してNotesで続ける導線である。
 
-AIはEvidenceの整理と、その日に必要な問いの選択までを担う。
-利用者の判断、内省、Next returnをAIが代筆しない。
+Taskenが日報本文を自動保存したり、人の回答を補ったりはしない。
+
+日報の入口はClaude Codeなどに表示するMCP prompt「Tasken日報」（`daily-report`）である。
+引数なしで実行し、実行環境のローカル当日を対象にする。
+
+画面の「日報の依頼文をコピー」は、選択した日付をMCP接続済みのAIへ渡す補助導線である。
 
 ## Concrete referent map
 
-| Source                                 | Purpose                                          | Concrete referent                                                     | Role                   | Order or relation                        | Label               |
-| -------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------- | ---------------------- | ---------------------------------------- | ------------------- |
-| coding clientのnative log              | 必要時に一次情報へ戻る                           | clientが所有するconversation / session log                            | raw source             | Taskenはsafe locatorだけを持つ           | source session      |
-| lifecycle hook events                  | 後で全ログを走査せず一日の仕事を選べるようにする | start、全user prompt、response checkpoint、endの端末内観測            | local observation      | source session IDで束ねる                | session observation |
-| 一つの完結sessionの観測記録            | 証拠を見ながら振り返る                           | metadata、request timeline、response checkpoints、relations、evidence | review media           | observationから生成し、Debriefへ入力する | Session Packet      |
-| Session Packetから組み立てた当日の事実 | 利用者の記憶を補助する                           | AI生成または規則生成の作業recap                                       | derived projection     | 利用者が確認・訂正する                   | Evidence recap      |
-| 利用者が書いた判断と内省               | AIへ委任した仕事を自分の判断へ戻す               | decision、adaptive answer、evidence correction                        | canonical human record | Debrief完了時に保存する                  | Human reflection    |
-| 次に作業へ戻る入口                     | 振り返りを再開可能な行動へ変える                 | triggerとfirst action                                                 | canonical plan         | 次回のToday / Themeで提示する            | Next return         |
+| 実在する対象                 | 目的                                       | Taskenでの扱い               | 保存先                       |
+| ---------------------------- | ------------------------------------------ | ---------------------------- | ---------------------------- |
+| 当日のActivity               | その日に起きた操作を時系列で確認する       | 最上部のread-only projection | `ChangeEvent` / Activity     |
+| 完結または進行中のAI session | 依頼、結果、残作業を確認する               | 固定サイズのAI作業カード     | `AgentSession` と関連record  |
+| AIが作る日報草稿             | 事実をまとめ、当日の内容に沿う問いを添える | pending Proposal             | `AI Proposal`                |
+| 人間が採用した日報           | Notesで読み、回答を追記する                | Report Note                  | `Note`（`note_type=report`） |
+| 人間がNotesで書き足す回答    | 草稿の問いに自分の言葉で答える             | Markdown本文の編集           | 同じReport Note              |
 
 ## Non-negotiable compatibility conditions
 
-1. raw transcript、hidden reasoning、tool call列、absolute local path、credentialをTaskenのcanonical entity、MCP response、Snapshot、public projectionへ保存・公開しない。
-2. AgentSession、WorkReceipt、ChangeEvent、external referenceの既存identityとrelationを壊さない。
-3. AIが生成したEvidence recapと利用者が書いたHuman reflectionを、表示上もデータ上も混ぜない。
-4. AI報告だけでTaskを完了せず、Debrief完了もTask状態を暗黙に変更しない。
-5. Debriefを作らない日や軽作業だけの日も、Session Packet収集と通常のToday操作を妨げない。
-6. 既存Note / Snapshot / Import / Exportは旧データを読み続け、追加データはversionedかつ往復可能にする。
+1. raw transcript、hidden reasoning、tool call列、absolute local path、credentialをcanonical entity、MCP response、Snapshot、public projectionへ保存・公開しない。
+2. AgentSession、WorkReceipt、ChangeEvent、external referenceのidentityとrelationを壊さない。
+3. Activityの観測事実、AIの草稿、人間がNotesで追記した回答を混ぜない。
+4. 日報の生成や採用だけでTaskを完了させず、TaskやReferenceを新規作成しない。
+5. 日報を作らない日も、Session Packet収集とTodayの通常操作を妨げない。
+6. 既存の`properties_json.tasken_debrief`を持つNoteは読み続けるが、新しい日報はこの旧フォームを作らない。
 
-## Collection timing
+## 一日の流れ
 
-### During a session
+1. Debriefを開くと、選択日のActivity時系列を最初に表示する。
+2. その下にAI作業カードを並べ、blockedまたは残作業があるカードを先に置く。
+3. カードはhoverまたはkeyboard focusで、Intent、Outcome、残り、記録された確認をpreviewする。
+4. 利用者は「Tasken日報」をAI clientで実行するか、補助のコピー操作で同じ依頼文を渡す。
+5. AIは`tasken.get_debrief_context`へ対象日を渡し、boundedな当日ActivityとAIへ公開可能なSessionを読む。日報ではRepositoryで絞らない。
+6. AIは事実に基づく草稿と、その日の内容に応じた問いを作り、`tasken.propose_note`でReportをpending Proposalとして送る。
+7. 利用者はAI Inboxで本文を確認して採用する。
+8. 採用後のReport NoteをDebriefまたはNotesから開き、Markdownの回答欄を人が編集して保存する。
 
-hookは意味を推論せず、短時間で次を追記する。
+## 日報草稿の内容
 
-- session start / endとclient metadata
-- 全user promptの時刻とsanitized text
-- 各response checkpointの時刻とsanitized terminal response
-- repositoryを解決するためのlocal-only cwd
-- source sessionのopaque ID
+草稿は、その日の作業、成果、未解決事項を根拠に沿ってまとめる。
+冒頭で何が進んだ日かを短く述べ、ThemeやTaskごとに関連作業をまとめる。
+同じ作業の再送・複数Sessionを重複計上せず、内容のない開始終了記録は本文に並べない。
+AI以外の作業も含め、観測された事実とAIの報告、推測を区別する。
 
-同じeventの再送はevent identityで重複排除する。
-並行hook processは一つのSession Packetへ観測時刻順にmergeする。
+判断は記録にある場合だけ扱い、理由や他の選択肢を補作しない。
+Sessionの終了やTaskの更新を完了の証拠とせず、未検証の結果や残る確認を明記する。
+取得上限や公開範囲によって一部だけなら、その範囲を短く示す。
 
-### At session end
+問いは固定の「自分の判断」や「次の一手」にしない。
 
-terminal observationでPacketをfinalizeする。
-終了時にagent自身から構造化outcomeが届く場合はAI報告として保持するが、観測事実へ昇格させない。
-Tasken自身がLLM APIを呼んでHuman reflectionを生成しない。
+たとえば未検証の結果が残る日には確認条件を、方針が変わった日には判断を変えた事実を問う。
 
-### At Debrief time
+問いは原則一つ、異なる有用な観点がある場合だけ二つまでとする。
+強い根拠がなければ、架空の場面や感情を前提にした問いを作らない。
 
-最初に当日分のSession Packetだけを読む。
-Packetで不足または矛盾があるsessionに限ってsource sessionを追加参照する。
-全native logを毎回走査しない。
+問いの直後には人が後から書く回答欄を空欄で置く。
 
-外部AIからはread-only MCP tool `tasken.get_debrief_context`を使う。
-これは現在のrepositoryに関連するcanonical Session Packetと直近のTasken Debriefだけをboundedに返す。
-同じrepositoryに関連するTheme CharterのpurposeとTheme Stateのcurrent directionも、Evidenceを目的へ接続するための補助Contextとして返す。
-raw transcript、hidden reasoning、tool call列、private pathは返さず、`My decision`と`Next return`をAIが代筆してはならないことも応答契約に含める。
-Tasken UIのDaily Debriefは、未採用のtrusted hook Packetも保存時の一つの確認境界で回収できるため、全workspaceを振り返る正式導線はこちらとする。
+AIは回答、判断、完了を推測で埋めない。
+既存日報に人間が追記した回答は上書きしない。
 
-## Evidence strength
+この内容方針は[nippoの日報テンプレート](https://github.com/mryk814/nippo/blob/main/docs/templates/nippo-template.md)と[振り返りテンプレート](https://github.com/mryk814/nippo/blob/main/docs/templates/reflection-template.md)を参考にする。
+Taskenでは生ログを再収集せず、統計や用語レビューを必須項目にせず、一つのReport Note内に事実と空欄の回答欄を置く。
 
-Evidence itemは必ず次のいずれかを持つ。
+## MCPと保存の境界
 
-- `observed`: hook event、canonical ChangeEvent、commit等から直接観測した事実
-- `agent_reported`: agentのterminal response / structured outcomeによる報告
-- `inferred`: TaskenまたはDebrief生成AIによる推定
+`daily-report`はローカル当日を指定してread-onlyの`tasken.get_debrief_context(date)`を使う。
+別の日は画面の依頼文、または`get_debrief_context`の`date`で指定する。
+日報の書き方はMCP側の一つの`writing_guidance`をPromptとContextで共有し、どちらの入口でも取得時に渡す。
 
-推定を事実らしい文章へ混ぜない。
-利用者が訂正した内容はHuman reflection側へ保存し、元Evidenceを黙って書き換えない。
+このContextはboundedな当日ActivityとAIへ公開可能なSessionを返し、private pathやraw transcriptを含めない。
 
-## Daily Debrief
+保存依頼は`tasken.propose_note`へ`note_type: "report"`と`report_date: "YYYY-MM-DD"`を渡す。
 
-所要時間2〜4分は研究上の保証値ではなく、継続性を評価するためのプロダクト仮説とする。
+成功時に返るのはNote IDではなくpendingのProposal IDである。
 
-1. `Evidence`: 当日の仕事をTheme / Repository横断で提示する。利用者は確認・訂正だけ行う。
-2. `My decision`: 「今日、AIの提案に対して、自分が採用・修正・保留した判断は何か？」へ一文以上書く。
-3. `One question`: Packetに強いsignalがある場合だけ、観測可能で具体的な適応質問を最大1問出す。
-4. `Next return`: 次に戻るtriggerとfirst actionを書く。再開しない判断も許可する。
-5. `Save`: Human reflectionをReport Noteとして保存し、参照したSessionを確定する。
+AI Inboxで人が採用した時だけReport Noteが作成され、`properties_json.daily_report = { date: report_date }`が保存される。
 
-`My decision`では、立派な結論を要求しない。
-「自分では決めていない」「AI案を採用したが理解は追いついていない」「判断を保留した」も有効な回答である。
+Themeを指定しない日報は既存の「個人業務」Themeに保存される。
 
-適応質問の例:
+Report NoteのMarkdownは既存のcanonical Note保存経路で同期される。
 
-| Packet signal                  | Question                                         |
-| ------------------------------ | ------------------------------------------------ |
-| AIへ広く委任した               | 自分が説明できない部分はどこ？                   |
-| 方針変更が複数回あった         | 最後の判断を変えた観測事実は何だった？           |
-| 未検証の完了報告がある         | 何を確認できれば、自分の判断として完了と言える？ |
-| blocked / remaining workがある | 最初の障害と、代替策は何か？                     |
-| 強いsignalがない               | 質問を出さない                                   |
+## 既存資料の扱い
 
-Next returnは「明日」に限定しない。
+旧`tasken_debrief`資料と、そのdaily / weeklyのreaderは既存Noteを開くために残す。
 
-```text
-trigger: 次にTaskenのagent-session作業へ戻ったとき
-first_action: 実機確認チェックリストを開き、Inbox即時反映を一回再現する
-```
+新しいDebriefは固定フォームやWeeklyフォームを表示・保存しない。
 
-## Weekly Debrief
-
-Dailyを長文化せず、複数日にまたがるpatternは週次で扱う。
-所要時間10分前後をプロダクト仮説とする。
-
-- 同じ種類の判断を何度繰り返したか
-- 「次にやる」と書いたまま開始できなかったものは何か
-- AI recapを頻繁に訂正した領域はどこか
-- 未検証のまま残り続けたものは何か
-- AIへ任せる境界を来週どう変えるか
-
-Weeklyの回答もHuman reflectionであり、AIに代筆させない。
-
-## Persistence
-
-Debriefは既存の`Note`（`note_type=report`）として日付・種別ごとに一枚保存する。
-Markdownは人が読める投影であり、`properties_json.tasken_debrief`を構造化正本とする。
-
-```text
-tasken_debrief {
-  schema_version: 1
-  kind: daily | weekly
-  period_start
-  period_end
-  source_session_ids[]
-  evidence_corrections[]
-  decision
-  adaptive_question?
-  adaptive_answer?
-  next_return {
-    trigger
-    first_action
-    resume_state: planned | not_planned
-  }
-  completed_at
-  duration_seconds?
-}
-```
-
-Evidence recap本文はAgentSession / Packetから再生成できる派生情報である。
-Human reflectionとNext returnは再生成できないため、保存とSnapshot / Export往復性の対象にする。
-
-## Completion and evaluation
-
-Dailyの完了条件:
-
-- Evidenceを表示できる、または「対象sessionなし」を明示できる
-- `My decision`が入力されている
-- `Next return`が入力されている、または再開しない判断がある
-- 保存後に同じ日付のDebriefを再表示・編集できる
-- source Sessionへ辿れる
-
-機能の価値は文章量で測らない。
-
-- 対象日の完了率と週ごとの低下
-- 完了までの操作時間
-- AI recapを利用者が訂正した率
-- Next returnから最初の行動を開始できた率
-- 未検証項目の解消と同じ手戻りの再発
-
-利用状況が悪い場合、内省自体を否定する前に、問いの数、提示タイミング、recapの長さ、入力負担を疑う。
+日報の価値は入力欄を埋めた件数ではなく、後から作業の事実と自分の回答を読み直せることにある。

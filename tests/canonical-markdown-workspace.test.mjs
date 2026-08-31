@@ -11,6 +11,10 @@ import {
   canonicalMarkdownBindingFromProperties,
   markdownSignature,
 } from "../src/shared/canonicalMarkdown.mjs";
+import {
+  buildPersonalDefaultTheme,
+  PERSONAL_DEFAULT_THEME_ID,
+} from "../src/shared/personalTheme.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 async function importWorkspaceService() {
@@ -95,6 +99,7 @@ function createFixture(prefix) {
   const syncRoot = path.join(userDataPath, "TaskenSync");
   const database = new WorkspaceDatabase(path.join(userDataPath, "workspace.sqlite"));
   database.setPreference("artifactDirectory", syncRoot);
+  database.save("theme", buildPersonalDefaultTheme());
   return { userDataPath, syncRoot, database };
 }
 
@@ -122,6 +127,7 @@ function canonicalBinding(note) {
 function canonicalContent(note) {
   return buildCanonicalMarkdownContent({
     title: note.title,
+    themeName: note.project_id === PERSONAL_DEFAULT_THEME_ID ? "個人業務" : "",
     updatedAt: note.updated_at || note.created_at,
     body: note.body_markdown,
   });
@@ -174,6 +180,57 @@ function artifactForThemeSync(overrides = {}) {
   };
 }
 
+test("Document保存はTheme未指定のNote・Report・日報を個人業務へ保存し、既存の無所属Noteは保存まで変えない", () => {
+  const fixture = createFixture("tasken-canonical-personal-theme");
+  try {
+    fixture.database.save("note", {
+      id: "legacy-unassigned",
+      title: "既存の無所属",
+      body_markdown: "既存本文",
+      project_id: null,
+    });
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    // 既存データをmigrationや起動で一括更新しない。
+    assert.equal(fixture.database.get("note", "legacy-unassigned").project_id, null);
+
+    fixture.database.save("note", {
+      id: "personal-note",
+      title: "Theme未指定のNote",
+      body_markdown: "本文",
+    });
+    const savedNote = service.saveCanonicalNote(
+      saveRequest(fixture.database.get("note", "personal-note"), "保存した本文"),
+    );
+    assert.equal(savedNote.project_id, PERSONAL_DEFAULT_THEME_ID);
+
+    fixture.database.save("note", {
+      id: "personal-report",
+      title: "日報",
+      note_type: "report",
+      body_markdown: "日報本文",
+    });
+    const savedReport = service.saveCanonicalNote(
+      saveRequest(fixture.database.get("note", "personal-report"), "保存した日報本文"),
+    );
+    assert.equal(savedReport.note_type, "report");
+    assert.equal(savedReport.project_id, PERSONAL_DEFAULT_THEME_ID);
+
+    fixture.database.save("theme", { id: "theme-research", name: "調査" });
+    fixture.database.save("note", {
+      id: "explicit-theme",
+      title: "明示Theme",
+      body_markdown: "本文",
+      project_id: "theme-research",
+    });
+    const savedExplicit = service.saveCanonicalNote(
+      saveRequest(fixture.database.get("note", "explicit-theme"), "保存した本文"),
+    );
+    assert.equal(savedExplicit.project_id, "theme-research");
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
 test("Document保存はNote/Report由来の未削除ArtifactのThemeを同期する", () => {
   const fixture = createFixture("tasken-document-artifact-theme-sync");
   try {
@@ -187,39 +244,51 @@ test("Document保存はNote/Report由来の未削除ArtifactのThemeを同期す
       body_markdown: "before",
       project_id: "theme-before",
     });
-    fixture.database.save("artifact", artifactForThemeSync({
-      id: "artifact-owned-note",
-      title: "Owned note artifact",
-      source_type: "note",
-      source_id: "note-artifact-theme-sync",
-      theme_id: "theme-before",
-    }));
-    fixture.database.save("artifact", artifactForThemeSync({
-      id: "artifact-owned-report",
-      title: "Owned report artifact",
-      source_type: "report",
-      source_id: "note-artifact-theme-sync",
-      theme_id: "theme-before",
-    }));
+    fixture.database.save(
+      "artifact",
+      artifactForThemeSync({
+        id: "artifact-owned-note",
+        title: "Owned note artifact",
+        source_type: "note",
+        source_id: "note-artifact-theme-sync",
+        theme_id: "theme-before",
+      }),
+    );
+    fixture.database.save(
+      "artifact",
+      artifactForThemeSync({
+        id: "artifact-owned-report",
+        title: "Owned report artifact",
+        source_type: "report",
+        source_id: "note-artifact-theme-sync",
+        theme_id: "theme-before",
+      }),
+    );
     fixture.database.save("note", {
       id: "another-note",
       title: "Unrelated owner",
       body_markdown: "unrelated",
     });
-    fixture.database.save("artifact", artifactForThemeSync({
-      id: "artifact-unrelated",
-      title: "Unrelated artifact",
-      source_type: "note",
-      source_id: "another-note",
-      theme_id: "theme-before",
-    }));
-    fixture.database.save("artifact", artifactForThemeSync({
-      id: "artifact-deleted",
-      title: "Deleted artifact",
-      source_type: "note",
-      source_id: "note-artifact-theme-sync",
-      theme_id: "theme-before",
-    }));
+    fixture.database.save(
+      "artifact",
+      artifactForThemeSync({
+        id: "artifact-unrelated",
+        title: "Unrelated artifact",
+        source_type: "note",
+        source_id: "another-note",
+        theme_id: "theme-before",
+      }),
+    );
+    fixture.database.save(
+      "artifact",
+      artifactForThemeSync({
+        id: "artifact-deleted",
+        title: "Deleted artifact",
+        source_type: "note",
+        source_id: "note-artifact-theme-sync",
+        theme_id: "theme-before",
+      }),
+    );
     fixture.database.remove("artifact", "artifact-deleted");
 
     const workspace = new WorkspaceService(fixture.database, fixture.userDataPath);
@@ -244,9 +313,15 @@ test("Document保存はNote/Report由来の未削除ArtifactのThemeを同期す
     const savedWithoutTheme = workspace.saveCanonicalNote(
       saveRequest({ ...saved, project_id: null }, "after"),
     );
-    assert.equal(savedWithoutTheme.project_id, null);
-    assert.equal(fixture.database.get("artifact", ownedNote.id).theme_id, null);
-    assert.equal(fixture.database.get("artifact", ownedReport.id).theme_id, null);
+    assert.equal(savedWithoutTheme.project_id, PERSONAL_DEFAULT_THEME_ID);
+    assert.equal(
+      fixture.database.get("artifact", ownedNote.id).theme_id,
+      PERSONAL_DEFAULT_THEME_ID,
+    );
+    assert.equal(
+      fixture.database.get("artifact", ownedReport.id).theme_id,
+      PERSONAL_DEFAULT_THEME_ID,
+    );
     assert.equal(
       fixture.database.get("artifact", ownedNote.id).version,
       Number(ownedNote.version || 0) + 2,
@@ -291,13 +366,16 @@ test("Document保存はArtifact更新失敗時にNote・Artifact・stable link�
       title: "Stable target",
       state: "todo",
     });
-    fixture.database.save("artifact", artifactForThemeSync({
-      id: "artifact-theme-rollback",
-      title: "Rollback artifact",
-      source_type: "note",
-      source_id: "note-artifact-theme-rollback",
-      theme_id: "theme-before",
-    }));
+    fixture.database.save(
+      "artifact",
+      artifactForThemeSync({
+        id: "artifact-theme-rollback",
+        title: "Rollback artifact",
+        source_type: "note",
+        source_id: "note-artifact-theme-rollback",
+        theme_id: "theme-before",
+      }),
+    );
     const workspace = new WorkspaceService(fixture.database, fixture.userDataPath);
     const initial = workspace.saveCanonicalNote(
       saveRequest(
@@ -1143,9 +1221,7 @@ test("正本Markdownの保存先復旧後は本文を変更せず再試行して
     fs.renameSync(filePath, backupPath);
     fs.mkdirSync(filePath);
 
-    const unavailable = service.saveCanonicalNote(
-      saveRequest(first, "Markdownだけ未同期の本文"),
-    );
+    const unavailable = service.saveCanonicalNote(saveRequest(first, "Markdownだけ未同期の本文"));
     assert.equal(unavailable.body_markdown, "Markdownだけ未同期の本文");
     assert.equal(canonicalBinding(unavailable).sync_state, "unavailable");
     assert.equal(
@@ -1155,9 +1231,7 @@ test("正本Markdownの保存先復旧後は本文を変更せず再試行して
 
     fs.rmdirSync(filePath);
     fs.renameSync(backupPath, filePath);
-    const retried = service.saveCanonicalNote(
-      saveRequest(unavailable, unavailable.body_markdown),
-    );
+    const retried = service.saveCanonicalNote(saveRequest(unavailable, unavailable.body_markdown));
     assert.equal(retried.body_markdown, unavailable.body_markdown);
     assert.equal(canonicalBinding(retried).canonical_path, filePath);
     assert.equal(canonicalBinding(retried).sync_state, "in_sync");

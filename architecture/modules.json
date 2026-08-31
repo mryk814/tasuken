@@ -26,7 +26,7 @@
     "main.bootstrap": ["main.composition", "main.transport", "main.application", "main.infrastructure", "main.mcp", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.composition": ["main.application", "main.core", "main.infrastructure", "main.mcp", "main.mobile", "main.platform", "main.task", "shared", "shared.kernel", "shared.contracts.core", "shared.contracts.mobile", "shared.contracts.task", "shared.ipc"],
     "main.transport": ["main.application", "main.task", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
-    "main.application": ["main.task", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
+    "main.application": ["main.task", "shared", "shared.kernel", "shared.contracts.core", "shared.contracts.task", "shared.ipc"],
     "main.core": ["shared", "shared.kernel", "shared.contracts.task"],
     "main.infrastructure": ["main.task", "shared", "shared.kernel", "shared.contracts.mobile", "shared.contracts.task", "shared.ipc"],
     "main.task": ["shared", "shared.kernel", "shared.contracts.task"],

@@ -238,7 +238,7 @@ function entityTitle(entity, ref) {
   return text(entity?.title || entity?.name) || `${ref.type}:${ref.id}`;
 }
 
-function localDate(value, timezone) {
+export function localDate(value, timezone) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   try {
