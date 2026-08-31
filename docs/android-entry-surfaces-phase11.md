@@ -22,6 +22,16 @@ This phase connects launcher shortcuts, widget navigation, app deep links, and t
 
 ## Verification
 
+### Input-first Task flow (2026-08-31)
+
+- Ordinary in-app Add focuses the title after the sheet opens and shows the keyboard. Continued entry focuses the new draft; voice and Share Target entry do not request keyboard focus.
+- Add / Add next appear directly after the input, before optional Theme and voice controls, so the keyboard does not hide the frequent action on a compact phone.
+- Task detail presents state and Complete / Reopen before editing sections. Existing pending, conflict, saving, and human-review restrictions remain unchanged.
+- This is a presentation change: draft provenance, Room schema, outbox commands, and canonical Desktop writes are unchanged.
+- Regression coverage: `TodayPaneStateTest`, `TaskEntryFlowUiTest`, `TaskStateActionUiTest`, `CaptureThemePickerUiTest`, `TaskThemePickerUiTest`, `TaskScheduleEditorUiTest`, and `WorkReceiptDetailUiTest`. Real keyboard visibility requires a normal app launch in addition to Compose instrumentation.
+
+### Original Phase 11 verification
+
 - Windows-native `testDebugUnitTest assembleDebug assembleDebugAndroidTest`: passed.
 - Resolver unit tests cover shortcut Capture, widget Today/Task, exact text share retention, empty share, foreign scheme, and invalid Task id.
 - S23 update install used `adb install -r`; app data, Room, Keystore pairing, and personal data were preserved.

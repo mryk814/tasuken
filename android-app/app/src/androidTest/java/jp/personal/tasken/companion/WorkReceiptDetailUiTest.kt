@@ -38,7 +38,7 @@ class WorkReceiptDetailUiTest {
             }
         }
 
-        composeRule.onNodeWithTag("work-receipt-detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("work-receipt-detail").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Offline cache").assertIsDisplayed()
         composeRule.onNodeWithText("完了").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("• Gateway contract").performScrollTo().assertIsDisplayed()
@@ -66,7 +66,7 @@ class WorkReceiptDetailUiTest {
             }
         }
 
-        composeRule.onNodeWithText("詳細を再読み込み").performClick()
+        composeRule.onNodeWithText("詳細を再読み込み").performScrollTo().assertIsDisplayed().performClick()
         assertEquals("task-1:receipt-1", retried)
     }
 

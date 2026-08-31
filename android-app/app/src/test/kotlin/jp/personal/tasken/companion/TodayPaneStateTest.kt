@@ -5,6 +5,37 @@ import org.junit.Test
 
 class TodayPaneStateTest {
     @Test
+    fun appAddRequestsInputFocusButVoiceAndShareDoNot() {
+        val state = TodayPaneState()
+        state.openCapture(MobileCaptureSource.AndroidApp)
+        assertEquals(true, state.captureInputFocusRequested)
+        state.consumeInputFocusRequest()
+        assertEquals(false, state.captureInputFocusRequested)
+
+        state.captureDraft = MobileCaptureDraft.fresh(text = "保留中のTask")
+        state.openCapture(MobileCaptureSource.AndroidApp, replaceDraft = false)
+        assertEquals("保留中のTask", state.captureDraft.text)
+        assertEquals(true, state.captureInputFocusRequested)
+        state.consumeInputFocusRequest()
+
+        state.openCapture(MobileCaptureSource.AndroidApp, requestVoice = true)
+        assertEquals(false, state.captureInputFocusRequested)
+        assertEquals(true, state.captureVoiceStartRequested)
+
+        state.openCapture(MobileCaptureSource.AndroidSpeech, requestVoice = true)
+        assertEquals(false, state.captureInputFocusRequested)
+        assertEquals(true, state.captureVoiceStartRequested)
+
+        state.openCapture(
+            MobileCaptureSource.ShareTarget,
+            initialText = "共有された内容",
+            sharedMimeType = "text/plain",
+        )
+        assertEquals(false, state.captureInputFocusRequested)
+        assertEquals("共有された内容", state.captureDraft.text)
+    }
+
+    @Test
     fun selectionAndScrollRestoreAfterRecreation() {
         val before = TodayPaneState()
         before.selectedTaskId = "10000000-0000-4000-8000-000000000001"

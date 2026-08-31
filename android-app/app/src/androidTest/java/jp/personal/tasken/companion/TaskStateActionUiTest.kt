@@ -70,6 +70,25 @@ class TaskStateActionUiTest {
     }
 
     @Test
+    fun humanReviewWorkStatesKeepStateActionDisabled() {
+        val workState = mutableStateOf("needs_human_review")
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    sampleTask().copy(workState = workState.value),
+                    TaskActionUiState.Idle,
+                    onStateAction = {},
+                )
+            }
+        }
+
+        listOf("needs_human_review", "reported_done", "blocked").forEach { state ->
+            composeRule.runOnIdle { workState.value = state }
+            composeRule.onNodeWithText("Work Receiptを確認").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
+        }
+    }
+
+    @Test
     fun conflictedTaskShowsBothExplicitResolutionActions() {
         composeRule.setContent {
             MaterialTheme {

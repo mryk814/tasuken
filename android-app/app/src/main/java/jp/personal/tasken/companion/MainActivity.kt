@@ -723,15 +723,7 @@ internal fun CaptureTaskSheet(
         .only(WindowInsetsSides.Bottom),
 ) {
     val focusRequester = remember(draft.draftId) { FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    LaunchedEffect(draft.draftId, requestInputFocus) {
-        if (requestInputFocus) {
-            focusRequester.requestFocus()
-            keyboardController?.show()
-            onInputFocusHandled()
-        }
-    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -739,6 +731,15 @@ internal fun CaptureTaskSheet(
             WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
         },
     ) {
+        val keyboardController = LocalSoftwareKeyboardController.current
+        LaunchedEffect(draft.draftId, requestInputFocus, sheetState.isVisible) {
+            // Request focus in the sheet's window after its opening transition.
+            if (requestInputFocus && sheetState.isVisible) {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+                onInputFocusHandled()
+            }
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -747,11 +748,17 @@ internal fun CaptureTaskSheet(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Quick Add", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text(
-                "入力元: ${captureSourceLabel(draft.source)}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (draft.kind == MobileCaptureKind.Task) "Taskを追加" else "Captureを追加",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
             )
+            if (draft.source != MobileCaptureSource.AndroidApp) {
+                Text(
+                    "入力元: ${captureSourceLabel(draft.source)}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MobileCaptureKind.entries.forEach { kind ->
                     FilterChip(
@@ -790,31 +797,6 @@ internal fun CaptureTaskSheet(
                 }),
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
             )
-            CaptureThemePicker(
-                draftId = draft.draftId,
-                themeId = draft.projectId,
-                themes = themes,
-                catalogState = themeCatalogState,
-                enabled = state !is CaptureUiState.Saving,
-                onThemeSelected = onThemeSelected,
-            )
-            val speechBusy = speechState is ShortSpeechUiState.Listening ||
-                speechState is ShortSpeechUiState.Partial ||
-                speechState is ShortSpeechUiState.Processing
-            OutlinedButton(
-                onClick = if (speechBusy) onStopVoice else onStartVoice,
-                enabled = state !is CaptureUiState.Saving,
-            ) {
-                Text(if (speechBusy) "音声を確定" else "🎙 音声で入力")
-            }
-            Text(
-                speechStatusText(speechState, draft),
-                color = if (speechState is ShortSpeechUiState.Error) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
             Row(
                 modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
@@ -835,6 +817,31 @@ internal fun CaptureTaskSheet(
                     Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
                 }
             }
+            CaptureThemePicker(
+                draftId = draft.draftId,
+                themeId = draft.projectId,
+                themes = themes,
+                catalogState = themeCatalogState,
+                enabled = state !is CaptureUiState.Saving,
+                onThemeSelected = onThemeSelected,
+            )
+            val speechBusy = speechState is ShortSpeechUiState.Listening ||
+                speechState is ShortSpeechUiState.Partial ||
+                speechState is ShortSpeechUiState.Processing
+            OutlinedButton(
+                onClick = if (speechBusy) onStopVoice else onStartVoice,
+                enabled = state !is CaptureUiState.Saving,
+            ) {
+                Text(if (speechBusy) "音声を確定" else "音声で入力")
+            }
+            Text(
+                speechStatusText(speechState, draft),
+                color = if (speechState is ShortSpeechUiState.Error) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
             Spacer(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1443,6 +1450,26 @@ internal fun TodayDetailPane(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(task.title, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("状態  ${taskStateLabel(task.state)}")
+            Button(
+                onClick = { onStateAction(task) },
+                enabled = (!task.pending || task.canChangePendingState) &&
+                    task.conflict == null && actionState !is TaskActionUiState.Saving &&
+                    task.workState !in setOf("needs_human_review", "reported_done", "blocked"),
+            ) {
+                Text(
+                    when {
+                        actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
+                        task.conflict != null -> "競合を解決してから操作"
+                        task.pending && !task.canChangePendingState -> "同期後に操作"
+                        task.workState in setOf("needs_human_review", "reported_done", "blocked") -> "Work Receiptを確認"
+                        task.pending && task.state == "done" -> "再開に変更"
+                        task.pending -> "完了に変更"
+                        task.state == "done" -> "再開する"
+                        else -> "完了する"
+                    },
+                )
+            }
             OutlinedTextField(
                 value = titleDraft,
                 onValueChange = { if (it.length <= 500) titleDraft = it },
@@ -1587,7 +1614,6 @@ internal fun TodayDetailPane(
                 },
                 onSave = { onChecklistUpdate(task, it) },
             )
-            Text("状態  ${taskStateLabel(task.state)}")
             task.workState?.let { Text("作業状態  ${taskWorkStateLabel(it)}") }
             if (task.workState == "not_delegated") {
                 TaskDelegationCard(
@@ -1673,25 +1699,6 @@ internal fun TodayDetailPane(
                 Text(if (task.todayDate == today.toString()) "今日から外す" else "今日に入れる")
             }
             Text("更新  ${task.updatedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(
-                onClick = { onStateAction(task) },
-                enabled = (!task.pending || task.canChangePendingState) &&
-                    task.conflict == null && actionState !is TaskActionUiState.Saving &&
-                    task.workState !in setOf("needs_human_review", "reported_done", "blocked"),
-            ) {
-                Text(
-                    when {
-                        actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
-                        task.conflict != null -> "競合を解決してから操作"
-                        task.pending && !task.canChangePendingState -> "同期後に操作"
-                        task.workState in setOf("needs_human_review", "reported_done", "blocked") -> "Work Receiptを確認"
-                        task.pending && task.state == "done" -> "再開に変更"
-                        task.pending -> "完了に変更"
-                        task.state == "done" -> "再開する"
-                        else -> "完了する"
-                    },
-                )
-            }
         }
     }
 }
