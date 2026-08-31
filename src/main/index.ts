@@ -2582,6 +2582,15 @@ async function startDesktopApp(): Promise<void> {
     app.getPath("userData"),
     undefined,
     composition.createCoreClient(),
+    (input) => {
+      applicationCommands.startTaskAgentWork({
+        taskId: input.taskId,
+        expectedTaskVersion: input.expectedTaskVersion,
+        clientLabel: input.clientLabel,
+      });
+      notifyMainWindowRefresh();
+      notifyTodayMiniRefresh(["task", "change_event"]);
+    },
   );
   const automaticSnapshotBackup = new AutomaticSnapshotBackupService({
     repository: workspaceRepository,

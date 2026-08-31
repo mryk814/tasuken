@@ -430,6 +430,98 @@ test("AI report stays needs_human_review and cannot complete before human accept
   );
 });
 
+test("desktop agent launch records work start directly without creating an MCP proposal", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  service.execute(
+    envelope(
+      "CreateTask",
+      {
+        task: {
+          id: "task-direct-launch",
+          title: "Direct launch",
+          state: "todo",
+          project_id: "theme-personal-default",
+          intended_executor: "self",
+          requester: "self",
+          work_state: "not_delegated",
+        },
+      },
+      "create-direct-launch",
+    ),
+  );
+
+  const receipt = service.startTaskAgentWork({
+    taskId: "task-direct-launch",
+    expectedTaskVersion: 1,
+    clientLabel: "Codex",
+    issuedAt: "2026-08-08T00:01:00.000Z",
+  });
+
+  const task = repo.get("task", "task-direct-launch");
+  assert.equal(task.intended_executor, "ai_agent");
+  assert.equal(task.work_state, "in_progress");
+  assert.equal(task.executor_identity, "Codex");
+  assert.equal(task.version, 2);
+  assert.ok(receipt.changes.some(({ type }) => type === "task"));
+  assert.equal(repo.list("ai_proposal").length, 0);
+
+  const startedAt = task.work_started_at;
+  const retryReceipt = service.startTaskAgentWork({
+    taskId: "task-direct-launch",
+    expectedTaskVersion: 2,
+    clientLabel: "GitHub Copilot",
+    issuedAt: "2026-08-08T00:02:00.000Z",
+  });
+  const retriedTask = repo.get("task", "task-direct-launch");
+  assert.equal(retriedTask.intended_executor, "ai_agent");
+  assert.equal(retriedTask.work_state, "in_progress");
+  assert.equal(retriedTask.executor_identity, "GitHub Copilot");
+  assert.equal(retriedTask.work_started_at, startedAt);
+  assert.equal(retriedTask.version, 3);
+  assert.ok(retryReceipt.changes.some(({ type }) => type === "task"));
+  assert.equal(repo.list("ai_proposal").length, 0);
+
+  service.execute(
+    envelope(
+      "CreateTask",
+      {
+        task: {
+          id: "task-human-in-progress",
+          title: "Human work in progress",
+          state: "doing",
+          project_id: "theme-personal-default",
+          intended_executor: "self",
+          requester: "self",
+          work_state: "not_delegated",
+        },
+      },
+      "create-human-in-progress",
+    ),
+  );
+  service.execute(
+    envelope(
+      "StartTaskWork",
+      { taskId: "task-human-in-progress", executorKind: "self", executorIdentity: "Owner" },
+      "start-human-in-progress",
+      [{ type: "task", id: "task-human-in-progress", version: 1 }],
+    ),
+  );
+  assert.throws(
+    () =>
+      service.startTaskAgentWork({
+        taskId: "task-human-in-progress",
+        expectedTaskVersion: 2,
+        clientLabel: "Codex",
+      }),
+    /AI以外が作業中/,
+  );
+  const activeHumanTask = repo.get("task", "task-human-in-progress");
+  assert.equal(activeHumanTask.intended_executor, "self");
+  assert.equal(activeHumanTask.executor_identity, "Owner");
+  assert.equal(activeHumanTask.version, 2);
+});
+
 test("SQLite repository enforces AI completion, append-only receipts, and task receipt cascade restore", async () => {
   const directory = await mkdtemp(path.join(process.cwd(), ".tasken-work-receipt-"));
   const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));

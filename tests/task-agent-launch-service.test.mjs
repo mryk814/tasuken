@@ -61,6 +61,9 @@ function fixture(root, overrides = {}) {
     ],
   };
   const launches = [];
+  const starts = [];
+  const sequence = [];
+  let remainingLaunchFailures = Number(overrides.launchFailures || 0);
   const service = new TaskAgentLaunchService({
     repository: {
       get(type, id) {
@@ -90,13 +93,36 @@ function fixture(root, overrides = {}) {
           available: false,
           reason: "Copilot CLIが見つかりません。",
         },
+        { id: "codex", label: "Codex", available: true },
       ];
+    },
+    async startTaskAgentWork(input) {
+      starts.push(input);
+      sequence.push("start");
+      if (
+        records.task[0].work_state !== "in_progress" ||
+        records.task[0].intended_executor !== "ai_agent" ||
+        records.task[0].executor_identity !== input.clientLabel
+      ) {
+        records.task[0] = {
+          ...records.task[0],
+          intended_executor: "ai_agent",
+          work_state: "in_progress",
+          executor_identity: input.clientLabel,
+          version: records.task[0].version + 1,
+        };
+      }
     },
     async launchTaskAgentProcess(input) {
       launches.push(input);
+      sequence.push("launch");
+      if (remainingLaunchFailures > 0) {
+        remainingLaunchFailures -= 1;
+        throw new Error("process failed");
+      }
     },
   });
-  return { service, records, repositoryPath, launches };
+  return { service, records, repositoryPath, launches, starts, sequence };
 }
 
 test("Task agent launch re-resolves one self Task and launches only its canonical local repository", async () => {
@@ -112,6 +138,7 @@ test("Task agent launch re-resolves one self Task and launches only its canonica
         available: false,
         reason: "Copilot CLIが見つかりません。",
       },
+      { id: "codex", label: "Codex", available: true },
     ]);
     assert.deepEqual(
       options.repositories.map(({ id, label }) => ({ id, label })),
@@ -129,6 +156,15 @@ test("Task agent launch re-resolves one self Task and launches only its canonica
     });
 
     assert.deepEqual(result, { clientLabel: "Claude Code" });
+    assert.deepEqual(item.starts, [
+      {
+        taskId: "task-1",
+        expectedTaskVersion: 4,
+        clientId: "claude_code",
+        clientLabel: "Claude Code",
+      },
+    ]);
+    assert.deepEqual(item.sequence, ["start", "launch"]);
     assert.deepEqual(item.launches, [
       {
         clientId: "claude_code",
@@ -138,8 +174,46 @@ test("Task agent launch re-resolves one self Task and launches only its canonica
         coreDiscoveryPath: path.join(root, "user-data", "tasken-core.json"),
       },
     ]);
-    assert.equal(item.records.task[0].work_state, "not_delegated");
-    assert.equal(item.records.task[0].version, 4);
+    assert.equal(item.records.task[0].work_state, "in_progress");
+    assert.equal(item.records.task[0].intended_executor, "ai_agent");
+    assert.equal(item.records.task[0].executor_identity, "Claude Code");
+    assert.equal(item.records.task[0].version, 5);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Task agent launch keeps the recorded start when process spawn fails and allows retry", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-agent-launch-"));
+  try {
+    const item = fixture(root, { launchFailures: 1 });
+    const firstOptions = await item.service.getTaskAgentLaunchOptions({ taskId: "task-1" });
+    await assert.rejects(
+      item.service.launchTaskAgent({
+        taskId: "task-1",
+        clientId: "codex",
+        repositoryContextId: "repository-1",
+        expectedTaskVersion: firstOptions.taskVersion,
+        expectedLocalPath: firstOptions.repositories[0].localPath,
+      }),
+      /作業開始を記録しましたが、AIの画面を開けませんでした/,
+    );
+    assert.equal(item.records.task[0].work_state, "in_progress");
+    assert.equal(item.records.task[0].version, 5);
+
+    const retryOptions = await item.service.getTaskAgentLaunchOptions({ taskId: "task-1" });
+    const result = await item.service.launchTaskAgent({
+      taskId: "task-1",
+      clientId: "claude_code",
+      repositoryContextId: "repository-1",
+      expectedTaskVersion: retryOptions.taskVersion,
+      expectedLocalPath: retryOptions.repositories[0].localPath,
+    });
+    assert.deepEqual(result, { clientLabel: "Claude Code" });
+    assert.equal(item.records.task[0].intended_executor, "ai_agent");
+    assert.equal(item.records.task[0].executor_identity, "Claude Code");
+    assert.equal(item.records.task[0].version, 6);
+    assert.deepEqual(item.sequence, ["start", "launch", "start", "launch"]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -160,6 +234,7 @@ test("Task agent launch rejects stale, unavailable, private, and no-longer-ready
       /別の画面で更新/,
     );
     assert.deepEqual(stale.launches, []);
+    assert.deepEqual(stale.starts, []);
 
     const unavailableRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-agent-launch-"));
     const unavailable = fixture(unavailableRoot);
@@ -177,6 +252,7 @@ test("Task agent launch rejects stale, unavailable, private, and no-longer-ready
       /Copilot CLIが見つかりません/,
     );
     assert.deepEqual(unavailable.launches, []);
+    assert.deepEqual(unavailable.starts, []);
     fs.rmSync(unavailableRoot, { recursive: true, force: true });
 
     const privateRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-agent-launch-"));
@@ -186,6 +262,7 @@ test("Task agent launch rejects stale, unavailable, private, and no-longer-ready
       /AI公開範囲/,
     );
     assert.deepEqual(privateTask.launches, []);
+    assert.deepEqual(privateTask.starts, []);
     fs.rmSync(privateRoot, { recursive: true, force: true });
 
     const reviewRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-agent-launch-"));
@@ -195,7 +272,20 @@ test("Task agent launch rejects stale, unavailable, private, and no-longer-ready
       /Acceptまたは差戻し/,
     );
     assert.deepEqual(reviewTask.launches, []);
+    assert.deepEqual(reviewTask.starts, []);
     fs.rmSync(reviewRoot, { recursive: true, force: true });
+
+    const activeHumanRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-agent-launch-"));
+    const activeHumanTask = fixture(activeHumanRoot, {
+      task: { intended_executor: "self", work_state: "in_progress" },
+    });
+    await assert.rejects(
+      activeHumanTask.service.getTaskAgentLaunchOptions({ taskId: "task-1" }),
+      /AI以外が作業中/,
+    );
+    assert.deepEqual(activeHumanTask.launches, []);
+    assert.deepEqual(activeHumanTask.starts, []);
+    fs.rmSync(activeHumanRoot, { recursive: true, force: true });
 
     const removedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-agent-launch-"));
     const removed = fixture(removedRoot);
@@ -212,6 +302,7 @@ test("Task agent launch rejects stale, unavailable, private, and no-longer-ready
       /フォルダーが見つかりません/,
     );
     assert.deepEqual(removed.launches, []);
+    assert.deepEqual(removed.starts, []);
     fs.rmSync(removedRoot, { recursive: true, force: true });
 
     const unavailableCoreRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-agent-launch-"));
@@ -233,6 +324,7 @@ test("Task agent launch rejects stale, unavailable, private, and no-longer-ready
       /Taskenを起動し直して/,
     );
     assert.deepEqual(unavailableCore.launches, []);
+    assert.deepEqual(unavailableCore.starts, []);
     fs.rmSync(unavailableCoreRoot, { recursive: true, force: true });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -272,6 +364,7 @@ test("Task agent launch displays the resolved directory instead of a junction pa
       /場所が変更/,
     );
     assert.deepEqual(item.launches, []);
+    assert.deepEqual(item.starts, []);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

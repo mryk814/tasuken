@@ -992,6 +992,38 @@ export class ApplicationCommandService {
     });
   }
 
+  /** Human-confirmed desktop launch: assign the selected AI and start work without an MCP proposal round-trip. */
+  startTaskAgentWork(input: {
+    taskId: string;
+    expectedTaskVersion: number;
+    clientLabel: string;
+    issuedAt?: string;
+  }): CommandReceipt {
+    const taskId = String(input.taskId || "").trim();
+    const clientLabel = String(input.clientLabel || "").trim();
+    const expectedTaskVersion = Number(input.expectedTaskVersion);
+    if (!taskId || !clientLabel || clientLabel.length > 200) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "AI作業開始の入力が不正です。");
+    }
+    if (!Number.isInteger(expectedTaskVersion) || expectedTaskVersion < 1) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "Taskのversionが不正です。");
+    }
+    const issuedAt = input.issuedAt || now();
+    return this.execute({
+      commandId: randomUUID(),
+      name: "StartTaskWork",
+      actor: { kind: "user" },
+      source: "main_ui",
+      issuedAt,
+      payload: {
+        taskId,
+        executorKind: "ai_agent",
+        executorIdentity: clientLabel,
+      },
+      expectedVersions: [{ type: "task", id: taskId, version: expectedTaskVersion }],
+    });
+  }
+
   /**
    * Canonical Markdownを持つNoteだけのApplyAiProposal。
    * Note保存はWorkspaceServiceへ委譲し、proposal/eventを同じDB transactionへ
@@ -1628,11 +1660,29 @@ export class ApplicationCommandService {
         "INVALID_PAYLOAD",
         "executorIdentityは200文字以内で入力してください。",
       );
-    if (state === "in_progress") return persistNoChange(this.repository, command, taskId, current);
+    const assignsAiAgent = payload.executorKind === "ai_agent";
+    const assignmentChanged = assignsAiAgent && current.intended_executor !== "ai_agent";
+    const executorIdentityChanged =
+      payload.executorIdentity !== undefined &&
+      (payload.executorIdentity || null) !== (current.executor_identity || null);
+    if (state === "in_progress" && assignmentChanged) {
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        "AI以外が作業中のTaskは、その作業を終えてからAIへ委任してください。",
+        { id: taskId, intended_executor: current.intended_executor },
+      );
+    }
+    if (state === "in_progress" && !assignmentChanged && !executorIdentityChanged) {
+      return persistNoChange(this.repository, command, taskId, current);
+    }
     const task: Entity = {
       ...current,
+      ...(assignsAiAgent ? { intended_executor: "ai_agent" } : {}),
       work_state: "in_progress",
-      work_started_at: payload.startedAt || current.work_started_at || now(),
+      work_started_at:
+        state === "in_progress"
+          ? current.work_started_at || payload.startedAt || now()
+          : payload.startedAt || current.work_started_at || now(),
       work_reported_at: null,
       work_review_note: null,
       ...(payload.executorIdentity !== undefined

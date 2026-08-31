@@ -35,10 +35,18 @@ export interface TaskAgentProcess {
   }): Promise<void>;
 }
 
+export interface TaskAgentWorkStartInput {
+  taskId: string;
+  expectedTaskVersion: number;
+  clientId: TaskAgentClientId;
+  clientLabel: string;
+}
+
 export interface TaskAgentLaunchServiceOptions extends TaskAgentProcess {
   repository: WorkspaceRepository;
   userDataPath: string;
   getMcpBridgeInfo(): Promise<McpBridgeInfo>;
+  startTaskAgentWork(input: TaskAgentWorkStartInput): Promise<void> | void;
 }
 
 interface LaunchableTask {
@@ -90,6 +98,12 @@ export class TaskAgentLaunchService {
       )
     ) {
       throw new Error("確認待ちのTaskはAcceptまたは差戻しを先に行ってください。");
+    }
+    if (
+      String(task.work_state || "not_delegated") === "in_progress" &&
+      task.intended_executor !== "ai_agent"
+    ) {
+      throw new Error("AI以外が作業中のTaskは、その作業を終えてからAIへ委任してください。");
     }
 
     const theme = themeForTask(this.options.repository, task);
@@ -173,13 +187,25 @@ export class TaskAgentLaunchService {
         bridge.coreNextAction || "Tasken Coreへ接続できません。Taskenを起動し直してください。",
       );
     }
-    await this.options.launchTaskAgentProcess({
-      clientId,
-      cwd: repository.cwd,
+    await this.options.startTaskAgentWork({
       taskId,
-      mcpConfigJson: bridge.configJson,
-      coreDiscoveryPath: path.join(this.options.userDataPath, TASKEN_CORE_DISCOVERY_FILE),
+      expectedTaskVersion: expectedVersion(task.version),
+      clientId,
+      clientLabel: client.label,
     });
+    try {
+      await this.options.launchTaskAgentProcess({
+        clientId,
+        cwd: repository.cwd,
+        taskId,
+        mcpConfigJson: bridge.configJson,
+        coreDiscoveryPath: path.join(this.options.userDataPath, TASKEN_CORE_DISCOVERY_FILE),
+      });
+    } catch {
+      throw new Error(
+        "Taskenには作業開始を記録しましたが、AIの画面を開けませんでした。同じAIと作業先を選んで、もう一度起動してください。",
+      );
+    }
     return { clientLabel: client.label };
   }
 }

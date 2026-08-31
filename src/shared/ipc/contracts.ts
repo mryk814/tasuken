@@ -380,7 +380,7 @@ export interface McpBridgeInfo {
   latestProposalAt?: string;
 }
 
-export type TaskAgentClientId = "claude_code" | "github_copilot";
+export type TaskAgentClientId = "claude_code" | "github_copilot" | "codex";
 
 export interface TaskAgentLaunchClient {
   id: TaskAgentClientId;
