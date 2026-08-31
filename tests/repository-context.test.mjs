@@ -14,7 +14,7 @@ import {
   resolveTaskRepositoryContexts,
   resolveThemeRepositoryContexts,
 } from "../src/shared/repositoryContext.mjs";
-import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations, repositoryContextProposalInput } from "../src/shared/repositoryContextProposal.mjs";
+import { buildRepositoryContextProposalCandidate, buildRepositoryContextProposalOperations, repositoryContextProposalInput } from "../src/shared/repositoryContextProposal.ts";
 import { McpProposalInboxService, queueMcpProposal } from "./fixtures/legacyProposalInbox.mjs";
 
 test("Repository URL canonicalization removes credentials/query/fragment while preserving path case and port", () => {
@@ -34,7 +34,10 @@ test("MCP repository proposal lets the canonical URL infer an omitted provider",
     label: "Tasken",
     remote_url: "https://github.com/mryk814/tasuken.git",
   });
+  assert.equal(proposal.action, "create");
   assert.equal(Object.prototype.hasOwnProperty.call(proposal, "provider"), false);
+  assert.equal(proposal.local_path, null);
+  assert.equal(proposal.reason, "");
   assert.equal(normalizeRepositoryContext(proposal).provider, "github");
 });
 

@@ -1,16 +1,28 @@
+// @ts-check
+
 /**
  * Activity canonical refs use stable root identities rather than absolute paths.
  * The path map is a Main/MCP-internal value; projections must use
  * publicActivityRootStatus instead.
  */
 
+/** @typedef {Record<string, string>} ActivityRootRegistry */
+/** @typedef {{ status: "ok" | "broken" }} ActivityRootStatus */
+/** @typedef {Record<string, ActivityRootStatus>} ActivityRootStatusMap */
+
+/** @param {unknown} value */
 function text(value) {
   return value == null ? "" : String(value).trim();
 }
 export const ACTIVITY_SYNC_ROOT_ID = "sync";
 export const ACTIVITY_ARTIFACT_ROOT_ID = "artifact-directory";
 
+/**
+ * @param {{ artifactDirectory?: string | null, themes?: Array<Record<string, unknown>> }} [options]
+ * @returns {ActivityRootRegistry}
+ */
 export function buildActivityRootRegistry({ artifactDirectory = "", themes = [] } = {}) {
+  /** @type {ActivityRootRegistry} */
   const roots = {};
   const common = text(artifactDirectory);
   if (common) {
@@ -31,14 +43,22 @@ export function buildActivityRootRegistry({ artifactDirectory = "", themes = [] 
   return roots;
 }
 
+/**
+ * @param {ActivityRootRegistry} [registry]
+ * @param {(root: string) => boolean} [exists]
+ * @returns {ActivityRootStatusMap}
+ */
 export function publicActivityRootStatus(registry = {}, exists = () => true) {
   return Object.fromEntries(Object.entries(registry).map(([id, root]) => {
     let available = false;
     try {
       available = Boolean(exists(root));
     } catch {
+      // An unavailable root is a broken reference, not a reason to expose its path.
       available = false;
     }
-    return [id, { status: available ? "ok" : "broken" }];
+    /** @type {ActivityRootStatus} */
+    const status = { status: available ? "ok" : "broken" };
+    return [id, status];
   }));
 }

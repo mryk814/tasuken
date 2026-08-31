@@ -31,7 +31,7 @@ import { markdownSignature } from "../../../../../shared/canonicalMarkdown.mjs";
 import {
   buildRepositoryContextProposalCandidate,
   buildRepositoryContextProposalOperations,
-} from "../../../../../shared/repositoryContextProposal.mjs";
+} from "../../../../../shared/repositoryContextProposal.ts";
 import { ActionButton, Button } from "./common";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
 

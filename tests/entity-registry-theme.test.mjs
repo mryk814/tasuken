@@ -8,14 +8,17 @@ import {
   assertEntityPayload,
   collectionKeyForEntityType,
   domainCollectionKeyForEntityType,
+  entityDefinitionForCollection,
   entityDefinitions,
   entityTypes,
+  rawRecordBoundary,
   themeFieldForEntityType,
 } from "../src/shared/entityRegistry.mjs";
 import { diagnoseWorkspaceRawRecord } from "../src/shared/entityDiagnostics.mjs";
 import {
   PERSONAL_DEFAULT_THEME_ID,
   canonicalThemeId,
+  isPersonalDefaultThemeId,
   resolveThemeRef,
   themePickerOptions,
 } from "../src/shared/themeRef.mjs";
@@ -56,6 +59,14 @@ test("Entity Registryは全typeのcollection/schema/Theme policyを一意に解�
   assert.throws(() => assertEntityPayload("task", { entityType: "note" }), /一致しません/);
   assert.doesNotThrow(() => assertEntityPayload("field_value", { entity_type: "task" }));
   assert.equal(domainCollectionKeyForEntityType("legacy-unknown"), null);
+  for (const definition of entityDefinitions) {
+    assert.equal(entityDefinitionForCollection(definition.collectionKey)?.type, definition.type);
+  }
+  assert.equal(entityDefinitionForCollection("unknown_collection"), null);
+  assert.deepEqual(rawRecordBoundary, {
+    kind: "raw-record-boundary",
+    description: "DB/importのRecordはこの境界で検証し、domainへ直接持ち込まない",
+  });
 });
 
 test("RegistryのcollectionKeyはcanonical WorkspaceDataの全collectionに実在する", async () => {
@@ -107,6 +118,8 @@ test("ThemeRefはpersonal defaultとThemeなしを別のcanonical値として扱
   assert.equal(canonicalThemeId(null), null);
   assert.equal(canonicalThemeId(""), null);
   assert.equal(canonicalThemeId(null, { defaultPersonal: true }), PERSONAL_DEFAULT_THEME_ID);
+  assert.equal(isPersonalDefaultThemeId(PERSONAL_DEFAULT_THEME_ID), true);
+  assert.equal(isPersonalDefaultThemeId("theme-a"), false);
   assert.equal(resolveThemeRef([], null, { legacyNullMeansPersonal: true }).id, PERSONAL_DEFAULT_THEME_ID);
   assert.equal(resolveThemeRef([], null).id, null);
   assert.deepEqual(themePickerOptions([{ id: PERSONAL_DEFAULT_THEME_ID, name: "個人業務" }, { id: "theme-a", name: "A" }], { allowNone: true }), [
