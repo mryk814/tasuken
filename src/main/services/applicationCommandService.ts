@@ -46,6 +46,7 @@ import {
   normalizeCanonicalTask,
   normalizeTaskForSave,
   projectTaskReadModel,
+  saveTaskAssignmentForWorkStart,
   taskChangeType as changeType,
   taskFromPayload as asTask,
   taskIdFromPayload as asTaskId,
@@ -58,7 +59,7 @@ interface Repository {
   list(type: EntityType, includeDeleted?: boolean): Entity[];
   get(type: EntityType, id: string, includeDeleted?: boolean): Entity | null;
   saveMany(operations: SaveOperation[]): Entity[];
-  save(type: EntityType, entity: Entity): Entity;
+  save(type: EntityType, entity: Entity, options?: { skipSync?: boolean }): Entity;
   remove(type: EntityType, id: string): Entity | null;
   runTransaction<T>(callback: (repository: Repository) => T): T;
 }
@@ -992,6 +993,39 @@ export class ApplicationCommandService {
     });
   }
 
+  /** Human-confirmed desktop launch: assign the selected AI and start work without an MCP proposal round-trip. */
+  startTaskAgentWork(input: {
+    taskId: string;
+    expectedTaskVersion: number;
+    clientLabel: string;
+    issuedAt?: string;
+  }): CommandReceipt {
+    const taskId = String(input.taskId || "").trim();
+    const clientLabel = String(input.clientLabel || "").trim();
+    const expectedTaskVersion = Number(input.expectedTaskVersion);
+    if (!taskId || !clientLabel || clientLabel.length > 200) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "AI作業開始の入力が不正です。");
+    }
+    if (!Number.isInteger(expectedTaskVersion) || expectedTaskVersion < 1) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "Taskのversionが不正です。");
+    }
+    const issuedAt = input.issuedAt || now();
+    return this.execute({
+      commandId: randomUUID(),
+      name: "StartTaskWork",
+      actor: { kind: "user" },
+      source: "main_ui",
+      issuedAt,
+      payload: {
+        taskId,
+        executorKind: "ai_agent",
+        executorIdentity: clientLabel,
+        startedAt: issuedAt,
+      },
+      expectedVersions: [{ type: "task", id: taskId, version: expectedTaskVersion }],
+    });
+  }
+
   /**
    * Canonical Markdownを持つNoteだけのApplyAiProposal。
    * Note保存はWorkspaceServiceへ委譲し、proposal/eventを同じDB transactionへ
@@ -1628,11 +1662,44 @@ export class ApplicationCommandService {
         "INVALID_PAYLOAD",
         "executorIdentityは200文字以内で入力してください。",
       );
-    if (state === "in_progress") return persistNoChange(this.repository, command, taskId, current);
+    const assignsAiAgent = payload.executorKind === "ai_agent";
+    const assignmentChanged = assignsAiAgent && current.intended_executor !== "ai_agent";
+    const executorIdentityChanged =
+      payload.executorIdentity !== undefined &&
+      (payload.executorIdentity || null) !== (current.executor_identity || null);
+    if (state === "in_progress" && assignmentChanged) {
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        "AI以外が作業中のTaskは、その作業を終えてからAIへ委任してください。",
+        { id: taskId, intended_executor: current.intended_executor },
+      );
+    }
+    if (state === "in_progress" && !assignmentChanged && !executorIdentityChanged) {
+      return persistNoChange(this.repository, command, taskId, current);
+    }
+    // Assignment writes intentionally settle at ready_for_agent. Persist that boundary first,
+    // then start work in the same outer transaction so generic saves cannot skip the reset rule.
+    const assignedTask = assignmentChanged
+      ? saveTaskAssignmentForWorkStart(this.repository, {
+          ...current,
+          intended_executor: "ai_agent",
+          work_state: "ready_for_agent",
+          work_started_at: null,
+          work_reported_at: null,
+          work_review_note: null,
+          ...(payload.executorIdentity !== undefined
+            ? { executor_identity: payload.executorIdentity || null }
+            : {}),
+        })
+      : current;
     const task: Entity = {
-      ...current,
+      ...assignedTask,
+      ...(assignsAiAgent ? { intended_executor: "ai_agent" } : {}),
       work_state: "in_progress",
-      work_started_at: payload.startedAt || current.work_started_at || now(),
+      work_started_at:
+        state === "in_progress"
+          ? assignedTask.work_started_at || payload.startedAt || now()
+          : payload.startedAt || assignedTask.work_started_at || now(),
       work_reported_at: null,
       work_review_note: null,
       ...(payload.executorIdentity !== undefined

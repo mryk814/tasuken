@@ -48,7 +48,7 @@ import type {
   ThemeAiPackStatusResult,
 } from "../../shared/ipc/contracts";
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
-import { TaskAgentLaunchService } from "./taskAgentLaunchService";
+import { TaskAgentLaunchService, type TaskAgentWorkStartInput } from "./taskAgentLaunchService";
 import { getTaskAgentClients, launchTaskAgentProcess } from "./taskAgentProcess";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import {
@@ -723,6 +723,7 @@ export class WorkspaceService {
       getThemeContext(request: { theme_id: string }): Promise<unknown>;
       inspect(): Promise<{ api_version: string; capabilities: string[] }>;
     },
+    startTaskAgentWork?: (input: TaskAgentWorkStartInput) => Promise<void> | void,
   ) {
     this.canonicalRecoveryPath = path.join(userDataPath, "canonical-markdown-recovery.json");
     this.canonicalRecoveryWarningPath = path.join(
@@ -741,6 +742,12 @@ export class WorkspaceService {
       getMcpBridgeInfo: () => this.getMcpBridgeInfo(),
       getTaskAgentClients,
       launchTaskAgentProcess,
+      startTaskAgentWork: (input) => {
+        if (!startTaskAgentWork) {
+          throw new Error("AI作業開始経路を初期化できませんでした。Taskenを起動し直してください。");
+        }
+        return startTaskAgentWork(input);
+      },
     });
   }
 

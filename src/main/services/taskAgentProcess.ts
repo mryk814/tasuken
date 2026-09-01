@@ -9,6 +9,7 @@ const execFileAsync = promisify(execFile);
 const clients = [
   { id: "claude_code", label: "Claude Code" },
   { id: "github_copilot", label: "GitHub Copilot" },
+  { id: "codex", label: "Codex" },
 ] as const;
 
 async function firstExecutable(candidates: string[]): Promise<string | undefined> {
@@ -35,11 +36,31 @@ function executableCandidates(name: string): string[] {
 
 async function findClient(clientId: TaskAgentClientId): Promise<string | undefined> {
   if (clientId === "github_copilot") return firstExecutable(executableCandidates("copilot.exe"));
+  if (clientId === "codex") return firstExecutable(executableCandidates("codex.exe"));
   return firstExecutable([
     ...executableCandidates("claude.exe"),
     // Current Claude npm installation is a native executable behind an npm shim.
     ...executableCandidates("node_modules/@anthropic-ai/claude-code/bin/claude.exe"),
   ]);
+}
+
+function tomlString(value: unknown): string {
+  return JSON.stringify(String(value));
+}
+
+function codexMcpServerConfig(mcpConfigJson: string): string {
+  const tasken = JSON.parse(mcpConfigJson)?.mcpServers?.tasken as
+    { command?: unknown; args?: unknown; env?: unknown } | undefined;
+  if (!tasken || typeof tasken.command !== "string" || !Array.isArray(tasken.args)) {
+    throw new Error("Codexへ渡すTasken MCP設定が不正です。");
+  }
+  const args = tasken.args.map(tomlString).join(", ");
+  const env = Object.entries(tasken.env && typeof tasken.env === "object" ? tasken.env : {})
+    .map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`)
+    .join(", ");
+  return [`command = ${tomlString(tasken.command)}`, `args = [${args}]`, `env = {${env}}`].join(
+    ", ",
+  );
 }
 
 export async function getTaskAgentClients() {
@@ -79,11 +100,14 @@ export function buildTaskAgentArguments(
   const prompt = [
     `TaskenのTask ID: ${taskId} の作業をお願いします。`,
     "まずTasken MCPでこのTaskと関連Contextを取得し、内容と作業先を確認してください。取得できなければ推測で作業せず、接続を確認してください。",
-    "このTask IDを作業・セッション・結果に関連付けてください。開始や結果の報告はTasken MCPの既存の提案・Work Receipt経路を使い、人間の承認や完了を代行しないでください。",
+    "Tasken側でこのTaskのAI委任と作業開始は記録済みです。start_task_workは呼ばず、このTask IDをセッションと結果に関連付けて、そのまま作業を進めてください。",
+    "途中経過・完了・ブロックはTasken MCPの既存のProposal / Work Receipt経路で報告し、人間の確認やTask完了を代行しないでください。",
   ].join("\n");
-  return clientId === "claude_code"
-    ? ["--mcp-config", mcpConfigJson, "--", prompt]
-    : ["--additional-mcp-config", mcpConfigJson, "-i", prompt];
+  if (clientId === "claude_code") return ["--mcp-config", mcpConfigJson, "--", prompt];
+  if (clientId === "github_copilot") {
+    return ["--additional-mcp-config", mcpConfigJson, "-i", prompt];
+  }
+  return ["-c", `mcp_servers.tasken={${codexMcpServerConfig(mcpConfigJson)}}`, prompt];
 }
 
 export function buildWindowsConsoleScript(executable: string, args: string[], cwd: string): string {

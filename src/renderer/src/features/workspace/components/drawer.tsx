@@ -359,11 +359,13 @@ function TaskWorkSection({
         expectedLocalPath: selectedRepository.localPath,
       });
       setToast(
-        `${result.clientLabel}を開きました。実行状況は開いた画面で確認してください。`,
+        `${result.clientLabel}に委任し、作業を開始しました。実行状況は開いた画面で確認してください。`,
         "success",
       );
     } catch (error) {
-      setLaunchError(`AIを起動できませんでした。${taskAgentErrorMessage(error)}`);
+      const message = `AIを起動できませんでした。${taskAgentErrorMessage(error)}`;
+      await loadTaskAgentLaunchOptions();
+      setLaunchError(message);
     } finally {
       setLaunchInFlight(false);
     }

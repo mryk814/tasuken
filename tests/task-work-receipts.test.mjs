@@ -430,6 +430,165 @@ test("AI report stays needs_human_review and cannot complete before human accept
   );
 });
 
+test("desktop agent launch records work start directly without creating an MCP proposal", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  service.execute(
+    envelope(
+      "CreateTask",
+      {
+        task: {
+          id: "task-direct-launch",
+          title: "Direct launch",
+          state: "todo",
+          project_id: "theme-personal-default",
+          intended_executor: "self",
+          requester: "self",
+          work_state: "not_delegated",
+        },
+      },
+      "create-direct-launch",
+    ),
+  );
+
+  const receipt = service.startTaskAgentWork({
+    taskId: "task-direct-launch",
+    expectedTaskVersion: 1,
+    clientLabel: "Codex",
+    issuedAt: "2026-08-08T00:01:00.000Z",
+  });
+
+  const task = repo.get("task", "task-direct-launch");
+  assert.equal(task.intended_executor, "ai_agent");
+  assert.equal(task.work_state, "in_progress");
+  assert.equal(task.executor_identity, "Codex");
+  assert.equal(task.version, 3);
+  assert.ok(receipt.changes.some(({ type }) => type === "task"));
+  assert.equal(repo.list("ai_proposal").length, 0);
+
+  const startedAt = task.work_started_at;
+  const retryReceipt = service.startTaskAgentWork({
+    taskId: "task-direct-launch",
+    expectedTaskVersion: 3,
+    clientLabel: "GitHub Copilot",
+    issuedAt: "2026-08-08T00:02:00.000Z",
+  });
+  const retriedTask = repo.get("task", "task-direct-launch");
+  assert.equal(retriedTask.intended_executor, "ai_agent");
+  assert.equal(retriedTask.work_state, "in_progress");
+  assert.equal(retriedTask.executor_identity, "GitHub Copilot");
+  assert.equal(retriedTask.work_started_at, startedAt);
+  assert.equal(retriedTask.version, 4);
+  assert.ok(retryReceipt.changes.some(({ type }) => type === "task"));
+  assert.equal(repo.list("ai_proposal").length, 0);
+
+  service.execute(
+    envelope(
+      "CreateTask",
+      {
+        task: {
+          id: "task-human-in-progress",
+          title: "Human work in progress",
+          state: "doing",
+          project_id: "theme-personal-default",
+          intended_executor: "self",
+          requester: "self",
+          work_state: "not_delegated",
+        },
+      },
+      "create-human-in-progress",
+    ),
+  );
+  service.execute(
+    envelope(
+      "StartTaskWork",
+      { taskId: "task-human-in-progress", executorKind: "self", executorIdentity: "Owner" },
+      "start-human-in-progress",
+      [{ type: "task", id: "task-human-in-progress", version: 1 }],
+    ),
+  );
+  assert.throws(
+    () =>
+      service.startTaskAgentWork({
+        taskId: "task-human-in-progress",
+        expectedTaskVersion: 2,
+        clientLabel: "Codex",
+      }),
+    /AI以外が作業中/,
+  );
+  const activeHumanTask = repo.get("task", "task-human-in-progress");
+  assert.equal(activeHumanTask.intended_executor, "self");
+  assert.equal(activeHumanTask.executor_identity, "Owner");
+  assert.equal(activeHumanTask.version, 2);
+});
+
+test("desktop agent launch crosses the SQLite assignment boundary atomically", async () => {
+  const directory = await mkdtemp(path.join(process.cwd(), ".tasken-direct-launch-"));
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+  const replica = new WorkspaceDatabase(path.join(directory, "replica.sqlite"));
+  try {
+    database.loadWorkspace();
+    const service = new ApplicationCommandService(database);
+    service.execute(
+      envelope(
+        "CreateTask",
+        {
+          task: {
+            id: "sqlite-task-direct-launch",
+            title: "SQLite direct launch",
+            state: "todo",
+            project_id: "theme-personal-default",
+            intended_executor: "self",
+            requester: "self",
+            work_state: "not_delegated",
+          },
+        },
+        "create-sqlite-direct-launch",
+      ),
+    );
+    const taskPacketsBeforeStart = database
+      .pendingSyncChanges()
+      .filter(
+        ({ packet }) =>
+          packet.entityType === "task" && packet.entityId === "sqlite-task-direct-launch",
+      );
+
+    service.startTaskAgentWork({
+      taskId: "sqlite-task-direct-launch",
+      expectedTaskVersion: 1,
+      clientLabel: "Codex",
+      issuedAt: "2026-08-08T00:01:00.000Z",
+    });
+
+    const startedTask = database.get("task", "sqlite-task-direct-launch");
+    assert.equal(startedTask.intended_executor, "ai_agent");
+    assert.equal(startedTask.work_state, "in_progress");
+    assert.equal(startedTask.work_started_at, "2026-08-08T00:01:00.000Z");
+    assert.equal(startedTask.executor_identity, "Codex");
+    assert.equal(startedTask.version, 3);
+    assert.equal(database.list("ai_proposal").length, 0);
+    const taskPacketsAfterStart = database
+      .pendingSyncChanges()
+      .filter(
+        ({ packet }) =>
+          packet.entityType === "task" && packet.entityId === "sqlite-task-direct-launch",
+      );
+    assert.equal(taskPacketsAfterStart.length, taskPacketsBeforeStart.length + 1);
+    assert.equal(taskPacketsAfterStart.at(-1).packet.entity.work_state, "in_progress");
+
+    replica.adoptSyncWorkspace(database.workspaceId);
+    for (const { packet } of database.pendingSyncChanges()) replica.applySyncPacket(packet);
+    const syncedTask = replica.get("task", "sqlite-task-direct-launch");
+    assert.equal(syncedTask.intended_executor, "ai_agent");
+    assert.equal(syncedTask.work_state, "in_progress");
+    assert.equal(syncedTask.work_started_at, "2026-08-08T00:01:00.000Z");
+  } finally {
+    replica.db.close();
+    database.db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("SQLite repository enforces AI completion, append-only receipts, and task receipt cascade restore", async () => {
   const directory = await mkdtemp(path.join(process.cwd(), ".tasken-work-receipt-"));
   const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));

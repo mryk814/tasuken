@@ -38,9 +38,19 @@ test("AI依頼のコピー経路を保ち、保存済みTaskだけを明示確�
   assert.match(drawer, /Themeのリポジトリ設定でローカルパスを設定してください。/);
   assert.match(drawer, /expectedTaskVersion: launchOptions\.taskVersion/);
   assert.match(drawer, /expectedLocalPath: selectedRepository\.localPath/);
+  assert.match(drawer, /に委任し、作業を開始しました/);
   assert.match(drawer, /実行状況は開いた画面で確認してください。/);
+  assert.match(drawer, /await loadTaskAgentLaunchOptions\(\);\s*setLaunchError\(message\)/);
   assert.match(drawer, /選択肢を再読込/);
   assert.match(drawer, /launchOptions\.clients\.map\(\(client\) => client\.reason\)/);
   assert.match(styles, /\.task-agent-launch-confirmation/);
   assert.match(styles, /\.drawer-edit-body > \.drawer-form/);
+});
+
+test("AI client picker presents only usable discovered CLIs", () => {
+  assert.match(
+    drawer,
+    /launchOptions\.clients\s*\.filter\(\(client\) => client\.available\)\s*\.map\(\(client\) =>/,
+  );
+  assert.match(drawer, /client\.label/);
 });

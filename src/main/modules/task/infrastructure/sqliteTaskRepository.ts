@@ -28,6 +28,10 @@ export class SqliteTaskRepository implements TaskRepository {
     return this.persistence.saveMany(operations);
   }
 
+  saveTaskAssignmentForWorkStart(task: Entity): Entity {
+    return this.persistence.save("task", task, { skipSync: true });
+  }
+
   removeTask(id: string): Entity | null {
     return this.persistence.remove("task", id);
   }
