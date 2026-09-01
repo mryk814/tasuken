@@ -1,3 +1,4 @@
+import type { Entity } from "../../../shared/types/workspace.ts";
 import type { WorkspaceTaskPersistence } from "./ports/taskRepository.ts";
 import { SqliteTaskRepository } from "./infrastructure/sqliteTaskRepository.ts";
 import { TaskCommandHandler, type TaskCommandRuntime } from "./application/taskCommandHandler.ts";
@@ -52,4 +53,11 @@ export function createTaskModule(
     commands: new TaskCommandHandler(repository, runtime),
     queries: new TaskQueryHandler(repository),
   };
+}
+
+export function saveTaskAssignmentForWorkStart(
+  persistence: WorkspaceTaskPersistence,
+  task: Entity,
+) {
+  return new SqliteTaskRepository(persistence).saveTaskAssignmentForWorkStart(task);
 }

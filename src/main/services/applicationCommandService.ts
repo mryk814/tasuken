@@ -46,6 +46,7 @@ import {
   normalizeCanonicalTask,
   normalizeTaskForSave,
   projectTaskReadModel,
+  saveTaskAssignmentForWorkStart,
   taskChangeType as changeType,
   taskFromPayload as asTask,
   taskIdFromPayload as asTaskId,
@@ -1679,21 +1680,17 @@ export class ApplicationCommandService {
     // Assignment writes intentionally settle at ready_for_agent. Persist that boundary first,
     // then start work in the same outer transaction so generic saves cannot skip the reset rule.
     const assignedTask = assignmentChanged
-      ? this.repository.save(
-          "task",
-          {
-            ...current,
-            intended_executor: "ai_agent",
-            work_state: "ready_for_agent",
-            work_started_at: null,
-            work_reported_at: null,
-            work_review_note: null,
-            ...(payload.executorIdentity !== undefined
-              ? { executor_identity: payload.executorIdentity || null }
-              : {}),
-          },
-          { skipSync: true },
-        )
+      ? saveTaskAssignmentForWorkStart(this.repository, {
+          ...current,
+          intended_executor: "ai_agent",
+          work_state: "ready_for_agent",
+          work_started_at: null,
+          work_reported_at: null,
+          work_review_note: null,
+          ...(payload.executorIdentity !== undefined
+            ? { executor_identity: payload.executorIdentity || null }
+            : {}),
+        })
       : current;
     const task: Entity = {
       ...assignedTask,

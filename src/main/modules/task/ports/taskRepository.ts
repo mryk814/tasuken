@@ -10,13 +10,14 @@ export interface TaskEntityAccess {
 
 /** Task aggregate write port. */
 export interface TaskRepository extends TaskEntityAccess {
+  saveTaskAssignmentForWorkStart(task: Entity): Entity;
   removeTask(id: string): Entity | null;
 }
 
 export interface WorkspaceTaskPersistence {
   list(type: EntityType, includeDeleted?: boolean): Entity[];
   get(type: EntityType, id: string, includeDeleted?: boolean): Entity | null;
-  save(type: EntityType, entity: Entity): Entity;
+  save(type: EntityType, entity: Entity, options?: { skipSync?: boolean }): Entity;
   saveMany(operations: SaveOperation[]): Entity[];
   remove(type: EntityType, id: string): Entity | null;
 }
