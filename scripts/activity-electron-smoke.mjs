@@ -466,6 +466,6 @@ try {
     path.dirname(resolvedRoot) === tempRoot &&
     path.basename(resolvedRoot).startsWith("tasken-activity-smoke-")
   ) {
-    fs.rmSync(resolvedRoot, { recursive: true, force: true });
+    fs.rmSync(resolvedRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }

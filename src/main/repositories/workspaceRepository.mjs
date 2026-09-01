@@ -96,6 +96,24 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function normalizeImportedTask(input, previous, fallbackSource) {
+  const syncStartsAiWork =
+    fallbackSource === "sync" &&
+    previous &&
+    previous.intended_executor !== "ai_agent" &&
+    input?.intended_executor === "ai_agent" &&
+    input?.work_state === "in_progress";
+  if (!syncStartsAiWork) return normalizeTaskAssignment(input, previous);
+
+  // The sender committed assignment and work start in one transaction, but publishes only
+  // the final packet. Recreate the trusted assignment boundary in memory before importing it.
+  const assigned = normalizeTaskAssignment(
+    { ...previous, intended_executor: "ai_agent" },
+    previous,
+  );
+  return normalizeTaskAssignment(input, assigned);
+}
+
 function normalizeTaskenRootUsage(value) {
   if (!isPlainObject(value)) return {};
   return Object.fromEntries(
@@ -1688,7 +1706,8 @@ export class WorkspaceDatabase {
 
   insertImported(type, input, fallbackSource = "imported", previous = null) {
     assertEntityType(type);
-    const normalizedInput = type === "task" ? normalizeTaskAssignment(input, previous) : input;
+    const normalizedInput =
+      type === "task" ? normalizeImportedTask(input, previous, fallbackSource) : input;
     if (type === "work_receipt" && normalizedInput.id && this.get(type, normalizedInput.id, true)) {
       throw new Error("Work Receiptはappend-onlyです。既存Receiptを取り込みで更新できません。");
     }

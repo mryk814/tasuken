@@ -38,6 +38,7 @@ const proposalArguments = {
 
 let electronApp;
 let mcpClient;
+let smokeCompleted = false;
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -364,6 +365,7 @@ try {
   await mcpClient.close();
   mcpClient = undefined;
   await closeElectron();
+  smokeCompleted = true;
 
   console.log(
     JSON.stringify({
@@ -389,6 +391,10 @@ try {
     path.dirname(resolvedRoot) === tempRoot &&
     path.basename(resolvedRoot).startsWith("tasken-live-proposal-")
   ) {
-    fs.rmSync(resolvedRoot, { recursive: true, force: true });
+    if (smokeCompleted) {
+      fs.rmSync(resolvedRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } else {
+      console.error(`Live Proposal smoke failed; preserving diagnostics at ${resolvedRoot}`);
+    }
   }
 }

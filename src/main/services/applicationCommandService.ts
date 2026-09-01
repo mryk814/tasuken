@@ -58,7 +58,7 @@ interface Repository {
   list(type: EntityType, includeDeleted?: boolean): Entity[];
   get(type: EntityType, id: string, includeDeleted?: boolean): Entity | null;
   saveMany(operations: SaveOperation[]): Entity[];
-  save(type: EntityType, entity: Entity): Entity;
+  save(type: EntityType, entity: Entity, options?: { skipSync?: boolean }): Entity;
   remove(type: EntityType, id: string): Entity | null;
   runTransaction<T>(callback: (repository: Repository) => T): T;
 }
@@ -1019,6 +1019,7 @@ export class ApplicationCommandService {
         taskId,
         executorKind: "ai_agent",
         executorIdentity: clientLabel,
+        startedAt: issuedAt,
       },
       expectedVersions: [{ type: "task", id: taskId, version: expectedTaskVersion }],
     });
@@ -1675,14 +1676,33 @@ export class ApplicationCommandService {
     if (state === "in_progress" && !assignmentChanged && !executorIdentityChanged) {
       return persistNoChange(this.repository, command, taskId, current);
     }
+    // Assignment writes intentionally settle at ready_for_agent. Persist that boundary first,
+    // then start work in the same outer transaction so generic saves cannot skip the reset rule.
+    const assignedTask = assignmentChanged
+      ? this.repository.save(
+          "task",
+          {
+            ...current,
+            intended_executor: "ai_agent",
+            work_state: "ready_for_agent",
+            work_started_at: null,
+            work_reported_at: null,
+            work_review_note: null,
+            ...(payload.executorIdentity !== undefined
+              ? { executor_identity: payload.executorIdentity || null }
+              : {}),
+          },
+          { skipSync: true },
+        )
+      : current;
     const task: Entity = {
-      ...current,
+      ...assignedTask,
       ...(assignsAiAgent ? { intended_executor: "ai_agent" } : {}),
       work_state: "in_progress",
       work_started_at:
         state === "in_progress"
-          ? current.work_started_at || payload.startedAt || now()
-          : payload.startedAt || current.work_started_at || now(),
+          ? assignedTask.work_started_at || payload.startedAt || now()
+          : payload.startedAt || assignedTask.work_started_at || now(),
       work_reported_at: null,
       work_review_note: null,
       ...(payload.executorIdentity !== undefined
