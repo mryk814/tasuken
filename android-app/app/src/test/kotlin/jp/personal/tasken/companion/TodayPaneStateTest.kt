@@ -5,18 +5,15 @@ import org.junit.Test
 
 class TodayPaneStateTest {
     @Test
-    fun appAddRequestsInputFocusButVoiceAndShareDoNot() {
+    fun openingCaptureLeavesThemeOrInputAsTheUsersFirstChoice() {
         val state = TodayPaneState()
         state.openCapture(MobileCaptureSource.AndroidApp)
-        assertEquals(true, state.captureInputFocusRequested)
-        state.consumeInputFocusRequest()
         assertEquals(false, state.captureInputFocusRequested)
 
         state.captureDraft = MobileCaptureDraft.fresh(text = "保留中のTask")
         state.openCapture(MobileCaptureSource.AndroidApp, replaceDraft = false)
         assertEquals("保留中のTask", state.captureDraft.text)
-        assertEquals(true, state.captureInputFocusRequested)
-        state.consumeInputFocusRequest()
+        assertEquals(false, state.captureInputFocusRequested)
 
         state.openCapture(MobileCaptureSource.AndroidApp, requestVoice = true)
         assertEquals(false, state.captureInputFocusRequested)

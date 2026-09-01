@@ -1,9 +1,14 @@
 package jp.personal.tasken.companion
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -152,8 +157,64 @@ class TodayViewModelTest {
 
         val state = viewModel.uiState.value as TodayUiState.Cached
         assertEquals("Pending after restart", state.tasks.single().title)
-        assertEquals(origin, state.pairing.origin)
+        assertEquals(TodayUiState.CachedRecovery.RePair, state.recovery)
+        assertTrue(state.message.contains("接続をやり直してください"))
         assertEquals(1, viewModel.pendingCount.value)
+    }
+
+    @Test
+    fun concurrentLoadsAreSerializedSoTheNewerResultWins() = runBlocking {
+        val calls = AtomicInteger(0)
+        val firstStarted = CountDownLatch(1)
+        val releaseFirst = CountDownLatch(1)
+        val repository = object : MobileTaskRepository {
+            override fun loadToday(): MobileTodayResult = if (calls.incrementAndGet() == 1) {
+                firstStarted.countDown()
+                check(releaseFirst.await(5, TimeUnit.SECONDS))
+                MobileTodayResult.Unavailable("古い接続失敗", "再試行してください。")
+            } else {
+                MobileTodayResult.Available(listOf(sampleTask()), "2026-09-01T00:00:00Z")
+            }
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Default)
+
+        val first = launch(Dispatchers.Default) { viewModel.loadNow() }
+        assertTrue(firstStarted.await(5, TimeUnit.SECONDS))
+        val second = launch(Dispatchers.Default) { viewModel.loadNow() }
+        delay(100)
+        assertEquals(1, calls.get())
+
+        releaseFirst.countDown()
+        first.join()
+        second.join()
+
+        val state = viewModel.uiState.value as TodayUiState.Success
+        assertEquals("2026-09-01T00:00:00Z", state.generatedAt)
+    }
+
+    @Test
+    fun temporaryGatewayFailureKeepsCacheVisibleWithReloadState() {
+        val cached = sampleTask().copy(title = "Offline cache")
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Unavailable(
+                "Desktopへ接続できませんでした。",
+                "ネットワークを確認して再読み込みしてください。",
+            )
+            override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(listOf(cached))
+            override fun observePendingCount(): Flow<Int> = flowOf(0)
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+
+        runBlocking { viewModel.loadNow() }
+
+        val state = viewModel.uiState.value as TodayUiState.Cached
+        assertEquals("Offline cache", state.tasks.single().title)
+        assertEquals(TodayUiState.CachedRecovery.Reload, state.recovery)
+        assertTrue(state.message.contains("Desktopへ接続できませんでした"))
+        assertTrue(state.message.contains("ネットワークを確認して再読み込みしてください"))
     }
 
     @Test

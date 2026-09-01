@@ -3,12 +3,10 @@ package jp.personal.tasken.companion
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHeightIsEqualTo
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.assertTextContains
-import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -54,19 +52,93 @@ class CaptureThemePickerUiTest {
             }
         }
 
-        composeRule.onNodeWithTag("capture-theme-picker")
+        composeRule.onNodeWithTag("capture-theme-none-option")
             .assertIsEnabled()
-            .assertTextContains("Themeなし")
-            .assert(hasStateDescription("Themeなし"))
+            .assertIsSelected()
+        composeRule.onNodeWithTag("capture-theme-option-theme-research")
+            .assertIsEnabled()
             .performClick()
-        composeRule.onNodeWithTag("capture-theme-option-theme-research").performClick()
+            .assertIsSelected()
 
         composeRule.runOnIdle { assertEquals("theme-research", selectedThemeId.value) }
-        composeRule.onNodeWithTag("capture-theme-picker")
-            .assertTextContains("Research")
+        composeRule.onNodeWithTag("capture-theme-none-option")
             .performClick()
-        composeRule.onNodeWithTag("capture-theme-none-option").performClick()
+            .assertIsSelected()
         composeRule.runOnIdle { assertNull(selectedThemeId.value) }
+    }
+
+    @Test
+    fun loadingCatalogKeepsCachedThemesSelectable() {
+        val selectedThemeId = mutableStateOf<String?>(null)
+        val themes = sampleThemes()
+        composeRule.setContent {
+            MaterialTheme {
+                CaptureThemePicker(
+                    themeId = selectedThemeId.value,
+                    themes = themes,
+                    catalogState = MobileThemeCatalogState.Loading(
+                        themes = themes,
+                        serverId = "server-1",
+                        serverRevision = 1,
+                    ),
+                    enabled = true,
+                    onThemeSelected = { selectedThemeId.value = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("capture-theme-option-theme-research")
+            .assertIsEnabled()
+            .performClick()
+            .assertIsSelected()
+        composeRule.runOnIdle { assertEquals("theme-research", selectedThemeId.value) }
+        composeRule.onNodeWithText("保存済みThemeを表示しながら更新中").assertExists()
+    }
+
+    @Test
+    fun loadingWithoutCacheKeepsNoThemeAvailable() {
+        composeRule.setContent {
+            MaterialTheme {
+                CaptureThemePicker(
+                    themeId = null,
+                    themes = emptyList(),
+                    catalogState = MobileThemeCatalogState.Loading(),
+                    enabled = true,
+                    onThemeSelected = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("capture-theme-none-option")
+            .assertIsEnabled()
+            .assertIsSelected()
+        composeRule.onNodeWithText("Themeを読み込み中").assertExists()
+    }
+
+    @Test
+    fun restoredThemeScrollsIntoView() {
+        val themes = (1..16).map { index -> MobileTheme("theme-$index", "Theme $index") }
+        composeRule.setContent {
+            MaterialTheme {
+                CaptureThemePicker(
+                    themeId = "theme-16",
+                    themes = themes,
+                    catalogState = MobileThemeCatalogState.Available(
+                        themes = themes,
+                        serverId = "server-1",
+                        serverRevision = 1,
+                        generatedAt = "2026-09-01T00:00:00Z",
+                    ),
+                    enabled = true,
+                    onThemeSelected = {},
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("capture-theme-option-theme-16")
+            .assertIsDisplayed()
+            .assertIsSelected()
     }
 
     @Test
@@ -190,7 +262,6 @@ class CaptureThemePickerUiTest {
         composeRule.setContent {
             MaterialTheme {
                 CaptureThemePicker(
-                    draftId = "draft-stale",
                     themeId = selectedThemeId.value,
                     themes = themes,
                     catalogState = MobileThemeCatalogState.Stale(
@@ -206,15 +277,16 @@ class CaptureThemePickerUiTest {
             }
         }
 
-        composeRule.onNodeWithTag("capture-theme-picker")
+        composeRule.onNodeWithTag("capture-theme-unavailable-option")
             .assertIsEnabled()
-            .assertTextContains("選択済みTheme（一覧外）")
-            .assert(hasStateDescription("選択中のThemeは一覧外"))
+            .assertIsSelected()
+        composeRule.onNodeWithTag("capture-theme-option-theme-personal")
+            .assertIsEnabled()
             .performClick()
-        composeRule.onNodeWithTag("capture-theme-option-theme-personal").performClick()
+            .assertIsSelected()
 
         composeRule.runOnIdle { assertEquals("theme-personal", selectedThemeId.value) }
-        composeRule.onNodeWithText("オフラインのTheme一覧を使用中です。").assertExists()
+        composeRule.onNodeWithText("Theme一覧を更新できません。保存済みThemeを表示中").assertExists()
     }
 
     private fun sampleThemes(): List<MobileTheme> = listOf(

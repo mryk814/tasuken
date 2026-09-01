@@ -14,8 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
@@ -32,6 +34,7 @@ class TaskListContextUiTest {
     fun todayListKeepsBaselineContextAndSelectionInLightAndDarkThemes() {
         val pane = TodayPaneState()
         var selectedTaskId: String? = null
+        var stateActionTaskId: String? = null
         val tasks = listOf(
             task(
                 id = "10000000-0000-4000-8000-000000000101",
@@ -76,6 +79,8 @@ class TaskListContextUiTest {
                             paneState = pane,
                             onTaskSelected = { selectedTaskId = it },
                             themes = themes,
+                            actionState = TaskActionUiState.Idle,
+                            onTaskStateAction = { stateActionTaskId = it.id },
                         )
                     }
                 }
@@ -85,7 +90,13 @@ class TaskListContextUiTest {
         composeRule.onNodeWithText(tasks[0].title).assertIsDisplayed()
         composeRule.onNodeWithText(themes[0].title, substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("送信待ち").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("${tasks[1].title}は同期後に操作").assertIsNotEnabled()
         capture("06-task-list-context-light")
+        composeRule.onNodeWithContentDescription("${tasks[0].title}を完了").performClick()
+        composeRule.runOnIdle {
+            assertEquals(tasks[0].id, stateActionTaskId)
+            assertEquals(null, selectedTaskId)
+        }
         composeRule.onNodeWithText(tasks[0].title).performClick()
         composeRule.runOnIdle { assertEquals(tasks[0].id, selectedTaskId) }
         composeRule.runOnIdle { configuration.value = darkConfiguration }
@@ -112,7 +123,12 @@ class TaskListContextUiTest {
             TaskenTheme {
                 ListSurface {
                     TasksListPane(
-                        uiState = TodayUiState.Success(tasks, "2026-08-31T00:00:00Z"),
+                        uiState = TodayUiState.Cached(
+                            tasks = tasks,
+                            generatedAt = "2026-08-31T00:00:00Z",
+                            message = "保存済みTaskを表示中です。Desktopへ再接続してください。",
+                            recovery = TodayUiState.CachedRecovery.RePair,
+                        ),
                         tasks = tasks,
                         themes = themes,
                         paneState = pane,
@@ -120,12 +136,16 @@ class TaskListContextUiTest {
                         onRetryPairing = {},
                         onPair = { _, _ -> },
                         onTaskSelected = {},
+                        actionState = TaskActionUiState.Idle,
+                        onTaskStateAction = {},
                     )
                 }
             }
         }
 
         composeRule.onNodeWithText("未完了").assertIsDisplayed()
+        composeRule.onNodeWithText("保存済みTaskを表示中です。Desktopへ再接続してください。").assertIsDisplayed()
+        composeRule.onNodeWithText("接続をやり直す").assertIsDisplayed()
         composeRule.onNodeWithText("未着手 Task").assertIsDisplayed()
         composeRule.onNodeWithText("進行中 Task").assertIsDisplayed()
         composeRule.onNodeWithText("待機中 Task").assertIsDisplayed()
@@ -238,6 +258,8 @@ class TaskListContextUiTest {
                         paneState = pane,
                         onTaskSelected = { selectedTaskId = it },
                         themes = catalog.value,
+                        actionState = TaskActionUiState.Idle,
+                        onTaskStateAction = {},
                     )
                 }
             }

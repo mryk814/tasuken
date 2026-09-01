@@ -514,6 +514,22 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun stateActionRequiresWorkReceiptReviewAtTheWriteBoundary() = runBlocking {
+        listOf("needs_human_review", "reported_done", "blocked").forEachIndexed { index, workState ->
+            val taskId = "10000000-0000-4000-8000-${(40 + index).toString().padStart(12, '0')}"
+            dao.upsertTask(canonicalCachedTask(taskId, version = 3, state = "todo").copy(workState = workState))
+
+            val error = runCatching { outbox.enqueueComplete(taskId) }.exceptionOrNull()
+
+            assertTrue(error is IllegalArgumentException)
+            assertTrue(error?.message?.contains("Work Receipt") == true)
+            assertEquals("todo", dao.task(taskId)?.state)
+            assertNull(dao.task(taskId)?.optimisticCommandId)
+        }
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
     fun versionConflictKeepsServerStateAndLocalIntentUntilExplicitResolution() = runBlocking {
         val taskId = "10000000-0000-4000-8000-000000000020"
         dao.upsertTask(canonicalCachedTask(taskId, version = 7, state = "todo"))

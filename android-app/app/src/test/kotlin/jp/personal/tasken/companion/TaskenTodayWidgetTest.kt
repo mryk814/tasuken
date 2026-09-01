@@ -5,17 +5,23 @@ import org.junit.Test
 
 class TaskenTodayWidgetTest {
     @Test
-    fun resolves_small_medium_large_and_fold_wide_layouts_from_available_size() {
+    fun resolves_small_medium_large_tall_and_fold_wide_layouts_from_available_size() {
         assertEquals(TaskenWidgetMode.Small, widgetModeFor(widthDp = 110, heightDp = 60))
         assertEquals(TaskenWidgetMode.Small, widgetModeFor(widthDp = 170, heightDp = 260))
         assertEquals(TaskenWidgetMode.Medium, widgetModeFor(widthDp = 250, heightDp = 160))
         assertEquals(TaskenWidgetMode.Large, widgetModeFor(widthDp = 250, heightDp = 230))
+        assertEquals(TaskenWidgetMode.Large, widgetModeFor(widthDp = 200, heightDp = 240))
         assertEquals(TaskenWidgetMode.Wide, widgetModeFor(widthDp = 360, heightDp = 180))
+        assertEquals(TaskenWidgetMode.Large, widgetModeFor(widthDp = 360, heightDp = 230))
+        assertEquals(TaskenWidgetMode.Large, widgetModeFor(widthDp = 250, heightDp = 315))
+        assertEquals(TaskenWidgetMode.Tall, widgetModeFor(widthDp = 250, heightDp = 316))
+        assertEquals(TaskenWidgetMode.Tall, widgetModeFor(widthDp = 360, heightDp = 366))
 
         assertEquals(0, TaskenWidgetMode.Small.taskLimit)
-        assertEquals(3, TaskenWidgetMode.Medium.taskLimit)
-        assertEquals(6, TaskenWidgetMode.Large.taskLimit)
-        assertEquals(5, TaskenWidgetMode.Wide.taskLimit)
+        assertEquals(2, TaskenWidgetMode.Medium.taskLimit)
+        assertEquals(4, TaskenWidgetMode.Large.taskLimit)
+        assertEquals(6, TaskenWidgetMode.Tall.taskLimit)
+        assertEquals(2, TaskenWidgetMode.Wide.taskLimit)
     }
 
     @Test
@@ -27,11 +33,15 @@ class TaskenTodayWidgetTest {
             themeTitle = "Travel",
         )
 
-        assertEquals("旅程を確認 · Travel", TaskenTodayWidget.taskText(task))
-        assertEquals("↑ 旅程を確認 · Travel", TaskenTodayWidget.taskText(task.copy(isPending = true)))
+        assertEquals("旅程を確認 ・ Travel", TaskenTodayWidget.taskText(task))
+        assertEquals("送信待ち ・ 旅程を確認 ・ Travel", TaskenTodayWidget.taskText(task.copy(isPending = true)))
         assertEquals(
-            "⚠ 旅程を確認 · Travel",
+            "競合 ・ 旅程を確認 ・ Travel",
             TaskenTodayWidget.taskText(task.copy(isPending = true, hasConflict = true)),
+        )
+        assertEquals(
+            "要確認 ・ 旅程を確認 ・ Travel",
+            TaskenTodayWidget.taskText(task.copy(requiresWorkReceipt = true)),
         )
     }
 
@@ -45,7 +55,8 @@ class TaskenTodayWidgetTest {
             lastSuccessfulSyncAt = null,
         )
 
-        assertEquals("Today 9件", TaskenTodayWidget.taskCountText(snapshot))
+        assertEquals("9件", TaskenTodayWidget.taskCountText(snapshot))
+        assertEquals("", TaskenTodayWidget.taskCountText(snapshot.copy(totalTaskCount = 0)))
     }
 
     @Test
@@ -60,6 +71,6 @@ class TaskenTodayWidgetTest {
         assertEquals("競合 1件", TaskenTodayWidget.statusText(snapshot(pending = 2, conflict = 1)))
         assertEquals("送信待ち 2件", TaskenTodayWidget.statusText(snapshot(pending = 2)))
         assertEquals("未同期", TaskenTodayWidget.statusText(snapshot()))
-        assertEquals("同期済み", TaskenTodayWidget.statusText(snapshot(syncedAt = "2026-08-22T00:00:00Z")))
+        assertEquals("", TaskenTodayWidget.statusText(snapshot(syncedAt = "2026-08-22T00:00:00Z")))
     }
 }

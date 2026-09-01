@@ -723,6 +723,100 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
+    open suspend fun enqueueTaskStateToggle(
+        taskId: String,
+        commandName: String,
+        optimisticState: String,
+        serverId: String,
+        commandId: String,
+        requestId: String,
+        clientDeviceId: String,
+        issuedAt: String,
+    ): MobileStateActionResult {
+        require(commandName in setOf("CompleteTask", "ReopenTask"))
+        require(serverId.isNotBlank() && syncState()?.serverId == serverId)
+        val current = requireNotNull(task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
+        require(current.conflictCommandId == null) { "先に同期競合を解決してください。" }
+        require(current.workState !in setOf("needs_human_review", "reported_done", "blocked")) {
+            "Work Receiptを確認してから操作してください。"
+        }
+        val pending = current.optimisticCommandId?.let { outbox(it) }
+        if (pending != null && pending.commandName in setOf("CompleteTask", "ReopenTask")) {
+            require(pending.serverId == serverId) { "接続先が変わったため、この変更は操作できません。" }
+            require(pending.state == OutboxState.Pending && pending.attemptCount == 0) {
+                "送信結果を確認してから再試行してください。"
+            }
+            if (pending.commandName == commandName) {
+                return MobileStateActionResult(pending.commandId, requiresSync = true)
+            }
+            require(deleteUnsent(pending.commandId) == 1)
+            upsertTask(
+                current.copy(
+                    state = optimisticState,
+                    updatedAt = issuedAt,
+                    optimisticCommandId = pending.dependsOnCommandId,
+                ),
+            )
+            return MobileStateActionResult(
+                pending.dependsOnCommandId,
+                requiresSync = pending.dependsOnCommandId != null,
+            )
+        }
+        require(pending == null || pending.commandName == "CreateTask") {
+            "Taskの同期完了を待って再試行してください。"
+        }
+        if (pending == null) {
+            require(current.serverVersion != null) { "Taskの同期完了を待って再試行してください。" }
+        } else {
+            require(pending.serverId == serverId) { "接続先が変わったため、この変更は操作できません。" }
+            require(pending.state == OutboxState.Pending && pending.attemptCount == 0) {
+                "Task作成の送信結果を確認してから再試行してください。"
+            }
+        }
+        val envelope = MobileTaskStateEnvelopeDto(
+            apiVersion = 1,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+            requestId = requestId,
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = clientDeviceId,
+            issuedAt = issuedAt,
+            command = MobileTaskStateCommandDto(
+                name = commandName,
+                taskId = taskId,
+                expectedVersion = current.serverVersion ?: 1,
+            ),
+        )
+        upsertTask(
+            current.copy(
+                state = optimisticState,
+                updatedAt = issuedAt,
+                optimisticCommandId = commandId,
+            ),
+        )
+        insertOutbox(
+            OutboxCommandEntity(
+                commandId = commandId,
+                idempotencyKey = commandId,
+                requestId = requestId,
+                clientDeviceId = clientDeviceId,
+                issuedAt = issuedAt,
+                commandName = commandName,
+                envelopeJson = MobileTaskCommandContract.encode(envelope),
+                serverId = serverId,
+                state = OutboxState.Pending,
+                attemptCount = 0,
+                createdAt = issuedAt,
+                lastAttemptAt = null,
+                lastError = null,
+                taskId = taskId,
+                dependsOnCommandId = pending?.commandId,
+            ),
+        )
+        return MobileStateActionResult(commandId, requiresSync = true)
+    }
+
+    @Transaction
     open suspend fun enqueueStateAction(task: TaskCacheEntity, command: OutboxCommandEntity) {
         require(task.optimisticCommandId == command.commandId)
         require(task.serverVersion != null)
