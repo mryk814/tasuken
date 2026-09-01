@@ -259,7 +259,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.list_agent_ready_tasks",
     {
       description:
-        "List AI-assigned Tasks that are ready for an agent. Read-only; a Work Receipt never completes a Task.",
+        "List Tasks whose human-set AI Ready gate allows agent work. Read-only; a Work Receipt still requires human review.",
       inputSchema: {
         theme_id: optionalText,
         limit: optionalLimit,
@@ -1237,7 +1237,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.start_task_work",
     {
       description:
-        "Queue a proposal to start work on an assigned Task. This never writes Task state directly.",
+        "Queue an optional compatibility proposal to start work on an AI Ready Task. A separate start proposal is not required before a Work Receipt; started_at is recorded when that receipt is adopted.",
       inputSchema: {
         ...taskWorkBase,
         executor_kind: z.enum(["self", "human", "ai_agent", "external", "unknown"]).optional(),
@@ -1267,7 +1267,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.append_work_receipt",
     {
       description:
-        "Queue an append-only Work Receipt proposal. It enters Tasken review and does not complete the Task.",
+        "Queue an append-only Work Receipt proposal for an AI Ready or active Task. If no separate start was adopted, started_at is recorded with the receipt. Human review remains required.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },
@@ -1278,7 +1278,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.report_task_done",
     {
       description:
-        "Queue an AI work report as a proposal. The report is not Task completion and requires human review.",
+        "Queue an AI work report for an AI Ready or active Task. If no separate start was adopted, started_at is recorded with the report. Human approval completes the Task.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },

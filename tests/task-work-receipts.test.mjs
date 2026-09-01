@@ -103,6 +103,165 @@ function createAiTask(service) {
   );
 }
 
+test("accepting a done Work Receipt Proposal starts and completes an AI Ready Task", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  const task = repo.get("task", "task-ai");
+  const proposal = repo.save("ai_proposal", {
+    id: "proposal-unstarted-done",
+    source: "mcp",
+    payload_type: "task_work",
+    payload: {
+      task_work: [
+        {
+          action: "report_done",
+          task_id: task.id,
+          expected_version: task.version,
+          summary: "Requested work is complete.",
+        },
+      ],
+    },
+    status: "pending",
+  });
+
+  let receipt;
+  try {
+    receipt = service.execute(
+      envelope(
+        "ApplyTaskWorkProposal",
+        { proposalId: proposal.id, decision: "accept" },
+        `${proposal.id}:accept`,
+        [
+          { type: "task", id: task.id, version: task.version },
+          { type: "ai_proposal", id: proposal.id, version: proposal.version },
+        ],
+      ),
+    );
+  } catch (error) {
+    assert.fail(`Work Receipt Proposal acceptance failed: ${error.code}: ${error.message}`);
+  }
+
+  assert.equal(receipt.status, "applied");
+  assert.equal(repo.get("ai_proposal", proposal.id).status, "accepted");
+  assert.equal(repo.get("work_receipt", proposal.id).task_id, task.id);
+  const reviewedTask = repo.get("task", task.id);
+  assert.equal(reviewedTask.state, "done");
+  assert.equal(reviewedTask.work_state, "accepted");
+  assert.ok(reviewedTask.work_started_at);
+  const workActions = repo
+    .list("change_event")
+    .filter((event) => event.command_id?.startsWith(`${proposal.id}:accept:`))
+    .map((event) => event.metadata?.work_action);
+  assert.deepEqual(workActions.sort(), ["accepted", "reported", "started"]);
+  const lifecycleEvents = repo
+    .list("change_event")
+    .filter((event) => event.command_id?.startsWith(`${proposal.id}:accept:`));
+  const startedEvent = lifecycleEvents.find((event) => event.metadata?.work_action === "started");
+  const reportedEvent = lifecycleEvents.find((event) => event.metadata?.work_action === "reported");
+  const acceptedEvent = lifecycleEvents.find((event) => event.metadata?.work_action === "accepted");
+  assert.equal(JSON.parse(startedEvent.after_json).work_state, "in_progress");
+  assert.equal(JSON.parse(reportedEvent.after_json).work_state, "needs_human_review");
+  assert.deepEqual(
+    {
+      state: JSON.parse(acceptedEvent.after_json).state,
+      work_state: JSON.parse(acceptedEvent.after_json).work_state,
+    },
+    { state: "done", work_state: "accepted" },
+  );
+});
+
+test("public ReportTaskDone cannot use the proposal-only implicit start context", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+
+  assert.throws(
+    () =>
+      service.execute(
+        envelope(
+          "ReportTaskDone",
+          {
+            taskId: "task-ai",
+            startIfReady: true,
+            receipt: {
+              id: "crafted-direct-report",
+              task_id: "task-ai",
+              executor_kind: "ai_agent",
+              executor_label: "Crafted agent",
+              reported_at: "2026-08-08T00:01:00.000Z",
+              summary: "This must remain a Proposal.",
+              completed_items: [],
+              changed_or_created_items: [],
+            },
+          },
+          "crafted-direct-report",
+          [{ type: "task", id: "task-ai", version: 1 }],
+          { kind: "ai_agent", id: "crafted-agent" },
+          "mcp",
+        ),
+      ),
+    /内部用フィールド|INVALID_PAYLOAD/,
+  );
+  assert.equal(repo.get("task", "task-ai").work_state, "ready_for_agent");
+  assert.equal(repo.get("work_receipt", "crafted-direct-report"), null);
+});
+
+test("public AcceptTaskWork cannot select an older receipt through an internal exact-match flag", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  service.execute(
+    envelope("StartTaskWork", { taskId: "task-ai" }, "start-for-stale-review", [
+      { type: "task", id: "task-ai", version: 1 },
+    ]),
+  );
+  service.execute(
+    envelope(
+      "ReportTaskDone",
+      {
+        taskId: "task-ai",
+        receipt: {
+          id: "receipt-older",
+          task_id: "task-ai",
+          executor_kind: "ai_agent",
+          executor_label: "Codex",
+          reported_at: "2026-08-08T00:01:00.000Z",
+          summary: "Older report.",
+          completed_items: [],
+          changed_or_created_items: [],
+        },
+      },
+      "report-for-stale-review",
+      [{ type: "task", id: "task-ai", version: 2 }],
+    ),
+  );
+  repo.save("work_receipt", {
+    ...repo.get("work_receipt", "receipt-older"),
+    id: "receipt-newer",
+    reported_at: "2026-08-08T00:02:00.000Z",
+    summary: "Newer report.",
+  });
+
+  assert.throws(
+    () =>
+      service.execute(
+        envelope(
+          "AcceptTaskWork",
+          {
+            taskId: "task-ai",
+            receiptId: "receipt-older",
+            acceptExactReceipt: true,
+          },
+          "crafted-stale-accept",
+          [{ type: "task", id: "task-ai", version: 3 }],
+        ),
+      ),
+    /内部用フィールド|INVALID_PAYLOAD/,
+  );
+  assert.equal(repo.get("task", "task-ai").work_state, "needs_human_review");
+});
+
 test("repository/domain write invariant blocks every direct AI completion and normalizes reassignment", () => {
   const base = {
     id: "task-invariant",
@@ -205,16 +364,13 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   assert.doesNotMatch(mcp, /registerTool\("tasken\.accept_task_work"/);
   assert.doesNotMatch(mcp, /request_human_review|request_review/);
   assert.doesNotMatch(proposalPanel, /request_review/);
-  assert.match(
-    drawer,
-    /!\["done", "cancelled"\]\.includes\(task\.state\) &&\s*!\["accepted", "reported_done", "needs_human_review", "in_progress"\]\.includes\(\s*workState,?\s*\)/,
-  );
-  assert.match(drawer, /AIへ依頼を準備/);
-  assert.match(drawer, /intended_executor: "ai_agent", work_state: "ready_for_agent"/);
-  assert.match(drawer, /Coding AgentがTasken MCPから取得できます/);
+  assert.match(drawer, /const isAiDelegationReady/);
+  assert.match(drawer, /このTaskはCoding AgentがTasken MCPから取得できます/);
   assert.match(drawer, /workspaceApi\.copyText\(/);
   assert.match(drawer, /tasken\.get_task_context に task_id=/);
-  assert.match(drawer, /AIへ渡る内容を確認/);
+  assert.doesNotMatch(drawer, /AIへ渡る内容を確認/);
+  assert.doesNotMatch(drawer, /AIを起動して渡す/);
+  assert.doesNotMatch(drawer, /StartTaskWork/);
   assert.doesNotMatch(
     drawer,
     /useEffect\(\(\) => \{\s*if \(isAiDelegationReady\) setWorkOpen\(true\);/,
@@ -313,7 +469,7 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   );
 });
 
-test("TodayとToDoのTaskクリックは編集DrawerからAI依頼を準備できる", () => {
+test("TodayとToDoのTaskクリックは編集DrawerからAI Readyを切り替えられる", () => {
   const today = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
   const todo = readFileSync("src/renderer/src/features/workspace/pages/TodoPage.tsx", "utf8");
   const drawer = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
@@ -324,16 +480,15 @@ test("TodayとToDoのTaskクリックは編集DrawerからAI依頼を準備で�
 
   assert.doesNotMatch(today, /type: "task",\s*mode: "view"/);
   assert.doesNotMatch(todo, /type: "task",\s*mode: "view"/);
-  assert.match(drawer, /onPrepareAiDelegation=\{prepareAiDelegation\}/);
-  assert.match(drawer, /hasUnsavedChanges=\{isFormDirty\}/);
-  assert.match(drawer, /catch \{\s*(?:\/\/[^\n]*\n\s*)?return false;\s*\}/);
+  assert.doesNotMatch(drawer, /onPrepareAiDelegation/);
+  assert.match(todo, /async function toggleAiReady/);
+  assert.match(today, /async function handleToggleAiReady/);
+  assert.match(taskFields, /AI Ready/);
   assert.match(
     taskFields,
-    /setIntendedExecutor\("ai_agent"\);\s*setPreparedWorkState\("ready_for_agent"\);/,
+    /setIntendedExecutor\(checked \? "ai_agent" : "self"\);\s*setPreparedWorkState\(checked \? "ready_for_agent" : "not_delegated"\);/,
   );
-  assert.match(taskFields, /disabled=\{preparingAiDelegation \|\| hasUnsavedChanges\}/);
-  assert.match(taskFields, /変更を保存すると準備できます。/);
-  assert.match(taskFields, /if \(!\(await onPrepareAiDelegation\(\)\)\) return;/);
+  assert.match(taskFields, /disabled=\{!canToggleAiReady\}/);
   assert.match(taskFields, /name="work_state" value=\{preservedWorkState\}/);
 });
 
@@ -428,165 +583,6 @@ test("AI report stays needs_human_review and cannot complete before human accept
       ),
     /人間UIからのみ/,
   );
-});
-
-test("desktop agent launch records work start directly without creating an MCP proposal", () => {
-  const repo = repository();
-  const service = new ApplicationCommandService(repo);
-  service.execute(
-    envelope(
-      "CreateTask",
-      {
-        task: {
-          id: "task-direct-launch",
-          title: "Direct launch",
-          state: "todo",
-          project_id: "theme-personal-default",
-          intended_executor: "self",
-          requester: "self",
-          work_state: "not_delegated",
-        },
-      },
-      "create-direct-launch",
-    ),
-  );
-
-  const receipt = service.startTaskAgentWork({
-    taskId: "task-direct-launch",
-    expectedTaskVersion: 1,
-    clientLabel: "Codex",
-    issuedAt: "2026-08-08T00:01:00.000Z",
-  });
-
-  const task = repo.get("task", "task-direct-launch");
-  assert.equal(task.intended_executor, "ai_agent");
-  assert.equal(task.work_state, "in_progress");
-  assert.equal(task.executor_identity, "Codex");
-  assert.equal(task.version, 3);
-  assert.ok(receipt.changes.some(({ type }) => type === "task"));
-  assert.equal(repo.list("ai_proposal").length, 0);
-
-  const startedAt = task.work_started_at;
-  const retryReceipt = service.startTaskAgentWork({
-    taskId: "task-direct-launch",
-    expectedTaskVersion: 3,
-    clientLabel: "GitHub Copilot",
-    issuedAt: "2026-08-08T00:02:00.000Z",
-  });
-  const retriedTask = repo.get("task", "task-direct-launch");
-  assert.equal(retriedTask.intended_executor, "ai_agent");
-  assert.equal(retriedTask.work_state, "in_progress");
-  assert.equal(retriedTask.executor_identity, "GitHub Copilot");
-  assert.equal(retriedTask.work_started_at, startedAt);
-  assert.equal(retriedTask.version, 4);
-  assert.ok(retryReceipt.changes.some(({ type }) => type === "task"));
-  assert.equal(repo.list("ai_proposal").length, 0);
-
-  service.execute(
-    envelope(
-      "CreateTask",
-      {
-        task: {
-          id: "task-human-in-progress",
-          title: "Human work in progress",
-          state: "doing",
-          project_id: "theme-personal-default",
-          intended_executor: "self",
-          requester: "self",
-          work_state: "not_delegated",
-        },
-      },
-      "create-human-in-progress",
-    ),
-  );
-  service.execute(
-    envelope(
-      "StartTaskWork",
-      { taskId: "task-human-in-progress", executorKind: "self", executorIdentity: "Owner" },
-      "start-human-in-progress",
-      [{ type: "task", id: "task-human-in-progress", version: 1 }],
-    ),
-  );
-  assert.throws(
-    () =>
-      service.startTaskAgentWork({
-        taskId: "task-human-in-progress",
-        expectedTaskVersion: 2,
-        clientLabel: "Codex",
-      }),
-    /AI以外が作業中/,
-  );
-  const activeHumanTask = repo.get("task", "task-human-in-progress");
-  assert.equal(activeHumanTask.intended_executor, "self");
-  assert.equal(activeHumanTask.executor_identity, "Owner");
-  assert.equal(activeHumanTask.version, 2);
-});
-
-test("desktop agent launch crosses the SQLite assignment boundary atomically", async () => {
-  const directory = await mkdtemp(path.join(process.cwd(), ".tasken-direct-launch-"));
-  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
-  const replica = new WorkspaceDatabase(path.join(directory, "replica.sqlite"));
-  try {
-    database.loadWorkspace();
-    const service = new ApplicationCommandService(database);
-    service.execute(
-      envelope(
-        "CreateTask",
-        {
-          task: {
-            id: "sqlite-task-direct-launch",
-            title: "SQLite direct launch",
-            state: "todo",
-            project_id: "theme-personal-default",
-            intended_executor: "self",
-            requester: "self",
-            work_state: "not_delegated",
-          },
-        },
-        "create-sqlite-direct-launch",
-      ),
-    );
-    const taskPacketsBeforeStart = database
-      .pendingSyncChanges()
-      .filter(
-        ({ packet }) =>
-          packet.entityType === "task" && packet.entityId === "sqlite-task-direct-launch",
-      );
-
-    service.startTaskAgentWork({
-      taskId: "sqlite-task-direct-launch",
-      expectedTaskVersion: 1,
-      clientLabel: "Codex",
-      issuedAt: "2026-08-08T00:01:00.000Z",
-    });
-
-    const startedTask = database.get("task", "sqlite-task-direct-launch");
-    assert.equal(startedTask.intended_executor, "ai_agent");
-    assert.equal(startedTask.work_state, "in_progress");
-    assert.equal(startedTask.work_started_at, "2026-08-08T00:01:00.000Z");
-    assert.equal(startedTask.executor_identity, "Codex");
-    assert.equal(startedTask.version, 3);
-    assert.equal(database.list("ai_proposal").length, 0);
-    const taskPacketsAfterStart = database
-      .pendingSyncChanges()
-      .filter(
-        ({ packet }) =>
-          packet.entityType === "task" && packet.entityId === "sqlite-task-direct-launch",
-      );
-    assert.equal(taskPacketsAfterStart.length, taskPacketsBeforeStart.length + 1);
-    assert.equal(taskPacketsAfterStart.at(-1).packet.entity.work_state, "in_progress");
-
-    replica.adoptSyncWorkspace(database.workspaceId);
-    for (const { packet } of database.pendingSyncChanges()) replica.applySyncPacket(packet);
-    const syncedTask = replica.get("task", "sqlite-task-direct-launch");
-    assert.equal(syncedTask.intended_executor, "ai_agent");
-    assert.equal(syncedTask.work_state, "in_progress");
-    assert.equal(syncedTask.work_started_at, "2026-08-08T00:01:00.000Z");
-  } finally {
-    replica.db.close();
-    database.db.close();
-    await rm(directory, { recursive: true, force: true });
-  }
 });
 
 test("SQLite repository enforces AI completion, append-only receipts, and task receipt cascade restore", async () => {

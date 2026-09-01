@@ -648,6 +648,11 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
+    open suspend fun applyTaskCommandSuccess(canonicalTask: TaskCacheEntity) {
+        upsertCanonicalTaskIfNotOlder(canonicalTask)
+    }
+
+    @Transaction
     open suspend fun applyTaskDelegationSuccess(
         commandId: String,
         canonicalTask: TaskCacheEntity,

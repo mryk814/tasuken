@@ -75,7 +75,6 @@ import {
   workspaceAiVisibility,
 } from "./aiContext";
 import { ArtifactSection } from "./artifacts";
-import { AiContextPreviewPanel } from "./AiContextPreviewPanel";
 import { ConversationPreview } from "./ConversationPreview";
 import { LineagePanel } from "./LineagePanel";
 import {
@@ -105,7 +104,6 @@ import { ThemeRepositoryContextFields } from "./repositoryContextFields";
 import { ThemeIntentFields } from "./ThemeIntentFields";
 import {
   TASK_STATE_LABELS,
-  TASK_WORK_STATE_LABELS,
   EXTERNAL_REFERENCE_KIND_LABELS,
   WAITING_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
@@ -239,30 +237,16 @@ function receiptExternalReferences(receipt: WorkReceipt) {
   }
 }
 
-function taskAgentErrorMessage(error: unknown): string {
-  return error instanceof Error && error.message
-    ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "")
-    : "選択肢を再読込して、もう一度お試しください。";
-}
-
 function TaskWorkSection({
   task,
   receipts,
   executeCommand,
   setToast,
-  data,
-  openDrawer,
-  hasUnsavedChanges = false,
-  showAgentLaunch = false,
 }: {
   task: Task;
   receipts: WorkReceipt[];
   executeCommand?: ExecuteCommand;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
-  data?: WorkspaceData;
-  openDrawer?: (drawer: DrawerConfig) => void;
-  hasUnsavedChanges?: boolean;
-  showAgentLaunch?: boolean;
 }) {
   const [summary, setSummary] = useState("");
   const [completedItems, setCompletedItems] = useState("");
@@ -271,14 +255,6 @@ function TaskWorkSection({
   const [remainingWork, setRemainingWork] = useState("");
   const [reviewNote, setReviewNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const [launchOptions, setLaunchOptions] = useState<Awaited<
-    ReturnType<typeof workspaceApi.getTaskAgentLaunchOptions>
-  > | null>(null);
-  const [selectedClientId, setSelectedClientId] = useState("");
-  const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
-  const [launchLoading, setLaunchLoading] = useState(false);
-  const [launchInFlight, setLaunchInFlight] = useState(false);
-  const [launchError, setLaunchError] = useState("");
   const workState =
     task.work_state ||
     (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
@@ -303,73 +279,7 @@ function TaskWorkSection({
     hasWorkHistory;
   const isAiDelegationReady =
     task.intended_executor === "ai_agent" && workState === "ready_for_agent";
-  const canLaunchTaskAgent =
-    !["done", "cancelled"].includes(task.state) && (isAiDelegationReady || showAgentLaunch);
-  const [workOpen, setWorkOpen] = useState(
-    hasWorkHistory || workState !== "not_delegated" || canLaunchTaskAgent,
-  );
-  const selectedClient = launchOptions?.clients.find(
-    (client) => client.id === selectedClientId && client.available,
-  );
-  const selectedRepository = launchOptions?.repositories.find(
-    (repository) => repository.id === selectedRepositoryId,
-  );
-  const loadTaskAgentLaunchOptions = async () => {
-    if (launchLoading) return;
-    setLaunchLoading(true);
-    setLaunchError("");
-    try {
-      const next = await workspaceApi.getTaskAgentLaunchOptions({ taskId: task.id });
-      setLaunchOptions(next);
-      setSelectedClientId((current) => {
-        if (next.clients.some((client) => client.id === current && client.available))
-          return current;
-        return next.clients.find((client) => client.available)?.id || "";
-      });
-      setSelectedRepositoryId((current) => {
-        if (next.repositories.some((repository) => repository.id === current)) return current;
-        return next.repositories[0]?.id || "";
-      });
-    } catch (error) {
-      setLaunchOptions(null);
-      setLaunchError(`起動先を読み込めませんでした。${taskAgentErrorMessage(error)}`);
-    } finally {
-      setLaunchLoading(false);
-    }
-  };
-  const launchTaskAgent = async () => {
-    if (
-      hasUnsavedChanges ||
-      launchLoading ||
-      launchInFlight ||
-      !launchOptions ||
-      !selectedClient ||
-      !selectedRepository
-    ) {
-      return;
-    }
-    setLaunchInFlight(true);
-    setLaunchError("");
-    try {
-      const result = await workspaceApi.launchTaskAgent({
-        taskId: task.id,
-        clientId: selectedClient.id,
-        repositoryContextId: selectedRepository.id,
-        expectedTaskVersion: launchOptions.taskVersion,
-        expectedLocalPath: selectedRepository.localPath,
-      });
-      setToast(
-        `${result.clientLabel}に委任し、作業を開始しました。実行状況は開いた画面で確認してください。`,
-        "success",
-      );
-    } catch (error) {
-      const message = `AIを起動できませんでした。${taskAgentErrorMessage(error)}`;
-      await loadTaskAgentLaunchOptions();
-      setLaunchError(message);
-    } finally {
-      setLaunchInFlight(false);
-    }
-  };
+  const [workOpen, setWorkOpen] = useState(hasWorkHistory || workState !== "not_delegated");
   const copyAiRequest = async () => {
     try {
       await workspaceApi.copyText(
@@ -448,7 +358,7 @@ function TaskWorkSection({
       "Work Receiptを追加しました。人間の確認待ちです。",
     );
   };
-  if ((!hasDelegatedWork && !canLaunchTaskAgent) || (!executeCommand && !isAiDelegationReady)) {
+  if (!hasDelegatedWork || (!executeCommand && !isAiDelegationReady)) {
     return null;
   }
   return (
@@ -459,15 +369,8 @@ function TaskWorkSection({
     >
       <summary aria-labelledby="task-work-heading">
         <span className="drawer-disclosure-title" id="task-work-heading">
-          {canLaunchTaskAgent ? "AIへの依頼" : "作業履歴"}
+          {isAiDelegationReady ? "AIへの依頼" : "作業履歴"}
         </span>
-        <span className="drawer-disclosure-meta">担当: {executorLabel}</span>
-        <StatusBadge
-          value={workState}
-          label={
-            TASK_WORK_STATE_LABELS[workState as keyof typeof TASK_WORK_STATE_LABELS] || workState
-          }
-        />
       </summary>
       <div className="drawer-disclosure-body">
         {isAiDelegationReady && (
@@ -478,116 +381,6 @@ function TaskWorkSection({
               依頼文をコピー
             </button>
           </>
-        )}
-        {canLaunchTaskAgent && (
-          <details
-            className="drawer-subsection drawer-disclosure task-agent-launch"
-            onToggle={(event) => {
-              if (event.currentTarget.open && !launchOptions && !launchLoading) {
-                void loadTaskAgentLaunchOptions();
-              }
-            }}
-          >
-            <summary>
-              <span className="drawer-disclosure-title">AIを起動して渡す</span>
-            </summary>
-            <div className="drawer-disclosure-body">
-              {hasUnsavedChanges && (
-                <p className="field-help">変更を保存してからAIを起動してください。</p>
-              )}
-              {launchLoading && <p className="field-help">起動先を確認しています。</p>}
-              {launchError && (
-                <p className="alert-note danger" role="alert">
-                  {launchError}
-                </p>
-              )}
-              {launchOptions && (
-                <>
-                  {!selectedClient ? (
-                    <p className="alert-note warning">
-                      {Array.from(
-                        new Set(
-                          launchOptions.clients.map((client) => client.reason).filter(Boolean),
-                        ),
-                      ).join(" ") ||
-                        "利用できるAIクライアントがありません。選択肢を再読込してください。"}
-                    </p>
-                  ) : (
-                    <Field label="AIクライアント">
-                      <select
-                        value={selectedClientId}
-                        onChange={(event) => setSelectedClientId(event.target.value)}
-                        disabled={launchInFlight}
-                      >
-                        {launchOptions.clients
-                          .filter((client) => client.available)
-                          .map((client) => (
-                            <option key={client.id} value={client.id}>
-                              {client.label}
-                            </option>
-                          ))}
-                      </select>
-                    </Field>
-                  )}
-                  {!selectedRepository ? (
-                    <p className="alert-note warning">
-                      Themeのリポジトリ設定でローカルパスを設定してください。
-                    </p>
-                  ) : (
-                    <Field label="リポジトリ">
-                      <select
-                        value={selectedRepositoryId}
-                        onChange={(event) => setSelectedRepositoryId(event.target.value)}
-                        disabled={launchInFlight}
-                      >
-                        {launchOptions.repositories.map((repository) => (
-                          <option key={repository.id} value={repository.id}>
-                            {repository.label}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                  )}
-                  {selectedClient && selectedRepository && (
-                    <div className="task-agent-launch-confirmation">
-                      <code>{selectedRepository.localPath}</code>
-                      <strong>{task.title}</strong>
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        disabled={hasUnsavedChanges || launchLoading || launchInFlight}
-                        onClick={() => void launchTaskAgent()}
-                      >
-                        {launchInFlight ? "起動しています…" : `${selectedClient.label}で起動`}
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
-              <button
-                className="text-button compact"
-                type="button"
-                disabled={launchLoading || launchInFlight}
-                onClick={() => void loadTaskAgentLaunchOptions()}
-              >
-                選択肢を再読込
-              </button>
-            </div>
-          </details>
-        )}
-        {isAiDelegationReady && data && openDrawer && (
-          <details className="drawer-subsection drawer-disclosure">
-            <summary>
-              <span className="drawer-disclosure-title">AIへ渡る内容を確認</span>
-            </summary>
-            <div className="drawer-disclosure-body">
-              <AiContextPreviewPanel
-                scope={{ type: "task", id: task.id }}
-                data={data}
-                openDrawer={openDrawer}
-              />
-            </div>
-          </details>
         )}
         {hasDelegatedWork &&
           (sortedReceipts.length > 0 ? (
@@ -640,30 +433,6 @@ function TaskWorkSection({
           ) : (
             <p className="field-help">まだ作業報告はありません。</p>
           ))}
-        {hasDelegatedWork &&
-          !["done", "cancelled"].includes(task.state) &&
-          !["accepted", "reported_done", "needs_human_review", "in_progress"].includes(
-            workState,
-          ) && (
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void run(
-                  "StartTaskWork",
-                  {
-                    taskId: task.id,
-                    executorKind,
-                    executorIdentity: task.executor_identity || null,
-                  },
-                  "作業を開始しました。",
-                )
-              }
-            >
-              作業を開始する
-            </button>
-          )}
         {hasDelegatedWork && workState === "in_progress" && (
           <form className="form-grid" onSubmit={report}>
             <Field label="報告の概要">
@@ -715,12 +484,12 @@ function TaskWorkSection({
               onClick={() =>
                 void run(
                   "AcceptTaskWork",
-                  { taskId: task.id },
-                  "Work Receiptを確認しました。Taskを完了できます。",
+                  { taskId: task.id, completeTask: true },
+                  "Work Receiptを承認し、Taskを完了しました。",
                 )
               }
             >
-              確認して受け入れる
+              承認して完了
             </button>
             <Field label="差戻し理由">
               <textarea
@@ -1049,8 +818,6 @@ export function EntityDrawer({
             sourceId={resourceId}
             themeId={str(entity.project_id || entity.theme_id) || null}
             artifacts={data.artifacts || []}
-            data={data}
-            openDrawer={(next) => close(next)}
             openContentViewer={openContentViewer}
             saveEntities={saveEntities}
             removeEntity={removeEntity}
@@ -1072,10 +839,6 @@ export function EntityDrawer({
       (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
     const requiresHumanAcceptance =
       task.intended_executor === "ai_agent" && taskWorkState !== "accepted";
-    const canPrepareAiDelegation =
-      !["done", "cancelled"].includes(task.state) &&
-      (task.intended_executor === "self" || !task.intended_executor) &&
-      taskWorkState === "not_delegated";
     const learningNotes = (data.notes || [])
       .filter((note) => note.item_id === task.id && note.note_type === "learning")
       .sort((a, b) =>
@@ -1122,22 +885,12 @@ export function EntityDrawer({
       );
       if (completeTask) close();
     };
-    const prepareAiDelegation = async () => {
-      await saveEntities(
-        buildSaveTaskOperations(
-          { ...task, intended_executor: "ai_agent", work_state: "ready_for_agent" },
-          { reason: "prepared_for_ai_agent" },
-        ),
-        "AIへの依頼を準備しました。Coding Agent側でTasken MCPからこのTaskを取得できます。",
-      );
-    };
     return (
       <aside className="drawer">
         <DrawerHeader title="タスク詳細" close={close} />
         <div className="drawer-content">
           <div className="badge-row">
             <StatusBadge value={task.state} label={TASK_STATE_LABELS[task.state]} />
-            {task.priority === "high" && <StatusBadge value="review" label="優先" />}
             {task.repeat_rule && (
               <StatusBadge value="doing" label={repeatRuleLabel(task.repeat_rule)} />
             )}
@@ -1201,8 +954,6 @@ export function EntityDrawer({
             }
             executeCommand={executeCommand}
             setToast={setToast}
-            data={data}
-            openDrawer={(next) => close(next)}
           />
           <details className="drawer-subsection drawer-disclosure task-related-disclosure">
             <summary>
@@ -1221,11 +972,6 @@ export function EntityDrawer({
                 seed={{ type: "task", id: task.id }}
                 openDrawer={(next) => close(next)}
                 openContentViewer={openContentViewer}
-              />
-              <AiContextPreviewPanel
-                scope={{ type: "task", id: task.id }}
-                data={data}
-                openDrawer={(next) => close(next)}
               />
               <section className="task-learning-section">
                 <div className="section-heading">
@@ -1269,15 +1015,6 @@ export function EntityDrawer({
             </div>
           </details>
           <div className="drawer-actions">
-            {canPrepareAiDelegation && (
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => void prepareAiDelegation()}
-              >
-                AIへ依頼を準備
-              </button>
-            )}
             <button className="primary-button" onClick={() => startFocusSession?.(task.id)}>
               <IconClock size={16} />
               集中して作業する
@@ -1631,28 +1368,6 @@ function EditDrawer({
       ? ((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entityId) ||
         (entity as unknown as Task)
       : null;
-  const prepareAiDelegation =
-    taskForWorkSection && saveEntities
-      ? async () => {
-          try {
-            await saveEntities(
-              buildSaveTaskOperations(
-                {
-                  ...taskForWorkSection,
-                  intended_executor: "ai_agent",
-                  work_state: "ready_for_agent",
-                },
-                { reason: "prepared_for_ai_agent" },
-              ),
-              "AIへの依頼を準備しました。Coding Agent側でTasken MCPからこのTaskを取得できます。",
-            );
-            return true;
-          } catch {
-            // saveEntities already reports the save error; keep the form and executor unchanged.
-            return false;
-          }
-        }
-      : undefined;
   const taskChecklistEditorKey =
     type === "task" ? `${entityId}:${str(entity._focusChecklistItem)}` : "";
   const workspaceAiVisibilityDefault = workspaceAiVisibility(data);
@@ -1789,8 +1504,6 @@ function EditDrawer({
               onChecklistSavePending={registerChecklistSave}
               onChecklistSaved={markChecklistSaved}
               onChecklistDraftChange={markChecklistDraftChange}
-              onPrepareAiDelegation={prepareAiDelegation}
-              hasUnsavedChanges={isFormDirty}
             />
           )}
           {type === "waiting" && <WaitingFields entity={entity} data={data} />}
@@ -1855,10 +1568,6 @@ function EditDrawer({
             receipts={(data.work_receipts || []) as unknown as WorkReceipt[]}
             executeCommand={_executeCommand}
             setToast={setToast}
-            data={data}
-            openDrawer={(next) => close(next)}
-            hasUnsavedChanges={isFormDirty}
-            showAgentLaunch
           />
         )}
       </div>

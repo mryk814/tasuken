@@ -129,7 +129,7 @@ class MobileTaskNotificationIsolationTest {
                 tag,
                 notificationId,
                 NotificationCompat.Builder(context, channelId)
-                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setSmallIcon(R.drawable.ic_tasken_notification)
                     .setContentTitle("Resolved notification test")
                     .build(),
             )
@@ -190,6 +190,34 @@ class MobileTaskNotificationIsolationTest {
         assertTrue(MobileTaskNotifications.isActiveServer("server-1", "server-1"))
         assertFalse(MobileTaskNotifications.isActiveServer("server-1", "server-2"))
         assertFalse(MobileTaskNotifications.isActiveServer("server-1", null))
+    }
+
+    @Test
+    fun postedTaskenNotificationUsesTheMonochromeTaskenMark() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        if (Build.VERSION.SDK_INT >= 33) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(
+                context.packageName,
+                Manifest.permission.POST_NOTIFICATIONS,
+            )
+        }
+        assertTrue(MobileTaskNotifications.canPost(context))
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val pending = delivery("tasken-icon-delivery", "server-1")
+        val tag = MobileTaskNotifications.notificationTag(pending.serverId, pending.deliveryId)
+        val notificationId = pending.deliveryId.hashCode()
+        try {
+            dao.insertTaskNotificationDelivery(pending)
+            MobileTaskNotifications.drain(context, dao)
+            delay(100)
+
+            val posted = manager.activeNotifications.firstOrNull {
+                it.tag == tag && it.id == notificationId
+            }
+            assertEquals(R.drawable.ic_tasken_notification, posted?.notification?.smallIcon?.resId)
+        } finally {
+            manager.cancel(tag, notificationId)
+        }
     }
 
     private fun delivery(deliveryId: String, serverId: String) = TaskNotificationDeliveryEntity(

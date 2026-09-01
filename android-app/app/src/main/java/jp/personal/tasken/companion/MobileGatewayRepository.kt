@@ -44,6 +44,9 @@ private const val MOBILE_GATEWAY_LOG_TAG = "TaskenMobileGateway"
 private val MOBILE_PROCESS_INSTANCE_ID = UUID.randomUUID().toString()
 private const val MOBILE_HUMAN_REVIEW_SCOPE = "mobile:human-review"
 private const val MOBILE_CONTEXT_READ_SCOPE = "mobile:context-read"
+
+private fun aiReadyPatch(enabled: Boolean) = buildJsonObject { put("aiReady", enabled) }
+
 private val SUPPORTED_MOBILE_SCOPES = setOf(
     "mobile:read",
     "mobile:task-write",
@@ -688,6 +691,105 @@ class AndroidMobileTaskRepository(
             MobileHumanReviewResult.Unavailable(
                 task.id,
                 "Work Receiptを判断できませんでした。DesktopとTailscale接続を確認してください。",
+            )
+        }
+    }
+
+    override suspend fun setTaskAiReady(task: MobileTask, enabled: Boolean): MobileAiReadyResult {
+        val currentReady = task.workState == "ready_for_agent"
+        if (task.state in setOf("done", "cancelled") || task.workState !in setOf(null, "not_delegated", "ready_for_agent")) {
+            return MobileAiReadyResult.Conflict(
+                task.id,
+                "AI Readyは未着手のTaskだけ変更できます。現在の作業状態を確認してください。",
+            )
+        }
+        if (currentReady == enabled) return MobileAiReadyResult.Applied(task.id, enabled)
+        if (task.version <= 0 || task.pending || task.conflict != null) {
+            return MobileAiReadyResult.Conflict(task.id, "Taskを同期してからAI Readyを変更してください。")
+        }
+        val expectedServerId = dao.syncState()?.serverId
+            ?: return MobileAiReadyResult.Unavailable(task.id, "Taskを同期してからAI Readyを変更してください。")
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) {
+            return MobileAiReadyResult.Unavailable(task.id, "Desktopへ接続してからAI Readyを変更してください。")
+        }
+        if (!configuration.paired || "mobile:task-write" !in configuration.scopes) {
+            return MobileAiReadyResult.Unavailable(
+                task.id,
+                "この端末にはTask更新の権限がありません。Desktopで再ペアリングしてください。",
+            )
+        }
+        return try {
+            val commandId = UUID.randomUUID().toString()
+            val envelope = MobileTaskUpdateEnvelopeDto(
+                apiVersion = TASKEN_MOBILE_API_VERSION,
+                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+                requestId = UUID.randomUUID().toString(),
+                commandId = commandId,
+                idempotencyKey = commandId,
+                clientDeviceId = store.deviceId(),
+                issuedAt = Instant.now().toString(),
+                command = MobileTaskUpdateCommandDto(
+                    name = "UpdateTask",
+                    taskId = task.id,
+                    expectedVersion = task.version,
+                    changes = aiReadyPatch(enabled),
+                    base = aiReadyPatch(currentReady),
+                ),
+            )
+            val response = gatewayRequest(
+                origin = configuration.origin,
+                path = "/v1/commands",
+                method = "POST",
+                body = MobileTaskCommandContract.encode(envelope),
+                accessToken = token,
+            )
+            if (response.status == 401) {
+                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
+                if (confirmed) store.clearTokenIfMatches(token)
+                return MobileAiReadyResult.Unavailable(
+                    task.id,
+                    if (confirmed) {
+                        "ペアリングが失効しました。Desktopで新しいコードを発行して再ペアリングしてください。"
+                    } else {
+                        "Desktopへ接続できませんでした。接続を確認して再試行してください。"
+                    },
+                )
+            }
+            if (response.status == 409) {
+                val error = MobileTaskCommandContract.decodeError(response.body)
+                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+                require(error.error.code in setOf("version_conflict", "task_state_conflict")) {
+                    "Unexpected AI Ready conflict code: ${error.error.code}"
+                }
+                runCatching { synchronize(configuration.origin, token, expectedServerId) }
+                return MobileAiReadyResult.Conflict(task.id, error.error.message)
+            }
+            if (response.status == 400 || response.status == 403 || response.status == 404) {
+                val error = MobileTaskCommandContract.decodeError(response.body)
+                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+                return MobileAiReadyResult.Rejected(task.id, error.error.message)
+            }
+            require(response.status == 200) { "AI Ready update failed with HTTP ${response.status}" }
+            val decoded = MobileTaskCommandContract.decodeReceipt(response.body)
+            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+            require(decoded.data.commandId == commandId && decoded.data.task.id == task.id) {
+                "AI Ready response identity does not match the request"
+            }
+            dao.applyTaskCommandSuccess(decoded.data.task.toCache())
+            runCatching { synchronize(configuration.origin, token, expectedServerId) }
+                .onFailure { error -> Log.w(MOBILE_GATEWAY_LOG_TAG, "Task sync after AI Ready update failed", error) }
+            MobileAiReadyResult.Applied(task.id, enabled)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: MobileOutboxServerMismatchException) {
+            MobileAiReadyResult.Unavailable(task.id, "接続先のDesktopが変わりました。再接続してください。")
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile AI Ready update failed", error)
+            MobileAiReadyResult.Unavailable(
+                task.id,
+                "AI Readyを変更できませんでした。DesktopとTailscale接続を確認してください。",
             )
         }
     }

@@ -11,7 +11,7 @@ private val taskStateLabels = mapOf(
 
 private val taskWorkStateLabels = mapOf(
     "not_delegated" to "未委任",
-    "ready_for_agent" to "委任済み",
+    "ready_for_agent" to "AI Ready",
     "in_progress" to "作業中",
     "reported_done" to "報告済み",
     "needs_human_review" to "確認待ち",

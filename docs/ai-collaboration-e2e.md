@@ -7,19 +7,19 @@ Issue #364 の統合証跡は `tests/ai-collaboration-e2e.test.mjs` を正本と
 
 1. pre-#277/#278 形式の Theme / Task / Note を SQLite へ bootstrap し、Task に human requester、AI executor、RepositoryContext を割り当てる。
 2. actual stdio MCP の `tasken.get_task_context` で Task、assignment、安全な repository locator、関連 Note を取得する。
-3. `tasken.start_task_work` を再送し、Inbox 上の idempotency と Main の `ApplyTaskWorkProposal` 採用を確認する。
-4. `tasken.append_work_receipt` 採用後も `in_progress` を維持する。
-5. 一つ目の `tasken.report_task_done` を Main で reject し、Task と Receipt が変わらないことを確認する。
-6. 二つ目の done proposal 採用途中へ failure を注入し、Task / Work Receipt / ChangeEvent / Proposal status が同じ SQLite transaction で rollback することを確認する。
-7. 同じ proposal を正常採用し、`needs_human_review` になった後も AI の Task 直接変更・完了を拒否する。
-8. human `AcceptTaskWork` 後だけ `CompleteTask` を許可する。
-9. DB と stdio MCP を再起動し、Proposal、Receipt、ChangeEvent、RepositoryContext、`work_receipt -> task / created_for` backlink を再取得する。
-10. provider A/B の Task、repository locator、MCP context、Proposal、Receipt schema が一致し、差分が Receipt の `runtime_metadata.provider/model` だけであることを比較する。
+3. AI Ready Taskへ別の開始Proposalを作らず `tasken.append_work_receipt` を送り、採用時にstarted eventとReceiptが同じtransactionで保存されて`in_progress`になることを確認する。
+4. 一つ目の `tasken.report_task_done` を Main で reject し、Task と Receipt が変わらないことを確認する。
+5. 二つ目のdone proposal採用途中へfailureを注入し、Task / Work Receipt / ChangeEvent / Proposal statusが同じSQLite transactionでrollbackすることを確認する。
+6. 同じproposalを正常採用し、その一回の人間判断でReceipt受入れとTask完了まで進み、AIのTask直接変更・完了は引き続き拒否されることを確認する。
+7. 同じdecisionの再送が保存済みreceiptを返し、EntityやChangeEventを増やさないことを確認する。
+8. DBとstdio MCPを再起動し、Proposal、Receipt、ChangeEvent、RepositoryContext、`work_receipt -> task / created_for` backlinkを再取得する。
+9. provider A/BのTask、repository locator、MCP context、Proposal、Receipt schemaが一致し、差分がReceiptの`runtime_metadata.provider/model`だけであることを比較する。
 
 ## Atomic Main boundary
 
 Task Work Proposal の accept/reject は renderer が Work Receipt を組み立てず、`ApplyTaskWorkProposal` へ `proposalId` と decision だけを渡す。
-Main は canonical Proposal を再読込し、expected version を検証して typed Start / Append / Done / Blocked command と Proposal status を一つの repository transaction へ保存する。
+Main はcanonical Proposalを再読込し、expected versionを検証してtyped Start / Append / Done / Blocked commandとProposal statusを一つのrepository transactionへ保存する。
+AI Ready TaskのAppend / Done / Blockedは開始Proposalを必須にせず、最初のReceipt採用時にstarted eventを補います。Doneの採用は同じ人間判断内でReceipt受入れとTask完了まで保存します。
 失敗した command は receipt marker を残さず、同一 envelope の再送は保存済み receipt を返して Entity や ChangeEvent を増やさない。
 
 ## Validation

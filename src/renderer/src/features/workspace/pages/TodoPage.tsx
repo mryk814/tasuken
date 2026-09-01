@@ -4,11 +4,10 @@ import {
   IconCalendarCheck,
   IconClock,
   IconCopyPlus,
-  IconFlag,
-  IconFlagFilled,
   IconPlus,
 } from "@tabler/icons-react";
 
+import { AI_ICON } from "../../../pages/semanticIcons";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { usePreference } from "../../../utils/usePreference";
@@ -23,16 +22,10 @@ import {
   type TaskViewFilters,
   type TaskViewTab,
 } from "../lib/savedTaskViews";
-import {
-  Button,
-  EmptyState,
-  PageHeader,
-  StatusBadge,
-  ThemePickerSelect,
-} from "../components/common";
+import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge, InlineTaskChecklist } from "../../task/public";
-import { TASK_STATE_LABELS, TASK_WORK_STATE_LABELS } from "../domain-model/labels";
+import { TASK_STATE_LABELS } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
 import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
@@ -77,7 +70,6 @@ function sortTodoRows(
 ): TodoRow[] {
   const themeName = (row: TodoRow) =>
     themes.find((theme) => theme.id === row.task.project_id)?.name || "個人業務";
-  const priorityRank = (row: TodoRow) => (row.task.priority === "high" ? 0 : 1);
   const baseCompare = (left: TodoRow, right: TodoRow) => {
     if (sortMode === "default" && filter === "done") {
       return String(left.task.completed_at || "0000-00-00").localeCompare(
@@ -88,10 +80,6 @@ function sortTodoRows(
   };
   return [...rows].sort((left, right) => {
     let result = 0;
-    if (sortMode === "priority") {
-      const priorityDiff = priorityRank(left) - priorityRank(right);
-      if (priorityDiff) result = priorityDiff;
-    }
     if (!result && sortMode === "theme") {
       const themeDiff = themeName(left).localeCompare(themeName(right), "ja");
       if (themeDiff) result = themeDiff;
@@ -153,7 +141,11 @@ export function TodoPage({
   const today = todayIso();
 
   const taskRows: TodoRow[] = buildTodoView(domain).tasks;
-  const currentFilters: TaskViewFilters = normalizeTaskViewFilters({ ...taskFilters, tab: filter });
+  const currentFilters: TaskViewFilters = normalizeTaskViewFilters({
+    ...taskFilters,
+    tab: filter,
+    priority: "",
+  });
   const counters = {
     today: taskRows.filter((row) => !isDoneRow(row) && isTodayRow(row, today)).length,
     open: taskRows.filter((row) => !isDoneRow(row)).length,
@@ -291,9 +283,19 @@ export function TodoPage({
     await saveEntities(buildCompleteTaskOperations(task, row?.schedule), nextMessage);
   }
 
-  async function togglePriority(task: Task) {
-    const nextTask: Task = { ...task, priority: task.priority === "high" ? "normal" : "high" };
-    await saveEntities(buildSaveTaskOperations(nextTask));
+  async function toggleAiReady(task: Task) {
+    const workState =
+      task.work_state ||
+      (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
+    const aiReady = task.intended_executor === "ai_agent" && workState === "ready_for_agent";
+    await saveEntities(
+      buildSaveTaskOperations({
+        ...task,
+        intended_executor: aiReady ? "self" : "ai_agent",
+        work_state: aiReady ? "not_delegated" : "ready_for_agent",
+      }),
+      aiReady ? "AI Readyを解除しました。" : "AI Readyにしました。",
+    );
   }
 
   async function toggleChecklistItem(task: Task, itemId: string) {
@@ -345,10 +347,10 @@ export function TodoPage({
   }
 
   function copyRows() {
-    const header = "タスク\t状態\tテーマ\t今日\t予定終了\t完了日\tリマインダー\t旗\t繰り返し";
+    const header = "タスク\t状態\tテーマ\t今日\t予定終了\t完了日\tリマインダー\t繰り返し";
     const rows = visible.map(
       ({ task, schedule }) =>
-        `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.completed_at ? task.completed_at.slice(0, 10) : ""}\t${reminderTimeLabel(task.reminder_at, today)}\t${task.priority === "high" ? "あり" : "なし"}\t${repeatRuleLabel(task.repeat_rule)}`,
+        `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.completed_at ? task.completed_at.slice(0, 10) : ""}\t${reminderTimeLabel(task.reminder_at, today)}\t${repeatRuleLabel(task.repeat_rule)}`,
     );
     workspaceApi
       .copyText([header, ...rows].join("\n"))
@@ -400,6 +402,8 @@ export function TodoPage({
       (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
     const requiresHumanAcceptance =
       task.intended_executor === "ai_agent" && workState !== "accepted";
+    const aiReady = task.intended_executor === "ai_agent" && workState === "ready_for_agent";
+    const canToggleAiReady = !done && ["not_delegated", "ready_for_agent"].includes(workState);
     const due = scheduledDate(schedule);
     const completionDate = task.completed_at ? task.completed_at.slice(0, 10) : "";
     const urgency =
@@ -446,15 +450,16 @@ export function TodoPage({
         </button>
         <div className="row-title-wrap">
           <button
-            className={`priority-flag-button ${task.priority === "high" ? "is-active" : ""}`}
+            className={`priority-flag-button ${aiReady ? "is-active" : ""}`}
+            disabled={!canToggleAiReady}
             onClick={(event) => {
               event.stopPropagation();
-              togglePriority(task);
+              void toggleAiReady(task);
             }}
-            aria-label={task.priority === "high" ? "旗を外す" : "旗を付ける"}
-            title={task.priority === "high" ? "旗を外す" : "旗を付ける"}
+            aria-label={aiReady ? "AI Readyを解除" : "AI Readyにする"}
+            title={aiReady ? "AI Readyを解除" : "AI Readyにする"}
           >
-            {task.priority === "high" ? <IconFlagFilled size={16} /> : <IconFlag size={16} />}
+            <AI_ICON size={16} />
           </button>
           <button
             className={`today-plan-button ${isTodayRow({ task, schedule }, today) ? "is-active" : ""}`}
@@ -496,12 +501,6 @@ export function TodoPage({
             >
               <span>{task.title}</span>
               <ChecklistProgressBadge items={task.checklist_items} />
-              {task.intended_executor === "ai_agent" && (
-                <StatusBadge
-                  value="info"
-                  label={`AI · ${TASK_WORK_STATE_LABELS[workState as keyof typeof TASK_WORK_STATE_LABELS] || workState}`}
-                />
-              )}
             </button>
             <InlineTaskChecklist
               items={task.checklist_items}
@@ -643,23 +642,11 @@ export function TodoPage({
             <option value="unspecified_range">期間未分類</option>
           </select>
           <select
-            value={taskFilters.priority}
-            onChange={(event) =>
-              patchTaskFilters({ priority: event.target.value as TaskViewFilters["priority"] })
-            }
-            aria-label="旗で絞り込み"
-          >
-            <option value="">旗条件なし</option>
-            <option value="high">旗あり</option>
-            <option value="normal">旗なし</option>
-          </select>
-          <select
             value={sortMode}
             onChange={(event) => setSortMode(event.target.value as TodoSortMode)}
             aria-label="並び替え"
           >
             <option value="default">並び替え: {filter === "done" ? "完了日" : "予定終了日"}</option>
-            <option value="priority">並び替え: 旗優先</option>
             <option value="theme">並び替え: Theme順</option>
             <option value="title">並び替え: 名前順</option>
           </select>

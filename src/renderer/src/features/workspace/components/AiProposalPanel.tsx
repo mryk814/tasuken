@@ -560,7 +560,6 @@ export function AiProposalPanel(props: PageProps) {
   const { data, domain, themes, items, saveEntities, executeCommand, setToast } = props;
   const [selectedId, setSelectedId] = useState("");
   const [preview, setPreview] = useState<ProposalPreview | null>(null);
-  const [quarantineId, setQuarantineId] = useState("");
   const [quarantineReason, setQuarantineReason] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const refreshWorkspace = useWorkspaceStore((state) => state.refresh);
@@ -583,7 +582,7 @@ export function AiProposalPanel(props: PageProps) {
         .sort((a, b) => proposalTimestamp(b).localeCompare(proposalTimestamp(a))),
     [data.ai_proposals],
   );
-  const selected = proposals.find((proposal) => proposal.id === selectedId) || proposals[0] || null;
+  const selected = proposals.find((proposal) => proposal.id === selectedId) || null;
 
   const refreshProposals = useCallback(
     async (showFeedback: boolean) => {
@@ -690,7 +689,6 @@ export function AiProposalPanel(props: PageProps) {
       ],
       "Proposalを隔離しました。",
     );
-    setQuarantineId("");
     setQuarantineReason("");
     setPreview(null);
   }
@@ -860,9 +858,11 @@ export function AiProposalPanel(props: PageProps) {
 
   return (
     <div className="ai-proposal-panel">
-      <section className="panel proposal-inbox-panel">
+      <section
+        className={`panel proposal-inbox-panel${selected && preview ? " has-selection" : ""}`}
+      >
         <div className="section-heading">
-          <h2>Pending Proposal</h2>
+          <h2>AIの提案</h2>
           <div className="proposal-inbox-actions">
             <span className="proposal-pending-count">{proposals.length}件</span>
             <Button
@@ -882,59 +882,262 @@ export function AiProposalPanel(props: PageProps) {
             <span>外部AIから届いた提案はここで確認します。</span>
           </div>
         )}
-        {proposals.map((proposal) => (
-          <div className="proposal-inbox-row" key={proposal.id}>
-            <div className="proposal-row-main">
-              <div className="proposal-row-heading">
-                <strong>{proposalTypeLabel(proposal)}</strong>
-                <ProposalRisk proposal={proposal} />
+        <div className="proposal-list" aria-label="AIからの提案一覧">
+          {proposals.map((proposal) => (
+            <div
+              aria-pressed={selected?.id === proposal.id}
+              className="proposal-row-select"
+              key={proposal.id}
+              onClick={() => previewProposal(proposal)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  previewProposal(proposal);
+                }
+              }}
+              role="button"
+              tabIndex={0}
+            >
+              <div className="proposal-row-main">
+                <div className="proposal-row-heading">
+                  <strong className="proposal-row-title">{proposalHeadline(proposal)}</strong>
+                  <ProposalRisk proposal={proposal} />
+                </div>
+                <span className="proposal-row-kind">{proposalTypeLabel(proposal)}</span>
+                <dl className="proposal-meta-list">
+                  <div>
+                    <dt>Source</dt>
+                    <dd>{proposalSourceLabel(proposal)}</dd>
+                  </div>
+                  <div>
+                    <dt>Target</dt>
+                    <dd>{proposalTargetLabel(proposal)}</dd>
+                  </div>
+                  <div>
+                    <dt>Diff</dt>
+                    <dd>{proposalDiffLabel(proposal)}</dd>
+                  </div>
+                  <div>
+                    <dt>受信</dt>
+                    <dd>{formatProposalDate(proposal)}</dd>
+                  </div>
+                </dl>
+                <p className="proposal-validation-hint">
+                  <IconAlertTriangle size={14} aria-hidden="true" />
+                  選択すると、本文と採用範囲を確認できます。
+                </p>
               </div>
-              <dl className="proposal-meta-list">
-                <div>
-                  <dt>Source</dt>
-                  <dd>{proposalSourceLabel(proposal)}</dd>
-                </div>
-                <div>
-                  <dt>Target</dt>
-                  <dd>{proposalTargetLabel(proposal)}</dd>
-                </div>
-                <div>
-                  <dt>Diff</dt>
-                  <dd>{proposalDiffLabel(proposal)}</dd>
-                </div>
-                <div>
-                  <dt>受信</dt>
-                  <dd>{formatProposalDate(proposal)}</dd>
-                </div>
-              </dl>
-              <p className="proposal-validation-hint">
-                <IconAlertTriangle size={14} aria-hidden="true" />
-                検証・差分・採用範囲はPreviewで確認できます。
-              </p>
             </div>
-            <div className="proposal-row-actions">
-              <ActionButton
-                action="aiProposalPreview"
-                compact
-                onClick={() => previewProposal(proposal)}
-              >
-                Preview
-              </ActionButton>
-              <ActionButton action="actionReject" compact onClick={() => rejectProposal(proposal)}>
-                拒否する
-              </ActionButton>
-              <Button
-                variant="secondary"
-                compact
-                onClick={() => {
-                  setQuarantineId(proposal.id);
-                  setQuarantineReason("");
-                }}
-              >
-                隔離する
-              </Button>
+          ))}
+        </div>
+        {passiveSessionProposals.length > 0 && (
+          <details className="panel proposal-history session-observation-history">
+            <summary>
+              <span>
+                <IconHistory size={16} aria-hidden="true" />
+                Session observations
+              </span>
+              <strong>{passiveSessionProposals.length}件</strong>
+            </summary>
+            <p className="proposal-preview-context">
+              hookが集めた作業記録です。通知対象にはせず、Tasken
+              Debriefの保存時にまとめて確認・正式化します。
+            </p>
+            <div className="proposal-history-list">
+              {passiveSessionProposals.map((proposal) => (
+                <div className="proposal-history-row" key={proposal.id}>
+                  <div>
+                    <strong>{proposalTargetLabel(proposal)}</strong>
+                    <small>
+                      {proposalSourceLabel(proposal)} / {formatProposalDate(proposal)}
+                    </small>
+                  </div>
+                  <span className="proposal-status proposal-status-pending">Debrief待ち</span>
+                </div>
+              ))}
             </div>
-            {quarantineId === proposal.id && (
+          </details>
+        )}
+        {history.length > 0 && (
+          <details className="panel proposal-history">
+            <summary>
+              <span>
+                <IconHistory size={16} aria-hidden="true" />
+                処理履歴
+              </span>
+              <strong>{history.length}件</strong>
+            </summary>
+            <div className="proposal-history-list">
+              {history.map((proposal) => (
+                <div className="proposal-history-row" key={proposal.id}>
+                  <div>
+                    <strong>{proposalTypeLabel(proposal)}</strong>
+                    <small>
+                      {proposalSourceLabel(proposal)} / {proposalTargetLabel(proposal)} /{" "}
+                      {formatProposalDate(proposal)}
+                    </small>
+                  </div>
+                  <span className={`proposal-status proposal-status-${str(proposal.status)}`}>
+                    {proposalStatusLabel(proposal)}
+                  </span>
+                  {str(proposal.quarantine_reason) && <p>{str(proposal.quarantine_reason)}</p>}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+        {selected && preview && (
+          <div className="proposal-inline-preview">
+            <div className="section-heading">
+              <h3>内容を確認</h3>
+              <span>
+                {preview.candidates.length}件 / {proposalSourceLabel(selected)}
+              </span>
+            </div>
+            <p className="proposal-preview-context">
+              Target: {proposalTargetLabel(selected)} · {proposalDiffLabel(selected)}
+            </p>
+            {preview.payloadIssues.length > 0 && (
+              <p className="alert-note warning">注意: {preview.payloadIssues.join(" / ")}</p>
+            )}
+            {preview.candidates.map((candidate, index) => (
+              <div
+                className={`import-candidate${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`}
+                key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}
+              >
+                <div>
+                  <strong>{candidateTitle(candidate)}</strong>
+                  <small>
+                    {candidateMeta(candidate)}
+                    {candidate.duplicate
+                      ? ` / 既存候補: ${str(candidate.duplicate.title || candidate.duplicate.label)}`
+                      : ""}
+                  </small>
+                  {candidate.issues.length > 0 && (
+                    <p className="field-help">確認: {candidate.issues.join(" / ")}</p>
+                  )}
+                  {candidate.type === "agent_session" && (
+                    <div className="proposal-agent-session-details">
+                      <span>
+                        <b>Outcome</b>
+                        {nestedSummary(candidate.entry, "outcome") || "未記録"}
+                      </span>
+                      <span>
+                        <b>Status</b>
+                        {str(candidate.entry.status)} · {str(candidate.entry.client_kind)}
+                        {str(candidate.entry.model_label)
+                          ? ` / ${str(candidate.entry.model_label)}`
+                          : ""}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <select
+                  value={candidate.action}
+                  onChange={(event) =>
+                    setPreview((current) =>
+                      current
+                        ? {
+                            ...current,
+                            candidates: current.candidates.map((entry, itemIndex) =>
+                              itemIndex === index
+                                ? { ...entry, action: event.target.value }
+                                : entry,
+                            ),
+                          }
+                        : current,
+                    )
+                  }
+                >
+                  <option value="create">採用する</option>
+                  {candidate.duplicate && <option value="merge">既存を更新</option>}
+                  <option value="ignore">今回採用しない</option>
+                </select>
+                {candidate.type === "note" && candidate.action === "create" && (
+                  <details
+                    className="proposal-note-preview"
+                    open={str(candidate.entry.body).length <= 1200}
+                  >
+                    <summary>本文を確認</summary>
+                    <MarkdownPreview
+                      className="proposal-note-markdown markdown-preview"
+                      html={previewHtml(str(candidate.entry.body), "markdown")}
+                    />
+                  </details>
+                )}
+                {(candidate.type === "sketch" ||
+                  (candidate.type === "artifact" &&
+                    str(candidate.entry.media_type) === "image/svg+xml")) && (
+                  <img
+                    className="proposal-svg-preview"
+                    src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(validateSafeSvg(candidate.type === "sketch" ? candidate.entry.svg : candidate.entry.content))}`}
+                    alt={`${str(candidate.entry.title) || "SVG"} Preview`}
+                  />
+                )}
+                {candidate.type === "artifact" &&
+                  str(candidate.entry.media_type) !== "image/svg+xml" && (
+                    <pre className="proposal-artifact-preview">
+                      {str(candidate.entry.content).slice(0, 4000)}
+                    </pre>
+                  )}
+                {noteDiffHunks(candidate).length > 0 && (
+                  <div className="proposal-note-diff" aria-label="Note変更差分">
+                    {noteDiffHunks(candidate).map((hunk, hunkIndex) => (
+                      <label className="proposal-diff-hunk" key={`${index}-${hunkIndex}`}>
+                        <span>
+                          <input
+                            type="checkbox"
+                            checked={(candidate.acceptedHunks || []).includes(hunkIndex)}
+                            onChange={(event) =>
+                              setPreview((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      candidates: current.candidates.map((entry, itemIndex) =>
+                                        itemIndex === index
+                                          ? {
+                                              ...entry,
+                                              acceptedHunks: event.target.checked
+                                                ? [...(entry.acceptedHunks || []), hunkIndex].sort(
+                                                    (a, b) => a - b,
+                                                  )
+                                                : (entry.acceptedHunks || []).filter(
+                                                    (value) => value !== hunkIndex,
+                                                  ),
+                                            }
+                                          : entry,
+                                      ),
+                                    }
+                                  : current,
+                              )
+                            }
+                          />
+                          この変更を採用
+                        </span>
+                        <pre>
+                          {hunk.lines
+                            .map(
+                              (line) =>
+                                `${line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "} ${line.text}`,
+                            )
+                            .join("\n")}
+                        </pre>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            <div className="form-actions">
+              <ActionButton action="actionReject" onClick={() => void rejectProposal(selected)}>
+                拒否
+              </ActionButton>
+              <ActionButton action="aiProposalAccept" onClick={() => void acceptProposal(selected)}>
+                採用
+              </ActionButton>
+            </div>
+            <details className="proposal-quarantine">
+              <summary>隔離する</summary>
               <div className="proposal-quarantine-form">
                 <label>
                   <span>隔離理由</span>
@@ -942,233 +1145,20 @@ export function AiProposalPanel(props: PageProps) {
                     value={quarantineReason}
                     onChange={(event) => setQuarantineReason(event.target.value)}
                     placeholder="例: 対象Themeを確認してから扱う"
-                    autoFocus
                   />
                 </label>
                 <Button
                   variant="secondary"
                   compact
-                  onClick={() => void quarantineProposal(proposal)}
+                  onClick={() => void quarantineProposal(selected)}
                 >
                   隔離を保存
                 </Button>
-                <Button variant="ghost" compact onClick={() => setQuarantineId("")}>
-                  戻る
-                </Button>
               </div>
-            )}
+            </details>
           </div>
-        ))}
+        )}
       </section>
-      {passiveSessionProposals.length > 0 && (
-        <details className="panel proposal-history session-observation-history">
-          <summary>
-            <span>
-              <IconHistory size={16} aria-hidden="true" />
-              Session observations
-            </span>
-            <strong>{passiveSessionProposals.length}件</strong>
-          </summary>
-          <p className="proposal-preview-context">
-            hookが集めた作業記録です。通知対象にはせず、Tasken
-            Debriefの保存時にまとめて確認・正式化します。
-          </p>
-          <div className="proposal-history-list">
-            {passiveSessionProposals.map((proposal) => (
-              <div className="proposal-history-row" key={proposal.id}>
-                <div>
-                  <strong>{proposalTargetLabel(proposal)}</strong>
-                  <small>
-                    {proposalSourceLabel(proposal)} / {formatProposalDate(proposal)}
-                  </small>
-                </div>
-                <span className="proposal-status proposal-status-pending">Debrief待ち</span>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-      {history.length > 0 && (
-        <details className="panel proposal-history">
-          <summary>
-            <span>
-              <IconHistory size={16} aria-hidden="true" />
-              処理履歴
-            </span>
-            <strong>{history.length}件</strong>
-          </summary>
-          <div className="proposal-history-list">
-            {history.map((proposal) => (
-              <div className="proposal-history-row" key={proposal.id}>
-                <div>
-                  <strong>{proposalTypeLabel(proposal)}</strong>
-                  <small>
-                    {proposalSourceLabel(proposal)} / {proposalTargetLabel(proposal)} /{" "}
-                    {formatProposalDate(proposal)}
-                  </small>
-                </div>
-                <span className={`proposal-status proposal-status-${str(proposal.status)}`}>
-                  {proposalStatusLabel(proposal)}
-                </span>
-                {str(proposal.quarantine_reason) && <p>{str(proposal.quarantine_reason)}</p>}
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-      {selected && preview && (
-        <section className="panel import-preview proposal-preview-panel">
-          <div className="section-heading">
-            <h2>Proposal Preview</h2>
-            <span>
-              {preview.candidates.length}件 / {proposalSourceLabel(selected)}
-            </span>
-          </div>
-          <p className="proposal-preview-context">
-            Target: {proposalTargetLabel(selected)} · {proposalDiffLabel(selected)}
-          </p>
-          {preview.payloadIssues.length > 0 && (
-            <p className="alert-note warning">注意: {preview.payloadIssues.join(" / ")}</p>
-          )}
-          {preview.candidates.map((candidate, index) => (
-            <div
-              className={`import-candidate${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`}
-              key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}
-            >
-              <div>
-                <strong>{candidateTitle(candidate)}</strong>
-                <small>
-                  {candidateMeta(candidate)}
-                  {candidate.duplicate
-                    ? ` / 既存候補: ${str(candidate.duplicate.title || candidate.duplicate.label)}`
-                    : ""}
-                </small>
-                {candidate.issues.length > 0 && (
-                  <p className="field-help">確認: {candidate.issues.join(" / ")}</p>
-                )}
-                {candidate.type === "agent_session" && (
-                  <div className="proposal-agent-session-details">
-                    <span>
-                      <b>Outcome</b>
-                      {nestedSummary(candidate.entry, "outcome") || "未記録"}
-                    </span>
-                    <span>
-                      <b>Status</b>
-                      {str(candidate.entry.status)} · {str(candidate.entry.client_kind)}
-                      {str(candidate.entry.model_label)
-                        ? ` / ${str(candidate.entry.model_label)}`
-                        : ""}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <select
-                value={candidate.action}
-                onChange={(event) =>
-                  setPreview((current) =>
-                    current
-                      ? {
-                          ...current,
-                          candidates: current.candidates.map((entry, itemIndex) =>
-                            itemIndex === index ? { ...entry, action: event.target.value } : entry,
-                          ),
-                        }
-                      : current,
-                  )
-                }
-              >
-                <option value="create">新規作成</option>
-                {candidate.duplicate && <option value="merge">既存を更新</option>}
-                <option value="ignore">無視</option>
-              </select>
-              {candidate.type === "note" && candidate.action === "create" && (
-                <details
-                  className="proposal-note-preview"
-                  open={str(candidate.entry.body).length <= 1200}
-                >
-                  <summary>本文を確認</summary>
-                  <MarkdownPreview
-                    className="proposal-note-markdown markdown-preview"
-                    html={previewHtml(str(candidate.entry.body), "markdown")}
-                  />
-                </details>
-              )}
-              {(candidate.type === "sketch" ||
-                (candidate.type === "artifact" &&
-                  str(candidate.entry.media_type) === "image/svg+xml")) && (
-                <img
-                  className="proposal-svg-preview"
-                  src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(validateSafeSvg(candidate.type === "sketch" ? candidate.entry.svg : candidate.entry.content))}`}
-                  alt={`${str(candidate.entry.title) || "SVG"} Preview`}
-                />
-              )}
-              {candidate.type === "artifact" &&
-                str(candidate.entry.media_type) !== "image/svg+xml" && (
-                  <pre className="proposal-artifact-preview">
-                    {str(candidate.entry.content).slice(0, 4000)}
-                  </pre>
-                )}
-              {noteDiffHunks(candidate).length > 0 && (
-                <div className="proposal-note-diff" aria-label="Note変更差分">
-                  {noteDiffHunks(candidate).map((hunk, hunkIndex) => (
-                    <label className="proposal-diff-hunk" key={`${index}-${hunkIndex}`}>
-                      <span>
-                        <input
-                          type="checkbox"
-                          checked={(candidate.acceptedHunks || []).includes(hunkIndex)}
-                          onChange={(event) =>
-                            setPreview((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    candidates: current.candidates.map((entry, itemIndex) =>
-                                      itemIndex === index
-                                        ? {
-                                            ...entry,
-                                            acceptedHunks: event.target.checked
-                                              ? [...(entry.acceptedHunks || []), hunkIndex].sort(
-                                                  (a, b) => a - b,
-                                                )
-                                              : (entry.acceptedHunks || []).filter(
-                                                  (value) => value !== hunkIndex,
-                                                ),
-                                          }
-                                        : entry,
-                                    ),
-                                  }
-                                : current,
-                            )
-                          }
-                        />
-                        この変更を採用
-                      </span>
-                      <pre>
-                        {hunk.lines
-                          .map(
-                            (line) =>
-                              `${line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "} ${line.text}`,
-                          )
-                          .join("\n")}
-                      </pre>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-          <div className="form-actions">
-            <ActionButton action="actionCancel" onClick={() => setPreview(null)}>
-              閉じる
-            </ActionButton>
-            <ActionButton action="actionReject" onClick={() => void rejectProposal(selected)}>
-              拒否する
-            </ActionButton>
-            <ActionButton action="aiProposalAccept" onClick={() => void acceptProposal(selected)}>
-              採用を保存
-            </ActionButton>
-          </div>
-        </section>
-      )}
     </div>
   );
 }
@@ -1188,6 +1178,36 @@ function proposalEntries(proposal: BaseRecord): Record<string, unknown>[] {
   } catch {
     return [];
   }
+}
+
+function proposalEntryHeadline(entry: Record<string, unknown>): string {
+  const session =
+    entry.session && typeof entry.session === "object" && !Array.isArray(entry.session)
+      ? (entry.session as Record<string, unknown>)
+      : null;
+  return (
+    str(entry.title) ||
+    str(entry.task_title) ||
+    str(entry.taskTitle) ||
+    str(entry.summary) ||
+    str(entry.label) ||
+    str(entry.name) ||
+    str(entry.canonical_identity) ||
+    (session ? nestedSummary(session, "intent") || nestedSummary(session, "outcome") : "") ||
+    str(entry.task_id) ||
+    str(entry.target_id) ||
+    ""
+  );
+}
+
+function proposalHeadline(proposal: BaseRecord): string {
+  const direct = str(proposal.summary) || str(proposal.title) || str(proposal.label);
+  if (direct) return direct;
+  const headlines = [
+    ...new Set(proposalEntries(proposal).map(proposalEntryHeadline).filter(Boolean)),
+  ];
+  if (!headlines.length) return `${proposalTypeLabel(proposal)}の提案`;
+  return headlines.length > 1 ? `${headlines[0]} ほか${headlines.length - 1}件` : headlines[0];
 }
 
 function proposalTypeLabel(proposal: BaseRecord): string {

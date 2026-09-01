@@ -21,7 +21,7 @@ class AiInboxFilterTest {
 
         assertEquals(
             listOf(
-                AiInboxSection.InProgress to listOf("ready", "working", "legacy-working"),
+                AiInboxSection.InProgress to listOf("working", "legacy-working"),
                 AiInboxSection.NeedsReview to listOf("review", "reported"),
                 AiInboxSection.Blocked to listOf("blocked"),
                 AiInboxSection.RecentlyAccepted to listOf("done"),

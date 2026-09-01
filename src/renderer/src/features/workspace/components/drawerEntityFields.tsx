@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { AI_ICON } from "../../../pages/semanticIcons";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { DrawerConfig, SaveEntities, WorkspaceData } from "../types";
 import { dateOnly, str, uuid } from "../lib/format";
@@ -13,7 +14,6 @@ import {
   SCHEDULE_RANGE_SEMANTICS_HINTS,
   SCHEDULE_RANGE_SEMANTICS_LABELS,
   TASK_STATE_LABELS,
-  TASK_REQUESTER_LABELS,
   TASK_INTENDED_EXECUTOR_LABELS,
   WAITING_STATE_LABELS,
 } from "../domain-model/labels";
@@ -21,7 +21,6 @@ import { buildSaveTaskOperations } from "../domain-model/persistence";
 import { DEFAULT_RANGE_SEMANTICS } from "../domain-model/scheduleSemantics";
 import type { Schedule, ScheduleRangeSemantics, Task } from "../domain-model/types";
 import { Field, ThemeSelect } from "./common";
-import { TaskRepositoryContextFields } from "./repositoryContextFields";
 
 const REPEAT_FREQUENCY_LABELS = {
   daily: "毎日",
@@ -68,8 +67,6 @@ export function TaskFields({
   onChecklistSavePending,
   onChecklistSaved,
   onChecklistDraftChange,
-  onPrepareAiDelegation,
-  hasUnsavedChanges = false,
 }: {
   entity: DrawerConfig["entity"];
   data: WorkspaceData;
@@ -77,8 +74,6 @@ export function TaskFields({
   onChecklistSavePending?: (promise: Promise<boolean>) => void;
   onChecklistSaved?: () => void;
   onChecklistDraftChange?: () => void;
-  onPrepareAiDelegation?: () => Promise<boolean>;
-  hasUnsavedChanges?: boolean;
 }) {
   const schedule = findSchedule(data, "task", str(entity.id), entity._schedule);
   const taskSections = listTaskSections(data.views || [], str(entity.project_id));
@@ -116,7 +111,6 @@ export function TaskFields({
     : "self";
   const [intendedExecutor, setIntendedExecutor] = useState(initialIntendedExecutor);
   const [preparedWorkState, setPreparedWorkState] = useState<string | null>(null);
-  const [preparingAiDelegation, setPreparingAiDelegation] = useState(false);
   const preservedWorkState =
     preparedWorkState ||
     str(entity.work_state) ||
@@ -217,25 +211,14 @@ export function TaskFields({
   const preservedSectionId =
     normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)) || "";
   const preservedShelf = normalizeTaskShelf(entity.planning_shelf) || "";
-  const willPrepareAiDelegation =
-    intendedExecutor === "ai_agent" && preservedWorkState === "not_delegated";
   const isAiDelegationReady =
     intendedExecutor === "ai_agent" && preservedWorkState === "ready_for_agent";
-  const canPrepareAiDelegation =
-    Boolean(onPrepareAiDelegation) &&
+  const canToggleAiReady =
     !["done", "cancelled"].includes(str(entity.state)) &&
-    (intendedExecutor === "self" || !intendedExecutor) &&
-    preservedWorkState === "not_delegated";
-  async function prepareAiDelegation() {
-    if (!onPrepareAiDelegation || preparingAiDelegation) return;
-    setPreparingAiDelegation(true);
-    try {
-      if (!(await onPrepareAiDelegation())) return;
-      setIntendedExecutor("ai_agent");
-      setPreparedWorkState("ready_for_agent");
-    } finally {
-      setPreparingAiDelegation(false);
-    }
+    ["not_delegated", "ready_for_agent"].includes(preservedWorkState);
+  function toggleAiReady(checked: boolean) {
+    setIntendedExecutor(checked ? "ai_agent" : "self");
+    setPreparedWorkState(checked ? "ready_for_agent" : "not_delegated");
   }
   return (
     <>
@@ -243,7 +226,6 @@ export function TaskFields({
         <input name="title" autoFocus={!activeChecklistItemId} defaultValue={str(entity.title)} />
       </Field>
       <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
-      <TaskRepositoryContextFields entity={entity} data={data} />
       <input type="hidden" name="section_id" defaultValue={preservedSectionId} />
       <Field label="状態">
         <select name="state" defaultValue={str(entity.state) || "todo"}>
@@ -254,14 +236,21 @@ export function TaskFields({
           ))}
         </select>
       </Field>
+      <input type="hidden" name="intended_executor" value={intendedExecutor} readOnly />
+      <input type="hidden" name="work_state" value={preservedWorkState} readOnly />
       <label className="toggle priority-toggle">
         <input
-          name="priority_flag"
           type="checkbox"
-          defaultChecked={str(entity.priority) === "high"}
+          checked={isAiDelegationReady}
+          disabled={!canToggleAiReady}
+          onChange={(event) => toggleAiReady(event.target.checked)}
         />
-        旗を付ける
+        <AI_ICON size={16} aria-hidden="true" />
+        AI Ready
       </label>
+      {!canToggleAiReady && intendedExecutor === "ai_agent" && (
+        <p className="field-help">AIの作業結果を確認してからAI Readyを解除できます。</p>
+      )}
       <input type="hidden" name="planning_shelf" defaultValue={preservedShelf} />
       <Field label="リマインダー">
         <input
@@ -517,68 +506,6 @@ export function TaskFields({
             </div>
           ))}
         </div>
-      </section>
-      <section className="drawer-subsection">
-        <div className="section-heading">
-          <h2>担当</h2>
-          <span className="field-help">依頼者と担当を指定します。</span>
-        </div>
-        <div className="form-grid">
-          <Field label="依頼者">
-            <select name="requester" defaultValue={str(entity.requester) || "self"}>
-              {Object.entries(TASK_REQUESTER_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="担当">
-            <select
-              name="intended_executor"
-              value={intendedExecutor}
-              onChange={(event) => setIntendedExecutor(event.target.value)}
-            >
-              {Object.entries(TASK_INTENDED_EXECUTOR_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-        <Field label="担当者名">
-          <input
-            name="executor_identity"
-            defaultValue={str(entity.executor_identity)}
-            placeholder="例: Codex / 山田"
-          />
-        </Field>
-        {willPrepareAiDelegation && (
-          <p className="field-help">
-            保存するとAIへ依頼できる状態になります。外部Agentは起動せず、Coding AgentがTasken
-            MCPから取得します。
-          </p>
-        )}
-        {isAiDelegationReady && (
-          <p className="field-help">
-            AIへ依頼できる状態です。Coding AgentはTasken MCPから取得します。
-          </p>
-        )}
-        {canPrepareAiDelegation && (
-          <>
-            {hasUnsavedChanges && <p className="field-help">変更を保存すると準備できます。</p>}
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={preparingAiDelegation || hasUnsavedChanges}
-              onClick={() => void prepareAiDelegation()}
-            >
-              AIへ依頼を準備
-            </button>
-          </>
-        )}
-        <input type="hidden" name="work_state" value={preservedWorkState} readOnly />
       </section>
       {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
     </>

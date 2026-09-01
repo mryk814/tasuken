@@ -172,6 +172,22 @@ sealed interface TaskDelegationUiState {
     data class Unavailable(val taskId: String, val message: String) : TaskDelegationUiState
 }
 
+sealed interface MobileAiReadyResult {
+    data class Applied(val taskId: String, val enabled: Boolean) : MobileAiReadyResult
+    data class Conflict(val taskId: String, val message: String) : MobileAiReadyResult
+    data class Rejected(val taskId: String, val message: String) : MobileAiReadyResult
+    data class Unavailable(val taskId: String, val message: String) : MobileAiReadyResult
+}
+
+sealed interface AiReadyUiState {
+    data object Idle : AiReadyUiState
+    data class Updating(val taskId: String, val enabled: Boolean) : AiReadyUiState
+    data class Applied(val taskId: String, val enabled: Boolean) : AiReadyUiState
+    data class Conflict(val taskId: String, val message: String) : AiReadyUiState
+    data class Rejected(val taskId: String, val message: String) : AiReadyUiState
+    data class Unavailable(val taskId: String, val message: String) : AiReadyUiState
+}
+
 sealed interface MobileWorkReceiptLoadResult {
     data class Available(
         val detail: MobileWorkReceiptDetail,
@@ -368,6 +384,8 @@ class TodayViewModel(
     val humanReviewState: StateFlow<HumanReviewUiState> = mutableHumanReviewState.asStateFlow()
     private val mutableTaskDelegationState = MutableStateFlow<TaskDelegationUiState>(TaskDelegationUiState.Idle)
     val taskDelegationState: StateFlow<TaskDelegationUiState> = mutableTaskDelegationState.asStateFlow()
+    private val mutableAiReadyState = MutableStateFlow<AiReadyUiState>(AiReadyUiState.Idle)
+    val aiReadyState: StateFlow<AiReadyUiState> = mutableAiReadyState.asStateFlow()
     private val mutablePendingSafeShare = MutableStateFlow<MobileSafeShareDto?>(null)
     val pendingSafeShare: StateFlow<MobileSafeShareDto?> = mutablePendingSafeShare.asStateFlow()
     private var workReceiptLoadJob: Job? = null
@@ -605,8 +623,41 @@ class TodayViewModel(
         mutableHumanReviewState.value = HumanReviewUiState.Idle
     }
 
-    fun previewTaskContext(task: MobileTask) {
-        viewModelScope.launch { previewTaskContextNow(task) }
+    fun setTaskAiReady(task: MobileTask, enabled: Boolean) {
+        viewModelScope.launch { setTaskAiReadyNow(task, enabled) }
+    }
+
+    internal suspend fun setTaskAiReadyNow(task: MobileTask, enabled: Boolean) {
+        if (task.pending || task.conflict != null) {
+            mutableAiReadyState.value = AiReadyUiState.Conflict(
+                task.id,
+                "このTaskの同期を解決してからAI Readyを変更してください。",
+            )
+            return
+        }
+        val gateway = repository as? MobileGatewayRepository
+        if (gateway == null) {
+            mutableAiReadyState.value = AiReadyUiState.Unavailable(
+                task.id,
+                "この環境ではAI Readyを変更できません。",
+            )
+            return
+        }
+        mutableAiReadyState.value = AiReadyUiState.Updating(task.id, enabled)
+        when (val result = withContext(ioDispatcher) { gateway.setTaskAiReady(task, enabled) }) {
+            is MobileAiReadyResult.Applied -> {
+                mutableAiReadyState.value = AiReadyUiState.Applied(result.taskId, result.enabled)
+            }
+            is MobileAiReadyResult.Conflict -> {
+                mutableAiReadyState.value = AiReadyUiState.Conflict(result.taskId, result.message)
+            }
+            is MobileAiReadyResult.Rejected -> {
+                mutableAiReadyState.value = AiReadyUiState.Rejected(result.taskId, result.message)
+            }
+            is MobileAiReadyResult.Unavailable -> {
+                mutableAiReadyState.value = AiReadyUiState.Unavailable(result.taskId, result.message)
+            }
+        }
     }
 
     internal suspend fun previewTaskContextNow(task: MobileTask) {
@@ -620,10 +671,6 @@ class TodayViewModel(
             is MobileTaskContextPreviewResult.Available -> TaskDelegationUiState.PreviewAvailable(result.preview)
             is MobileTaskContextPreviewResult.Unavailable -> TaskDelegationUiState.Unavailable(result.taskId, result.message)
         }
-    }
-
-    fun delegateTask(task: MobileTask, expectedResult: String?, instruction: String?) {
-        viewModelScope.launch { delegateTaskNow(task, expectedResult, instruction) }
     }
 
     internal suspend fun delegateTaskNow(task: MobileTask, expectedResult: String?, instruction: String?) {
@@ -1259,6 +1306,8 @@ interface MobileGatewayRepository : MobileTaskRepository {
         task.id,
         "このDesktopではWork Receipt判断を利用できません。",
     )
+    suspend fun setTaskAiReady(task: MobileTask, enabled: Boolean): MobileAiReadyResult =
+        MobileAiReadyResult.Unavailable(task.id, "このDesktopではAI Readyを変更できません。")
     suspend fun previewTaskContext(task: MobileTask): MobileTaskContextPreviewResult =
         MobileTaskContextPreviewResult.Unavailable(task.id, "このDesktopではContext Previewを利用できません。")
     suspend fun delegateTask(

@@ -7,7 +7,7 @@ class TaskLabelsTest {
     @Test
     fun `canonical work states use Japanese labels`() {
         assertEquals("未委任", taskWorkStateLabel("not_delegated"))
-        assertEquals("委任済み", taskWorkStateLabel("ready_for_agent"))
+        assertEquals("AI Ready", taskWorkStateLabel("ready_for_agent"))
         assertEquals("作業中", taskWorkStateLabel("in_progress"))
         assertEquals("報告済み", taskWorkStateLabel("reported_done"))
         assertEquals("確認待ち", taskWorkStateLabel("needs_human_review"))

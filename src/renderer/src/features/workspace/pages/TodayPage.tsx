@@ -12,6 +12,7 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 
+import { AI_ICON } from "../../../pages/semanticIcons";
 import type {
   CalendarConnectionStatus,
   CalendarEvent,
@@ -223,6 +224,7 @@ function TodayRows({
   today,
   onToggleComplete,
   onToggleToday,
+  onToggleAiReady,
   onPostpone,
   onOpenDetail,
   onStartFocus,
@@ -238,6 +240,7 @@ function TodayRows({
   today: string;
   onToggleComplete: (row: TodayRow) => void;
   onToggleToday: (row: TodayRow) => void;
+  onToggleAiReady: (row: TodayRow) => void;
   onPostpone: (row: TodayRow, days: number) => void;
   onOpenDetail: (row: TodayRow) => void;
   onStartFocus?: (row: TodayRow) => void;
@@ -267,6 +270,14 @@ function TodayRows({
         const rawUrgency = dateUrgency(row.date, today, done);
         const urgency = rawUrgency === "due-today" && !markDueToday ? null : rawUrgency;
         const reminder = reminderMeta(row, today);
+        const task = row.v2?.type === "task" ? row.v2.task : null;
+        const taskWorkState =
+          task?.work_state ||
+          (task?.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
+        const aiReady =
+          task?.intended_executor === "ai_agent" && taskWorkState === "ready_for_agent";
+        const canToggleAiReady =
+          Boolean(task) && !done && ["not_delegated", "ready_for_agent"].includes(taskWorkState);
         return (
           <div
             className={`today-task-row is-clickable-row${urgency ? ` is-${urgency}` : ""}`}
@@ -299,6 +310,20 @@ function TodayRows({
               >
                 {isToday ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
               </button>
+              {task && (
+                <button
+                  className={`priority-flag-button ${aiReady ? "is-active" : ""}`}
+                  disabled={!canToggleAiReady}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleAiReady(row);
+                  }}
+                  aria-label={aiReady ? "AI Readyを解除" : "AI Readyにする"}
+                  title={aiReady ? "AI Readyを解除" : "AI Readyにする"}
+                >
+                  <AI_ICON size={16} />
+                </button>
+              )}
               <div className="row-title-main">
                 <button
                   className="today-task-title"
@@ -936,8 +961,7 @@ export function TodayPage({
     );
   }
 
-  const focusItem: TodayRow | null =
-    overdue[0] || todayRows.find((row) => row.priority === "high") || todayRows[0] || null;
+  const focusItem: TodayRow | null = overdue[0] || todayRows[0] || null;
 
   async function handlePostpone(row: TodayRow, days: number) {
     if (!row.v2 || row.v2.type === "capture") return;
@@ -992,6 +1016,23 @@ export function TodayPage({
       }
       return;
     }
+  }
+
+  async function handleToggleAiReady(row: TodayRow) {
+    if (row.v2?.type !== "task") return;
+    const task = row.v2.task;
+    const workState =
+      task.work_state ||
+      (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
+    const aiReady = task.intended_executor === "ai_agent" && workState === "ready_for_agent";
+    await saveEntities(
+      buildSaveTaskOperations({
+        ...task,
+        intended_executor: aiReady ? "self" : "ai_agent",
+        work_state: aiReady ? "not_delegated" : "ready_for_agent",
+      }),
+      aiReady ? "AI Readyを解除しました。" : "AI Readyにしました。",
+    );
   }
 
   async function handleCreateTodayTask(row: OngoingPeriodTaskRow) {
@@ -1220,6 +1261,7 @@ export function TodayPage({
   const rowHandlers = {
     onToggleComplete: handleToggleComplete,
     onToggleToday: handleToggleToday,
+    onToggleAiReady: handleToggleAiReady,
     onPostpone: handlePostpone,
     onOpenDetail: handleOpenDetail,
     onStartFocus: (row: TodayRow) => {
