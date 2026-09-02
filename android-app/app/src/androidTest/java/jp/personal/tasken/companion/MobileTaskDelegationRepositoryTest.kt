@@ -98,6 +98,63 @@ class MobileTaskDelegationRepositoryTest {
     }
 
     @Test
+    fun aiReadyUsesCanonicalUpdateWithoutPreviewDelegationOrShare() = runBlocking {
+        val sent = mutableListOf<MobileTaskUpdateEnvelopeDto>()
+        val paths = mutableListOf<String>()
+        val client = MobileGatewayHttpClient { _, path, method, body, _ ->
+            when {
+                path == "/v1/commands" -> {
+                    paths += path
+                    assertEquals("POST", method)
+                    val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(body))
+                    sent += envelope
+                    val enabled = envelope.command.changes.getValue("aiReady").toString().toBooleanStrict()
+                    GatewayHttpResponse(
+                        200,
+                        aiReadyResponse(
+                            commandId = envelope.commandId,
+                            version = if (enabled) 5 else 6,
+                            workState = if (enabled) "ready_for_agent" else "not_delegated",
+                        ),
+                    )
+                }
+                path.startsWith("/v1/sync?") -> throw IOException("post-command sync is not part of this assertion")
+                else -> error("Unexpected Mobile Gateway path: $path")
+            }
+        }
+        val repository = AndroidMobileTaskRepository(
+            context = context,
+            store = store,
+            database = database,
+            scheduleOutboxOnStart = false,
+            httpClient = client,
+        )
+        val task = MobileTask(
+            id = "task-1",
+            version = 4,
+            title = "Delegate task",
+            themeId = null,
+            state = "todo",
+            workState = "not_delegated",
+            updatedAt = "2026-08-30T00:00:00Z",
+        )
+
+        assertEquals(MobileAiReadyResult.Applied(task.id, true), repository.setTaskAiReady(task, true))
+        assertEquals(
+            MobileAiReadyResult.Applied(task.id, false),
+            repository.setTaskAiReady(task.copy(version = 5, workState = "ready_for_agent"), false),
+        )
+
+        assertEquals(listOf("/v1/commands", "/v1/commands"), paths)
+        assertEquals(setOf("aiReady"), sent[0].command.changes.keys)
+        assertEquals("true", sent[0].command.changes.getValue("aiReady").toString())
+        assertEquals("false", sent[0].command.base.getValue("aiReady").toString())
+        assertEquals("false", sent[1].command.changes.getValue("aiReady").toString())
+        assertEquals("true", sent[1].command.base.getValue("aiReady").toString())
+        assertEquals("not_delegated", requireNotNull(dao.task("task-1")).workState)
+    }
+
+    @Test
     fun notificationDeliveryIsPersistentlyDeduplicatedUntilDelivered() = runBlocking {
         val delivery = TaskNotificationDeliveryEntity(
             deliveryId = "notification-1",
@@ -197,6 +254,11 @@ class MobileTaskDelegationRepositoryTest {
     private fun delegationResponse(): String =
         """
         {"ok":true,"meta":{"apiVersion":1,"schemaVersion":6,"serverId":"server-1","serverRevision":2,"generatedAt":"2026-08-30T00:00:02Z","truncated":false},"data":{"commandId":"${commandId()}","status":"applied","task":{"id":"task-1","version":5,"title":"Delegate task","themeId":null,"state":"todo","workState":"ready_for_agent","todayDate":null,"plannedStartTime":null,"plannedDurationMinutes":null,"latestWorkReceipt":null,"checklistItems":[],"schedule":null,"updatedAt":"2026-08-30T00:00:02Z"},"safeShare":{"mimeType":"text/plain","title":"Delegate task","taskId":"task-1","taskLocator":"tasken://task/task-1","instruction":"ship it","text":"Tasken task context"}}}
+        """.trimIndent()
+
+    private fun aiReadyResponse(commandId: String, version: Int, workState: String): String =
+        """
+        {"ok":true,"meta":{"apiVersion":1,"schemaVersion":6,"serverId":"server-1","serverRevision":$version,"generatedAt":"2026-08-30T00:00:0${version}Z","truncated":false},"data":{"commandId":"$commandId","status":"applied","task":{"id":"task-1","version":$version,"title":"Delegate task","themeId":null,"state":"todo","workState":"$workState","todayDate":null,"plannedStartTime":null,"plannedDurationMinutes":null,"latestWorkReceipt":null,"checklistItems":[],"schedule":null,"updatedAt":"2026-08-30T00:00:0${version}Z"}}}
         """.trimIndent()
 
     private fun commandId(): String = taskDelegationCommandId(

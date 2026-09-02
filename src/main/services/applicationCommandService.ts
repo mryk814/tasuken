@@ -252,35 +252,36 @@ function singleMcpTaskWorkEntry(proposal: Entity): Record<string, unknown> {
 function mergeCommandReceipts(
   repository: Repository,
   command: CommandEnvelope,
-  workReceipt: CommandReceipt,
-  decisionReceipt: CommandReceipt,
+  receipts: CommandReceipt[],
 ): CommandReceipt {
   const unique = <T>(values: T[], key: (value: T) => string): T[] => {
     const result = new Map<string, T>();
     for (const value of values) result.set(key(value), value);
     return [...result.values()];
   };
-  const events = [...workReceipt.events, ...decisionReceipt.events];
+  const decisionReceipt = receipts.at(-1);
+  if (!decisionReceipt) throw new Error("Task Work Proposalのreceiptがありません。");
+  const events = receipts.flatMap((receipt) => receipt.events);
   const merged: CommandReceipt = {
     commandId: command.commandId,
     name: command.name,
     status: "applied",
     saved: unique(
-      [...workReceipt.saved, ...decisionReceipt.saved],
+      receipts.flatMap((receipt) => receipt.saved),
       (entry) => `${entry.type}:${entry.id}`,
     ),
     deleted: unique(
-      [...workReceipt.deleted, ...decisionReceipt.deleted],
+      receipts.flatMap((receipt) => receipt.deleted),
       (entry) => `${entry.type}:${entry.id}`,
     ),
     events,
-    warnings: [...workReceipt.warnings, ...decisionReceipt.warnings],
+    warnings: receipts.flatMap((receipt) => receipt.warnings),
     revisions: unique(
-      [...workReceipt.revisions, ...decisionReceipt.revisions],
+      receipts.flatMap((receipt) => receipt.revisions),
       (entry) => `${entry.type}:${entry.id}`,
     ),
     changes: unique(
-      [...workReceipt.changes, ...decisionReceipt.changes],
+      receipts.flatMap((receipt) => receipt.changes),
       (entry) => `${entry.type}:${entry.entity.id}`,
     ),
   };
@@ -740,13 +741,41 @@ function persistReceipt(
   const changes = saved
     .map((entity, index) => ({ type: operations[index].type, entity }))
     .filter(({ type }) => changeTypes.includes(type));
-  const baseReceipt = receiptFor(command, "applied", changes, eventIds, resultSnapshot?.(changes));
+  const persistedEventIds = [
+    ...new Set(
+      eventIds.map((eventId) => {
+        const operationIndex = operations.findIndex(
+          (operation) => operation.type === "change_event" && operation.entity.id === eventId,
+        );
+        const persistedEvent = operationIndex >= 0 ? saved[operationIndex] : null;
+        if (!persistedEvent) throw new Error(`Change Eventの保存結果がありません: ${eventId}`);
+        return persistedEvent.id;
+      }),
+    ),
+  ];
+  const baseReceipt = receiptFor(
+    command,
+    "applied",
+    changes,
+    persistedEventIds,
+    resultSnapshot?.(changes),
+  );
   const serializedReceipt = JSON.stringify(baseReceipt);
-  for (const eventId of eventIds) {
+  const persistedEvents = persistedEventIds.map((eventId) => {
     const event = repository.get("change_event", eventId, true);
     if (!event) throw new Error(`Change Eventが保存されていません: ${eventId}`);
-    const actualAfter =
-      event.record_type === "schedule"
+    return event;
+  });
+  for (const [eventIndex, event] of persistedEvents.entries()) {
+    const hasLaterEventForSameEntity = persistedEvents
+      .slice(eventIndex + 1)
+      .some(
+        (laterEvent) =>
+          laterEvent.record_type === event.record_type && laterEvent.entity_id === event.entity_id,
+      );
+    const actualAfter = hasLaterEventForSameEntity
+      ? null
+      : event.record_type === "schedule"
         ? changes.find(
             ({ type, entity }) =>
               type === "schedule" &&
@@ -763,7 +792,7 @@ function persistReceipt(
       receipt_json: serializedReceipt,
     });
   }
-  return { ...baseReceipt, eventChanges: eventChangesFor(repository, eventIds) };
+  return { ...baseReceipt, eventChanges: eventChangesFor(repository, persistedEventIds) };
 }
 
 function persistDeleteReceipt(
@@ -993,39 +1022,6 @@ export class ApplicationCommandService {
     });
   }
 
-  /** Human-confirmed desktop launch: assign the selected AI and start work without an MCP proposal round-trip. */
-  startTaskAgentWork(input: {
-    taskId: string;
-    expectedTaskVersion: number;
-    clientLabel: string;
-    issuedAt?: string;
-  }): CommandReceipt {
-    const taskId = String(input.taskId || "").trim();
-    const clientLabel = String(input.clientLabel || "").trim();
-    const expectedTaskVersion = Number(input.expectedTaskVersion);
-    if (!taskId || !clientLabel || clientLabel.length > 200) {
-      throw new ApplicationCommandError("INVALID_PAYLOAD", "AI作業開始の入力が不正です。");
-    }
-    if (!Number.isInteger(expectedTaskVersion) || expectedTaskVersion < 1) {
-      throw new ApplicationCommandError("INVALID_PAYLOAD", "Taskのversionが不正です。");
-    }
-    const issuedAt = input.issuedAt || now();
-    return this.execute({
-      commandId: randomUUID(),
-      name: "StartTaskWork",
-      actor: { kind: "user" },
-      source: "main_ui",
-      issuedAt,
-      payload: {
-        taskId,
-        executorKind: "ai_agent",
-        executorIdentity: clientLabel,
-        startedAt: issuedAt,
-      },
-      expectedVersions: [{ type: "task", id: taskId, version: expectedTaskVersion }],
-    });
-  }
-
   /**
    * Canonical Markdownを持つNoteだけのApplyAiProposal。
    * Note保存はWorkspaceServiceへ委譲し、proposal/eventを同じDB transactionへ
@@ -1173,7 +1169,10 @@ export class ApplicationCommandService {
     return { ...baseReceipt, eventChanges: eventChangesFor(this.repository, eventIds) };
   }
 
-  private executeParsed(command: CommandEnvelope): CommandReceipt {
+  private executeParsed(
+    command: CommandEnvelope,
+    taskWorkContext?: { startReadyTask?: boolean; exactReceiptId?: string },
+  ): CommandReceipt {
     const previous = readIdempotent(this.repository, command);
     if (previous) return previous;
     if (command.actor.kind === "ai_agent" && !aiAgentCommands.has(command.name)) {
@@ -1206,10 +1205,14 @@ export class ApplicationCommandService {
     }
     if (command.name === "ApplyTaskWorkProposal") return this.applyTaskWorkProposal(command);
     if (command.name === "StartTaskWork") return this.startTaskWork(command);
-    if (command.name === "AppendWorkReceipt") return this.appendWorkReceipt(command, "continue");
-    if (command.name === "ReportTaskDone") return this.appendWorkReceipt(command, "review");
-    if (command.name === "ReportTaskBlocked") return this.appendWorkReceipt(command, "blocked");
-    if (command.name === "AcceptTaskWork") return this.acceptTaskWork(command);
+    if (command.name === "AppendWorkReceipt")
+      return this.appendWorkReceipt(command, "continue", taskWorkContext?.startReadyTask === true);
+    if (command.name === "ReportTaskDone")
+      return this.appendWorkReceipt(command, "review", taskWorkContext?.startReadyTask === true);
+    if (command.name === "ReportTaskBlocked")
+      return this.appendWorkReceipt(command, "blocked", taskWorkContext?.startReadyTask === true);
+    if (command.name === "AcceptTaskWork")
+      return this.acceptTaskWork(command, taskWorkContext?.exactReceiptId);
     if (command.name === "ReturnTaskWork") return this.returnTaskWork(command);
     throw new ApplicationCommandError(
       "INVALID_ENVELOPE",
@@ -1649,6 +1652,17 @@ export class ApplicationCommandService {
         { id: taskId },
       );
     const state = currentWorkState(current);
+    if (
+      command.actor.kind === "ai_agent" &&
+      (current.intended_executor !== "ai_agent" ||
+        !["ready_for_agent", "in_progress"].includes(state))
+    ) {
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        "AIはAI ReadyのTaskだけ作業開始できます。",
+        { id: taskId, intended_executor: current.intended_executor, work_state: state },
+      );
+    }
     if (["reported_done", "needs_human_review", "accepted"].includes(state))
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",
@@ -1797,7 +1811,7 @@ export class ApplicationCommandService {
 
     const action = typeof entry.action === "string" ? entry.action : "";
     let name: ApplicationCommandName;
-    let workPayload: CommandEnvelope["payload"];
+    let workPayload: Record<string, unknown>;
     if (action === "start") {
       name = "StartTaskWork";
       workPayload = {
@@ -1858,19 +1872,61 @@ export class ApplicationCommandService {
       ...command,
       commandId: `${command.commandId}:work`,
       name,
-      payload: workPayload,
+      payload: workPayload as unknown as CommandEnvelope["payload"],
       expectedVersions: [{ type: "task", id: taskId, version: proposalExpectedVersion }],
     };
-    const workReceipt = this.executeParsed(workCommand);
+    const workReceipt = this.executeParsed(
+      workCommand,
+      ["append_receipt", "report_done", "report_blocked"].includes(action)
+        ? { startReadyTask: true }
+        : undefined,
+    );
+    const acceptanceReceipt =
+      action === "report_done"
+        ? (() => {
+            const reportedTask = this.repository.get("task", taskId);
+            if (!reportedTask)
+              throw new ApplicationCommandError(
+                "NOT_FOUND",
+                "Work Receipt採用後のTaskがありません。",
+                { id: taskId },
+              );
+            const acceptanceCommand: CommandEnvelope = {
+              ...command,
+              commandId: `${command.commandId}:accept-work`,
+              name: "AcceptTaskWork",
+              payload: {
+                taskId,
+                receiptId: proposal.id,
+                completeTask: true,
+              } as unknown as CommandEnvelope["payload"],
+              expectedVersions: [
+                { type: "task", id: taskId, version: Number(reportedTask.version || 0) },
+              ],
+            };
+            return this.executeParsed(acceptanceCommand, { exactReceiptId: proposal.id });
+          })()
+        : null;
     const decisionReceipt = this.applyAiProposal(decisionCommand);
-    return mergeCommandReceipts(this.repository, command, workReceipt, decisionReceipt);
+    return mergeCommandReceipts(this.repository, command, [
+      workReceipt,
+      ...(acceptanceReceipt ? [acceptanceReceipt] : []),
+      decisionReceipt,
+    ]);
   }
 
   private appendWorkReceipt(
     command: CommandEnvelope,
     outcome: "continue" | "review" | "blocked",
+    startReadyTask = false,
   ): CommandReceipt {
     const payload = command.payload as { taskId: string; receipt: Entity };
+    if (Object.prototype.hasOwnProperty.call(command.payload, "startIfReady")) {
+      throw new ApplicationCommandError(
+        "INVALID_PAYLOAD",
+        `${command.name}に内部用フィールドstartIfReadyは指定できません。`,
+      );
+    }
     const taskId = asTaskId(payload);
     const current = this.repository.get("task", taskId);
     if (!current)
@@ -1890,11 +1946,13 @@ export class ApplicationCommandService {
         "完了済みまたは中止済みTaskへWork Receiptを追加できません。",
         { id: taskId },
       );
-    if (currentWorkState(current) !== "in_progress")
+    const currentState = currentWorkState(current);
+    const startsReadyTask = startReadyTask && currentState === "ready_for_agent";
+    if (currentState !== "in_progress" && !startsReadyTask)
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",
         "作業中のTaskだけにWork Receiptを追加できます。",
-        { id: taskId, work_state: currentWorkState(current) },
+        { id: taskId, work_state: currentState },
       );
     if (payload.receipt.task_id !== taskId)
       throw new ApplicationCommandError(
@@ -1906,6 +1964,22 @@ export class ApplicationCommandService {
       throw new ApplicationCommandError("CONFLICT", "Work ReceiptのIDを再利用できません。", {
         id: payload.receipt.id,
       });
+    const startedAt =
+      payload.receipt.started_at || current.work_started_at || payload.receipt.reported_at || now();
+    const startedTask: Entity = startsReadyTask
+      ? {
+          ...current,
+          intended_executor: "ai_agent",
+          work_state: "in_progress",
+          work_started_at: startedAt,
+          work_reported_at: null,
+          work_review_note: null,
+        }
+      : current;
+    if (startsReadyTask) {
+      taskDefinition.parseUpdate(startedTask);
+      assertThemeExists(this.repository, startedTask);
+    }
     const provenance = workReceiptProvenance(this.repository, command, taskId, payload.receipt);
     const repositoryContext = safeTaskWorkRepositoryContext(payload.receipt.repository_context);
     const runtimeMetadata = safeTaskWorkRuntimeMetadata(payload.receipt.runtime_metadata);
@@ -1914,7 +1988,7 @@ export class ApplicationCommandService {
       task_id: taskId,
       executor_kind: payload.receipt.executor_kind,
       executor_label: payload.receipt.executor_label,
-      started_at: payload.receipt.started_at || current.work_started_at || null,
+      started_at: startedAt,
       reported_at: payload.receipt.reported_at,
       summary: payload.receipt.summary,
       completed_items: Array.isArray(payload.receipt.completed_items)
@@ -1941,15 +2015,45 @@ export class ApplicationCommandService {
     workReceiptDefinition.parseCreate(receipt);
     const nextTask: Entity =
       outcome === "continue"
-        ? { ...current, work_state: "in_progress" }
+        ? { ...startedTask, work_state: "in_progress" }
         : {
-            ...current,
+            ...startedTask,
             work_state: outcome === "blocked" ? "blocked" : "needs_human_review",
             work_reported_at: receipt.reported_at,
             work_review_note: null,
           };
     taskDefinition.parseUpdate(nextTask);
     assertThemeExists(this.repository, nextTask);
+    const startedCommand: CommandEnvelope | null = startsReadyTask
+      ? { ...command, commandId: `${command.commandId}:start` }
+      : null;
+    const startedEvent = startedCommand
+      ? annotateEvent(
+          startedCommand,
+          commandEvent(
+            startedCommand,
+            "task",
+            taskId,
+            "updated",
+            current,
+            startedTask,
+            "task_work_recorded",
+            null,
+            "ai",
+          ),
+        )
+      : null;
+    if (startedEvent) {
+      startedEvent.metadata = {
+        ...((startedEvent.metadata as Record<string, unknown>) || {}),
+        include_in_activity: true,
+        work_action: "started",
+        executor_kind: receipt.executor_kind,
+        executor_label: workExecutorLabel(startedTask, receipt),
+        provenance: provenance.metadata,
+        ...(repositoryContext ? { repository_context: repositoryContext } : {}),
+      };
+    }
     const eventKind =
       outcome !== "continue" && provenance.source === "ai"
         ? "task_ai_reported"
@@ -1961,7 +2065,7 @@ export class ApplicationCommandService {
         "task",
         taskId,
         "updated",
-        current,
+        startedTask,
         nextTask,
         eventKind,
         { type: "work_receipt", id: receipt.id },
@@ -1980,24 +2084,33 @@ export class ApplicationCommandService {
     const operations: SaveOperation[] = [
       { action: "save", type: "task", entity: nextTask },
       { action: "save", type: "work_receipt", entity: receipt },
+      ...(startedEvent
+        ? [{ action: "save", type: "change_event", entity: startedEvent } as SaveOperation]
+        : []),
       { action: "save", type: "change_event", entity: event },
     ];
     return persistReceipt(
       this.repository,
       command,
       operations,
-      [event.id],
+      [...(startedEvent ? [startedEvent.id] : []), event.id],
       ["task", "work_receipt"],
     );
   }
 
-  private acceptTaskWork(command: CommandEnvelope): CommandReceipt {
+  private acceptTaskWork(command: CommandEnvelope, exactReceiptId?: string): CommandReceipt {
     assertHumanReviewActor(command, "AcceptTaskWork");
     const payload = command.payload as {
       taskId: string;
       receiptId?: string | null;
       completeTask?: boolean;
     };
+    if (Object.prototype.hasOwnProperty.call(command.payload, "acceptExactReceipt")) {
+      throw new ApplicationCommandError(
+        "INVALID_PAYLOAD",
+        "AcceptTaskWorkに内部用フィールドacceptExactReceiptは指定できません。",
+      );
+    }
     const taskId = asTaskId(payload);
     const current = this.repository.get("task", taskId);
     if (!current)
@@ -2019,10 +2132,17 @@ export class ApplicationCommandService {
         "確認待ちのTaskだけをAcceptできます。",
         { id: taskId, work_state: currentWorkState(current) },
       );
-    const receipt = latestWorkReceipt(this.repository, taskId);
+    const receipt = exactReceiptId
+      ? this.repository.get("work_receipt", exactReceiptId)
+      : latestWorkReceipt(this.repository, taskId);
     if (!receipt)
       throw new ApplicationCommandError("NOT_FOUND", "確認対象のWork Receiptがありません。", {
         id: taskId,
+      });
+    if (receipt.task_id !== taskId)
+      throw new ApplicationCommandError("CONFLICT", "Work Receiptの対象Taskが一致しません。", {
+        id: taskId,
+        receipt_id: receipt.id,
       });
     if (payload.receiptId && receipt.id !== payload.receiptId) {
       throw new ApplicationCommandError(

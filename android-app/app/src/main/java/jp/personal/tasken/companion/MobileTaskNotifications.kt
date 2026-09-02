@@ -26,6 +26,7 @@ import kotlinx.coroutines.withContext
 /** Notification adapter accepts only a durable delivery projection, never Preview/Task/Receipt bodies. */
 internal object MobileTaskNotifications {
     private const val ChannelId = "tasken_task_updates"
+    private val smallIconResId = R.drawable.ic_tasken_notification
     private const val ExtraDeliveryId = "jp.personal.tasken.companion.notification.DELIVERY_ID"
     private const val ExtraServerId = "jp.personal.tasken.companion.notification.SERVER_ID"
     private const val ExtraTaskId = "jp.personal.tasken.companion.notification.TASK_ID"
@@ -74,7 +75,7 @@ internal object MobileTaskNotifications {
                 notificationTag,
                 notificationId,
                 NotificationCompat.Builder(context, ChannelId)
-                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setSmallIcon(smallIconResId)
                     .setContentTitle("Tasken: 確認が必要な作業があります")
                     .setContentText("アプリで開いて確認してください。")
                     .setContentIntent(open)

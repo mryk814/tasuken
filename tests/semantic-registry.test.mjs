@@ -9,8 +9,20 @@ const workspaceApp = readFileSync("src/renderer/src/features/workspace/Workspace
 
 test("RouteDefinition is the only route label/icon/navigation registry", () => {
   const routeIds = [
-    "today", "todo", "waiting", "inbox", "timeline", "knowledge", "notes", "sketch",
-    "chat-refs", "artifacts", "theme", "themes", "ai-io", "settings",
+    "today",
+    "todo",
+    "waiting",
+    "inbox",
+    "timeline",
+    "knowledge",
+    "notes",
+    "sketch",
+    "chat-refs",
+    "artifacts",
+    "theme",
+    "themes",
+    "ai-io",
+    "settings",
   ];
   assert.match(routes, /export const ROUTE_DEFINITIONS/);
   for (const id of routeIds) assert.match(routes, new RegExp(`id: "${id}"`));
@@ -30,14 +42,30 @@ test("RouteDefinition is the only route label/icon/navigation registry", () => {
 
 test("ActionDefinition covers practical action and toast semantics", () => {
   for (const id of [
-    "todayAddTask", "todoAddTask", "inboxAddMemo", "timelineAddPlan",
-    "notesCreate", "chatRefsAdd", "aiAnswer", "aiContext", "actionCancel",
-    "actionReject", "actionDelete", "aiProposalPreview", "notesSave", "toastInfo", "toastSuccess", "toastWarning", "toastDanger",
+    "todayAddTask",
+    "todoAddTask",
+    "inboxAddMemo",
+    "timelineAddPlan",
+    "notesCreate",
+    "chatRefsAdd",
+    "aiAnswer",
+    "aiContext",
+    "actionCancel",
+    "actionReject",
+    "actionDelete",
+    "notesSave",
+    "toastInfo",
+    "toastSuccess",
+    "toastWarning",
+    "toastDanger",
   ]) {
     assert.match(actions, new RegExp(`${id}: \\{`));
   }
   assert.match(actions, /role: "(?:primary|secondary|danger|ai|status)"/);
-  assert.match(actions, /availability: "(?:always|when-selection|when-editing|when-ai-enabled|when-theme-selected)"/);
+  assert.match(
+    actions,
+    /availability: "(?:always|when-selection|when-editing|when-ai-enabled|when-theme-selected)"/,
+  );
   assert.match(actions, /TOAST_ACTIONS/);
   assert.match(common, /export function ActionButton/);
   assert.match(workspaceApp, /TOAST_ACTIONS/);

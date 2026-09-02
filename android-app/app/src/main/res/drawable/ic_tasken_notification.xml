@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome small icon derived from the Tasken launcher mark: flag, handoff spark, and tray. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9,2L9,20L11,20L11,11.2L19.8,7.2L11,3.2L11,2ZM16.5,12.5L17.3,15.1L19.9,15.9L17.3,16.7L16.5,19.3L15.7,16.7L13.1,15.9L15.7,15.1ZM4,20L20,20L20,22L4,22Z" />
+</vector>

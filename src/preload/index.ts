@@ -153,8 +153,6 @@ const api: ResearchDeskApi = {
     },
     ackAppFlush: (requestId, ok) => ipcRenderer.invoke(IPC.appFlushAck, { requestId, ok }),
     getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
-    getTaskAgentLaunchOptions: (request) => ipcRenderer.invoke(IPC.taskAgentLaunchOptions, request),
-    launchTaskAgent: (request) => ipcRenderer.invoke(IPC.taskAgentLaunch, request),
     toggleTaskenRoot: () => ipcRenderer.invoke(IPC.taskenRootToggle),
     hideTaskenRoot: () => ipcRenderer.invoke(IPC.taskenRootHide),
     openTaskenRootTarget: (request) => ipcRenderer.invoke(IPC.taskenRootOpen, request),

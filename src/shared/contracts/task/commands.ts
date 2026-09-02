@@ -235,6 +235,22 @@ export const reopenTaskCommandSchema = z
   })
   .strict();
 
+export const startTaskWorkCommandSchema = z
+  .object({
+    ...commandBase,
+    name: z.literal("StartTaskWork"),
+    payload: z
+      .object({
+        task_id: taskIdSchema,
+        expected_version: entityVersionSchema,
+        executor_identity: z.string().trim().min(1).max(200),
+        started_at: isoTimestampSchema,
+        source_session: z.string().trim().min(1).max(200).optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const acceptTaskWorkCommandSchema = z
   .object({
     ...commandBase,
@@ -271,6 +287,7 @@ export const taskCommandSchema = z.discriminatedUnion("name", [
   deleteTaskCommandSchema,
   completeTaskCommandSchema,
   reopenTaskCommandSchema,
+  startTaskWorkCommandSchema,
   acceptTaskWorkCommandSchema,
   returnTaskWorkCommandSchema,
 ]);
@@ -287,6 +304,7 @@ export type TaskScheduleChange = z.output<typeof taskScheduleChangeSchema>;
 export type DeleteTaskCommand = z.output<typeof deleteTaskCommandSchema>;
 export type CompleteTaskCommand = z.output<typeof completeTaskCommandSchema>;
 export type ReopenTaskCommand = z.output<typeof reopenTaskCommandSchema>;
+export type StartTaskWorkCommand = z.output<typeof startTaskWorkCommandSchema>;
 export type AcceptTaskWorkCommand = z.output<typeof acceptTaskWorkCommandSchema>;
 export type ReturnTaskWorkCommand = z.output<typeof returnTaskWorkCommandSchema>;
 export type TaskCommand = z.output<typeof taskCommandSchema>;

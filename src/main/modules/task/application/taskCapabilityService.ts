@@ -223,6 +223,19 @@ function applicationEnvelope(
       expectedVersions: expectedVersions(command, currentSchedule),
     };
   }
+  if (command.name === "StartTaskWork") {
+    return {
+      ...base,
+      payload: {
+        taskId: command.payload.task_id,
+        executorKind: "ai_agent",
+        executorIdentity: command.payload.executor_identity,
+        startedAt: command.payload.started_at,
+        sourceSession: command.payload.source_session || null,
+      },
+      expectedVersions: expectedVersions(command, currentSchedule),
+    };
+  }
   if (command.name === "AcceptTaskWork") {
     return {
       ...base,
@@ -313,6 +326,11 @@ function replayApplicationEnvelope(
       payload: { ...command.payload, expected_version: Number(taskBefore.version) },
     };
   } else if (command.name === "ReturnTaskWork") {
+    replayCommand = {
+      ...command,
+      payload: { ...command.payload, expected_version: Number(taskBefore.version) },
+    };
+  } else if (command.name === "StartTaskWork") {
     replayCommand = {
       ...command,
       payload: { ...command.payload, expected_version: Number(taskBefore.version) },
@@ -409,6 +427,13 @@ function eventFor(
       ...eventBase,
       name: "TaskUpdated",
       changed_fields: ["work_state", "work_review_note"],
+    });
+  }
+  if (command.name === "StartTaskWork") {
+    return taskEventSchema.parse({
+      ...eventBase,
+      name: "TaskUpdated",
+      changed_fields: ["work_state", "work_started_at", "executor_identity"],
     });
   }
   return taskEventSchema.parse({

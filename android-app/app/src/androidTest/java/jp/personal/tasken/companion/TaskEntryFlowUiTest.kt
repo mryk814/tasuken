@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotFocused
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -30,7 +31,7 @@ class TaskEntryFlowUiTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun addImmediatelyFocusesTaskNameAndKeyboardCanSubmit() {
+    fun themeChipFocusesTaskNameAndKeyboardCanSubmit() {
         val pane = TodayPaneState()
         val submitted = mutableListOf<String>()
         showCapture(pane) { behavior ->
@@ -40,15 +41,22 @@ class TaskEntryFlowUiTest {
         }
 
         composeRule.onNodeWithText("追加").performClick()
+        composeRule.onNodeWithText("Task名").assertIsNotFocused()
         capture("01-add-open")
+        composeRule.onNodeWithTag("capture-theme-option-theme-nemorium")
+            .assertIsDisplayed()
+            .performClick()
+            .assertIsSelected()
+        composeRule.runOnIdle { assertEquals("theme-nemorium", pane.captureDraft.projectId) }
         composeRule.onNodeWithText("Task名").assertIsFocused().performTextInput("実験結果を整理する")
         composeRule.runOnIdle { assertEquals(false, pane.captureInputFocusRequested) }
-        val submitBounds = composeRule.onNodeWithTag("capture-submit-row").getBoundsInRoot()
-        val themeBounds = composeRule.onNodeWithText("Theme（任意）").getBoundsInRoot()
-        assertTrue(submitBounds.bottom <= themeBounds.top)
+        val themeBounds = composeRule.onNodeWithTag("capture-theme-options").getBoundsInRoot()
+        val taskNameBounds = composeRule.onNodeWithTag("capture-text-input").getBoundsInRoot()
+        assertTrue(themeBounds.bottom <= taskNameBounds.top)
         capture("02-add-entered")
         composeRule.onNodeWithTag("capture-submit-continue").assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertEquals("", pane.captureDraft.text) }
+        composeRule.onNodeWithTag("capture-theme-option-theme-nemorium").assertIsSelected()
         composeRule.onNodeWithText("Task名").assertIsFocused().performTextInput("比較条件を確認する")
         composeRule.onNodeWithText("Task名").performImeAction()
         composeRule.runOnIdle { assertEquals(listOf("実験結果を整理する", "比較条件を確認する"), submitted) }
@@ -75,6 +83,11 @@ class TaskEntryFlowUiTest {
         dark: Boolean = false,
         onSubmit: (CaptureCompletionBehavior) -> Unit = {},
     ) {
+        val themes = listOf(
+            MobileTheme("theme-nemorium", "ねもりうむ"),
+            MobileTheme("theme-tasuken", "たすけん"),
+            MobileTheme("theme-shopping", "買い物"),
+        )
         composeRule.setContent {
             MaterialTheme(colorScheme = if (dark) taskenDarkColorScheme() else taskenLightColorScheme()) {
                 Button(
@@ -88,8 +101,8 @@ class TaskEntryFlowUiTest {
                         draft = pane.captureDraft,
                         state = CaptureUiState.Idle,
                         speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
-                        themes = emptyList(),
-                        themeCatalogState = MobileThemeCatalogState.Available(emptyList(), "fixture", 1, ""),
+                        themes = themes,
+                        themeCatalogState = MobileThemeCatalogState.Available(themes, "fixture", 1, ""),
                         onDraftChanged = { pane.captureDraft = pane.captureDraft.withText(it) },
                         onThemeSelected = { pane.captureDraft = pane.captureDraft.withThemeId(it) },
                         onKindSelected = { pane.captureDraft = pane.captureDraft.withKind(it) },

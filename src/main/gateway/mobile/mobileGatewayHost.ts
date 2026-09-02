@@ -129,6 +129,8 @@ function safeMessage(code: MobileErrorCode): string {
     idempotency_conflict: "同じcommandIdが異なる内容で使用されています。",
     entity_conflict: "同じ端末またはTask IDが既に存在します。",
     version_conflict: "Taskが更新されています。再読み込みして再試行してください。",
+    task_state_conflict:
+      "AI Readyは未着手のTaskだけ変更できます。現在の作業状態を確認してください。",
     proposal_conflict: "Proposalまたは対象Taskが更新されています。再読み込みしてください。",
     context_stale: "Taskの公開Contextが更新されています。もう一度Previewしてから委任してください。",
     work_review_task_conflict:

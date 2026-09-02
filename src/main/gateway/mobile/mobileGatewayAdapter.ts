@@ -502,7 +502,7 @@ function projectTaskWorkProposal(
         version: task.version,
         title: task.title,
         themeId: task.project_id || null,
-        workState: task.work_state || null,
+        workState: canonicalTaskWorkState(task),
       },
       action: parsed.action,
       caller: parsed.caller.slice(0, 200),
@@ -523,6 +523,12 @@ function projectTaskWorkProposal(
   };
 }
 
+function canonicalTaskWorkState(task: TaskReadModel): string {
+  return (
+    task.work_state || (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated")
+  );
+}
+
 function projectTask(
   task: TaskReadModel,
   includeTodayDate = false,
@@ -534,7 +540,7 @@ function projectTask(
     title: task.title,
     themeId: task.project_id || null,
     state: task.state,
-    workState: task.work_state || null,
+    workState: canonicalTaskWorkState(task),
     ...(includeTodayDate
       ? {
           todayDate: task.today_date || null,
@@ -599,6 +605,7 @@ type MobileTaskFieldPatch =
   | { title: string }
   | { todayDate: string | null }
   | { themeId: string | null }
+  | { aiReady: boolean }
   | {
       checklistItems: Array<{
         id: string;
@@ -612,6 +619,11 @@ type MobileTaskFieldPatch =
 function taskUpdatePatch(patch: MobileTaskFieldPatch) {
   if ("todayDate" in patch) return { today_date: patch.todayDate };
   if ("themeId" in patch) return { project_id: patch.themeId };
+  if ("aiReady" in patch) {
+    return patch.aiReady
+      ? { intended_executor: "ai_agent", work_state: "ready_for_agent" }
+      : { intended_executor: "self", work_state: "not_delegated" };
+  }
   if ("checklistItems" in patch) {
     return {
       checklist_items: patch.checklistItems.map((item) => ({
@@ -653,6 +665,14 @@ function taskUpdatePayload(
   };
 }
 
+function canApplyMobileAiReady(task: TaskReadModel, aiReady: boolean): boolean {
+  if (task.state === "done" || task.state === "cancelled") return false;
+  const workState = canonicalTaskWorkState(task);
+  const isReady = task.intended_executor === "ai_agent" && workState === "ready_for_agent";
+  if (aiReady) return isReady || workState === "not_delegated";
+  return isReady || (task.intended_executor === "self" && workState === "not_delegated");
+}
+
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -678,6 +698,7 @@ function statusFor(code: MobileErrorCode) {
   if (code === "idempotency_conflict") return 409;
   if (code === "entity_conflict") return 409;
   if (code === "version_conflict") return 409;
+  if (code === "task_state_conflict") return 409;
   if (code === "proposal_conflict") return 409;
   if (code === "context_stale") return 409;
   if (code === "work_review_task_conflict") return 409;
@@ -704,6 +725,8 @@ function safeMessage(code: MobileErrorCode) {
     entity_conflict:
       "同じIDが既に存在するか、対象が更新済みです。再読み込みして再試行してください。",
     version_conflict: "Taskが更新されています。再読み込みして再試行してください。",
+    task_state_conflict:
+      "AI Readyは未着手のTaskだけ変更できます。現在の作業状態を確認してください。",
     proposal_conflict: "Proposalまたは対象Taskが更新されています。再読み込みしてください。",
     context_stale: "Taskの公開Contextが更新されています。もう一度Previewしてから委任してください。",
     work_review_task_conflict:
@@ -1357,6 +1380,23 @@ export class MobileGatewayAdapter {
           }),
         );
       }
+      if (command.name === "UpdateTask" && "aiReady" in command.changes) {
+        const current = await this.options.core.executeTaskQuery({
+          schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+          query_id: `${parsed.data.requestId}:ai-ready-task`,
+          name: "GetTask",
+          parameters: { task_id: command.taskId },
+        });
+        if (!current.ok) return this.taskError(meta, current.error);
+        if (current.value.name !== "GetTask") throw new Error("Unexpected Task query outcome");
+        if (!current.value.task) return this.error(meta, "not_found");
+        if (
+          current.value.task.version === command.expectedVersion &&
+          !canApplyMobileAiReady(current.value.task, command.changes.aiReady)
+        ) {
+          return this.error(meta, "task_state_conflict");
+        }
+      }
       const payload =
         command.name === "CreateTask"
           ? {
@@ -1697,6 +1737,13 @@ export class MobileGatewayAdapter {
     if (error.code === "FORBIDDEN") return this.error(meta, "forbidden");
     if (error.code === "UNAVAILABLE") return this.error(meta, "upstream_unavailable", true);
     if (error.code === "INTERNAL_ERROR") return this.error(meta, "internal_error", true);
+    if (
+      error.code === "INVALID_TRANSITION" &&
+      command?.name === "UpdateTask" &&
+      typeof command.changes?.aiReady === "boolean"
+    ) {
+      return this.error(meta, "task_state_conflict");
+    }
     if (error.code.startsWith("INVALID") || error.code.startsWith("UNSUPPORTED"))
       return this.error(meta, "validation_failed");
     throw new Error("Unexpected Task error");

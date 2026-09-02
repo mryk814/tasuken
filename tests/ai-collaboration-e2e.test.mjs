@@ -380,52 +380,9 @@ async function runProviderScenario(provider) {
     assert.equal("local_path" in context.repository_contexts[0], false);
     assert.ok(context.related.notes.some((note) => note.id === NOTE_ID));
 
-    const startArguments = {
-      task_id: TASK_ID,
-      expected_version: assigned.version,
-      idempotency_key: "fixture-start-1",
-      caller: "Fixture agent",
-      source_session: "fixture-session",
-      source_app: "fixture-provider-adapter",
-      repository_context: REPOSITORY_CONTEXT,
-      executor_kind: "ai_agent",
-      executor_identity: "fixture-agent",
-      started_at: FIXED_AT,
-    };
-    const queuedStart = await callTaskWork(client, "tasken.start_task_work", startArguments);
-    const duplicateStart = await callTaskWork(client, "tasken.start_task_work", startArguments);
-    assert.equal(queuedStart.status, "queued");
-    assert.equal(duplicateStart.status, "duplicate");
-    const startProposal = canonicalProposal(
-      fixture.database,
-      queuedStart.proposal_id,
-      fixture.root,
-    );
-    decideProposal(fixture.service, fixture.database, startProposal, "accept");
-    assert.equal(fixture.database.get("task", TASK_ID).work_state, "in_progress");
-    assert.equal(
-      fixture.database.get("task", TASK_ID).description,
-      "The Task body must survive every AI proposal unchanged.",
-    );
-    assert.deepEqual(
-      fixture.database
-        .list("change_event")
-        .find((event) => event.command_id === `${startProposal.id}:accept:work`)?.metadata
-        .repository_context,
-      REPOSITORY_CONTEXT,
-    );
-
-    const proposalCountAfterStart = fixture.database.list("ai_proposal").length;
-    assert.equal(
-      (await callTaskWork(client, "tasken.start_task_work", startArguments)).status,
-      "duplicate",
-    );
-    assert.equal(fs.existsSync(path.join(fixture.root, "mcp-inbox")), false);
-    assert.equal(fixture.database.list("ai_proposal").length, proposalCountAfterStart);
-
     const progressArguments = receiptArguments(
       provider,
-      fixture.database.get("task", TASK_ID).version,
+      assigned.version,
       "fixture-progress-1",
       "Interim receipt remains in progress.",
     );
@@ -456,10 +413,36 @@ async function runProviderScenario(provider) {
     });
     decideProposal(fixture.service, fixture.database, progressProposal, "accept");
     assert.equal(fixture.database.get("task", TASK_ID).work_state, "in_progress");
+    assert.equal(
+      fixture.database.get("task", TASK_ID).description,
+      "The Task body must survive every AI proposal unchanged.",
+    );
     assert.equal(fixture.database.list("work_receipt").length, 1);
     assert.deepEqual(
       fixture.database.get("work_receipt", progressProposal.id).runtime_metadata,
       provider,
+    );
+    const implicitStartEvent = fixture.database
+      .list("change_event")
+      .find(
+        (event) =>
+          event.command_id === `${progressProposal.id}:accept:work:start` &&
+          event.metadata?.work_action === "started",
+      );
+    assert.ok(
+      implicitStartEvent,
+      `implicit start event missing: ${JSON.stringify(
+        fixture.database
+          .list("change_event")
+          .filter((event) => event.command_id.startsWith(`${progressProposal.id}:accept:work`)),
+      )}`,
+    );
+    assert.deepEqual(implicitStartEvent.metadata.repository_context, REPOSITORY_CONTEXT);
+    assert.equal(
+      fixture.database
+        .list("ai_proposal")
+        .some((entry) => entry.payload?.task_work?.[0]?.action === "start"),
+      false,
     );
 
     const rejectedDoneArguments = receiptArguments(
@@ -512,7 +495,8 @@ async function runProviderScenario(provider) {
 
     const doneDecision = proposalDecisionCommand(fixture.database, doneProposal, "accept");
     const acceptedDone = fixture.service.execute(doneDecision);
-    assert.equal(fixture.database.get("task", TASK_ID).work_state, "needs_human_review");
+    assert.equal(fixture.database.get("task", TASK_ID).work_state, "accepted");
+    assert.equal(fixture.database.get("task", TASK_ID).state, "done");
     assert.equal(fixture.database.list("work_receipt").length, 2);
     const countsBeforeRetry = {
       receipts: fixture.database.list("work_receipt").length,
@@ -561,24 +545,10 @@ async function runProviderScenario(provider) {
       () =>
         fixture.database.save("task", {
           ...reviewTask,
-          state: "done",
+          work_state: "needs_human_review",
         }),
       /work_state=accepted/,
     );
-
-    fixture.service.execute(
-      command("AcceptTaskWork", { taskId: TASK_ID }, "human-accept-work", [
-        { type: "task", id: TASK_ID, version: reviewTask.version },
-      ]),
-    );
-    const acceptedTask = fixture.database.get("task", TASK_ID);
-    assert.equal(acceptedTask.work_state, "accepted");
-    fixture.service.execute(
-      command("CompleteTask", { taskId: TASK_ID }, "human-complete-task", [
-        { type: "task", id: TASK_ID, version: acceptedTask.version },
-      ]),
-    );
-    assert.equal(fixture.database.get("task", TASK_ID).state, "done");
 
     await client.close();
     await host.stop();
@@ -601,10 +571,10 @@ async function runProviderScenario(provider) {
     assert.ok(
       fixture.database
         .list("change_event")
-        .some((event) => event.event_kind === "task_ai_accepted"),
-    );
-    assert.ok(
-      fixture.database.list("change_event").some((event) => event.event_kind === "task_completed"),
+        .some(
+          (event) =>
+            event.event_kind === "task_completed" && event.metadata?.work_action === "accepted",
+        ),
     );
     return semanticContract(fixture.database, finalContext);
   } finally {

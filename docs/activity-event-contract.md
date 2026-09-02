@@ -63,8 +63,13 @@ Application Command は command retry の idempotency を保ちつつ、
 
 StartTaskWork / AppendWorkReceipt / AcceptTaskWork / ReturnTaskWork は
 Task・Receipt・Change Eventを同じtransactionで保存します。
-MCPはassignment/Receiptをread-onlyで読み、開始・報告は
-ProposalとしてInboxへ送るだけです。報告Receiptの追加が確認待ち状態を作り、
+MCPの一覧・参照はread-onlyです。AI Ready Taskを実際に引き受けるときだけ
+`tasken.start_task_work`が開始を直接記録し、報告はProposalとしてInboxへ送ります。
+報告Receiptの追加が確認待ち状態を作り、
+AI ReadyのTaskへ開始Proposalなしで報告が届いた場合は、報告Proposalの採用時に
+Receiptのstarted_atを使ったstarted eventと報告eventを同じtransactionで保存します。
+完了報告の「採用」自体をWork Receiptの人間確認として扱い、同じtransactionで
+work_state=acceptedとTask完了まで保存します。別の開始承認・Receipt承認は要求しません。
 Acceptと差戻しはactor.kind=userかつ
 非MCP sourceの人間UI commandに限定し、MCP actorのspoofでは受入れできません。
 executor_labelは表示用の記録であり、provider/modelはruntime_metadataにだけ保存し、

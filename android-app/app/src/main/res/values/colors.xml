@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="tasken_widget_surface">#FFF9F2</color>
-    <color name="tasken_widget_surface_variant">#F7EBEC</color>
     <color name="tasken_widget_outline">#E8DCDD</color>
     <color name="tasken_widget_on_surface">#2B2021</color>
     <color name="tasken_widget_on_surface_variant">#74676A</color>

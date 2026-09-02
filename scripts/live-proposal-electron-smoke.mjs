@@ -148,20 +148,6 @@ function workReceiptArguments({ taskId, expectedVersion, idempotencyKey, summary
   };
 }
 
-function startTaskWorkArguments(taskId, expectedVersion) {
-  return {
-    task_id: taskId,
-    expected_version: expectedVersion,
-    idempotency_key: "electron-live-task-work-start-v1",
-    caller: "Electron live Proposal smoke",
-    source_session: "electron-live-proposal-task-work",
-    source_app: "electron-live-smoke",
-    executor_kind: "ai_agent",
-    executor_identity: "electron-live-smoke",
-    started_at: new Date().toISOString(),
-  };
-}
-
 async function closeElectron() {
   if (!electronApp) return;
   const processHandle = electronApp.process();
@@ -240,9 +226,9 @@ try {
   assert.doesNotMatch(diagnosticsText, /API key|AI Provider|OpenAI/);
 
   await openNavigation(page, "AI Inbox");
-  await page.locator(".proposal-inbox-row").getByRole("button", { name: "Preview" }).click();
-  assert.match(await page.locator(".proposal-preview-panel").innerText(), new RegExp(title));
-  await page.getByRole("button", { name: "採用を保存" }).click();
+  await page.locator(".proposal-row-select").first().click();
+  assert.match(await page.locator(".proposal-inline-preview").innerText(), new RegExp(title));
+  await page.getByRole("button", { name: "採用", exact: true }).click();
   await waitForPendingCount(page, 0);
   assert.doesNotMatch(await bodyText(page), /Proposalを採用できませんでした/);
 
@@ -264,34 +250,37 @@ try {
     "Accepted Task needs a positive version for the stale-version journey.",
   );
 
-  const startWork = await callMcp(
-    "tasken.start_task_work",
-    startTaskWorkArguments(taskId, initialTaskVersion),
-  );
-  assert.equal(startWork.status, "queued");
-  await openNavigation(page, "AI Inbox");
-  await waitForPendingCount(page, 1);
-  await page.locator(".proposal-inbox-row").getByRole("button", { name: "Preview" }).click();
-  await page.locator(".proposal-preview-panel").getByRole("button", { name: "採用を保存" }).click();
-  await waitForWorkProposalDecision(page);
-  const workingTaskContext = await getTaskContext(taskId);
-  const workingTaskVersion = Number(workingTaskContext.task.version);
+  const taskRow = page.locator(".table-row", { hasText: title }).first();
+  await taskRow.getByRole("button", { name: "AI Readyにする" }).click();
+  await taskRow.getByRole("button", { name: "AI Readyを解除" }).waitFor();
+  const readyTaskContext = await getTaskContext(taskId);
+  const readyTaskVersion = Number(readyTaskContext.task.version);
   assert.ok(
-    Number.isInteger(workingTaskVersion) && workingTaskVersion > initialTaskVersion,
-    "Starting Task Work must advance the Task version.",
+    Number.isInteger(readyTaskVersion) && readyTaskVersion > initialTaskVersion,
+    "Marking a Task AI Ready must advance the Task version.",
+  );
+  const readyTasks = await callMcp("tasken.list_agent_ready_tasks", { limit: 100 });
+  assert.equal(
+    readyTasks.tasks.some((task) => task.id === taskId),
+    true,
+    "AI Ready Task must be discoverable through MCP.",
   );
 
   const staleWorkArguments = workReceiptArguments({
     taskId,
-    expectedVersion: workingTaskVersion - 1,
+    expectedVersion: readyTaskVersion - 1,
     idempotencyKey: "electron-live-task-work-stale-v1",
     summary: staleWorkSummary,
   });
   const staleWork = await callMcp("tasken.append_work_receipt", staleWorkArguments);
   assert.equal(staleWork.status, "queued");
+  await openNavigation(page, "AI Inbox");
   await waitForPendingCount(page, 1);
-  await page.locator(".proposal-inbox-row").getByRole("button", { name: "Preview" }).click();
-  await page.locator(".proposal-preview-panel").getByRole("button", { name: "採用を保存" }).click();
+  await page.locator(".proposal-row-select").first().click();
+  await page
+    .locator(".proposal-inline-preview")
+    .getByRole("button", { name: "採用", exact: true })
+    .click();
   await page.waitForFunction(
     () => {
       const text = document.body.innerText;
@@ -305,38 +294,58 @@ try {
     undefined,
     { timeout: 15_000 },
   );
-  const previewReject = page
-    .locator(".proposal-preview-panel")
-    .getByRole("button", { name: "拒否する" });
-  if (await previewReject.count()) await previewReject.click();
-  else await page.locator(".proposal-inbox-row").getByText("拒否する", { exact: true }).click();
+  await page.evaluate(async (summary) => {
+    const proposals = await window.api.entities.list("ai_proposal");
+    const proposal = proposals.find(
+      (entry) => entry.status === "pending" && entry.payload?.task_work?.[0]?.summary === summary,
+    );
+    if (!proposal) throw new Error("Stale Work proposal was not available for cleanup.");
+    await window.api.commands.execute({
+      commandId: `${proposal.id}:smoke-reject`,
+      name: "ApplyTaskWorkProposal",
+      payload: { proposalId: proposal.id, decision: "reject" },
+      actor: { kind: "user" },
+      source: "main_ui",
+      expectedVersions: [
+        { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
+      ],
+      issuedAt: new Date().toISOString(),
+    });
+  }, staleWorkSummary);
+  await page.getByRole("button", { name: "更新", exact: true }).click();
   await waitForPendingCount(page, 0);
 
   const refreshedTaskContext = await getTaskContext(taskId);
   const refreshedTaskVersion = Number(refreshedTaskContext.task.version);
-  assert.ok(Number.isInteger(refreshedTaskVersion) && refreshedTaskVersion >= workingTaskVersion);
-  const recoveredWorkArguments = workReceiptArguments({
+  assert.ok(Number.isInteger(refreshedTaskVersion) && refreshedTaskVersion >= readyTaskVersion);
+  const completedWorkArguments = workReceiptArguments({
     taskId,
     expectedVersion: refreshedTaskVersion,
     idempotencyKey: "electron-live-task-work-recovered-v1",
     summary: recoveredWorkSummary,
   });
-  const recoveredWork = await callMcp("tasken.append_work_receipt", recoveredWorkArguments);
-  assert.equal(recoveredWork.status, "queued");
+  const completedWork = await callMcp("tasken.report_task_done", completedWorkArguments);
+  assert.equal(completedWork.status, "queued");
   await waitForPendingCount(page, 1);
-  await page.locator(".proposal-inbox-row").getByRole("button", { name: "Preview" }).click();
-  await page.locator(".proposal-preview-panel").getByRole("button", { name: "採用を保存" }).click();
+  await page.locator(".proposal-row-select").first().click();
+  await page
+    .locator(".proposal-inline-preview")
+    .getByRole("button", { name: "採用", exact: true })
+    .click();
   await waitForWorkProposalDecision(page);
 
-  const duplicateRecoveredWork = await callMcp(
-    "tasken.append_work_receipt",
-    recoveredWorkArguments,
-  );
-  assert.equal(duplicateRecoveredWork.status, "duplicate");
-  assert.equal(duplicateRecoveredWork.proposal_id, recoveredWork.proposal_id);
+  const duplicateCompletedWork = await callMcp("tasken.report_task_done", completedWorkArguments);
+  assert.equal(duplicateCompletedWork.status, "duplicate");
+  assert.equal(duplicateCompletedWork.proposal_id, completedWork.proposal_id);
   await waitForPendingCount(page, 0);
 
   const finalTaskContext = await getTaskContext(taskId);
+  assert.equal(finalTaskContext.task.state, "done");
+  const remainingReadyTasks = await callMcp("tasken.list_agent_ready_tasks", { limit: 100 });
+  assert.equal(
+    remainingReadyTasks.tasks.some((task) => task.id === taskId),
+    false,
+  );
   const recoveredReceipts = finalTaskContext.related.work_receipts.filter(
     (receipt) => receipt.summary === recoveredWorkSummary,
   );
@@ -356,7 +365,11 @@ try {
   });
   assert.equal(rejected.structuredContent?.status, "queued");
   await waitForPendingCount(page, 1);
-  await page.locator(".proposal-inbox-row").getByText("拒否する", { exact: true }).click();
+  await page.locator(".proposal-row-select").first().click();
+  await page
+    .locator(".proposal-inline-preview")
+    .getByRole("button", { name: "拒否", exact: true })
+    .click();
   await waitForPendingCount(page, 0);
 
   await openNavigation(page, "ToDo");
@@ -374,7 +387,8 @@ try {
       duplicateSuppressed: true,
       conflictGuidance: true,
       acceptedTaskVisible: true,
-      taskWorkStarted: true,
+      taskMarkedAiReady: true,
+      taskWorkImplicitlyStartedAndCompleted: true,
       staleTaskWorkGuidance: true,
       staleTaskWorkRecovered: true,
       taskWorkAppliedOnce: true,

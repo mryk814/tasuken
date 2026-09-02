@@ -513,6 +513,20 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
   assert.equal(
     mobileTaskCommandRequestSchema.safeParse({
       ...valid,
+      command: {
+        name: "UpdateTask",
+        taskId: "task-mobile-create",
+        expectedScheduleVersion: null,
+        expectedVersion: 1,
+        changes: { aiReady: true },
+        base: { aiReady: false },
+      },
+    }).success,
+    true,
+  );
+  assert.equal(
+    mobileTaskCommandRequestSchema.safeParse({
+      ...valid,
       command: { name: "DeleteTask", taskId: "task-mobile-create", expectedVersion: 1 },
     }).success,
     true,
@@ -655,6 +669,188 @@ test("Mobile UpdateTask maps Today schedule to the canonical task field", async 
   });
   assert.equal(unscheduled.status, 200);
   assert.equal(unscheduled.body.data.task.todayDate, null);
+});
+
+test("Mobile AI Ready atomically updates canonical assignment and rejects active work", async () => {
+  const { repository, service, application } = capability();
+  const canonicalCommands = [];
+  const adapter = gateway(service, {
+    executeTaskCommand: (input) => {
+      canonicalCommands.push(input);
+      return service.executeCommand(input);
+    },
+  });
+  assert.equal(
+    (
+      await adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: createRequest(),
+      })
+    ).status,
+    200,
+  );
+  const update = (commandId, expectedVersion, aiReady, base, taskId = "task-mobile-create") =>
+    adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.commands,
+      principal,
+      body: {
+        ...createRequest(),
+        requestId: `request-${commandId}`,
+        commandId,
+        idempotencyKey: commandId,
+        command: {
+          name: "UpdateTask",
+          taskId,
+          expectedVersion,
+          expectedScheduleVersion: null,
+          changes: { aiReady },
+          base: { aiReady: base },
+        },
+      },
+    });
+
+  const enabled = await update("command-ai-ready-on", 1, true, false);
+  assert.equal(enabled.status, 200);
+  assert.deepEqual(canonicalCommands.at(-1).payload, {
+    task_id: "task-mobile-create",
+    expected_version: 1,
+    changes: { intended_executor: "ai_agent", work_state: "ready_for_agent" },
+    base: { intended_executor: "self", work_state: "not_delegated" },
+  });
+  assert.deepEqual(
+    {
+      intendedExecutor: repository.get("task", "task-mobile-create").intended_executor,
+      workState: repository.get("task", "task-mobile-create").work_state,
+    },
+    { intendedExecutor: "ai_agent", workState: "ready_for_agent" },
+  );
+
+  const disabled = await update("command-ai-ready-off", 2, false, true);
+  assert.equal(disabled.status, 200);
+  assert.deepEqual(canonicalCommands.at(-1).payload, {
+    task_id: "task-mobile-create",
+    expected_version: 2,
+    changes: { intended_executor: "self", work_state: "not_delegated" },
+    base: { intended_executor: "ai_agent", work_state: "ready_for_agent" },
+  });
+  assert.deepEqual(
+    {
+      intendedExecutor: repository.get("task", "task-mobile-create").intended_executor,
+      workState: repository.get("task", "task-mobile-create").work_state,
+    },
+    { intendedExecutor: "self", workState: "not_delegated" },
+  );
+
+  const reenabled = await update("command-ai-ready-on-again", 3, true, false);
+  assert.equal(reenabled.status, 200);
+  application.execute({
+    commandId: "command-start-ai-ready",
+    name: "StartTaskWork",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "main_ui",
+    issuedAt: now,
+    payload: {
+      taskId: "task-mobile-create",
+      executorKind: "ai_agent",
+      executorIdentity: "Codex",
+    },
+    expectedVersions: [{ type: "task", id: "task-mobile-create", version: 4 }],
+  });
+  const active = repository.get("task", "task-mobile-create");
+  const commandCount = canonicalCommands.length;
+  const conflict = await update("command-ai-ready-active-off", active.version, false, true);
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.error.code, "task_state_conflict");
+  assert.equal(canonicalCommands.length, commandCount);
+  assert.equal(repository.get("task", "task-mobile-create").work_state, "in_progress");
+
+  application.execute({
+    commandId: "command-create-terminal-task",
+    name: "CreateTask",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "main_ui",
+    issuedAt: now,
+    payload: {
+      task: {
+        id: "task-mobile-terminal",
+        title: "Terminal Task",
+        state: "todo",
+        project_id: "theme-personal-default",
+        priority: "normal",
+        requester: "self",
+        intended_executor: "self",
+        work_state: "not_delegated",
+      },
+    },
+    expectedVersions: [],
+  });
+  application.execute({
+    commandId: "command-complete-terminal-task",
+    name: "CompleteTask",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "main_ui",
+    issuedAt: now,
+    payload: { taskId: "task-mobile-terminal" },
+    expectedVersions: [{ type: "task", id: "task-mobile-terminal", version: 1 }],
+  });
+  const terminal = repository.get("task", "task-mobile-terminal");
+  const terminalConflict = await update(
+    "command-ai-ready-terminal-on",
+    terminal.version,
+    true,
+    false,
+    terminal.id,
+  );
+  assert.equal(terminalConflict.status, 409);
+  assert.equal(terminalConflict.body.error.code, "task_state_conflict");
+  assert.equal(canonicalCommands.length, commandCount);
+});
+
+test("Mobile projection derives canonical AI Ready for legacy Tasks without work_state", async () => {
+  const { repository, service } = capability();
+  const adapter = gateway(service);
+  assert.equal(
+    (
+      await adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: createRequest(),
+      })
+    ).status,
+    200,
+  );
+  const legacy = { ...repository.records.get("task:task-mobile-create") };
+  delete legacy.work_state;
+
+  repository.records.set("task:task-mobile-create", {
+    ...legacy,
+    intended_executor: "ai_agent",
+  });
+  const aiReady = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.today,
+    principal,
+    query: todayQuery({ requestId: "request-legacy-ai-ready" }),
+  });
+  assert.equal(aiReady.status, 200);
+  assert.equal(aiReady.body.data.items[0].workState, "ready_for_agent");
+
+  repository.records.set("task:task-mobile-create", {
+    ...legacy,
+    intended_executor: "self",
+  });
+  const self = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.today,
+    principal,
+    query: todayQuery({ requestId: "request-legacy-self" }),
+  });
+  assert.equal(self.status, 200);
+  assert.equal(self.body.data.items[0].workState, "not_delegated");
 });
 
 test("Mobile checklist projection and UpdateTask preserve canonical item semantics", async () => {
@@ -3087,7 +3283,12 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
       client.executeTaskQuery(query),
       (error) => error?.code === "CORE_UNAVAILABLE",
     );
-    assert.doesNotMatch(readFileSync("src/main/mcp/server.mjs", "utf8"), /executeTaskCommand/);
+    const mcpServer = readFileSync("src/main/mcp/server.mjs", "utf8");
+    assert.match(mcpServer, /const startTaskWork = \(args\) =>\s*coreClient\.executeTaskCommand/);
+    assert.doesNotMatch(
+      mcpServer,
+      /server\.registerTool\(\s*"tasken\.(?:create|update|delete|complete)_task"/,
+    );
   } finally {
     await runtime.stop();
     rmSync(root, { recursive: true, force: true });

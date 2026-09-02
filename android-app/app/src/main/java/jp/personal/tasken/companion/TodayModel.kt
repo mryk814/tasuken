@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
@@ -170,6 +172,22 @@ sealed interface TaskDelegationUiState {
     data class Unavailable(val taskId: String, val message: String) : TaskDelegationUiState
 }
 
+sealed interface MobileAiReadyResult {
+    data class Applied(val taskId: String, val enabled: Boolean) : MobileAiReadyResult
+    data class Conflict(val taskId: String, val message: String) : MobileAiReadyResult
+    data class Rejected(val taskId: String, val message: String) : MobileAiReadyResult
+    data class Unavailable(val taskId: String, val message: String) : MobileAiReadyResult
+}
+
+sealed interface AiReadyUiState {
+    data object Idle : AiReadyUiState
+    data class Updating(val taskId: String, val enabled: Boolean) : AiReadyUiState
+    data class Applied(val taskId: String, val enabled: Boolean) : AiReadyUiState
+    data class Conflict(val taskId: String, val message: String) : AiReadyUiState
+    data class Rejected(val taskId: String, val message: String) : AiReadyUiState
+    data class Unavailable(val taskId: String, val message: String) : AiReadyUiState
+}
+
 sealed interface MobileWorkReceiptLoadResult {
     data class Available(
         val detail: MobileWorkReceiptDetail,
@@ -289,10 +307,12 @@ sealed interface TodayUiState {
     data object Empty : TodayUiState
     data class PairingRequired(val origin: String, val message: String = "") : TodayUiState
     data class Error(val message: String, val recovery: String) : TodayUiState
+    enum class CachedRecovery { Reload, RePair }
     data class Cached(
         val tasks: List<MobileTask>,
         val generatedAt: String,
-        val pairing: PairingRequired,
+        val message: String,
+        val recovery: CachedRecovery,
     ) : TodayUiState
     data class Success(val tasks: List<MobileTask>, val generatedAt: String) : TodayUiState
 }
@@ -364,12 +384,16 @@ class TodayViewModel(
     val humanReviewState: StateFlow<HumanReviewUiState> = mutableHumanReviewState.asStateFlow()
     private val mutableTaskDelegationState = MutableStateFlow<TaskDelegationUiState>(TaskDelegationUiState.Idle)
     val taskDelegationState: StateFlow<TaskDelegationUiState> = mutableTaskDelegationState.asStateFlow()
+    private val mutableAiReadyState = MutableStateFlow<AiReadyUiState>(AiReadyUiState.Idle)
+    val aiReadyState: StateFlow<AiReadyUiState> = mutableAiReadyState.asStateFlow()
     private val mutablePendingSafeShare = MutableStateFlow<MobileSafeShareDto?>(null)
     val pendingSafeShare: StateFlow<MobileSafeShareDto?> = mutablePendingSafeShare.asStateFlow()
     private var workReceiptLoadJob: Job? = null
     private var observingCache = false
     private var cachedGeneratedAt = ""
     private var cachedPairingRequired: MobileTodayResult.PairingRequired? = null
+    private var cachedUnavailable: MobileTodayResult.Unavailable? = null
+    private val loadMutex = Mutex()
 
     init {
         val offlineRepository = repository as? MobileOfflineTaskRepository
@@ -401,7 +425,7 @@ class TodayViewModel(
         viewModelScope.launch { loadNow() }
     }
 
-    internal suspend fun loadNow() {
+    internal suspend fun loadNow(): Unit = loadMutex.withLock {
         mutableUiState.value = TodayUiState.Loading
         val result = withContext(ioDispatcher) { repository.loadToday() }
         val gatewayConfiguration = (repository as? MobileGatewayRepository)?.configuration()
@@ -424,14 +448,16 @@ class TodayViewModel(
             val canProjectCache = result !is MobileTodayResult.PairingRequired ||
                 cachedTasks.isNotEmpty() || allCachedTasks.isNotEmpty()
             if (canProjectCache && (cachedTasks.isNotEmpty() || allCachedTasks.isNotEmpty() || result is MobileTodayResult.Available)) {
-                cachedGeneratedAt = (result as? MobileTodayResult.Available)?.generatedAt.orEmpty()
+                if (result is MobileTodayResult.Available) cachedGeneratedAt = result.generatedAt
                 cachedPairingRequired = result as? MobileTodayResult.PairingRequired
+                cachedUnavailable = result as? MobileTodayResult.Unavailable
                 applyCachedTasks(cachedTasks)
                 observeCache(offlineRepository)
                 return
             }
         }
         cachedPairingRequired = null
+        cachedUnavailable = null
         applyResult(result)
     }
 
@@ -445,11 +471,20 @@ class TodayViewModel(
 
     private fun applyCachedTasks(tasks: List<MobileTask>) {
         val pairing = cachedPairingRequired
+        val unavailable = cachedUnavailable
         mutableUiState.value = if (pairing != null) {
             TodayUiState.Cached(
                 tasks = tasks.toList(),
                 generatedAt = cachedGeneratedAt,
-                pairing = TodayUiState.PairingRequired(pairing.origin, pairing.message),
+                message = pairing.message.ifBlank { "保存済みTaskを表示しています。Desktopとの接続をやり直してください。" },
+                recovery = TodayUiState.CachedRecovery.RePair,
+            )
+        } else if (unavailable != null) {
+            TodayUiState.Cached(
+                tasks = tasks.toList(),
+                generatedAt = cachedGeneratedAt,
+                message = "${unavailable.message} ${unavailable.recovery}",
+                recovery = TodayUiState.CachedRecovery.Reload,
             )
         } else if (tasks.isEmpty()) {
             TodayUiState.Empty
@@ -466,6 +501,7 @@ class TodayViewModel(
         val gateway = repository as? MobileGatewayRepository ?: return
         val result = withContext(ioDispatcher) { gateway.pair(origin, pairingCode) }
         cachedPairingRequired = null
+        cachedUnavailable = null
         applyResult(result)
         mutableProposalReviewOnline.value = result is MobileTodayResult.Available &&
             withContext(ioDispatcher) { gateway.refreshTaskWorkProposals() }
@@ -480,6 +516,7 @@ class TodayViewModel(
         mutableHumanReviewOnline.value = false
         mutableHumanReviewRequiresRePairing.value = false
         cachedPairingRequired = null
+        cachedUnavailable = null
         applyResult(gateway.retryPairing())
     }
 
@@ -586,8 +623,41 @@ class TodayViewModel(
         mutableHumanReviewState.value = HumanReviewUiState.Idle
     }
 
-    fun previewTaskContext(task: MobileTask) {
-        viewModelScope.launch { previewTaskContextNow(task) }
+    fun setTaskAiReady(task: MobileTask, enabled: Boolean) {
+        viewModelScope.launch { setTaskAiReadyNow(task, enabled) }
+    }
+
+    internal suspend fun setTaskAiReadyNow(task: MobileTask, enabled: Boolean) {
+        if (task.pending || task.conflict != null) {
+            mutableAiReadyState.value = AiReadyUiState.Conflict(
+                task.id,
+                "このTaskの同期を解決してからAI Readyを変更してください。",
+            )
+            return
+        }
+        val gateway = repository as? MobileGatewayRepository
+        if (gateway == null) {
+            mutableAiReadyState.value = AiReadyUiState.Unavailable(
+                task.id,
+                "この環境ではAI Readyを変更できません。",
+            )
+            return
+        }
+        mutableAiReadyState.value = AiReadyUiState.Updating(task.id, enabled)
+        when (val result = withContext(ioDispatcher) { gateway.setTaskAiReady(task, enabled) }) {
+            is MobileAiReadyResult.Applied -> {
+                mutableAiReadyState.value = AiReadyUiState.Applied(result.taskId, result.enabled)
+            }
+            is MobileAiReadyResult.Conflict -> {
+                mutableAiReadyState.value = AiReadyUiState.Conflict(result.taskId, result.message)
+            }
+            is MobileAiReadyResult.Rejected -> {
+                mutableAiReadyState.value = AiReadyUiState.Rejected(result.taskId, result.message)
+            }
+            is MobileAiReadyResult.Unavailable -> {
+                mutableAiReadyState.value = AiReadyUiState.Unavailable(result.taskId, result.message)
+            }
+        }
     }
 
     internal suspend fun previewTaskContextNow(task: MobileTask) {
@@ -601,10 +671,6 @@ class TodayViewModel(
             is MobileTaskContextPreviewResult.Available -> TaskDelegationUiState.PreviewAvailable(result.preview)
             is MobileTaskContextPreviewResult.Unavailable -> TaskDelegationUiState.Unavailable(result.taskId, result.message)
         }
-    }
-
-    fun delegateTask(task: MobileTask, expectedResult: String?, instruction: String?) {
-        viewModelScope.launch { delegateTaskNow(task, expectedResult, instruction) }
     }
 
     internal suspend fun delegateTaskNow(task: MobileTask, expectedResult: String?, instruction: String?) {
@@ -1116,7 +1182,7 @@ class TodayPaneState(
         }
         captureOpen = true
         captureVoiceStartRequested = requestVoice
-        captureInputFocusRequested = source == MobileCaptureSource.AndroidApp && !requestVoice
+        captureInputFocusRequested = false
     }
 
     fun consumeVoiceStartRequest() {
@@ -1240,6 +1306,8 @@ interface MobileGatewayRepository : MobileTaskRepository {
         task.id,
         "このDesktopではWork Receipt判断を利用できません。",
     )
+    suspend fun setTaskAiReady(task: MobileTask, enabled: Boolean): MobileAiReadyResult =
+        MobileAiReadyResult.Unavailable(task.id, "このDesktopではAI Readyを変更できません。")
     suspend fun previewTaskContext(task: MobileTask): MobileTaskContextPreviewResult =
         MobileTaskContextPreviewResult.Unavailable(task.id, "このDesktopではContext Previewを利用できません。")
     suspend fun delegateTask(

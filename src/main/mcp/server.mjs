@@ -21,6 +21,12 @@ const PROPOSAL_ANNOTATIONS = {
   idempotentHint: false,
   openWorldHint: false,
 };
+const DIRECT_WRITE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+};
 const optionalText = z.string().trim().optional();
 const optionalLimit = z.number().int().positive().max(100).optional();
 const optionalWave7ThemeId = z.string().trim().min(1).max(200).optional();
@@ -119,7 +125,7 @@ export function createTaskenMcpServer(options = {}) {
     {
       instructions: readOnly
         ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed."
-        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Write tools only queue a Proposal. A successful write returns a Proposal ID, not a Note ID; tell the user to review and accept it in Tasken before it becomes official data. A Note proposal may carry a Theme, not a Task or Reference relation.",
+        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Write tools queue a Proposal except tasken.start_task_work, which directly starts an explicitly AI Ready Task. A successful Proposal write returns a Proposal ID, not a Note ID; tell the user to review and accept it in Tasken before it becomes official data. A Note proposal may carry a Theme, not a Task or Reference relation.",
     },
   );
 
@@ -259,7 +265,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.list_agent_ready_tasks",
     {
       description:
-        "List AI-assigned Tasks that are ready for an agent. Read-only; a Work Receipt never completes a Task.",
+        "List Tasks whose human-set AI Ready gate allows agent work. Read-only; a Work Receipt still requires human review.",
       inputSchema: {
         theme_id: optionalText,
         limit: optionalLimit,
@@ -1081,6 +1087,23 @@ export function createTaskenMcpServer(options = {}) {
       source: "mcp",
       source_app: sourceApp(args),
     });
+  const startTaskWork = (args) =>
+    coreClient.executeTaskCommand({
+      schemaVersion: 1,
+      command_id: args.idempotency_key,
+      name: "StartTaskWork",
+      actor: { kind: "ai_agent", id: args.caller },
+      source: "mcp",
+      entrypoint: "mcp",
+      issued_at: args.started_at,
+      payload: {
+        task_id: args.task_id,
+        expected_version: args.expected_version,
+        executor_identity: args.caller,
+        started_at: args.started_at,
+        ...(args.source_session ? { source_session: args.source_session } : {}),
+      },
+    });
   const requiredTimestamp = z
     .string()
     .trim()
@@ -1237,16 +1260,14 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.start_task_work",
     {
       description:
-        "Queue a proposal to start work on an assigned Task. This never writes Task state directly.",
+        "Claim an explicitly AI Ready Task and start work immediately. Use this only after selecting the Task for actual work; listing or reading Tasks never starts them. Reuse the same idempotency_key and started_at when retrying.",
       inputSchema: {
         ...taskWorkBase,
-        executor_kind: z.enum(["self", "human", "ai_agent", "external", "unknown"]).optional(),
-        executor_identity: z.string().trim().max(200).optional(),
-        started_at: optionalTimestamp,
+        started_at: requiredTimestamp,
       },
-      annotations: PROPOSAL_ANNOTATIONS,
+      annotations: DIRECT_WRITE_ANNOTATIONS,
     },
-    withCoreClient((args) => queueTaskWork(args, "start")),
+    withCoreClient(startTaskWork),
   );
 
   const receiptProposalSchema = {
@@ -1267,7 +1288,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.append_work_receipt",
     {
       description:
-        "Queue an append-only Work Receipt proposal. It enters Tasken review and does not complete the Task.",
+        "Queue an append-only Work Receipt proposal for an AI Ready or active Task. If no separate start was adopted, started_at is recorded with the receipt. Human review remains required.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },
@@ -1278,7 +1299,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.report_task_done",
     {
       description:
-        "Queue an AI work report as a proposal. The report is not Task completion and requires human review.",
+        "Queue an AI work report for an AI Ready or active Task. If no separate start was adopted, started_at is recorded with the report. Human approval completes the Task.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },

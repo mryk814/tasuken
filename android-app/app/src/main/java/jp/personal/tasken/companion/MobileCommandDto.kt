@@ -399,6 +399,10 @@ object MobileTaskCommandContract {
                         (value is JsonPrimitive && value.isString && isThemeId(value.content)),
                 )
             }
+            "aiReady" -> {
+                val value = patch[field]
+                require(value is JsonPrimitive && !value.isString && value.content in setOf("true", "false"))
+            }
             "schedule" -> validateSchedulePatch(patch[field], allowNullSchedule)
             "checklistItems" -> validateChecklistPatch(patch[field])
             else -> error("Unsupported Task patch field: $field")

@@ -5724,7 +5724,38 @@ textarea:hover {
   padding: var(--space-3) var(--pad-card);
 }
 .proposal-inbox-panel {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+}
+.proposal-inbox-panel.has-selection {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.15fr);
+  column-gap: var(--space-3);
+  align-items: start;
+  overflow: visible;
+}
+.proposal-inbox-panel.has-selection > .section-heading,
+.proposal-inbox-panel.has-selection > .proposal-history {
+  grid-column: 1 / -1;
+}
+.proposal-inbox-panel.has-selection > .proposal-list,
+.proposal-inbox-panel.has-selection > .proposal-inline-preview {
+  grid-row: 2;
+  min-width: 0;
+}
+.proposal-inbox-panel.has-selection > .proposal-list {
+  grid-column: 1;
+}
+.proposal-inbox-panel.has-selection > .proposal-inline-preview {
+  grid-column: 2;
+  position: sticky;
+  top: var(--space-3);
+  max-height: calc(100vh - var(--space-8));
+  margin-top: 0;
+  overflow: auto;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
 }
 .proposal-pending-count {
   font: var(--text-sm) var(--font-mono);
@@ -5747,16 +5778,39 @@ textarea:hover {
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
 }
-.proposal-inbox-row {
+.proposal-list {
+  order: 0;
+}
+.proposal-row-select {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-3);
-  align-items: center;
+  width: 100%;
   padding: var(--space-3) var(--pad-card);
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
   border-top: 1px solid var(--color-border-subtle);
 }
-.proposal-inbox-row:hover {
+.proposal-row-select:hover {
   background: var(--color-surface-subtle);
+}
+.proposal-row-select[aria-pressed="true"] {
+  background: var(--color-accent-subtle-bg);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+.proposal-row-select:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.proposal-row-select[aria-pressed="true"]:focus-visible {
+  box-shadow:
+    var(--focus-ring),
+    inset 3px 0 0 var(--color-accent);
 }
 .proposal-row-main {
   min-width: 0;
@@ -5769,8 +5823,21 @@ textarea:hover {
   gap: var(--space-2);
   flex-wrap: wrap;
 }
-.proposal-row-heading strong {
+.proposal-row-title {
+  min-width: 0;
+  flex: 1;
+  display: -webkit-box;
+  overflow: hidden;
   font-size: var(--text-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.proposal-row-kind {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
 }
 .proposal-risk {
   display: inline-flex;
@@ -5829,19 +5896,11 @@ textarea:hover {
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
 }
-.proposal-row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
 .proposal-quarantine-form {
-  grid-column: 1 / -1;
   display: flex;
   align-items: end;
   gap: var(--space-2);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--color-border-subtle);
+  padding: var(--space-2) var(--pad-card) var(--space-3);
 }
 .proposal-quarantine-form label {
   display: grid;
@@ -5853,6 +5912,7 @@ textarea:hover {
   font-size: var(--text-xs);
 }
 .proposal-history {
+  order: 2;
   margin-top: var(--space-3);
   overflow: hidden;
 }
@@ -5932,15 +5992,57 @@ textarea:hover {
   border-color: var(--color-info-bd);
   background: var(--color-info-bg);
 }
-.proposal-preview-panel {
+.proposal-inline-preview {
+  order: 1;
   margin-top: var(--space-3);
   overflow: hidden;
+  background: var(--color-surface-subtle);
+  border-top: 1px solid var(--color-border-strong);
 }
 .proposal-preview-context {
   margin: 0;
   padding: 0 var(--pad-card) var(--space-2);
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
+}
+.proposal-inline-preview > .form-actions {
+  justify-content: flex-end;
+  padding: var(--space-3) var(--pad-card);
+}
+.proposal-quarantine {
+  padding: 0 var(--pad-card) var(--space-3);
+}
+.proposal-quarantine > summary {
+  width: fit-content;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+@media (max-width: 1120px) {
+  .proposal-inbox-panel.has-selection {
+    display: flex;
+    align-items: stretch;
+    overflow: hidden;
+  }
+  .proposal-inbox-panel.has-selection > .proposal-list,
+  .proposal-inbox-panel.has-selection > .proposal-inline-preview,
+  .proposal-inbox-panel.has-selection > .proposal-history {
+    inline-size: 100%;
+  }
+  .proposal-inbox-panel.has-selection > .proposal-list {
+    max-height: min(42vh, 360px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .proposal-inbox-panel.has-selection > .proposal-inline-preview {
+    position: static;
+    max-height: none;
+    margin-top: var(--space-3);
+    overflow: hidden;
+    border: 0;
+    border-top: 1px solid var(--color-border-strong);
+    border-radius: 0;
+  }
 }
 .metric-grid {
   grid-template-columns: repeat(4, 1fr);
@@ -9131,6 +9233,16 @@ kbd {
   color: var(--color-accent-strong);
   background: var(--color-accent-subtle-bg);
   border-color: var(--color-accent-subtle-bd);
+}
+.priority-flag-button.is-working {
+  color: var(--color-status-active-fg);
+  background: var(--color-status-active-bg);
+  border-color: var(--color-status-active-bd);
+  cursor: default;
+  opacity: 1;
+}
+.priority-flag-button.is-working svg {
+  animation: spin calc(var(--duration-base) * 5) linear infinite;
 }
 .theme-inline {
   display: inline-flex;
@@ -13257,24 +13369,6 @@ kbd {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
-.task-agent-launch-confirmation {
-  display: grid;
-  gap: var(--space-1);
-  padding: var(--space-2);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-subtle);
-}
-.task-agent-launch-confirmation > code {
-  overflow-wrap: anywhere;
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-}
-.task-agent-launch-confirmation > .secondary-button {
-  justify-self: start;
-  margin-top: var(--space-1);
-}
-
 /* --- Sketch workspace --- */
 .app-shell.is-canvas-route {
   grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr);

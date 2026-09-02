@@ -144,6 +144,7 @@ export const mobileErrorCodeSchema = z.enum([
   "idempotency_conflict",
   "entity_conflict",
   "version_conflict",
+  "task_state_conflict",
   "proposal_conflict",
   "work_review_task_conflict",
   "work_review_receipt_conflict",
@@ -1055,6 +1056,7 @@ const mobileTaskUpdatePatchSchema = z.union([
   z.object({ title: z.string().trim().min(1).max(500) }).strict(),
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
+  z.object({ aiReady: z.boolean() }).strict(),
   z.object({ schedule: mobileScheduleEditSchema }).strict(),
   z.object({ checklistItems: mobileChecklistSchema }).strict(),
 ]);
@@ -1063,6 +1065,7 @@ const mobileTaskUpdateBaseSchema = z.union([
   z.object({ title: z.string().trim().min(1).max(500) }).strict(),
   z.object({ todayDate: localDateSchema.nullable() }).strict(),
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
+  z.object({ aiReady: z.boolean() }).strict(),
   z.object({ schedule: mobileScheduleBaseSchema.nullable() }).strict(),
   z.object({ checklistItems: mobileChecklistSchema }).strict(),
 ]);
@@ -1105,8 +1108,10 @@ const mobileTaskCommandSchema = z.discriminatedUnion("name", [
         }
         return;
       }
-      const changes = mobileTaskUpdatePatchSchema.options[3].parse(value.changes).schedule;
-      const base = mobileTaskUpdateBaseSchema.options[3].parse(value.base).schedule;
+      if (!("schedule" in value.changes) || !("schedule" in value.base)) return;
+      const changes = mobileScheduleEditSchema.parse(value.changes.schedule);
+      const base =
+        value.base.schedule === null ? null : mobileScheduleBaseSchema.parse(value.base.schedule);
       if (base === null) {
         if (value.expectedScheduleVersion !== null) {
           context.addIssue({

@@ -173,6 +173,78 @@ function createCommand(source, suffix) {
   };
 }
 
+test("AI agent starts only an explicitly AI Ready Task and retries idempotently", () => {
+  const { service } = capability();
+  const created = service.executeCommand(createCommand("desktop", "ai-start"));
+  assert.equal(created.ok, true);
+
+  const denied = service.executeCommand({
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+    command_id: "start-before-ready",
+    name: "StartTaskWork",
+    actor: { kind: "ai_agent", id: "Codex" },
+    source: "mcp",
+    entrypoint: "mcp",
+    issued_at: now,
+    payload: {
+      task_id: "task-ai-start",
+      expected_version: created.value.task.version,
+      executor_identity: "Codex",
+      started_at: now,
+      source_session: "session-ai-start",
+    },
+  });
+  assert.equal(denied.ok, false);
+  assert.equal(denied.error.code, "INVALID_TRANSITION");
+
+  const ready = service.executeCommand({
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+    command_id: "mark-ai-ready",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "actor-1" },
+    source: "desktop",
+    issued_at: now,
+    payload: {
+      task_id: "task-ai-start",
+      expected_version: created.value.task.version,
+      changes: { intended_executor: "ai_agent", work_state: "ready_for_agent" },
+    },
+  });
+  assert.equal(ready.ok, true);
+
+  const startCommand = {
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+    command_id: "start-ai-ready",
+    name: "StartTaskWork",
+    actor: { kind: "ai_agent", id: "Codex" },
+    source: "mcp",
+    entrypoint: "mcp",
+    issued_at: now,
+    payload: {
+      task_id: "task-ai-start",
+      expected_version: ready.value.task.version,
+      executor_identity: "Codex",
+      started_at: now,
+      source_session: "session-ai-start",
+    },
+  };
+  const started = service.executeCommand(startCommand);
+  assert.equal(started.ok, true);
+  assert.equal(started.value.task.work_state, "in_progress");
+  assert.equal(started.value.task.executor_identity, "Codex");
+  assert.equal(started.value.event.name, "TaskUpdated");
+  assert.deepEqual(started.value.event.changed_fields, [
+    "work_state",
+    "work_started_at",
+    "executor_identity",
+  ]);
+
+  const replayed = service.executeCommand(startCommand);
+  assert.equal(replayed.ok, true);
+  assert.equal(replayed.value.task.version, started.value.task.version);
+  assert.equal(replayed.value.task.work_state, "in_progress");
+});
+
 test("UpdateTask three-way merges different fields and rejects a same-field race", () => {
   const { service } = capability();
   const created = service.executeCommand(createCommand("desktop", "field-merge"));
@@ -652,7 +724,10 @@ test("Renderer Task edit plan selects lifecycle commands through the feature pub
     expectedVersion: 4,
   });
   assert.deepEqual(
-    planTaskEdit({ ...draft, state: "done", completion_note: "Finished" }, { state: "doing", version: 5 }),
+    planTaskEdit(
+      { ...draft, state: "done", completion_note: "Finished" },
+      { state: "doing", version: 5 },
+    ),
     { name: "CompleteTask", expectedVersion: 5 },
   );
   assert.deepEqual(planTaskEdit({ ...draft, state: "todo" }, { state: "done", version: 6 }), {
@@ -696,7 +771,12 @@ test("Renderer Task edit applies the public lifecycle plan and preserves version
     commands.push(command);
     return service.executeCommand(command);
   };
-  const client = createTaskClient({ create: execute, update: execute, complete: execute, reopen: execute });
+  const client = createTaskClient({
+    create: execute,
+    update: execute,
+    complete: execute,
+    reopen: execute,
+  });
   const context = (name) => ({
     commandId: `renderer-edit-${name}`,
     issuedAt: now,
@@ -741,13 +821,21 @@ test("Renderer Task edit applies the public lifecycle plan and preserves version
   assert.equal(reopened.task.state, "todo");
   assert.equal(reopened.event.name, "TaskReopened");
   assert.equal(repository.get("task", draft.id).version, 5);
-  assert.deepEqual(commands.map((command) => command.name), [
-    "CreateTask", "UpdateTask", "CompleteTask", "UpdateTask", "ReopenTask",
-  ]);
-  assert.deepEqual(commands.slice(1).map((command) => command.payload.expected_version), [1, 2, 3, 4]);
+  assert.deepEqual(
+    commands.map((command) => command.name),
+    ["CreateTask", "UpdateTask", "CompleteTask", "UpdateTask", "ReopenTask"],
+  );
+  assert.deepEqual(
+    commands.slice(1).map((command) => command.payload.expected_version),
+    [1, 2, 3, 4],
+  );
   assert.equal(commands[4].payload.changes.state, "doing");
-  assert.ok(commands.every((command) => command.source === "desktop" && command.entrypoint === "main_ui"));
-  assert.ok(commands.every((command) => command.actor.id === "actor-1" && command.issued_at === now));
+  assert.ok(
+    commands.every((command) => command.source === "desktop" && command.entrypoint === "main_ui"),
+  );
+  assert.ok(
+    commands.every((command) => command.actor.id === "actor-1" && command.issued_at === now),
+  );
   assert.ok(commands.slice(1).every((command) => !("id" in command.payload.changes)));
   assert.equal("renderer_only" in commands[1].payload.changes, false);
   assert.equal(editedDraft.state, "todo");
@@ -758,23 +846,38 @@ test("Renderer Task edit preserves conflict details and transport failures witho
   const execute = async (command) => service.executeCommand(command);
   const client = createTaskClient({ create: execute, update: execute });
   const draft = createCommand("desktop", "renderer-conflict").payload.task;
-  const created = await client.applyEdit(draft, null, { commandId: "renderer-conflict-create", issuedAt: now });
+  const created = await client.applyEdit(draft, null, {
+    commandId: "renderer-conflict-create",
+    issuedAt: now,
+  });
   await client.applyEdit({ ...draft, title: "Saved elsewhere" }, created.task, {
-    commandId: "renderer-conflict-update", issuedAt: now,
+    commandId: "renderer-conflict-update",
+    issuedAt: now,
   });
   const staleDraft = { ...draft, title: "Unsaved edit" };
   await assert.rejects(
-    client.applyEdit(staleDraft, created.task, { commandId: "renderer-conflict-stale", issuedAt: now }),
-    (error) => error.name === "TaskClientError" && error.code === "CONFLICT" && error.retryable === false,
+    client.applyEdit(staleDraft, created.task, {
+      commandId: "renderer-conflict-stale",
+      issuedAt: now,
+    }),
+    (error) =>
+      error.name === "TaskClientError" && error.code === "CONFLICT" && error.retryable === false,
   );
   assert.equal(repository.get("task", draft.id).title, "Saved elsewhere");
   assert.equal(repository.get("task", draft.id).version, 2);
   assert.equal(staleDraft.title, "Unsaved edit");
 
   const failure = new Error("Task transport unavailable");
-  const failingClient = createTaskClient({ update: async () => { throw failure; } });
+  const failingClient = createTaskClient({
+    update: async () => {
+      throw failure;
+    },
+  });
   await assert.rejects(
-    failingClient.applyEdit(staleDraft, created.task, { commandId: "renderer-transport-failed", issuedAt: now }),
+    failingClient.applyEdit(staleDraft, created.task, {
+      commandId: "renderer-transport-failed",
+      issuedAt: now,
+    }),
     (error) => error === failure,
   );
   assert.equal(staleDraft.title, "Unsaved edit");

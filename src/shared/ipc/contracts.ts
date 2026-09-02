@@ -180,8 +180,6 @@ export const IPC = {
   taskenRootShortcutGet: "tasken-root:shortcut-get",
   taskenRootShortcutSet: "tasken-root:shortcut-set",
   mcpBridgeInfo: "mcp:bridge-info",
-  taskAgentLaunchOptions: "task-agent:launch-options",
-  taskAgentLaunch: "task-agent:launch",
   todayMiniShow: "today-mini:show",
   todayMiniToggleWindow: "today-mini:toggle-window",
   todayMiniRefresh: "today-mini:refresh",
@@ -378,43 +376,6 @@ export interface McpBridgeInfo {
   coreNextAction?: string;
   latestProposalId?: string;
   latestProposalAt?: string;
-}
-
-export type TaskAgentClientId = "claude_code" | "github_copilot" | "codex";
-
-export interface TaskAgentLaunchClient {
-  id: TaskAgentClientId;
-  label: string;
-  available: boolean;
-  reason?: string;
-}
-
-export interface TaskAgentLaunchRepository {
-  id: string;
-  label: string;
-  localPath: string;
-}
-
-export interface TaskAgentLaunchOptionsRequest {
-  taskId: string;
-}
-
-export interface TaskAgentLaunchOptions {
-  clients: TaskAgentLaunchClient[];
-  repositories: TaskAgentLaunchRepository[];
-  taskVersion: number;
-}
-
-export interface TaskAgentLaunchRequest {
-  taskId: string;
-  clientId: TaskAgentClientId;
-  repositoryContextId: string;
-  expectedTaskVersion: number;
-  expectedLocalPath: string;
-}
-
-export interface TaskAgentLaunchResult {
-  clientLabel: string;
 }
 
 export function createMcpBridgeInfo(input: {
@@ -823,10 +784,6 @@ export interface ResearchDeskApi {
     onAppFlushRequested(callback: (request: RendererFlushRequest) => void): () => void;
     ackAppFlush(requestId: string, ok: boolean): Promise<boolean>;
     getMcpBridgeInfo(): Promise<McpBridgeInfo>;
-    getTaskAgentLaunchOptions(
-      request: TaskAgentLaunchOptionsRequest,
-    ): Promise<TaskAgentLaunchOptions>;
-    launchTaskAgent(request: TaskAgentLaunchRequest): Promise<TaskAgentLaunchResult>;
     toggleTaskenRoot(): Promise<boolean>;
     hideTaskenRoot(): Promise<boolean>;
     openTaskenRootTarget(request: RootOpenRequest): Promise<boolean>;
