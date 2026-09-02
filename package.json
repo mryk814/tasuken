@@ -45,7 +45,6 @@
     "audit:note-window": "node scripts/note-window-audit.mjs",
     "audit:mermaid-powerpoint": "node scripts/mermaid-powerpoint-audit.mjs",
     "bench:notes": "npm run build && node scripts/notes-performance.mjs",
-    "bench:interactions": "npm run build && node scripts/workspace-interaction-performance.mjs",
     "workspace:materials-demo": "node scripts/run-electron-node.mjs scripts/seed-materials-informatics-workspace.mjs --apply-local",
     "workspace:materials-demo:today": "node scripts/run-electron-node.mjs scripts/update-materials-informatics-workspace.mjs --apply-local --mode refresh",
     "workspace:materials-demo:add": "node scripts/run-electron-node.mjs scripts/update-materials-informatics-workspace.mjs --apply-local --mode add",
