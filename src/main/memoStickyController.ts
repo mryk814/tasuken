@@ -125,7 +125,7 @@ export function createMemoStickyController(
     window.setBackgroundColor(STICKY_BACKGROUND[activeTheme][memoStickyColorOf(memo)]);
   }
 
-  function open(memoId: string): boolean {
+  function open(memoId: string, arrange = true): boolean {
     const memo = readMemo(memoId);
     if (!memo) return false;
     // openはBだけを変える。Aの付箋対象化は setTarget(true) だけが行う（#377）。
@@ -145,7 +145,7 @@ export function createMemoStickyController(
     });
     applyWindowAppearance(window, memo);
     attachCloseHandshake(window);
-    options.satelliteWindows.arrange([key]);
+    if (arrange) options.satelliteWindows.arrange([key]);
     return true;
   }
 
@@ -296,7 +296,7 @@ export function createMemoStickyController(
     const action = memoStickyVisibilityAction(targets, visibleMemoIds());
     if (action === "empty") return { status: "empty", targetCount: 0, visibleCount: 0 };
     if (action === "show") {
-      for (const memoId of targets) open(memoId);
+      for (const memoId of targets) open(memoId, false);
       options.satelliteWindows.arrange(targets.map(keyOf));
       return { status: "shown", targetCount: targets.length, visibleCount: targets.length };
     }

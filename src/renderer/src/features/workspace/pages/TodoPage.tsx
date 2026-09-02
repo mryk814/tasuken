@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   IconCalendarPlus,
   IconCalendarCheck,
@@ -47,6 +47,9 @@ type TodoRowGroup = {
   title: string;
   rows: TodoRow[];
 };
+
+const INITIAL_RENDERED_TASKS = 160;
+const RENDERED_TASK_BATCH = 160;
 
 function isDoneRow(row: TodoRow): boolean {
   return row.task.state === "done" || row.task.state === "cancelled";
@@ -141,32 +144,73 @@ export function TodoPage({
   const [bulkThemeId, setBulkThemeId] = useState(PERSONAL_DEFAULT_THEME_ID);
   const today = todayIso();
 
-  const taskRows: TodoRow[] = buildTodoView(domain).tasks;
-  const currentFilters: TaskViewFilters = normalizeTaskViewFilters({
-    ...taskFilters,
-    tab: filter,
-    priority: "",
-  });
-  const counters = {
-    today: taskRows.filter((row) => !isDoneRow(row) && isTodayRow(row, today)).length,
-    open: taskRows.filter((row) => !isDoneRow(row)).length,
-    overdue: taskRows.filter(
-      (row) =>
-        !isDoneRow(row) && scheduledDate(row.schedule) && scheduledDate(row.schedule) < today,
-    ).length,
-    noSchedule: taskRows.filter((row) => !isDoneRow(row) && !scheduledDate(row.schedule)).length,
-    done: taskRows.filter(isDoneRow).length,
-  };
-  const visible = sortTodoRows(
-    filterTodoRows(taskRows, currentFilters, today),
-    sortMode,
-    sortDirection,
-    filter,
-    today,
-    themes,
+  const taskRows: TodoRow[] = useMemo(() => buildTodoView(domain).tasks, [domain]);
+  const currentFilters: TaskViewFilters = useMemo(
+    () =>
+      normalizeTaskViewFilters({
+        ...taskFilters,
+        tab: filter,
+        priority: "",
+      }),
+    [filter, taskFilters],
   );
-  const groupedVisible = groupTodoRows(visible, groupMode, today, themes);
-  const selectedVisibleRows = visible.filter((row) => selectedTaskIds.has(row.task.id));
+  const counters = useMemo(
+    () => ({
+      today: taskRows.filter((row) => !isDoneRow(row) && isTodayRow(row, today)).length,
+      open: taskRows.filter((row) => !isDoneRow(row)).length,
+      overdue: taskRows.filter(
+        (row) =>
+          !isDoneRow(row) && scheduledDate(row.schedule) && scheduledDate(row.schedule) < today,
+      ).length,
+      noSchedule: taskRows.filter((row) => !isDoneRow(row) && !scheduledDate(row.schedule)).length,
+      done: taskRows.filter(isDoneRow).length,
+    }),
+    [taskRows, today],
+  );
+  const visible = useMemo(
+    () =>
+      sortTodoRows(
+        filterTodoRows(taskRows, currentFilters, today),
+        sortMode,
+        sortDirection,
+        filter,
+        today,
+        themes,
+      ),
+    [currentFilters, filter, sortDirection, sortMode, taskRows, themes, today],
+  );
+  const visibleTaskCount = visible.length;
+  const [renderedTaskCount, setRenderedTaskCount] = useState(INITIAL_RENDERED_TASKS);
+  useEffect(() => {
+    if (visibleTaskCount <= INITIAL_RENDERED_TASKS) return undefined;
+    let cancelled = false;
+    let idleHandle = 0;
+    let nextCount = INITIAL_RENDERED_TASKS;
+    const renderNextBatch = () => {
+      idleHandle = window.requestIdleCallback(
+        () => {
+          if (cancelled) return;
+          nextCount = Math.min(visibleTaskCount, nextCount + RENDERED_TASK_BATCH);
+          setRenderedTaskCount(nextCount);
+          if (nextCount < visibleTaskCount) renderNextBatch();
+        },
+        { timeout: 120 },
+      );
+    };
+    renderNextBatch();
+    return () => {
+      cancelled = true;
+      window.cancelIdleCallback(idleHandle);
+    };
+  }, [visibleTaskCount]);
+  const groupedVisible = useMemo(
+    () => groupTodoRows(visible.slice(0, renderedTaskCount), groupMode, today, themes),
+    [groupMode, renderedTaskCount, themes, today, visible],
+  );
+  const selectedVisibleRows = useMemo(
+    () => visible.filter((row) => selectedTaskIds.has(row.task.id)),
+    [selectedTaskIds, visible],
+  );
   const allVisibleSelected = visible.length > 0 && selectedVisibleRows.length === visible.length;
 
   function patchTaskFilters(patch: Partial<TaskViewFilters>) {
