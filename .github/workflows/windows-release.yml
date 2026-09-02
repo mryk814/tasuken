@@ -32,6 +32,15 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
 
+      - name: Verify release commit is on main
+        shell: pwsh
+        run: |
+          git fetch origin main --no-tags
+          git merge-base --is-ancestor HEAD origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release tag must point to a commit contained in origin/main."
+          }
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

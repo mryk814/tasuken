@@ -2,7 +2,7 @@
 
 コードと自動検証の正本はWSLに置き、対話的UIはWSLg、Windows固有操作はcommit済みSHAの専用Windows runtime cloneで確認する。
 Windows配布物の作成とpackaged smokeはGitHub Actionsへ分担する。
-WSLでは `npm run ci` を通し、タグをpushしたときは `Windows release` workflowの成功を配布条件とする。
+Pull Requestでは `npm run ci` を通し、タグをpushしたときは `Windows release` workflowの成功を配布条件とする。
 環境の役割と起動方法は [`development-environment.md`](./development-environment.md) を正本とする。
 
 ## 正本は npm run ci
@@ -28,8 +28,10 @@ full-testは全tests/*.test.mjsをnpm test経由で実行する。globはNodeの
 
 ## リリース
 
-`npm run release:check`はWindows x64 host専用で、version検証 → `npm run ci` → Windows ABI rebuildを含むpackage → 配布物検証 → packaged Electron smoke → packaged Activity実画面smoke → packaged live MCP Proposal smoke → packaged MCP smokeを通す。
+`npm run release:check`はWindows x64 host専用で、version検証 → Windows ABI rebuildを含むpackage → 配布物検証 → packaged Electron smoke → packaged Activity実画面smoke → packaged live MCP Proposal smoke → packaged MCP smokeを通す。
 GitHub ActionsのWindows runnerがこのコマンドを実行し、`release/`にNSIS installerとportableを作る。workflowは配布物とSHA-256 checksumをGitHub Releaseへ登録する。
+
+全test・auditはmain向けPull RequestのWindows qualityで一度だけ実行する。Windows releaseはtagのcommitが`origin/main`に含まれることを先に検証し、同じtest・auditを繰り返さず、tagから配布物を再現してpackaged境界だけを確認する。Windows／Android qualityはmainへのpushでは再実行しない。
 
 packaged Activity実画面smokeは、一時userDataへ材料研究者の代表的な1日をseedし、Debriefの2026-08-28を実際に開く。08:00–19:00の初期表示、rangeとpoint、Theme色、AI作業だけのsource chip、詳細表示、Task編集への直行、横方向のclipがないことをDOMと描画寸法で確認する。標準幅のスクリーンショットは`output/playwright/activity-packaged-smoke/`へ出力し、`Windows release` workflowのartifactとして14日間保持する。
 
