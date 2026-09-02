@@ -31,6 +31,7 @@ export const taskCommandOutcomeSchema = z
       "DeleteTask",
       "CompleteTask",
       "ReopenTask",
+      "StartTaskWork",
       "AcceptTaskWork",
       "ReturnTaskWork",
     ]),

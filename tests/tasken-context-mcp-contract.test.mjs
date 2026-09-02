@@ -115,6 +115,22 @@ function fakeCoreClient({ ambiguous = false, sessionsPerClient = 1 } = {}) {
         })),
       };
     },
+    async executeTaskCommand(args) {
+      calls.push(["executeTaskCommand", args]);
+      return {
+        ok: true,
+        value: {
+          command_id: args.command_id,
+          name: args.name,
+          status: "applied",
+          task: {
+            id: args.payload.task_id,
+            version: args.payload.expected_version + 1,
+            work_state: "in_progress",
+          },
+        },
+      };
+    },
   };
 }
 
@@ -151,6 +167,52 @@ test("context views are listed as bounded read-only MCP tools", async () => {
       assert.equal(tool.annotations?.idempotentHint, true, `${name} is idempotent`);
     }
   });
+});
+
+test("start_task_work directly claims an AI Ready Task without creating a Proposal", async () => {
+  const core = fakeCoreClient();
+  await withMcp(core, async (client) => {
+    const listed = await client.listTools();
+    const tool = listed.tools.find((entry) => entry.name === "tasken.start_task_work");
+    assert.ok(tool);
+    assert.equal(tool.annotations?.readOnlyHint, false);
+    assert.equal(tool.annotations?.destructiveHint, false);
+    assert.equal(tool.annotations?.idempotentHint, true);
+
+    const result = await client.callTool({
+      name: "tasken.start_task_work",
+      arguments: {
+        task_id: "task-ready",
+        expected_version: 4,
+        idempotency_key: "start-task-ready",
+        caller: "Codex",
+        source_session: "codex-session-1",
+        started_at: "2026-08-26T10:00:00.000Z",
+      },
+    });
+    assert.equal(result.structuredContent.ok, true);
+  });
+
+  const call = core.calls.find(([name]) => name === "executeTaskCommand");
+  assert.deepEqual(call, [
+    "executeTaskCommand",
+    {
+      schemaVersion: 1,
+      command_id: "start-task-ready",
+      name: "StartTaskWork",
+      actor: { kind: "ai_agent", id: "Codex" },
+      source: "mcp",
+      entrypoint: "mcp",
+      issued_at: "2026-08-26T10:00:00.000Z",
+      payload: {
+        task_id: "task-ready",
+        expected_version: 4,
+        executor_identity: "Codex",
+        started_at: "2026-08-26T10:00:00.000Z",
+        source_session: "codex-session-1",
+      },
+    },
+  ]);
 });
 
 test("Theme intent ResourceTemplate is listed and reads a bounded human intent projection", async () => {

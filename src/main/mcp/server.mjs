@@ -21,6 +21,12 @@ const PROPOSAL_ANNOTATIONS = {
   idempotentHint: false,
   openWorldHint: false,
 };
+const DIRECT_WRITE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+};
 const optionalText = z.string().trim().optional();
 const optionalLimit = z.number().int().positive().max(100).optional();
 const optionalWave7ThemeId = z.string().trim().min(1).max(200).optional();
@@ -119,7 +125,7 @@ export function createTaskenMcpServer(options = {}) {
     {
       instructions: readOnly
         ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed."
-        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Write tools only queue a Proposal. A successful write returns a Proposal ID, not a Note ID; tell the user to review and accept it in Tasken before it becomes official data. A Note proposal may carry a Theme, not a Task or Reference relation.",
+        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Write tools queue a Proposal except tasken.start_task_work, which directly starts an explicitly AI Ready Task. A successful Proposal write returns a Proposal ID, not a Note ID; tell the user to review and accept it in Tasken before it becomes official data. A Note proposal may carry a Theme, not a Task or Reference relation.",
     },
   );
 
@@ -1081,6 +1087,23 @@ export function createTaskenMcpServer(options = {}) {
       source: "mcp",
       source_app: sourceApp(args),
     });
+  const startTaskWork = (args) =>
+    coreClient.executeTaskCommand({
+      schemaVersion: 1,
+      command_id: args.idempotency_key,
+      name: "StartTaskWork",
+      actor: { kind: "ai_agent", id: args.caller },
+      source: "mcp",
+      entrypoint: "mcp",
+      issued_at: args.started_at,
+      payload: {
+        task_id: args.task_id,
+        expected_version: args.expected_version,
+        executor_identity: args.caller,
+        started_at: args.started_at,
+        ...(args.source_session ? { source_session: args.source_session } : {}),
+      },
+    });
   const requiredTimestamp = z
     .string()
     .trim()
@@ -1237,16 +1260,14 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.start_task_work",
     {
       description:
-        "Queue an optional compatibility proposal to start work on an AI Ready Task. A separate start proposal is not required before a Work Receipt; started_at is recorded when that receipt is adopted.",
+        "Claim an explicitly AI Ready Task and start work immediately. Use this only after selecting the Task for actual work; listing or reading Tasks never starts them. Reuse the same idempotency_key and started_at when retrying.",
       inputSchema: {
         ...taskWorkBase,
-        executor_kind: z.enum(["self", "human", "ai_agent", "external", "unknown"]).optional(),
-        executor_identity: z.string().trim().max(200).optional(),
-        started_at: optionalTimestamp,
+        started_at: requiredTimestamp,
       },
-      annotations: PROPOSAL_ANNOTATIONS,
+      annotations: DIRECT_WRITE_ANNOTATIONS,
     },
-    withCoreClient((args) => queueTaskWork(args, "start")),
+    withCoreClient(startTaskWork),
   );
 
   const receiptProposalSchema = {

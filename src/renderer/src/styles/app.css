@@ -9234,6 +9234,16 @@ kbd {
   background: var(--color-accent-subtle-bg);
   border-color: var(--color-accent-subtle-bd);
 }
+.priority-flag-button.is-working {
+  color: var(--color-status-active-fg);
+  background: var(--color-status-active-bg);
+  border-color: var(--color-status-active-bd);
+  cursor: default;
+  opacity: 1;
+}
+.priority-flag-button.is-working svg {
+  animation: spin calc(var(--duration-base) * 5) linear infinite;
+}
 .theme-inline {
   display: inline-flex;
   align-items: center;

@@ -3283,7 +3283,12 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
       client.executeTaskQuery(query),
       (error) => error?.code === "CORE_UNAVAILABLE",
     );
-    assert.doesNotMatch(readFileSync("src/main/mcp/server.mjs", "utf8"), /executeTaskCommand/);
+    const mcpServer = readFileSync("src/main/mcp/server.mjs", "utf8");
+    assert.match(mcpServer, /const startTaskWork = \(args\) =>\s*coreClient\.executeTaskCommand/);
+    assert.doesNotMatch(
+      mcpServer,
+      /server\.registerTool\(\s*"tasken\.(?:create|update|delete|complete)_task"/,
+    );
   } finally {
     await runtime.stop();
     rmSync(root, { recursive: true, force: true });

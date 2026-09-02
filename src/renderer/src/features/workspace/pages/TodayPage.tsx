@@ -10,6 +10,7 @@ import {
   IconNotebook,
   IconPlus,
   IconRefresh,
+  IconLoader2,
 } from "@tabler/icons-react";
 
 import { AI_ICON } from "../../../pages/semanticIcons";
@@ -276,6 +277,7 @@ function TodayRows({
           (task?.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
         const aiReady =
           task?.intended_executor === "ai_agent" && taskWorkState === "ready_for_agent";
+        const aiWorking = task?.intended_executor === "ai_agent" && taskWorkState === "in_progress";
         const canToggleAiReady =
           Boolean(task) && !done && ["not_delegated", "ready_for_agent"].includes(taskWorkState);
         return (
@@ -312,16 +314,18 @@ function TodayRows({
               </button>
               {task && (
                 <button
-                  className={`priority-flag-button ${aiReady ? "is-active" : ""}`}
+                  className={`priority-flag-button ${aiReady ? "is-active" : ""}${aiWorking ? " is-working" : ""}`}
                   disabled={!canToggleAiReady}
                   onClick={(event) => {
                     event.stopPropagation();
                     onToggleAiReady(row);
                   }}
-                  aria-label={aiReady ? "AI Readyを解除" : "AI Readyにする"}
-                  title={aiReady ? "AI Readyを解除" : "AI Readyにする"}
+                  aria-label={
+                    aiWorking ? "AIが作業中" : aiReady ? "AI Readyを解除" : "AI Readyにする"
+                  }
+                  title={aiWorking ? "AIが作業中" : aiReady ? "AI Readyを解除" : "AI Readyにする"}
                 >
-                  <AI_ICON size={16} />
+                  {aiWorking ? <IconLoader2 size={16} /> : <AI_ICON size={16} />}
                 </button>
               )}
               <div className="row-title-main">

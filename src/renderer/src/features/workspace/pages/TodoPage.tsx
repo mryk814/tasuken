@@ -4,6 +4,7 @@ import {
   IconCalendarCheck,
   IconClock,
   IconCopyPlus,
+  IconLoader2,
   IconPlus,
 } from "@tabler/icons-react";
 
@@ -403,6 +404,7 @@ export function TodoPage({
     const requiresHumanAcceptance =
       task.intended_executor === "ai_agent" && workState !== "accepted";
     const aiReady = task.intended_executor === "ai_agent" && workState === "ready_for_agent";
+    const aiWorking = task.intended_executor === "ai_agent" && workState === "in_progress";
     const canToggleAiReady = !done && ["not_delegated", "ready_for_agent"].includes(workState);
     const due = scheduledDate(schedule);
     const completionDate = task.completed_at ? task.completed_at.slice(0, 10) : "";
@@ -450,16 +452,16 @@ export function TodoPage({
         </button>
         <div className="row-title-wrap">
           <button
-            className={`priority-flag-button ${aiReady ? "is-active" : ""}`}
+            className={`priority-flag-button ${aiReady ? "is-active" : ""}${aiWorking ? " is-working" : ""}`}
             disabled={!canToggleAiReady}
             onClick={(event) => {
               event.stopPropagation();
               void toggleAiReady(task);
             }}
-            aria-label={aiReady ? "AI Readyを解除" : "AI Readyにする"}
-            title={aiReady ? "AI Readyを解除" : "AI Readyにする"}
+            aria-label={aiWorking ? "AIが作業中" : aiReady ? "AI Readyを解除" : "AI Readyにする"}
+            title={aiWorking ? "AIが作業中" : aiReady ? "AI Readyを解除" : "AI Readyにする"}
           >
-            <AI_ICON size={16} />
+            {aiWorking ? <IconLoader2 size={16} /> : <AI_ICON size={16} />}
           </button>
           <button
             className={`today-plan-button ${isTodayRow({ task, schedule }, today) ? "is-active" : ""}`}

@@ -1652,6 +1652,17 @@ export class ApplicationCommandService {
         { id: taskId },
       );
     const state = currentWorkState(current);
+    if (
+      command.actor.kind === "ai_agent" &&
+      (current.intended_executor !== "ai_agent" ||
+        !["ready_for_agent", "in_progress"].includes(state))
+    ) {
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        "AIはAI ReadyのTaskだけ作業開始できます。",
+        { id: taskId, intended_executor: current.intended_executor, work_state: state },
+      );
+    }
     if (["reported_done", "needs_human_review", "accepted"].includes(state))
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",

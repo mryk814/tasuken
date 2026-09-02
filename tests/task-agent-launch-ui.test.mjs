@@ -9,6 +9,7 @@ const taskFields = readFileSync(
 );
 const todo = readFileSync("src/renderer/src/features/workspace/pages/TodoPage.tsx", "utf8");
 const today = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
+const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
 const workspaceApi = readFileSync("src/renderer/src/services/workspaceApi.ts", "utf8");
 
 test("AI Readyだけを人間側のAI作業許可として表示する", () => {
@@ -25,6 +26,16 @@ test("AI Readyだけを人間側のAI作業許可として表示する", () => {
   assert.match(todo, /AI_ICON/);
   assert.match(today, /onToggleAiReady/);
   assert.match(today, /async function handleToggleAiReady/);
+});
+
+test("TodayとToDoはAI作業中を回転アイコンで表示する", () => {
+  for (const source of [today, todo]) {
+    assert.match(source, /in_progress/);
+    assert.match(source, /IconLoader2/);
+    assert.match(source, /is-working/);
+    assert.match(source, /AIが作業中/);
+  }
+  assert.match(styles, /\.priority-flag-button\.is-working svg[\s\S]*animation: spin/);
 });
 
 test("Desktopは依頼文コピーを残し、直接AIを起動する導線を持たない", () => {
