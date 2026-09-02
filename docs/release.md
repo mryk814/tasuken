@@ -33,7 +33,7 @@ npm run ci
 
 必要に応じて`patch`を`minor`または`major`に変える。
 
-3. 変更をcommitしてpushする。`main`へのpushまたはPull Requestでは、Windows quality workflowも実行される。
+3. 変更をcommitしてpushし、Pull Requestを作る。Pull RequestではWindows／Android quality workflowが実行される。
 
 ```bash
 git add package.json package-lock.json
@@ -48,7 +48,7 @@ git tag -a vX.Y.Z -m "Tasken vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-5. `Windows release` workflowが同じタグのcommitをcheckoutし、`npm ci` → `npm run release:check`を実行する。packaged appでDebrief Activityを含む実画面smokeまで成功すると、GitHub Releaseが作成または更新される。
+5. `Windows release` workflowが同じタグのcommitをcheckoutし、そのcommitが`origin/main`に含まれることを検証してから、`npm ci` → `npm run release:check`を実行する。packaged appでDebrief Activityを含む実画面smokeまで成功すると、GitHub Releaseが作成または更新される。全test・auditはPull Requestのquality workflowで完了しているため、Releaseでは再実行しない。
 
 手動で再実行する場合は、GitHub Actionsの`Windows release`から`vX.Y.Z`タグを指定する。
 

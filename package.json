@@ -60,7 +60,7 @@
     "release:verify-version": "node scripts/verify-release-version.mjs",
     "release:verify-artifacts": "node scripts/verify-release-artifacts.mjs",
     "release:checksum": "node scripts/write-release-checksums.mjs",
-    "release:check": "node scripts/assert-windows-build-host.mjs && npm run release:verify-version && npm run ci && npm run package && npm run release:verify-artifacts && npm run smoke:desktop:packaged && npm run smoke:activity:packaged && npm run smoke:proposal-live:packaged && npm run smoke:mcp-package"
+    "release:check": "node scripts/assert-windows-build-host.mjs && npm run release:verify-version && npm run package && npm run release:verify-artifacts && npm run smoke:desktop:packaged && npm run smoke:activity:packaged && npm run smoke:proposal-live:packaged && npm run smoke:mcp-package"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
