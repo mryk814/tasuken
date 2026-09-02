@@ -8800,6 +8800,8 @@ kbd {
 }
 .todo-table .table-row,
 .waiting-table .table-row {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 38px;
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--chip-color, var(--color-surface)) 10%, var(--color-surface)) 0%,

@@ -28,11 +28,11 @@ export function preloadWorkspacePage(route: string): void {
 export function preloadWorkspacePagesWhenIdle(): () => void {
   const routes = [
     "todo",
+    "notes",
     "inbox",
     "debrief",
     "timeline",
     "knowledge",
-    "notes",
     "sketch",
     "sketch-editor",
     "studio",

@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -65,8 +67,6 @@ import {
   ShortcutDialog,
   type TitleBarLauncherData,
 } from "./components/shell";
-import { ContentViewer } from "./components/ContentViewer";
-import { EntityDrawer } from "./components/drawer";
 import { ContextPane } from "./components/contextPane";
 import { WorkspacePageRouter } from "./components/WorkspacePageRouter";
 import { currentWindowMode } from "./lib/windowMode";
@@ -79,9 +79,6 @@ import {
   type CommandPaletteEntry,
   type CommandPaletteExecutionContext,
 } from "./components/CommandPalette";
-import { ContextPackDialog } from "./components/ContextPackDialog";
-import { DailyScratchpadDialog } from "./components/DailyScratchpadDialog";
-import { FocusSessionDialog } from "./components/FocusSessionDialog";
 import {
   findActiveFocusSession,
   focusSessionProperties,
@@ -104,6 +101,28 @@ import {
   stripLineageDraftMetadata,
 } from "./lib/lineageOperations";
 import { buildRecallPaletteEntries, type RecallPaletteTarget } from "./lib/recallPaletteEntries";
+
+const EntityDrawer = lazy(async () => {
+  const module = await import("./components/drawer");
+  return { default: module.EntityDrawer };
+});
+const ContentViewer = lazy(async () => {
+  const module = await import("./components/ContentViewer");
+  return { default: module.ContentViewer };
+});
+const ContextPackDialog = lazy(async () => {
+  const module = await import("./components/ContextPackDialog");
+  return { default: module.ContextPackDialog };
+});
+const DailyScratchpadDialog = lazy(async () => {
+  const module = await import("./components/DailyScratchpadDialog");
+  return { default: module.DailyScratchpadDialog };
+});
+const FocusSessionDialog = lazy(async () => {
+  const module = await import("./components/FocusSessionDialog");
+  return { default: module.FocusSessionDialog };
+});
+
 const TASK_REFERENCE_TYPE: EntityType = "reference";
 
 function errorMessage(error: unknown): string {
@@ -113,6 +132,16 @@ function errorMessage(error: unknown): string {
 function toastIcon(tone: ToastTone) {
   const ToastIcon = actionDefinition(TOAST_ACTIONS[tone]).icon;
   return ToastIcon ? <ToastIcon size={18} /> : null;
+}
+
+function LazyOverlayFallback() {
+  return (
+    <div className="modal-backdrop">
+      <section className="modal-card">
+        <AppState state="loading" />
+      </section>
+    </div>
+  );
 }
 
 type FormSignatureScope = "all" | "checklist" | "non-checklist";
@@ -2457,25 +2486,33 @@ export function WorkspaceApp() {
             />
           </main>
           {drawer ? (
-            <EntityDrawer
-              drawer={drawer}
-              data={drawer.dataScope === "full" ? fullData : data}
-              close={closeDrawer}
-              saveForm={saveForm}
-              registerEditForm={registerEditForm}
-              isFormDirty={drawerFormDirty}
-              removeEntity={removeEntity}
-              saveEntity={saveEntity}
-              saveEntities={saveEntities}
-              registerChecklistSave={registerDrawerSave}
-              markChecklistSaved={markChecklistSaved}
-              markChecklistDraftChange={markDrawerFormDirty}
-              setToast={setToast}
-              executeCommand={executeTaskWorkCommand}
-              openContentViewer={openContentViewer}
-              startFocusSession={startFocusSession}
-              navigate={navigate}
-            />
+            <Suspense
+              fallback={
+                <aside className="drawer">
+                  <AppState state="loading" />
+                </aside>
+              }
+            >
+              <EntityDrawer
+                drawer={drawer}
+                data={drawer.dataScope === "full" ? fullData : data}
+                close={closeDrawer}
+                saveForm={saveForm}
+                registerEditForm={registerEditForm}
+                isFormDirty={drawerFormDirty}
+                removeEntity={removeEntity}
+                saveEntity={saveEntity}
+                saveEntities={saveEntities}
+                registerChecklistSave={registerDrawerSave}
+                markChecklistSaved={markChecklistSaved}
+                markChecklistDraftChange={markDrawerFormDirty}
+                setToast={setToast}
+                executeCommand={executeTaskWorkCommand}
+                openContentViewer={openContentViewer}
+                startFocusSession={startFocusSession}
+                navigate={navigate}
+              />
+            </Suspense>
           ) : route !== "sketch-editor" && !detachedNoteId ? (
             <ContextPane
               data={data}
@@ -2487,13 +2524,15 @@ export function WorkspaceApp() {
             />
           ) : null}
           {contentViewer && (
-            <ContentViewer
-              target={contentViewer}
-              data={data}
-              onClose={closeContentViewer}
-              openDrawer={openDrawer}
-              setToast={setToast}
-            />
+            <Suspense fallback={<LazyOverlayFallback />}>
+              <ContentViewer
+                target={contentViewer}
+                data={data}
+                onClose={closeContentViewer}
+                openDrawer={openDrawer}
+                setToast={setToast}
+              />
+            </Suspense>
           )}
           {toast && (
             <div
@@ -2518,50 +2557,56 @@ export function WorkspaceApp() {
             close={() => setShowCommandPalette(false)}
           />
           {contextPackThemeId && themes.find((theme) => theme.id === contextPackThemeId) && (
-            <ContextPackDialog
-              theme={themes.find((theme) => theme.id === contextPackThemeId) as Theme}
-              domain={domain}
-              data={data}
-              saveEntity={saveEntity}
-              openDrawer={openDrawer}
-              setToast={setToast}
-              close={closeContextPack}
-            />
+            <Suspense fallback={<LazyOverlayFallback />}>
+              <ContextPackDialog
+                theme={themes.find((theme) => theme.id === contextPackThemeId) as Theme}
+                domain={domain}
+                data={data}
+                saveEntity={saveEntity}
+                openDrawer={openDrawer}
+                setToast={setToast}
+                close={closeContextPack}
+              />
+            </Suspense>
           )}
           {scratchpadDate && (
-            <DailyScratchpadDialog
-              key={scratchpadDate}
-              initialDate={scratchpadDate}
-              today={todayIso()}
-              notes={data.notes}
-              tasks={domain.tasks}
-              references={domain.references}
-              saveEntity={saveEntity}
-              saveEntities={saveEntities}
-              openDrawer={openDrawer}
-              setToast={setToast}
-              close={() => setScratchpadDate(null)}
-            />
+            <Suspense fallback={<LazyOverlayFallback />}>
+              <DailyScratchpadDialog
+                key={scratchpadDate}
+                initialDate={scratchpadDate}
+                today={todayIso()}
+                notes={data.notes}
+                tasks={domain.tasks}
+                references={domain.references}
+                saveEntity={saveEntity}
+                saveEntities={saveEntities}
+                openDrawer={openDrawer}
+                setToast={setToast}
+                close={() => setScratchpadDate(null)}
+              />
+            </Suspense>
           )}
           {/* 実行中Focusの表示はSidebar下部へ移した（#316）。右下floatingは目に入りにくい。 */}
           {focusTaskId && fullDomain.tasks.find((task) => task.id === focusTaskId) && (
-            <FocusSessionDialog
-              task={
-                fullDomain.tasks.find(
-                  (task) => task.id === focusTaskId,
-                ) as (typeof fullDomain.tasks)[number]
-              }
-              session={activeFocusSession}
-              data={fullData}
-              domain={fullDomain}
-              saveEntity={saveEntity}
-              saveEntities={saveEntities}
-              removeEntity={removeEntity}
-              openDrawer={openDrawer}
-              openContentViewer={openContentViewer}
-              setToast={setToast}
-              close={() => setFocusTaskId(null)}
-            />
+            <Suspense fallback={<LazyOverlayFallback />}>
+              <FocusSessionDialog
+                task={
+                  fullDomain.tasks.find(
+                    (task) => task.id === focusTaskId,
+                  ) as (typeof fullDomain.tasks)[number]
+                }
+                session={activeFocusSession}
+                data={fullData}
+                domain={fullDomain}
+                saveEntity={saveEntity}
+                saveEntities={saveEntities}
+                removeEntity={removeEntity}
+                openDrawer={openDrawer}
+                openContentViewer={openContentViewer}
+                setToast={setToast}
+                close={() => setFocusTaskId(null)}
+              />
+            </Suspense>
           )}
         </div>
       </div>

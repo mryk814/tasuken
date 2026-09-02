@@ -1,7 +1,10 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { IconCommand, IconSearch } from "@tabler/icons-react";
 
-import { filterCommandEntries, prepareCommandEntries } from "../../../../../shared/commandPalette.mjs";
+import {
+  filterCommandEntries,
+  prepareCommandEntries,
+} from "../../../../../shared/commandPalette.mjs";
 
 export type CommandPaletteCategory =
   | "Commands"
@@ -35,7 +38,9 @@ const RECENT_LIMIT = 8;
 function loadRecent(): string[] {
   try {
     const value = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
-    return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+    return Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === "string")
+      : [];
   } catch {
     return [];
   }
@@ -49,15 +54,18 @@ function optionId(entryId: string): string {
   return `command-palette-option-${entryId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 
-export function CommandPalette({
-  open,
-  entries,
-  close,
-}: {
+interface CommandPaletteProps {
   open: boolean;
   entries: CommandPaletteEntry[];
   close: () => void;
-}) {
+}
+
+export function CommandPalette(props: CommandPaletteProps) {
+  if (!props.open) return null;
+  return <OpenCommandPalette entries={props.entries} close={props.close} />;
+}
+
+function OpenCommandPalette({ entries, close }: Omit<CommandPaletteProps, "open">) {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recentIds, setRecentIds] = useState<string[]>(loadRecent);
@@ -84,7 +92,9 @@ export function CommandPalette({
       .map((id) => entries.find((entry) => entry.id === id))
       .filter((entry): entry is CommandPaletteEntry => Boolean(entry));
     const recentSet = new Set(recent.map((entry) => entry.id));
-    const remaining = preparedEntries.filter((entry) => entry.category === "Commands" && !recentSet.has(entry.id));
+    const remaining = preparedEntries.filter(
+      (entry) => entry.category === "Commands" && !recentSet.has(entry.id),
+    );
     const categories = [...new Set(remaining.map((entry) => entry.category))];
     return [
       ...(recent.length ? [{ label: "Recent", entries: recent }] : []),
@@ -99,31 +109,31 @@ export function CommandPalette({
     () => new Map(flatEntries.map((entry, index) => [entry.id, index])),
     [flatEntries],
   );
-  const selectedOptionId = flatEntries[selectedIndex] ? optionId(flatEntries[selectedIndex].id) : undefined;
+  const selectedOptionId = flatEntries[selectedIndex]
+    ? optionId(flatEntries[selectedIndex].id)
+    : undefined;
 
   useEffect(() => {
-    if (!open) return;
     previousFocusRef.current = document.activeElement as HTMLElement | null;
-    setQuery("");
-    setSelectedIndex(0);
-    setError("");
     window.requestAnimationFrame(() => inputRef.current?.focus());
-  }, [open]);
+  }, []);
 
   useEffect(() => {
-    if (!open || selectedIndex < flatEntries.length) return;
+    if (selectedIndex < flatEntries.length) return;
     setSelectedIndex(Math.max(0, flatEntries.length - 1));
-  }, [flatEntries.length, open, selectedIndex]);
+  }, [flatEntries.length, selectedIndex]);
 
   useEffect(() => {
-    if (!open || !selectedOptionId) return;
+    if (!selectedOptionId) return;
     document.getElementById(selectedOptionId)?.scrollIntoView({ block: "nearest" });
-  }, [open, selectedOptionId]);
+  }, [selectedOptionId]);
 
   function closePalette(restoreFocus: boolean) {
     close();
     if (restoreFocus) {
-      window.requestAnimationFrame(() => previousFocusRef.current?.focus?.({ preventScroll: true }));
+      window.requestAnimationFrame(() =>
+        previousFocusRef.current?.focus?.({ preventScroll: true }),
+      );
     }
   }
 
@@ -131,7 +141,10 @@ export function CommandPalette({
     if (resultsPending || entry.disabledReason) return;
     try {
       await entry.execute({ trigger: previousFocusRef.current });
-      const nextRecent = [entry.id, ...recentIds.filter((id) => id !== entry.id)].slice(0, RECENT_LIMIT);
+      const nextRecent = [entry.id, ...recentIds.filter((id) => id !== entry.id)].slice(
+        0,
+        RECENT_LIMIT,
+      );
       setRecentIds(nextRecent);
       saveRecent(nextRecent);
       closePalette(false);
@@ -140,11 +153,14 @@ export function CommandPalette({
     }
   }
 
-  if (!open) return null;
   return (
-    <div className="command-palette-backdrop" role="presentation" onPointerDown={(event) => {
-      if (event.currentTarget === event.target) closePalette(true);
-    }}>
+    <div
+      className="command-palette-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.currentTarget === event.target) closePalette(true);
+      }}
+    >
       <section
         className="command-palette"
         role="dialog"
@@ -195,11 +211,24 @@ export function CommandPalette({
           />
           <kbd>Esc</kbd>
         </div>
-        {error && <p className="command-palette-error" role="alert">{error}</p>}
+        {error && (
+          <p className="command-palette-error" role="alert">
+            {error}
+          </p>
+        )}
         <p className="command-palette-result-status" role="status" aria-live="polite">
-          {resultsPending ? "検索中…" : query.trim() ? `${flatEntries.length}件` : "最近使った項目とコマンド"}
+          {resultsPending
+            ? "検索中…"
+            : query.trim()
+              ? `${flatEntries.length}件`
+              : "最近使った項目とコマンド"}
         </p>
-        <div className="command-palette-results" id="command-palette-results" role="listbox" aria-busy={resultsPending}>
+        <div
+          className="command-palette-results"
+          id="command-palette-results"
+          role="listbox"
+          aria-busy={resultsPending}
+        >
           {groups.map((group) => (
             <section key={group.label} className="command-palette-group">
               <h3>{group.label}</h3>
@@ -223,7 +252,11 @@ export function CommandPalette({
                     <IconCommand size={16} aria-hidden="true" />
                     <span>
                       <strong>{entry.label}</strong>
-                      {entry.context ? <small>{entry.context}</small> : entry.disabledReason ? <small>{entry.disabledReason}</small> : null}
+                      {entry.context ? (
+                        <small>{entry.context}</small>
+                      ) : entry.disabledReason ? (
+                        <small>{entry.disabledReason}</small>
+                      ) : null}
                     </span>
                     {entry.shortcut && <kbd>{entry.shortcut}</kbd>}
                   </button>
