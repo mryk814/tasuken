@@ -10,7 +10,9 @@
         "onShow",
         "onThemeChange",
         "onThemes",
+        "organize",
         "previewDue",
+        "resize",
         "save"
       ]
     },
@@ -26,6 +28,7 @@
         "attachments",
         "batchTranscription",
         "calendar",
+        "captureOrganizer",
         "clipboard",
         "commands",
         "conversationContext",

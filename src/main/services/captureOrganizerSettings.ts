@@ -13,7 +13,7 @@ import {
   createCaptureOrganizerFromEnvironment,
   type CaptureOrganizerInput,
   type CaptureOrganizerProposal,
-} from "../gateway/mobile/captureOrganizer.ts";
+} from "../gateway/mobile/public.ts";
 
 interface SecureStorage {
   isEncryptionAvailable(): boolean;

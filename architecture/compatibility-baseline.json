@@ -15,6 +15,7 @@
     },
     "global-workspace-snapshot": {
       "consumerPaths": [
+        "scripts/sketch-toolbar-smoke.mjs",
         "src/main/index.ts",
         "src/renderer/src/services/workspaceApi.ts",
         "src/renderer/src/stores/workspaceStore.ts",
