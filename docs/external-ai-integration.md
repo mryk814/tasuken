@@ -6,7 +6,7 @@ Taskenは正本を保持し、外部AIはMCPで文脈を読み、結果をAI Inb
 ## 最初の接続
 
 Windows版Taskenと同じWindowsユーザーで、Nodeと各CLIを使います。
-Taskenの「設定 → Context & MCP → 接続設定をコピー」からserverの絶対パスを取得してください。
+Taskenの「設定 → AI & Context → 接続設定をコピー」からserverの絶対パスを取得してください。
 以下の`C:/path/to/Tasken/resources/mcp/server.mjs`をそのパスへ置き換えます。
 既存の`tasken`登録がある場合は、先に`get`で内容を確認してください。
 

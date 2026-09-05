@@ -216,7 +216,7 @@ try {
   await waitForPendingCount(page, 1);
 
   await openNavigation(page, "Settings");
-  await page.getByText("Context & MCP", { exact: true }).click();
+  await page.getByText("AI & Context", { exact: true }).click();
   await page.getByRole("button", { name: "状態を再確認" }).click();
   await page.waitForFunction(
     (id) =>
@@ -224,7 +224,7 @@ try {
     proposalId,
     { timeout: 15_000 },
   );
-  const diagnosticsText = await bodyText(page);
+  const diagnosticsText = await page.locator(".mcp-settings-panel").innerText();
   assert.match(diagnosticsText, /Pending Proposal\n1件/);
   assert.doesNotMatch(diagnosticsText, /API key|AI Provider|OpenAI/);
 
