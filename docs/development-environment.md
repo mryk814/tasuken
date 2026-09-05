@@ -1,23 +1,42 @@
 # 開発環境の正本
 
-Taskenはコードの正本と実行環境を分ける。
-編集場所を複数にせず、同じcommitを用途に合うruntimeで検証する。
+ユーザーが選んだcheckoutを編集・Gitの作業先とし、開始時にbranch・未commit変更を確認する。
+別のcheckoutを使う検証では、対象commitを照合してから実行する。
 
 ## 標準ルート
 
-| 役割 | 正本 |
-|---|---|
-| 編集・Git・通常の依存管理 | WSL2のext4上にある `/home/<user>/src/tasuken` |
-| test・CI・自動Electron smoke | WSL2。画面はXvfbを使う |
-| 日常の対話的UI確認 | 同じWSL checkoutをWSLgで起動する |
-| Windows固有の実動確認 | commit済みSHAを専用Windows runtime cloneへ同期して起動する |
-| package・release | GitHub ActionsのWindows x64 runner |
+| 役割                            | 正本                                                                |
+| ------------------------------- | ------------------------------------------------------------------- |
+| 編集・Git・通常の依存管理       | ユーザーが選んだcheckout。OSを理由に別のcloneへ自動的に切り替えない |
+| test・CI・自動Electron smoke    | 作業先と同じ変更を含み、そのOS用の依存を導入したcheckout            |
+| 日常の対話的UI確認              | 作業先で検証用userDataを指定して起動する                            |
+| commit済みSHAの独立した実動確認 | 必要に応じて専用Windows runtime cloneへ同期して起動する             |
+| package・release                | GitHub ActionsのWindows x64 runner                                  |
 
 Windows runtime cloneは編集場所ではない。
 未commit変更を置かず、Windows専用`node_modules`と検証用userDataだけを持つ。
 通常のWindows checkoutや他のAIが作業中のworktreeをruntimeとして流用しない。
 
-## 日常のWSL開発
+## 日常のWindows開発
+
+初回は `rtk npm ci`、起動前診断は `rtk npm run doctor:desktop` を使う。
+Node/npm、Electron、native moduleはWindows用を同じcheckoutへ導入する。
+
+対話的な検証では、PowerShellで専用の保存先を指定してから起動する。
+
+```powershell
+$env:TASKEN_DEV_USER_DATA_DIR = Join-Path $env:LOCALAPPDATA 'TaskenDevRuntime\interactive-user-data'
+rtk npm run dev
+```
+
+通常起動のプロファイル、実データ、同期先を検証に流用しない。
+自動smokeは既存runnerが用意する一時userDataを使う。
+チェックの選び方は `AGENTS.md` のTestingに従う。
+
+## WSLでの補助検証
+
+WSL checkoutのbranch・commit・未commit変更を確認し、検証対象と一致させる。
+WSLを使うことだけを理由に普段の編集先を移したり、Windowsの依存を共有したりしない。
 
 初回だけ依存を入れる。
 
@@ -76,17 +95,17 @@ doctorが`WSLgの画面サイズが0×0`、`WSLgの画面ソケットへ接続�
 `wsl --shutdown`は全distroとWSLgを停止する。
 doctorや起動スクリプトから自動実行しない。
 
-## Windows固有の実動確認
+## commit済みSHAをWindows runtime cloneで確認する
 
-Windows PowerShellから、WSL正本にあるスクリプトを実行する。
+Windows checkoutのルートで、PowerShellから次を実行する。
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\<user>\src\tasuken\scripts\run-windows-runtime.ps1"
+rtk powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/run-windows-runtime.ps1
 ```
 
 スクリプトは次を行う。
 
-1. WSL正本がcleanで、commit済みSHAを持つことを確認する。
+1. 呼び出し元checkoutがcleanで、commit済みSHAを持つことを確認する。
 2. `%LOCALAPPDATA%\TaskenDevRuntime\source`を専用cloneとして作成または更新する。
 3. runtime cloneがcleanであることを確認し、同じSHAをdetached HEADでcheckoutする。
 4. Windows側で`npm.cmd ci`を実行し、Windows用Electronとnative moduleを用意する。
@@ -103,9 +122,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "...\run-windows-runtime
 
 ## 検証の分担
 
-- WSLの`npm run ci`: merge前の正本ゲート。
-- WSLgの`npm run dev:wsl`: 日常のレイアウト・入力・導線確認。
-- Windows runtime clone: tray、global shortcut、clipboard、screen recording、Windows file dialogなどのWindows固有確認。
+- `rtk npm run ci`: merge前の品質ゲート。
+- Windowsの`rtk npm run dev`: 隔離userDataで日常のレイアウト・入力・導線とWindows固有機能を確認。
+- Windows runtime clone: commit済みSHAでtray、global shortcut、clipboard、screen recording、Windows file dialogなどを独立して確認する場合に使う。
+- WSLgの`npm run dev:wsl`: WSL固有の表示・入力に変更がある場合の補助検証。
 - GitHub Actions: Windows package、packaged smoke、release artifactの正本。
 
 自動testが通っても、操作対象が見えない、選択範囲が分からない、Windows固有機能を未確認、のいずれかが残る場合は実動確認完了にしない。
