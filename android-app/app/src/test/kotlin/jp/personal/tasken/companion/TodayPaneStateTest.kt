@@ -5,7 +5,7 @@ import org.junit.Test
 
 class TodayPaneStateTest {
     @Test
-    fun voiceCaptureStartsRecognitionOnlyForEmptyDraft() {
+    fun voiceCaptureStartsRecognitionForEmptyDraft() {
         val state = TodayPaneState()
         state.openVoiceCapture()
         assertEquals(true, state.captureOpen)
@@ -14,7 +14,7 @@ class TodayPaneStateTest {
     }
 
     @Test
-    fun voiceCapturePreservesNonemptyDraftWithoutStartingRecognition() {
+    fun voiceCapturePreservesNonemptyDraftAndStartsRecognition() {
         val draft = MobileCaptureDraft.fresh(
             text = "残している音声メモ",
             kind = MobileCaptureKind.Capture,
@@ -26,7 +26,7 @@ class TodayPaneStateTest {
         state.openVoiceCapture()
         assertEquals(draft, state.captureDraft)
         assertEquals(true, state.captureOpen)
-        assertEquals(false, state.captureVoiceStartRequested)
+        assertEquals(true, state.captureVoiceStartRequested)
         assertEquals(false, state.captureInputFocusRequested)
     }
 

@@ -45,20 +45,20 @@ class TaskEntryFlowUiTest {
         composeRule.onNodeWithText("追加").performClick()
         composeRule.onNodeWithText("Task名").assertIsNotFocused()
         capture("01-add-open")
+        composeRule.onNodeWithTag("capture-theme-options").assertDoesNotExist()
+        composeRule.onNodeWithTag("capture-classification-toggle").performClick()
         composeRule.onNodeWithTag("capture-theme-option-theme-nemorium")
             .assertIsDisplayed()
             .performClick()
-            .assertIsSelected()
         composeRule.runOnIdle { assertEquals("theme-nemorium", pane.captureDraft.projectId) }
         composeRule.onNodeWithText("Task名").assertIsFocused().performTextInput("実験結果を整理する")
         composeRule.runOnIdle { assertEquals(false, pane.captureInputFocusRequested) }
-        val themeBounds = composeRule.onNodeWithTag("capture-theme-options").getBoundsInRoot()
-        val taskNameBounds = composeRule.onNodeWithTag("capture-text-input").getBoundsInRoot()
-        assertTrue(themeBounds.bottom <= taskNameBounds.top)
+        composeRule.onNodeWithTag("capture-theme-options").assertDoesNotExist()
+        composeRule.onNodeWithText("ねもりうむ · 種類・Themeを変更").assertIsDisplayed()
         capture("02-add-entered")
         composeRule.onNodeWithTag("capture-submit-continue").assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertEquals("", pane.captureDraft.text) }
-        composeRule.onNodeWithTag("capture-theme-option-theme-nemorium").assertIsSelected()
+        composeRule.runOnIdle { assertEquals("theme-nemorium", pane.captureDraft.projectId) }
         composeRule.onNodeWithText("Task名").assertIsFocused().performTextInput("比較条件を確認する")
         composeRule.onNodeWithText("Task名").performImeAction()
         composeRule.runOnIdle { assertEquals(listOf("実験結果を整理する", "比較条件を確認する"), submitted) }
@@ -74,7 +74,7 @@ class TaskEntryFlowUiTest {
             sharedMimeType = "text/plain",
         )
         showCapture(pane, dark = true)
-        composeRule.onNodeWithTag("capture-kind-capture").assertIsDisplayed()
+        composeRule.onNodeWithText("Captureを追加").assertIsDisplayed()
         composeRule.onNodeWithText("打ち合わせで受け取った比較条件を、次の実験で確認する")
             .assertIsNotFocused()
         capture("05-shared-capture-dark")

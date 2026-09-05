@@ -69,7 +69,8 @@ data class MobileCaptureDraft(
         require((source == MobileCaptureSource.ShareTarget) == (share != null))
     }
 
-    fun withText(value: String): MobileCaptureDraft = copy(text = value.take(500))
+    // Drafts retain the original input; the command boundary enforces the 500-character save limit.
+    fun withText(value: String): MobileCaptureDraft = copy(text = value)
 
     fun withKind(value: MobileCaptureKind): MobileCaptureDraft = copy(kind = value)
 
@@ -77,8 +78,8 @@ data class MobileCaptureDraft(
         projectId = value?.trim()?.takeIf(String::isNotEmpty),
     )
 
-    fun withSpeechResult(result: ShortSpeechRecognitionResult): MobileCaptureDraft = copy(
-        text = result.text.take(500),
+    fun withSpeechResult(result: ShortSpeechRecognitionResult, append: Boolean = false): MobileCaptureDraft = copy(
+        text = if (append && text.isNotBlank()) "$text ${result.text}" else result.text,
         source = MobileCaptureSource.AndroidSpeech,
         speech = MobileSpeechProvenance(
             recognitionMode = result.mode,
@@ -100,7 +101,7 @@ data class MobileCaptureDraft(
             newId: () -> String = { UUID.randomUUID().toString() },
         ): MobileCaptureDraft = MobileCaptureDraft(
             draftId = newId(),
-            text = text.take(500),
+            text = text,
             kind = kind,
             projectId = projectId,
             source = source,

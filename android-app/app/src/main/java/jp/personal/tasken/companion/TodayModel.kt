@@ -1204,7 +1204,7 @@ class TodayPaneState(
     fun openVoiceCapture() {
         openCapture(
             source = MobileCaptureSource.AndroidApp,
-            requestVoice = captureDraft.text.isBlank(),
+            requestVoice = true,
             replaceDraft = false,
         )
     }

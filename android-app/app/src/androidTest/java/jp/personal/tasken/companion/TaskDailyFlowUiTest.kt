@@ -10,15 +10,20 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsNotFocused
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -147,6 +152,53 @@ class TaskDailyFlowUiTest {
         capture("06-speech-title-confirmation")
         composeRule.onNodeWithTag("capture-submit-close").performScrollTo().performClick()
         composeRule.runOnIdle { assertEquals(listOf("クリーニングを受け取る"), submitted) }
+    }
+
+    @Test
+    fun longSpokenCaptureStaysReadableAndThemeSelectionDoesNotOpenKeyboard() {
+        val text = "映画のあとに考えたこと。\n今の案は操作が多いので、まず短い入力で残せる形を試したい。\n理由や迷いも、あとから読み返せるようにそのまま残しておく。"
+        val draft = mutableStateOf(MobileCaptureDraft.fresh(
+            text = text, source = MobileCaptureSource.AndroidSpeech, kind = MobileCaptureKind.Capture,
+        ))
+        var submitted: MobileCaptureDraft? = null
+        composeRule.setContent {
+            TaskenTheme {
+                CaptureTaskSheet(
+                    draft = draft.value,
+                    state = CaptureUiState.Idle,
+                    speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
+                    themes = listOf(MobileTheme("ideas", "考えごと")),
+                    themeCatalogState = MobileThemeCatalogState.Available(emptyList(), "fixture", 1, ""),
+                    onDraftChanged = { draft.value = draft.value.withText(it) },
+                    onThemeSelected = { draft.value = draft.value.withThemeId(it) },
+                    onKindSelected = { draft.value = draft.value.withKind(it) },
+                    onSubmit = { submitted = draft.value },
+                    onStartVoice = {}, onStopVoice = {}, onDismiss = {},
+                )
+            }
+        }
+        val input = composeRule.onNodeWithTag("capture-text-input")
+        input.assertTextContains(text).assertIsNotFocused()
+        val bounds = input.getBoundsInRoot()
+        assertTrue((bounds.bottom - bounds.top).value > 80f)
+        capture("07-long-spoken-capture")
+        composeRule.onNodeWithTag("capture-classification-toggle").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-theme-option-ideas").performScrollTo().performClick()
+        input.assertIsNotFocused().assertTextContains(text)
+        val overLimit = text + "補足".repeat(250)
+        composeRule.runOnIdle { draft.value = draft.value.withText(overLimit) }
+        input.assertTextContains(overLimit)
+        composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()
+        composeRule.onNodeWithTag("capture-submit-continue").assertIsNotEnabled()
+        capture("08-over-limit-keeps-full-draft")
+        input.performScrollTo().performTextReplacement(text)
+        composeRule.runOnIdle { assertEquals(text, draft.value.text) }
+        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.runOnIdle {
+            assertEquals(text, submitted?.text)
+            assertEquals("ideas", submitted?.projectId)
+            assertEquals(MobileCaptureKind.Capture, submitted?.kind)
+        }
     }
 
     private fun task(id: String, title: String, themeId: String? = null) = MobileTask(

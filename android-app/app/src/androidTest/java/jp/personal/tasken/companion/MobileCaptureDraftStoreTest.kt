@@ -54,6 +54,17 @@ class MobileCaptureDraftStoreTest {
     }
 
     @Test
+    fun preservesOverLimitSpeechDraftForLaterEditing() {
+        val draft = MobileCaptureDraft.fresh(text = "あ".repeat(490)).withSpeechResult(
+            ShortSpeechRecognitionResult("追加した発話".repeat(10), MobileSpeechRecognitionMode.OnDevice, "ja-JP", null),
+            append = true,
+        )
+        val store = MobileCaptureDraftStore(context)
+        org.junit.Assert.assertTrue(store.save(MobileCaptureDraftSnapshot(draft, true)))
+        assertEquals(draft, MobileCaptureDraftStore(context).load()?.draft)
+    }
+
+    @Test
     fun removesDraftAfterExplicitReset() {
         val now = Instant.parse("2026-08-24T10:00:00Z")
         val store = MobileCaptureDraftStore(context, now = { now })

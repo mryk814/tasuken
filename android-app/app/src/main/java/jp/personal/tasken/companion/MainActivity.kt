@@ -52,7 +52,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -234,14 +234,16 @@ private fun TodayApp(
         mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(speechRecognizer.availableMode()))
     }
     var speechRequestDraftId by remember { mutableStateOf<String?>(null) }
+    var speechAppendRequested by remember { mutableStateOf(false) }
     val startSpeechRecognition = {
         val draftId = speechRequestDraftId
+        val append = speechAppendRequested
         if (paneState.captureOpen && draftId == paneState.captureDraft.draftId) {
             speechRecognizer.start(Locale.getDefault().toLanguageTag()) { nextState ->
                 if (paneState.captureOpen && draftId == paneState.captureDraft.draftId) {
                     speechState = nextState
                     if (nextState is ShortSpeechUiState.Result) {
-                        paneState.captureDraft = paneState.captureDraft.withSpeechResult(nextState.result)
+                        paneState.captureDraft = paneState.captureDraft.withSpeechResult(nextState.result, append)
                     }
                 }
             }
@@ -263,8 +265,9 @@ private fun TodayApp(
         context.startActivity(MobileSafeShare.chooserIntent(share))
         todayViewModel.consumeSafeShare(share)
     }
-    val requestSpeechRecognition = {
+    val requestSpeechRecognition: (Boolean) -> Unit = { append ->
         speechRequestDraftId = paneState.captureDraft.draftId
+        speechAppendRequested = append
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             startSpeechRecognition()
         } else {
@@ -379,7 +382,7 @@ private fun TodayApp(
     LaunchedEffect(paneState.captureOpen, paneState.captureVoiceStartRequested) {
         if (paneState.captureOpen && paneState.captureVoiceStartRequested) {
             paneState.consumeVoiceStartRequest()
-            requestSpeechRecognition()
+            requestSpeechRecognition(true)
         }
     }
     LaunchedEffect(captureState) {
@@ -658,14 +661,7 @@ private fun TodayApp(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                ExtendedFloatingActionButton(
-                                    text = { Text("追加") },
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.ic_tabler_plus),
-                                            contentDescription = null,
-                                        )
-                                    },
+                                FloatingActionButton(
                                     onClick = {
                                         paneState.openCapture(
                                             source = MobileCaptureSource.AndroidApp,
@@ -675,19 +671,17 @@ private fun TodayApp(
                                     },
                                     modifier = Modifier
                                         .testTag("open-capture-action"),
-                                )
-                                OutlinedButton(
+                                ) {
+                                    Icon(painterResource(R.drawable.ic_tabler_plus), contentDescription = "追加")
+                                }
+                                FloatingActionButton(
                                     onClick = {
                                         paneState.openVoiceCapture()
                                         speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
                                     },
-                                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.surface,
-                                    ),
                                     modifier = Modifier.heightIn(min = 56.dp).testTag("open-voice-capture-action"),
                                 ) {
-                                    Icon(painterResource(R.drawable.ic_tabler_microphone), contentDescription = null)
-                                    Text("話して追加", modifier = Modifier.padding(start = 8.dp))
+                                    Icon(painterResource(R.drawable.ic_tabler_microphone), contentDescription = "話して追加")
                                 }
                             }
                         }
@@ -754,7 +748,7 @@ private fun TodayApp(
             requestInputFocus = paneState.captureInputFocusRequested,
             onInputFocusHandled = paneState::consumeInputFocusRequest,
             onSubmit = { behavior -> todayViewModel.createCapture(paneState.captureDraft, behavior) },
-            onStartVoice = requestSpeechRecognition,
+            onStartVoice = { requestSpeechRecognition(false) },
             onStopVoice = speechRecognizer::stop,
             onDismiss = {
                 if (captureState !is CaptureUiState.Saving) {
@@ -790,6 +784,7 @@ internal fun CaptureTaskSheet(
         .only(WindowInsetsSides.Bottom),
 ) {
     val focusRequester = remember(draft.draftId) { FocusRequester() }
+    var classificationOpen by rememberSaveable { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -801,7 +796,8 @@ internal fun CaptureTaskSheet(
         val keyboardController = LocalSoftwareKeyboardController.current
         val speechBusy = speechState is ShortSpeechUiState.Listening ||
             speechState is ShortSpeechUiState.Partial || speechState is ShortSpeechUiState.Processing
-        val canSubmit = state !is CaptureUiState.Saving && !speechBusy && draft.text.isNotBlank()
+        val overLimit = draft.text.length > 500
+        val canSubmit = state !is CaptureUiState.Saving && !speechBusy && draft.text.isNotBlank() && !overLimit
         LaunchedEffect(draft.draftId, requestInputFocus, sheetState.isVisible) {
             // Request focus in the sheet's window after its opening transition.
             if (requestInputFocus && sheetState.isVisible) {
@@ -823,37 +819,9 @@ internal fun CaptureTaskSheet(
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
             )
-            if (draft.source != MobileCaptureSource.AndroidApp) {
-                Text(
-                    "入力元: ${captureSourceLabel(draft.source)}",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MobileCaptureKind.entries.forEach { kind ->
-                    FilterChip(
-                        selected = draft.kind == kind,
-                        onClick = { onKindSelected(kind) },
-                        label = { Text(if (kind == MobileCaptureKind.Task) "Task" else "Capture") },
-                        enabled = state !is CaptureUiState.Saving,
-                        modifier = Modifier.testTag("capture-kind-${kind.wireValue}"),
-                    )
-                }
-            }
-            CaptureThemePicker(
-                themeId = draft.projectId,
-                themes = themes,
-                catalogState = themeCatalogState,
-                enabled = state !is CaptureUiState.Saving,
-                onThemeSelected = { themeId ->
-                    onThemeSelected(themeId)
-                    focusRequester.requestFocus()
-                    keyboardController?.show()
-                },
-            )
             OutlinedTextField(
                 value = draft.text,
-                onValueChange = { onDraftChanged(it.take(500)) },
+                onValueChange = onDraftChanged,
                 label = { Text(if (draft.kind == MobileCaptureKind.Task) "Task名" else "Capture") },
                 placeholder = {
                     Text(
@@ -864,14 +832,19 @@ internal fun CaptureTaskSheet(
                         },
                     )
                 },
-                supportingText = if (state is CaptureUiState.Error) {
+                supportingText = if (overLimit) {
+                    { Text("${draft.text.length} / 500文字。全文を保持しています。500文字以内に短くしてから追加してください。") }
+                } else if (state is CaptureUiState.Error) {
                     { Text(state.message) }
+                } else if (draft.text.length >= 400) {
+                    { Text("${draft.text.length} / 500文字") }
                 } else {
                     null
                 },
-                isError = state is CaptureUiState.Error,
+                isError = state is CaptureUiState.Error || overLimit,
                 enabled = state !is CaptureUiState.Saving && !speechBusy,
-                singleLine = true,
+                minLines = 1,
+                maxLines = 6,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
                     if (canSubmit) onSubmit(CaptureCompletionBehavior.Close)
@@ -898,12 +871,53 @@ internal fun CaptureTaskSheet(
                 }, modifier = Modifier.padding(start = 8.dp))
             }
             Text(
-                speechStatusText(speechState, draft),
+                speechStatusText(speechState),
                 style = MaterialTheme.typography.bodySmall,
                 color = if (speechState is ShortSpeechUiState.Error) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("capture-speech-status"),
             )
+            TextButton(
+                onClick = { classificationOpen = !classificationOpen },
+                modifier = Modifier.align(Alignment.End).testTag("capture-classification-toggle"),
+            ) {
+                val themeName = themes.firstOrNull { it.id == draft.projectId }?.title
+                    ?: if (draft.projectId == null) "Themeなし" else "選択済みTheme"
+                Text(if (classificationOpen) "種類・Themeを閉じる" else "$themeName · 種類・Themeを変更")
+            }
+            if (classificationOpen) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    MobileCaptureKind.entries.forEach { kind ->
+                        FilterChip(
+                            selected = draft.kind == kind,
+                            onClick = { onKindSelected(kind) },
+                            label = { Text(if (kind == MobileCaptureKind.Task) "Task" else "Capture") },
+                            enabled = state !is CaptureUiState.Saving && !speechBusy,
+                            modifier = Modifier.testTag("capture-kind-${kind.wireValue}"),
+                        )
+                    }
+                }
+                CaptureThemePicker(
+                    themeId = draft.projectId,
+                    themes = themes,
+                    catalogState = themeCatalogState,
+                    enabled = state !is CaptureUiState.Saving && !speechBusy,
+                    onThemeSelected = { themeId ->
+                        onThemeSelected(themeId)
+                        classificationOpen = false
+                        if (draft.source != MobileCaptureSource.AndroidSpeech) {
+                            focusRequester.requestFocus()
+                            keyboardController?.show()
+                        }
+                    },
+                )
+                if (draft.source != MobileCaptureSource.AndroidApp) {
+                    Text("入力元: ${captureSourceLabel(draft.source)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
@@ -1047,7 +1061,7 @@ private fun captureSourceLabel(source: MobileCaptureSource): String = when (sour
     MobileCaptureSource.AndroidSpeech -> "Android音声入力"
 }
 
-private fun speechStatusText(state: ShortSpeechUiState, draft: MobileCaptureDraft): String = when (state) {
+private fun speechStatusText(state: ShortSpeechUiState): String = when (state) {
     is ShortSpeechUiState.Idle -> speechPrivacyDescription(state.availableMode)
     is ShortSpeechUiState.Listening -> "聞いています… ${speechModeLabel(state.mode)}"
     is ShortSpeechUiState.Partial -> "認識中: ${state.text}"
@@ -1055,11 +1069,6 @@ private fun speechStatusText(state: ShortSpeechUiState, draft: MobileCaptureDraf
     is ShortSpeechUiState.Result ->
         "${speechModeLabel(state.result.mode)}の結果です。内容を確認・修正してから追加してください。"
     is ShortSpeechUiState.Error -> state.message
-}.let { status ->
-    val speech = draft.speech
-    if (speech == null || state is ShortSpeechUiState.Result) status else {
-        "$status ${speechModeLabel(speech.recognitionMode)}・${speech.language}"
-    }
 }
 
 @Composable
@@ -1679,6 +1688,7 @@ internal fun TodayDetailPane(
     var titleDraft by rememberSaveable(task.id) { mutableStateOf(task.title) }
     var titleBase by rememberSaveable(task.id) { mutableStateOf(task.title) }
     var titleEditing by rememberSaveable(task.id) { mutableStateOf(false) }
+    var aiOptionsOpen by rememberSaveable(task.id) { mutableStateOf(false) }
     var themePickerOpenRequest by rememberSaveable(task.id) { mutableStateOf(0) }
     val canReselectTheme = themes.isNotEmpty() &&
         (themeCatalogState is MobileThemeCatalogState.Available ||
@@ -1844,6 +1854,19 @@ internal fun TodayDetailPane(
                     }
                 }
             }
+            TaskChecklistEditor(
+                task = task,
+                enabled = (!task.pending || task.canEditPendingChecklist) && task.conflict == null &&
+                    actionState !is TaskActionUiState.Saving,
+                stateDescription = when {
+                    task.pending && task.canEditPendingChecklist -> "送信待ちのChecklistへ追記できます"
+                    task.pending -> "同期後に変更"
+                    task.conflict != null -> "競合を解決してから変更"
+                    actionState is TaskActionUiState.Saving -> "保存中"
+                    else -> null
+                },
+                onSave = { onChecklistUpdate(task, it) },
+            )
             TaskThemePicker(
                 taskId = task.id,
                 themeId = task.themeId,
@@ -1878,25 +1901,27 @@ internal fun TodayDetailPane(
                 },
                 onSave = { onScheduleUpdate(task, it) },
             )
-            TaskChecklistEditor(
-                task = task,
-                enabled = (!task.pending || task.canEditPendingChecklist) && task.conflict == null &&
-                    actionState !is TaskActionUiState.Saving,
-                stateDescription = when {
-                    task.pending && task.canEditPendingChecklist -> "送信待ちのChecklistへ追記できます"
-                    task.pending -> "同期後に変更"
-                    task.conflict != null -> "競合を解決してから変更"
-                    actionState is TaskActionUiState.Saving -> "保存中"
-                    else -> null
-                },
-                onSave = { onChecklistUpdate(task, it) },
-            )
             if (task.workState in setOf("not_delegated", "ready_for_agent")) {
-                TaskAiReadyToggle(
-                    task = task,
-                    state = aiReadyState,
-                    onChange = onTaskAiReady,
-                )
+                val needsAiVisibility = task.workState == "ready_for_agent" || when (aiReadyState) {
+                    is AiReadyUiState.Updating -> aiReadyState.taskId == task.id
+                    is AiReadyUiState.Conflict -> aiReadyState.taskId == task.id
+                    is AiReadyUiState.Rejected -> aiReadyState.taskId == task.id
+                    is AiReadyUiState.Unavailable -> aiReadyState.taskId == task.id
+                    else -> false
+                }
+                if (!needsAiVisibility) {
+                    TextButton(
+                        onClick = { aiOptionsOpen = !aiOptionsOpen },
+                        modifier = Modifier.align(Alignment.End).testTag("task-ai-options-toggle"),
+                    ) { Text(if (aiOptionsOpen) "AI設定を閉じる" else "AIへの委任設定") }
+                }
+                if (aiOptionsOpen || needsAiVisibility) {
+                    TaskAiReadyToggle(
+                        task = task,
+                        state = aiReadyState,
+                        onChange = onTaskAiReady,
+                    )
+                }
             }
             taskWorkProposals.forEach { proposal ->
                 TaskWorkProposalReviewCard(
@@ -2285,6 +2310,24 @@ private fun TaskChecklistEditor(
     onSave: (List<MobileChecklistItem>) -> Unit,
 ) {
     var addDraft by rememberSaveable(task.id) { mutableStateOf("") }
+    var submittedAddId by rememberSaveable(task.id) { mutableStateOf<String?>(null) }
+    var submittedAddTitle by rememberSaveable(task.id) { mutableStateOf("") }
+    LaunchedEffect(task.checklistItems) {
+        if (submittedAddId != null && task.checklistItems.any { it.id == submittedAddId }) {
+            if (addDraft.trim() == submittedAddTitle) addDraft = ""
+            submittedAddId = null
+        }
+    }
+    fun addItem() {
+        val title = addDraft.trim()
+        if (!enabled || title.isEmpty() || task.checklistItems.size >= 100) return
+        val id = submittedAddId.takeIf { submittedAddTitle == title } ?: UUID.randomUUID().toString()
+        submittedAddId = id
+        submittedAddTitle = title
+        onSave(task.checklistItems + MobileChecklistItem(
+            id = id, title = title, done = false, sortOrder = task.checklistItems.size.toDouble(),
+        ))
+    }
     Card(
         modifier = Modifier.fillMaxWidth().testTag("task-checklist"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -2350,30 +2393,10 @@ private fun TaskChecklistEditor(
                     singleLine = true,
                     enabled = enabled && task.checklistItems.size < 100,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = {
-                        val title = addDraft.trim()
-                        if (title.isNotEmpty() && task.checklistItems.size < 100) {
-                            addDraft = ""
-                            onSave(task.checklistItems + MobileChecklistItem(
-                                id = UUID.randomUUID().toString(),
-                                title = title,
-                                done = false,
-                                sortOrder = task.checklistItems.size.toDouble(),
-                            ))
-                        }
-                    }),
+                    keyboardActions = KeyboardActions(onDone = { addItem() }),
                 )
                 Button(
-                    onClick = {
-                        val title = addDraft.trim()
-                        addDraft = ""
-                        onSave(task.checklistItems + MobileChecklistItem(
-                            id = UUID.randomUUID().toString(),
-                            title = title,
-                            done = false,
-                            sortOrder = task.checklistItems.size.toDouble(),
-                        ))
-                    },
+                    onClick = { addItem() },
                     enabled = enabled && addDraft.trim().isNotEmpty() && task.checklistItems.size < 100,
                     modifier = Modifier.testTag("checklist-add"),
                 ) { Text("追加") }
@@ -2392,6 +2415,7 @@ private fun ChecklistItemEditor(
     onDelete: () -> Unit,
 ) {
     var titleDraft by rememberSaveable(taskId, item.id, item.title) { mutableStateOf(item.title) }
+    var editing by rememberSaveable(taskId, item.id) { mutableStateOf(false) }
     Column(
         modifier = Modifier.fillMaxWidth().testTag("checklist-item-${item.id}"),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -2400,20 +2424,37 @@ private fun ChecklistItemEditor(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedTextField(
+            if (editing) OutlinedTextField(
                 value = titleDraft,
                 onValueChange = { if (it.length <= 200) titleDraft = it },
                 modifier = Modifier.weight(1f),
-                singleLine = true,
+                maxLines = 4,
                 enabled = enabled,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
                     if (titleDraft.trim().isNotEmpty() && titleDraft.trim() != item.title) onRename(titleDraft)
                 }),
+            ) else Text(
+                item.title,
+                modifier = Modifier.weight(1f).testTag("checklist-label-${item.id}"),
+                color = if (item.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
             )
-            Checkbox(checked = item.done, onCheckedChange = { onToggle() }, enabled = enabled)
+            TextButton(
+                onClick = { editing = !editing },
+                modifier = Modifier.testTag("checklist-edit-${item.id}"),
+            ) { Text(if (editing) "閉じる" else "編集") }
+            Checkbox(
+                checked = item.done,
+                onCheckedChange = { onToggle() },
+                enabled = enabled,
+                modifier = Modifier.testTag("checklist-toggle-${item.id}")
+                    .semantics { contentDescription = "${item.title}を${if (item.done) "未完了に戻す" else "完了する"}" },
+            )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (editing) Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
+        ) {
             TextButton(
                 onClick = { onRename(titleDraft) },
                 enabled = enabled && titleDraft.trim().isNotEmpty() && titleDraft.trim() != item.title,
@@ -2454,6 +2495,7 @@ private fun TaskScheduleEditor(
         mutableStateOf(schedule?.rangeSemantics.orEmpty())
     }
     var dateTarget by rememberSaveable(task.id) { mutableStateOf<ScheduleDateTarget?>(null) }
+    var editing by rememberSaveable(task.id) { mutableStateOf(false) }
 
     val startDate = startDraft.toLocalDateOrNull()
     val endDate = endDraft.toLocalDateOrNull()
@@ -2493,12 +2535,29 @@ private fun TaskScheduleEditor(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("予定", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            TextButton(
+                onClick = { editing = !editing },
+                modifier = Modifier.testTag("schedule-edit-toggle"),
+            ) { Text(if (editing) "編集を閉じる" else "予定を編集") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 scheduleDraftLabel(startDate, endDate, rangeSemanticsDraft),
                 modifier = Modifier.testTag("schedule-kind"),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        if (!editing) {
+            Text(
+                listOfNotNull(startDraft.takeIf { it.isNotEmpty() }?.let { "開始 $it" },
+                    endDraft.takeIf { it.isNotEmpty() }?.let { "期限 $it" }).joinToString(" / ")
+                    .ifEmpty { "予定なし" },
+                modifier = Modifier.testTag("schedule-summary"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (hasChanges) Text("未保存の予定があります", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (editing) {
         ScheduleDateField(
             label = "開始",
             value = startDate,
@@ -2570,6 +2629,7 @@ private fun TaskScheduleEditor(
                 enabled = enabled && isValid && hasChanges,
                 modifier = Modifier.testTag("schedule-save"),
             ) { Text("予定を保存") }
+        }
         }
     }
 

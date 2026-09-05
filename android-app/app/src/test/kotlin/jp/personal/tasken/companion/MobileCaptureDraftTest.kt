@@ -10,6 +10,28 @@ import org.junit.Test
 
 class MobileCaptureDraftTest {
     @Test
+    fun overLimitSpeechAndEditsRemainIntactInDraft() {
+        val original = "あ".repeat(490)
+        val result = ShortSpeechRecognitionResult("い".repeat(30), MobileSpeechRecognitionMode.OnDevice, "ja-JP", null)
+        val draft = MobileCaptureDraft.fresh(text = original).withSpeechResult(result, append = true)
+        assertEquals("$original ${result.text}", draft.text)
+        assertEquals(521, draft.withText(draft.text.replaceFirst("あ", "う")).text.length)
+        assertEquals(draft.text, MobileCaptureDraft.fresh(text = draft.text).text)
+    }
+
+    @Test
+    fun shortcutSpeechAppendsWithoutDiscardingExistingDraft() {
+        val draft = MobileCaptureDraft.fresh(text = "牛乳を買う", projectId = "home")
+        val result = ShortSpeechRecognitionResult("卵も買う", MobileSpeechRecognitionMode.OnDevice, "ja-JP", null)
+        val appended = draft.withSpeechResult(result, append = true)
+        assertEquals("牛乳を買う 卵も買う", appended.text)
+        assertEquals(draft.draftId, appended.draftId)
+        assertEquals("home", appended.projectId)
+        assertEquals("卵も買う", draft.withSpeechResult(result).text)
+        assertEquals("卵も買う", draft.withText("").withSpeechResult(result, append = true).text)
+    }
+
+    @Test
     fun themeSelectionNormalizesAndCanReturnToNoTheme() {
         val draft = MobileCaptureDraft.fresh(
             projectId = null,
