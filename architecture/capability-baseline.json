@@ -85,6 +85,7 @@
         "archive",
         "close",
         "copy",
+        "create",
         "isAlwaysOnTop",
         "load",
         "minimize",

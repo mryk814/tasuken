@@ -69,6 +69,8 @@ export interface SatelliteWindowRegistry {
   list: (kind?: SatelliteWindowKind) => SatelliteWindowInfo[];
   /** 複数の補助窓を、保存位置を尊重しながら初回・重複・画面外だけ安全に並べる。 */
   arrange: (keys: SatelliteWindowKey[]) => number;
+  /** 新しい補助窓を、指定した補助窓の隣へ置く。置けなければ通常配置へ戻す。 */
+  arrangeNextTo: (key: SatelliteWindowKey, anchor: SatelliteWindowKey) => number;
   /** 開いている切り離しウィンドウへ一斉送信する。 */
   broadcast: (channel: string, payload?: unknown) => void;
   /** 特定Entityの窓だけへ送る。 */
@@ -222,6 +224,14 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
     return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
   }
 
+  function overlapArea(bounds: WindowBounds, area: WindowBounds): number {
+    const width =
+      Math.min(bounds.x + bounds.width, area.x + area.width) - Math.max(bounds.x, area.x);
+    const height =
+      Math.min(bounds.y + bounds.height, area.y + area.height) - Math.max(bounds.y, area.y);
+    return width > 0 && height > 0 ? width * height : 0;
+  }
+
   function arrange(keys: SatelliteWindowKey[]): number {
     const wanted = [...new Map(keys.map((key) => [satelliteWindowKeyOf(key), key])).values()]
       .map((key) => entries.get(satelliteWindowKeyOf(key)))
@@ -275,6 +285,52 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
       occupied.push(next);
     }
     return changed;
+  }
+
+  function arrangeNextTo(key: SatelliteWindowKey, anchorKey: SatelliteWindowKey): number {
+    const entry = entries.get(satelliteWindowKeyOf(key));
+    const anchor = get(anchorKey);
+    if (!entry || entry.window.isDestroyed() || !anchor || entry.window === anchor) return 0;
+
+    const current = normalizeBounds(entry.window.getBounds());
+    const anchorBounds = normalizeBounds(anchor.getBounds());
+    const areas = displays();
+    if (!current || !anchorBounds || !areas.length) return arrange([key]);
+
+    const anchorArea = areas.reduce(
+      (best, area) =>
+        overlapArea(anchorBounds, area) > overlapArea(anchorBounds, best) ? area : best,
+      areas[0],
+    );
+    const occupied: WindowBounds[] = [];
+    for (const other of entries.values()) {
+      if (other === entry || other.window.isDestroyed() || !other.window.isVisible()) continue;
+      const bounds = normalizeBounds(other.window.getBounds());
+      if (bounds) occupied.push(bounds);
+    }
+
+    const gap = 16;
+    const candidates = [
+      { x: anchorBounds.x + anchorBounds.width + gap, y: anchorBounds.y },
+      { x: anchorBounds.x - current.width - gap, y: anchorBounds.y },
+      { x: anchorBounds.x, y: anchorBounds.y + anchorBounds.height + gap },
+      { x: anchorBounds.x, y: anchorBounds.y - current.height - gap },
+    ];
+    for (const candidate of candidates) {
+      const next = clampBoundsToDisplays({ ...current, ...candidate }, [anchorArea], {
+        minWidth: 1,
+        minHeight: 1,
+      });
+      if (overlaps(next, anchorBounds) || occupied.some((other) => overlaps(next, other))) continue;
+      if (!sameBounds(current, next)) {
+        entry.window.setBounds(next, false);
+        store.write(entry.key, next);
+        entry.restoredFromState = true;
+        return 1;
+      }
+      return 0;
+    }
+    return arrange([key]);
   }
 
   return {
@@ -345,6 +401,7 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
       );
     },
     arrange,
+    arrangeNextTo,
     broadcast(channel, payload) {
       for (const entry of entries.values()) {
         if (entry.window.isDestroyed() || entry.window.webContents.isLoading()) continue;

@@ -349,6 +349,10 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   const domain = readFileSync("src/main/repositories/domain.mjs", "utf8");
   const repositorySource = readFileSync("src/main/repositories/workspaceRepository.mjs", "utf8");
   const mcp = readFileSync("src/main/mcp/server.mjs", "utf8");
+  const aiRequest = readFileSync(
+    "src/renderer/src/features/workspace/lib/taskAiRequest.ts",
+    "utf8",
+  );
   const proposalPanel = readFileSync(
     "src/renderer/src/features/workspace/components/AiProposalPanel.tsx",
     "utf8",
@@ -367,7 +371,7 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   assert.match(drawer, /const isAiDelegationReady/);
   assert.match(drawer, /このTaskはCoding AgentがTasken MCPから取得できます/);
   assert.match(drawer, /workspaceApi\.copyText\(/);
-  assert.match(drawer, /tasken\.get_task_context に task_id=/);
+  assert.match(aiRequest, /tasken\.get_task_context に task_id/);
   assert.doesNotMatch(drawer, /AIへ渡る内容を確認/);
   assert.doesNotMatch(drawer, /AIを起動して渡す/);
   assert.doesNotMatch(drawer, /StartTaskWork/);

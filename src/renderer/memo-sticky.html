@@ -100,6 +100,9 @@
     <div class="sticky">
       <header aria-label="付箋メモ">
         <span class="title" id="title"></span>
+        <button class="icon-button" id="create" type="button" title="新しい付箋を隣に作成" aria-label="新しい付箋を隣に作成">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+        </button>
         <button class="icon-button" id="target" type="button" title="付箋対象から外す" aria-label="付箋対象から外して収納" aria-pressed="true">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3z" /><path d="M12 15v5" /></svg>
         </button>
@@ -153,6 +156,7 @@
       const textEl = document.querySelector("#text");
       const stateEl = document.querySelector("#state");
       const linkRow = document.querySelector("#link-row");
+      const createButton = document.querySelector("#create");
       const targetButton = document.querySelector("#target");
       const colorButton = document.querySelector("#color");
       const colorPanel = document.querySelector("#color-panel");
@@ -164,6 +168,7 @@
       const AUTOSAVE_DELAY_MS = 600;
       let saveTimer = null;
       let initialized = false;
+      let creating = false;
 
       function setState(message, tone = "") {
         stateEl.textContent = message;
@@ -293,6 +298,23 @@
         saveTimer = setTimeout(() => { saveTimer = null; void requestSave(); }, AUTOSAVE_DELAY_MS);
       });
       window.addEventListener("blur", () => { void requestSave(); });
+
+      createButton.addEventListener("click", async () => {
+        if (creating) return;
+        creating = true;
+        createButton.disabled = true;
+        try {
+          const result = await api.create();
+          if (result.status === "created") setState("新しい付箋を隣に作成しました");
+          else if (result.status === "flush_failed") setState("作成できません。保存エラーを解消してから再試行してください。", "is-error");
+          else setState("新しい付箋を作成できません。Tasken本体で再試行してください。", "is-error");
+        } catch (error) {
+          setState(`${error instanceof Error ? error.message : String(error)} 作成を再試行してください。`, "is-error");
+        } finally {
+          creating = false;
+          createButton.disabled = false;
+        }
+      });
 
       api.onAppFlushRequested(async ({ requestId }) => {
         if (saveTimer) clearTimeout(saveTimer);

@@ -1,4 +1,5 @@
 import { BrowserWindow, clipboard, ipcMain } from "electron";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import type { SatelliteWindowRegistry } from "./satelliteWindowRegistry";
@@ -7,6 +8,7 @@ import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import type {
   MemoStickyColorResult,
   MemoStickyContent,
+  MemoStickyCreateResult,
   MemoStickySaveResult,
   MemoStickyTargetResult,
   MemoStickyVisibilityResult,
@@ -360,12 +362,47 @@ export function createMemoStickyController(
     return { status: "applied", content: toContent(outcome.entity) };
   }
 
+  async function createMemo(event: Electron.IpcMainInvokeEvent): Promise<MemoStickyCreateResult> {
+    const sourceMemoId = memoIdOf(event);
+    const sourceWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!sourceMemoId || !sourceWindow) return { status: "not_found", content: null };
+    if (!(await flushWindow(sourceWindow))) return { status: "flush_failed", content: null };
+
+    const created = options.repository.runTransaction(
+      (transaction: MemoStickySaveTransaction) =>
+        transaction.save(
+          "capture_entry",
+          markStickyMemoTarget(
+            {
+              id: randomUUID(),
+              title: "",
+              text: "新しい付箋",
+              kind: MEMO_KIND,
+              content_type: "text",
+              captured_at: new Date().toISOString(),
+              state: "untriaged",
+            } as Entity,
+            true,
+          ),
+          { source: "memo-sticky" },
+        ) as Entity,
+    );
+    const memoId = String(created.id);
+    options.notifyWorkspaceChanged({ type: "capture_entry", entity: created });
+    options.notifyStickyStateChanged();
+    if (!open(memoId, false)) return { status: "not_found", content: null };
+    options.satelliteWindows.arrangeNextTo(keyOf(memoId), keyOf(sourceMemoId));
+    return { status: "created", content: toContent(created) };
+  }
+
   function registerIpc(): void {
     ipcMain.handle(IPC.memoStickyLoad, (event) => {
       const memoId = memoIdOf(event);
       const memo = memoId ? readMemo(memoId) : null;
       return memo ? toContent(memo) : null;
     });
+
+    ipcMain.handle(IPC.memoStickyCreate, (event) => createMemo(event));
 
     ipcMain.handle(IPC.memoStickySave, (event, value: unknown): MemoStickySaveResult => {
       const memoId = memoIdOf(event);

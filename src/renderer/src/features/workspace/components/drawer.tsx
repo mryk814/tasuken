@@ -117,6 +117,7 @@ import {
   buildSavePlanNodeOperations,
 } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
+import { buildTaskAiRequest } from "../lib/taskAiRequest";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type {
   CaptureEntry,
@@ -282,14 +283,7 @@ function TaskWorkSection({
   const [workOpen, setWorkOpen] = useState(hasWorkHistory || workState !== "not_delegated");
   const copyAiRequest = async () => {
     try {
-      await workspaceApi.copyText(
-        [
-          `Task ID: ${task.id}`,
-          `タイトル: ${task.title}`,
-          "",
-          `Tasken MCPの tasken.get_task_context に task_id="${task.id}" を渡し、このTaskを読み、公開Contextと完了条件を確認して着手してください。`,
-        ].join("\n"),
-      );
+      await workspaceApi.copyText(buildTaskAiRequest([task]));
       setToast("AIへの依頼文をコピーしました。", "success");
     } catch {
       setToast("AIへの依頼文をコピーできませんでした。もう一度お試しください。", "danger");

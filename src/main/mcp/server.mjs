@@ -7,6 +7,7 @@ import * as z from "zod/v4";
 import { localDate } from "../../shared/activityProjection.mjs";
 import { entityTypes } from "../../shared/entityRegistry.mjs";
 import { parseCanonicalTaskId, parseTaskLocator } from "../../shared/contracts/mobile/public.mjs";
+import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
@@ -1089,7 +1090,7 @@ export function createTaskenMcpServer(options = {}) {
     });
   const startTaskWork = (args) =>
     coreClient.executeTaskCommand({
-      schemaVersion: 1,
+      schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
       command_id: args.idempotency_key,
       name: "StartTaskWork",
       actor: { kind: "ai_agent", id: args.caller },

@@ -5,6 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
+import { TASK_CONTRACT_SCHEMA_VERSION } from "../src/shared/contracts/task/public.ts";
 
 const charter = {
   schema: "tasken-theme-charter/v1",
@@ -197,7 +198,7 @@ test("start_task_work directly claims an AI Ready Task without creating a Propos
   assert.deepEqual(call, [
     "executeTaskCommand",
     {
-      schemaVersion: 1,
+      schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
       command_id: "start-task-ready",
       name: "StartTaskWork",
       actor: { kind: "ai_agent", id: "Codex" },

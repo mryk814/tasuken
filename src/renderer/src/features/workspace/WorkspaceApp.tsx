@@ -40,6 +40,7 @@ import {
   type WorkspaceData,
 } from "./types";
 import { entityTitle } from "./lib/domain";
+import { copyNewAiReadyRequests } from "./lib/taskAiRequest";
 import { activeRecords, formText, str, uuid } from "./lib/format";
 import {
   activityDatesToAutoExport,
@@ -1584,7 +1585,14 @@ export function WorkspaceApp() {
       }
       if (!taskOperations.length && remaining.length)
         saved = [...saved, ...(await saveWorkspaceEntities(remaining))];
-      setToast(successMessage, "success");
+      const aiRequestCopy = await copyNewAiReadyRequests(
+        fullDomain.tasks,
+        receipts.flatMap((receipt) =>
+          receipt.changes.filter((change) => change.type === "task").map(({ entity }) => entity),
+        ),
+        (text) => workspaceApi.copyText(text),
+      );
+      setToast(aiRequestCopy?.message || successMessage, aiRequestCopy?.tone || "success");
       return saved;
     } catch (error) {
       setToast(`保存できませんでした。${errorMessage(error)}`, "danger");

@@ -83,25 +83,23 @@ MCPクライアントを動かす環境には **Node.js 20以上**をインス�
 
 `npm --silent run mcp`は`scripts/mcp-server.mjs`を通常のNodeで起動します。MCP bridgeはSQLiteを開かず、Desktop Mainが公開する認証済みloopback Tasken Coreへ接続します。Core停止時はDBへfallbackせず、tool resultに復旧可能な構造化errorを返します。MCPクライアント設定ではstdoutにnpmのログを混ぜないため`--silent`を付けてください。
 
-Tasken Desktopを起動した状態で、Core discovery・health・API version・live capabilities・認証を機械可読JSONで診断:
+Tasken Desktopを起動した状態で、Core discovery・health・API version・認証と、実stdio MCPの起動・ツール一覧・AI Ready読み取りを診断:
 
 ```bash
 npm run doctor:mcp -- --json
 ```
 
-MCPの検索・文脈取得toolは読み取り専用です。Note本文の全文は`include_raw_body: true`を明示した場合だけ返します。Task / Note / Knowledge / Sketch / Artifactのwrite toolはCore commandで`ai_proposal`だけを作り、正式データはTaskenで採用するまで変えません。
+Claude Code / Codex / GitHub Copilot CLIの登録方法、依頼文、着手から採用までの手順は [外部AI連携ガイド](./docs/external-ai-integration.md) を参照してください。診断対象をインストール済みMCPに合わせるには、設定画面でコピーしたserverパスを`--server`へ渡します。
+
+MCPの検索・文脈取得toolは読み取り専用です。Noteの要約一覧で本文を含めるには`include_raw_body: true`を指定し、個別本文は`get_note`で取得します。作成・編集・結果報告はProposalとして届き、Taskenで採用するまで正式データは変わりません。例外は`start_task_work`で、人がAI ReadyにしたTaskの開始だけを直接記録します。
 
 Coding Agentは`tasken.get_task_context`へTask IDと現在のworkspace情報を渡すと、Task / assignment / Theme / RepositoryContextと、関係理由付きのNote・Conversation・Artifact・Activity・Work Receipt概要をまとめて取得できます。件数と本文長には上限があり、全文が必要な場合だけレスポンス内のstable locatorから`tasken.get_note`、`tasken.get_conversation`、`tasken.get_artifact_metadata`、`tasken.get_activity_entries`を呼びます。Artifact toolはメタデータのみを返し、外部ファイル本文やローカルパスを読みません。
 
-Themeには、人間が書く比較的安定した`Theme Charter`と、現在の方向・問いを持つ`Theme State`を保存できます。MCPでは目的別に`tasken.get_work_context`、`tasken.get_planning_context`、`tasken.get_debrief_context`、`tasken.get_learning_context`を使い分けます。`tasken://themes/{themeId}/intent` ResourceはThemeの意図だけを参照し、`debrief` / `learning-column` Promptは利用者が明示起動する作業テンプレートです。正本と投影の境界は [`docs/tasken-context-architecture.md`](./docs/tasken-context-architecture.md) を参照してください。
+Themeには、人間が書く比較的安定した`Theme Charter`と、現在の方向・問いを持つ`Theme State`を保存できます。MCPでは目的別に`tasken.get_work_context`、`tasken.get_planning_context`、`tasken.get_debrief_context`、`tasken.get_learning_context`を使い分けます。`tasken://themes/{themeId}/intent` ResourceはThemeの意図だけを参照し、`daily-report` / `learning-column` Promptは利用者が明示起動する作業テンプレートです。正本と投影の境界は [`docs/tasken-context-architecture.md`](./docs/tasken-context-architecture.md) を参照してください。
 
-Task作業は`start_task_work` → `append_work_receipt` → `report_task_done`または`report_task_blocked`で報告します。途中の`append_work_receipt`はWork Receiptを追加して作業中を維持し、`report_task_done`だけが人間の確認待ちへ進めます。各writeには`expected_version`、`idempotency_key`、`caller`が必要です。RepositoryContext snapshotは`repository_context_id`、provider、repository slug、branchだけを受け付け、ローカルパスやremote URLは保存しません。いずれもTask本文を上書きせず、append-only Work ReceiptをPending Proposalへ送り、人間の確認後にだけ正式データへ反映します。write toolを一切公開しない運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。Promptは補助機能であり、同じworkflowはtoolだけで完結します。
+人がAI ReadyにしたTaskを外部AIが選び、`get_task_context`で確認してから`start_task_work`で開始します。開始後の最新versionを使って`append_work_receipt`、`report_task_done`、`report_task_blocked`を送ります。報告はAI Inboxで採用し、Doneの採用はTask完了まで保存します。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
 
-Windowsデスクトップでは、Task編集の「AIを起動して渡す」から、インストール済みのClaude Code / GitHub Copilot / Codexと作業先を確認して対話CLIを開けます。Windows版CLIとNode.jsがPATHに必要です（Claudeのnative npm配布にも対応）。作業先はTask / Themeに関連するRepositoryContextの実在ローカルディレクトリに限定し、任意のコマンドは実行できません。初期依頼にはTask IDとContext取得・報告の指示だけを入れ、Task本文はMCPから取得します。Taskenの接続設定はそのプロセスだけに渡し、AI側のグローバル設定は変更しません。認証・フォルダ信頼・ツール実行の確認は各CLIの通常の手順です。
-
-「AIを起動して渡す」は、Task・AI・作業先を人間が確認した操作なので、CLIを開く前に`StartTaskWork`を直接確定して`in_progress`へ進めます。起動先AIは`start_task_work`を再送せず、そのまま作業します。途中・完了・blockedの報告は従来どおりProposal / Work Receiptへ送り、Task完了は人間が確認します。CLI起動に失敗しても開始記録は残し、同じ選択で再試行できます。既存セッションフックが設定済みなら`TASKEN_AGENT_SESSION_TASK_IDS`でTask IDを引き継ぎます。「AIへ依頼を準備」から依頼文をコピーする経路と、外部AIが`tasken.list_agent_ready_tasks`で取得する経路も引き続き使えます。Android・WSLからの直接起動は対象外です。
-
-直接起動の対象テスト: `node scripts/run-electron-node.mjs --test tests/task-agent-process.test.mjs tests/task-agent-launch-service.test.mjs tests/task-agent-launch-ui.test.mjs`。対話引数は [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/cli-reference) と [Copilot CLI](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference) に従い、Windowsでは [Start-Process](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/start-process) で独立した対話コンソールを開きます。起動時エラーの検出と、AIが実際に作業・報告を完遂したことの検証は別です。
+AI Readyは事前許可であり、自動実行の予約ではありません。外部AIを普段どおり開き、依頼文を貼り付けるかAI Readyの確認を頼みます。TaskenからCLIを直接起動する機能はありません。実stdioと一時DBを通す検証は [AI collaboration E2E](./docs/ai-collaboration-e2e.md) を参照してください。
 
 Windowsインストーラーとportable版を作成:
 
