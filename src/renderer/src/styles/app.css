@@ -13752,20 +13752,68 @@ kbd {
 }
 
 .sketch-toolbar {
+  flex-direction: column;
+  align-items: stretch;
   position: relative;
   z-index: 3;
   grid-column: 2;
   grid-row: 2;
   min-width: 0;
   min-height: 48px;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
+  gap: 0;
+  padding: 0 var(--space-3);
   overflow: visible;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface-muted);
 }
 .sketch-page.is-infinite .sketch-toolbar {
   grid-column: 1;
+}
+.sketch-toolbar-main,
+.sketch-tool-settings {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--space-2);
+  min-height: calc(var(--space-8) + var(--space-4));
+  padding-block: var(--space-1);
+}
+.sketch-toolbar-main {
+  overflow-x: auto;
+}
+.sketch-tool-settings {
+  border-top: 1px solid var(--color-border);
+}
+.sketch-tools {
+  border-right: 0;
+}
+.sketch-tools button {
+  flex-direction: column;
+  white-space: nowrap;
+}
+.sketch-setting-label,
+.sketch-setting-value,
+.sketch-setting-hint {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.sketch-setting-label {
+  min-width: 5em;
+  font-weight: 600;
+}
+.sketch-setting-value {
+  font-family: var(--font-mono);
+}
+.sketch-setting-hint {
+  flex-shrink: 1;
+}
+.sketch-toolbar button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.sketch-selection-actions button.is-danger {
+  color: var(--color-danger);
 }
 .sketch-tool-group {
   flex: 0 0 auto;
@@ -13814,7 +13862,7 @@ kbd {
   position: absolute;
   z-index: 12;
   top: calc(100% + var(--space-2));
-  right: 0;
+  left: 0;
   display: grid;
   grid-template-columns: repeat(5, 76px);
   width: auto;
@@ -13833,7 +13881,7 @@ kbd {
   gap: 3px;
   white-space: nowrap;
 }
-.sketch-shape-popover button[aria-checked="true"] {
+.sketch-shape-popover button[aria-pressed="true"] {
   border-color: var(--color-accent-subtle-bd);
   background: var(--color-accent-subtle-bg);
   color: var(--color-accent-strong);
@@ -13893,6 +13941,12 @@ kbd {
 .sketch-width-options.is-eraser button span {
   border: 1.5px solid currentColor;
   background: transparent;
+}
+.sketch-width-options button .sketch-font-size {
+  width: auto;
+  background: transparent;
+  color: var(--color-text);
+  font: var(--text-sm) var(--font-mono);
 }
 .sketch-tool-group.is-history {
   margin-left: auto;
@@ -14479,17 +14533,8 @@ kbd {
 }
 
 @media (max-width: 1420px) {
-  .sketch-header-meta > span:first-child {
-    display: none;
-  }
-  .sketch-tool-group button span {
-    display: none;
-  }
   .sketch-page {
     --sketch-page-rail-width: 136px;
-  }
-  .sketch-shape-popover button span {
-    display: block;
   }
 }
 
