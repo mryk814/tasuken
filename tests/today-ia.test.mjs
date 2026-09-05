@@ -122,7 +122,9 @@ test("Debrief surfaces generated Activity and configures automatic daily export"
   assert.match(activityPanelSource, /毎日自動出力/);
   assert.match(activityPanelSource, /activityLogAutoExportTime/);
   assert.match(activityPanelSource, /Rootを設定すると自動で出力先を作ります。/);
-  assert.match(activityPanelSource, /アプリ停止中の未出力分は、次回起動時に日ごとに補完します/);
+  assert.match(activityPanelSource, /指定したフォルダに日誌を出力します/);
+  assert.match(activityPanelSource, /当日分は翌日に再出力し、定時後の作業も反映します/);
+  assert.match(activityPanelSource, /停止中の分は次回起動時に補完します/);
 });
 
 test("Settings exposes shared-folder sync status, manual sync, and conflict resolution", () => {
