@@ -251,6 +251,7 @@ export function taskWorkPeriods(
   const list = (value: unknown) =>
     Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
   for (const { report, proposal } of ordered) {
+    if (report.executor_kind && report.executor_kind !== "ai_agent") continue;
     const task = taskById.get(String(report.task_id));
     if (!task) continue;
     const ended = String(report.reported_at || proposal?.received_at || proposal?.created_at || "");

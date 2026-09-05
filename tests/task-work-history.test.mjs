@@ -118,3 +118,15 @@ test("untyped legacy receipt does not become indefinite active work after a retu
   assert.deepEqual(taskWorkPeriods([{ ...task, work_reported_at: null }], [], [receipt]), []);
   assert.equal(receipt.reported_at, end);
 });
+
+test("human work receipts are not represented as AI work", () => {
+  const receipt = {
+    id: "human-done",
+    task_id: task.id,
+    executor_kind: "human",
+    started_at: start,
+    reported_at: end,
+    runtime_metadata: { report_kind: "done" },
+  };
+  assert.deepEqual(taskWorkPeriods([task], [], [receipt]), []);
+});
