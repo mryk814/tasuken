@@ -10,16 +10,29 @@ export { KnowledgeQueryService } from "./services/knowledgeQueryService.ts";
 export { AgentContextQueryService } from "./services/agentContextQueryService.ts";
 export { AgentContextExportService } from "./services/agentContextExportService.ts";
 export { ProposeTaskWorkError, ProposeTaskWorkService } from "./services/proposeTaskWorkService.ts";
-export { ProposeAgentSessionError, ProposeAgentSessionService } from "./services/proposeAgentSessionService.ts";
-export { ProposeRepositoryTaskError, ProposeRepositoryTaskService } from "./services/proposeRepositoryTaskService.ts";
+export {
+  ProposeAgentSessionError,
+  ProposeAgentSessionService,
+} from "./services/proposeAgentSessionService.ts";
+export {
+  ProposeRepositoryTaskError,
+  ProposeRepositoryTaskService,
+} from "./services/proposeRepositoryTaskService.ts";
 export { ProposeContentError, ProposeContentService } from "./services/proposeContentService.ts";
 export type {
   AgentReadyTaskReadPort,
   AgentReadyTaskSourceRecord,
   AgentReadyTaskThemeRecord,
 } from "./ports/agentReadyTaskReadPort.ts";
-export type { AgentWorkspaceReadPort, AgentWorkspaceRecord } from "./ports/agentWorkspaceReadPort.ts";
-export type { TaskContextReadPort, TaskContextRecord, TaskContextWorkspace } from "./ports/taskContextReadPort.ts";
+export type {
+  AgentWorkspaceReadPort,
+  AgentWorkspaceRecord,
+} from "./ports/agentWorkspaceReadPort.ts";
+export type {
+  TaskContextReadPort,
+  TaskContextRecord,
+  TaskContextWorkspace,
+} from "./ports/taskContextReadPort.ts";
 export type {
   ItemQueryReadPort,
   ItemQueryRecord,
@@ -33,15 +46,29 @@ export type {
   ActivityEntriesSnapshot,
   ActivityEntriesWorkspace,
 } from "./ports/activityEntriesReadPort.ts";
-export type { ThemeContextReadPort, ThemeContextRecord, ThemeContextWorkspace } from "./ports/themeContextReadPort.ts";
+export type {
+  ThemeContextReadPort,
+  ThemeContextRecord,
+  ThemeContextWorkspace,
+} from "./ports/themeContextReadPort.ts";
 export type {
   KnowledgeReadEntityType,
   KnowledgeReadPort,
   KnowledgeReadRecord,
 } from "./ports/knowledgeReadPort.ts";
-export type { AgentContextReadPort, AgentContextRecord, AgentContextSnapshot, AgentContextWorkspace } from "./ports/agentContextReadPort.ts";
+export type {
+  AgentContextReadPort,
+  AgentContextRecord,
+  AgentContextSnapshot,
+  AgentContextWorkspace,
+} from "./ports/agentContextReadPort.ts";
 export type {
   AiProposalRecord,
   AiProposalTransaction,
   AiProposalWritePort,
 } from "./ports/aiProposalWritePort.ts";
+export type {
+  NoteProposalImageManifestEntry,
+  NoteProposalImagePort,
+  PreparedNoteProposalImages,
+} from "./ports/noteProposalImagePort.ts";

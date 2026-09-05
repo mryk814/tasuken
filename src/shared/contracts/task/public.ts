@@ -299,9 +299,23 @@ export {
   contentProposalActorSchema,
   contentProposalPayloadTypeSchema,
   contentProposalRepositoryContextSchema,
+  findTaskenUploadImagePlaceholders,
+  hasTaskenUploadImageDestination,
+  noteProposalImageMediaTypeSchema,
+  noteProposalImageSchema,
   proposeContentRequestSchema,
   proposeContentResponseSchema,
   type ContentProposalPayloadType,
+  type NoteProposalImage,
+  type NoteProposalImageMediaType,
   type ProposeContentRequest,
   type ProposeContentResponse,
+  type TaskenUploadImagePlaceholder,
 } from "./contentProposal.ts";
+export {
+  extractTaskenMarkdownFootnoteDefinitions,
+  parseTaskenMarkdownBody,
+  splitTaskenMarkdownFrontmatter,
+  taskenMarkdownNonBodyRanges,
+  type TaskenMarkdownSourceRange,
+} from "./taskenMarkdownAst.ts";

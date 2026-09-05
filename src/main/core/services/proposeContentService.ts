@@ -1,14 +1,25 @@
 import { createHash } from "node:crypto";
 
 import {
+  hasTaskenUploadImageDestination,
   proposeContentRequestSchema,
   proposeContentResponseSchema,
   type ContentProposalPayloadType,
+  type NoteProposalImage,
   type ProposeContentRequest,
   type ProposeContentResponse,
 } from "../../../shared/contracts/task/public.ts";
 import { validateArtifactProposal, validateSafeSvg } from "../../../shared/proposalMedia.mjs";
-import type { AiProposalRecord, AiProposalWritePort } from "../ports/aiProposalWritePort.ts";
+import type {
+  AiProposalRecord,
+  AiProposalTransaction,
+  AiProposalWritePort,
+} from "../ports/aiProposalWritePort.ts";
+import type {
+  NoteProposalImageManifestEntry,
+  NoteProposalImagePort,
+  PreparedNoteProposalImages,
+} from "../ports/noteProposalImagePort.ts";
 
 const MAX_CANONICAL_PROPOSAL_BYTES = 64 * 1024;
 
@@ -19,6 +30,14 @@ const TOOL_BY_KIND = {
   sketch_create: "tasken.propose_sketch",
   artifact_create: "tasken.propose_artifact",
 } as const;
+
+const PAYLOAD_TYPE_BY_KIND = {
+  note_create: "notes",
+  note_edit: "notes",
+  knowledge_create: "knowledge_nodes",
+  sketch_create: "sketches",
+  artifact_create: "artifacts",
+} as const satisfies Record<ProposeContentRequest["kind"], ContentProposalPayloadType>;
 
 export class ProposeContentError extends Error {
   constructor(
@@ -85,32 +104,33 @@ function proposalId(
   return `${uuidHex.slice(0, 8)}-${uuidHex.slice(8, 12)}-${uuidHex.slice(12, 16)}-${uuidHex.slice(16, 20)}-${uuidHex.slice(20, 32)}`;
 }
 
-function payloadFor(request: ProposeContentRequest): {
-  payloadType: ContentProposalPayloadType;
+function payloadFor(
+  request: ProposeContentRequest,
+  preparedImages?: { body: string; manifest: readonly NoteProposalImageManifestEntry[] },
+): {
   payload: Record<string, unknown>;
   target?: Record<string, unknown>;
 } {
   if (request.kind === "note_create") {
     return {
-      payloadType: "notes",
       payload: {
         notes: [
           {
             action: "create",
             title: request.title,
-            body: request.body,
+            body: preparedImages?.body ?? request.body,
             theme: request.theme || "",
             note_type: request.note_type || "memo",
             ...(request.report_date ? { report_date: request.report_date } : {}),
             reason: request.reason || "",
           },
         ],
+        ...(preparedImages ? { note_images: preparedImages.manifest } : {}),
       },
     };
   }
   if (request.kind === "note_edit") {
     return {
-      payloadType: "notes",
       payload: {
         notes: [
           {
@@ -128,7 +148,6 @@ function payloadFor(request: ProposeContentRequest): {
   }
   if (request.kind === "knowledge_create") {
     return {
-      payloadType: "knowledge_nodes",
       payload: {
         knowledge_nodes: [
           {
@@ -154,7 +173,6 @@ function payloadFor(request: ProposeContentRequest): {
       );
     }
     return {
-      payloadType: "sketches",
       payload: {
         sketches: [
           {
@@ -185,20 +203,87 @@ function payloadFor(request: ProposeContentRequest): {
       error instanceof Error ? error.message : "Artifactが不正です。",
     );
   }
-  return { payloadType: "artifacts", payload: { artifacts: [artifact] } };
+  return { payload: { artifacts: [artifact] } };
+}
+
+function prepareNoteImages(
+  imagePort: NoteProposalImagePort | undefined,
+  proposalId: string,
+  body: string,
+  images: readonly NoteProposalImage[] | undefined,
+):
+  | {
+      body: string;
+      manifest: readonly NoteProposalImageManifestEntry[];
+      prepared: unknown;
+    }
+  | undefined {
+  if (!images) {
+    if (hasTaskenUploadImageDestination(body)) {
+      throw new ProposeContentError(
+        "VALIDATION_FAILED",
+        "本文の画像プレースホルダーに対応する画像データがありません。画像を添えて再提案してください。",
+      );
+    }
+    return undefined;
+  }
+  const inputImages = images;
+  if (!imagePort) {
+    throw new ProposeContentError(
+      "VALIDATION_FAILED",
+      "画像付きのノートProposalには画像ストレージが必要です。画像を外すか、対応するTasken Coreへ送信してください。",
+    );
+  }
+
+  let result: PreparedNoteProposalImages;
+  try {
+    result = imagePort.prepare({ proposalId, body, images: inputImages });
+  } catch (error) {
+    if (error instanceof ProposeContentError) throw error;
+    throw new ProposeContentError(
+      "VALIDATION_FAILED",
+      error instanceof Error
+        ? error.message
+        : "ノート画像を準備できませんでした。画像の形式と内容を確認してください。",
+    );
+  }
+  if (typeof result.body !== "string" || result.manifest.length !== inputImages.length) {
+    throw new ProposeContentError(
+      "VALIDATION_FAILED",
+      "ノート画像の準備結果が不正です。画像を確認してProposalを作り直してください。",
+    );
+  }
+  return {
+    body: result.body,
+    manifest: result.manifest.map((entry) => ({
+      reference_id: entry.reference_id,
+      file_name: entry.file_name,
+      mime_type: entry.mime_type,
+      size: entry.size,
+      sha256: entry.sha256,
+      url: entry.url,
+    })),
+    prepared: result.prepared,
+  };
 }
 
 export class ProposeContentService {
   constructor(
     private readonly writePort: AiProposalWritePort,
     private readonly now: () => string = () => new Date().toISOString(),
+    private readonly noteProposalImagePort?: NoteProposalImagePort,
   ) {}
 
   execute(input: ProposeContentRequest): ProposeContentResponse {
     const request = proposeContentRequestSchema.parse(input);
     const sourceApp = request.source_app || "mcp-client";
-    const { payloadType, payload, target } = payloadFor(request);
+    const payloadType = PAYLOAD_TYPE_BY_KIND[request.kind];
     const id = proposalId(sourceApp, payloadType, request.idempotency_key);
+    const preparedImages =
+      request.kind === "note_create"
+        ? prepareNoteImages(this.noteProposalImagePort, id, request.body, request.images)
+        : undefined;
+    const { payload, target } = payloadFor(request, preparedImages);
     const proposalRequestBase = {
       tool: TOOL_BY_KIND[request.kind],
       idempotency_key: request.idempotency_key,
@@ -218,37 +303,86 @@ export class ProposeContentService {
     const payloadDigest = proposalDigest(payload, proposalRequestBase);
     const proposalRequest = { ...proposalRequestBase, payload_digest: payloadDigest };
 
-    const status = this.writePort.runTransaction((transaction) => {
+    type ExistingStatus =
+      { result: "queued" } | { result: "duplicate"; restorePendingImages: boolean };
+    const getExistingStatus = (transaction: AiProposalTransaction): ExistingStatus => {
       const existing = transaction.get(id);
-      if (existing) {
-        const existingDigest = proposalDigest(existing.payload, existing.request || {});
-        const matchesLegacy = legacyRequestMatches(existing, payload, proposalRequestBase);
-        if (
-          existing.source !== "mcp" ||
-          existing.payload_type !== payloadType ||
-          (!matchesLegacy && existingDigest !== payloadDigest)
-        ) {
+      if (!existing) return { result: "queued" };
+      const existingDigest = proposalDigest(existing.payload, existing.request || {});
+      const matchesLegacy = legacyRequestMatches(existing, payload, proposalRequestBase);
+      if (
+        existing.source !== "mcp" ||
+        existing.payload_type !== payloadType ||
+        (!matchesLegacy && existingDigest !== payloadDigest)
+      ) {
+        throw new ProposeContentError(
+          "IDEMPOTENCY_CONFLICT",
+          "同じidempotency_keyへ異なる内容を送信できません。",
+          { proposal_id: id },
+        );
+      }
+      return {
+        result: "duplicate",
+        restorePendingImages: existing.status === "pending" && !existing.deleted_at,
+      };
+    };
+    const saveOrFindExisting = () =>
+      this.writePort.runTransaction((transaction) => {
+        const existing = getExistingStatus(transaction);
+        if (existing.result === "duplicate") return existing;
+        const proposal: AiProposalRecord = {
+          id,
+          source: "mcp",
+          source_app: sourceApp,
+          payload_type: payloadType,
+          payload,
+          request: proposalRequest,
+          status: "pending",
+          received_at: this.now(),
+        };
+        transaction.save(proposal);
+        return { result: "queued" } as const;
+      });
+
+    let status: "queued" | "duplicate";
+    if (!preparedImages) {
+      status = saveOrFindExisting().result;
+    } else {
+      const preflight = this.writePort.runTransaction(getExistingStatus);
+      if (preflight.result === "duplicate" && !preflight.restorePendingImages) {
+        status = "duplicate";
+      } else {
+        try {
+          this.noteProposalImagePort!.stage(preparedImages.prepared);
+        } catch (error) {
+          try {
+            this.noteProposalImagePort!.rollback(preparedImages.prepared);
+          } catch {
+            // Preserve the original staging failure after attempting compensating cleanup.
+          }
           throw new ProposeContentError(
-            "IDEMPOTENCY_CONFLICT",
-            "同じidempotency_keyへ異なる内容を送信できません。",
-            { proposal_id: id },
+            "VALIDATION_FAILED",
+            error instanceof Error
+              ? error.message
+              : "ノート画像を保存できませんでした。画像と保存先を確認してください。",
           );
         }
-        return "duplicate" as const;
+        try {
+          const committed = saveOrFindExisting();
+          status = committed.result;
+          if (committed.result === "duplicate" && !committed.restorePendingImages) {
+            this.noteProposalImagePort!.rollback(preparedImages.prepared);
+          }
+        } catch (error) {
+          try {
+            this.noteProposalImagePort!.rollback(preparedImages.prepared);
+          } catch {
+            // Preserve the original database failure after attempting compensating cleanup.
+          }
+          throw error;
+        }
       }
-      const proposal: AiProposalRecord = {
-        id,
-        source: "mcp",
-        source_app: sourceApp,
-        payload_type: payloadType,
-        payload,
-        request: proposalRequest,
-        status: "pending",
-        received_at: this.now(),
-      };
-      transaction.save(proposal);
-      return "queued" as const;
-    });
+    }
 
     return proposeContentResponseSchema.parse({
       proposal_id: id,
@@ -256,7 +390,9 @@ export class ProposeContentService {
       payload_type: payloadType,
       message:
         status === "queued"
-          ? "TaskenのAI連携にProposalとして送りました。TaskenでPreviewして採用してください。"
+          ? preparedImages?.manifest.length
+            ? "画像付きNote Proposalを受信しました。このTasken DesktopでPreviewして採用してください。"
+            : "TaskenのAI連携にProposalとして送りました。TaskenでPreviewして採用してください。"
           : "同じidempotency_keyのProposalはすでに受信済みです。",
     });
   }

@@ -222,13 +222,15 @@ test("Daily ScratchpadはMarkdownとして書けて確認できる（#316）", (
     "utf8",
   );
   const markdown = readFileSync("src/renderer/src/features/workspace/lib/markdown.ts", "utf8");
+  const markdownParser = readFileSync("src/shared/contracts/task/taskenMarkdownAst.ts", "utf8");
 
   // 本文はMarkdownが正本。書いた結果を確認できる。
   assert.match(dialog, /const \[mode, setMode\] = useState<"edit" \| "preview">\("edit"\)/);
   assert.match(dialog, /className="scratchpad-preview markdown-preview"/);
   // チェックリストを文字のまま出さない。
-  assert.match(markdown, /gfmTaskListItem\(\),/);
-  assert.match(markdown, /gfmTaskListItemFromMarkdown\(\),/);
+  assert.match(markdown, /parseTaskenMarkdownBody as parseMarkdownBody/);
+  assert.match(markdownParser, /gfmTaskListItem\(\),/);
+  assert.match(markdownParser, /gfmTaskListItemFromMarkdown\(\),/);
 
   // 「選択をNoteへ」は撤去し、Task化だけ残す。
   assert.equal(/選択をNoteへ/.test(dialog), false);

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { deflateSync } from "node:zlib";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -34,6 +35,9 @@ async function importBundled(relativePath) {
 
 const { TaskenCoreHost } = await importBundled("src/main/infrastructure/http/taskenCoreHost.ts");
 const { createTaskenCore } = await importBundled("src/main/infrastructure/sqlite/public.ts");
+const { createNoteProposalImagePort } = await importBundled(
+  "src/main/services/proposalMarkdownImages.ts",
+);
 const { ApplicationCommandService } = await importBundled(
   "src/main/services/applicationCommandService.ts",
 );
@@ -57,6 +61,55 @@ function baseArgs(idempotencyKey) {
       branch: "codex/412-content-proposal",
     },
   };
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const typeBytes = Buffer.from(type, "ascii");
+  const chunk = Buffer.alloc(12 + data.length);
+  chunk.writeUInt32BE(data.length, 0);
+  typeBytes.copy(chunk, 4);
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(crc32(Buffer.concat([typeBytes, data])), 8 + data.length);
+  return chunk;
+}
+
+function validPng(seed) {
+  const width = 256;
+  const height = 256;
+  const raw = Buffer.alloc(height * (1 + width * 4));
+  let random = seed >>> 0;
+  for (let row = 0; row < height; row += 1) {
+    const rowStart = row * (1 + width * 4);
+    raw[rowStart] = 0;
+    for (let column = 0; column < width * 4; column += 1) {
+      random ^= random << 13;
+      random ^= random >>> 17;
+      random ^= random << 5;
+      raw[rowStart + 1 + column] = random & 0xff;
+    }
+  }
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 async function connectMcp(root) {
@@ -268,6 +321,31 @@ test("five content tools persist exact canonical proposals over actual stdio/Cor
       "mcp-client",
     );
 
+    const literalUploadBody = [
+      "The placeholder syntax is tasken-upload://figure.",
+      "```md",
+      "![example](tasken-upload://figure)",
+      "```",
+    ].join("\n");
+    const literalUpload = await callProposal(client, "tasken.propose_note", {
+      ...baseArgs("note-literal-upload-uri"),
+      title: "Literal upload syntax",
+      body: literalUploadBody,
+      note_type: "note",
+    });
+    assert.deepEqual(database.get("ai_proposal", literalUpload.proposal_id).payload, {
+      notes: [
+        {
+          action: "create",
+          title: "Literal upload syntax",
+          body: literalUploadBody,
+          theme: "",
+          note_type: "memo",
+          reason: "",
+        },
+      ],
+    });
+
     await client.close();
     await host.stop();
     database.db.close();
@@ -412,6 +490,191 @@ test("five content tools persist exact canonical proposals over actual stdio/Cor
   } finally {
     await client?.close().catch(() => {});
     await host?.stop().catch(() => {});
+    try {
+      database?.db.close();
+    } catch {
+      /* already closed during restart */
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("propose_note carries embedded image bytes through stdio/Core without persisting the bytes", async () => {
+  const root = fixtureRoot();
+  const dbPath = path.join(root, "workspace.sqlite3");
+  const imageBytes = validPng(1);
+  const changedBytes = validPng(2);
+  assert.ok(imageBytes.length > 64 * 1024);
+  const validImageHashes = new Set(
+    [imageBytes, changedBytes].map((bytes) => createHash("sha256").update(bytes).digest("hex")),
+  );
+  const decodeFixtureImage = (bytes, mimeType) =>
+    mimeType === "image/png" &&
+    validImageHashes.has(createHash("sha256").update(bytes).digest("hex"))
+      ? { width: 256, height: 256 }
+      : null;
+  const args = {
+    ...baseArgs("note-with-image-1"),
+    title: "Recipe result",
+    body: "完成形です。\n\n![完成写真](tasken-upload://finished-dish)",
+    images: [
+      {
+        reference_id: "finished-dish",
+        file_name: "finished-dish.png",
+        media_type: "image/png",
+        data_base64: imageBytes.toString("base64"),
+      },
+    ],
+    note_type: "report",
+    report_date: "2026-09-01",
+  };
+  let database = new WorkspaceDatabase(dbPath);
+  let host = new TaskenCoreHost({
+    userDataPath: root,
+    ...createTaskenCore(database, {
+      noteProposalImagePort: createNoteProposalImagePort(root, decodeFixtureImage),
+    }),
+  });
+  await host.start();
+  let client = await connectMcp(root);
+  try {
+    const listed = await client.listTools();
+    const noteTool = listed.tools.find((tool) => tool.name === "tasken.propose_note");
+    assert.ok(noteTool?.inputSchema.properties.images);
+    assert.match(noteTool.description || "", /tasken-upload:\/\//);
+
+    const largeInvalidImage = await client.callTool({
+      name: "tasken.propose_note",
+      arguments: {
+        ...baseArgs("note-with-large-invalid-image"),
+        title: "Large invalid image",
+        body: "![invalid](tasken-upload://large-invalid)",
+        images: [
+          {
+            reference_id: "large-invalid",
+            file_name: "large-invalid.png",
+            media_type: "image/png",
+            data_base64: "A".repeat(11 * 1024 * 1024),
+          },
+        ],
+      },
+    });
+    assert.equal(largeInvalidImage.isError, true);
+    assert.equal(largeInvalidImage.structuredContent.error.code, "VALIDATION_FAILED");
+    assert.match(largeInvalidImage.structuredContent.error.message, /画像形式/);
+
+    const { idempotency_key: _idempotencyKey, ...withoutIdempotencyKey } = args;
+    const missingIdempotencyKey = await client.callTool({
+      name: "tasken.propose_note",
+      arguments: withoutIdempotencyKey,
+    });
+    assert.equal(missingIdempotencyKey.isError, true);
+    assert.equal(missingIdempotencyKey.structuredContent.error.code, "VALIDATION_FAILED");
+    assert.match(missingIdempotencyKey.structuredContent.error.message, /idempotency_key/);
+    assert.equal(fs.existsSync(path.join(root, "attachments", "markdown-images")), false);
+
+    const queued = await callProposal(client, "tasken.propose_note", args);
+    const stored = database.get("ai_proposal", queued.proposal_id);
+    assert.equal(queued.status, "queued");
+    assert.match(stored.payload.notes[0].body, /tasken-attachment:\/\/local\//);
+    assert.doesNotMatch(stored.payload.notes[0].body, /tasken-upload:\/\//);
+    assert.deepEqual(Object.keys(stored.payload.note_images[0]).sort(), [
+      "file_name",
+      "mime_type",
+      "reference_id",
+      "sha256",
+      "size",
+      "url",
+    ]);
+    assert.equal(stored.payload.note_images[0].reference_id, "finished-dish");
+    assert.equal(stored.payload.note_images[0].mime_type, "image/png");
+    assert.equal(stored.payload.note_images[0].size, imageBytes.length);
+    assert.equal(JSON.stringify(stored).includes(args.images[0].data_base64), false);
+    assert.equal(JSON.stringify(stored).includes("data_base64"), false);
+    assert.equal(JSON.stringify(stored).includes("source_path"), false);
+    const storedImagePath = path.join(
+      root,
+      "attachments",
+      "markdown-images",
+      stored.payload.note_images[0].file_name,
+    );
+    assert.equal(fs.existsSync(storedImagePath), true);
+
+    await client.close();
+    await host.stop();
+    database.db.close();
+    database = new WorkspaceDatabase(dbPath);
+    host = new TaskenCoreHost({
+      userDataPath: root,
+      ...createTaskenCore(database, {
+        noteProposalImagePort: createNoteProposalImagePort(root, decodeFixtureImage),
+      }),
+    });
+    await host.start();
+    client = await connectMcp(root);
+    fs.rmSync(storedImagePath);
+    const duplicate = await callProposal(client, "tasken.propose_note", args);
+    assert.equal(duplicate.status, "duplicate");
+    assert.equal(duplicate.proposal_id, queued.proposal_id);
+    assert.equal(fs.existsSync(storedImagePath), true);
+    assert.deepEqual(fs.readFileSync(storedImagePath), imageBytes);
+
+    fs.writeFileSync(storedImagePath, Buffer.from("tampered"));
+    const tamperedRetry = await client.callTool({
+      name: "tasken.propose_note",
+      arguments: args,
+    });
+    assert.equal(tamperedRetry.isError, true);
+    assert.match(tamperedRetry.structuredContent.error.message, /内容が変更されています/);
+    assert.deepEqual(fs.readFileSync(storedImagePath), Buffer.from("tampered"));
+    fs.writeFileSync(storedImagePath, imageBytes);
+
+    const conflict = await client.callTool({
+      name: "tasken.propose_note",
+      arguments: {
+        ...args,
+        images: [{ ...args.images[0], data_base64: changedBytes.toString("base64") }],
+      },
+    });
+    assert.equal(conflict.isError, true);
+    assert.equal(conflict.structuredContent.error.code, "IDEMPOTENCY_CONFLICT");
+    assert.deepEqual(fs.readFileSync(storedImagePath), imageBytes);
+
+    const rejected = database.save("ai_proposal", {
+      ...database.get("ai_proposal", queued.proposal_id),
+      status: "rejected",
+    });
+    fs.rmSync(storedImagePath);
+    const terminalDuplicate = await callProposal(client, "tasken.propose_note", args);
+    assert.equal(terminalDuplicate.status, "duplicate");
+    assert.equal(fs.existsSync(storedImagePath), false);
+    assert.equal(database.get("ai_proposal", queued.proposal_id).version, rejected.version);
+
+    const invalidImage = await client.callTool({
+      name: "tasken.propose_note",
+      arguments: {
+        ...baseArgs("note-with-invalid-image"),
+        title: "Invalid image",
+        body: "![broken](tasken-upload://broken)",
+        images: [
+          {
+            reference_id: "broken",
+            file_name: "broken.png",
+            media_type: "image/png",
+            data_base64: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString(
+              "base64",
+            ),
+          },
+        ],
+        note_type: "note",
+      },
+    });
+    assert.equal(invalidImage.isError, true);
+    assert.equal(invalidImage.structuredContent.error.code, "VALIDATION_FAILED");
+    assert.match(invalidImage.structuredContent.error.message, /画像形式とファイル内容が一致/);
+  } finally {
+    await client?.close();
+    await host?.stop();
     try {
       database?.db.close();
     } catch {
@@ -591,6 +854,33 @@ test("content proposal client requires its named capability and rejects additive
         error.code === "INVALID_RESPONSE" &&
         error.details.operation === "propose-content",
     );
+
+    const delayedImageResponse = new TaskenCoreClient({
+      discoveryPath,
+      timeoutMs: 5,
+      fetch: async (_url, options) => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        assert.equal(options.signal.aborted, false);
+        assert.equal(options.headers["x-tasken-proposal-images"], "1");
+        return new Response(
+          JSON.stringify({
+            proposal_id: "8d07d96a-73a6-5cd5-8f56-6d7ca0704632",
+            status: "queued",
+            payload_type: "notes",
+            message: "queued",
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-tasken-core-version": TASKEN_CORE_API_VERSION,
+            },
+          },
+        );
+      },
+    });
+    const delayed = await delayedImageResponse.proposeContent({ images: [{}] });
+    assert.equal(delayed.status, "queued");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

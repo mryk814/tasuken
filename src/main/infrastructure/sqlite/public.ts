@@ -13,6 +13,7 @@ import {
   ProposeContentService,
   TaskContextQueryService,
   ThemeContextQueryService,
+  type NoteProposalImagePort,
 } from "../../core/public.ts";
 import { WorkspaceAiProposalWriteAdapter } from "./workspaceAiProposalWriteAdapter.ts";
 import {
@@ -91,6 +92,7 @@ export function createTaskenCore(
   persistence: TaskenCorePersistence,
   options: {
     onProposalCommitted?: ConstructorParameters<typeof WorkspaceAiProposalWriteAdapter>[1];
+    noteProposalImagePort?: NoteProposalImagePort;
   } = {},
 ) {
   const agentWorkspace = new AgentWorkspaceQueryService(
@@ -156,6 +158,8 @@ export function createTaskenCore(
     ),
     proposeContent: new ProposeContentService(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
+      undefined,
+      options.noteProposalImagePort,
     ),
   };
 }

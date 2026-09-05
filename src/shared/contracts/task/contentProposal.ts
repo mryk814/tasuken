@@ -1,7 +1,172 @@
 import * as z from "zod/v4";
 
+import { parseTaskenMarkdownBody, taskenMarkdownNonBodyRanges } from "./taskenMarkdownAst.ts";
+
 const boundedText = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).optional();
+const safeFileName = (max: number) =>
+  boundedText(max).refine((value) => !/[<>:"/\\|?*\x00-\x1f\x7f]/.test(value));
+
+export interface TaskenUploadImagePlaceholder {
+  referenceId: string;
+  urlStart: number;
+  urlEnd: number;
+}
+
+interface MarkdownNode {
+  type: string;
+  url?: unknown;
+  identifier?: unknown;
+  position?: {
+    start?: { offset?: number };
+    end?: { offset?: number };
+  };
+  children?: MarkdownNode[];
+}
+
+interface MarkdownImageNode {
+  url: string;
+  start: number;
+  end: number;
+}
+
+const TASKEN_UPLOAD_SCHEME = "tasken-upload://";
+
+function startsWithAsciiCaseInsensitive(value: string, index: number, expected: string): boolean {
+  if (index + expected.length > value.length) return false;
+  for (let offset = 0; offset < expected.length; offset += 1) {
+    const code = value.charCodeAt(index + offset);
+    const lowerCode = code >= 65 && code <= 90 ? code + 32 : code;
+    if (lowerCode !== expected.charCodeAt(offset)) return false;
+  }
+  return true;
+}
+
+function hasUnescapedTaskenUploadImageSyntax(value: string): boolean {
+  let state: "text" | "label" | "destination" = "text";
+  let precedingBackslashes = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (state === "text") {
+      if (character === "\\") {
+        precedingBackslashes += 1;
+        continue;
+      }
+      const escaped = precedingBackslashes % 2 === 1;
+      precedingBackslashes = 0;
+      if (character === "!" && !escaped && value[index + 1] === "[") {
+        state = "label";
+        index += 1;
+      }
+      continue;
+    }
+
+    if (character === "\r" || character === "\n") {
+      state = "text";
+      precedingBackslashes = 0;
+      continue;
+    }
+    if (state === "label") {
+      if (character !== "]") continue;
+      if (value[index + 1] === "(") {
+        state = "destination";
+        index += 1;
+      } else {
+        state = "text";
+      }
+      continue;
+    }
+
+    if (character === ")") {
+      state = "text";
+      precedingBackslashes = 0;
+      continue;
+    }
+    if (startsWithAsciiCaseInsensitive(value, index, TASKEN_UPLOAD_SCHEME)) return true;
+  }
+  return false;
+}
+
+function taskenUploadMarkdownImages(body: string): {
+  inline: MarkdownImageNode[];
+  hasUploadImage: boolean;
+} {
+  const root = parseTaskenMarkdownBody(body) as MarkdownNode;
+  const nonBodyRanges = taskenMarkdownNonBodyRanges(body);
+  const hasNonBodyUploadImage = nonBodyRanges.some((range) =>
+    hasUnescapedTaskenUploadImageSyntax(body.slice(range.start, range.end)),
+  );
+  const inline: MarkdownImageNode[] = [];
+  let hasDirectUploadImage = false;
+  const uploadDefinitions = new Set<string>();
+  const imageReferences = new Set<string>();
+  const visit = (node: MarkdownNode): void => {
+    if (
+      node.type === "image" &&
+      typeof node.url === "string" &&
+      /^tasken-upload:\/\//i.test(node.url)
+    ) {
+      hasDirectUploadImage = true;
+      const start = node.position?.start?.offset;
+      const end = node.position?.end?.offset;
+      const isNonBody =
+        typeof start === "number" &&
+        nonBodyRanges.some((range) => start >= range.start && start < range.end);
+      if (typeof start === "number" && typeof end === "number" && !isNonBody) {
+        inline.push({ url: node.url, start, end });
+      }
+    } else if (
+      node.type === "definition" &&
+      typeof node.identifier === "string" &&
+      typeof node.url === "string" &&
+      /^tasken-upload:\/\//i.test(node.url)
+    ) {
+      uploadDefinitions.add(node.identifier);
+    } else if (node.type === "imageReference" && typeof node.identifier === "string") {
+      imageReferences.add(node.identifier);
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  visit(root);
+  return {
+    inline,
+    hasUploadImage:
+      hasDirectUploadImage ||
+      hasNonBodyUploadImage ||
+      [...imageReferences].some((identifier) => uploadDefinitions.has(identifier)),
+  };
+}
+
+export function findTaskenUploadImagePlaceholders(body: string): TaskenUploadImagePlaceholder[] {
+  return taskenUploadMarkdownImages(body).inline.flatMap((node) => {
+    const source = body.slice(node.start, node.end);
+    const match = source.match(
+      /^!\[[^\]\r\n]*\]\(\s*(?:<(tasken-upload:\/\/([a-z0-9][a-z0-9._-]{0,63}))>|(tasken-upload:\/\/([a-z0-9][a-z0-9._-]{0,63})))(?:[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*'|\([^\)\r\n]*\)))?[ \t]*\)$/,
+    );
+    if (!match) return [];
+    const url = match[1] ?? match[3];
+    const referenceId = match[2] ?? match[4];
+    if (url !== node.url) return [];
+    const urlStart = node.start + source.indexOf(url);
+    return [{ referenceId, urlStart, urlEnd: urlStart + url.length }];
+  });
+}
+
+export function hasTaskenUploadImageDestination(body: string): boolean {
+  return taskenUploadMarkdownImages(body).hasUploadImage;
+}
+
+export const noteProposalImageMediaTypeSchema = z.enum(["image/png", "image/jpeg"]);
+
+export const noteProposalImageSchema = z
+  .object({
+    reference_id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+    file_name: safeFileName(180),
+    media_type: noteProposalImageMediaTypeSchema,
+    data_base64: z.string().min(1).max(16_777_216),
+  })
+  .strict();
 
 export const contentProposalActorSchema = z
   .object({
@@ -50,6 +215,7 @@ export const proposeContentRequestSchema = z
           .regex(/^\d{4}-\d{2}-\d{2}$/)
           .optional(),
         reason: optionalText(2_000),
+        images: z.array(noteProposalImageSchema).min(1).max(8).optional(),
       })
       .strict(),
     z
@@ -127,3 +293,5 @@ export const proposeContentResponseSchema = z
 export type ProposeContentRequest = z.output<typeof proposeContentRequestSchema>;
 export type ProposeContentResponse = z.output<typeof proposeContentResponseSchema>;
 export type ContentProposalPayloadType = z.output<typeof contentProposalPayloadTypeSchema>;
+export type NoteProposalImage = z.output<typeof noteProposalImageSchema>;
+export type NoteProposalImageMediaType = z.output<typeof noteProposalImageMediaTypeSchema>;

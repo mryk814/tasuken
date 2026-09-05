@@ -1,9 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { nativeImage } from "electron";
+
 import { validateMcpPackageSmokeRoot } from "../../shared/taskenPaths.mjs";
 import { TaskenCoreRuntime } from "./taskenCoreRuntime.ts";
 import { ApplicationCommandService } from "../services/applicationCommandService";
+import {
+  createNativeImageDecoder,
+  createNoteProposalImagePort,
+} from "../services/proposalMarkdownImages.ts";
 import {
   MobileGatewayRuntime,
   type MobileDevicePersistence,
@@ -113,6 +119,7 @@ export class TaskenDesktopComposition<
           currentContextFingerprint,
           responseMeta,
         ),
+      createNoteProposalImagePort(options.userDataPath, createNativeImageDecoder(nativeImage)),
     );
     const mobileState: MobileGatewayStatePort = {
       current: () => this.repository.mobileGatewayState(),
