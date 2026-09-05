@@ -19,7 +19,7 @@ import { IPC } from "../shared/ipc/contracts";
 import {
   mobileCaptureOrganizationRequestSchema,
   mobileCaptureOrganizationSchema,
-} from "../shared/contracts/mobile/public";
+} from "../shared/contracts/mobile/public.ts";
 import type { CaptureOrganizerInput, CaptureOrganizerProposal } from "./gateway/mobile/public";
 
 export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
