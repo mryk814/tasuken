@@ -123,7 +123,7 @@ test("Receipt UI keeps external references compact and delegates task_work appli
   assert.match(panel, /name: "ApplyTaskWorkProposal"/);
   assert.match(
     panel,
-    /payload: \{ proposalId: proposal\.id, decision: "accept", coveredProposalIds:/,
+    /payload:\s*\{\s*proposalId: proposal\.id,\s*decision: "accept",\s*coveredProposalIds:/,
   );
   assert.match(command, /normalizeExternalReferences\(entry\.external_references\)/);
   assert.match(command, /normalizeExternalReferences\(payload\.receipt\.external_references\)/);

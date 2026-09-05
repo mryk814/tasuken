@@ -151,7 +151,7 @@ test("Proposal rows lead with a content-specific headline", () => {
   assert.match(aiProposalPanelSource, /str\(entry\.taskTitle\)/);
   assert.match(
     aiProposalPanelSource,
-    /className="proposal-row-title">\{domain\.tasks\.find\([\s\S]*?proposalHeadline\(proposal\)\}<\/strong>/,
+    /className="proposal-row-title">\s*\{domain\.tasks\.find\([\s\S]*?proposalHeadline\(proposal\)\}\s*<\/strong>/,
   );
   assert.match(
     aiProposalPanelSource,
