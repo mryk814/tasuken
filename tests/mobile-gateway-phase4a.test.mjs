@@ -38,6 +38,7 @@ const {
   MobileGatewayCoreUnavailableError,
   TASKEN_MOBILE_CAPABILITIES,
   TASKEN_MOBILE_ENDPOINTS,
+  TASKEN_MOBILE_MAX_RESPONSE_BYTES,
   TaskCapabilityService,
   TaskenCoreClient,
   TaskenCoreRuntime,
@@ -201,7 +202,7 @@ function gateway(service, overrides = {}, options = {}) {
 function todayQuery(overrides = {}) {
   return {
     apiVersion: "1",
-    schemaVersion: "6",
+    schemaVersion: "7",
     requestId: "request-today",
     date: "2026-08-21",
     limit: "20",
@@ -212,7 +213,7 @@ function todayQuery(overrides = {}) {
 function createRequest(overrides = {}) {
   return {
     apiVersion: 1,
-    schemaVersion: 6,
+    schemaVersion: 7,
     requestId: "request-mobile-create",
     commandId: "command-mobile-create",
     idempotencyKey: "command-mobile-create",
@@ -235,10 +236,104 @@ function createRequest(overrides = {}) {
   };
 }
 
+test("Mobile Task returns full speech description after creation and a fresh Today read", async () => {
+  const { service, repository } = capability();
+  const adapter = gateway(service);
+  const request = createRequest();
+  const description = "補足：条件を揃える\n\n元の発話：" + "比較実験の準備をしたい。".repeat(100);
+  request.command.task.description = description;
+  const created = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: request,
+  });
+  assert.equal(created.status, 200);
+  assert.equal(created.body.data.task.description, description);
+  assert.equal(repository.get("task", request.command.task.id).description, description);
+  const refreshed = await gateway(service).handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.today,
+    principal,
+    query: todayQuery(),
+  });
+  assert.equal(refreshed.status, 200);
+  assert.equal(
+    refreshed.body.data.items.find((task) => task.id === request.command.task.id).description,
+    description,
+  );
+});
+
+test("Mobile response bound admits 50 complete escaped descriptions and checklists while remaining finite", async () => {
+  const page = structuredClone(todayGolden);
+  const description = "\u0000".repeat(50000);
+  const checklistItems = Array.from({ length: 100 }, (_, index) => ({
+    id: `check-${index}`,
+    title: "\u0000".repeat(200),
+    done: false,
+    sortOrder: index,
+    completedAt: null,
+  }));
+  page.data.items = Array.from({ length: 50 }, (_, index) => ({
+    ...page.data.items[0],
+    id: `task-${index}`,
+    description,
+    checklistItems,
+  }));
+  const serialized = JSON.stringify(mobileTodayResponseSchema.parse(page));
+  const bytes = Buffer.byteLength(serialized, "utf8");
+  assert.ok(bytes > 16 * 1024 * 1024);
+  assert.ok(bytes < TASKEN_MOBILE_MAX_RESPONSE_BYTES);
+  assert.equal(TASKEN_MOBILE_MAX_RESPONSE_BYTES, 32 * 1024 * 1024);
+  const kotlin = readFileSync(
+    "android-app/app/src/main/java/jp/personal/tasken/companion/MobileGatewayRepository.kt",
+    "utf8",
+  );
+  assert.match(kotlin, /MAX_RESPONSE_BYTES = 32 \* 1024 \* 1024/);
+  const { service } = capability();
+  const health = await gateway(service).handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.health,
+    principal,
+  });
+  const client = new MobileGatewayClient({
+    baseUrl: "https://desktop.tailnet.ts.net",
+    accessToken: "mobile-response-bound-test-token",
+    fetch: async (url) =>
+      new Response(url.endsWith("/health") ? JSON.stringify(health.body) : serialized, {
+        status: 200,
+        headers: { "x-tasken-mobile-api-version": "1" },
+      }),
+  });
+  const result = await client.listToday({
+    apiVersion: 1,
+    schemaVersion: 7,
+    requestId: "large-page",
+    date: page.data.date,
+    limit: 50,
+  });
+  assert.equal(result.data.items.length, 50);
+  assert.equal(result.data.items[49].description, description);
+  assert.deepEqual(result.data.items[49].checklistItems, checklistItems);
+  const oversized = new MobileGatewayClient({
+    baseUrl: "https://desktop.tailnet.ts.net",
+    accessToken: "mobile-response-bound-test-token",
+    fetch: async () =>
+      new Response("{}", {
+        status: 200,
+        headers: {
+          "content-length": String(TASKEN_MOBILE_MAX_RESPONSE_BYTES + 1),
+          "x-tasken-mobile-api-version": "1",
+        },
+      }),
+  });
+  await assert.rejects(oversized.health(), (error) => error.code === "response_too_large");
+});
+
 function captureRequest(overrides = {}) {
   return {
     apiVersion: 1,
-    schemaVersion: 6,
+    schemaVersion: 7,
     requestId: "request-mobile-capture",
     commandId: "command-mobile-capture",
     idempotencyKey: "command-mobile-capture",
@@ -271,7 +366,7 @@ function stateRequest(name, expectedVersion, overrides = {}) {
   const suffix = name === "CompleteTask" ? "complete" : name === "ReopenTask" ? "reopen" : "delete";
   return {
     apiVersion: 1,
-    schemaVersion: 6,
+    schemaVersion: 7,
     requestId: `request-mobile-${suffix}`,
     commandId: `command-mobile-${suffix}`,
     idempotencyKey: `command-mobile-${suffix}`,
@@ -307,7 +402,7 @@ test("canonical Today golden is accepted and malformed responses fail closed", (
   for (const invalid of [
     { ...structuredClone(todayGolden), ok: false },
     withMeta({ apiVersion: 2 }),
-    withMeta({ schemaVersion: 7 }),
+    withMeta({ schemaVersion: 6 }),
     withMeta({ generatedAt: "not-a-timestamp" }),
     withData({ date: "2026-02-30" }),
     withData({
@@ -417,7 +512,7 @@ test("canonical Theme catalog golden is narrow and malformed responses fail clos
   assert.equal(
     mobileThemesRequestSchema.safeParse({
       apiVersion: 1,
-      schemaVersion: 6,
+      schemaVersion: 7,
       requestId: "request-themes",
       limit: 50,
     }).success,
@@ -437,7 +532,7 @@ test("canonical Theme catalog golden is narrow and malformed responses fail clos
   assert.equal(
     mobileThemesRequestSchema.safeParse({
       apiVersion: 1,
-      schemaVersion: 6,
+      schemaVersion: 7,
       requestId: "request-themes-page-2",
       cursor,
       limit: 50,
@@ -447,7 +542,7 @@ test("canonical Theme catalog golden is narrow and malformed responses fail clos
   assert.equal(
     mobileThemesRequestSchema.safeParse({
       apiVersion: 1,
-      schemaVersion: 6,
+      schemaVersion: 7,
       requestId: "request-themes-trimmed-cursor",
       cursor: ` ${cursor} `,
       limit: 50,
@@ -457,7 +552,7 @@ test("canonical Theme catalog golden is narrow and malformed responses fail clos
   assert.equal(
     mobileThemesRequestSchema.safeParse({
       apiVersion: 1,
-      schemaVersion: 6,
+      schemaVersion: 7,
       requestId: "request-themes",
       limit: 51,
     }).success,
@@ -493,6 +588,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     bootstrap: "/v1/bootstrap",
     sync: "/v1/sync",
     commands: "/v1/commands",
+    captureOrganization: "/v1/capture-organization",
   });
   const valid = createRequest();
   assert.equal(mobileTaskCommandRequestSchema.safeParse(valid).success, true);
@@ -547,7 +643,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
   );
   for (const invalid of [
     { ...valid, apiVersion: 2 },
-    { ...valid, schemaVersion: 7 },
+    { ...valid, schemaVersion: 6 },
     { ...valid, actor: { kind: "user", id: "forged" } },
     { ...valid, source: "android" },
     { ...valid, command: { name: "CompleteTask", taskId: "task-mobile-create" } },
@@ -602,7 +698,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
   assert.equal(
     mobileTodayRequestSchema.safeParse({
       apiVersion: 1,
-      schemaVersion: 6,
+      schemaVersion: 7,
       requestId: "request-today",
       date: "2026-08-21",
       limit: 51,
@@ -1014,7 +1110,7 @@ test("Mobile Schedule update derives canonical semantics and keeps Schedule iden
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "request-legacy-schedule",
       limit: "50",
     },
@@ -1190,7 +1286,7 @@ test("Mobile bootstrap projects the latest Work Receipt summary without raw tool
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
     principal,
-    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-receipt", limit: "50" },
+    query: { apiVersion: "1", schemaVersion: "7", requestId: "request-receipt", limit: "50" },
   });
   assert.equal(bootstrap.status, 200);
   assert.deepEqual(bootstrap.body.data.tasks[0].latestWorkReceipt, {
@@ -1236,7 +1332,7 @@ test("Mobile Work Receipt detail exposes only bounded canonical review fields", 
   assert.equal(
     mobileWorkReceiptRequestSchema.safeParse({
       apiVersion: 1,
-      schemaVersion: 6,
+      schemaVersion: 7,
       requestId: "request-work-receipt",
       taskId: "task-ai-review",
       receiptId: "receipt-ai-review",
@@ -1282,7 +1378,7 @@ test("Mobile Work Receipt detail exposes only bounded canonical review fields", 
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "request-work-receipt",
       taskId: "task-ai-review",
       receiptId: "receipt-ai-review",
@@ -1325,7 +1421,7 @@ test("Mobile Work Receipt detail rejects cross-Task lookup and truncates oversiz
   });
   const query = {
     apiVersion: "1",
-    schemaVersion: "6",
+    schemaVersion: "7",
     requestId: "request-large",
     taskId: "task-owner",
     receiptId: "receipt-large",
@@ -1440,7 +1536,7 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.proposals,
     principal,
-    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-proposals", limit: "50" },
+    query: { apiVersion: "1", schemaVersion: "7", requestId: "request-proposals", limit: "50" },
   });
   assert.equal(proposalList.status, 200);
   assert.equal(proposalList.body.data.proposals.length, 1);
@@ -1479,7 +1575,7 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
 
   const decisionBody = {
     apiVersion: 1,
-    schemaVersion: 6,
+    schemaVersion: 7,
     requestId: "request-proposal-accept",
     commandId: "command-proposal-accept",
     idempotencyKey: "command-proposal-accept",
@@ -1557,7 +1653,7 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "request-stale-proposal",
       limit: "50",
     },
@@ -1835,7 +1931,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal,
-    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-themes-1", limit: "2" },
+    query: { apiVersion: "1", schemaVersion: "7", requestId: "request-themes-1", limit: "2" },
   });
   assert.equal(first.status, 200);
   assert.equal(first.body.meta.truncated, true);
@@ -1857,7 +1953,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "request-themes-2",
       cursor: first.body.data.nextCursor,
       limit: "2",
@@ -1876,7 +1972,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "request-themes-stale",
       cursor: "theme-missing",
     },
@@ -1890,7 +1986,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "request-themes-trimmed",
       cursor: ` ${first.body.data.nextCursor} `,
     },
@@ -1905,7 +2001,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "request-themes-changed",
       cursor: first.body.data.nextCursor,
       limit: "2",
@@ -1923,7 +2019,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal,
-    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-themes-duplicate" },
+    query: { apiVersion: "1", schemaVersion: "7", requestId: "request-themes-duplicate" },
   });
   assert.equal(duplicateCatalog.status, 500);
   assert.equal(duplicateCatalog.body.error.code, "internal_error");
@@ -1932,7 +2028,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.themes,
     principal: { ...principal, scopes: ["mobile:task-write"] },
-    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-themes-forbidden" },
+    query: { apiVersion: "1", schemaVersion: "7", requestId: "request-themes-forbidden" },
   });
   assert.equal(forbidden.status, 403);
 
@@ -1942,7 +2038,7 @@ test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes onl
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "request-themes-invalid",
       includeArchived: "true",
     },
@@ -2666,7 +2762,7 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   ]);
   const themes = await client.listThemes({
     apiVersion: 1,
-    schemaVersion: 6,
+    schemaVersion: 7,
     requestId: "request-client-themes",
     limit: 50,
   });
@@ -2701,7 +2797,7 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   await assert.rejects(
     legacyDesktop.listThemes({
       apiVersion: 1,
-      schemaVersion: 6,
+      schemaVersion: 7,
       requestId: "request-legacy-themes",
       limit: 50,
     }),
@@ -2723,7 +2819,7 @@ test("Phase 4A fails closed on Core version/capability and client uses separate 
   assert.equal(created.data.status, "applied");
   const today = await client.listToday({
     apiVersion: 1,
-    schemaVersion: 6,
+    schemaVersion: 7,
     requestId: "request-client-today",
     date: "2026-08-21",
     limit: 20,
@@ -2812,7 +2908,7 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
     method: "GET",
     path: TASKEN_MOBILE_ENDPOINTS.bootstrap,
     principal,
-    query: { apiVersion: "1", schemaVersion: "6", requestId: "request-bootstrap", limit: "50" },
+    query: { apiVersion: "1", schemaVersion: "7", requestId: "request-bootstrap", limit: "50" },
   });
   assert.equal(bootstrap.status, 200);
   assert.deepEqual(bootstrap.body.data.tasks.map((task) => task.id).sort(), [
@@ -2840,7 +2936,7 @@ test("Mobile bootstrap and cursor sync are deterministic, retry-safe, and expose
 
   const syncQuery = {
     apiVersion: "1",
-    schemaVersion: "6",
+    schemaVersion: "7",
     requestId: "request-sync",
     cursor,
     limit: "1",
@@ -2949,7 +3045,7 @@ test("Mobile bootstrap rederives dateKind when stored schedule kind disagrees wi
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "request-bootstrap-mismatch",
       limit: "50",
     },
@@ -3061,7 +3157,7 @@ test("Phase 4A client rejects oversized/auth responses without disclosing creden
           ok: false,
           meta: {
             apiVersion: 1,
-            schemaVersion: 6,
+            schemaVersion: 7,
             serverId: "desktop",
             serverRevision: 1,
             generatedAt: now,
@@ -3204,7 +3300,7 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
       method: "GET",
       path: TASKEN_MOBILE_ENDPOINTS.themes,
       principal,
-      query: { apiVersion: "1", schemaVersion: "6", requestId: "request-runtime-themes" },
+      query: { apiVersion: "1", schemaVersion: "7", requestId: "request-runtime-themes" },
     });
     assert.equal(themeCatalog.status, 200);
     assert.deepEqual(themeCatalog.body.data, {
@@ -3376,7 +3472,7 @@ function workReviewRequest(fixture, overrides = {}) {
   const commandId = overrides.commandId || `review-${fixture.taskId}`;
   return {
     apiVersion: 1,
-    schemaVersion: 6,
+    schemaVersion: 7,
     requestId: `request-${commandId}`,
     commandId,
     idempotencyKey: commandId,
@@ -3420,7 +3516,7 @@ test("Mobile human review replays once after response loss even when a newer Rec
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "request-human-review-tie-bootstrap",
       limit: "50",
     },

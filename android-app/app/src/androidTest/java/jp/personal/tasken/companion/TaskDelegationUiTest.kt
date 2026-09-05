@@ -9,6 +9,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -30,8 +31,10 @@ class TaskDelegationUiTest {
                 )
             }
         }
+        composeRule.onNodeWithTag("task-ai-ready-toggle-task-1").assertDoesNotExist()
+        composeRule.onNodeWithTag("task-ai-options-toggle").performScrollTo().performClick()
         composeRule.onNodeWithContentDescription("AI Readyにする").assertExists()
-        composeRule.onNodeWithTag("task-ai-ready-toggle-task-1").assertIsOff().assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("task-ai-ready-toggle-task-1").performScrollTo().assertIsOff().assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals("task-1" to true, request.value) }
     }
 
@@ -50,7 +53,7 @@ class TaskDelegationUiTest {
             }
         }
         composeRule.onNodeWithContentDescription("AI Readyを解除").assertExists()
-        composeRule.onNodeWithTag("task-ai-ready-toggle-task-1").assertIsOn().assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("task-ai-ready-toggle-task-1").performScrollTo().assertIsOn().assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals("task-1" to false, request.value) }
     }
 

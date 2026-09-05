@@ -16,6 +16,8 @@ import {
 import { canonicalThemeId } from "../shared/themeRef.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../shared/applicationCommand";
 import { IPC } from "../shared/ipc/contracts";
+import { mobileCaptureOrganizationRequestSchema, mobileCaptureOrganizationSchema } from "../shared/contracts/mobile/schema";
+import type { CaptureOrganizerInput, CaptureOrganizerProposal } from "./gateway/mobile/captureOrganizer";
 
 export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
 
@@ -26,6 +28,7 @@ interface QuickCaptureControllerOptions {
   ) => void;
   notifyCommandApplied: (receipt: CommandReceipt, senderId: number) => void;
   executeCommand: (envelope: CommandEnvelope) => CommandReceipt;
+  organizeCapture?: (input: CaptureOrganizerInput) => Promise<CaptureOrganizerProposal>;
 }
 
 type QuickCaptureScheduleParse =
@@ -118,9 +121,44 @@ export function createQuickCaptureController(options: QuickCaptureControllerOpti
   }
 
   function registerIpc(): void {
-    ipcMain.handle(IPC.quickCaptureSave, (event, text: string, mode: QuickCaptureMode = "inbox", themeId?: string, selectedRangeSemantics?: "once_within_window" | "ongoing") => {
+    ipcMain.handle(IPC.quickCaptureOrganize, async (event, input: unknown) => {
+      if (event.sender !== captureWindow?.webContents) throw new Error("この画面からは整理できません。");
+      if (!options.organizeCapture) throw new Error("AI整理を設定画面で設定してください。");
+      const parsed = mobileCaptureOrganizationRequestSchema.parse(input);
+      const themes = (options.repository.list("theme") as Entity[]).slice(0, 200)
+        .map((theme) => ({ id: theme.id, title: String(theme.name || theme.title || "Theme") }));
+      const proposal = mobileCaptureOrganizationSchema.parse(await options.organizeCapture({ ...parsed, themes }));
+      if (proposal.themeId && !themes.some((theme) => theme.id === proposal.themeId)) throw new Error("Themeを確認して再試行してください。");
+      return proposal;
+    });
+    ipcMain.on(IPC.quickCaptureResize, (event, expanded: boolean) => {
+      if (event.sender === captureWindow?.webContents) captureWindow.setSize(420, expanded === true ? 680 : 284);
+    });
+    ipcMain.handle(IPC.quickCaptureSave, (event, text: string, mode: QuickCaptureMode = "inbox", themeId?: string, selectedRangeSemantics?: "once_within_window" | "ongoing", organization?: unknown) => {
       const trimmed = (text || "").trim();
       if (!trimmed) throw new Error("入力が空です。");
+      if (organization !== undefined) {
+        if (event.sender !== captureWindow?.webContents || mode !== "today-task") throw new Error("整理案はTask入力から追加してください。");
+        const proposal = mobileCaptureOrganizationSchema.parse(organization);
+        if (text.length > 12000) throw new Error("元の入力は12,000文字以内にしてください。");
+        const taskId = randomUUID();
+        const now = new Date().toISOString();
+        const dateKind = proposal.startDate ? proposal.endDate && proposal.endDate > proposal.startDate ? "range" : "point" : "deadline";
+        const receipt = options.executeCommand({
+          commandId: randomUUID(), name: "CreateTask", actor: { kind: "user" }, source: "quick_capture", issuedAt: now,
+          payload: {
+            task: { id: taskId, title: proposal.title, project_id: canonicalThemeId(proposal.themeId, { defaultPersonal: true }), state: "todo", priority: "normal",
+              description: `${proposal.supplement ? `# 補足\n${proposal.supplement}\n\n` : ""}# 元の入力\n${text}`,
+              checklist_items: proposal.checklist.map((title, index) => ({ id: randomUUID(), title, done: false, sort_order: index, completed_at: null })),
+              today_date: null, created_at: now },
+            ...(proposal.startDate || proposal.endDate ? { schedule: { id: randomUUID(), owner_type: "task", owner_id: taskId,
+              start_date: proposal.startDate, end_date: proposal.endDate, date_kind: dateKind, range_semantics: proposal.rangeSemantics,
+              confidence: "fixed", granularity: "day" } } : {}),
+          },
+        });
+        options.notifyCommandApplied(receipt, event.sender.id);
+        return receipt.changes.find((change) => change.type === "task")?.entity;
+      }
       if (mode === "today-task" || mode === "done-task") {
         const taskId = randomUUID();
         const today = localDateString();

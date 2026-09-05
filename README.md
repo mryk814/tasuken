@@ -4,6 +4,11 @@
 データは端末内のElectronユーザープロファイルにあるSQLiteへ保存されます。
 任意でOneDriveまたは社内共有フォルダを使った端末間差分同期を有効にできます。外部サーバーは必須ではありません。
 
+DesktopのQuick CaptureとAndroidの音声・テキスト入力からタイトル、Theme、日付、チェック項目を提案する任意のAI整理に対応します。
+Desktopの「Settings → AI & Context → 入力のAI整理」でOpenAI / Azure OpenAI / Gemini / OpenCode Zen・Goを設定します。APIキーは端末内で暗号化して保存します。
+設定方法と対応モデルの制約は[入力整理プロバイダー](docs/mobile-capture-organizer-providers.md)を参照してください。
+整理案は入力した端末で確認・修正してから追加し、元の入力もTaskの本文へ保持します。
+
 ## 起動
 
 ```bash

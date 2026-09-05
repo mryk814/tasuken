@@ -3,6 +3,8 @@ package jp.personal.tasken.companion
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -29,10 +31,20 @@ data class MobileCreateTaskEnvelopeDto(
 )
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class MobileCreateTaskCommandDto(
     val name: String,
     val task: MobileCreateTaskCandidateDto,
     val provenance: MobileTaskCreationProvenanceDto? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val schedule: MobileCreateTaskScheduleDto? = null,
+)
+
+@Serializable
+data class MobileCreateTaskScheduleDto(
+    val startDate: String? = null,
+    val endDate: String? = null,
+    val rangeSemantics: String? = null,
 )
 
 @Serializable
@@ -131,6 +143,7 @@ data class MobileCaptureReceiptDto(
 )
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class MobileCreateTaskCandidateDto(
     val id: String,
     val title: String,
@@ -140,6 +153,10 @@ data class MobileCreateTaskCandidateDto(
     val requester: String = "self",
     val intendedExecutor: String = "self",
     val todayDate: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val description: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val checklistItems: List<MobileChecklistItem>? = null,
 )
 
 @Serializable
@@ -314,6 +331,18 @@ object MobileTaskCommandContract {
         require(envelope.command.name == "CreateTask")
         require(envelope.command.task.id.isNotBlank())
         require(envelope.command.task.title.isNotBlank() && envelope.command.task.title.length <= 500)
+        envelope.command.task.description?.let { require(it.length <= 50000) }
+        envelope.command.task.checklistItems?.let { items ->
+            require(items.size <= 20)
+            validateChecklistPatch(json.parseToJsonElement(encodeMobileChecklist(items)))
+        }
+        envelope.command.schedule?.let { schedule ->
+            validateSchedulePatch(JsonObject(mapOf(
+                "startDate" to (schedule.startDate?.let(::JsonPrimitive) ?: JsonNull),
+                "endDate" to (schedule.endDate?.let(::JsonPrimitive) ?: JsonNull),
+                "rangeSemantics" to (schedule.rangeSemantics?.let(::JsonPrimitive) ?: JsonNull),
+            )), false)
+        }
         require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)
         envelope.command.provenance?.let(::validateCreationProvenance)
     }
@@ -469,6 +498,7 @@ object MobileTaskCommandContract {
         require(task.id.isNotBlank() && task.id.length <= 200)
         require(task.version > 0)
         require(task.title.isNotBlank() && task.title.length <= 500)
+        require(task.description == null || task.description.length <= 50000)
         require(task.themeId == null || isThemeId(task.themeId))
         require(task.state in setOf("todo", "doing", "waiting", "review", "done", "cancelled"))
         require(task.todayDate == null || runCatching { LocalDate.parse(task.todayDate) }.isSuccess)

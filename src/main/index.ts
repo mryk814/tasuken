@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 
 import { registerIpc } from "./ipc/registerIpc";
 import { registerMobileGatewayIpc } from "./ipc/registerMobileGatewayIpc";
+import { CaptureOrganizerSettingsService } from "./services/captureOrganizerSettings";
 import { registerAttachmentProtocol, registerAttachmentScheme } from "./attachmentProtocol";
 import { registerMediaProtocol, registerMediaScheme } from "./mediaProtocol";
 import { registerWebArtifactProtocol, registerWebArtifactScheme } from "./webArtifactProtocol";
@@ -2550,7 +2551,20 @@ async function startDesktopApp(): Promise<void> {
   workspaceRepository = new WorkspaceDatabase(
     path.join(app.getPath("userData"), "research-desk.sqlite"),
   );
+  const captureOrganizerSettings = new CaptureOrganizerSettingsService(
+    app.getPath("userData"),
+    safeStorage,
+  );
+  ipcMain.handle(IPC.captureOrganizerGetSettings, () => captureOrganizerSettings.getSettings());
+  ipcMain.handle(IPC.captureOrganizerSaveSettings, (_event, input) =>
+    captureOrganizerSettings.saveSettings(input),
+  );
+  ipcMain.handle(IPC.captureOrganizerTestConnection, (_event, input) =>
+    captureOrganizerSettings.testConnection(input),
+  );
+  ipcMain.handle(IPC.captureOrganizerClearSettings, () => captureOrganizerSettings.clearSettings());
   const composition = (desktopComposition = new TaskenDesktopComposition({
+    getCaptureOrganizer: () => captureOrganizerSettings.createOrganizer(),
     userDataPath: app.getPath("userData"),
     persistence: workspaceRepository,
     mcpPackageSmoke,
@@ -2698,6 +2712,7 @@ async function startDesktopApp(): Promise<void> {
   });
   taskenRootController.registerIpc();
   quickCaptureController = createQuickCaptureController({
+    organizeCapture: (input) => captureOrganizerSettings.organize(input),
     repository: workspaceRepository,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
     notifyCommandApplied,

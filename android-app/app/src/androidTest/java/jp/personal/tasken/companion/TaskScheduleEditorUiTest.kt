@@ -78,6 +78,7 @@ class TaskScheduleEditorUiTest {
         }
 
         composeRule.onNodeWithTag("schedule-kind").assertTextEquals("期間内に一度")
+        openScheduleEditor()
         composeRule.onNodeWithText("この期間の意味").assertExists()
         composeRule.onNodeWithTag("schedule-range-once").assertIsSelected()
         composeRule.onNodeWithTag("schedule-range-ongoing").performScrollTo().performClick()
@@ -115,6 +116,7 @@ class TaskScheduleEditorUiTest {
         }
 
         composeRule.onNodeWithTag("schedule-kind").assertTextEquals("期間未分類")
+        openScheduleEditor()
         composeRule.onNodeWithTag("schedule-range-unspecified").assertTextEquals("期間未分類")
         composeRule.onNodeWithTag("schedule-range-once").assertIsNotSelected()
         composeRule.onNodeWithTag("schedule-range-ongoing").assertIsNotSelected()
@@ -142,6 +144,7 @@ class TaskScheduleEditorUiTest {
             }
         }
 
+        openScheduleEditor()
         composeRule.onNodeWithTag("schedule-start-clear").performScrollTo().performClick()
         composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定", substring = true)
         composeRule.onNodeWithTag("schedule-save").assertIsEnabled()
@@ -194,6 +197,7 @@ class TaskScheduleEditorUiTest {
             }
         }
 
+        openScheduleEditor()
         assertScheduleDisabled()
         composeRule.runOnIdle { gate.intValue = 1 }
         assertScheduleDisabled()
@@ -261,6 +265,11 @@ class TaskScheduleEditorUiTest {
                 )
             }
         }
+        openScheduleEditor()
+    }
+
+    private fun openScheduleEditor() {
+        composeRule.onNodeWithTag("schedule-edit-toggle").performScrollTo().performClick()
     }
 
     private fun assertScheduleDisabled() {

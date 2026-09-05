@@ -147,7 +147,7 @@ class MobileProposalRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 6,
+            "schemaVersion": 7,
             "serverId": "server-1",
             "serverRevision": 42,
             "generatedAt": "2026-08-22T02:00:00Z",
@@ -194,7 +194,7 @@ class MobileProposalRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 6,
+            "schemaVersion": 7,
             "serverId": "server-1",
             "serverRevision": 43,
             "generatedAt": "2026-08-22T02:01:00Z",
@@ -218,7 +218,7 @@ class MobileProposalRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 6,
+            "schemaVersion": 7,
             "serverId": "server-1",
             "serverRevision": 43,
             "generatedAt": "2026-08-22T02:01:00Z",

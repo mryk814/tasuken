@@ -101,7 +101,7 @@ class MobileHumanReviewContractTest {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 6,
+                "schemaVersion": 7,
                 "serverId": "desktop-home",
                 "serverRevision": 12,
                 "generatedAt": "2026-08-26T00:00:01Z",

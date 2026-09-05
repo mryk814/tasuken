@@ -54,6 +54,29 @@ class MobileCaptureDraftStoreTest {
     }
 
     @Test
+    fun preservesOverLimitSpeechDraftForLaterEditing() {
+        val draft = MobileCaptureDraft.fresh(text = "あ".repeat(490)).withSpeechResult(
+            ShortSpeechRecognitionResult("追加した発話".repeat(10), MobileSpeechRecognitionMode.OnDevice, "ja-JP", null),
+            append = true,
+        )
+        val store = MobileCaptureDraftStore(context)
+        org.junit.Assert.assertTrue(store.save(MobileCaptureDraftSnapshot(draft, true)))
+        assertEquals(draft, MobileCaptureDraftStore(context).load()?.draft)
+    }
+
+    @Test
+    fun restoresAdoptedOrganizationAndOriginalWithStableChecklistIds() {
+        val draft = MobileCaptureDraft.fresh(text = "原文を失わず残す").withOrganization(
+            MobileCaptureOrganization("整理したタイトル", checklist = listOf("最初に確認する"), supplement = "補足"),
+        ).withText("確認して修正したタイトル")
+        org.junit.Assert.assertTrue(MobileCaptureDraftStore(context).save(MobileCaptureDraftSnapshot(draft, true)))
+        val restored = requireNotNull(MobileCaptureDraftStore(context).load()).draft
+        assertEquals(draft, restored)
+        assertEquals(draft.organizationChecklistItems(), restored.organizationChecklistItems())
+        assertEquals(draft.organizationDescription(), restored.organizationDescription())
+    }
+
+    @Test
     fun removesDraftAfterExplicitReset() {
         val now = Instant.parse("2026-08-24T10:00:00Z")
         val store = MobileCaptureDraftStore(context, now = { now })

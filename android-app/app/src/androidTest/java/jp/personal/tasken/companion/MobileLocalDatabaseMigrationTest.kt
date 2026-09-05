@@ -3,6 +3,9 @@ package jp.personal.tasken.companion
 import androidx.room.testing.MigrationTestHelper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -12,6 +15,55 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
+    @Test
+    fun migrationSeventeenToEighteenUpgradesOnlyProtocolMetadata() {
+        val envelope = """{"schemaVersion":6,"commandId":"stable-command","idempotencyKey":"stable-key","payload":{"schemaVersion":6,"text":"literal schemaVersion:6 remains"}}"""
+        val success = """{"meta":{"schemaVersion":6,"serverRevision":42},"data":{"schemaVersion":6,"title":"original"}}"""
+        helper.createDatabase(DatabaseName, 17).apply {
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt) VALUES ('outbox','stable-key','request','device','time','CreateTask',?,'server','pending',2,'time')", arrayOf(envelope))
+            execSQL("INSERT INTO pending_human_review VALUES ('review','server','task',?,'time')", arrayOf(envelope))
+            execSQL("INSERT INTO pending_task_delegation VALUES ('delegation','server','task','fingerprint',?,?,'time')", arrayOf(envelope, success))
+            execSQL("INSERT INTO pending_task_delegation VALUES ('unsent','server','task','fingerprint',?,NULL,'time')", arrayOf(envelope))
+            execSQL("INSERT INTO sync_state VALUES (1,'server',1,6,'cursor','time',NULL,NULL)")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 18, true, MIGRATION_17_18).use { db ->
+            for (table in listOf("outbox_command", "pending_human_review", "pending_task_delegation")) {
+                db.query("SELECT envelopeJson FROM $table").use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    do {
+                        val actual = Json.parseToJsonElement(cursor.getString(0)).jsonObject
+                        val original = Json.parseToJsonElement(envelope).jsonObject
+                        assertEquals("7", actual.getValue("schemaVersion").jsonPrimitive.content)
+                        assertEquals(original - "schemaVersion", actual - "schemaVersion")
+                    } while (cursor.moveToNext())
+                }
+            }
+            db.query("SELECT successJson FROM pending_task_delegation WHERE commandId='delegation'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                val actual = Json.parseToJsonElement(cursor.getString(0)).jsonObject
+                assertEquals("7", actual.getValue("meta").jsonObject.getValue("schemaVersion").jsonPrimitive.content)
+                assertEquals(Json.parseToJsonElement(success).jsonObject["data"], actual["data"])
+                assertEquals("42", actual.getValue("meta").jsonObject.getValue("serverRevision").jsonPrimitive.content)
+            }
+            db.query("SELECT successJson FROM pending_task_delegation WHERE commandId='unsent'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertTrue(cursor.isNull(0))
+            }
+            db.query("SELECT commandId,idempotencyKey,attemptCount FROM outbox_command").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("outbox", cursor.getString(0))
+                assertEquals("stable-key", cursor.getString(1))
+                assertEquals(2, cursor.getInt(2))
+            }
+            db.query("SELECT schemaVersion,cursor FROM sync_state").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(7, cursor.getInt(0))
+                assertEquals("cursor", cursor.getString(1))
+            }
+        }
+    }
+
     @get:Rule
     val helper = MigrationTestHelper(
         InstrumentationRegistry.getInstrumentation(),
@@ -792,6 +844,38 @@ class MobileLocalDatabaseMigrationTest {
     }
 
     private companion object {
+        const val Description = "# 補足\n確認した内容\n\n# 元の入力\n明日牛乳とパンを買う"
         const val DatabaseName = "mobile-migration-test"
+    }
+
+    @Test
+    fun migrationSixteenToSeventeenPreservesPendingWritesAndDescriptionSurvivesReopen() {
+        helper.createDatabase(DatabaseName, 16).apply {
+            execSQL("INSERT INTO task_cache (id, serverVersion, title, themeId, state, workState, todayDate, updatedAt, optimisticCommandId, conflictCommandId, checklistJson) " +
+                "VALUES ('task-16', 8, '保持するTask', NULL, 'todo', NULL, NULL, '2026-09-05T00:00:00Z', 'command-16', NULL, '[]')")
+            execSQL("INSERT INTO outbox_command (commandId, idempotencyKey, requestId, clientDeviceId, issuedAt, commandName, envelopeJson, serverId, state, attemptCount, createdAt, lastAttemptAt, lastError, taskId, dependsOnCommandId, captureId) " +
+                "VALUES ('command-16', 'command-16', 'request-16', 'device', '2026-09-05T00:00:00Z', 'CreateTask', '{}', 'server', 'pending', 0, '2026-09-05T00:00:00Z', NULL, NULL, 'task-16', NULL, NULL)")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 17, true, MIGRATION_16_17).use { db ->
+            db.query("SELECT title, description, optimisticCommandId FROM task_cache WHERE id = 'task-16'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("保持するTask", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
+                assertEquals("command-16", cursor.getString(2))
+            }
+            db.query("SELECT envelopeJson FROM outbox_command WHERE commandId = 'command-16'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("{}", cursor.getString(0))
+            }
+            db.execSQL("UPDATE task_cache SET description = ? WHERE id = 'task-16'", arrayOf(Description))
+        }
+        InstrumentationRegistry.getInstrumentation().targetContext
+            .openOrCreateDatabase(DatabaseName, android.content.Context.MODE_PRIVATE, null).use { db ->
+                db.rawQuery("SELECT description FROM task_cache WHERE id = 'task-16'", null).use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    assertEquals(Description, cursor.getString(0))
+                }
+            }
     }
 }

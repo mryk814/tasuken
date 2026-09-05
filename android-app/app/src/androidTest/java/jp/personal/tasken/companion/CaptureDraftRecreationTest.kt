@@ -18,7 +18,7 @@ class CaptureDraftRecreationTest {
 
     @Test
     fun captureDraftSurvivesActivityRecreation() {
-        composeRule.onNodeWithText("追加").performClick()
+        composeRule.onNodeWithTag("open-capture-action", useUnmergedTree = true).performClick()
         composeRule.onNodeWithText("Task名").performTextInput("rotationdraft")
 
         composeRule.activityRule.scenario.recreate()
