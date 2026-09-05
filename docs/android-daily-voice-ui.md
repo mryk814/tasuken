@@ -35,11 +35,21 @@ rtk .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAn
 実機には`adb -s <serial> install -r`でDebug APKとtest APKを入れ、対象クラスを指定して`am instrument -w`を実行する。実データとはペアリングせず、UI fixtureと独立したRoomテストを使う。
 `TaskDailyFlowUiTest`は`files/ux-daily`、`TaskEntryFlowUiTest`は`files/ux-audit`にスクリーンショットを保存する。
 
-## LLM整理の次の検討範囲
+## Task入力のLLM整理
 
-「話す→タイトルを確認→保存」を通常経路とする。長く話した場合だけ、任意の整理操作で「短いタイトル＋補足」の候補を出す方向で検討する。
-元の発話テキストを失わず、候補の修正・採用後に保存する。日時・Theme・複数Taskへの分割を勝手に確定しない。
-今回、LLM呼出し・外部AIへの送信・新しい本文入力欄は追加していない。
+Taskの入力では「音声後にAIで整理」を切り替えられる。認識結果からDesktop Gateway経由で整理案を取得し、タイトル・Theme・開始/期限・チェック項目・補足を確認して、既存の「追加する」で保存する。手入力からの整理も同じ経路を使う。
+整理は正式データを変更しない。失敗・中止時は入力を保持して通常追加へ戻れ、待機中に編集した入力を遅延した整理結果で上書きしない。
+Task・日付・チェック項目は一つのコマンドで保存する。原文と補足は既存Task本文へ保持し、詳細の「補足・元の入力」から任意で展開する。
+接続設定・対応モデル・送信範囲は[入力整理プロバイダー](mobile-capture-organizer-providers.md)を参照。
+
+2026-09-05のS23検証ではCaptureOrganizationUiTest・MobileCaptureDraftStoreTest・MobileOutboxDatabaseTest・MobileLocalDatabaseMigrationTestの計75件が成功。整理案と原文展開のスクリーンショットを目視し、重なりがないこと、追加が右下にあることを確認した。原文を長く展開した場合はスクロールして追加する。
+SQLiteの16→17移行はnullableの本文列追加のみで、既存Task・送信待ちデータの保持と移行後再読込を確認した。
+APIキーを使う実通信、実際の発話からの整理品質、Fold7での今回の整理画面は未検証。
+
+整理動作の修正後、Android単体121件とS23の上記4クラス＋CaptureOrganizationRepositoryTest・TaskEntryFlowUiTest（合計82件）が成功した。S23 DebugはこのAPKへ更新済み。
+Desktopはtypecheck・production build・Windows NSIS/portable packageが成功。模擬provider、Gatewayの認証/JSON/HTTPサイズ境界、Coreの実SQLite rollbackを確認した。実APIキーでの疎通や通常版への導入はこの検証に含めない。
+
+通信schema 7・Room 18への移行後もAndroid単体121件が成功。S23では12クラス115項目を確認し、初回にテストAPKへの18.json同梱漏れで失敗した移行テストは、スキーマ生成後のテストAPK再ビルド・再インストールで移行18件すべて成功した。最終Debug APKをS23へ更新済み。Task詳細の原文展開・折畳み・別Taskへの切替も確認した。
 
 ## 未検証の境界
 

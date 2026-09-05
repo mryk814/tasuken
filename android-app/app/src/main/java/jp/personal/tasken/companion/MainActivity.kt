@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -239,11 +240,13 @@ private fun TodayApp(
         val draftId = speechRequestDraftId
         val append = speechAppendRequested
         if (paneState.captureOpen && draftId == paneState.captureDraft.draftId) {
+            val capturedAt = Instant.now().toString()
+            val timeZone = java.time.ZoneId.systemDefault().id
             speechRecognizer.start(Locale.getDefault().toLanguageTag()) { nextState ->
                 if (paneState.captureOpen && draftId == paneState.captureDraft.draftId) {
                     speechState = nextState
                     if (nextState is ShortSpeechUiState.Result) {
-                        paneState.captureDraft = paneState.captureDraft.withSpeechResult(nextState.result, append)
+                        paneState.captureDraft = paneState.captureDraft.withSpeechResult(nextState.result, append, capturedAt, timeZone)
                     }
                 }
             }
@@ -745,6 +748,19 @@ private fun TodayApp(
             onKindSelected = { kind ->
                 paneState.captureDraft = paneState.captureDraft.withKind(kind)
             },
+            onOrganize = todayViewModel::organizeCapture,
+            onOrganizationChanged = { proposal ->
+                val current = paneState.captureDraft
+                paneState.captureDraft = current.copy(
+                    text = proposal.title, projectId = proposal.themeId, kind = MobileCaptureKind.Task,
+                    organization = proposal, originalText = current.originalText ?: current.text,
+                    originalThemeId = if (current.organization == null) current.projectId else current.originalThemeId,
+                )
+            },
+            onOrganizationDiscarded = {
+                val current = paneState.captureDraft
+                paneState.captureDraft = current.withoutOrganization()
+            },
             requestInputFocus = paneState.captureInputFocusRequested,
             onInputFocusHandled = paneState::consumeInputFocusRequest,
             onSubmit = { behavior -> todayViewModel.createCapture(paneState.captureDraft, behavior) },
@@ -773,6 +789,9 @@ internal fun CaptureTaskSheet(
     onDraftChanged: (String) -> Unit,
     onThemeSelected: (String?) -> Unit,
     onKindSelected: (MobileCaptureKind) -> Unit,
+    onOrganize: (suspend (MobileCaptureDraft) -> MobileCaptureOrganization)? = null,
+    onOrganizationChanged: (MobileCaptureOrganization) -> Unit = {},
+    onOrganizationDiscarded: () -> Unit = {},
     requestInputFocus: Boolean = false,
     onInputFocusHandled: () -> Unit = {},
     onSubmit: (CaptureCompletionBehavior) -> Unit,
@@ -785,6 +804,7 @@ internal fun CaptureTaskSheet(
 ) {
     val focusRequester = remember(draft.draftId) { FocusRequester() }
     var classificationOpen by rememberSaveable { mutableStateOf(false) }
+    var organizationBusy by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -797,7 +817,9 @@ internal fun CaptureTaskSheet(
         val speechBusy = speechState is ShortSpeechUiState.Listening ||
             speechState is ShortSpeechUiState.Partial || speechState is ShortSpeechUiState.Processing
         val overLimit = draft.text.length > 500
-        val canSubmit = state !is CaptureUiState.Saving && !speechBusy && draft.text.isNotBlank() && !overLimit
+        val organizationValid = draft.organization?.let { runCatching { it.validate() }.isSuccess } ?: true
+        val canSubmit = state !is CaptureUiState.Saving && !speechBusy && !organizationBusy &&
+            draft.text.isNotBlank() && !overLimit && organizationValid
         LaunchedEffect(draft.draftId, requestInputFocus, sheetState.isVisible) {
             // Request focus in the sheet's window after its opening transition.
             if (requestInputFocus && sheetState.isVisible) {
@@ -876,6 +898,11 @@ internal fun CaptureTaskSheet(
                 color = if (speechState is ShortSpeechUiState.Error) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("capture-speech-status"),
+            )
+            if (onOrganize != null && draft.kind == MobileCaptureKind.Task) CaptureOrganizationControls(
+                draft = draft, speechState = speechState, enabled = !speechBusy && state !is CaptureUiState.Saving,
+                organize = onOrganize, onChange = onOrganizationChanged,
+                onRestoreOriginal = onOrganizationDiscarded, onBusyChange = { organizationBusy = it },
             )
             TextButton(
                 onClick = { classificationOpen = !classificationOpen },
@@ -1688,6 +1715,7 @@ internal fun TodayDetailPane(
     var titleDraft by rememberSaveable(task.id) { mutableStateOf(task.title) }
     var titleBase by rememberSaveable(task.id) { mutableStateOf(task.title) }
     var titleEditing by rememberSaveable(task.id) { mutableStateOf(false) }
+    var descriptionExpanded by rememberSaveable(task.id) { mutableStateOf(false) }
     var aiOptionsOpen by rememberSaveable(task.id) { mutableStateOf(false) }
     var themePickerOpenRequest by rememberSaveable(task.id) { mutableStateOf(0) }
     val canReselectTheme = themes.isNotEmpty() &&
@@ -1772,6 +1800,21 @@ internal fun TodayDetailPane(
                     enabled = titleDraft.trim().isNotEmpty() && titleDraft.trim() != task.title &&
                         !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
                 ) { Text("Task名を保存") }
+            }
+            task.description?.takeIf(String::isNotBlank)?.let { description ->
+                TextButton(
+                    onClick = { descriptionExpanded = !descriptionExpanded },
+                    modifier = Modifier.align(Alignment.End).testTag("task-description-toggle"),
+                ) { Text(if (descriptionExpanded) "補足・元の入力を閉じる" else "補足・元の入力") }
+                if (descriptionExpanded) {
+                    SelectionContainer {
+                        Text(
+                            description,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.fillMaxWidth().testTag("task-description"),
+                        )
+                    }
+                }
             }
             task.conflict?.let { conflict ->
                 Card(

@@ -31,7 +31,10 @@
 - 右手での片手操作を優先する。頻用操作は右側・下側に置き、詳細の完了操作はスクロールしても下端から使えるようにする。
 - 利用者がS23で示した可動範囲と黄金ゾーンは[`android-thumb-reach.md`](./android-thumb-reach.md)を参照する。画面全体の割合で評価し、下端ならすべて押しやすいとは扱わない。
 - Taskはタイトルだけで完結してよい。本文やThemeを必須にせず、音声入力でも認識結果を確認してから既存の保存経路へ送る。
-- 音声からLLMでタイトル・補足を整理する案は未実装。検討時は元の発話テキストを保ち、整理案の確認・修正・採用を挟む。アプリ内LLM APIや自動確定を既定にしない。
+- 音声の転記からタイトル・Theme・予定・チェック項目・補足を整理する用途に限り、利用者の許可に基づくLLM API連携を設ける。元の発話を保ち、整理案の確認・修正・採用後に既存のCreateTask経路で保存する。Taskの本文には補足と元の発話を残し、Androidへ再読み込みできる。
+- 推論はDesktop側のGatewayから呼び出す。OpenAI、Azure OpenAI、Gemini、OpenCode Zen／Goの接続情報・モデル・APIキーはDesktopプロセスの環境変数で指定し、AndroidやDB・ソースコードへキーを保存しない。
+- 外部APIへ渡す業務データは当該入力の転記テキストとTheme候補のID・名称に限定する。相対日付の基準となる入力日時・タイムゾーンと選択中のTheme IDを併送する。音声データや既存Task・Noteの本文は送らない。
+- 未設定・オフライン・推論失敗時も入力を保ち、通常の追加を続けられるようにする。整理案は自動確定せず、利用者が採用するまで正式データを変更しない。
 
 ## アクセント
 
@@ -43,7 +46,7 @@
 1. Ink Captureは素早い入口であり、保存後は通常のSketchとして同じ編集面に到達する。
 2. SketchはSidebarのKnowledge配下に独立した棚と編集面を持ち、Markdown本文へ生の軌跡データを埋め込まない。
 3. NoteはSketchの派生画像を参照する利用側とし、編集可能な正本はSketch棚へ残す。現在のPNG添付＋`derived_from`参照は、Note側から埋め込んで再編集できる経路へ置換するまでの既存契約とする。
-4. TaskenはContextの選択・Preview・生成を担い、推論実行はCodex等の外部Agentへ委ねる。LLM APIキー、provider設定、model選択、streaming実行をアプリ内に持たない。
+4. Sketchの推論実行はCodex等の外部Agentへ委ねる。SketchにLLM APIキー、provider設定、model選択、streaming実行を持たない。Androidの入力整理だけは上記の限定API連携を例外とする。
 5. 既存のNotes・Snapshot・Import/Export形式を壊さず、Sketchを追加コレクションとして扱う。
 6. PageとInfiniteは同じ編集可能オブジェクト文書の表示モードであり、ライフサイクルが分かれるまでは別テーブル・別エンティティへ分裂させない。
 

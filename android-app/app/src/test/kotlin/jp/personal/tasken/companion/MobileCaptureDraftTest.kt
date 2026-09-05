@@ -10,6 +10,26 @@ import org.junit.Test
 
 class MobileCaptureDraftTest {
     @Test
+    fun speechRecordsItsOwnDateBasisWithoutChangingDraftCreationIdentity() {
+        val draft = MobileCaptureDraft.fresh(
+            text = "古い下書き", now = { Instant.parse("2026-09-01T00:00:00Z") },
+        )
+        val spoken = draft.withSpeechResult(
+            ShortSpeechRecognitionResult("明日買う", MobileSpeechRecognitionMode.OnDevice, "ja-JP", null),
+            capturedAt = "2026-09-05T15:30:00Z", timeZone = "Asia/Tokyo",
+        )
+        assertEquals(draft.createdAt, spoken.createdAt)
+        assertEquals(draft.draftId, spoken.draftId)
+        assertEquals("2026-09-05T15:30:00Z", spoken.speech?.capturedAt)
+        assertEquals("Asia/Tokyo", spoken.speech?.timeZone)
+        val restored = TodayPaneState.restore(TodayPaneState(captureDraft = spoken).save()).captureDraft
+        assertEquals(spoken.speech, restored.speech)
+        val legacy = TodayPaneState.restore(TodayPaneState(captureDraft = spoken).save().take(28)).captureDraft
+        assertEquals(null, legacy.speech?.capturedAt)
+        assertEquals(null, legacy.speech?.timeZone)
+    }
+
+    @Test
     fun overLimitSpeechAndEditsRemainIntactInDraft() {
         val original = "あ".repeat(490)
         val result = ShortSpeechRecognitionResult("い".repeat(30), MobileSpeechRecognitionMode.OnDevice, "ja-JP", null)

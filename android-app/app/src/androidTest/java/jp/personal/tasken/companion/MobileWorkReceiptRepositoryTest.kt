@@ -110,7 +110,7 @@ class MobileWorkReceiptRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 6,
+            "schemaVersion": 7,
             "serverId": "$serverId",
             "serverRevision": 42,
             "generatedAt": "2026-08-22T02:00:00Z",

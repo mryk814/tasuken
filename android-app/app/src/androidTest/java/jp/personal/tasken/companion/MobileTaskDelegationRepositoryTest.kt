@@ -248,17 +248,17 @@ class MobileTaskDelegationRepositoryTest {
 
     private fun previewResponse(): String =
         """
-        {"ok":true,"meta":{"apiVersion":1,"schemaVersion":6,"serverId":"server-1","serverRevision":1,"generatedAt":"2026-08-30T00:00:01Z","truncated":false},"data":{"contextFingerprint":"sha256:${"a".repeat(64)}","task":{"id":"task-1","version":4,"title":"Delegate task","description":null,"state":"todo","workState":"not_delegated","updatedAt":"2026-08-30T00:00:00Z","ai":null},"theme":null,"repositoryContexts":[],"related":{"notes":[],"conversations":[],"artifacts":[],"resources":[],"activity":[]},"contextSelection":{"schema":"tasken-context-selection/v1","included":[],"excluded":[],"truncated":false},"warnings":[],"truncation":[]}}
+        {"ok":true,"meta":{"apiVersion":1,"schemaVersion":7,"serverId":"server-1","serverRevision":1,"generatedAt":"2026-08-30T00:00:01Z","truncated":false},"data":{"contextFingerprint":"sha256:${"a".repeat(64)}","task":{"id":"task-1","version":4,"title":"Delegate task","description":null,"state":"todo","workState":"not_delegated","updatedAt":"2026-08-30T00:00:00Z","ai":null},"theme":null,"repositoryContexts":[],"related":{"notes":[],"conversations":[],"artifacts":[],"resources":[],"activity":[]},"contextSelection":{"schema":"tasken-context-selection/v1","included":[],"excluded":[],"truncated":false},"warnings":[],"truncation":[]}}
         """.trimIndent()
 
     private fun delegationResponse(): String =
         """
-        {"ok":true,"meta":{"apiVersion":1,"schemaVersion":6,"serverId":"server-1","serverRevision":2,"generatedAt":"2026-08-30T00:00:02Z","truncated":false},"data":{"commandId":"${commandId()}","status":"applied","task":{"id":"task-1","version":5,"title":"Delegate task","themeId":null,"state":"todo","workState":"ready_for_agent","todayDate":null,"plannedStartTime":null,"plannedDurationMinutes":null,"latestWorkReceipt":null,"checklistItems":[],"schedule":null,"updatedAt":"2026-08-30T00:00:02Z"},"safeShare":{"mimeType":"text/plain","title":"Delegate task","taskId":"task-1","taskLocator":"tasken://task/task-1","instruction":"ship it","text":"Tasken task context"}}}
+        {"ok":true,"meta":{"apiVersion":1,"schemaVersion":7,"serverId":"server-1","serverRevision":2,"generatedAt":"2026-08-30T00:00:02Z","truncated":false},"data":{"commandId":"${commandId()}","status":"applied","task":{"id":"task-1","version":5,"title":"Delegate task","themeId":null,"state":"todo","workState":"ready_for_agent","todayDate":null,"plannedStartTime":null,"plannedDurationMinutes":null,"latestWorkReceipt":null,"checklistItems":[],"schedule":null,"updatedAt":"2026-08-30T00:00:02Z"},"safeShare":{"mimeType":"text/plain","title":"Delegate task","taskId":"task-1","taskLocator":"tasken://task/task-1","instruction":"ship it","text":"Tasken task context"}}}
         """.trimIndent()
 
     private fun aiReadyResponse(commandId: String, version: Int, workState: String): String =
         """
-        {"ok":true,"meta":{"apiVersion":1,"schemaVersion":6,"serverId":"server-1","serverRevision":$version,"generatedAt":"2026-08-30T00:00:0${version}Z","truncated":false},"data":{"commandId":"$commandId","status":"applied","task":{"id":"task-1","version":$version,"title":"Delegate task","themeId":null,"state":"todo","workState":"$workState","todayDate":null,"plannedStartTime":null,"plannedDurationMinutes":null,"latestWorkReceipt":null,"checklistItems":[],"schedule":null,"updatedAt":"2026-08-30T00:00:0${version}Z"}}}
+        {"ok":true,"meta":{"apiVersion":1,"schemaVersion":7,"serverId":"server-1","serverRevision":$version,"generatedAt":"2026-08-30T00:00:0${version}Z","truncated":false},"data":{"commandId":"$commandId","status":"applied","task":{"id":"task-1","version":$version,"title":"Delegate task","themeId":null,"state":"todo","workState":"$workState","todayDate":null,"plannedStartTime":null,"plannedDurationMinutes":null,"latestWorkReceipt":null,"checklistItems":[],"schedule":null,"updatedAt":"2026-08-30T00:00:0${version}Z"}}}
         """.trimIndent()
 
     private fun commandId(): String = taskDelegationCommandId(

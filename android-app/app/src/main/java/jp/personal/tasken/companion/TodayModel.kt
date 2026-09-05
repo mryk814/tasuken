@@ -41,6 +41,7 @@ data class MobileTask(
     val canEditPendingChecklist: Boolean = false,
     val rejectedThemeUpdate: MobileRejectedThemeUpdate? = null,
     val version: Int = 0,
+    val description: String? = null,
 )
 
 @Serializable
@@ -348,6 +349,12 @@ class TodayViewModel(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val refreshExternalProjection: () -> Unit = {},
 ) : ViewModel() {
+    suspend fun organizeCapture(draft: MobileCaptureDraft): MobileCaptureOrganization =
+        kotlinx.coroutines.withContext(ioDispatcher) {
+            val gateway = repository as? MobileGatewayRepository
+                ?: error("Desktopへ接続するとAI整理を利用できます。")
+            gateway.organizeCapture(draft)
+        }
     private val mutableUiState = MutableStateFlow<TodayUiState>(TodayUiState.Loading)
     val uiState: StateFlow<TodayUiState> = mutableUiState.asStateFlow()
     private val mutableCaptureState = MutableStateFlow<CaptureUiState>(CaptureUiState.Idle)
@@ -755,6 +762,10 @@ class TodayViewModel(
         }
         if (normalized.length > 500) {
             mutableCaptureState.value = CaptureUiState.Error("${entityLabel}は500文字以内で入力してください。")
+            return
+        }
+        if (runCatching { draft.organization?.validate() }.isFailure) {
+            mutableCaptureState.value = CaptureUiState.Error("整理案の日付・チェック項目を確認してから追加してください。")
             return
         }
         val offlineRepository = repository as? MobileOfflineTaskRepository
@@ -1259,6 +1270,11 @@ class TodayPaneState(
         captureDraft.share?.mimeType,
         taskScheduleFilter.name,
         taskThemeId,
+        captureDraft.organization?.let { kotlinx.serialization.json.Json.encodeToString(MobileCaptureOrganization.serializer(), it) },
+        captureDraft.originalText,
+        captureDraft.speech?.capturedAt,
+        captureDraft.speech?.timeZone,
+        captureDraft.originalThemeId,
     )
 
     companion object {
@@ -1278,6 +1294,8 @@ class TodayPaneState(
                         language = saved.getOrNull(17) as? String ?: "",
                         confidence = saved.getOrNull(18) as? Float,
                         sourceAudioAvailable = saved.getOrNull(21) as? Boolean ?: false,
+                        capturedAt = saved.getOrNull(28) as? String,
+                        timeZone = saved.getOrNull(29) as? String,
                     )
                 },
                 share = (saved.getOrNull(23) as? String)?.let(::MobileShareProvenance)
@@ -1287,6 +1305,11 @@ class TodayPaneState(
                         null
                     },
                 createdAt = saved.getOrNull(19) as? String ?: java.time.Instant.now().toString(),
+                organization = (saved.getOrNull(26) as? String)?.let {
+                    kotlinx.serialization.json.Json.decodeFromString(MobileCaptureOrganization.serializer(), it)
+                },
+                originalText = saved.getOrNull(27) as? String,
+                originalThemeId = saved.getOrNull(30) as? String,
             ),
             captureOpen = saved.getOrNull(4) as? Boolean ?: false,
             captureVoiceStartRequested = saved.getOrNull(20) as? Boolean ?: false,
@@ -1311,6 +1334,8 @@ class TodayPaneState(
 }
 
 interface MobileGatewayRepository : MobileTaskRepository {
+    suspend fun organizeCapture(draft: MobileCaptureDraft): MobileCaptureOrganization =
+        error("このDesktopではAI整理を利用できません。Desktopを更新してください。")
     fun configuration(): MobileGatewayConfiguration
     fun pair(origin: String, pairingCode: String): MobileTodayResult
     fun retryPairing(): MobileTodayResult

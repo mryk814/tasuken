@@ -25,6 +25,12 @@ const { ApplicationCommandService, commandFingerprint } = await importBundled(
   "src/main/services/applicationCommandService.ts",
 );
 const { parseCommandEnvelope } = await importBundled("src/shared/applicationCommand.ts");
+const { TaskCapabilityService } = await importBundled(
+  "src/main/modules/task/application/taskCapabilityService.ts",
+);
+const { TASK_CONTRACT_SCHEMA_VERSION } = await importBundled(
+  "src/shared/contracts/task/version.ts",
+);
 const { selectTodayTasks } = await importBundled("src/shared/todayTasks.mjs");
 const { WorkspaceDatabase } = await import("../src/main/repositories/workspaceRepository.mjs");
 
@@ -844,6 +850,78 @@ test("Repository transaction persists actual receipt/event values and rolls back
       /rollback/,
     );
     assert.equal(database.get("task", "rolled-back"), null);
+  } finally {
+    database.db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Organized CreateTask rolls back Task, checklist, Schedule and receipt after a persistence failure", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "tasken-organized-command-"));
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+  try {
+    database.loadWorkspace();
+    const command = {
+      schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+      command_id: "organized-rollback",
+      name: "CreateTask",
+      actor: { kind: "user", id: "mobile-device" },
+      source: "mobile",
+      issued_at: "2026-08-17T13:30:00.000Z",
+      payload: {
+        task: {
+          id: "organized-task",
+          title: "比較実験",
+          project_id: "theme-personal-default",
+          state: "todo",
+          priority: "normal",
+          description: "元の発話をそのまま保持する。",
+          checklist_items: [
+            {
+              id: "organized-check",
+              title: "データを集める",
+              done: false,
+              sort_order: 0,
+              completed_at: null,
+            },
+          ],
+        },
+        schedule: {
+          start_date: null,
+          end_date: "2026-08-24",
+          date_kind: "deadline",
+          range_semantics: null,
+          confidence: "fixed",
+          granularity: "day",
+        },
+      },
+    };
+    const eventsBefore = database.list("change_event").length;
+    let reachedPersistedState = false;
+    const failing = new TaskCapabilityService(database, (envelope) =>
+      database.runTransaction((transaction) => {
+        new ApplicationCommandService(database).execute(envelope);
+        assert.ok(transaction.get("task", "organized-task"));
+        assert.ok(transaction.get("schedule", "organized-rollback"));
+        reachedPersistedState = true;
+        throw new Error("simulated persistence failure");
+      }),
+    );
+    const failed = failing.executeCommand(command);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.error.code, "INTERNAL_ERROR", JSON.stringify(failed.error));
+    assert.equal(reachedPersistedState, true);
+    assert.equal(database.get("task", "organized-task"), null);
+    assert.equal(database.get("schedule", "organized-rollback"), null);
+    assert.equal(database.list("change_event").length, eventsBefore);
+    const service = new TaskCapabilityService(database, (envelope) =>
+      new ApplicationCommandService(database).execute(envelope),
+    );
+    const retry = service.executeCommand(command);
+    assert.equal(retry.ok, true);
+    assert.equal(retry.value.task.description, command.payload.task.description);
+    assert.deepEqual(retry.value.task.checklist_items, command.payload.task.checklist_items);
+    assert.equal(retry.value.task.schedule.version, 1);
   } finally {
     database.db.close();
     await rm(directory, { recursive: true, force: true });

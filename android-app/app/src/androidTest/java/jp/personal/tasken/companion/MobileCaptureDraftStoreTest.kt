@@ -65,6 +65,18 @@ class MobileCaptureDraftStoreTest {
     }
 
     @Test
+    fun restoresAdoptedOrganizationAndOriginalWithStableChecklistIds() {
+        val draft = MobileCaptureDraft.fresh(text = "原文を失わず残す").withOrganization(
+            MobileCaptureOrganization("整理したタイトル", checklist = listOf("最初に確認する"), supplement = "補足"),
+        ).withText("確認して修正したタイトル")
+        org.junit.Assert.assertTrue(MobileCaptureDraftStore(context).save(MobileCaptureDraftSnapshot(draft, true)))
+        val restored = requireNotNull(MobileCaptureDraftStore(context).load()).draft
+        assertEquals(draft, restored)
+        assertEquals(draft.organizationChecklistItems(), restored.organizationChecklistItems())
+        assertEquals(draft.organizationDescription(), restored.organizationDescription())
+    }
+
+    @Test
     fun removesDraftAfterExplicitReset() {
         val now = Instant.parse("2026-08-24T10:00:00Z")
         val store = MobileCaptureDraftStore(context, now = { now })

@@ -212,7 +212,7 @@ class MobileHumanReviewRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 6,
+            "schemaVersion": 7,
             "serverId": "server-1",
             "serverRevision": 42,
             "generatedAt": "2026-08-26T00:00:01Z",
@@ -248,7 +248,7 @@ class MobileHumanReviewRepositoryTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 6,
+            "schemaVersion": 7,
             "serverId": "server-1",
             "serverRevision": 42,
             "generatedAt": "2026-08-30T00:00:00Z",

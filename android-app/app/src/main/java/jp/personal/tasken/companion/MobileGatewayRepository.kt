@@ -38,7 +38,8 @@ private const val KEY_TOKEN_CIPHERTEXT = "token_ciphertext"
 private const val KEY_TOKEN_IV = "token_iv"
 private const val KEY_SCOPES = "scopes"
 private const val KEYSTORE_ALIAS = "tasken_mobile_gateway_token"
-private const val MAX_RESPONSE_BYTES = 256 * 1024
+// Match the bounded 50-task page limit in contracts/mobile/protocol.mjs.
+private const val MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 private const val REQUEST_TIMEOUT_MS = 5_000
 private const val MOBILE_GATEWAY_LOG_TAG = "TaskenMobileGateway"
 private val MOBILE_PROCESS_INSTANCE_ID = UUID.randomUUID().toString()
@@ -267,7 +268,43 @@ class AndroidMobileTaskRepository(
             draftId = draft.draftId,
             createdAt = draft.createdAt,
             provenance = draft.toTaskCreationProvenanceDto(),
+            description = draft.organizationDescription(),
+            checklistItems = draft.organizationChecklistItems(),
+            schedule = draft.organizationSchedule(),
         )
+
+    override suspend fun organizeCapture(draft: MobileCaptureDraft): MobileCaptureOrganization {
+        val configuration = store.configuration()
+        val token = store.readToken()
+        require(configuration.origin.isNotBlank() && token != null) { "Desktopへ接続するとAI整理を利用できます。" }
+        val text = draft.originalText ?: draft.text
+        require(text.isNotBlank() && text.length <= 12000) { "AI整理は12000文字以内で利用できます。元の入力は保持しています。" }
+        try {
+            val response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST",
+                buildJsonObject {
+                    put("text", text)
+                    put("capturedAt", draft.speech?.capturedAt ?: draft.createdAt)
+                    put("timeZone", draft.speech?.timeZone ?: java.time.ZoneId.systemDefault().id)
+                    put("themeId", draft.projectId?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+                }.toString(), token)
+            if (response.status !in 200..299) {
+                error(when (response.status) {
+                    401, 403 -> "AI整理の接続権限を確認してください。通常の追加はそのまま使えます。"
+                    404, 503 -> "DesktopのAI整理設定と接続を確認してください。通常の追加はそのまま使えます。"
+                    429 -> "AI整理が混み合っています。少し待って再試行してください。"
+                    else -> "AI整理できませんでした。Desktopの設定を確認して再試行してください。"
+                })
+            }
+            val root = json.parseToJsonElement(response.body).jsonObject
+            val proposal = root.getValue("data").jsonObject.getValue("proposal")
+            return json.decodeFromJsonElement(MobileCaptureOrganization.serializer(), proposal).also { it.validate() }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // Provider payloads and credentials must never reach the UI or logs.
+            throw IllegalStateException("AI整理を利用できません。DesktopのAI設定・接続を確認して再試行してください。元の入力は保持しています。")
+        }
+    }
 
     override suspend fun undoCreateTask(taskId: String): MobileUndoCreateResult = outbox.undoCreate(taskId)
 
@@ -1340,6 +1377,7 @@ class AndroidMobileTaskRepository(
         id = id,
         serverVersion = version,
         title = title,
+        description = description,
         themeId = themeId,
         state = state,
         workState = workState,
@@ -1465,7 +1503,7 @@ class AndroidMobileTaskRepository(
         try {
             connection.requestMethod = method
             connection.connectTimeout = REQUEST_TIMEOUT_MS
-            connection.readTimeout = REQUEST_TIMEOUT_MS
+            connection.readTimeout = if (path == "/v1/capture-organization") 35_000 else REQUEST_TIMEOUT_MS
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/json")
             if (accessToken != null) connection.setRequestProperty("Authorization", "Bearer $accessToken")

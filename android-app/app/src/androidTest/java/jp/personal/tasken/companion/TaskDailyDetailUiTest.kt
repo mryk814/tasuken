@@ -23,6 +23,36 @@ class TaskDailyDetailUiTest {
     @get:Rule val composeRule = createComposeRule()
 
     @Test
+    fun originalInputIsOptionalAndFollowsTheSelectedTask() {
+        val original = "# 補足\n朝食用。\n\n# 元の入力\n明日の帰りに牛乳と卵を買う\n卵は六個でよい"
+        val current = mutableStateOf(task().copy(description = original))
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = current.value, actionState = TaskActionUiState.Idle, onStateAction = {},
+                )
+            }
+        }
+        composeRule.onNodeWithTag("task-description").assertDoesNotExist()
+        composeRule.onNodeWithTag("task-description-toggle").performScrollTo().performClick()
+        composeRule.onNodeWithTag("task-description").assertTextEquals(original)
+        composeRule.waitForIdle()
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val directory = java.io.File(instrumentation.targetContext.getExternalFilesDir(null), "ux-organization").apply { mkdirs() }
+        val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+        java.io.File(directory, "03-task-original-detail.png").outputStream().use {
+            check(screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+        }
+        screenshot.recycle()
+        composeRule.onNodeWithTag("task-description-toggle").performScrollTo().performClick()
+        composeRule.onNodeWithTag("task-description").assertDoesNotExist()
+        composeRule.runOnIdle { assertEquals(original, current.value.description) }
+        composeRule.runOnIdle { current.value = task().copy(id = "another-task") }
+        composeRule.onNodeWithTag("task-description-toggle").assertDoesNotExist()
+        composeRule.onNodeWithTag("task-description").assertDoesNotExist()
+    }
+
+    @Test
     fun unsavedScheduleSurvivesClosingAndReopeningEditor() {
         var saved: MobileTaskScheduleDraft? = null
         composeRule.setContent {

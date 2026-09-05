@@ -173,6 +173,77 @@ function createCommand(source, suffix) {
   };
 }
 
+test("CreateTask keeps the complete speech description, checklist, and deadline in one idempotent command", () => {
+  const { repository, service } = capability();
+  const command = createCommand("mobile", "organized-speech");
+  const description =
+    "補足：前回の条件を揃える。\n\n元の発話：" + "比較実験の準備をする。".repeat(100);
+  const checklist = [
+    {
+      id: "speech-check-1",
+      title: "データを集める",
+      done: false,
+      sort_order: 0,
+      completed_at: null,
+    },
+  ];
+  command.payload.task.description = description;
+  command.payload.task.checklist_items = checklist;
+  command.payload.schedule = {
+    start_date: null,
+    end_date: "2026-08-24",
+    date_kind: "deadline",
+    range_semantics: null,
+    confidence: "fixed",
+    granularity: "day",
+  };
+  const created = service.executeCommand(command);
+  assert.equal(created.ok, true);
+  assert.equal(created.value.task.description, description);
+  assert.deepEqual(created.value.task.checklist_items, checklist);
+  assert.equal(created.value.task.schedule.owner_id, command.payload.task.id);
+  assert.equal(created.value.task.schedule.end_date, "2026-08-24");
+  assert.equal(created.value.task.schedule.date_kind, "deadline");
+  const retried = service.executeCommand(command);
+  assert.equal(retried.ok, true);
+  assert.equal(repository.list("task").length, 1);
+  assert.equal(repository.list("schedule").length, 1);
+  assert.equal(repository.list("task")[0].version, 1);
+  assert.equal(repository.list("schedule")[0].version, 1);
+  assert.equal(repository.list("change_event").length, 2);
+});
+
+test("CreateTask rejects invalid and conflicting schedules without leaving a partial Task", () => {
+  const { repository, service } = capability();
+  const command = createCommand("mobile", "invalid-organized-speech");
+  command.payload.schedule = {
+    start_date: "2026-08-25",
+    end_date: "2026-08-24",
+    date_kind: "range",
+    range_semantics: null,
+    confidence: "fixed",
+    granularity: "day",
+  };
+  assert.equal(service.executeCommand(command).ok, false);
+  assert.equal(repository.list("task").length, 0);
+  assert.equal(repository.list("schedule").length, 0);
+  assert.equal(repository.list("change_event").length, 0);
+  command.payload.schedule.start_date = null;
+  command.payload.schedule.date_kind = "deadline";
+  repository.save("schedule", {
+    ...command.payload.schedule,
+    id: command.command_id,
+    owner_type: "task",
+    owner_id: "another-task",
+  });
+  const rejected = service.executeCommand(command);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.error.code, "CONFLICT");
+  assert.equal(repository.list("task").length, 0);
+  assert.equal(repository.list("change_event").length, 0);
+  assert.equal(repository.list("schedule")[0].owner_id, "another-task");
+});
+
 test("AI agent starts only an explicitly AI Ready Task and retries idempotently", () => {
   const { service } = capability();
   const created = service.executeCommand(createCommand("desktop", "ai-start"));

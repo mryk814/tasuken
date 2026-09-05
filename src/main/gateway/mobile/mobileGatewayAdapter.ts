@@ -12,6 +12,8 @@ import {
   mobileBootstrapResponseSchema,
   mobileCaptureCommandResponseSchema,
   mobileCommandRequestSchema,
+  mobileCaptureOrganizationRequestSchema,
+  mobileCaptureOrganizationSchema,
   mobileTaskCommandResponseSchema,
   mobileTaskContextPreviewRequestSchema,
   mobileTaskDelegationRequestSchema,
@@ -61,6 +63,7 @@ import {
   MOBILE_TASK_CONTEXT_INPUT,
   projectTaskContextPreview,
 } from "./taskContextPreview.ts";
+import { createCaptureOrganizerFromEnvironment } from "./captureOrganizer.ts";
 const REQUIRED_CORE_CAPABILITIES = [
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
@@ -257,6 +260,7 @@ export interface MobileGatewayOptions {
   core: MobileGatewayCorePort;
   state: MobileGatewayStatePort;
   logger?: MobileGatewayLoggerPort;
+  captureOrganizer?: NonNullable<ReturnType<typeof createCaptureOrganizerFromEnvironment>> | null;
 }
 
 function projectLatestWorkReceipt(
@@ -538,6 +542,7 @@ function projectTask(
     id: task.id,
     version: task.version,
     title: task.title,
+    ...(typeof task.description === "string" ? { description: task.description } : {}),
     themeId: task.project_id || null,
     state: task.state,
     workState: canonicalTaskWorkState(task),
@@ -743,6 +748,7 @@ function safeMessage(code: MobileErrorCode) {
 
 export class MobileGatewayAdapter {
   private readonly options: MobileGatewayOptions;
+  private readonly organizingDevices = new Set<string>();
 
   constructor(options: MobileGatewayOptions) {
     this.options = options;
@@ -763,12 +769,52 @@ export class MobileGatewayAdapter {
         TASKEN_MOBILE_ENDPOINTS.proposalDecisions,
         TASKEN_MOBILE_ENDPOINTS.workReviews,
         TASKEN_MOBILE_ENDPOINTS.taskDelegations,
+        TASKEN_MOBILE_ENDPOINTS.captureOrganization,
       ].includes(request.path as never)
         ? "POST"
         : "GET";
       if (request.method !== expectedMethod) return this.error(meta, "method_not_allowed");
       if (request.method === "GET" && request.body !== undefined)
         return this.error(meta, "validation_failed");
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.captureOrganization) {
+        if (
+          !request.principal.scopes.includes("mobile:read") ||
+          !request.principal.scopes.includes("mobile:task-write")
+        )
+          return this.error(meta, "forbidden");
+        const parsed = mobileCaptureOrganizationRequestSchema.safeParse(request.body);
+        if (!parsed.success || Object.keys(request.query || {}).length)
+          return this.error(meta, "validation_failed");
+        if (this.organizingDevices.has(request.principal.deviceId))
+          return this.error(meta, "rate_limited", true);
+        this.organizingDevices.add(request.principal.deviceId);
+        try {
+          const organizer =
+            this.options.captureOrganizer === undefined
+              ? createCaptureOrganizerFromEnvironment()
+              : this.options.captureOrganizer;
+          if (!organizer) return this.error(meta, "capability_unavailable");
+          const themes = (await this.options.core.listThemes())
+            .slice(0, 200)
+            .map((theme) => ({ id: theme.id, title: theme.name }));
+          if (parsed.data.themeId && !themes.some((theme) => theme.id === parsed.data.themeId))
+            return this.error(meta, "theme_not_found");
+          const proposal = mobileCaptureOrganizationSchema.parse(
+            await organizer.organize({ ...parsed.data, themes }),
+          );
+          if (proposal.themeId && !themes.some((theme) => theme.id === proposal.themeId))
+            return this.error(meta, "theme_not_found");
+          return this.success({
+            ok: true,
+            meta,
+            data: { proposal, providerLabel: organizer.providerLabel },
+          });
+        } catch {
+          return this.error(meta, "upstream_unavailable", true);
+        } finally {
+          this.organizingDevices.delete(request.principal.deviceId);
+        }
+      }
       const commandRequest =
         request.path === TASKEN_MOBILE_ENDPOINTS.commands
           ? mobileCommandRequestSchema.safeParse(request.body)
@@ -1004,7 +1050,7 @@ export class MobileGatewayAdapter {
         return this.success(
           mobileTaskDelegationResponseSchema.parse({
             ok: true,
-            meta: result.responseMeta,
+            meta: { ...result.responseMeta, schemaVersion: TASKEN_MOBILE_SCHEMA_VERSION },
             data: {
               commandId: result.commandId,
               status: result.status,
@@ -1409,7 +1455,14 @@ export class MobileGatewayAdapter {
                 requester: command.task.requester,
                 intended_executor: command.task.intendedExecutor,
                 today_date: command.task.todayDate ?? null,
+                ...(command.task.description !== undefined
+                  ? { description: command.task.description }
+                  : {}),
+                ...(command.task.checklistItems
+                  ? taskUpdatePatch({ checklistItems: command.task.checklistItems })
+                  : {}),
               },
+              ...(command.schedule ? { schedule: canonicalSchedule(command.schedule) } : {}),
               ...(command.provenance
                 ? {
                     provenance: {

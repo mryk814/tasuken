@@ -21,7 +21,7 @@ import { MobileDeviceRegistry, MobileDeviceRegistryError } from "./mobileDeviceR
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 48_177;
-const MAX_BODY_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = 256 * 1024;
 const REQUEST_TIMEOUT_MS = 5_000;
 const RATE_WINDOW_MS = 60_000;
 const REQUESTS_PER_WINDOW = 120;

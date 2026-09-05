@@ -241,6 +241,56 @@ test("revoked mobile devices can pair again with the same stable Android id", ()
   }
 });
 
+test("mobile gateway accepts multibyte organized captures and enforces the 256 KiB body boundary", async () => {
+  const registry = new MobileDeviceRegistry({
+    persistence: new MemoryMobileDevicePersistence(),
+    now: () => new Date(fixedNow),
+    createPairingCode: () => "12345678",
+    createAccessToken: () => fixedToken,
+  });
+  const ticket = registry.issuePairing();
+  registry.pair({ code: ticket.code, deviceId: "device-body-limit", deviceLabel: "Fixture" });
+  const received = [];
+  const host = new MobileGatewayHost({
+    adapter: {
+      async handle(request) {
+        received.push(request.body);
+        return { status: 200, body: { ok: true }, headers: {} };
+      },
+    },
+    devices: registry,
+    state: state(),
+    port: 0,
+  });
+  try {
+    await host.start();
+    const post = (body) =>
+      fetch(host.diagnostics().localOrigin + "/v1/commands", {
+        method: "POST",
+        headers: { authorization: `Bearer ${fixedToken}`, "content-type": "application/json" },
+        body,
+      });
+    const organized = JSON.stringify({ description: "原".repeat(12000) + "補".repeat(12000) });
+    assert.ok(Buffer.byteLength(organized) > 64 * 1024);
+    const accepted = await post(organized);
+    assert.equal(accepted.status, 200);
+    await accepted.json();
+    assert.deepEqual(received[0], JSON.parse(organized));
+    const envelopeBytes = Buffer.byteLength(JSON.stringify({ text: "" }));
+    const atLimit = JSON.stringify({ text: "x".repeat(256 * 1024 - envelopeBytes) });
+    assert.equal(Buffer.byteLength(atLimit), 256 * 1024);
+    const boundary = await post(atLimit);
+    assert.equal(boundary.status, 200);
+    await boundary.json();
+    const rejected = await post(atLimit + " ");
+    assert.equal(rejected.status, 413);
+    assert.equal((await rejected.json()).error.code, "response_too_large");
+    assert.equal(received.length, 2);
+  } finally {
+    await host.stop();
+  }
+});
+
 test("mobile gateway binds loopback, pairs once, authenticates, and rejects browser or unsupported methods", async () => {
   const persistence = new MemoryMobileDevicePersistence();
   let currentNow = fixedNow;
@@ -288,7 +338,7 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         apiVersion: 1,
-        schemaVersion: 6,
+        schemaVersion: 7,
         requestId: "11111111-1111-4111-8111-111111111111",
         pairingCode: ticket.code,
         clientDeviceId: "33333333-3333-4333-8333-333333333333",
@@ -331,7 +381,7 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         apiVersion: 1,
-        schemaVersion: 6,
+        schemaVersion: 7,
         requestId: "22222222-2222-4222-8222-222222222222",
         pairingCode: ticket.code,
         clientDeviceId: "44444444-4444-4444-8444-444444444444",
@@ -349,7 +399,7 @@ test("mobile gateway binds loopback, pairs once, authenticates, and rejects brow
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         apiVersion: 1,
-        schemaVersion: 6,
+        schemaVersion: 7,
         requestId: "55555555-5555-4555-8555-555555555555",
         pairingCode: repairTicket.code,
         clientDeviceId: "33333333-3333-4333-8333-333333333333",

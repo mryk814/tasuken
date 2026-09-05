@@ -127,6 +127,7 @@ object MobileSyncContract {
         requireContract(isEntityId(task.id), "Invalid Task ID.")
         requireContract(task.version > 0, "Invalid Task version.")
         requireContract(task.title.trim().isNotEmpty() && task.title.length <= 500, "Invalid Task title.")
+        requireContract(task.description == null || task.description.length <= 50000, "Invalid Task description.")
         requireContract(task.themeId == null || isEntityId(task.themeId), "Invalid Theme ID.")
         requireContract(task.state in taskStates, "Invalid Task state.")
         requireContract(task.workState == null || task.workState in workStates, "Invalid work state.")

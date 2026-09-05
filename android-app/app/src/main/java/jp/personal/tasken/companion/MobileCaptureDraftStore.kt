@@ -166,6 +166,11 @@ private data class StoredCaptureDraftSnapshot(
     val speechSourceAudioAvailable: Boolean,
     val sharedMimeType: String?,
     val createdAt: String,
+    val organization: MobileCaptureOrganization? = null,
+    val originalText: String? = null,
+    val speechCapturedAt: String? = null,
+    val speechTimeZone: String? = null,
+    val originalThemeId: String? = null,
 ) {
     fun toSnapshot(): MobileCaptureDraftSnapshot {
         val captureKind = MobileCaptureKind.entries.single { it.wireValue == kind }
@@ -185,10 +190,15 @@ private data class StoredCaptureDraftSnapshot(
                         language = requireNotNull(speechLanguage),
                         confidence = speechConfidence,
                         sourceAudioAvailable = speechSourceAudioAvailable,
+                        capturedAt = speechCapturedAt,
+                        timeZone = speechTimeZone,
                     )
                 },
                 share = sharedMimeType?.let(::MobileShareProvenance),
                 createdAt = createdAt,
+                organization = organization,
+                originalText = originalText,
+                originalThemeId = originalThemeId,
             ),
             captureOpen = captureOpen,
         )
@@ -212,6 +222,11 @@ private data class StoredCaptureDraftSnapshot(
                 speechSourceAudioAvailable = draft.speech?.sourceAudioAvailable ?: false,
                 sharedMimeType = draft.share?.mimeType,
                 createdAt = draft.createdAt,
+                organization = draft.organization,
+                originalText = draft.originalText,
+                originalThemeId = draft.originalThemeId,
+                speechCapturedAt = draft.speech?.capturedAt,
+                speechTimeZone = draft.speech?.timeZone,
             )
         }
     }

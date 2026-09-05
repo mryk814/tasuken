@@ -3,6 +3,12 @@
 Issue #398のPhase 4Aでは、Mobile固有contractと純粋adapter/client境界を固定した。
 Phase 4Bでは、localhost listener、Electron lifecycle、Tailscale Serve、device pairing、Android Keystore、Settings diagnosticsを同じ縦断経路へ接続した。
 
+## 現在の互換境界（2026-09-05）
+
+Mobile API versionは1、schema versionは7。入力整理を採用したTaskの本文・Checklist・日付を同じCreateTask経路で扱うため、DesktopとAndroidを合わせて更新する。
+Android Room versionは18。17→18では送信待ちOutbox・人間レビュー・委任のenvelope直下と、受領済み委任応答のmeta内にあるschemaVersionを6から7へ更新する。sync_stateも更新し、本文、commandId、idempotencyKey、その他の保存内容は保持する。既存16→17 migrationは変更しない。
+Desktopに保存済みの委任receiptは変更せず、Gatewayが再送結果を返す時だけresponse metaをschema7として投影する。Coreのcommand fingerprintはMobile schema versionに依存しないため、移行前に受理された同じcommandIdの再送でも二重適用しない。
+
 ## 非交渉条件
 
 1. Desktop SQLiteが唯一の正本であり、GatewayとclientはDB、repository、migrationをimportしない。
@@ -23,7 +29,7 @@ Phase 4Bでは、localhost listener、Electron lifecycle、Tailscale Serve、dev
 
 Gateway adapterは認証を行わず、pairing/auth層が検証した`MobilePrincipal`だけを受け取る。
 `GET` endpointはbodyを受け取らず、Todayの`date`、`limit`、`requestId`、contract versionはqueryだけからCore queryへ写像する。
-pure clientはHTTPS、Mobile専用bearer、timeout、256 KiB response上限、version/capability handshakeを担当し、上限超過時はresponse streamを直ちにcancelする。
+pure clientはHTTPS、Mobile専用bearer、timeout、32 MiB response上限、version/capability handshakeを担当し、上限超過時はresponse streamを直ちにcancelする。Androidも同じ受信上限を使う。1ページ50件の各Taskに最大50,000文字の本文と100件のChecklistがあり、JSONエスケープを含めると16 MiBを超え得るため、この有限上限で全文を保持する。Gatewayの要求本文と入力整理providerの応答上限は256 KiBのまま維持する。
 
 ## Issue #398 ACチェックリスト
 

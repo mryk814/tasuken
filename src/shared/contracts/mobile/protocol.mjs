@@ -1,7 +1,8 @@
 export const TASKEN_MOBILE_API_VERSION = 1;
-export const TASKEN_MOBILE_SCHEMA_VERSION = 6;
+export const TASKEN_MOBILE_SCHEMA_VERSION = 7;
 export const TASKEN_MOBILE_MAX_ITEMS = 50;
-export const TASKEN_MOBILE_MAX_RESPONSE_BYTES = 256 * 1024;
+// A page can carry 50 full descriptions and checklists, including JSON escapes.
+export const TASKEN_MOBILE_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 export const TASKEN_MOBILE_CLIENT_TIMEOUT_MS = 5_000;
 
 export const TASKEN_MOBILE_SCOPES = Object.freeze({
@@ -111,4 +112,5 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   bootstrap: "/v1/bootstrap",
   sync: "/v1/sync",
   commands: "/v1/commands",
+  captureOrganization: "/v1/capture-organization",
 });

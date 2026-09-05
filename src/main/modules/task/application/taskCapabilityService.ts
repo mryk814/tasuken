@@ -183,6 +183,18 @@ function applicationEnvelope(
       ...base,
       payload: {
         task: command.payload.task,
+        ...(command.payload.schedule
+          ? {
+              schedule: {
+                ...command.payload.schedule,
+                id: command.command_id,
+                owner_type: "task",
+                owner_id: command.payload.task.id,
+                version: 0,
+                updated_at: command.issued_at,
+              },
+            }
+          : {}),
         ...(command.payload.provenance ? { provenance: command.payload.provenance } : {}),
       },
     };
