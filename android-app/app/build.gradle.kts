@@ -71,6 +71,9 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            applicationIdSuffix = ".debug"
+        }
         getByName("release") {
             if (taskenReleaseSigningConfigured) {
                 signingConfig = signingConfigs.getByName("release")

@@ -19,6 +19,8 @@ import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -148,6 +150,69 @@ class TaskEntryFlowUiTest {
         composeRule.onNodeWithText("未完了に戻す").assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertEquals("todo", task.value.state) }
         capture("04-detail-reopened")
+    }
+
+    @Test
+    fun detailKeepsFrequentActionsAtBottomRightWhileScrolling() {
+        val task = mutableStateOf(
+            MobileTask(
+                id = "10000000-0000-4000-8000-000000000007",
+                title = "週末の買い物と用事を済ませる",
+                themeId = null,
+                state = "todo",
+                workState = null,
+                updatedAt = "2026-09-05T00:00:00Z",
+                checklistItems = List(8) { index ->
+                    MobileChecklistItem("item-$index", "用事 ${index + 1} の準備と持ち物を確認する", false, index.toDouble())
+                },
+            ),
+        )
+        var stateActions = 0
+        var dateActions = 0
+        composeRule.setContent {
+            MaterialTheme(colorScheme = taskenLightColorScheme()) {
+                Column(modifier = Modifier.safeDrawingPadding()) {
+                    TodayDetailPane(
+                        task.value,
+                        TaskActionUiState.Idle,
+                        onStateAction = {
+                            stateActions++
+                            task.value = it.copy(state = if (it.state == "done") "todo" else "done")
+                        },
+                        onTodayDateUpdate = { current, date ->
+                            dateActions++
+                            task.value = current.copy(todayDate = date?.toString())
+                        },
+                    )
+                }
+            }
+        }
+
+        val primary = composeRule.onNodeWithTag("task-primary-action")
+        val today = composeRule.onNodeWithTag("task-today-action")
+        val content = composeRule.onNodeWithTag("task-detail-content")
+        primary.assertIsDisplayed()
+        today.assertIsDisplayed()
+        val before = primary.getBoundsInRoot()
+        val todayBounds = today.getBoundsInRoot()
+        val footer = composeRule.onNodeWithTag("task-detail-actions").getBoundsInRoot()
+        assertTrue(before.left >= todayBounds.right)
+        assertTrue(before.top >= content.getBoundsInRoot().bottom)
+        assertTrue(before.bottom <= footer.bottom)
+        capture("07-detail-thumb-bottom-before")
+
+        content.performTouchInput { swipeUp() }
+        primary.assertIsDisplayed()
+        today.assertIsDisplayed()
+        assertEquals(before, primary.getBoundsInRoot())
+        capture("07-detail-thumb-bottom")
+        today.performClick()
+        primary.performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, dateActions)
+            assertEquals(1, stateActions)
+            assertEquals("done", task.value.state)
+        }
     }
 
     private fun capture(name: String) {

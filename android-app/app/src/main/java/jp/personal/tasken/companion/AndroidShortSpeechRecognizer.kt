@@ -57,7 +57,6 @@ internal fun speechErrorMessage(error: Int): String = when (error) {
 
 class AndroidShortSpeechRecognizer(private val context: Context) {
     private var recognizer: SpeechRecognizer? = null
-    private var cancelled = false
 
     fun availableMode(): MobileSpeechRecognitionMode? = preferredRecognizerMode(context)
 
@@ -66,7 +65,6 @@ class AndroidShortSpeechRecognizer(private val context: Context) {
         onState: (ShortSpeechUiState) -> Unit,
     ) {
         cancel()
-        cancelled = false
         val session = createRecognizer(context)
         if (session == null) {
             onState(ShortSpeechUiState.Error("この端末では音声認識を利用できません。手入力をお使いください。"))
@@ -76,10 +74,12 @@ class AndroidShortSpeechRecognizer(private val context: Context) {
         recognizer = nextRecognizer
         nextRecognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
+                if (recognizer !== nextRecognizer) return
                 onState(ShortSpeechUiState.Listening(mode))
             }
 
             override fun onBeginningOfSpeech() {
+                if (recognizer !== nextRecognizer) return
                 onState(ShortSpeechUiState.Listening(mode))
             }
 
@@ -87,16 +87,18 @@ class AndroidShortSpeechRecognizer(private val context: Context) {
             override fun onBufferReceived(buffer: ByteArray?) = Unit
 
             override fun onEndOfSpeech() {
+                if (recognizer !== nextRecognizer) return
                 onState(ShortSpeechUiState.Processing(mode))
             }
 
             override fun onError(error: Int) {
-                val wasCancelled = cancelled
+                if (recognizer !== nextRecognizer) return
                 release()
-                if (!wasCancelled) onState(ShortSpeechUiState.Error(speechErrorMessage(error)))
+                onState(ShortSpeechUiState.Error(speechErrorMessage(error)))
             }
 
             override fun onResults(results: Bundle?) {
+                if (recognizer !== nextRecognizer) return
                 val candidates = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
                 val text = candidates.firstOrNull()?.trim().orEmpty()
                 val confidence = results
@@ -116,6 +118,7 @@ class AndroidShortSpeechRecognizer(private val context: Context) {
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
+                if (recognizer !== nextRecognizer) return
                 val partial = partialResults
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
@@ -145,9 +148,10 @@ class AndroidShortSpeechRecognizer(private val context: Context) {
     }
 
     fun cancel() {
-        cancelled = true
-        recognizer?.cancel()
-        release()
+        val previous = recognizer
+        recognizer = null
+        previous?.cancel()
+        previous?.destroy()
     }
 
     fun destroy() {
@@ -155,8 +159,9 @@ class AndroidShortSpeechRecognizer(private val context: Context) {
     }
 
     private fun release() {
-        recognizer?.destroy()
+        val previous = recognizer
         recognizer = null
+        previous?.destroy()
     }
 
     private fun createRecognizer(context: Context): Pair<SpeechRecognizer, MobileSpeechRecognitionMode>? {

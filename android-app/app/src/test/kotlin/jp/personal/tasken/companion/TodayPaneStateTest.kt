@@ -5,6 +5,86 @@ import org.junit.Test
 
 class TodayPaneStateTest {
     @Test
+    fun voiceCaptureStartsRecognitionOnlyForEmptyDraft() {
+        val state = TodayPaneState()
+        state.openVoiceCapture()
+        assertEquals(true, state.captureOpen)
+        assertEquals(true, state.captureVoiceStartRequested)
+        assertEquals(false, state.captureInputFocusRequested)
+    }
+
+    @Test
+    fun voiceCapturePreservesNonemptyDraftWithoutStartingRecognition() {
+        val draft = MobileCaptureDraft.fresh(
+            text = "残している音声メモ",
+            kind = MobileCaptureKind.Capture,
+            projectId = "home",
+            source = MobileCaptureSource.AndroidSpeech,
+            newId = { "existing-draft" },
+        )
+        val state = TodayPaneState(captureDraft = draft)
+        state.openVoiceCapture()
+        assertEquals(draft, state.captureDraft)
+        assertEquals(true, state.captureOpen)
+        assertEquals(false, state.captureVoiceStartRequested)
+        assertEquals(false, state.captureInputFocusRequested)
+    }
+
+    @Test
+    fun continuingSpeechCaptureDoesNotStartKeyboardOrRecognition() {
+        val state = TodayPaneState(captureDraft = MobileCaptureDraft.fresh(
+            text = "牛乳を買う",
+            source = MobileCaptureSource.AndroidSpeech,
+            projectId = "home",
+        ))
+        state.continueCapture()
+        assertEquals("", state.captureDraft.text)
+        assertEquals("home", state.captureDraft.projectId)
+        assertEquals(true, state.captureOpen)
+        assertEquals(false, state.captureInputFocusRequested)
+        assertEquals(false, state.captureVoiceStartRequested)
+    }
+
+    @Test
+    fun dailyFiltersRoundTripIncludingUnassignedTheme() {
+        for (themeId in listOf(null, "", "home")) {
+            val before = TodayPaneState(taskScheduleFilter = TaskScheduleFilter.Upcoming, taskThemeId = themeId)
+            before.taskFilter = TaskListFilter.Done
+            val restored = TodayPaneState.restore(before.save())
+            assertEquals(TaskScheduleFilter.Upcoming, restored.taskScheduleFilter)
+            assertEquals(themeId, restored.taskThemeId)
+            assertEquals(TaskListFilter.Done, restored.taskFilter)
+        }
+    }
+
+    @Test
+    fun oldSavedStateDefaultsNewFiltersAndRetainsExistingFields() {
+        val before = TodayPaneState(taskSearch = "買い物", taskFilter = TaskListFilter.Done)
+        val restored = TodayPaneState.restore(before.save().take(24))
+        assertEquals(TaskScheduleFilter.All, restored.taskScheduleFilter)
+        assertEquals(null, restored.taskThemeId)
+        assertEquals("買い物", restored.taskSearch)
+        assertEquals(TaskListFilter.Done, restored.taskFilter)
+    }
+
+    @Test
+    fun resetTaskFiltersClearsSearchAndReturnsToOpenTasksWithoutTouchingTodayScroll() {
+        val state = TodayPaneState(taskSearch = "牛乳", taskFilter = TaskListFilter.Done,
+            taskScheduleFilter = TaskScheduleFilter.Today, taskThemeId = "home")
+        state.recordScroll(4, 20)
+        state.recordTaskScroll(7, 30)
+        state.resetTaskFilters()
+        assertEquals("", state.taskSearch)
+        assertEquals(TaskListFilter.Open, state.taskFilter)
+        assertEquals(TaskScheduleFilter.All, state.taskScheduleFilter)
+        assertEquals(null, state.taskThemeId)
+        assertEquals(0, state.taskListScrollIndex)
+        assertEquals(0, state.taskListScrollOffset)
+        assertEquals(4, state.listScrollIndex)
+        assertEquals(20, state.listScrollOffset)
+    }
+
+    @Test
     fun openingCaptureLeavesThemeOrInputAsTheUsersFirstChoice() {
         val state = TodayPaneState()
         state.openCapture(MobileCaptureSource.AndroidApp)

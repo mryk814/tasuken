@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -232,11 +233,17 @@ private fun TodayApp(
     var speechState by remember(speechRecognizer) {
         mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(speechRecognizer.availableMode()))
     }
+    var speechRequestDraftId by remember { mutableStateOf<String?>(null) }
     val startSpeechRecognition = {
-        speechRecognizer.start(Locale.getDefault().toLanguageTag()) { nextState ->
-            speechState = nextState
-            if (nextState is ShortSpeechUiState.Result) {
-                paneState.captureDraft = paneState.captureDraft.withSpeechResult(nextState.result)
+        val draftId = speechRequestDraftId
+        if (paneState.captureOpen && draftId == paneState.captureDraft.draftId) {
+            speechRecognizer.start(Locale.getDefault().toLanguageTag()) { nextState ->
+                if (paneState.captureOpen && draftId == paneState.captureDraft.draftId) {
+                    speechState = nextState
+                    if (nextState is ShortSpeechUiState.Result) {
+                        paneState.captureDraft = paneState.captureDraft.withSpeechResult(nextState.result)
+                    }
+                }
             }
         }
     }
@@ -257,6 +264,7 @@ private fun TodayApp(
         todayViewModel.consumeSafeShare(share)
     }
     val requestSpeechRecognition = {
+        speechRequestDraftId = paneState.captureDraft.draftId
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             startSpeechRecognition()
         } else {
@@ -645,26 +653,43 @@ private fun TodayApp(
                             )
                         }
                         if (paneState.activeSection != AppSection.Ai) {
-                            ExtendedFloatingActionButton(
-                                text = { Text("追加") },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_tabler_plus),
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = {
-                                    paneState.openCapture(
-                                        source = MobileCaptureSource.AndroidApp,
-                                        replaceDraft = false,
-                                    )
-                                    speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(16.dp)
-                                    .testTag("open-capture-action"),
-                            )
+                            FlowRow(
+                                modifier = Modifier.align(Alignment.BottomEnd).fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                ExtendedFloatingActionButton(
+                                    text = { Text("追加") },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_tabler_plus),
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    onClick = {
+                                        paneState.openCapture(
+                                            source = MobileCaptureSource.AndroidApp,
+                                            replaceDraft = false,
+                                        )
+                                        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+                                    },
+                                    modifier = Modifier
+                                        .testTag("open-capture-action"),
+                                )
+                                OutlinedButton(
+                                    onClick = {
+                                        paneState.openVoiceCapture()
+                                        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+                                    },
+                                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.surface,
+                                    ),
+                                    modifier = Modifier.heightIn(min = 56.dp).testTag("open-voice-capture-action"),
+                                ) {
+                                    Icon(painterResource(R.drawable.ic_tabler_microphone), contentDescription = null)
+                                    Text("話して追加", modifier = Modifier.padding(start = 8.dp))
+                                }
+                            }
                         }
                     }
                 }
@@ -774,6 +799,9 @@ internal fun CaptureTaskSheet(
         },
     ) {
         val keyboardController = LocalSoftwareKeyboardController.current
+        val speechBusy = speechState is ShortSpeechUiState.Listening ||
+            speechState is ShortSpeechUiState.Partial || speechState is ShortSpeechUiState.Processing
+        val canSubmit = state !is CaptureUiState.Saving && !speechBusy && draft.text.isNotBlank()
         LaunchedEffect(draft.draftId, requestInputFocus, sheetState.isVisible) {
             // Request focus in the sheet's window after its opening transition.
             if (requestInputFocus && sheetState.isVisible) {
@@ -830,7 +858,7 @@ internal fun CaptureTaskSheet(
                 placeholder = {
                     Text(
                         if (draft.kind == MobileCaptureKind.Task) {
-                            "例: 実験条件を整理する"
+                            "例: 帰りに牛乳を買う"
                         } else {
                             "思いついたことをそのまま"
                         },
@@ -842,16 +870,39 @@ internal fun CaptureTaskSheet(
                     null
                 },
                 isError = state is CaptureUiState.Error,
-                enabled = state !is CaptureUiState.Saving,
+                enabled = state !is CaptureUiState.Saving && !speechBusy,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
-                    if (draft.text.isNotBlank()) onSubmit(CaptureCompletionBehavior.Close)
+                    if (canSubmit) onSubmit(CaptureCompletionBehavior.Close)
                 }),
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focusRequester)
                     .testTag("capture-text-input"),
+            )
+            OutlinedButton(
+                onClick = {
+                    keyboardController?.hide()
+                    if (speechBusy) onStopVoice() else onStartVoice()
+                },
+                enabled = state !is CaptureUiState.Saving && speechState !is ShortSpeechUiState.Processing,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("capture-voice-action"),
+            ) {
+                Icon(painterResource(R.drawable.ic_tabler_microphone), contentDescription = null)
+                Text(when {
+                    speechState is ShortSpeechUiState.Processing -> "文字にしています…"
+                    speechBusy -> "音声を確定"
+                    draft.text.isNotBlank() -> "話し直して置き換える"
+                    else -> "音声で入力"
+                }, modifier = Modifier.padding(start = 8.dp))
+            }
+            Text(
+                speechStatusText(speechState, draft),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (speechState is ShortSpeechUiState.Error) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("capture-speech-status"),
             )
             Row(
                 modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
@@ -860,36 +911,19 @@ internal fun CaptureTaskSheet(
             ) {
                 TextButton(
                     onClick = { onSubmit(CaptureCompletionBehavior.Continue) },
-                    enabled = state !is CaptureUiState.Saving && draft.text.isNotBlank(),
+                    enabled = canSubmit,
                     modifier = Modifier.testTag("capture-submit-continue"),
                 ) {
                     Text("追加して次へ")
                 }
                 Button(
                     onClick = { onSubmit(CaptureCompletionBehavior.Close) },
-                    enabled = state !is CaptureUiState.Saving && draft.text.isNotBlank(),
+                    enabled = canSubmit,
                     modifier = Modifier.testTag("capture-submit-close"),
                 ) {
                     Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
                 }
             }
-            val speechBusy = speechState is ShortSpeechUiState.Listening ||
-                speechState is ShortSpeechUiState.Partial ||
-                speechState is ShortSpeechUiState.Processing
-            OutlinedButton(
-                onClick = if (speechBusy) onStopVoice else onStartVoice,
-                enabled = state !is CaptureUiState.Saving,
-            ) {
-                Text(if (speechBusy) "音声を確定" else "音声で入力")
-            }
-            Text(
-                speechStatusText(speechState, draft),
-                color = if (speechState is ShortSpeechUiState.Error) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
             Spacer(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1198,7 +1232,10 @@ internal fun TasksListPane(
             Text("ToDoを読み込んでいます")
         }
         else -> {
-            val filtered = filterCachedTasks(tasks, paneState.taskSearch, paneState.taskFilter)
+            val filtered = filterDailyTasks(
+                tasks, paneState.taskSearch, paneState.taskFilter,
+                paneState.taskScheduleFilter, paneState.taskThemeId,
+            )
             Column(modifier = Modifier.fillMaxSize()) {
                 if (uiState is TodayUiState.Cached) {
                     CachedTaskBanner(uiState, onRetry, onRetryPairing)
@@ -1226,11 +1263,12 @@ internal fun TasksListPane(
                         )
                     }
                 }
+                TaskListFilters(paneState, themes)
                 if (filtered.isEmpty()) {
                     CenteredState {
                         Text(if (tasks.isEmpty()) "Taskはありません" else "条件に合うTaskはありません")
-                        if (paneState.taskSearch.isNotEmpty()) {
-                            TextButton(onClick = { paneState.taskSearch = "" }) { Text("検索を解除") }
+                        if (tasks.isNotEmpty()) {
+                            TextButton(onClick = paneState::resetTaskFilters) { Text("絞り込みを解除") }
                         }
                     }
                 } else {
@@ -1516,16 +1554,6 @@ internal fun TodayTaskList(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Checkbox(
-                        checked = task.state == "done",
-                        onCheckedChange = { onTaskStateAction(task) },
-                        enabled = stateActionEnabled,
-                        modifier = Modifier
-                            .testTag("task-state-action-${task.id}")
-                            .semantics {
-                                contentDescription = stateActionDescription
-                            },
-                    )
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1581,6 +1609,14 @@ internal fun TodayTaskList(
                             )
                         }
                     }
+                    Checkbox(
+                        checked = task.state == "done",
+                        onCheckedChange = { onTaskStateAction(task) },
+                        enabled = stateActionEnabled,
+                        modifier = Modifier
+                            .testTag("task-state-action-${task.id}")
+                            .semantics { contentDescription = stateActionDescription },
+                    )
                 }
             }
         }
@@ -1641,20 +1677,30 @@ internal fun TodayDetailPane(
         return
     }
     var titleDraft by rememberSaveable(task.id) { mutableStateOf(task.title) }
+    var titleBase by rememberSaveable(task.id) { mutableStateOf(task.title) }
+    var titleEditing by rememberSaveable(task.id) { mutableStateOf(false) }
     var themePickerOpenRequest by rememberSaveable(task.id) { mutableStateOf(0) }
     val canReselectTheme = themes.isNotEmpty() &&
         (themeCatalogState is MobileThemeCatalogState.Available ||
             themeCatalogState is MobileThemeCatalogState.Stale)
-    LaunchedEffect(task.id, task.title, actionState) {
+    LaunchedEffect(task.id, task.title, actionState, titleEditing) {
         val resolution = actionState as? TaskActionUiState.ConflictResolved
-        if (resolution?.taskId == task.id) titleDraft = task.title
+        if (titleDraft == titleBase || resolution?.taskId == task.id) {
+            titleDraft = task.title
+            titleBase = task.title
+        } else if (titleDraft.trim() == task.title) {
+            titleBase = task.title
+        }
     }
+    val today = LocalDate.now()
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        Column(modifier = Modifier.fillMaxSize()) {
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+            modifier = Modifier.weight(1f).fillMaxWidth().testTag("task-detail-content")
+                .verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(task.title, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text(task.title, fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1696,49 +1742,27 @@ internal fun TodayDetailPane(
                     }
                 }
             }
-            Button(
-                onClick = { onStateAction(task) },
-                enabled = (!task.pending || task.canChangePendingState) &&
-                    task.conflict == null && actionState !is TaskActionUiState.Saving &&
-                    task.workState !in setOf("needs_human_review", "reported_done", "blocked"),
-            ) {
-                Text(
-                    when {
-                        actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
-                        task.conflict != null -> "競合を解決してから操作"
-                        task.pending && !task.canChangePendingState -> "同期後に操作"
-                        task.workState in setOf("needs_human_review", "reported_done", "blocked") -> "Work Receiptを確認"
-                        task.pending && task.state == "done" -> "未完了に変更"
-                        task.pending -> "完了に変更"
-                        task.state == "done" -> "未完了に戻す"
-                        else -> "完了する"
-                    },
+            TextButton(
+                onClick = { titleEditing = !titleEditing },
+                modifier = Modifier.align(Alignment.End).testTag("task-title-edit-toggle"),
+            ) { Text(if (titleEditing) "名前の編集を閉じる" else "Task名を編集") }
+            if (titleEditing) {
+                OutlinedTextField(
+                    value = titleDraft,
+                    onValueChange = { if (it.length <= 500) titleDraft = it },
+                    modifier = Modifier.fillMaxWidth().testTag("task-title"),
+                    label = { Text("Task名") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onTitleUpdate(task, titleDraft) }),
+                    enabled = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
                 )
+                OutlinedButton(
+                    onClick = { onTitleUpdate(task, titleDraft) },
+                    enabled = titleDraft.trim().isNotEmpty() && titleDraft.trim() != task.title &&
+                        !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
+                ) { Text("Task名を保存") }
             }
-            val today = LocalDate.now()
-            OutlinedButton(
-                onClick = {
-                    onTodayDateUpdate(task, if (task.todayDate == today.toString()) null else today)
-                },
-                enabled = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
-            ) {
-                Text(if (task.todayDate == today.toString()) "今日から外す" else "今日に入れる")
-            }
-            OutlinedTextField(
-                value = titleDraft,
-                onValueChange = { if (it.length <= 500) titleDraft = it },
-                modifier = Modifier.fillMaxWidth().testTag("task-title"),
-                label = { Text("Task名") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { onTitleUpdate(task, titleDraft) }),
-                enabled = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
-            )
-            OutlinedButton(
-                onClick = { onTitleUpdate(task, titleDraft) },
-                enabled = titleDraft.trim().isNotEmpty() && titleDraft.trim() != task.title &&
-                    !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
-            ) { Text("Task名を保存") }
             task.conflict?.let { conflict ->
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
@@ -1941,6 +1965,38 @@ internal fun TodayDetailPane(
             }
             Text("日付  ${taskTodayDateLabel(task.todayDate, today.toString())}")
             Text("更新  ${task.updatedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(12.dp).testTag("task-detail-actions"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { onTodayDateUpdate(task, if (task.todayDate == today.toString()) null else today) },
+                    enabled = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("task-today-action"),
+                ) { Text(if (task.todayDate == today.toString()) "今日から外す" else "今日に入れる") }
+                Button(
+                    onClick = { onStateAction(task) },
+                    enabled = (!task.pending || task.canChangePendingState) &&
+                        task.conflict == null && actionState !is TaskActionUiState.Saving &&
+                        task.workState !in setOf("needs_human_review", "reported_done", "blocked"),
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("task-primary-action"),
+                ) {
+                    Text(when {
+                        actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
+                        task.conflict != null -> "競合を解決してから操作"
+                        task.pending && !task.canChangePendingState -> "同期後に操作"
+                        task.workState in setOf("needs_human_review", "reported_done", "blocked") -> "Work Receiptを確認"
+                        task.pending && task.state == "done" -> "未完了に変更"
+                        task.pending -> "完了に変更"
+                        task.state == "done" -> "未完了に戻す"
+                        else -> "完了する"
+                    })
+                }
+            }
+        }
         }
     }
 }
@@ -2344,7 +2400,6 @@ private fun ChecklistItemEditor(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Checkbox(checked = item.done, onCheckedChange = { onToggle() }, enabled = enabled)
             OutlinedTextField(
                 value = titleDraft,
                 onValueChange = { if (it.length <= 200) titleDraft = it },
@@ -2356,6 +2411,7 @@ private fun ChecklistItemEditor(
                     if (titleDraft.trim().isNotEmpty() && titleDraft.trim() != item.title) onRename(titleDraft)
                 }),
             )
+            Checkbox(checked = item.done, onCheckedChange = { onToggle() }, enabled = enabled)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(
@@ -2769,7 +2825,7 @@ private suspend fun showCreateUndoSnackbar(
 }
 
 @Composable
-private fun rememberTodayPaneState(restoredCapture: MobileCaptureDraftSnapshot?): TodayPaneState =
+internal fun rememberTodayPaneState(restoredCapture: MobileCaptureDraftSnapshot?): TodayPaneState =
     rememberSaveable(saver = TodayPaneStateSaver) {
         TodayPaneState(
             captureDraft = restoredCapture?.draft ?: MobileCaptureDraft.fresh(),

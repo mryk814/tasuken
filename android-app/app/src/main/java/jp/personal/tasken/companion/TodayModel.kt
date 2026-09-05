@@ -1122,6 +1122,8 @@ class TodayPaneState(
     taskListScrollOffset: Int = 0,
     aiListScrollIndex: Int = 0,
     aiListScrollOffset: Int = 0,
+    taskScheduleFilter: TaskScheduleFilter = TaskScheduleFilter.All,
+    taskThemeId: String? = null,
 ) {
     var selectedTaskId by mutableStateOf(selectedTaskId)
     var listScrollIndex by mutableIntStateOf(listScrollIndex)
@@ -1137,6 +1139,8 @@ class TodayPaneState(
     var activeSection by mutableStateOf(activeSection)
     var taskSearch by mutableStateOf(taskSearch)
     var taskFilter by mutableStateOf(taskFilter)
+    var taskScheduleFilter by mutableStateOf(taskScheduleFilter)
+    var taskThemeId by mutableStateOf(taskThemeId)
     var taskListScrollIndex by mutableIntStateOf(taskListScrollIndex)
         private set
     var taskListScrollOffset by mutableIntStateOf(taskListScrollOffset)
@@ -1154,6 +1158,14 @@ class TodayPaneState(
     fun recordTaskScroll(index: Int, offset: Int) {
         taskListScrollIndex = index.coerceAtLeast(0)
         taskListScrollOffset = offset.coerceAtLeast(0)
+    }
+
+    fun resetTaskFilters() {
+        taskSearch = ""
+        taskFilter = TaskListFilter.Open
+        taskScheduleFilter = TaskScheduleFilter.All
+        taskThemeId = null
+        recordTaskScroll(0, 0)
     }
 
     fun recordAiScroll(index: Int, offset: Int) {
@@ -1189,6 +1201,14 @@ class TodayPaneState(
         captureVoiceStartRequested = false
     }
 
+    fun openVoiceCapture() {
+        openCapture(
+            source = MobileCaptureSource.AndroidApp,
+            requestVoice = captureDraft.text.isBlank(),
+            replaceDraft = false,
+        )
+    }
+
     fun continueCapture() {
         val previous = captureDraft
         captureDraft = MobileCaptureDraft.fresh(
@@ -1198,7 +1218,7 @@ class TodayPaneState(
         )
         captureOpen = true
         captureVoiceStartRequested = false
-        captureInputFocusRequested = true
+        captureInputFocusRequested = previous.source != MobileCaptureSource.AndroidSpeech
     }
 
     fun consumeInputFocusRequest() {
@@ -1237,6 +1257,8 @@ class TodayPaneState(
         captureDraft.speech?.sourceAudioAvailable,
         captureInputFocusRequested,
         captureDraft.share?.mimeType,
+        taskScheduleFilter.name,
+        taskThemeId,
     )
 
     companion object {
@@ -1280,6 +1302,10 @@ class TodayPaneState(
             taskListScrollOffset = saved.getOrNull(9) as? Int ?: 0,
             aiListScrollIndex = saved.getOrNull(10) as? Int ?: 0,
             aiListScrollOffset = saved.getOrNull(11) as? Int ?: 0,
+            taskScheduleFilter = (saved.getOrNull(24) as? String)
+                ?.let { runCatching { TaskScheduleFilter.valueOf(it) }.getOrNull() }
+                ?: TaskScheduleFilter.All,
+            taskThemeId = saved.getOrNull(25) as? String,
         )
     }
 }
