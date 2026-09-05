@@ -16,3 +16,13 @@ export function checklistProgress(
     total: valid.length,
   };
 }
+
+export function checklistItemsForCompactDisplay(
+  items?: readonly TaskChecklistItemView[] | null,
+): TaskChecklistItemView[] {
+  return (items || [])
+    .filter((item) => item.title.trim())
+    .sort(
+      (left, right) => Number(left.done) - Number(right.done) || left.sort_order - right.sort_order,
+    );
+}

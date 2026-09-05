@@ -37,6 +37,12 @@ import {
 import { ActionButton, Button } from "./common";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
+import {
+  taskWorkEntry,
+  taskWorkInboxGroups,
+  taskWorkReportTime,
+  taskWorkReportsCoveredBy,
+} from "../../../../../shared/contracts/task/public";
 
 type ProposalPayloadType =
   | "items"
@@ -107,7 +113,11 @@ function candidateTitle(candidate: ProposalCandidate) {
 
 function candidateMeta(candidate: ProposalCandidate) {
   if (candidate.type === "task_work") {
-    return `Task ${str(candidate.entry.task_id)} / ${str(candidate.entry.action)}`;
+    return candidate.entry.action === "report_done"
+      ? "完了報告"
+      : candidate.entry.action === "report_blocked"
+        ? "中断報告"
+        : "途中報告";
   }
   if (candidate.type === "repository_context") {
     return `RepositoryContext / ${str(candidate.entry.provider) || "unknown"} / ${str(candidate.entry.canonical_identity) || "identity unavailable"} / credential-free normalized`;
@@ -157,9 +167,7 @@ export function buildPreview(
         action: "create",
         issues: [],
       })),
-      payloadIssues: [
-        "Work Receiptの採用はTask本文を変更せず、typed work commandとして適用します。",
-      ],
+      payloadIssues: [],
     };
   }
   if (payloadType === "repository_contexts") {
@@ -567,22 +575,32 @@ export function AiProposalPanel(props: PageProps) {
     () => (data.ai_proposals || []).filter((proposal) => isPassiveAgentSessionProposal(proposal)),
     [data.ai_proposals],
   );
-  const proposals = useMemo(
+  const proposalGroups = useMemo(
     () =>
-      (data.ai_proposals || []).filter(
-        (proposal) =>
-          str(proposal.status) === "pending" && !isPassiveAgentSessionProposal(proposal),
+      taskWorkInboxGroups(
+        (data.ai_proposals || []).filter((proposal) => !isPassiveAgentSessionProposal(proposal)),
       ),
     [data.ai_proposals],
   );
+  const proposals = proposalGroups
+    .filter((group) => group.reports.some((item) => item.status === "pending"))
+    .map((group) => group.latest);
   const history = useMemo(
     () =>
-      (data.ai_proposals || [])
-        .filter((proposal) => str(proposal.status) !== "pending")
+      proposalGroups
+        .filter((group) => !group.reports.some((proposal) => proposal.status === "pending"))
+        .map((group) => group.latest)
         .sort((a, b) => proposalTimestamp(b).localeCompare(proposalTimestamp(a))),
-    [data.ai_proposals],
+    [proposalGroups],
   );
-  const selected = proposals.find((proposal) => proposal.id === selectedId) || null;
+  const selected = (data.ai_proposals || []).find((proposal) => proposal.id === selectedId) || null;
+  const selectedWork = selected ? taskWorkEntry(selected) : null;
+  const selectedGroup = proposalGroups.find((group) =>
+    group.reports.some((item) => item.id === selectedId),
+  );
+  const coveredReports = selected
+    ? taskWorkReportsCoveredBy(selected, data.ai_proposals || [])
+    : [];
 
   const refreshProposals = useCallback(
     async (showFeedback: boolean) => {
@@ -724,16 +742,30 @@ export function AiProposalPanel(props: PageProps) {
         await executeCommand({
           commandId: `${proposal.id}:accept`,
           name: "ApplyTaskWorkProposal",
-          payload: { proposalId: proposal.id, decision: "accept" },
+          payload: {
+            proposalId: proposal.id,
+            decision: "accept",
+            coveredProposalIds: coveredReports.map((report) => report.id),
+          },
           actor: { kind: "user" },
           source: "main_ui",
           expectedVersions: [
             ...expectedVersions,
+            ...coveredReports.map((report) => ({
+              type: "ai_proposal" as const,
+              id: report.id,
+              version: Number(report.version || 0),
+            })),
             { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
           ],
           issuedAt: new Date().toISOString(),
         } as CommandEnvelope);
-        setToast("Work proposalを採用しました。Task本文は変更していません。", "success");
+        setToast(
+          candidate.entry.action === "report_done"
+            ? "報告を採用し、Taskを完了しました。"
+            : "作業報告を採用しました。",
+          "success",
+        );
         setPreview(null);
       } catch (error) {
         setToast(
@@ -864,7 +896,9 @@ export function AiProposalPanel(props: PageProps) {
         <div className="section-heading">
           <h2>AIの提案</h2>
           <div className="proposal-inbox-actions">
-            <span className="proposal-pending-count">{proposals.length}件</span>
+            <span className="proposal-pending-count">
+              {proposalGroups.filter((group) => group.actionable).length}件の確認待ち
+            </span>
             <Button
               variant="secondary"
               disabled={refreshing}
@@ -900,32 +934,48 @@ export function AiProposalPanel(props: PageProps) {
             >
               <div className="proposal-row-main">
                 <div className="proposal-row-heading">
-                  <strong className="proposal-row-title">{proposalHeadline(proposal)}</strong>
-                  <ProposalRisk proposal={proposal} />
+                  <strong className="proposal-row-title">
+                    {domain.tasks.find((task) => task.id === taskWorkEntry(proposal)?.task_id)
+                      ?.title || proposalHeadline(proposal)}
+                  </strong>
+                  {!taskWorkEntry(proposal) && <ProposalRisk proposal={proposal} />}
                 </div>
-                <span className="proposal-row-kind">{proposalTypeLabel(proposal)}</span>
-                <dl className="proposal-meta-list">
-                  <div>
-                    <dt>Source</dt>
-                    <dd>{proposalSourceLabel(proposal)}</dd>
-                  </div>
-                  <div>
-                    <dt>Target</dt>
-                    <dd>{proposalTargetLabel(proposal)}</dd>
-                  </div>
-                  <div>
-                    <dt>Diff</dt>
-                    <dd>{proposalDiffLabel(proposal)}</dd>
-                  </div>
-                  <div>
-                    <dt>受信</dt>
-                    <dd>{formatProposalDate(proposal)}</dd>
-                  </div>
-                </dl>
-                <p className="proposal-validation-hint">
-                  <IconAlertTriangle size={14} aria-hidden="true" />
-                  選択すると、本文と採用範囲を確認できます。
-                </p>
+                <span className="proposal-row-kind">
+                  {taskWorkEntry(proposal)
+                    ? `${taskWorkEntry(proposal)?.action === "report_done" ? "完了報告・採用するとTask完了" : taskWorkEntry(proposal)?.action === "report_blocked" ? "中断報告" : "途中報告・作業中"} / ${proposalGroups.find((group) => group.latest.id === proposal.id)?.reports.length}件の履歴`
+                    : proposalTypeLabel(proposal)}
+                </span>
+                {taskWorkEntry(proposal) ? (
+                  <p className="proposal-preview-context">
+                    {proposalSourceLabel(proposal)} ·{" "}
+                    {new Date(taskWorkReportTime(proposal)).toLocaleString("ja-JP")}
+                  </p>
+                ) : (
+                  <dl className="proposal-meta-list">
+                    <div>
+                      <dt>Source</dt>
+                      <dd>{proposalSourceLabel(proposal)}</dd>
+                    </div>
+                    <div>
+                      <dt>Target</dt>
+                      <dd>{proposalTargetLabel(proposal)}</dd>
+                    </div>
+                    <div>
+                      <dt>Diff</dt>
+                      <dd>{proposalDiffLabel(proposal)}</dd>
+                    </div>
+                    <div>
+                      <dt>受信</dt>
+                      <dd>{formatProposalDate(proposal)}</dd>
+                    </div>
+                  </dl>
+                )}
+                {!taskWorkEntry(proposal) && (
+                  <p className="proposal-validation-hint">
+                    <IconAlertTriangle size={14} aria-hidden="true" />
+                    選択すると、本文と採用範囲を確認できます。
+                  </p>
+                )}
               </div>
             </div>
           ))}
@@ -969,9 +1019,17 @@ export function AiProposalPanel(props: PageProps) {
             </summary>
             <div className="proposal-history-list">
               {history.map((proposal) => (
-                <div className="proposal-history-row" key={proposal.id}>
+                <button
+                  type="button"
+                  className="proposal-history-row"
+                  key={proposal.id}
+                  onClick={() => previewProposal(proposal)}
+                >
                   <div>
-                    <strong>{proposalTypeLabel(proposal)}</strong>
+                    <strong>
+                      {domain.tasks.find((task) => task.id === taskWorkEntry(proposal)?.task_id)
+                        ?.title || proposalTypeLabel(proposal)}
+                    </strong>
                     <small>
                       {proposalSourceLabel(proposal)} / {proposalTargetLabel(proposal)} /{" "}
                       {formatProposalDate(proposal)}
@@ -981,7 +1039,7 @@ export function AiProposalPanel(props: PageProps) {
                     {proposalStatusLabel(proposal)}
                   </span>
                   {str(proposal.quarantine_reason) && <p>{str(proposal.quarantine_reason)}</p>}
-                </div>
+                </button>
               ))}
             </div>
           </details>
@@ -989,14 +1047,51 @@ export function AiProposalPanel(props: PageProps) {
         {selected && preview && (
           <div className="proposal-inline-preview">
             <div className="section-heading">
-              <h3>内容を確認</h3>
+              <h3>{selectedWork ? "作業報告を確認" : "内容を確認"}</h3>
               <span>
                 {preview.candidates.length}件 / {proposalSourceLabel(selected)}
               </span>
             </div>
-            <p className="proposal-preview-context">
-              Target: {proposalTargetLabel(selected)} · {proposalDiffLabel(selected)}
-            </p>
+            {!selectedWork && (
+              <p className="proposal-preview-context">
+                Target: {proposalTargetLabel(selected)} · {proposalDiffLabel(selected)}
+              </p>
+            )}
+            {selectedWork && selectedGroup && (
+              <details aria-label="同じTaskの作業履歴" className="proposal-task-history">
+                <summary>作業の経過を見る（{selectedGroup.reports.length}件）</summary>
+                <ol>
+                  {selectedGroup.reports.map((report) => (
+                    <li key={report.id}>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        aria-current={report.id === selected.id ? "true" : undefined}
+                        onClick={() => previewProposal(report)}
+                      >
+                        <time>{new Date(taskWorkReportTime(report)).toLocaleString("ja-JP")}</time>{" "}
+                        {taskWorkEntry(report)?.action === "report_done"
+                          ? "完了報告"
+                          : taskWorkEntry(report)?.action === "report_blocked"
+                            ? "中断報告"
+                            : "途中報告"}
+                        {" · "}
+                        {str(report.quarantine_reason).startsWith("完了報告に集約:")
+                          ? "完了報告に集約"
+                          : proposalStatusLabel(report)}
+                      </button>
+                      <p>{str(taskWorkEntry(report)?.summary)}</p>
+                    </li>
+                  ))}
+                </ol>
+                {coveredReports.length > 0 && (
+                  <p>
+                    採用すると、同じ作業の過去報告{coveredReports.length}
+                    件をこの完了報告に集約して履歴に残します。
+                  </p>
+                )}
+              </details>
+            )}
             {preview.payloadIssues.length > 0 && (
               <p className="alert-note warning">注意: {preview.payloadIssues.join(" / ")}</p>
             )}
@@ -1006,13 +1101,17 @@ export function AiProposalPanel(props: PageProps) {
                 key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}
               >
                 <div>
-                  <strong>{candidateTitle(candidate)}</strong>
-                  <small>
-                    {candidateMeta(candidate)}
-                    {candidate.duplicate
-                      ? ` / 既存候補: ${str(candidate.duplicate.title || candidate.duplicate.label)}`
-                      : ""}
-                  </small>
+                  {candidate.type !== "task_work" && (
+                    <>
+                      <strong>{candidateTitle(candidate)}</strong>
+                      <small>
+                        {candidateMeta(candidate)}
+                        {candidate.duplicate
+                          ? ` / 既存候補: ${str(candidate.duplicate.title || candidate.duplicate.label)}`
+                          : ""}
+                      </small>
+                    </>
+                  )}
                   {candidate.issues.length > 0 && (
                     <p className="field-help">確認: {candidate.issues.join(" / ")}</p>
                   )}
@@ -1031,28 +1130,48 @@ export function AiProposalPanel(props: PageProps) {
                       </span>
                     </div>
                   )}
+                  {candidate.type === "task_work" && (
+                    <dl className="proposal-work-details">
+                      <dt>結果</dt>
+                      <dd>{str(candidate.entry.summary)}</dd>
+                      <dt>検証</dt>
+                      <dd>
+                        {Array.isArray(candidate.entry.verification)
+                          ? candidate.entry.verification.join(" / ") || "記録なし"
+                          : "記録なし"}
+                      </dd>
+                      <dt>残作業</dt>
+                      <dd>
+                        {Array.isArray(candidate.entry.remaining_work)
+                          ? candidate.entry.remaining_work.join(" / ") || "なし"
+                          : "記録なし"}
+                      </dd>
+                    </dl>
+                  )}
                 </div>
-                <select
-                  value={candidate.action}
-                  onChange={(event) =>
-                    setPreview((current) =>
-                      current
-                        ? {
-                            ...current,
-                            candidates: current.candidates.map((entry, itemIndex) =>
-                              itemIndex === index
-                                ? { ...entry, action: event.target.value }
-                                : entry,
-                            ),
-                          }
-                        : current,
-                    )
-                  }
-                >
-                  <option value="create">採用する</option>
-                  {candidate.duplicate && <option value="merge">既存を更新</option>}
-                  <option value="ignore">今回採用しない</option>
-                </select>
+                {candidate.type !== "task_work" && (
+                  <select
+                    value={candidate.action}
+                    onChange={(event) =>
+                      setPreview((current) =>
+                        current
+                          ? {
+                              ...current,
+                              candidates: current.candidates.map((entry, itemIndex) =>
+                                itemIndex === index
+                                  ? { ...entry, action: event.target.value }
+                                  : entry,
+                              ),
+                            }
+                          : current,
+                      )
+                    }
+                  >
+                    <option value="create">採用する</option>
+                    {candidate.duplicate && <option value="merge">既存を更新</option>}
+                    <option value="ignore">今回採用しない</option>
+                  </select>
+                )}
                 {candidate.type === "note" && candidate.action === "create" && (
                   <details
                     className="proposal-note-preview"
@@ -1128,34 +1247,41 @@ export function AiProposalPanel(props: PageProps) {
                 )}
               </div>
             ))}
-            <div className="form-actions">
-              <ActionButton action="actionReject" onClick={() => void rejectProposal(selected)}>
-                拒否
-              </ActionButton>
-              <ActionButton action="aiProposalAccept" onClick={() => void acceptProposal(selected)}>
-                採用
-              </ActionButton>
-            </div>
-            <details className="proposal-quarantine">
-              <summary>隔離する</summary>
-              <div className="proposal-quarantine-form">
-                <label>
-                  <span>隔離理由</span>
-                  <input
-                    value={quarantineReason}
-                    onChange={(event) => setQuarantineReason(event.target.value)}
-                    placeholder="例: 対象Themeを確認してから扱う"
-                  />
-                </label>
-                <Button
-                  variant="secondary"
-                  compact
-                  onClick={() => void quarantineProposal(selected)}
+            {selected.status === "pending" && (
+              <div className="form-actions">
+                <ActionButton action="actionReject" onClick={() => void rejectProposal(selected)}>
+                  拒否
+                </ActionButton>
+                <ActionButton
+                  action="aiProposalAccept"
+                  onClick={() => void acceptProposal(selected)}
                 >
-                  隔離を保存
-                </Button>
+                  {selectedWork?.action === "report_done" ? "採用してTaskを完了" : "採用"}
+                </ActionButton>
               </div>
-            </details>
+            )}
+            {selected.status === "pending" && (
+              <details className="proposal-quarantine">
+                <summary>隔離する</summary>
+                <div className="proposal-quarantine-form">
+                  <label>
+                    <span>隔離理由</span>
+                    <input
+                      value={quarantineReason}
+                      onChange={(event) => setQuarantineReason(event.target.value)}
+                      placeholder="例: 対象Themeを確認してから扱う"
+                    />
+                  </label>
+                  <Button
+                    variant="secondary"
+                    compact
+                    onClick={() => void quarantineProposal(selected)}
+                  >
+                    隔離を保存
+                  </Button>
+                </div>
+              </details>
+            )}
           </div>
         )}
       </section>
@@ -1231,6 +1357,8 @@ function proposalSourceLabel(proposal: BaseRecord): string {
 }
 
 function proposalTargetLabel(proposal: BaseRecord): string {
+  const work = taskWorkEntry(proposal);
+  if (work) return "既存Taskの作業報告";
   const request =
     proposal.request && typeof proposal.request === "object" && !Array.isArray(proposal.request)
       ? (proposal.request as Record<string, unknown>)
@@ -1248,6 +1376,8 @@ function proposalTargetLabel(proposal: BaseRecord): string {
 }
 
 function proposalDiffLabel(proposal: BaseRecord): string {
+  const work = taskWorkEntry(proposal);
+  if (work) return work.action === "report_done" ? "報告の採用とTask完了" : "作業履歴への追記";
   const entries = proposalEntries(proposal);
   if (entries.some((entry) => str(entry.action) === "merge" || str(entry.target_id)))
     return "既存データの更新差分";
@@ -1257,7 +1387,7 @@ function proposalDiffLabel(proposal: BaseRecord): string {
 }
 
 function formatProposalDate(proposal: BaseRecord): string {
-  const timestamp = proposalTimestamp(proposal);
+  const timestamp = str(proposal.received_at || proposal.created_at);
   if (!timestamp) return "日付なし";
   const date = new Date(timestamp);
   return Number.isNaN(date.getTime())
@@ -1266,6 +1396,7 @@ function formatProposalDate(proposal: BaseRecord): string {
 }
 
 function proposalRisk(proposal: BaseRecord): "update" | "file" | "create" {
+  if (taskWorkEntry(proposal)) return "update";
   const type = str(proposal.payload_type);
   if (
     proposalEntries(proposal).some((entry) => str(entry.action) === "merge" || str(entry.target_id))
@@ -1289,6 +1420,7 @@ function ProposalRisk({ proposal }: { proposal: BaseRecord }) {
 
 function proposalStatusLabel(proposal: BaseRecord): string {
   const labels: Record<string, string> = {
+    pending: "確認待ち",
     accepted: "採用済み",
     partially_accepted: "一部採用",
     rejected: "拒否済み",

@@ -40,7 +40,7 @@ test("TodayとToDoはAI作業中を回転アイコンで表示する", () => {
 
 test("Desktopは依頼文コピーを残し、直接AIを起動する導線を持たない", () => {
   assert.match(drawer, /依頼文をコピー/);
-  assert.match(drawer, /tasken\.get_task_context に task_id=/);
+  assert.match(drawer, /workspaceApi\.copyText\(buildTaskAiRequest\(\[task\]\)\)/);
   assert.doesNotMatch(drawer, /AIを起動して渡す/);
   assert.doesNotMatch(drawer, /AIへ渡る内容を確認/);
   assert.doesNotMatch(drawer, /AIへ依頼を準備/);

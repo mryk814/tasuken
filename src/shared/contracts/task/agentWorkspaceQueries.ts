@@ -246,6 +246,25 @@ export const getAgentSessionContextResponseSchema = z
     tasks: z.array(publicTaskSchema),
     working_copies: z.array(publicWorkingCopySchema),
     sessions: z.array(publicAgentSessionSchema),
+    task_work: z
+      .array(
+        z.object({
+          id: z.string(),
+          task_id: z.string(),
+          title: z.string(),
+          started_at: z.string(),
+          ended_at: z.string().nullable(),
+          status: z.enum(["active", "completed", "blocked"]),
+          review_status: z.enum(["pending", "accepted", "recorded"]),
+          summary: z.string(),
+          executor_label: z.string(),
+          source_session: z.string().nullable(),
+          verification: z.array(z.string()),
+          remaining_work: z.array(z.string()),
+          proposal_id: z.string().nullable(),
+        }),
+      )
+      .default([]),
     previous_handoff: publicAgentSessionSchema.nullable(),
     read_only: z.literal(true),
     ai_audience: z.literal("coding_agent"),

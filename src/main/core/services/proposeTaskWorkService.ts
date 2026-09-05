@@ -31,9 +31,10 @@ function digest(value: unknown): string {
 }
 
 function canonicalIdentity(request: Record<string, unknown>) {
-  const actor = request.actor && typeof request.actor === "object" && !Array.isArray(request.actor)
-    ? request.actor as Record<string, unknown>
-    : {};
+  const actor =
+    request.actor && typeof request.actor === "object" && !Array.isArray(request.actor)
+      ? (request.actor as Record<string, unknown>)
+      : {};
   return {
     tool: typeof request.tool === "string" ? request.tool : "",
     caller: typeof request.caller === "string" ? request.caller : "",
@@ -42,18 +43,24 @@ function canonicalIdentity(request: Record<string, unknown>) {
       ...(typeof actor.id === "string" && actor.id ? { id: actor.id } : {}),
     },
     source: typeof request.source === "string" ? request.source : "mcp",
-    source_session: typeof request.source_session === "string" && request.source_session
-      ? request.source_session
-      : null,
+    source_session:
+      typeof request.source_session === "string" && request.source_session
+        ? request.source_session
+        : null,
   };
 }
 
-function proposalDigest(payload: Record<string, unknown>, request: Record<string, unknown>): string {
+function proposalDigest(
+  payload: Record<string, unknown>,
+  request: Record<string, unknown>,
+): string {
   return digest({ payload, identity: canonicalIdentity(request) });
 }
 
 function proposalId(sourceApp: string, idempotencyKey: string): string {
-  const hash = createHash("sha256").update(`${sourceApp}\0task_work\0${idempotencyKey}`).digest("hex");
+  const hash = createHash("sha256")
+    .update(`${sourceApp}\0task_work\0${idempotencyKey}`)
+    .digest("hex");
   const uuidHex = `${hash.slice(0, 12)}5${hash.slice(13, 16)}8${hash.slice(17, 32)}`;
   return `${uuidHex.slice(0, 8)}-${uuidHex.slice(8, 12)}-${uuidHex.slice(12, 16)}-${uuidHex.slice(16, 20)}-${uuidHex.slice(20, 32)}`;
 }
@@ -69,7 +76,9 @@ function commonEntry(request: ProposeTaskWorkRequest) {
   };
 }
 
-function receiptFields(request: Extract<ProposeTaskWorkRequest, { action: "append_receipt" | "report_done" }>) {
+function receiptFields(
+  request: Extract<ProposeTaskWorkRequest, { action: "append_receipt" | "report_done" }>,
+) {
   return {
     executor_kind: request.executor_kind,
     executor_label: request.executor_label,
@@ -81,9 +90,10 @@ function receiptFields(request: Extract<ProposeTaskWorkRequest, { action: "appen
     external_references: request.external_references || [],
     reported_at: request.reported_at || null,
     repository_context: request.repository_context || null,
-    runtime_metadata: request.provider || request.model
-      ? { provider: request.provider || null, model: request.model || null }
-      : null,
+    runtime_metadata:
+      request.provider || request.model
+        ? { provider: request.provider || null, model: request.model || null }
+        : null,
   };
 }
 
@@ -147,9 +157,11 @@ export class ProposeTaskWorkService {
       const existing = transaction.get(id);
       if (existing) {
         const existingDigest = proposalDigest(existing.payload, existing.request || {});
-        if (existing.source !== "mcp"
-          || existing.payload_type !== "task_work"
-          || existingDigest !== payloadDigest) {
+        if (
+          existing.source !== "mcp" ||
+          existing.payload_type !== "task_work" ||
+          existingDigest !== payloadDigest
+        ) {
           throw new ProposeTaskWorkError(
             "IDEMPOTENCY_CONFLICT",
             "同じidempotency_keyへ異なる内容を送信できません。",
@@ -164,7 +176,10 @@ export class ProposeTaskWorkService {
         source_app: sourceApp,
         payload_type: "task_work",
         payload,
-        request: proposalRequest,
+        request: {
+          ...proposalRequest,
+          work_started_at: transaction.getEntity("task", request.task_id)?.work_started_at || null,
+        },
         status: "pending",
         received_at: receivedAt,
       };
@@ -176,9 +191,10 @@ export class ProposeTaskWorkService {
       proposal_id: id,
       status,
       payload_type: "task_work",
-      message: status === "queued"
-        ? "TaskenのAI連携にProposalとして送りました。TaskenでPreviewして採用してください。"
-        : "同じidempotency_keyのProposalはすでに受信済みです。",
+      message:
+        status === "queued"
+          ? "TaskenのAI連携にProposalとして送りました。TaskenでPreviewして採用してください。"
+          : "同じidempotency_keyのProposalはすでに受信済みです。",
     });
   }
 }

@@ -4,6 +4,7 @@ import {
   IPC,
   type MemoStickyColorResult,
   type MemoStickyContent,
+  type MemoStickyCreateResult,
   type MemoStickySaveRequest,
   type MemoStickySaveResult,
   type MemoStickyTargetResult,
@@ -17,6 +18,7 @@ type Unsubscribe = () => void;
 // 対象Memoはウィンドウ側から渡さない。Mainがウィンドウの登録情報から特定する（#298）。
 contextBridge.exposeInMainWorld("memoStickyApi", {
   load: (): Promise<MemoStickyContent | null> => ipcRenderer.invoke(IPC.memoStickyLoad),
+  create: (): Promise<MemoStickyCreateResult> => ipcRenderer.invoke(IPC.memoStickyCreate),
   save: (request: MemoStickySaveRequest): Promise<MemoStickySaveResult> =>
     ipcRenderer.invoke(IPC.memoStickySave, request),
   copy: (): Promise<boolean> => ipcRenderer.invoke(IPC.memoStickyCopy),

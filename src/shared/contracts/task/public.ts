@@ -269,6 +269,12 @@ export {
   type GetContextSubgraphResponse,
 } from "./agentContextQueries.ts";
 export {
+  taskWorkEntry,
+  taskWorkReportTime,
+  taskWorkReportsCoveredBy,
+  taskWorkInboxGroups,
+  taskWorkPeriods,
+  type TaskWorkPeriod,
   proposeTaskWorkRequestSchema,
   proposeTaskWorkResponseSchema,
   taskWorkExternalReferenceSchema,

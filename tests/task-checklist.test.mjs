@@ -20,18 +20,44 @@ async function importBundled(relativePath) {
   return import(pathToFileURL(outfile).href);
 }
 
-const { checklistProgress } = await importBundled("src/renderer/src/features/task/model/checklistProgress.ts");
+const { checklistItemsForCompactDisplay, checklistProgress } = await importBundled(
+  "src/renderer/src/features/task/model/checklistProgress.ts",
+);
 
 test("Task checklist progress ignores blank items and counts completed items", () => {
   assert.equal(checklistProgress(null), null);
   assert.equal(checklistProgress([{ id: "blank", title: "  ", done: false, sort_order: 0 }]), null);
-  assert.deepEqual(checklistProgress([
-    { id: "one", title: "準備", done: true, sort_order: 0 },
-    { id: "two", title: "確認", done: false, sort_order: 1 },
-    { id: "blank", title: "", done: true, sort_order: 2 },
-  ]), { done: 1, total: 2 });
-  assert.deepEqual(checklistProgress([
-    { id: "one", title: "準備", done: true, sort_order: 0 },
-    { id: "two", title: "確認", done: true, sort_order: 1 },
-  ]), { done: 2, total: 2 });
+  assert.deepEqual(
+    checklistProgress([
+      { id: "one", title: "準備", done: true, sort_order: 0 },
+      { id: "two", title: "確認", done: false, sort_order: 1 },
+      { id: "blank", title: "", done: true, sort_order: 2 },
+    ]),
+    { done: 1, total: 2 },
+  );
+  assert.deepEqual(
+    checklistProgress([
+      { id: "one", title: "準備", done: true, sort_order: 0 },
+      { id: "two", title: "確認", done: true, sort_order: 1 },
+    ]),
+    { done: 2, total: 2 },
+  );
+});
+
+test("compact checklist display puts unfinished items before completed items", () => {
+  const items = [
+    { id: "done-first", title: "Completed first", done: true, sort_order: 0 },
+    { id: "open-later", title: "Open later", done: false, sort_order: 2 },
+    { id: "open-first", title: "Open first", done: false, sort_order: 1 },
+    { id: "blank", title: "  ", done: false, sort_order: 3 },
+  ];
+
+  assert.deepEqual(
+    checklistItemsForCompactDisplay(items).map((item) => item.id),
+    ["open-first", "open-later", "done-first"],
+  );
+  assert.deepEqual(
+    items.map((item) => item.id),
+    ["done-first", "open-later", "open-first", "blank"],
+  );
 });

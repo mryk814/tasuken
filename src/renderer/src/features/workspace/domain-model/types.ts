@@ -439,7 +439,7 @@ export interface WorkspaceDomain {
   task_dependencies: TaskDependency[];
   plan_dependencies: PlanDependency[];
   knowledge_edges: KnowledgeEdge[];
-  ai_proposals: Record<string, unknown>[];
+  ai_proposals: Array<Record<string, unknown> & { id: string }>;
   change_events: ChangeEvent[];
   work_receipts: WorkReceipt[];
 }

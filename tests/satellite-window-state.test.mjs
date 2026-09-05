@@ -286,6 +286,23 @@ test("初回配置後は手動移動した新規ウィンドウを再配置し�
   assert.deepEqual(fresh.getBounds(), moved);
 });
 
+test("新しい付箋は現在の付箋の隣へ配置し、重なるときは他の候補へ進む", () => {
+  const { registry } = createTestRegistry();
+  const anchor = registry.open({ kind: "memo", entityId: "memo-anchor" }, satelliteSpec());
+  anchor.setBounds({ x: 16, y: 16 });
+  anchor.show();
+  const target = registry.open({ kind: "memo", entityId: "memo-new" }, satelliteSpec());
+
+  assert.equal(
+    registry.arrangeNextTo(
+      { kind: "memo", entityId: "memo-new" },
+      { kind: "memo", entityId: "memo-anchor" },
+    ),
+    1,
+  );
+  assert.deepEqual(target.getBounds(), { x: 332, y: 16, width: 300, height: 200 });
+});
+
 // --- 配線（source assertion）: Electron依存部分はここで契約だけ固定する ---
 const registrySource = readFileSync("src/main/satelliteWindowRegistry.ts", "utf8");
 const memoStickySource = readFileSync("src/main/memoStickyController.ts", "utf8");
@@ -486,6 +503,22 @@ test("付箋ウィンドウはrevision queueとMain flushで入力を失わな�
     /role="menuitemcheckbox" id="always-on-top" aria-checked="false">常に手前に表示</,
   );
   assert.match(stickyHtml, /aria-label="付箋を閉じる。付箋対象の設定は残ります"/);
+});
+
+test("付箋から新しい付箋を作る導線はMainの正本作成と隣接配置を通る", () => {
+  assert.match(stickyHtml, /id="create"[^>]*aria-label="新しい付箋を隣に作成"/);
+  assert.match(stickyHtml, /const result = await api\.create\(\)/);
+  assert.match(memoStickySource, /ipcMain\.handle\(IPC\.memoStickyCreate/);
+  assert.match(memoStickySource, /transaction\.save\(\s*"capture_entry"/);
+  assert.match(memoStickySource, /markStickyMemoTarget\([\s\S]*true/);
+  assert.match(
+    memoStickySource,
+    /options\.satelliteWindows\.arrangeNextTo\(keyOf\(memoId\), keyOf\(sourceMemoId\)\)/,
+  );
+  assert.match(
+    registrySource,
+    /function arrangeNextTo\(key: SatelliteWindowKey, anchorKey: SatelliteWindowKey\)/,
+  );
 });
 
 test("付箋ウィンドウがビルド対象に登録されている（#298）", () => {

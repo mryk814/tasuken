@@ -1,7 +1,11 @@
 import { IconCheck, IconListCheck, IconPlus } from "@tabler/icons-react";
 import { useLayoutEffect, useRef, useState } from "react";
 
-import { checklistProgress, type TaskChecklistItemView } from "../model/checklistProgress";
+import {
+  checklistItemsForCompactDisplay,
+  checklistProgress,
+  type TaskChecklistItemView,
+} from "../model/checklistProgress";
 
 export function ChecklistProgressBadge({ items }: { items?: TaskChecklistItemView[] | null }) {
   const progress = checklistProgress(items);
@@ -27,9 +31,7 @@ export function InlineTaskChecklist({
   onToggle: (itemId: string) => void;
   onAdd: () => void;
 }) {
-  const visibleItems = (items || [])
-    .filter((item) => item.title.trim())
-    .sort((left, right) => left.sort_order - right.sort_order);
+  const visibleItems = checklistItemsForCompactDisplay(items);
   const itemsKey = visibleItems.map((item) => `${item.id}:${item.title}:${item.done}`).join("|");
   const [visibleCount, setVisibleCount] = useState(visibleItems.length);
   const checklistRef = useRef<HTMLDivElement>(null);
@@ -47,7 +49,9 @@ export function InlineTaskChecklist({
       const gap = Number.parseFloat(getComputedStyle(container).gap) || 4;
       const addWidth = addButtonRef.current?.getBoundingClientRect().width || 18;
       const available = container.clientWidth;
-      const widths = visibleItems.map((item) => measureRefs.current[item.id]?.getBoundingClientRect().width || 0);
+      const widths = visibleItems.map(
+        (item) => measureRefs.current[item.id]?.getBoundingClientRect().width || 0,
+      );
       let used = 0;
       let count = 0;
 
@@ -61,7 +65,7 @@ export function InlineTaskChecklist({
         count += 1;
       }
 
-      setVisibleCount((current) => current === count ? current : count);
+      setVisibleCount((current) => (current === count ? current : count));
     };
 
     updateVisibleCount();
@@ -75,7 +79,11 @@ export function InlineTaskChecklist({
   const hiddenCount = visibleItems.length - shownItems.length;
 
   return (
-    <div ref={checklistRef} className={`inline-task-checklist ${visibleItems.length ? "has-items" : "is-empty"}`} aria-label="チェックリスト">
+    <div
+      ref={checklistRef}
+      className={`inline-task-checklist ${visibleItems.length ? "has-items" : "is-empty"}`}
+      aria-label="チェックリスト"
+    >
       {shownItems.length > 0 && (
         <div className="inline-task-checklist-items">
           {shownItems.map((item) => (
@@ -96,9 +104,7 @@ export function InlineTaskChecklist({
               <span>{item.title}</span>
             </button>
           ))}
-          {hiddenCount > 0 && (
-            <span className="inline-task-checklist-more">+{hiddenCount}</span>
-          )}
+          {hiddenCount > 0 && <span className="inline-task-checklist-more">+{hiddenCount}</span>}
         </div>
       )}
       <button
@@ -119,7 +125,9 @@ export function InlineTaskChecklist({
           <span
             className={`inline-task-checklist-item ${item.done ? "is-done" : ""}`}
             key={item.id}
-            ref={(element) => { measureRefs.current[item.id] = element; }}
+            ref={(element) => {
+              measureRefs.current[item.id] = element;
+            }}
           >
             <span className="inline-task-checklist-check" />
             <span>{item.title}</span>

@@ -171,6 +171,73 @@ test("accepting a done Work Receipt Proposal starts and completes an AI Ready Ta
   );
 });
 
+test("done acceptance completes once, folds earlier reports and preserves AI timestamps", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  const task = repo.get("task", "task-ai");
+  const startedAt = "2026-08-08T00:00:00.000Z";
+  const reportedAt = "2026-08-08T01:00:00.000Z";
+  const proposal = (id, action, time) =>
+    repo.save("ai_proposal", {
+      id,
+      source: "mcp",
+      source_app: "codex",
+      payload_type: "task_work",
+      status: "pending",
+      received_at: time,
+      request: { work_started_at: startedAt },
+      payload: {
+        task_work: [
+          {
+            task_id: task.id,
+            expected_version: task.version,
+            action,
+            reported_at: time,
+            summary: id,
+            caller: "Codex",
+            source_session: "session-a",
+          },
+        ],
+      },
+    });
+  const progress = proposal("earlier-report", "append_receipt", "2026-08-08T00:30:00.000Z");
+  const done = proposal("final-report", "report_done", reportedAt);
+  const command = {
+    ...envelope(
+      "ApplyTaskWorkProposal",
+      { proposalId: done.id, decision: "accept", coveredProposalIds: [progress.id] },
+      "accept-final",
+      [
+        { type: "task", id: task.id, version: task.version },
+        { type: "ai_proposal", id: done.id, version: done.version },
+        { type: "ai_proposal", id: progress.id, version: progress.version },
+      ],
+    ),
+    issuedAt: "2026-08-09T05:00:00.000Z",
+  };
+  const receipt = service.execute(command);
+  assert.equal(repo.get("task", task.id).state, "done");
+  assert.equal(repo.get("ai_proposal", progress.id).status, "rejected");
+  assert.equal(repo.get("ai_proposal", progress.id).quarantine_reason, `完了報告に集約:${done.id}`);
+  assert.equal(repo.get("ai_proposal", progress.id).payload.task_work[0].summary, progress.id);
+  assert.equal(repo.list("work_receipt").length, 1);
+  assert.equal(repo.get("work_receipt", done.id).started_at, startedAt);
+  assert.equal(
+    repo.list("change_event").find((event) => event.metadata?.work_action === "reported")
+      .occurred_at,
+    reportedAt,
+  );
+  assert.equal(repo.get("task", task.id).completed_at, command.issuedAt);
+  assert.ok(
+    receipt.changes.some(
+      (change) => change.type === "ai_proposal" && change.entity.id === progress.id,
+    ),
+  );
+  service.execute(command);
+  assert.equal(repo.list("work_receipt").length, 1);
+});
+
 test("public ReportTaskDone cannot use the proposal-only implicit start context", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);
@@ -349,6 +416,10 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   const domain = readFileSync("src/main/repositories/domain.mjs", "utf8");
   const repositorySource = readFileSync("src/main/repositories/workspaceRepository.mjs", "utf8");
   const mcp = readFileSync("src/main/mcp/server.mjs", "utf8");
+  const aiRequest = readFileSync(
+    "src/renderer/src/features/workspace/lib/taskAiRequest.ts",
+    "utf8",
+  );
   const proposalPanel = readFileSync(
     "src/renderer/src/features/workspace/components/AiProposalPanel.tsx",
     "utf8",
@@ -367,7 +438,7 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   assert.match(drawer, /const isAiDelegationReady/);
   assert.match(drawer, /このTaskはCoding AgentがTasken MCPから取得できます/);
   assert.match(drawer, /workspaceApi\.copyText\(/);
-  assert.match(drawer, /tasken\.get_task_context に task_id=/);
+  assert.match(aiRequest, /tasken\.get_task_context に task_id/);
   assert.doesNotMatch(drawer, /AIへ渡る内容を確認/);
   assert.doesNotMatch(drawer, /AIを起動して渡す/);
   assert.doesNotMatch(drawer, /StartTaskWork/);
@@ -537,6 +608,7 @@ test("AI report stays needs_human_review and cannot complete before human accept
   );
   assert.equal(repo.get("task", "task-ai").work_state, "needs_human_review");
   assert.ok(report.changes.some(({ type }) => type === "work_receipt"));
+  assert.equal(repo.get("work_receipt", "receipt-ai-1").runtime_metadata.report_kind, "done");
   assert.deepEqual(repo.get("work_receipt", "receipt-ai-1").external_references, [
     {
       kind: "merge_request",

@@ -111,6 +111,7 @@ export function activityDisplayKind({
   const entity = text(entityType);
   if (entity === "agent_session") return "ai_work";
   const kind = text(eventKind);
+  if (kind === "task_ai_work") return "ai_work";
   if (outcomeEventKinds.has(kind)) return "outcome";
   if (recordEventKinds.has(kind)) return "record";
   return "organize";

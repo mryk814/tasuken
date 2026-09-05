@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { taskWorkInboxGroups } from "../../../../../shared/contracts/task/public";
 import {
   IconChevronDown,
   IconCalendarCheck,
@@ -384,9 +385,9 @@ export function Sidebar({
     const due = String(s?.end_date || "");
     return Boolean(due && due < today);
   }).length;
-  const proposalCount = domain.ai_proposals.filter(
-    (proposal) => proposal.status === "pending" && !isPassiveAgentSessionProposal(proposal),
-  ).length;
+  const proposalCount = taskWorkInboxGroups(
+    domain.ai_proposals.filter((proposal) => !isPassiveAgentSessionProposal(proposal)),
+  ).filter((group) => group.actionable).length;
   const debriefCount =
     buildDailyDebriefEvidence(domain, today).length > 0 &&
     !findDailyDebriefNote(domain.notes, today)

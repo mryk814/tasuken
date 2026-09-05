@@ -92,6 +92,7 @@ export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
+  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
 ]);
 
 export class TaskenCoreClientError extends Error {
@@ -122,14 +123,21 @@ export function taskenCoreDiscoveryPath(options = {}) {
 }
 
 function parseDiscovery(value) {
-  if (!value || typeof value !== "object") throw new TaskenCoreClientError("INVALID_DISCOVERY", "Tasken Core discoveryが不正です。");
+  if (!value || typeof value !== "object")
+    throw new TaskenCoreClientError("INVALID_DISCOVERY", "Tasken Core discoveryが不正です。");
   if (value.schema_version !== TASKEN_CORE_DISCOVERY_SCHEMA_VERSION) {
-    throw new TaskenCoreClientError("INVALID_DISCOVERY", "Tasken Core discovery versionが不正です。");
+    throw new TaskenCoreClientError(
+      "INVALID_DISCOVERY",
+      "Tasken Core discovery versionが不正です。",
+    );
   }
   if (value.api_version !== TASKEN_CORE_API_VERSION) {
     throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。");
   }
-  if (!Array.isArray(value.capabilities) || value.capabilities.some((capability) => typeof capability !== "string")) {
+  if (
+    !Array.isArray(value.capabilities) ||
+    value.capabilities.some((capability) => typeof capability !== "string")
+  ) {
     throw new TaskenCoreClientError("INVALID_DISCOVERY", "Tasken Core capabilitiesが不正です。");
   }
   let origin;
@@ -139,20 +147,23 @@ function parseDiscovery(value) {
     origin = null;
   }
   const port = Number(origin?.port);
-  if (!origin
-    || origin.protocol !== "http:"
-    || origin.hostname !== "127.0.0.1"
-    || origin.pathname !== "/"
-    || origin.search
-    || origin.hash
-    || !Number.isInteger(port)
-    || port < 1
-    || port > 65_535) {
+  if (
+    !origin ||
+    origin.protocol !== "http:" ||
+    origin.hostname !== "127.0.0.1" ||
+    origin.pathname !== "/" ||
+    origin.search ||
+    origin.hash ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65_535
+  ) {
     throw new TaskenCoreClientError("INVALID_DISCOVERY", "Tasken Core originが不正です。");
   }
-  const token = typeof value.token === "string" && /^[A-Za-z0-9_-]{43}$/.test(value.token)
-    ? Buffer.from(value.token, "base64url")
-    : null;
+  const token =
+    typeof value.token === "string" && /^[A-Za-z0-9_-]{43}$/.test(value.token)
+      ? Buffer.from(value.token, "base64url")
+      : null;
   if (!token || token.length !== 32 || token.toString("base64url") !== value.token) {
     throw new TaskenCoreClientError("INVALID_DISCOVERY", "Tasken Core credentialが不正です。");
   }
@@ -164,19 +175,31 @@ async function readDiscovery(discoveryPath) {
   try {
     const linkStat = await fs.lstat(discoveryPath);
     if (linkStat.isSymbolicLink()) {
-      throw new TaskenCoreClientError("INVALID_DISCOVERY", "Tasken Core discoveryにsymlinkは使用できません。");
+      throw new TaskenCoreClientError(
+        "INVALID_DISCOVERY",
+        "Tasken Core discoveryにsymlinkは使用できません。",
+      );
     }
     handle = await fs.open(discoveryPath, "r");
     const stat = await handle.stat();
     if (linkStat.dev !== stat.dev || linkStat.ino !== stat.ino) {
-      throw new TaskenCoreClientError("INVALID_DISCOVERY", "Tasken Core discoveryが読み取り中に変更されました。");
+      throw new TaskenCoreClientError(
+        "INVALID_DISCOVERY",
+        "Tasken Core discoveryが読み取り中に変更されました。",
+      );
     }
     if (typeof process.getuid === "function") {
       if (stat.uid !== process.getuid()) {
-        throw new TaskenCoreClientError("DISCOVERY_OWNER_MISMATCH", "Tasken Core discoveryの所有者が一致しません。");
+        throw new TaskenCoreClientError(
+          "DISCOVERY_OWNER_MISMATCH",
+          "Tasken Core discoveryの所有者が一致しません。",
+        );
       }
       if ((stat.mode & 0o077) !== 0) {
-        throw new TaskenCoreClientError("DISCOVERY_PERMISSION_INVALID", "Tasken Core discoveryの権限が安全ではありません。");
+        throw new TaskenCoreClientError(
+          "DISCOVERY_PERMISSION_INVALID",
+          "Tasken Core discoveryの権限が安全ではありません。",
+        );
       }
     }
     if (stat.size > 8 * 1024) {
@@ -185,7 +208,11 @@ async function readDiscovery(discoveryPath) {
     return parseDiscovery(JSON.parse(await handle.readFile("utf8")));
   } catch (error) {
     if (error instanceof TaskenCoreClientError) throw error;
-    throw new TaskenCoreClientError("CORE_UNAVAILABLE", "Tasken Coreへ接続できません。Taskenを起動してください。", { cause: error });
+    throw new TaskenCoreClientError(
+      "CORE_UNAVAILABLE",
+      "Tasken Coreへ接続できません。Taskenを起動してください。",
+      { cause: error },
+    );
   } finally {
     await handle?.close();
   }
@@ -199,23 +226,45 @@ export class TaskenCoreClient {
   }
 
   async listAgentReadyTasks(request = {}) {
-    return this.query("list-agent-ready-tasks", TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY, request);
+    return this.query(
+      "list-agent-ready-tasks",
+      TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
+      request,
+    );
   }
 
   async resolveRepositoryContext(request = {}) {
-    return this.query("resolve-repository-context", TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY, request);
+    return this.query(
+      "resolve-repository-context",
+      TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
+      request,
+    );
   }
 
   async findTasksForRepository(request = {}) {
-    return this.query("find-tasks-for-repository", TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY, request);
+    return this.query(
+      "find-tasks-for-repository",
+      TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
+      request,
+    );
   }
 
   async findThemesForRepository(request = {}) {
-    return this.query("find-themes-for-repository", TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY, request, findThemesForRepositoryResponseSchema);
+    return this.query(
+      "find-themes-for-repository",
+      TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
+      request,
+      findThemesForRepositoryResponseSchema,
+    );
   }
 
   async getRepositoryContext(request = {}) {
-    return this.query("get-repository-context", TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY, request, getRepositoryContextResponseSchema);
+    return this.query(
+      "get-repository-context",
+      TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
+      request,
+      getRepositoryContextResponseSchema,
+    );
   }
 
   async getTaskAssignment(request = {}) {
@@ -239,79 +288,180 @@ export class TaskenCoreClient {
   }
 
   async getConversation(request = {}) {
-    return this.query("get-conversation", TASKEN_CORE_GET_CONVERSATION_CAPABILITY, request, getConversationResponseSchema);
+    return this.query(
+      "get-conversation",
+      TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
+      request,
+      getConversationResponseSchema,
+    );
   }
 
   async getArtifactMetadata(request = {}) {
-    return this.query("get-artifact-metadata", TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY, request, getArtifactMetadataResponseSchema);
+    return this.query(
+      "get-artifact-metadata",
+      TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
+      request,
+      getArtifactMetadataResponseSchema,
+    );
   }
 
   async getActivityEntries(request = {}) {
-    return this.query("get-activity-entries", TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY, request, getActivityEntriesResponseSchema);
+    return this.query(
+      "get-activity-entries",
+      TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
+      request,
+      getActivityEntriesResponseSchema,
+    );
   }
 
   async getThemeContext(request = {}) {
-    return this.query("get-theme-context", TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY, request, getThemeContextResponseSchema);
+    return this.query(
+      "get-theme-context",
+      TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY,
+      request,
+      getThemeContextResponseSchema,
+    );
   }
 
   async getRecentNotes(request = {}) {
-    return this.query("get-recent-notes", TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY, request, getRecentNotesResponseSchema);
+    return this.query(
+      "get-recent-notes",
+      TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY,
+      request,
+      getRecentNotesResponseSchema,
+    );
   }
 
   async searchKnowledge(request = {}) {
-    return this.query("search-knowledge", TASKEN_CORE_SEARCH_KNOWLEDGE_CAPABILITY, request, searchKnowledgeResponseSchema);
+    return this.query(
+      "search-knowledge",
+      TASKEN_CORE_SEARCH_KNOWLEDGE_CAPABILITY,
+      request,
+      searchKnowledgeResponseSchema,
+    );
   }
 
   async getKnowledgeContext(request = {}) {
-    return this.query("get-knowledge-context", TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY, request, getKnowledgeContextResponseSchema);
+    return this.query(
+      "get-knowledge-context",
+      TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY,
+      request,
+      getKnowledgeContextResponseSchema,
+    );
   }
 
   async getPlanHealth(request = {}) {
-    return this.query("get-plan-health", TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY, request, getPlanHealthResponseSchema);
+    return this.query(
+      "get-plan-health",
+      TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY,
+      request,
+      getPlanHealthResponseSchema,
+    );
   }
 
   async getKnowledgeHealth(request = {}) {
-    return this.query("get-knowledge-health", TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY, request, getKnowledgeHealthResponseSchema);
+    return this.query(
+      "get-knowledge-health",
+      TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY,
+      request,
+      getKnowledgeHealthResponseSchema,
+    );
   }
 
   async getActivity(request = {}) {
-    return this.query("get-activity", TASKEN_CORE_GET_ACTIVITY_CAPABILITY, request, getActivityResponseSchema);
+    return this.query(
+      "get-activity",
+      TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
+      request,
+      getActivityResponseSchema,
+    );
   }
 
   async getContextSubgraph(request = {}) {
-    return this.query("get-context-subgraph", TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY, request, getContextSubgraphResponseSchema);
+    return this.query(
+      "get-context-subgraph",
+      TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
+      request,
+      getContextSubgraphResponseSchema,
+    );
   }
 
   async exportAiContext(request = {}) {
-    return this.query("export-ai-context", TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY, request, exportAiContextResponseSchema);
+    return this.query(
+      "export-ai-context",
+      TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
+      request,
+      exportAiContextResponseSchema,
+    );
   }
 
   async proposeTaskWork(request = {}) {
-    return this.request("/v1/commands/propose-task-work", TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY, request, proposeTaskWorkResponseSchema, "propose-task-work");
+    return this.request(
+      "/v1/commands/propose-task-work",
+      TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+      request,
+      proposeTaskWorkResponseSchema,
+      "propose-task-work",
+    );
   }
 
   async getAgentSessionContext(request = {}) {
-    return this.query("get-agent-session-context", TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY, request, getAgentSessionContextResponseSchema);
+    return this.query(
+      "get-agent-session-context",
+      TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
+      request,
+      getAgentSessionContextResponseSchema,
+    );
   }
 
   async proposeAgentSession(request = {}) {
-    return this.request("/v1/commands/propose-agent-session", TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY, request, proposeAgentSessionResponseSchema, "propose-agent-session");
+    return this.request(
+      "/v1/commands/propose-agent-session",
+      TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
+      request,
+      proposeAgentSessionResponseSchema,
+      "propose-agent-session",
+    );
   }
 
   async proposeRepositoryTask(request = {}) {
-    return this.request("/v1/commands/propose-repository-task", TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY, request, proposeRepositoryTaskResponseSchema, "propose-repository-task");
+    return this.request(
+      "/v1/commands/propose-repository-task",
+      TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
+      request,
+      proposeRepositoryTaskResponseSchema,
+      "propose-repository-task",
+    );
   }
 
   async proposeContent(request = {}) {
-    return this.request("/v1/commands/propose-content", TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY, request, proposeContentResponseSchema, "propose-content");
+    return this.request(
+      "/v1/commands/propose-content",
+      TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
+      request,
+      proposeContentResponseSchema,
+      "propose-content",
+    );
   }
 
   async executeTaskQuery(request = {}) {
-    return this.request("/v1/task/query", TASKEN_CORE_TASK_QUERY_CAPABILITY, request, taskQueryResponseSchema, "task-query");
+    return this.request(
+      "/v1/task/query",
+      TASKEN_CORE_TASK_QUERY_CAPABILITY,
+      request,
+      taskQueryResponseSchema,
+      "task-query",
+    );
   }
 
   async executeTaskCommand(request = {}) {
-    return this.request("/v1/task/command", TASKEN_CORE_TASK_COMMAND_CAPABILITY, request, taskCommandResponseSchema, "task-command");
+    return this.request(
+      "/v1/task/command",
+      TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+      request,
+      taskCommandResponseSchema,
+      "task-command",
+    );
   }
 
   async inspect() {
@@ -322,19 +472,33 @@ export class TaskenCoreClient {
       this.get(discovery, "/capabilities"),
     ]);
     if (health?.status !== "ok" || health?.api_version !== TASKEN_CORE_API_VERSION) {
-      throw new TaskenCoreClientError("INVALID_RESPONSE", "Tasken Core health responseが不正です。");
+      throw new TaskenCoreClientError(
+        "INVALID_RESPONSE",
+        "Tasken Core health responseが不正です。",
+      );
     }
     if (version?.api_version !== TASKEN_CORE_API_VERSION) {
-      throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。");
+      throw new TaskenCoreClientError(
+        "VERSION_MISMATCH",
+        "Tasken Core API versionが一致しません。",
+      );
     }
-    if (!Array.isArray(capabilityPayload?.capabilities)
-      || capabilityPayload.capabilities.some((capability) => typeof capability !== "string")) {
-      throw new TaskenCoreClientError("INVALID_RESPONSE", "Tasken Core capabilities responseが不正です。");
+    if (
+      !Array.isArray(capabilityPayload?.capabilities) ||
+      capabilityPayload.capabilities.some((capability) => typeof capability !== "string")
+    ) {
+      throw new TaskenCoreClientError(
+        "INVALID_RESPONSE",
+        "Tasken Core capabilities responseが不正です。",
+      );
     }
     const advertised = [...new Set(discovery.capabilities)].sort();
     const live = [...new Set(capabilityPayload.capabilities)].sort();
     if (JSON.stringify(advertised) !== JSON.stringify(live)) {
-      throw new TaskenCoreClientError("INVALID_RESPONSE", "Tasken Core discoveryとlive capabilitiesが一致しません。");
+      throw new TaskenCoreClientError(
+        "INVALID_RESPONSE",
+        "Tasken Core discoveryとlive capabilitiesが一致しません。",
+      );
     }
     return { status: "ok", api_version: TASKEN_CORE_API_VERSION, capabilities: live };
   }
@@ -351,7 +515,10 @@ export class TaskenCoreClient {
   async request(route, capability, request, responseSchema, operation = route) {
     const discovery = await readDiscovery(this.discoveryPath);
     if (!discovery.capabilities.includes(capability)) {
-      throw new TaskenCoreClientError("CAPABILITY_UNAVAILABLE", `Tasken Core operation capabilityが利用できません（${capability}）。`);
+      throw new TaskenCoreClientError(
+        "CAPABILITY_UNAVAILABLE",
+        `Tasken Core operation capabilityが利用できません（${capability}）。`,
+      );
     }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -373,7 +540,11 @@ export class TaskenCoreClient {
           // A non-JSON error is a transport failure, not a public domain error.
         }
         const publicError = payload?.error;
-        if (publicError && typeof publicError.code === "string" && typeof publicError.message === "string") {
+        if (
+          publicError &&
+          typeof publicError.code === "string" &&
+          typeof publicError.message === "string"
+        ) {
           throw new TaskenCoreClientError(publicError.code, publicError.message, {
             status: response.status,
             details: publicError.details,
@@ -381,26 +552,49 @@ export class TaskenCoreClient {
             next_action: publicError.next_action,
           });
         }
-        if (response.status === 401) throw new TaskenCoreClientError("UNAUTHORIZED", "Tasken Coreの認証に失敗しました。", { status: 401 });
-        if (response.status === 409) throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。", { status: 409 });
-        throw new TaskenCoreClientError("CORE_REQUEST_FAILED", `Tasken Core queryが失敗しました（${response.status}）。`, { status: response.status });
+        if (response.status === 401)
+          throw new TaskenCoreClientError("UNAUTHORIZED", "Tasken Coreの認証に失敗しました。", {
+            status: 401,
+          });
+        if (response.status === 409)
+          throw new TaskenCoreClientError(
+            "VERSION_MISMATCH",
+            "Tasken Core API versionが一致しません。",
+            { status: 409 },
+          );
+        throw new TaskenCoreClientError(
+          "CORE_REQUEST_FAILED",
+          `Tasken Core queryが失敗しました（${response.status}）。`,
+          { status: response.status },
+        );
       }
       const version = response.headers.get("x-tasken-core-version");
       if (version !== TASKEN_CORE_API_VERSION) {
-        throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。");
+        throw new TaskenCoreClientError(
+          "VERSION_MISMATCH",
+          "Tasken Core API versionが一致しません。",
+        );
       }
       const payload = await response.json();
       if (!responseSchema) return payload;
       const parsed = responseSchema.safeParse(payload);
       if (!parsed.success) {
-        throw new TaskenCoreClientError("INVALID_RESPONSE", "Tasken Core responseがschemaに適合しません。", {
-          details: { operation },
-        });
+        throw new TaskenCoreClientError(
+          "INVALID_RESPONSE",
+          "Tasken Core responseがschemaに適合しません。",
+          {
+            details: { operation },
+          },
+        );
       }
       return parsed.data;
     } catch (error) {
       if (error instanceof TaskenCoreClientError) throw error;
-      throw new TaskenCoreClientError("CORE_UNAVAILABLE", "Tasken Coreへ接続できません。Taskenを起動してください。", { cause: error });
+      throw new TaskenCoreClientError(
+        "CORE_UNAVAILABLE",
+        "Tasken Coreへ接続できません。Taskenを起動してください。",
+        { cause: error },
+      );
     } finally {
       clearTimeout(timeout);
     }
@@ -416,16 +610,30 @@ export class TaskenCoreClient {
         signal: controller.signal,
       });
       if (!response.ok) {
-        if (response.status === 401) throw new TaskenCoreClientError("UNAUTHORIZED", "Tasken Coreの認証に失敗しました。", { status: 401 });
-        throw new TaskenCoreClientError("CORE_REQUEST_FAILED", `Tasken Core inspectionが失敗しました（${response.status}）。`, { status: response.status });
+        if (response.status === 401)
+          throw new TaskenCoreClientError("UNAUTHORIZED", "Tasken Coreの認証に失敗しました。", {
+            status: 401,
+          });
+        throw new TaskenCoreClientError(
+          "CORE_REQUEST_FAILED",
+          `Tasken Core inspectionが失敗しました（${response.status}）。`,
+          { status: response.status },
+        );
       }
       if (response.headers.get("x-tasken-core-version") !== TASKEN_CORE_API_VERSION) {
-        throw new TaskenCoreClientError("VERSION_MISMATCH", "Tasken Core API versionが一致しません。");
+        throw new TaskenCoreClientError(
+          "VERSION_MISMATCH",
+          "Tasken Core API versionが一致しません。",
+        );
       }
       return await response.json();
     } catch (error) {
       if (error instanceof TaskenCoreClientError) throw error;
-      throw new TaskenCoreClientError("CORE_UNAVAILABLE", "Tasken Coreへ接続できません。Taskenを起動してください。", { cause: error });
+      throw new TaskenCoreClientError(
+        "CORE_UNAVAILABLE",
+        "Tasken Coreへ接続できません。Taskenを起動してください。",
+        { cause: error },
+      );
     } finally {
       clearTimeout(timeout);
     }

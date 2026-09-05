@@ -5761,6 +5761,24 @@ textarea:hover {
   font: var(--text-sm) var(--font-mono);
   color: var(--color-text-secondary);
 }
+.proposal-task-history ol {
+  display: grid;
+  gap: var(--space-3);
+  padding-left: var(--space-5);
+}
+.proposal-task-history li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.proposal-task-history button[aria-current="true"] {
+  border-color: var(--color-accent);
+  font-weight: 700;
+}
+.proposal-work-details dd {
+  margin: 0 0 var(--space-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .proposal-inbox-actions {
   display: flex;
   align-items: center;

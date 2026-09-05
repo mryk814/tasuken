@@ -42,6 +42,7 @@ export interface TaskenDesktopCompositionOptions<
   persistence: TPersistence;
   mcpPackageSmoke?: McpPackageSmokeOptions;
   onProposalCommitted?: ConstructorParameters<typeof TaskenCoreRuntime>[3];
+  onCoreCommandCommitted?: (receipt: ReturnType<ApplicationCommandService["execute"]>) => void;
 }
 
 export function applyMcpPackageSmokeUserData(
@@ -99,7 +100,11 @@ export class TaskenDesktopComposition<
     this.coreRuntime = new TaskenCoreRuntime(
       options.userDataPath,
       this.repository,
-      (command) => this.applicationCommands.execute(command),
+      (command) => {
+        const receipt = this.applicationCommands.execute(command);
+        options.onCoreCommandCommitted?.(receipt);
+        return receipt;
+      },
       options.onProposalCommitted,
       (command, currentContextFingerprint, responseMeta) =>
         this.applicationCommands.executeTaskDelegation(

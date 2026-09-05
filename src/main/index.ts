@@ -2554,6 +2554,7 @@ async function startDesktopApp(): Promise<void> {
     userDataPath: app.getPath("userData"),
     persistence: workspaceRepository,
     mcpPackageSmoke,
+    onCoreCommandCommitted: (receipt) => notifyCommandApplied(receipt, -1),
     onProposalCommitted: (proposals) =>
       notifyMainWindowRefresh({
         entities: proposals.map((proposal) => ({

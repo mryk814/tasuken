@@ -80,7 +80,8 @@ async function openNavigation(page, label) {
 async function waitForPendingCount(page, expected) {
   await page.waitForFunction(
     (count) =>
-      document.querySelector(".proposal-pending-count")?.textContent?.trim() === `${count}件`,
+      document.querySelector(".proposal-pending-count")?.textContent?.trim() ===
+      `${count}件の確認待ち`,
     expected,
     { timeout: 15_000 },
   );
@@ -89,7 +90,9 @@ async function waitForPendingCount(page, expected) {
 async function waitForWorkProposalDecision(page) {
   const outcomeHandle = await page.waitForFunction(
     () => {
-      if (document.querySelector(".proposal-pending-count")?.textContent?.trim() === "0件") {
+      if (
+        document.querySelector(".proposal-pending-count")?.textContent?.trim() === "0件の確認待ち"
+      ) {
         return { status: "accepted" };
       }
       const message = document.querySelector(".toast-message")?.textContent?.trim() || "";
@@ -275,7 +278,8 @@ try {
   const staleWork = await callMcp("tasken.append_work_receipt", staleWorkArguments);
   assert.equal(staleWork.status, "queued");
   await openNavigation(page, "AI Inbox");
-  await waitForPendingCount(page, 1);
+  await waitForPendingCount(page, 0);
+  await page.locator(".proposal-row-select").first().waitFor();
   await page.locator(".proposal-row-select").first().click();
   await page
     .locator(".proposal-inline-preview")

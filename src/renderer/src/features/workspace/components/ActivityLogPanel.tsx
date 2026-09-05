@@ -7,6 +7,9 @@ import {
 } from "react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { taskWorkPeriods } from "../../../../../shared/contracts/task/public";
+import { activitySessionInterval } from "../lib/activityTimeline";
+import type { BaseRecord } from "../types";
 import { THEME_NONE_VALUE } from "../../../../../shared/themeRef.mjs";
 import { buildActivityReviewLog, collectActivityLogEntries } from "../lib/activityLog";
 import { resolveActivityLogDirectory } from "../lib/activityLogDirectory";
@@ -70,6 +73,7 @@ const EVENT_LABELS: Record<string, string> = {
   task_reopened: "再開",
   task_work_recorded: "作業を記録",
   task_ai_reported: "作業報告",
+  task_ai_work: "AI作業",
   task_ai_accepted: "作業を受領",
   task_ai_returned: "作業を差し戻し",
   waiting_received: "待ちを受領",
@@ -104,6 +108,11 @@ function eventLabel(kind: string): string {
 function eventTitle(event: StructuredActivityEvent, ref: { id?: string }, entity: unknown): string {
   const record = entity && typeof entity === "object" ? (entity as Record<string, unknown>) : {};
   const current = String(record.title || record.name || "").trim();
+  if (event.event_kind === "task_ai_work" && current)
+    return `${current} · ${event.metadata?.review_status === "pending" ? "採用待ち" : event.metadata?.review_status === "accepted" ? "採用済み" : "記録済み"}`;
+  if (current && event.metadata?.work_action === "accepted") return `${current} · 完了報告を採用`;
+  if (current && event.metadata?.work_action === "started") return `${current} · 作業開始`;
+  if (current && event.metadata?.work_action === "reported") return `${current} · 作業終了報告`;
   if (current) return current;
   const summary = String(event.summary || "")
     .trim()
@@ -153,6 +162,7 @@ const ORIGIN_LABELS: Record<string, string> = {
   ai: "AI連携",
   agent: "AI連携",
   ai_agent: "AI連携",
+  task_work_report: "AI作業報告",
 };
 
 const ACTOR_LABELS: Record<string, string> = {
@@ -415,7 +425,32 @@ export function ActivityLogPanel({
     },
     { label: "Capture", rows: entries.captures.map((entry) => entry.title || entry.text) },
   ].filter((group) => group.rows.length > 0);
-  const allEvents = reviewableActivityEvents(entries.events as StructuredActivityEvent[]);
+  const taskWorkEvents: StructuredActivityEvent[] = taskWorkPeriods(
+    domain.tasks as unknown as BaseRecord[],
+    domain.ai_proposals,
+    domain.work_receipts as unknown as BaseRecord[],
+  ).flatMap((work) => {
+    const interval = activitySessionInterval(work, date);
+    if (!interval) return [];
+    const task = domain.tasks.find((entry) => entry.id === work.task_id);
+    return [
+      {
+        id: work.id,
+        occurred_at: interval.start_at,
+        event_kind: "task_ai_work",
+        summary: `${work.title} · ${work.summary} · ${work.review_status === "pending" ? "採用待ち" : work.review_status === "accepted" ? "採用済み" : "記録済み"}`,
+        entity_ref: { type: "task", id: work.task_id },
+        theme_ref: task?.project_id ? { kind: "theme", id: task.project_id } : { kind: "none" },
+        actor: { kind: "ai_agent", id: work.executor_label },
+        origin: { kind: "task_work_report" },
+        metadata: { ...work, end_at: interval.end_at },
+      },
+    ];
+  });
+  const allEvents = [
+    ...reviewableActivityEvents(entries.events as StructuredActivityEvent[]),
+    ...taskWorkEvents,
+  ];
   const agentSessions = buildAgentWorkProjection(domain, {
     limit: Math.max(domain.agent_sessions.length, 1),
   });
@@ -464,7 +499,7 @@ export function ActivityLogPanel({
       id: `event:${String(event.id)}`,
       item_type: "event" as const,
       start_at: String(event.occurred_at || ""),
-      end_at: String(event.occurred_at || ""),
+      end_at: String(event.metadata?.end_at || event.occurred_at || ""),
       display_kind: activityDisplayKind({
         eventKind: event.event_kind,
         entityType: event.entity_ref?.type || event.entity_type,
@@ -835,7 +870,9 @@ export function ActivityLogPanel({
                               })
                             : burst
                               ? `${localTime(burst.events[0]?.start_at)}–${localTime(burst.events.at(-1)?.end_at)}`
-                              : event?.local_time || localTime(row.start_at);
+                              : event?.event_kind === "task_ai_work"
+                                ? `${localTime(row.start_at)}–${localTime(row.end_at)}`
+                                : event?.local_time || localTime(row.start_at);
                         const originText = event
                           ? originLabel(event)
                           : session
@@ -969,7 +1006,9 @@ export function ActivityLogPanel({
                                 end_at: expandedTimelineItem.end_at,
                               },
                             })
-                          : expandedEvent?.local_time || localTime(expandedTimelineItem.start_at)}
+                          : expandedEvent?.event_kind === "task_ai_work"
+                            ? `${localTime(expandedTimelineItem.start_at)}–${localTime(expandedTimelineItem.end_at)}`
+                            : expandedEvent?.local_time || localTime(expandedTimelineItem.start_at)}
                       </span>
                       <span className="activity-event-kind activity-timeline-kind">
                         {displayKindLabel(expandedTimelineItem.display_kind)}

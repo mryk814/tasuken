@@ -647,6 +647,40 @@ test("new Reference writes canonical assertions and endpoint deletion keeps line
   }
 });
 
+test("removing a Note does not delete its exported Markdown file", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-note-export-delete-test-"));
+  const exportedPath = path.join(root, "exported-note.md");
+  const repo = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  try {
+    const content = "# Keep this export\n";
+    fs.writeFileSync(exportedPath, content, "utf8");
+    repo.save("note", { id: "note-export", title: "Exported note" });
+    repo.save("artifact", {
+      id: "artifact-note-export",
+      title: "Exported note",
+      filename: "exported-note.md",
+      file_type: "md",
+      mime_type: "text/markdown",
+      file_size: Buffer.byteLength(content),
+      stored_path: exportedPath,
+      storage_mode: "managed",
+      source_type: "note",
+      source_id: "note-export",
+      origin_note_id: "note-export",
+      export_format: "markdown",
+    });
+
+    repo.remove("note", "note-export");
+
+    assert.equal(repo.get("artifact", "artifact-note-export"), null);
+    assert.equal(fs.existsSync(exportedPath), true);
+    assert.equal(fs.readFileSync(exportedPath, "utf8"), content);
+  } finally {
+    repo.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("ink capture atomically creates its sketch before linking the capture", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-ink-capture-test-"));
   const repo = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));

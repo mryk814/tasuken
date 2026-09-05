@@ -7,6 +7,7 @@ import * as z from "zod/v4";
 import { localDate } from "../../shared/activityProjection.mjs";
 import { entityTypes } from "../../shared/entityRegistry.mjs";
 import { parseCanonicalTaskId, parseTaskLocator } from "../../shared/contracts/mobile/public.mjs";
+import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
@@ -633,6 +634,11 @@ export function createTaskenMcpServer(options = {}) {
           current_state: theme.current_state,
         })),
         sessions,
+        task_work: [
+          ...new Map(
+            contexts.flatMap((context) => context.task_work || []).map((work) => [work.id, work]),
+          ).values(),
+        ].slice(0, 50),
         daily_activity: dailyActivity,
         prior_debriefs: debriefs,
         writing_guidance: DAILY_REPORT_WRITING_GUIDANCE,
@@ -1089,7 +1095,7 @@ export function createTaskenMcpServer(options = {}) {
     });
   const startTaskWork = (args) =>
     coreClient.executeTaskCommand({
-      schemaVersion: 1,
+      schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
       command_id: args.idempotency_key,
       name: "StartTaskWork",
       actor: { kind: "ai_agent", id: args.caller },
@@ -1288,7 +1294,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.append_work_receipt",
     {
       description:
-        "Queue an append-only Work Receipt proposal for an AI Ready or active Task. If no separate start was adopted, started_at is recorded with the receipt. Human review remains required.",
+        "Queue an optional interim Work Receipt for long-running work only. Normally send report_task_done once at completion without appending the same result first. Reuse the same idempotency_key, time and content for retries. Reports stay grouped under their Task until human review.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },

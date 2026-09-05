@@ -193,6 +193,7 @@ export const IPC = {
   todayMiniToggleChecklist: "today-mini:toggle-checklist",
   todayMiniOpenTask: "today-mini:open-task",
   memoStickyLoad: "memo-sticky:load",
+  memoStickyCreate: "memo-sticky:create",
   memoStickySave: "memo-sticky:save",
   memoStickyCopy: "memo-sticky:copy",
   memoStickyClose: "memo-sticky:close",
@@ -888,6 +889,11 @@ export interface MemoStickyContent {
   target: boolean;
   color: MemoStickyColor;
   theme: "light" | "dark";
+}
+
+export interface MemoStickyCreateResult {
+  status: "created" | "not_found" | "flush_failed";
+  content: MemoStickyContent | null;
 }
 
 export interface MemoStickyTargetResult {
