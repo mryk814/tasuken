@@ -48,13 +48,11 @@ import {
   runActivityAutoExport,
 } from "./lib/activityAutoExport";
 import { resolveActivityLogDirectory } from "./lib/activityLogDirectory";
-import { buildActivityReviewLog, collectActivityLogEntries } from "./lib/activityLog";
+import { buildActivityPublication } from "./lib/activityLog";
 import { buildAgentWorkProjection } from "./domain-model/agentSessionProjection";
 import {
   buildDailyAgentSessionContexts,
   projectActivitySessionLogEntries,
-  reviewableActivityEvents,
-  type ActivitySessionEvent,
 } from "./lib/activityTimeline";
 import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
 import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
@@ -656,18 +654,21 @@ export function WorkspaceApp() {
       let activeDirectory = "";
       activityAutoExportRunning.current = true;
       try {
-        const [time, directory, artifactDirectory, lastExportDate] = await Promise.all([
-          workspaceApi.getPreference("activityLogAutoExportTime"),
-          workspaceApi.getPreference("activityLogDirectory"),
-          workspaceApi.getPreference("artifactDirectory"),
-          workspaceApi.getPreference("activityLogLastAutoExportDate"),
-        ]);
+        const [time, directory, artifactDirectory, lastExportDate, lastFinalizedDate] =
+          await Promise.all([
+            workspaceApi.getPreference("activityLogAutoExportTime"),
+            workspaceApi.getPreference("activityLogDirectory"),
+            workspaceApi.getPreference("artifactDirectory"),
+            workspaceApi.getPreference("activityLogLastAutoExportDate"),
+            workspaceApi.getPreference("activityLogLastFinalizedDate"),
+          ]);
         activeDirectory = resolveActivityLogDirectory(directory, artifactDirectory);
         const targetDates = activityDatesToAutoExport({
           now,
           time,
           directory: activeDirectory,
           lastExportDate,
+          lastFinalizedDate: lastFinalizedDate ?? "",
         });
         if (!targetDates.length || canceled) return;
         if (activityAutoExportFailedTarget.current === `${targetDates[0]}:${activeDirectory}`)
@@ -688,23 +689,22 @@ export function WorkspaceApp() {
               roots: fullData.canonical_root_status,
               timezone: "Asia/Tokyo",
             };
-            const sessionEvents = reviewableActivityEvents(
-              collectActivityLogEntries(activityInput).events as ActivitySessionEvent[],
-            );
-            const sessionRows = buildAgentWorkProjection(fullDomain, {
-              limit: Math.max(fullDomain.agent_sessions.length, 1),
-            });
-            const sessionContexts = buildDailyAgentSessionContexts(
-              sessionRows,
-              targetDate,
-              sessionEvents,
-            );
             const result = await workspaceApi.exportMarkdownFile({
               title: `Tasken Activity Log ${targetDate}`,
               fileName: `tasken-activity-${targetDate}.md`,
-              content: buildActivityReviewLog(
+              content: buildActivityPublication(
                 activityInput,
-                projectActivitySessionLogEntries(sessionContexts, allThemes),
+                fullDomain,
+                projectActivitySessionLogEntries(
+                  buildDailyAgentSessionContexts(
+                    buildAgentWorkProjection(fullDomain, {
+                      limit: Math.max(fullDomain.agent_sessions.length, 1),
+                    }),
+                    targetDate,
+                    [],
+                  ),
+                  allThemes,
+                ),
               ),
               directory: activeDirectory,
               chooseDirectory: false,
@@ -713,6 +713,11 @@ export function WorkspaceApp() {
           },
           markExported: (targetDate) =>
             workspaceApi.setPreference("activityLogLastAutoExportDate", targetDate).then(() => {}),
+          finalization: {
+            today: current.date,
+            markFinalized: (targetDate) =>
+              workspaceApi.setPreference("activityLogLastFinalizedDate", targetDate).then(() => {}),
+          },
         });
         if (!canceled) {
           const period =
@@ -1662,9 +1667,13 @@ export function WorkspaceApp() {
 
   async function undoDelete() {
     if (!lastDeleted.current) return;
-    await restoreWorkspaceEntity(lastDeleted.current.type, lastDeleted.current.id);
-    lastDeleted.current = null;
-    setToast("削除を元に戻しました。", "success");
+    try {
+      await restoreWorkspaceEntity(lastDeleted.current.type, lastDeleted.current.id);
+      lastDeleted.current = null;
+      setToast("削除を元に戻しました。", "success");
+    } catch (error) {
+      setToast(`元に戻せませんでした。${errorMessage(error)}`, "danger");
+    }
   }
 
   async function removeEntityQuiet(type: EntityType, id: string) {

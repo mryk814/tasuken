@@ -1,6 +1,8 @@
 import type { StatusUpdate, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { compareCapturesNewestFirst } from "../domain-model/selectors";
+import { safeReceiptText } from "../../../../../shared/taskContext.mjs";
+import { sanitizePublicText } from "../../../../../shared/publicProjection";
 import {
   PERSONAL_DEFAULT_THEME_ID,
   resolveThemeRef,
@@ -26,6 +28,7 @@ export interface ActivityLogInput {
   artifacts?: Array<Record<string, unknown>>;
   roots?: CanonicalRootStatusMap;
   timezone?: string;
+  workspace?: Record<string, unknown>;
 }
 
 export type ActivityLogEntries = {
@@ -133,6 +136,7 @@ export function collectActivityLogEntries(input: ActivityLogInput): ActivityLogE
     const result = queryActivityEvents({
       events: input.changeEvents,
       workspace: {
+        ...input.workspace,
         tasks: domain.tasks,
         waitings: domain.waitings,
         notes: domain.notes,
@@ -147,6 +151,7 @@ export function collectActivityLogEntries(input: ActivityLogInput): ActivityLogE
       themes: input.themes,
       date,
       timezone: input.timezone,
+      roots: input.roots,
     });
     const entity = (type: string, id: string) => {
       const records =
@@ -247,6 +252,7 @@ export function buildActivityLog(input: ActivityLogInput): string {
     const result = queryActivityEvents({
       events: input.changeEvents,
       workspace: {
+        ...input.workspace,
         tasks: input.domain.tasks,
         waitings: input.domain.waitings,
         notes: input.domain.notes,
@@ -261,6 +267,7 @@ export function buildActivityLog(input: ActivityLogInput): string {
       themes: input.themes,
       date: input.date,
       timezone: input.timezone,
+      roots: input.roots,
     });
     return projectActivityMarkdown(result, { title: "Activity", date: input.date });
   }
@@ -380,4 +387,105 @@ export function buildActivityReviewLog(
   sessions: ActivitySessionLogEntry[],
 ): string {
   return appendActivitySessionsToLog(buildActivityLog(input), sessions);
+}
+
+/** Daily documents follow the selected output folder, without per-item AI permissions. */
+export function buildActivityPublication(
+  input: ActivityLogInput,
+  domain: WorkspaceDomain,
+  sessionEntries: ActivitySessionLogEntry[],
+): string {
+  if (input.changeEvents === undefined) {
+    throw new Error("日誌を生成できません。活動履歴を再読み込みしてください。");
+  }
+  const sessions = sessionEntries.map((session) => ({
+    ...session,
+    intent: safeReceiptText(session.intent),
+    outcome: safeReceiptText(session.outcome),
+    theme_names: session.theme_names.map((name) => safeReceiptText(name)),
+    // Machine/repository labels are operational context, not the published result.
+    repository_names: [],
+    remaining_work: session.remaining_work?.map((item) => safeReceiptText(item)),
+  }));
+  const base = buildActivityLog({
+    ...input,
+    workspace: { ...domain, ...input.workspace },
+  });
+  const sessionLog = appendActivitySessionsToLog("", sessions);
+  const content = [
+    base,
+    sessionLog ? `${sessionLog}\n> AI作業はセッションの記録です。Taskの完了承認とは別です。` : "",
+    buildActivityReceiptPublication(input, domain),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return content;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function line(value: unknown): string {
+  return sanitizePublicText(value)
+    .replace(/[\r\n]+/g, " ")
+    .trim();
+}
+
+/** Include only the exact result accepted on this day. */
+export function buildActivityReceiptPublication(
+  input: ActivityLogInput,
+  domain: WorkspaceDomain,
+): string {
+  const events = queryActivityEvents({
+    events: (input.changeEvents ?? domain.change_events)
+      .map(record)
+      .filter((event) => !event.deleted_at && record(event.metadata).work_action === "accepted"),
+    workspace: { ...domain, themes: input.themes },
+    themes: input.themes,
+    date: input.date,
+    timezone: input.timezone,
+  }).events;
+  const sections: string[] = [];
+  const seen = new Set<string>();
+  for (const event of events) {
+    if (event.entity_ref.type !== "task" || event.work_receipt_ref?.type !== "work_receipt")
+      continue;
+    const receiptId = event.work_receipt_ref.id;
+    const task = domain.tasks.find(
+      (entry) => entry.id === event.entity_ref.id && !record(entry).deleted_at,
+    );
+    const receipt = domain.work_receipts.find(
+      (entry) => entry.id === receiptId && entry.task_id === task?.id && !entry.deleted_at,
+    );
+    if (!task || !receipt || seen.has(receipt.id)) continue;
+    seen.add(receipt.id);
+    const rows = [
+      `### ${line(task.title)} · 作業結果`,
+      `- 採用状態: 人間確認済み（${line(event.local_time)}）`,
+      "",
+      "#### 結果",
+      sanitizePublicText(receipt.summary).trim(),
+    ];
+    for (const [field, label] of [
+      ["completed_items", "実施したこと"],
+      ["changed_or_created_items", "変更・作成したもの"],
+      ["verification", "検証"],
+      ["remaining_work", "残作業"],
+    ] as const) {
+      const items = (receipt[field] ?? [])
+        .filter((item) => typeof item === "string")
+        .map(line)
+        .filter(Boolean);
+      rows.push(
+        "",
+        `#### ${label}`,
+        ...(items.length ? items.map((item) => `- ${item}`) : ["- 記録なし"]),
+      );
+    }
+    sections.push(rows.join("\n"));
+  }
+  return sections.length ? ["## 採用済みの作業結果", ...sections].join("\n\n") : "";
 }

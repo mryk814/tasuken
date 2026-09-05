@@ -3,6 +3,8 @@ export interface ActivityAutoExportState {
   time: unknown;
   directory: unknown;
   lastExportDate: unknown;
+  /** Pass an empty string to enable next-day finalization before its first success. */
+  lastFinalizedDate?: unknown;
 }
 
 function pad(value: number): string {
@@ -24,7 +26,8 @@ function parseDate(value: unknown): { year: number; month: number; day: number }
   const month = Number(match[2]);
   const day = Number(match[3]);
   const date = new Date(year, month - 1, day);
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day)
+    return null;
   return { year, month, day };
 }
 
@@ -41,6 +44,26 @@ export function activityDatesToAutoExport(state: ActivityAutoExportState): strin
   const lastExportDate = typeof state.lastExportDate === "string" ? state.lastExportDate : "";
   if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) || !directory) return [];
   const current = localDateAndTime(state.now);
+  if (state.lastFinalizedDate !== undefined) {
+    const yesterday = addDateDays(current.date, -1);
+    const finalized = parseDate(state.lastFinalizedDate) ? String(state.lastFinalizedDate) : "";
+    const previousExport = parseDate(lastExportDate) ? lastExportDate : "";
+    // Existing installations revisit their last provisional report on upgrade.
+    let date = finalized
+      ? addDateDays(finalized, 1)
+      : previousExport && previousExport <= yesterday
+        ? previousExport
+        : yesterday;
+    const targets: string[] = [];
+    while (date && date <= yesterday) {
+      targets.push(date);
+      date = addDateDays(date, 1);
+    }
+    if (current.time >= time && (!previousExport || previousExport < current.date)) {
+      targets.push(current.date);
+    }
+    return targets;
+  }
   const latestEligibleDate = current.time >= time ? current.date : addDateDays(current.date, -1);
   if (!latestEligibleDate) return [];
 
@@ -59,15 +82,24 @@ export async function runActivityAutoExport({
   dates,
   exportDate,
   markExported,
+  finalization,
 }: {
   dates: string[];
   exportDate: (date: string) => Promise<void>;
   markExported: (date: string) => Promise<void>;
+  finalization?: {
+    today: string;
+    markFinalized: (date: string) => Promise<void>;
+  };
 }): Promise<string[]> {
   const completed: string[] = [];
   for (const date of dates) {
     await exportDate(date);
-    await markExported(date);
+    if (finalization && date < finalization.today) {
+      await finalization.markFinalized(date);
+    } else {
+      await markExported(date);
+    }
     completed.push(date);
   }
   return completed;

@@ -417,7 +417,26 @@ function projectOne(event, context) {
     event.theme_ref?.kind === "theme"
       ? event.theme_ref.id
       : text(currentEntity?.project_id || currentEntity?.theme_id);
-  const theme = themeId ? themesById.get(themeId) : null;
+  const currentThemeFor = (entity) =>
+    themesById.get(text(entity?.project_id || entity?.theme_id)) || null;
+  const allowedReference = (ref) => {
+    // Published M365 files cannot rely on the local reader resolving visibility.
+    if (audience !== "m365" || !ref?.type || !ref?.id) return true;
+    const target = entityMap.get(key(ref.type, ref.id));
+    if (target && ref.type === "work_receipt") {
+      const task = entityMap.get(key("task", target.task_id));
+      if (!task || !allowedReference({ type: "task", id: task.id })) return false;
+      if (!Array.isArray(target.ai_visibility)) return true;
+    }
+    return Boolean(
+      target &&
+      projectEntityForAi(ref.type, target, {
+        audience,
+        theme: currentThemeFor(target),
+        workspaceDefault,
+      }).included,
+    );
+  };
   if (audience) {
     // #294 policy is evaluated at projection time. Event history does not
     // freeze a past visibility decision.
@@ -428,7 +447,7 @@ function projectOne(event, context) {
       currentEntity || { id: event.entity_ref.id, title: event.summary },
       {
         audience,
-        theme,
+        theme: currentThemeFor(currentEntity),
         workspaceDefault,
       },
     );
@@ -455,10 +474,15 @@ function projectOne(event, context) {
     origin: publicStringRecord(event.origin, ORIGIN_FIELDS),
     summary: publicText(event.summary),
     changed_fields: [...(event.changed_fields || [])].map(publicIdentifier).filter(Boolean),
-    canonical_refs: publicCanonicalRefs(event.canonical_refs, roots),
-    source_refs: publicSourceRefs(event.source_refs),
-    relation_refs: relationRefsFor(event, workspace),
-    work_receipt_ref: publicTypedRef(event.work_receipt_ref),
+    canonical_refs: publicCanonicalRefs(
+      (event.canonical_refs || []).filter(allowedReference),
+      roots,
+    ),
+    source_refs: publicSourceRefs(event.source_refs).filter(allowedReference),
+    relation_refs: relationRefsFor(event, workspace).filter(allowedReference),
+    work_receipt_ref: allowedReference(event.work_receipt_ref)
+      ? publicTypedRef(event.work_receipt_ref)
+      : null,
     metadata: publicMetadata(event.metadata),
   };
   if (currentEntity?.deleted_at) projected.metadata.entity_status = "deleted";

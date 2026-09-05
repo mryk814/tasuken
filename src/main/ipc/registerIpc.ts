@@ -673,7 +673,7 @@ export function registerIpc(
   ipcMain.handle(IPC.entityRemove, (_event, type, id) => {
     const entityType = requireEntityType(type);
     rejectTaskPersistence(entityType, "削除");
-    const removed = repository.remove(entityType, requireId(id));
+    const removed = service.removeEntity(entityType, requireId(id));
     notifyEntitiesChanged([entityType]);
     return removed && typeof removed === "object"
       ? projectEntityForRenderer(entityType, removed as Entity)
@@ -681,7 +681,7 @@ export function registerIpc(
   });
   ipcMain.handle(IPC.entityRestore, (_event, type, id) => {
     const entityType = requireEntityType(type);
-    const restored = repository.restore(entityType, requireId(id));
+    const restored = service.restoreEntity(entityType, requireId(id));
     notifyEntitiesChanged([entityType]);
     return restored && typeof restored === "object"
       ? projectEntityForRenderer(entityType, restored as Entity)
