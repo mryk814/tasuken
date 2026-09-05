@@ -683,7 +683,6 @@ export function WorkspaceApp() {
               artifacts: fullData.artifacts as unknown as Array<Record<string, unknown>>,
               roots: fullData.canonical_root_status,
               timezone: "Asia/Tokyo",
-              workspaceDefault: fullData.meta?.aiVisibilityDefault,
             };
             const result = await workspaceApi.exportMarkdownFile({
               title: `Tasken Activity Log ${targetDate}`,
@@ -1650,9 +1649,13 @@ export function WorkspaceApp() {
 
   async function undoDelete() {
     if (!lastDeleted.current) return;
-    await restoreWorkspaceEntity(lastDeleted.current.type, lastDeleted.current.id);
-    lastDeleted.current = null;
-    setToast("削除を元に戻しました。", "success");
+    try {
+      await restoreWorkspaceEntity(lastDeleted.current.type, lastDeleted.current.id);
+      lastDeleted.current = null;
+      setToast("削除を元に戻しました。", "success");
+    } catch (error) {
+      setToast(`元に戻せませんでした。${errorMessage(error)}`, "danger");
+    }
   }
 
   async function removeEntityQuiet(type: EntityType, id: string) {

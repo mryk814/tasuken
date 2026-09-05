@@ -64,7 +64,7 @@ test("受入日の確認済みReceiptの結果・検証・残作業を公開し�
   assert.equal(buildActivityReceiptPublication({ ...f.input, date: "2026-09-04" }, f.domain), "");
 });
 
-test("未確認・別Receipt・別Task・削除済み・非公開は出さない", () => {
+test("未確認・別Receipt・別Task・削除済みは出さない", () => {
   for (const mutate of [
     (f) => {
       f.event.metadata.work_action = "reported";
@@ -79,12 +79,6 @@ test("未確認・別Receipt・別Task・削除済み・非公開は出さない
       f.receipt.deleted_at = "2026-09-05";
     },
     (f) => {
-      f.task.ai_visibility = [];
-    },
-    (f) => {
-      f.receipt.ai_visibility = [];
-    },
-    (f) => {
       f.task.deleted_at = "2026-09-05";
     },
   ]) {
@@ -94,12 +88,11 @@ test("未確認・別Receipt・別Task・削除済み・非公開は出さない
   }
 });
 
-test("Theme既定の公開範囲を継承し重複受入を一度だけ出す", () => {
+test("項目別AI設定を日誌に適用せず重複受入を一度だけ出す", () => {
   const f = fixture();
-  delete f.task.ai_visibility;
+  f.task.ai_visibility = [];
+  f.receipt.ai_visibility = [];
   f.input.themes[0].default_ai_visibility = [];
-  assert.equal(buildActivityReceiptPublication(f.input, f.domain), "");
-  f.input.themes[0].default_ai_visibility = ["m365"];
   f.domain.change_events.push({ ...f.event, id: "accept-2" });
   assert.equal(buildActivityReceiptPublication(f.input, f.domain).match(/精度95%/g).length, 1);
 });

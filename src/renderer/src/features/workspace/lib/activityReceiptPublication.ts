@@ -1,4 +1,3 @@
-import { projectEntityForAi } from "../../../../../shared/aiMetadata.mjs";
 import { queryActivityEvents } from "../../../../../shared/activityProjection.mjs";
 import { sanitizePublicText } from "../../../../../shared/publicProjection";
 import type { WorkspaceDomain } from "../domain-model/types";
@@ -16,7 +15,7 @@ function line(value: unknown): string {
     .trim();
 }
 
-/** Publish only the exact result accepted on this day, using current visibility. */
+/** Include only the exact result accepted on this day. */
 export function buildActivityReceiptPublication(
   input: ActivityLogInput,
   domain: WorkspaceDomain,
@@ -29,8 +28,6 @@ export function buildActivityReceiptPublication(
     themes: input.themes,
     date: input.date,
     timezone: input.timezone,
-    audience: "m365",
-    workspaceDefault: input.workspaceDefault,
   }).events;
   const sections: string[] = [];
   const seen = new Set<string>();
@@ -45,16 +42,6 @@ export function buildActivityReceiptPublication(
       (entry) => entry.id === receiptId && entry.task_id === task?.id && !entry.deleted_at,
     );
     if (!task || !receipt || seen.has(receipt.id)) continue;
-    // The event query already checks the Task. An explicit Receipt restriction
-    // can narrow publication further; an absent setting inherits its Task.
-    if (
-      Array.isArray(receipt.ai_visibility) &&
-      !projectEntityForAi("work_receipt", receipt, {
-        audience: "m365",
-        workspaceDefault: input.workspaceDefault,
-      }).included
-    )
-      continue;
     seen.add(receipt.id);
     const rows = [
       `### ${line(task.title)} · 作業結果`,

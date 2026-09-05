@@ -545,10 +545,7 @@ export function ActivityLogPanel({
   const count = hasStructuredActivity
     ? timeline.length
     : groups.reduce((sum, group) => sum + group.rows.length, 0);
-  const activityLogContent = buildActivityPublication(
-    { ...input, workspaceDefault: data.meta?.aiVisibilityDefault },
-    domain,
-  );
+  const activityLogContent = buildActivityPublication(input, domain);
 
   useEffect(() => {
     const calendar = activityCalendarRef.current;
@@ -1287,7 +1284,7 @@ export function ActivityLogPanel({
             出力先を変更
           </Button>
           <small>
-            M365への公開を許可した記録を出力します。当日分は翌日に再出力し、定時後の作業も反映します。停止中の分は次回起動時に補完します。
+            指定したフォルダに日誌を出力します。当日分は翌日に再出力し、定時後の作業も反映します。停止中の分は次回起動時に補完します。
           </small>
         </div>
       )}

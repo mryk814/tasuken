@@ -219,6 +219,8 @@ interface GitHubLatestRelease {
 }
 
 interface WorkspaceRepository {
+  remove(type: string, id: string): Record<string, unknown> | null;
+  restore(type: string, id: string): Record<string, unknown> | null;
   loadWorkspace(includeDeleted?: boolean): unknown;
   save(type: string, entity: unknown, options?: unknown): Record<string, unknown>;
   saveMany(
@@ -247,6 +249,14 @@ interface CanonicalFileSnapshot {
   size: number | null;
   mtimeMs: number | null;
   error?: string;
+}
+
+interface NoteDeletionReceipt {
+  noteId: string;
+  filePath: string;
+  content: string;
+  signature: string;
+  pending: boolean;
 }
 
 interface CanonicalTarget {
@@ -731,12 +741,215 @@ export class WorkspaceService {
 
   loadWorkspace(includeDeleted = false): unknown {
     return measureMainPerformance("workspace_load", () => {
+      this.recoverNoteDeletions();
       this.recoverConversationContextReceipts();
       this.recoverThemeAiPackReceipts();
       this.recoverCanonicalMarkdownReceipts();
       this.migrateCanonicalMarkdownBindings();
       return this.repository.loadWorkspace(includeDeleted);
     });
+  }
+
+  private noteDeletionPath(id: string): string {
+    return path.join(this.userDataPath, "deleted-note-files", `${encodeURIComponent(id)}.json`);
+  }
+
+  private readNoteDeletion(id: string): NoteDeletionReceipt | null {
+    const receiptPath = this.noteDeletionPath(id);
+    if (!fs.existsSync(receiptPath)) return null;
+    const receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8")) as NoteDeletionReceipt;
+    const note = this.repository.get("note", id, true);
+    const binding =
+      note &&
+      canonicalMarkdownBindingFromProperties(objectValue(note.properties_json), { noteId: id });
+    if (
+      receipt.noteId !== id ||
+      typeof receipt.content !== "string" ||
+      typeof receipt.pending !== "boolean" ||
+      !binding ||
+      typeof receipt.filePath !== "string" ||
+      !this.sameNoteFilePath(binding.canonical_path, receipt.filePath) ||
+      bufferSignature(Buffer.from(receipt.content, "base64")) !== receipt.signature ||
+      binding.file_signature !== receipt.signature
+    )
+      throw new Error(
+        "Noteの削除復旧記録が現在のMarkdownと一致しません。保存先と復旧記録を確認してください。",
+      );
+    assertExplicitCanonicalPath(receipt.filePath);
+    return receipt;
+  }
+
+  private writeNoteDeletion(receipt: NoteDeletionReceipt): void {
+    const receiptPath = this.noteDeletionPath(receipt.noteId);
+    fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
+    this.writeAtomicText(receiptPath, JSON.stringify(receipt), randomUUID());
+  }
+
+  private restoreNoteFile(receipt: NoteDeletionReceipt): void {
+    assertExplicitCanonicalPath(receipt.filePath);
+    if (fs.existsSync(receipt.filePath)) {
+      if (bufferSignature(fs.readFileSync(receipt.filePath)) !== receipt.signature) {
+        throw new Error(
+          "Noteの保存先に別の内容のファイルがあります。ファイルを移動してから復元してください。",
+        );
+      }
+      return;
+    }
+    // The configured folder must still exist: an unavailable sync drive is not a new root.
+    fs.writeFileSync(receipt.filePath, Buffer.from(receipt.content, "base64"), { flag: "wx" });
+  }
+
+  private removeNoteFile(receipt: NoteDeletionReceipt): void {
+    assertExplicitCanonicalPath(receipt.filePath);
+    if (!fs.existsSync(receipt.filePath)) return;
+    if (bufferSignature(fs.readFileSync(receipt.filePath)) !== receipt.signature) {
+      throw new Error(
+        "NoteのMarkdownが外部で変更されています。内容を確認して再保存してから削除してください。",
+      );
+    }
+    fs.unlinkSync(receipt.filePath);
+  }
+
+  private recoverNoteDeletions(targetId?: string): void {
+    const directory = path.dirname(this.noteDeletionPath("placeholder"));
+    if (!fs.existsSync(directory)) return;
+    const names = targetId
+      ? [path.basename(this.noteDeletionPath(targetId))]
+      : fs.readdirSync(directory);
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      if (!fs.existsSync(path.join(directory, name))) continue;
+      try {
+        const stored = JSON.parse(
+          fs.readFileSync(path.join(directory, name), "utf8"),
+        ) as NoteDeletionReceipt;
+        if (!stored.pending) continue;
+        const id = decodeURIComponent(name.slice(0, -5));
+        const receipt = this.readNoteDeletion(id);
+        if (!receipt?.pending) continue;
+        const note = this.repository.get("note", id, true);
+        if (note?.deleted_at) {
+          this.removeNoteFile(receipt);
+          this.writeNoteDeletion({ ...receipt, pending: false });
+        } else {
+          this.restoreNoteFile(receipt);
+          fs.unlinkSync(this.noteDeletionPath(id));
+        }
+      } catch (error) {
+        // Offline roots, collisions and damaged receipts must not prevent other
+        // records from loading. Explicit retry of this Note reports the failure.
+        if (targetId) throw error;
+        console.warn(`Noteの削除・復元を自動復旧できませんでした。${errorText(error)}`);
+      }
+    }
+  }
+
+  removeEntity(type: string, id: string): Record<string, unknown> | null {
+    if (type !== "note") return this.repository.remove(type, id);
+    this.recoverNoteDeletions(id);
+    const note = this.repository.get(type, id, true);
+    if (!note || note.deleted_at) return note;
+    const binding = canonicalMarkdownBindingFromProperties(objectValue(note.properties_json), {
+      noteId: id,
+    });
+    if (!binding?.canonical_path) return this.repository.remove(type, id);
+    assertExplicitCanonicalPath(binding.canonical_path);
+    if (!fs.existsSync(binding.canonical_path)) {
+      // A file already deleted outside Tasken needs no further cleanup. Preserve
+      // that absence on Undo; an unavailable folder must still report an error.
+      const directory = path.dirname(binding.canonical_path);
+      if (fs.existsSync(directory) && fs.statSync(directory).isDirectory()) {
+        return this.repository.remove(type, id);
+      }
+      throw new Error(
+        "NoteのMarkdownが見つかりません。保存先の接続とファイルを確認してから削除してください。",
+      );
+    }
+    const content = fs.readFileSync(binding.canonical_path);
+    const signature = bufferSignature(content);
+    if (!binding.file_signature || signature !== binding.file_signature) {
+      throw new Error(
+        "NoteのMarkdownが外部で変更されています。内容を確認して再保存してから削除してください。",
+      );
+    }
+    const sharedOwner = this.repository.list("note").some((other) => {
+      if (other.id === id) return false;
+      const otherBinding = canonicalMarkdownBindingFromProperties(
+        objectValue(other.properties_json),
+        { noteId: String(other.id) },
+      );
+      return Boolean(
+        otherBinding?.canonical_path &&
+        this.sameNoteFilePath(otherBinding.canonical_path, binding.canonical_path),
+      );
+    });
+    if (sharedOwner)
+      throw new Error(
+        "同じMarkdownに別のNoteも接続しています。保存先を分けてから削除してください。",
+      );
+    const receipt: NoteDeletionReceipt = {
+      noteId: id,
+      filePath: binding.canonical_path,
+      content: content.toString("base64"),
+      signature,
+      pending: true,
+    };
+    this.writeNoteDeletion(receipt);
+    let removed: Record<string, unknown> | null;
+    try {
+      this.removeNoteFile(receipt);
+      removed = this.repository.remove(type, id);
+    } catch (error) {
+      // SQLite is the commit point. A crash or failed compensation retains the receipt.
+      this.recoverNoteDeletions();
+      throw error;
+    }
+    try {
+      this.writeNoteDeletion({ ...receipt, pending: false });
+    } catch (error) {
+      console.warn(`Noteは削除済みです。復旧記録の更新を次回再試行します。${errorText(error)}`);
+    }
+    return removed;
+  }
+
+  private sameNoteFilePath(left: string, right: string): boolean {
+    const normalize = (value: string): string => {
+      const resolved = path.resolve(value);
+      return process.platform === "win32" ? resolved.toLocaleLowerCase() : resolved;
+    };
+    return normalize(left) === normalize(right);
+  }
+
+  restoreEntity(type: string, id: string): Record<string, unknown> | null {
+    if (type !== "note") return this.repository.restore(type, id);
+    this.recoverNoteDeletions(id);
+    const receipt = this.readNoteDeletion(id);
+    if (!receipt) return this.repository.restore(type, id);
+    // Check collisions before marking the operation pending: an unrelated file must
+    // never become a startup cleanup candidate after an unsuccessful Undo.
+    if (
+      fs.existsSync(receipt.filePath) &&
+      bufferSignature(fs.readFileSync(receipt.filePath)) !== receipt.signature
+    ) {
+      throw new Error(
+        "Noteの保存先に別の内容のファイルがあります。ファイルを移動してから復元してください。",
+      );
+    }
+    this.writeNoteDeletion({ ...receipt, pending: true });
+    let restored: Record<string, unknown> | null;
+    try {
+      this.restoreNoteFile(receipt);
+      restored = this.repository.restore(type, id);
+    } catch (error) {
+      this.recoverNoteDeletions();
+      throw error;
+    }
+    try {
+      fs.unlinkSync(this.noteDeletionPath(id));
+    } catch (error) {
+      console.warn(`Noteは復元済みです。復旧記録の削除を次回再試行します。${errorText(error)}`);
+    }
+    return restored;
   }
 
   private writeAtomicText(filePath: string, content: string, operationId: string): string | null {
@@ -1856,6 +2069,9 @@ export class WorkspaceService {
           receipt.noteId,
         );
         const current = this.repository.get("note", receipt.noteId, true);
+        // A later deletion supersedes a pending save. Replaying its binding here
+        // would invalidate the deletion backup and could resurrect the Note.
+        if (current?.deleted_at) continue;
         // receiptはfile write後の復旧候補であり、DBのcurrentを上書きする正本ではない。
         const snapshot = this.readCanonicalFile(receipt.filePath);
         const expectedSignature = markdownSignature(receipt.content);

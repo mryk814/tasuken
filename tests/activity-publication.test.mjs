@@ -55,31 +55,32 @@ function fixture() {
   };
 }
 
-test("publication includes permitted work and excludes local-only titles and summaries", () => {
+test("daily output includes recorded work regardless of per-item AI settings", () => {
   const { domain, input } = fixture();
   const output = buildActivityPublication(input, domain);
   assert.match(output, /実験完了/);
   assert.match(output, /精度を確認/);
-  assert.doesNotMatch(output, /非公開/);
-  assert.match(output, /Excluded by policy/);
+  assert.match(output, /非公開の実験/);
+  assert.match(output, /非公開本文/);
+  assert.doesNotMatch(output, /Excluded by policy|公開範囲/);
   assert.deepEqual(domain.tasks[1].ai_visibility, []);
 });
 
-test("workspace default is honored but never overrides an explicit private item", () => {
+test("daily output does not require Theme AI permissions", () => {
   const { domain, input } = fixture();
   delete domain.projects[0].default_ai_visibility;
-  assert.doesNotMatch(buildActivityPublication(input, domain), /実験完了/);
+  assert.match(buildActivityPublication(input, domain), /実験完了/);
   assert.match(
     buildActivityPublication({ ...input, workspaceDefault: ["m365"] }, domain),
     /実験完了/,
   );
-  assert.doesNotMatch(
+  assert.match(
     buildActivityPublication({ ...input, workspaceDefault: ["m365"] }, domain),
     /非公開/,
   );
 });
 
-test("unassigned session narratives are not implicitly published by workspace defaults", () => {
+test("daily output includes unassigned session narratives", () => {
   const { domain, input } = fixture();
   domain.agent_sessions.push({
     id: "session",
@@ -90,14 +91,22 @@ test("unassigned session narratives are not implicitly published by workspace de
     outcome: { summary: "非公開result", remaining_work: [] },
   });
   const output = buildActivityPublication({ ...input, workspaceDefault: ["m365"] }, domain);
-  assert.doesNotMatch(output, /非公開session|非公開result/);
-  assert.match(output, /AI作業 1件/);
+  assert.match(output, /非公開session/);
+  assert.match(output, /非公開result/);
 });
 
 test("publication fails closed when canonical events are unavailable", () => {
   const { domain, input } = fixture();
   delete input.changeEvents;
   assert.throws(() => buildActivityPublication(input, domain), /活動履歴を再読み込み/);
+});
+
+test("daily event output still sanitizes secrets and machine-local paths", () => {
+  const { domain, input } = fixture();
+  domain.change_events[0].summary = "実験結果 C:\\Users\\person\\result.csv token=abcd-secret";
+  const output = buildActivityPublication(input, domain);
+  assert.match(output, /実験結果/);
+  assert.doesNotMatch(output, /person|abcd-secret/);
 });
 
 test("the complete daily publication includes the exact accepted result", () => {
@@ -118,7 +127,7 @@ test("the complete daily publication includes the exact accepted result", () => 
   assert.match(output, /別装置で再検証/);
 });
 
-test("a theme-assigned session cannot leak work on a private Task through its narrative", () => {
+test("session output ignores linked-item AI settings while omitting repository metadata", () => {
   const { domain, input } = fixture();
   domain.agent_sessions.push({
     id: "session",
@@ -161,8 +170,9 @@ test("a theme-assigned session cannot leak work on a private Task through its na
     target_id: "private-note",
     relation_type: "context",
   });
-  assert.doesNotMatch(buildActivityPublication(input, domain), /session narrative/);
+  assert.match(buildActivityPublication(input, domain), /session narrative/);
   domain.references.pop();
   domain.change_events[1].origin = { session_id: "session" };
-  assert.doesNotMatch(buildActivityPublication(input, domain), /session narrative|session result/);
+  assert.match(buildActivityPublication(input, domain), /session narrative/);
+  assert.match(buildActivityPublication(input, domain), /session result/);
 });

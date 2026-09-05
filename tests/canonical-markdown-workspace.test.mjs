@@ -133,6 +133,255 @@ function canonicalContent(note) {
   });
 }
 
+function deletionFixture() {
+  const fixture = createFixture("tasken-note-deletion");
+  const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+  fixture.database.save("note", {
+    id: "delete-linked",
+    title: "削除するNote",
+    body_markdown: "本文",
+  });
+  const note = service.saveCanonicalNote(
+    saveRequest(fixture.database.get("note", "delete-linked"), "本文"),
+  );
+  return { ...fixture, service, note, filePath: canonicalBinding(note).canonical_path };
+}
+
+test("Note deletion removes its canonical file and Undo restores bytes across restart", () => {
+  const fixture = deletionFixture();
+  try {
+    const before = readFileSync(fixture.filePath);
+    const removed = fixture.service.removeEntity("note", fixture.note.id);
+    assert.ok(removed.deleted_at);
+    assert.equal(fs.existsSync(fixture.filePath), false);
+    const restarted = new WorkspaceService(fixture.database, fixture.userDataPath);
+    restarted.loadWorkspace();
+    assert.equal(fs.existsSync(fixture.filePath), false);
+    assert.equal(restarted.restoreEntity("note", fixture.note.id).deleted_at, null);
+    assert.deepEqual(readFileSync(fixture.filePath), before);
+    restarted.loadWorkspace();
+    assert.equal(fixture.database.get("note", fixture.note.id).body_markdown, "本文");
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("Note deletion refuses external edits and Undo never overwrites another file", () => {
+  const fixture = deletionFixture();
+  try {
+    const before = readFileSync(fixture.filePath);
+    writeFileSync(fixture.filePath, "external edit");
+    assert.throws(() => fixture.service.removeEntity("note", fixture.note.id), /外部で変更/);
+    assert.ok(fixture.database.get("note", fixture.note.id));
+    assert.equal(readFileSync(fixture.filePath, "utf8"), "external edit");
+    writeFileSync(fixture.filePath, before);
+    fixture.service.removeEntity("note", fixture.note.id);
+    writeFileSync(fixture.filePath, "different owner");
+    assert.throws(() => fixture.service.restoreEntity("note", fixture.note.id), /別の内容/);
+    new WorkspaceService(fixture.database, fixture.userDataPath).loadWorkspace();
+    assert.equal(readFileSync(fixture.filePath, "utf8"), "different owner");
+    assert.ok(fixture.database.get("note", fixture.note.id, true).deleted_at);
+    fs.unlinkSync(fixture.filePath);
+    fixture.service.restoreEntity("note", fixture.note.id);
+    assert.deepEqual(readFileSync(fixture.filePath), before);
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("A Note whose file was already removed can be deleted without inventing a file on Undo", () => {
+  const fixture = deletionFixture();
+  try {
+    fs.unlinkSync(fixture.filePath);
+    assert.ok(fixture.service.removeEntity("note", fixture.note.id).deleted_at);
+    assert.equal(fixture.service.restoreEntity("note", fixture.note.id).deleted_at, null);
+    assert.equal(fs.existsSync(fixture.filePath), false);
+    const directory = path.dirname(fixture.filePath);
+    fs.renameSync(directory, `${directory}-offline`);
+    assert.throws(() => fixture.service.removeEntity("note", fixture.note.id), /保存先の接続/);
+    assert.ok(fixture.database.get("note", fixture.note.id));
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("Note lifecycle rolls file changes back when DB remove or restore fails", () => {
+  const fixture = deletionFixture();
+  try {
+    const before = readFileSync(fixture.filePath);
+    const remove = fixture.database.remove.bind(fixture.database);
+    fixture.database.remove = () => {
+      throw new Error("remove failed");
+    };
+    assert.throws(() => fixture.service.removeEntity("note", fixture.note.id), /remove failed/);
+    assert.deepEqual(readFileSync(fixture.filePath), before);
+    assert.ok(fixture.database.get("note", fixture.note.id));
+    fixture.database.remove = remove;
+    fixture.service.removeEntity("note", fixture.note.id);
+    const restore = fixture.database.restore.bind(fixture.database);
+    fixture.database.restore = () => {
+      throw new Error("restore failed");
+    };
+    assert.throws(() => fixture.service.restoreEntity("note", fixture.note.id), /restore failed/);
+    assert.equal(fs.existsSync(fixture.filePath), false);
+    assert.ok(fixture.database.get("note", fixture.note.id, true).deleted_at);
+    fixture.database.restore = restore;
+    fixture.service.restoreEntity("note", fixture.note.id);
+    assert.deepEqual(readFileSync(fixture.filePath), before);
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("Damaged and unavailable Note recovery keeps workspace and unrelated Notes usable", () => {
+  const fixture = deletionFixture();
+  try {
+    fixture.service.removeEntity("note", fixture.note.id);
+    const receiptPath = path.join(
+      fixture.userDataPath,
+      "deleted-note-files",
+      `${encodeURIComponent(fixture.note.id)}.json`,
+    );
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+    fixture.database.restore("note", fixture.note.id);
+    writeFileSync(receiptPath, JSON.stringify({ ...receipt, pending: true }));
+    const notesDirectory = path.dirname(fixture.filePath);
+    fs.renameSync(notesDirectory, `${notesDirectory}-offline`);
+    assert.doesNotThrow(() =>
+      new WorkspaceService(fixture.database, fixture.userDataPath).loadWorkspace(),
+    );
+    assert.throws(() => fixture.service.removeEntity("note", fixture.note.id));
+    assert.ok(fs.existsSync(receiptPath));
+    writeFileSync(receiptPath, "broken json");
+    assert.doesNotThrow(() =>
+      new WorkspaceService(fixture.database, fixture.userDataPath).loadWorkspace(),
+    );
+    fixture.database.save("note", { id: "unrelated", title: "Other" });
+    assert.ok(fixture.service.removeEntity("note", "unrelated").deleted_at);
+    assert.equal(readFileSync(receiptPath, "utf8"), "broken json");
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("Shared canonical paths are compared with native path identity before deletion", () => {
+  const fixture = deletionFixture();
+  try {
+    const sharedPath =
+      process.platform === "win32"
+        ? fixture.filePath.toUpperCase().replaceAll("\\", "/")
+        : fixture.filePath;
+    fixture.database.save("note", {
+      id: "shared",
+      title: "Shared",
+      properties_json: {
+        canonical_markdown: { ...canonicalBinding(fixture.note), canonical_path: sharedPath },
+      },
+    });
+    assert.throws(() => fixture.service.removeEntity("note", fixture.note.id), /別のNote/);
+    assert.ok(fs.existsSync(fixture.filePath));
+    assert.ok(fixture.database.get("note", fixture.note.id));
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("Committed Note deletion and Undo succeed even when receipt cleanup fails", () => {
+  const fixture = deletionFixture();
+  const originalUnlink = fs.unlinkSync;
+  try {
+    const writeReceipt = fixture.service.writeNoteDeletion.bind(fixture.service);
+    fixture.service.writeNoteDeletion = (receipt) => {
+      if (!receipt.pending) throw new Error("receipt update failed");
+      return writeReceipt(receipt);
+    };
+    assert.ok(fixture.service.removeEntity("note", fixture.note.id).deleted_at);
+    assert.equal(fs.existsSync(fixture.filePath), false);
+    fixture.service.writeNoteDeletion = writeReceipt;
+    const receiptPath = path.join(
+      fixture.userDataPath,
+      "deleted-note-files",
+      `${encodeURIComponent(fixture.note.id)}.json`,
+    );
+    fs.unlinkSync = (target) => {
+      if (target === receiptPath) throw new Error("receipt cleanup failed");
+      return originalUnlink(target);
+    };
+    assert.equal(fixture.service.restoreEntity("note", fixture.note.id).deleted_at, null);
+    assert.ok(fs.existsSync(fixture.filePath));
+    assert.ok(fs.existsSync(receiptPath));
+    fs.unlinkSync = originalUnlink;
+    new WorkspaceService(fixture.database, fixture.userDataPath).loadWorkspace();
+    assert.equal(fs.existsSync(receiptPath), false);
+  } finally {
+    fs.unlinkSync = originalUnlink;
+    closeFixture(fixture);
+  }
+});
+
+test("Partial Undo write retains the full backup and does not block loading", () => {
+  const fixture = deletionFixture();
+  const originalWrite = fs.writeFileSync;
+  try {
+    const before = readFileSync(fixture.filePath);
+    fixture.service.removeEntity("note", fixture.note.id);
+    fs.writeFileSync = (target, content, options) => {
+      if (target === fixture.filePath) {
+        originalWrite(target, Buffer.from(content).subarray(0, 3), options);
+        throw new Error("disk full");
+      }
+      return originalWrite(target, content, options);
+    };
+    assert.throws(() => fixture.service.restoreEntity("note", fixture.note.id), /disk full/);
+    fs.writeFileSync = originalWrite;
+    assert.doesNotThrow(() =>
+      new WorkspaceService(fixture.database, fixture.userDataPath).loadWorkspace(),
+    );
+    assert.deepEqual(readFileSync(fixture.filePath), before.subarray(0, 3));
+    assert.ok(fixture.database.get("note", fixture.note.id, true).deleted_at);
+    const receiptPath = path.join(
+      fixture.userDataPath,
+      "deleted-note-files",
+      `${encodeURIComponent(fixture.note.id)}.json`,
+    );
+    assert.deepEqual(
+      Buffer.from(JSON.parse(readFileSync(receiptPath, "utf8")).content, "base64"),
+      before,
+    );
+    fs.unlinkSync(fixture.filePath);
+    fixture.service.restoreEntity("note", fixture.note.id);
+    assert.deepEqual(readFileSync(fixture.filePath), before);
+  } finally {
+    fs.writeFileSync = originalWrite;
+    closeFixture(fixture);
+  }
+});
+
+test("Pending Note deletion recovery follows the DB commit after interruption", () => {
+  const fixture = deletionFixture();
+  try {
+    const before = readFileSync(fixture.filePath);
+    fixture.service.removeEntity("note", fixture.note.id);
+    const receiptPath = path.join(
+      fixture.userDataPath,
+      "deleted-note-files",
+      `${encodeURIComponent(fixture.note.id)}.json`,
+    );
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+    writeFileSync(receiptPath, JSON.stringify({ ...receipt, pending: true }));
+    writeFileSync(fixture.filePath, before);
+    new WorkspaceService(fixture.database, fixture.userDataPath).loadWorkspace();
+    assert.equal(fs.existsSync(fixture.filePath), false);
+    fixture.database.restore("note", fixture.note.id);
+    writeFileSync(receiptPath, JSON.stringify({ ...receipt, pending: true }));
+    new WorkspaceService(fixture.database, fixture.userDataPath).loadWorkspace();
+    assert.deepEqual(readFileSync(fixture.filePath), before);
+    assert.equal(fs.existsSync(receiptPath), false);
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
 function applyProposalEnvelope(proposal, note, body, commandId = "note-ai-apply") {
   return {
     commandId,
