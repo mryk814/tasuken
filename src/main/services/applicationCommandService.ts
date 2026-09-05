@@ -2020,7 +2020,10 @@ export class ApplicationCommandService {
     }
     const provenance = workReceiptProvenance(this.repository, command, taskId, payload.receipt);
     const repositoryContext = safeTaskWorkRepositoryContext(payload.receipt.repository_context);
-    const runtimeMetadata = safeTaskWorkRuntimeMetadata(payload.receipt.runtime_metadata);
+    const runtimeMetadata = {
+      ...safeTaskWorkRuntimeMetadata(payload.receipt.runtime_metadata),
+      report_kind: outcome === "continue" ? "progress" : outcome === "blocked" ? "blocked" : "done",
+    };
     const receipt: Entity = {
       id: payload.receipt.id,
       task_id: taskId,

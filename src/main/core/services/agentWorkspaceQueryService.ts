@@ -436,7 +436,15 @@ export class AgentWorkspaceQueryService {
         (work) =>
           !request.date ||
           (localDate(work.started_at, timezone) <= request.date &&
-            localDate(work.ended_at || new Date().toISOString(), timezone) >= request.date),
+            localDate(
+              new Date(
+                Math.max(
+                  Date.parse(work.started_at),
+                  Date.parse(work.ended_at || new Date().toISOString()) - 1,
+                ),
+              ).toISOString(),
+              timezone,
+            ) >= request.date),
       )
       .sort((a, b) => a.started_at.localeCompare(b.started_at))
       .slice(0, request.limit ?? 20);

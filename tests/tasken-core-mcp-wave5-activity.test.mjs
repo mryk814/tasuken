@@ -331,6 +331,45 @@ test("daily Activity and Session queries use the runtime local day without chang
   }
 });
 
+test("Task work ending at midnight is not returned on the next local day", () => {
+  const previousTimeZone = process.env.TZ;
+  process.env.TZ = "Asia/Tokyo";
+  try {
+    const service = new AgentWorkspaceQueryService({
+      listTasks: () => [{ id: "task-midnight", title: "Midnight", state: "todo" }],
+      listThemes: () => [],
+      listRepositoryContexts: () => [],
+      listAiProposals: () => [],
+      listWorkingCopies: () => [],
+      listReferences: () => [],
+      listAgentSessions: () => [],
+      workspaceAiVisibilityDefault: () => ["coding_agent"],
+      listWorkReceipts: () => [
+        {
+          id: "receipt-midnight",
+          task_id: "task-midnight",
+          started_at: "2026-09-04T14:00:00.000Z",
+          reported_at: "2026-09-04T15:00:00.000Z",
+          runtime_metadata: { report_kind: "done" },
+        },
+      ],
+    });
+    assert.equal(
+      service.getAgentSessionContext({ date: "2026-09-04", source_session: "daily-boundary" })
+        .task_work.length,
+      1,
+    );
+    assert.equal(
+      service.getAgentSessionContext({ date: "2026-09-05", source_session: "daily-boundary" })
+        .task_work.length,
+      0,
+    );
+  } finally {
+    if (previousTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimeZone;
+  }
+});
+
 test("Activity adapter reads an empty WorkspaceDatabase without creating the default Theme", () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-wave5-activity-db-"));
   const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));

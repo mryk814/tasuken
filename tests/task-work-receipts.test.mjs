@@ -608,6 +608,7 @@ test("AI report stays needs_human_review and cannot complete before human accept
   );
   assert.equal(repo.get("task", "task-ai").work_state, "needs_human_review");
   assert.ok(report.changes.some(({ type }) => type === "work_receipt"));
+  assert.equal(repo.get("work_receipt", "receipt-ai-1").runtime_metadata.report_kind, "done");
   assert.deepEqual(repo.get("work_receipt", "receipt-ai-1").external_references, [
     {
       kind: "merge_request",

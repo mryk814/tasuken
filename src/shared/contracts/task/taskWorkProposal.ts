@@ -270,6 +270,7 @@ export function taskWorkPeriods(
     const terminal =
       report.action === "report_done" ||
       report.action === "report_blocked" ||
+      (report.runtime_metadata as Record<string, unknown> | undefined)?.report_kind === "done" ||
       (report.runtime_metadata as Record<string, unknown> | undefined)?.report_kind === "blocked" ||
       task.work_reported_at === ended;
     const previous = periods.get(id);

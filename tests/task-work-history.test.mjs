@@ -95,3 +95,16 @@ test("accepted progress does not hide a subsequent completion and invalid dates 
     0,
   );
 });
+
+test("receipt completion remains historical after the Task is returned or restarted", () => {
+  const receipt = {
+    id: "direct-done",
+    task_id: task.id,
+    started_at: start,
+    reported_at: end,
+    runtime_metadata: { report_kind: "done" },
+  };
+  const periods = taskWorkPeriods([{ ...task, work_reported_at: null }], [], [receipt]);
+  assert.equal(periods[0].status, "completed");
+  assert.equal(periods[0].ended_at, end);
+});
