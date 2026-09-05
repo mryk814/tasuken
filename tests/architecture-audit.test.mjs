@@ -402,7 +402,7 @@ test("Core and MCP enforcement profile is blocking and clean", () => {
         "--output-dir",
         output,
       ],
-      { encoding: "utf8" },
+      { encoding: "utf8", maxBuffer: AUDIT_SPAWN_MAX_BUFFER },
     );
     assert.equal(result.status, 0, result.stderr);
     const report = JSON.parse(result.stdout);

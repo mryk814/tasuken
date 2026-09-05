@@ -11,8 +11,7 @@ import { taskWorkPeriods } from "../../../../../shared/contracts/task/public";
 import { activitySessionInterval } from "../lib/activityTimeline";
 import type { BaseRecord } from "../types";
 import { THEME_NONE_VALUE } from "../../../../../shared/themeRef.mjs";
-import { collectActivityLogEntries } from "../lib/activityLog";
-import { buildActivityPublication } from "../lib/activityPublication";
+import { collectActivityLogEntries, buildActivityPublication } from "../lib/activityLog";
 import { resolveActivityLogDirectory } from "../lib/activityLogDirectory";
 import {
   activitySessionTimeLabel,
@@ -20,6 +19,7 @@ import {
   activityDisplayKind,
   activityThemeIds,
   buildDailyAgentSessionContexts,
+  projectActivitySessionLogEntries,
   reviewableActivityEvents,
 } from "../lib/activityTimeline";
 import {
@@ -545,7 +545,14 @@ export function ActivityLogPanel({
   const count = hasStructuredActivity
     ? timeline.length
     : groups.reduce((sum, group) => sum + group.rows.length, 0);
-  const activityLogContent = buildActivityPublication(input, domain);
+  const activityLogContent = buildActivityPublication(
+    input,
+    domain,
+    projectActivitySessionLogEntries(
+      buildDailyAgentSessionContexts(agentSessions, date, []),
+      input.themes,
+    ),
+  );
 
   useEffect(() => {
     const calendar = activityCalendarRef.current;

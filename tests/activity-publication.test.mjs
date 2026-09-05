@@ -4,7 +4,18 @@ import path from "node:path";
 import { build } from "esbuild";
 
 const bundled = await build({
-  entryPoints: [path.resolve("src/renderer/src/features/workspace/lib/activityPublication.ts")],
+  stdin: {
+    contents: `
+      import { buildActivityPublication as render } from "./src/renderer/src/features/workspace/lib/activityLog.ts";
+      import { buildAgentWorkProjection } from "./src/renderer/src/features/workspace/domain-model/agentSessionProjection.ts";
+      import { buildDailyAgentSessionContexts, projectActivitySessionLogEntries } from "./src/renderer/src/features/workspace/lib/activityTimeline.ts";
+      export function buildActivityPublication(input, domain) {
+        const rows = buildAgentWorkProjection(domain, { limit: Math.max(domain.agent_sessions.length, 1) });
+        return render(input, domain, projectActivitySessionLogEntries(buildDailyAgentSessionContexts(rows, input.date, []), input.themes));
+      }
+    `,
+    resolveDir: path.resolve("."),
+  },
   bundle: true,
   platform: "node",
   format: "esm",

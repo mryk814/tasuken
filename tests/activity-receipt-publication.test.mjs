@@ -4,9 +4,7 @@ import test from "node:test";
 import { build } from "esbuild";
 
 const bundled = await build({
-  entryPoints: [
-    path.resolve("src/renderer/src/features/workspace/lib/activityReceiptPublication.ts"),
-  ],
+  entryPoints: [path.resolve("src/renderer/src/features/workspace/lib/activityLog.ts")],
   bundle: true,
   platform: "node",
   format: "esm",

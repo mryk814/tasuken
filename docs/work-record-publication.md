@@ -95,3 +95,12 @@ Android専用のIssue #518は、利用者の訂正により保留した。
 - 同パッケージのDebriefから日誌を出力し、AI公開設定が空の代表記録も題名・要約が掲載されることを確認した。[出力後の画面](../output/note-lifecycle-qa/activity-folder-packaged.png)で新しい保存先の説明と操作を確認した。
 - 対象ESLintはエラー0、警告21。Ponytail reviewで不要な抽象化・依存追加は見つからなかった。
 - 個人の常用DBや実OneDriveには書き込んでいない。検証データは`output/note-lifecycle-qa/`に分離した。
+
+### main合流前のCI修正
+
+日誌生成は既存の`activityLog.ts`にまとめ、画面・自動出力側で投影したAIセッションを受け取る。
+移行中のworkspace内部APIへの新規依存を増やさず、日誌の内容と保存先中心の方針を維持する。
+アーキテクチャ監査のcore-mcpテストにも、他の監査テストと同じ出力バッファ上限を適用した。
+監査基準・既存の例外数は変更せず、監査と日誌関連の50テストが成功した。
+CIと同じ`test:unit-contract`も106件成功し、型チェックと変更箇所のLintも成功した。
+ローカルの`npm run ci`は既存の`output/codex-worktrees/`までLint対象となるため停止した。全工程はGitHubのクリーン環境で確認する。

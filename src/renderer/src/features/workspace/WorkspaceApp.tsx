@@ -48,7 +48,12 @@ import {
   runActivityAutoExport,
 } from "./lib/activityAutoExport";
 import { resolveActivityLogDirectory } from "./lib/activityLogDirectory";
-import { buildActivityPublication } from "./lib/activityPublication";
+import { buildActivityPublication } from "./lib/activityLog";
+import { buildAgentWorkProjection } from "./domain-model/agentSessionProjection";
+import {
+  buildDailyAgentSessionContexts,
+  projectActivitySessionLogEntries,
+} from "./lib/activityTimeline";
 import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
 import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
 import { buildDomainDrawerFormPlan, themeIntentFromForm } from "./lib/drawerFormPlans";
@@ -687,7 +692,20 @@ export function WorkspaceApp() {
             const result = await workspaceApi.exportMarkdownFile({
               title: `Tasken Activity Log ${targetDate}`,
               fileName: `tasken-activity-${targetDate}.md`,
-              content: buildActivityPublication(activityInput, fullDomain),
+              content: buildActivityPublication(
+                activityInput,
+                fullDomain,
+                projectActivitySessionLogEntries(
+                  buildDailyAgentSessionContexts(
+                    buildAgentWorkProjection(fullDomain, {
+                      limit: Math.max(fullDomain.agent_sessions.length, 1),
+                    }),
+                    targetDate,
+                    [],
+                  ),
+                  allThemes,
+                ),
+              ),
               directory: activeDirectory,
               chooseDirectory: false,
             });
