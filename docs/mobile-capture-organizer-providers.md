@@ -1,9 +1,26 @@
-# Android入力のAI整理に使うプロバイダー
+# Desktop・Android共通の入力AI整理
 
 Desktopの`src/main/gateway/mobile/captureOrganizer.ts`が、利用者の整理要求に対して提案だけを返す。
 Taskの保存や既存データの変更は行わない。採用まで原文を保持し、返答をプレビューで確認する。
 Androidの整理操作はTask入力にだけ表示する。整理を取り消すと原文と整理前のThemeへ戻る。
-APIキーはDesktopのプロセス環境から読み、Android・ログ・返答・プロンプトへ含めない。
+DesktopのQuick CaptureではTask入力の「AIで整理」から同じ処理を使う。整理案のタイトル・Theme・日付・チェック項目・補足を修正し、「追加」で保存する。元の入力へ戻すこともできる。
+APIキーはDesktopで管理し、Android・ログ・返答・プロンプトへ含めない。
+
+## 画面から設定する
+
+「Settings → AI & Context → 入力のAI整理」でプロバイダー、モデル（Azureではデプロイ名）、APIキーを入力する。Azureのみ接続先も指定する。
+「接続を確認」は入力中の設定で短い固定テキストを送信する。API利用料が発生する場合があり、設定の保存やTaskの作成は行わない。
+「保存」するとDesktopとAndroidの次の整理要求から適用され、再起動は不要。
+保存済みのキーは空欄のまま再利用できるが、プロバイダーまたはAzure接続先を変えると再入力が必要になる。
+
+設定はElectronのuserData配下の`capture-organizer-settings.json`へ保存し、APIキーはOSのsafeStorageで暗号化する。暗号化が利用できない環境では保存しない。
+キーは画面へ再表示せず、TaskのDB・同期・Exportには含めない。別端末では設定し直す。
+保存済み設定を削除すると環境変数の設定へ戻る。環境変数もなければ未設定になる。
+壊れた設定は画面から削除するか、キーを再入力して保存し直せる。
+
+## 環境変数で設定する場合
+
+画面で保存した設定が優先され、保存済み設定がない場合だけ以下を使う。
 このモジュールは`.env`ファイルを自動では読まない。
 `.env.example`は変数名の見本として使う。OSまたは起動用シェルの環境変数へ設定した後、Desktopを終了して同じ環境から起動し直す。
 Android側にはAPIキーを設定せず、Desktop Gatewayとの既存のペアリングを利用する。
@@ -63,3 +80,17 @@ OpenAI/Azureには`store:false`を指定するが、プロバイダーの処理�
 
 fake fetchで5プロバイダーの送信形式、日付基準、ローカル検証、拒否、サイズ制限、timeout、秘密を含めない失敗を確認する。
 APIキーを使う実通信とモデルごとの整理品質は別の検証境界であり、このテストでは確認しない。
+
+共通設定とDesktop入力の回帰確認:
+
+```sh
+node --test tests/capture-organizer-settings.test.mjs tests/quick-capture-organization.test.mjs tests/settings-ia.test.mjs
+npm run typecheck
+npm run package
+```
+
+2026-09-05の隔離Electron実動確認では、設定の暗号化保存・再起動後の復元・削除、失敗時の入力保持、Azure欄、ライト／ダーク表示を確認した。
+Quick Captureは推論応答だけを固定fixtureへ置き換え、編集したタイトル・補足・原文・チェック項目・期限を実際のCreateTask経路で保存して正本から読み戻した。
+日付逆転時の入力保持、元の入力への復元、整理待ち中の編集に対する古い結果の破棄も確認した。
+接続成功の画面表示にはテスト応答を用い、実APIの成功とは区別した。実キーによる通信・整理品質は未検証。
+2026-09-06にはWindows配布版でも、隔離userDataでTaskの原文・3件のチェック項目の復元、設定の保存・再起動後の復元・削除を確認した。NSIS／portableの生成も成功した。

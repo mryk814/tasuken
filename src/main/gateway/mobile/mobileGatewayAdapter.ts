@@ -261,6 +261,7 @@ export interface MobileGatewayOptions {
   state: MobileGatewayStatePort;
   logger?: MobileGatewayLoggerPort;
   captureOrganizer?: NonNullable<ReturnType<typeof createCaptureOrganizerFromEnvironment>> | null;
+  getCaptureOrganizer?: () => ReturnType<typeof createCaptureOrganizerFromEnvironment>;
 }
 
 function projectLatestWorkReceipt(
@@ -789,8 +790,9 @@ export class MobileGatewayAdapter {
           return this.error(meta, "rate_limited", true);
         this.organizingDevices.add(request.principal.deviceId);
         try {
-          const organizer =
-            this.options.captureOrganizer === undefined
+          const organizer = this.options.getCaptureOrganizer
+            ? this.options.getCaptureOrganizer()
+            : this.options.captureOrganizer === undefined
               ? createCaptureOrganizerFromEnvironment()
               : this.options.captureOrganizer;
           if (!organizer) return this.error(meta, "capability_unavailable");

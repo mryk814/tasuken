@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CAPTURE_ORGANIZER_CHAT_MODELS } from "../../../shared/captureOrganizerSettings.ts";
 
 const inputSchema = z.strictObject({
   text: z
@@ -98,42 +99,6 @@ Use real YYYY-MM-DD calendar dates. Execution day -> startDate; deadline -> endD
 Only set rangeSemantics for a true startDate < endDate range: once_within_window or ongoing when supported by the text.
 For ambiguous dates or meaning, leave the uncertain fields null and explain in warnings (at most 10, each 1-500 characters).
 Never imply a proposal has been saved. Return only the object defined by the JSON schema.`;
-
-const chatModels = {
-  "opencode-zen": new Set([
-    "deepseek-v4-pro",
-    "deepseek-v4-flash",
-    "deepseek-v4-flash-vision-exp",
-    "minimax-m3",
-    "minimax-m2.7",
-    "minimax-m2.5",
-    "glm-5.3-flash",
-    "glm-5.3",
-    "glm-5.2",
-    "glm-5.1",
-    "glm-5",
-    "kimi-k2.5",
-    "kimi-k2.6",
-    "kimi-k2.7-code",
-    "kimi-k3",
-    "big-pickle",
-  ]),
-  "opencode-go": new Set([
-    "glm-5.3-flash",
-    "glm-5.3",
-    "glm-5.2",
-    "glm-5.1",
-    "kimi-k3",
-    "kimi-k2.7-code",
-    "kimi-k2.6",
-    "longcat-2.0",
-    "deepseek-v4-pro",
-    "deepseek-v4-flash",
-    "deepseek-v4-flash-vision-exp",
-    "mimo-v2.5",
-    "mimo-v2.5-pro",
-  ]),
-};
 
 const failure = () =>
   new Error(
@@ -246,7 +211,8 @@ export function createCaptureOrganizerFromEnvironment(
       break;
     case "opencode-zen":
     case "opencode-go":
-      if (!chatModels[provider].has(model)) throw configurationFailure();
+      if (!(CAPTURE_ORGANIZER_CHAT_MODELS[provider] as readonly string[]).includes(model))
+        throw configurationFailure();
       url = `https://opencode.ai/zen/${provider === "opencode-go" ? "go/" : ""}v1/chat/completions`;
       providerLabel = provider === "opencode-go" ? "OpenCode Go" : "OpenCode Zen";
       break;

@@ -25,7 +25,7 @@
         padding: 12px;
         height: 100%;
         min-width: 0;
-        overflow: hidden;
+        overflow: auto;
       }
       .capture-header {
         display: flex;
@@ -165,6 +165,17 @@
       button:active { transform: scale(0.98); }
       button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
       button:disabled { opacity: 0.5; cursor: not-allowed; }
+      [hidden] { display: none !important; }
+      .secondary { background: var(--color-surface); color: var(--color-text); border-color: var(--color-border); }
+      .secondary:hover { background: var(--color-bg); }
+      .organization { display: grid; gap: 8px; flex: 0 0 auto; }
+      .organization label { display: grid; gap: 4px; font-size: 12px; }
+      .organization input { min-width: 0; padding: 6px; color: inherit; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 7px; font: inherit; }
+      .organization input:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+      .organization textarea { min-height: 64px; }
+      .organization-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      #organization-status, #organization-warnings { font-size: 12px; white-space: pre-wrap; }
+      #original-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 160px; overflow: auto; }
       .feedback {
         position: fixed;
         inset: 0;
@@ -204,7 +215,21 @@
       <textarea id="input" placeholder="タスク・メモ・アイデア" autofocus></textarea>
       <span id="due-preview" class="due-preview" role="status" aria-live="polite"></span>
       <div id="range-choice" class="range-choice" hidden aria-label="日付範囲の意味"></div>
+      <section id="organization" class="organization" hidden aria-label="整理案を確認">
+        <div class="organization-dates">
+          <label>開始日<input id="organization-start" type="date"></label>
+          <label>期限<input id="organization-end" type="date"></label>
+        </div>
+        <label>期間の意味<select id="organization-range"><option value="">未指定</option><option value="once_within_window">期間内に一度</option><option value="ongoing">期間中継続</option></select></label>
+        <label>チェック項目（1行に1件）<textarea id="organization-checklist"></textarea></label>
+        <label>補足<textarea id="organization-supplement" maxlength="12000"></textarea></label>
+        <p id="organization-warnings" role="status"></p>
+        <details><summary>元の入力</summary><p id="original-text"></p></details>
+        <button id="organization-restore" class="secondary" type="button">元の入力に戻す</button>
+      </section>
+      <p id="organization-status" role="status" aria-live="polite"></p>
       <div class="capture-actions">
+        <button id="organize" class="secondary" type="button" hidden>AIで整理</button>
         <button id="submit" type="button">記録する</button>
       </div>
     </div>
@@ -224,6 +249,67 @@
       let lastThemeId = localStorage.getItem("tasken:quick-capture:last-theme-id") || "";
       let selectedRangeSemantics = "";
       let previewRequest = 0;
+      const organizeButton = document.getElementById("organize");
+      const organizationPanel = document.getElementById("organization");
+      const organizationStatus = document.getElementById("organization-status");
+      let organization = null;
+      let originalInput = null;
+      let organizeRequest = 0;
+      let organizing = false;
+
+      function stopOrganizing() {
+        ++organizeRequest;
+        organizing = false;
+        organizeButton.textContent = "AIで整理";
+        submitButton.disabled = false;
+      }
+      function clearOrganization(restore = false) {
+        stopOrganizing();
+        if (restore && originalInput) { input.value = originalInput.text; themeSelect.value = originalInput.themeId; }
+        organization = null;
+        originalInput = null;
+        organizationPanel.hidden = true;
+        organizationStatus.textContent = "";
+        organizeButton.hidden = mode !== "today-task";
+        window.captureApi.resize(false);
+        void refreshDuePreview();
+      }
+      async function organize() {
+        if (organizing) { stopOrganizing(); organizationStatus.textContent = "整理を中止しました。入力は残っています。"; return; }
+        if (mode !== "today-task" || !input.value.trim()) return;
+        const snapshot = { text: input.value, themeId: themeSelect.value };
+        const request = ++organizeRequest;
+        organizing = true;
+        organizeButton.textContent = "整理を中止";
+        submitButton.disabled = true;
+        organizationStatus.textContent = "AIで整理しています…";
+        try {
+          const result = await window.captureApi.organize({ text: snapshot.text, themeId: snapshot.themeId || null,
+            capturedAt: new Date().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+          if (request !== organizeRequest || mode !== "today-task" || input.value !== snapshot.text || themeSelect.value !== snapshot.themeId) return;
+          originalInput = snapshot;
+          organization = result;
+          input.value = result.title;
+          themeSelect.value = result.themeId || "";
+          document.getElementById("organization-start").value = result.startDate || "";
+          document.getElementById("organization-end").value = result.endDate || "";
+          document.getElementById("organization-range").value = result.rangeSemantics || "";
+          document.getElementById("organization-checklist").value = result.checklist.join("\n");
+          document.getElementById("organization-supplement").value = result.supplement;
+          document.getElementById("organization-warnings").textContent = result.warnings.join("\n");
+          document.getElementById("original-text").textContent = snapshot.text;
+          organizationPanel.hidden = false;
+          organizeButton.hidden = true;
+          duePreview.className = "due-preview";
+          rangeChoice.hidden = true;
+          organizationStatus.textContent = "整理案を確認して追加してください。";
+          window.captureApi.resize(true);
+        } catch {
+          if (request === organizeRequest) organizationStatus.textContent = "整理できませんでした。設定・接続を確認して再試行してください。入力は残っています。";
+        } finally {
+          if (request === organizeRequest) stopOrganizing();
+        }
+      }
 
       function applyThemes(themes) {
         const current = themeSelect.value || lastThemeId;
@@ -268,6 +354,7 @@
         selectedRangeSemantics = "";
         rangeChoice.replaceChildren();
         rangeChoice.hidden = true;
+        organizeButton.hidden = !isTodayTask || organization !== null;
       }
 
       function renderRangeChoice(result) {
@@ -301,10 +388,10 @@
 
       // 期限は解釈結果を保存前に見せる。読めない表現のまま黙って保存させない（#308）。
       async function refreshDuePreview() {
-        if (mode !== "today-task") return;
+        if (mode !== "today-task" || organization) return;
         const request = ++previewRequest;
         const result = await window.captureApi.previewDue(input.value);
-        if (mode !== "today-task" || request !== previewRequest) return;
+        if (mode !== "today-task" || organization || request !== previewRequest) return;
         if (result.state === "empty") {
           duePreview.className = "due-preview is-visible";
           duePreview.textContent = "期限指定なし · 今日";
@@ -323,18 +410,26 @@
       }
 
       async function submit(continueCapturing = false) {
+        if (organizing || submitButton.disabled) return;
         const text = input.value.trim();
         if (!text) return;
         submitButton.disabled = true;
         try {
           const usesTheme = mode !== "micro-memo";
           const themeId = usesTheme ? themeSelect.value : "";
-          await window.captureApi.save(text, mode, themeId, selectedRangeSemantics || undefined);
+          const accepted = organization ? { ...organization, title: text, themeId: themeId || null,
+            startDate: document.getElementById("organization-start").value || null,
+            endDate: document.getElementById("organization-end").value || null,
+            rangeSemantics: document.getElementById("organization-range").value || null,
+            checklist: document.getElementById("organization-checklist").value.split("\n").map((item) => item.trim()).filter(Boolean),
+            supplement: document.getElementById("organization-supplement").value } : undefined;
+          await window.captureApi.save(originalInput?.text ?? text, mode, themeId, selectedRangeSemantics || undefined, accepted);
           if (usesTheme) {
             lastThemeId = themeId;
             localStorage.setItem("tasken:quick-capture:last-theme-id", themeId);
           }
           input.value = "";
+          clearOrganization();
           feedback.style.display = "";
           feedback.style.animation = "none";
           feedback.offsetHeight;
@@ -350,6 +445,10 @@
         } catch (error) {
           // 期限を読み取れない等、直せる失敗は原因をそのまま見せる。入力は消さない。
           const reason = String(error?.message || "").replace(/^Error: /, "").replace(/^.*Error invoking remote method '[^']*': Error: /, "");
+          if (organization) {
+            organizationStatus.textContent = "保存できませんでした。タイトル・日付・チェック項目を確認して再試行してください。元の入力と整理案は残っています。";
+            return;
+          }
           feedback.textContent = reason
             ? `${reason} 入力は残っています。`
             : "保存できませんでした。入力は残っています。メイン画面を開いて状態を確認してください。";
@@ -361,7 +460,10 @@
       }
 
       submitButton.addEventListener("click", () => submit(false));
-      input.addEventListener("input", () => { void refreshDuePreview(); });
+      input.addEventListener("input", () => { if (organizing) { stopOrganizing(); organizationStatus.textContent = "入力が変わったため整理を中止しました。"; } void refreshDuePreview(); });
+      themeSelect.addEventListener("change", () => { if (organizing) { stopOrganizing(); organizationStatus.textContent = "Themeが変わったため整理を中止しました。"; } });
+      organizeButton.addEventListener("click", organize);
+      document.getElementById("organization-restore").addEventListener("click", () => clearOrganization(true));
 
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
@@ -375,8 +477,9 @@
       });
 
       window.captureApi.onShow((nextMode) => {
+        if (nextMode !== mode) { clearOrganization(true); }
         applyMode(nextMode);
-        input.value = "";
+        if (organization) { duePreview.className = "due-preview"; rangeChoice.hidden = true; }
         input.focus();
         feedback.style.display = "none";
         feedback.classList.remove("error");

@@ -178,8 +178,10 @@ export class TaskenCoreRuntime {
   createMobileGateway(
     state: MobileGatewayStatePort,
     logger?: MobileGatewayLoggerPort,
+    getCaptureOrganizer?: ConstructorParameters<typeof MobileGatewayAdapter>[0]["getCaptureOrganizer"],
   ): MobileGatewayAdapter {
     return new MobileGatewayAdapter({
+      getCaptureOrganizer,
       core: {
         status: async () => ({
           apiVersion: TASKEN_CORE_API_VERSION,

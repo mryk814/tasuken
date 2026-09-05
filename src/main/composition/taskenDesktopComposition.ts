@@ -40,6 +40,7 @@ export interface TaskenDesktopCompositionOptions<
 > {
   userDataPath: string;
   persistence: TPersistence;
+  getCaptureOrganizer?: Parameters<TaskenCoreRuntime["createMobileGateway"]>[2];
   mcpPackageSmoke?: McpPackageSmokeOptions;
   onProposalCommitted?: ConstructorParameters<typeof TaskenCoreRuntime>[3];
   onCoreCommandCommitted?: (receipt: ReturnType<ApplicationCommandService["execute"]>) => void;
@@ -117,7 +118,11 @@ export class TaskenDesktopComposition<
       current: () => this.repository.mobileGatewayState(),
     };
     this.mobileGateway = new MobileGatewayRuntime({
-      adapter: this.coreRuntime.createMobileGateway(mobileState),
+      adapter: this.coreRuntime.createMobileGateway(
+        mobileState,
+        undefined,
+        options.getCaptureOrganizer,
+      ),
       state: mobileState,
       persistence: this.repository,
     });
