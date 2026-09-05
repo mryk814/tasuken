@@ -20,7 +20,7 @@ class MobileTaskCommandContractTest {
                   "ok": false,
                   "meta": {
                     "apiVersion": 1,
-                    "schemaVersion": 6,
+                    "schemaVersion": 7,
                     "serverId": "server-1",
                     "serverRevision": 8,
                     "generatedAt": "2026-08-24T00:00:00Z",
@@ -291,7 +291,7 @@ class MobileTaskCommandContractTest {
               "ok": true,
               "meta": {
                 "apiVersion": 1,
-                "schemaVersion": 6,
+                "schemaVersion": 7,
                 "serverId": "server-1",
                 "serverRevision": 8,
                 "generatedAt": "2026-08-23T00:00:00Z",
@@ -363,7 +363,7 @@ class MobileTaskCommandContractTest {
           "ok": true,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 6,
+            "schemaVersion": 7,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",
@@ -392,7 +392,7 @@ class MobileTaskCommandContractTest {
           "ok": false,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 6,
+            "schemaVersion": 7,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",
@@ -428,7 +428,7 @@ class MobileTaskCommandContractTest {
           "ok": false,
           "meta": {
             "apiVersion": 1,
-            "schemaVersion": 6,
+            "schemaVersion": 7,
             "serverId": "server-1",
             "serverRevision": 8,
             "generatedAt": "2026-08-22T01:00:00Z",

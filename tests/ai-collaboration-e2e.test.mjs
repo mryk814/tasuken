@@ -17,6 +17,22 @@ async function importBundled(relativePath) {
     bundle: true,
     platform: "node",
     format: "esm",
+    plugins: [
+      {
+        name: "electron-mock",
+        setup(buildApi) {
+          buildApi.onResolve({ filter: /^electron$/ }, () => ({
+            path: "electron-mock",
+            namespace: "electron-mock",
+          }));
+          buildApi.onLoad({ filter: /.*/, namespace: "electron-mock" }, () => ({
+            contents:
+              "export const nativeImage={createFromBuffer:()=>({isEmpty:()=>true,getSize:()=>({width:0,height:0})})};",
+            loader: "js",
+          }));
+        },
+      },
+    ],
     write: false,
     logLevel: "silent",
   });

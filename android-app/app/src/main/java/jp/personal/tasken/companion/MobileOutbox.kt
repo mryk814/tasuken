@@ -199,6 +199,9 @@ class MobileOutbox(
             reportedVia = MobileCaptureSource.AndroidApp.wireValue,
             capturedAt = createdAt,
         ),
+        description: String? = null,
+        checklistItems: List<MobileChecklistItem>? = null,
+        schedule: MobileCreateTaskScheduleDto? = null,
     ): String {
         val normalizedTitle = title.trim()
         require(normalizedTitle.isNotEmpty() && normalizedTitle.length <= 500)
@@ -218,6 +221,9 @@ class MobileOutbox(
                     existingEnvelope.command.task.title == normalizedTitle &&
                     existingEnvelope.command.task.projectId == projectId &&
                     existingEnvelope.command.task.todayDate == todayDate?.toString() &&
+                    existingEnvelope.command.task.description == description &&
+                    existingEnvelope.command.task.checklistItems == checklistItems &&
+                    existingEnvelope.command.schedule == schedule &&
                     existingEnvelope.command.provenance == provenance,
             ) { "同じDraft IDが別のTask作成に使われています。" }
             return taskId
@@ -240,8 +246,11 @@ class MobileOutbox(
                     title = normalizedTitle,
                     projectId = projectId,
                     todayDate = todayDate?.toString(),
+                    description = description,
+                    checklistItems = checklistItems,
                 ),
                 provenance = provenance,
+                schedule = schedule,
             ),
         )
         dao.enqueueCreate(
@@ -255,6 +264,14 @@ class MobileOutbox(
                 todayDate = todayDate?.toString(),
                 updatedAt = issuedAt,
                 optimisticCommandId = commandId,
+                checklistJson = encodeMobileChecklist(checklistItems.orEmpty()),
+                description = description,
+                scheduleStartDate = schedule?.startDate,
+                scheduleEndDate = schedule?.endDate,
+                scheduleRangeSemantics = schedule?.rangeSemantics,
+                scheduleDateKind = schedule?.let { deriveScheduleDateKind(it.startDate, it.endDate) },
+                scheduleConfidence = schedule?.let { "fixed" },
+                scheduleGranularity = schedule?.let { "day" },
             ),
             command = OutboxCommandEntity(
                 commandId = commandId,
@@ -273,7 +290,7 @@ class MobileOutbox(
                 taskId = taskId,
             ),
         )
-        schedule()
+        this.schedule()
         return taskId
     }
 
@@ -1196,6 +1213,7 @@ class MobileOutbox(
                                 id = task.id,
                                 serverVersion = task.version,
                                 title = task.title,
+                                description = task.description,
                                 themeId = task.themeId,
                                 state = task.state,
                                 workState = task.workState,
@@ -1379,6 +1397,7 @@ class MobileOutbox(
                             id = current.id,
                             serverVersion = current.version,
                             title = current.title,
+                            description = current.description,
                             themeId = current.themeId,
                             state = current.state,
                             workState = current.workState,

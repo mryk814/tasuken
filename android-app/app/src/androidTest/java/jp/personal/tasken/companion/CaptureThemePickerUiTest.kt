@@ -52,18 +52,19 @@ class CaptureThemePickerUiTest {
             }
         }
 
+        composeRule.onNodeWithTag("capture-classification-toggle").performClick()
         composeRule.onNodeWithTag("capture-theme-none-option")
             .assertIsEnabled()
             .assertIsSelected()
         composeRule.onNodeWithTag("capture-theme-option-theme-research")
             .assertIsEnabled()
             .performClick()
-            .assertIsSelected()
 
         composeRule.runOnIdle { assertEquals("theme-research", selectedThemeId.value) }
+        composeRule.onNodeWithTag("capture-classification-toggle").performScrollTo().performClick()
         composeRule.onNodeWithTag("capture-theme-none-option")
+            .performScrollTo()
             .performClick()
-            .assertIsSelected()
         composeRule.runOnIdle { assertNull(selectedThemeId.value) }
     }
 
@@ -249,6 +250,7 @@ class CaptureThemePickerUiTest {
             }
         }
 
+        composeRule.onNodeWithTag("capture-classification-toggle").performClick()
         composeRule.onNodeWithTag("capture-kind-capture").performClick()
 
         composeRule.runOnIdle { assertEquals(MobileCaptureKind.Capture, selectedKind.value) }

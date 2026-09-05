@@ -109,6 +109,10 @@ export const IPC = {
   workspaceBootstrap: "workspace:bootstrap",
   workspaceMeta: "workspace:meta",
   mobileGatewayDiagnostics: "mobile-gateway:diagnostics",
+  captureOrganizerGetSettings: "capture-organizer:get-settings",
+  captureOrganizerSaveSettings: "capture-organizer:save-settings",
+  captureOrganizerTestConnection: "capture-organizer:test-connection",
+  captureOrganizerClearSettings: "capture-organizer:clear-settings",
   mobileGatewayIssuePairing: "mobile-gateway:issue-pairing",
   mobileGatewayCancelPairing: "mobile-gateway:cancel-pairing",
   mobileGatewayRevokeDevice: "mobile-gateway:revoke-device",
@@ -250,6 +254,8 @@ export const IPC = {
   workspaceChanged: "workspace:changed",
   quickCaptureSave: "quick-capture:save",
   quickCapturePreviewDue: "quick-capture:preview-due",
+  quickCaptureOrganize: "quick-capture:organize",
+  quickCaptureResize: "quick-capture:resize",
   quickCaptureHide: "quick-capture:hide",
   quickCaptureShown: "quick-capture:shown",
   quickCaptureTheme: "quick-capture:theme",
@@ -661,6 +667,18 @@ export type WebArtifactPreviewResult =
   | { ok: false; error: string };
 
 export interface ResearchDeskApi {
+  captureOrganizer: {
+    getSettings(): Promise<import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsState>;
+    saveSettings(
+      input: import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsInput,
+    ): Promise<import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsState>;
+    testConnection(
+      input: import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsInput,
+    ): Promise<import("../captureOrganizerSettings.ts").CaptureOrganizerConnectionResult>;
+    clearSettings(): Promise<
+      import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsState
+    >;
+  };
   workspace: {
     load(): Promise<Workspace>;
     bootstrap(legacy: Workspace): Promise<Workspace>;

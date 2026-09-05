@@ -110,6 +110,41 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun organizedCreatePersistsChecklistScheduleAndOriginalAtomicallyAndRetriesOnce() = runBlocking {
+        val draft = MobileCaptureDraft.fresh(text = "明日は牛乳とパンを買う", newId = { "organized-draft" })
+            .withOrganization(MobileCaptureOrganization(
+                title = "買い物", checklist = listOf("牛乳", "パン"), startDate = "2026-09-06", supplement = "帰宅前",
+            ))
+        suspend fun submit(description: String? = draft.organizationDescription()) = outbox.enqueueCreate(
+            draft.text, draftId = draft.draftId, description = description,
+            checklistItems = draft.organizationChecklistItems(), schedule = draft.organizationSchedule(),
+        )
+        val first = submit()
+        assertEquals(first, submit())
+        assertEquals(1, dao.outboxCount())
+        val task = requireNotNull(dao.task(first))
+        assertEquals(draft.organizationChecklistItems(), decodeMobileChecklist(task.checklistJson))
+        assertEquals(draft.organizationDescription(), task.toMobileTask().description)
+        assertEquals("2026-09-06", task.toMobileTaskSchedule()?.startDate)
+        val command = requireNotNull(dao.outbox(requireNotNull(task.optimisticCommandId)))
+        val envelope = MobileTaskCommandContract.decodeCreateEnvelope(command.envelopeJson)
+        assertEquals(draft.organizationDescription(), envelope.command.task.description)
+        assertEquals(draft.organizationSchedule(), envelope.command.schedule)
+        assertTrue(runCatching { submit("different original") }.isFailure)
+        assertEquals(command, dao.outbox(command.commandId))
+        assertEquals("明日は牛乳とパンを買う", draft.originalText)
+    }
+
+    @Test
+    fun invalidOrganizedCreateLeavesNeitherTaskNorOutbox() = runBlocking {
+        assertTrue(runCatching {
+            outbox.enqueueCreate("入力を保持", description = "x".repeat(50001), draftId = "invalid-organized")
+        }.isFailure)
+        assertEquals(0, dao.outboxCount())
+        assertEquals(0, dao.tasks().size)
+    }
+
+    @Test
     fun offlineCapturePersistsBodyOnlyInImmutableOutboxAndReusesStableDraft() = runBlocking {
         val provenance = MobileTaskCreationProvenanceDto(
             reportedVia = "share_target",

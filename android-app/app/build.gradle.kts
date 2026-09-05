@@ -53,8 +53,8 @@ android {
         applicationId = "jp.personal.tasken.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 45
-        versionName = "0.1.45"
+        versionCode = 51
+        versionName = "0.1.51"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -71,6 +71,9 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            applicationIdSuffix = ".debug"
+        }
         getByName("release") {
             if (taskenReleaseSigningConfigured) {
                 signingConfig = signingConfigs.getByName("release")

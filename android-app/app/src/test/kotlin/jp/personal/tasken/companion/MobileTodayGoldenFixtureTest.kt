@@ -60,6 +60,7 @@ class MobileTodayGoldenFixtureTest {
             mutateFirstItem { it + ("id" to JsonPrimitive(" ")) },
             mutateFirstItem { it + ("id" to JsonPrimitive("x".repeat(201))) },
             mutateFirstItem { it + ("state" to JsonPrimitive("invalid")) },
+            mutateFirstItem { it + ("description" to JsonPrimitive("x".repeat(50001))) },
             mutateFirstItem { it + ("workState" to JsonPrimitive("invalid")) },
             mutateFirstItem { it + ("updatedAt" to JsonPrimitive("not-a-timestamp")) },
             mutateFirstItem { JsonObject(it - "schedule") },
@@ -72,6 +73,14 @@ class MobileTodayGoldenFixtureTest {
                 MobileTodayContract.decodeSuccess(payload.toString())
             }
         }
+    }
+
+    @Test
+    fun descriptionProjectionPreservesOriginalTextAndOldResponsesRemainReadable() {
+        val description = "# 元の入力\n原文の改行も保持する\n次の行"
+        val payload = mutateFirstItem { it + ("description" to JsonPrimitive(description)) }
+        assertEquals(description, MobileTodayContract.decodeSuccess(payload.toString()).toResult().tasks.first().description)
+        assertEquals(null, MobileTodayContract.decodeSuccess(golden).toResult().tasks.first().description)
     }
 
     @Test

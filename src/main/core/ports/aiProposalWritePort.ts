@@ -5,9 +5,10 @@ export interface AiProposalRecord {
   payload_type: string;
   payload: Record<string, unknown>;
   request: Record<string, unknown>;
-  status: "pending";
+  status: "pending" | "accepted" | "rejected" | "partially_accepted" | "quarantined";
   received_at: string;
   version?: number;
+  deleted_at?: string | null;
 }
 
 export interface AiProposalTransaction {

@@ -1,15 +1,5 @@
 import katex from "katex";
-import { fromMarkdown } from "mdast-util-from-markdown";
-import { gfmStrikethroughFromMarkdown } from "mdast-util-gfm-strikethrough";
-import { gfmTableFromMarkdown } from "mdast-util-gfm-table";
-import { gfmTaskListItemFromMarkdown } from "mdast-util-gfm-task-list-item";
-import { mathFromMarkdown } from "mdast-util-math";
 import { toString as mdastToString } from "mdast-util-to-string";
-import { cjkFriendlyExtension } from "micromark-extension-cjk-friendly";
-import { gfmStrikethroughCjkFriendly } from "micromark-extension-cjk-friendly-gfm-strikethrough";
-import { gfmTable } from "micromark-extension-gfm-table";
-import { gfmTaskListItem } from "micromark-extension-gfm-task-list-item";
-import { math as micromarkMath } from "micromark-extension-math";
 import type {
   BlockContent,
   Blockquote,
@@ -33,38 +23,17 @@ import type {
   TableRow,
   Text,
 } from "mdast";
+
+import {
+  extractTaskenMarkdownFootnoteDefinitions as extractFootnoteDefinitions,
+  parseTaskenMarkdownBody as parseMarkdownBody,
+  splitTaskenMarkdownFrontmatter,
+} from "../../../../../shared/contracts/task/public";
 import { KATEX_DOCUMENT_CSS } from "./katexDocumentCss";
 import { parseWikiLinks } from "./knowledgeLinks";
 import { MARKDOWN_DOCUMENT_SURFACES_CSS } from "./markdownDocumentSurfaces";
 import { mermaidWidthFromMeta } from "./mermaidWidth";
 import { parseSketchEmbedUrl, type SketchEmbedPreview } from "./sketchEmbed";
-
-/**
- * MDXEditor と同じ GFM table / strikethrough / math 拡張で mdast 化する（Preview / PDF 共通）。
- *
- * cjkFriendlyExtension は CommonMark の flanking 判定を CJK 向けに緩める（#285）。
- * 素の CommonMark では `文章中の**（重要）**です` のように約物が `**` の内側、
- * 日本語文字が外側に来ると開始・終了デリミタのどちらにもならず強調にならない。
- * 取り消し線も同じ判定を使うため、GFM版ではなく CJK 対応版を入れる。
- */
-function parseMarkdownBody(body: string): Root {
-  return fromMarkdown(body, {
-    extensions: [
-      gfmTable(),
-      // チェックリストはScratchpad・Noteの日常表記（#316）。`- [ ]` を文字のまま出さない。
-      gfmTaskListItem(),
-      gfmStrikethroughCjkFriendly(),
-      micromarkMath({ singleDollarTextMath: true }),
-      cjkFriendlyExtension(),
-    ],
-    mdastExtensions: [
-      gfmTableFromMarkdown(),
-      gfmTaskListItemFromMarkdown(),
-      gfmStrikethroughFromMarkdown(),
-      mathFromMarkdown(),
-    ],
-  });
-}
 
 export function escapeHtml(value: string): string {
   return value
@@ -84,13 +53,7 @@ export function sanitizePreviewHtml(value: string): string {
 }
 
 export function splitFrontmatter(value: string): { frontmatter: string; body: string } {
-  const normalized = value.replace(/^\uFEFF/, "");
-  const match = normalized.match(/^---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)\r?\n?/);
-  if (!match) return { frontmatter: "", body: value };
-  return {
-    frontmatter: match[1],
-    body: normalized.slice(match[0].length),
-  };
+  return splitTaskenMarkdownFrontmatter(value);
 }
 
 function escapeComparisonText(value: string): string {
@@ -110,15 +73,19 @@ function escapeComparisonText(value: string): string {
 export function escapeAmbiguousMarkdownComparisons(value: string): string {
   const lines = value.replace(/\r\n?/g, "\n").split("\n");
   let inFence = false;
-  return lines.map((line) => {
-    if (/^\s*(?:`{3,}|~{3,})/.test(line)) {
-      inFence = !inFence;
-      return line;
-    }
-    if (inFence) return line;
-    const parts = line.split(/(`+[^`]*`+)/g);
-    return parts.map((part, index) => index % 2 === 1 ? part : escapeComparisonText(part)).join("");
-  }).join("\n");
+  return lines
+    .map((line) => {
+      if (/^\s*(?:`{3,}|~{3,})/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence) return line;
+      const parts = line.split(/(`+[^`]*`+)/g);
+      return parts
+        .map((part, index) => (index % 2 === 1 ? part : escapeComparisonText(part)))
+        .join("");
+    })
+    .join("\n");
 }
 
 /** Editor内部の比較式escapeを保存前のMarkdown正本へ戻す。 */
@@ -130,9 +97,10 @@ function safeMarkdownUrl(value: string, kind: "image" | "link"): string {
   const trimmed = value.trim().replace(/^<|>$/g, "");
   try {
     const parsed = new URL(trimmed);
-    const allowed = kind === "image"
-      ? ["https:", "http:", "tasken-attachment:", "tasken-sketch:"]
-      : ["https:", "http:", "mailto:"];
+    const allowed =
+      kind === "image"
+        ? ["https:", "http:", "tasken-attachment:", "tasken-sketch:"]
+        : ["https:", "http:", "mailto:"];
     return allowed.includes(parsed.protocol) ? parsed.toString() : "";
   } catch {
     return trimmed.startsWith("#") ? trimmed : "";
@@ -147,7 +115,11 @@ export function safeMarkdownLinkUrl(value: string): string {
   if (direct) return direct;
   // Lexical / ブラウザ解決後の bare host や //example.com を救済する。
   if (trimmed.startsWith("//")) return safeMarkdownUrl(`https:${trimmed}`, "link");
-  if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !trimmed.startsWith("#") && !trimmed.startsWith("/")) {
+  if (
+    !/^[a-z][a-z0-9+.-]*:/i.test(trimmed) &&
+    !trimmed.startsWith("#") &&
+    !trimmed.startsWith("/")
+  ) {
     return safeMarkdownUrl(`https://${trimmed}`, "link");
   }
   return "";
@@ -199,7 +171,9 @@ function renderFallbackMathExpression(value: string): string {
       if (command) {
         const replacement = MATH_COMMANDS[command[0]] || command[0];
         const isOperator = ["arg", "max", "min"].includes(replacement);
-        output += isOperator ? `<span class="md-math-operator">${replacement}</span>` : escapeHtml(replacement);
+        output += isOperator
+          ? `<span class="md-math-operator">${replacement}</span>`
+          : escapeHtml(replacement);
         index += command[0].length;
         continue;
       }
@@ -217,7 +191,9 @@ function renderFallbackMathExpression(value: string): string {
         content = value[index + 1];
         index += 1;
       }
-      output += content ? `<${tag}>${renderFallbackMathExpression(content)}</${tag}>` : escapeHtml(char);
+      output += content
+        ? `<${tag}>${renderFallbackMathExpression(content)}</${tag}>`
+        : escapeHtml(char);
       continue;
     }
     output += escapeHtml(char);
@@ -304,10 +280,12 @@ function decodeHtmlEntities(value: string): string {
     .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, "\"")
+    .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&#(\d+);/g, (_match, code: string) => String.fromCharCode(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) => String.fromCharCode(parseInt(code, 16)));
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) =>
+      String.fromCharCode(parseInt(code, 16)),
+    );
 }
 
 function normalizeMarkdownPaste(value: string): string {
@@ -328,7 +306,9 @@ export function htmlToMarkdownPaste(html: string): string {
 
   text = text.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (tag) => {
     const href = safeMarkdownUrl(attributeValue(tag, "href"), "link");
-    const label = stripHtmlTags(tag.replace(/^<a\b[^>]*>/i, "").replace(/<\/a>$/i, "")).replace(/\s+/g, " ").trim();
+    const label = stripHtmlTags(tag.replace(/^<a\b[^>]*>/i, "").replace(/<\/a>$/i, ""))
+      .replace(/\s+/g, " ")
+      .trim();
     if (!label) return "";
     return href ? `[${label}](${href})` : label;
   });
@@ -350,37 +330,6 @@ export function normalizeRichEditorMarkdown(value: string): string {
   return value.replace(/(^|\r?\n)```[ \t]*\r?\n```[ \t]*(?=\r?\n|$)/g, "$1");
 }
 
-function extractFootnoteDefinitions(value: string): { body: string; definitions: Map<string, string> } {
-  const definitions = new Map<string, string>();
-  const kept: string[] = [];
-  const lines = value.split(/\r?\n/);
-  let inFence = false;
-  for (let index = 0; index < lines.length; index += 1) {
-    const fence = lines[index].match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fence) {
-      inFence = !inFence;
-      kept.push(lines[index]);
-      continue;
-    }
-    if (inFence) {
-      kept.push(lines[index]);
-      continue;
-    }
-    const match = lines[index].match(/^\[\^([^\]\n]+)\]:\s*(.*)$/);
-    if (!match) {
-      kept.push(lines[index]);
-      continue;
-    }
-    const parts = [match[2]];
-    while (index + 1 < lines.length && /^(?: {4}|\t)/.test(lines[index + 1])) {
-      index += 1;
-      parts.push(lines[index].replace(/^(?: {4}|\t)/, ""));
-    }
-    definitions.set(match[1].trim(), parts.join("\n").trim());
-  }
-  return { body: kept.join("\n"), definitions };
-}
-
 function renderTextWithWikiLinks(value: string, ctx: MarkdownRenderContext): string {
   const parts: string[] = [];
   const pattern = /\[\^([^\]\n]+)\]|\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g;
@@ -397,11 +346,15 @@ function renderTextWithWikiLinks(value: string, ctx: MarkdownRenderContext): str
         ctx.footnotes.set(key, number);
       }
       const id = `fn-${escapeHtml(key)}`;
-      parts.push(`<sup id="fnref-${escapeHtml(key)}" class="md-footnote-ref"><a href="#${id}">[${number}]</a></sup>`);
+      parts.push(
+        `<sup id="fnref-${escapeHtml(key)}" class="md-footnote-ref"><a href="#${id}">[${number}]</a></sup>`,
+      );
     } else {
       const link = parseWikiLinks(match[0])[0];
       if (link) {
-        parts.push(`<span class="md-wiki-link" data-knowledge-target="${escapeHtml(link.target)}">${escapeHtml(link.alias)}</span>`);
+        parts.push(
+          `<span class="md-wiki-link" data-knowledge-target="${escapeHtml(link.target)}">${escapeHtml(link.alias)}</span>`,
+        );
       } else {
         parts.push(escapeHtml(match[0]));
       }
@@ -440,12 +393,11 @@ function renderSafeHtmlImage(raw: string): string | null {
   const width = parseDisplayPx(attributeValue(trimmed, "width"));
   const figureClass = width != null ? "md-image has-display-width" : "md-image";
   // figure に幅を持たせ、img は 100% で埋める（中央寄せ・指定幅の両方が効く）
-  const figureStyle = width != null
-    ? ` style="width:min(100%, ${width}px)"`
-    : "";
-  const imgAttrs = width != null
-    ? ` width="${width}" data-display-width="${width}" style="width:100%;height:auto;display:block"`
-    : ` style="max-width:100%;height:auto;display:block"`;
+  const figureStyle = width != null ? ` style="width:min(100%, ${width}px)"` : "";
+  const imgAttrs =
+    width != null
+      ? ` width="${width}" data-display-width="${width}" style="width:100%;height:auto;display:block"`
+      : ` style="max-width:100%;height:auto;display:block"`;
 
   return `<figure class="${figureClass}"${figureStyle}><img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}"${imgAttrs} loading="lazy" /><figcaption>${escapeHtml(alt)}</figcaption></figure>`;
 }
@@ -466,59 +418,68 @@ function renderAllowedHtmlTag(value: string): string {
 
 function renderPhrasing(nodes: PhrasingContent[] | undefined, ctx: MarkdownRenderContext): string {
   if (!nodes?.length) return "";
-  return nodes.map((node) => {
-    switch (node.type) {
-      case "text":
-        return renderTextWithWikiLinks((node as Text).value || "", ctx);
-      case "strong":
-        return `<strong>${renderPhrasing((node as Strong).children, ctx)}</strong>`;
-      case "emphasis":
-        return `<em>${renderPhrasing((node as Emphasis).children, ctx)}</em>`;
-      case "delete":
-        return `<del>${renderPhrasing((node as Delete).children, ctx)}</del>`;
-      case "inlineCode":
-        return `<code>${escapeHtml((node as InlineCode).value || "")}</code>`;
-      case "break":
-        return "<br />";
-      case "link": {
-        const link = node as Link;
-        const url = safeMarkdownUrl(link.url || "", "link");
-        const label = renderPhrasing(link.children, ctx) || escapeHtml(link.url || "");
-        if (!url) return label;
-        return `<a class="md-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${label}</a>`;
-      }
-      case "image": {
-        const image = node as Image;
-        const url = safeMarkdownUrl(image.url || "", "image");
-        const label = (image.alt || "").trim() || "貼り付け画像";
-        if (!url) return escapeHtml(`[画像: ${label}]`);
-        const sketchRef = parseSketchEmbedUrl(url);
-        if (sketchRef) {
-          const preview = ctx.sketchEmbeds?.[sketchRef.key];
-          if (!preview?.dataUrl) {
-            return `<figure class="md-sketch-embed is-missing" data-sketch-id="${escapeHtml(sketchRef.sketchId)}" data-sketch-page-id="${escapeHtml(sketchRef.pageId)}"><div class="md-sketch-missing">参照先のSketchまたはページが見つかりません。</div><figcaption>${escapeHtml(label)}</figcaption></figure>`;
+  return nodes
+    .map((node) => {
+      switch (node.type) {
+        case "text":
+          return renderTextWithWikiLinks((node as Text).value || "", ctx);
+        case "strong":
+          return `<strong>${renderPhrasing((node as Strong).children, ctx)}</strong>`;
+        case "emphasis":
+          return `<em>${renderPhrasing((node as Emphasis).children, ctx)}</em>`;
+        case "delete":
+          return `<del>${renderPhrasing((node as Delete).children, ctx)}</del>`;
+        case "inlineCode":
+          return `<code>${escapeHtml((node as InlineCode).value || "")}</code>`;
+        case "break":
+          return "<br />";
+        case "link": {
+          const link = node as Link;
+          const url = safeMarkdownUrl(link.url || "", "link");
+          const label = renderPhrasing(link.children, ctx) || escapeHtml(link.url || "");
+          if (!url) return label;
+          return `<a class="md-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${label}</a>`;
+        }
+        case "image": {
+          const image = node as Image;
+          const url = safeMarkdownUrl(image.url || "", "image");
+          const label = (image.alt || "").trim() || "貼り付け画像";
+          if (!url) return escapeHtml(`[画像: ${label}]`);
+          const sketchRef = parseSketchEmbedUrl(url);
+          if (sketchRef) {
+            const preview = ctx.sketchEmbeds?.[sketchRef.key];
+            if (!preview?.dataUrl) {
+              return `<figure class="md-sketch-embed is-missing" data-sketch-id="${escapeHtml(sketchRef.sketchId)}" data-sketch-page-id="${escapeHtml(sketchRef.pageId)}"><div class="md-sketch-missing">参照先のSketchまたはページが見つかりません。</div><figcaption>${escapeHtml(label)}</figcaption></figure>`;
+            }
+            return `<figure class="md-sketch-embed" data-sketch-id="${escapeHtml(sketchRef.sketchId)}" data-sketch-page-id="${escapeHtml(sketchRef.pageId)}"><button type="button" class="md-sketch-open" aria-label="${escapeHtml(preview.title)}をSketchで開く"><img src="${escapeHtml(preview.dataUrl)}" alt="${escapeHtml(label)}" loading="lazy" /></button><figcaption><strong>${escapeHtml(preview.title)}</strong><span>Sketchで編集</span></figcaption></figure>`;
           }
-          return `<figure class="md-sketch-embed" data-sketch-id="${escapeHtml(sketchRef.sketchId)}" data-sketch-page-id="${escapeHtml(sketchRef.pageId)}"><button type="button" class="md-sketch-open" aria-label="${escapeHtml(preview.title)}をSketchで開く"><img src="${escapeHtml(preview.dataUrl)}" alt="${escapeHtml(label)}" loading="lazy" /></button><figcaption><strong>${escapeHtml(preview.title)}</strong><span>Sketchで編集</span></figcaption></figure>`;
+          return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" style="max-width:100%;height:auto;display:block" loading="lazy" /><figcaption>${escapeHtml(label)}</figcaption></figure>`;
         }
-        return `<figure class="md-image"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" style="max-width:100%;height:auto;display:block" loading="lazy" /><figcaption>${escapeHtml(label)}</figcaption></figure>`;
+        case "inlineMath":
+          return `<span class="md-math-inline">${renderMathExpression(String((node as { value?: string }).value || ""), false)}</span>`;
+        case "html":
+          return renderAllowedHtmlTag((node as Html).value || "");
+        default:
+          if (
+            "children" in node &&
+            Array.isArray((node as { children?: PhrasingContent[] }).children)
+          ) {
+            return renderPhrasing((node as { children: PhrasingContent[] }).children, ctx);
+          }
+          if ("value" in node && typeof (node as { value?: unknown }).value === "string") {
+            return escapeHtml(String((node as { value: string }).value));
+          }
+          return "";
       }
-      case "inlineMath":
-        return `<span class="md-math-inline">${renderMathExpression(String((node as { value?: string }).value || ""), false)}</span>`;
-      case "html":
-        return renderAllowedHtmlTag((node as Html).value || "");
-      default:
-        if ("children" in node && Array.isArray((node as { children?: PhrasingContent[] }).children)) {
-          return renderPhrasing((node as { children: PhrasingContent[] }).children, ctx);
-        }
-        if ("value" in node && typeof (node as { value?: unknown }).value === "string") {
-          return escapeHtml(String((node as { value: string }).value));
-        }
-        return "";
-    }
-  }).join("");
+    })
+    .join("");
 }
 
-function renderTableCell(cell: TableCell, tagName: "th" | "td", ctx: MarkdownRenderContext): string {
+function renderTableCell(
+  cell: TableCell,
+  tagName: "th" | "td",
+  ctx: MarkdownRenderContext,
+): string {
   return `<${tagName}>${renderPhrasing(cell.children as PhrasingContent[], ctx)}</${tagName}>`;
 }
 
@@ -535,13 +496,15 @@ function renderTable(node: Table, ctx: MarkdownRenderContext): string {
 
 function renderListItem(item: ListItem, ctx: MarkdownRenderContext): string {
   // tight list では <p> を付けない（編集器の見た目・既存テストと揃える）。
-  const inner = (item.children || []).map((child) => {
-    if (child.type === "paragraph") {
-      return renderPhrasing((child as Paragraph).children, ctx);
-    }
-    if (child.type === "list") return renderList(child as List, ctx);
-    return renderBlock(child as Content, ctx);
-  }).join("");
+  const inner = (item.children || [])
+    .map((child) => {
+      if (child.type === "paragraph") {
+        return renderPhrasing((child as Paragraph).children, ctx);
+      }
+      if (child.type === "list") return renderList(child as List, ctx);
+      return renderBlock(child as Content, ctx);
+    })
+    .join("");
   if (item.checked === true || item.checked === false) {
     const mark = item.checked ? "☑" : "☐";
     return `<li class="md-task-item" data-checked="${item.checked ? "true" : "false"}"><span class="md-task-marker" aria-hidden="true">${mark}</span> ${inner}</li>`;
@@ -595,7 +558,10 @@ function renderCallout(quote: Blockquote, ctx: MarkdownRenderContext): string {
 
   const bodyNodes: Content[] = [];
   if (marker.rest) {
-    bodyNodes.push({ type: "paragraph", children: [{ type: "text", value: marker.rest }] } as Paragraph);
+    bodyNodes.push({
+      type: "paragraph",
+      children: [{ type: "text", value: marker.rest }],
+    } as Paragraph);
   }
   bodyNodes.push(...children.slice(1));
   const body = bodyNodes.map((child) => renderBlock(child, ctx)).join("") || "<p></p>";
@@ -611,14 +577,16 @@ export function applyCalloutDecorations(root: ParentNode | null | undefined): vo
   const quotes = Array.from((root as Element).querySelectorAll("blockquote")) as HTMLElement[];
   for (const quote of quotes) {
     const firstP = quote.querySelector(":scope > p") as HTMLElement | null;
-    const firstText = quote.querySelector(":scope > [data-lexical-text='true']") as HTMLElement | null;
+    const firstText = quote.querySelector(
+      ":scope > [data-lexical-text='true']",
+    ) as HTMLElement | null;
     const markerElement = firstP || firstText;
     const raw = (
-      firstP?.innerText
-      || quote.innerText
-      || firstP?.textContent
-      || quote.textContent
-      || ""
+      firstP?.innerText ||
+      quote.innerText ||
+      firstP?.textContent ||
+      quote.textContent ||
+      ""
     ).replace(/\u00a0/g, " ");
     const firstLine = raw.split(/\r?\n/)[0] || raw;
     const marker = parseCalloutMarker(firstLine.trim()) || parseCalloutMarker(raw.trim());
@@ -639,17 +607,21 @@ export function applyCalloutDecorations(root: ParentNode | null | undefined): vo
     // マーカー行だけなら Edit 上は「MEMO」ラベルを出し、生の [!INSIGHT]/[!NOTE] は隠す（本文 Markdown は触らない）。
     const markerRaw = (markerElement?.textContent || "").replace(/\u00a0/g, " ").trim();
     const markerElementFirstLine = markerRaw.split(/\r?\n/)[0] || markerRaw;
-    const markerOnly = !marker.rest
-      && Boolean(markerElement)
-      && Boolean(parseCalloutMarker(markerElementFirstLine))
-      && !/\r?\n/.test(markerRaw);
-    const markerMultiline = !marker.rest
-      && markerElement === firstP
-      && Boolean(parseCalloutMarker(markerElementFirstLine))
-      && /\r?\n/.test(markerRaw);
+    const markerOnly =
+      !marker.rest &&
+      Boolean(markerElement) &&
+      Boolean(parseCalloutMarker(markerElementFirstLine)) &&
+      !/\r?\n/.test(markerRaw);
+    const markerMultiline =
+      !marker.rest &&
+      markerElement === firstP &&
+      Boolean(parseCalloutMarker(markerElementFirstLine)) &&
+      /\r?\n/.test(markerRaw);
     if (!quote.classList.contains("md-callout")) quote.classList.add("md-callout");
-    if (quote.getAttribute("data-callout") !== "insight") quote.setAttribute("data-callout", "insight");
-    if (quote.getAttribute("data-callout-label") !== CALLOUT_LABEL) quote.setAttribute("data-callout-label", CALLOUT_LABEL);
+    if (quote.getAttribute("data-callout") !== "insight")
+      quote.setAttribute("data-callout", "insight");
+    if (quote.getAttribute("data-callout-label") !== CALLOUT_LABEL)
+      quote.setAttribute("data-callout-label", CALLOUT_LABEL);
     for (const decorated of quote.querySelectorAll(".md-callout-marker")) {
       if (decorated !== markerElement) {
         decorated.classList.remove(
@@ -661,7 +633,8 @@ export function applyCalloutDecorations(root: ParentNode | null | undefined): vo
       }
     }
     if (markerElement) {
-      if (!markerElement.classList.contains("md-callout-marker")) markerElement.classList.add("md-callout-marker");
+      if (!markerElement.classList.contains("md-callout-marker"))
+        markerElement.classList.add("md-callout-marker");
       if (markerElement.getAttribute("data-callout-label") !== CALLOUT_LABEL) {
         markerElement.setAttribute("data-callout-label", CALLOUT_LABEL);
       }
@@ -692,10 +665,7 @@ type MarkdownRenderContext = {
   sketchEmbeds?: Record<string, SketchEmbedPreview>;
 };
 
-function renderBlock(
-  node: Content | BlockContent,
-  ctx: MarkdownRenderContext,
-): string {
+function renderBlock(node: Content | BlockContent, ctx: MarkdownRenderContext): string {
   switch (node.type) {
     case "paragraph":
       return `<p>${renderPhrasing((node as Paragraph).children, ctx)}</p>`;
@@ -719,14 +689,19 @@ function renderBlock(
       return renderCallout(node as Blockquote, ctx);
     case "code": {
       const code = node as Code;
-      const language = String(code.lang || "").trim().toLowerCase();
+      const language = String(code.lang || "")
+        .trim()
+        .toLowerCase();
       const languageClass = language ? ` class="language-${escapeHtml(language)}"` : "";
       const mermaidWidth = language === "mermaid" ? mermaidWidthFromMeta(code.meta) : null;
-      const mermaid = language === "mermaid"
-        ? ` class="md-mermaid-block" data-mermaid="true"${mermaidWidth === null
-          ? ""
-          : ` data-mermaid-width="${mermaidWidth}" style="width:min(100%, ${mermaidWidth}%);margin-inline:auto"`}`
-        : "";
+      const mermaid =
+        language === "mermaid"
+          ? ` class="md-mermaid-block" data-mermaid="true"${
+              mermaidWidth === null
+                ? ""
+                : ` data-mermaid-width="${mermaidWidth}" style="width:min(100%, ${mermaidWidth}%);margin-inline:auto"`
+            }`
+          : "";
       return `<pre${mermaid}><code${languageClass}>${escapeHtml(code.value || "")}${code.value?.endsWith("\n") ? "" : "\n"}</code></pre>`;
     }
     case "thematicBreak":
@@ -743,7 +718,9 @@ function renderBlock(
     }
     default:
       if ("children" in node && Array.isArray((node as { children?: Content[] }).children)) {
-        return ((node as { children: Content[] }).children).map((child) => renderBlock(child, ctx)).join("");
+        return (node as { children: Content[] }).children
+          .map((child) => renderBlock(child, ctx))
+          .join("");
       }
       return "";
   }
@@ -768,9 +745,7 @@ export function extractMarkdownHeadings(source: string): MarkdownHeadingItem[] {
   const headings: MarkdownHeadingItem[] = [];
   const lines = body.split(/\r?\n/);
   const bodyStart = source.indexOf(body);
-  const sourceLineOffset = bodyStart > 0
-    ? source.slice(0, bodyStart).split(/\r?\n/).length - 1
-    : 0;
+  const sourceLineOffset = bodyStart > 0 ? source.slice(0, bodyStart).split(/\r?\n/).length - 1 : 0;
   let inCode = false;
   for (const [lineIndex, line] of lines.entries()) {
     if (line.trim().startsWith("```")) {
@@ -845,9 +820,16 @@ export function normalizeHeadingNumberStart(value: unknown): HeadingNumberStart 
 /** h1〜h4の選択値を正規化。未設定は従来どおりh2〜h4。 */
 export function normalizeHeadingNumberLevels(value: unknown): HeadingNumberLevel[] {
   if (!Array.isArray(value)) return [...DEFAULT_HEADING_NUMBER_LEVELS];
-  return [...new Set(value.map((entry) => Number(entry)).filter((entry): entry is HeadingNumberLevel => (
-    entry === 1 || entry === 2 || entry === 3 || entry === 4
-  )))].sort((a, b) => a - b);
+  return [
+    ...new Set(
+      value
+        .map((entry) => Number(entry))
+        .filter(
+          (entry): entry is HeadingNumberLevel =>
+            entry === 1 || entry === 2 || entry === 3 || entry === 4,
+        ),
+    ),
+  ].sort((a, b) => a - b);
 }
 
 /** 見出し先頭が手動番号（1. / 1.1 / 第1章 / (1) / ① 等）か。二重番号を避ける判定。 */
@@ -888,7 +870,9 @@ export function computeHeadingNumberLabels(
   if (!headings.length) return [];
   const levels = Array.isArray(startLevelOrLevels)
     ? normalizeHeadingNumberLevels(startLevelOrLevels)
-    : HEADING_NUMBER_LEVELS.filter((level) => level >= normalizeHeadingNumberStart(startLevelOrLevels));
+    : HEADING_NUMBER_LEVELS.filter(
+        (level) => level >= normalizeHeadingNumberStart(startLevelOrLevels),
+      );
   const usable = headings.filter((heading) => levels.includes(heading.level as HeadingNumberLevel));
   if (!usable.length) return headings.map(() => null);
   const baseIndex = levels.findIndex((level) => usable.some((heading) => heading.level === level));
@@ -908,7 +892,11 @@ function createHeadingNumberState(body: string, options: MarkdownRenderOptions) 
   if (!options.headingNumbers) {
     return { next: () => "" };
   }
-  const levels = options.headingNumberLevels ?? HEADING_NUMBER_LEVELS.filter((level) => level >= normalizeHeadingNumberStart(options.headingNumberStart));
+  const levels =
+    options.headingNumberLevels ??
+    HEADING_NUMBER_LEVELS.filter(
+      (level) => level >= normalizeHeadingNumberStart(options.headingNumberStart),
+    );
   const headings: Array<{ level: number; text: string }> = [];
   const lines = body.split(/\r?\n/);
   let inCode = false;
@@ -941,11 +929,14 @@ function createHeadingNumberState(body: string, options: MarkdownRenderOptions) 
  * `heading_numbers` が ON なら Preview と PDF の両方に番号を付ける（本文・Markdown出力は対象外）。
  * `heading_number_levels` で対象階層を保存する。旧 `heading_number_start` は互換読み込みする。
  */
-export function headingNumberOptionsFromProperties(properties: Record<string, unknown> | null | undefined): {
+export function headingNumberOptionsFromProperties(
+  properties: Record<string, unknown> | null | undefined,
+): {
   preview: MarkdownRenderOptions;
   publish: MarkdownRenderOptions;
 } {
-  const props = properties && typeof properties === "object" && !Array.isArray(properties) ? properties : {};
+  const props =
+    properties && typeof properties === "object" && !Array.isArray(properties) ? properties : {};
   const enabled = props.heading_numbers === true;
   const legacyStart = normalizeHeadingNumberStart(props.heading_number_start);
   const levels = Object.prototype.hasOwnProperty.call(props, "heading_number_levels")
@@ -965,9 +956,8 @@ export function applyHeadingNumberAttributes(
   options: boolean | MarkdownRenderOptions,
 ): void {
   if (!root || typeof (root as Element).querySelectorAll !== "function") return;
-  const resolved: MarkdownRenderOptions = typeof options === "boolean"
-    ? { headingNumbers: options }
-    : options;
+  const resolved: MarkdownRenderOptions =
+    typeof options === "boolean" ? { headingNumbers: options } : options;
   const nodes = Array.from((root as Element).querySelectorAll("h1, h2, h3, h4")) as HTMLElement[];
   if (!resolved.headingNumbers) {
     for (const node of nodes) node.removeAttribute("data-heading-number");
@@ -977,8 +967,11 @@ export function applyHeadingNumberAttributes(
     level: Number(node.tagName.slice(1)),
     text: (node.textContent || "").replace(/\s+/g, " ").trim(),
   }));
-  const levels = resolved.headingNumberLevels
-    ?? HEADING_NUMBER_LEVELS.filter((level) => level >= normalizeHeadingNumberStart(resolved.headingNumberStart));
+  const levels =
+    resolved.headingNumberLevels ??
+    HEADING_NUMBER_LEVELS.filter(
+      (level) => level >= normalizeHeadingNumberStart(resolved.headingNumberStart),
+    );
   const labels = computeHeadingNumberLabels(headings, levels);
   nodes.forEach((node, index) => {
     const label = labels[index];
@@ -1150,7 +1143,9 @@ export function renderMarkdownPreview(value: string, options: MarkdownRenderOpti
   const parts: string[] = [];
   // 編集プレビューでは frontmatter を確認できるよう既定で表示。PDF/文書ビューは showFrontmatter:false。
   if (frontmatter && options.showFrontmatter !== false) {
-    parts.push(`<details class="md-frontmatter"><summary>Frontmatter</summary><pre>${escapeHtml(frontmatter)}</pre></details>`);
+    parts.push(
+      `<details class="md-frontmatter"><summary>Frontmatter</summary><pre>${escapeHtml(frontmatter)}</pre></details>`,
+    );
   }
   for (const child of tree.children) {
     parts.push(renderBlock(child as Content, ctx));
@@ -1159,42 +1154,66 @@ export function renderMarkdownPreview(value: string, options: MarkdownRenderOpti
     const ordered = [...ctx.footnotes.entries()].sort(([, a], [, b]) => a - b);
     const items = ordered.map(([key, number]) => {
       const definition = ctx.footnoteDefinitions.get(key);
-      if (!definition) return `<li id="fn-${escapeHtml(key)}">脚注の本文がありません。 <a class="md-footnote-backref" href="#fnref-${escapeHtml(key)}">↩</a></li>`;
+      if (!definition)
+        return `<li id="fn-${escapeHtml(key)}">脚注の本文がありません。 <a class="md-footnote-backref" href="#fnref-${escapeHtml(key)}">↩</a></li>`;
       const definitionTree = parseMarkdownBody(definition);
-      const content = definitionTree.children.map((child) => renderBlock(child as Content, ctx)).join("");
+      const content = definitionTree.children
+        .map((child) => renderBlock(child as Content, ctx))
+        .join("");
       return `<li id="fn-${escapeHtml(key)}">${content}<a class="md-footnote-backref" href="#fnref-${escapeHtml(key)}" aria-label="脚注へ戻る">↩</a></li>`;
     });
-    parts.push(`<section class="md-footnotes" aria-label="脚注"><h4>脚注</h4><ol>${items.join("")}</ol></section>`);
+    parts.push(
+      `<section class="md-footnotes" aria-label="脚注"><h4>脚注</h4><ol>${items.join("")}</ol></section>`,
+    );
   }
   return parts.join("");
 }
 
-export function previewHtml(body: string, format: string, options: MarkdownRenderOptions = {}): string {
+export function previewHtml(
+  body: string,
+  format: string,
+  options: MarkdownRenderOptions = {},
+): string {
   if (format === "html") return sanitizePreviewHtml(body);
   if (format === "markdown") return renderMarkdownPreview(body, options);
   return `<pre>${escapeHtml(body)}</pre>`;
 }
 
-export function previewDocument(body: string, format: string, options: MarkdownRenderOptions = {}): string {
+export function previewDocument(
+  body: string,
+  format: string,
+  options: MarkdownRenderOptions = {},
+): string {
   // PDF / 成果物iframe は完成文書ビューなので frontmatter を本文に出さない（メタは編集画面側で確認）。
-  const resolved: MarkdownRenderOptions = { ...options, showFrontmatter: options.showFrontmatter ?? false };
+  const resolved: MarkdownRenderOptions = {
+    ...options,
+    showFrontmatter: options.showFrontmatter ?? false,
+  };
   return `<!doctype html><html><head><meta charset="utf-8"><style>${KATEX_DOCUMENT_CSS}${MARKDOWN_DOCUMENT_SURFACES_CSS}${MARKDOWN_DOCUMENT_CSS}</style></head><body><main class="markdown-document">${previewHtml(body, format, resolved)}</main></body></html>`;
 }
 
 export function renderedText(body: string, format: string): string {
   if (format === "html") {
-    return sanitizePreviewHtml(body).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    return sanitizePreviewHtml(body)
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
   if (format !== "markdown") return body.trim();
   const { frontmatter, body: markdownBody } = splitFrontmatter(body);
   const renderedBody = markdownBody
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match, alt: string) => `[画像: ${alt.trim() || "貼り付け画像"}]`)
+    .replace(
+      /!\[([^\]]*)\]\(([^)]+)\)/g,
+      (_match, alt: string) => `[画像: ${alt.trim() || "貼り付け画像"}]`,
+    )
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/^\s*[-*]\s+/gm, "- ")
     .replace(/```/g, "")
     .replace(/^\$\$\s*|\s*\$\$$/gm, "")
     .trim();
-  return [frontmatter ? `Frontmatter\n${frontmatter.trim()}` : "", renderedBody].filter(Boolean).join("\n\n");
+  return [frontmatter ? `Frontmatter\n${frontmatter.trim()}` : "", renderedBody]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function htmlAttribute(value: string, name: string): string {
@@ -1204,39 +1223,64 @@ function htmlAttribute(value: string, name: string): string {
 
 function outlookInlineStyles(html: string): string {
   return html
-    .replace(/<figure\b[^>]*>\s*<img\b([^>]*)>\s*(?:<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>)?\s*<\/figure>/gi, (_match, attrs: string, caption: string) => {
-      const alt = htmlAttribute(attrs, "alt").trim();
-      const text = caption?.replace(/<[^>]+>/g, "").trim() || alt || "貼り付け画像";
-      return `<p style="margin:8px 0;color:#666;">[画像: ${escapeHtml(text)}]</p>`;
-    })
+    .replace(
+      /<figure\b[^>]*>\s*<img\b([^>]*)>\s*(?:<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>)?\s*<\/figure>/gi,
+      (_match, attrs: string, caption: string) => {
+        const alt = htmlAttribute(attrs, "alt").trim();
+        const text = caption?.replace(/<[^>]+>/g, "").trim() || alt || "貼り付け画像";
+        return `<p style="margin:8px 0;color:#666;">[画像: ${escapeHtml(text)}]</p>`;
+      },
+    )
     .replace(/<img\b([^>]*)>/gi, (_match, attrs: string) => {
       const alt = htmlAttribute(attrs, "alt").trim() || "貼り付け画像";
       return `<span style="color:#666;">[画像: ${escapeHtml(alt)}]</span>`;
     })
     .replace(/\sclass="[^"]*"/gi, "")
     .replace(/\sclass='[^']*'/gi, "")
-    .replace(/<h1\b/gi, '<h1 style="margin:16px 0 8px;font-size:18pt;line-height:1.25;font-weight:700;"')
-    .replace(/<h2\b/gi, '<h2 style="margin:14px 0 7px;font-size:15pt;line-height:1.3;font-weight:700;"')
-    .replace(/<h3\b/gi, '<h3 style="margin:12px 0 6px;font-size:12.5pt;line-height:1.35;font-weight:700;"')
-    .replace(/<h4\b/gi, '<h4 style="margin:10px 0 5px;font-size:11pt;line-height:1.35;font-weight:700;"')
+    .replace(
+      /<h1\b/gi,
+      '<h1 style="margin:16px 0 8px;font-size:18pt;line-height:1.25;font-weight:700;"',
+    )
+    .replace(
+      /<h2\b/gi,
+      '<h2 style="margin:14px 0 7px;font-size:15pt;line-height:1.3;font-weight:700;"',
+    )
+    .replace(
+      /<h3\b/gi,
+      '<h3 style="margin:12px 0 6px;font-size:12.5pt;line-height:1.35;font-weight:700;"',
+    )
+    .replace(
+      /<h4\b/gi,
+      '<h4 style="margin:10px 0 5px;font-size:11pt;line-height:1.35;font-weight:700;"',
+    )
     .replace(/<p\b/gi, '<p style="margin:8px 0;"')
     .replace(/<ul\b/gi, '<ul style="margin:8px 0 8px 22px;padding:0;"')
     .replace(/<ol\b/gi, '<ol style="margin:8px 0 8px 22px;padding:0;"')
     .replace(/<li\b/gi, '<li style="margin:3px 0;"')
-    .replace(/<blockquote\b/gi, '<blockquote style="margin:10px 0;padding-left:12px;border-left:3px solid #ccc;color:#444;"')
+    .replace(
+      /<blockquote\b/gi,
+      '<blockquote style="margin:10px 0;padding-left:12px;border-left:3px solid #ccc;color:#444;"',
+    )
     .replace(/<hr\b[^>]*>/gi, '<hr style="margin:12px 0;border:0;border-top:1px solid #ccc;" />')
-    .replace(/<pre\b/gi, '<pre style="margin:10px 0;padding:10px;border:1px solid #ddd;background:#f7f7f7;font-family:Consolas,monospace;font-size:10pt;white-space:pre-wrap;"')
+    .replace(
+      /<pre\b/gi,
+      '<pre style="margin:10px 0;padding:10px;border:1px solid #ddd;background:#f7f7f7;font-family:Consolas,monospace;font-size:10pt;white-space:pre-wrap;"',
+    )
     .replace(/<code\b/gi, '<code style="font-family:Consolas,monospace;font-size:10pt;"')
     .replace(/<table\b/gi, '<table style="border-collapse:collapse;margin:10px 0;width:100%;"')
-    .replace(/<th\b/gi, '<th style="border:1px solid #ccc;padding:5px 7px;background:#f2f2f2;text-align:left;font-weight:700;"')
+    .replace(
+      /<th\b/gi,
+      '<th style="border:1px solid #ccc;padding:5px 7px;background:#f2f2f2;text-align:left;font-weight:700;"',
+    )
     .replace(/<td\b/gi, '<td style="border:1px solid #ccc;padding:5px 7px;vertical-align:top;"')
     .replace(/<a\b/gi, '<a style="color:#0563c1;text-decoration:underline;"');
 }
 
 export function outlookHtml(body: string, format: string): string {
-  const rendered = format === "markdown"
-    ? previewHtml(splitFrontmatter(body).body, "markdown")
-    : previewHtml(body, format);
+  const rendered =
+    format === "markdown"
+      ? previewHtml(splitFrontmatter(body).body, "markdown")
+      : previewHtml(body, format);
   const styled = outlookInlineStyles(sanitizePreviewHtml(rendered));
   return `<div style="font-family:'Yu Gothic','Meiryo','Segoe UI',Arial,sans-serif;font-size:11pt;line-height:1.55;color:#1f1f1f;">${styled}</div>`;
 }

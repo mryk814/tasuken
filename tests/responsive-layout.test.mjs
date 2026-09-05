@@ -126,7 +126,7 @@ test("Sketch keeps the page rail separate from canvas tools and inside the title
   assert.match(cssSource, /\.sketch-canvas-area \{[^}]*grid-column: 2;[^}]*grid-row: 3;/);
   assert.match(
     cssSource,
-    /\.sketch-shape-popover \{[^}]*right: 0;[^}]*grid-template-columns: repeat\(5, 76px\);/,
+    /\.sketch-shape-popover \{[^}]*left: 0;[^}]*grid-template-columns: repeat\(5, 76px\);/,
   );
 });
 

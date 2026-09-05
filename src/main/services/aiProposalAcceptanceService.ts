@@ -34,6 +34,12 @@ interface ArtifactMaterializer {
   ): ArtifactProposalMaterializeResult;
   rollbackMaterializedArtifactProposal(storedPath: string): void;
   saveCanonicalNote?(request: unknown, companion?: unknown): Record<string, unknown>;
+  verifyProposalMarkdownImages?(proposalId: string, manifest: unknown): true;
+  discardUnreferencedProposalMarkdownImages?(
+    proposalId: string,
+    manifest: unknown,
+    finalBody: string,
+  ): string[];
 }
 
 interface ProposalRepository {
@@ -475,6 +481,18 @@ export class AiProposalAcceptanceService {
     return receipt;
   }
 
+  private discardUnreferencedNoteProposalImages(
+    proposalId: string,
+    manifest: unknown,
+    finalBody: string,
+  ): void {
+    try {
+      this.artifacts.discardUnreferencedProposalMarkdownImages?.(proposalId, manifest, finalBody);
+    } catch {
+      // The command already committed. Image cleanup is intentionally best effort.
+    }
+  }
+
   execute(input: CommandEnvelope): CommandReceipt {
     if (input.name !== "ApplyAiProposal") return this.commands.execute(input);
     const parsedInput = parseCommandEnvelope(input);
@@ -614,6 +632,9 @@ export class AiProposalAcceptanceService {
       !Array.isArray(currentProposal.payload)
         ? (currentProposal.payload as Record<string, unknown>)
         : {};
+    const noteImageManifest = Object.hasOwn(canonicalPayload, "note_images")
+      ? canonicalPayload.note_images
+      : null;
     const artifactEntries = Array.isArray(canonicalPayload.artifacts)
       ? canonicalPayload.artifacts
       : [];
@@ -639,6 +660,15 @@ export class AiProposalAcceptanceService {
             : "partially_accepted";
       if (payload.proposal.status !== expectedStatus)
         throw new Error("Content Proposal statusがentry decisionと一致しません。");
+      const acceptedNote = selectedCandidates.find((candidate) => candidate.type === "note");
+      if (acceptedNote && noteImageManifest !== null) {
+        if (!this.artifacts.verifyProposalMarkdownImages) {
+          throw new Error(
+            "Note Proposal画像の検証経路を初期化できませんでした。Taskenを起動し直してください。",
+          );
+        }
+        this.artifacts.verifyProposalMarkdownImages(proposalId, noteImageManifest);
+      }
       const candidates = selectedCandidates.map((candidate) => {
         if (candidate.type !== "artifact") return candidate;
         const request = candidate.entity.proposal_materialization;
@@ -707,29 +737,49 @@ export class AiProposalAcceptanceService {
           candidates,
         },
       };
+      let receipt: CommandReceipt;
       if (
         candidates.length === 1 &&
         candidates[0].type === "note" &&
         this.commands.executeCanonicalNoteAiProposal &&
         this.artifacts.saveCanonicalNote
       ) {
-        return this.commands.executeCanonicalNoteAiProposal(resolvedCommand, (note, companion) => {
-          const current = this.repository.get("note", note.id);
-          return this.artifacts.saveCanonicalNote!(
-            {
-              entity: note,
-              snapshot: {
-                owner: { recordType: "note", entityId: note.id },
-                body: String(note.body_markdown || ""),
-                expectedRevision: Number(current?.version || 0),
+        receipt = this.commands.executeCanonicalNoteAiProposal(
+          resolvedCommand,
+          (note, companion) => {
+            const current = this.repository.get("note", note.id);
+            return this.artifacts.saveCanonicalNote!(
+              {
+                entity: note,
+                snapshot: {
+                  owner: { recordType: "note", entityId: note.id },
+                  body: String(note.body_markdown || ""),
+                  expectedRevision: Number(current?.version || 0),
+                },
+                options: { source: "ai_proposal" },
               },
-              options: { source: "ai_proposal" },
-            },
-            companion,
-          ) as Entity;
-        });
+              companion,
+            ) as Entity;
+          },
+        );
+      } else {
+        receipt = this.commands.execute(resolvedCommand);
       }
-      return this.commands.execute(resolvedCommand);
+      if (noteImageManifest !== null) {
+        if (payload.decision === "reject") {
+          this.discardUnreferencedNoteProposalImages(proposalId, noteImageManifest, "");
+        } else if (acceptedNote) {
+          const savedNote = this.repository.get("note", acceptedNote.entity.id, true);
+          if (savedNote) {
+            this.discardUnreferencedNoteProposalImages(
+              proposalId,
+              noteImageManifest,
+              text(savedNote.body_markdown),
+            );
+          }
+        }
+      }
+      return receipt;
     } catch (error) {
       for (const storedPath of createdPaths.reverse()) {
         try {

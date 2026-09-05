@@ -7,7 +7,9 @@ const sketch = read("src/renderer/src/features/workspace/lib/sketch.ts");
 const library = read("src/renderer/src/features/workspace/pages/SketchLibraryPage.tsx");
 const editor = read("src/renderer/src/features/workspace/pages/SketchPage.tsx");
 const canvas = read("src/renderer/src/features/workspace/components/SketchCanvas.tsx");
-const pageSizePicker = read("src/renderer/src/features/workspace/components/SketchPageSizePicker.tsx");
+const pageSizePicker = read(
+  "src/renderer/src/features/workspace/components/SketchPageSizePicker.tsx",
+);
 const domain = read("src/main/repositories/domain.mjs");
 const comparison = read("docs/sketch-canvas-modes.md");
 
@@ -22,8 +24,11 @@ test("new Sketch chooses Page or Infinite while legacy data remains Page", () =>
 
 test("Page keeps multiple fixed pages and Infinite uses one camera-driven world", () => {
   assert.match(sketch, /landscape: \{ width: 1200, height: 850 \}/);
-  assert.match(editor, /canvasMode === "page" && <aside/);
-  assert.match(editor, /createSketchPage\([\s\S]*String\(document\.pages\.length \+ 1\),[\s\S]*"page"/);
+  assert.match(editor, /canvasMode === "page" && \(\s*<aside className="sketch-page-rail"/);
+  assert.match(
+    editor,
+    /createSketchPage\([\s\S]*String\(document\.pages\.length \+ 1\),[\s\S]*"page"/,
+  );
   assert.match(sketch, /viewport\?:/);
   assert.match(editor, /onViewportChange=\{changeViewport\}/);
   assert.match(canvas, /kind: "pan"/);

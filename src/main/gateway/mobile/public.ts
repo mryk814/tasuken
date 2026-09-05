@@ -24,3 +24,8 @@ export {
   type MobileGatewayClientOptions,
 } from "./mobileGatewayClient.ts";
 export { MOBILE_TASK_CONTEXT_INPUT, taskContextFingerprint } from "./taskContextPreview.ts";
+export {
+  createCaptureOrganizerFromEnvironment,
+  type CaptureOrganizerInput,
+  type CaptureOrganizerProposal,
+} from "./captureOrganizer.ts";

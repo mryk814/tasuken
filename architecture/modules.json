@@ -26,13 +26,13 @@
     "main.bootstrap": ["main.composition", "main.transport", "main.application", "main.infrastructure", "main.mcp", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "main.composition": ["main.application", "main.core", "main.infrastructure", "main.mcp", "main.mobile", "main.platform", "main.task", "shared", "shared.kernel", "shared.contracts.core", "shared.contracts.mobile", "shared.contracts.task", "shared.ipc"],
     "main.transport": ["main.application", "main.task", "main.platform", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
-    "main.application": ["main.task", "shared", "shared.kernel", "shared.contracts.core", "shared.contracts.task", "shared.ipc"],
+    "main.application": ["main.task", "main.mobile", "shared", "shared.kernel", "shared.contracts.core", "shared.contracts.task", "shared.ipc"],
     "main.core": ["shared", "shared.kernel", "shared.contracts.task"],
     "main.infrastructure": ["main.task", "shared", "shared.kernel", "shared.contracts.mobile", "shared.contracts.task", "shared.ipc"],
     "main.task": ["shared", "shared.kernel", "shared.contracts.task"],
     "main.mcp": ["shared", "shared.kernel", "shared.contracts.core", "shared.contracts.mobile", "shared.contracts.task", "shared.ipc"],
     "main.mobile": ["shared", "shared.kernel", "shared.contracts.core", "shared.contracts.mobile", "shared.contracts.task"],
-    "main.platform": ["main.application", "main.core", "main.infrastructure", "main.mobile", "shared", "shared.kernel", "shared.contracts.core", "shared.contracts.task", "shared.ipc"],
+    "main.platform": ["main.application", "main.core", "main.infrastructure", "main.mobile", "shared", "shared.kernel", "shared.contracts.core", "shared.contracts.mobile", "shared.contracts.task", "shared.ipc"],
     "preload": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.bootstrap.main": ["renderer.app", "renderer.workspace", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.bootstrap.root": ["renderer.app", "renderer.tasken-root", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
@@ -296,6 +296,7 @@
   ],
   "capabilities": {
     "rendererAdapterPaths": [
+      "src/renderer/src/services/captureOrganizerApi.ts",
       "src/renderer/src/services/mobileGatewayApi.ts",
       "src/renderer/src/services/workspaceApi.ts"
     ],

@@ -2,7 +2,9 @@ import { contextBridge, ipcRenderer } from "electron";
 import { IPC } from "../shared/ipc/contracts";
 
 contextBridge.exposeInMainWorld("captureApi", {
-  save: (text: string, mode: string, themeId?: string, rangeSemantics?: "once_within_window" | "ongoing") => ipcRenderer.invoke(IPC.quickCaptureSave, text, mode, themeId, rangeSemantics),
+  save: (text: string, mode: string, themeId?: string, rangeSemantics?: "once_within_window" | "ongoing", organization?: unknown) => ipcRenderer.invoke(IPC.quickCaptureSave, text, mode, themeId, rangeSemantics, organization),
+  organize: (input: unknown) => ipcRenderer.invoke(IPC.quickCaptureOrganize, input),
+  resize: (expanded: boolean) => ipcRenderer.send(IPC.quickCaptureResize, expanded),
   previewDue: (text: string) => ipcRenderer.invoke(IPC.quickCapturePreviewDue, text),
   hide: () => ipcRenderer.send(IPC.quickCaptureHide),
   onShow: (callback: (mode: string) => void) => {

@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 internal const val TASKEN_MOBILE_API_VERSION = 1
-internal const val TASKEN_MOBILE_SCHEMA_VERSION = 6
+internal const val TASKEN_MOBILE_SCHEMA_VERSION = 7
 
 @Serializable
 data class MobileTodayResponseDto(
@@ -47,6 +47,7 @@ data class MobileTaskSummaryDto(
     val checklistItems: List<MobileChecklistItem> = emptyList(),
     val schedule: MobileTaskScheduleDto?,
     val updatedAt: String,
+    val description: String? = null,
 )
 
 @Serializable
@@ -121,6 +122,7 @@ object MobileTodayContract {
             requireContract(isEntityId(item.id), "Invalid Task ID.")
             requireContract(item.version > 0, "Invalid Task version.")
             requireContract(item.title.trim().isNotEmpty() && item.title.length <= 500, "Invalid Task title.")
+            requireContract(item.description == null || item.description.length <= 50000, "Invalid Task description.")
             requireContract(item.themeId == null || isEntityId(item.themeId), "Invalid Theme ID.")
             requireContract(item.state in taskStates, "Invalid Task state.")
             requireContract(item.workState == null || item.workState in workStates, "Invalid work state.")
@@ -216,6 +218,7 @@ fun MobileTodayResponseDto.toResult(): MobileTodayResult.Available = MobileToday
             id = it.id.trim(),
             version = it.version,
             title = it.title.trim(),
+            description = it.description,
             themeId = it.themeId?.trim(),
             state = it.state,
             workState = it.workState,

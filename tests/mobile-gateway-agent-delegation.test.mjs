@@ -175,7 +175,7 @@ function taskQuery(service, id) {
 function requestBody(fingerprint, overrides = {}) {
   return {
     apiVersion: 1,
-    schemaVersion: 6,
+    schemaVersion: 7,
     requestId: "request-delegate",
     commandId: "command-delegate",
     taskId: delegationTaskId,
@@ -391,9 +391,14 @@ test("Preview policy, delegation conflicts, and response-loss replay share one c
             fingerprintReads += 1;
             return taskContextFingerprint(context);
           },
-          input.responseMeta,
+          { ...input.responseMeta, schemaVersion: 6 },
         );
         const latest = receipt.resultSnapshot?.latestWorkReceipt;
+        assert.equal(
+          receipt.resultSnapshot?.responseMeta.schemaVersion,
+          6,
+          "the stored receipt retains its original protocol metadata on replay",
+        );
         return {
           ok: true,
           commandId: receipt.commandId,
@@ -440,7 +445,7 @@ test("Preview policy, delegation conflicts, and response-loss replay share one c
     principal,
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "preview-1",
       taskId: delegationTaskId,
     },
@@ -461,7 +466,7 @@ test("Preview policy, delegation conflicts, and response-loss replay share one c
     principal: { ...principal, scopes: ["mobile:read"] },
     query: {
       apiVersion: "1",
-      schemaVersion: "6",
+      schemaVersion: "7",
       requestId: "preview-old-device",
       taskId: delegationTaskId,
     },
@@ -548,6 +553,7 @@ test("Preview policy, delegation conflicts, and response-loss replay share one c
     body,
   });
   assert.equal(replay.status, 200);
+  assert.equal(replay.body.meta.schemaVersion, 7);
   assert.equal(replay.body.data.commandId, applied.body.data.commandId);
   assert.deepEqual(
     replay.body,

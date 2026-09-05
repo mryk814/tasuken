@@ -15,6 +15,9 @@ export default defineConfig([
     "**/mcp-dist/**",
     "**/architecture/**",
     "**/generated/**",
+    "output/**",
+    "android-app/**/build/**",
+    ".tmp/**",
     "**/*.d.mts",
   ]),
   {

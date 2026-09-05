@@ -28,6 +28,19 @@ fun taskStateLabel(state: String): String = taskStateLabels[state] ?: state
 
 fun taskWorkStateLabel(state: String): String = taskWorkStateLabels[state] ?: state
 
+fun taskScheduleFilterLabel(filter: TaskScheduleFilter): String = when (filter) {
+    TaskScheduleFilter.All -> "予定すべて"
+    TaskScheduleFilter.Today -> "今日"
+    TaskScheduleFilter.Upcoming -> "これから"
+    TaskScheduleFilter.Unscheduled -> "予定なし"
+}
+
+fun taskThemeFilterLabel(themeId: String?, themes: List<MobileTheme>): String = when (themeId) {
+    null -> "Themeすべて"
+    "" -> "Theme未指定"
+    else -> themes.firstOrNull { it.id == themeId }?.title ?: "選択中のTheme"
+}
+
 fun taskTodayDateLabel(value: String?, today: String = java.time.LocalDate.now().toString()): String = when (value) {
     null -> "未設定"
     today -> "今日"

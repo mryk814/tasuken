@@ -1,4 +1,5 @@
 import { TaskenCoreHost } from "../infrastructure/http/taskenCoreHost.ts";
+import type { NoteProposalImagePort } from "../core/public.ts";
 import {
   createTaskenCore,
   type AgentReadyTaskWorkspacePersistence,
@@ -130,10 +131,14 @@ export class TaskenCoreRuntime {
       currentContextFingerprint: () => string,
       responseMeta: MobileResponseMeta,
     ) => CommandReceipt,
+    noteProposalImagePort?: NoteProposalImagePort,
   ) {
     this.persistence = persistence;
     this.executeApplicationCommand = executeApplicationCommand;
-    const core = createTaskenCore(persistence, { onProposalCommitted });
+    const core = createTaskenCore(persistence, {
+      onProposalCommitted,
+      noteProposalImagePort,
+    });
     this.taskContext = core.getTaskContext;
     this.executeTaskDelegation = executeTaskDelegation;
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
@@ -178,8 +183,12 @@ export class TaskenCoreRuntime {
   createMobileGateway(
     state: MobileGatewayStatePort,
     logger?: MobileGatewayLoggerPort,
+    getCaptureOrganizer?: ConstructorParameters<
+      typeof MobileGatewayAdapter
+    >[0]["getCaptureOrganizer"],
   ): MobileGatewayAdapter {
     return new MobileGatewayAdapter({
+      getCaptureOrganizer,
       core: {
         status: async () => ({
           apiVersion: TASKEN_CORE_API_VERSION,

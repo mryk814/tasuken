@@ -127,6 +127,7 @@ import {
 
 const LOOPBACK_HOST = "127.0.0.1";
 const MAX_BODY_BYTES = 64 * 1024;
+const MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES = 34 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 5_000;
 
 export interface ListAgentReadyTasksProvider {
@@ -142,11 +143,17 @@ export interface TaskenCoreHostOptions {
   taskQuery?: QueryProvider<unknown, TaskQueryResponse>;
   taskCommand?: QueryProvider<unknown, TaskCommandResponse>;
   listAgentReadyTasks: ListAgentReadyTasksProvider;
-  resolveRepositoryContext?: QueryProvider<RepositoryLookupRequest, ResolveRepositoryContextResponse>;
+  resolveRepositoryContext?: QueryProvider<
+    RepositoryLookupRequest,
+    ResolveRepositoryContextResponse
+  >;
   findTasksForRepository?: QueryProvider<RepositoryLookupRequest, FindTasksForRepositoryResponse>;
   findThemesForRepository?: QueryProvider<RepositoryLookupRequest, FindThemesForRepositoryResponse>;
   getRepositoryContext?: QueryProvider<GetRepositoryContextRequest, GetRepositoryContextResponse>;
-  getAgentSessionContext?: QueryProvider<GetAgentSessionContextRequest, GetAgentSessionContextResponse>;
+  getAgentSessionContext?: QueryProvider<
+    GetAgentSessionContextRequest,
+    GetAgentSessionContextResponse
+  >;
   getTaskAssignment?: QueryProvider<GetTaskAssignmentRequest, GetTaskAssignmentResponse>;
   getTaskContext?: QueryProvider<GetTaskContextRequest, GetTaskContextResponse>;
   searchItems?: QueryProvider<SearchItemsRequest, SearchItemsResponse>;
@@ -166,7 +173,10 @@ export interface TaskenCoreHostOptions {
   exportAiContext?: QueryProvider<ExportAiContextRequest, ExportAiContextResponse>;
   proposeTaskWork?: QueryProvider<ProposeTaskWorkRequest, ProposeTaskWorkResponse>;
   proposeAgentSession?: QueryProvider<ProposeAgentSessionRequest, ProposeAgentSessionResponse>;
-  proposeRepositoryTask?: QueryProvider<ProposeRepositoryTaskRequest, ProposeRepositoryTaskResponse>;
+  proposeRepositoryTask?: QueryProvider<
+    ProposeRepositoryTaskRequest,
+    ProposeRepositoryTaskResponse
+  >;
   proposeContent?: QueryProvider<ProposeContentRequest, ProposeContentResponse>;
 }
 
@@ -206,33 +216,62 @@ class RequestValidationError extends Error {
 }
 
 function parseOperationRequest(url: string, body: unknown): unknown {
-  const schema = url === "/v1/task/query" ? taskQuerySchema
-    : url === "/v1/task/command" ? taskCommandSchema
-    : url === "/v1/commands/propose-task-work" ? proposeTaskWorkRequestSchema
-    : url === "/v1/commands/propose-agent-session" ? proposeAgentSessionRequestSchema
-    : url === "/v1/commands/propose-repository-task" ? proposeRepositoryTaskRequestSchema
-    : url === "/v1/commands/propose-content" ? proposeContentRequestSchema
-    : url === "/v1/queries/list-agent-ready-tasks" ? listAgentReadyTasksRequestSchema
-    : url === "/v1/queries/resolve-repository-context" || url === "/v1/queries/find-tasks-for-repository" || url === "/v1/queries/find-themes-for-repository" ? repositoryLookupRequestSchema
-      : url === "/v1/queries/get-repository-context" ? getRepositoryContextRequestSchema
-      : url === "/v1/queries/get-agent-session-context" ? getAgentSessionContextRequestSchema
-      : url === "/v1/queries/get-task-assignment" ? getTaskAssignmentRequestSchema
-        : url === "/v1/queries/get-task-context" ? getTaskContextRequestSchema
-          : url === "/v1/queries/search-items" ? searchItemsRequestSchema
-            : url === "/v1/queries/list-open-items" ? listOpenItemsRequestSchema
-              : url === "/v1/queries/get-note" ? getNoteRequestSchema
-                : url === "/v1/queries/get-conversation" ? getConversationRequestSchema
-                  : url === "/v1/queries/get-artifact-metadata" ? getArtifactMetadataRequestSchema
-                    : url === "/v1/queries/get-activity-entries" ? getActivityEntriesRequestSchema
-                      : url === "/v1/queries/get-theme-context" ? getThemeContextRequestSchema
-                        : url === "/v1/queries/get-recent-notes" ? getRecentNotesRequestSchema
-                      : url === "/v1/queries/search-knowledge" ? searchKnowledgeRequestSchema
-                        : url === "/v1/queries/get-knowledge-context" ? getKnowledgeContextRequestSchema
-                          : url === "/v1/queries/get-plan-health" ? getPlanHealthRequestSchema
-                            : url === "/v1/queries/get-knowledge-health" ? getKnowledgeHealthRequestSchema
-                              : url === "/v1/queries/get-activity" ? getActivityRequestSchema
-                                : url === "/v1/queries/get-context-subgraph" ? getContextSubgraphRequestSchema
-                                  : exportAiContextRequestSchema;
+  const schema =
+    url === "/v1/task/query"
+      ? taskQuerySchema
+      : url === "/v1/task/command"
+        ? taskCommandSchema
+        : url === "/v1/commands/propose-task-work"
+          ? proposeTaskWorkRequestSchema
+          : url === "/v1/commands/propose-agent-session"
+            ? proposeAgentSessionRequestSchema
+            : url === "/v1/commands/propose-repository-task"
+              ? proposeRepositoryTaskRequestSchema
+              : url === "/v1/commands/propose-content"
+                ? proposeContentRequestSchema
+                : url === "/v1/queries/list-agent-ready-tasks"
+                  ? listAgentReadyTasksRequestSchema
+                  : url === "/v1/queries/resolve-repository-context" ||
+                      url === "/v1/queries/find-tasks-for-repository" ||
+                      url === "/v1/queries/find-themes-for-repository"
+                    ? repositoryLookupRequestSchema
+                    : url === "/v1/queries/get-repository-context"
+                      ? getRepositoryContextRequestSchema
+                      : url === "/v1/queries/get-agent-session-context"
+                        ? getAgentSessionContextRequestSchema
+                        : url === "/v1/queries/get-task-assignment"
+                          ? getTaskAssignmentRequestSchema
+                          : url === "/v1/queries/get-task-context"
+                            ? getTaskContextRequestSchema
+                            : url === "/v1/queries/search-items"
+                              ? searchItemsRequestSchema
+                              : url === "/v1/queries/list-open-items"
+                                ? listOpenItemsRequestSchema
+                                : url === "/v1/queries/get-note"
+                                  ? getNoteRequestSchema
+                                  : url === "/v1/queries/get-conversation"
+                                    ? getConversationRequestSchema
+                                    : url === "/v1/queries/get-artifact-metadata"
+                                      ? getArtifactMetadataRequestSchema
+                                      : url === "/v1/queries/get-activity-entries"
+                                        ? getActivityEntriesRequestSchema
+                                        : url === "/v1/queries/get-theme-context"
+                                          ? getThemeContextRequestSchema
+                                          : url === "/v1/queries/get-recent-notes"
+                                            ? getRecentNotesRequestSchema
+                                            : url === "/v1/queries/search-knowledge"
+                                              ? searchKnowledgeRequestSchema
+                                              : url === "/v1/queries/get-knowledge-context"
+                                                ? getKnowledgeContextRequestSchema
+                                                : url === "/v1/queries/get-plan-health"
+                                                  ? getPlanHealthRequestSchema
+                                                  : url === "/v1/queries/get-knowledge-health"
+                                                    ? getKnowledgeHealthRequestSchema
+                                                    : url === "/v1/queries/get-activity"
+                                                      ? getActivityRequestSchema
+                                                      : url === "/v1/queries/get-context-subgraph"
+                                                        ? getContextSubgraphRequestSchema
+                                                        : exportAiContextRequestSchema;
   const result = schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
@@ -244,16 +283,20 @@ function publicRequestError(error: unknown) {
       status: 400,
       body: errorResponse("VALIDATION_FAILED", "requestがschemaに適合しません。", {
         details: {
-            issues: error.issues.map((issue) => {
-              const value = issue as { path?: unknown; code?: unknown };
-              return {
-                path: Array.isArray(value.path) ? value.path.filter((entry) => typeof entry === "string" || typeof entry === "number") : [],
-                code: typeof value.code === "string" ? value.code : "invalid_value",
-                // Zod messages can quote attacker-controlled values; expose only the stable issue shape.
-                message: "値が不正です。",
-              };
-            }),
-          },
+          issues: error.issues.map((issue) => {
+            const value = issue as { path?: unknown; code?: unknown };
+            return {
+              path: Array.isArray(value.path)
+                ? value.path.filter(
+                    (entry) => typeof entry === "string" || typeof entry === "number",
+                  )
+                : [],
+              code: typeof value.code === "string" ? value.code : "invalid_value",
+              // Zod messages can quote attacker-controlled values; expose only the stable issue shape.
+              message: "値が不正です。",
+            };
+          }),
+        },
       }),
     };
   }
@@ -264,19 +307,32 @@ function publicRequestError(error: unknown) {
   if (message === "INVALID_JSON") {
     return { status: 400, body: errorResponse(message, "JSONが不正です。") };
   }
-  if (error instanceof Error && ["ProposeTaskWorkError", "ProposeRepositoryTaskError", "ProposeContentError", "ProposeAgentSessionError"].includes(error.name)
-    && "code" in error && error.code === "IDEMPOTENCY_CONFLICT") {
+  if (
+    error instanceof Error &&
+    [
+      "ProposeTaskWorkError",
+      "ProposeRepositoryTaskError",
+      "ProposeContentError",
+      "ProposeAgentSessionError",
+    ].includes(error.name) &&
+    "code" in error &&
+    error.code === "IDEMPOTENCY_CONFLICT"
+  ) {
     return {
       status: 409,
       body: errorResponse("IDEMPOTENCY_CONFLICT", error.message, {
-        details: "details" in error && error.details && typeof error.details === "object" ? error.details as Record<string, unknown> : {},
+        details:
+          "details" in error && error.details && typeof error.details === "object"
+            ? (error.details as Record<string, unknown>)
+            : {},
       }),
     };
   }
   if (error instanceof Error && error.name === "ProposeAgentSessionError" && "code" in error) {
-    const details = "details" in error && error.details && typeof error.details === "object"
-      ? error.details as Record<string, unknown>
-      : {};
+    const details =
+      "details" in error && error.details && typeof error.details === "object"
+        ? (error.details as Record<string, unknown>)
+        : {};
     if (error.code === "SESSION_NOT_FOUND") {
       return { status: 404, body: errorResponse("SESSION_NOT_FOUND", error.message, { details }) };
     }
@@ -287,12 +343,19 @@ function publicRequestError(error: unknown) {
       return { status: 400, body: errorResponse("INVALID_REFERENCE", error.message, { details }) };
     }
   }
-  if (error instanceof Error && error.name === "ProposeRepositoryTaskError"
-    && "code" in error && error.code === "INVALID_PROPOSAL") {
+  if (
+    error instanceof Error &&
+    error.name === "ProposeRepositoryTaskError" &&
+    "code" in error &&
+    error.code === "INVALID_PROPOSAL"
+  ) {
     return {
       status: 400,
       body: errorResponse("VALIDATION_FAILED", error.message, {
-        details: "details" in error && error.details && typeof error.details === "object" ? error.details as Record<string, unknown> : {},
+        details:
+          "details" in error && error.details && typeof error.details === "object"
+            ? (error.details as Record<string, unknown>)
+            : {},
       }),
     };
   }
@@ -304,7 +367,10 @@ function publicRequestError(error: unknown) {
       return { status: 400, body: errorResponse("VALIDATION_FAILED", error.message) };
     }
   }
-  return { status: 500, body: errorResponse("INTERNAL_ERROR", "Tasken Core queryの処理に失敗しました。") };
+  return {
+    status: 500,
+    body: errorResponse("INTERNAL_ERROR", "Tasken Core queryの処理に失敗しました。"),
+  };
 }
 
 function bearerMatches(header: string | undefined, token: string) {
@@ -315,13 +381,13 @@ function bearerMatches(header: string | undefined, token: string) {
   return provided.length === expected.length && timingSafeEqual(provided, expected);
 }
 
-async function requestBody(request: IncomingMessage): Promise<unknown> {
+async function requestBody(request: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > MAX_BODY_BYTES) {
+    if (size > maxBytes) {
       request.pause();
       throw new Error("BODY_TOO_LARGE");
     }
@@ -338,7 +404,11 @@ async function atomicWriteDiscovery(filePath: string, document: DiscoveryDocumen
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const temporary = `${filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
   try {
-    await fs.writeFile(temporary, `${JSON.stringify(document)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    await fs.writeFile(temporary, `${JSON.stringify(document)}\n`, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600,
+    });
     try {
       await fs.chmod(temporary, 0o600);
     } catch {
@@ -349,7 +419,11 @@ async function atomicWriteDiscovery(filePath: string, document: DiscoveryDocumen
         await fs.rename(temporary, filePath);
         break;
       } catch (error) {
-        if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM" || attempt === 2) {
+        if (
+          process.platform !== "win32" ||
+          (error as NodeJS.ErrnoException).code !== "EPERM" ||
+          attempt === 2
+        ) {
           throw error;
         }
         // Retry a brief Windows rename denial without removing the current discovery.
@@ -382,11 +456,19 @@ export class TaskenCoreHost {
       ...(this.options.taskQuery ? [TASKEN_CORE_TASK_QUERY_CAPABILITY] : []),
       ...(this.options.taskCommand ? [TASKEN_CORE_TASK_COMMAND_CAPABILITY] : []),
       TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
-      ...(this.options.resolveRepositoryContext ? [TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY] : []),
-      ...(this.options.findTasksForRepository ? [TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY] : []),
-      ...(this.options.findThemesForRepository ? [TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY] : []),
+      ...(this.options.resolveRepositoryContext
+        ? [TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY]
+        : []),
+      ...(this.options.findTasksForRepository
+        ? [TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY]
+        : []),
+      ...(this.options.findThemesForRepository
+        ? [TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY]
+        : []),
       ...(this.options.getRepositoryContext ? [TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY] : []),
-      ...(this.options.getAgentSessionContext ? [TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY] : []),
+      ...(this.options.getAgentSessionContext
+        ? [TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY]
+        : []),
       ...(this.options.getTaskAssignment ? [TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY] : []),
       ...(this.options.getTaskContext ? [TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY] : []),
       ...(this.options.searchItems ? [TASKEN_CORE_SEARCH_ITEMS_CAPABILITY] : []),
@@ -406,7 +488,9 @@ export class TaskenCoreHost {
       ...(this.options.exportAiContext ? [TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY] : []),
       ...(this.options.proposeTaskWork ? [TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY] : []),
       ...(this.options.proposeAgentSession ? [TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY] : []),
-      ...(this.options.proposeRepositoryTask ? [TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY] : []),
+      ...(this.options.proposeRepositoryTask
+        ? [TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY]
+        : []),
       ...(this.options.proposeContent ? [TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY] : []),
     ];
   }
@@ -425,7 +509,8 @@ export class TaskenCoreHost {
     });
     this.server = server;
     const address = server.address();
-    if (!address || typeof address === "string") throw new Error("Tasken Core addressを取得できませんでした。");
+    if (!address || typeof address === "string")
+      throw new Error("Tasken Core addressを取得できませんでした。");
     const discovery: DiscoveryDocument = {
       schema_version: TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
       api_version: TASKEN_CORE_API_VERSION,
@@ -454,7 +539,7 @@ export class TaskenCoreHost {
     this.server = null;
     if (!server) return;
     await new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
+      server.close((error) => (error ? reject(error) : resolve()));
       // `server.close()` alone can wait indefinitely for a child MCP process
       // that still owns a keep-alive or partially-open request on Windows.
       // Start graceful shutdown first, then retire every remaining connection.
@@ -472,7 +557,9 @@ export class TaskenCoreHost {
       const queryPaths = new Set([
         ...(this.options.taskQuery ? ["/v1/task/query"] : []),
         "/v1/queries/list-agent-ready-tasks",
-        ...(this.options.resolveRepositoryContext ? ["/v1/queries/resolve-repository-context"] : []),
+        ...(this.options.resolveRepositoryContext
+          ? ["/v1/queries/resolve-repository-context"]
+          : []),
         ...(this.options.findTasksForRepository ? ["/v1/queries/find-tasks-for-repository"] : []),
         ...(this.options.findThemesForRepository ? ["/v1/queries/find-themes-for-repository"] : []),
         ...(this.options.getRepositoryContext ? ["/v1/queries/get-repository-context"] : []),
@@ -504,8 +591,10 @@ export class TaskenCoreHost {
       ]);
       const operationPaths = new Set([...queryPaths, ...commandPaths]);
       const knownPaths = new Set(["/health", "/version", "/capabilities", ...operationPaths]);
-      if (knownPaths.has(request.url || "")
-        && request.method !== (operationPaths.has(request.url || "") ? "POST" : "GET")) {
+      if (
+        knownPaths.has(request.url || "") &&
+        request.method !== (operationPaths.has(request.url || "") ? "POST" : "GET")
+      ) {
         response.setHeader("allow", operationPaths.has(request.url || "") ? "POST" : "GET");
         json(response, 405, errorResponse("METHOD_NOT_ALLOWED", "methodが許可されていません。"));
         return;
@@ -523,35 +612,87 @@ export class TaskenCoreHost {
         return;
       }
       if (request.method === "POST" && operationPaths.has(request.url || "")) {
-        if (request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
-          json(response, 415, errorResponse("UNSUPPORTED_MEDIA_TYPE", "application/jsonを指定してください。"));
+        if (
+          request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase() !==
+          "application/json"
+        ) {
+          json(
+            response,
+            415,
+            errorResponse("UNSUPPORTED_MEDIA_TYPE", "application/jsonを指定してください。"),
+          );
           return;
         }
-        const body = parseOperationRequest(request.url || "", await requestBody(request));
+        const allowsNoteProposalImages =
+          request.url === "/v1/commands/propose-content" &&
+          request.headers["x-tasken-proposal-images"] === "1";
+        const body = parseOperationRequest(
+          request.url || "",
+          await requestBody(
+            request,
+            allowsNoteProposalImages ? MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES : MAX_BODY_BYTES,
+          ),
+        );
         if (request.url === "/v1/task/query") {
           json(response, 200, this.options.taskQuery!.execute(body));
         } else if (request.url === "/v1/task/command") {
           json(response, 200, this.options.taskCommand!.execute(body));
         } else if (request.url === "/v1/commands/propose-task-work") {
-          json(response, 200, this.options.proposeTaskWork!.execute(body as ProposeTaskWorkRequest));
+          json(
+            response,
+            200,
+            this.options.proposeTaskWork!.execute(body as ProposeTaskWorkRequest),
+          );
         } else if (request.url === "/v1/commands/propose-agent-session") {
-          json(response, 200, this.options.proposeAgentSession!.execute(body as ProposeAgentSessionRequest));
+          json(
+            response,
+            200,
+            this.options.proposeAgentSession!.execute(body as ProposeAgentSessionRequest),
+          );
         } else if (request.url === "/v1/commands/propose-repository-task") {
-          json(response, 200, this.options.proposeRepositoryTask!.execute(body as ProposeRepositoryTaskRequest));
+          json(
+            response,
+            200,
+            this.options.proposeRepositoryTask!.execute(body as ProposeRepositoryTaskRequest),
+          );
         } else if (request.url === "/v1/commands/propose-content") {
           json(response, 200, this.options.proposeContent!.execute(body as ProposeContentRequest));
         } else if (request.url === "/v1/queries/list-agent-ready-tasks") {
-          json(response, 200, this.options.listAgentReadyTasks.execute(body as ListAgentReadyTasksRequest));
+          json(
+            response,
+            200,
+            this.options.listAgentReadyTasks.execute(body as ListAgentReadyTasksRequest),
+          );
         } else if (request.url === "/v1/queries/resolve-repository-context") {
-          json(response, 200, this.options.resolveRepositoryContext!.execute(body as RepositoryLookupRequest));
+          json(
+            response,
+            200,
+            this.options.resolveRepositoryContext!.execute(body as RepositoryLookupRequest),
+          );
         } else if (request.url === "/v1/queries/find-tasks-for-repository") {
-          json(response, 200, this.options.findTasksForRepository!.execute(body as RepositoryLookupRequest));
+          json(
+            response,
+            200,
+            this.options.findTasksForRepository!.execute(body as RepositoryLookupRequest),
+          );
         } else if (request.url === "/v1/queries/find-themes-for-repository") {
-          json(response, 200, this.options.findThemesForRepository!.execute(body as RepositoryLookupRequest));
+          json(
+            response,
+            200,
+            this.options.findThemesForRepository!.execute(body as RepositoryLookupRequest),
+          );
         } else if (request.url === "/v1/queries/get-repository-context") {
-          json(response, 200, this.options.getRepositoryContext!.execute(body as GetRepositoryContextRequest));
+          json(
+            response,
+            200,
+            this.options.getRepositoryContext!.execute(body as GetRepositoryContextRequest),
+          );
         } else if (request.url === "/v1/queries/get-agent-session-context") {
-          json(response, 200, this.options.getAgentSessionContext!.execute(body as GetAgentSessionContextRequest));
+          json(
+            response,
+            200,
+            this.options.getAgentSessionContext!.execute(body as GetAgentSessionContextRequest),
+          );
         } else if (request.url === "/v1/queries/get-task-context") {
           json(response, 200, this.options.getTaskContext!.execute(body as GetTaskContextRequest));
         } else if (request.url === "/v1/queries/search-items") {
@@ -561,31 +702,71 @@ export class TaskenCoreHost {
         } else if (request.url === "/v1/queries/get-note") {
           json(response, 200, this.options.getNote!.execute(body as GetNoteRequest));
         } else if (request.url === "/v1/queries/get-conversation") {
-          json(response, 200, this.options.getConversation!.execute(body as GetConversationRequest));
+          json(
+            response,
+            200,
+            this.options.getConversation!.execute(body as GetConversationRequest),
+          );
         } else if (request.url === "/v1/queries/get-artifact-metadata") {
-          json(response, 200, this.options.getArtifactMetadata!.execute(body as GetArtifactMetadataRequest));
+          json(
+            response,
+            200,
+            this.options.getArtifactMetadata!.execute(body as GetArtifactMetadataRequest),
+          );
         } else if (request.url === "/v1/queries/get-activity-entries") {
-          json(response, 200, this.options.getActivityEntries!.execute(body as GetActivityEntriesRequest));
+          json(
+            response,
+            200,
+            this.options.getActivityEntries!.execute(body as GetActivityEntriesRequest),
+          );
         } else if (request.url === "/v1/queries/get-theme-context") {
-          json(response, 200, this.options.getThemeContext!.execute(body as GetThemeContextRequest));
+          json(
+            response,
+            200,
+            this.options.getThemeContext!.execute(body as GetThemeContextRequest),
+          );
         } else if (request.url === "/v1/queries/get-recent-notes") {
           json(response, 200, this.options.getRecentNotes!.execute(body as GetRecentNotesRequest));
         } else if (request.url === "/v1/queries/search-knowledge") {
-          json(response, 200, this.options.searchKnowledge!.execute(body as SearchKnowledgeRequest));
+          json(
+            response,
+            200,
+            this.options.searchKnowledge!.execute(body as SearchKnowledgeRequest),
+          );
         } else if (request.url === "/v1/queries/get-knowledge-context") {
-          json(response, 200, this.options.getKnowledgeContext!.execute(body as GetKnowledgeContextRequest));
+          json(
+            response,
+            200,
+            this.options.getKnowledgeContext!.execute(body as GetKnowledgeContextRequest),
+          );
         } else if (request.url === "/v1/queries/get-plan-health") {
           json(response, 200, this.options.getPlanHealth!.execute(body as GetPlanHealthRequest));
         } else if (request.url === "/v1/queries/get-knowledge-health") {
-          json(response, 200, this.options.getKnowledgeHealth!.execute(body as GetKnowledgeHealthRequest));
+          json(
+            response,
+            200,
+            this.options.getKnowledgeHealth!.execute(body as GetKnowledgeHealthRequest),
+          );
         } else if (request.url === "/v1/queries/get-activity") {
           json(response, 200, this.options.getActivity!.execute(body as GetActivityRequest));
         } else if (request.url === "/v1/queries/get-context-subgraph") {
-          json(response, 200, this.options.getContextSubgraph!.execute(body as GetContextSubgraphRequest));
+          json(
+            response,
+            200,
+            this.options.getContextSubgraph!.execute(body as GetContextSubgraphRequest),
+          );
         } else if (request.url === "/v1/queries/export-ai-context") {
-          json(response, 200, this.options.exportAiContext!.execute(body as ExportAiContextRequest));
+          json(
+            response,
+            200,
+            this.options.exportAiContext!.execute(body as ExportAiContextRequest),
+          );
         } else {
-          json(response, 200, this.options.getTaskAssignment!.execute(body as GetTaskAssignmentRequest));
+          json(
+            response,
+            200,
+            this.options.getTaskAssignment!.execute(body as GetTaskAssignmentRequest),
+          );
         }
         return;
       }
@@ -596,8 +777,7 @@ export class TaskenCoreHost {
         response.setHeader("connection", "close");
         json(response, mapped.status, mapped.body);
         response.once("finish", () => request.destroy());
-      }
-      else json(response, mapped.status, mapped.body);
+      } else json(response, mapped.status, mapped.body);
     }
   }
 }

@@ -3,25 +3,25 @@
 この文書は、個人用デスクトップアプリを新規作成・拡張するときの既定構成を定める。
 迷ったときはこの構成を採用し、外す場合だけ理由を記録する。
 
-アプリ全般に共通する設計判断は、[`AGENTS.md`](../AGENTS.md)の
+アプリ全般に共通する設計判断は、[設計・データ契約](engineering-contracts.md)の
 「Application architecture principles」を上位原則とする。この文書は、その原則を
 Electronで実装する場合の具体的な境界、技術、完成条件を定める。
 
 ## 1. 既定スタック
 
-| 領域 | 既定 | 方針 |
-|---|---|---|
-| デスクトップ | Electron | RendererからNode.jsやDBを直接触らない |
-| 言語 | TypeScript | Main、Preload、Renderer、共有契約をすべて型付けする |
-| ビルド | electron-vite + Vite | Main、Preload、Rendererを一つの設定で開発・ビルドする |
-| UI | React | 画面とユーザー操作に限定する |
-| CSS | Tailwind CSS + design tokens | `tokens.css`を意味と実値の正本にする |
-| アイコン | Tabler Icons | アプリ内で他セットと混在させない |
-| 状態管理 | Zustand | 正式データ、UI状態、非同期状態の責任を分ける |
-| DB | SQLite + better-sqlite3 | Main ProcessだけがDBへアクセスする |
-| 配布 | electron-builder | Windows NSIS installerとportableを生成する |
-| 更新 | electron-updater | 更新配布先があるアプリで有効化する |
-| PDF | PDF.js | PDF閲覧・注釈が必要なアプリで追加する |
+| 領域         | 既定                         | 方針                                                  |
+| ------------ | ---------------------------- | ----------------------------------------------------- |
+| デスクトップ | Electron                     | RendererからNode.jsやDBを直接触らない                 |
+| 言語         | TypeScript                   | Main、Preload、Renderer、共有契約をすべて型付けする   |
+| ビルド       | electron-vite + Vite         | Main、Preload、Rendererを一つの設定で開発・ビルドする |
+| UI           | React                        | 画面とユーザー操作に限定する                          |
+| CSS          | Tailwind CSS + design tokens | `tokens.css`を意味と実値の正本にする                  |
+| アイコン     | Tabler Icons                 | アプリ内で他セットと混在させない                      |
+| 状態管理     | Zustand                      | 正式データ、UI状態、非同期状態の責任を分ける          |
+| DB           | SQLite + better-sqlite3      | Main ProcessだけがDBへアクセスする                    |
+| 配布         | electron-builder             | Windows NSIS installerとportableを生成する            |
+| 更新         | electron-updater             | 更新配布先があるアプリで有効化する                    |
+| PDF          | PDF.js                       | PDF閲覧・注釈が必要なアプリで追加する                 |
 
 ライブラリのバージョンは新規作成時に安定版を確認して固定する。アプリ間でElectronの
 メジャーバージョンを永久に揃えることより、各アプリで再現可能なlockfileと検証済みの
@@ -159,7 +159,7 @@ export const IPC = {
 - エラーはMain側でログを残し、Rendererへは原因と直し方を含む安全な文言を返す。
 - 長時間処理は進捗イベントとキャンセルを設計する。
 - 新機能は`型 -> Repository -> Service -> IPC -> Preload -> Store -> UI`の順に接続する。
-- Mainは userData 配下へファイルログ（info/warn/error）を書く。規約は AGENTS.md の「エラーハンドリングとログ」に従う。
+- Mainは userData 配下へファイルログ（info/warn/error）を書く。規約は [設計・データ契約](engineering-contracts.md#エラーハンドリングとログ)に従う。
 
 ## 8. DBとRepository
 
@@ -189,7 +189,7 @@ export const IPC = {
 
 ## 10. 完成条件
 
-最低限、次を自動または実画面で確認する。
+新規アプリや配布経路全体を成立させる際の確認項目を以下に示す。既存Taskenの変更では [AGENTS.mdのTesting](../AGENTS.md#testing) に従い、変更した境界に該当する項目だけを確認する。
 
 1. TypeScript typecheck。
 2. Main、Preload、Rendererのproduction build。

@@ -49,14 +49,20 @@ test("Inbox検索はタイトル・本文・URL・種別を横断する", () => 
 
 test("Quick CaptureはTheme任意・連続入力・URLメタデータを保存する", () => {
   assert.match(controllerSource, /content_type:\s*contentType/);
-  assert.match(controllerSource, /project_id:\s*canonicalThemeId\(themeId, \{ defaultPersonal: true \}\)/);
+  assert.match(
+    controllerSource,
+    /project_id:\s*canonicalThemeId\(themeId, \{ defaultPersonal: true \}\)/,
+  );
   assert.match(controllerSource, /url:\s*contentType === "url"/);
   assert.match(captureWindowSource, /submit\(event\.shiftKey\)/);
   assert.match(captureWindowSource, /const usesTheme = mode !== "micro-memo"/);
 });
 
 test("Inboxはファイル・手書き・整理済み履歴を同じCaptureEntry経路で扱う", () => {
-  assert.match(inboxSource, /buildLinkedArtifactOperationsFromPaths\(picked\.files, "capture_entry", captureId\)/);
+  assert.match(
+    inboxSource,
+    /buildLinkedArtifactOperationsFromPaths\(picked\.files, "capture_entry", captureId\)/,
+  );
   assert.match(inboxSource, /content_type:\s*"ink"/);
   assert.match(inboxSource, /lane === "processed"/);
   assert.match(inboxSource, /Inboxへ戻す/);
@@ -141,23 +147,38 @@ test("読み取れない期限は保存させずに直し方を返す（#308）"
 
 test("期限のラベルは曜日と時刻を添えて確認できる（#308）", () => {
   assert.equal(quickCaptureDueLabel({ date: "2026-08-07", time: "" }), "2026-08-07（金）");
-  assert.equal(quickCaptureDueLabel({ date: "2026-08-07", time: "17:00" }), "2026-08-07（金） 17:00");
+  assert.equal(
+    quickCaptureDueLabel({ date: "2026-08-07", time: "17:00" }),
+    "2026-08-07（金） 17:00",
+  );
   assert.equal(quickCaptureDueLabel(null), "");
 });
 
 test("通常のTask追加が任意の期限を解釈し、未指定なら今日へ保存する（#308）", () => {
-  assert.match(controllerSource, /const due = mode === "today-task" && extra \? parseSchedule\(extra, today\) : null/);
-  assert.match(controllerSource, /date_kind: isRange \? "range" : parsedDue \? "deadline" : "point"/);
+  assert.match(
+    controllerSource,
+    /const due = mode === "today-task" && extra \? parseSchedule\(extra, today\) : null/,
+  );
+  assert.match(
+    controllerSource,
+    /date_kind: isRange \? "range" : parsedDue \? "deadline" : "point"/,
+  );
   assert.match(controllerSource, /today_date: mode === "today-task" && !parsedDue \? today : null/);
   assert.match(controllerSource, /range_semantics: rangeSemantics/);
-  assert.match(controllerSource, /reminder_at: parsedDue\?\.kind === "single" && parsedDue\.time/);
+  assert.match(
+    controllerSource,
+    /reminder_at:\s*parsedDue\?\.kind === "single" && parsedDue\.time/,
+  );
   // 読めない期限は例外にして、期限なしのまま保存しない。
   assert.match(controllerSource, /if \(due && !due\.ok\) throw new Error\(due\.message\)/);
   // やったことのひとことは本文と分けて保存する。
   assert.match(controllerSource, /completion_note: isDoneTask && extra \? extra : null/);
   assert.match(controllerSource, /label: "タスクを追加"/);
   assert.doesNotMatch(controllerSource, /due-task|期限つきタスクを追加/);
-  assert.match(captureWindowSource, /title\.textContent = isDoneTask \? "やったことを記録" : isTodayTask \? "タスクに追加"/);
+  assert.match(
+    captureWindowSource,
+    /title\.textContent = isDoneTask \? "やったことを記録" : isTodayTask \? "タスクに追加"/,
+  );
   assert.match(captureWindowSource, /previewDue/);
   assert.match(captureWindowSource, /期間中継続/);
   assert.match(captureWindowSource, /selectedRangeSemantics/);

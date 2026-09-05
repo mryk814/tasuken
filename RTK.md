@@ -27,6 +27,16 @@ rtk proxy <cmd>     # Run raw command without filtering
 
 ```bash
 rtk --version
-rtk gain
-which rtk
+```
+
+Verify resolution once per session or after an environment change. On Windows:
+
+```powershell
+rtk powershell -NoProfile -Command 'Get-Command rtk | Select-Object -ExpandProperty Source'
+```
+
+On WSL / Linux:
+
+```bash
+rtk which rtk
 ```

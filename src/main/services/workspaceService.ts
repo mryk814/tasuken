@@ -110,6 +110,11 @@ import {
   resolveUniqueArtifactFileName,
 } from "./artifactStorage.mjs";
 import { prepareMarkdownHtmlForPdf } from "./markdownPdfImages.mjs";
+import {
+  createNativeImageDecoder,
+  ProposalMarkdownImageStore,
+  type ProposalMarkdownImageDecoder,
+} from "./proposalMarkdownImages";
 import { writeAtomicTextFile } from "./atomicText.mjs";
 import { bufferSignature } from "./canonicalHash.mjs";
 import {
@@ -711,6 +716,7 @@ export class WorkspaceService {
   private readonly themeAiPackRecoveryDirectory: string;
   private readonly dataHealthEvaluator = new DataHealthEvaluator();
   private readonly conversationContextRecoveryDirectory: string;
+  private readonly proposalMarkdownImages: ProposalMarkdownImageStore;
   private readonly taskenCoreClient?: {
     getTaskContext(request: { task_id: string }): Promise<unknown>;
     getThemeContext(request: { theme_id: string }): Promise<unknown>;
@@ -725,7 +731,14 @@ export class WorkspaceService {
       getThemeContext(request: { theme_id: string }): Promise<unknown>;
       inspect(): Promise<{ api_version: string; capabilities: string[] }>;
     },
+    proposalMarkdownImageDecoder: ProposalMarkdownImageDecoder = createNativeImageDecoder(
+      nativeImage,
+    ),
   ) {
+    this.proposalMarkdownImages = new ProposalMarkdownImageStore(
+      userDataPath,
+      proposalMarkdownImageDecoder,
+    );
     this.canonicalRecoveryPath = path.join(userDataPath, "canonical-markdown-recovery.json");
     this.canonicalRecoveryWarningPath = path.join(
       userDataPath,
@@ -3459,6 +3472,18 @@ export class WorkspaceService {
 
   rollbackMaterializedArtifactProposal(storedPath: string): void {
     fs.rmSync(storedPath, { force: true });
+  }
+
+  verifyProposalMarkdownImages(proposalId: string, manifest: unknown): true {
+    return this.proposalMarkdownImages.verifyManifest(proposalId, manifest);
+  }
+
+  discardUnreferencedProposalMarkdownImages(
+    proposalId: string,
+    manifest: unknown,
+    finalBody: string,
+  ): string[] {
+    return this.proposalMarkdownImages.discardUnreferenced(proposalId, manifest, finalBody);
   }
 
   reload(sender: WebContents): boolean {

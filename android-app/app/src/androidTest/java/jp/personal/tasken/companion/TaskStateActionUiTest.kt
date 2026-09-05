@@ -29,7 +29,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("完了する").performScrollTo().assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("完了する").assertIsDisplayed().assertIsEnabled()
     }
 
     @Test
@@ -40,7 +40,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("未完了に戻す").performScrollTo().assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("未完了に戻す").assertIsDisplayed().assertIsEnabled()
     }
 
     @Test
@@ -51,7 +51,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("同期後に操作").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
+        composeRule.onNodeWithText("同期後に操作").assertIsDisplayed().assertIsNotEnabled()
     }
 
     @Test
@@ -66,7 +66,7 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("未完了に変更").performScrollTo().assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithText("未完了に変更").assertIsDisplayed().assertIsEnabled()
     }
 
     @Test
@@ -84,7 +84,7 @@ class TaskStateActionUiTest {
 
         listOf("needs_human_review", "reported_done", "blocked").forEach { state ->
             composeRule.runOnIdle { workState.value = state }
-            composeRule.onNodeWithText("Work Receiptを確認").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
+            composeRule.onNodeWithText("Work Receiptを確認").assertIsDisplayed().assertIsNotEnabled()
         }
     }
 
@@ -113,7 +113,7 @@ class TaskStateActionUiTest {
         composeRule.onNodeWithText("Desktop  未着手  v8").assertIsDisplayed()
         composeRule.onNodeWithText("この端末を採用").assertIsDisplayed().assertIsEnabled()
         composeRule.onNodeWithText("Desktopを採用").assertIsDisplayed().assertIsEnabled()
-        composeRule.onNodeWithText("競合を解決してから操作").performScrollTo().assertIsDisplayed().assertIsNotEnabled()
+        composeRule.onNodeWithText("競合を解決してから操作").assertIsDisplayed().assertIsNotEnabled()
     }
 
     @Test
@@ -130,6 +130,7 @@ class TaskStateActionUiTest {
             }
         }
 
+        composeRule.onNodeWithTag("task-title-edit-toggle").performClick()
         composeRule.onNodeWithTag("task-title").performTextReplacement("更新したTask")
         composeRule.onNodeWithText("Task名を保存").assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals("更新したTask", submitted) }
@@ -177,7 +178,7 @@ class TaskStateActionUiTest {
         }
 
         composeRule.onNodeWithText("日付  未設定").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("今日に入れる").performScrollTo().assertIsEnabled().performClick()
+        composeRule.onNodeWithText("今日に入れる").assertIsDisplayed().assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals(LocalDate.now(), submitted) }
     }
 
@@ -231,6 +232,7 @@ class TaskStateActionUiTest {
                 TodayDetailPane(task.value, actionState.value, onStateAction = {})
             }
         }
+        composeRule.onNodeWithTag("task-title-edit-toggle").performClick()
         composeRule.onNodeWithTag("task-title").performTextReplacement("端末の下書き")
         composeRule.runOnIdle { task.value = conflicted }
         composeRule.onNodeWithText("同期できなかった変更").assertIsDisplayed()
@@ -242,6 +244,39 @@ class TaskStateActionUiTest {
 
         composeRule.onNodeWithTag("task-title").assertTextContains("Desktopの名前")
         composeRule.onNodeWithText("Task名を保存").assertIsNotEnabled()
+    }
+
+    @Test
+    fun titleEditorFollowsSyncUntilEditedAndKeepsDraftAcrossClosing() {
+        val task = mutableStateOf(sampleTask())
+        var submitted = ""
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task.value,
+                    TaskActionUiState.Idle,
+                    onStateAction = {},
+                    onTitleUpdate = { _, title -> submitted = title },
+                )
+            }
+        }
+
+        composeRule.runOnIdle { task.value = task.value.copy(title = "Desktopで更新した名前") }
+        composeRule.onNodeWithTag("task-title-edit-toggle").performScrollTo().performClick()
+        composeRule.onNodeWithTag("task-title").assertTextContains("Desktopで更新した名前")
+        composeRule.onNodeWithText("Task名を保存").assertIsNotEnabled()
+
+        composeRule.onNodeWithTag("task-title").performTextReplacement("帰りに牛乳を買う")
+        composeRule.onNodeWithTag("task-title-edit-toggle").performScrollTo().performClick()
+        composeRule.onNodeWithTag("task-title").assertDoesNotExist()
+        composeRule.runOnIdle { task.value = task.value.copy(title = "Desktopから再び更新した名前") }
+        composeRule.onNodeWithTag("task-title-edit-toggle").performClick()
+        composeRule.onNodeWithTag("task-title").assertTextContains("帰りに牛乳を買う")
+
+        composeRule.runOnIdle { task.value = task.value.copy(title = "編集中に届いたDesktopの名前") }
+        composeRule.onNodeWithTag("task-title").assertTextContains("帰りに牛乳を買う")
+        composeRule.onNodeWithText("Task名を保存").performScrollTo().assertIsEnabled().performClick()
+        composeRule.runOnIdle { assertEquals("帰りに牛乳を買う", submitted) }
     }
 
     private fun sampleTask() = MobileTask(

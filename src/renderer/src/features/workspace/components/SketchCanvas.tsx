@@ -1,4 +1,4 @@
-import { IconEdit, IconStackBack, IconStackFront } from "@tabler/icons-react";
+import { IconCopy, IconEdit, IconStackBack, IconStackFront, IconTrash } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -73,15 +73,21 @@ type PointerMode =
   | { kind: "erase"; points: SketchPoint[]; originObjects: SketchObject[]; width: number }
   | { kind: "text"; point: SketchPoint }
   | {
-    kind: "pan";
-    clientX: number;
-    clientY: number;
-    scrollLeft: number;
-    scrollTop: number;
-    viewport: SketchViewport;
-  }
+      kind: "pan";
+      clientX: number;
+      clientY: number;
+      scrollLeft: number;
+      scrollTop: number;
+      viewport: SketchViewport;
+    }
   | { kind: "move"; start: SketchPoint; ids: string[]; originObjects: SketchObject[] }
-  | { kind: "resize"; start: SketchPoint; id: string; bounds: SketchBounds; originObjects: SketchObject[] }
+  | {
+      kind: "resize";
+      start: SketchPoint;
+      id: string;
+      bounds: SketchBounds;
+      originObjects: SketchObject[];
+    }
   | null;
 
 function pointerPoint(
@@ -93,9 +99,10 @@ function pointerPoint(
   const rect = event.currentTarget.getBoundingClientRect();
   const localX = event.clientX - rect.left;
   const localY = event.clientY - rect.top;
-  const point = mode === "infinite"
-    ? screenToSketchWorld(viewport, localX, localY)
-    : { x: localX * page.width / rect.width, y: localY * page.height / rect.height };
+  const point =
+    mode === "infinite"
+      ? screenToSketchWorld(viewport, localX, localY)
+      : { x: (localX * page.width) / rect.width, y: (localY * page.height) / rect.height };
   return {
     ...point,
     pressure: event.pressure > 0 ? event.pressure : event.pointerType === "mouse" ? 0.5 : 0.35,
@@ -114,9 +121,10 @@ function coalescedPointerPoints(
   return events.map((entry) => {
     const localX = entry.clientX - rect.left;
     const localY = entry.clientY - rect.top;
-    const point = mode === "infinite"
-      ? screenToSketchWorld(viewport, localX, localY)
-      : { x: localX * page.width / rect.width, y: localY * page.height / rect.height };
+    const point =
+      mode === "infinite"
+        ? screenToSketchWorld(viewport, localX, localY)
+        : { x: (localX * page.width) / rect.width, y: (localY * page.height) / rect.height };
     return {
       ...point,
       pressure: entry.pressure > 0 ? entry.pressure : entry.pointerType === "mouse" ? 0.5 : 0.35,
@@ -140,7 +148,17 @@ function shapeFromPoints(
   const last = points.at(-1) || first;
   const shape = shapeKind === "auto" ? recognizeShape(points) : shapeKind;
   if (shape === "line" || shape === "bidirectional_arrow") {
-    return { id, type: "shape", shape, color, width, x: first.x, y: first.y, w: last.x - first.x, h: last.y - first.y };
+    return {
+      id,
+      type: "shape",
+      shape,
+      color,
+      width,
+      x: first.x,
+      y: first.y,
+      w: last.x - first.x,
+      h: last.y - first.y,
+    };
   }
   return {
     id,
@@ -188,14 +206,21 @@ export function SketchCanvas({
   const latencyUiAtRef = useRef(0);
   const copiedObjectsRef = useRef<SketchObject[]>([]);
   const pasteGenerationRef = useRef(0);
-  const lastPointerRef = useRef<SketchPoint>({ x: page.width / 2, y: page.height / 2, pressure: 0.5 });
+  const lastPointerRef = useRef<SketchPoint>({
+    x: page.width / 2,
+    y: page.height / 2,
+    pressure: 0.5,
+  });
   const textCommitRef = useRef(false);
   const pointerOverCanvasRef = useRef(false);
   const spacePressedRef = useRef(false);
   const zoomAnchorRef = useRef<{ left: number; top: number } | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [previewObjects, setPreviewObjects] = useState<SketchObject[] | null>(null);
-  const [alignmentGuides, setAlignmentGuides] = useState<SketchAlignmentGuides>({ vertical: [], horizontal: [] });
+  const [alignmentGuides, setAlignmentGuides] = useState<SketchAlignmentGuides>({
+    vertical: [],
+    horizontal: [],
+  });
   const [textEditor, setTextEditor] = useState<{
     id?: string;
     x: number;
@@ -214,7 +239,14 @@ export function SketchCanvas({
   function configureInfiniteContext(context: CanvasRenderingContext2D) {
     const { dpr } = canvasSizeRef.current;
     const camera = viewportRef.current;
-    context.setTransform(dpr * camera.zoom, 0, 0, dpr * camera.zoom, -camera.x * dpr * camera.zoom, -camera.y * dpr * camera.zoom);
+    context.setTransform(
+      dpr * camera.zoom,
+      0,
+      0,
+      dpr * camera.zoom,
+      -camera.x * dpr * camera.zoom,
+      -camera.y * dpr * camera.zoom,
+    );
   }
 
   function drawInfiniteBackground(context: CanvasRenderingContext2D) {
@@ -265,13 +297,15 @@ export function SketchCanvas({
     const sourceObjects = previewObjects || page.objects;
     const renderedPage = {
       ...page,
-      objects: textEditor?.id ? sourceObjects.filter((object) => object.id !== textEditor.id) : sourceObjects,
+      objects: textEditor?.id
+        ? sourceObjects.filter((object) => object.id !== textEditor.id)
+        : sourceObjects,
     };
     if (mode === "infinite") {
       drawInfiniteBackground(context);
       configureInfiniteContext(context);
       renderedPage.objects.forEach((object) => drawSketchObject(context, object));
-      for (const id of selectedIds) {
+      for (const id of ["select", "shape", "arrow"].includes(tool) ? selectedIds : []) {
         const object = renderedPage.objects.find((entry) => entry.id === id);
         if (!object) continue;
         const bounds = objectBounds(object);
@@ -287,7 +321,9 @@ export function SketchCanvas({
         context.restore();
       }
     } else {
-      drawSketchPage(context, renderedPage, { selectedIds });
+      drawSketchPage(context, renderedPage, {
+        selectedIds: ["select", "shape", "arrow"].includes(tool) ? selectedIds : [],
+      });
     }
     context.save();
     if (mode === "infinite") configureInfiniteContext(context);
@@ -307,7 +343,7 @@ export function SketchCanvas({
       context.stroke();
     }
     context.restore();
-  }, [alignmentGuides, mode, page, previewObjects, selectedIds, textEditor?.id]);
+  }, [alignmentGuides, mode, page, previewObjects, selectedIds, textEditor?.id, tool]);
 
   const renderLive = useCallback(() => {
     const canvas = canvasRef.current;
@@ -327,7 +363,9 @@ export function SketchCanvas({
         context.lineWidth = mode === "infinite" ? 2 / viewportRef.current.zoom : 2;
         context.setLineDash([8, 6]);
         context.beginPath();
-        draftPoints.forEach((point, index) => index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
+        draftPoints.forEach((point, index) =>
+          index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y),
+        );
         context.stroke();
         context.restore();
       } else {
@@ -395,10 +433,19 @@ export function SketchCanvas({
     resize();
     return () => observer.disconnect();
   }, [mode, renderBase, renderLive]);
-  useEffect(() => () => {
-    if (renderFrameRef.current !== null) window.cancelAnimationFrame(renderFrameRef.current);
-  }, []);
-  useEffect(() => setSelectedIds((current) => current.filter((id) => page.objects.some((object) => object.id === id))), [page.objects]);
+  useEffect(
+    () => () => {
+      if (renderFrameRef.current !== null) window.cancelAnimationFrame(renderFrameRef.current);
+    },
+    [],
+  );
+  useEffect(
+    () =>
+      setSelectedIds((current) =>
+        current.filter((id) => page.objects.some((object) => object.id === id)),
+      ),
+    [page.objects],
+  );
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
     const anchor = zoomAnchorRef.current;
@@ -408,11 +455,44 @@ export function SketchCanvas({
     zoomAnchorRef.current = null;
   }, [zoom]);
 
+  const deleteSelection = useCallback(() => {
+    onChange({
+      ...page,
+      objects: page.objects.filter((object) => !selectedIds.includes(object.id)),
+    });
+    setSelectedIds([]);
+    canvasRef.current?.focus();
+  }, [onChange, page, selectedIds]);
+
+  const duplicateSelection = useCallback(() => {
+    const copies = page.objects
+      .filter((object) => selectedIds.includes(object.id))
+      .map((object) => ({
+        ...translateObject(structuredClone(object), 24, 24),
+        id: crypto.randomUUID(),
+      }));
+    onChange({ ...page, objects: [...page.objects, ...copies] });
+    setSelectedIds(copies.map((object) => object.id));
+  }, [onChange, page, selectedIds]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
-      if (event.code === "Space" && (pointerOverCanvasRef.current || document.activeElement === canvasRef.current)) {
+      if (
+        event.key === "Escape" &&
+        (document.activeElement === canvasRef.current ||
+          target?.closest(".sketch-selection-actions"))
+      ) {
+        setSelectedIds([]);
+        setHoverIntent(null);
+        canvasRef.current?.focus();
+        return;
+      }
+      if (
+        event.code === "Space" &&
+        (pointerOverCanvasRef.current || document.activeElement === canvasRef.current)
+      ) {
         event.preventDefault();
         if (!spacePressedRef.current) {
           spacePressedRef.current = true;
@@ -422,19 +502,28 @@ export function SketchCanvas({
       }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedIds.length) {
         event.preventDefault();
-        onChange({ ...page, objects: page.objects.filter((object) => !selectedIds.includes(object.id)) });
-        setSelectedIds([]);
+        deleteSelection();
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
         event.preventDefault();
         setSelectedIds(page.objects.map((object) => object.id));
       }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && selectedIds.length) {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "c" &&
+        selectedIds.length
+      ) {
         event.preventDefault();
-        copiedObjectsRef.current = structuredClone(page.objects.filter((object) => selectedIds.includes(object.id)));
+        copiedObjectsRef.current = structuredClone(
+          page.objects.filter((object) => selectedIds.includes(object.id)),
+        );
         pasteGenerationRef.current = 0;
       }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && copiedObjectsRef.current.length) {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "v" &&
+        copiedObjectsRef.current.length
+      ) {
         event.preventDefault();
         pasteGenerationRef.current += 1;
         const offset = 24 * pasteGenerationRef.current;
@@ -445,13 +534,13 @@ export function SketchCanvas({
         onChange({ ...page, objects: [...page.objects, ...copies] });
         setSelectedIds(copies.map((object) => object.id));
       }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d" && selectedIds.length) {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "d" &&
+        selectedIds.length
+      ) {
         event.preventDefault();
-        const copies = page.objects
-          .filter((object) => selectedIds.includes(object.id))
-          .map((object) => ({ ...translateObject(structuredClone(object), 24, 24), id: crypto.randomUUID() }));
-        onChange({ ...page, objects: [...page.objects, ...copies] });
-        setSelectedIds(copies.map((object) => object.id));
+        duplicateSelection();
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
@@ -480,7 +569,7 @@ export function SketchCanvas({
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", resetTemporaryPan);
     };
-  }, [onChange, onRedo, onUndo, page, selectedIds]);
+  }, [deleteSelection, duplicateSelection, onChange, onRedo, onUndo, page, selectedIds]);
 
   function commitObjects(objects: SketchObject[]) {
     onChange({ ...page, objects });
@@ -539,7 +628,9 @@ export function SketchCanvas({
       };
       setTemporaryErasing(true);
       setEraserPoint(point);
-      setPreviewObjects(eraseSketchObjects(page.objects, [point], temporaryEraserWidth, eraserMode));
+      setPreviewObjects(
+        eraseSketchObjects(page.objects, [point], temporaryEraserWidth, eraserMode),
+      );
       return;
     }
 
@@ -558,20 +649,22 @@ export function SketchCanvas({
     event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
     if (tool === "eraser") {
-      pointerModeRef.current = { kind: "erase", points: [point], originObjects: structuredClone(page.objects), width: strokeWidth };
+      pointerModeRef.current = {
+        kind: "erase",
+        points: [point],
+        originObjects: structuredClone(page.objects),
+        width: strokeWidth,
+      };
       setPreviewObjects(eraseSketchObjects(page.objects, [point], strokeWidth, eraserMode));
       return;
     }
-    if (["pen", "highlighter", "shape", "arrow", "lasso"].includes(tool)) {
-      pointerModeRef.current = { kind: "draw", points: [point] };
-      draftPointsRef.current = [point];
-      scheduleRender();
-      return;
-    }
-    if (tool === "select") {
+    if (["select", "shape", "arrow"].includes(tool)) {
       const selectedBounds = selectionBounds(page, selectedIds);
       if (selectedIds.length === 1 && selectedBounds) {
-        const handle = { x: selectedBounds.x + selectedBounds.w + 6, y: selectedBounds.y + selectedBounds.h + 6 };
+        const handle = {
+          x: selectedBounds.x + selectedBounds.w + 6,
+          y: selectedBounds.y + selectedBounds.h + 6,
+        };
         if (Math.hypot(point.x - handle.x, point.y - handle.y) <= 18) {
           pointerModeRef.current = {
             kind: "resize",
@@ -583,20 +676,54 @@ export function SketchCanvas({
           return;
         }
       }
-      const hit = hitTest(page.objects, point);
+      const hit = tool === "select" ? hitTest(page.objects, point) : selectedDrawingAt(point);
       if (!hit) {
         setSelectedIds([]);
+        if (tool === "select") return;
+      } else {
+        const ids = event.shiftKey
+          ? selectedIds.includes(hit.id)
+            ? selectedIds.filter((id) => id !== hit.id)
+            : [...selectedIds, hit.id]
+          : selectedIds.includes(hit.id)
+            ? selectedIds
+            : [hit.id];
+        setSelectedIds(ids);
+        pointerModeRef.current = {
+          kind: "move",
+          start: point,
+          ids,
+          originObjects: structuredClone(page.objects),
+        };
         return;
       }
-      const ids = event.shiftKey
-        ? (selectedIds.includes(hit.id) ? selectedIds.filter((id) => id !== hit.id) : [...selectedIds, hit.id])
-        : (selectedIds.includes(hit.id) ? selectedIds : [hit.id]);
-      setSelectedIds(ids);
-      pointerModeRef.current = { kind: "move", start: point, ids, originObjects: structuredClone(page.objects) };
+    }
+    if (["pen", "highlighter", "shape", "arrow", "lasso"].includes(tool)) {
+      setSelectedIds([]);
+      pointerModeRef.current = { kind: "draw", points: [point] };
+      draftPointsRef.current = [point];
+      scheduleRender();
     }
   }
 
-  function moveObjects(mode: Extract<NonNullable<PointerMode>, { kind: "move" }>, point: SketchPoint) {
+  // Keep the active drawing adjustable; Escape releases it when drawing inside it.
+  function selectedDrawingAt(point: SketchPoint) {
+    return page.objects.find((object) => {
+      if (!selectedIds.includes(object.id)) return false;
+      const bounds = objectBounds(object);
+      return (
+        point.x >= bounds.x &&
+        point.x <= bounds.x + bounds.w &&
+        point.y >= bounds.y &&
+        point.y <= bounds.y + bounds.h
+      );
+    });
+  }
+
+  function moveObjects(
+    mode: Extract<NonNullable<PointerMode>, { kind: "move" }>,
+    point: SketchPoint,
+  ) {
     const snapped = snapObjectTranslation(
       mode.originObjects,
       mode.ids,
@@ -604,15 +731,18 @@ export function SketchCanvas({
       point.y - mode.start.y,
     );
     return {
-      objects: mode.originObjects.map((object) => (
-        mode.ids.includes(object.id) ? translateObject(object, snapped.dx, snapped.dy) : object
-      )),
+      objects: mode.originObjects.map((object) =>
+        mode.ids.includes(object.id) ? translateObject(object, snapped.dx, snapped.dy) : object,
+      ),
       guides: snapped.guides,
       distance: Math.hypot(snapped.dx, snapped.dy),
     };
   }
 
-  function resizeObjects(mode: Extract<NonNullable<PointerMode>, { kind: "resize" }>, point: SketchPoint) {
+  function resizeObjects(
+    mode: Extract<NonNullable<PointerMode>, { kind: "resize" }>,
+    point: SketchPoint,
+  ) {
     const object = mode.originObjects.find((entry) => entry.id === mode.id);
     if (!object) return null;
     const nextBounds = {
@@ -622,9 +752,9 @@ export function SketchCanvas({
     };
     const snapped = snapObjectResize(nextBounds, mode.originObjects, mode.id);
     return {
-      objects: mode.originObjects.map((entry) => (
-        entry.id === object.id ? resizeObject(entry, snapped.bounds) : entry
-      )),
+      objects: mode.originObjects.map((entry) =>
+        entry.id === object.id ? resizeObject(entry, snapped.bounds) : entry,
+      ),
       guides: snapped.guides,
     };
   }
@@ -652,9 +782,14 @@ export function SketchCanvas({
       return;
     }
     if (pointerMode?.kind === "erase") {
-      const points = [...pointerMode.points, ...coalescedPointerPoints(event, page, mode, viewportRef.current)];
+      const points = [
+        ...pointerMode.points,
+        ...coalescedPointerPoints(event, page, mode, viewportRef.current),
+      ];
       pointerModeRef.current = { ...pointerMode, points };
-      setPreviewObjects(eraseSketchObjects(pointerMode.originObjects, points, pointerMode.width, eraserMode));
+      setPreviewObjects(
+        eraseSketchObjects(pointerMode.originObjects, points, pointerMode.width, eraserMode),
+      );
       return;
     }
     if (pointerMode?.kind === "draw") {
@@ -677,16 +812,23 @@ export function SketchCanvas({
       setAlignmentGuides(preview.guides);
       return;
     }
-    if (!pointerMode && tool === "select") {
+    if (!pointerMode && ["select", "shape", "arrow"].includes(tool)) {
       const selectedBounds = selectionBounds(page, selectedIds);
       if (selectedIds.length === 1 && selectedBounds) {
-        const handle = { x: selectedBounds.x + selectedBounds.w + 6, y: selectedBounds.y + selectedBounds.h + 6 };
+        const handle = {
+          x: selectedBounds.x + selectedBounds.w + 6,
+          y: selectedBounds.y + selectedBounds.h + 6,
+        };
         if (Math.hypot(point.x - handle.x, point.y - handle.y) <= 18) {
           setHoverIntent("resize");
           return;
         }
       }
-      setHoverIntent(hitTest(page.objects, point) ? "move" : null);
+      setHoverIntent(
+        (tool === "select" ? hitTest(page.objects, point) : selectedDrawingAt(point))
+          ? "move"
+          : null,
+      );
     }
   }
 
@@ -706,10 +848,19 @@ export function SketchCanvas({
       return;
     }
     if (pointerMode.kind === "erase") {
-      const points = [...pointerMode.points, ...coalescedPointerPoints(event, page, mode, viewportRef.current)];
-      const objects = eraseSketchObjects(pointerMode.originObjects, points, pointerMode.width, eraserMode);
-      const changed = objects.length !== pointerMode.originObjects.length
-        || objects.some((object, index) => object !== pointerMode.originObjects[index]);
+      const points = [
+        ...pointerMode.points,
+        ...coalescedPointerPoints(event, page, mode, viewportRef.current),
+      ];
+      const objects = eraseSketchObjects(
+        pointerMode.originObjects,
+        points,
+        pointerMode.width,
+        eraserMode,
+      );
+      const changed =
+        objects.length !== pointerMode.originObjects.length ||
+        objects.some((object, index) => object !== pointerMode.originObjects[index]);
       if (changed) commitObjects(objects);
       return;
     }
@@ -738,7 +889,10 @@ export function SketchCanvas({
     }
 
     const releasePoints = coalescedPointerPoints(event, page, mode, viewportRef.current);
-    const points = pointerMode.points.length > 1 ? [...pointerMode.points, ...releasePoints] : [...pointerMode.points, point];
+    const points =
+      pointerMode.points.length > 1
+        ? [...pointerMode.points, ...releasePoints]
+        : [...pointerMode.points, point];
     if (tool === "lasso") {
       setSelectedIds(lassoSelection(page.objects, points));
       onToolChange("select");
@@ -809,9 +963,11 @@ export function SketchCanvas({
         text,
         font_size: editor.fontSize,
       };
-      commitObjects(editor.id
-        ? page.objects.map((entry) => entry.id === editor.id ? object : entry)
-        : [...page.objects, object]);
+      commitObjects(
+        editor.id
+          ? page.objects.map((entry) => (entry.id === editor.id ? object : entry))
+          : [...page.objects, object],
+      );
       setSelectedIds([object.id]);
     } else if (editor.id) {
       commitObjects(page.objects.filter((object) => object.id !== editor.id));
@@ -873,26 +1029,33 @@ export function SketchCanvas({
   }
 
   const selectedBounds = selectionBounds(page, selectedIds);
-  const selectedText = selectedIds.length === 1
-    ? page.objects.find((object): object is Extract<SketchObject, { type: "text" }> => object.id === selectedIds[0] && object.type === "text")
-    : undefined;
-  const screenPoint = (x: number, y: number) => (
+  const selectedText =
+    selectedIds.length === 1
+      ? page.objects.find(
+          (object): object is Extract<SketchObject, { type: "text" }> =>
+            object.id === selectedIds[0] && object.type === "text",
+        )
+      : undefined;
+  const screenPoint = (x: number, y: number) =>
     mode === "infinite"
       ? sketchWorldToScreen(viewportRef.current, x, y)
-      : { x: x * zoom, y: y * zoom }
-  );
+      : { x: x * zoom, y: y * zoom };
   const eraserScreen = eraserPoint ? screenPoint(eraserPoint.x, eraserPoint.y) : null;
   const selectionScreen = selectedBounds ? screenPoint(selectedBounds.x, selectedBounds.y) : null;
-  const textScreen = textEditor ? screenPoint(textEditor.x, textEditor.y - textEditor.fontSize) : null;
+  const textScreen = textEditor
+    ? screenPoint(textEditor.x, textEditor.y - textEditor.fontSize)
+    : null;
 
   return (
     <div className={`sketch-canvas-scroll is-${mode}`} ref={scrollRef} onWheel={onWheel}>
       <div
         ref={stageRef}
         className="sketch-canvas-stage"
-        style={mode === "infinite"
-          ? { width: "100%", height: "100%" }
-          : { width: `${page.width * zoom}px`, height: `${page.height * zoom}px` }}
+        style={
+          mode === "infinite"
+            ? { width: "100%", height: "100%" }
+            : { width: `${page.width * zoom}px`, height: `${page.height * zoom}px` }
+        }
       >
         <canvas
           ref={baseCanvasRef}
@@ -937,37 +1100,60 @@ export function SketchCanvas({
             aria-hidden="true"
           />
         )}
-        {selectedBounds && selectionScreen && selectedIds.length > 0 && !textEditor && (
-          <div
-            className="sketch-selection-actions"
-            style={{
-              left: `${Math.max(4, selectionScreen.x)}px`,
-              top: `${Math.max(4, selectionScreen.y - 42)}px`,
-            }}
-            role="toolbar"
-            aria-label="選択オブジェクトの操作"
-          >
-            {selectedText && (
-              <button onClick={() => startTextEditing(selectedText)} title="テキストを編集" aria-label="テキストを編集">
-                <IconEdit size={16} />
+        {["select", "shape", "arrow"].includes(tool) &&
+          selectedBounds &&
+          selectionScreen &&
+          selectedIds.length > 0 &&
+          !textEditor && (
+            <div
+              className="sketch-selection-actions"
+              style={{
+                left: `${Math.max(4, selectionScreen.x)}px`,
+                top: `${Math.max(4, selectionScreen.y - 42)}px`,
+              }}
+              role="toolbar"
+              aria-label="選択オブジェクトの操作"
+            >
+              <button onClick={duplicateSelection} title="複製（Ctrl+D）" aria-label="複製">
+                <IconCopy size={16} />
               </button>
-            )}
-            <button
-              onClick={() => commitObjects(moveSketchObjectsToLayer(page.objects, selectedIds, "front"))}
-              title="最前面へ"
-              aria-label="最前面へ"
-            >
-              <IconStackFront size={16} />
-            </button>
-            <button
-              onClick={() => commitObjects(moveSketchObjectsToLayer(page.objects, selectedIds, "back"))}
-              title="最背面へ"
-              aria-label="最背面へ"
-            >
-              <IconStackBack size={16} />
-            </button>
-          </div>
-        )}
+              {selectedText && (
+                <button
+                  onClick={() => startTextEditing(selectedText)}
+                  title="テキストを編集"
+                  aria-label="テキストを編集"
+                >
+                  <IconEdit size={16} />
+                </button>
+              )}
+              <button
+                onClick={() =>
+                  commitObjects(moveSketchObjectsToLayer(page.objects, selectedIds, "front"))
+                }
+                title="最前面へ"
+                aria-label="最前面へ"
+              >
+                <IconStackFront size={16} />
+              </button>
+              <button
+                onClick={() =>
+                  commitObjects(moveSketchObjectsToLayer(page.objects, selectedIds, "back"))
+                }
+                title="最背面へ"
+                aria-label="最背面へ"
+              >
+                <IconStackBack size={16} />
+              </button>
+              <button
+                className="is-danger"
+                onClick={deleteSelection}
+                title="削除（Delete）"
+                aria-label="削除"
+              >
+                <IconTrash size={16} />
+              </button>
+            </div>
+          )}
         {textEditor && textScreen && (
           <textarea
             className="sketch-inline-text"
@@ -997,9 +1183,17 @@ export function SketchCanvas({
             aria-label="Sketchテキスト"
           />
         )}
-        <output className="sketch-input-latency" aria-label="描画入力遅延">
-          Input {latencyMetrics.latest.toFixed(1)}ms · P95 {latencyMetrics.p95.toFixed(1)}ms
-        </output>
+        {tool === "shape" || tool === "arrow" ? (
+          <div className="sketch-input-latency">
+            {selectedIds.length
+              ? "ドラッグで移動 · 右下でサイズ変更 · Escで選択解除"
+              : "ドラッグで図形を描く"}
+          </div>
+        ) : (
+          <output className="sketch-input-latency" aria-label="描画入力遅延">
+            Input {latencyMetrics.latest.toFixed(1)}ms · P95 {latencyMetrics.p95.toFixed(1)}ms
+          </output>
+        )}
       </div>
     </div>
   );

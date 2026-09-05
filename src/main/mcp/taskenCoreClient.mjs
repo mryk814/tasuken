@@ -63,6 +63,7 @@ import {
 } from "../../shared/contracts/core/public.mjs";
 
 export const TASKEN_CORE_CLIENT_TIMEOUT_MS = 5_000;
+export const TASKEN_CORE_IMAGE_PROPOSAL_TIMEOUT_MS = 30_000;
 
 export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
@@ -435,12 +436,16 @@ export class TaskenCoreClient {
   }
 
   async proposeContent(request = {}) {
+    const hasImages = Array.isArray(request.images) && request.images.length > 0;
+    const extraHeaders = hasImages ? { "x-tasken-proposal-images": "1" } : {};
     return this.request(
       "/v1/commands/propose-content",
       TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
       request,
       proposeContentResponseSchema,
       "propose-content",
+      extraHeaders,
+      hasImages ? Math.max(this.timeoutMs, TASKEN_CORE_IMAGE_PROPOSAL_TIMEOUT_MS) : this.timeoutMs,
     );
   }
 
@@ -512,7 +517,15 @@ export class TaskenCoreClient {
     return this.request(`/v1/queries/${path}`, capability, request, responseSchema, path);
   }
 
-  async request(route, capability, request, responseSchema, operation = route) {
+  async request(
+    route,
+    capability,
+    request,
+    responseSchema,
+    operation = route,
+    extraHeaders = {},
+    timeoutMs = this.timeoutMs,
+  ) {
     const discovery = await readDiscovery(this.discoveryPath);
     if (!discovery.capabilities.includes(capability)) {
       throw new TaskenCoreClientError(
@@ -521,13 +534,14 @@ export class TaskenCoreClient {
       );
     }
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await this.fetch(`${discovery.origin}${route}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${discovery.token}`,
           "content-type": "application/json",
+          ...extraHeaders,
         },
         body: JSON.stringify(request),
         signal: controller.signal,

@@ -7,6 +7,12 @@ import { createTaskPreloadCapability } from "./capabilities/task";
 type Unsubscribe = () => void;
 
 const api: ResearchDeskApi = {
+  captureOrganizer: {
+    getSettings: () => ipcRenderer.invoke(IPC.captureOrganizerGetSettings),
+    saveSettings: (input) => ipcRenderer.invoke(IPC.captureOrganizerSaveSettings, input),
+    testConnection: (input) => ipcRenderer.invoke(IPC.captureOrganizerTestConnection, input),
+    clearSettings: () => ipcRenderer.invoke(IPC.captureOrganizerClearSettings),
+  },
   workspace: {
     load: () => ipcRenderer.invoke(IPC.workspaceLoad),
     bootstrap: (legacy) => ipcRenderer.invoke(IPC.workspaceBootstrap, legacy),

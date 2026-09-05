@@ -479,6 +479,7 @@ export const mobileTaskSummarySchema = z
     id: taskIdSchema,
     version: entityVersionSchema,
     title: z.string().trim().min(1).max(500),
+    description: z.string().max(50000).optional(),
     themeId: entityIdSchema.nullable(),
     state: taskStateSchema,
     workState: taskWorkStateSchema.nullable(),
@@ -953,6 +954,8 @@ const mobileCreateTaskCandidateSchema = z
     requester: taskRequesterSchema.default("self"),
     intendedExecutor: taskIntendedExecutorSchema.default("self"),
     todayDate: localDateSchema.nullable().optional(),
+    description: z.string().max(50000).optional(),
+    checklistItems: mobileChecklistSchema.optional(),
   })
   .strict();
 
@@ -1075,6 +1078,7 @@ const mobileTaskCommandSchema = z.discriminatedUnion("name", [
     .object({
       name: z.literal("CreateTask"),
       task: mobileCreateTaskCandidateSchema,
+      schedule: mobileScheduleEditSchema.optional(),
       provenance: mobileTaskCreationProvenanceSchema.optional(),
     })
     .strict(),
@@ -1321,6 +1325,40 @@ export type MobileHealthResponse = z.output<typeof mobileHealthResponseSchema>;
 export type MobileTodayRequest = z.output<typeof mobileTodayRequestSchema>;
 export type MobileTodayResponse = z.output<typeof mobileTodayResponseSchema>;
 export type MobileTaskSchedule = z.output<typeof mobileTaskScheduleSchema>;
+
+export const mobileCaptureOrganizationRequestSchema = z
+  .object({
+    text: z.string().min(1).max(12000),
+    capturedAt: isoTimestampSchema,
+    timeZone: z
+      .string()
+      .min(1)
+      .max(100)
+      .refine((value) => {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: value });
+          return true;
+        } catch {
+          return false;
+        }
+      }),
+    themeId: entityIdSchema.nullable(),
+  })
+  .strict();
+
+export const mobileCaptureOrganizationSchema = z
+  .object({
+    title: z.string().trim().min(1).max(500),
+    themeId: entityIdSchema.nullable(),
+    startDate: localDateSchema.nullable(),
+    endDate: localDateSchema.nullable(),
+    rangeSemantics: taskScheduleRangeSemanticsSchema.nullable(),
+    checklist: z.array(z.string().trim().min(1).max(200)).max(20),
+    supplement: z.string().max(12000),
+    warnings: z.array(z.string().max(500)).max(10),
+  })
+  .strict()
+  .superRefine(validateMobileScheduleDates);
 export type MobileWorkReceiptSummary = z.output<typeof mobileWorkReceiptSummarySchema>;
 export type MobileWorkReceiptRequest = z.output<typeof mobileWorkReceiptRequestSchema>;
 export type MobileWorkReceiptDetail = z.output<typeof mobileWorkReceiptDetailSchema>;

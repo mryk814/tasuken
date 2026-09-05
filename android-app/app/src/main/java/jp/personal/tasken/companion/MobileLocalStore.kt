@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 private val mobileChecklistJson = Json {
     ignoreUnknownKeys = false
@@ -58,6 +60,7 @@ data class TaskCacheEntity(
     val latestReceiptExecutorLabel: String? = null,
     val latestReceiptSummary: String? = null,
     val checklistJson: String = "[]",
+    val description: String? = null,
 )
 
 @Entity(tableName = "capture_receipt")
@@ -1579,7 +1582,7 @@ abstract class MobileLocalDao {
         PendingTaskDelegationEntity::class,
         TaskNotificationDeliveryEntity::class,
     ],
-    version = 16,
+    version = 18,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -1608,7 +1611,9 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                 MIGRATION_12_13,
                 MIGRATION_13_14,
                 MIGRATION_14_15,
-                MIGRATION_15_16,
+                    MIGRATION_15_16,
+                    MIGRATION_16_17,
+                    MIGRATION_17_18,
             ).build().also { instance = it }
         }
     }
@@ -1832,10 +1837,48 @@ internal val MIGRATION_15_16 = object : Migration(15, 16) {
     }
 }
 
+internal val MIGRATION_16_17 = object : Migration(16, 17) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN description TEXT")
+    }
+}
+
+internal val MIGRATION_17_18 = object : Migration(17, 18) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        fun upgrade(json: String, nestedMeta: Boolean): String {
+            val root = Json.parseToJsonElement(json) as JsonObject
+            val target = if (nestedMeta) root["meta"] as? JsonObject ?: return json else root
+            if (target["schemaVersion"] != JsonPrimitive(6)) return json
+            val updated = JsonObject(target + ("schemaVersion" to JsonPrimitive(7)))
+            return if (nestedMeta) JsonObject(root + ("meta" to updated)).toString() else updated.toString()
+        }
+        for (table in listOf("outbox_command", "pending_human_review", "pending_task_delegation")) {
+            db.query("SELECT commandId, envelopeJson FROM $table").use { cursor ->
+                while (cursor.moveToNext()) {
+                    db.execSQL(
+                        "UPDATE $table SET envelopeJson = ? WHERE commandId = ?",
+                        arrayOf(upgrade(cursor.getString(1), false), cursor.getString(0)),
+                    )
+                }
+            }
+        }
+        db.query("SELECT commandId, successJson FROM pending_task_delegation WHERE successJson IS NOT NULL").use { cursor ->
+            while (cursor.moveToNext()) {
+                db.execSQL(
+                    "UPDATE pending_task_delegation SET successJson = ? WHERE commandId = ?",
+                    arrayOf(upgrade(cursor.getString(1), true), cursor.getString(0)),
+                )
+            }
+        }
+        db.execSQL("UPDATE sync_state SET schemaVersion = 7 WHERE schemaVersion = 6")
+    }
+}
+
 fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     id = id,
     version = serverVersion ?: 0,
     title = title,
+    description = description,
     themeId = themeId,
     state = state,
     workState = workState,

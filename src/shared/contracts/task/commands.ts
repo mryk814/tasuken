@@ -107,6 +107,7 @@ export const createTaskCommandSchema = z
     payload: z
       .object({
         task: taskDraftSchema,
+        schedule: taskScheduleEditSchema.optional(),
         provenance: taskCreationProvenanceSchema.optional(),
       })
       .strict(),

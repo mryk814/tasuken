@@ -96,6 +96,9 @@ const { ApplicationCommandService, commandFingerprint } = await importBundled(
 const { AiProposalAcceptanceService } = await importBundled(
   "src/main/services/aiProposalAcceptanceService.ts",
 );
+const { ProposalMarkdownImageStore } = await importBundled(
+  "src/main/services/proposalMarkdownImages.ts",
+);
 const { ContentDetailQueryService } = await importBundled(
   "src/main/core/services/contentDetailQueryService.ts",
 );
@@ -1529,6 +1532,243 @@ test("Note edit verifies target/base version and applies only signed accepted hu
       () => acceptance.execute(changedHunks),
       (error) => error?.code === "COMMAND_ID_REUSED",
     );
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Note Proposal images are verified before acceptance and removed after a successful rejection", () => {
+  const directory = root();
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  database.loadWorkspace();
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5W2X8AAAAASUVORK5CYII=";
+  const pngBytes = Buffer.from(png, "base64");
+  const decodeFixtureImage = (bytes, mimeType) =>
+    mimeType === "image/png" && bytes.equals(pngBytes) ? { width: 1, height: 1 } : null;
+  const workspace = new WorkspaceService(
+    database,
+    directory,
+    () => "2026-08-21T05:00:00.000Z",
+    undefined,
+    decodeFixtureImage,
+  );
+  const images = new ProposalMarkdownImageStore(directory, decodeFixtureImage);
+  try {
+    const acceptedPrepared = images.prepare(
+      "proposal-note-images-accept",
+      "![image](tasken-upload://figure)",
+      [
+        {
+          reference_id: "figure",
+          file_name: "figure.png",
+          media_type: "image/png",
+          data_base64: png,
+        },
+      ],
+    );
+    images.stage(acceptedPrepared);
+    const acceptedProposal = database.save("ai_proposal", {
+      id: "proposal-note-images-accept",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "notes",
+      payload: {
+        notes: [
+          {
+            action: "create",
+            title: "Accepted image",
+            body: acceptedPrepared.body,
+            note_type: "memo",
+          },
+        ],
+        note_images: acceptedPrepared.manifest,
+      },
+      request: { tool: "tasken.propose_note" },
+      status: "pending",
+      received_at: "2026-08-21T04:55:00.000Z",
+    });
+    const acceptedCandidates = noteCandidates(acceptedProposal, []);
+    new AiProposalAcceptanceService(
+      new ApplicationCommandService(database),
+      workspace,
+      database,
+    ).execute(envelope(acceptedProposal, acceptedCandidates));
+    const acceptedNote = database.get("note", acceptedCandidates[0].entity.id, true);
+    const acceptedImagePath = path.join(
+      directory,
+      "attachments",
+      "markdown-images",
+      acceptedPrepared.manifest[0].file_name,
+    );
+    assert.equal(acceptedNote.body_markdown, acceptedPrepared.body);
+    assert.deepEqual(fs.readFileSync(acceptedImagePath), Buffer.from(png, "base64"));
+
+    const rejectedPrepared = images.prepare(
+      "proposal-note-images-reject",
+      "![image](tasken-upload://figure)",
+      [
+        {
+          reference_id: "figure",
+          file_name: "figure.png",
+          media_type: "image/png",
+          data_base64: png,
+        },
+      ],
+    );
+    images.stage(rejectedPrepared);
+    const rejectedProposal = database.save("ai_proposal", {
+      id: "proposal-note-images-reject",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "notes",
+      payload: {
+        notes: [
+          {
+            action: "create",
+            title: "Discard image",
+            body: rejectedPrepared.body,
+            note_type: "memo",
+          },
+        ],
+        note_images: rejectedPrepared.manifest,
+      },
+      request: { tool: "tasken.propose_note" },
+      status: "pending",
+      received_at: "2026-08-21T05:00:00.000Z",
+    });
+    const rejectCommand = envelope(
+      rejectedProposal,
+      [],
+      [{ entryIndex: 0, type: "note", action: "ignore" }],
+    );
+    rejectCommand.payload.decision = "reject";
+    rejectCommand.payload.proposal.status = "rejected";
+    new AiProposalAcceptanceService(
+      new ApplicationCommandService(database),
+      workspace,
+      database,
+    ).execute(rejectCommand);
+    assert.equal(database.get("ai_proposal", rejectedProposal.id).status, "rejected");
+    assert.equal(
+      fs.existsSync(
+        path.join(
+          directory,
+          "attachments",
+          "markdown-images",
+          rejectedPrepared.manifest[0].file_name,
+        ),
+      ),
+      false,
+    );
+
+    const victimPrepared = images.prepare(
+      "proposal-note-images-victim",
+      "![image](tasken-upload://figure)",
+      [
+        {
+          reference_id: "figure",
+          file_name: "figure.png",
+          media_type: "image/png",
+          data_base64: png,
+        },
+      ],
+    );
+    images.stage(victimPrepared);
+    const victimPath = path.join(
+      directory,
+      "attachments",
+      "markdown-images",
+      victimPrepared.manifest[0].file_name,
+    );
+    const foreignManifestProposal = database.save("ai_proposal", {
+      id: "proposal-note-images-foreign-manifest",
+      source: "manual",
+      source_app: "fixture",
+      payload_type: "notes",
+      payload: {
+        notes: [
+          {
+            action: "create",
+            title: "Foreign image",
+            body: victimPrepared.body,
+            note_type: "memo",
+          },
+        ],
+        note_images: victimPrepared.manifest,
+      },
+      request: { tool: "fixture" },
+      status: "pending",
+      received_at: "2026-08-21T05:05:00.000Z",
+    });
+    const foreignRejectCommand = envelope(
+      foreignManifestProposal,
+      [],
+      [{ entryIndex: 0, type: "note", action: "ignore" }],
+    );
+    foreignRejectCommand.payload.decision = "reject";
+    foreignRejectCommand.payload.proposal.status = "rejected";
+    new AiProposalAcceptanceService(
+      new ApplicationCommandService(database),
+      workspace,
+      database,
+    ).execute(foreignRejectCommand);
+    assert.equal(database.get("ai_proposal", foreignManifestProposal.id).status, "rejected");
+    assert.equal(fs.existsSync(victimPath), true);
+
+    const tamperedPrepared = images.prepare(
+      "proposal-note-images-tampered",
+      "![image](tasken-upload://figure)",
+      [
+        {
+          reference_id: "figure",
+          file_name: "figure.png",
+          media_type: "image/png",
+          data_base64: png,
+        },
+      ],
+    );
+    images.stage(tamperedPrepared);
+    const tamperedPath = path.join(
+      directory,
+      "attachments",
+      "markdown-images",
+      tamperedPrepared.manifest[0].file_name,
+    );
+    fs.writeFileSync(tamperedPath, "tampered", "utf8");
+    const tamperedProposal = database.save("ai_proposal", {
+      id: "proposal-note-images-tampered",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "notes",
+      payload: {
+        notes: [
+          {
+            action: "create",
+            title: "Tampered image",
+            body: tamperedPrepared.body,
+            note_type: "memo",
+          },
+        ],
+        note_images: tamperedPrepared.manifest,
+      },
+      request: { tool: "tasken.propose_note" },
+      status: "pending",
+      received_at: "2026-08-21T05:10:00.000Z",
+    });
+    const tamperedCommand = envelope(tamperedProposal, noteCandidates(tamperedProposal, []));
+    assert.throws(
+      () =>
+        new AiProposalAcceptanceService(
+          new ApplicationCommandService(database),
+          workspace,
+          database,
+        ).execute(tamperedCommand),
+      /内容が変更|形式が一致/,
+    );
+    assert.equal(database.get("ai_proposal", tamperedProposal.id).status, "pending");
+    assert.equal(fs.existsSync(tamperedPath), true);
   } finally {
     database.db.close();
     fs.rmSync(directory, { recursive: true, force: true });
