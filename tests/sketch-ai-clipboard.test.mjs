@@ -23,7 +23,10 @@ test("画像コピーはAI専用ではなく通常のclipboard操作にする（
   assert.doesNotMatch(page, /AI向け指示をコピー/);
   assert.doesNotMatch(page, /sketchAiPrompt/);
   assert.match(page, /async function copyImage\(\)/);
-  assert.match(page, />画像をコピー</);
+  assert.match(
+    page,
+    /<button[^>]*onClick=\{\(\) => void copyImage\(\)\}>\s*<IconCopy size=\{15\} \/>\s*画像をコピー\s*<\/button>/,
+  );
   assert.match(page, /setToast\("Sketch画像をコピーしました。", "success"\)/);
 });
 
