@@ -306,6 +306,7 @@ test("daily Activity and Session queries use the runtime local day without chang
       listThemes: () => [],
       listRepositoryContexts: () => [],
       listWorkReceipts: () => [],
+      listAiProposals: () => [],
       listWorkingCopies: () => [],
       listReferences: () => [],
       workspaceAiVisibilityDefault: () => ["coding_agent"],

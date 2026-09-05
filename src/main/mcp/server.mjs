@@ -634,6 +634,11 @@ export function createTaskenMcpServer(options = {}) {
           current_state: theme.current_state,
         })),
         sessions,
+        task_work: [
+          ...new Map(
+            contexts.flatMap((context) => context.task_work || []).map((work) => [work.id, work]),
+          ).values(),
+        ].slice(0, 50),
         daily_activity: dailyActivity,
         prior_debriefs: debriefs,
         writing_guidance: DAILY_REPORT_WRITING_GUIDANCE,
@@ -1289,7 +1294,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.append_work_receipt",
     {
       description:
-        "Queue an append-only Work Receipt proposal for an AI Ready or active Task. If no separate start was adopted, started_at is recorded with the receipt. Human review remains required.",
+        "Queue an optional interim Work Receipt for long-running work only. Normally send report_task_done once at completion without appending the same result first. Reuse the same idempotency_key, time and content for retries. Reports stay grouped under their Task until human review.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },

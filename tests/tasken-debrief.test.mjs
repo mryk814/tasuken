@@ -40,6 +40,8 @@ function domainFixture() {
     payload: { agent_sessions: [{ action: "capture", session: hookSession }] },
   };
   return {
+    tasks: [],
+    work_receipts: [],
     agent_sessions: [
       {
         ...hookSession,
@@ -86,6 +88,41 @@ test("Daily Debrief groups a UTC morning session under its local date", () => {
     if (previousTimeZone === undefined) delete process.env.TZ;
     else process.env.TZ = previousTimeZone;
   }
+});
+
+test("Task report appears on its work days, independently of the adoption date or Agent Session", () => {
+  const start = new Date(2026, 8, 5, 23, 30).toISOString();
+  const end = new Date(2026, 8, 6, 0, 20).toISOString();
+  const domain = {
+    tasks: [{ id: "task-a", title: "作業履歴", work_started_at: start }],
+    work_receipts: [],
+    agent_sessions: [],
+    ai_proposals: [
+      {
+        id: "done",
+        payload_type: "task_work",
+        status: "pending",
+        received_at: end,
+        request: { work_started_at: start },
+        payload: {
+          task_work: [
+            { task_id: "task-a", action: "report_done", reported_at: end, summary: "検証完了" },
+          ],
+        },
+      },
+    ],
+  };
+  for (const date of ["2026-09-05", "2026-09-06"]) {
+    const evidence = buildDailyDebriefEvidence(domain, date);
+    assert.equal(evidence.length, 1);
+    assert.equal(evidence[0].taskId, "task-a");
+    assert.equal(evidence[0].endedAt, end);
+    assert.equal(evidence[0].reviewStatus, "pending");
+  }
+  domain.ai_proposals[0].status = "accepted";
+  domain.ai_proposals[0].updated_at = new Date(2026, 8, 7, 10).toISOString();
+  assert.equal(buildDailyDebriefEvidence(domain, "2026-09-07").length, 0);
+  assert.equal(buildDailyDebriefEvidence(domain, "2026-09-06")[0].reviewStatus, "accepted");
 });
 
 test("dailyReportDate accepts only a non-deleted report with daily_report.date", () => {

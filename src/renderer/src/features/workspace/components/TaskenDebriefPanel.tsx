@@ -137,11 +137,15 @@ export function TaskenDebriefPanel({
           <span className={needsAttention ? "daily-work-card-attention" : "daily-work-card-meta"}>
             {needsAttention
               ? `要確認: ${entry.remainingWork.join(" / ") || "作業が停止中"}`
-              : entry.proposal
-                ? "未確定の受信記録"
-                : entry.status === "active"
-                  ? "作業中"
-                  : "記録済み"}
+              : entry.status === "active"
+                ? "作業中"
+                : entry.taskId && entry.reviewStatus === "pending"
+                  ? "AI作業終了・採用待ち"
+                  : entry.taskId && entry.reviewStatus === "accepted"
+                    ? "採用済み"
+                    : entry.proposal
+                      ? "未確定の受信記録"
+                      : "記録済み"}
           </span>
         </button>
         {expanded && (
@@ -152,6 +156,15 @@ export function TaskenDebriefPanel({
             aria-label="AI作業の内容"
           >
             <dl>
+              {entry.taskId && (
+                <>
+                  <dt>AI作業期間</dt>
+                  <dd>
+                    {new Date(entry.startedAt).toLocaleString("ja-JP")} ～{" "}
+                    {entry.endedAt ? new Date(entry.endedAt).toLocaleString("ja-JP") : "作業中"}
+                  </dd>
+                </>
+              )}
               <dt>Intent</dt>
               <dd>{entry.intent || "依頼内容の記録なし"}</dd>
               <dt>Outcome</dt>
@@ -166,7 +179,8 @@ export function TaskenDebriefPanel({
               )}
             </dl>
             <small>
-              {entry.proposal ? "未確定の受信記録 · " : ""}Session: {entry.sourceSessionId}
+              {entry.proposal ? "未確定の受信記録 · " : ""}
+              {entry.taskId ? `Task: ${entry.taskId}` : `Session: ${entry.sourceSessionId}`}
             </small>
           </div>
         )}

@@ -9,7 +9,16 @@ import type {
 export interface AgentWorkspacePersistence {
   list(type: "task", includeDeleted?: boolean): AgentReadyTaskSourceRecord[];
   list(type: "theme", includeDeleted?: boolean): AgentReadyTaskThemeRecord[];
-  list(type: "repository_context" | "work_receipt" | "working_copy" | "agent_session" | "reference", includeDeleted?: boolean): AgentWorkspaceRecord[];
+  list(
+    type:
+      | "repository_context"
+      | "work_receipt"
+      | "working_copy"
+      | "agent_session"
+      | "reference"
+      | "ai_proposal",
+    includeDeleted?: boolean,
+  ): AgentWorkspaceRecord[];
   readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
@@ -33,6 +42,10 @@ export class WorkspaceAgentWorkspaceReadAdapter implements AgentWorkspaceReadPor
     return this.persistence.list("work_receipt", includeArchived);
   }
 
+  listAiProposals(includeArchived: boolean) {
+    return this.persistence.list("ai_proposal", includeArchived);
+  }
+
   listWorkingCopies(includeArchived: boolean) {
     return this.persistence.list("working_copy", includeArchived);
   }
@@ -46,7 +59,10 @@ export class WorkspaceAgentWorkspaceReadAdapter implements AgentWorkspaceReadPor
   }
 
   workspaceAiVisibilityDefault() {
-    return normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault"))
-      || [...DEFAULT_AI_VISIBILITY];
+    return (
+      normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault")) || [
+        ...DEFAULT_AI_VISIBILITY,
+      ]
+    );
   }
 }

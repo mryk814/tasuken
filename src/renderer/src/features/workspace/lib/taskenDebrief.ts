@@ -1,4 +1,5 @@
 import type { BaseRecord } from "../types";
+import { taskWorkPeriods } from "../../../../../shared/contracts/task/public.ts";
 import type { AgentSession, WorkspaceDomain } from "../domain-model/types";
 import {
   agentSessionHasContent,
@@ -25,6 +26,8 @@ export interface DebriefSessionEvidence {
   remainingWork: string[];
   strength: DebriefEvidenceStrength;
   hasContent: boolean;
+  taskId?: string;
+  reviewStatus?: string;
   proposal?: BaseRecord;
 }
 
@@ -182,7 +185,47 @@ export function buildDailyDebriefEvidence(
       .filter((session) => !canonicalSourceIds.has(session.source_session_id || session.id))
       .map((session) => evidenceFromSession(session, base, hookSourceApps.get(session.id)));
   });
-  return [...canonical, ...pending].sort((left, right) =>
+  const taskWork: DebriefSessionEvidence[] = taskWorkPeriods(
+    domain.tasks as unknown as BaseRecord[],
+    domain.ai_proposals,
+    domain.work_receipts as unknown as BaseRecord[],
+  )
+    .filter(
+      (work) =>
+        localDate(work.started_at) <= date &&
+        localDate(
+          new Date(
+            Math.max(
+              Date.parse(work.started_at),
+              Date.parse(work.ended_at || new Date().toISOString()) - 1,
+            ),
+          ).toISOString(),
+        ) >= date,
+    )
+    .map((work) => ({
+      id: work.id,
+      sessionId: "",
+      sourceSessionId: work.source_session || "",
+      taskId: work.task_id,
+      clientKind: work.executor_label,
+      startedAt: work.started_at,
+      endedAt: work.ended_at,
+      status: work.status,
+      reviewStatus: work.review_status,
+      intent: work.title,
+      outcome: work.summary,
+      requests: [],
+      responses: [],
+      verification: work.verification,
+      remainingWork: work.remaining_work,
+      strength: "agent_reported",
+      hasContent: true,
+      proposal:
+        work.review_status === "pending"
+          ? domain.ai_proposals.find((proposal) => proposal.id === work.proposal_id)
+          : undefined,
+    }));
+  return [...canonical, ...pending, ...taskWork].sort((left, right) =>
     left.startedAt.localeCompare(right.startedAt),
   );
 }

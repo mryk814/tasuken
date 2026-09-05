@@ -151,11 +151,11 @@ test("Proposal rows lead with a content-specific headline", () => {
   assert.match(aiProposalPanelSource, /str\(entry\.taskTitle\)/);
   assert.match(
     aiProposalPanelSource,
-    /className="proposal-row-title">\{proposalHeadline\(proposal\)\}<\/strong>/,
+    /className="proposal-row-title">\{domain\.tasks\.find\([\s\S]*?proposalHeadline\(proposal\)\}<\/strong>/,
   );
   assert.match(
     aiProposalPanelSource,
-    /className="proposal-row-kind">\{proposalTypeLabel\(proposal\)\}/,
+    /className="proposal-row-kind">[\s\S]*?proposalTypeLabel\(proposal\)/,
   );
   assert.match(aiProposalPanelSource, /選択すると、本文と採用範囲を確認できます。/);
   assert.doesNotMatch(aiProposalPanelSource, /選択すると、下で本文と採用範囲を確認できます。/);

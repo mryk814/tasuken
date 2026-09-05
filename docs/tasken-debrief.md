@@ -69,6 +69,19 @@ Taskenでは生ログを再収集せず、統計や用語レビューを必須�
 
 ## MCPと保存の境界
 
+TaskのAI作業は、Taskの開始記録・受信したTask Work Proposal・採用済みWork Receiptからも表示する。
+Agent Sessionがない作業も対象にし、Task IDと作業開始時刻で同じ作業をまとめる。
+`work_started_at`（受信時にも保持）から`reported_at`までをAI作業期間とし、日をまたぐ場合は両日のActivityとDebriefへ表示する。
+Proposalの受信時刻・人の採用時刻・Taskの正式完了時刻は別の事実として保持し、作業期間へ代入しない。
+採用前は「採用待ち」と明示し、採用後も同じ作業期間と表示IDを維持する。
+`get_debrief_context`の`task_work`は既存のAI公開範囲と本文のサニタイズを通し、作業ごとの報告を返す。
+
+AI Inboxでは同じTaskの報告を時系列にまとめる。
+完了報告の「採用してTaskを完了」は、選択した報告を正式保存してTaskを完了し、プレビューに表示した同じproducer・session・Task versionの過去報告を一緒に履歴化する。
+過去報告の本文は消さず、採用した完了報告のIDを残す。
+集約対象のversionも採用時に確認し、途中で変わっていれば全体を適用せず再確認する。
+通常のAI依頼では完了報告を一度だけ送り、途中報告は長期作業で必要な場合に限る。
+
 `daily-report`はローカル当日を指定してread-onlyの`tasken.get_debrief_context(date)`を使う。
 別の日は画面の依頼文、または`get_debrief_context`の`date`で指定する。
 日報の書き方はMCP側の一つの`writing_guidance`をPromptとContextで共有し、どちらの入口でも取得時に渡す。

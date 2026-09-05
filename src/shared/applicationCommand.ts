@@ -169,6 +169,7 @@ const MAX_AI_PROPOSAL_HUNK_INDEX = 32_767;
 export interface ApplyTaskWorkProposalCommandPayload {
   proposalId: string;
   decision: "accept" | "reject";
+  coveredProposalIds?: string[];
 }
 
 export interface StartTaskWorkCommandPayload {
@@ -621,6 +622,16 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     }
   }
   if (name === "ApplyTaskWorkProposal") {
+    const covered = value.payload.coveredProposalIds;
+    if (
+      covered !== undefined &&
+      (!Array.isArray(covered) ||
+        covered.length > 100 ||
+        covered.some((id) => typeof id !== "string" || !id.trim()) ||
+        new Set(covered).size !== covered.length)
+    ) {
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "集約対象のProposal一覧が不正です。");
+    }
     if (
       typeof value.payload.proposalId !== "string" ||
       !value.payload.proposalId.trim() ||

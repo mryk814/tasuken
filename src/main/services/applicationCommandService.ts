@@ -18,6 +18,7 @@ import {
 } from "../../shared/quickCapture.mjs";
 import {
   selectLatestWorkReceipt,
+  taskWorkReportsCoveredBy,
   taskCreationProvenanceSchema,
 } from "../../shared/contracts/task/public.ts";
 import type {
@@ -1726,6 +1727,7 @@ export class ApplicationCommandService {
       command,
       commandEvent(command, "task", taskId, "updated", current, task, "task_work_recorded"),
     );
+    event.occurred_at = task.work_started_at;
     const proposal = payload.sourceSession
       ? mcpTaskWorkProposal(this.repository, taskId, payload.sourceSession, ["start"])
       : null;
@@ -1747,7 +1749,11 @@ export class ApplicationCommandService {
   }
 
   private applyTaskWorkProposal(command: CommandEnvelope): CommandReceipt {
-    const payload = command.payload as { proposalId: string; decision: "accept" | "reject" };
+    const payload = command.payload as {
+      proposalId: string;
+      decision: "accept" | "reject";
+      coveredProposalIds?: string[];
+    };
     const proposal = this.repository.get("ai_proposal", payload.proposalId);
     if (!proposal)
       throw new ApplicationCommandError("NOT_FOUND", "Task Work Proposalがありません。", {
@@ -1810,6 +1816,18 @@ export class ApplicationCommandService {
     assertExpectedVersion(this.repository, command, "task", taskId, task);
 
     const action = typeof entry.action === "string" ? entry.action : "";
+    const eligibleReports = taskWorkReportsCoveredBy(proposal, this.repository.list("ai_proposal"));
+    const coveredReports = (payload.coveredProposalIds || []).map((id) => {
+      const report = eligibleReports.find((item) => item.id === id);
+      if (!report || !expectedVersionFor(command, "ai_proposal", id)) {
+        throw new ApplicationCommandError(
+          "CONFLICT",
+          "集約対象の報告が変わりました。AI Inboxを更新して確認してください。",
+        );
+      }
+      assertExpectedVersion(this.repository, command, "ai_proposal", id, report);
+      return report;
+    });
     let name: ApplicationCommandName;
     let workPayload: Record<string, unknown>;
     if (action === "start") {
@@ -1844,7 +1862,9 @@ export class ApplicationCommandService {
           started_at:
             typeof entry.started_at === "string"
               ? entry.started_at
-              : task.work_started_at || reportedAt,
+              : (proposal.request as Record<string, unknown> | undefined)?.work_started_at ||
+                task.work_started_at ||
+                reportedAt,
           reported_at: reportedAt,
           summary: typeof entry.summary === "string" ? entry.summary : "",
           completed_items: Array.isArray(entry.completed_items) ? entry.completed_items : [],
@@ -1908,9 +1928,27 @@ export class ApplicationCommandService {
           })()
         : null;
     const decisionReceipt = this.applyAiProposal(decisionCommand);
+    const historyReceipts = coveredReports.map((report) =>
+      this.applyAiProposal({
+        ...command,
+        commandId: `${command.commandId}:cover:${report.id}`,
+        expectedVersions: [
+          { type: "ai_proposal", id: report.id, version: Number(report.version || 0) },
+        ],
+        payload: {
+          proposal: {
+            ...report,
+            status: "rejected",
+            quarantine_reason: `完了報告に集約:${proposal.id}`,
+          },
+          candidates: [],
+        },
+      }),
+    );
     return mergeCommandReceipts(this.repository, command, [
       workReceipt,
       ...(acceptanceReceipt ? [acceptanceReceipt] : []),
+      ...historyReceipts,
       decisionReceipt,
     ]);
   }
@@ -2044,6 +2082,7 @@ export class ApplicationCommandService {
         )
       : null;
     if (startedEvent) {
+      startedEvent.occurred_at = startedAt;
       startedEvent.metadata = {
         ...((startedEvent.metadata as Record<string, unknown>) || {}),
         include_in_activity: true,
@@ -2081,6 +2120,7 @@ export class ApplicationCommandService {
       executor_label: workExecutorLabel(nextTask, receipt),
       provenance: provenance.metadata,
     };
+    event.occurred_at = receipt.reported_at;
     const operations: SaveOperation[] = [
       { action: "save", type: "task", entity: nextTask },
       { action: "save", type: "work_receipt", entity: receipt },

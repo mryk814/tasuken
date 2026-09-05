@@ -14,6 +14,7 @@ import {
 } from "../../../shared/aiMetadata.mjs";
 import {
   getAgentSessionContextRequestSchema,
+  taskWorkPeriods,
   getAgentSessionContextResponseSchema,
   findThemesForRepositoryResponseSchema,
   findTasksForRepositoryResponseSchema,
@@ -291,7 +292,7 @@ export class AgentWorkspaceQueryService {
     }
     const workspaceDefault = this.readPort.workspaceAiVisibilityDefault();
     const themesById = new Map(
-      (globalDaily ? this.readPort.listThemes(true) : []).map((theme) => [String(theme.id), theme]),
+      this.readPort.listThemes(true).map((theme) => [String(theme.id), theme]),
     );
     const tasksById = new Map(
       (globalDaily ? this.readPort.listTasks(false) : []).map((task) => [String(task.id), task]),
@@ -420,6 +421,25 @@ export class AgentWorkspaceQueryService {
       ) || null;
     const themes = repositoryDetail && "themes" in repositoryDetail ? repositoryDetail.themes : [];
     const tasks = repositoryDetail && "tasks" in repositoryDetail ? repositoryDetail.tasks : [];
+    const visibleWorkTasks = this.readPort.listTasks(false).filter((task) => {
+      if (!globalDaily && !tasks.some((related) => related.id === task.id)) return false;
+      const theme = themesById.get(String(task.project_id || task.theme_id || "")) || null;
+      return projectEntityForAi("task", task, { audience: "coding_agent", theme, workspaceDefault })
+        .included;
+    });
+    const taskWork = taskWorkPeriods(
+      visibleWorkTasks,
+      this.readPort.listAiProposals(false),
+      this.readPort.listWorkReceipts(false),
+    )
+      .filter(
+        (work) =>
+          !request.date ||
+          (localDate(work.started_at, timezone) <= request.date &&
+            localDate(work.ended_at || new Date().toISOString(), timezone) >= request.date),
+      )
+      .sort((a, b) => a.started_at.localeCompare(b.started_at))
+      .slice(0, request.limit ?? 20);
     return getAgentSessionContextResponseSchema.parse({
       status: repositoryMatch.status,
       reason_code: repositoryMatch.reason_code,
@@ -431,6 +451,7 @@ export class AgentWorkspaceQueryService {
       tasks,
       working_copies: workingCopies,
       sessions,
+      task_work: safeReceiptValue(taskWork),
       previous_handoff: previousHandoff,
       read_only: true,
       ai_audience: "coding_agent",
