@@ -419,6 +419,8 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
     events: [event],
     workspace: {
       tasks: [{ id: "task-safe", title: "Safe Task", ai_visibility: ["coding_agent"] }],
+      artifacts: [{ id: "artifact-safe", ai_visibility: ["coding_agent"] }],
+      notes: [{ id: "note-safe", ai_visibility: ["coding_agent"] }],
     },
     audience: "coding_agent",
   });
@@ -506,11 +508,7 @@ test("activity root registry keeps stable IDs and reports unavailable roots with
   assert.deepEqual(publicActivityRootStatus(), {});
   const roots = buildActivityRootRegistry({
     artifactDirectory: " C:/activity-common ",
-    themes: [
-      { id: "alpha", storage_root: " D:/activity-alpha " },
-      { id: "beta" },
-      { id: " " },
-    ],
+    themes: [{ id: "alpha", storage_root: " D:/activity-alpha " }, { id: "beta" }, { id: " " }],
   });
   assert.deepEqual(roots, {
     sync: "C:/activity-common",
@@ -521,17 +519,20 @@ test("activity root registry keeps stable IDs and reports unavailable roots with
     beta: "C:/activity-common",
     "theme:beta": "C:/activity-common",
   });
-  assert.deepEqual(publicActivityRootStatus(
-    { available: "C:/ready", missing: "C:/missing", inaccessible: "C:/inaccessible" },
-    (root) => {
-      if (root === "C:/inaccessible") throw new Error("root unavailable");
-      return root === "C:/ready";
+  assert.deepEqual(
+    publicActivityRootStatus(
+      { available: "C:/ready", missing: "C:/missing", inaccessible: "C:/inaccessible" },
+      (root) => {
+        if (root === "C:/inaccessible") throw new Error("root unavailable");
+        return root === "C:/ready";
+      },
+    ),
+    {
+      available: { status: "ok" },
+      missing: { status: "broken" },
+      inaccessible: { status: "broken" },
     },
-  ), {
-    available: { status: "ok" },
-    missing: { status: "broken" },
-    inaccessible: { status: "broken" },
-  });
+  );
 });
 
 test("canonical root identity survives root changes and public status never exposes paths", () => {
@@ -687,8 +688,8 @@ test("Debrief Activity combines event and AI session details without labelling e
   );
   assert.match(source, /ThemePickerSelect/);
   assert.match(source, /buildDailyAgentSessionContexts/);
-  assert.match(source, /buildActivityReviewLog/);
-  assert.match(workspaceSource, /content: buildActivityReviewLog\(/);
+  assert.match(source, /buildActivityPublication/);
+  assert.match(workspaceSource, /content: buildActivityPublication\(/);
   assert.match(source, /buildActivityTimeline/);
   assert.match(source, /display_kind: "ai_work" as const/);
   assert.match(source, /activityThemeIds/);

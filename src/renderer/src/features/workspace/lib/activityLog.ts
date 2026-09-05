@@ -26,6 +26,9 @@ export interface ActivityLogInput {
   artifacts?: Array<Record<string, unknown>>;
   roots?: CanonicalRootStatusMap;
   timezone?: string;
+  audience?: "m365";
+  workspaceDefault?: ("m365" | "coding_agent" | "external_ai")[];
+  workspace?: Record<string, unknown>;
 }
 
 export type ActivityLogEntries = {
@@ -133,6 +136,7 @@ export function collectActivityLogEntries(input: ActivityLogInput): ActivityLogE
     const result = queryActivityEvents({
       events: input.changeEvents,
       workspace: {
+        ...input.workspace,
         tasks: domain.tasks,
         waitings: domain.waitings,
         notes: domain.notes,
@@ -147,6 +151,9 @@ export function collectActivityLogEntries(input: ActivityLogInput): ActivityLogE
       themes: input.themes,
       date,
       timezone: input.timezone,
+      audience: input.audience,
+      workspaceDefault: input.workspaceDefault,
+      roots: input.roots,
     });
     const entity = (type: string, id: string) => {
       const records =
@@ -243,10 +250,14 @@ export function collectActivityLogEntries(input: ActivityLogInput): ActivityLogE
 }
 
 export function buildActivityLog(input: ActivityLogInput): string {
+  if (input.audience && input.changeEvents === undefined) {
+    throw new Error("公開用の日誌を生成できません。活動履歴を再読み込みしてください。");
+  }
   if (input.changeEvents !== undefined) {
     const result = queryActivityEvents({
       events: input.changeEvents,
       workspace: {
+        ...input.workspace,
         tasks: input.domain.tasks,
         waitings: input.domain.waitings,
         notes: input.domain.notes,
@@ -261,6 +272,9 @@ export function buildActivityLog(input: ActivityLogInput): string {
       themes: input.themes,
       date: input.date,
       timezone: input.timezone,
+      audience: input.audience,
+      workspaceDefault: input.workspaceDefault,
+      roots: input.roots,
     });
     return projectActivityMarkdown(result, { title: "Activity", date: input.date });
   }

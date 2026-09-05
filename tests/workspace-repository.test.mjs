@@ -220,9 +220,10 @@ function fakePreferenceRepository() {
   };
   repo.db = {
     prepare: (sql) => ({
-      run: (value) => {
+      run: (value, boundValue) => {
         const match = sql.match(/VALUES\('([^']+)', \?\)/);
         if (match) meta.set(match[1], value);
+        else if (/VALUES\(\?, \?\)/.test(sql)) meta.set(value, boundValue);
       },
     }),
   };
@@ -256,6 +257,8 @@ test("activity log export directory preference round-trips", () => {
   assert.equal(repo.setPreference("activityLogLastAutoExportDate", "2026-07-28"), "2026-07-28");
   assert.equal(repo.getPreference("activityLogLastAutoExportDate"), "2026-07-28");
   assert.equal(repo.setPreference("activityLogLastAutoExportDate", "28/07/2026"), "");
+  assert.equal(repo.setPreference("activityLogLastFinalizedDate", "2026-07-27"), "2026-07-27");
+  assert.equal(repo.getPreference("activityLogLastFinalizedDate"), "2026-07-27");
 });
 
 test("Tasken Root and automatic Snapshot preferences round-trip with bounded values", () => {

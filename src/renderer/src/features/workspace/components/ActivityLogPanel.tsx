@@ -11,7 +11,8 @@ import { taskWorkPeriods } from "../../../../../shared/contracts/task/public";
 import { activitySessionInterval } from "../lib/activityTimeline";
 import type { BaseRecord } from "../types";
 import { THEME_NONE_VALUE } from "../../../../../shared/themeRef.mjs";
-import { buildActivityReviewLog, collectActivityLogEntries } from "../lib/activityLog";
+import { collectActivityLogEntries } from "../lib/activityLog";
+import { buildActivityPublication } from "../lib/activityPublication";
 import { resolveActivityLogDirectory } from "../lib/activityLogDirectory";
 import {
   activitySessionTimeLabel,
@@ -19,7 +20,6 @@ import {
   activityDisplayKind,
   activityThemeIds,
   buildDailyAgentSessionContexts,
-  projectActivitySessionLogEntries,
   reviewableActivityEvents,
 } from "../lib/activityTimeline";
 import {
@@ -545,9 +545,9 @@ export function ActivityLogPanel({
   const count = hasStructuredActivity
     ? timeline.length
     : groups.reduce((sum, group) => sum + group.rows.length, 0);
-  const activityLogContent = buildActivityReviewLog(
-    input,
-    projectActivitySessionLogEntries(sessionContexts, themes),
+  const activityLogContent = buildActivityPublication(
+    { ...input, workspaceDefault: data.meta?.aiVisibilityDefault },
+    domain,
   );
 
   useEffect(() => {
@@ -1286,7 +1286,9 @@ export function ActivityLogPanel({
           >
             出力先を変更
           </Button>
-          <small>アプリ停止中の未出力分は、次回起動時に日ごとに補完します。</small>
+          <small>
+            M365への公開を許可した記録を出力します。当日分は翌日に再出力し、定時後の作業も反映します。停止中の分は次回起動時に補完します。
+          </small>
         </div>
       )}
     </section>

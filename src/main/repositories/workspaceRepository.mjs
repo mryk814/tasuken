@@ -531,6 +531,8 @@ export class WorkspaceDatabase {
       return this.ensureMeta("activity_log_auto_export_time", "");
     if (key === "activityLogLastAutoExportDate")
       return this.ensureMeta("activity_log_last_auto_export_date", "");
+    if (key === "activityLogLastFinalizedDate")
+      return this.ensureMeta("activity_log_last_finalized_date", "");
     if (key === "artifactDirectory") return this.ensureMeta("artifact_directory", "");
     if (key === "sharedSyncDirectory") return this.ensureMeta("shared_sync_directory", "");
     if (key === "sharedSyncEnabled")
@@ -649,16 +651,20 @@ export class WorkspaceDatabase {
         .run(time);
       return time;
     }
-    if (key === "activityLogLastAutoExportDate") {
+    if (key === "activityLogLastAutoExportDate" || key === "activityLogLastFinalizedDate") {
       const date = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+      const metaKey =
+        key === "activityLogLastFinalizedDate"
+          ? "activity_log_last_finalized_date"
+          : "activity_log_last_auto_export_date";
       this.db
         .prepare(
           `
-        INSERT INTO workspace_meta(key, value) VALUES('activity_log_last_auto_export_date', ?)
+        INSERT INTO workspace_meta(key, value) VALUES(?, ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
       `,
         )
-        .run(date);
+        .run(metaKey, date);
       return date;
     }
     if (key === "artifactDirectory") {

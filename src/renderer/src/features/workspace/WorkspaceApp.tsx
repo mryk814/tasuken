@@ -48,14 +48,7 @@ import {
   runActivityAutoExport,
 } from "./lib/activityAutoExport";
 import { resolveActivityLogDirectory } from "./lib/activityLogDirectory";
-import { buildActivityReviewLog, collectActivityLogEntries } from "./lib/activityLog";
-import { buildAgentWorkProjection } from "./domain-model/agentSessionProjection";
-import {
-  buildDailyAgentSessionContexts,
-  projectActivitySessionLogEntries,
-  reviewableActivityEvents,
-  type ActivitySessionEvent,
-} from "./lib/activityTimeline";
+import { buildActivityPublication } from "./lib/activityPublication";
 import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
 import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
 import { buildDomainDrawerFormPlan, themeIntentFromForm } from "./lib/drawerFormPlans";
@@ -656,18 +649,21 @@ export function WorkspaceApp() {
       let activeDirectory = "";
       activityAutoExportRunning.current = true;
       try {
-        const [time, directory, artifactDirectory, lastExportDate] = await Promise.all([
-          workspaceApi.getPreference("activityLogAutoExportTime"),
-          workspaceApi.getPreference("activityLogDirectory"),
-          workspaceApi.getPreference("artifactDirectory"),
-          workspaceApi.getPreference("activityLogLastAutoExportDate"),
-        ]);
+        const [time, directory, artifactDirectory, lastExportDate, lastFinalizedDate] =
+          await Promise.all([
+            workspaceApi.getPreference("activityLogAutoExportTime"),
+            workspaceApi.getPreference("activityLogDirectory"),
+            workspaceApi.getPreference("artifactDirectory"),
+            workspaceApi.getPreference("activityLogLastAutoExportDate"),
+            workspaceApi.getPreference("activityLogLastFinalizedDate"),
+          ]);
         activeDirectory = resolveActivityLogDirectory(directory, artifactDirectory);
         const targetDates = activityDatesToAutoExport({
           now,
           time,
           directory: activeDirectory,
           lastExportDate,
+          lastFinalizedDate: lastFinalizedDate ?? "",
         });
         if (!targetDates.length || canceled) return;
         if (activityAutoExportFailedTarget.current === `${targetDates[0]}:${activeDirectory}`)
@@ -687,25 +683,12 @@ export function WorkspaceApp() {
               artifacts: fullData.artifacts as unknown as Array<Record<string, unknown>>,
               roots: fullData.canonical_root_status,
               timezone: "Asia/Tokyo",
+              workspaceDefault: fullData.meta?.aiVisibilityDefault,
             };
-            const sessionEvents = reviewableActivityEvents(
-              collectActivityLogEntries(activityInput).events as ActivitySessionEvent[],
-            );
-            const sessionRows = buildAgentWorkProjection(fullDomain, {
-              limit: Math.max(fullDomain.agent_sessions.length, 1),
-            });
-            const sessionContexts = buildDailyAgentSessionContexts(
-              sessionRows,
-              targetDate,
-              sessionEvents,
-            );
             const result = await workspaceApi.exportMarkdownFile({
               title: `Tasken Activity Log ${targetDate}`,
               fileName: `tasken-activity-${targetDate}.md`,
-              content: buildActivityReviewLog(
-                activityInput,
-                projectActivitySessionLogEntries(sessionContexts, allThemes),
-              ),
+              content: buildActivityPublication(activityInput, fullDomain),
               directory: activeDirectory,
               chooseDirectory: false,
             });
@@ -713,6 +696,11 @@ export function WorkspaceApp() {
           },
           markExported: (targetDate) =>
             workspaceApi.setPreference("activityLogLastAutoExportDate", targetDate).then(() => {}),
+          finalization: {
+            today: current.date,
+            markFinalized: (targetDate) =>
+              workspaceApi.setPreference("activityLogLastFinalizedDate", targetDate).then(() => {}),
+          },
         });
         if (!canceled) {
           const period =
