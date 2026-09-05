@@ -490,10 +490,10 @@ async function runProviderScenario(provider, explicitStart = false) {
       "The Task body must survive every AI proposal unchanged.",
     );
     assert.equal(fixture.database.list("work_receipt").length, 1);
-    assert.deepEqual(
-      fixture.database.get("work_receipt", progressProposal.id).runtime_metadata,
-      provider,
-    );
+    assert.deepEqual(fixture.database.get("work_receipt", progressProposal.id).runtime_metadata, {
+      ...provider,
+      report_kind: "progress",
+    });
     const implicitStartEvent = fixture.database
       .list("change_event")
       .find(
@@ -673,13 +673,19 @@ test("legacy SQLite + actual stdio MCPでAI協働をhuman completionまで原子
   assert.deepEqual(withoutRuntimeProvenance(contracts[0]), withoutRuntimeProvenance(contracts[1]));
   assert.deepEqual(
     contracts.map((contract) => contract.receipts.map((receipt) => receipt.runtime_metadata)),
-    FAKE_PROVIDERS.map((provider) => [provider, provider]),
+    FAKE_PROVIDERS.map((provider) => [
+      { ...provider, report_kind: "progress" },
+      { ...provider, report_kind: "done" },
+    ]),
   );
   assert.deepEqual(
     contracts.map((contract) =>
       contract.context.work_receipts.map((receipt) => receipt.runtime_metadata),
     ),
-    FAKE_PROVIDERS.map((provider) => [provider, provider]),
+    FAKE_PROVIDERS.map((provider) => [
+      { ...provider, report_kind: "done" },
+      { ...provider, report_kind: "progress" },
+    ]),
   );
 });
 
