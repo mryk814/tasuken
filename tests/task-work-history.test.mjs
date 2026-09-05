@@ -108,3 +108,13 @@ test("receipt completion remains historical after the Task is returned or restar
   assert.equal(periods[0].status, "completed");
   assert.equal(periods[0].ended_at, end);
 });
+
+test("untyped legacy receipt does not become indefinite active work after a return", () => {
+  const receipt = { id: "legacy", task_id: task.id, started_at: start, reported_at: end };
+  assert.equal(
+    taskWorkPeriods([{ ...task, work_reported_at: end }], [], [receipt])[0].status,
+    "completed",
+  );
+  assert.deepEqual(taskWorkPeriods([{ ...task, work_reported_at: null }], [], [receipt]), []);
+  assert.equal(receipt.reported_at, end);
+});

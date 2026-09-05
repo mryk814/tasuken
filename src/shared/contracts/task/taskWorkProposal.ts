@@ -273,6 +273,14 @@ export function taskWorkPeriods(
       (report.runtime_metadata as Record<string, unknown> | undefined)?.report_kind === "done" ||
       (report.runtime_metadata as Record<string, unknown> | undefined)?.report_kind === "blocked" ||
       task.work_reported_at === ended;
+    // Old untyped receipts do not prove that work is still active after a return.
+    // Keep the receipt itself, but do not invent an open-ended work period.
+    if (
+      !terminal &&
+      !proposal &&
+      (report.runtime_metadata as Record<string, unknown> | undefined)?.report_kind !== "progress"
+    )
+      continue;
     const previous = periods.get(id);
     if (
       previous?.review_status === "accepted" &&

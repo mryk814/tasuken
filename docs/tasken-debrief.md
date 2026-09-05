@@ -74,6 +74,7 @@ Agent Sessionがない作業も対象にし、Task IDと作業開始時刻で同
 `work_started_at`（受信時にも保持）から`reported_at`までをAI作業期間とし、日をまたぐ場合は両日のActivityとDebriefへ表示する。
 Proposalの受信時刻・人の採用時刻・Taskの正式完了時刻は別の事実として保持し、作業期間へ代入しない。
 採用前は「採用待ち」と明示し、採用後も同じ作業期間と表示IDを維持する。
+旧Receiptで終了・継続を確定できない場合は、元の記録を保持し、無期限の作業中として期間表示しない。
 `get_debrief_context`の`task_work`は既存のAI公開範囲と本文のサニタイズを通し、作業ごとの報告を返す。
 
 AI Inboxでは同じTaskの報告を時系列にまとめる。
