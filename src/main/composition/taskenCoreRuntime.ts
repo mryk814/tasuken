@@ -1,5 +1,6 @@
 import { TaskenCoreHost } from "../infrastructure/http/taskenCoreHost.ts";
 import { createMobileActivityReadPort } from "./mobileActivityReadPort.ts";
+import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentReadPort.ts";
 import { createMobileWorkLogPort, type WorkLogWriterPort } from "./mobileWorkLogPort.ts";
 import type { NoteProposalImagePort } from "../core/public.ts";
 import {
@@ -194,6 +195,7 @@ export class TaskenCoreRuntime {
       getCaptureOrganizer,
       core: {
         queryActivity: createMobileActivityReadPort(this.persistence),
+        ...createMobileRelatedDocumentReadPort(this.persistence),
         ...createMobileWorkLogPort(this.persistence, this.workLogWriter),
         status: async () => ({
           apiVersion: TASKEN_CORE_API_VERSION,

@@ -11,6 +11,10 @@ import {
   mobileBootstrapRequestSchema,
   mobileActivityRequestSchema,
   mobileActivityResponseSchema,
+  mobileRelatedDocumentsRequestSchema,
+  mobileRelatedDocumentRequestSchema,
+  mobileRelatedDocumentsDataSchema,
+  mobileRelatedDocumentDataSchema,
   mobileBootstrapResponseSchema,
   mobileCaptureCommandResponseSchema,
   mobileWorkLogCommandResponseSchema,
@@ -45,6 +49,10 @@ import {
   type MobileCapability,
   type MobileActivityRequest,
   type MobileActivityData,
+  type MobileRelatedDocumentsRequest,
+  type MobileRelatedDocumentRequest,
+  type MobileRelatedDocumentsData,
+  type MobileRelatedDocumentData,
   type MobileErrorCode,
   type MobileResponseMeta,
   type MobileScope,
@@ -179,6 +187,12 @@ export type MobileGatewayCaptureCommandResult =
     };
 
 export interface MobileGatewayCorePort {
+  queryRelatedDocuments?(
+    input: MobileRelatedDocumentsRequest,
+  ): Promise<MobileRelatedDocumentsData> | MobileRelatedDocumentsData;
+  getRelatedDocument?(
+    input: MobileRelatedDocumentRequest,
+  ): Promise<MobileRelatedDocumentData> | MobileRelatedDocumentData;
   queryActivity?(input: MobileActivityRequest): Promise<MobileActivityData> | MobileActivityData;
   executeWorkLogCommand?(
     input: MobileGatewayWorkLogCommand,
@@ -911,6 +925,8 @@ export class MobileGatewayAdapter {
         [
           TASKEN_MOBILE_ENDPOINTS.today,
           TASKEN_MOBILE_ENDPOINTS.activity,
+          TASKEN_MOBILE_ENDPOINTS.relatedDocuments,
+          TASKEN_MOBILE_ENDPOINTS.relatedDocument,
           TASKEN_MOBILE_ENDPOINTS.themes,
           TASKEN_MOBILE_ENDPOINTS.workReceipt,
           TASKEN_MOBILE_ENDPOINTS.workLogs,
@@ -1035,6 +1051,8 @@ export class MobileGatewayAdapter {
         ![
           TASKEN_MOBILE_ENDPOINTS.today,
           TASKEN_MOBILE_ENDPOINTS.activity,
+          TASKEN_MOBILE_ENDPOINTS.relatedDocuments,
+          TASKEN_MOBILE_ENDPOINTS.relatedDocument,
           TASKEN_MOBILE_ENDPOINTS.themes,
           TASKEN_MOBILE_ENDPOINTS.workReceipt,
           TASKEN_MOBILE_ENDPOINTS.proposals,
@@ -1075,6 +1093,43 @@ export class MobileGatewayAdapter {
         return this.error(meta, "capability_unavailable");
       }
 
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.relatedDocuments) {
+        const parsed = mobileRelatedDocumentsRequestSchema.safeParse({
+          ...request.query,
+          apiVersion: Number(request.query?.apiVersion),
+          schemaVersion: Number(request.query?.schemaVersion),
+          ...(request.query?.limit === undefined ? {} : { limit: Number(request.query.limit) }),
+        });
+        if (!parsed.success) return this.error(meta, "validation_failed");
+        if (!this.options.core.queryRelatedDocuments)
+          return this.error(meta, "capability_unavailable");
+        const data = mobileRelatedDocumentsDataSchema.parse(
+          await this.options.core.queryRelatedDocuments(parsed.data),
+        );
+        return this.success({
+          ok: true,
+          meta: { ...meta, truncated: data.nextCursor !== null },
+          data,
+        });
+      }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.relatedDocument) {
+        const parsed = mobileRelatedDocumentRequestSchema.safeParse({
+          ...request.query,
+          apiVersion: Number(request.query?.apiVersion),
+          schemaVersion: Number(request.query?.schemaVersion),
+        });
+        if (!parsed.success) return this.error(meta, "validation_failed");
+        if (!this.options.core.getRelatedDocument)
+          return this.error(meta, "capability_unavailable");
+        const data = mobileRelatedDocumentDataSchema.parse(
+          await this.options.core.getRelatedDocument(parsed.data),
+        );
+        return this.success({
+          ok: true,
+          meta: { ...meta, truncated: data.document?.truncated ?? false },
+          data,
+        });
+      }
       if (request.path === TASKEN_MOBILE_ENDPOINTS.workLogs) {
         const parsed = mobileWorkLogRequestSchema.safeParse(request.query || {});
         if (!parsed.success) return this.error(meta, "validation_failed");
@@ -1847,6 +1902,8 @@ export class MobileGatewayAdapter {
       );
       if (this.options.core.queryActivity)
         capabilities.push(TASKEN_MOBILE_CAPABILITIES.activityRead);
+      if (this.options.core.queryRelatedDocuments && this.options.core.getRelatedDocument)
+        capabilities.push(TASKEN_MOBILE_CAPABILITIES.relatedDocumentsRead);
     }
     if (
       principal.scopes.includes("mobile:context-read") &&
