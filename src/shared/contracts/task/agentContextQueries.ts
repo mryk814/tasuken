@@ -61,6 +61,7 @@ const activityPayloadSchema = z.object({
 }).strict();
 
 export const getActivityRequestSchema = z.object({
+  profile: z.enum(["default", "recall"]).optional(),
   date: z.string().trim().max(40).optional(), from: z.string().trim().max(80).optional(),
   to: z.string().trim().max(80).optional(), theme_id: z.string().trim().max(200).optional(),
   entity_type: z.string().trim().max(100).optional(),

@@ -8,6 +8,12 @@ import {
 } from "./activityEvent.mjs";
 import { projectEntityForAi, summarizeAiExclusions } from "./aiMetadata.mjs";
 import { safeExternalUrl, safeReceiptText } from "./taskContext.mjs";
+import {
+  isCaptureInput,
+  isRecallPlanChange,
+  recallCaptureInputs,
+  recallEvidence,
+} from "./activityRecall.mjs";
 
 const DEFAULT_TIMEZONE = "Asia/Tokyo";
 const MAX_EVENTS = 500;
@@ -411,7 +417,7 @@ function eventAllowedByDefault(event) {
 }
 
 function projectOne(event, context) {
-  const { entityMap, themesById, workspaceDefault, audience, workspace, roots } = context;
+  const { entityMap, themesById, workspaceDefault, audience, workspace, roots, profile } = context;
   const currentEntity = entityMap.get(key(event.entity_ref.type, event.entity_ref.id));
   const themeId =
     event.theme_ref?.kind === "theme"
@@ -421,7 +427,8 @@ function projectOne(event, context) {
     themesById.get(text(entity?.project_id || entity?.theme_id)) || null;
   const allowedReference = (ref) => {
     // Published M365 files cannot rely on the local reader resolving visibility.
-    if (audience !== "m365" || !ref?.type || !ref?.id) return true;
+    if (!audience || (audience !== "m365" && profile !== "recall") || !ref?.type || !ref?.id)
+      return true;
     const target = entityMap.get(key(ref.type, ref.id));
     if (target && ref.type === "work_receipt") {
       const task = entityMap.get(key("task", target.task_id));
@@ -460,6 +467,15 @@ function projectOne(event, context) {
     return { excluded: { type: "activity", reason: "unsafe_public_ref", count: 1 } };
   }
   const title = entityTitle(currentEntity, event.entity_ref);
+  if (
+    profile === "recall" &&
+    audience &&
+    event.entity_ref.type === "schedule" &&
+    (!currentEntity?.owner_type ||
+      !currentEntity?.owner_id ||
+      !allowedReference({ type: currentEntity.owner_type, id: currentEntity.owner_id }))
+  )
+    return { excluded: { type: "schedule", reason: "owner_not_visible", count: 1 } };
   const themeIdForPublic = publicIdentifier(themeId);
   const projected = {
     id: eventId,
@@ -479,7 +495,17 @@ function projectOne(event, context) {
       roots,
     ),
     source_refs: publicSourceRefs(event.source_refs).filter(allowedReference),
-    relation_refs: relationRefsFor(event, workspace).filter(allowedReference),
+    relation_refs: relationRefsFor(
+      event,
+      profile === "recall" && audience
+        ? {
+            ...workspace,
+            references: collection(workspace, "references").filter((reference) =>
+              allowedReference({ type: "reference", id: reference.id }),
+            ),
+          }
+        : workspace,
+    ).filter(allowedReference),
     work_receipt_ref: allowedReference(event.work_receipt_ref)
       ? publicTypedRef(event.work_receipt_ref)
       : null,
@@ -487,6 +513,12 @@ function projectOne(event, context) {
   };
   if (currentEntity?.deleted_at) projected.metadata.entity_status = "deleted";
   if (!currentEntity) projected.metadata.entity_status = "missing";
+  if (profile === "recall") {
+    projected.recall = recallEvidence(event, currentEntity);
+    // Recall is an index, not a raw-body export. Bound long Capture input here.
+    if (isCaptureInput(event))
+      projected.summary = publicText(currentEntity?.text || event.summary).slice(0, 2_000);
+  }
   return { event: projected };
 }
 
@@ -515,31 +547,66 @@ export function queryActivityEvents({
   limit = MAX_EVENTS,
   sort_direction = "asc",
   include_match_metadata = false,
+  profile = "default",
 } = {}) {
   const sourceWorkspace = {
     ...workspace,
     references: references.length ? references : workspace.references,
   };
   const entityMap = allEntities(sourceWorkspace, entities);
+  if (profile === "recall") {
+    for (const capture of collection(sourceWorkspace, "capture_entries"))
+      if (capture?.id) entityMap.set(key("capture_entry", capture.id), capture);
+  }
   const themesById = themeMap(themes, sourceWorkspace);
   const effectiveTimezone = normalizeTimezone(timezone);
   const kinds = new Set(
     [...(eventKinds.length ? eventKinds : event_kinds)].map(text).filter(Boolean),
   );
+  const normalizedEvents = events
+    .map((event) =>
+      migrateChangeEvent(event, {
+        entity:
+          entityMap.get(
+            key(
+              event?.entity_ref?.type || event?.entity_type,
+              event?.entity_ref?.id || event?.entity_id,
+            ),
+          ) || null,
+      }),
+    )
+    .map((event) => {
+      if (profile !== "recall" || !isCaptureInput(event)) return event;
+      const capture = entityMap.get(key("capture_entry", event.entity_ref.id));
+      return {
+        ...event,
+        ...(Number.isFinite(Date.parse(capture?.captured_at))
+          ? { occurred_at: new Date(capture.captured_at).toISOString() }
+          : {}),
+        metadata: { ...event.metadata, dedupe_key: `capture-input:${event.entity_ref.id}` },
+      };
+    });
+  const recallInputs =
+    profile === "recall"
+      ? recallCaptureInputs(
+          normalizedEvents,
+          [...entityMap.entries()]
+            .filter(([id]) => id.startsWith("capture_entry:"))
+            .map(([, record]) => record),
+        )
+      : [];
   const scopedEvents = deduplicate(
-    events
-      .map((event) =>
-        migrateChangeEvent(event, {
-          entity:
-            entityMap.get(
-              key(
-                event?.entity_ref?.type || event?.entity_type,
-                event?.entity_ref?.id || event?.entity_id,
-              ),
-            ) || null,
-        }),
-      )
-      .filter(eventAllowedByDefault)
+    [...normalizedEvents, ...recallInputs]
+      .filter((event) => {
+        // An explicit kind selection replaces profile defaults, never policy.
+        if (kinds.size) return kinds.has(event.event_kind);
+        if (profile !== "recall") return eventAllowedByDefault(event);
+        if (isCaptureInput(event))
+          return entityMap.get(key("capture_entry", event.entity_ref.id))?.state === "untriaged";
+        if (["task_updated", "plan_node_updated", "schedule_updated"].includes(event.event_kind))
+          return isRecallPlanChange(event);
+        return event.event_kind === "task_created" || eventAllowedByDefault(event);
+      })
       .filter((event) => {
         const eventDate = localDate(event.occurred_at, effectiveTimezone);
         if (date && eventDate !== date) return false;
@@ -573,6 +640,7 @@ export function queryActivityEvents({
       audience,
       workspace: sourceWorkspace,
       roots,
+      profile,
     });
     if (result.excluded) exclusions.push(result.excluded);
     else if (result.event)
@@ -627,6 +695,11 @@ export function projectActivityMarkdown(result, { title = "Activity", date = res
       `- Source: ${event.source_refs.length ? event.source_refs.map((ref) => (ref.type && ref.id ? `${ref.type}:${ref.id}` : ref.locator || "ref")).join(", ") : "—"}`,
       `- Relations: ${event.relation_refs.length ? event.relation_refs.map((ref) => `${ref.relation || "related_to"} ${ref.type}:${ref.id}`).join(", ") : "—"}`,
       `- Summary: ${event.summary}`,
+      ...(event.recall
+        ? [
+            `- Recall: ${event.recall.stage}; authority: ${event.recall.authority || "unknown"} (${event.recall.authority_origin})`,
+          ]
+        : []),
     );
   }
   if (result?.excluded_count)

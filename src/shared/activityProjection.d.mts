@@ -17,6 +17,12 @@ export interface ActivityProjectionEvent {
   metadata: Record<string, unknown>;
   local_date: string;
   local_time: string;
+  recall?: {
+    stage: string;
+    authority: string | null;
+    authority_origin: string;
+    source_ref: { type: string; id: string };
+  };
 }
 
 export interface ActivityProjectionResult {
@@ -31,6 +37,7 @@ export interface ActivityProjectionResult {
 }
 
 export interface ActivityProjectionQuery {
+  profile?: "default" | "recall";
   events?: Array<Record<string, unknown>>;
   workspace?: Record<string, unknown>;
   entities?: Record<string, unknown>;
