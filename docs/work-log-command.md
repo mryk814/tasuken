@@ -30,3 +30,11 @@ canonical file成功後のDB失敗は、型を限定したwork-log companionを�
 
 Desktopの閉じる操作ではTodayを開いている間の下書きを保持する。
 アプリ終了をまたぐ未送信下書き、AndroidのRoom/outbox、Mobile HTTPはこの実装の対象外。
+
+## Desktopの公開能力
+
+`api.workLog.record`はTodayを表示するmain windowの`src/preload/index.ts`だけへ公開する。
+Quick Capture・Today mini・付箋などの専用preloadへは追加しない。
+IPCは専用の`work-log:record`に限定し、commandを共通validatorで検証する。
+actorはIPC入力に含めず、Desktop側で本人操作として設定する。
+この保存能力は#539の入力に必要な追加としてレビューし、`architecture/capability-baseline.json`のmain windowだけに登録する。
