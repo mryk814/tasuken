@@ -119,3 +119,5 @@ Desktopの保存時刻は`changed_at`と`metadata.accepted_at`に分離する。
 DesktopやAIの他のproducerは本変更の対象外とする。
 
 `application-command.test.mjs`と`mobile-gateway-phase4a.test.mjs`で、日曜操作・火曜受理、Core経由の送信、同一receipt、SQLite再読込、SnapshotのJSON往復、不正日時と未来の端末時計を確認する。
+`MobileOperationTimeGatewayTest`は隔離Gateway runnerで実行し、日曜23:55 JSTの5操作をRoomへ保存して別Androidプロセスで再読込する。
+再送側のtimezoneをPacific/Kiritimati、時計を火曜へ変え、親・後続commandの応答消失とDesktop再起動を挟んでも、操作時刻・command identity・receipt・eventが変わらず重複しないことを確認する。
