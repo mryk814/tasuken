@@ -48,7 +48,8 @@ Capture は既存の作成 event があれば source ID で重複排除して使
 
 件数上限、日付・期間・種別フィルター、公開範囲の除外件数、truncated は共通 query を使う。
 Core の ActivityEntries は既存どおり自身の result_meta を返す。
-履歴時点の所属、期間境界、ページング拡張は別 Issue の対象とする。
+履歴時点の名称・所属は[振り返り履歴契約](activity-recall-history.md)に従う。
+期間境界、ページング拡張は別 Issue の対象とする。
 
 ## 検証
 

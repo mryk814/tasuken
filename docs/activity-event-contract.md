@@ -95,6 +95,9 @@ Today の開く操作だけが Main の安全境界を通り、壊れた参照�
 #294 の visibility / authority / freshness は projection 時点で評価します。
 local_only は M365 projection に含めず、除外件数と理由だけを返します。
 
+明示的なrecall profileの当時名称・所属と現在の公開判定は、
+[振り返り履歴契約](activity-recall-history.md)に従います（#542）。
+
 ## Android操作と同期の日時（#538）
 
 AndroidのCreateCapture、CompleteTask／ReopenTask、Checklistのcheck／uncheckは、端末で操作した時の`issuedAt`をActivityの`occurred_at`へ使う。
