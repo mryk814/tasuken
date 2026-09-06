@@ -105,6 +105,7 @@ internal fun CaptureOrganizationControls(
                     FilterChip(proposal.rangeSemantics == "ongoing", { changePrimary(proposal.copy(rangeSemantics = "ongoing")) }, enabled = enabled, label = { Text("期間中継続") })
                 }
             }
+            CapturePlannedTimeFields(proposal, enabled, "organization", ::changePrimary)
             OutlinedTextField(checklistText, { value ->
                 checklistText = value
                 changePrimary(proposal.copy(checklist = value.lines().filter { it.isNotBlank() }))
@@ -113,7 +114,7 @@ internal fun CaptureOrganizationControls(
             OutlinedTextField(proposal.supplement, { changePrimary(proposal.copy(supplement = it)) },
                 label = { Text("補足") }, maxLines = 4, enabled = enabled,
                 modifier = Modifier.fillMaxWidth().testTag("organization-supplement"))
-            if (runCatching { proposal.validate() }.isFailure) Text("日付の形式・順序、チェック項目（20件・各200文字以内）を確認してください。", color = MaterialTheme.colorScheme.error)
+            if (runCatching { proposal.validate() }.isFailure) Text("日付の形式・順序、予定時刻、所要時間、チェック項目（20件・各200文字以内）を確認してください。", color = MaterialTheme.colorScheme.error)
             if (draft.additionalOrganizations.isNotEmpty()) {
                 Text("ほか ${draft.additionalOrganizations.size}件のTask", style = MaterialTheme.typography.titleSmall)
                 draft.additionalOrganizations.forEachIndexed { index, additional ->
@@ -136,6 +137,11 @@ internal fun CaptureOrganizationControls(
                             additional.endDate?.let { Text("期限: $it", style = MaterialTheme.typography.bodySmall) }
                             additional.rangeSemantics?.let {
                                 Text(if (it == "ongoing") "期間中継続" else "期間内に一度", style = MaterialTheme.typography.bodySmall)
+                            }
+                            CapturePlannedTimeFields(additional, enabled, "organization-additional-$index") { value ->
+                                val updated = draft.additionalOrganizations.toMutableList()
+                                updated[index] = value
+                                onChange(listOf(proposal) + updated)
                             }
                             if (additional.checklist.isNotEmpty()) {
                                 Text(
@@ -166,4 +172,41 @@ internal fun CaptureOrganizationControls(
             if (originalOpen) SelectionContainer { Text(draft.originalText.orEmpty(), modifier = Modifier.testTag("organization-original")) }
         }
     }
+}
+
+@Composable
+private fun CapturePlannedTimeFields(
+    proposal: MobileCaptureOrganization,
+    enabled: Boolean,
+    tag: String,
+    onChange: (MobileCaptureOrganization) -> Unit,
+) {
+    if (!proposal.plannedTimeSupported) {
+        Text("この整理案は予定時刻・所要時間に未対応です。Desktopを更新して元の入力から再整理してください。",
+            style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = proposal.plannedStartTime.orEmpty(),
+            onValueChange = { onChange(proposal.copy(plannedStartTime = it.ifEmpty { null })) },
+            label = { Text("予定開始 HH:mm") }, singleLine = true, enabled = enabled,
+            isError = proposal.plannedStartTime?.let(::isPlannedStartTime) == false,
+            modifier = Modifier.weight(1f).testTag("$tag-time"),
+        )
+        OutlinedTextField(
+            value = proposal.plannedDurationMinutes?.toString().orEmpty(),
+            onValueChange = { value ->
+                // Refuse non-numeric/overflow input instead of silently saving it as no duration.
+                if (value.isEmpty() || (value.length <= 5 && value.all { it in '0'..'9' })) {
+                    onChange(proposal.copy(plannedDurationMinutes = value.toIntOrNull()))
+                }
+            },
+            label = { Text("所要時間（分）") }, singleLine = true, enabled = enabled,
+            isError = proposal.plannedDurationMinutes?.let(::isPlannedDurationMinutes) == false,
+            modifier = Modifier.weight(1f).testTag("$tag-duration"),
+        )
+    }
+    Text("所要時間は1〜10080分。日付は開始・期限欄で確認してください。",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

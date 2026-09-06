@@ -220,6 +220,40 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun organizedTimePersistsAcrossDatabaseReopenAndCannotChangeOnRetry() = runBlocking {
+        val name = "capture-planned-time-${java.util.UUID.randomUUID()}.db"
+        var durable = Room.databaseBuilder(context, MobileLocalDatabase::class.java, name).build()
+        try {
+            durable.mobileDao().upsertSyncState(activeSyncState())
+            val draft = MobileCaptureDraft.fresh(text = "15時から30分、図を直す", newId = { "timed-draft" })
+                .withOrganization(MobileCaptureOrganization("図を直す", plannedStartTime = "15:00",
+                    plannedDurationMinutes = 30, plannedTimeSupported = true))
+            val initial = MobileOutbox(context, durable.mobileDao(), { "device" }, schedule = {})
+            val ids = initial.enqueueCreateTasks(listOf(draft), null)
+            durable.close()
+            durable = Room.databaseBuilder(context, MobileLocalDatabase::class.java, name).build()
+            val reopened = MobileOutbox(context, durable.mobileDao(), { "device" }, schedule = {})
+            val task = requireNotNull(durable.mobileDao().task(ids.single()))
+            assertEquals("15:00", task.plannedStartTime)
+            assertEquals(30, task.plannedDurationMinutes)
+            assertNull(task.todayDate)
+            assertNull(task.scheduleStartDate)
+            val command = requireNotNull(durable.mobileDao().outbox(requireNotNull(task.optimisticCommandId)))
+            val payload = MobileTaskCommandContract.decodeCreateEnvelope(command.envelopeJson).command.task
+            assertEquals("15:00", payload.plannedStartTime)
+            assertEquals(30, payload.plannedDurationMinutes)
+            assertEquals(ids, reopened.enqueueCreateTasks(listOf(draft), null))
+            assertTrue(runCatching {
+                reopened.enqueueCreateTasks(listOf(draft.withOrganization(draft.organization!!.copy(plannedDurationMinutes = 60))), null)
+            }.isFailure)
+            assertEquals(command, durable.mobileDao().outbox(command.commandId))
+        } finally {
+            durable.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun organizedCreatePersistsChecklistScheduleAndOriginalAtomicallyAndRetriesOnce() = runBlocking {
         val draft = MobileCaptureDraft.fresh(text = "明日は牛乳とパンを買う", newId = { "organized-draft" })
             .withOrganization(MobileCaptureOrganization(

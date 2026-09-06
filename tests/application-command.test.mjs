@@ -1,3 +1,7 @@
+import {
+  proposal as captureOrganizationProposal,
+  createQuickCaptureOrganizationFixture,
+} from "./helpers/quick-capture-organization.mjs";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { build } from "esbuild";
@@ -2158,4 +2162,38 @@ test("WorkspaceApp maps reachable mixed flows to named commands and preserves ot
   assert.match(registerIpc, /rejectTaskPersistence\(entityType\)/);
   assert.match(registerIpc, /types\.includes\("task"\)/);
   assert.match(workspaceApi, /Taskの保存はApplication Command経由/);
+});
+
+test("Desktop organized execution time and original text survive canonical CreateTask and SQLite reopen", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "tasken-capture-planned-time-"));
+  let database;
+  try {
+    database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+    database.save("theme", { id: "research", name: "研究" });
+    const service = new ApplicationCommandService(database);
+    const f = createQuickCaptureOrganizationFixture(undefined, (command) =>
+      service.execute(command),
+    );
+    const original = "明日15時、いや16時から90分、比較実験。金曜までに終える";
+    const edited = {
+      ...captureOrganizationProposal,
+      startDate: "2026-09-07",
+      plannedStartTime: "16:30",
+      plannedDurationMinutes: 75,
+    };
+    const saved = f.call("save", original, "today-task", undefined, undefined, edited);
+    database.db.close();
+    database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+    const reopened = database.get("task", saved.id);
+    assert.equal(reopened.planned_start_time, "16:30");
+    assert.equal(reopened.planned_duration_minutes, 75);
+    assert.ok(reopened.description.endsWith(original));
+    const schedule = database.list("schedule").find((entry) => entry.owner_id === saved.id);
+    assert.equal(schedule.start_date, "2026-09-07");
+    assert.equal(schedule.end_date, "2026-09-11");
+    assert.equal(database.list("task").length, 1);
+  } finally {
+    database?.db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -341,6 +341,8 @@ class AndroidMobileTaskRepository(
             description = draft.organizationDescription(),
             checklistItems = draft.organizationChecklistItems(),
             schedule = draft.organizationSchedule(),
+            plannedStartTime = draft.organization?.plannedStartTime,
+            plannedDurationMinutes = draft.organization?.plannedDurationMinutes,
         )
 
     override suspend fun enqueueCreateTasks(drafts: List<MobileCaptureDraft>, todayDate: LocalDate?): List<String> =
@@ -353,19 +355,24 @@ class AndroidMobileTaskRepository(
         val text = draft.originalText ?: draft.text
         require(text.isNotBlank() && text.length <= 12000) { "AI整理は12000文字以内で利用できます。元の入力は保持しています。" }
         try {
-            fun requestBody(batch: Boolean) = buildJsonObject {
+            fun requestBody(batch: Boolean, plannedTime: Boolean = false) = buildJsonObject {
+                    if (plannedTime) put("includePlannedTime", true)
                     if (batch) put("maxTasks", 8)
                     put("text", text)
                     put("capturedAt", draft.speech?.capturedAt ?: draft.createdAt)
                     put("timeZone", draft.speech?.timeZone ?: java.time.ZoneId.systemDefault().id)
                     put("themeId", draft.projectId?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
                 }.toString()
-            var response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(true), token)
+            var response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(true, true), token)
+            fun rejectedNewFields() = response.status == 400 && runCatching {
+                json.parseToJsonElement(response.body).jsonObject["error"]?.jsonObject
+                    ?.get("code")?.jsonPrimitive?.content == "validation_failed"
+            }.getOrDefault(false)
+            if (rejectedNewFields()) {
+                response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(true), token)
+            }
             // Older Desktop versions reject the new field before inference. Retry their single-task contract only.
-            if (response.status == 400 && runCatching {
-                    json.parseToJsonElement(response.body).jsonObject["error"]?.jsonObject
-                        ?.get("code")?.jsonPrimitive?.content == "validation_failed"
-                }.getOrDefault(false)) {
+            if (rejectedNewFields()) {
                 response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(false), token)
             }
             if (response.status !in 200..299) {
@@ -378,8 +385,25 @@ class AndroidMobileTaskRepository(
             }
             val root = json.parseToJsonElement(response.body).jsonObject
             val data = root.getValue("data").jsonObject
+            val plannedTimeCapability = data["plannedTimeSupported"]
+            require(plannedTimeCapability == null || plannedTimeCapability == kotlinx.serialization.json.JsonPrimitive(true))
+            val plannedTimeSupported = plannedTimeCapability != null
             val proposals = (data["proposals"]?.jsonArray ?: listOf(data.getValue("proposal")))
-                .map { json.decodeFromJsonElement(MobileCaptureOrganization.serializer(), it) }
+                .map {
+                    val fields = it.jsonObject
+                    require("plannedTimeSupported" !in fields)
+                    if (plannedTimeSupported) {
+                        require("plannedStartTime" in fields && "plannedDurationMinutes" in fields)
+                        val time = fields.getValue("plannedStartTime")
+                        val duration = fields.getValue("plannedDurationMinutes")
+                        require(time == kotlinx.serialization.json.JsonNull || time.jsonPrimitive.isString)
+                        require(duration == kotlinx.serialization.json.JsonNull || !duration.jsonPrimitive.isString)
+                    } else {
+                        require("plannedStartTime" !in fields && "plannedDurationMinutes" !in fields)
+                    }
+                    json.decodeFromJsonElement(MobileCaptureOrganization.serializer(), it)
+                        .copy(plannedTimeSupported = plannedTimeSupported)
+                }
             require(proposals.isNotEmpty() && proposals.size <= 8)
             proposals.forEach(MobileCaptureOrganization::validate)
             val sharedWarnings = data["warnings"]?.jsonArray.orEmpty().map { it.jsonPrimitive.content }

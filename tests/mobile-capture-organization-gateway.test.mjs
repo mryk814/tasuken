@@ -40,6 +40,41 @@ const proposal = {
   warnings: [],
 };
 const batch = (tasks = [proposal], warnings = []) => ({ tasks, warnings });
+
+test("Capture planned time requires opt-in and keeps the exact legacy proposal shape", async () => {
+  let received;
+  const timed = { ...proposal, plannedStartTime: "16:00", plannedDurationMinutes: 90 };
+  const { request } = fixture({
+    providerLabel: "Fake",
+    organize: async (input) => {
+      received = input;
+      return batch([input.includePlannedTime ? timed : proposal]);
+    },
+  });
+  for (const legacyBody of [body, { ...body, includePlannedTime: false }]) {
+    const legacy = await request({ body: legacyBody });
+    assert.equal(legacy.status, 200);
+    assert.deepEqual(legacy.body.data.proposal, proposal);
+    assert.deepEqual(Object.keys(legacy.body.data).sort(), [
+      "proposal",
+      "proposals",
+      "providerLabel",
+      "warnings",
+    ]);
+  }
+  const result = await request({ body: { ...body, includePlannedTime: true } });
+  assert.equal(result.status, 200);
+  assert.equal(received.includePlannedTime, true);
+  assert.equal(result.body.data.plannedTimeSupported, true);
+  assert.deepEqual(result.body.data.proposal, timed);
+  const missing = fixture({ providerLabel: "Fake", organize: async () => batch() });
+  assert.equal(
+    (await missing.request({ body: { ...body, includePlannedTime: true } })).body.error.code,
+    "upstream_unavailable",
+  );
+  const extra = fixture({ providerLabel: "Fake", organize: async () => batch([timed]) });
+  assert.equal((await extra.request()).body.error.code, "upstream_unavailable");
+});
 function fixture(organizer = null, overrides = {}) {
   const calls = [];
   const adapter = new MobileGatewayAdapter({
@@ -216,6 +251,8 @@ test("Mobile accepted organization maps full description, checklist and deadline
           title: proposal.title,
           projectId: "research",
           description,
+          plannedStartTime: "16:30",
+          plannedDurationMinutes: 75,
           checklistItems: [
             {
               id: "check-1",
@@ -236,6 +273,8 @@ test("Mobile accepted organization maps full description, checklist and deadline
   assert.equal(command.command_id, "organized-command");
   assert.equal(command.payload.task.description, description);
   assert.equal(command.payload.task.project_id, "research");
+  assert.equal(command.payload.task.planned_start_time, "16:30");
+  assert.equal(command.payload.task.planned_duration_minutes, 75);
   assert.deepEqual(command.payload.task.checklist_items, [
     { id: "check-1", title: "データを集める", done: false, sort_order: 0, completed_at: null },
   ]);

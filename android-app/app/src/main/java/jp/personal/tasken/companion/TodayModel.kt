@@ -871,7 +871,7 @@ class TodayViewModel(
             return
         }
         if (normalizedDrafts.any { runCatching { it.organization?.validate() }.isFailure }) {
-            mutableCaptureState.value = CaptureUiState.Error("整理案の日付・チェック項目を確認してから追加してください。")
+            mutableCaptureState.value = CaptureUiState.Error("整理案の日付・予定時刻・所要時間・チェック項目を確認してから追加してください。")
             return
         }
         val offlineRepository = repository as? MobileOfflineTaskRepository
@@ -1427,6 +1427,10 @@ class TodayPaneState(
         captureDraft.speech?.capturedAt,
         captureDraft.speech?.timeZone,
         captureDraft.originalThemeId,
+        kotlinx.serialization.json.Json.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(MobileCaptureOrganization.serializer()),
+            captureDraft.additionalOrganizations,
+        ),
     )
 
     companion object {
@@ -1462,6 +1466,11 @@ class TodayPaneState(
                 },
                 originalText = saved.getOrNull(27) as? String,
                 originalThemeId = saved.getOrNull(30) as? String,
+                additionalOrganizations = (saved.getOrNull(31) as? String)?.let {
+                    kotlinx.serialization.json.Json.decodeFromString(
+                        kotlinx.serialization.builtins.ListSerializer(MobileCaptureOrganization.serializer()), it,
+                    )
+                }.orEmpty(),
             ),
             captureOpen = saved.getOrNull(4) as? Boolean ?: false,
             captureVoiceStartRequested = saved.getOrNull(20) as? Boolean ?: false,
