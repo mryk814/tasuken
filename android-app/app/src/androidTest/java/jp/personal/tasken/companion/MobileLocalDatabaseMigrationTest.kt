@@ -16,6 +16,18 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
     @Test
+    fun migrationTwentyTwoToTwentyThreePreservesRecallAndAddsEmptyRelatedCache() {
+        helper.createDatabase(DatabaseName, 22).apply {
+            execSQL("INSERT INTO recall_capture_cache(serverId,id,commandId,body,capturedAt) VALUES ('server','capture','command','保持する原文','2026-09-06T08:00:00Z')")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 23, true, MIGRATION_22_23).use { db ->
+            db.query("SELECT body FROM recall_capture_cache").use { cursor -> assertTrue(cursor.moveToFirst()); assertEquals("保持する原文", cursor.getString(0)) }
+            db.query("SELECT COUNT(*) FROM related_document_cache").use { cursor -> assertTrue(cursor.moveToFirst()); assertEquals(0, cursor.getInt(0)) }
+        }
+    }
+
+    @Test
     fun migrationTwentyOneToTwentyTwoPreservesPendingCaptureTextAndExistingWorkLogs() {
         val envelope = "{\"command\":{\"capture\":{\"text\":\"  原文\\n🔬  \"}}}"
         helper.createDatabase(DatabaseName, 21).apply {

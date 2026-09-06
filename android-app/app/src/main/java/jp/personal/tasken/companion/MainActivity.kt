@@ -247,6 +247,7 @@ internal fun TodayApp(
     var workLogTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var workLogRecordId by rememberSaveable { mutableStateOf<String?>(null) }
     var recallOpen by rememberSaveable { mutableStateOf(false) }
+    var relatedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var recallCapture by remember { mutableStateOf<MobilePendingCapture?>(null) }
     val recallSavedState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val paneState = rememberTodayPaneState(restoredCaptureDraft)
@@ -789,6 +790,7 @@ internal fun TodayApp(
                     TodayDetailPane(
                         task = task,
                         onRecordWorkLog = { workLogTaskId = it.id; workLogOpen = true },
+                        onReadRelatedDocuments = if (todayViewModel.relatedDocumentsRepository != null) ({ relatedTaskId = it.id }) else null,
                         actionState = taskActionState,
                         workReceiptDetailState = workReceiptDetailState,
                         taskWorkProposals = taskWorkProposals.filter { it.taskId == task?.id },
@@ -859,6 +861,11 @@ internal fun TodayApp(
         )
     }
 
+    relatedTaskId?.let { taskId ->
+        todayViewModel.relatedDocumentsRepository?.let { repository ->
+            MobileRelatedDocumentsSheet(repository, taskId, onDismiss = { relatedTaskId = null })
+        }
+    }
     if (recallOpen && !workLogOpen && recallCapture == null) {
         todayViewModel.recallRepository?.let { repository ->
             recallSavedState.SaveableStateProvider("recall") {
@@ -1884,6 +1891,7 @@ internal fun TodayDetailPane(
     task: MobileTask?,
     actionState: TaskActionUiState,
     onRecordWorkLog: ((MobileTask) -> Unit)? = null,
+    onReadRelatedDocuments: ((MobileTask) -> Unit)? = null,
     workReceiptDetailState: WorkReceiptDetailUiState = WorkReceiptDetailUiState.Idle,
     taskWorkProposals: List<MobileTaskWorkProposal> = emptyList(),
     proposalReviewOnline: Boolean = false,
@@ -2011,6 +2019,9 @@ internal fun TodayDetailPane(
             }
             onRecordWorkLog?.let { record ->
                 TextButton(onClick = { record(task) }, modifier = Modifier.testTag("task-record-work-log")) { Text("やったことを残す") }
+            }
+            onReadRelatedDocuments?.let { read ->
+                TextButton(onClick = { read(task) }, modifier = Modifier.testTag("task-related-documents")) { Text("関連資料を読む") }
             }
             if (task.pending) {
                 Surface(
