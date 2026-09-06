@@ -66,12 +66,14 @@ data class MobileCaptureDraft(
     val share: MobileShareProvenance?,
     val createdAt: String,
     val organization: MobileCaptureOrganization? = null,
+    val additionalOrganizations: List<MobileCaptureOrganization> = emptyList(),
     val originalText: String? = null,
     val originalThemeId: String? = null,
 ) {
     init {
         require(speech == null || source == MobileCaptureSource.AndroidSpeech)
         require((source == MobileCaptureSource.ShareTarget) == (share != null))
+        require(additionalOrganizations.size <= 7)
     }
 
     // Drafts retain the original input; the command boundary enforces the 500-character save limit.
@@ -83,7 +85,7 @@ data class MobileCaptureDraft(
     fun withoutOrganization(): MobileCaptureDraft = copy(
         text = originalText ?: text,
         projectId = if (organization != null) originalThemeId else projectId,
-        organization = null, originalText = null, originalThemeId = null,
+        organization = null, additionalOrganizations = emptyList(), originalText = null, originalThemeId = null,
     )
 
     fun withThemeId(value: String?): MobileCaptureDraft = copy(
@@ -92,12 +94,42 @@ data class MobileCaptureDraft(
     )
 
     fun withOrganization(value: MobileCaptureOrganization): MobileCaptureDraft {
-        value.validate()
+        return withOrganizations(listOf(value))
+    }
+
+    fun withOrganizations(values: List<MobileCaptureOrganization>): MobileCaptureDraft {
+        require(values.isNotEmpty() && values.size <= 8)
+        values.forEach(MobileCaptureOrganization::validate)
+        return withEditedOrganizations(values)
+    }
+
+    // Editing may temporarily leave a title/date incomplete; validate at inference and save boundaries.
+    fun withEditedOrganizations(values: List<MobileCaptureOrganization>): MobileCaptureDraft {
+        require(values.isNotEmpty() && values.size <= 8)
+        val value = values.first()
         val original = originalText ?: text
         require(original.isNotBlank() && original.length <= 12000)
         return copy(text = value.title, projectId = value.themeId, kind = MobileCaptureKind.Task,
-            organization = value, originalText = original,
+            organization = value, additionalOrganizations = values.drop(1), originalText = original,
             originalThemeId = if (organization == null) projectId else originalThemeId)
+    }
+
+    fun allOrganizations(): List<MobileCaptureOrganization> =
+        listOfNotNull(organization) + additionalOrganizations
+
+    fun organizedTaskDrafts(): List<MobileCaptureDraft> {
+        val proposals = allOrganizations()
+        if (proposals.isEmpty()) return listOf(this)
+        return proposals.mapIndexed { index, proposal ->
+            copy(
+                draftId = if (index == 0) draftId else "$draftId:task:$index",
+                text = proposal.title,
+                projectId = proposal.themeId,
+                kind = MobileCaptureKind.Task,
+                organization = proposal,
+                additionalOrganizations = emptyList(),
+            )
+        }
     }
 
     fun withSpeechResult(
@@ -108,6 +140,7 @@ data class MobileCaptureDraft(
     ): MobileCaptureDraft = copy(
         text = if (append && (originalText ?: text).isNotBlank()) "${originalText ?: text} ${result.text}" else result.text,
         organization = null,
+        additionalOrganizations = emptyList(),
         originalText = null,
         projectId = if (organization != null) originalThemeId else projectId,
         originalThemeId = null,

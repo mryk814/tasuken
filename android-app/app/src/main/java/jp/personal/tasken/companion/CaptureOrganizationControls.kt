@@ -19,8 +19,9 @@ internal fun CaptureOrganizationControls(
     draft: MobileCaptureDraft,
     speechState: ShortSpeechUiState,
     enabled: Boolean,
-    organize: suspend (MobileCaptureDraft) -> MobileCaptureOrganization,
-    onChange: (MobileCaptureOrganization) -> Unit,
+    themes: List<MobileTheme>,
+    organize: suspend (MobileCaptureDraft) -> List<MobileCaptureOrganization>,
+    onChange: (List<MobileCaptureOrganization>) -> Unit,
     onRestoreOriginal: () -> Unit,
     onBusyChange: (Boolean) -> Unit,
 ) {
@@ -47,9 +48,10 @@ internal fun CaptureOrganizationControls(
         onBusyChange(true)
         pending = scope.launch {
             try {
-                val proposal = organize(requested)
-                proposal.validate()
-                if (request == requestNumber && currentDraft == requested) onChange(proposal)
+                val proposals = organize(requested)
+                require(proposals.isNotEmpty() && proposals.size <= 8)
+                proposals.forEach(MobileCaptureOrganization::validate)
+                if (request == requestNumber && currentDraft == requested) onChange(proposals)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -81,7 +83,9 @@ internal fun CaptureOrganizationControls(
                     checklistText = proposal.checklist.joinToString("\n")
                 }
             }
-            fun changeDates(start: String?, end: String?) = onChange(proposal.copy(
+            fun changePrimary(value: MobileCaptureOrganization) =
+                onChange(listOf(value) + draft.additionalOrganizations)
+            fun changeDates(start: String?, end: String?) = changePrimary(proposal.copy(
                 startDate = start, endDate = end,
                 rangeSemantics = if (start != null && end != null && start != end) proposal.rangeSemantics else null,
             ))
@@ -97,19 +101,64 @@ internal fun CaptureOrganizationControls(
             }
             if (proposal.startDate != null && proposal.endDate != null && proposal.startDate != proposal.endDate) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(proposal.rangeSemantics == "once_within_window", { onChange(proposal.copy(rangeSemantics = "once_within_window")) }, enabled = enabled, label = { Text("期間内に一度") })
-                    FilterChip(proposal.rangeSemantics == "ongoing", { onChange(proposal.copy(rangeSemantics = "ongoing")) }, enabled = enabled, label = { Text("期間中継続") })
+                    FilterChip(proposal.rangeSemantics == "once_within_window", { changePrimary(proposal.copy(rangeSemantics = "once_within_window")) }, enabled = enabled, label = { Text("期間内に一度") })
+                    FilterChip(proposal.rangeSemantics == "ongoing", { changePrimary(proposal.copy(rangeSemantics = "ongoing")) }, enabled = enabled, label = { Text("期間中継続") })
                 }
             }
             OutlinedTextField(checklistText, { value ->
                 checklistText = value
-                onChange(proposal.copy(checklist = value.lines().filter { it.isNotBlank() }))
+                changePrimary(proposal.copy(checklist = value.lines().filter { it.isNotBlank() }))
             }, label = { Text("チェック項目（1行に1つ）") }, minLines = 2, maxLines = 6, enabled = enabled,
                 modifier = Modifier.fillMaxWidth().testTag("organization-checklist"))
-            OutlinedTextField(proposal.supplement, { onChange(proposal.copy(supplement = it)) },
+            OutlinedTextField(proposal.supplement, { changePrimary(proposal.copy(supplement = it)) },
                 label = { Text("補足") }, maxLines = 4, enabled = enabled,
                 modifier = Modifier.fillMaxWidth().testTag("organization-supplement"))
             if (runCatching { proposal.validate() }.isFailure) Text("日付の形式・順序、チェック項目（20件・各200文字以内）を確認してください。", color = MaterialTheme.colorScheme.error)
+            if (draft.additionalOrganizations.isNotEmpty()) {
+                Text("ほか ${draft.additionalOrganizations.size}件のTask", style = MaterialTheme.typography.titleSmall)
+                draft.additionalOrganizations.forEachIndexed { index, additional ->
+                    OutlinedCard(modifier = Modifier.fillMaxWidth().testTag("organization-additional-$index")) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedTextField(
+                                value = additional.title,
+                                onValueChange = { title ->
+                                    val updated = draft.additionalOrganizations.toMutableList()
+                                    updated[index] = additional.copy(title = title)
+                                    onChange(listOf(proposal) + updated)
+                                },
+                                label = { Text("Task ${index + 2}") },
+                                enabled = enabled,
+                                modifier = Modifier.fillMaxWidth().testTag("organization-additional-title-$index"),
+                            )
+                            val theme = additional.themeId?.let { id -> themes.firstOrNull { it.id == id }?.title ?: id }
+                            Text("Theme: ${theme ?: "未分類"}", style = MaterialTheme.typography.bodySmall)
+                            additional.startDate?.let { Text("開始: $it", style = MaterialTheme.typography.bodySmall) }
+                            additional.endDate?.let { Text("期限: $it", style = MaterialTheme.typography.bodySmall) }
+                            additional.rangeSemantics?.let {
+                                Text(if (it == "ongoing") "期間中継続" else "期間内に一度", style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (additional.checklist.isNotEmpty()) {
+                                Text(
+                                    additional.checklist.joinToString("\n") { "・$it" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            additional.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            if (additional.supplement.isNotBlank()) {
+                                Text(additional.supplement, style = MaterialTheme.typography.bodySmall)
+                            }
+                            TextButton(
+                                onClick = {
+                                    val updated = draft.additionalOrganizations.toMutableList().also { it.removeAt(index) }
+                                    onChange(listOf(proposal) + updated)
+                                },
+                                enabled = enabled,
+                                modifier = Modifier.align(Alignment.End),
+                            ) { Text("このTaskを外す") }
+                        }
+                    }
+                }
+            }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = { originalOpen = !originalOpen }) { Text(if (originalOpen) "元の入力を閉じる" else "元の入力を見る") }
                 TextButton(onClick = onRestoreOriginal, enabled = enabled) { Text("整理を取り消す") }

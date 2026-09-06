@@ -19,8 +19,9 @@ import { IPC } from "../shared/ipc/contracts";
 import {
   mobileCaptureOrganizationRequestSchema,
   mobileCaptureOrganizationSchema,
+  mobileCaptureOrganizationBatchSchema,
 } from "../shared/contracts/mobile/public.ts";
-import type { CaptureOrganizerInput, CaptureOrganizerProposal } from "./gateway/mobile/public";
+import type { CaptureOrganizerBatch, CaptureOrganizerInput } from "./gateway/mobile/public";
 
 export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
 
@@ -33,7 +34,7 @@ interface QuickCaptureControllerOptions {
   ) => void;
   notifyCommandApplied: (receipt: CommandReceipt, senderId: number) => void;
   executeCommand: (envelope: CommandEnvelope) => CommandReceipt;
-  organizeCapture?: (input: CaptureOrganizerInput) => Promise<CaptureOrganizerProposal>;
+  organizeCapture?: (input: CaptureOrganizerInput) => Promise<CaptureOrganizerBatch>;
 }
 
 type QuickCaptureScheduleParse =
@@ -144,9 +145,18 @@ export function createQuickCaptureController(
       const themes = (options.repository.list("theme") as Entity[])
         .slice(0, 200)
         .map((theme) => ({ id: theme.id, title: String(theme.name || theme.title || "Theme") }));
-      const proposal = mobileCaptureOrganizationSchema.parse(
-        await options.organizeCapture({ ...parsed, themes }),
+      const organized = mobileCaptureOrganizationBatchSchema.parse(
+        await options.organizeCapture({ ...parsed, themes, maxTasks: 1 }),
       );
+      if (organized.tasks.length !== 1)
+        throw new Error("整理案の件数を確認して再試行してください。");
+      const proposal = mobileCaptureOrganizationSchema.parse({
+        ...organized.tasks[0],
+        warnings: [...new Set([...organized.warnings, ...organized.tasks[0].warnings])].slice(
+          0,
+          10,
+        ),
+      });
       if (proposal.themeId && !themes.some((theme) => theme.id === proposal.themeId))
         throw new Error("Themeを確認して再試行してください。");
       return proposal;

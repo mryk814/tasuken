@@ -694,6 +694,9 @@ abstract class MobileLocalDao {
     abstract suspend fun replaceUnsentEnvelope(commandId: String, envelopeJson: String): Int
 
     @Transaction
+    open suspend fun enqueueCreateBatch(block: suspend () -> List<String>): List<String> = block()
+
+    @Transaction
     open suspend fun enqueueCreate(task: TaskCacheEntity, command: OutboxCommandEntity) {
         require(task.optimisticCommandId == command.commandId)
         require(command.commandId == command.idempotencyKey)

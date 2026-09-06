@@ -14,6 +14,7 @@ export function CaptureOrganizerSettings() {
   const [provider, setProvider] = useState<CaptureOrganizerProvider>("openai");
   const [model, setModel] = useState("");
   const [endpoint, setEndpoint] = useState("");
+  const [vocabulary, setVocabulary] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState<"loading" | "saving" | "testing" | "clearing" | null>("loading");
   const [feedback, setFeedback] = useState<{ message: string; error: boolean } | null>(null);
@@ -24,6 +25,7 @@ export function CaptureOrganizerSettings() {
     setProvider(value.provider);
     setModel(value.model);
     setEndpoint(value.endpoint);
+    setVocabulary(value.vocabulary);
     setApiKey("");
     setConfirmClear(false);
   }, []);
@@ -78,6 +80,7 @@ export function CaptureOrganizerSettings() {
     provider !== settings.provider ||
     model.trim() !== settings.model ||
     normalizedEndpoint !== settings.endpoint.replace(/\/$/, "") ||
+    vocabulary.trim() !== settings.vocabulary ||
     apiKey.length > 0;
   const modelChoices =
     provider === "opencode-zen" || provider === "opencode-go"
@@ -89,6 +92,7 @@ export function CaptureOrganizerSettings() {
       provider,
       model: model.trim(),
       endpoint: normalizedEndpoint,
+      vocabulary: vocabulary.trim(),
       ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
     };
   }
@@ -282,6 +286,24 @@ export function CaptureOrganizerSettings() {
           </label>
           <p className="field-help">
             キーはこのDesktopで暗号化して保存します。接続確認はテスト用の短文を送信します（API利用料が発生する場合があります）。
+          </p>
+          <label>
+            <span>音声・固有語辞書</span>
+            <textarea
+              aria-label="入力整理の音声・固有語辞書"
+              value={vocabulary}
+              rows={4}
+              maxLength={4000}
+              disabled={Boolean(busy)}
+              placeholder={"Tasken\n研究固有の用語\n人名や製品名"}
+              onChange={(event) => {
+                setVocabulary(event.target.value);
+                setFeedback(null);
+              }}
+            />
+          </label>
+          <p className="field-help">
+            音声認識で誤記されやすい語を1行に1語で指定します。入力整理の候補としてだけ使います。
           </p>
           {!settings.secureStorageAvailable && (
             <p className="form-error">

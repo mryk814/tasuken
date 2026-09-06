@@ -327,6 +327,7 @@ sealed interface CaptureUiState {
         val entityId: String,
         val kind: MobileCaptureKind,
         val completionBehavior: CaptureCompletionBehavior = CaptureCompletionBehavior.Close,
+        val additionalEntityIds: List<String> = emptyList(),
     ) : CaptureUiState
     data class Error(val message: String) : CaptureUiState
 }
@@ -349,7 +350,7 @@ class TodayViewModel(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val refreshExternalProjection: () -> Unit = {},
 ) : ViewModel() {
-    suspend fun organizeCapture(draft: MobileCaptureDraft): MobileCaptureOrganization =
+    suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> =
         kotlinx.coroutines.withContext(ioDispatcher) {
             val gateway = repository as? MobileGatewayRepository
                 ?: error("Desktopへ接続するとAI整理を利用できます。")
@@ -755,16 +756,17 @@ class TodayViewModel(
         completionBehavior: CaptureCompletionBehavior = CaptureCompletionBehavior.Close,
     ) {
         val entityLabel = if (draft.kind == MobileCaptureKind.Task) "Task" else "Capture"
-        val normalized = draft.text.trim()
-        if (normalized.isEmpty()) {
+        val drafts = if (draft.kind == MobileCaptureKind.Task) draft.organizedTaskDrafts() else listOf(draft)
+        val normalizedDrafts = drafts.map { it.withText(it.text.trim()) }
+        if (normalizedDrafts.any { it.text.isEmpty() }) {
             mutableCaptureState.value = CaptureUiState.Error("${entityLabel}の内容を入力してください。")
             return
         }
-        if (normalized.length > 500) {
+        if (normalizedDrafts.any { it.text.length > 500 }) {
             mutableCaptureState.value = CaptureUiState.Error("${entityLabel}は500文字以内で入力してください。")
             return
         }
-        if (runCatching { draft.organization?.validate() }.isFailure) {
+        if (normalizedDrafts.any { runCatching { it.organization?.validate() }.isFailure }) {
             mutableCaptureState.value = CaptureUiState.Error("整理案の日付・チェック項目を確認してから追加してください。")
             return
         }
@@ -774,16 +776,20 @@ class TodayViewModel(
             return
         }
         mutableCaptureState.value = try {
-            val entityId = withContext(ioDispatcher) {
-                when (draft.kind) {
-                    MobileCaptureKind.Task -> offlineRepository.enqueueCreateTask(draft.withText(normalized))
-                    MobileCaptureKind.Capture -> offlineRepository.enqueueCreateCapture(draft.withText(normalized))
+            val entityIds = withContext(ioDispatcher) {
+                if (draft.kind == MobileCaptureKind.Task) offlineRepository.enqueueCreateTasks(normalizedDrafts)
+                else normalizedDrafts.map { normalizedDraft ->
+                    when (normalizedDraft.kind) {
+                        MobileCaptureKind.Task -> offlineRepository.enqueueCreateTask(normalizedDraft)
+                        MobileCaptureKind.Capture -> offlineRepository.enqueueCreateCapture(normalizedDraft)
+                    }
                 }
             }
             CaptureUiState.Queued(
-                entityId = entityId,
+                entityId = entityIds.first(),
                 kind = draft.kind,
                 completionBehavior = completionBehavior,
+                additionalEntityIds = entityIds.drop(1),
             )
         } catch (_: Exception) {
             CaptureUiState.Error("${entityLabel}を保存できませんでした。入力を残したまま再試行してください。")
@@ -792,6 +798,36 @@ class TodayViewModel(
 
     fun undoCreatedCapture(entityId: String, kind: MobileCaptureKind) {
         viewModelScope.launch { undoCreatedCaptureNow(entityId, kind) }
+    }
+
+    fun undoCreatedCaptures(entityIds: List<String>) {
+        if (entityIds.isEmpty()) return
+        viewModelScope.launch {
+            val offlineRepository = repository as? MobileOfflineTaskRepository
+            if (offlineRepository == null) {
+                mutableTaskActionState.value = TaskActionUiState.Error(
+                    entityIds.first(),
+                    "この環境ではTask追加を元に戻せません。",
+                )
+                return@launch
+            }
+            mutableTaskActionState.value = TaskActionUiState.Saving(entityIds.first())
+            mutableTaskActionState.value = try {
+                val results = withContext(ioDispatcher) {
+                    entityIds.asReversed().map { offlineRepository.undoCreateTask(it) }
+                }
+                TaskActionUiState.Queued(
+                    taskId = entityIds.first(),
+                    requiresSync = results.any(MobileUndoCreateResult::requiresSync),
+                    message = "${entityIds.size}件のTask追加を元に戻しました。",
+                )
+            } catch (error: Exception) {
+                TaskActionUiState.Error(
+                    entityIds.first(),
+                    error.message ?: "Task追加を元に戻せませんでした。",
+                )
+            }
+        }
     }
 
     internal suspend fun undoCreatedCaptureNow(entityId: String, kind: MobileCaptureKind) {
@@ -1334,7 +1370,7 @@ class TodayPaneState(
 }
 
 interface MobileGatewayRepository : MobileTaskRepository {
-    suspend fun organizeCapture(draft: MobileCaptureDraft): MobileCaptureOrganization =
+    suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> =
         error("このDesktopではAI整理を利用できません。Desktopを更新してください。")
     fun configuration(): MobileGatewayConfiguration
     fun pair(origin: String, pairingCode: String): MobileTodayResult
@@ -1387,6 +1423,13 @@ interface MobileOfflineTaskRepository {
         draft: MobileCaptureDraft,
         todayDate: java.time.LocalDate? = java.time.LocalDate.now(),
     ): String
+    suspend fun enqueueCreateTasks(
+        drafts: List<MobileCaptureDraft>,
+        todayDate: java.time.LocalDate? = java.time.LocalDate.now(),
+    ): List<String> {
+        require(drafts.size == 1) { "この環境では複数のTaskを一度に追加できません。" }
+        return listOf(enqueueCreateTask(drafts.single(), todayDate))
+    }
     suspend fun enqueueCreateCapture(draft: MobileCaptureDraft): String =
         error("この環境ではCaptureを追加できません。")
     suspend fun undoCreateTask(taskId: String): MobileUndoCreateResult =

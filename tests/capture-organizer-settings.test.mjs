@@ -33,7 +33,13 @@ const secure = {
   },
 };
 const secret = "test-secret-should-never-be-returned";
-const input = { provider: "openai", model: "gpt-4.1-mini", endpoint: "", apiKey: secret };
+const input = {
+  provider: "openai",
+  model: "gpt-4.1-mini",
+  endpoint: "",
+  vocabulary: "Tasken\n固有語",
+  apiKey: secret,
+};
 const proposal = {
   title: "牛乳を買う",
   themeId: null,
@@ -44,6 +50,7 @@ const proposal = {
   supplement: "",
   warnings: [],
 };
+const batch = { tasks: [proposal], warnings: [] };
 const capture = {
   text: "牛乳を買う",
   capturedAt: "2026-09-05T12:00:00Z",
@@ -59,7 +66,7 @@ function setup(t, env = {}, storage = secure, files = fs) {
     requests.push({ url, init, body: JSON.parse(init.body) });
     return new Response(
       JSON.stringify({
-        choices: [{ finish_reason: "stop", message: { content: JSON.stringify(proposal) } }],
+        choices: [{ finish_reason: "stop", message: { content: JSON.stringify(batch) } }],
       }),
     );
   };
@@ -121,6 +128,7 @@ test("settings encrypt keys, survive restart, keep keys only for the same provid
     provider: "openai",
     model: "",
     endpoint: "",
+    vocabulary: "",
     hasApiKey: false,
     source: "none",
     secureStorageAvailable: true,
@@ -137,18 +145,24 @@ test("settings encrypt keys, survive restart, keep keys only for the same provid
   await restarted.organize(capture);
   assert.equal(requests.at(-1).init.headers.Authorization, `Bearer ${secret}`);
   assert.equal(requests.at(-1).body.model, "gpt-4.1");
+  assert.deepEqual(JSON.parse(requests.at(-1).body.messages[1].content).vocabulary, [
+    "Tasken",
+    "固有語",
+  ]);
   await assert.rejects(restarted.saveSettings({ ...input, provider: "gemini", apiKey: "" }));
   assert.equal((await restarted.getSettings()).provider, "openai");
   await restarted.saveSettings({
     provider: "azure",
     model: "deployment",
     endpoint: "https://resource.openai.azure.com/",
+    vocabulary: input.vocabulary,
     apiKey: "azure-secret",
   });
   await restarted.saveSettings({
     provider: "azure",
     model: "deployment-2",
     endpoint: "https://RESOURCE.openai.azure.com",
+    vocabulary: input.vocabulary,
     apiKey: "",
   });
   await assert.rejects(
@@ -156,6 +170,7 @@ test("settings encrypt keys, survive restart, keep keys only for the same provid
       provider: "azure",
       model: "deployment",
       endpoint: "https://other.openai.azure.com",
+      vocabulary: input.vocabulary,
       apiKey: "",
     }),
   );

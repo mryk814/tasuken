@@ -48,6 +48,7 @@ export interface CaptureOrganizerSettingsInput {
   provider: CaptureOrganizerProvider;
   model: string;
   endpoint: string;
+  vocabulary: string;
   apiKey?: string;
 }
 
@@ -55,6 +56,7 @@ export interface CaptureOrganizerSettingsState {
   provider: CaptureOrganizerProvider;
   model: string;
   endpoint: string;
+  vocabulary: string;
   hasApiKey: boolean;
   source: "saved" | "environment" | "none";
   secureStorageAvailable: boolean;

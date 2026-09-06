@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import java.util.Locale
 import androidx.activity.ComponentActivity
@@ -391,6 +393,28 @@ private fun TodayApp(
     LaunchedEffect(captureState) {
         if (captureState is CaptureUiState.Queued) {
             val queued = captureState as CaptureUiState.Queued
+            val queuedEntityIds = listOf(queued.entityId) + queued.additionalEntityIds
+            if (queuedEntityIds.size > 1) {
+                speechRecognizer.cancel()
+                speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+                if (queued.completionBehavior == CaptureCompletionBehavior.Continue) {
+                    paneState.continueCapture()
+                } else {
+                    paneState.resetCapture()
+                }
+                todayViewModel.resetCaptureState()
+                coroutineScope.launch {
+                    val result = snackbarHostState.showSnackbar(
+                        message = "${queuedEntityIds.size}件のTaskを追加しました。Desktopへ自動送信します。",
+                        actionLabel = "元に戻す",
+                        duration = SnackbarDuration.Long,
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        todayViewModel.undoCreatedCaptures(queuedEntityIds)
+                    }
+                }
+                return@LaunchedEffect
+            }
             val undoTarget = MobileCaptureUndoTarget(queued.entityId, queued.kind)
             val undoTargetSaved = withContext(Dispatchers.IO) {
                 captureDraftStore.saveUndoTarget(undoTarget)
@@ -403,24 +427,26 @@ private fun TodayApp(
                 paneState.resetCapture()
             }
             todayViewModel.resetCaptureState()
-            if (!undoTargetSaved) {
-                snackbarHostState.showSnackbar(
-                    "追加は保存しましたが、再起動後のUndo対象を保持できませんでした。空き容量を確認してください。",
+            coroutineScope.launch {
+                if (!undoTargetSaved) {
+                    snackbarHostState.showSnackbar(
+                        "追加は保存しましたが、再起動後のUndo対象を保持できませんでした。空き容量を確認してください。",
+                    )
+                }
+                val entityLabel = if (queued.kind == MobileCaptureKind.Task) "Task" else "Capture"
+                showCreateUndoSnackbar(
+                    snackbarHostState = snackbarHostState,
+                    todayViewModel = todayViewModel,
+                    captureDraftStore = captureDraftStore,
+                    target = undoTarget,
+                    message = "${entityLabel}を追加しました。Desktopへ自動送信します。",
+                    duration = if (queued.completionBehavior == CaptureCompletionBehavior.Continue) {
+                        SnackbarDuration.Indefinite
+                    } else {
+                        SnackbarDuration.Long
+                    },
                 )
             }
-            val entityLabel = if (queued.kind == MobileCaptureKind.Task) "Task" else "Capture"
-            showCreateUndoSnackbar(
-                snackbarHostState = snackbarHostState,
-                todayViewModel = todayViewModel,
-                captureDraftStore = captureDraftStore,
-                target = undoTarget,
-                message = "${entityLabel}を追加しました。Desktopへ自動送信します。",
-                duration = if (queued.completionBehavior == CaptureCompletionBehavior.Continue) {
-                    SnackbarDuration.Indefinite
-                } else {
-                    SnackbarDuration.Long
-                },
-            )
         }
     }
     LaunchedEffect(taskActionState) {
@@ -751,11 +777,7 @@ private fun TodayApp(
             onOrganize = todayViewModel::organizeCapture,
             onOrganizationChanged = { proposal ->
                 val current = paneState.captureDraft
-                paneState.captureDraft = current.copy(
-                    text = proposal.title, projectId = proposal.themeId, kind = MobileCaptureKind.Task,
-                    organization = proposal, originalText = current.originalText ?: current.text,
-                    originalThemeId = if (current.organization == null) current.projectId else current.originalThemeId,
-                )
+                paneState.captureDraft = current.withEditedOrganizations(proposal)
             },
             onOrganizationDiscarded = {
                 val current = paneState.captureDraft
@@ -789,8 +811,8 @@ internal fun CaptureTaskSheet(
     onDraftChanged: (String) -> Unit,
     onThemeSelected: (String?) -> Unit,
     onKindSelected: (MobileCaptureKind) -> Unit,
-    onOrganize: (suspend (MobileCaptureDraft) -> MobileCaptureOrganization)? = null,
-    onOrganizationChanged: (MobileCaptureOrganization) -> Unit = {},
+    onOrganize: (suspend (MobileCaptureDraft) -> List<MobileCaptureOrganization>)? = null,
+    onOrganizationChanged: (List<MobileCaptureOrganization>) -> Unit = {},
     onOrganizationDiscarded: () -> Unit = {},
     requestInputFocus: Boolean = false,
     onInputFocusHandled: () -> Unit = {},
@@ -817,7 +839,7 @@ internal fun CaptureTaskSheet(
         val speechBusy = speechState is ShortSpeechUiState.Listening ||
             speechState is ShortSpeechUiState.Partial || speechState is ShortSpeechUiState.Processing
         val overLimit = draft.text.length > 500
-        val organizationValid = draft.organization?.let { runCatching { it.validate() }.isSuccess } ?: true
+        val organizationValid = draft.allOrganizations().all { runCatching { it.validate() }.isSuccess }
         val canSubmit = state !is CaptureUiState.Saving && !speechBusy && !organizationBusy &&
             draft.text.isNotBlank() && !overLimit && organizationValid
         LaunchedEffect(draft.draftId, requestInputFocus, sheetState.isVisible) {
@@ -900,6 +922,7 @@ internal fun CaptureTaskSheet(
                 modifier = Modifier.testTag("capture-speech-status"),
             )
             if (onOrganize != null && draft.kind == MobileCaptureKind.Task) CaptureOrganizationControls(
+                themes = themes,
                 draft = draft, speechState = speechState, enabled = !speechBusy && state !is CaptureUiState.Saving,
                 organize = onOrganize, onChange = onOrganizationChanged,
                 onRestoreOriginal = onOrganizationDiscarded, onBusyChange = { organizationBusy = it },
@@ -1090,11 +1113,12 @@ private fun captureSourceLabel(source: MobileCaptureSource): String = when (sour
 
 private fun speechStatusText(state: ShortSpeechUiState): String = when (state) {
     is ShortSpeechUiState.Idle -> speechPrivacyDescription(state.availableMode)
-    is ShortSpeechUiState.Listening -> "聞いています… ${speechModeLabel(state.mode)}"
-    is ShortSpeechUiState.Partial -> "認識中: ${state.text}"
+    is ShortSpeechUiState.Listening ->
+        "聞いています… 話し終えたらもう一度押してください。 ${speechModeLabel(state.mode)}"
+    is ShortSpeechUiState.Partial -> "認識中: ${state.text}（もう一度押すと確定）"
     is ShortSpeechUiState.Processing -> "文字にしています… ${speechModeLabel(state.mode)}"
     is ShortSpeechUiState.Result ->
-        "${speechModeLabel(state.result.mode)}の結果です。内容を確認・修正してから追加してください。"
+        state.result.warning ?: "${speechModeLabel(state.result.mode)}の結果です。内容を確認・修正してから追加してください。"
     is ShortSpeechUiState.Error -> state.message
 }
 
@@ -1707,6 +1731,7 @@ internal fun TodayDetailPane(
     onProposalDecision: (MobileTaskWorkProposal, String) -> Unit = { _, _ -> },
     onHumanReview: (MobileTask, String, String?) -> Unit = { _, _, _ -> },
     onTaskAiReady: (MobileTask, Boolean) -> Unit = { _, _ -> },
+    displayZoneId: ZoneId = ZoneId.systemDefault(),
 ) {
     if (task == null) {
         CenteredState { Text("Taskを選んでください") }
@@ -1984,7 +2009,10 @@ internal fun TodayDetailPane(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text("最新のWork Receipt", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("${receipt.executorLabel}  ${receipt.reportedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "${receipt.executorLabel}  ${formatLocalTimestamp(receipt.reportedAt, displayZoneId)}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         Text(receipt.summary)
                         when (val detailState = workReceiptDetailState) {
                             is WorkReceiptDetailUiState.Loading -> if (detailState.receiptId == receipt.id) {
@@ -2032,7 +2060,11 @@ internal fun TodayDetailPane(
                 }
             }
             Text("日付  ${taskTodayDateLabel(task.todayDate, today.toString())}")
-            Text("更新  ${task.updatedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "更新  ${formatLocalTimestamp(task.updatedAt, displayZoneId)}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("task-updated-at"),
+            )
         }
         Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
             FlowRow(
@@ -2068,6 +2100,13 @@ internal fun TodayDetailPane(
         }
     }
 }
+
+private val localTimestampFormatter: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy/M/d H:mm z")
+
+internal fun formatLocalTimestamp(value: String, zoneId: ZoneId = ZoneId.systemDefault()): String =
+    runCatching { Instant.parse(value).atZone(zoneId).format(localTimestampFormatter) }
+        .getOrDefault(value)
 
 @Composable
 private fun TaskAiReadyToggle(

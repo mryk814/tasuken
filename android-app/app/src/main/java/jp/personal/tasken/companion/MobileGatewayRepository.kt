@@ -273,20 +273,31 @@ class AndroidMobileTaskRepository(
             schedule = draft.organizationSchedule(),
         )
 
-    override suspend fun organizeCapture(draft: MobileCaptureDraft): MobileCaptureOrganization {
+    override suspend fun enqueueCreateTasks(drafts: List<MobileCaptureDraft>, todayDate: LocalDate?): List<String> =
+        outbox.enqueueCreateTasks(drafts, todayDate)
+
+    override suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> {
         val configuration = store.configuration()
         val token = store.readToken()
         require(configuration.origin.isNotBlank() && token != null) { "Desktopへ接続するとAI整理を利用できます。" }
         val text = draft.originalText ?: draft.text
         require(text.isNotBlank() && text.length <= 12000) { "AI整理は12000文字以内で利用できます。元の入力は保持しています。" }
         try {
-            val response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST",
-                buildJsonObject {
+            fun requestBody(batch: Boolean) = buildJsonObject {
+                    if (batch) put("maxTasks", 8)
                     put("text", text)
                     put("capturedAt", draft.speech?.capturedAt ?: draft.createdAt)
                     put("timeZone", draft.speech?.timeZone ?: java.time.ZoneId.systemDefault().id)
                     put("themeId", draft.projectId?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
-                }.toString(), token)
+                }.toString()
+            var response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(true), token)
+            // Older Desktop versions reject the new field before inference. Retry their single-task contract only.
+            if (response.status == 400 && runCatching {
+                    json.parseToJsonElement(response.body).jsonObject["error"]?.jsonObject
+                        ?.get("code")?.jsonPrimitive?.content == "validation_failed"
+                }.getOrDefault(false)) {
+                response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(false), token)
+            }
             if (response.status !in 200..299) {
                 error(when (response.status) {
                     401, 403 -> "AI整理の接続権限を確認してください。通常の追加はそのまま使えます。"
@@ -296,8 +307,16 @@ class AndroidMobileTaskRepository(
                 })
             }
             val root = json.parseToJsonElement(response.body).jsonObject
-            val proposal = root.getValue("data").jsonObject.getValue("proposal")
-            return json.decodeFromJsonElement(MobileCaptureOrganization.serializer(), proposal).also { it.validate() }
+            val data = root.getValue("data").jsonObject
+            val proposals = (data["proposals"]?.jsonArray ?: listOf(data.getValue("proposal")))
+                .map { json.decodeFromJsonElement(MobileCaptureOrganization.serializer(), it) }
+            require(proposals.isNotEmpty() && proposals.size <= 8)
+            proposals.forEach(MobileCaptureOrganization::validate)
+            val sharedWarnings = data["warnings"]?.jsonArray.orEmpty().map { it.jsonPrimitive.content }
+            require(sharedWarnings.size <= 10 && sharedWarnings.all { it.isNotBlank() && it.length <= 500 })
+            return if (sharedWarnings.isEmpty()) proposals else listOf(
+                proposals.first().copy(warnings = (sharedWarnings + proposals.first().warnings).distinct().take(10)),
+            ) + proposals.drop(1)
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {

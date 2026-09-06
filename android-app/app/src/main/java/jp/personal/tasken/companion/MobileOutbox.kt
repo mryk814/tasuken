@@ -189,6 +189,24 @@ class MobileOutbox(
 
     fun observeConflictCount(): Flow<Int> = dao.observeConflictCount()
 
+    suspend fun enqueueCreateTasks(drafts: List<MobileCaptureDraft>, todayDate: LocalDate?): List<String> {
+        require(drafts.isNotEmpty() && drafts.size <= 8)
+        val ids = dao.enqueueCreateBatch {
+            drafts.map { draft ->
+                enqueueCreate(
+                    title = draft.text, todayDate = todayDate, projectId = draft.projectId,
+                    draftId = draft.draftId, createdAt = draft.createdAt,
+                    provenance = draft.toTaskCreationProvenanceDto(),
+                    description = draft.organizationDescription(),
+                    checklistItems = draft.organizationChecklistItems(),
+                    schedule = draft.organizationSchedule(), scheduleAfterEnqueue = false,
+                )
+            }
+        }
+        schedule()
+        return ids
+    }
+
     suspend fun enqueueCreate(
         title: String,
         todayDate: LocalDate? = LocalDate.now(),
@@ -202,6 +220,7 @@ class MobileOutbox(
         description: String? = null,
         checklistItems: List<MobileChecklistItem>? = null,
         schedule: MobileCreateTaskScheduleDto? = null,
+        scheduleAfterEnqueue: Boolean = true,
     ): String {
         val normalizedTitle = title.trim()
         require(normalizedTitle.isNotEmpty() && normalizedTitle.length <= 500)
@@ -290,7 +309,7 @@ class MobileOutbox(
                 taskId = taskId,
             ),
         )
-        this.schedule()
+        if (scheduleAfterEnqueue) this.schedule()
         return taskId
     }
 

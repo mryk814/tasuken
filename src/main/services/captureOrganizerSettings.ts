@@ -11,8 +11,8 @@ import {
 } from "../../shared/captureOrganizerSettings.ts";
 import {
   createCaptureOrganizerFromEnvironment,
+  type CaptureOrganizerBatch,
   type CaptureOrganizerInput,
-  type CaptureOrganizerProposal,
 } from "../gateway/mobile/public.ts";
 
 interface SecureStorage {
@@ -26,6 +26,7 @@ const inputSchema = z.strictObject({
   provider: z.enum(CAPTURE_ORGANIZER_PROVIDERS.map((item) => item.id)),
   model: z.string().trim().min(1).max(200),
   endpoint: z.string().trim().max(500),
+  vocabulary: z.string().trim().max(4000).default(""),
   apiKey: z.string().trim().max(16000).optional(),
 });
 const savedSchema = inputSchema.omit({ apiKey: true }).extend({
@@ -88,6 +89,7 @@ export class CaptureOrganizerSettingsService {
       provider: this.environment.TASKEN_CAPTURE_LLM_PROVIDER,
       model: this.environment.TASKEN_CAPTURE_LLM_MODEL ?? "",
       endpoint: this.environment.TASKEN_CAPTURE_LLM_ENDPOINT ?? "",
+      vocabulary: this.environment.TASKEN_CAPTURE_LLM_VOCABULARY ?? "",
       apiKey: this.environment.TASKEN_CAPTURE_LLM_API_KEY ?? "",
     }) as SettingsWithKey;
   }
@@ -116,6 +118,7 @@ export class CaptureOrganizerSettingsService {
       TASKEN_CAPTURE_LLM_PROVIDER: settings.provider,
       TASKEN_CAPTURE_LLM_MODEL: settings.model,
       TASKEN_CAPTURE_LLM_ENDPOINT: settings.endpoint,
+      TASKEN_CAPTURE_LLM_VOCABULARY: settings.vocabulary,
       TASKEN_CAPTURE_LLM_API_KEY: settings.apiKey,
     };
   }
@@ -155,6 +158,7 @@ export class CaptureOrganizerSettingsService {
         provider: settings?.provider ?? "openai",
         model: settings?.model ?? "",
         endpoint: settings?.endpoint ?? "",
+        vocabulary: settings?.vocabulary ?? "",
         hasApiKey: saved ? true : Boolean(settings && "apiKey" in settings && settings.apiKey),
         source: saved ? "saved" : settings ? "environment" : "none",
         secureStorageAvailable: this.secureAvailable(),
@@ -164,6 +168,7 @@ export class CaptureOrganizerSettingsService {
         provider: "openai",
         model: "",
         endpoint: "",
+        vocabulary: "",
         hasApiKey: false,
         source: "none",
         secureStorageAvailable: this.secureAvailable(),
@@ -241,6 +246,7 @@ export class CaptureOrganizerSettingsService {
         timeZone: "Asia/Tokyo",
         themeId: null,
         themes: [],
+        maxTasks: 1,
       });
       return { ok: true, message: "接続を確認しました。" };
     } catch {
@@ -251,7 +257,7 @@ export class CaptureOrganizerSettingsService {
     }
   }
 
-  async organize(input: CaptureOrganizerInput): Promise<CaptureOrganizerProposal> {
+  async organize(input: CaptureOrganizerInput): Promise<CaptureOrganizerBatch> {
     const organizer = this.createOrganizer();
     if (!organizer)
       throw new Error("入力整理の接続が未設定です。設定でAPIキーとモデルを指定してください。");

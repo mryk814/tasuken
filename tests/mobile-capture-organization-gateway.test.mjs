@@ -39,6 +39,7 @@ const proposal = {
   supplement: "前回の条件を揃える",
   warnings: [],
 };
+const batch = (tasks = [proposal], warnings = []) => ({ tasks, warnings });
 function fixture(organizer = null, overrides = {}) {
   const calls = [];
   const adapter = new MobileGatewayAdapter({
@@ -81,7 +82,7 @@ test("Capture organization enforces authentication, both scopes, method, and req
     providerLabel: "Fake",
     organize: async () => {
       count++;
-      return proposal;
+      return batch();
     },
   });
   assert.equal((await request({ principal: null })).body.error.code, "unauthorized");
@@ -111,14 +112,20 @@ test("Capture organization returns a validated proposal without creating data, a
     providerLabel: "Fake",
     organize: async (input) => {
       received = input;
-      return proposal;
+      return batch();
     },
   });
   const result = await request();
   assert.equal(result.status, 200);
+  assert.deepEqual(result.body.data.proposals, [proposal]);
   assert.deepEqual(result.body.data.proposal, proposal);
+  assert.deepEqual(result.body.data.warnings, []);
   assert.equal(result.body.data.providerLabel, "Fake");
-  assert.deepEqual(received, { ...body, themes: [{ id: "research", title: "研究" }] });
+  assert.deepEqual(received, {
+    ...body,
+    themes: [{ id: "research", title: "研究" }],
+    maxTasks: 1,
+  });
   assert.equal(calls.length, 0);
   const unavailable = fixture({
     providerLabel: "Fake",
@@ -134,7 +141,7 @@ test("Capture organization returns a validated proposal without creating data, a
 test("Capture organization rejects invented Theme and invalid model dates", async () => {
   const { request } = fixture({
     providerLabel: "Fake",
-    organize: async () => ({ ...proposal, themeId: "invented" }),
+    organize: async () => batch([{ ...proposal, themeId: "invented" }]),
   });
   assert.equal((await request()).body.error.code, "theme_not_found");
   assert.equal(
@@ -143,9 +150,22 @@ test("Capture organization rejects invented Theme and invalid model dates", asyn
   );
   const invalid = fixture({
     providerLabel: "Fake",
-    organize: async () => ({ ...proposal, startDate: "2026-09-12" }),
+    organize: async () => batch([{ ...proposal, startDate: "2026-09-12" }]),
   });
   assert.equal((await invalid.request()).body.error.code, "upstream_unavailable");
+});
+
+test("old clients retain a single proposal and new clients explicitly request multiple tasks", async () => {
+  const tasks = [proposal, { ...proposal, title: "牛乳を買う", themeId: null }];
+  const { request } = fixture({
+    providerLabel: "Fake",
+    organize: async ({ maxTasks }) => batch(tasks.slice(0, maxTasks), ["用件を分けました"]),
+  });
+  const oldClient = (await request()).body.data;
+  assert.equal(oldClient.proposals.length, 1);
+  assert.equal(oldClient.proposal.title, proposal.title);
+  assert.deepEqual(oldClient.proposal.warnings, ["用件を分けました"]);
+  assert.deepEqual((await request({ body: { ...body, maxTasks: 8 } })).body.data.proposals, tasks);
 });
 
 test("Capture organization serializes requests per device and releases the slot after completion", async () => {
@@ -166,11 +186,11 @@ test("Capture organization serializes requests per device and releases the slot 
   const first = request();
   await entered;
   assert.equal((await request()).body.error.code, "rate_limited");
-  finish(proposal);
+  finish(batch());
   assert.equal((await first).status, 200);
   const next = request();
   await new Promise((resolve) => setImmediate(resolve));
-  finish(proposal);
+  finish(batch());
   assert.equal((await next).status, 200);
 });
 

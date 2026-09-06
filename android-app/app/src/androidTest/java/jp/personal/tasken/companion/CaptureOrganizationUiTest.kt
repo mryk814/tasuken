@@ -31,7 +31,7 @@ class CaptureOrganizationUiTest {
     @Test
     fun organizedProposalRetainsOriginalAndIsSavedOnlyAfterExplicitAdd() {
         val draft = freshDraft()
-        val result = CompletableDeferred<MobileCaptureOrganization>()
+        val result = CompletableDeferred<List<MobileCaptureOrganization>>()
         val saved = mutableListOf<MobileCaptureDraft>()
         val requested = mutableListOf<MobileCaptureDraft>()
         showSheet(draft, organize = { requested += it; result.await() }, onSubmit = { saved += it })
@@ -42,7 +42,7 @@ class CaptureOrganizationUiTest {
         composeRule.runOnIdle {
             assertEquals(original, requested.single().text)
             assertEquals(emptyList<MobileCaptureDraft>(), saved)
-            result.complete(proposal)
+            result.complete(listOf(proposal))
         }
         composeRule.waitUntil { draft.value.organization != null }
         composeRule.onNodeWithTag("capture-text-input").assertTextContains(proposal.title)
@@ -69,7 +69,7 @@ class CaptureOrganizationUiTest {
     @Test
     fun discardingOrganizationRestoresOriginalInput() {
         val draft = freshDraft()
-        showSheet(draft, organize = { proposal })
+        showSheet(draft, organize = { listOf(proposal) })
         composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
         composeRule.waitUntil { draft.value.organization != null }
         composeRule.onNodeWithText("整理を取り消す").performScrollTo().performClick()
@@ -80,6 +80,51 @@ class CaptureOrganizationUiTest {
             assertEquals(null, draft.value.organization)
             assertEquals(null, draft.value.originalText)
         }
+        composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled()
+    }
+
+    @Test
+    fun multipleProposalsRemainReviewableAndCanBeRemovedBeforeAdding() {
+        val second = MobileCaptureOrganization(
+            title = "研究会の会場を予約", themeId = null, endDate = "2026-09-11",
+            checklist = listOf("空きを確認", "予約する"), supplement = "",
+        )
+        val draft = freshDraft()
+        showSheet(draft, organize = { listOf(proposal, second) })
+
+        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.waitUntil { draft.value.additionalOrganizations.size == 1 }
+        composeRule.onNodeWithText("ほか 1件のTask").performScrollTo().assertExists()
+        composeRule.onNodeWithTag("organization-additional-0").assertExists()
+        composeRule.onNodeWithText("研究会の会場を予約").assertExists()
+        capture("03-organization-multiple")
+        composeRule.onNodeWithText("このTaskを外す").performScrollTo()
+        capture("04-organization-multiple-actions")
+        composeRule.onNodeWithText("このTaskを外す").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(listOf(proposal), draft.value.allOrganizations())
+        }
+        composeRule.onNodeWithTag("organization-additional-0").assertDoesNotExist()
+    }
+
+    @Test
+    fun incompleteProposalEditsStayVisibleAndPreventSavingUntilCorrected() {
+        val draft = freshDraft()
+        showSheet(draft, organize = { listOf(proposal, proposal.copy(title = "別のTask")) })
+        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.waitUntil { draft.value.additionalOrganizations.size == 1 }
+        composeRule.onNodeWithTag("organization-additional-title-0")
+            .performScrollTo().performTextReplacement("")
+        composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()
+        composeRule.runOnIdle { assertEquals("", draft.value.additionalOrganizations.single().title) }
+        composeRule.onNodeWithTag("organization-additional-title-0")
+            .performScrollTo().performTextReplacement("別のTaskを修正")
+        composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled()
+        composeRule.onNodeWithTag("organization-start").performScrollTo().performTextReplacement("2026-")
+        composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()
+        composeRule.runOnIdle { assertEquals("2026-", draft.value.organization?.startDate) }
+        composeRule.onNodeWithTag("organization-start").performTextReplacement("2026-09-08")
         composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled()
     }
 
@@ -100,12 +145,12 @@ class CaptureOrganizationUiTest {
     @Test
     fun delayedOrganizationDoesNotOverwriteTextEditedWhileWaiting() {
         val draft = freshDraft()
-        val result = CompletableDeferred<MobileCaptureOrganization>()
+        val result = CompletableDeferred<List<MobileCaptureOrganization>>()
         showSheet(draft, organize = { result.await() })
         composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
         val changed = "牛乳は家にあったので、卵だけ買う"
         composeRule.onNodeWithTag("capture-text-input").performScrollTo().performTextReplacement(changed)
-        composeRule.runOnIdle { result.complete(proposal) }
+        composeRule.runOnIdle { result.complete(listOf(proposal)) }
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("capture-organizing").assertDoesNotExist()
         composeRule.onNodeWithTag("capture-text-input").assertTextContains(changed)
@@ -133,7 +178,7 @@ class CaptureOrganizationUiTest {
 
     private fun showSheet(
         draft: MutableState<MobileCaptureDraft>,
-        organize: suspend (MobileCaptureDraft) -> MobileCaptureOrganization,
+        organize: suspend (MobileCaptureDraft) -> List<MobileCaptureOrganization>,
         onSubmit: (MobileCaptureDraft) -> Unit = {},
     ) {
         composeRule.setContent {
@@ -151,11 +196,7 @@ class CaptureOrganizationUiTest {
                     onKindSelected = { draft.value = draft.value.withKind(it) },
                     onOrganize = organize,
                     onOrganizationChanged = { organized ->
-                        val current = draft.value
-                        draft.value = current.copy(
-                            text = organized.title, projectId = organized.themeId, kind = MobileCaptureKind.Task,
-                            organization = organized, originalText = current.originalText ?: current.text,
-                        )
+                        draft.value = draft.value.withEditedOrganizations(organized)
                     },
                     onOrganizationDiscarded = {
                         val current = draft.value

@@ -12,8 +12,8 @@ import {
   mobileBootstrapResponseSchema,
   mobileCaptureCommandResponseSchema,
   mobileCommandRequestSchema,
+  mobileCaptureOrganizationBatchSchema,
   mobileCaptureOrganizationRequestSchema,
-  mobileCaptureOrganizationSchema,
   mobileTaskCommandResponseSchema,
   mobileTaskContextPreviewRequestSchema,
   mobileTaskDelegationRequestSchema,
@@ -801,15 +801,32 @@ export class MobileGatewayAdapter {
             .map((theme) => ({ id: theme.id, title: theme.name }));
           if (parsed.data.themeId && !themes.some((theme) => theme.id === parsed.data.themeId))
             return this.error(meta, "theme_not_found");
-          const proposal = mobileCaptureOrganizationSchema.parse(
+          const proposalBatch = mobileCaptureOrganizationBatchSchema.parse(
             await organizer.organize({ ...parsed.data, themes }),
           );
-          if (proposal.themeId && !themes.some((theme) => theme.id === proposal.themeId))
+          if (proposalBatch.tasks.length > parsed.data.maxTasks)
+            return this.error(meta, "upstream_unavailable", true);
+          if (
+            proposalBatch.tasks.some(
+              (proposal) =>
+                proposal.themeId && !themes.some((theme) => theme.id === proposal.themeId),
+            )
+          )
             return this.error(meta, "theme_not_found");
           return this.success({
             ok: true,
             meta,
-            data: { proposal, providerLabel: organizer.providerLabel },
+            data: {
+              proposal: {
+                ...proposalBatch.tasks[0],
+                warnings: [
+                  ...new Set([...proposalBatch.warnings, ...proposalBatch.tasks[0].warnings]),
+                ].slice(0, 10),
+              },
+              proposals: proposalBatch.tasks,
+              warnings: proposalBatch.warnings,
+              providerLabel: organizer.providerLabel,
+            },
           });
         } catch {
           return this.error(meta, "upstream_unavailable", true);

@@ -1343,6 +1343,7 @@ export const mobileCaptureOrganizationRequestSchema = z
         }
       }),
     themeId: entityIdSchema.nullable(),
+    maxTasks: z.number().int().min(1).max(8).default(1),
   })
   .strict();
 
@@ -1359,6 +1360,12 @@ export const mobileCaptureOrganizationSchema = z
   })
   .strict()
   .superRefine(validateMobileScheduleDates);
+export const mobileCaptureOrganizationBatchSchema = z
+  .object({
+    tasks: z.array(mobileCaptureOrganizationSchema).min(1).max(8),
+    warnings: z.array(z.string().trim().min(1).max(500)).max(10),
+  })
+  .strict();
 export type MobileWorkReceiptSummary = z.output<typeof mobileWorkReceiptSummarySchema>;
 export type MobileWorkReceiptRequest = z.output<typeof mobileWorkReceiptRequestSchema>;
 export type MobileWorkReceiptDetail = z.output<typeof mobileWorkReceiptDetailSchema>;

@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -14,6 +17,7 @@ data class ShortSpeechRecognitionResult(
     val mode: MobileSpeechRecognitionMode,
     val language: String,
     val confidence: Float?,
+    val warning: String? = null,
 )
 
 sealed interface ShortSpeechUiState {
@@ -57,6 +61,8 @@ internal fun speechErrorMessage(error: Int): String = when (error) {
 
 class AndroidShortSpeechRecognizer(private val context: Context) {
     private var recognizer: SpeechRecognizer? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var session: SpeechSession? = null
 
     fun availableMode(): MobileSpeechRecognitionMode? = preferredRecognizerMode(context)
 
@@ -65,89 +71,145 @@ class AndroidShortSpeechRecognizer(private val context: Context) {
         onState: (ShortSpeechUiState) -> Unit,
     ) {
         cancel()
-        val session = createRecognizer(context)
-        if (session == null) {
+        val mode = preferredRecognizerMode(context)
+        if (mode == null) {
             onState(ShortSpeechUiState.Error("この端末では音声認識を利用できません。手入力をお使いください。"))
             return
         }
-        val (nextRecognizer, mode) = session
+        val nextSession = SpeechSession(
+            mode = mode,
+            language = language,
+            onState = onState,
+            lastSpeechAtMillis = SystemClock.elapsedRealtime(),
+        )
+        session = nextSession
+        startChunk(nextSession)
+    }
+
+    private fun startChunk(active: SpeechSession) {
+        if (session !== active || active.stopping) return
+        val nextRecognizer = createRecognizer(context, active.mode)
+        if (nextRecognizer == null) {
+            finishWithError(active, "この端末では音声認識を利用できません。手入力をお使いください。")
+            return
+        }
         recognizer = nextRecognizer
         nextRecognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                if (recognizer !== nextRecognizer) return
-                onState(ShortSpeechUiState.Listening(mode))
+                if (!isCurrent(active, nextRecognizer)) return
+                active.onState(ShortSpeechUiState.Listening(active.mode))
             }
 
             override fun onBeginningOfSpeech() {
-                if (recognizer !== nextRecognizer) return
-                onState(ShortSpeechUiState.Listening(mode))
+                if (!isCurrent(active, nextRecognizer)) return
+                active.lastSpeechAtMillis = SystemClock.elapsedRealtime()
+                active.onState(ShortSpeechUiState.Listening(active.mode))
             }
 
             override fun onRmsChanged(rmsdB: Float) = Unit
             override fun onBufferReceived(buffer: ByteArray?) = Unit
 
             override fun onEndOfSpeech() {
-                if (recognizer !== nextRecognizer) return
-                onState(ShortSpeechUiState.Processing(mode))
+                if (!isCurrent(active, nextRecognizer)) return
+                active.onState(
+                    if (active.stopping) ShortSpeechUiState.Processing(active.mode)
+                    else ShortSpeechUiState.Listening(active.mode),
+                )
             }
 
             override fun onError(error: Int) {
-                if (recognizer !== nextRecognizer) return
-                release()
-                onState(ShortSpeechUiState.Error(speechErrorMessage(error)))
+                if (!isCurrent(active, nextRecognizer)) return
+                active.transcript = mergeSpeechTranscript(active.transcript, active.partialTranscript)
+                active.partialTranscript = ""
+                releaseRecognizer(nextRecognizer)
+                if (active.stopping) {
+                    finish(active, error)
+                } else if (error in recoverableEndpointErrors && !idleLimitReached(active)) {
+                    handler.postDelayed({ startChunk(active) }, chunkRestartDelayMillis)
+                } else if (active.transcript.isNotBlank() && error in recoverableEndpointErrors) {
+                    finish(active)
+                } else {
+                    finishWithError(active, speechErrorMessage(error))
+                }
             }
 
             override fun onResults(results: Bundle?) {
-                if (recognizer !== nextRecognizer) return
+                if (!isCurrent(active, nextRecognizer)) return
                 val candidates = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
-                val text = candidates.firstOrNull()?.trim().orEmpty()
+                val text = candidates.firstOrNull()?.trim()?.takeIf(String::isNotEmpty)
+                    ?: active.partialTranscript
                 val confidence = results
                     ?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
                     ?.firstOrNull()
                     ?.takeIf { it >= 0f }
-                release()
-                if (text.isBlank()) {
-                    onState(ShortSpeechUiState.Error(speechErrorMessage(SpeechRecognizer.ERROR_NO_MATCH)))
+                releaseRecognizer(nextRecognizer)
+                if (text.isNotBlank()) {
+                    active.transcript = mergeSpeechTranscript(active.transcript, text)
+                    active.lastSpeechAtMillis = SystemClock.elapsedRealtime()
+                    if (confidence != null) active.confidences += confidence
+                }
+                active.partialTranscript = ""
+                if (active.stopping) {
+                    finish(active, SpeechRecognizer.ERROR_NO_MATCH)
+                } else if (idleLimitReached(active)) {
+                    finish(active, SpeechRecognizer.ERROR_NO_MATCH)
                 } else {
-                    onState(
-                        ShortSpeechUiState.Result(
-                            ShortSpeechRecognitionResult(text, mode, language, confidence),
-                        ),
-                    )
+                    if (active.transcript.isNotBlank()) {
+                        active.onState(ShortSpeechUiState.Partial(active.mode, active.transcript))
+                    }
+                    handler.postDelayed({ startChunk(active) }, chunkRestartDelayMillis)
                 }
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
-                if (recognizer !== nextRecognizer) return
+                if (!isCurrent(active, nextRecognizer)) return
                 val partial = partialResults
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
                     ?.trim()
                     .orEmpty()
-                if (partial.isNotEmpty()) onState(ShortSpeechUiState.Partial(mode, partial))
+                if (partial.isNotEmpty()) {
+                    active.partialTranscript = partial
+                    active.lastSpeechAtMillis = SystemClock.elapsedRealtime()
+                    active.onState(
+                        ShortSpeechUiState.Partial(
+                            active.mode,
+                            mergeSpeechTranscript(active.transcript, partial),
+                        ),
+                    )
+                }
             }
 
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
         })
-        onState(ShortSpeechUiState.Listening(mode))
+        active.onState(ShortSpeechUiState.Listening(active.mode))
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, active.language)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
         runCatching { nextRecognizer.startListening(intent) }
             .onFailure {
-                release()
-                onState(ShortSpeechUiState.Error("音声入力を開始できませんでした。もう一度お試しください。"))
+                releaseRecognizer(nextRecognizer)
+                finishWithError(active, "音声入力を開始できませんでした。もう一度お試しください。")
             }
     }
 
     fun stop() {
-        recognizer?.stopListening()
+        val active = session ?: return
+        active.stopping = true
+        active.onState(ShortSpeechUiState.Processing(active.mode))
+        val current = recognizer
+        if (current == null) finish(active)
+        else runCatching { current.stopListening() }.onFailure { finish(active) }
     }
 
     fun cancel() {
+        val active = session
+        session = null
+        active?.stopping = true
+        handler.removeCallbacksAndMessages(null)
         val previous = recognizer
         recognizer = null
         previous?.cancel()
@@ -158,25 +220,79 @@ class AndroidShortSpeechRecognizer(private val context: Context) {
         cancel()
     }
 
-    private fun release() {
-        val previous = recognizer
-        recognizer = null
-        previous?.destroy()
+    private fun isCurrent(active: SpeechSession, candidate: SpeechRecognizer): Boolean =
+        session === active && recognizer === candidate
+
+    private fun releaseRecognizer(candidate: SpeechRecognizer) {
+        if (recognizer === candidate) recognizer = null
+        candidate.destroy()
     }
 
-    private fun createRecognizer(context: Context): Pair<SpeechRecognizer, MobileSpeechRecognitionMode>? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+    private fun idleLimitReached(active: SpeechSession): Boolean =
+        SystemClock.elapsedRealtime() - active.lastSpeechAtMillis >= idleFinalizeMillis
+
+    private fun finish(
+        active: SpeechSession,
+        emptyError: Int = SpeechRecognizer.ERROR_NO_MATCH,
+        warning: String? = null,
+    ) {
+        if (session !== active) return
+        session = null
+        handler.removeCallbacksAndMessages(null)
+        recognizer?.destroy()
+        recognizer = null
+        val text = mergeSpeechTranscript(active.transcript, active.partialTranscript)
+        if (text.isBlank()) {
+            active.onState(ShortSpeechUiState.Error(speechErrorMessage(emptyError)))
+            return
+        }
+        active.onState(
+            ShortSpeechUiState.Result(
+                ShortSpeechRecognitionResult(
+                    text = text,
+                    mode = active.mode,
+                    language = active.language,
+                    confidence = active.confidences.takeIf { it.isNotEmpty() }?.average()?.toFloat(),
+                    warning = warning,
+                ),
+            ),
+        )
+    }
+
+    private fun finishWithError(active: SpeechSession, message: String) {
+        if (session !== active) return
+        if (active.transcript.isNotBlank() || active.partialTranscript.isNotBlank()) {
+            finish(active, warning = "$message 聞き取れた内容は残しました。")
+            return
+        }
+        session = null
+        handler.removeCallbacksAndMessages(null)
+        recognizer?.destroy()
+        recognizer = null
+        active.onState(ShortSpeechUiState.Error(message))
+    }
+
+    private fun createRecognizer(
+        context: Context,
+        mode: MobileSpeechRecognitionMode,
+    ): SpeechRecognizer? {
+        if (mode == MobileSpeechRecognitionMode.OnDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             runCatching { SpeechRecognizer.createOnDeviceSpeechRecognizer(context) }
                 .getOrNull()
-                ?.let { return it to MobileSpeechRecognitionMode.OnDevice }
+                ?.let { return it }
         }
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) return null
-        return runCatching { SpeechRecognizer.createSpeechRecognizer(context) }
-            .getOrNull()
-            ?.let { it to MobileSpeechRecognitionMode.SystemService }
+        if (mode != MobileSpeechRecognitionMode.SystemService || !SpeechRecognizer.isRecognitionAvailable(context)) return null
+        return runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
     }
 
     companion object {
+        private const val idleFinalizeMillis = 30_000L
+        private const val chunkRestartDelayMillis = 150L
+        private val recoverableEndpointErrors = setOf(
+            SpeechRecognizer.ERROR_NO_MATCH,
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
+        )
         internal fun preferredRecognizerMode(context: Context): MobileSpeechRecognitionMode? = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(context) ->
                 MobileSpeechRecognitionMode.OnDevice
@@ -184,4 +300,23 @@ class AndroidShortSpeechRecognizer(private val context: Context) {
             else -> null
         }
     }
+}
+
+private data class SpeechSession(
+    val mode: MobileSpeechRecognitionMode,
+    val language: String,
+    val onState: (ShortSpeechUiState) -> Unit,
+    var lastSpeechAtMillis: Long,
+    var transcript: String = "",
+    var partialTranscript: String = "",
+    val confidences: MutableList<Float> = mutableListOf(),
+    var stopping: Boolean = false,
+)
+
+internal fun mergeSpeechTranscript(committed: String, next: String): String {
+    val left = committed.trim()
+    val right = next.trim()
+    if (left.isEmpty()) return right
+    if (right.isEmpty()) return left
+    return "$left $right"
 }

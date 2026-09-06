@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
+import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
@@ -21,6 +22,31 @@ import org.junit.Test
 
 class TaskDailyDetailUiTest {
     @get:Rule val composeRule = createComposeRule()
+
+    @Test
+    fun updatedTimestampUsesTheDeviceTimeZone() {
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task(),
+                    actionState = TaskActionUiState.Idle,
+                    onStateAction = {},
+                    displayZoneId = ZoneId.of("Asia/Tokyo"),
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("task-updated-at").performScrollTo()
+            .assertTextEquals("更新  2026/9/5 9:00 JST")
+        composeRule.waitForIdle()
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val directory = java.io.File(instrumentation.targetContext.getExternalFilesDir(null), "ux-organization").apply { mkdirs() }
+        val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+        java.io.File(directory, "05-task-local-updated-at.png").outputStream().use {
+            check(screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+        }
+        screenshot.recycle()
+    }
 
     @Test
     fun originalInputIsOptionalAndFollowsTheSelectedTask() {
