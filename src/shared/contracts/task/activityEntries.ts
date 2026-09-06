@@ -88,6 +88,30 @@ export const publicActivityEntrySchema = z
         authority: z.string().nullable(),
         authority_origin: z.enum(["explicit", "derived", "unset"]),
         source_ref: entityRefSchema,
+        history: z
+          .object({
+            entity_title_source: z.enum([
+              "after_snapshot",
+              "before_snapshot",
+              "current_fallback",
+              "unknown",
+            ]),
+            theme_ref_source: z.enum(["event", "after_snapshot", "before_snapshot", "unknown"]),
+            theme_title: z.string().nullable(),
+            theme_title_source: z.enum([
+              "theme_event_after",
+              "theme_event_before",
+              "current_fallback",
+              "unknown",
+            ]),
+            current_entity_title: z.string().nullable(),
+            current_theme_ref: z
+              .object({ kind: z.enum(["theme", "none"]), id: z.string().nullable() })
+              .strict(),
+            current_theme_title: z.string().nullable(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),

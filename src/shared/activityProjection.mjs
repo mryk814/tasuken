@@ -8,6 +8,7 @@ import {
 } from "./activityEvent.mjs";
 import { projectEntityForAi, summarizeAiExclusions } from "./aiMetadata.mjs";
 import { safeExternalUrl, safeReceiptText } from "./taskContext.mjs";
+import { createActivityHistoryResolver } from "./activityHistory.mjs";
 import {
   isCaptureInput,
   isRecallPlanChange,
@@ -423,6 +424,7 @@ function eventAllowedByDefault(event) {
 function projectOne(event, context) {
   const { entityMap, themesById, workspaceDefault, audience, workspace, roots, profile } = context;
   const currentEntity = entityMap.get(key(event.entity_ref.type, event.entity_ref.id));
+  const historical = profile === "recall" ? event.recall_history : null;
   const themeId =
     event.theme_ref?.kind === "theme"
       ? event.theme_ref.id
@@ -434,6 +436,7 @@ function projectOne(event, context) {
     if (!audience || (audience !== "m365" && profile !== "recall") || !ref?.type || !ref?.id)
       return true;
     const target = entityMap.get(key(ref.type, ref.id));
+    if (profile === "recall" && target?.deleted_at) return false;
     if (target && ref.type === "work_receipt") {
       const task = entityMap.get(key("task", target.task_id));
       if (!task || !allowedReference({ type: "task", id: task.id })) return false;
@@ -448,6 +451,14 @@ function projectOne(event, context) {
       }).included,
     );
   };
+  if (profile === "recall" && (!currentEntity || currentEntity.deleted_at))
+    return {
+      excluded: {
+        type: event.entity_ref.type,
+        reason: currentEntity ? "entity_deleted" : "entity_missing",
+        count: 1,
+      },
+    };
   if (audience) {
     // #294 policy is evaluated at projection time. Event history does not
     // freeze a past visibility decision.
@@ -463,6 +474,25 @@ function projectOne(event, context) {
       },
     );
     if (!policy.included) return { excluded: policy.exclusion };
+    if (historical) {
+      for (const [id, reason] of [
+        [historical.theme_ref.id, "historical_theme_not_visible"],
+        [historical.history.current_theme_ref.id, "current_theme_not_visible"],
+      ]) {
+        if (!id) continue;
+        const theme = themesById.get(id);
+        if (
+          !theme ||
+          theme.deleted_at ||
+          !projectEntityForAi("theme", theme, {
+            audience,
+            theme,
+            workspaceDefault,
+          }).included
+        )
+          return { excluded: { type: "theme", reason, count: 1 } };
+      }
+    }
   }
   const eventId = publicIdentifier(event.id);
   const entityRef = publicTypedRef(event.entity_ref);
@@ -470,7 +500,7 @@ function projectOne(event, context) {
   if (!eventId || !entityRef || !eventKind) {
     return { excluded: { type: "activity", reason: "unsafe_public_ref", count: 1 } };
   }
-  const title = entityTitle(currentEntity, event.entity_ref);
+  const title = historical?.entity_title || entityTitle(currentEntity, event.entity_ref);
   if (
     profile === "recall" &&
     audience &&
@@ -480,7 +510,7 @@ function projectOne(event, context) {
       !allowedReference({ type: currentEntity.owner_type, id: currentEntity.owner_id }))
   )
     return { excluded: { type: "schedule", reason: "owner_not_visible", count: 1 } };
-  const themeIdForPublic = publicIdentifier(themeId);
+  const themeIdForPublic = publicIdentifier(historical ? historical.theme_ref.id : themeId);
   const projected = {
     id: eventId,
     occurred_at: publicText(event.occurred_at),
@@ -519,6 +549,24 @@ function projectOne(event, context) {
   if (!currentEntity) projected.metadata.entity_status = "missing";
   if (profile === "recall") {
     projected.recall = recallEvidence(event, currentEntity);
+    if (historical)
+      projected.recall.history = {
+        ...historical.history,
+        theme_title: historical.history.theme_title
+          ? publicText(historical.history.theme_title)
+          : null,
+        current_entity_title: historical.history.current_entity_title
+          ? publicText(historical.history.current_entity_title)
+          : null,
+        current_theme_ref:
+          historical.history.current_theme_ref.id &&
+          publicIdentifier(historical.history.current_theme_ref.id)
+            ? { kind: "theme", id: publicIdentifier(historical.history.current_theme_ref.id) }
+            : { kind: "none", id: null },
+        current_theme_title: historical.history.current_theme_title
+          ? publicText(historical.history.current_theme_title)
+          : null,
+      };
     // Recall is an index, not a raw-body export. Bound long Capture input here.
     if (isCaptureInput(event))
       projected.summary = publicText(currentEntity?.text || event.summary).slice(0, 2_000);
@@ -563,22 +611,28 @@ export function queryActivityEvents({
       if (capture?.id) entityMap.set(key("capture_entry", capture.id), capture);
   }
   const themesById = themeMap(themes, sourceWorkspace);
+  const resolveHistory =
+    profile === "recall"
+      ? createActivityHistoryResolver(sourceWorkspace.change_events || events)
+      : null;
   const effectiveTimezone = normalizeTimezone(timezone);
   const kinds = new Set(
     [...(eventKinds.length ? eventKinds : event_kinds)].map(text).filter(Boolean),
   );
   const normalizedEvents = events
-    .map((event) =>
-      migrateChangeEvent(event, {
-        entity:
-          entityMap.get(
-            key(
-              event?.entity_ref?.type || event?.entity_type,
-              event?.entity_ref?.id || event?.entity_id,
-            ),
-          ) || null,
-      }),
-    )
+    .map((event) => {
+      const entity =
+        entityMap.get(
+          key(
+            event?.entity_ref?.type || event?.entity_type,
+            event?.entity_ref?.id || event?.entity_id,
+          ),
+        ) || null;
+      return {
+        ...migrateChangeEvent(event, { entity }),
+        ...(resolveHistory ? { recall_history: resolveHistory(event, entity, themesById) } : {}),
+      };
+    })
     .map((event) => {
       if (profile !== "recall" || !isCaptureInput(event)) return event;
       const capture = entityMap.get(key("capture_entry", event.entity_ref.id));
@@ -601,6 +655,18 @@ export function queryActivityEvents({
       : [];
   const scopedEvents = deduplicate(
     [...normalizedEvents, ...recallInputs]
+      .map((event) =>
+        resolveHistory && !event.recall_history
+          ? {
+              ...event,
+              recall_history: resolveHistory(
+                event,
+                entityMap.get(key(event.entity_ref.type, event.entity_ref.id)),
+                themesById,
+              ),
+            }
+          : event,
+      )
       .filter((event) => {
         // An explicit kind selection replaces profile defaults, never policy.
         if (kinds.size) return kinds.has(event.event_kind);
@@ -618,7 +684,11 @@ export function queryActivityEvents({
         if (to && event.occurred_at > to) return false;
         if (themeId || theme_id) {
           const selected = themeId || theme_id;
-          if (event.theme_ref?.id !== selected) return false;
+          if (
+            (profile === "recall" ? event.recall_history?.theme_ref.id : event.theme_ref?.id) !==
+            selected
+          )
+            return false;
         }
         if (entityType || entity_type) {
           const selected = entityType || entity_type;
@@ -702,6 +772,12 @@ export function projectActivityMarkdown(result, { title = "Activity", date = res
       ...(event.recall
         ? [
             `- Recall: ${event.recall.stage}; authority: ${event.recall.authority || "unknown"} (${event.recall.authority_origin})`,
+          ]
+        : []),
+      ...(event.recall?.history
+        ? [
+            `- Historical labels: entity ${event.recall.history.entity_title_source}; theme ${event.recall.history.theme_title || "unknown"} (${event.recall.history.theme_title_source}); affiliation ${event.recall.history.theme_ref_source}`,
+            `- Current: ${event.recall.history.current_entity_title || "unknown"}; theme ${event.recall.history.current_theme_title || "none"}`,
           ]
         : []),
     );

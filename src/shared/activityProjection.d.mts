@@ -22,6 +22,16 @@ export interface ActivityProjectionEvent {
     authority: string | null;
     authority_origin: string;
     source_ref: { type: string; id: string };
+    history?: {
+      entity_title_source: "after_snapshot" | "before_snapshot" | "current_fallback" | "unknown";
+      theme_ref_source: "event" | "after_snapshot" | "before_snapshot" | "unknown";
+      theme_title: string | null;
+      theme_title_source:
+        "theme_event_after" | "theme_event_before" | "current_fallback" | "unknown";
+      current_entity_title: string | null;
+      current_theme_ref: { kind: "theme" | "none"; id: string | null };
+      current_theme_title: string | null;
+    };
   };
 }
 
