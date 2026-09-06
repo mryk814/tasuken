@@ -2729,6 +2729,7 @@ async function startDesktopApp(): Promise<void> {
     notifyWorkspaceChanged: notifyMainWindowRefresh,
     notifyCommandApplied,
     executeCommand: (envelope) => applicationCommands.execute(envelope),
+    executeCommands: (envelopes) => applicationCommands.executeBatch(envelopes),
   });
   quickCaptureController.registerIpc();
   todayMiniController = createTodayMiniController({

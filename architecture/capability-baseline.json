@@ -7,6 +7,7 @@
       "global": "captureApi",
       "properties": [
         "hide",
+        "onHide",
         "onShow",
         "onThemeChange",
         "onThemes",

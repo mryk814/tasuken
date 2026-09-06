@@ -3,8 +3,51 @@ import test from "node:test";
 import {
   proposal,
   batch,
+  submission,
   createQuickCaptureOrganizationFixture as fixture,
 } from "./helpers/quick-capture-organization.mjs";
+
+test("Desktop hiding signals pending organization cancellation without saving", () => {
+  const f = fixture();
+  f.call("hide");
+  assert.ok(f.messages.some(([channel]) => channel === "quick-capture:hidden"));
+  assert.equal(f.commands.length, 0);
+});
+
+test("Desktop eight candidates retain stable identities and both warning scopes in one batch", () => {
+  const f = fixture();
+  const value = submission(
+    Array.from({ length: 8 }, (_, index) => ({
+      ...proposal,
+      title: `Task ${index}`,
+      warnings: ["candidate warning"],
+    })),
+    ["global warning"],
+  );
+  const save = () => f.call("save", " original ", "today-task", undefined, undefined, value);
+  assert.deepEqual(save(), { status: "saved", count: 8 });
+  assert.equal(f.batches.length, 1);
+  const first = structuredClone(f.batches[0]);
+  save();
+  assert.deepEqual(f.batches[1], first);
+  for (const [index, command] of first.entries()) {
+    assert.equal(command.commandId, `${value.submissionId}-command-${index}`);
+    assert.equal(command.issuedAt, value.issuedAt);
+    assert.match(command.payload.task.description, /global warning\ncandidate warning/);
+    assert.ok(command.payload.task.description.endsWith(" original "));
+  }
+});
+
+test("Desktop invalid candidate counts and missing Themes reject before execution", () => {
+  const f = fixture();
+  for (const tasks of [[], Array(9).fill(proposal), [{ ...proposal, themeId: "missing" }]]) {
+    assert.equal(
+      f.call("save", "original", "today-task", undefined, undefined, submission(tasks)).status,
+      "not_saved",
+    );
+  }
+  assert.equal(f.batches.length, 0);
+});
 
 test("Desktop organization passes only current capture and canonical Theme candidates without saving", async () => {
   let input;
@@ -18,11 +61,11 @@ test("Desktop organization passes only current capture and canonical Theme candi
     timeZone: "Asia/Tokyo",
     themeId: "research",
   };
-  assert.deepEqual(await f.call("organize", request), proposal);
+  assert.deepEqual(await f.call("organize", request), batch);
   assert.deepEqual(input, {
     ...request,
     themes: [{ id: "research", title: "研究" }],
-    maxTasks: 1,
+    maxTasks: 8,
     includePlannedTime: true,
   });
   assert.equal(f.commands.length, 0);
@@ -33,7 +76,7 @@ test("Desktop organization passes only current capture and canonical Theme candi
 test("Desktop confirmed proposal saves original text, supplement, checklist and deadline atomically", () => {
   const f = fixture();
   const original = "  前回は条件が違った。\n" + "比較実験を準備する。".repeat(80);
-  f.call("save", original, "today-task", "research", undefined, proposal);
+  f.call("save", original, "today-task", "research", undefined, submission());
   assert.equal(f.commands.length, 1);
   assert.equal(f.saves.length, 0);
   assert.equal(f.notifications.length, 1);
@@ -50,11 +93,21 @@ test("Desktop confirmed proposal saves original text, supplement, checklist and 
   assert.equal(schedule.date_kind, "deadline");
   assert.equal(schedule.owner_id, task.id);
   assert.throws(() => f.call("save", original, "inbox", undefined, undefined, proposal));
-  assert.throws(() =>
-    f.call("save", original, "today-task", undefined, undefined, {
-      ...proposal,
-      startDate: "2026-09-12",
-    }),
+  assert.equal(
+    f.call(
+      "save",
+      original,
+      "today-task",
+      undefined,
+      undefined,
+      submission([
+        {
+          ...proposal,
+          startDate: "2026-09-12",
+        },
+      ]),
+    ).status,
+    "not_saved",
   );
   assert.equal(f.commands.length, 1);
 });
@@ -75,31 +128,58 @@ test("Desktop plain Inbox stays a raw Capture and a dateless organized Task stay
   f.call("save", "メモをそのまま残す", "inbox");
   assert.equal(f.commands.length, 0);
   assert.equal(f.saves[0][0], "capture_entry");
-  f.call("save", "いつか比較実験", "today-task", undefined, undefined, {
-    ...proposal,
-    endDate: null,
-  });
+  f.call(
+    "save",
+    "いつか比較実験",
+    "today-task",
+    undefined,
+    undefined,
+    submission([
+      {
+        ...proposal,
+        endDate: null,
+      },
+    ]),
+  );
   assert.equal(f.commands[0].payload.schedule, undefined);
   assert.equal(f.commands[0].payload.task.today_date, null);
 });
 
 test("Desktop confirmed planned time keeps execution time separate from the deadline and accepts duration alone", () => {
   const f = fixture();
-  f.call("save", "金曜まで。明日16時から90分", "today-task", undefined, undefined, {
-    ...proposal,
-    startDate: "2026-09-07",
-    plannedStartTime: "16:00",
-    plannedDurationMinutes: 90,
-  });
+  f.call(
+    "save",
+    "金曜まで。明日16時から90分",
+    "today-task",
+    undefined,
+    undefined,
+    submission([
+      {
+        ...proposal,
+        startDate: "2026-09-07",
+        plannedStartTime: "16:00",
+        plannedDurationMinutes: 90,
+      },
+    ]),
+  );
   assert.equal(f.commands[0].payload.task.planned_start_time, "16:00");
   assert.equal(f.commands[0].payload.task.planned_duration_minutes, 90);
   assert.equal(f.commands[0].payload.schedule.start_date, "2026-09-07");
   assert.equal(f.commands[0].payload.schedule.end_date, "2026-09-11");
-  f.call("save", "作業は30分", "today-task", undefined, undefined, {
-    ...proposal,
-    endDate: null,
-    plannedDurationMinutes: 30,
-  });
+  f.call(
+    "save",
+    "作業は30分",
+    "today-task",
+    undefined,
+    undefined,
+    submission([
+      {
+        ...proposal,
+        endDate: null,
+        plannedDurationMinutes: 30,
+      },
+    ]),
+  );
   assert.equal(f.commands[1].payload.schedule, undefined);
   assert.equal(f.commands[1].payload.task.planned_start_time, null);
   assert.equal(f.commands[1].payload.task.planned_duration_minutes, 30);
@@ -111,11 +191,21 @@ test("Desktop confirmed planned time keeps execution time separate from the dead
     { plannedDurationMinutes: 10081 },
     { plannedDurationMinutes: NaN },
   ])
-    assert.throws(() =>
-      f.call("save", "保持する原文", "today-task", undefined, undefined, {
-        ...proposal,
-        ...changes,
-      }),
+    assert.equal(
+      f.call(
+        "save",
+        "保持する原文",
+        "today-task",
+        undefined,
+        undefined,
+        submission([
+          {
+            ...proposal,
+            ...changes,
+          },
+        ]),
+      ).status,
+      "not_saved",
     );
   assert.equal(f.commands.length, 2);
 });

@@ -273,6 +273,7 @@ export const IPC = {
   quickCaptureResize: "quick-capture:resize",
   quickCaptureHide: "quick-capture:hide",
   quickCaptureShown: "quick-capture:shown",
+  quickCaptureHidden: "quick-capture:hidden",
   quickCaptureTheme: "quick-capture:theme",
   quickCaptureThemes: "quick-capture:themes",
   noteWindowOpen: "note-window:open",

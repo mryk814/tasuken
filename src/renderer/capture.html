@@ -148,6 +148,10 @@
         gap: 6px;
         min-width: 0;
         flex: 0 0 auto;
+        position: sticky;
+        bottom: 0;
+        background: var(--color-bg);
+        padding-top: 4px;
       }
       button {
         min-height: 30px;
@@ -176,6 +180,9 @@
       .organization input:focus-visible { outline: none; box-shadow: var(--focus-ring); }
       .organization textarea { min-height: 64px; }
       .organization-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .candidate-row { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+      .candidate-row select { min-width: 0; flex: 1; }
+      #organization-empty { font-size: 12px; }
       #organization-status, #organization-warnings { font-size: 12px; white-space: pre-wrap; }
       #original-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 160px; overflow: auto; }
       .feedback {
@@ -208,6 +215,11 @@
         <span id="mode-pill" class="mode-pill">Inbox</span>
       </div>
       <span id="hint" class="capture-hint">Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる</span>
+      <div id="candidate-row" class="candidate-row" hidden>
+        <select id="candidate-select" aria-label="編集する整理案"></select>
+        <button id="candidate-remove" class="secondary" type="button">この案を除外</button>
+      </div>
+      <p id="organization-empty" hidden>追加する案はありません。元の入力に戻して整理し直せます。</p>
       <label id="theme-row" class="theme-row">
         <span>Theme</span>
         <select id="theme-select">
@@ -263,27 +275,105 @@
       let organizeRequest = 0;
       let organizing = false;
       let captureAnchor = null;
+      let activeCandidate = 0;
+      let submission = null;
+      let saving = false;
+      let resumeFocus = null;
+      let themesInitialized = false;
+      const candidateRow = document.getElementById("candidate-row");
+      const candidateSelect = document.getElementById("candidate-select");
+      const candidateRemove = document.getElementById("candidate-remove");
+      const editorFields = [input, themeSelect, ...organizationPanel.querySelectorAll("input, select, textarea")];
+
+      function updateOrganizationControls() {
+        const count = organization?.tasks.length ?? 0;
+        const locked = saving || submission !== null;
+        candidateRow.hidden = !organization || count === 0;
+        candidateSelect.hidden = count < 2;
+        candidateRemove.disabled = locked;
+        candidateSelect.disabled = locked;
+        document.getElementById("organization-restore").disabled = locked;
+        document.getElementById("organization-empty").hidden = !organization || count > 0;
+        for (const field of editorFields) field.disabled = locked || Boolean(organization && count === 0);
+        for (const field of organizationPanel.querySelectorAll(".organization-dates, label")) field.hidden = count === 0;
+        input.hidden = Boolean(organization && count === 0);
+        themeRow.classList.toggle("is-visible", mode !== "micro-memo" && (!organization || count > 0));
+        if (organization) {
+          submitButton.textContent = submission ? `${count}件の保存を再確認` : `${count}件を追加`;
+          hint.textContent = "案ごとに内容を確認 / Ctrl+Enter でまとめて追加 / Escで閉じる";
+        }
+        submitButton.disabled = organizing || saving || Boolean(organization && count === 0);
+      }
+
+      function retainCandidate() {
+        if (!organization?.tasks.length || submission) return true;
+        const invalid = [...organizationPanel.querySelectorAll("input")].find((field) => !field.validity.valid);
+        if (invalid) {
+          organizationStatus.textContent = "日付・時刻・所要時間を確認してください。所要時間は1〜10080分の整数で入力できます。";
+          invalid.reportValidity();
+          invalid.focus();
+          return false;
+        }
+        organization.tasks[activeCandidate] = { ...organization.tasks[activeCandidate], title: input.value.trim(), themeId: themeSelect.value || null,
+          startDate: document.getElementById("organization-start").value || null,
+          endDate: document.getElementById("organization-end").value || null,
+          plannedStartTime: document.getElementById("organization-time").value || null,
+          plannedDurationMinutes: document.getElementById("organization-duration").value === "" ? null : Number(document.getElementById("organization-duration").value),
+          rangeSemantics: document.getElementById("organization-range").value || null,
+          checklist: document.getElementById("organization-checklist").value.split("\n").map((item) => item.trim()).filter(Boolean),
+          supplement: document.getElementById("organization-supplement").value };
+        return true;
+      }
+
+      function showCandidate() {
+        candidateSelect.replaceChildren();
+        organization.tasks.forEach((task, index) => {
+          const option = document.createElement("option");
+          option.value = String(index);
+          option.textContent = `${index + 1}/${organization.tasks.length} ${task.title || "（タイトル未入力）"}`;
+          candidateSelect.append(option);
+        });
+        candidateSelect.value = String(activeCandidate);
+        const task = organization.tasks[activeCandidate];
+        if (task) {
+          input.value = task.title;
+          themeSelect.value = task.themeId || "";
+          document.getElementById("organization-start").value = task.startDate || "";
+          document.getElementById("organization-end").value = task.endDate || "";
+          document.getElementById("organization-time").value = task.plannedStartTime || "";
+          document.getElementById("organization-duration").value = task.plannedDurationMinutes ?? "";
+          document.getElementById("organization-range").value = task.rangeSemantics || "";
+          document.getElementById("organization-checklist").value = task.checklist.join("\n");
+          document.getElementById("organization-supplement").value = task.supplement;
+        }
+        document.getElementById("organization-warnings").textContent = [...new Set([...organization.warnings, ...(task?.warnings ?? [])])].join("\n");
+        updateOrganizationControls();
+      }
 
       function stopOrganizing() {
         ++organizeRequest;
         organizing = false;
         organizeButton.textContent = "AIで整理";
-        submitButton.disabled = false;
+        updateOrganizationControls();
       }
       function clearOrganization(restore = false) {
         stopOrganizing();
         if (restore && originalInput) { input.value = originalInput.text; themeSelect.value = originalInput.themeId; }
         organization = null;
+        submission = null;
+        resumeFocus = null;
         originalInput = null;
         organizationPanel.hidden = true;
         organizationStatus.textContent = "";
         organizeButton.hidden = mode !== "today-task";
+        applyMode(mode);
+        updateOrganizationControls();
         window.captureApi.resize(false);
         void refreshDuePreview();
       }
       async function organize() {
         if (organizing) { stopOrganizing(); organizationStatus.textContent = "整理を中止しました。入力は残っています。"; return; }
-        if (mode !== "today-task" || !input.value.trim()) return;
+        if (mode !== "today-task" || !input.value.trim() || submission || saving) return;
         const snapshot = { text: input.value, themeId: themeSelect.value };
         const request = ++organizeRequest;
         organizing = true;
@@ -296,16 +386,8 @@
           if (request !== organizeRequest || mode !== "today-task" || input.value !== snapshot.text || themeSelect.value !== snapshot.themeId) return;
           originalInput = snapshot;
           organization = result;
-          input.value = result.title;
-          themeSelect.value = result.themeId || "";
-          document.getElementById("organization-start").value = result.startDate || "";
-          document.getElementById("organization-end").value = result.endDate || "";
-          document.getElementById("organization-time").value = result.plannedStartTime || "";
-          document.getElementById("organization-duration").value = result.plannedDurationMinutes ?? "";
-          document.getElementById("organization-range").value = result.rangeSemantics || "";
-          document.getElementById("organization-checklist").value = result.checklist.join("\n");
-          document.getElementById("organization-supplement").value = result.supplement;
-          document.getElementById("organization-warnings").textContent = result.warnings.join("\n");
+          activeCandidate = 0;
+          showCandidate();
           document.getElementById("original-text").textContent = snapshot.text;
           organizationPanel.hidden = false;
           organizeButton.hidden = true;
@@ -321,7 +403,8 @@
       }
 
       function applyThemes(themes) {
-        const current = themeSelect.value || lastThemeId;
+        const current = themesInitialized ? themeSelect.value : lastThemeId;
+        themesInitialized = true;
         themeSelect.innerHTML = '<option value="">個人業務 / Themeなし</option>';
         const orderedThemes = [...(themes || [])];
         const recentIndex = orderedThemes.findIndex((theme) => theme.id === lastThemeId);
@@ -421,29 +504,33 @@
       async function submit(continueCapturing = false) {
         if (organizing || submitButton.disabled) return;
         const text = input.value.trim();
-        if (!text) return;
+        if (!organization && !text) return;
         if (organization) {
-          const invalid = [...organizationPanel.querySelectorAll("input")].find((field) => !field.validity.valid);
-          if (invalid) {
-            organizationStatus.textContent = "日付・時刻・所要時間を確認してください。所要時間は1〜10080分の整数で入力できます。";
-            invalid.reportValidity();
-            invalid.focus();
-            return;
+          if (!organization.tasks.length || !retainCandidate()) return;
+          if (!submission) {
+            const invalidIndex = organization.tasks.findIndex((task) => !task.title || task.title.length > 500 || task.checklist.length > 20 || task.checklist.some((item) => item.length > 200) || task.supplement.length > 12000 || (task.startDate && task.endDate && task.endDate < task.startDate));
+            if (invalidIndex >= 0) {
+              activeCandidate = invalidIndex;
+              showCandidate();
+              organizationStatus.textContent = `${invalidIndex + 1}件目を確認してください。タイトルは1〜500文字、チェック項目は20件以内・各200文字以内、補足は12,000文字以内で、期限は開始日以降にしてください。`;
+              input.focus();
+              return;
+            }
+            submission = { ...structuredClone(organization), submissionId: crypto.randomUUID(), issuedAt: new Date().toISOString() };
           }
         }
-        submitButton.disabled = true;
+        saving = true;
+        updateOrganizationControls();
         try {
           const usesTheme = mode !== "micro-memo";
           const themeId = usesTheme ? themeSelect.value : "";
-          const accepted = organization ? { ...organization, title: text, themeId: themeId || null,
-            startDate: document.getElementById("organization-start").value || null,
-            plannedStartTime: document.getElementById("organization-time").value || null,
-            plannedDurationMinutes: document.getElementById("organization-duration").value === "" ? null : Number(document.getElementById("organization-duration").value),
-            endDate: document.getElementById("organization-end").value || null,
-            rangeSemantics: document.getElementById("organization-range").value || null,
-            checklist: document.getElementById("organization-checklist").value.split("\n").map((item) => item.trim()).filter(Boolean),
-            supplement: document.getElementById("organization-supplement").value } : undefined;
-          await window.captureApi.save(originalInput?.text ?? text, mode, themeId, selectedRangeSemantics || undefined, accepted);
+          const result = await window.captureApi.save(originalInput?.text ?? text, mode, themeId, selectedRangeSemantics || undefined, submission ?? undefined);
+          if (organization && result?.status === "not_saved") {
+            submission = null;
+            organizationStatus.textContent = result.message || "内容を確認して再試行してください。入力は残っています。";
+            return;
+          }
+          const savedCount = organization?.tasks.length;
           if (usesTheme) {
             lastThemeId = themeId;
             localStorage.setItem("tasken:quick-capture:last-theme-id", themeId);
@@ -451,6 +538,7 @@
           input.value = "";
           captureAnchor = null;
           clearOrganization();
+          if (savedCount) feedback.textContent = `${savedCount}件のタスクを追加しました`;
           feedback.style.display = "";
           feedback.style.animation = "none";
           feedback.offsetHeight;
@@ -467,7 +555,7 @@
           // 期限を読み取れない等、直せる失敗は原因をそのまま見せる。入力は消さない。
           const reason = String(error?.message || "").replace(/^Error: /, "").replace(/^.*Error invoking remote method '[^']*': Error: /, "");
           if (organization) {
-            organizationStatus.textContent = "保存できませんでした。タイトル・日付・時刻・所要時間・チェック項目を確認して再試行してください。元の入力と整理案は残っています。";
+            organizationStatus.textContent = "保存結果を確認できませんでした。元の入力と整理案は残っています。「保存を再確認」で同じ内容を再送できます。確認が終わるまで編集はできません。";
             return;
           }
           feedback.textContent = reason
@@ -476,7 +564,8 @@
           feedback.classList.add("error");
           feedback.style.display = "";
         } finally {
-          submitButton.disabled = false;
+          saving = false;
+          updateOrganizationControls();
         }
       }
 
@@ -490,11 +579,28 @@
         void refreshDuePreview();
       });
       themeSelect.addEventListener("change", () => { if (organizing) { stopOrganizing(); organizationStatus.textContent = "Themeが変わったため整理を中止しました。"; } });
+      candidateSelect.addEventListener("change", () => {
+        const next = Number(candidateSelect.value);
+        if (!retainCandidate()) { candidateSelect.value = String(activeCandidate); return; }
+        activeCandidate = next;
+        showCandidate();
+      });
+      candidateRemove.addEventListener("click", () => {
+        if (submission || saving) return;
+        organization.tasks.splice(activeCandidate, 1);
+        activeCandidate = Math.min(activeCandidate, Math.max(0, organization.tasks.length - 1));
+        showCandidate();
+        organizationStatus.textContent = organization.tasks.length ? `${organization.tasks.length}件を追加できます。` : "すべての案を除外しました。";
+        if (organization.tasks.length > 1) candidateSelect.focus();
+        else if (organization.tasks.length) input.focus();
+        else document.getElementById("organization-restore").focus();
+      });
       organizeButton.addEventListener("click", organize);
-      document.getElementById("organization-restore").addEventListener("click", () => clearOrganization(true));
+      document.getElementById("organization-restore").addEventListener("click", () => { if (!submission && !saving) { clearOrganization(true); input.focus(); } });
 
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
+          stopOrganizing();
           window.captureApi.hide();
           return;
         }
@@ -505,14 +611,24 @@
       });
 
       window.captureApi.onShow((nextMode) => {
+        stopOrganizing();
+        if (submission || saving) nextMode = mode;
         if (nextMode !== mode) { clearOrganization(true); }
         applyMode(nextMode);
+        updateOrganizationControls();
         if (organization) { duePreview.className = "due-preview"; rangeChoice.hidden = true; }
-        input.focus();
+        if (organization && resumeFocus && !resumeFocus.disabled && !resumeFocus.hidden) resumeFocus.focus({ preventScroll: true });
+        else input.focus({ preventScroll: true });
         feedback.style.display = "none";
         feedback.classList.remove("error");
         const theme = document.documentElement.dataset.theme;
         if (!theme) document.documentElement.dataset.theme = "light";
+      });
+
+      window.captureApi.onHide(() => {
+        resumeFocus = document.activeElement;
+        if (organizing) organizationStatus.textContent = "整理を中止しました。入力は残っています。";
+        stopOrganizing();
       });
 
       window.captureApi.onThemeChange((mode) => {
