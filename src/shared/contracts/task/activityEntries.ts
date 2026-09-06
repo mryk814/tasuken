@@ -7,6 +7,8 @@ const recordSchema = z.record(z.string(), z.unknown());
 export const getActivityEntriesRequestSchema = z
   .object({
     task_id: z.string().trim().min(1).max(200).optional(),
+    profile: z.enum(["default", "recall"]).optional(),
+    event_kinds: z.array(z.string().trim().min(1).max(100)).max(20).optional(),
     date: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -72,6 +74,23 @@ export const publicActivityEntrySchema = z
     metadata: recordSchema,
     local_date: z.string(),
     local_time: z.string(),
+    recall: z
+      .object({
+        stage: z.enum([
+          "input",
+          "planned",
+          "work_recorded",
+          "ai_reported",
+          "human_accepted",
+          "organized",
+          "changed",
+        ]),
+        authority: z.string().nullable(),
+        authority_origin: z.enum(["explicit", "derived", "unset"]),
+        source_ref: entityRefSchema,
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

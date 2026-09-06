@@ -451,6 +451,8 @@ export function createTaskenMcpServer(options = {}) {
         "Read bounded AI-visible Activity entries for one Task by stable ID. Follow next_tools to refresh assignment/context or queue reviewed work reports.",
       inputSchema: {
         task_id: z.string().trim().min(1).max(200),
+        profile: z.enum(["default", "recall"]).optional(),
+        event_kinds: z.array(z.string().trim().min(1).max(100)).max(20).optional(),
         limit: optionalLimit,
         include_archived: z.boolean().optional(),
       },
@@ -984,9 +986,10 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.get_activity",
     {
       description:
-        "Return the structured Activity event index as JSON or Markdown. This is read-only and applies AI visibility policy at projection time.",
+        "Return the structured Activity event index as JSON or Markdown. Optional recall profile adds inputs/plans with evidence stages, not accomplishments. Explicit event_kinds replace default kind selection. Read-only; AI visibility applies at projection time.",
       inputSchema: {
         date: z.string().trim().max(40).optional(),
+        profile: z.enum(["default", "recall"]).optional(),
         from: z.string().trim().max(80).optional(),
         to: z.string().trim().max(80).optional(),
         theme_id: z.string().trim().max(200).optional(),

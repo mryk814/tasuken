@@ -72,6 +72,7 @@ export class AgentContextQueryService {
       theme_id: request.theme_id || "",
       entity_type: request.entity_type || "",
       event_kinds: request.event_kinds || [],
+      profile: request.profile,
       timezone: request.timezone || "Asia/Tokyo",
       audience: request.audience || AUDIENCE,
       workspaceDefault: snapshot.workspaceAiVisibilityDefault,

@@ -53,6 +53,8 @@ export class ActivityEntriesQueryService {
       const activity = projectActivityJson(
         queryActivityEvents({
           events: workspace.change_events || [],
+          profile: request.profile,
+          event_kinds: request.event_kinds,
           workspace,
           themes: snapshot.visibilityThemes,
           references: workspace.references || [],
@@ -104,6 +106,8 @@ export class ActivityEntriesQueryService {
     const activity = projectActivityJson(
       queryActivityEvents({
         events: sourceEvents,
+        profile: request.profile,
+        event_kinds: request.event_kinds,
         workspace,
         themes: snapshot.visibilityThemes,
         references: workspace.references || [],

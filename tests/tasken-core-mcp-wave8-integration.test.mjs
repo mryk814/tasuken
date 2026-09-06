@@ -256,6 +256,16 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
         "getActivity",
       ],
       [
+        "tasken.get_activity",
+        { date: "2026-08-21", profile: "recall", timezone: "Asia/Tokyo", limit: 1 },
+        "getActivity",
+      ],
+      [
+        "tasken.get_activity_entries",
+        { task_id: "task-wave8", profile: "recall", event_kinds: ["task_work_recorded"] },
+        "getActivityEntries",
+      ],
+      [
         "tasken.get_context_subgraph",
         { entity_type: "task", entity_id: "task-wave8" },
         "getContextSubgraph",
