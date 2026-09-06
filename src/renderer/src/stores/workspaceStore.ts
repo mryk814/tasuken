@@ -14,6 +14,8 @@ import { workspaceApi } from "../services/workspaceApi";
 type LoadState = "idle" | "loading" | "success" | "error";
 
 interface WorkspaceState {
+  previewDailyContext: typeof workspaceApi.previewDailyContext;
+  publishDailyContext: typeof workspaceApi.publishDailyContext;
   recordWorkLog(
     command: import("../../../shared/workLog").RecordWorkLogCommand,
   ): Promise<import("../../../shared/workLog").WorkLogReceipt>;
@@ -51,6 +53,8 @@ function replaceIfNewer(workspace: Workspace, type: EntityType, saved: Entity): 
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
+  previewDailyContext: workspaceApi.previewDailyContext,
+  publishDailyContext: workspaceApi.publishDailyContext,
   async recordWorkLog(command) {
     const receipt = await workspaceApi.recordWorkLog(command);
     try {

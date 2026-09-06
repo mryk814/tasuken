@@ -3,8 +3,8 @@ export function writeAtomicTextFile(
   content: string,
   operationId: string,
   fileSystem?: {
-    mkdirSync(path: string, options?: unknown): void;
-    writeFileSync(path: string, data: string, encoding?: string): void;
+    mkdirSync(path: string, options?: { recursive: boolean }): void;
+    writeFileSync(path: string, data: string, encoding?: "utf8"): void;
     openSync(path: string, flags: string): number;
     fsyncSync(handle: number): void;
     closeSync(handle: number): void;

@@ -36,6 +36,10 @@ const api: ResearchDeskApi = {
     get: (query) => ipcRenderer.invoke(IPC.dataHealthGet, query),
     setState: (request) => ipcRenderer.invoke(IPC.dataHealthSetState, request),
   },
+  dailyContext: {
+    preview: (selection) => ipcRenderer.invoke(IPC.dailyContextPreview, selection),
+    publish: (request) => ipcRenderer.invoke(IPC.dailyContextPublish, request),
+  },
   themeAiPack: {
     status: (themeId) => ipcRenderer.invoke(IPC.themeAiPackStatus, themeId),
     preview: (themeId) => ipcRenderer.invoke(IPC.themeAiPackPreview, themeId),

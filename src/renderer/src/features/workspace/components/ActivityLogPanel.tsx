@@ -39,6 +39,7 @@ import { themeColor } from "../lib/domain";
 import { findReminderSettingsView, normalizeReminderSettings } from "../lib/reminders";
 import type { PageProps } from "../types";
 import { Button, EmptyState, ThemePickerSelect } from "./common";
+import { DailyContextPublishDialog } from "./DailyContextPublishDialog";
 
 type StructuredActivityEvent = {
   id?: string;
@@ -337,6 +338,7 @@ export function ActivityLogPanel({
   onDateChange(date: string): void;
 }) {
   const [directory, setDirectory] = useState("");
+  const [publishOpen, setPublishOpen] = useState(false);
   const [autoExportTime, setAutoExportTime] = useState("");
   const [filePath, setFilePath] = useState("");
   const [themeFilter, setThemeFilter] = useState("all");
@@ -716,6 +718,13 @@ export function ActivityLogPanel({
 
   return (
     <section id="daily-activity" className="panel activity-log-strip debrief-activity-panel">
+      {publishOpen && (
+        <DailyContextPublishDialog
+          today={date}
+          themes={themes}
+          close={() => setPublishOpen(false)}
+        />
+      )}
       <div className="section-heading">
         <div>
           <h2>
@@ -724,6 +733,11 @@ export function ActivityLogPanel({
           <p>1日の動きを時刻順に振り返ります。</p>
         </div>
         <div className="inline-actions">
+          {expanded && (
+            <Button variant="secondary" compact onClick={() => setPublishOpen(true)}>
+              公開用Markdown
+            </Button>
+          )}
           {expanded && (
             <>
               <input

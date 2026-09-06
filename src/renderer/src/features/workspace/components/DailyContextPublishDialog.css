@@ -1,0 +1,50 @@
+.daily-context-dialog {
+  margin: auto;
+  width: min(800px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.daily-context-dialog::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+.daily-context-dialog h2 {
+  margin-top: 0;
+}
+.daily-context-dialog fieldset {
+  display: grid;
+  gap: 12px;
+  border: 0;
+  padding: 0;
+}
+.daily-context-dialog label {
+  display: grid;
+  gap: 6px;
+}
+.daily-context-destination {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.daily-context-preview {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+}
+.daily-context-dialog [role="alert"] {
+  color: var(--color-danger);
+}
+.daily-context-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}

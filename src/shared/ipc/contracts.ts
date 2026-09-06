@@ -1,4 +1,16 @@
 import type {
+  DailyContextPlan,
+  DailyContextSelection,
+  DailyContextPublishResult,
+} from "../dailyContext";
+export interface DailyContextPublishRequest {
+  selection: DailyContextSelection;
+  root: string;
+  generatedAt: string;
+  expectedContentHash: string;
+  allowPartial: boolean;
+}
+import type {
   Entity,
   EntityType,
   DocumentSaveRequest,
@@ -245,6 +257,8 @@ export const IPC = {
   applicationCommand: "application:command",
   applicationCommandBatch: "application:command-batch",
   themeAiPackStatus: "theme-ai-pack:status",
+  dailyContextPreview: "daily-context:preview",
+  dailyContextPublish: "daily-context:publish",
   themeAiPackPreview: "theme-ai-pack:preview",
   themeAiPackPublish: "theme-ai-pack:publish",
   themeAiPackOpenFolder: "theme-ai-pack:open-folder",
@@ -702,6 +716,10 @@ export interface ResearchDeskApi {
   dataHealth: {
     get(query?: DataHealthQuery): Promise<DataHealthQueryResult>;
     setState(request: DataHealthStateUpdateRequest): Promise<DataHealthQueryResult>;
+  };
+  dailyContext: {
+    preview(selection: DailyContextSelection): Promise<DailyContextPlan>;
+    publish(request: DailyContextPublishRequest): Promise<DailyContextPublishResult>;
   };
   themeAiPack: {
     status(themeId: string): Promise<ThemeAiPackStatusResult>;
