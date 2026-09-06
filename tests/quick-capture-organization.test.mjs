@@ -1,91 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { build } from "esbuild";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
-
-const bundle = await build({
-  entryPoints: ["src/main/quickCaptureController.ts"],
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  write: false,
-  logLevel: "silent",
-  define: { __dirname: JSON.stringify("C:/tasken-test") },
-  plugins: [
-    {
-      name: "electron-fixture",
-      setup(build) {
-        build.onResolve({ filter: /^electron$/ }, () => ({
-          path: "electron",
-          namespace: "fixture",
-        }));
-        build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
-          contents: `
-      export const ipcMain = { handle: (key, handler) => globalThis.captureFixture.handlers.set(key, handler), on: (key, handler) => globalThis.captureFixture.handlers.set(key, handler) };
-      export class BrowserWindow {
-        constructor() { this.webContents = { id: 19, send() {}, isLoading: () => false }; }
-        loadURL() {} loadFile() {} on() {} center() {} show() {} focus() {} hide() {} setSize() {} isDestroyed() { return false; }
-      }`,
-        }));
-      },
-    },
-  ],
-});
-const { createQuickCaptureController } = await import(
-  `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`
-);
-const proposal = {
-  title: "比較実験を準備",
-  themeId: "research",
-  startDate: null,
-  plannedStartTime: null,
-  plannedDurationMinutes: null,
-  endDate: "2026-09-11",
-  rangeSemantics: null,
-  checklist: ["データを集める", "条件を揃える"],
-  supplement: "前回は条件が違った",
-  warnings: [],
-};
-const batch = { tasks: [proposal], warnings: [] };
-function fixture(organizeCapture = async () => batch, executeCommand) {
-  globalThis.captureFixture = { handlers: new Map() };
-  const commands = [],
-    saves = [],
-    notifications = [];
-  const controller = createQuickCaptureController({
-    repository: {
-      getPreference: () => "light",
-      list: (type) =>
-        type === "theme" ? [{ id: "research", name: "研究", description: "not sent" }] : [],
-      save: (...args) => {
-        saves.push(args);
-        return { id: "capture" };
-      },
-    },
-    executeCommand: (command) => {
-      commands.push(command);
-      if (executeCommand) return executeCommand(command);
-      return { changes: [{ type: "task", entity: command.payload.task }] };
-    },
-    notifyWorkspaceChanged() {},
-    notifyCommandApplied: (receipt) => notifications.push(receipt),
-    organizeCapture,
-  });
-  controller.registerIpc();
-  controller.show("today-task");
-  const event = { sender: controller.getWindow().webContents };
-  return {
-    commands,
-    saves,
-    notifications,
-    call: (name, ...args) =>
-      globalThis.captureFixture.handlers.get(`quick-capture:${name}`)(event, ...args),
-    handlers: globalThis.captureFixture.handlers,
-  };
-}
+import {
+  proposal,
+  batch,
+  createQuickCaptureOrganizationFixture as fixture,
+} from "./helpers/quick-capture-organization.mjs";
 
 test("Desktop organization passes only current capture and canonical Theme candidates without saving", async () => {
   let input;
@@ -199,47 +118,4 @@ test("Desktop confirmed planned time keeps execution time separate from the dead
       }),
     );
   assert.equal(f.commands.length, 2);
-});
-
-test("Desktop organized execution time and original text survive canonical CreateTask and SQLite reopen", async () => {
-  const serviceBundle = await build({
-    entryPoints: ["src/main/services/applicationCommandService.ts"],
-    bundle: true,
-    platform: "node",
-    format: "esm",
-    write: false,
-    logLevel: "silent",
-  });
-  const { ApplicationCommandService } = await import(
-    `data:text/javascript;base64,${Buffer.from(serviceBundle.outputFiles[0].text).toString("base64")}`
-  );
-  const directory = mkdtempSync(path.join(tmpdir(), "tasken-capture-planned-time-"));
-  let database;
-  try {
-    database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
-    database.save("theme", { id: "research", name: "研究" });
-    const service = new ApplicationCommandService(database);
-    const f = fixture(undefined, (command) => service.execute(command));
-    const original = "明日15時、いや16時から90分、比較実験。金曜までに終える";
-    const edited = {
-      ...proposal,
-      startDate: "2026-09-07",
-      plannedStartTime: "16:30",
-      plannedDurationMinutes: 75,
-    };
-    const saved = f.call("save", original, "today-task", undefined, undefined, edited);
-    database.db.close();
-    database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
-    const reopened = database.get("task", saved.id);
-    assert.equal(reopened.planned_start_time, "16:30");
-    assert.equal(reopened.planned_duration_minutes, 75);
-    assert.ok(reopened.description.endsWith(original));
-    const schedule = database.list("schedule").find((entry) => entry.owner_id === saved.id);
-    assert.equal(schedule.start_date, "2026-09-07");
-    assert.equal(schedule.end_date, "2026-09-11");
-    assert.equal(database.list("task").length, 1);
-  } finally {
-    database?.db.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
 });
