@@ -37,6 +37,10 @@ AI向けrecallでは現在の対象entityのvisibilityを判定したうえで�
 
 削除済みまたはmissingの対象entityは、`include_archived`でsnapshotに含まれていてもrecallから除外する。
 削除済みの二次参照も返さない。
+`type` / `id` の参照だけでなく、canonical参照の `entity_id` も現在の対象を一意に解決して公開判定する。
+`kind` は保存先の種類でありEntity種別へ推測変換しない。
+同じIDが複数種別に存在する場合、対象を決められないcanonical参照は除外する。
+`entity_id`を持たない外部URL・root相対参照は既存のサニタイズ契約を維持する。
 `state = archived`のように削除されていないアーカイブ項目は、現在の公開範囲が許す場合に履歴を残す。
 正本snapshotから本文を復活させる処理、DBへのbackfill、新たな全文version管理は行わない。
 

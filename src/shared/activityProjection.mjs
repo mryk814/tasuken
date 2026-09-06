@@ -422,7 +422,16 @@ function eventAllowedByDefault(event) {
 }
 
 function projectOne(event, context) {
-  const { entityMap, themesById, workspaceDefault, audience, workspace, roots, profile } = context;
+  const {
+    entityMap,
+    entityRefsById,
+    themesById,
+    workspaceDefault,
+    audience,
+    workspace,
+    roots,
+    profile,
+  } = context;
   const currentEntity = entityMap.get(key(event.entity_ref.type, event.entity_ref.id));
   const historical = profile === "recall" ? event.recall_history : null;
   const themeId =
@@ -433,18 +442,25 @@ function projectOne(event, context) {
     themesById.get(text(entity?.project_id || entity?.theme_id)) || null;
   const allowedReference = (ref) => {
     // Published M365 files cannot rely on the local reader resolving visibility.
-    if (!audience || (audience !== "m365" && profile !== "recall") || !ref?.type || !ref?.id)
-      return true;
-    const target = entityMap.get(key(ref.type, ref.id));
-    if (profile === "recall" && target?.deleted_at) return false;
-    if (target && ref.type === "work_receipt") {
+    if (!audience || (audience !== "m365" && profile !== "recall")) return true;
+    // Canonical kind describes a location, not an Entity type. Resolve an
+    // attached ID only when it names exactly one current Entity.
+    const typed = ref?.entity_id
+      ? entityRefsById.get(text(ref.entity_id))
+      : ref?.type && ref?.id
+        ? ref
+        : null;
+    if (!typed) return !ref?.entity_id;
+    const target = entityMap.get(key(typed.type, typed.id));
+    if (target?.deleted_at) return false;
+    if (target && typed.type === "work_receipt") {
       const task = entityMap.get(key("task", target.task_id));
       if (!task || !allowedReference({ type: "task", id: task.id })) return false;
       if (!Array.isArray(target.ai_visibility)) return true;
     }
     return Boolean(
       target &&
-      projectEntityForAi(ref.type, target, {
+      projectEntityForAi(typed.type, target, {
         audience,
         theme: currentThemeFor(target),
         workspaceDefault,
@@ -610,6 +626,16 @@ export function queryActivityEvents({
     for (const capture of collection(sourceWorkspace, "capture_entries"))
       if (capture?.id) entityMap.set(key("capture_entry", capture.id), capture);
   }
+  const entityRefsById = new Map();
+  if (audience && (audience === "m365" || profile === "recall")) {
+    for (const [entityKey, entity] of entityMap) {
+      const id = text(entity.id);
+      entityRefsById.set(
+        id,
+        entityRefsById.has(id) ? null : { type: entityKey.slice(0, entityKey.indexOf(":")), id },
+      );
+    }
+  }
   const themesById = themeMap(themes, sourceWorkspace);
   const resolveHistory =
     profile === "recall"
@@ -709,6 +735,7 @@ export function queryActivityEvents({
   )) {
     const result = projectOne(event, {
       entityMap,
+      entityRefsById,
       themesById,
       workspaceDefault,
       audience,

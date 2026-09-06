@@ -212,3 +212,73 @@ test("private, deleted or missing source references never disclose old links; qu
   input.workspace.notes = [];
   assert.deepEqual(queryActivityEvents(input).events[0].source_refs, []);
 });
+
+test("canonical entity IDs obey current policy without guessing kind or leaking ambiguous targets", () => {
+  const noteId = "referenced-note";
+  const privateUrl = "https://example.test/referenced-document";
+  const externalUrl = "https://example.test/external-document";
+  for (const audience of ["coding_agent", "m365", "external_ai"]) {
+    const task = { id: "public-task", title: "public", ai_visibility: [audience] };
+    const event = buildActivityEvent({
+      id: "canonical-policy",
+      entity_type: "task",
+      entity_id: task.id,
+      event_kind: "task_work_recorded",
+      after: task,
+      occurred_at: at,
+      canonical_refs: [
+        { kind: "note", entity_id: noteId, web_url: privateUrl },
+        {
+          kind: "canonical_markdown",
+          entity_id: noteId,
+          storage_root_id: "root",
+          relative_path: "private.md",
+        },
+        { kind: "canonical_document", web_url: externalUrl },
+      ],
+      source_refs: [
+        { type: "note", id: noteId },
+        { kind: "canonical_document", entity_id: noteId, web_url: privateUrl },
+        { kind: "url", locator: externalUrl },
+      ],
+    });
+    // The producer must retain the canonical source: this is not only a
+    // malformed raw-event fixture bypassing normal normalization.
+    assert.equal(
+      event.source_refs.some((ref) => ref.entity_id === noteId),
+      true,
+    );
+    const query = (notes, tasks = [task]) =>
+      queryActivityEvents({
+        events: [event],
+        workspace: { tasks, notes },
+        audience,
+        profile: "recall",
+      }).events[0];
+    const visible = { id: noteId, title: "source", ai_visibility: [audience] };
+    const publicResult = query([visible]);
+    assert.equal(publicResult.canonical_refs.length, 3);
+    assert.equal(publicResult.source_refs.length, 3);
+    for (const notes of [
+      [{ ...visible, ai_visibility: [] }],
+      [{ ...visible, deleted_at: at }],
+      [],
+    ]) {
+      const result = query(notes);
+      assert.equal(result.canonical_refs.length, 1);
+      assert.equal(result.canonical_refs[0].web_url, externalUrl);
+      assert.equal(result.source_refs.length, 1);
+      assert.equal(result.source_refs[0].web_url, externalUrl);
+      assert.doesNotMatch(
+        JSON.stringify(result),
+        /referenced-note|referenced-document|private\.md/,
+      );
+    }
+    const ambiguous = query([visible], [task, { ...visible, id: noteId }]);
+    assert.equal(ambiguous.canonical_refs.length, 1);
+    // A typed Note reference still has an unambiguous type; the canonical
+    // reference carrying only the duplicated ID cannot borrow that permission.
+    assert.equal(ambiguous.source_refs.length, 2);
+    assert.ok(!ambiguous.source_refs.some((ref) => ref.entity_id));
+  }
+});
