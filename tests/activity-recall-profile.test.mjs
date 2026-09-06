@@ -251,7 +251,19 @@ test("Core query and ActivityEntries consumers validate and carry recall through
     entries.execute({ task_id: task.id, profile: "recall" }).events[0].recall.stage,
     "planned",
   );
-  assert.equal(entries.execute({ date: "2026-09-06", profile: "recall" }).events.length, 2);
+  assert.equal(
+    entries.execute({ date: "2026-09-06", timezone: "Asia/Tokyo", profile: "recall" }).events
+      .length,
+    2,
+  );
+  assert.equal(
+    entries.execute({ date: "2026-09-06", timezone: "UTC", profile: "recall" }).events.length,
+    0,
+  );
+  assert.equal(
+    entries.execute({ date: "2026-09-05", timezone: "UTC", profile: "recall" }).events.length,
+    2,
+  );
   assert.equal(JSON.stringify(snapshot), before);
   assert.throws(() => getActivityRequestSchema.parse({ profile: "typo" }));
   assert.throws(() => getActivityEntriesRequestSchema.parse({ task_id: task.id, profile: "typo" }));
