@@ -377,6 +377,41 @@ object OutboxState {
 
 @Dao
 abstract class MobileLocalDao {
+    // Only in-flight requests need this generation: none can survive a process restart.
+    private val relatedRevocations = mutableMapOf<String, Long>()
+    @Transaction
+    open suspend fun relatedGeneration(serverId: String): Long = relatedRevocations[serverId] ?: 0L
+    @Query("SELECT * FROM related_document_cache WHERE taskId = :taskId")
+    abstract fun observeRelatedDocuments(taskId: String): Flow<List<RelatedDocumentCacheEntity>>
+    @Query("SELECT * FROM related_document_cache WHERE serverId = :serverId AND taskId = :taskId")
+    abstract suspend fun relatedDocuments(serverId: String, taskId: String): RelatedDocumentCacheEntity?
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertRelatedDocuments(record: RelatedDocumentCacheEntity)
+    @Query("DELETE FROM related_document_cache WHERE serverId = :serverId")
+    abstract suspend fun deleteRelatedDocuments(serverId: String)
+    @Query("SELECT * FROM related_body_cache WHERE taskId = :taskId")
+    abstract fun observeRelatedBodies(taskId: String): Flow<List<RelatedBodyCacheEntity>>
+    @Query("SELECT * FROM related_body_cache WHERE serverId = :serverId AND taskId = :taskId")
+    abstract suspend fun relatedBodies(serverId: String, taskId: String): List<RelatedBodyCacheEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertRelatedBodies(records: List<RelatedBodyCacheEntity>)
+    @Query("DELETE FROM related_body_cache WHERE serverId = :serverId AND taskId = :taskId")
+    abstract suspend fun deleteRelatedTaskBodies(serverId: String, taskId: String)
+    @Query("DELETE FROM related_body_cache WHERE serverId = :serverId")
+    abstract suspend fun deleteRelatedServerBodies(serverId: String)
+    @Transaction
+    open suspend fun revokeRelatedDocuments(serverId: String) {
+        relatedRevocations[serverId] = relatedGeneration(serverId) + 1
+        deleteRelatedDocuments(serverId)
+        deleteRelatedServerBodies(serverId)
+    }
+    @Transaction
+    open suspend fun saveRelatedDocuments(record: RelatedDocumentCacheEntity, bodies: List<RelatedBodyCacheEntity>, generation: Long) {
+        if (syncState()?.serverId != record.serverId || relatedGeneration(record.serverId) != generation) return
+        upsertRelatedDocuments(record)
+        deleteRelatedTaskBodies(record.serverId, record.taskId)
+        upsertRelatedBodies(bodies)
+    }
     @Query("SELECT * FROM recall_day_cache WHERE serverId = :serverId AND date = :date AND timezone = :timezone")
     abstract suspend fun recallDay(serverId: String, date: String, timezone: String): RecallDayCacheEntity?
 
@@ -1908,6 +1943,8 @@ abstract class MobileLocalDao {
         CaptureReceiptEntity::class,
         WorkLogCacheEntity::class,
         RecallDayCacheEntity::class,
+        RelatedDocumentCacheEntity::class,
+        RelatedBodyCacheEntity::class,
         RecallCaptureCacheEntity::class,
         RecallSeenSourceEntity::class,
         ThemeCacheEntity::class,
@@ -1921,7 +1958,7 @@ abstract class MobileLocalDao {
         PendingTaskDelegationEntity::class,
         TaskNotificationDeliveryEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -1957,8 +1994,16 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_19_20,
                     MIGRATION_20_21,
                     MIGRATION_21_22,
+                    MIGRATION_22_23,
             ).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_22_23 = object : Migration(22, 23) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS related_document_cache (serverId TEXT NOT NULL, taskId TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(serverId, taskId))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS related_body_cache (serverId TEXT NOT NULL, taskId TEXT NOT NULL, type TEXT NOT NULL, documentId TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(serverId, taskId, type, documentId))")
     }
 }
 

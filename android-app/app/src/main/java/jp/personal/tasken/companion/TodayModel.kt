@@ -369,6 +369,7 @@ class TodayViewModel(
 ) : ViewModel() {
     val workLogRepository: MobileWorkLogRepository? get() = repository as? MobileWorkLogRepository
     val recallRepository: MobileRecallRepository? get() = repository as? MobileRecallRepository
+    val relatedDocumentsRepository: MobileRelatedDocumentsRepository? get() = repository as? MobileRelatedDocumentsRepository
     suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> =
         kotlinx.coroutines.withContext(ioDispatcher) {
             val gateway = repository as? MobileGatewayRepository
