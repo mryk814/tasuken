@@ -218,6 +218,7 @@ export const IPC = {
   entitySave: "entity:save",
   entitySaveMany: "entity:save-many",
   documentSave: "document:save",
+  workLogRecord: "work-log:record",
   entityRemove: "entity:remove",
   entityRestore: "entity:restore",
   snapshotExport: "snapshot:export",
@@ -843,6 +844,11 @@ export interface ResearchDeskApi {
     saveMany(operations: SaveOperation[]): Promise<Entity[]>;
     remove(type: EntityType, id: string): Promise<Entity>;
     restore(type: EntityType, id: string): Promise<Entity>;
+  };
+  workLog: {
+    record(
+      command: import("../workLog").RecordWorkLogCommand,
+    ): Promise<import("../workLog").WorkLogReceipt>;
   };
   documents: {
     /** Note / Report本文の保存とcanonical Markdown更新を同じuse caseで行う。 */

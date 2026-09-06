@@ -45,6 +45,7 @@ const DEFAULT_ACTIVITY_KINDS = new Set([
   "status_updated",
 ]);
 const PUBLIC_METADATA_KEYS = new Set([
+  "work_log",
   "schema_version",
   "dedupe_key",
   "session_id",
@@ -82,6 +83,7 @@ const PUBLIC_METADATA_KEYS = new Set([
   "note_ai_command_marker",
 ]);
 const PUBLIC_METADATA_OBJECT_FIELDS = new Map([
+  ["work_log", ["schema", "performed_date", "date_precision", "entered_at", "assertion"]],
   [
     "provenance",
     [
