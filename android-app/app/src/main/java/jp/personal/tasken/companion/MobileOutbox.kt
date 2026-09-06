@@ -155,6 +155,7 @@ internal fun OutboxCommandEntity.isUnsentCreate(): Boolean {
 sealed interface MobileCommandSendResult {
     data class Applied(val response: MobileTaskCommandResponseDto) : MobileCommandSendResult
     data class CaptureApplied(val response: MobileCaptureCommandResponseDto) : MobileCommandSendResult
+    data class WorkLogApplied(val response: MobileWorkLogResponse) : MobileCommandSendResult
     data class Conflict(val response: MobileTaskCommandErrorResponseDto) : MobileCommandSendResult
     data class Retry(val reason: String) : MobileCommandSendResult
     data class Rejected(
@@ -981,6 +982,17 @@ class MobileOutbox(
             val attemptedAt = now().toString()
             val command = dao.claimNext(serverId, attemptedAt) ?: return shouldRetry
             when (val result = sender(command.envelopeJson)) {
+                is MobileCommandSendResult.WorkLogApplied -> {
+                    val response = result.response
+                    val record = response.data.workLog
+                    val valid = response.meta.serverId == serverId && response.data.commandId == command.commandId &&
+                        record.id == command.workLogId && command.commandName in setOf("RecordWorkLog", "DeleteWorkLog", "RestoreWorkLog")
+                    if (!valid) {
+                        dao.markRetry(command.commandId, structuredCommandError("invalid_command_receipt", "作業記録の送信結果が一致しません。本文を保持しています。", true))
+                        return true
+                    }
+                    if (!dao.applyWorkLogReceipt(command, record)) return shouldRetry
+                }
                 is MobileCommandSendResult.Applied -> {
                     val response = result.response
                     val invalidReceipt = invalidReceiptReason(command, response, serverId)

@@ -124,6 +124,7 @@ test("mobile pairing persists only a token hash and revocation survives restart"
       "mobile:context-read",
       "mobile:task-write",
       "mobile:capture-write",
+      "mobile:work-log-write",
       "mobile:proposal-review",
       "mobile:human-review",
     ]);
@@ -145,6 +146,7 @@ test("mobile pairing persists only a token hash and revocation survives restart"
       "mobile:context-read",
       "mobile:task-write",
       "mobile:capture-write",
+      "mobile:work-log-write",
       "mobile:proposal-review",
       "mobile:human-review",
     ]);

@@ -82,6 +82,128 @@ async function importWorkspaceService() {
 
 const { WorkspaceService } = await importWorkspaceService();
 
+test("WorkLog lifecycle marker commits with Note deletion and restores through the canonical owner", () => {
+  const fixture = createFixture("tasken-work-log-lifecycle");
+  try {
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const created = service.recordWorkLog({
+      schemaVersion: 1,
+      commandName: "RecordWorkLog",
+      commandId: "lifecycle-worklog",
+      body: "原文",
+      performedDate: "2026-09-01",
+      issuedAt: "2026-09-06T00:00:00Z",
+    });
+    const actor = { kind: "user", id: "test-device" };
+    const deleted = service.changeWorkLogLifecycle(
+      {
+        commandId: "delete-worklog",
+        name: "DeleteWorkLog",
+        noteId: created.noteId,
+        expectedVersion: 1,
+        issuedAt: "2026-09-06T00:10:00Z",
+      },
+      actor,
+    );
+    assert.equal(deleted.noteVersion, 2);
+    assert.ok(fixture.database.get("note", created.noteId, true).deleted_at);
+    const restored = service.changeWorkLogLifecycle(
+      {
+        commandId: "restore-worklog",
+        name: "RestoreWorkLog",
+        noteId: created.noteId,
+        expectedVersion: 2,
+        issuedAt: "2026-09-06T00:20:00Z",
+      },
+      actor,
+    );
+    assert.equal(restored.noteVersion, 3);
+    assert.equal(fixture.database.get("note", created.noteId).body_markdown, "原文");
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("WorkLog lifecycle event failure rolls back Note and canonical file for both delete and Undo", () => {
+  const fixture = createFixture("tasken-work-log-lifecycle-failure");
+  try {
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const created = service.recordWorkLog({
+      schemaVersion: 1,
+      commandName: "RecordWorkLog",
+      commandId: "lifecycle-failure",
+      body: "保持する原文",
+      performedDate: "2026-09-01",
+      issuedAt: "2026-09-06T00:00:00Z",
+    });
+    const note = fixture.database.get("note", created.noteId);
+    const file = canonicalBinding(note).canonical_path;
+    const content = readFileSync(file);
+    const failing = new Proxy(fixture.database, {
+      get(target, key, receiver) {
+        if (key === "runTransaction")
+          return (callback) =>
+            target.runTransaction((transaction) =>
+              callback({
+                ...transaction,
+                save(type, entity, options) {
+                  if (
+                    type === "change_event" &&
+                    ["DeleteWorkLog", "RestoreWorkLog"].includes(entity.command_name)
+                  )
+                    throw new Error("injected lifecycle event failure");
+                  return transaction.save(type, entity, options);
+                },
+              }),
+            );
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const failingService = new WorkspaceService(failing, fixture.userDataPath);
+    const actor = { kind: "user", id: "test-device" };
+    const deletion = {
+      commandId: "failed-delete",
+      name: "DeleteWorkLog",
+      noteId: note.id,
+      expectedVersion: 1,
+      issuedAt: "2026-09-06T00:10:00Z",
+    };
+    assert.throws(
+      () => failingService.changeWorkLogLifecycle(deletion, actor),
+      /injected lifecycle/,
+    );
+    assert.equal(fixture.database.get("note", note.id).version, 1);
+    assert.deepEqual(readFileSync(file), content);
+    service.changeWorkLogLifecycle(deletion, actor);
+    const restoration = {
+      commandId: "failed-restore",
+      name: "RestoreWorkLog",
+      noteId: note.id,
+      expectedVersion: 2,
+      issuedAt: "2026-09-06T00:20:00Z",
+    };
+    assert.throws(
+      () => failingService.changeWorkLogLifecycle(restoration, actor),
+      /injected lifecycle/,
+    );
+    assert.ok(fixture.database.get("note", note.id, true).deleted_at);
+    assert.equal(fs.existsSync(file), false);
+    service.changeWorkLogLifecycle(restoration, actor);
+    assert.deepEqual(readFileSync(file), content);
+    assert.equal(
+      fixture.database
+        .list("change_event")
+        .filter(
+          (event) =>
+            event.command_name === "DeleteWorkLog" || event.command_name === "RestoreWorkLog",
+        ).length,
+      2,
+    );
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
 test("RecordWorkLog recovers the canonical Note and event together after a failed transaction", () => {
   const fixture = createFixture("tasken-work-log-recovery");
   const command = {

@@ -19,8 +19,11 @@ internal class MobileGatewayFixtureClient {
         val (status, body) = request("/v1/commands", envelope, requireNotNull(arguments.getString("gatewayToken")))
         val capture = Json.parseToJsonElement(envelope).jsonObject.getValue("command").jsonObject
             .getValue("name").jsonPrimitive.content in setOf("CreateCapture", "DeleteCapture")
+        val workLog = Json.parseToJsonElement(envelope).jsonObject.getValue("command").jsonObject
+            .getValue("name").jsonPrimitive.content in setOf("RecordWorkLog", "DeleteWorkLog", "RestoreWorkLog")
         when {
-            status == 200 -> if (capture) MobileCommandSendResult.CaptureApplied(MobileCaptureCommandContract.decodeReceipt(body))
+            status == 200 -> if (workLog) MobileCommandSendResult.WorkLogApplied(MobileWorkLogContract.decodeReceipt(body))
+                else if (capture) MobileCommandSendResult.CaptureApplied(MobileCaptureCommandContract.decodeReceipt(body))
                 else MobileCommandSendResult.Applied(MobileTaskCommandContract.decodeReceipt(body))
             status == 409 -> MobileTaskCommandContract.decodeError(body).let { error ->
                 if (error.error.code == "version_conflict") MobileCommandSendResult.Conflict(error)
@@ -32,6 +35,11 @@ internal class MobileGatewayFixtureClient {
     }.getOrElse { MobileCommandSendResult.Retry("Fixture connection interrupted") }
 
     fun snapshot(): JsonObject = control(null)
+    fun workLog(id: String): MobileWorkLogDto? {
+        val response = request("/v1/work-logs?id=$id", null, requireNotNull(arguments.getString("gatewayToken")))
+        check(response.first == 200)
+        return MobileWorkLogContract.json.decodeFromString<MobileWorkLogReadResponse>(response.second).data.workLog
+    }
     fun control(body: String? = null): JsonObject {
         val response = request("/__fixture", body, requireNotNull(arguments.getString("gatewayControlToken")))
         check(response.first == 200) { "Fixture control failed: ${response.first}" }

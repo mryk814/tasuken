@@ -21,6 +21,21 @@ export interface WorkLogReceipt {
   enteredAt: string;
 }
 
+export interface WorkLogLifecycleCommand {
+  commandId: string;
+  name: "DeleteWorkLog" | "RestoreWorkLog";
+  noteId: string;
+  expectedVersion: number;
+  issuedAt: string;
+}
+
+export interface WorkLogLifecycleReceipt {
+  commandId: string;
+  noteId: string;
+  noteVersion: number;
+  status: "applied" | "no_change";
+}
+
 export function normalizeWorkLogCommand(value: unknown): RecordWorkLogCommand {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("作業記録の入力が不正です。");

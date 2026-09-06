@@ -13,6 +13,7 @@ export const MOBILE_DEVICE_DEFAULT_SCOPES = Object.freeze([
   TASKEN_MOBILE_SCOPES.contextRead,
   TASKEN_MOBILE_SCOPES.taskWrite,
   TASKEN_MOBILE_SCOPES.captureWrite,
+  TASKEN_MOBILE_SCOPES.workLogWrite,
   TASKEN_MOBILE_SCOPES.proposalReview,
   TASKEN_MOBILE_SCOPES.humanReview,
 ] satisfies MobileScope[]);
