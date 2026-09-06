@@ -8,7 +8,7 @@ Todayの「やったことを記録」から、本文と実施日、任意のThe
 `commandId` はクライアントが一度だけ生成し、同じ入力の再送では `issuedAt` を含めて変えない。
 Mainの `WorkspaceService.recordWorkLog` に渡すactorは信頼済みadapterが供給する。
 Desktop IPCは入力payloadのactorを採用せず、desktop-userを使う。
-将来のMobile adapterは認証principalからactorを指定し、HTTP payloadから指定させない。
+Mobile adapterは認証principalからactorを指定し、HTTP payloadから指定させない。
 
 正本は通常のNoteとcanonical Markdown。
 `properties_json.work_log` はschema、実施日、day精度、入力時刻、actor、Task参照、元receiptを保持する。
@@ -33,7 +33,13 @@ canonical file成功後のDB失敗は、型を限定したwork-log companionを�
 削除・Undo・Snapshotは既存Noteの導線を使う。
 
 Desktopの閉じる操作ではTodayを開いている間の下書きを保持する。
-アプリ終了をまたぐ未送信下書き、AndroidのRoom/outbox、Mobile HTTPはこの実装の対象外。
+Desktopの未送信下書きはアプリ終了をまたがない。
+Androidの下書き・Room/outbox・Mobile HTTPは[Androidの作業記録](android-work-log.md)に従う。
+
+Mobileの`DeleteWorkLog`／`RestoreWorkLog`は既存Noteの削除・復元へ委譲する。
+Command ID、actor、対象、expected versionのfingerprintとreceiptを、Note lifecycleのDB確定と同じtransactionへ記録する。
+削除後にUndoした状態へ古い削除Commandが再送されても再削除しない。
+Mobile responseは初回receiptと現在のNote表示を区別し、再送時も現在の本文・削除状態を返す。
 
 ## Desktopの公開能力
 

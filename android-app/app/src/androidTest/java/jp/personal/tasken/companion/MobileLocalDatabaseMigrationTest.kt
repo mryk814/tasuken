@@ -16,6 +16,20 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
     @Test
+    fun migrationTwentyToTwentyOneKeepsExistingCommandsAndAddsWorkLogCache() {
+        helper.createDatabase(DatabaseName, 20).apply {
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt) VALUES ('attempted','key','request','device','time','UpdateTask','immutable','server','retry_wait',2,'time')")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 21, true, MIGRATION_20_21).use { db ->
+            db.query("SELECT envelopeJson,attemptCount,workLogId FROM outbox_command").use { cursor ->
+                assertTrue(cursor.moveToFirst()); assertEquals("immutable", cursor.getString(0)); assertEquals(2, cursor.getInt(1)); assertTrue(cursor.isNull(2))
+            }
+            db.query("SELECT COUNT(*) FROM work_log_cache").use { cursor -> assertTrue(cursor.moveToFirst()); assertEquals(0, cursor.getInt(0)) }
+        }
+    }
+
+    @Test
     fun migrationNineteenToTwentyPreservesAttemptedEnvelopeAndAddsNullableTaskIntent() {
         helper.createDatabase(DatabaseName, 19).apply {
             execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt) VALUES ('attempted','key','request','device','time','UpdateTask','immutable','server','retry_wait',2,'time')")

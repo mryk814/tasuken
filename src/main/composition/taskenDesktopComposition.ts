@@ -50,6 +50,7 @@ export interface TaskenDesktopCompositionOptions<
   mcpPackageSmoke?: McpPackageSmokeOptions;
   onProposalCommitted?: ConstructorParameters<typeof TaskenCoreRuntime>[3];
   onCoreCommandCommitted?: (receipt: ReturnType<ApplicationCommandService["execute"]>) => void;
+  workLogWriter?: ConstructorParameters<typeof TaskenCoreRuntime>[6];
 }
 
 export function applyMcpPackageSmokeUserData(
@@ -120,6 +121,7 @@ export class TaskenDesktopComposition<
           responseMeta,
         ),
       createNoteProposalImagePort(options.userDataPath, createNativeImageDecoder(nativeImage)),
+      options.workLogWriter,
     );
     const mobileState: MobileGatewayStatePort = {
       current: () => this.repository.mobileGatewayState(),

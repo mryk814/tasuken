@@ -2,6 +2,83 @@ import { createHash } from "node:crypto";
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import { normalizeWorkLogCommand, type WorkLogReceipt } from "../../shared/workLog";
 import type { Entity } from "../../shared/types/workspace";
+import type { WorkLogLifecycleCommand } from "../../shared/workLog";
+import {
+  entityIdSchema,
+  entityVersionSchema,
+  isoTimestampSchema,
+} from "../../shared/kernel/public.ts";
+import { ApplicationCommandError } from "../../shared/applicationCommand.ts";
+
+export interface WorkLogLifecycleCommit {
+  command: WorkLogLifecycleCommand;
+  actor: { kind: "user"; id: string };
+  fingerprint: string;
+  before: Record<string, unknown>;
+  status: "applied" | "no_change";
+}
+
+export function normalizeWorkLogLifecycleCommand(
+  value: WorkLogLifecycleCommand,
+): WorkLogLifecycleCommand {
+  if (
+    !value ||
+    !["DeleteWorkLog", "RestoreWorkLog"].includes(value.name) ||
+    !entityIdSchema.safeParse(value.commandId).success ||
+    !entityIdSchema.safeParse(value.noteId).success ||
+    !entityVersionSchema.safeParse(value.expectedVersion).success ||
+    !isoTimestampSchema.safeParse(value.issuedAt).success
+  )
+    throw new ApplicationCommandError("INVALID_PAYLOAD", "作業記録の削除・復元の入力が不正です。");
+  return {
+    commandId: value.commandId,
+    name: value.name,
+    noteId: value.noteId,
+    expectedVersion: value.expectedVersion,
+    issuedAt: value.issuedAt,
+  };
+}
+
+export function workLogLifecycleFingerprint(
+  command: WorkLogLifecycleCommand,
+  actor: { kind: "user"; id: string },
+): string {
+  return createHash("sha256").update(JSON.stringify({ command, actor })).digest("hex");
+}
+
+export function workLogLifecycleEvent(
+  commit: WorkLogLifecycleCommit,
+  after: Record<string, unknown>,
+  acceptedAt: string,
+): Entity {
+  const receipt = {
+    commandId: commit.command.commandId,
+    noteId: String(after.id),
+    noteVersion: Number(after.version),
+    status: commit.status,
+  };
+  return buildActivityEvent({
+    id: `work-log-lifecycle-${commit.command.commandId}`,
+    entity_type: "note",
+    entity_id: after.id,
+    command_id: commit.command.commandId,
+    command_name: commit.command.name,
+    command_fingerprint: commit.fingerprint,
+    actor: commit.actor,
+    source: "manual",
+    origin: { kind: "mobile" },
+    occurred_at: commit.command.issuedAt,
+    changed_at: acceptedAt,
+    event_kind: commit.command.name === "DeleteWorkLog" ? "entity_deleted" : "note_updated",
+    before_json: JSON.stringify(commit.before),
+    after_json: JSON.stringify(after),
+    metadata: {
+      command_source: "mobile",
+      include_in_activity: commit.status === "applied",
+      work_log_lifecycle: { schema: "tasken-work-log-lifecycle/v1", receipt },
+    },
+  }) as Entity;
+}
 
 export interface WorkLogCompanion {
   schema: "tasken-work-log-companion/v1";

@@ -10,6 +10,7 @@ export const TASKEN_MOBILE_SCOPES = Object.freeze({
   contextRead: "mobile:context-read",
   taskWrite: "mobile:task-write",
   captureWrite: "mobile:capture-write",
+  workLogWrite: "mobile:work-log-write",
   proposalReview: "mobile:proposal-review",
   humanReview: "mobile:human-review",
 });
@@ -96,6 +97,8 @@ export const TASKEN_MOBILE_CAPABILITIES = Object.freeze({
   taskContextPreviewRead: "mobile.task-context-preview.read",
   taskWrite: "mobile.task.write",
   captureWrite: "mobile.capture.write",
+  workLogWrite: "mobile.work-log.write",
+  workLogRead: "mobile.work-log.read",
 });
 
 export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
@@ -112,5 +115,6 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   bootstrap: "/v1/bootstrap",
   sync: "/v1/sync",
   commands: "/v1/commands",
+  workLogs: "/v1/work-logs",
   captureOrganization: "/v1/capture-organization",
 });

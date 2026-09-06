@@ -5,6 +5,7 @@ import {
   entityVersionSchema,
   isoTimestampSchema,
   localDateSchema,
+  isWellFormedUnicode,
 } from "../../kernel/public.ts";
 import {
   taskIdSchema,
@@ -109,6 +110,8 @@ export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.taskContextPreviewRead,
   TASKEN_MOBILE_CAPABILITIES.taskWrite,
   TASKEN_MOBILE_CAPABILITIES.captureWrite,
+  TASKEN_MOBILE_CAPABILITIES.workLogWrite,
+  TASKEN_MOBILE_CAPABILITIES.workLogRead,
 ]);
 
 export const mobileScopeSchema = z.enum([
@@ -116,6 +119,7 @@ export const mobileScopeSchema = z.enum([
   TASKEN_MOBILE_SCOPES.contextRead,
   TASKEN_MOBILE_SCOPES.taskWrite,
   TASKEN_MOBILE_SCOPES.captureWrite,
+  TASKEN_MOBILE_SCOPES.workLogWrite,
   TASKEN_MOBILE_SCOPES.proposalReview,
   TASKEN_MOBILE_SCOPES.humanReview,
 ]);
@@ -162,7 +166,7 @@ export const mobileHealthResponseSchema = z
     data: z
       .object({
         status: z.literal("ready"),
-        capabilities: z.array(mobileCapabilitySchema).max(10),
+        capabilities: z.array(mobileCapabilitySchema).max(12),
       })
       .strict(),
   })
@@ -1298,9 +1302,94 @@ export const mobileCaptureCommandRequestSchema = z
     },
   );
 
+export const mobileWorkLogCommandSchema = z.discriminatedUnion("name", [
+  z
+    .object({
+      name: z.literal("RecordWorkLog"),
+      body: z
+        .string()
+        .min(1)
+        .refine((value) => Boolean(value.trim()) && isWellFormedUnicode(value)),
+      performedDate: localDateSchema,
+      themeId: entityIdSchema.nullable().optional(),
+      taskId: entityIdSchema.nullable().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      name: z.literal("DeleteWorkLog"),
+      noteId: entityIdSchema,
+      expectedVersion: entityVersionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      name: z.literal("RestoreWorkLog"),
+      noteId: entityIdSchema,
+      expectedVersion: entityVersionSchema,
+    })
+    .strict(),
+]);
+
+export const mobileWorkLogCommandRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    commandId: entityIdSchema,
+    idempotencyKey: entityIdSchema,
+    clientDeviceId: entityIdSchema,
+    issuedAt: isoTimestampSchema,
+    command: mobileWorkLogCommandSchema,
+  })
+  .strict()
+  .refine((value) => value.commandId === value.idempotencyKey, {
+    path: ["idempotencyKey"],
+    message: "commandIdとidempotencyKeyを一致させてください。",
+  });
+
+export const mobileWorkLogSchema = z
+  .object({
+    id: entityIdSchema,
+    version: entityVersionSchema,
+    body: z.string(),
+    performedDate: localDateSchema,
+    enteredAt: isoTimestampSchema,
+    themeId: entityIdSchema.nullable(),
+    taskId: entityIdSchema.nullable(),
+    taskMissing: z.boolean(),
+    deleted: z.boolean(),
+  })
+  .strict();
+
+export const mobileWorkLogCommandResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        commandId: entityIdSchema,
+        status: z.enum(["applied", "no_change"]),
+        workLog: mobileWorkLogSchema,
+      })
+      .strict(),
+  })
+  .strict();
+export const mobileWorkLogRequestSchema = z.object({ id: entityIdSchema }).strict();
+export const mobileWorkLogResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z.object({ workLog: mobileWorkLogSchema.nullable() }).strict(),
+  })
+  .strict();
+export type MobileWorkLogCommandRequest = z.output<typeof mobileWorkLogCommandRequestSchema>;
+export type MobileWorkLog = z.output<typeof mobileWorkLogSchema>;
+
 export const mobileCommandRequestSchema = z.union([
   mobileTaskCommandRequestSchema,
   mobileCaptureCommandRequestSchema,
+  mobileWorkLogCommandRequestSchema,
 ]);
 
 export const mobileCaptureCommandResponseSchema = z

@@ -2,6 +2,8 @@ export {
   MobileGatewayAdapter,
   MobileGatewayCoreUnavailableError,
   type MobileGatewayCorePort,
+  type MobileGatewayWorkLogCommand,
+  type MobileGatewayWorkLogCommandResult,
   type MobileGatewayCaptureCommand,
   type MobileGatewayCaptureCommandResult,
   type MobileGatewayTaskDelegationCommand,

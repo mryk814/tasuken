@@ -648,6 +648,8 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     taskContextPreviewRead: "mobile.task-context-preview.read",
     taskWrite: "mobile.task.write",
     captureWrite: "mobile.capture.write",
+    workLogWrite: "mobile.work-log.write",
+    workLogRead: "mobile.work-log.read",
   });
   assert.equal(mobileCapabilitySchema.safeParse("mobile.theme.read").success, false);
   assert.deepEqual(TASKEN_MOBILE_ENDPOINTS, {
@@ -665,6 +667,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     sync: "/v1/sync",
     commands: "/v1/commands",
     captureOrganization: "/v1/capture-organization",
+    workLogs: "/v1/work-logs",
   });
   const valid = createRequest();
   assert.equal(mobileTaskCommandRequestSchema.safeParse(valid).success, true);

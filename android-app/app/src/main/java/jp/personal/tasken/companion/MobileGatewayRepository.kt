@@ -55,6 +55,7 @@ private val SUPPORTED_MOBILE_SCOPES = setOf(
     "mobile:proposal-review",
     MOBILE_HUMAN_REVIEW_SCOPE,
     MOBILE_CONTEXT_READ_SCOPE,
+    MOBILE_WORK_LOG_SCOPE,
 )
 
 data class MobileGatewayConfiguration(
@@ -206,10 +207,38 @@ class AndroidMobileTaskRepository(
     private val httpClient: MobileGatewayHttpClient? = null,
     private val themeNow: () -> Instant = Instant::now,
     private val processInstanceId: String = MOBILE_PROCESS_INSTANCE_ID,
-) : MobileGatewayRepository, MobileOfflineTaskRepository {
+) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository {
     private val json = Json { ignoreUnknownKeys = false }
     private val dao = database.mobileDao()
     private val outbox = MobileOutbox(context.applicationContext, dao, store::deviceId)
+    private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
+
+    override fun observeWorkLogs(): Flow<List<MobileWorkLog>> =
+        combine(dao.observeWorkLogs(), dao.observeSyncState()) { records, state ->
+            records.filter { it.record.serverId == state?.serverId }.map { MobileWorkLog(it.record, it.command) }
+        }
+
+    override suspend fun recordWorkLog(draft: MobileWorkLogDraft): String = workLogOutbox.record(draft)
+    override suspend fun deleteWorkLog(id: String) = workLogOutbox.delete(id)
+    override suspend fun restoreWorkLog(id: String) = workLogOutbox.restore(id)
+    override suspend fun retryWorkLog(id: String) = workLogOutbox.retry(id)
+
+    override suspend fun refreshWorkLog(id: String) {
+        val record = requireNotNull(dao.workLog(id))
+        require(dao.syncState()?.serverId == record.serverId)
+        val configuration = store.configuration()
+        val token = requireNotNull(store.readToken()) { "Desktopへ再接続してください。本文は端末に保存されています。" }
+        val response = gatewayRequest(configuration.origin, "/v1/work-logs?id=${URLEncoder.encode(id, Charsets.UTF_8.name())}", "GET", null, token)
+        check(response.status == 200) { "Desktopから確認できませんでした。保存済みの本文を表示しています。" }
+        val result = MobileWorkLogContract.json.decodeFromString<MobileWorkLogReadResponse>(response.body)
+        require(result.ok && result.meta.serverId == record.serverId && result.meta.apiVersion == TASKEN_MOBILE_API_VERSION && result.meta.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
+        val current = result.data.workLog ?: return
+        MobileWorkLogContract.validateProjection(current)
+        require(current.id == id)
+        dao.refreshWorkLog(record.copy(serverVersion = current.version, body = current.body, performedDate = current.performedDate,
+            enteredAt = current.enteredAt, themeId = current.themeId, taskId = current.taskId,
+            taskMissing = current.taskMissing, deleted = current.deleted))
+    }
 
     init {
         if (scheduleOutboxOnStart) MobileOutboxScheduler.enqueue(context)
@@ -1473,6 +1502,7 @@ class AndroidMobileTaskRepository(
             val commandName = Json.parseToJsonElement(envelopeJson)
                 .jsonObject.getValue("command").jsonObject.getValue("name").jsonPrimitive.content
             val captureCommand = commandName in setOf("CreateCapture", "DeleteCapture")
+            val workLogCommand = commandName in setOf("RecordWorkLog", "DeleteWorkLog", "RestoreWorkLog")
             val response = gatewayRequest(
                 origin = origin,
                 path = "/v1/commands",
@@ -1485,7 +1515,14 @@ class AndroidMobileTaskRepository(
             }
             when {
                 response.status == 200 -> {
-                    if (captureCommand) {
+                    if (workLogCommand) {
+                        val receipt = MobileWorkLogContract.decodeReceipt(response.body)
+                        if (receipt.meta.serverId != expectedServerId) {
+                            MobileCommandSendResult.Retry("Desktopの識別情報が一致しません。本文は保持しています。")
+                        } else {
+                            MobileCommandSendResult.WorkLogApplied(receipt)
+                        }
+                    } else if (captureCommand) {
                         val receipt = MobileCaptureCommandContract.decodeReceipt(response.body)
                         if (receipt.meta.serverId != expectedServerId) {
                             MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
@@ -1516,7 +1553,7 @@ class AndroidMobileTaskRepository(
                     val error = MobileTaskCommandContract.decodeError(response.body)
                     if (error.meta.serverId != expectedServerId) {
                         MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
-                    } else if (error.error.code == "version_conflict") {
+                    } else if (!workLogCommand && error.error.code == "version_conflict") {
                         MobileCommandSendResult.Conflict(error)
                     } else {
                         MobileCommandSendResult.Rejected(
@@ -1535,7 +1572,11 @@ class AndroidMobileTaskRepository(
                     } else {
                         MobileCommandSendResult.Rejected(
                             code = error?.error?.code ?: "http_${response.status}",
-                            message = error?.error?.message ?: "Desktopが操作を受理しませんでした。",
+                            message = if (workLogCommand && error?.error?.code == "forbidden") {
+                                "本文は端末に保存済みです。Desktopを更新し、新しいコードで再接続してから再送してください。"
+                            } else if (workLogCommand && error?.error?.code in setOf("validation_failed", "version_mismatch", "capability_unavailable")) {
+                                "本文は端末に保存済みです。Desktopの対応状況と選択した参照を確認して再送してください。"
+                            } else error?.error?.message ?: "Desktopが操作を受理しませんでした。",
                             retryable = error?.error?.retryable ?: false,
                         )
                     }
