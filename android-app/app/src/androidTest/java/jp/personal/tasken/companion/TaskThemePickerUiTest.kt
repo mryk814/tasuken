@@ -21,7 +21,7 @@ class TaskThemePickerUiTest {
 
     @Test
     fun currentThemeIsVisibleAndSelectingAnotherThemeUpdatesImmediately() {
-        var submittedThemeId = ""
+        var submittedThemeId: String? = ""
         composeRule.setContent {
             MaterialTheme {
                 TodayDetailPane(
@@ -97,7 +97,7 @@ class TaskThemePickerUiTest {
 
     @Test
     fun missingCurrentThemeDoesNotClearItAndAllowsReplacement() {
-        var submittedThemeId = ""
+        var submittedThemeId: String? = ""
         composeRule.setContent {
             MaterialTheme {
                 TodayDetailPane(
@@ -141,7 +141,7 @@ class TaskThemePickerUiTest {
 
     @Test
     fun staleCatalogStaysEditableAndExplainsQueuedSync() {
-        var submittedThemeId = ""
+        var submittedThemeId: String? = ""
         val themes = sampleThemes()
         composeRule.setContent {
             MaterialTheme {

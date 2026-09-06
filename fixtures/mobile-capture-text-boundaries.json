@@ -1,0 +1,37 @@
+{
+  "lengthUnit": "UTF-16 code units",
+  "cases": [
+    {
+      "name": "500",
+      "unit": "あ",
+      "repeat": 500,
+      "suffix": "",
+      "expectedUtf16Length": 500,
+      "accepted": true
+    },
+    {
+      "name": "501",
+      "unit": "あ",
+      "repeat": 501,
+      "suffix": "",
+      "expectedUtf16Length": 501,
+      "accepted": true
+    },
+    {
+      "name": "12000",
+      "unit": "あ",
+      "repeat": 11956,
+      "suffix": " \n研究🔬\nhttps://example.com/research\n原文の終わり \n",
+      "expectedUtf16Length": 12000,
+      "accepted": true
+    },
+    {
+      "name": "12001",
+      "unit": "あ",
+      "repeat": 11957,
+      "suffix": " \n研究🔬\nhttps://example.com/research\n原文の終わり \n",
+      "expectedUtf16Length": 12001,
+      "accepted": false
+    }
+  ]
+}

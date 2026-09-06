@@ -613,6 +613,7 @@ type MobileTaskFieldPatch =
   | { todayDate: string | null }
   | { themeId: string | null }
   | { aiReady: boolean }
+  | { plannedSchedule: { startTime: string | null; durationMinutes: number | null } }
   | {
       checklistItems: Array<{
         id: string;
@@ -624,6 +625,12 @@ type MobileTaskFieldPatch =
     };
 
 function taskUpdatePatch(patch: MobileTaskFieldPatch) {
+  if ("plannedSchedule" in patch) {
+    return {
+      planned_start_time: patch.plannedSchedule.startTime,
+      planned_duration_minutes: patch.plannedSchedule.durationMinutes,
+    };
+  }
   if ("todayDate" in patch) return { today_date: patch.todayDate };
   if ("themeId" in patch) return { project_id: patch.themeId };
   if ("aiReady" in patch) {
@@ -657,6 +664,12 @@ function taskUpdatePayload(
     return {
       task_id: command.taskId,
       expected_version: command.expectedVersion,
+      ...("plannedSchedule" in changes && "plannedSchedule" in command.base
+        ? {
+            changes: taskUpdatePatch({ plannedSchedule: changes.plannedSchedule }),
+            base: taskUpdatePatch({ plannedSchedule: command.base.plannedSchedule }),
+          }
+        : {}),
       schedule_change: {
         changes: canonicalSchedule(changes.schedule),
         base: base ? canonicalSchedule(base) : null,
@@ -1499,6 +1512,12 @@ export class MobileGatewayAdapter {
                 requester: command.task.requester,
                 intended_executor: command.task.intendedExecutor,
                 today_date: command.task.todayDate ?? null,
+                ...(command.task.plannedStartTime !== undefined
+                  ? { planned_start_time: command.task.plannedStartTime }
+                  : {}),
+                ...(command.task.plannedDurationMinutes !== undefined
+                  ? { planned_duration_minutes: command.task.plannedDurationMinutes }
+                  : {}),
                 ...(command.task.description !== undefined
                   ? { description: command.task.description }
                   : {}),
@@ -1828,7 +1847,9 @@ export class MobileGatewayAdapter {
           command.name === "UpdateTask" &&
           Boolean(
             command.changes && Object.prototype.hasOwnProperty.call(command.changes, "schedule"),
-          );
+          ) &&
+          (currentTask.data.schedule?.version ?? null) !==
+            (command.expectedScheduleVersion ?? null);
         return this.error(meta, "version_conflict", false, {
           currentTask: projectTask(currentTask.data, true),
           intendedAction: command.name,

@@ -3,5 +3,6 @@
     xmlns:tools="http://schemas.android.com/tools">
     <application
         android:label="Tasken Debug"
+        android:networkSecurityConfig="@xml/tasken_debug_network_security"
         tools:replace="android:label" />
 </manifest>

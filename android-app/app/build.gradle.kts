@@ -95,6 +95,7 @@ android {
         clear()
         add(rootProject.file("../contracts/mobile/v1").absolutePath)
         add(rootProject.file("../design-standard").absolutePath)
+        add(rootProject.file("../fixtures").absolutePath)
     }
     sourceSets.getByName("androidTest").assets.srcDir(file("schemas"))
 }

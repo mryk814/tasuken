@@ -1,0 +1,48 @@
+# Android Taskの後続変更
+
+一度送信を試みたCreate/Updateの後にも、名前・Theme・今日割当・予定・Checklist・完了/再開の入力を端末のRoomへ保存する。
+未送信Createの同一command内編集は従来の経路を使う。
+送信済みcommandのenvelopeとidempotency keyは変更しない。
+
+Room 20はoutboxへnullableな`taskIntentJson`を追加する。
+後続変更は元の値と変更内容をこの列へ保存し、親のreceiptを待つ間は`envelopeJson`を空にする。
+同じTaskは`dependsOnCommandId`で直前の変更へ接続する。
+親receiptを適用するtransactionが子のexpectedVersionとenvelopeを確定し、同じtransactionで全後続変更をcanonical Taskへ再投影する。
+予定の日付はSchedule version、名前・時刻・所要時間・ChecklistはTask versionで保護する。
+予定を含む子は直前receiptのSchedule versionも使う。
+これにより古いreceiptでローカルの予定、Checklist、名前や完了状態が戻らない。
+ローカル変更の追加もTask読取とoutbox/cache更新を一つのtransactionで行う。
+
+競合・却下では後続をblockedとして保存する。
+異なるTaskの送信は継続する。
+競合画面は保留中の後続内容を表示し、利用者がこの端末を採用した場合にだけ後続を再接続する。
+Desktop採用は後続の破棄を文言で明示する。
+却下された変更は同じenvelopeで再試行するか、原入力を確認して明示破棄できる。
+新しいversionを自動で当てて他端末の変更を上書きしない。
+AIのWork Receipt確認が必要なTaskの完了/再開制約は維持する。
+
+予定editorは開始・期限・期間の意味に加え、既存の予定開始時刻（HH:mm）と所要時間（1〜10080分）を保存する。
+日付と時刻の両方を変更した場合は一つのUpdateTaskとして原子的に送る。
+今日割当は期限と独立したままとする。
+一度も送信していない同種のSchedule／Checklistの末尾だけは、最初のbaseを残して一つにまとめる。
+試行後は必ず別のintentにする。
+同じtransaction内のcache書込が失敗すれば、まとめる前のenvelopeとcacheの両方へ戻る。
+却下された構造化変更は単独でも端末入力を保持し、再起動後に明示破棄すると元の値へ戻る。
+
+Checklistはitem IDと順序を保持する。
+Desktop側はID単位で安全に合成できる別item編集を反映し、同itemの異なる編集、削除と編集などは双方を競合として保持する。
+Androidが配列を送ったことだけを理由に、他端末の追加や編集を上書きしない。
+
+検証対象は`MobileTaskEditChainTest`、`MobileOutboxDatabaseTest`、`MobileLocalDatabaseMigrationTest`、`TaskInlineEditingUiTest`。
+隔離Desktopとの収束は`MobileTaskEditGatewayTest`を既存test runnerから実行する。
+`aSeedInterruptedEditChain`と`bVerifyInterruptedEditChain`を別instrumentation processで順に実行すると、保存した後続変更と応答喪失したCreateを再起動後に検証できる。
+`MobileTaskStructuredGatewayTest`は実DesktopのChecklist同item・別item・削除/編集、Schedule version競合と日付/時刻の明示再採用を検証する。
+
+2026-09-06の隔離検証では、応答を失ったCreateから名前・Theme・今日・予定・Checklist複数チェック・完了までを保存し、別Android processとDesktop再起動後の最終値、version 7、同じCreate原文の再送、重複反映なしを確認した。
+Schedule／Checklistの却下後再起動、未送信まとめ処理中のRoom失敗、先行receiptでの入力保持をDAOで確認する。
+予定時刻入力はeditorを閉じる、Compose状態再生成、保存失敗後も保持する。
+UIの証拠画像はローカルの`artifacts/issue533/`に保存する。
+最終検証はAndroid unit 136件、DAO 60件、Foldとcompactの入力UI各5件が成功した。
+Fold／compactでは予定時刻・所要時間の入力欄と保存ボタン、保留変更の再試行・破棄、保存失敗後のTask名とfocus・キーボードを目視確認した。
+実GatewayのTask編集4件、構造化編集2件が成功し、構造化DAO変更後にも応答喪失/再起動2件と構造化編集2件を再確認した。
+実機Androidと実ネットワーク切断は未検証であり、通信障害は隔離Gatewayの制御proxyで注入した。

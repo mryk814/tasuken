@@ -217,6 +217,15 @@ class AndroidMobileTaskRepository(
 
     override fun configuration(): MobileGatewayConfiguration = store.configuration()
 
+    override fun observeTodayCache(date: LocalDate): Flow<MobileTodayCache> =
+        combine(outbox.observeTasks(date), outbox.observeAllTasks(), dao.observeSyncState()) { tasks, allTasks, state ->
+            MobileTodayCache(
+                tasks = tasks.map { it.toMobileTask(state?.serverId) },
+                hasStoredTasks = allTasks.isNotEmpty(),
+                lastSuccessfulSyncAt = state?.lastSuccessfulSyncAt,
+            )
+        }
+
     override fun observeCachedTasks(): Flow<List<MobileTask>> =
         combine(outbox.observeTasks(), dao.observeSyncState()) { tasks, syncState ->
             tasks.map { it.toMobileTask(syncState?.serverId) }
@@ -339,6 +348,18 @@ class AndroidMobileTaskRepository(
     override suspend fun undoCreateCapture(captureId: String): MobileUndoCreateResult =
         outbox.undoCapture(captureId)
 
+    override fun observePendingCaptures(): Flow<List<MobilePendingCapture>> =
+        combine(dao.observePendingCaptures(), dao.observeSyncState()) { commands, state ->
+            commands.filter { it.serverId == state?.serverId }.mapNotNull(OutboxCommandEntity::toPendingCapture)
+        }
+
+    override suspend fun retryPendingCapture(commandId: String): Boolean {
+        val serverId = dao.syncState()?.serverId ?: return false
+        if (dao.retryRejectedCapture(commandId, serverId) != 1) return false
+        MobileOutboxScheduler.enqueue(context)
+        return true
+    }
+
     override suspend fun enqueueUpdateTaskTitle(taskId: String, title: String): String =
         outbox.enqueueUpdateTitle(taskId, title)
 
@@ -348,7 +369,7 @@ class AndroidMobileTaskRepository(
     override suspend fun enqueueUpdateTaskSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String =
         outbox.enqueueUpdateSchedule(taskId, schedule)
 
-    override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
+    override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String?): String =
         outbox.enqueueUpdateTheme(taskId, themeId)
 
     override suspend fun enqueueUpdateTaskChecklist(taskId: String, items: List<MobileChecklistItem>): String =
@@ -364,6 +385,8 @@ class AndroidMobileTaskRepository(
     override suspend fun acceptServerConflict(commandId: String) = outbox.acceptServer(commandId)
 
     override suspend fun keepLocalConflict(commandId: String): String = outbox.keepLocal(commandId)
+    override suspend fun retryRejectedTaskChanges(commandId: String) = outbox.retryRejectedTaskChanges(commandId)
+    override suspend fun discardRejectedTaskChanges(commandId: String) = outbox.discardRejectedTaskChanges(commandId)
 
     override suspend fun loadWorkReceipt(taskId: String, receiptId: String): MobileWorkReceiptLoadResult {
         val expectedServerId = dao.syncState()?.serverId
@@ -1193,17 +1216,17 @@ class AndroidMobileTaskRepository(
             )
         } catch (error: Exception) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Gateway Today sync failed", error)
-            val (cached, syncState) = runBlocking {
-                dao.tasksForDate(LocalDate.now().toString()).map(TaskCacheEntity::toMobileTask) to dao.syncState()
-            }
-            if (syncState != null) {
-                MobileTodayResult.Available(cached, syncState.lastSuccessfulSyncAt.orEmpty())
-            } else {
-                MobileTodayResult.Unavailable(
-                    "Mobile Gatewayに接続できません。",
-                    "DesktopとTailscale接続を確認して再読み込みするか、やり直してURLとコードを入力し直してください。",
+            if (store.readToken() == null) {
+                return MobileTodayResult.PairingRequired(
+                    configuration.origin,
+                    "PCとの接続をやり直してください。保存済みTaskはこの端末に残っています。",
                 )
             }
+            // Room is observed independently. An old snapshot does not prove this connection succeeded.
+            MobileTodayResult.Unavailable(
+                "PCへの接続を確認できませんでした。",
+                "DesktopとTailscale接続を確認して再読み込みしてください。",
+            )
         }
     }
 
@@ -1457,6 +1480,9 @@ class AndroidMobileTaskRepository(
                 body = envelopeJson,
                 accessToken = accessToken,
             )
+            if (isUnsupportedLongCapture(envelopeJson, response, expectedServerId)) {
+                return MobileCommandSendResult.Rejected("capability_unavailable", LONG_CAPTURE_UPDATE_REQUIRED)
+            }
             when {
                 response.status == 200 -> {
                     if (captureCommand) {

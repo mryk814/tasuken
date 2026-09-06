@@ -185,7 +185,7 @@ class TaskDailyFlowUiTest {
         composeRule.onNodeWithTag("capture-classification-toggle").performScrollTo().performClick()
         composeRule.onNodeWithTag("capture-theme-option-ideas").performScrollTo().performClick()
         input.assertIsNotFocused().assertTextContains(text)
-        val overLimit = text + "補足".repeat(250)
+        val overLimit = text + "補足".repeat(6000)
         composeRule.runOnIdle { draft.value = draft.value.withText(overLimit) }
         input.assertTextContains(overLimit)
         composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()

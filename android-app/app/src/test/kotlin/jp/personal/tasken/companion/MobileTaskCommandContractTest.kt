@@ -145,7 +145,7 @@ class MobileTaskCommandContractTest {
     }
 
     @Test
-    fun rejectsWithdrawnPlannedSchedulePatch() {
+    fun validatesRestoredPlannedSchedulePatch() {
         val planned = buildJsonObject {
             put("plannedSchedule", buildJsonObject {
                 put("startTime", JsonPrimitive("10:00"))
@@ -158,8 +158,14 @@ class MobileTaskCommandContractTest {
                 put("durationMinutes", JsonNull)
             })
         }
-        assertThrows(IllegalStateException::class.java) {
-            MobileTaskCommandContract.encode(updateEnvelope(planned, empty, null))
+        val envelope = updateEnvelope(planned, empty, null)
+        assertEquals(envelope, MobileTaskCommandContract.decodeUpdateEnvelope(MobileTaskCommandContract.encode(envelope)))
+        assertThrows(IllegalArgumentException::class.java) {
+            MobileTaskCommandContract.encode(updateEnvelope(buildJsonObject {
+                put("plannedSchedule", buildJsonObject {
+                    put("startTime", JsonPrimitive("24:00")); put("durationMinutes", JsonPrimitive(0))
+                })
+            }, empty, null))
         }
     }
 

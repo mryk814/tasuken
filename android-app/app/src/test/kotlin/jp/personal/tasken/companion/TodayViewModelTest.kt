@@ -2,10 +2,14 @@ package jp.personal.tasken.companion
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -16,6 +20,220 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TodayViewModelTest {
+    @Test
+    fun oldRefreshCannotOverwriteSuccessfulRePairing() = runBlocking {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val repository = object : MobileGatewayRepository {
+            override fun loadToday(): MobileTodayResult {
+                started.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                return MobileTodayResult.PairingRequired("https://old.test")
+            }
+            override fun configuration() = MobileGatewayConfiguration("https://new.test", true)
+            override fun pair(origin: String, pairingCode: String) =
+                MobileTodayResult.Available(listOf(sampleTask().copy(title = "新しい接続")), "2026-09-06T00:00:00Z")
+            override fun retryPairing() = MobileTodayResult.PairingRequired("https://new.test")
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Default)
+        val loading = launch(Dispatchers.Default) { viewModel.loadNow() }
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            viewModel.retryPairing()
+            viewModel.pairNow("https://new.test", "123456")
+        } finally {
+            release.countDown()
+            loading.join()
+        }
+        assertEquals("新しい接続", (viewModel.uiState.value as TodayUiState.Success).tasks.single().title)
+    }
+
+    @Test
+    fun explicitPairingFormSurvivesCacheEmissionsAndResume() = runBlocking {
+        val cache = MutableStateFlow(listOf(sampleTask()))
+        val repository = object : MobileGatewayRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Available(cache.value, "2026-09-06T00:00:00Z")
+            override fun configuration() = MobileGatewayConfiguration("https://gateway.test", false)
+            override fun pair(origin: String, pairingCode: String) = loadToday()
+            override fun retryPairing() = MobileTodayResult.PairingRequired("https://gateway.test")
+            override fun observeCachedTasks() = cache
+            override fun observePendingCount() = flowOf(0)
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
+        viewModel.retryPairing()
+        cache.value = listOf(sampleTask().copy(title = "バックグラウンド更新"))
+        viewModel.loadNow()
+        assertEquals(TodayUiState.PairingRequired("https://gateway.test"), viewModel.uiState.value)
+        viewModel.pairNow("https://gateway.test", "123456")
+        assertEquals("バックグラウンド更新", (viewModel.uiState.value as TodayUiState.Success).tasks.single().title)
+    }
+
+    @Test
+    fun oldDateSingleReadCannotOverwriteNewDateObservation() = runBlocking {
+        var date = java.time.LocalDate.parse("2026-09-06")
+        val release = CompletableDeferred<Unit>()
+        var reads = 0
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Unavailable("offline", "retry")
+            override fun observeCachedTasks() = flowOf(emptyList<MobileTask>())
+            override fun observeTodayCache(date: java.time.LocalDate): Flow<MobileTodayCache> {
+                val ordinal = ++reads
+                return flow {
+                    if (ordinal == 2) release.await()
+                    emit(MobileTodayCache(listOf(sampleTask().copy(title = date.toString())), true))
+                }
+            }
+            override fun observePendingCount() = flowOf(0)
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined, today = { date })
+        val loading = launch(Dispatchers.Unconfined) { viewModel.loadNow() }
+        date = date.plusDays(1)
+        viewModel.refreshLocalDate()
+        assertEquals(date.toString(), (viewModel.uiState.value as TodayUiState.Success).tasks.single().title)
+        release.complete(Unit)
+        loading.join()
+        assertEquals(date.toString(), (viewModel.uiState.value as TodayUiState.Cached).tasks.single().title)
+    }
+
+    @Test
+    fun dateChangeReplacesSubscriptionWithoutWaitingForNetworkAndReloadDoesNotAccumulateIt() = runBlocking {
+        var date = java.time.LocalDate.parse("2026-09-06")
+        val active = mutableMapOf<java.time.LocalDate, Int>()
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.Unavailable("offline", "retry")
+            override fun observeCachedTasks() = flowOf(emptyList<MobileTask>())
+            override fun observeTodayCache(date: java.time.LocalDate): Flow<MobileTodayCache> = flow {
+                active[date] = (active[date] ?: 0) + 1
+                try {
+                    emit(MobileTodayCache(listOf(sampleTask().copy(title = date.toString())), true))
+                    awaitCancellation()
+                } finally {
+                    active[date] = active.getValue(date) - 1
+                }
+            }
+            override fun observePendingCount() = flowOf(0)
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Unconfined, today = { date })
+        assertEquals(1, active[date])
+        repeat(3) { viewModel.loadNow() }
+        assertEquals(1, active[date])
+        val yesterday = date
+        date = date.plusDays(1)
+        viewModel.refreshLocalDate()
+        assertEquals(0, active[yesterday])
+        assertEquals(1, active[date])
+        assertEquals(date.toString(), (viewModel.uiState.value as TodayUiState.Cached).tasks.single().title)
+    }
+
+    @Test
+    fun unobservedQueueCountsAreUnknown() {
+        val viewModel = TodayViewModel(FakeRepository(emptyList()))
+        assertNull(viewModel.pendingCount.value)
+        assertNull(viewModel.conflictCount.value)
+    }
+
+    @Test
+    fun persistedSyncDistinguishesEmptyTodayFromNeverFetched() = runBlocking {
+        fun repository(syncedAt: String?) = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday() = MobileTodayResult.PairingRequired()
+            override fun observeCachedTasks() = flowOf(emptyList<MobileTask>())
+            override fun observeTodayCache(date: java.time.LocalDate) = flowOf(MobileTodayCache(emptyList(), false, syncedAt))
+            override fun observePendingCount() = flowOf(0)
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
+            override suspend fun enqueueCompleteTask(taskId: String) = MobileStateActionResult("unused", true)
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("unused", true)
+        }
+        val neverFetched = TodayViewModel(repository(null), Dispatchers.Unconfined)
+        assertSame(TodayUiState.Loading, neverFetched.uiState.value)
+        neverFetched.loadNow()
+        assertTrue(neverFetched.uiState.value is TodayUiState.PairingRequired)
+
+        val restored = TodayViewModel(repository("2026-09-05T12:00:00Z"), Dispatchers.Unconfined)
+        val empty = restored.uiState.value as TodayUiState.Success
+        assertTrue(empty.tasks.isEmpty())
+        assertEquals("2026-09-05T12:00:00Z", empty.generatedAt)
+        restored.loadNow()
+        val cached = restored.uiState.value as TodayUiState.Cached
+        assertTrue(cached.tasks.isEmpty())
+        assertEquals("2026-09-05T12:00:00Z", cached.generatedAt)
+        assertEquals(TodayUiState.CachedRecovery.RePair, cached.recovery)
+    }
+
+    @Test
+    fun cachedTaskIsUsableBeforeGatewayResponds() = runBlocking {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        var completed = false
+        val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
+            override fun loadToday(): MobileTodayResult {
+                started.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                return MobileTodayResult.Unavailable("接続失敗", "再接続してください。")
+            }
+            override fun observeCachedTasks() = flowOf(listOf(sampleTask()))
+            override fun observePendingCount() = flowOf(0)
+            override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "new-task"
+            override suspend fun enqueueCompleteTask(taskId: String): MobileStateActionResult {
+                completed = true
+                return MobileStateActionResult("complete", true)
+            }
+            override suspend fun enqueueReopenTask(taskId: String) = MobileStateActionResult("reopen", true)
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Default)
+        val loading = launch(Dispatchers.Default) { viewModel.loadNow() }
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            val state = viewModel.uiState.value as TodayUiState.Success
+            assertEquals(sampleTask(), state.tasks.single())
+            assertTrue(viewModel.refreshing.value)
+            viewModel.toggleTaskStateNow(state.tasks.single())
+            assertTrue(completed)
+        } finally {
+            release.countDown()
+            loading.join()
+        }
+        assertTrue(viewModel.uiState.value is TodayUiState.Cached)
+        assertEquals(false, viewModel.refreshing.value)
+    }
+
+    @Test
+    fun todayResultIsVisibleWhileProposalRefreshIsPending() = runBlocking {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val repository = object : MobileGatewayRepository {
+            override fun loadToday() = MobileTodayResult.Available(listOf(sampleTask()), "2026-09-06T00:00:00Z")
+            override fun configuration() = MobileGatewayConfiguration("https://gateway.test", true)
+            override fun pair(origin: String, pairingCode: String) = loadToday()
+            override fun retryPairing() = MobileTodayResult.PairingRequired()
+            override suspend fun refreshTaskWorkProposals(): Boolean {
+                started.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                return true
+            }
+        }
+        val viewModel = TodayViewModel(repository, Dispatchers.Default)
+        val loading = launch(Dispatchers.Default) { viewModel.loadNow() }
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            assertEquals(sampleTask(), (viewModel.uiState.value as TodayUiState.Success).tasks.single())
+            loading.join()
+            assertEquals(false, viewModel.refreshing.value)
+            assertEquals(true, viewModel.proposalRefreshing.value)
+        } finally {
+            release.countDown()
+            loading.join()
+        }
+    }
+
     @Test
     fun initialStateIsLoading() {
         assertSame(TodayUiState.Loading, TodayViewModel(FakeRepository(emptyList())).uiState.value)
@@ -305,7 +523,7 @@ class TodayViewModelTest {
             )
         }
 
-        assertEquals("共有メモ", receivedDraft?.text)
+        assertEquals("  共有メモ  ", receivedDraft?.text)
         assertEquals(MobileCaptureKind.Capture, receivedDraft?.kind)
         assertEquals(
             CaptureUiState.Queued("queued-capture-id", MobileCaptureKind.Capture),
@@ -483,7 +701,7 @@ class TodayViewModelTest {
     @Test
     fun themeCatalogIsExposedAndCanonicalSelectionQueuesOfflineIntent() {
         var called = false
-        var receivedThemeId = "not-called"
+        var receivedThemeId: String? = "not-called"
         val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
             override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
@@ -497,7 +715,7 @@ class TodayViewModelTest {
             )
             override fun observePendingCount(): Flow<Int> = flowOf(0)
             override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
-            override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String {
+            override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String?): String {
                 called = true
                 receivedThemeId = themeId
                 return "theme-command"
