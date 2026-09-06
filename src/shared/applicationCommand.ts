@@ -1,7 +1,7 @@
 import { entityTypes, type Entity, type EntityType } from "./types/workspace.ts";
 import { normalizeExternalReferences } from "./externalReference.mjs";
 import type { ExternalReference } from "./externalReference.mjs";
-import { isWellFormedUnicode } from "./kernel/public.ts";
+import { isWellFormedUnicode, isoTimestampSchema } from "./kernel/public.ts";
 
 export const applicationCommandNames = [
   "CreateTask",
@@ -340,6 +340,13 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
   const source = requireString(value.source, "Command source") as ApplicationCommandSource;
   if (!applicationCommandSources.includes(source))
     throw new ApplicationCommandError("INVALID_ENVELOPE", "Command sourceが不正です。");
+  if (
+    source === "mobile" &&
+    ["CreateCapture", "CompleteTask", "ReopenTask", "UpdateTask"].includes(name) &&
+    !isoTimestampSchema.safeParse(value.issuedAt).success
+  ) {
+    throw new ApplicationCommandError("INVALID_ENVELOPE", "issuedAtにはoffset付き日時が必要です。");
+  }
   const expectedVersions = value.expectedVersions;
   if (
     expectedVersions !== undefined &&

@@ -94,3 +94,28 @@ Today の開く操作だけが Main の安全境界を通り、壊れた参照�
 
 #294 の visibility / authority / freshness は projection 時点で評価します。
 local_only は M365 projection に含めず、除外件数と理由だけを返します。
+
+## Android操作と同期の日時（#538）
+
+AndroidのCreateCapture、CompleteTask／ReopenTask、Checklistのcheck／uncheckは、端末で操作した時の`issuedAt`をActivityの`occurred_at`へ使う。
+日曜23:55 JSTの操作を火曜に受理しても、Asia/Tokyoの期間queryでは日曜に属する。
+CompleteTaskの`completed_at`も同じ操作時刻とする。
+これは「完了と記録した時刻」であり、実際の作業開始・終了や所要時間を保証しない。
+
+Captureは既存の`capturedAt == issuedAt`契約を維持し、入力取得時刻を保存する。
+Checklist itemの`completed_at`、command ID、元のoffset付き`issuedAt`も変更しない。
+Desktopの保存時刻は`changed_at`と`metadata.accepted_at`に分離する。
+`metadata.time_basis = client_operation`、`operation_issued_at`、`clock_status = unverified_client_clock`で由来を示し、公開projectionにもこの時刻情報だけを引き継ぐ。
+
+新しいMobile要求にはoffset付きの有効なISO日時を要求する。
+不正な日付・offsetのない日時は受理せず、現在時刻に補正しない。
+形式が正しい未来や過去の時刻は元の申告値を残し、端末時計を検証済みとも実際の作業事実とも扱わない。
+`occurred_at`は同じ瞬間のUTC表記へ正規化し、期間所属はqueryのIANA timezoneで求める。
+日付だけの予定はこの変換を通さない。
+
+同一commandの再送は元のevent／receiptを返し、再起動・後続commandの確定で操作時刻を差し替えない。
+旧payloadの有効な日時と旧event／Snapshotの読み取りは維持し、既存eventの日時をbackfillしない。
+時刻の由来metadataがない旧eventは従来の記録値であり、端末操作時刻だったとは断定しない。
+DesktopやAIの他のproducerは本変更の対象外とする。
+
+`application-command.test.mjs`と`mobile-gateway-phase4a.test.mjs`で、日曜操作・火曜受理、Core経由の送信、同一receipt、SQLite再読込、SnapshotのJSON往復、不正日時と未来の端末時計を確認する。
