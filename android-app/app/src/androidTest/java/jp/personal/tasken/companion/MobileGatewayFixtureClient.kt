@@ -32,9 +32,14 @@ internal class MobileGatewayFixtureClient {
             status >= 500 -> MobileCommandSendResult.Retry("Fixture HTTP $status")
             else -> MobileTaskCommandContract.decodeError(body).let { MobileCommandSendResult.Rejected(it.error.code, it.error.message, it.error.retryable) }
         }
-    }.getOrElse { MobileCommandSendResult.Retry("Fixture connection interrupted") }
+    }.getOrElse { MobileCommandSendResult.Retry("Fixture connection interrupted (${it.javaClass.simpleName}): ${it.message?.take(300)}") }
 
     fun snapshot(): JsonObject = control(null)
+    fun read(path: String): GatewayHttpResponse {
+        require(path.startsWith("/v1/"))
+        val (status, body) = request(path, null, requireNotNull(arguments.getString("gatewayToken")))
+        return GatewayHttpResponse(status, body)
+    }
     fun workLog(id: String): MobileWorkLogDto? {
         val response = request("/v1/work-logs?id=$id", null, requireNotNull(arguments.getString("gatewayToken")))
         check(response.first == 200)

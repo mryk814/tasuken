@@ -51,15 +51,17 @@ internal fun MobilePendingCaptureDialog(
     entries: List<MobilePendingCapture>,
     onRetry: suspend (String) -> Boolean,
     onDismiss: () -> Unit,
+    initialSelectedId: String? = null,
+    title: String = "送信待ちのCapture",
 ) {
-    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedId by rememberSaveable { mutableStateOf(initialSelectedId) }
     var retrying by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
     val selected = entries.firstOrNull { it.commandId == selectedId }
     val scope = rememberCoroutineScope()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("送信待ちのCapture") },
+        title = { Text(title) },
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()),

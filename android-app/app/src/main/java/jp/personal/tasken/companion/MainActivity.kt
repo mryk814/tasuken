@@ -209,7 +209,7 @@ internal fun taskenPaneScaffoldDirective(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3AdaptiveApi::class)
 @Composable
-private fun TodayApp(
+internal fun TodayApp(
     todayViewModel: TodayViewModel = viewModel(),
     entryRequest: MobileEntryRequest = MobileEntryRequest.None,
 ) {
@@ -245,6 +245,10 @@ private fun TodayApp(
     var pendingCapturesOpen by rememberSaveable { mutableStateOf(false) }
     var workLogOpen by rememberSaveable { mutableStateOf(false) }
     var workLogTaskId by rememberSaveable { mutableStateOf<String?>(null) }
+    var workLogRecordId by rememberSaveable { mutableStateOf<String?>(null) }
+    var recallOpen by rememberSaveable { mutableStateOf(false) }
+    var recallCapture by remember { mutableStateOf<MobilePendingCapture?>(null) }
+    val recallSavedState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val paneState = rememberTodayPaneState(restoredCaptureDraft)
     val speechRecognizer = remember(context) { AndroidShortSpeechRecognizer(context.applicationContext) }
     var speechState by remember(speechRecognizer) {
@@ -567,8 +571,11 @@ private fun TodayApp(
                     )
                 },
                 actions = {
+                    if (todayViewModel.recallRepository != null && paneState.activeSection == AppSection.Today) {
+                        TextButton(onClick = { recallOpen = true }, modifier = Modifier.testTag("open-recall")) { Text("今日の記録") }
+                    }
                     if (todayViewModel.workLogRepository != null) {
-                        TextButton(onClick = { workLogTaskId = null; workLogOpen = true }, modifier = Modifier.testTag("open-work-log")) { Text("記録") }
+                        TextButton(onClick = { workLogTaskId = null; workLogRecordId = null; workLogOpen = true }, modifier = Modifier.testTag("open-work-log")) { Text("記録") }
                     }
                     if (pendingCaptures.isNotEmpty()) {
                         TextButton(
@@ -852,9 +859,31 @@ private fun TodayApp(
         )
     }
 
+    if (recallOpen && !workLogOpen && recallCapture == null) {
+        todayViewModel.recallRepository?.let { repository ->
+            recallSavedState.SaveableStateProvider("recall") {
+                MobileRecallSheet(repository, allTasks,
+                    onTask = { id ->
+                        recallOpen = false
+                        paneState.selectedTaskId = id
+                        coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, id) }
+                    },
+                    onWorkLog = { id -> workLogRecordId = id; workLogTaskId = null; workLogOpen = true },
+                    onCapture = { recallCapture = it },
+                    onDismiss = { recallOpen = false })
+            }
+        }
+    }
+    recallCapture?.let { capture ->
+        val current = pendingCaptures.firstOrNull { it.commandId == capture.commandId }
+            ?: capture.copy(canRetry = false, status = "端末に保存した原文です。Desktop受理後も保持しています。")
+        MobilePendingCaptureDialog(listOf(current), onRetry = { todayViewModel.retryPendingCapture(it) },
+            onDismiss = { recallCapture = null }, initialSelectedId = capture.commandId, title = "Captureの原文")
+    }
     if (workLogOpen) {
         todayViewModel.workLogRepository?.let { repository ->
-            MobileWorkLogSheet(repository, themes, allTasks, allTasks.firstOrNull { it.id == workLogTaskId }, onDismiss = { workLogOpen = false })
+            MobileWorkLogSheet(repository, themes, allTasks, allTasks.firstOrNull { it.id == workLogTaskId }, initialRecordId = workLogRecordId,
+                onDismiss = { workLogOpen = false; workLogRecordId = null })
         }
     }
     if (paneState.captureOpen) {

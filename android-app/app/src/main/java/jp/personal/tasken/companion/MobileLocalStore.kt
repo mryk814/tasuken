@@ -22,6 +22,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 
 private val mobileChecklistJson = Json {
     ignoreUnknownKeys = false
@@ -376,6 +377,51 @@ object OutboxState {
 
 @Dao
 abstract class MobileLocalDao {
+    @Query("SELECT * FROM recall_day_cache WHERE serverId = :serverId AND date = :date AND timezone = :timezone")
+    abstract suspend fun recallDay(serverId: String, date: String, timezone: String): RecallDayCacheEntity?
+
+    @Query("SELECT * FROM recall_day_cache WHERE date = :date AND timezone = :timezone")
+    abstract fun observeRecallDays(date: String, timezone: String): Flow<List<RecallDayCacheEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertRecallDay(day: RecallDayCacheEntity)
+
+    @Query("SELECT * FROM recall_seen_source")
+    abstract fun observeRecallSeenSources(): Flow<List<RecallSeenSourceEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract suspend fun insertRecallSeenSources(sources: List<RecallSeenSourceEntity>)
+
+    @Query("SELECT * FROM recall_capture_cache")
+    abstract fun observeRecallCaptures(): Flow<List<RecallCaptureCacheEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertRecallCapture(capture: RecallCaptureCacheEntity)
+
+    @Query("DELETE FROM recall_capture_cache WHERE id = :captureId")
+    abstract suspend fun deleteRecallCapture(captureId: String)
+
+    @Transaction
+    open suspend fun saveRecallDay(day: RecallDayCacheEntity, previousCursor: String?) {
+        require(syncState()?.serverId == day.serverId)
+        val previous = recallDay(day.serverId, day.date, day.timezone)
+        require(previousCursor == null || previous?.nextCursor == previousCursor)
+        upsertRecallDay(day)
+        if (day.lastFetchedAt != null && !day.partial && day.error == null) {
+            val events = MobileRecallContract.json.decodeFromString<List<MobileRecallEvent>>(day.eventsJson)
+            insertRecallSeenSources(events.map { RecallSeenSourceEntity(day.serverId, it.mobile_source.type, it.mobile_source.id, day.lastFetchedAt) })
+        }
+    }
+
+    @Transaction
+    open suspend fun cacheRecallWorkLog(record: WorkLogCacheEntity) {
+        require(syncState()?.serverId == record.serverId)
+        val existing = workLog(record.id)
+        if (existing == null) upsertWorkLog(record)
+        else if (existing.serverId == record.serverId) refreshWorkLog(record.copy(creationEnvelopeJson = existing.creationEnvelopeJson))
+        else throw MobileRecallSourceUnavailable("別のDesktopの同じIDの原文が端末にあります。保存済みの原文を守るため、この原記録はDesktopで確認してください。")
+    }
+
     @Transaction
     @Query("SELECT * FROM work_log_cache ORDER BY enteredAt DESC, id")
     abstract fun observeWorkLogs(): Flow<List<WorkLogWithCommand>>
@@ -640,7 +686,13 @@ abstract class MobileLocalDao {
     abstract suspend fun deleteTask(taskId: String)
 
     @Query("DELETE FROM capture_receipt WHERE id = :captureId")
-    abstract suspend fun deleteCaptureReceipt(captureId: String)
+    protected abstract suspend fun deleteCaptureReceiptRow(captureId: String)
+
+    @Transaction
+    open suspend fun deleteCaptureReceipt(captureId: String) {
+        deleteRecallCapture(captureId)
+        deleteCaptureReceiptRow(captureId)
+    }
 
     @Query("DELETE FROM theme_cache")
     abstract suspend fun deleteThemes()
@@ -932,6 +984,10 @@ abstract class MobileLocalDao {
         require(command.serverId.isNotBlank())
         require(syncState()?.serverId == command.serverId)
         upsertCaptureReceipt(receipt)
+        val capture = Json.parseToJsonElement(command.envelopeJson).jsonObject.getValue("command")
+            .jsonObject.getValue("capture").jsonObject
+        upsertRecallCapture(RecallCaptureCacheEntity(command.serverId, receipt.id, command.commandId,
+            (capture.getValue("text") as JsonPrimitive).content, receipt.capturedAt))
         insertOutbox(command)
     }
 
@@ -1851,6 +1907,9 @@ abstract class MobileLocalDao {
         TaskCacheEntity::class,
         CaptureReceiptEntity::class,
         WorkLogCacheEntity::class,
+        RecallDayCacheEntity::class,
+        RecallCaptureCacheEntity::class,
+        RecallSeenSourceEntity::class,
         ThemeCacheEntity::class,
         ThemeCatalogStateEntity::class,
         OutboxCommandEntity::class,
@@ -1862,7 +1921,7 @@ abstract class MobileLocalDao {
         PendingTaskDelegationEntity::class,
         TaskNotificationDeliveryEntity::class,
     ],
-    version = 21,
+    version = 22,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -1897,7 +1956,25 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_18_19,
                     MIGRATION_19_20,
                     MIGRATION_20_21,
+                    MIGRATION_21_22,
             ).build().also { instance = it }
+        }
+    }
+}
+
+internal val MIGRATION_21_22 = object : Migration(21, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS recall_day_cache (serverId TEXT NOT NULL, date TEXT NOT NULL, timezone TEXT NOT NULL, eventsJson TEXT NOT NULL, lastFetchedAt TEXT, nextCursor TEXT, revision TEXT, error TEXT, partial INTEGER NOT NULL, stagedEventsJson TEXT, lastPageFetchedAt TEXT, PRIMARY KEY(serverId, date, timezone))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS recall_capture_cache (serverId TEXT NOT NULL, id TEXT NOT NULL, commandId TEXT NOT NULL, body TEXT NOT NULL, capturedAt TEXT NOT NULL, PRIMARY KEY(serverId, id))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS recall_seen_source (serverId TEXT NOT NULL, type TEXT NOT NULL, sourceId TEXT NOT NULL, observedAt TEXT NOT NULL, PRIMARY KEY(serverId, type, sourceId))")
+        // Existing unsent Capture envelopes are already durable. Preserve their text in the new read cache.
+        db.query("SELECT serverId, captureId, commandId, envelopeJson, createdAt FROM outbox_command WHERE commandName = 'CreateCapture'").use { cursor ->
+            while (cursor.moveToNext()) {
+                val capture = Json.parseToJsonElement(cursor.getString(3)).jsonObject.getValue("command")
+                    .jsonObject.getValue("capture").jsonObject
+                db.execSQL("INSERT OR IGNORE INTO recall_capture_cache (serverId,id,commandId,body,capturedAt) VALUES (?,?,?,?,?)",
+                    arrayOf(cursor.getString(0), cursor.getString(1), cursor.getString(2), (capture.getValue("text") as JsonPrimitive).content, cursor.getString(4)))
+            }
         }
     }
 }

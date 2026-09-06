@@ -207,11 +207,35 @@ class AndroidMobileTaskRepository(
     private val httpClient: MobileGatewayHttpClient? = null,
     private val themeNow: () -> Instant = Instant::now,
     private val processInstanceId: String = MOBILE_PROCESS_INSTANCE_ID,
-) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository {
+) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileRecallRepository {
     private val json = Json { ignoreUnknownKeys = false }
     private val dao = database.mobileDao()
     private val outbox = MobileOutbox(context.applicationContext, dao, store::deviceId)
     private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
+    private val recallReader = MobileRecallReader(dao) { path ->
+        val configuration = store.configuration()
+        val token = requireNotNull(store.readToken()) { "Desktopへの接続を確認してください。端末の記録を表示しています。" }
+        gatewayRequest(configuration.origin, path, "GET", null, token)
+    }
+
+    override fun observeRecallDay(date: LocalDate, timezone: java.time.ZoneId): Flow<MobileRecallDay> = recallReader.observe(date, timezone)
+    override suspend fun refreshRecallDay(date: LocalDate, timezone: java.time.ZoneId, nextPage: Boolean) = recallReader.refresh(date, timezone, nextPage)
+
+    override suspend fun loadRecallWorkLog(id: String) {
+        val serverId = requireNotNull(dao.syncState()?.serverId)
+        if (dao.workLog(id)?.serverId == serverId) return
+        val configuration = store.configuration()
+        val token = requireNotNull(store.readToken())
+        val response = gatewayRequest(configuration.origin, "/v1/work-logs?id=${URLEncoder.encode(id, Charsets.UTF_8.name())}", "GET", null, token)
+        check(response.status == 200) { "原文を取得できません。Desktopの接続と対応バージョンを確認してください。" }
+        val result = MobileWorkLogContract.json.decodeFromString<MobileWorkLogReadResponse>(response.body)
+        require(result.ok && result.meta.serverId == serverId && result.meta.apiVersion == TASKEN_MOBILE_API_VERSION && result.meta.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
+        val current = requireNotNull(result.data.workLog) { "Desktopに原記録がありません。索引にある内容を表示しています。" }
+        MobileWorkLogContract.validateProjection(current)
+        require(current.id == id && dao.syncState()?.serverId == serverId)
+        dao.cacheRecallWorkLog(WorkLogCacheEntity(id, serverId, current.version, current.body, current.performedDate,
+            current.enteredAt, current.themeId, current.taskId, current.taskMissing, current.deleted, null))
+    }
 
     override fun observeWorkLogs(): Flow<List<MobileWorkLog>> =
         combine(dao.observeWorkLogs(), dao.observeSyncState()) { records, state ->

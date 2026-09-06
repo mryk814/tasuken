@@ -30,6 +30,7 @@ internal fun MobileWorkLogSheet(
     themes: List<MobileTheme>,
     tasks: List<MobileTask>,
     initialTask: MobileTask? = null,
+    initialRecordId: String? = null,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -37,9 +38,9 @@ internal fun MobileWorkLogSheet(
     val restored = remember(store) { runCatching { store.load() } }
     var draft by remember { mutableStateOf(restored.getOrNull() ?: MobileWorkLogDraft(taskId = initialTask?.id)) }
     var error by remember { mutableStateOf(if (restored.isFailure) "保存中の入力を読み込めません。元のデータは保持しています。" else null) }
-    var historyOpen by rememberSaveable { mutableStateOf(false) }
+    var historyOpen by rememberSaveable { mutableStateOf(initialRecordId != null) }
     var busy by remember { mutableStateOf(false) }
-    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedId by rememberSaveable { mutableStateOf(initialRecordId) }
     val recordsFlow = remember(repository) { repository.observeWorkLogs() }
     val records by recordsFlow.collectAsState(emptyList())
     val scope = rememberCoroutineScope()
@@ -103,7 +104,7 @@ internal fun MobileWorkLogSheet(
                     (speechState as? ShortSpeechUiState.Error)?.let { Text(it.message, color = MaterialTheme.colorScheme.error) }
                 } else {
                     if (records.isEmpty()) Text("まだ記録がありません。やったことを一言残せます。")
-                    records.forEach { item ->
+                    records.sortedBy { if (it.record.id == initialRecordId) 0 else 1 }.forEach { item ->
                         val record = item.record
                         ElevatedCard(Modifier.fillMaxWidth().testTag("work-log-record-${record.id}")) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -145,7 +146,7 @@ internal fun MobileWorkLogSheet(
                 Spacer(Modifier.height(12.dp))
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(onClick = onDismiss, enabled = !busy && !speechBusy) { Text("閉じる") }
+                TextButton(onClick = onDismiss, enabled = !busy && !speechBusy, modifier = Modifier.testTag("work-log-close")) { Text("閉じる") }
                 if (!historyOpen) Button(
                     modifier = Modifier.weight(1f).testTag("work-log-save"),
                     enabled = !busy && !speechBusy && restored.isSuccess && runCatching { MobileWorkLogContract.validateDraft(draft) }.isSuccess,
