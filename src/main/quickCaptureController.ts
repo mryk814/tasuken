@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 
 import { localDateString, localDateTimeString } from "./dateTime";
 import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
@@ -18,9 +19,9 @@ import type { CommandEnvelope, CommandReceipt } from "../shared/applicationComma
 import { IPC } from "../shared/ipc/contracts";
 import {
   mobileCaptureOrganizationRequestSchema,
-  mobileCaptureOrganizationTimedSchema,
   mobileCaptureOrganizationTimedBatchSchema,
 } from "../shared/contracts/mobile/public.ts";
+import { isoTimestampSchema } from "../shared/kernel/public.ts";
 import type { CaptureOrganizerBatch, CaptureOrganizerInput } from "./gateway/mobile/public";
 
 export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
@@ -32,10 +33,16 @@ interface QuickCaptureControllerOptions {
       | { type: EntityType; entity: Entity }
       | { entities: Array<{ type: EntityType; entity: Entity }> },
   ) => void;
-  notifyCommandApplied: (receipt: CommandReceipt, senderId: number) => void;
+  notifyCommandApplied: (receipt: CommandReceipt | CommandReceipt[], senderId: number) => void;
   executeCommand: (envelope: CommandEnvelope) => CommandReceipt;
+  executeCommands: (envelopes: CommandEnvelope[]) => CommandReceipt[];
   organizeCapture?: (input: CaptureOrganizerInput) => Promise<CaptureOrganizerBatch>;
 }
+
+const organizedSubmissionSchema = mobileCaptureOrganizationTimedBatchSchema.extend({
+  submissionId: z.uuid(),
+  issuedAt: isoTimestampSchema,
+});
 
 type QuickCaptureScheduleParse =
   | { ok: false; message: string }
@@ -95,6 +102,7 @@ export function createQuickCaptureController(
     win.on("blur", () => {
       if (win.isVisible()) win.hide();
     });
+    win.on("hide", () => win.webContents.send(IPC.quickCaptureHidden));
     return win;
   }
 
@@ -136,6 +144,107 @@ export function createQuickCaptureController(
     }
   }
 
+  function saveOrganized(text: unknown, value: unknown, senderId: number) {
+    const rawId =
+      value && typeof value === "object" ? Reflect.get(value, "submissionId") : undefined;
+    const identity = z.uuid().safeParse(rawId);
+    const existingCommandIds = identity.success
+      ? new Set(
+          (options.repository.list("change_event", true) as Entity[])
+            .map((event) => String(event.command_id || ""))
+            .filter((id) => id.startsWith(`${identity.data}-command-`)),
+        )
+      : new Set<string>();
+    const hasExistingTask =
+      identity.success &&
+      Array.from({ length: 8 }, (_, index) => index).some((index) =>
+        options.repository.get("task", `${identity.data}-task-${index}`, true),
+      );
+    const hasHistory = existingCommandIds.size > 0 || hasExistingTask;
+    const submission = organizedSubmissionSchema.safeParse(value);
+    const validationError =
+      !submission.success || typeof text !== "string" || !text.trim() || text.length > 12000
+        ? "元の入力と整理案を確認してください。候補は1〜8件、元の入力は12,000文字以内です。"
+        : !hasHistory &&
+            submission.data.tasks.some(
+              (proposal) => proposal.themeId && !options.repository.get("theme", proposal.themeId),
+            )
+          ? "選択したThemeが見つかりません。選び直してください。"
+          : null;
+    if (validationError) {
+      // Only pre-execution rejection with no saved evidence permits a new edited submission.
+      if (hasHistory) throw new Error("保存済みの入力を変更せずに再試行してください。");
+      return { status: "not_saved" as const, message: validationError };
+    }
+    if (!submission.success || typeof text !== "string") throw new Error("入力が不正です。");
+    const { submissionId, issuedAt, tasks, warnings } = submission.data;
+    const commands: CommandEnvelope[] = tasks.map((proposal, index) => {
+      const taskId = `${submissionId}-task-${index}`;
+      const dateKind = proposal.startDate
+        ? proposal.endDate && proposal.endDate > proposal.startDate
+          ? "range"
+          : "point"
+        : "deadline";
+      const allWarnings = [...new Set([...warnings, ...proposal.warnings])];
+      return {
+        commandId: `${submissionId}-command-${index}`,
+        name: "CreateTask",
+        actor: { kind: "user" },
+        source: "quick_capture",
+        sessionId: submissionId,
+        issuedAt,
+        payload: {
+          task: {
+            id: taskId,
+            title: proposal.title,
+            project_id: canonicalThemeId(proposal.themeId, { defaultPersonal: true }),
+            state: "todo",
+            priority: "normal",
+            description: `${proposal.supplement ? `# 補足\n${proposal.supplement}\n\n` : ""}${allWarnings.length ? `# 確認事項\n${allWarnings.join("\n")}\n\n` : ""}# 元の入力\n${text}`,
+            checklist_items: proposal.checklist.map((title, itemIndex) => ({
+              id: `${taskId}-check-${itemIndex}`,
+              title,
+              done: false,
+              sort_order: itemIndex,
+              completed_at: null,
+            })),
+            today_date: null,
+            planned_start_time: proposal.plannedStartTime,
+            planned_duration_minutes: proposal.plannedDurationMinutes,
+            created_at: issuedAt,
+          },
+          ...(proposal.startDate || proposal.endDate
+            ? {
+                schedule: {
+                  id: `${submissionId}-schedule-${index}`,
+                  owner_type: "task",
+                  owner_id: taskId,
+                  start_date: proposal.startDate,
+                  end_date: proposal.endDate,
+                  date_kind: dateKind,
+                  range_semantics: proposal.rangeSemantics,
+                  confidence: "fixed",
+                  granularity: "day",
+                },
+              }
+            : {}),
+        },
+      };
+    });
+    if (
+      hasHistory &&
+      (existingCommandIds.size !== commands.length ||
+        commands.some((command) => !existingCommandIds.has(command.commandId)))
+    ) {
+      throw new Error("保存済みの候補集合を変更せずに再試行してください。");
+    }
+    // executeBatch owns the one transaction, including every Task, Schedule, Event and receipt.
+    // A thrown execution or notification may follow an earlier commit: never label it not_saved.
+    const receipts = options.executeCommands(commands);
+    options.notifyCommandApplied(receipts, senderId);
+    return { status: "saved" as const, count: receipts.length };
+  }
+
   function registerIpc(): void {
     ipcMain.handle(IPC.quickCaptureOrganize, async (event, input: unknown) => {
       if (event.sender !== captureWindow?.webContents)
@@ -146,20 +255,15 @@ export function createQuickCaptureController(
         .slice(0, 200)
         .map((theme) => ({ id: theme.id, title: String(theme.name || theme.title || "Theme") }));
       const organized = mobileCaptureOrganizationTimedBatchSchema.parse(
-        await options.organizeCapture({ ...parsed, themes, maxTasks: 1, includePlannedTime: true }),
+        await options.organizeCapture({ ...parsed, themes, maxTasks: 8, includePlannedTime: true }),
       );
-      if (organized.tasks.length !== 1)
-        throw new Error("整理案の件数を確認して再試行してください。");
-      const proposal = mobileCaptureOrganizationTimedSchema.parse({
-        ...organized.tasks[0],
-        warnings: [...new Set([...organized.warnings, ...organized.tasks[0].warnings])].slice(
-          0,
-          10,
-        ),
-      });
-      if (proposal.themeId && !themes.some((theme) => theme.id === proposal.themeId))
+      if (
+        organized.tasks.some(
+          (proposal) => proposal.themeId && !themes.some((theme) => theme.id === proposal.themeId),
+        )
+      )
         throw new Error("Themeを確認して再試行してください。");
-      return proposal;
+      return organized;
     });
     ipcMain.on(IPC.quickCaptureResize, (event, expanded: boolean) => {
       if (event.sender === captureWindow?.webContents)
@@ -175,66 +279,13 @@ export function createQuickCaptureController(
         selectedRangeSemantics?: "once_within_window" | "ongoing",
         organization?: unknown,
       ) => {
-        const trimmed = (text || "").trim();
-        if (!trimmed) throw new Error("入力が空です。");
         if (organization !== undefined) {
           if (event.sender !== captureWindow?.webContents || mode !== "today-task")
             throw new Error("整理案はTask入力から追加してください。");
-          const proposal = mobileCaptureOrganizationTimedSchema.parse(organization);
-          if (text.length > 12000) throw new Error("元の入力は12,000文字以内にしてください。");
-          const taskId = randomUUID();
-          const now = new Date().toISOString();
-          const dateKind = proposal.startDate
-            ? proposal.endDate && proposal.endDate > proposal.startDate
-              ? "range"
-              : "point"
-            : "deadline";
-          const receipt = options.executeCommand({
-            commandId: randomUUID(),
-            name: "CreateTask",
-            actor: { kind: "user" },
-            source: "quick_capture",
-            issuedAt: now,
-            payload: {
-              task: {
-                id: taskId,
-                title: proposal.title,
-                project_id: canonicalThemeId(proposal.themeId, { defaultPersonal: true }),
-                state: "todo",
-                priority: "normal",
-                description: `${proposal.supplement ? `# 補足\n${proposal.supplement}\n\n` : ""}# 元の入力\n${text}`,
-                checklist_items: proposal.checklist.map((title, index) => ({
-                  id: randomUUID(),
-                  title,
-                  done: false,
-                  sort_order: index,
-                  completed_at: null,
-                })),
-                today_date: null,
-                planned_start_time: proposal.plannedStartTime,
-                planned_duration_minutes: proposal.plannedDurationMinutes,
-                created_at: now,
-              },
-              ...(proposal.startDate || proposal.endDate
-                ? {
-                    schedule: {
-                      id: randomUUID(),
-                      owner_type: "task",
-                      owner_id: taskId,
-                      start_date: proposal.startDate,
-                      end_date: proposal.endDate,
-                      date_kind: dateKind,
-                      range_semantics: proposal.rangeSemantics,
-                      confidence: "fixed",
-                      granularity: "day",
-                    },
-                  }
-                : {}),
-            },
-          });
-          options.notifyCommandApplied(receipt, event.sender.id);
-          return receipt.changes.find((change) => change.type === "task")?.entity;
+          return saveOrganized(text, organization, event.sender.id);
         }
+        const trimmed = (text || "").trim();
+        if (!trimmed) throw new Error("入力が空です。");
         if (mode === "today-task" || mode === "done-task") {
           const taskId = randomUUID();
           const today = localDateString();

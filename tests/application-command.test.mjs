@@ -1,5 +1,6 @@
 import {
   proposal as captureOrganizationProposal,
+  submission as captureSubmission,
   createQuickCaptureOrganizationFixture,
 } from "./helpers/quick-capture-organization.mjs";
 import assert from "node:assert/strict";
@@ -2164,6 +2165,102 @@ test("WorkspaceApp maps reachable mixed flows to named commands and preserves ot
   assert.match(workspaceApi, /Taskの保存はApplication Command経由/);
 });
 
+test("Desktop batch rolls back the first candidate when second persistence fails, then safely replays after lost response", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "tasken-capture-batch-"));
+  let database;
+  try {
+    database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+    database.save("theme", { id: "research", name: "研究" });
+    const value = captureSubmission([
+      captureOrganizationProposal,
+      { ...captureOrganizationProposal, title: "結果を報告" },
+    ]);
+    const firstId = `${value.submissionId}-task-0`;
+    const original = "比較実験を準備。それから結果を報告";
+    let secondReached = false;
+    const failingRepository = new Proxy(database, {
+      get(target, key) {
+        if (key === "runTransaction")
+          return (callback) =>
+            target.runTransaction((transaction) =>
+              callback(
+                new Proxy(transaction, {
+                  get(tx, member) {
+                    if (member === "saveMany")
+                      return (operations) => {
+                        if (
+                          operations.some(
+                            (operation) =>
+                              operation.type === "task" &&
+                              operation.entity.id === `${value.submissionId}-task-1`,
+                          )
+                        ) {
+                          assert.ok(tx.get("task", firstId));
+                          assert.ok(tx.list("change_event").length > 0);
+                          secondReached = true;
+                          throw new Error("second candidate persistence failed");
+                        }
+                        return tx.saveMany(operations);
+                      };
+                    const result = tx[member];
+                    return typeof result === "function" ? result.bind(tx) : result;
+                  },
+                }),
+              ),
+            );
+        const result = target[key];
+        return typeof result === "function" ? result.bind(target) : result;
+      },
+    });
+    let service = new ApplicationCommandService(failingRepository);
+    let loseResponse = false;
+    const f = createQuickCaptureOrganizationFixture(undefined, undefined, {
+      repository: database,
+      executeCommands: (commands) => service.executeBatch(commands),
+      notifyCommandApplied() {
+        if (loseResponse) throw new Error("response lost after commit");
+      },
+    });
+    const save = (current) => f.call("save", original, "today-task", undefined, undefined, current);
+    assert.throws(() => save(value), /second candidate persistence failed/);
+    assert.equal(secondReached, true);
+    for (const type of ["task", "schedule", "change_event"])
+      assert.equal(database.list(type).length, 0);
+    assert.equal(f.notifications.length, 0);
+    service = new ApplicationCommandService(database);
+    loseResponse = true;
+    assert.throws(() => save(value), /response lost after commit/);
+    assert.equal(database.list("task").length, 2);
+    assert.equal(database.list("schedule").length, 2);
+    const before = Object.fromEntries(
+      ["task", "schedule", "change_event"].map((type) => [type, database.list(type)]),
+    );
+    database.db.close();
+    database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+    service = new ApplicationCommandService(database);
+    const reopened = createQuickCaptureOrganizationFixture(undefined, undefined, {
+      repository: database,
+      executeCommands: (commands) => service.executeBatch(commands),
+    });
+    const replay = (current) =>
+      reopened.call("save", original, "today-task", undefined, undefined, current);
+    assert.deepEqual(replay(value), { status: "saved", count: 2 });
+    for (const current of [
+      { ...value, tasks: value.tasks.slice(0, 1) },
+      { ...value, tasks: [...value.tasks, captureOrganizationProposal] },
+      { ...value, tasks: [{ ...value.tasks[0], title: "changed" }, value.tasks[1]] },
+      { ...value, warnings: ["changed"] },
+      { ...value, tasks: [] },
+    ])
+      assert.throws(() => replay(current));
+    for (const type of ["task", "schedule", "change_event"])
+      assert.deepEqual(database.list(type), before[type]);
+  } finally {
+    database?.db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Desktop organized execution time and original text survive canonical CreateTask and SQLite reopen", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "tasken-capture-planned-time-"));
   let database;
@@ -2171,9 +2268,10 @@ test("Desktop organized execution time and original text survive canonical Creat
     database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
     database.save("theme", { id: "research", name: "研究" });
     const service = new ApplicationCommandService(database);
-    const f = createQuickCaptureOrganizationFixture(undefined, (command) =>
-      service.execute(command),
-    );
+    const f = createQuickCaptureOrganizationFixture(undefined, undefined, {
+      repository: database,
+      executeCommands: (commands) => service.executeBatch(commands),
+    });
     const original = "明日15時、いや16時から90分、比較実験。金曜までに終える";
     const edited = {
       ...captureOrganizationProposal,
@@ -2181,14 +2279,17 @@ test("Desktop organized execution time and original text survive canonical Creat
       plannedStartTime: "16:30",
       plannedDurationMinutes: 75,
     };
-    const saved = f.call("save", original, "today-task", undefined, undefined, edited);
+    const submission = captureSubmission([edited]);
+    const saved = f.call("save", original, "today-task", undefined, undefined, submission);
+    assert.deepEqual(saved, { status: "saved", count: 1 });
+    const taskId = `${submission.submissionId}-task-0`;
     database.db.close();
     database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
-    const reopened = database.get("task", saved.id);
+    const reopened = database.get("task", taskId);
     assert.equal(reopened.planned_start_time, "16:30");
     assert.equal(reopened.planned_duration_minutes, 75);
     assert.ok(reopened.description.endsWith(original));
-    const schedule = database.list("schedule").find((entry) => entry.owner_id === saved.id);
+    const schedule = database.list("schedule").find((entry) => entry.owner_id === taskId);
     assert.equal(schedule.start_date, "2026-09-07");
     assert.equal(schedule.end_date, "2026-09-11");
     assert.equal(database.list("task").length, 1);
