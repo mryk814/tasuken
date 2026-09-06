@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -77,7 +78,8 @@ class CaptureOrganizationRepositoryTest {
             assertEquals("/v1/capture-organization", path)
             assertEquals("POST", method)
             val data = Json.parseToJsonElement(requireNotNull(body)).jsonObject
-            assertEquals(setOf("text", "capturedAt", "timeZone", "themeId"), data.keys)
+            assertEquals(setOf("text", "capturedAt", "timeZone", "themeId", "maxTasks"), data.keys)
+            assertEquals("8", data.getValue("maxTasks").jsonPrimitive.content)
             assertEquals(original, data.getValue("text").jsonPrimitive.content)
             assertEquals("home", data.getValue("themeId").jsonPrimitive.content)
             assertEquals("2026-09-05T15:30:00Z", data.getValue("capturedAt").jsonPrimitive.content)
@@ -86,10 +88,34 @@ class CaptureOrganizationRepositoryTest {
             GatewayHttpResponse(200, response(proposal))
         }
 
-        assertEquals(proposal, repository.organizeCapture(draft))
+        assertEquals(listOf(proposal), repository.organizeCapture(draft))
         assertEquals(1, calls)
         assertEquals("短縮されたタイトル", draft.text)
         assertEquals(original, draft.originalText)
+        assertNoWrites()
+    }
+
+    @Test
+    fun retriesLegacySingleProposalContractOnlyAfterMaxTasksValidationFailure() = runBlocking {
+        var calls = 0
+        val repository = repositoryWith { _, _, body ->
+            val input = Json.parseToJsonElement(requireNotNull(body)).jsonObject
+            calls++
+            if (calls == 1) {
+                assertEquals("8", input.getValue("maxTasks").jsonPrimitive.content)
+                GatewayHttpResponse(400, """{"error":{"code":"validation_failed"}}""")
+            } else {
+                assertFalse(input.containsKey("maxTasks"))
+                assertEquals(original, input.getValue("text").jsonPrimitive.content)
+                GatewayHttpResponse(200, buildJsonObject {
+                    put("data", buildJsonObject {
+                        put("proposal", Json.encodeToJsonElement(MobileCaptureOrganization.serializer(), proposal))
+                    })
+                }.toString())
+            }
+        }
+        assertEquals(listOf(proposal), repository.organizeCapture(MobileCaptureDraft.fresh(text = original)))
+        assertEquals(2, calls)
         assertNoWrites()
     }
 
@@ -103,7 +129,7 @@ class CaptureOrganizationRepositoryTest {
             assertEquals(JsonNull, data.getValue("themeId"))
             GatewayHttpResponse(200, response(proposal.copy(themeId = null)))
         }
-        assertNull(repository.organizeCapture(draft).themeId)
+        assertNull(repository.organizeCapture(draft).single().themeId)
         assertNoWrites()
     }
 
@@ -158,7 +184,10 @@ class CaptureOrganizationRepositoryTest {
     private fun response(value: MobileCaptureOrganization) = buildJsonObject {
         put("ok", true)
         put("data", buildJsonObject {
-            put("proposal", Json.encodeToJsonElement(MobileCaptureOrganization.serializer(), value))
+            put("proposals", buildJsonArray {
+                add(Json.encodeToJsonElement(MobileCaptureOrganization.serializer(), value))
+            })
+            put("warnings", buildJsonArray {})
             put("providerLabel", JsonPrimitive("Fixture AI"))
         })
     }.toString()

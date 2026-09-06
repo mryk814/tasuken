@@ -6,6 +6,16 @@ import org.junit.Test
 
 class MobileThemeContractTest {
     @Test
+    fun optionalColorAcceptsKnownTokensAndRejectsUnexpectedValues() {
+        val golden = requireNotNull(javaClass.classLoader?.getResource("themes-response.golden.json")).readText()
+        val colored = golden.replace("\"title\":", "\"color\": \"chart-3\", \"title\":")
+        assertEquals(listOf("chart-3", "chart-3"), MobileThemeContract.decodePage(colored).data.themes.map { it.color })
+        assertThrows(MobileThemeContractException::class.java) {
+            MobileThemeContract.decodePage(colored.replace("chart-3", "unknown-color"))
+        }
+    }
+
+    @Test
     fun decodesSharedGoldenThemeCatalogFixture() {
         val golden = requireNotNull(
             javaClass.classLoader?.getResource("themes-response.golden.json"),

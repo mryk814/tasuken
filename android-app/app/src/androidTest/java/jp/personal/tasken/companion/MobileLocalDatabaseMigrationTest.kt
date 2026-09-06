@@ -16,6 +16,28 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
     @Test
+    fun migrationEighteenToNineteenKeepsThemeAndOutboxWhileAddingNullableColor() {
+        helper.createDatabase(DatabaseName, 18).apply {
+            execSQL("INSERT INTO theme_cache (id,title,catalogId) VALUES ('home','生活',1)")
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt) VALUES ('outbox','stable-key','request','device','time','CreateTask','{\"original\":true}','server','pending',2,'time')")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 19, true, MIGRATION_18_19).use { db ->
+            db.query("SELECT title,color FROM theme_cache WHERE id='home'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("生活", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
+            }
+            db.query("SELECT idempotencyKey,envelopeJson,attemptCount FROM outbox_command").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("stable-key", cursor.getString(0))
+                assertEquals("{\"original\":true}", cursor.getString(1))
+                assertEquals(2, cursor.getInt(2))
+            }
+        }
+    }
+
+    @Test
     fun migrationSeventeenToEighteenUpgradesOnlyProtocolMetadata() {
         val envelope = """{"schemaVersion":6,"commandId":"stable-command","idempotencyKey":"stable-key","payload":{"schemaVersion":6,"text":"literal schemaVersion:6 remains"}}"""
         val success = """{"meta":{"schemaVersion":6,"serverRevision":42},"data":{"schemaVersion":6,"title":"original"}}"""

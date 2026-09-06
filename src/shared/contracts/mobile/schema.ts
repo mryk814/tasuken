@@ -817,6 +817,20 @@ export const mobileThemeCatalogItemSchema = z
   .object({
     id: entityIdSchema,
     title: z.string().trim().min(1).max(500),
+    color: z
+      .enum([
+        "chart-1",
+        "chart-2",
+        "chart-3",
+        "chart-4",
+        "chart-5",
+        "chart-6",
+        "theme-extra-1",
+        "theme-extra-2",
+        "theme-extra-3",
+        "theme-extra-4",
+      ])
+      .optional(),
   })
   .strict();
 
@@ -831,6 +845,7 @@ export const mobileThemesRequestSchema = z
     schemaVersion: schemaVersionSchema,
     requestId: requestIdSchema,
     cursor: mobileThemeCursorSchema.optional(),
+    includeColors: z.boolean().optional(),
     limit: z
       .number()
       .int()
@@ -1343,6 +1358,7 @@ export const mobileCaptureOrganizationRequestSchema = z
         }
       }),
     themeId: entityIdSchema.nullable(),
+    maxTasks: z.number().int().min(1).max(8).default(1),
   })
   .strict();
 
@@ -1359,6 +1375,12 @@ export const mobileCaptureOrganizationSchema = z
   })
   .strict()
   .superRefine(validateMobileScheduleDates);
+export const mobileCaptureOrganizationBatchSchema = z
+  .object({
+    tasks: z.array(mobileCaptureOrganizationSchema).min(1).max(8),
+    warnings: z.array(z.string().trim().min(1).max(500)).max(10),
+  })
+  .strict();
 export type MobileWorkReceiptSummary = z.output<typeof mobileWorkReceiptSummarySchema>;
 export type MobileWorkReceiptRequest = z.output<typeof mobileWorkReceiptRequestSchema>;
 export type MobileWorkReceiptDetail = z.output<typeof mobileWorkReceiptDetailSchema>;

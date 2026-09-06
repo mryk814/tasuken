@@ -3,11 +3,15 @@
 Issue #398のPhase 4Aでは、Mobile固有contractと純粋adapter/client境界を固定した。
 Phase 4Bでは、localhost listener、Electron lifecycle、Tailscale Serve、device pairing、Android Keystore、Settings diagnosticsを同じ縦断経路へ接続した。
 
-## 現在の互換境界（2026-09-05）
+## 現在の互換境界（2026-09-06）
 
 Mobile API versionは1、schema versionは7。入力整理を採用したTaskの本文・Checklist・日付を同じCreateTask経路で扱うため、DesktopとAndroidを合わせて更新する。
-Android Room versionは18。17→18では送信待ちOutbox・人間レビュー・委任のenvelope直下と、受領済み委任応答のmeta内にあるschemaVersionを6から7へ更新する。sync_stateも更新し、本文、commandId、idempotencyKey、その他の保存内容は保持する。既存16→17 migrationは変更しない。
+Android Room versionは19。18→19ではTheme色のキャッシュ用に `theme_cache.color` のnullable列だけを追加し、既存Theme・Task・Outboxは保持する。17→18では送信待ちOutbox・人間レビュー・委任のenvelope直下と、受領済み委任応答のmeta内にあるschemaVersionを6から7へ更新する。sync_stateも更新し、本文、commandId、idempotencyKey、その他の保存内容は保持する。既存16→17 migrationは変更しない。
 Desktopに保存済みの委任receiptは変更せず、Gatewayが再送結果を返す時だけresponse metaをschema7として投影する。Coreのcommand fingerprintはMobile schema versionに依存しないため、移行前に受理された同じcommandIdの再送でも二重適用しない。
+
+`GET /v1/themes`（`mobile:read`）は通常 `id` / `title` だけを返す。任意query `includeColors=true` の場合だけ、DesktopのTheme色token（`chart-1`〜`chart-6`、`theme-extra-1`〜`theme-extra-4`）を `color` として追加する。未指定／不正な保存色はDesktopと同じ配色順で解決する。従来Androidへ新しいfieldを送らないため、API/schema versionは据え置く。色を要求したcatalogのcursorは色変更でも失効する。
+
+新Androidは色を要求し、旧Desktopが初回ページを `400 validation_failed` で拒否した場合だけ `includeColors` を外して再取得する。その後のページも従来queryを使う。色のないキャッシュを含めた表示・保存の詳細は [AndroidのTask表示とTheme色](android-desktop-task-visuals.md) を参照する。
 
 ## 非交渉条件
 
@@ -21,11 +25,11 @@ Desktopに保存済みの委任receiptは変更せず、Gatewayが再送結果�
 
 ## Phase 4A endpoints
 
-| Method / path | Scope | Core委譲 | 公開内容 |
-|---|---|---|---|
-| `GET /v1/health` | 認証済み`mobile_device` | Core version/capability handshake | Mobile API metadataと端末scopeに応じた利用可能capability |
-| `GET /v1/today?date=...&limit=...&requestId=...&apiVersion=1&schemaVersion=1` | `mobile:read` | `ListTodayTasks` query | Task ID、title、Theme ID、state、work state、updatedAtだけ |
-| `POST /v1/commands` | `mobile:task-write` | `CreateTask` command | command statusと同じMobile Task summaryだけ |
+| Method / path                                                                 | Scope                   | Core委譲                          | 公開内容                                                   |
+| ----------------------------------------------------------------------------- | ----------------------- | --------------------------------- | ---------------------------------------------------------- |
+| `GET /v1/health`                                                              | 認証済み`mobile_device` | Core version/capability handshake | Mobile API metadataと端末scopeに応じた利用可能capability   |
+| `GET /v1/today?date=...&limit=...&requestId=...&apiVersion=1&schemaVersion=1` | `mobile:read`           | `ListTodayTasks` query            | Task ID、title、Theme ID、state、work state、updatedAtだけ |
+| `POST /v1/commands`                                                           | `mobile:task-write`     | `CreateTask` command              | command statusと同じMobile Task summaryだけ                |
 
 Gateway adapterは認証を行わず、pairing/auth層が検証した`MobilePrincipal`だけを受け取る。
 `GET` endpointはbodyを受け取らず、Todayの`date`、`limit`、`requestId`、contract versionはqueryだけからCore queryへ写像する。
@@ -34,25 +38,25 @@ pure clientはHTTPS、Mobile専用bearer、timeout、32 MiB response上限、ver
 ## Issue #398 ACチェックリスト
 
 - [x] Gatewayはlocalhostにだけlistenする。
-  `127.0.0.1:48177`へbindし、Windows実行中のdiagnosticsでもloopback originを確認した。
+      `127.0.0.1:48177`へbindし、Windows実行中のdiagnosticsでもloopback originを確認した。
 - [x] Tailscale Serve経由のprivate HTTPSでAndroidから到達できる。
-  ServeのHTTPS portからlocalhost Gatewayへreverse proxyし、S23の`GET /v1/today`が200を返した。
+      ServeのHTTPS portからlocalhost Gatewayへreverse proxyし、S23の`GET /v1/today`が200を返した。
 - [x] Funnelを使用しない。
-  `tailscale funnel status`はtailnet onlyを示し、public internet公開を示す表示がないことを確認した。
+      `tailscale funnel status`はtailnet onlyを示し、public internet公開を示す表示がないことを確認した。
 - [x] Read ModelとCommand APIがversioned contractを持つ — Mobile専用strict schemaとfixtureで固定する。
 - [x] Task writeがApplicationCommandServiceを通る — Gatewayは注入されたTask capabilityだけを呼び、parity/replay testで固定する。
 - [x] Android / agentを別scopeとして認証できる。
-  Mobile tokenは`mobile:read`と`mobile:task-write`に固定し、agent principalはMobile endpointで拒否する。
+      Mobile tokenは`mobile:read`と`mobile:task-write`に固定し、agent principalはMobile endpointで拒否する。
 - [x] QRまたはone-time codeでdevice pairingできる。
-  Desktopが8桁、5分、1回限りのcodeを発行し、S23からpairしてper-device tokenをAndroid Keystoreへ保存した。
+      Desktopが8桁、5分、1回限りのcodeを発行し、S23からpairしてper-device tokenをAndroid Keystoreへ保存した。
 - [x] Desktopからdeviceをrevokeできる。
-  Settingsのdevice一覧から失効でき、revoked tokenを即時拒否するruntime testを通した。
+      Settingsのdevice一覧から失効でき、revoked tokenを即時拒否するruntime testを通した。
 - [x] local path / secretsを返さない — allowlist projectionとleak testで固定する。
 - [x] Desktop UIとMobile APIのcommand parity testがある — 同じTask capability fixtureのEntity/Event結果を比較する。
 - [ ] tray / restart / sleep後の状態が分かる。
-  SettingsはGateway状態、local port、paired device、latest requestを表示する。
-  Electron再起動後にGateway ready、登録端末1台、S23のToday 200を確認した。
-  PC sleepとwakeは未検証である。
+      SettingsはGateway状態、local port、paired device、latest requestを表示する。
+      Electron再起動後にGateway ready、登録端末1台、S23のToday 200を確認した。
+      PC sleepとwakeは未検証である。
 
 ## 実機検証
 

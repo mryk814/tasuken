@@ -12,8 +12,8 @@ import {
   mobileBootstrapResponseSchema,
   mobileCaptureCommandResponseSchema,
   mobileCommandRequestSchema,
+  mobileCaptureOrganizationBatchSchema,
   mobileCaptureOrganizationRequestSchema,
-  mobileCaptureOrganizationSchema,
   mobileTaskCommandResponseSchema,
   mobileTaskContextPreviewRequestSchema,
   mobileTaskDelegationRequestSchema,
@@ -207,6 +207,7 @@ export interface MobileGatewayCorePort {
 export interface MobileGatewayThemeRecord {
   id: string;
   name: string;
+  color?: string | null;
 }
 
 export interface MobileGatewayWorkReceiptRecord {
@@ -801,15 +802,32 @@ export class MobileGatewayAdapter {
             .map((theme) => ({ id: theme.id, title: theme.name }));
           if (parsed.data.themeId && !themes.some((theme) => theme.id === parsed.data.themeId))
             return this.error(meta, "theme_not_found");
-          const proposal = mobileCaptureOrganizationSchema.parse(
+          const proposalBatch = mobileCaptureOrganizationBatchSchema.parse(
             await organizer.organize({ ...parsed.data, themes }),
           );
-          if (proposal.themeId && !themes.some((theme) => theme.id === proposal.themeId))
+          if (proposalBatch.tasks.length > parsed.data.maxTasks)
+            return this.error(meta, "upstream_unavailable", true);
+          if (
+            proposalBatch.tasks.some(
+              (proposal) =>
+                proposal.themeId && !themes.some((theme) => theme.id === proposal.themeId),
+            )
+          )
             return this.error(meta, "theme_not_found");
           return this.success({
             ok: true,
             meta,
-            data: { proposal, providerLabel: organizer.providerLabel },
+            data: {
+              proposal: {
+                ...proposalBatch.tasks[0],
+                warnings: [
+                  ...new Set([...proposalBatch.warnings, ...proposalBatch.tasks[0].warnings]),
+                ].slice(0, 10),
+              },
+              proposals: proposalBatch.tasks,
+              warnings: proposalBatch.warnings,
+              providerLabel: organizer.providerLabel,
+            },
           });
         } catch {
           return this.error(meta, "upstream_unavailable", true);
@@ -1094,8 +1112,32 @@ export class MobileGatewayAdapter {
         );
       }
       if (request.path === TASKEN_MOBILE_ENDPOINTS.themes) {
+        const colorTokens = [
+          "chart-1",
+          "chart-2",
+          "chart-3",
+          "chart-4",
+          "chart-5",
+          "chart-6",
+          "theme-extra-1",
+          "theme-extra-2",
+          "theme-extra-3",
+          "theme-extra-4",
+        ];
         const catalog = [...(await this.options.core.listThemes())]
-          .map((theme) => mobileThemeCatalogItemSchema.parse({ id: theme.id, title: theme.name }))
+          .map((theme, index) =>
+            mobileThemeCatalogItemSchema.parse({
+              id: theme.id,
+              title: theme.name,
+              ...(themes!.includeColors
+                ? {
+                    color: colorTokens.includes(theme.color?.trim() || "")
+                      ? theme.color!.trim()
+                      : colorTokens[index % colorTokens.length],
+                  }
+                : {}),
+            }),
+          )
           .sort((left, right) => compareText(left.id, right.id));
         if (catalog.some((theme, index) => index > 0 && catalog[index - 1].id === theme.id)) {
           throw new Error("Tasken Core returned duplicate Theme IDs");
@@ -1580,7 +1622,15 @@ export class MobileGatewayAdapter {
     const values = query || {};
     if (
       Object.keys(values).some(
-        (key) => !["apiVersion", "schemaVersion", "requestId", "cursor", "limit"].includes(key),
+        (key) =>
+          ![
+            "apiVersion",
+            "schemaVersion",
+            "requestId",
+            "cursor",
+            "limit",
+            "includeColors",
+          ].includes(key),
       )
     )
       return null;
@@ -1589,6 +1639,16 @@ export class MobileGatewayAdapter {
       schemaVersion: Number(values.schemaVersion),
       requestId: values.requestId,
       ...(values.cursor === undefined ? {} : { cursor: values.cursor }),
+      ...(values.includeColors === undefined
+        ? {}
+        : {
+            includeColors:
+              values.includeColors === "true"
+                ? true
+                : values.includeColors === "false"
+                  ? false
+                  : values.includeColors,
+          }),
       ...(values.limit === undefined ? {} : { limit: Number(values.limit) }),
     });
     return parsed.success ? parsed.data : null;

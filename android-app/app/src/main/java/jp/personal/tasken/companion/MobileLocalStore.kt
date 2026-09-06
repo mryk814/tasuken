@@ -111,6 +111,7 @@ data class ThemeCacheEntity(
     @PrimaryKey val id: String,
     val title: String,
     val catalogId: Int = ThemeCatalogStateEntity.SINGLETON_ID,
+    val color: String? = null,
 )
 
 object ThemeCatalogStatus {
@@ -692,6 +693,9 @@ abstract class MobileLocalDao {
             "WHERE commandId = :commandId AND state = 'pending' AND attemptCount = 0",
     )
     abstract suspend fun replaceUnsentEnvelope(commandId: String, envelopeJson: String): Int
+
+    @Transaction
+    open suspend fun enqueueCreateBatch(block: suspend () -> List<String>): List<String> = block()
 
     @Transaction
     open suspend fun enqueueCreate(task: TaskCacheEntity, command: OutboxCommandEntity) {
@@ -1582,7 +1586,7 @@ abstract class MobileLocalDao {
         PendingTaskDelegationEntity::class,
         TaskNotificationDeliveryEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -1614,8 +1618,15 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_15_16,
                     MIGRATION_16_17,
                     MIGRATION_17_18,
+                    MIGRATION_18_19,
             ).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_18_19 = object : Migration(18, 19) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE theme_cache ADD COLUMN color TEXT")
     }
 }
 

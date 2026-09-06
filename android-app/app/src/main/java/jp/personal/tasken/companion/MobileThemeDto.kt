@@ -21,6 +21,7 @@ data class MobileThemesDataDto(
 data class MobileThemeSummaryDto(
     val id: String,
     val title: String,
+    val color: String? = null,
 )
 
 class MobileThemeContractException(message: String, cause: Throwable? = null) :
@@ -66,6 +67,7 @@ object MobileThemeContract {
         response.data.themes.forEach { theme ->
             requireContract(isEntityId(theme.id), "Invalid Theme ID.")
             requireContract(theme.title.isNotEmpty() && theme.title.length <= 500, "Invalid Theme title.")
+            requireContract(theme.color == null || theme.color in ThemeColorTokens, "Invalid Theme color.")
         }
         requireContract(
             response.data.themes.map { it.id }.distinct().size == response.data.themes.size,
@@ -78,12 +80,14 @@ object MobileThemeContract {
         data = data.copy(
             nextCursor = data.nextCursor?.trim(),
             themes = data.themes.map { theme ->
-                theme.copy(id = theme.id.trim(), title = theme.title.trim())
+                theme.copy(id = theme.id.trim(), title = theme.title.trim(), color = theme.color?.trim())
             },
         ),
     )
 
     private fun isEntityId(value: String): Boolean = value.isNotEmpty() && value.length <= 200
+
+    private val ThemeColorTokens = (1..6).map { "chart-$it" } + (1..4).map { "theme-extra-$it" }
 
     private fun isTimestamp(value: String): Boolean = runCatching { OffsetDateTime.parse(value) }.isSuccess
 

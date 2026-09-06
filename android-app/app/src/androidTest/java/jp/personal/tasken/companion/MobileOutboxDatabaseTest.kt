@@ -136,6 +136,28 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun batchCreateRollsBackEarlierTasksOnLaterFailureAndCanRetry() = runBlocking {
+        var scheduled = 0
+        val batchOutbox = MobileOutbox(context, dao, { "android-test-device" }, schedule = { scheduled++ })
+        val first = MobileCaptureDraft.fresh(text = "先のTask", newId = { "batch-first" })
+        val second = MobileCaptureDraft.fresh(text = "", newId = { "batch-second" })
+        val today = LocalDate.parse("2026-09-06")
+        assertTrue(runCatching { batchOutbox.enqueueCreateTasks(listOf(first, second), today) }.isFailure)
+        assertEquals(0, dao.tasks().size)
+        assertEquals(0, dao.outboxCount())
+        assertEquals(0, scheduled)
+
+        val corrected = listOf(first.withText("修正した先のTask"), second.withText("後のTask"))
+        val ids = batchOutbox.enqueueCreateTasks(corrected, today)
+        assertEquals(2, ids.size)
+        assertEquals(2, dao.tasks().size)
+        assertEquals(2, dao.outboxCount())
+        assertEquals(1, scheduled)
+        assertEquals(ids, batchOutbox.enqueueCreateTasks(corrected, today))
+        assertEquals(2, dao.outboxCount())
+    }
+
+    @Test
     fun invalidOrganizedCreateLeavesNeitherTaskNorOutbox() = runBlocking {
         assertTrue(runCatching {
             outbox.enqueueCreate("入力を保持", description = "x".repeat(50001), draftId = "invalid-organized")

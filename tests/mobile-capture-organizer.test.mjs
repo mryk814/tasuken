@@ -19,6 +19,7 @@ const env = (provider = "openai", model = "test-model") => ({
   TASKEN_CAPTURE_LLM_PROVIDER: provider,
   TASKEN_CAPTURE_LLM_MODEL: model,
   TASKEN_CAPTURE_LLM_API_KEY: secret,
+  TASKEN_CAPTURE_LLM_VOCABULARY: "Tasken\n固有語,Galaxy",
 });
 const input = {
   text: "明日は牛乳と卵を買う。",
@@ -37,7 +38,8 @@ const proposal = {
   supplement: "",
   warnings: [],
 };
-const chat = (value = proposal) => ({
+const batch = (tasks = [proposal], warnings = []) => ({ tasks, warnings });
+const chat = (value = batch()) => ({
   choices: [{ finish_reason: "stop", message: { content: JSON.stringify(value) } }],
 });
 const json = (value) =>
@@ -88,21 +90,38 @@ for (const [provider, model, url, label] of [
         assert.equal(body.response_format.type, "json_schema");
         assert.equal(body.response_format.json_schema.strict, true);
         assert.equal(body.response_format.json_schema.schema.additionalProperties, false);
-        assert.deepEqual(body.response_format.json_schema.schema.properties.themeId.enum, [
-          null,
-          "home",
-        ]);
+        assert.deepEqual(
+          body.response_format.json_schema.schema.properties.tasks.items.properties.themeId.enum,
+          [null, "home"],
+        );
         assert.match(body.messages[0].content, /no date reference/);
         assert.equal(body.messages[1].role, "user");
         const data = JSON.parse(body.messages[1].content);
         assert.equal(data.capturedLocalDate, "2026-09-06");
+        assert.equal(data.capturedLocalTime, "00:30:00");
+        assert.equal(data.capturedLocalWeekday, "Sunday");
+        assert.deepEqual(data.relativeDateAnchors, {
+          today: "2026-09-06",
+          tomorrow: "2026-09-07",
+          dayAfterTomorrow: "2026-09-08",
+        });
+        assert.deepEqual(data.calendarAnchors.slice(0, 7), [
+          { date: "2026-09-06", weekday: "Sunday" },
+          { date: "2026-09-07", weekday: "Monday" },
+          { date: "2026-09-08", weekday: "Tuesday" },
+          { date: "2026-09-09", weekday: "Wednesday" },
+          { date: "2026-09-10", weekday: "Thursday" },
+          { date: "2026-09-11", weekday: "Friday" },
+          { date: "2026-09-12", weekday: "Saturday" },
+        ]);
+        assert.deepEqual(data.vocabulary, ["Tasken", "固有語", "Galaxy"]);
         assert.equal(data.text, input.text);
         assert.ok(!options.body.includes(secret));
         return json(chat());
       },
     );
     assert.equal(organizer.providerLabel, label);
-    assert.deepEqual(await organizer.organize(input), proposal);
+    assert.deepEqual(await organizer.organize(input), batch());
     assert.equal(request.signal.aborted, true);
   });
 }
@@ -126,14 +145,14 @@ test("Gemini uses native generateContent schema and header authentication", asyn
         {
           finishReason: "STOP",
           content: {
-            parts: [{ thought: true, text: "not the answer" }, { text: JSON.stringify(proposal) }],
+            parts: [{ thought: true, text: "not the answer" }, { text: JSON.stringify(batch()) }],
           },
         },
       ],
     });
   });
   assert.equal(organizer.providerLabel, "Gemini");
-  assert.deepEqual(await organizer.organize(input), proposal);
+  assert.deepEqual(await organizer.organize(input), batch());
 });
 
 test("invalid Azure origins and other OpenCode wire models fail before network without exposing settings", () => {
@@ -182,6 +201,65 @@ test("invalid request does not transmit and error does not quote input", async (
   }
 });
 
+test("recording time, not request time, anchors tomorrow across local month boundaries", async () => {
+  let data;
+  const organizer = create(env(), async (_url, options) => {
+    data = JSON.parse(JSON.parse(options.body).messages[1].content);
+    return json(chat(batch([{ ...proposal, startDate: null }])));
+  });
+  for (const [timeZone, today, tomorrow] of [
+    ["Asia/Tokyo", "2026-10-01", "2026-10-02"],
+    ["America/Los_Angeles", "2026-09-30", "2026-10-01"],
+  ]) {
+    await organizer.organize({
+      ...input,
+      text: "明日、牛乳を買う",
+      capturedAt: "2026-09-30T15:30:00Z",
+      timeZone,
+    });
+    assert.equal(data.relativeDateAnchors.today, today);
+    assert.equal(data.relativeDateAnchors.tomorrow, tomorrow);
+    assert.equal(
+      data.calendarAnchors[14].date,
+      timeZone === "Asia/Tokyo" ? "2026-10-15" : "2026-10-14",
+    );
+  }
+});
+
+test("reported September 6 shopping capture grounds tomorrow as September 7", async () => {
+  const organizer = create(env(), async (_url, options) => {
+    const body = JSON.parse(options.body);
+    const data = JSON.parse(body.messages[1].content);
+    assert.equal(data.capturedLocalDate, "2026-09-06");
+    assert.equal(data.capturedLocalTime, "02:14:04");
+    assert.equal(data.relativeDateAnchors.tomorrow, "2026-09-07");
+    assert.deepEqual(
+      data.calendarAnchors.find(({ date }) => date === "2026-09-10"),
+      {
+        date: "2026-09-10",
+        weekday: "Thursday",
+      },
+    );
+    return json(chat(batch([{ ...proposal, startDate: "2026-09-07" }])));
+  });
+  await organizer.organize({
+    ...input,
+    text: "明日の帰りに牛乳、コーヒー豆、洗剤を買う",
+    capturedAt: "2026-09-05T17:14:04.735Z",
+  });
+});
+
+test("multiple proposals require an explicit batch limit and every proposal is validated", async () => {
+  const tasks = [proposal, { ...proposal, title: "会場を予約", themeId: null }];
+  const organizer = create(env(), async () => json(chat(batch(tasks))));
+  await assert.rejects(organizer.organize(input), /AIで整理できませんでした/);
+  assert.deepEqual(await organizer.organize({ ...input, maxTasks: 8 }), batch(tasks));
+  const invalid = create(env(), async () =>
+    json(chat(batch([proposal, { ...tasks[1], startDate: "2026-02-30" }]))),
+  );
+  await assert.rejects(invalid.organize({ ...input, maxTasks: 8 }), /AIで整理できませんでした/);
+});
+
 test("strict local validation rejects invalid dates, foreign themes, bounds and extra properties", async () => {
   for (const changes of [
     { startDate: "2026-02-30" },
@@ -200,7 +278,7 @@ test("strict local validation rejects invalid dates, foreign themes, bounds and 
     { warnings: Array(11).fill("warning") },
     { extra: true },
   ]) {
-    const organizer = create(env(), async () => json(chat({ ...proposal, ...changes })));
+    const organizer = create(env(), async () => json(chat(batch([{ ...proposal, ...changes }]))));
     await assert.rejects(organizer.organize(input), /AIで整理できませんでした/);
   }
   const minimal = {
@@ -210,7 +288,10 @@ test("strict local validation rejects invalid dates, foreign themes, bounds and 
     endDate: null,
     checklist: [],
   };
-  assert.deepEqual(await create(env(), async () => json(chat(minimal))).organize(input), minimal);
+  assert.deepEqual(
+    await create(env(), async () => json(chat(batch([minimal])))).organize(input),
+    batch([minimal]),
+  );
 });
 
 test("provider refusals, truncation, JSON errors and raw failures stay sanitized", async () => {
@@ -222,7 +303,7 @@ test("provider refusals, truncation, JSON errors and raw failures stay sanitized
       choices: [
         {
           finish_reason: "length",
-          message: { content: JSON.stringify(proposal) },
+          message: { content: JSON.stringify(batch()) },
         },
       ],
     },
@@ -256,7 +337,7 @@ test("provider refusals, truncation, JSON errors and raw failures stay sanitized
       candidates: [
         {
           finishReason: "MAX_TOKENS",
-          content: { parts: [{ text: JSON.stringify(proposal) }] },
+          content: { parts: [{ text: JSON.stringify(batch()) }] },
         },
       ],
     },

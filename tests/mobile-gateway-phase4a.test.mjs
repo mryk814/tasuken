@@ -1914,6 +1914,44 @@ test("Phase 4A Today is scope-gated, Core-delegated, bounded, and path/secret fr
   assert.equal(unknownQuery.body.error.code, "validation_failed");
 });
 
+test("Mobile Theme colors require opt-in and reflect canonical colors without breaking older clients", async () => {
+  const { service } = capability();
+  const catalog = [
+    { id: "a", name: "Research", color: "chart-3" },
+    { id: "b", name: "Home", color: "invalid" },
+  ];
+  const adapter = gateway(service, { listThemes: () => catalog });
+  const request = {
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.themes,
+    principal,
+    query: { apiVersion: "1", schemaVersion: "7", requestId: "theme-color", limit: "1" },
+  };
+  const legacy = await adapter.handle(request);
+  assert.deepEqual(legacy.body.data.themes, [{ id: "a", title: "Research" }]);
+  const colored = await adapter.handle({
+    ...request,
+    query: { ...request.query, includeColors: "true" },
+  });
+  assert.deepEqual(colored.body.data.themes, [{ id: "a", title: "Research", color: "chart-3" }]);
+  const second = await adapter.handle({
+    ...request,
+    query: { ...request.query, includeColors: "true", cursor: colored.body.data.nextCursor },
+  });
+  assert.deepEqual(second.body.data.themes, [{ id: "b", title: "Home", color: "chart-2" }]);
+  catalog[0].color = "chart-4";
+  const stale = await adapter.handle({
+    ...request,
+    query: { ...request.query, includeColors: "true", cursor: colored.body.data.nextCursor },
+  });
+  assert.equal(stale.status, 400);
+  const invalid = await adapter.handle({
+    ...request,
+    query: { ...request.query, includeColors: "anything" },
+  });
+  assert.equal(invalid.status, 400);
+});
+
 test("Mobile Theme catalog is read-scoped, deterministic, paged, and exposes only id/title", async () => {
   const { service } = capability();
   const catalog = [

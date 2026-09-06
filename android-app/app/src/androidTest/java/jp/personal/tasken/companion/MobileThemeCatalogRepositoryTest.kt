@@ -47,6 +47,37 @@ class MobileThemeCatalogRepositoryTest {
     }
 
     @Test
+    fun themeColorIsCachedAndExposedToTheUi() = runBlocking {
+        val repository = repositoryWith {
+            GatewayHttpResponse(200, themePage(7, null, "home")
+                .replace("\"title\": \"home\"", "\"title\": \"home\", \"color\": \"chart-3\""))
+        }
+        repository.refreshThemes("https://gateway.test", "token")
+        assertEquals("chart-3", dao.themes().single().color)
+        assertEquals("chart-3", repository.observeCachedThemes().first().single().color)
+    }
+
+    @Test
+    fun oldDesktopColorQueryRejectionRetriesWithoutOptionalQuery() = runBlocking {
+        val paths = mutableListOf<String>()
+        val repository = AndroidMobileTaskRepository(
+            context = context, database = database, scheduleOutboxOnStart = false,
+            httpClient = MobileGatewayHttpClient { _, path, _, _, _ ->
+                paths += path
+                if (path.contains("includeColors=true")) {
+                    GatewayHttpResponse(400, """{"error":{"code":"validation_failed"}}""")
+                } else GatewayHttpResponse(200, themePage(7, null, "home"))
+            },
+        )
+        repository.refreshThemes("https://gateway.test", "token")
+        assertEquals(2, paths.size)
+        assertTrue(paths.first().contains("includeColors=true"))
+        assertTrue(!paths.last().contains("includeColors"))
+        assertEquals("home", dao.themes().single().id)
+        assertNull(dao.themes().single().color)
+    }
+
+    @Test
     fun oldDesktop404BecomesUnsupportedWithoutRetryAndClearsStaleCandidates() = runBlocking {
         seedCatalog(4, listOf(ThemeCacheEntity("theme-old", "Old")))
         val repository = repositoryWith { GatewayHttpResponse(404, "") }
