@@ -171,6 +171,41 @@ export async function createMobileOfflineGateway({ scopes } = {}) {
   }
 
   async function control(action) {
+    if (action.seedRelatedDocuments === true) {
+      const taskId = "related-fixture-task";
+      assert.equal(database.get("task", taskId), null);
+      database.save("task", { id: taskId, title: "関連資料のTask", state: "todo" });
+      for (let index = 0; index < 51; index++) {
+        const id = `related-note-${String(index).padStart(2, "0")}`;
+        database.save("note", {
+          id,
+          title: `比較資料 ${index}`,
+          body_markdown: index === 0 ? "測定条件\n🔬".repeat(10000) : `原文 ${index}`,
+          ai_visibility: [],
+        });
+        database.save("reference", {
+          id: `related-ref-${index}`,
+          source_type: "task",
+          source_id: taskId,
+          target_type: "note",
+          target_id: id,
+          relation_type: "related_to",
+          status: "asserted",
+        });
+      }
+      database.save("capture_entry", {
+        id: "related-source-capture",
+        text: "Taskの作成元の原文",
+        captured_at: "2026-09-06T08:00:00Z",
+        state: "triaged",
+        triaged_to_type: "task",
+        triaged_to_id: taskId,
+      });
+    }
+    if (action.removeRelatedDocument === true) {
+      assert.ok(database.get("note", "related-note-00"));
+      database.remove("note", "related-note-00");
+    }
     if (Object.hasOwn(action, "offline")) offline = action.offline === true;
     if (action.dropNextReceipt === true) dropNextReceipt = true;
     if (Object.hasOwn(action, "dropCommandId")) dropCommandId = action.dropCommandId;

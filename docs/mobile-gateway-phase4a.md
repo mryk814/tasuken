@@ -5,8 +5,10 @@ Phase 4Bでは、localhost listener、Electron lifecycle、Tailscale Serve、dev
 
 ## 現在の互換境界（2026-09-06）
 
+TaskからのNote/Capture一覧・選択本文読取は [AndroidのTask関連資料Reader](android-related-documents.md) を参照する。追加のread endpointを使い、既存API/schema versionは変更しない。端末保存はRoom 23で関連一覧と資料別本文キャッシュを追加する。
+
 Mobile API versionは1、schema versionは7。入力整理を採用したTaskの本文・Checklist・日付を同じCreateTask経路で扱うため、DesktopとAndroidを合わせて更新する。
-Android Room versionは19。18→19ではTheme色のキャッシュ用に `theme_cache.color` のnullable列だけを追加し、既存Theme・Task・Outboxは保持する。17→18では送信待ちOutbox・人間レビュー・委任のenvelope直下と、受領済み委任応答のmeta内にあるschemaVersionを6から7へ更新する。sync_stateも更新し、本文、commandId、idempotencyKey、その他の保存内容は保持する。既存16→17 migrationは変更しない。
+Android Room versionは23。22→23では関連一覧と資料別本文のキャッシュを追加し、既存データは変更しない。18→19ではTheme色のキャッシュ用に `theme_cache.color` のnullable列だけを追加し、既存Theme・Task・Outboxは保持する。17→18では送信待ちOutbox・人間レビュー・委任のenvelope直下と、受領済み委任応答のmeta内にあるschemaVersionを6から7へ更新する。sync_stateも更新し、本文、commandId、idempotencyKey、その他の保存内容は保持する。既存16→17 migrationは変更しない。
 Desktopに保存済みの委任receiptは変更せず、Gatewayが再送結果を返す時だけresponse metaをschema7として投影する。Coreのcommand fingerprintはMobile schema versionに依存しないため、移行前に受理された同じcommandIdの再送でも二重適用しない。
 
 `GET /v1/themes`（`mobile:read`）は通常 `id` / `title` だけを返す。任意query `includeColors=true` の場合だけ、DesktopのTheme色token（`chart-1`〜`chart-6`、`theme-extra-1`〜`theme-extra-4`）を `color` として追加する。未指定／不正な保存色はDesktopと同じ配色順で解決する。従来Androidへ新しいfieldを送らないため、API/schema versionは据え置く。色を要求したcatalogのcursorは色変更でも失効する。

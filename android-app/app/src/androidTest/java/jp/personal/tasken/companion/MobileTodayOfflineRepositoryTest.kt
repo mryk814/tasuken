@@ -80,6 +80,8 @@ class MobileTodayOfflineRepositoryTest {
             cursor = "cursor-1", lastSuccessfulSyncAt = "2026-09-06T00:00:00Z",
             lastAttemptAt = "2026-09-06T00:00:00Z", lastError = null,
         ))
+        dao.upsertRelatedDocuments(RelatedDocumentCacheEntity("server-1", "task", "{}"))
+        dao.upsertRelatedBodies(listOf(RelatedBodyCacheEntity("server-1", "task", "note", "note", "cached text")))
         val repository = AndroidMobileTaskRepository(
             context, store, database, scheduleOutboxOnStart = false,
             httpClient = MobileGatewayHttpClient { _, _, _, _, _ -> GatewayHttpResponse(401,
@@ -87,6 +89,8 @@ class MobileTodayOfflineRepositoryTest {
             ) },
         )
         assertTrue(repository.loadToday() is MobileTodayResult.PairingRequired)
+        assertTrue(dao.relatedDocuments("server-1", "task") == null)
+        assertTrue(dao.relatedBodies("server-1", "task").isEmpty())
         assertEquals("2026-09-06T00:00:00Z", repository.observeTodayCache(java.time.LocalDate.now()).first().lastSuccessfulSyncAt)
     }
 
