@@ -40,6 +40,12 @@ function desktopApi() {
 }
 
 export const workspaceApi = {
+  previewDailyContext(selection: Parameters<Window["api"]["dailyContext"]["preview"]>[0]) {
+    return desktopApi().dailyContext.preview(selection);
+  },
+  publishDailyContext(request: Parameters<Window["api"]["dailyContext"]["publish"]>[0]) {
+    return desktopApi().dailyContext.publish(request);
+  },
   recordWorkLog(command: Parameters<Window["api"]["workLog"]["record"]>[0]) {
     return desktopApi().workLog.record(command);
   },

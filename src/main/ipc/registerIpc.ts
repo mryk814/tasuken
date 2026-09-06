@@ -259,6 +259,12 @@ export function registerIpc(
   ipcMain.handle(IPC.dataHealthSetState, (_event, request) =>
     service.setDataHealthIssueState(request),
   );
+  ipcMain.handle(IPC.dailyContextPreview, (_event, selection) =>
+    service.getDailyContextPreview(selection),
+  );
+  ipcMain.handle(IPC.dailyContextPublish, (_event, request) =>
+    service.publishDailyContext(request),
+  );
   ipcMain.handle(IPC.themeAiPackStatus, (_event, themeId) =>
     service.getThemeAiPackStatus(requireId(themeId)),
   );
