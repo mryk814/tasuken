@@ -16,6 +16,43 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
     @Test
+    fun migrationTwentyOneToTwentyTwoPreservesPendingCaptureTextAndExistingWorkLogs() {
+        val envelope = "{\"command\":{\"capture\":{\"text\":\"  原文\\n🔬  \"}}}"
+        helper.createDatabase(DatabaseName, 21).apply {
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt,captureId) VALUES ('capture-command','key','request','device','2026-09-05T16:00:00Z','CreateCapture',?,'server','retry_wait',2,'2026-09-05T16:00:00Z','capture-id')", arrayOf(envelope))
+            execSQL("INSERT INTO work_log_cache (id,serverId,serverVersion,body,performedDate,enteredAt,taskMissing,deleted,creationEnvelopeJson) VALUES ('note','server',1,'保存した本文','2026-09-05','2026-09-06T00:00:00Z',0,0,'immutable')")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 22, true, MIGRATION_21_22).use { db ->
+            db.query("SELECT body,serverId,id,commandId FROM recall_capture_cache").use { cursor ->
+                assertTrue(cursor.moveToFirst()); assertEquals("  原文\n🔬  ", cursor.getString(0)); assertEquals("server", cursor.getString(1))
+                assertEquals("capture-id", cursor.getString(2)); assertEquals("capture-command", cursor.getString(3))
+            }
+            db.query("SELECT envelopeJson,attemptCount FROM outbox_command").use { cursor ->
+                assertTrue(cursor.moveToFirst()); assertEquals(envelope, cursor.getString(0)); assertEquals(2, cursor.getInt(1))
+            }
+            db.query("SELECT body,creationEnvelopeJson FROM work_log_cache").use { cursor ->
+                assertTrue(cursor.moveToFirst()); assertEquals("保存した本文", cursor.getString(0)); assertEquals("immutable", cursor.getString(1))
+            }
+            db.query("SELECT COUNT(*) FROM recall_day_cache").use { cursor -> assertTrue(cursor.moveToFirst()); assertEquals(0, cursor.getInt(0)) }
+        }
+    }
+
+    @Test
+    fun migrationTwentyToTwentyOneKeepsExistingCommandsAndAddsWorkLogCache() {
+        helper.createDatabase(DatabaseName, 20).apply {
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt) VALUES ('attempted','key','request','device','time','UpdateTask','immutable','server','retry_wait',2,'time')")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 21, true, MIGRATION_20_21).use { db ->
+            db.query("SELECT envelopeJson,attemptCount,workLogId FROM outbox_command").use { cursor ->
+                assertTrue(cursor.moveToFirst()); assertEquals("immutable", cursor.getString(0)); assertEquals(2, cursor.getInt(1)); assertTrue(cursor.isNull(2))
+            }
+            db.query("SELECT COUNT(*) FROM work_log_cache").use { cursor -> assertTrue(cursor.moveToFirst()); assertEquals(0, cursor.getInt(0)) }
+        }
+    }
+
+    @Test
     fun migrationNineteenToTwentyPreservesAttemptedEnvelopeAndAddsNullableTaskIntent() {
         helper.createDatabase(DatabaseName, 19).apply {
             execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt) VALUES ('attempted','key','request','device','time','UpdateTask','immutable','server','retry_wait',2,'time')")

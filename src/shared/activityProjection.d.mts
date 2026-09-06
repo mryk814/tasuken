@@ -17,6 +17,41 @@ export interface ActivityProjectionEvent {
   metadata: Record<string, unknown>;
   local_date: string;
   local_time: string;
+  recall?: {
+    stage: string;
+    date_basis?: "performed_day" | "event_time";
+    authority: string | null;
+    authority_origin: string;
+    source_ref: { type: string; id: string };
+    history?: {
+      entity_title_source: "after_snapshot" | "before_snapshot" | "current_fallback" | "unknown";
+      theme_ref_source: "event" | "after_snapshot" | "before_snapshot" | "unknown";
+      theme_title: string | null;
+      theme_title_source:
+        "theme_event_after" | "theme_event_before" | "current_fallback" | "unknown";
+      current_entity_title: string | null;
+      current_theme_ref: { kind: "theme" | "none"; id: string | null };
+      current_theme_title: string | null;
+    };
+  };
+}
+
+export interface ActivityProjectionPage {
+  status: "ok" | "invalid_cursor" | "resync_required";
+  period: {
+    date: string | null;
+    from: string | null;
+    to: string | null;
+    timezone: string;
+    boundaries: "inclusive";
+  };
+  limit: number;
+  returned_count: number;
+  offset: number | null;
+  matched_visible_count: number | null;
+  next_cursor: string | null;
+  revision: string;
+  generated_at: string;
 }
 
 export interface ActivityProjectionResult {
@@ -27,10 +62,13 @@ export interface ActivityProjectionResult {
   excluded_count: number;
   excluded_reasons: Array<Record<string, unknown>>;
   truncated: boolean;
-  matched_count?: number;
+  page: ActivityProjectionPage;
+  matched_count?: number | null;
 }
 
 export interface ActivityProjectionQuery {
+  cursor?: string | null;
+  profile?: "default" | "recall";
   events?: Array<Record<string, unknown>>;
   workspace?: Record<string, unknown>;
   entities?: Record<string, unknown>;
@@ -43,6 +81,7 @@ export interface ActivityProjectionQuery {
   theme_id?: string;
   entityType?: string;
   entity_type?: string;
+  entity_id?: string;
   eventKinds?: string[];
   event_kinds?: string[];
   timezone?: string;

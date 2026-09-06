@@ -10,6 +10,7 @@ export const TASKEN_MOBILE_SCOPES = Object.freeze({
   contextRead: "mobile:context-read",
   taskWrite: "mobile:task-write",
   captureWrite: "mobile:capture-write",
+  workLogWrite: "mobile:work-log-write",
   proposalReview: "mobile:proposal-review",
   humanReview: "mobile:human-review",
 });
@@ -88,6 +89,7 @@ export function parseTaskLocator(locator) {
 export const TASKEN_MOBILE_CAPABILITIES = Object.freeze({
   health: "mobile.health",
   todayRead: "mobile.today.read",
+  activityRead: "mobile.activity.read",
   syncRead: "mobile.sync.read",
   workReceiptRead: "mobile.work-receipt.read",
   proposalRead: "mobile.proposal.read",
@@ -96,12 +98,15 @@ export const TASKEN_MOBILE_CAPABILITIES = Object.freeze({
   taskContextPreviewRead: "mobile.task-context-preview.read",
   taskWrite: "mobile.task.write",
   captureWrite: "mobile.capture.write",
+  workLogWrite: "mobile.work-log.write",
+  workLogRead: "mobile.work-log.read",
 });
 
 export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   pair: "/v1/pair",
   health: "/v1/health",
   today: "/v1/today",
+  activity: "/v1/activity",
   themes: "/v1/themes",
   workReceipt: "/v1/work-receipt",
   proposals: "/v1/proposals",
@@ -112,5 +117,6 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   bootstrap: "/v1/bootstrap",
   sync: "/v1/sync",
   commands: "/v1/commands",
+  workLogs: "/v1/work-logs",
   captureOrganization: "/v1/capture-organization",
 });

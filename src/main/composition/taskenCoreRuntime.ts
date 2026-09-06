@@ -1,4 +1,6 @@
 import { TaskenCoreHost } from "../infrastructure/http/taskenCoreHost.ts";
+import { createMobileActivityReadPort } from "./mobileActivityReadPort.ts";
+import { createMobileWorkLogPort, type WorkLogWriterPort } from "./mobileWorkLogPort.ts";
 import type { NoteProposalImagePort } from "../core/public.ts";
 import {
   createTaskenCore,
@@ -132,6 +134,7 @@ export class TaskenCoreRuntime {
       responseMeta: MobileResponseMeta,
     ) => CommandReceipt,
     noteProposalImagePort?: NoteProposalImagePort,
+    private readonly workLogWriter?: WorkLogWriterPort,
   ) {
     this.persistence = persistence;
     this.executeApplicationCommand = executeApplicationCommand;
@@ -190,6 +193,8 @@ export class TaskenCoreRuntime {
     return new MobileGatewayAdapter({
       getCaptureOrganizer,
       core: {
+        queryActivity: createMobileActivityReadPort(this.persistence),
+        ...createMobileWorkLogPort(this.persistence, this.workLogWriter),
         status: async () => ({
           apiVersion: TASKEN_CORE_API_VERSION,
           capabilities: [

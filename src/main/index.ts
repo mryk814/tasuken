@@ -2564,6 +2564,18 @@ async function startDesktopApp(): Promise<void> {
   );
   ipcMain.handle(IPC.captureOrganizerClearSettings, () => captureOrganizerSettings.clearSettings());
   const composition = (desktopComposition = new TaskenDesktopComposition({
+    workLogWriter: {
+      record: (command, actor) => {
+        const receipt = workspaceService.recordWorkLog(command, actor);
+        notifyMainWindowRefresh();
+        return receipt;
+      },
+      changeLifecycle: (command, actor) => {
+        const receipt = workspaceService.changeWorkLogLifecycle(command, actor);
+        notifyMainWindowRefresh();
+        return receipt;
+      },
+    },
     getCaptureOrganizer: () => captureOrganizerSettings.createOrganizer(),
     userDataPath: app.getPath("userData"),
     persistence: workspaceRepository,
@@ -2592,7 +2604,7 @@ async function startDesktopApp(): Promise<void> {
     smokeVideoSourcePath = path.join(app.getPath("userData"), "smoke-video.webm");
     fs.writeFileSync(smokeVideoSourcePath, tinyVp8Webm(), { flag: "wx" });
   }
-  const workspaceService = new WorkspaceService(
+  const workspaceService: WorkspaceService = new WorkspaceService(
     workspaceRepository,
     app.getPath("userData"),
     undefined,

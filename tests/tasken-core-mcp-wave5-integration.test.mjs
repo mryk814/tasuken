@@ -174,7 +174,13 @@ class FixturePersistence {
 }
 
 function legacyFields(response) {
-  const { next_tools: _nextTools, ...rest } = response;
+  const {
+    next_tools: _nextTools,
+    page: _page,
+    excluded_count: _excludedCount,
+    excluded_reasons: _excludedReasons,
+    ...rest
+  } = response;
   return rest;
 }
 
@@ -237,6 +243,18 @@ test("Wave 5 detail/activity are exact across legacy fields, Core, HTTP, and MCP
       const inProcess = core[method].execute(request);
       const overHttp = await client[method](request);
       const overMcp = await mcpCall(client, tool, request);
+      if (method === "getActivityEntries") {
+        for (const response of [inProcess, overHttp, overMcp.structuredContent]) {
+          assert.ok(Number.isFinite(Date.parse(response.page.generated_at)));
+          assert.equal(response.page.status, "ok");
+          assert.equal(response.page.returned_count, 100);
+          assert.equal(response.page.matched_visible_count, 101);
+          assert.equal(typeof response.page.next_cursor, "string");
+          assert.equal(response.excluded_count, 0);
+          assert.deepEqual(response.excluded_reasons, []);
+          delete response.page.generated_at;
+        }
+      }
       assert.deepEqual(legacyFields(inProcess), expected, `${tool} Core legacy fields`);
       assert.deepEqual(overHttp, inProcess, `${tool} HTTP`);
       assert.deepEqual(overMcp.structuredContent, inProcess, `${tool} MCP`);

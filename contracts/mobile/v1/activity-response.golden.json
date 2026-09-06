@@ -1,0 +1,333 @@
+{
+  "single": {
+    "ok": true,
+    "meta": {
+      "apiVersion": 1,
+      "schemaVersion": 7,
+      "serverId": "desktop-recall",
+      "serverRevision": 1,
+      "generatedAt": "2026-09-06T08:00:00.000Z",
+      "truncated": false
+    },
+    "data": {
+      "schema_version": 1,
+      "timezone": "Asia/Tokyo",
+      "date": "2026-09-06",
+      "events": [
+        {
+          "id": "event-task-measurement",
+          "occurred_at": "2026-09-06T08:00:00.000Z",
+          "event_kind": "task_completed",
+          "entity_ref": {
+            "type": "task",
+            "id": "task-measurement"
+          },
+          "entity_title": "測定を完了",
+          "theme_ref": {
+            "kind": "none",
+            "id": null
+          },
+          "actor": {
+            "kind": "user"
+          },
+          "origin": {
+            "kind": "manual"
+          },
+          "summary": "task_completed: 測定を完了",
+          "changed_fields": ["ai_visibility", "state", "title"],
+          "canonical_refs": [],
+          "source_refs": [],
+          "relation_refs": [],
+          "work_receipt_ref": null,
+          "metadata": {
+            "schema_version": 1,
+            "dedupe_key": "task:task-measurement:task_completed::4831c018"
+          },
+          "local_date": "2026-09-06",
+          "local_time": "17:00",
+          "recall": {
+            "date_basis": "event_time",
+            "stage": "work_recorded",
+            "authority": null,
+            "authority_origin": "unset",
+            "source_ref": {
+              "type": "task",
+              "id": "task-measurement"
+            },
+            "history": {
+              "entity_title_source": "after_snapshot",
+              "theme_ref_source": "event",
+              "theme_title": null,
+              "theme_title_source": "unknown",
+              "current_entity_title": "測定を完了",
+              "current_theme_ref": {
+                "kind": "none",
+                "id": null
+              },
+              "current_theme_title": null
+            }
+          },
+          "mobile_source": {
+            "type": "task",
+            "id": "task-measurement",
+            "status": "available",
+            "reason": null
+          }
+        }
+      ],
+      "excluded_count": 0,
+      "excluded_reasons": [],
+      "truncated": false,
+      "page": {
+        "status": "ok",
+        "period": {
+          "date": "2026-09-06",
+          "from": null,
+          "to": null,
+          "timezone": "Asia/Tokyo",
+          "boundaries": "inclusive"
+        },
+        "limit": 100,
+        "returned_count": 1,
+        "offset": 0,
+        "matched_visible_count": 1,
+        "next_cursor": null,
+        "revision": "4d58d729b841176334c514b0193521160f279ad9ceb7e4121e053d62a8f42ff6",
+        "generated_at": "2026-09-06T08:00:00.000Z"
+      }
+    }
+  },
+  "empty": {
+    "ok": true,
+    "meta": {
+      "apiVersion": 1,
+      "schemaVersion": 7,
+      "serverId": "desktop-recall",
+      "serverRevision": 1,
+      "generatedAt": "2026-09-06T08:00:00.000Z",
+      "truncated": false
+    },
+    "data": {
+      "schema_version": 1,
+      "timezone": "Asia/Tokyo",
+      "date": "2026-09-06",
+      "events": [],
+      "excluded_count": 0,
+      "excluded_reasons": [],
+      "truncated": false,
+      "page": {
+        "status": "ok",
+        "period": {
+          "date": "2026-09-06",
+          "from": null,
+          "to": null,
+          "timezone": "Asia/Tokyo",
+          "boundaries": "inclusive"
+        },
+        "limit": 100,
+        "returned_count": 0,
+        "offset": 0,
+        "matched_visible_count": 0,
+        "next_cursor": null,
+        "revision": "643d5437104296e21d906ecb15b2c96ad278f20cfc4af53b12bb6069bd853726",
+        "generated_at": "2026-09-06T08:00:00.000Z"
+      }
+    }
+  },
+  "partial": {
+    "ok": true,
+    "meta": {
+      "apiVersion": 1,
+      "schemaVersion": 7,
+      "serverId": "desktop-recall",
+      "serverRevision": 1,
+      "generatedAt": "2026-09-06T08:00:00.000Z",
+      "truncated": true
+    },
+    "data": {
+      "schema_version": 1,
+      "timezone": "Asia/Tokyo",
+      "date": "2026-09-06",
+      "events": [
+        {
+          "id": "event-task-b",
+          "occurred_at": "2026-09-06T08:00:00.000Z",
+          "event_kind": "task_completed",
+          "entity_ref": {
+            "type": "task",
+            "id": "task-b"
+          },
+          "entity_title": "測定Bを完了",
+          "theme_ref": {
+            "kind": "none",
+            "id": null
+          },
+          "actor": {
+            "kind": "user"
+          },
+          "origin": {
+            "kind": "manual"
+          },
+          "summary": "task_completed: 測定Bを完了",
+          "changed_fields": ["ai_visibility", "state", "title"],
+          "canonical_refs": [],
+          "source_refs": [],
+          "relation_refs": [],
+          "work_receipt_ref": null,
+          "metadata": {
+            "schema_version": 1,
+            "dedupe_key": "task:task-b:task_completed::3c99efba"
+          },
+          "local_date": "2026-09-06",
+          "local_time": "17:00",
+          "recall": {
+            "date_basis": "event_time",
+            "stage": "work_recorded",
+            "authority": null,
+            "authority_origin": "unset",
+            "source_ref": {
+              "type": "task",
+              "id": "task-b"
+            },
+            "history": {
+              "entity_title_source": "after_snapshot",
+              "theme_ref_source": "event",
+              "theme_title": null,
+              "theme_title_source": "unknown",
+              "current_entity_title": "測定Bを完了",
+              "current_theme_ref": {
+                "kind": "none",
+                "id": null
+              },
+              "current_theme_title": null
+            }
+          },
+          "mobile_source": {
+            "type": "task",
+            "id": "task-b",
+            "status": "available",
+            "reason": null
+          }
+        }
+      ],
+      "excluded_count": 0,
+      "excluded_reasons": [],
+      "truncated": true,
+      "page": {
+        "status": "ok",
+        "period": {
+          "date": "2026-09-06",
+          "from": null,
+          "to": null,
+          "timezone": "Asia/Tokyo",
+          "boundaries": "inclusive"
+        },
+        "limit": 1,
+        "returned_count": 1,
+        "offset": 0,
+        "matched_visible_count": 2,
+        "next_cursor": "a1.93aef4e8925251d96fdc1ceda59c1f0fcb3b40366d46adb3109b19f21695dc83.84c6d9fbd4576a1dd27353ab167bae9cbb71820742d37c8b70c13b0a64de64d1.1",
+        "revision": "84c6d9fbd4576a1dd27353ab167bae9cbb71820742d37c8b70c13b0a64de64d1",
+        "generated_at": "2026-09-06T08:00:00.000Z"
+      }
+    }
+  },
+  "unavailable": {
+    "ok": true,
+    "meta": {
+      "apiVersion": 1,
+      "schemaVersion": 7,
+      "serverId": "desktop-recall",
+      "serverRevision": 1,
+      "generatedAt": "2026-09-06T08:00:00.000Z",
+      "truncated": false
+    },
+    "data": {
+      "schema_version": 1,
+      "timezone": "Asia/Tokyo",
+      "date": "2026-09-06",
+      "events": [
+        {
+          "id": "event-note-reference",
+          "occurred_at": "2026-09-06T08:00:00.000Z",
+          "event_kind": "note_created",
+          "entity_ref": {
+            "type": "note",
+            "id": "note-reference"
+          },
+          "entity_title": "測定手順のノート",
+          "theme_ref": {
+            "kind": "none",
+            "id": null
+          },
+          "actor": {
+            "kind": "user"
+          },
+          "origin": {
+            "kind": "manual"
+          },
+          "summary": "note_created: 測定手順のノート",
+          "changed_fields": ["ai_visibility", "body_markdown", "title"],
+          "canonical_refs": [],
+          "source_refs": [],
+          "relation_refs": [],
+          "work_receipt_ref": null,
+          "metadata": {
+            "schema_version": 1,
+            "dedupe_key": "note:note-reference:note_created::6578ca8d"
+          },
+          "local_date": "2026-09-06",
+          "local_time": "17:00",
+          "recall": {
+            "date_basis": "event_time",
+            "stage": "changed",
+            "authority": null,
+            "authority_origin": "unset",
+            "source_ref": {
+              "type": "note",
+              "id": "note-reference"
+            },
+            "history": {
+              "entity_title_source": "after_snapshot",
+              "theme_ref_source": "event",
+              "theme_title": null,
+              "theme_title_source": "unknown",
+              "current_entity_title": "測定手順のノート",
+              "current_theme_ref": {
+                "kind": "none",
+                "id": null
+              },
+              "current_theme_title": null
+            }
+          },
+          "mobile_source": {
+            "type": "note",
+            "id": "note-reference",
+            "status": "unavailable",
+            "reason": "unsupported_type"
+          }
+        }
+      ],
+      "excluded_count": 0,
+      "excluded_reasons": [],
+      "truncated": false,
+      "page": {
+        "status": "ok",
+        "period": {
+          "date": "2026-09-06",
+          "from": null,
+          "to": null,
+          "timezone": "Asia/Tokyo",
+          "boundaries": "inclusive"
+        },
+        "limit": 100,
+        "returned_count": 1,
+        "offset": 0,
+        "matched_visible_count": 1,
+        "next_cursor": null,
+        "revision": "656bc3dd96ad61c1848cea964b0f2f7b98fbb6e447a1672cccfa8dae58acc68b",
+        "generated_at": "2026-09-06T08:00:00.000Z"
+      }
+    }
+  }
+}

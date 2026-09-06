@@ -8,6 +8,15 @@ import {
 } from "./activityEvent.mjs";
 import { projectEntityForAi, summarizeAiExclusions } from "./aiMetadata.mjs";
 import { safeExternalUrl, safeReceiptText } from "./taskContext.mjs";
+import { createActivityHistoryResolver } from "./activityHistory.mjs";
+import { activityBoundaryMatches, paginateActivity } from "./activityPagination.mjs";
+import {
+  isCaptureInput,
+  isRecallPlanChange,
+  recallCaptureInputs,
+  recallEvidence,
+  workLogPerformedDate,
+} from "./activityRecall.mjs";
 
 const DEFAULT_TIMEZONE = "Asia/Tokyo";
 const MAX_EVENTS = 500;
@@ -45,12 +54,17 @@ const DEFAULT_ACTIVITY_KINDS = new Set([
   "status_updated",
 ]);
 const PUBLIC_METADATA_KEYS = new Set([
+  "work_log",
   "schema_version",
   "dedupe_key",
   "session_id",
   "command_id",
   "command_name",
   "command_source",
+  "time_basis",
+  "operation_issued_at",
+  "accepted_at",
+  "clock_status",
   "include_in_activity",
   "formalized",
   "activity_summary",
@@ -78,6 +92,7 @@ const PUBLIC_METADATA_KEYS = new Set([
   "note_ai_command_marker",
 ]);
 const PUBLIC_METADATA_OBJECT_FIELDS = new Map([
+  ["work_log", ["schema", "performed_date", "date_precision", "entered_at", "assertion"]],
   [
     "provenance",
     [
@@ -411,8 +426,18 @@ function eventAllowedByDefault(event) {
 }
 
 function projectOne(event, context) {
-  const { entityMap, themesById, workspaceDefault, audience, workspace, roots } = context;
+  const {
+    entityMap,
+    entityRefsById,
+    themesById,
+    workspaceDefault,
+    audience,
+    workspace,
+    roots,
+    profile,
+  } = context;
   const currentEntity = entityMap.get(key(event.entity_ref.type, event.entity_ref.id));
+  const historical = profile === "recall" ? event.recall_history : null;
   const themeId =
     event.theme_ref?.kind === "theme"
       ? event.theme_ref.id
@@ -421,22 +446,39 @@ function projectOne(event, context) {
     themesById.get(text(entity?.project_id || entity?.theme_id)) || null;
   const allowedReference = (ref) => {
     // Published M365 files cannot rely on the local reader resolving visibility.
-    if (audience !== "m365" || !ref?.type || !ref?.id) return true;
-    const target = entityMap.get(key(ref.type, ref.id));
-    if (target && ref.type === "work_receipt") {
+    if (!audience || (audience !== "m365" && profile !== "recall")) return true;
+    // Canonical kind describes a location, not an Entity type. Resolve an
+    // attached ID only when it names exactly one current Entity.
+    const typed = ref?.entity_id
+      ? entityRefsById.get(text(ref.entity_id))
+      : ref?.type && ref?.id
+        ? ref
+        : null;
+    if (!typed) return !ref?.entity_id;
+    const target = entityMap.get(key(typed.type, typed.id));
+    if (target?.deleted_at) return false;
+    if (target && typed.type === "work_receipt") {
       const task = entityMap.get(key("task", target.task_id));
       if (!task || !allowedReference({ type: "task", id: task.id })) return false;
       if (!Array.isArray(target.ai_visibility)) return true;
     }
     return Boolean(
       target &&
-      projectEntityForAi(ref.type, target, {
+      projectEntityForAi(typed.type, target, {
         audience,
         theme: currentThemeFor(target),
         workspaceDefault,
       }).included,
     );
   };
+  if (profile === "recall" && (!currentEntity || currentEntity.deleted_at))
+    return {
+      excluded: {
+        type: event.entity_ref.type,
+        reason: currentEntity ? "entity_deleted" : "entity_missing",
+        count: 1,
+      },
+    };
   if (audience) {
     // #294 policy is evaluated at projection time. Event history does not
     // freeze a past visibility decision.
@@ -452,6 +494,25 @@ function projectOne(event, context) {
       },
     );
     if (!policy.included) return { excluded: policy.exclusion };
+    if (historical) {
+      for (const [id, reason] of [
+        [historical.theme_ref.id, "historical_theme_not_visible"],
+        [historical.history.current_theme_ref.id, "current_theme_not_visible"],
+      ]) {
+        if (!id) continue;
+        const theme = themesById.get(id);
+        if (
+          !theme ||
+          theme.deleted_at ||
+          !projectEntityForAi("theme", theme, {
+            audience,
+            theme,
+            workspaceDefault,
+          }).included
+        )
+          return { excluded: { type: "theme", reason, count: 1 } };
+      }
+    }
   }
   const eventId = publicIdentifier(event.id);
   const entityRef = publicTypedRef(event.entity_ref);
@@ -459,8 +520,17 @@ function projectOne(event, context) {
   if (!eventId || !entityRef || !eventKind) {
     return { excluded: { type: "activity", reason: "unsafe_public_ref", count: 1 } };
   }
-  const title = entityTitle(currentEntity, event.entity_ref);
-  const themeIdForPublic = publicIdentifier(themeId);
+  const title = historical?.entity_title || entityTitle(currentEntity, event.entity_ref);
+  if (
+    profile === "recall" &&
+    audience &&
+    event.entity_ref.type === "schedule" &&
+    (!currentEntity?.owner_type ||
+      !currentEntity?.owner_id ||
+      !allowedReference({ type: currentEntity.owner_type, id: currentEntity.owner_id }))
+  )
+    return { excluded: { type: "schedule", reason: "owner_not_visible", count: 1 } };
+  const themeIdForPublic = publicIdentifier(historical ? historical.theme_ref.id : themeId);
   const projected = {
     id: eventId,
     occurred_at: publicText(event.occurred_at),
@@ -479,7 +549,17 @@ function projectOne(event, context) {
       roots,
     ),
     source_refs: publicSourceRefs(event.source_refs).filter(allowedReference),
-    relation_refs: relationRefsFor(event, workspace).filter(allowedReference),
+    relation_refs: relationRefsFor(
+      event,
+      profile === "recall" && audience
+        ? {
+            ...workspace,
+            references: collection(workspace, "references").filter((reference) =>
+              allowedReference({ type: "reference", id: reference.id }),
+            ),
+          }
+        : workspace,
+    ).filter(allowedReference),
     work_receipt_ref: allowedReference(event.work_receipt_ref)
       ? publicTypedRef(event.work_receipt_ref)
       : null,
@@ -487,6 +567,30 @@ function projectOne(event, context) {
   };
   if (currentEntity?.deleted_at) projected.metadata.entity_status = "deleted";
   if (!currentEntity) projected.metadata.entity_status = "missing";
+  if (profile === "recall") {
+    projected.recall = recallEvidence(event, currentEntity);
+    if (historical)
+      projected.recall.history = {
+        ...historical.history,
+        theme_title: historical.history.theme_title
+          ? publicText(historical.history.theme_title)
+          : null,
+        current_entity_title: historical.history.current_entity_title
+          ? publicText(historical.history.current_entity_title)
+          : null,
+        current_theme_ref:
+          historical.history.current_theme_ref.id &&
+          publicIdentifier(historical.history.current_theme_ref.id)
+            ? { kind: "theme", id: publicIdentifier(historical.history.current_theme_ref.id) }
+            : { kind: "none", id: null },
+        current_theme_title: historical.history.current_theme_title
+          ? publicText(historical.history.current_theme_title)
+          : null,
+      };
+    // Recall is an index, not a raw-body export. Bound long Capture input here.
+    if (isCaptureInput(event))
+      projected.summary = publicText(currentEntity?.text || event.summary).slice(0, 2_000);
+  }
   return { event: projected };
 }
 
@@ -506,6 +610,7 @@ export function queryActivityEvents({
   theme_id = "",
   entityType = "",
   entity_type = "",
+  entity_id = "",
   eventKinds = [],
   event_kinds = [],
   timezone = DEFAULT_TIMEZONE,
@@ -515,44 +620,137 @@ export function queryActivityEvents({
   limit = MAX_EVENTS,
   sort_direction = "asc",
   include_match_metadata = false,
+  profile = "default",
+  cursor = null,
 } = {}) {
   const sourceWorkspace = {
     ...workspace,
     references: references.length ? references : workspace.references,
   };
   const entityMap = allEntities(sourceWorkspace, entities);
+  if (profile === "recall") {
+    for (const capture of collection(sourceWorkspace, "capture_entries"))
+      if (capture?.id) entityMap.set(key("capture_entry", capture.id), capture);
+  }
+  const entityRefsById = new Map();
+  if (audience && (audience === "m365" || profile === "recall")) {
+    for (const [entityKey, entity] of entityMap) {
+      const id = text(entity.id);
+      entityRefsById.set(
+        id,
+        entityRefsById.has(id) ? null : { type: entityKey.slice(0, entityKey.indexOf(":")), id },
+      );
+    }
+  }
   const themesById = themeMap(themes, sourceWorkspace);
+  const resolveHistory =
+    profile === "recall"
+      ? createActivityHistoryResolver(sourceWorkspace.change_events || events)
+      : null;
   const effectiveTimezone = normalizeTimezone(timezone);
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date))
+    throw new Error("Activity date requires a calendar date");
+  // Validate even an empty snapshot; a malformed period is never an empty success.
+  for (const boundary of [date, from, to]) activityBoundaryMatches("", boundary, "from", "");
+  const period = {
+    date: date || null,
+    from: from || null,
+    to: to || null,
+    timezone: effectiveTimezone,
+    boundaries: "inclusive",
+  };
   const kinds = new Set(
     [...(eventKinds.length ? eventKinds : event_kinds)].map(text).filter(Boolean),
   );
+  const normalizedEvents = events
+    .map((event) => {
+      const entity =
+        entityMap.get(
+          key(
+            event?.entity_ref?.type || event?.entity_type,
+            event?.entity_ref?.id || event?.entity_id,
+          ),
+        ) || null;
+      return {
+        ...migrateChangeEvent(event, { entity }),
+        ...(resolveHistory ? { recall_history: resolveHistory(event, entity, themesById) } : {}),
+      };
+    })
+    .map((event) => {
+      if (profile !== "recall" || !isCaptureInput(event)) return event;
+      const capture = entityMap.get(key("capture_entry", event.entity_ref.id));
+      return {
+        ...event,
+        ...(Number.isFinite(Date.parse(capture?.captured_at))
+          ? { occurred_at: new Date(capture.captured_at).toISOString() }
+          : {}),
+        metadata: { ...event.metadata, dedupe_key: `capture-input:${event.entity_ref.id}` },
+      };
+    });
+  const recallInputs =
+    profile === "recall"
+      ? recallCaptureInputs(
+          normalizedEvents,
+          [...entityMap.entries()]
+            .filter(([id]) => id.startsWith("capture_entry:"))
+            .map(([, record]) => record),
+        )
+      : [];
+  const performedDates = new Map();
+  const eventDates = new Map();
   const scopedEvents = deduplicate(
-    events
+    [...normalizedEvents, ...recallInputs]
       .map((event) =>
-        migrateChangeEvent(event, {
-          entity:
-            entityMap.get(
-              key(
-                event?.entity_ref?.type || event?.entity_type,
-                event?.entity_ref?.id || event?.entity_id,
+        resolveHistory && !event.recall_history
+          ? {
+              ...event,
+              recall_history: resolveHistory(
+                event,
+                entityMap.get(key(event.entity_ref.type, event.entity_ref.id)),
+                themesById,
               ),
-            ) || null,
-        }),
+            }
+          : event,
       )
-      .filter(eventAllowedByDefault)
       .filter((event) => {
-        const eventDate = localDate(event.occurred_at, effectiveTimezone);
+        // An explicit kind selection replaces profile defaults, never policy.
+        if (kinds.size) return kinds.has(event.event_kind);
+        if (profile !== "recall") return eventAllowedByDefault(event);
+        if (isCaptureInput(event))
+          return entityMap.get(key("capture_entry", event.entity_ref.id))?.state === "untriaged";
+        if (["task_updated", "plan_node_updated", "schedule_updated"].includes(event.event_kind))
+          return isRecallPlanChange(event);
+        return event.event_kind === "task_created" || eventAllowedByDefault(event);
+      })
+      .filter((event) => {
+        const performedDate = profile === "recall" ? workLogPerformedDate(event) : "";
+        const eventDate = performedDate || localDate(event.occurred_at, effectiveTimezone);
+        eventDates.set(event, eventDate);
+        if (performedDate) performedDates.set(event, performedDate);
         if (date && eventDate !== date) return false;
-        if (from && event.occurred_at < from) return false;
-        if (to && event.occurred_at > to) return false;
+        // A day-precision report intersects the boundary's local day; it does
+        // not claim work happened at a fabricated midnight or entered_at time.
+        const dayBoundary = (boundary) =>
+          performedDate && boundary && boundary.includes("T")
+            ? localDate(boundary, effectiveTimezone)
+            : boundary;
+        if (!activityBoundaryMatches(event.occurred_at, dayBoundary(from), "from", eventDate))
+          return false;
+        if (!activityBoundaryMatches(event.occurred_at, dayBoundary(to), "to", eventDate))
+          return false;
         if (themeId || theme_id) {
           const selected = themeId || theme_id;
-          if (event.theme_ref?.id !== selected) return false;
+          if (
+            (profile === "recall" ? event.recall_history?.theme_ref.id : event.theme_ref?.id) !==
+            selected
+          )
+            return false;
         }
         if (entityType || entity_type) {
           const selected = entityType || entity_type;
           if (event.entity_ref?.type !== selected) return false;
         }
+        if (entity_id && event.entity_ref?.id !== entity_id) return false;
         if (kinds.size && !kinds.has(event.event_kind)) return false;
         return true;
       }),
@@ -563,35 +761,58 @@ export function queryActivityEvents({
   for (const event of scopedEvents.sort(
     (a, b) =>
       direction *
-      (String(a.occurred_at).localeCompare(String(b.occurred_at)) ||
+      ((performedDates.size ? eventDates.get(a).localeCompare(eventDates.get(b)) : 0) ||
+        Number(!performedDates.has(a)) - Number(!performedDates.has(b)) ||
+        (performedDates.has(a) ? 0 : Date.parse(a.occurred_at) - Date.parse(b.occurred_at)) ||
         String(a.id).localeCompare(String(b.id))),
   )) {
     const result = projectOne(event, {
       entityMap,
+      entityRefsById,
       themesById,
       workspaceDefault,
       audience,
       workspace: sourceWorkspace,
       roots,
+      profile,
     });
     if (result.excluded) exclusions.push(result.excluded);
     else if (result.event)
       projected.push({
         ...result.event,
-        local_date: localDate(event.occurred_at, effectiveTimezone),
-        local_time: localTime(event.occurred_at, effectiveTimezone),
+        local_date: eventDates.get(event),
+        local_time: performedDates.has(event)
+          ? ""
+          : localTime(event.occurred_at, effectiveTimezone),
       });
   }
-  const max = Math.max(0, Math.min(MAX_EVENTS, Number(limit) || MAX_EVENTS));
+  const max = Math.max(1, Math.min(MAX_EVENTS, Math.floor(Number(limit) || MAX_EVENTS)));
+  const excludedReasons = summarizeAiExclusions(exclusions).excluded_reasons;
+  const page = paginateActivity(projected, {
+    criteria: {
+      period,
+      theme: themeId || theme_id,
+      entity: entityType || entity_type,
+      entity_id,
+      kinds: [...kinds].sort(),
+      profile,
+      audience,
+      direction,
+      limit: max,
+    },
+    exclusions: excludedReasons,
+    limit: max,
+    cursor,
+    period,
+  });
   return {
     schema_version: ACTIVITY_EVENT_SCHEMA_VERSION,
     timezone: effectiveTimezone,
     date: date || null,
-    events: projected.slice(0, max),
+    ...page,
     excluded_count: exclusions.length,
-    excluded_reasons: summarizeAiExclusions(exclusions).excluded_reasons,
-    truncated: projected.length > max,
-    ...(include_match_metadata ? { matched_count: projected.length } : {}),
+    excluded_reasons: excludedReasons,
+    ...(include_match_metadata ? { matched_count: page.page.matched_visible_count } : {}),
   };
 }
 
@@ -612,6 +833,15 @@ export function projectActivityMarkdown(result, { title = "Activity", date = res
     `# ${title}${date ? ` ${date}` : ""}`,
     "",
     `> timezone: ${result?.timezone || DEFAULT_TIMEZONE}`,
+    `> truncated: ${Boolean(result?.truncated)}`,
+    ...(result?.page
+      ? [
+          `> period: date=${result.page.period.date || "any"}; from=${result.page.period.from || "unbounded"}; to=${result.page.period.to || "unbounded"}; boundaries=${result.page.period.boundaries}`,
+          `> status: ${result.page.status}; offset: ${result.page.offset ?? "unknown"}; returned: ${result.page.returned_count}; limit: ${result.page.limit}; matched_visible: ${result.page.matched_visible_count ?? "unknown"}`,
+          `> next_cursor: ${result.page.next_cursor || "none"}`,
+          `> revision: ${result.page.revision}; generated_at: ${result.page.generated_at}`,
+        ]
+      : []),
     "",
     "## Events",
   ];
@@ -619,7 +849,7 @@ export function projectActivityMarkdown(result, { title = "Activity", date = res
   for (const event of events) {
     lines.push(
       "",
-      `### ${event.local_time || "--:--"} · ${event.event_kind}`,
+      `### ${event.recall?.date_basis === "performed_day" ? `${event.local_date} (day precision)` : event.local_time || "--:--"} · ${event.event_kind}`,
       `- Entity: ${event.entity_title} \`${event.entity_ref.type}:${event.entity_ref.id}\` ([open](${entityLink(event.entity_ref)}))`,
       `- Theme: ${event.theme_ref?.kind === "theme" ? event.theme_ref.id : "none"}`,
       `- Changed: ${event.changed_fields.length ? event.changed_fields.join(", ") : "—"}`,
@@ -627,10 +857,33 @@ export function projectActivityMarkdown(result, { title = "Activity", date = res
       `- Source: ${event.source_refs.length ? event.source_refs.map((ref) => (ref.type && ref.id ? `${ref.type}:${ref.id}` : ref.locator || "ref")).join(", ") : "—"}`,
       `- Relations: ${event.relation_refs.length ? event.relation_refs.map((ref) => `${ref.relation || "related_to"} ${ref.type}:${ref.id}`).join(", ") : "—"}`,
       `- Summary: ${event.summary}`,
+      ...(event.recall
+        ? [
+            `- Recall: ${event.recall.stage}; authority: ${event.recall.authority || "unknown"} (${event.recall.authority_origin})`,
+            ...(event.recall.date_basis === "performed_day"
+              ? [
+                  `- Performed day: ${event.local_date}; entered_at: ${event.metadata.work_log.entered_at}; assertion: user_report`,
+                ]
+              : []),
+          ]
+        : []),
+      ...(event.recall?.history
+        ? [
+            `- Historical labels: entity ${event.recall.history.entity_title_source}; theme ${event.recall.history.theme_title || "unknown"} (${event.recall.history.theme_title_source}); affiliation ${event.recall.history.theme_ref_source}`,
+            `- Current: ${event.recall.history.current_entity_title || "unknown"}; theme ${event.recall.history.current_theme_title || "none"}`,
+          ]
+        : []),
     );
   }
   if (result?.excluded_count)
-    lines.push("", `## Excluded by policy`, `- ${result.excluded_count} event(s)`);
+    lines.push(
+      "",
+      `## Excluded by policy`,
+      `- ${result.excluded_count} event(s)`,
+      ...(result.excluded_reasons || []).map(
+        (entry) => `- ${entry.type}: ${entry.reason} (${entry.count})`,
+      ),
+    );
   return lines.join("\n");
 }
 

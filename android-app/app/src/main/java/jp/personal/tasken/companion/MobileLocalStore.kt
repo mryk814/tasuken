@@ -22,6 +22,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 
 private val mobileChecklistJson = Json {
     ignoreUnknownKeys = false
@@ -61,6 +62,28 @@ data class TaskCacheEntity(
     val latestReceiptSummary: String? = null,
     val checklistJson: String = "[]",
     val description: String? = null,
+)
+
+@Entity(tableName = "work_log_cache")
+data class WorkLogCacheEntity(
+    @PrimaryKey val id: String,
+    val serverId: String,
+    val serverVersion: Int?,
+    val body: String,
+    val performedDate: String,
+    val enteredAt: String,
+    val themeId: String?,
+    val taskId: String?,
+    val taskMissing: Boolean,
+    val deleted: Boolean,
+    val optimisticCommandId: String?,
+    val creationEnvelopeJson: String = "",
+)
+
+data class WorkLogWithCommand(
+    @Embedded val record: WorkLogCacheEntity,
+    @Relation(parentColumn = "optimisticCommandId", entityColumn = "commandId")
+    val command: OutboxCommandEntity?,
 )
 
 @Entity(tableName = "capture_receipt")
@@ -157,6 +180,7 @@ data class OutboxCommandEntity(
     val captureId: String? = null,
     val dependsOnCommandId: String? = null,
     val taskIntentJson: String? = null,
+    val workLogId: String? = null,
 )
 
 @Entity(tableName = "pending_human_review")
@@ -353,6 +377,128 @@ object OutboxState {
 
 @Dao
 abstract class MobileLocalDao {
+    @Query("SELECT * FROM recall_day_cache WHERE serverId = :serverId AND date = :date AND timezone = :timezone")
+    abstract suspend fun recallDay(serverId: String, date: String, timezone: String): RecallDayCacheEntity?
+
+    @Query("SELECT * FROM recall_day_cache WHERE date = :date AND timezone = :timezone")
+    abstract fun observeRecallDays(date: String, timezone: String): Flow<List<RecallDayCacheEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertRecallDay(day: RecallDayCacheEntity)
+
+    @Query("SELECT * FROM recall_seen_source")
+    abstract fun observeRecallSeenSources(): Flow<List<RecallSeenSourceEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract suspend fun insertRecallSeenSources(sources: List<RecallSeenSourceEntity>)
+
+    @Query("SELECT * FROM recall_capture_cache")
+    abstract fun observeRecallCaptures(): Flow<List<RecallCaptureCacheEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertRecallCapture(capture: RecallCaptureCacheEntity)
+
+    @Query("DELETE FROM recall_capture_cache WHERE id = :captureId")
+    abstract suspend fun deleteRecallCapture(captureId: String)
+
+    @Transaction
+    open suspend fun saveRecallDay(day: RecallDayCacheEntity, previousCursor: String?) {
+        require(syncState()?.serverId == day.serverId)
+        val previous = recallDay(day.serverId, day.date, day.timezone)
+        require(previousCursor == null || previous?.nextCursor == previousCursor)
+        upsertRecallDay(day)
+        if (day.lastFetchedAt != null && !day.partial && day.error == null) {
+            val events = MobileRecallContract.json.decodeFromString<List<MobileRecallEvent>>(day.eventsJson)
+            insertRecallSeenSources(events.map { RecallSeenSourceEntity(day.serverId, it.mobile_source.type, it.mobile_source.id, day.lastFetchedAt) })
+        }
+    }
+
+    @Transaction
+    open suspend fun cacheRecallWorkLog(record: WorkLogCacheEntity) {
+        require(syncState()?.serverId == record.serverId)
+        val existing = workLog(record.id)
+        if (existing == null) upsertWorkLog(record)
+        else if (existing.serverId == record.serverId) refreshWorkLog(record.copy(creationEnvelopeJson = existing.creationEnvelopeJson))
+        else throw MobileRecallSourceUnavailable("別のDesktopの同じIDの原文が端末にあります。保存済みの原文を守るため、この原記録はDesktopで確認してください。")
+    }
+
+    @Transaction
+    @Query("SELECT * FROM work_log_cache ORDER BY enteredAt DESC, id")
+    abstract fun observeWorkLogs(): Flow<List<WorkLogWithCommand>>
+
+    @Query("SELECT * FROM work_log_cache WHERE id = :id")
+    abstract suspend fun workLog(id: String): WorkLogCacheEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertWorkLog(record: WorkLogCacheEntity)
+
+    @Transaction
+    open suspend fun enqueueWorkLog(record: WorkLogCacheEntity, command: OutboxCommandEntity) {
+        require(syncState()?.serverId == command.serverId && record.serverId == command.serverId)
+        val current = workLog(record.id)
+        if (current != null) {
+            require(current.creationEnvelopeJson == command.envelopeJson) { "同じ記録IDに異なる入力が指定されています。元の記録は保持しています。" }
+            return
+        }
+        upsertWorkLog(record)
+        insertOutbox(command)
+    }
+
+    @Transaction
+    open suspend fun changeWorkLogDeletion(id: String, command: OutboxCommandEntity?, deleted: Boolean) {
+        val record = requireNotNull(workLog(id))
+        require(syncState()?.serverId == record.serverId)
+        val pending = record.optimisticCommandId?.let { outbox(it) }
+        if (command == null) {
+            require(record.serverVersion == null)
+            require(pending != null && pending.commandName == "RecordWorkLog" && pending.state == OutboxState.Pending && pending.attemptCount == 0)
+            deleteOutbox(pending.commandId)
+        } else {
+            require(pending == null && command.serverId == record.serverId)
+            insertOutbox(command)
+        }
+        upsertWorkLog(record.copy(deleted = if (record.serverVersion == null) deleted else record.deleted, optimisticCommandId = command?.commandId))
+    }
+
+    @Transaction
+    open suspend fun applyWorkLogReceipt(command: OutboxCommandEntity, projection: MobileWorkLogDto): Boolean {
+        val pending = outbox(command.commandId) ?: return false
+        if (syncState()?.serverId != command.serverId || pending.state != OutboxState.Sending ||
+            pending.attemptCount != command.attemptCount || pending.envelopeJson != command.envelopeJson) return false
+        val record = requireNotNull(workLog(projection.id))
+        require(record.serverId == command.serverId && record.optimisticCommandId == command.commandId)
+        upsertWorkLog(record.copy(serverVersion = projection.version, body = projection.body,
+            performedDate = projection.performedDate, enteredAt = projection.enteredAt,
+            themeId = projection.themeId, taskId = projection.taskId, taskMissing = projection.taskMissing,
+            deleted = projection.deleted, optimisticCommandId = null))
+        deleteOutbox(command.commandId)
+        return true
+    }
+
+    @Transaction
+    open suspend fun refreshWorkLog(record: WorkLogCacheEntity) {
+        val current = workLog(record.id) ?: return
+        val pending = current.optimisticCommandId?.let { outbox(it) }
+        val rejectedLifecycle = pending?.state == OutboxState.Rejected && pending.commandName in setOf("DeleteWorkLog", "RestoreWorkLog")
+        if (syncState()?.serverId == record.serverId && current.serverId == record.serverId && (pending == null || rejectedLifecycle) &&
+            (record.serverVersion ?: 0) >= (current.serverVersion ?: 0)) {
+            if (rejectedLifecycle) deleteOutbox(requireNotNull(pending).commandId)
+            upsertWorkLog(record.copy(optimisticCommandId = null))
+        }
+    }
+
+    @Transaction
+    open suspend fun retryWorkLog(id: String) {
+        val record = requireNotNull(workLog(id))
+        require(syncState()?.serverId == record.serverId)
+        val command = requireNotNull(record.optimisticCommandId?.let { outbox(it) })
+        require(command.state == OutboxState.Rejected || command.state == OutboxState.RetryWait)
+        markWorkLogPending(command.commandId)
+    }
+
+    @Query("UPDATE outbox_command SET state = 'pending', lastError = NULL WHERE commandId = :commandId")
+    abstract suspend fun markWorkLogPending(commandId: String)
+
     @Query("SELECT * FROM task_cache WHERE todayDate = :date ORDER BY updatedAt DESC, id ASC")
     @Transaction
     abstract fun observeTasks(date: String): Flow<List<TaskCacheWithConflict>>
@@ -540,7 +686,13 @@ abstract class MobileLocalDao {
     abstract suspend fun deleteTask(taskId: String)
 
     @Query("DELETE FROM capture_receipt WHERE id = :captureId")
-    abstract suspend fun deleteCaptureReceipt(captureId: String)
+    protected abstract suspend fun deleteCaptureReceiptRow(captureId: String)
+
+    @Transaction
+    open suspend fun deleteCaptureReceipt(captureId: String) {
+        deleteRecallCapture(captureId)
+        deleteCaptureReceiptRow(captureId)
+    }
 
     @Query("DELETE FROM theme_cache")
     abstract suspend fun deleteThemes()
@@ -832,6 +984,10 @@ abstract class MobileLocalDao {
         require(command.serverId.isNotBlank())
         require(syncState()?.serverId == command.serverId)
         upsertCaptureReceipt(receipt)
+        val capture = Json.parseToJsonElement(command.envelopeJson).jsonObject.getValue("command")
+            .jsonObject.getValue("capture").jsonObject
+        upsertRecallCapture(RecallCaptureCacheEntity(command.serverId, receipt.id, command.commandId,
+            (capture.getValue("text") as JsonPrimitive).content, receipt.capturedAt))
         insertOutbox(command)
     }
 
@@ -1750,6 +1906,10 @@ abstract class MobileLocalDao {
     entities = [
         TaskCacheEntity::class,
         CaptureReceiptEntity::class,
+        WorkLogCacheEntity::class,
+        RecallDayCacheEntity::class,
+        RecallCaptureCacheEntity::class,
+        RecallSeenSourceEntity::class,
         ThemeCacheEntity::class,
         ThemeCatalogStateEntity::class,
         OutboxCommandEntity::class,
@@ -1761,7 +1921,7 @@ abstract class MobileLocalDao {
         PendingTaskDelegationEntity::class,
         TaskNotificationDeliveryEntity::class,
     ],
-    version = 20,
+    version = 22,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -1795,8 +1955,34 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_17_18,
                     MIGRATION_18_19,
                     MIGRATION_19_20,
+                    MIGRATION_20_21,
+                    MIGRATION_21_22,
             ).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_21_22 = object : Migration(21, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS recall_day_cache (serverId TEXT NOT NULL, date TEXT NOT NULL, timezone TEXT NOT NULL, eventsJson TEXT NOT NULL, lastFetchedAt TEXT, nextCursor TEXT, revision TEXT, error TEXT, partial INTEGER NOT NULL, stagedEventsJson TEXT, lastPageFetchedAt TEXT, PRIMARY KEY(serverId, date, timezone))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS recall_capture_cache (serverId TEXT NOT NULL, id TEXT NOT NULL, commandId TEXT NOT NULL, body TEXT NOT NULL, capturedAt TEXT NOT NULL, PRIMARY KEY(serverId, id))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS recall_seen_source (serverId TEXT NOT NULL, type TEXT NOT NULL, sourceId TEXT NOT NULL, observedAt TEXT NOT NULL, PRIMARY KEY(serverId, type, sourceId))")
+        // Existing unsent Capture envelopes are already durable. Preserve their text in the new read cache.
+        db.query("SELECT serverId, captureId, commandId, envelopeJson, createdAt FROM outbox_command WHERE commandName = 'CreateCapture'").use { cursor ->
+            while (cursor.moveToNext()) {
+                val capture = Json.parseToJsonElement(cursor.getString(3)).jsonObject.getValue("command")
+                    .jsonObject.getValue("capture").jsonObject
+                db.execSQL("INSERT OR IGNORE INTO recall_capture_cache (serverId,id,commandId,body,capturedAt) VALUES (?,?,?,?,?)",
+                    arrayOf(cursor.getString(0), cursor.getString(1), cursor.getString(2), (capture.getValue("text") as JsonPrimitive).content, cursor.getString(4)))
+            }
+        }
+    }
+}
+
+internal val MIGRATION_20_21 = object : Migration(20, 21) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE outbox_command ADD COLUMN workLogId TEXT")
+        db.execSQL("CREATE TABLE IF NOT EXISTS work_log_cache (id TEXT NOT NULL PRIMARY KEY, serverId TEXT NOT NULL, serverVersion INTEGER, body TEXT NOT NULL, performedDate TEXT NOT NULL, enteredAt TEXT NOT NULL, themeId TEXT, taskId TEXT, taskMissing INTEGER NOT NULL, deleted INTEGER NOT NULL, optimisticCommandId TEXT, creationEnvelopeJson TEXT NOT NULL)")
     }
 }
 

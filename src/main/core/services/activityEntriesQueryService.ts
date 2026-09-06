@@ -53,11 +53,14 @@ export class ActivityEntriesQueryService {
       const activity = projectActivityJson(
         queryActivityEvents({
           events: workspace.change_events || [],
+          profile: request.profile,
+          cursor: request.cursor,
+          event_kinds: request.event_kinds,
           workspace,
           themes: snapshot.visibilityThemes,
           references: workspace.references || [],
           date: request.date,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          timezone: request.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
           audience: AUDIENCE,
           workspaceDefault: snapshot.workspaceAiVisibilityDefault,
           roots: workspace.canonical_root_status || {},
@@ -73,10 +76,13 @@ export class ActivityEntriesQueryService {
         events,
         limit: request.limit ?? DEFAULT_LIMIT,
         truncated,
+        page: activity.page,
+        excluded_count: activity.excluded_count,
+        excluded_reasons: activity.excluded_reasons,
         result_meta: {
           contract_version: 1,
           returned_count: events.length,
-          matched_visible_count: Number(activity.matched_count),
+          matched_visible_count: activity.matched_count ?? null,
           truncated,
         },
         read_only: true,
@@ -104,11 +110,15 @@ export class ActivityEntriesQueryService {
     const activity = projectActivityJson(
       queryActivityEvents({
         events: sourceEvents,
+        profile: request.profile,
+        cursor: request.cursor,
+        event_kinds: request.event_kinds,
         workspace,
         themes: snapshot.visibilityThemes,
         references: workspace.references || [],
         entity_type: "task",
-        timezone: "Asia/Tokyo",
+        entity_id: taskId,
+        timezone: request.timezone || "Asia/Tokyo",
         audience: AUDIENCE,
         workspaceDefault: snapshot.workspaceAiVisibilityDefault,
         roots: workspace.canonical_root_status || {},
@@ -119,7 +129,7 @@ export class ActivityEntriesQueryService {
     );
     const limit = request.limit ?? DEFAULT_LIMIT;
     const events = activity.events;
-    const matchedVisible = Number(activity.matched_count);
+    const matchedVisible = activity.matched_count ?? null;
     const truncated = activity.truncated;
 
     return getActivityEntriesResponseSchema.parse({
@@ -127,6 +137,9 @@ export class ActivityEntriesQueryService {
       events,
       limit,
       truncated,
+      page: activity.page,
+      excluded_count: activity.excluded_count,
+      excluded_reasons: activity.excluded_reasons,
       result_meta: {
         contract_version: 1,
         returned_count: events.length,

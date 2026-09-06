@@ -9,8 +9,13 @@ import {
   decodeTaskenMobileThemeCursor,
   encodeTaskenMobileThemeCursor,
   mobileBootstrapRequestSchema,
+  mobileActivityRequestSchema,
+  mobileActivityResponseSchema,
   mobileBootstrapResponseSchema,
   mobileCaptureCommandResponseSchema,
+  mobileWorkLogCommandResponseSchema,
+  mobileWorkLogRequestSchema,
+  mobileWorkLogResponseSchema,
   mobileCommandRequestSchema,
   mobileCaptureOrganizationBatchSchema,
   mobileCaptureOrganizationRequestSchema,
@@ -37,11 +42,15 @@ import {
   mobileWorkReceiptRequestSchema,
   mobileWorkReceiptResponseSchema,
   type MobileCapability,
+  type MobileActivityRequest,
+  type MobileActivityData,
   type MobileErrorCode,
   type MobileResponseMeta,
   type MobileScope,
   type MobileTaskWorkProposal,
   type MobileThemeCatalogItem,
+  type MobileWorkLog,
+  type MobileWorkLogCommandRequest,
 } from "../../../shared/contracts/mobile/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -169,6 +178,11 @@ export type MobileGatewayCaptureCommandResult =
     };
 
 export interface MobileGatewayCorePort {
+  queryActivity?(input: MobileActivityRequest): Promise<MobileActivityData> | MobileActivityData;
+  executeWorkLogCommand?(
+    input: MobileGatewayWorkLogCommand,
+  ): Promise<MobileGatewayWorkLogCommandResult> | MobileGatewayWorkLogCommandResult;
+  getWorkLog?(id: string): Promise<MobileWorkLog | null> | MobileWorkLog | null;
   status(): Promise<{ apiVersion: string; capabilities: readonly string[] }>;
   listThemes(): Promise<readonly MobileGatewayThemeRecord[]> | readonly MobileGatewayThemeRecord[];
   listWorkReceipts():
@@ -203,6 +217,26 @@ export interface MobileGatewayCorePort {
     input: MobileGatewayTaskDelegationCommand,
   ): Promise<MobileGatewayTaskDelegationResult> | MobileGatewayTaskDelegationResult;
 }
+
+export interface MobileGatewayWorkLogCommand {
+  commandId: string;
+  actorId: string;
+  issuedAt: string;
+  command: MobileWorkLogCommandRequest["command"];
+}
+export type MobileGatewayWorkLogCommandResult =
+  | { ok: true; commandId: string; status: "applied" | "no_change"; workLog: MobileWorkLog }
+  | {
+      ok: false;
+      code: Extract<
+        MobileErrorCode,
+        | "idempotency_conflict"
+        | "entity_conflict"
+        | "not_found"
+        | "theme_not_found"
+        | "validation_failed"
+      >;
+    };
 
 export interface MobileGatewayThemeRecord {
   id: string;
@@ -872,8 +906,10 @@ export class MobileGatewayAdapter {
       if (
         [
           TASKEN_MOBILE_ENDPOINTS.today,
+          TASKEN_MOBILE_ENDPOINTS.activity,
           TASKEN_MOBILE_ENDPOINTS.themes,
           TASKEN_MOBILE_ENDPOINTS.workReceipt,
+          TASKEN_MOBILE_ENDPOINTS.workLogs,
           TASKEN_MOBILE_ENDPOINTS.proposals,
           TASKEN_MOBILE_ENDPOINTS.bootstrap,
           TASKEN_MOBILE_ENDPOINTS.sync,
@@ -885,9 +921,14 @@ export class MobileGatewayAdapter {
         const captureCommand = ["CreateCapture", "DeleteCapture"].includes(
           commandRequest.data.command.name,
         );
-        const requiredScope: MobileScope = captureCommand
-          ? "mobile:capture-write"
-          : "mobile:task-write";
+        const workLogCommand = ["RecordWorkLog", "DeleteWorkLog", "RestoreWorkLog"].includes(
+          commandRequest.data.command.name,
+        );
+        const requiredScope: MobileScope = workLogCommand
+          ? "mobile:work-log-write"
+          : captureCommand
+            ? "mobile:capture-write"
+            : "mobile:task-write";
         if (!request.principal.scopes.includes(requiredScope)) return this.error(meta, "forbidden");
       }
       if (
@@ -913,6 +954,16 @@ export class MobileGatewayAdapter {
 
       const today =
         request.path === TASKEN_MOBILE_ENDPOINTS.today ? this.parseTodayQuery(request.query) : null;
+      const activity =
+        request.path === TASKEN_MOBILE_ENDPOINTS.activity
+          ? mobileActivityRequestSchema.safeParse({
+              ...request.query,
+              apiVersion: Number(request.query?.apiVersion),
+              schemaVersion: Number(request.query?.schemaVersion),
+              ...(request.query?.limit === undefined ? {} : { limit: Number(request.query.limit) }),
+            })
+          : null;
+      if (activity && !activity.success) return this.error(meta, "validation_failed");
       const themes =
         request.path === TASKEN_MOBILE_ENDPOINTS.themes
           ? this.parseThemesQuery(request.query)
@@ -979,12 +1030,14 @@ export class MobileGatewayAdapter {
       if (
         ![
           TASKEN_MOBILE_ENDPOINTS.today,
+          TASKEN_MOBILE_ENDPOINTS.activity,
           TASKEN_MOBILE_ENDPOINTS.themes,
           TASKEN_MOBILE_ENDPOINTS.workReceipt,
           TASKEN_MOBILE_ENDPOINTS.proposals,
           TASKEN_MOBILE_ENDPOINTS.bootstrap,
           TASKEN_MOBILE_ENDPOINTS.sync,
           TASKEN_MOBILE_ENDPOINTS.taskContextPreview,
+          TASKEN_MOBILE_ENDPOINTS.workLogs,
         ].includes(request.path as never) &&
         Object.keys(request.query || {}).length > 0
       ) {
@@ -1018,6 +1071,15 @@ export class MobileGatewayAdapter {
         return this.error(meta, "capability_unavailable");
       }
 
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.workLogs) {
+        const parsed = mobileWorkLogRequestSchema.safeParse(request.query || {});
+        if (!parsed.success) return this.error(meta, "validation_failed");
+        if (!this.options.core.getWorkLog) return this.error(meta, "capability_unavailable");
+        const workLog = await this.options.core.getWorkLog(parsed.data.id);
+        return this.success(
+          mobileWorkLogResponseSchema.parse({ ok: true, meta, data: { workLog } }),
+        );
+      }
       if (request.path === TASKEN_MOBILE_ENDPOINTS.health) {
         return this.success(
           mobileHealthResponseSchema.parse({
@@ -1099,6 +1161,17 @@ export class MobileGatewayAdapter {
                 ...(delegation.instruction ? { instruction: delegation.instruction } : {}),
               }),
             },
+          }),
+        );
+      }
+      if (activity?.success) {
+        if (!this.options.core.queryActivity) return this.error(meta, "capability_unavailable");
+        const data = await this.options.core.queryActivity(activity.data);
+        return this.success(
+          mobileActivityResponseSchema.parse({
+            ok: true,
+            meta: { ...meta, truncated: data.truncated },
+            data,
           }),
         );
       }
@@ -1436,6 +1509,28 @@ export class MobileGatewayAdapter {
       if (!parsed?.success) return this.error(meta, "validation_failed");
       diagnosticId = parsed.data.requestId;
       const command = parsed.data.command;
+      if (
+        command.name === "RecordWorkLog" ||
+        command.name === "DeleteWorkLog" ||
+        command.name === "RestoreWorkLog"
+      ) {
+        if (!this.options.core.executeWorkLogCommand)
+          return this.error(meta, "capability_unavailable");
+        const result = await this.options.core.executeWorkLogCommand({
+          commandId: parsed.data.commandId,
+          issuedAt: parsed.data.issuedAt,
+          actorId: request.principal.deviceId,
+          command,
+        });
+        if (!result.ok) return this.error(meta, result.code);
+        return this.success(
+          mobileWorkLogCommandResponseSchema.parse({
+            ok: true,
+            meta: this.meta(false),
+            data: { commandId: result.commandId, status: result.status, workLog: result.workLog },
+          }),
+        );
+      }
       if (command.name === "CreateCapture" || command.name === "DeleteCapture") {
         const payload =
           command.name === "CreateCapture"
@@ -1746,6 +1841,8 @@ export class MobileGatewayAdapter {
         TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
         TASKEN_MOBILE_CAPABILITIES.proposalRead,
       );
+      if (this.options.core.queryActivity)
+        capabilities.push(TASKEN_MOBILE_CAPABILITIES.activityRead);
     }
     if (
       principal.scopes.includes("mobile:context-read") &&
@@ -1756,6 +1853,13 @@ export class MobileGatewayAdapter {
       capabilities.push(TASKEN_MOBILE_CAPABILITIES.taskWrite);
     if (principal.scopes.includes("mobile:capture-write"))
       capabilities.push(TASKEN_MOBILE_CAPABILITIES.captureWrite);
+    if (
+      principal.scopes.includes("mobile:work-log-write") &&
+      this.options.core.executeWorkLogCommand
+    )
+      capabilities.push(TASKEN_MOBILE_CAPABILITIES.workLogWrite);
+    if (principal.scopes.includes("mobile:read") && this.options.core.getWorkLog)
+      capabilities.push(TASKEN_MOBILE_CAPABILITIES.workLogRead);
     if (principal.scopes.includes("mobile:proposal-review"))
       capabilities.push(TASKEN_MOBILE_CAPABILITIES.proposalReview);
     if (principal.scopes.includes("mobile:human-review"))

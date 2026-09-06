@@ -6,6 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import { queryActivityEvents } from "../src/shared/activityProjection.mjs";
 
 async function importBundled(relativePath) {
   const result = await build({
@@ -91,6 +92,194 @@ function envelope(name, payload, commandId, expectedVersions = []) {
     issuedAt: "2026-08-08T00:00:00.000Z",
   };
 }
+
+test("Mobile operation time stays on Sunday after Tuesday acceptance and receipt replay", (t) => {
+  const receivedAt = "2026-09-08T03:00:00.000Z";
+  const issuedAt = "2026-09-06T23:55:00+09:00";
+  const utc = "2026-09-06T14:55:00.000Z";
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(receivedAt) });
+  const store = repository();
+  const service = new ApplicationCommandService(store);
+  const taskId = "mobile-operation-time";
+  service.execute(
+    envelope(
+      "CreateTask",
+      { task: { id: taskId, title: "操作日時", state: "todo" } },
+      "time-create",
+    ),
+  );
+  for (const [name, expectedKind] of [
+    ["CompleteTask", "task_completed"],
+    ["ReopenTask", "task_reopened"],
+  ]) {
+    const command = {
+      ...envelope(name, { taskId }, `time-${name}`, [
+        { type: "task", id: taskId, version: store.get("task", taskId).version },
+      ]),
+      source: "mobile",
+      issuedAt,
+    };
+    const receipt = service.execute(command);
+    const event = store.get("change_event", receipt.events[0]);
+    assert.equal(event.event_kind, expectedKind);
+    assert.equal(event.occurred_at, utc);
+    assert.equal(event.changed_at, receivedAt);
+    assert.equal(event.metadata.operation_issued_at, issuedAt);
+    assert.equal(event.metadata.time_basis, "client_operation");
+    assert.equal(event.metadata.accepted_at, receivedAt);
+    if (name === "CompleteTask") assert.equal(store.get("task", taskId).completed_at, utc);
+    const result = queryActivityEvents({
+      events: [event],
+      entities: [{ ...store.get("task", taskId), type: "task" }],
+      date: "2026-09-06",
+      timezone: "Asia/Tokyo",
+    });
+    assert.equal(result.events.length, 1);
+    assert.equal(result.events[0].local_time, "23:55");
+    assert.equal(result.events[0].metadata.time_basis, "client_operation");
+    assert.equal(
+      queryActivityEvents({
+        events: [event],
+        entities: [{ ...store.get("task", taskId), type: "task" }],
+        date: "2026-09-08",
+        timezone: "Asia/Tokyo",
+      }).events.length,
+      0,
+    );
+    t.mock.timers.tick(24 * 60 * 60 * 1000);
+    assert.deepEqual(new ApplicationCommandService(store).execute(command), receipt);
+    assert.deepEqual(store.get("change_event", receipt.events[0]), event);
+    t.mock.timers.setTime(new Date(receivedAt).getTime());
+  }
+});
+
+test("Mobile Capture and Checklist operation instants survive SQLite reopen and Snapshot roundtrip", async (t) => {
+  const issuedAt = "2026-09-06T23:55:00+09:00";
+  const utc = "2026-09-06T14:55:00.000Z";
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-09-08T03:00:00Z") });
+  const directory = await mkdtemp(path.join(tmpdir(), "tasken-operation-time-"));
+  const filename = path.join(directory, "workspace.sqlite");
+  let database = new WorkspaceDatabase(filename);
+  try {
+    database.loadWorkspace();
+    let service = new ApplicationCommandService(database);
+    const taskId = "timed-checklist";
+    const unchecked = [
+      { id: "timed-item", title: "記録", done: false, sort_order: 0, completed_at: null },
+    ];
+    service.execute(
+      envelope(
+        "CreateTask",
+        { task: { id: taskId, title: "時刻保持", state: "todo", checklist_items: unchecked } },
+        "timed-task-create",
+      ),
+    );
+    const commands = [
+      {
+        ...envelope(
+          "CreateCapture",
+          { capture: { id: "timed-capture", text: "日曜の原文", captured_at: issuedAt } },
+          "timed-capture-create",
+        ),
+        source: "mobile",
+        issuedAt,
+      },
+    ];
+    const receipts = commands.map((command) => service.execute(command));
+    for (const done of [true, false]) {
+      const current = database.get("task", taskId);
+      const command = {
+        ...envelope(
+          "UpdateTask",
+          {
+            task: {
+              ...current,
+              checklist_items: unchecked.map((item) => ({
+                ...item,
+                done,
+                completed_at: done ? issuedAt : null,
+              })),
+            },
+          },
+          `timed-checklist-${done}`,
+          [{ type: "task", id: taskId, version: current.version }],
+        ),
+        source: "mobile",
+        issuedAt,
+      };
+      commands.push(command);
+      receipts.push(service.execute(command));
+    }
+    const events = receipts.map((receipt) => database.get("change_event", receipt.events[0]));
+    assert.deepEqual(
+      events.slice(1).map((event) => event.event_kind),
+      ["task_checklist_checked", "task_checklist_unchecked"],
+    );
+    assert.ok(events.every((event) => event.occurred_at === utc));
+    assert.equal(database.get("capture_entry", "timed-capture").captured_at, issuedAt);
+    const workspace = database.loadWorkspace();
+    const snapshot = JSON.parse(JSON.stringify(workspace));
+    const projected = queryActivityEvents({
+      events: snapshot.change_events,
+      workspace: snapshot,
+      date: "2026-09-06",
+      timezone: "Asia/Tokyo",
+    });
+    assert.equal(
+      projected.events.filter((event) => event.event_kind.startsWith("task_checklist_")).length,
+      2,
+    );
+    assert.ok(projected.events.every((event) => event.local_date === "2026-09-06"));
+    database.db.close();
+    database = new WorkspaceDatabase(filename);
+    database.loadWorkspace();
+    service = new ApplicationCommandService(database);
+    t.mock.timers.tick(3 * 24 * 60 * 60 * 1000);
+    for (let i = 0; i < commands.length; i++) {
+      assert.deepEqual(service.execute(commands[i]), receipts[i]);
+      assert.deepEqual(database.get("change_event", receipts[i].events[0]), events[i]);
+    }
+  } finally {
+    database.db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Mobile operation clock values require an offset but are never corrected into work facts", (t) => {
+  const receivedAt = "2026-09-08T03:00:00.000Z";
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(receivedAt) });
+  const store = repository();
+  const service = new ApplicationCommandService(store);
+  const command = {
+    ...envelope(
+      "CreateCapture",
+      {
+        capture: {
+          id: "future-capture",
+          text: "端末時計を確認",
+          captured_at: "2099-01-01T00:00:00+09:00",
+        },
+      },
+      "future-clock",
+    ),
+    source: "mobile",
+    issuedAt: "2099-01-01T00:00:00+09:00",
+  };
+  for (const issuedAt of [
+    "bad-date",
+    "2026-09-06",
+    "2026-09-06T23:55:00",
+    "2026-02-30T23:55:00+09:00",
+  ]) {
+    assert.throws(() => parseCommandEnvelope({ ...command, issuedAt }), /issuedAt/u);
+  }
+  const receipt = service.execute(command);
+  const event = store.get("change_event", receipt.events[0]);
+  assert.equal(event.occurred_at, "2098-12-31T15:00:00.000Z");
+  assert.equal(event.metadata.clock_status, "unverified_client_clock");
+  assert.equal(event.metadata.accepted_at, receivedAt);
+  assert.equal(store.get("capture_entry", "future-capture").captured_at, command.issuedAt);
+});
 
 test("Task delegation rejects malformed Unicode IDs at the Application Command boundary", () => {
   const taskEntityType = "task";

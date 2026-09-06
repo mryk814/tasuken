@@ -16,6 +16,7 @@ import {
   PERSONAL_DEFAULT_THEME_ID,
 } from "../src/shared/personalTheme.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
+import { queryActivityEvents } from "../src/shared/activityProjection.mjs";
 
 async function importWorkspaceService() {
   const outputDirectory = mkdtempSync(path.join(os.tmpdir(), "tasken-canonical-service-bundle-"));
@@ -80,6 +81,323 @@ async function importWorkspaceService() {
 }
 
 const { WorkspaceService } = await importWorkspaceService();
+
+test("WorkLog lifecycle marker commits with Note deletion and restores through the canonical owner", () => {
+  const fixture = createFixture("tasken-work-log-lifecycle");
+  try {
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const created = service.recordWorkLog({
+      schemaVersion: 1,
+      commandName: "RecordWorkLog",
+      commandId: "lifecycle-worklog",
+      body: "原文",
+      performedDate: "2026-09-01",
+      issuedAt: "2026-09-06T00:00:00Z",
+    });
+    const actor = { kind: "user", id: "test-device" };
+    const deleted = service.changeWorkLogLifecycle(
+      {
+        commandId: "delete-worklog",
+        name: "DeleteWorkLog",
+        noteId: created.noteId,
+        expectedVersion: 1,
+        issuedAt: "2026-09-06T00:10:00Z",
+      },
+      actor,
+    );
+    assert.equal(deleted.noteVersion, 2);
+    assert.ok(fixture.database.get("note", created.noteId, true).deleted_at);
+    const restored = service.changeWorkLogLifecycle(
+      {
+        commandId: "restore-worklog",
+        name: "RestoreWorkLog",
+        noteId: created.noteId,
+        expectedVersion: 2,
+        issuedAt: "2026-09-06T00:20:00Z",
+      },
+      actor,
+    );
+    assert.equal(restored.noteVersion, 3);
+    assert.equal(fixture.database.get("note", created.noteId).body_markdown, "原文");
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("WorkLog lifecycle event failure rolls back Note and canonical file for both delete and Undo", () => {
+  const fixture = createFixture("tasken-work-log-lifecycle-failure");
+  try {
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const created = service.recordWorkLog({
+      schemaVersion: 1,
+      commandName: "RecordWorkLog",
+      commandId: "lifecycle-failure",
+      body: "保持する原文",
+      performedDate: "2026-09-01",
+      issuedAt: "2026-09-06T00:00:00Z",
+    });
+    const note = fixture.database.get("note", created.noteId);
+    const file = canonicalBinding(note).canonical_path;
+    const content = readFileSync(file);
+    const failing = new Proxy(fixture.database, {
+      get(target, key, receiver) {
+        if (key === "runTransaction")
+          return (callback) =>
+            target.runTransaction((transaction) =>
+              callback({
+                ...transaction,
+                save(type, entity, options) {
+                  if (
+                    type === "change_event" &&
+                    ["DeleteWorkLog", "RestoreWorkLog"].includes(entity.command_name)
+                  )
+                    throw new Error("injected lifecycle event failure");
+                  return transaction.save(type, entity, options);
+                },
+              }),
+            );
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const failingService = new WorkspaceService(failing, fixture.userDataPath);
+    const actor = { kind: "user", id: "test-device" };
+    const deletion = {
+      commandId: "failed-delete",
+      name: "DeleteWorkLog",
+      noteId: note.id,
+      expectedVersion: 1,
+      issuedAt: "2026-09-06T00:10:00Z",
+    };
+    assert.throws(
+      () => failingService.changeWorkLogLifecycle(deletion, actor),
+      /injected lifecycle/,
+    );
+    assert.equal(fixture.database.get("note", note.id).version, 1);
+    assert.deepEqual(readFileSync(file), content);
+    service.changeWorkLogLifecycle(deletion, actor);
+    const restoration = {
+      commandId: "failed-restore",
+      name: "RestoreWorkLog",
+      noteId: note.id,
+      expectedVersion: 2,
+      issuedAt: "2026-09-06T00:20:00Z",
+    };
+    assert.throws(
+      () => failingService.changeWorkLogLifecycle(restoration, actor),
+      /injected lifecycle/,
+    );
+    assert.ok(fixture.database.get("note", note.id, true).deleted_at);
+    assert.equal(fs.existsSync(file), false);
+    service.changeWorkLogLifecycle(restoration, actor);
+    assert.deepEqual(readFileSync(file), content);
+    assert.equal(
+      fixture.database
+        .list("change_event")
+        .filter(
+          (event) =>
+            event.command_name === "DeleteWorkLog" || event.command_name === "RestoreWorkLog",
+        ).length,
+      2,
+    );
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("RecordWorkLog recovers the canonical Note and event together after a failed transaction", () => {
+  const fixture = createFixture("tasken-work-log-recovery");
+  const command = {
+    schemaVersion: 1,
+    commandName: "RecordWorkLog",
+    commandId: "work-log-recovery",
+    issuedAt: "2026-09-06T15:10:00+09:00",
+    performedDate: "2026-09-01",
+    body: "失敗しても残る本文",
+  };
+  try {
+    const failing = new Proxy(fixture.database, {
+      get(target, key, receiver) {
+        if (key === "saveMany")
+          return () => {
+            throw new Error("injected transaction failure");
+          };
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    assert.throws(
+      () => new WorkspaceService(failing, fixture.userDataPath).recordWorkLog(command),
+      /Tasken内部への保存に失敗/,
+    );
+    assert.equal(fixture.database.get("note", command.commandId), null);
+    assert.equal(fixture.database.get("change_event", `work-log-${command.commandId}`), null);
+    const restarted = new WorkspaceService(fixture.database, fixture.userDataPath);
+    restarted.loadWorkspace();
+    const receipt = restarted.recordWorkLog(command);
+    assert.equal(fixture.database.get("note", receipt.noteId).body_markdown, command.body);
+    assert.equal(fixture.database.get("note", receipt.noteId).version, receipt.noteVersion);
+    assert.ok(fixture.database.get("change_event", receipt.eventId));
+    assert.equal(
+      fixture.database
+        .list("change_event")
+        .filter((event) => event.command_id === command.commandId).length,
+      1,
+    );
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("RecordWorkLog inherits private Theme exclusion in Activity export", () => {
+  const fixture = createFixture("tasken-work-log-private");
+  try {
+    fixture.database.save("theme", {
+      id: "private-theme",
+      name: "非公開Theme",
+      default_ai_visibility: "local_only",
+    });
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const receipt = service.recordWorkLog({
+      schemaVersion: 1,
+      commandName: "RecordWorkLog",
+      commandId: "private-log",
+      issuedAt: "2026-09-06T06:00:00Z",
+      performedDate: "2026-09-01",
+      body: "非公開の作業",
+      themeId: "private-theme",
+    });
+    const workspace = service.loadWorkspace();
+    const result = queryActivityEvents({
+      events: [fixture.database.get("change_event", receipt.eventId)],
+      workspace,
+      audience: "coding_agent",
+    });
+    assert.equal(result.events.length, 0);
+    const local = queryActivityEvents({
+      events: [fixture.database.get("change_event", receipt.eventId)],
+      workspace,
+    });
+    assert.equal(local.events.length, 1);
+    assert.equal(local.events[0].metadata.work_log.performed_date, "2026-09-01");
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("RecordWorkLog preserves day precision, canonical body, original receipt, and deletion Undo", () => {
+  const fixture = createFixture("tasken-work-log");
+  const command = {
+    schemaVersion: 1,
+    commandName: "RecordWorkLog",
+    commandId: "work-log-test",
+    issuedAt: "2026-09-06T15:10:00+09:00",
+    performedDate: "2026-09-01",
+    body: "測定を行った。結果は未確認。",
+  };
+  try {
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const receipt = service.recordWorkLog(command);
+    const note = fixture.database.get("note", receipt.noteId);
+    assert.equal(note.version, receipt.noteVersion);
+    assert.equal(note.body_markdown, command.body);
+    assert.equal(note.properties_json.work_log.performed_date, "2026-09-01");
+    assert.equal(note.properties_json.work_log.date_precision, "day");
+    assert.notEqual(note.ai_authority, "user_confirmed");
+    assert.match(readFileSync(canonicalBinding(note).canonical_path, "utf8"), /結果は未確認/);
+    const event = fixture.database.get("change_event", receipt.eventId);
+    assert.equal(event.occurred_at, "2026-09-06T06:10:00.000Z");
+    assert.equal(event.metadata.work_log.assertion, "user_report");
+    service.saveCanonicalNote(saveRequest(note, "追記した本文"));
+    const restarted = new WorkspaceService(fixture.database, fixture.userDataPath);
+    restarted.loadWorkspace();
+    assert.deepEqual(restarted.recordWorkLog(command), receipt);
+    assert.equal(fixture.database.get("note", receipt.noteId).body_markdown, "追記した本文");
+    assert.throws(
+      () => restarted.recordWorkLog({ ...command, body: "違う入力" }),
+      /内容が異なります/,
+    );
+    restarted.removeEntity("note", receipt.noteId);
+    assert.deepEqual(restarted.recordWorkLog(command), receipt);
+    assert.ok(fixture.database.get("note", receipt.noteId, true).deleted_at);
+    restarted.restoreEntity("note", receipt.noteId);
+    assert.equal(fixture.database.get("note", receipt.noteId).body_markdown, "追記した本文");
+    assert.equal(
+      fixture.database
+        .list("change_event")
+        .filter((entry) => entry.command_id === command.commandId).length,
+      1,
+    );
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
+test("RecordWorkLog v1 fixture survives Snapshot and rejects invalid dates and malformed Unicode", () => {
+  const fixture = createFixture("tasken-work-log-snapshot");
+  const restored = createFixture("tasken-work-log-restored");
+  try {
+    const command = JSON.parse(readFileSync("tests/fixtures/work-log-v1.json", "utf8"));
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    for (const patch of [
+      { issuedAt: "2026-02-30T06:00:00Z" },
+      { performedDate: "2026-02-30" },
+      { body: "\ud800" },
+    ])
+      assert.throws(
+        () => service.recordWorkLog({ ...command, ...patch }),
+        /本文・実施日・入力日時/,
+      );
+    const receipt = service.recordWorkLog(command);
+    restored.database.applySnapshot(fixture.database.readWorkspaceSnapshot(true));
+    const next = new WorkspaceService(restored.database, restored.userDataPath);
+    assert.deepEqual(next.recordWorkLog(command), receipt);
+    assert.equal(restored.database.get("note", receipt.noteId).body_markdown, command.body);
+    assert.throws(
+      () => next.recordWorkLog(command, { kind: "user", id: "different-user" }),
+      /内容が異なります/,
+    );
+  } finally {
+    closeFixture(fixture);
+    closeFixture(restored);
+  }
+});
+
+test("RecordWorkLog references Task without changing state and rejects a deleted target before writes", () => {
+  const fixture = createFixture("tasken-work-log-task");
+  try {
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const task = fixture.database.save("task", {
+      id: "existing-task",
+      title: "未完のTask",
+      state: "todo",
+      work_state: "not_delegated",
+    });
+    const command = {
+      schemaVersion: 1,
+      commandName: "RecordWorkLog",
+      commandId: "task-report",
+      issuedAt: "2026-09-06T06:10:00Z",
+      performedDate: "2026-09-05",
+      body: "途中まで実施",
+      taskId: task.id,
+    };
+    service.recordWorkLog(command);
+    assert.deepEqual(fixture.database.get("task", task.id), task);
+    assert.ok(
+      fixture.database
+        .list("reference")
+        .some((ref) => ref.source_id === command.commandId && ref.target_id === task.id),
+    );
+    service.removeEntity("task", task.id);
+    assert.throws(
+      () => service.recordWorkLog({ ...command, commandId: "deleted-target" }),
+      /Taskは削除/,
+    );
+    assert.equal(fixture.database.get("note", "deleted-target"), null);
+    assert.ok(fixture.database.get("note", command.commandId));
+  } finally {
+    closeFixture(fixture);
+  }
+});
 const { ApplicationCommandService } = await (async () => {
   const result = await build({
     entryPoints: [path.resolve("src/main/services/applicationCommandService.ts")],

@@ -40,6 +40,9 @@ function desktopApi() {
 }
 
 export const workspaceApi = {
+  recordWorkLog(command: Parameters<Window["api"]["workLog"]["record"]>[0]) {
+    return desktopApi().workLog.record(command);
+  },
   load(): Promise<Workspace> {
     // 初回起動でもダミーデータは入れない。空のWorkspaceで開始する。
     return desktopApi().workspace.load();

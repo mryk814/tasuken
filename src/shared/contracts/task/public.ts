@@ -222,6 +222,7 @@ export {
 
 export {
   activityEntriesResultMetaSchema,
+  activityPageSchema,
   getActivityEntriesRequestSchema,
   getActivityEntriesResponseSchema,
   publicActivityEntrySchema,

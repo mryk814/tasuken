@@ -236,6 +236,82 @@ function createRequest(overrides = {}) {
   };
 }
 
+test("Mobile Gateway preserves Sunday operation instants through Core and Tuesday retries", async (t) => {
+  const acceptedAt = "2026-09-08T03:00:00.000Z";
+  const issuedAt = "2026-09-06T23:55:00+09:00";
+  const utc = "2026-09-06T14:55:00.000Z";
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(acceptedAt) });
+  const { repository, application } = capability();
+  const runtime = new TaskenCoreRuntime(os.tmpdir(), repository, (command) =>
+    application.execute(command),
+  );
+  const adapter = runtime.createMobileGateway({
+    current: () => ({ serverId: "desktop-time", serverRevision: 1, generatedAt: acceptedAt }),
+  });
+  const post = (body) =>
+    adapter.handle({ method: "POST", path: TASKEN_MOBILE_ENDPOINTS.commands, principal, body });
+  const initial = createRequest();
+  initial.command.task.checklistItems = [
+    { id: "time-item", title: "確認", done: false, sortOrder: 0, completedAt: null },
+  ];
+  assert.equal((await post(initial)).status, 200);
+  const operations = [
+    { name: "CompleteTask", taskId: "task-mobile-create", expectedVersion: 1 },
+    { name: "ReopenTask", taskId: "task-mobile-create", expectedVersion: 2 },
+    {
+      name: "UpdateTask",
+      taskId: "task-mobile-create",
+      expectedVersion: 3,
+      expectedScheduleVersion: null,
+      changes: {
+        checklistItems: [
+          { id: "time-item", title: "確認", done: true, sortOrder: 0, completedAt: issuedAt },
+        ],
+      },
+      base: { checklistItems: initial.command.task.checklistItems },
+    },
+  ];
+  for (const [index, command] of operations.entries()) {
+    const request = createRequest({
+      issuedAt,
+      requestId: `time-request-${index}`,
+      commandId: `time-command-${index}`,
+      idempotencyKey: `time-command-${index}`,
+      command,
+    });
+    const response = await post(request);
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    const event = repository
+      .list("change_event")
+      .find((entry) => entry.command_id === request.commandId);
+    assert.equal(event.occurred_at, utc);
+    assert.deepEqual((await post(request)).body, response.body);
+  }
+  const capture = captureRequest();
+  capture.issuedAt = issuedAt;
+  capture.command.capture.capturedAt = issuedAt;
+  capture.command.provenance.capturedAt = issuedAt;
+  const response = await post(capture);
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  const event = repository
+    .list("change_event")
+    .find((entry) => entry.command_id === capture.commandId);
+  assert.equal(event.occurred_at, utc);
+  assert.equal(event.metadata.accepted_at, acceptedAt);
+  assert.deepEqual((await post(capture)).body, response.body);
+  const invalid = {
+    ...capture,
+    commandId: "invalid-time",
+    idempotencyKey: "invalid-time",
+    issuedAt: "2026-09-06T23:55:00",
+  };
+  invalid.command = {
+    ...capture.command,
+    capture: { ...capture.command.capture, capturedAt: invalid.issuedAt },
+  };
+  assert.equal((await post(invalid)).status, 400);
+});
+
 test("Mobile Task returns full speech description after creation and a fresh Today read", async () => {
   const { service, repository } = capability();
   const adapter = gateway(service);
@@ -564,6 +640,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
   assert.deepEqual(TASKEN_MOBILE_CAPABILITIES, {
     health: "mobile.health",
     todayRead: "mobile.today.read",
+    activityRead: "mobile.activity.read",
     syncRead: "mobile.sync.read",
     workReceiptRead: "mobile.work-receipt.read",
     proposalRead: "mobile.proposal.read",
@@ -572,12 +649,15 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     taskContextPreviewRead: "mobile.task-context-preview.read",
     taskWrite: "mobile.task.write",
     captureWrite: "mobile.capture.write",
+    workLogWrite: "mobile.work-log.write",
+    workLogRead: "mobile.work-log.read",
   });
   assert.equal(mobileCapabilitySchema.safeParse("mobile.theme.read").success, false);
   assert.deepEqual(TASKEN_MOBILE_ENDPOINTS, {
     pair: "/v1/pair",
     health: "/v1/health",
     today: "/v1/today",
+    activity: "/v1/activity",
     themes: "/v1/themes",
     workReceipt: "/v1/work-receipt",
     proposals: "/v1/proposals",
@@ -589,6 +669,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     sync: "/v1/sync",
     commands: "/v1/commands",
     captureOrganization: "/v1/capture-organization",
+    workLogs: "/v1/work-logs",
   });
   const valid = createRequest();
   assert.equal(mobileTaskCommandRequestSchema.safeParse(valid).success, true);

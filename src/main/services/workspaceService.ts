@@ -1,3 +1,13 @@
+import { normalizeWorkLogCommand, type WorkLogReceipt } from "../../shared/workLog";
+import { normalizeWorkLogCompanion, planWorkLog, type WorkLogCompanion } from "./workLogCommand";
+import {
+  normalizeWorkLogLifecycleCommand,
+  workLogLifecycleFingerprint,
+  workLogLifecycleEvent,
+  type WorkLogLifecycleCommit,
+} from "./workLogCommand";
+import type { WorkLogLifecycleCommand, WorkLogLifecycleReceipt } from "../../shared/workLog";
+import { ApplicationCommandError } from "../../shared/applicationCommand.ts";
 import {
   app,
   BrowserWindow,
@@ -283,6 +293,7 @@ interface CanonicalRecoveryReceipt {
   bodySignature?: string;
   companions?: DocumentSaveReferenceCompanion[];
   noteAiCompanion?: CanonicalNoteAiCompanion;
+  workLogCompanion?: WorkLogCompanion;
 }
 
 type CanonicalSaveOptions = SaveOptions & { __canonicalOperationAt?: string };
@@ -857,7 +868,90 @@ export class WorkspaceService {
     }
   }
 
-  removeEntity(type: string, id: string): Record<string, unknown> | null {
+  private commitWorkLogLifecycle(
+    id: string,
+    commit: WorkLogLifecycleCommit,
+  ): Record<string, unknown> | null {
+    return this.repository.runTransaction((transaction) => {
+      const note =
+        commit.status === "no_change"
+          ? this.repository.get("note", id, true)
+          : commit.command.name === "DeleteWorkLog"
+            ? transaction.remove("note", id)
+            : this.repository.restore("note", id);
+      if (!note) throw new ApplicationCommandError("NOT_FOUND", "作業記録が見つかりません。");
+      transaction.save("change_event", workLogLifecycleEvent(commit, note, this.now()));
+      return note;
+    });
+  }
+
+  changeWorkLogLifecycle(
+    value: WorkLogLifecycleCommand,
+    actor: { kind: "user"; id: string },
+  ): WorkLogLifecycleReceipt {
+    const command = normalizeWorkLogLifecycleCommand(value);
+    const fingerprint = workLogLifecycleFingerprint(command, actor);
+    const previous = this.repository
+      .list("change_event", true)
+      .find((event) => event.command_id === command.commandId);
+    if (previous) {
+      if (previous.command_fingerprint !== fingerprint || previous.command_name !== command.name)
+        throw new ApplicationCommandError(
+          "COMMAND_ID_REUSED",
+          "同じCommand IDの内容が異なります。",
+        );
+      const marker = objectValue(parsedRecord(previous.metadata).work_log_lifecycle);
+      const receipt = objectValue(marker.receipt);
+      if (
+        marker.schema !== "tasken-work-log-lifecycle/v1" ||
+        receipt.commandId !== command.commandId ||
+        receipt.noteId !== command.noteId
+      )
+        throw new ApplicationCommandError(
+          "COMMAND_ID_REUSED",
+          "作業記録のCommand receiptを確認できません。",
+        );
+      return receipt as unknown as WorkLogLifecycleReceipt;
+    }
+    this.recoverNoteDeletions(command.noteId);
+    const note = this.repository.get("note", command.noteId, true);
+    if (
+      !note ||
+      objectValue(objectValue(note.properties_json).work_log).schema !== "tasken-work-log/v1"
+    )
+      throw new ApplicationCommandError("NOT_FOUND", "作業記録が見つかりません。");
+    const noChange = Boolean(note.deleted_at) === (command.name === "DeleteWorkLog");
+    if (!noChange && Number(note.version) !== command.expectedVersion)
+      throw new ApplicationCommandError(
+        "CONFLICT",
+        "作業記録が更新されています。再読み込みしてください。",
+      );
+    const commit: WorkLogLifecycleCommit = {
+      command,
+      actor,
+      fingerprint,
+      before: note,
+      status: noChange ? "no_change" : "applied",
+    };
+    const saved = noChange
+      ? this.commitWorkLogLifecycle(command.noteId, commit)
+      : command.name === "DeleteWorkLog"
+        ? this.removeEntity("note", command.noteId, commit)
+        : this.restoreEntity("note", command.noteId, commit);
+    if (!saved) throw new ApplicationCommandError("NOT_FOUND", "作業記録が見つかりません。");
+    return {
+      commandId: command.commandId,
+      noteId: command.noteId,
+      noteVersion: Number(saved.version),
+      status: commit.status,
+    };
+  }
+
+  removeEntity(
+    type: string,
+    id: string,
+    workLogCommit?: WorkLogLifecycleCommit,
+  ): Record<string, unknown> | null {
     if (type !== "note") return this.repository.remove(type, id);
     this.recoverNoteDeletions(id);
     const note = this.repository.get(type, id, true);
@@ -865,14 +959,19 @@ export class WorkspaceService {
     const binding = canonicalMarkdownBindingFromProperties(objectValue(note.properties_json), {
       noteId: id,
     });
-    if (!binding?.canonical_path) return this.repository.remove(type, id);
+    if (!binding?.canonical_path)
+      return workLogCommit
+        ? this.commitWorkLogLifecycle(id, workLogCommit)
+        : this.repository.remove(type, id);
     assertExplicitCanonicalPath(binding.canonical_path);
     if (!fs.existsSync(binding.canonical_path)) {
       // A file already deleted outside Tasken needs no further cleanup. Preserve
       // that absence on Undo; an unavailable folder must still report an error.
       const directory = path.dirname(binding.canonical_path);
       if (fs.existsSync(directory) && fs.statSync(directory).isDirectory()) {
-        return this.repository.remove(type, id);
+        return workLogCommit
+          ? this.commitWorkLogLifecycle(id, workLogCommit)
+          : this.repository.remove(type, id);
       }
       throw new Error(
         "NoteのMarkdownが見つかりません。保存先の接続とファイルを確認してから削除してください。",
@@ -911,7 +1010,9 @@ export class WorkspaceService {
     let removed: Record<string, unknown> | null;
     try {
       this.removeNoteFile(receipt);
-      removed = this.repository.remove(type, id);
+      removed = workLogCommit
+        ? this.commitWorkLogLifecycle(id, workLogCommit)
+        : this.repository.remove(type, id);
     } catch (error) {
       // SQLite is the commit point. A crash or failed compensation retains the receipt.
       this.recoverNoteDeletions();
@@ -933,11 +1034,18 @@ export class WorkspaceService {
     return normalize(left) === normalize(right);
   }
 
-  restoreEntity(type: string, id: string): Record<string, unknown> | null {
+  restoreEntity(
+    type: string,
+    id: string,
+    workLogCommit?: WorkLogLifecycleCommit,
+  ): Record<string, unknown> | null {
     if (type !== "note") return this.repository.restore(type, id);
     this.recoverNoteDeletions(id);
     const receipt = this.readNoteDeletion(id);
-    if (!receipt) return this.repository.restore(type, id);
+    if (!receipt)
+      return workLogCommit
+        ? this.commitWorkLogLifecycle(id, workLogCommit)
+        : this.repository.restore(type, id);
     // Check collisions before marking the operation pending: an unrelated file must
     // never become a startup cleanup candidate after an unsuccessful Undo.
     if (
@@ -952,7 +1060,9 @@ export class WorkspaceService {
     let restored: Record<string, unknown> | null;
     try {
       this.restoreNoteFile(receipt);
-      restored = this.repository.restore(type, id);
+      restored = workLogCommit
+        ? this.commitWorkLogLifecycle(id, workLogCommit)
+        : this.repository.restore(type, id);
     } catch (error) {
       this.recoverNoteDeletions();
       throw error;
@@ -1948,6 +2058,7 @@ export class WorkspaceService {
           throw new Error("recovery receiptのNoteまたは副作用schemaが不正です。");
         }
         normalizeCanonicalNoteAiCompanion(receipt.noteAiCompanion, receipt.noteId);
+        normalizeWorkLogCompanion(receipt.workLogCompanion, receipt.noteId);
       }
       return receipts;
     } catch (error) {
@@ -2081,6 +2192,10 @@ export class WorkspaceService {
           receipt.noteAiCompanion,
           receipt.noteId,
         );
+        const workLogCompanion = normalizeWorkLogCompanion(
+          receipt.workLogCompanion,
+          receipt.noteId,
+        );
         const current = this.repository.get("note", receipt.noteId, true);
         // A later deletion supersedes a pending save. Replaying its binding here
         // would invalidate the deletion backup and could resurrect the Note.
@@ -2201,6 +2316,8 @@ export class WorkspaceService {
               },
               companions,
               noteAiCompanion,
+
+              workLogCompanion,
             );
           }
           remaining.push(receipt);
@@ -2230,6 +2347,8 @@ export class WorkspaceService {
           },
           companions,
           noteAiCompanion,
+
+          workLogCompanion,
         );
       } catch {
         // receiptは検証とDB保存の両方が成功するまで残し、次回起動で再試行する。
@@ -2317,6 +2436,7 @@ export class WorkspaceService {
     options: CanonicalSaveOptions,
     companions: DocumentSaveReferenceCompanion[] = [],
     noteAiCompanion: CanonicalNoteAiCompanion | null = null,
+    workLogCompanion: WorkLogCompanion | null = null,
   ): Record<string, unknown> {
     const noteOperation = {
       action: "save" as const,
@@ -2382,6 +2502,17 @@ export class WorkspaceService {
       ...companions,
       ...stableLinkOperations,
       ...canonicalNoteAiOperations(noteAiCompanion),
+      ...(workLogCompanion &&
+      !this.repository.get("change_event", String(workLogCompanion.event.id), true)
+        ? [
+            {
+              action: "save" as const,
+              type: "change_event",
+              entity: workLogCompanion.event,
+              options: { source: "manual" },
+            },
+          ]
+        : []),
       ...artifactThemeOperations,
     ];
     if (staleLinkIds.length) {
@@ -2406,7 +2537,78 @@ export class WorkspaceService {
     return String(theme?.name || theme?.title || "");
   }
 
-  saveCanonicalNote(requestValue: unknown, companionValue?: unknown): Record<string, unknown> {
+  recordWorkLog(
+    value: unknown,
+    actor: { kind: "user"; id: string } = { kind: "user", id: "desktop-user" },
+  ): WorkLogReceipt {
+    const command = normalizeWorkLogCommand(value);
+    this.recoverCanonicalMarkdownReceipts();
+    const themeId = canonicalThemeId(command.themeId, { defaultPersonal: true });
+    const plan = planWorkLog(command, this.now(), String(themeId), actor);
+    const previous = this.repository.get("change_event", plan.receipt.eventId, true);
+    if (previous) {
+      if (previous.command_fingerprint !== plan.fingerprint)
+        throw new ApplicationCommandError(
+          "COMMAND_ID_REUSED",
+          "同じCommand IDの内容が異なります。入力を確認してください。",
+        );
+      const metadata = parsedRecord(previous.metadata);
+      return metadata.work_log_receipt as WorkLogReceipt;
+    }
+    if (this.repository.get("note", command.commandId, true))
+      throw new ApplicationCommandError(
+        "CONFLICT",
+        "同じIDの記録が存在します。新しい入力として保存してください。",
+      );
+    if (command.themeId && !this.repository.get("theme", command.themeId))
+      throw new ApplicationCommandError(
+        "NOT_FOUND",
+        "選択したThemeは削除されています。選び直してください。",
+        { type: "theme" },
+      );
+    if (command.taskId && !this.repository.get("task", command.taskId))
+      throw new ApplicationCommandError(
+        "NOT_FOUND",
+        "選択したTaskは削除されています。選び直してください。",
+        { type: "task" },
+      );
+    this.saveCanonicalNote(
+      {
+        entity: plan.note,
+        snapshot: {
+          owner: { recordType: "note", entityId: command.commandId },
+          body: command.body,
+          expectedRevision: 0,
+        },
+        options: { source: "manual", reason: "work_log_recorded" },
+        companions: command.taskId
+          ? [
+              {
+                action: "save",
+                type: "reference",
+                entity: {
+                  id: "work-log-task-" + command.commandId,
+                  source_type: "note",
+                  source_id: command.commandId,
+                  target_type: "task",
+                  target_id: command.taskId,
+                  relation_type: "derived_from",
+                },
+              },
+            ]
+          : [],
+      },
+      undefined,
+      plan.companion,
+    );
+    return plan.receipt;
+  }
+
+  saveCanonicalNote(
+    requestValue: unknown,
+    companionValue?: unknown,
+    workLogValue?: WorkLogCompanion,
+  ): Record<string, unknown> {
     const request = normalizeDocumentSaveRequest(requestValue);
     const noteId = request.snapshot.owner.entityId;
     const current = this.repository.get("note", noteId, true);
@@ -2421,6 +2623,7 @@ export class WorkspaceService {
       }),
     };
     const noteAiCompanion = normalizeCanonicalNoteAiCompanion(companionValue, noteId);
+    const workLogCompanion = normalizeWorkLogCompanion(workLogValue, noteId);
     const actualRevision = Number(current?.version || 0);
     if (actualRevision !== request.snapshot.expectedRevision) {
       throw new Error(
@@ -2453,6 +2656,8 @@ export class WorkspaceService {
         options,
         request.companions,
         noteAiCompanion,
+
+        workLogCompanion,
       );
     }
 
@@ -2474,6 +2679,8 @@ export class WorkspaceService {
         options,
         request.companions,
         noteAiCompanion,
+
+        workLogCompanion,
       );
     }
     const snapshot = this.readCanonicalFile(target.filePath);
@@ -2488,6 +2695,8 @@ export class WorkspaceService {
         options,
         request.companions,
         noteAiCompanion,
+
+        workLogCompanion,
       );
     }
 
@@ -2506,7 +2715,14 @@ export class WorkspaceService {
         file_ahead_signature: plan.externalSignature,
         last_error: "外部で変更されたMarkdownを確認してから上書きしてください。",
       });
-      return this.saveNoteInternally(note, conflict, options, request.companions, noteAiCompanion);
+      return this.saveNoteInternally(
+        note,
+        conflict,
+        options,
+        request.companions,
+        noteAiCompanion,
+        workLogCompanion,
+      );
     }
 
     // overwriteは外部変更との確認を経た明示操作なので、同じ内容に見えても
@@ -2529,6 +2745,8 @@ export class WorkspaceService {
         options,
         request.companions,
         noteAiCompanion,
+
+        workLogCompanion,
       );
       this.resolveCanonicalRecoveryReceiptsForSave(noteId, operationId, actualRevision);
       return saved;
@@ -2554,6 +2772,7 @@ export class WorkspaceService {
       bodySignature: markdownSignature(String(note.body_markdown || "")),
       companions: request.companions,
       noteAiCompanion: noteAiCompanion || undefined,
+      workLogCompanion: workLogCompanion || undefined,
     });
     let writeWarning: string | null = null;
     try {
@@ -2564,7 +2783,14 @@ export class WorkspaceService {
         last_error: errorText(error),
       });
       this.removeCanonicalRecoveryReceipt(operationId);
-      return this.saveNoteInternally(note, failed, options, request.companions, noteAiCompanion);
+      return this.saveNoteInternally(
+        note,
+        failed,
+        options,
+        request.companions,
+        noteAiCompanion,
+        workLogCompanion,
+      );
     }
 
     const written = this.readCanonicalFile(target.filePath);
@@ -2577,7 +2803,14 @@ export class WorkspaceService {
         last_error:
           written.error || "書き込んだMarkdownの内容を検証できませんでした。再試行してください。",
       });
-      this.saveNoteInternally(note, failed, options, request.companions, noteAiCompanion);
+      this.saveNoteInternally(
+        note,
+        failed,
+        options,
+        request.companions,
+        noteAiCompanion,
+        workLogCompanion,
+      );
       // 実ファイルの再検証に成功するまでreceiptは残す。
       return this.repository.get("note", noteId, true) || note;
     }
@@ -2599,6 +2832,8 @@ export class WorkspaceService {
         options,
         request.companions,
         noteAiCompanion,
+
+        workLogCompanion,
       );
       this.resolveCanonicalRecoveryReceiptsForSave(noteId, operationId, actualRevision);
       return saved;

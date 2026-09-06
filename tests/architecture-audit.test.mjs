@@ -9,11 +9,50 @@ import {
   analyzeArchitecture,
   collectExports,
   collectImports,
+  hasGenericTaskWrite,
   normalizePath,
   scanTextRules,
 } from "../scripts/architecture-audit/core.mjs";
 
 const AUDIT_SPAWN_MAX_BUFFER = 8 * 1024 * 1024;
+
+test("generic Task batch write detection stays inside call arguments", () => {
+  assert.equal(
+    hasGenericTaskWrite(`
+    class Repository {
+      save(type, entity) { this.saveMany([{ action: "save", type, entity }]); }
+    }
+    test("command receipt", () => {
+      const expectedRef = { type: "task", id: "task-id" };
+    });
+  `),
+    false,
+  );
+  assert.equal(
+    hasGenericTaskWrite('saveEntities(buildTaskOperations(task)); const ref = { type: "task" };'),
+    false,
+  );
+  assert.equal(hasGenericTaskWrite('saveMany([{ type: "note", body: \'type: "task"\' }]);'), false);
+  for (const callee of [
+    "saveMany",
+    "saveEntities",
+    "this.saveMany",
+    "workspaceApi.saveMany",
+    "entities.saveMany",
+  ]) {
+    assert.equal(
+      hasGenericTaskWrite(`${callee}([{ action: "save", type: "task", entity }]);`),
+      true,
+      callee,
+    );
+  }
+  assert.equal(
+    hasGenericTaskWrite(
+      `saveMany([{ type: "note", body: "${"x".repeat(1700)}" }, { type: "task", entity }]);`,
+    ),
+    true,
+  );
+});
 
 test("pull requests produce stable required quality checks for main", () => {
   for (const [file, workflowName, job] of [

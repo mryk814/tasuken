@@ -14,6 +14,7 @@ const bundle = await build({
       export { TaskenCoreRuntime } from "./src/main/composition/taskenCoreRuntime.ts";
       export { MobileGatewayHost } from "./src/main/gateway/mobile/mobileGatewayHost.ts";
       export { MobileDeviceRegistry } from "./src/main/gateway/mobile/mobileDeviceRegistry.ts";
+      export { WorkspaceService } from "./src/main/services/workspaceService.ts";
     `,
     resolveDir: process.cwd(),
   },
@@ -22,20 +23,62 @@ const bundle = await build({
   format: "esm",
   write: false,
   logLevel: "silent",
+  plugins: [
+    {
+      name: "isolated-workspace-service-ports",
+      setup(api) {
+        const mocks = new Map([
+          [
+            "electron",
+            'export const app = { getPath: () => "" }; export class BrowserWindow {} export const clipboard = {}; export const dialog = {}; export const nativeImage = {}; export const shell = {};',
+          ],
+          [
+            "adm-zip",
+            'export default class AdmZip { constructor() { throw new Error("Snapshot archives are not used in the Gateway fixture"); } }',
+          ],
+          [
+            "better-sqlite3",
+            'export default class Database { constructor() { throw new Error("The Gateway fixture injects its real SQLite repository"); } }',
+          ],
+        ]);
+        api.onResolve({ filter: /^(electron|adm-zip|better-sqlite3)$/ }, ({ path }) => ({
+          path,
+          namespace: "workspace-port-mock",
+        }));
+        api.onResolve({ filter: /workspaceRepository\.mjs$/ }, () => ({
+          path: "repository-exports",
+          namespace: "workspace-port-mock",
+        }));
+        api.onLoad({ filter: /.*/, namespace: "workspace-port-mock" }, ({ path }) => ({
+          contents:
+            path === "repository-exports"
+              ? "export const workspaceEntityTypes = []; export const workspaceSchemaVersion = 1;"
+              : mocks.get(path),
+          loader: "js",
+        }));
+      },
+    },
+  ],
 });
-const { ApplicationCommandService, TaskenCoreRuntime, MobileGatewayHost, MobileDeviceRegistry } =
-  await import(
-    `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text + "\n//# sourceURL=mobile-offline-gateway-bundle.mjs").toString("base64")}`
-  );
+const {
+  ApplicationCommandService,
+  TaskenCoreRuntime,
+  MobileGatewayHost,
+  MobileDeviceRegistry,
+  WorkspaceService,
+} = await import(
+  `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text + "\n//# sourceURL=mobile-offline-gateway-bundle.mjs").toString("base64")}`
+);
 
 /** A real Gateway/Core/SQLite route, with faults confined to a loopback test proxy. */
-export async function createMobileOfflineGateway() {
+export async function createMobileOfflineGateway({ scopes } = {}) {
   const directory = mkdtempSync(path.join(os.tmpdir(), "tasken-offline-journey-"));
   const serverId = `offline-${randomUUID()}`;
   const deviceId = `test-${randomUUID()}`;
   const accessToken = randomBytes(32).toString("base64url");
   const controlToken = randomUUID();
   let database;
+  let workspaceService;
   let host;
   let offline = false;
   let dropNextReceipt = false;
@@ -51,8 +94,21 @@ export async function createMobileOfflineGateway() {
       database.save("theme", { id: "theme-offline-fixture", name: "Offline fixture" });
     }
     const application = new ApplicationCommandService(database);
-    const runtime = new TaskenCoreRuntime(directory, database, (command) =>
-      application.execute(command),
+    database.setPreference("artifactDirectory", path.join(directory, "Canonical"));
+    workspaceService = new WorkspaceService(database, directory);
+    workspaceService.loadWorkspace();
+    const runtime = new TaskenCoreRuntime(
+      directory,
+      database,
+      (command) => application.execute(command),
+      undefined,
+      undefined,
+      undefined,
+      {
+        record: (command, actor) => workspaceService.recordWorkLog(command, actor),
+        changeLifecycle: (command, actor) =>
+          workspaceService.changeWorkLogLifecycle(command, actor),
+      },
     );
     const state = {
       current: () => ({
@@ -62,7 +118,15 @@ export async function createMobileOfflineGateway() {
       }),
     };
     const devices = new MobileDeviceRegistry({
-      persistence: database,
+      persistence: scopes
+        ? new Proxy(database, {
+            get(target, key, receiver) {
+              if (key === "pairMobileDevice")
+                return (input) => target.pairMobileDevice({ ...input, scopes });
+              return Reflect.get(target, key, receiver);
+            },
+          })
+        : database,
       createAccessToken: () => accessToken,
     });
     if (!database.listMobileDevices().some((device) => device.id === deviceId)) {
@@ -93,6 +157,10 @@ export async function createMobileOfflineGateway() {
     return {
       tasks: database.list("task", true),
       captures: database.list("capture_entry", true),
+      notes: database.list("note", true),
+      workLogs: database
+        .list("note", true)
+        .filter((note) => note.properties_json?.work_log?.schema === "tasken-work-log/v1"),
       themes: database.list("theme", false),
       schedules: database.list("schedule", true),
       events,
@@ -128,6 +196,36 @@ export async function createMobileOfflineGateway() {
         issuedAt: new Date().toISOString(),
         payload: { task: { ...task, ...changes } },
         expectedVersions: [{ type: "task", id, version: task.version }],
+      });
+    }
+    if (action.deleteTask) {
+      const task = database.get("task", action.deleteTask);
+      assert.ok(task, "The fixture Task must exist before deleting it.");
+      new ApplicationCommandService(database).execute({
+        commandId: randomUUID(),
+        name: "DeleteTask",
+        actor: { kind: "user", id: "fixture-desktop" },
+        source: "main_ui",
+        issuedAt: new Date().toISOString(),
+        payload: { taskId: task.id },
+        expectedVersions: [{ type: "task", id: task.id, version: task.version }],
+      });
+    }
+    if (action.editWorkLog) {
+      const { id, body } = action.editWorkLog;
+      const note = database.get("note", id);
+      assert.ok(
+        note?.properties_json?.work_log,
+        "The fixture WorkLog must exist before editing it.",
+      );
+      assert.equal(typeof body, "string");
+      workspaceService.saveCanonicalNote({
+        entity: { ...note, body_markdown: body },
+        snapshot: {
+          owner: { recordType: "note", entityId: id },
+          body,
+          expectedRevision: note.version,
+        },
       });
     }
     if (action.restartDesktop === true) {

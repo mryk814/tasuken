@@ -5,6 +5,7 @@ export interface MobileGatewayDevice {
     | "mobile:read"
     | "mobile:task-write"
     | "mobile:capture-write"
+    | "mobile:work-log-write"
     | "mobile:proposal-review"
     | "mobile:human-review"
     | "mobile:context-read"

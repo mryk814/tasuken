@@ -410,42 +410,64 @@ function commandEvent(
       : command.actor.kind === "ai_agent"
         ? "ai"
         : "manual");
-  return {
-    ...buildActivityEvent({
-      id: randomUUID(),
-      entityType: refType,
-      entityId,
-      eventKind: eventKind || (entityType === "schedule" ? "schedule_updated" : undefined),
-      occurredAt: now(),
-      changeType: kind,
-      before,
-      after,
-      before_json: before ? JSON.stringify(before) : null,
-      after_json: JSON.stringify(after),
-      source,
-      actor: command.actor,
-      origin: {
-        kind: "application_command",
-        command_id: command.commandId,
-        command_name: command.name,
-        session_id: command.sessionId || command.commandId,
-      },
+  const acceptedAt = now();
+  const activity = buildActivityEvent({
+    id: randomUUID(),
+    entityType: refType,
+    entityId,
+    eventKind: eventKind || (entityType === "schedule" ? "schedule_updated" : undefined),
+    occurredAt: acceptedAt,
+    changeType: kind,
+    before,
+    after,
+    before_json: before ? JSON.stringify(before) : null,
+    after_json: JSON.stringify(after),
+    source,
+    actor: command.actor,
+    origin: {
+      kind: "application_command",
+      command_id: command.commandId,
+      command_name: command.name,
+      session_id: command.sessionId || command.commandId,
+    },
+    command_id: command.commandId,
+    command_name: command.name,
+    command_source: command.source,
+    reason: `application-command:${command.name}`,
+    metadata: {
       command_id: command.commandId,
       command_name: command.name,
       command_source: command.source,
-      reason: `application-command:${command.name}`,
-      metadata: {
-        command_id: command.commandId,
-        command_name: command.name,
-        command_source: command.source,
-        session_id: command.sessionId || command.commandId,
-        // One command can persist a Task plus Note/Artifact/Schedule events.
-        // The command ID gives retry idempotency; the typed event identity
-        // keeps those sibling events from collapsing into one row.
-        dedupe_key: `command:${command.commandId}:${entityType}:${entityId}:${kind}`,
-      },
-      work_receipt_ref: workReceiptRef || null,
-    }),
+      session_id: command.sessionId || command.commandId,
+      // One command can persist a Task plus Note/Artifact/Schedule events.
+      // The command ID gives retry idempotency; the typed event identity
+      // keeps those sibling events from collapsing into one row.
+      dedupe_key: `command:${command.commandId}:${entityType}:${entityId}:${kind}`,
+    },
+    work_receipt_ref: workReceiptRef || null,
+  });
+  const clientOperation =
+    command.source === "mobile" &&
+    (command.name === "CreateCapture" ||
+      activity.event_kind === "task_completed" ||
+      activity.event_kind === "task_reopened" ||
+      activity.event_kind === "task_checklist_checked" ||
+      activity.event_kind === "task_checklist_unchecked");
+  return {
+    ...activity,
+    ...(clientOperation
+      ? {
+          occurred_at: new Date(command.issuedAt).toISOString(),
+          changed_at: acceptedAt,
+          metadata: {
+            ...activity.metadata,
+            time_basis: "client_operation",
+            operation_issued_at: command.issuedAt,
+            accepted_at: acceptedAt,
+            clock_status: "unverified_client_clock",
+          },
+        }
+      : {}),
     entity_type: refType,
     record_type: entityType,
   };

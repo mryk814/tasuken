@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "commandName": "RecordWorkLog",
+  "commandId": "work-log-v1-fixture",
+  "issuedAt": "2026-09-06T15:10:00+09:00",
+  "body": "測定を行った。結果の解釈は未確認。",
+  "performedDate": "2026-09-01",
+  "themeId": null,
+  "taskId": null
+}

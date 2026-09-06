@@ -5,8 +5,11 @@ import {
   entityVersionSchema,
   isoTimestampSchema,
   localDateSchema,
+  isWellFormedUnicode,
 } from "../../kernel/public.ts";
 import {
+  activityPageSchema,
+  publicActivityEntrySchema,
   taskIdSchema,
   taskCreationReportedViaSchema,
   taskIntendedExecutorSchema,
@@ -101,6 +104,7 @@ export function decodeTaskenMobileThemeCursor(
 export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.health,
   TASKEN_MOBILE_CAPABILITIES.todayRead,
+  TASKEN_MOBILE_CAPABILITIES.activityRead,
   TASKEN_MOBILE_CAPABILITIES.syncRead,
   TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
   TASKEN_MOBILE_CAPABILITIES.proposalRead,
@@ -109,6 +113,8 @@ export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.taskContextPreviewRead,
   TASKEN_MOBILE_CAPABILITIES.taskWrite,
   TASKEN_MOBILE_CAPABILITIES.captureWrite,
+  TASKEN_MOBILE_CAPABILITIES.workLogWrite,
+  TASKEN_MOBILE_CAPABILITIES.workLogRead,
 ]);
 
 export const mobileScopeSchema = z.enum([
@@ -116,6 +122,7 @@ export const mobileScopeSchema = z.enum([
   TASKEN_MOBILE_SCOPES.contextRead,
   TASKEN_MOBILE_SCOPES.taskWrite,
   TASKEN_MOBILE_SCOPES.captureWrite,
+  TASKEN_MOBILE_SCOPES.workLogWrite,
   TASKEN_MOBILE_SCOPES.proposalReview,
   TASKEN_MOBILE_SCOPES.humanReview,
 ]);
@@ -130,6 +137,77 @@ export const mobileResponseMetaSchema = z
     truncated: z.boolean(),
   })
   .strict();
+
+export const mobileActivityRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    date: localDateSchema,
+    timezone: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .refine((value) => {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: value });
+          return true;
+        } catch {
+          return false;
+        }
+      }, "Unknown timezone"),
+    limit: z.number().int().min(1).max(500).default(100),
+    cursor: z.string().max(200).optional(),
+  })
+  .strict();
+
+export const mobileActivityDataSchema = z
+  .object({
+    schema_version: z.number().int(),
+    timezone: z.string(),
+    date: localDateSchema,
+    events: z
+      .array(
+        publicActivityEntrySchema.extend({
+          mobile_source: z
+            .object({
+              type: z.string(),
+              id: z.string(),
+              status: z.enum(["available", "unavailable"]),
+              reason: z.enum(["unsupported_type", "not_found"]).nullable(),
+            })
+            .strict(),
+        }),
+      )
+      .max(500),
+    excluded_count: z.number().int().nonnegative(),
+    excluded_reasons: z.array(
+      z
+        .object({
+          type: z.string(),
+          reason: z.string(),
+          count: z.number().int().nonnegative(),
+        })
+        .strict(),
+    ),
+    truncated: z.boolean(),
+    page: activityPageSchema,
+    matched_count: z.number().int().nonnegative().nullable().optional(),
+  })
+  .strict();
+
+export const mobileActivityResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: mobileActivityDataSchema,
+  })
+  .strict();
+
+export type MobileActivityRequest = z.output<typeof mobileActivityRequestSchema>;
+export type MobileActivityData = z.output<typeof mobileActivityDataSchema>;
+export type MobileActivityResponse = z.output<typeof mobileActivityResponseSchema>;
 
 export const mobileErrorCodeSchema = z.enum([
   "unauthorized",
@@ -162,7 +240,7 @@ export const mobileHealthResponseSchema = z
     data: z
       .object({
         status: z.literal("ready"),
-        capabilities: z.array(mobileCapabilitySchema).max(10),
+        capabilities: z.array(mobileCapabilitySchema).max(mobileCapabilitySchema.options.length),
       })
       .strict(),
   })
@@ -1298,9 +1376,94 @@ export const mobileCaptureCommandRequestSchema = z
     },
   );
 
+export const mobileWorkLogCommandSchema = z.discriminatedUnion("name", [
+  z
+    .object({
+      name: z.literal("RecordWorkLog"),
+      body: z
+        .string()
+        .min(1)
+        .refine((value) => Boolean(value.trim()) && isWellFormedUnicode(value)),
+      performedDate: localDateSchema,
+      themeId: entityIdSchema.nullable().optional(),
+      taskId: entityIdSchema.nullable().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      name: z.literal("DeleteWorkLog"),
+      noteId: entityIdSchema,
+      expectedVersion: entityVersionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      name: z.literal("RestoreWorkLog"),
+      noteId: entityIdSchema,
+      expectedVersion: entityVersionSchema,
+    })
+    .strict(),
+]);
+
+export const mobileWorkLogCommandRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    commandId: entityIdSchema,
+    idempotencyKey: entityIdSchema,
+    clientDeviceId: entityIdSchema,
+    issuedAt: isoTimestampSchema,
+    command: mobileWorkLogCommandSchema,
+  })
+  .strict()
+  .refine((value) => value.commandId === value.idempotencyKey, {
+    path: ["idempotencyKey"],
+    message: "commandIdとidempotencyKeyを一致させてください。",
+  });
+
+export const mobileWorkLogSchema = z
+  .object({
+    id: entityIdSchema,
+    version: entityVersionSchema,
+    body: z.string(),
+    performedDate: localDateSchema,
+    enteredAt: isoTimestampSchema,
+    themeId: entityIdSchema.nullable(),
+    taskId: entityIdSchema.nullable(),
+    taskMissing: z.boolean(),
+    deleted: z.boolean(),
+  })
+  .strict();
+
+export const mobileWorkLogCommandResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        commandId: entityIdSchema,
+        status: z.enum(["applied", "no_change"]),
+        workLog: mobileWorkLogSchema,
+      })
+      .strict(),
+  })
+  .strict();
+export const mobileWorkLogRequestSchema = z.object({ id: entityIdSchema }).strict();
+export const mobileWorkLogResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z.object({ workLog: mobileWorkLogSchema.nullable() }).strict(),
+  })
+  .strict();
+export type MobileWorkLogCommandRequest = z.output<typeof mobileWorkLogCommandRequestSchema>;
+export type MobileWorkLog = z.output<typeof mobileWorkLogSchema>;
+
 export const mobileCommandRequestSchema = z.union([
   mobileTaskCommandRequestSchema,
   mobileCaptureCommandRequestSchema,
+  mobileWorkLogCommandRequestSchema,
 ]);
 
 export const mobileCaptureCommandResponseSchema = z
