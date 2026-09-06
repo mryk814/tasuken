@@ -1,6 +1,10 @@
 package jp.personal.tasken.companion
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -78,10 +83,12 @@ internal fun TaskListFilters(paneState: TodayPaneState, themes: List<MobileTheme
                     )
                 }
                 items(themes, key = { it.id }) { theme ->
+                    val themeColor = taskenThemeColor(theme.color, MaterialTheme.colorScheme.surface.luminance() < 0.5f)
                     FilterChip(
                         selected = paneState.taskThemeId == theme.id,
                         onClick = { paneState.taskThemeId = theme.id },
                         label = { Text(theme.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        leadingIcon = { Box(Modifier.size(8.dp).background(themeColor, CircleShape)) },
                         modifier = Modifier.widthIn(max = 220.dp).testTag("task-theme-filter-${theme.id}"),
                     )
                 }

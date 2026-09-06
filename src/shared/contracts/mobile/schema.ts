@@ -817,6 +817,20 @@ export const mobileThemeCatalogItemSchema = z
   .object({
     id: entityIdSchema,
     title: z.string().trim().min(1).max(500),
+    color: z
+      .enum([
+        "chart-1",
+        "chart-2",
+        "chart-3",
+        "chart-4",
+        "chart-5",
+        "chart-6",
+        "theme-extra-1",
+        "theme-extra-2",
+        "theme-extra-3",
+        "theme-extra-4",
+      ])
+      .optional(),
   })
   .strict();
 
@@ -831,6 +845,7 @@ export const mobileThemesRequestSchema = z
     schemaVersion: schemaVersionSchema,
     requestId: requestIdSchema,
     cursor: mobileThemeCursorSchema.optional(),
+    includeColors: z.boolean().optional(),
     limit: z
       .number()
       .int()

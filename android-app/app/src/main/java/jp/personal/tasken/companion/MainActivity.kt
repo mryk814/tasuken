@@ -16,6 +16,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.clickable
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,10 +48,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -106,6 +109,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -659,6 +663,7 @@ private fun TodayApp(
                                 onTaskSelected = onTaskSelected,
                                 actionState = taskActionState,
                                 onTaskStateAction = todayViewModel::toggleTaskState,
+                                onChecklistUpdate = todayViewModel::updateTaskChecklist,
                             )
                             AppSection.Tasks -> TasksListPane(
                                 uiState = uiState,
@@ -671,6 +676,7 @@ private fun TodayApp(
                                 onTaskSelected = onTaskSelected,
                                 actionState = taskActionState,
                                 onTaskStateAction = todayViewModel::toggleTaskState,
+                                onChecklistUpdate = todayViewModel::updateTaskChecklist,
                             )
                             AppSection.Ai -> AiInboxListPane(
                                 uiState = uiState,
@@ -1085,6 +1091,7 @@ internal fun CaptureThemePicker(
                         )
                     },
                     enabled = themeChipsEnabled,
+                    leadingIcon = { ThemeColorDot(theme) },
                     modifier = Modifier
                         .heightIn(min = 44.dp)
                         .widthIn(max = 220.dp)
@@ -1133,6 +1140,7 @@ private fun TodayListPane(
     onTaskSelected: (String) -> Unit,
     actionState: TaskActionUiState,
     onTaskStateAction: (MobileTask) -> Unit,
+    onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit,
 ) {
     when (uiState) {
         TodayUiState.Loading -> CenteredState {
@@ -1151,6 +1159,7 @@ private fun TodayListPane(
             onTaskSelected,
             actionState,
             onTaskStateAction,
+            onChecklistUpdate,
         )
         is TodayUiState.Success -> TodayTaskList(
             uiState.tasks,
@@ -1159,6 +1168,7 @@ private fun TodayListPane(
             themes = themes,
             actionState = actionState,
             onTaskStateAction = onTaskStateAction,
+            onChecklistUpdate = onChecklistUpdate,
         )
     }
 }
@@ -1203,6 +1213,7 @@ private fun CachedTodayPane(
     onTaskSelected: (String) -> Unit,
     actionState: TaskActionUiState,
     onTaskStateAction: (MobileTask) -> Unit,
+    onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         CachedTaskBanner(state, onRetry, onRetryPairing)
@@ -1219,6 +1230,7 @@ private fun CachedTodayPane(
                     themes = themes,
                     actionState = actionState,
                     onTaskStateAction = onTaskStateAction,
+                    onChecklistUpdate = onChecklistUpdate,
                 )
             }
         }
@@ -1283,6 +1295,7 @@ internal fun TasksListPane(
     onTaskSelected: (String) -> Unit,
     actionState: TaskActionUiState,
     onTaskStateAction: (MobileTask) -> Unit,
+    onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
 ) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
@@ -1340,6 +1353,7 @@ internal fun TasksListPane(
                         themes = themes,
                         actionState = actionState,
                         onTaskStateAction = onTaskStateAction,
+                        onChecklistUpdate = onChecklistUpdate,
                     )
                 }
             }
@@ -1557,6 +1571,7 @@ internal fun TodayTaskList(
     themes: List<MobileTheme>,
     actionState: TaskActionUiState,
     onTaskStateAction: (MobileTask) -> Unit,
+    onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
 ) {
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = if (allTasksMode) paneState.taskListScrollIndex else paneState.listScrollIndex,
@@ -1610,66 +1625,69 @@ internal fun TodayTaskList(
                 ),
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Text(task.title, fontWeight = FontWeight.SemiBold)
-                        TaskThemeLabel(task.themeId, themes)
-                    }
-                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (task.conflict != null || requiresWorkReceipt) {
-                            val conflict = task.conflict != null
-                            Surface(
-                                color = if (conflict) {
-                                    MaterialTheme.colorScheme.errorContainer
-                                } else {
-                                    MaterialTheme.colorScheme.tertiaryContainer
-                                },
-                                shape = RoundedCornerShape(7.dp),
-                            ) {
-                                Text(
-                                    if (conflict) "競合" else "要確認",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    color = if (conflict) {
-                                        MaterialTheme.colorScheme.onErrorContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.onTertiaryContainer
-                                    },
-                                    fontSize = 11.sp,
-                                )
-                            }
-                        }
-                        if (task.pending) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                shape = RoundedCornerShape(7.dp),
-                            ) {
-                                Text(
-                                    "送信待ち",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    fontSize = 11.sp,
-                                )
-                            }
-                        }
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(7.dp),
+                        Text(task.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
-                            Text(
-                                taskStateLabel(task.state),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelMedium,
-                            )
+                            TaskThemeLabel(task.themeId, themes)
+                            if (task.conflict != null || requiresWorkReceipt) {
+                                val conflict = task.conflict != null
+                                Surface(
+                                    color = if (conflict) {
+                                        MaterialTheme.colorScheme.errorContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.tertiaryContainer
+                                    },
+                                    shape = RoundedCornerShape(7.dp),
+                                ) {
+                                    Text(
+                                        if (conflict) "競合" else "要確認",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        color = if (conflict) {
+                                            MaterialTheme.colorScheme.onErrorContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onTertiaryContainer
+                                        },
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            }
+                            if (task.pending) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(7.dp),
+                                ) {
+                                    Text(
+                                        "送信待ち",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            }
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(7.dp),
+                            ) {
+                                Text(
+                                    taskStateLabel(task.state),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                            }
                         }
                     }
-                    Checkbox(
+                    TaskCompletionControl(
                         checked = task.state == "done",
                         onCheckedChange = { onTaskStateAction(task) },
                         enabled = stateActionEnabled,
@@ -1677,6 +1695,38 @@ internal fun TodayTaskList(
                             .testTag("task-state-action-${task.id}")
                             .semantics { contentDescription = stateActionDescription },
                     )
+                }
+                if (task.checklistItems.isNotEmpty()) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        task.checklistItems.sortedBy { it.sortOrder }.take(3).forEach { item ->
+                            InlineChecklistControl(
+                                item = item,
+                                onToggle = {
+                                    onChecklistUpdate(task, task.checklistItems.map { current ->
+                                        if (current.id == item.id) current.copy(
+                                            done = !current.done,
+                                            completedAt = if (current.done) null else Instant.now().toString(),
+                                        ) else current
+                                    })
+                                },
+                                enabled = (!task.pending || task.canEditPendingChecklist) &&
+                                    task.conflict == null && actionState !is TaskActionUiState.Saving,
+                                modifier = Modifier.widthIn(max = 160.dp)
+                                    .testTag("task-list-checklist-${task.id}-${item.id}")
+                                    .semantics { contentDescription = "${item.title}を${if (item.done) "未完了に戻す" else "完了する"}" },
+                            )
+                        }
+                        if (task.checklistItems.size > 3) {
+                            TextButton(
+                                onClick = { onTaskSelected(task.id) },
+                                modifier = Modifier.heightIn(min = 44.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                            ) { Text("ほか${task.checklistItems.size - 3}項目") }
+                        }
+                    }
                 }
             }
         }
@@ -1686,19 +1736,15 @@ internal fun TodayTaskList(
 @Composable
 private fun TaskThemeLabel(themeId: String?, themes: List<MobileTheme>) {
     val theme = themes.firstOrNull { it.id == themeId } ?: return
-    Surface(
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        shape = RoundedCornerShape(7.dp),
-    ) {
-        Text(
-            theme.title,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+    ColoredThemeLabel(theme)
+}
+
+@Composable
+private fun ThemeColorDot(theme: MobileTheme) {
+    Box(Modifier.size(8.dp).background(
+        taskenThemeColor(theme.color, MaterialTheme.colorScheme.surface.luminance() < 0.5f),
+        CircleShape,
+    ))
 }
 
 @Composable
@@ -1740,6 +1786,11 @@ internal fun TodayDetailPane(
     var titleDraft by rememberSaveable(task.id) { mutableStateOf(task.title) }
     var titleBase by rememberSaveable(task.id) { mutableStateOf(task.title) }
     var titleEditing by rememberSaveable(task.id) { mutableStateOf(false) }
+    val titleFocusRequester = remember(task.id) { FocusRequester() }
+    val titleEditable = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving
+    LaunchedEffect(titleEditing) {
+        if (titleEditing) titleFocusRequester.requestFocus()
+    }
     var descriptionExpanded by rememberSaveable(task.id) { mutableStateOf(false) }
     var aiOptionsOpen by rememberSaveable(task.id) { mutableStateOf(false) }
     var themePickerOpenRequest by rememberSaveable(task.id) { mutableStateOf(0) }
@@ -1753,6 +1804,7 @@ internal fun TodayDetailPane(
             titleBase = task.title
         } else if (titleDraft.trim() == task.title) {
             titleBase = task.title
+            titleEditing = false
         }
     }
     val today = LocalDate.now()
@@ -1763,7 +1815,49 @@ internal fun TodayDetailPane(
                 .verticalScroll(rememberScrollState()).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(task.title, fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (titleEditing) {
+                    OutlinedTextField(
+                        value = titleDraft,
+                        onValueChange = { if (it.length <= 500) titleDraft = it },
+                        modifier = Modifier.weight(1f).testTag("task-title").focusRequester(titleFocusRequester),
+                        label = { Text("Task名") },
+                        isError = actionState is TaskActionUiState.Error && actionState.taskId == task.id,
+                        supportingText = (actionState as? TaskActionUiState.Error)
+                            ?.takeIf { it.taskId == task.id }?.let { error -> { Text(error.message) } },
+                        maxLines = 4,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = {
+                            if (titleEditable && titleDraft.trim().isNotEmpty() && titleDraft.trim() != task.title) {
+                                onTitleUpdate(task, titleDraft)
+                            }
+                        }),
+                        enabled = titleEditable,
+                    )
+                } else {
+                    Text(
+                        task.title,
+                        fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f).testTag("task-title-display")
+                            .clickable(enabled = titleEditable, onClickLabel = "Task名を編集") { titleEditing = true },
+                    )
+                }
+                IconButton(
+                    onClick = { titleEditing = !titleEditing },
+                    enabled = titleEditing || titleEditable,
+                    modifier = Modifier.testTag("task-title-edit-toggle"),
+                ) {
+                    Icon(painterResource(if (titleEditing) R.drawable.ic_tabler_x else R.drawable.ic_tabler_pencil),
+                        contentDescription = if (titleEditing) "名前の編集を閉じる" else "Task名を編集")
+                }
+            }
+            if (titleEditing) {
+                TextButton(
+                    onClick = { onTitleUpdate(task, titleDraft) },
+                    enabled = titleEditable && titleDraft.trim().isNotEmpty() && titleDraft.trim() != task.title,
+                    modifier = Modifier.align(Alignment.End),
+                ) { Text("Task名を保存") }
+            }
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1804,27 +1898,6 @@ internal fun TodayDetailPane(
                         )
                     }
                 }
-            }
-            TextButton(
-                onClick = { titleEditing = !titleEditing },
-                modifier = Modifier.align(Alignment.End).testTag("task-title-edit-toggle"),
-            ) { Text(if (titleEditing) "名前の編集を閉じる" else "Task名を編集") }
-            if (titleEditing) {
-                OutlinedTextField(
-                    value = titleDraft,
-                    onValueChange = { if (it.length <= 500) titleDraft = it },
-                    modifier = Modifier.fillMaxWidth().testTag("task-title"),
-                    label = { Text("Task名") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { onTitleUpdate(task, titleDraft) }),
-                    enabled = !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
-                )
-                OutlinedButton(
-                    onClick = { onTitleUpdate(task, titleDraft) },
-                    enabled = titleDraft.trim().isNotEmpty() && titleDraft.trim() != task.title &&
-                        !task.pending && task.conflict == null && actionState !is TaskActionUiState.Saving,
-                ) { Text("Task名を保存") }
             }
             task.description?.takeIf(String::isNotBlank)?.let { description ->
                 TextButton(
@@ -2498,6 +2571,11 @@ private fun ChecklistItemEditor(
 ) {
     var titleDraft by rememberSaveable(taskId, item.id, item.title) { mutableStateOf(item.title) }
     var editing by rememberSaveable(taskId, item.id) { mutableStateOf(false) }
+    val focusRequester = remember(taskId, item.id) { FocusRequester() }
+    LaunchedEffect(editing) {
+        if (editing) focusRequester.requestFocus()
+    }
+    LaunchedEffect(item.title) { editing = false }
     Column(
         modifier = Modifier.fillMaxWidth().testTag("checklist-item-${item.id}"),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -2509,23 +2587,28 @@ private fun ChecklistItemEditor(
             if (editing) OutlinedTextField(
                 value = titleDraft,
                 onValueChange = { if (it.length <= 200) titleDraft = it },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).focusRequester(focusRequester),
                 maxLines = 4,
                 enabled = enabled,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
-                    if (titleDraft.trim().isNotEmpty() && titleDraft.trim() != item.title) onRename(titleDraft)
+                    if (enabled && titleDraft.trim().isNotEmpty() && titleDraft.trim() != item.title) onRename(titleDraft)
                 }),
             ) else Text(
                 item.title,
-                modifier = Modifier.weight(1f).testTag("checklist-label-${item.id}"),
+                modifier = Modifier.weight(1f).testTag("checklist-label-${item.id}")
+                    .clickable(enabled = enabled, onClickLabel = "項目名を編集") { editing = true },
                 color = if (item.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
             )
-            TextButton(
+            IconButton(
                 onClick = { editing = !editing },
+                enabled = editing || enabled,
                 modifier = Modifier.testTag("checklist-edit-${item.id}"),
-            ) { Text(if (editing) "閉じる" else "編集") }
-            Checkbox(
+            ) {
+                Icon(painterResource(if (editing) R.drawable.ic_tabler_x else R.drawable.ic_tabler_pencil),
+                    contentDescription = if (editing) "項目名の編集を閉じる" else "${item.title}を編集")
+            }
+            TaskCompletionControl(
                 checked = item.done,
                 onCheckedChange = { onToggle() },
                 enabled = enabled,
@@ -2617,15 +2700,20 @@ private fun TaskScheduleEditor(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("予定", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            TextButton(
+            IconButton(
                 onClick = { editing = !editing },
+                enabled = editing || enabled,
                 modifier = Modifier.testTag("schedule-edit-toggle"),
-            ) { Text(if (editing) "編集を閉じる" else "予定を編集") }
+            ) {
+                Icon(painterResource(if (editing) R.drawable.ic_tabler_x else R.drawable.ic_tabler_pencil),
+                    contentDescription = if (editing) "予定の編集を閉じる" else "予定を編集")
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 scheduleDraftLabel(startDate, endDate, rangeSemanticsDraft),
-                modifier = Modifier.testTag("schedule-kind"),
+                modifier = Modifier.testTag("schedule-kind")
+                    .clickable(enabled = enabled, onClickLabel = "予定を編集") { editing = true },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -2634,7 +2722,8 @@ private fun TaskScheduleEditor(
                 listOfNotNull(startDraft.takeIf { it.isNotEmpty() }?.let { "開始 $it" },
                     endDraft.takeIf { it.isNotEmpty() }?.let { "期限 $it" }).joinToString(" / ")
                     .ifEmpty { "予定なし" },
-                modifier = Modifier.testTag("schedule-summary"),
+                modifier = Modifier.testTag("schedule-summary")
+                    .clickable(enabled = enabled, onClickLabel = "予定を編集") { editing = true },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (hasChanges) Text("未保存の予定があります", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2891,6 +2980,7 @@ private fun TaskThemePicker(
                 .testTag("task-theme-picker")
                 .semantics { this.stateDescription = displayedState },
             label = { Text("Theme") },
+            leadingIcon = selectedTheme?.let { { ThemeColorDot(it) } },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             readOnly = true,
             singleLine = true,
@@ -2903,7 +2993,7 @@ private fun TaskThemePicker(
             themes.forEach { theme ->
                 val isSelected = theme.id == themeId
                 DropdownMenuItem(
-                    text = { Text(theme.title) },
+                    text = { ColoredThemeLabel(theme) },
                     trailingIcon = { if (isSelected) Text("選択中") },
                     onClick = {
                         expanded = false

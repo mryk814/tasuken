@@ -202,6 +202,7 @@ export class TaskenCoreRuntime {
           this.persistence.list("theme", false).map((theme) => ({
             id: String(theme.id || ""),
             name: String(theme.name || ""),
+            color: typeof theme.color === "string" ? theme.color : null,
           })),
         listWorkReceipts: () => this.persistence.list("work_receipt", false).map(mobileWorkReceipt),
         getWorkReceipt: (id) => {

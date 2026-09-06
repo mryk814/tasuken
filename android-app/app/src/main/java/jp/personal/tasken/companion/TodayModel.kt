@@ -221,6 +221,7 @@ data class MobileRejectedThemeUpdate(
 data class MobileTheme(
     val id: String,
     val title: String,
+    val color: String? = null,
 )
 
 sealed interface MobileThemeCatalogState {

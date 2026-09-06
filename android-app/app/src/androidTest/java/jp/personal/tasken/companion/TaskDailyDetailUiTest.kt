@@ -132,7 +132,7 @@ class TaskDailyDetailUiTest {
             assertEquals(1, saves)
             assertNotNull(current.value.checklistItems.single().completedAt)
         }
-        composeRule.onNodeWithTag("checklist-edit-milk").performScrollTo().performClick()
+        composeRule.onNodeWithTag("checklist-label-milk").performScrollTo().performClick()
         val input = hasSetTextAction() and hasAnyAncestor(hasTestTag("checklist-item-milk"))
         composeRule.onNode(input).performTextReplacement("低脂肪牛乳")
         composeRule.onNodeWithTag("checklist-edit-milk").performScrollTo().performClick()

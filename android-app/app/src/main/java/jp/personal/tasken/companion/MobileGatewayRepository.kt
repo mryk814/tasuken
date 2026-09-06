@@ -1300,6 +1300,7 @@ class AndroidMobileTaskRepository(
         var generatedAt: String? = null
         var cursor: String? = null
         var prepared = false
+        var includeColors = true
         try {
             dao.prepareThemeRefresh(expectedServerId, refreshId, attemptedAt)
             prepared = true
@@ -1308,15 +1309,24 @@ class AndroidMobileTaskRepository(
                 val cursorQuery = cursor?.let {
                     "&cursor=${URLEncoder.encode(it, Charsets.UTF_8.name())}"
                 }.orEmpty()
-                val response = gatewayRequest(
+                val path = "/v1/themes?apiVersion=$TASKEN_MOBILE_API_VERSION" +
+                    "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId" +
+                    "&limit=50$cursorQuery"
+                var response = gatewayRequest(
                     origin = origin,
-                    path = "/v1/themes?apiVersion=$TASKEN_MOBILE_API_VERSION" +
-                        "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId" +
-                        "&limit=50$cursorQuery",
+                    path = path + if (includeColors) "&includeColors=true" else "",
                     method = "GET",
                     body = null,
                     accessToken = accessToken,
                 )
+                if (includeColors && cursor == null && response.status == 400 && runCatching {
+                        json.parseToJsonElement(response.body).jsonObject["error"]?.jsonObject
+                            ?.get("code")?.jsonPrimitive?.content == "validation_failed"
+                    }.getOrDefault(false)) {
+                    // Older Desktop versions reject the optional color query; keep their narrow catalog usable.
+                    includeColors = false
+                    response = gatewayRequest(origin, path, "GET", null, accessToken)
+                }
                 if (isConfirmedGatewayUnauthorized(response, expectedServerId)) {
                     store.clearTokenIfMatches(accessToken)
                 }
@@ -1338,7 +1348,7 @@ class AndroidMobileTaskRepository(
                             retryable = false,
                         )
                     }
-                    themes += ThemeCacheEntity(theme.id, theme.title)
+                    themes += ThemeCacheEntity(theme.id, theme.title, color = theme.color)
                 }
                 val nextCursor = decoded.data.nextCursor
                 if (nextCursor == null) {
@@ -1563,7 +1573,7 @@ class AndroidMobileTaskRepository(
         if (this == null) return MobileThemeCatalogState.Loading()
         val mobileThemes = themes
             .sortedWith(compareBy<ThemeCacheEntity> { it.title }.thenBy { it.id })
-            .map { MobileTheme(it.id, it.title) }
+            .map { MobileTheme(it.id, it.title, it.color) }
         return when (state.status) {
             ThemeCatalogStatus.Loading -> MobileThemeCatalogState.Loading(
                 themes = mobileThemes,
