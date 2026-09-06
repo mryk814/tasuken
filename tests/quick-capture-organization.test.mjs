@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { build } from "esbuild";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 const bundle = await build({
   entryPoints: ["src/main/quickCaptureController.ts"],
@@ -37,6 +41,8 @@ const proposal = {
   title: "比較実験を準備",
   themeId: "research",
   startDate: null,
+  plannedStartTime: null,
+  plannedDurationMinutes: null,
   endDate: "2026-09-11",
   rangeSemantics: null,
   checklist: ["データを集める", "条件を揃える"],
@@ -44,7 +50,7 @@ const proposal = {
   warnings: [],
 };
 const batch = { tasks: [proposal], warnings: [] };
-function fixture(organizeCapture = async () => batch) {
+function fixture(organizeCapture = async () => batch, executeCommand) {
   globalThis.captureFixture = { handlers: new Map() };
   const commands = [],
     saves = [],
@@ -61,6 +67,7 @@ function fixture(organizeCapture = async () => batch) {
     },
     executeCommand: (command) => {
       commands.push(command);
+      if (executeCommand) return executeCommand(command);
       return { changes: [{ type: "task", entity: command.payload.task }] };
     },
     notifyWorkspaceChanged() {},
@@ -93,7 +100,12 @@ test("Desktop organization passes only current capture and canonical Theme candi
     themeId: "research",
   };
   assert.deepEqual(await f.call("organize", request), proposal);
-  assert.deepEqual(input, { ...request, themes: [{ id: "research", title: "研究" }], maxTasks: 1 });
+  assert.deepEqual(input, {
+    ...request,
+    themes: [{ id: "research", title: "研究" }],
+    maxTasks: 1,
+    includePlannedTime: true,
+  });
   assert.equal(f.commands.length, 0);
   assert.equal(f.saves.length, 0);
   await assert.rejects(f.handlers.get("quick-capture:organize")({ sender: { id: 99 } }, request));
@@ -150,4 +162,84 @@ test("Desktop plain Inbox stays a raw Capture and a dateless organized Task stay
   });
   assert.equal(f.commands[0].payload.schedule, undefined);
   assert.equal(f.commands[0].payload.task.today_date, null);
+});
+
+test("Desktop confirmed planned time keeps execution time separate from the deadline and accepts duration alone", () => {
+  const f = fixture();
+  f.call("save", "金曜まで。明日16時から90分", "today-task", undefined, undefined, {
+    ...proposal,
+    startDate: "2026-09-07",
+    plannedStartTime: "16:00",
+    plannedDurationMinutes: 90,
+  });
+  assert.equal(f.commands[0].payload.task.planned_start_time, "16:00");
+  assert.equal(f.commands[0].payload.task.planned_duration_minutes, 90);
+  assert.equal(f.commands[0].payload.schedule.start_date, "2026-09-07");
+  assert.equal(f.commands[0].payload.schedule.end_date, "2026-09-11");
+  f.call("save", "作業は30分", "today-task", undefined, undefined, {
+    ...proposal,
+    endDate: null,
+    plannedDurationMinutes: 30,
+  });
+  assert.equal(f.commands[1].payload.schedule, undefined);
+  assert.equal(f.commands[1].payload.task.planned_start_time, null);
+  assert.equal(f.commands[1].payload.task.planned_duration_minutes, 30);
+  for (const changes of [
+    { plannedStartTime: "24:00" },
+    { plannedStartTime: "9:00" },
+    { plannedDurationMinutes: 0 },
+    { plannedDurationMinutes: 1.5 },
+    { plannedDurationMinutes: 10081 },
+    { plannedDurationMinutes: NaN },
+  ])
+    assert.throws(() =>
+      f.call("save", "保持する原文", "today-task", undefined, undefined, {
+        ...proposal,
+        ...changes,
+      }),
+    );
+  assert.equal(f.commands.length, 2);
+});
+
+test("Desktop organized execution time and original text survive canonical CreateTask and SQLite reopen", async () => {
+  const serviceBundle = await build({
+    entryPoints: ["src/main/services/applicationCommandService.ts"],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    write: false,
+    logLevel: "silent",
+  });
+  const { ApplicationCommandService } = await import(
+    `data:text/javascript;base64,${Buffer.from(serviceBundle.outputFiles[0].text).toString("base64")}`
+  );
+  const directory = mkdtempSync(path.join(tmpdir(), "tasken-capture-planned-time-"));
+  let database;
+  try {
+    database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+    database.save("theme", { id: "research", name: "研究" });
+    const service = new ApplicationCommandService(database);
+    const f = fixture(undefined, (command) => service.execute(command));
+    const original = "明日15時、いや16時から90分、比較実験。金曜までに終える";
+    const edited = {
+      ...proposal,
+      startDate: "2026-09-07",
+      plannedStartTime: "16:30",
+      plannedDurationMinutes: 75,
+    };
+    const saved = f.call("save", original, "today-task", undefined, undefined, edited);
+    database.db.close();
+    database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+    const reopened = database.get("task", saved.id);
+    assert.equal(reopened.planned_start_time, "16:30");
+    assert.equal(reopened.planned_duration_minutes, 75);
+    assert.ok(reopened.description.endsWith(original));
+    const schedule = database.list("schedule").find((entry) => entry.owner_id === saved.id);
+    assert.equal(schedule.start_date, "2026-09-07");
+    assert.equal(schedule.end_date, "2026-09-11");
+    assert.equal(database.list("task").length, 1);
+  } finally {
+    database?.db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
