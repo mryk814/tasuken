@@ -9,6 +9,8 @@ import {
   decodeTaskenMobileThemeCursor,
   encodeTaskenMobileThemeCursor,
   mobileBootstrapRequestSchema,
+  mobileActivityRequestSchema,
+  mobileActivityResponseSchema,
   mobileBootstrapResponseSchema,
   mobileCaptureCommandResponseSchema,
   mobileWorkLogCommandResponseSchema,
@@ -40,6 +42,8 @@ import {
   mobileWorkReceiptRequestSchema,
   mobileWorkReceiptResponseSchema,
   type MobileCapability,
+  type MobileActivityRequest,
+  type MobileActivityData,
   type MobileErrorCode,
   type MobileResponseMeta,
   type MobileScope,
@@ -174,6 +178,7 @@ export type MobileGatewayCaptureCommandResult =
     };
 
 export interface MobileGatewayCorePort {
+  queryActivity?(input: MobileActivityRequest): Promise<MobileActivityData> | MobileActivityData;
   executeWorkLogCommand?(
     input: MobileGatewayWorkLogCommand,
   ): Promise<MobileGatewayWorkLogCommandResult> | MobileGatewayWorkLogCommandResult;
@@ -901,6 +906,7 @@ export class MobileGatewayAdapter {
       if (
         [
           TASKEN_MOBILE_ENDPOINTS.today,
+          TASKEN_MOBILE_ENDPOINTS.activity,
           TASKEN_MOBILE_ENDPOINTS.themes,
           TASKEN_MOBILE_ENDPOINTS.workReceipt,
           TASKEN_MOBILE_ENDPOINTS.workLogs,
@@ -948,6 +954,16 @@ export class MobileGatewayAdapter {
 
       const today =
         request.path === TASKEN_MOBILE_ENDPOINTS.today ? this.parseTodayQuery(request.query) : null;
+      const activity =
+        request.path === TASKEN_MOBILE_ENDPOINTS.activity
+          ? mobileActivityRequestSchema.safeParse({
+              ...request.query,
+              apiVersion: Number(request.query?.apiVersion),
+              schemaVersion: Number(request.query?.schemaVersion),
+              ...(request.query?.limit === undefined ? {} : { limit: Number(request.query.limit) }),
+            })
+          : null;
+      if (activity && !activity.success) return this.error(meta, "validation_failed");
       const themes =
         request.path === TASKEN_MOBILE_ENDPOINTS.themes
           ? this.parseThemesQuery(request.query)
@@ -1014,6 +1030,7 @@ export class MobileGatewayAdapter {
       if (
         ![
           TASKEN_MOBILE_ENDPOINTS.today,
+          TASKEN_MOBILE_ENDPOINTS.activity,
           TASKEN_MOBILE_ENDPOINTS.themes,
           TASKEN_MOBILE_ENDPOINTS.workReceipt,
           TASKEN_MOBILE_ENDPOINTS.proposals,
@@ -1144,6 +1161,17 @@ export class MobileGatewayAdapter {
                 ...(delegation.instruction ? { instruction: delegation.instruction } : {}),
               }),
             },
+          }),
+        );
+      }
+      if (activity?.success) {
+        if (!this.options.core.queryActivity) return this.error(meta, "capability_unavailable");
+        const data = await this.options.core.queryActivity(activity.data);
+        return this.success(
+          mobileActivityResponseSchema.parse({
+            ok: true,
+            meta: { ...meta, truncated: data.truncated },
+            data,
           }),
         );
       }
@@ -1813,6 +1841,8 @@ export class MobileGatewayAdapter {
         TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
         TASKEN_MOBILE_CAPABILITIES.proposalRead,
       );
+      if (this.options.core.queryActivity)
+        capabilities.push(TASKEN_MOBILE_CAPABILITIES.activityRead);
     }
     if (
       principal.scopes.includes("mobile:context-read") &&

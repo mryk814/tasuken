@@ -64,6 +64,8 @@ Android APKをbuildしてからrepo rootで実Gatewayの別PID journeyを実行�
 rtk node scripts/run-electron-node.mjs tests/helpers/run-android-offline-journey.mjs emulator-5556 MobileWorkLogGatewayTest#aSaveOfflineOriginalAndDateBeforeProcessExit MobileWorkLogGatewayTest#bReplayLostReceiptThenDeleteAndRestoreCanonicalNote --cleanup=MobileWorkLogGatewayTest#zCleanupOwnedFixture
 ```
 
+日付別の記録一覧からこの原記録へ戻る読取契約は[Androidの日付別振り返り](mobile-activity-recall.md)を参照する。
+
 Desktop側は`mobile-work-log-gateway.test.mjs`と`canonical-markdown-workspace.test.mjs`で、認証scope、同一Note/Markdown、応答喪失・再起動、Task削除、削除/Undoの原子失敗と古いCommand再送を検証する。
 スクリーンショットは検証用アプリのexternal files配下`work-log-540`へ保存する。
 マイク音声の実認識・物理端末・配布APKはこの隔離emulator検証とは別の境界である。

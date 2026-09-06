@@ -89,6 +89,7 @@ export function parseTaskLocator(locator) {
 export const TASKEN_MOBILE_CAPABILITIES = Object.freeze({
   health: "mobile.health",
   todayRead: "mobile.today.read",
+  activityRead: "mobile.activity.read",
   syncRead: "mobile.sync.read",
   workReceiptRead: "mobile.work-receipt.read",
   proposalRead: "mobile.proposal.read",
@@ -105,6 +106,7 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   pair: "/v1/pair",
   health: "/v1/health",
   today: "/v1/today",
+  activity: "/v1/activity",
   themes: "/v1/themes",
   workReceipt: "/v1/work-receipt",
   proposals: "/v1/proposals",

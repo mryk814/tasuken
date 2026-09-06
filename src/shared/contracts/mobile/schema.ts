@@ -8,6 +8,8 @@ import {
   isWellFormedUnicode,
 } from "../../kernel/public.ts";
 import {
+  activityPageSchema,
+  publicActivityEntrySchema,
   taskIdSchema,
   taskCreationReportedViaSchema,
   taskIntendedExecutorSchema,
@@ -102,6 +104,7 @@ export function decodeTaskenMobileThemeCursor(
 export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.health,
   TASKEN_MOBILE_CAPABILITIES.todayRead,
+  TASKEN_MOBILE_CAPABILITIES.activityRead,
   TASKEN_MOBILE_CAPABILITIES.syncRead,
   TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
   TASKEN_MOBILE_CAPABILITIES.proposalRead,
@@ -135,6 +138,77 @@ export const mobileResponseMetaSchema = z
   })
   .strict();
 
+export const mobileActivityRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    date: localDateSchema,
+    timezone: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .refine((value) => {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: value });
+          return true;
+        } catch {
+          return false;
+        }
+      }, "Unknown timezone"),
+    limit: z.number().int().min(1).max(500).default(100),
+    cursor: z.string().max(200).optional(),
+  })
+  .strict();
+
+export const mobileActivityDataSchema = z
+  .object({
+    schema_version: z.number().int(),
+    timezone: z.string(),
+    date: localDateSchema,
+    events: z
+      .array(
+        publicActivityEntrySchema.extend({
+          mobile_source: z
+            .object({
+              type: z.string(),
+              id: z.string(),
+              status: z.enum(["available", "unavailable"]),
+              reason: z.enum(["unsupported_type", "not_found"]).nullable(),
+            })
+            .strict(),
+        }),
+      )
+      .max(500),
+    excluded_count: z.number().int().nonnegative(),
+    excluded_reasons: z.array(
+      z
+        .object({
+          type: z.string(),
+          reason: z.string(),
+          count: z.number().int().nonnegative(),
+        })
+        .strict(),
+    ),
+    truncated: z.boolean(),
+    page: activityPageSchema,
+    matched_count: z.number().int().nonnegative().nullable().optional(),
+  })
+  .strict();
+
+export const mobileActivityResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: mobileActivityDataSchema,
+  })
+  .strict();
+
+export type MobileActivityRequest = z.output<typeof mobileActivityRequestSchema>;
+export type MobileActivityData = z.output<typeof mobileActivityDataSchema>;
+export type MobileActivityResponse = z.output<typeof mobileActivityResponseSchema>;
+
 export const mobileErrorCodeSchema = z.enum([
   "unauthorized",
   "forbidden",
@@ -166,7 +240,7 @@ export const mobileHealthResponseSchema = z
     data: z
       .object({
         status: z.literal("ready"),
-        capabilities: z.array(mobileCapabilitySchema).max(12),
+        capabilities: z.array(mobileCapabilitySchema).max(mobileCapabilitySchema.options.length),
       })
       .strict(),
   })

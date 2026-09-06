@@ -640,6 +640,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
   assert.deepEqual(TASKEN_MOBILE_CAPABILITIES, {
     health: "mobile.health",
     todayRead: "mobile.today.read",
+    activityRead: "mobile.activity.read",
     syncRead: "mobile.sync.read",
     workReceiptRead: "mobile.work-receipt.read",
     proposalRead: "mobile.proposal.read",
@@ -656,6 +657,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     pair: "/v1/pair",
     health: "/v1/health",
     today: "/v1/today",
+    activity: "/v1/activity",
     themes: "/v1/themes",
     workReceipt: "/v1/work-receipt",
     proposals: "/v1/proposals",
