@@ -108,6 +108,7 @@ export const publicActivityEntrySchema = z
     local_time: z.string(),
     recall: z
       .object({
+        date_basis: z.enum(["performed_day", "event_time"]).optional(),
         stage: z.enum([
           "input",
           "planned",

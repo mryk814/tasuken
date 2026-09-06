@@ -15,6 +15,7 @@ import {
   isRecallPlanChange,
   recallCaptureInputs,
   recallEvidence,
+  workLogPerformedDate,
 } from "./activityRecall.mjs";
 
 const DEFAULT_TIMEZONE = "Asia/Tokyo";
@@ -695,6 +696,8 @@ export function queryActivityEvents({
             .map(([, record]) => record),
         )
       : [];
+  const performedDates = new Map();
+  const eventDates = new Map();
   const scopedEvents = deduplicate(
     [...normalizedEvents, ...recallInputs]
       .map((event) =>
@@ -720,10 +723,21 @@ export function queryActivityEvents({
         return event.event_kind === "task_created" || eventAllowedByDefault(event);
       })
       .filter((event) => {
-        const eventDate = localDate(event.occurred_at, effectiveTimezone);
+        const performedDate = profile === "recall" ? workLogPerformedDate(event) : "";
+        const eventDate = performedDate || localDate(event.occurred_at, effectiveTimezone);
+        eventDates.set(event, eventDate);
+        if (performedDate) performedDates.set(event, performedDate);
         if (date && eventDate !== date) return false;
-        if (!activityBoundaryMatches(event.occurred_at, from, "from", eventDate)) return false;
-        if (!activityBoundaryMatches(event.occurred_at, to, "to", eventDate)) return false;
+        // A day-precision report intersects the boundary's local day; it does
+        // not claim work happened at a fabricated midnight or entered_at time.
+        const dayBoundary = (boundary) =>
+          performedDate && boundary && boundary.includes("T")
+            ? localDate(boundary, effectiveTimezone)
+            : boundary;
+        if (!activityBoundaryMatches(event.occurred_at, dayBoundary(from), "from", eventDate))
+          return false;
+        if (!activityBoundaryMatches(event.occurred_at, dayBoundary(to), "to", eventDate))
+          return false;
         if (themeId || theme_id) {
           const selected = themeId || theme_id;
           if (
@@ -747,7 +761,9 @@ export function queryActivityEvents({
   for (const event of scopedEvents.sort(
     (a, b) =>
       direction *
-      (Date.parse(a.occurred_at) - Date.parse(b.occurred_at) ||
+      ((performedDates.size ? eventDates.get(a).localeCompare(eventDates.get(b)) : 0) ||
+        Number(!performedDates.has(a)) - Number(!performedDates.has(b)) ||
+        (performedDates.has(a) ? 0 : Date.parse(a.occurred_at) - Date.parse(b.occurred_at)) ||
         String(a.id).localeCompare(String(b.id))),
   )) {
     const result = projectOne(event, {
@@ -764,8 +780,10 @@ export function queryActivityEvents({
     else if (result.event)
       projected.push({
         ...result.event,
-        local_date: localDate(event.occurred_at, effectiveTimezone),
-        local_time: localTime(event.occurred_at, effectiveTimezone),
+        local_date: eventDates.get(event),
+        local_time: performedDates.has(event)
+          ? ""
+          : localTime(event.occurred_at, effectiveTimezone),
       });
   }
   const max = Math.max(1, Math.min(MAX_EVENTS, Math.floor(Number(limit) || MAX_EVENTS)));
@@ -831,7 +849,7 @@ export function projectActivityMarkdown(result, { title = "Activity", date = res
   for (const event of events) {
     lines.push(
       "",
-      `### ${event.local_time || "--:--"} · ${event.event_kind}`,
+      `### ${event.recall?.date_basis === "performed_day" ? `${event.local_date} (day precision)` : event.local_time || "--:--"} · ${event.event_kind}`,
       `- Entity: ${event.entity_title} \`${event.entity_ref.type}:${event.entity_ref.id}\` ([open](${entityLink(event.entity_ref)}))`,
       `- Theme: ${event.theme_ref?.kind === "theme" ? event.theme_ref.id : "none"}`,
       `- Changed: ${event.changed_fields.length ? event.changed_fields.join(", ") : "—"}`,
@@ -842,6 +860,11 @@ export function projectActivityMarkdown(result, { title = "Activity", date = res
       ...(event.recall
         ? [
             `- Recall: ${event.recall.stage}; authority: ${event.recall.authority || "unknown"} (${event.recall.authority_origin})`,
+            ...(event.recall.date_basis === "performed_day"
+              ? [
+                  `- Performed day: ${event.local_date}; entered_at: ${event.metadata.work_log.entered_at}; assertion: user_report`,
+                ]
+              : []),
           ]
         : []),
       ...(event.recall?.history

@@ -36,6 +36,10 @@ recall の各行だけに `recall` を追加する。`stage` は次の意味を�
 
 `authority` と `authority_origin` は既存 AI authority の現在値と由来を保つ。
 未設定は null / unset で、AI 生成データを人間確認済みへ昇格しない。
+
+`RecordWorkLog`によるNote作成は`work_recorded`として実施日に収録する。
+`date_basis: performed_day`は日単位の本人申告、`event_time`は既存の発生時刻を期間所属へ用いた記録を示す。
+入力日時は書き換えず、実施日の時刻も補わない。詳細は[作業記録の契約](work-log-command.md)と[期間取得](activity-pagination.md)を参照する。
 `source_ref` は元の entity を指す。入力・計画・整理の行を実績件数として足し上げてはならない。
 Markdown にも段階と根拠を記載する。
 

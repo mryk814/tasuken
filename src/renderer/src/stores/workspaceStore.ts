@@ -52,7 +52,7 @@ function replaceIfNewer(workspace: Workspace, type: EntityType, saved: Entity): 
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   async recordWorkLog(command) {
-    const receipt = await window.api.workLog.record(command);
+    const receipt = await workspaceApi.recordWorkLog(command);
     try {
       await get().refresh();
     } catch (error) {

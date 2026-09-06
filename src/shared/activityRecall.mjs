@@ -69,6 +69,24 @@ export function recallCaptureInputs(events, captures) {
     );
 }
 
+export function workLogPerformedDate(event) {
+  const report = event.metadata?.work_log;
+  const date = report?.performed_date;
+  if (
+    event.entity_ref?.type !== "note" ||
+    event.event_kind !== "note_created" ||
+    report?.schema !== "tasken-work-log/v1" ||
+    report.date_precision !== "day" ||
+    report.assertion !== "user_report" ||
+    typeof date !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+    !Number.isFinite(Date.parse(date)) ||
+    new Date(date).toISOString().slice(0, 10) !== date
+  )
+    return "";
+  return date;
+}
+
 export function recallEvidence(event, entity) {
   const kind = event.event_kind;
   const stage = isCaptureInput(event)
@@ -77,7 +95,7 @@ export function recallEvidence(event, entity) {
       ? "ai_reported"
       : kind === "task_ai_accepted"
         ? "human_accepted"
-        : kind === "task_work_recorded" || kind === "task_completed"
+        : kind === "task_work_recorded" || kind === "task_completed" || workLogPerformedDate(event)
           ? "work_recorded"
           : kind === "task_created" || kind === "plan_node_created" || isRecallPlanChange(event)
             ? "planned"
@@ -87,6 +105,7 @@ export function recallEvidence(event, entity) {
   const authority = resolveAiAuthority(event.entity_ref.type, entity);
   return {
     stage,
+    date_basis: workLogPerformedDate(event) ? "performed_day" : "event_time",
     authority: authority.authority,
     authority_origin: authority.origin,
     source_ref: { type: event.entity_ref.type, id: event.entity_ref.id },

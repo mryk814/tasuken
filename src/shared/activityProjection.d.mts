@@ -19,6 +19,7 @@ export interface ActivityProjectionEvent {
   local_time: string;
   recall?: {
     stage: string;
+    date_basis?: "performed_day" | "event_time";
     authority: string | null;
     authority_origin: string;
     source_ref: { type: string; id: string };

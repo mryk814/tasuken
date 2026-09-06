@@ -12,8 +12,12 @@ Desktop IPCは入力payloadのactorを採用せず、desktop-userを使う。
 
 正本は通常のNoteとcanonical Markdown。
 `properties_json.work_log` はschema、実施日、day精度、入力時刻、actor、Task参照、元receiptを保持する。
-Activityは入力時刻順に表示し、実施日と「本人の申告」を別に示す。
+通常のActivityは入力時刻順に表示し、実施日と「本人の申告」を別に示す。
 実施日の午前0時を発生時刻に作り替えない。
+`profile: recall`の期間取得は実施日に所属させ、`local_date`にその日を返す。
+`recall.stage = work_recorded`、`recall.date_basis = performed_day`、空の`local_time`で日単位の本人申告と分かるようにする。
+`occurred_at`・`entered_at`は入力した瞬間のまま保持する。
+後日の通常Note編集を新しい作業実績として数え直さない。
 AI authorityをuser_confirmedへ昇格せず、Themeの公開範囲を通常Noteと同様に継承する。
 Taskだけを指定した場合も、手入力NoteのThemeは個人業務のままにする。
 Task本文を転記しないため、関連TaskのTheme・公開範囲を暗黙にコピーしない。
