@@ -97,6 +97,8 @@ import {
   type ConversationContextPlan,
 } from "../../shared/conversationContext.mjs";
 import { buildThemeAiPackPlan, type ThemeAiPackPlan } from "../../shared/themeAiPack.mjs";
+import { buildDailyContextPlan } from "../../shared/dailyContext";
+import { publishDailyContext } from "./dailyContextPublisher";
 import {
   buildCanonicalMarkdownContent,
   canonicalMarkdownBindingFromProperties,
@@ -234,6 +236,7 @@ interface GitHubLatestRelease {
 }
 
 interface WorkspaceRepository {
+  getMeta(): { workspaceId: string };
   remove(type: string, id: string): Record<string, unknown> | null;
   restore(type: string, id: string): Record<string, unknown> | null;
   loadWorkspace(includeDeleted?: boolean): unknown;
@@ -1090,6 +1093,30 @@ export class WorkspaceService {
         );
       }
     }
+  }
+
+  getDailyContextPreview(selection: unknown, generatedAt = new Date().toISOString()) {
+    const workspace = this.repository.loadWorkspace(true) as Record<string, unknown>;
+    return buildDailyContextPlan({
+      workspace: { ...workspace, change_events: this.repository.list("change_event") },
+      workspaceId: this.repository.getMeta().workspaceId,
+      selection,
+      generatedAt,
+      workspaceDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
+      roots: this.activityCanonicalRootPaths(),
+    });
+  }
+
+  publishDailyContext(request: import("../../shared/ipc/contracts").DailyContextPublishRequest) {
+    if (!request || typeof request !== "object" || typeof request.generatedAt !== "string")
+      throw new Error("公開要求が不正です。");
+    const plan = this.getDailyContextPreview(request.selection, request.generatedAt);
+    return publishDailyContext({
+      root: request.root,
+      plan,
+      expectedContentHash: request.expectedContentHash,
+      allowPartial: request.allowPartial === true,
+    });
   }
 
   private buildThemeAiPack(themeIdValue: unknown): {
