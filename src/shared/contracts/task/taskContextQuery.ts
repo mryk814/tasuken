@@ -28,12 +28,13 @@ export const taskContextIncludeSchema = z.enum([
   "resources",
   "activity",
   "work_receipts",
+  "captures",
 ]);
 
 export const getTaskContextRequestSchema = z
   .object({
     task_id: taskIdSchema,
-    include: z.array(taskContextIncludeSchema).max(8).optional(),
+    include: z.array(taskContextIncludeSchema).max(9).optional(),
     max_items_per_type: z.number().int().positive().max(25).optional(),
     max_text_length: z.number().int().positive().max(100_000).optional(),
     detail: z.literal("summary").optional(),

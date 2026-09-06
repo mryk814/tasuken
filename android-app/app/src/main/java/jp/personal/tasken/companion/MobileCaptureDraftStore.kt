@@ -203,6 +203,7 @@ private data class StoredCaptureDraftSnapshot(
     val speechCapturedAt: String? = null,
     val speechTimeZone: String? = null,
     val originalThemeId: String? = null,
+    val photoFileNames: List<String> = emptyList(),
 ) {
     fun toSnapshot(): MobileCaptureDraftSnapshot {
         val captureKind = MobileCaptureKind.entries.single { it.wireValue == kind }
@@ -232,6 +233,7 @@ private data class StoredCaptureDraftSnapshot(
                 additionalOrganizations = additionalOrganizations,
                 originalText = originalText,
                 originalThemeId = originalThemeId,
+                photos = photoFileNames.map(::MobileCapturePhoto),
             ),
             captureOpen = captureOpen,
         )
@@ -261,6 +263,7 @@ private data class StoredCaptureDraftSnapshot(
                 originalThemeId = draft.originalThemeId,
                 speechCapturedAt = draft.speech?.capturedAt,
                 speechTimeZone = draft.speech?.timeZone,
+                photoFileNames = draft.photos.map { it.fileName },
             )
         }
     }

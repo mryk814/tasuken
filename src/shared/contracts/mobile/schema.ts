@@ -22,6 +22,7 @@ import {
   taskStateSchema,
   taskSpeechRecognitionModeSchema,
   taskWorkStateSchema,
+  noteProposalImageSchema,
 } from "../task/public.ts";
 import {
   TASKEN_MOBILE_API_VERSION,
@@ -1322,6 +1323,7 @@ const mobileCreateCaptureCandidateSchema = z
       .refine((text) => text.trim().length > 0),
     projectId: entityIdSchema.nullable().optional(),
     capturedAt: isoTimestampSchema,
+    images: z.array(noteProposalImageSchema).min(1).max(8).optional(),
   })
   .strict();
 

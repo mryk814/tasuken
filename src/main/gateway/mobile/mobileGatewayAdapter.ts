@@ -1599,6 +1599,7 @@ export class MobileGatewayAdapter {
                   text: command.capture.text,
                   project_id: command.capture.projectId ?? null,
                   captured_at: command.capture.capturedAt,
+                  ...(command.capture.images ? { images: command.capture.images } : {}),
                 },
                 ...(command.provenance
                   ? {

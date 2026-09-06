@@ -336,11 +336,13 @@ class MobileOutbox(
             reportedVia = MobileCaptureSource.AndroidApp.wireValue,
             capturedAt = createdAt,
         ),
+        photos: List<MobileCaptureImageDto> = emptyList(),
     ): String {
         val normalizedText = text
         require(normalizedText.isNotBlank() && normalizedText.length <= MOBILE_CAPTURE_TEXT_MAX_LENGTH)
         require(projectId == null || projectId.isNotBlank())
         require(draftId.isNotBlank())
+        require(photos.size <= MOBILE_CAPTURE_IMAGE_MAX_COUNT)
         val captureId = stableDraftId("capture", draftId)
         val commandId = stableDraftId("capture-command", draftId)
         val requestId = stableDraftId("capture-request", draftId)
@@ -353,7 +355,8 @@ class MobileOutbox(
                     existingEnvelope.command.capture.id == captureId &&
                     existingEnvelope.command.capture.text == normalizedText &&
                     existingEnvelope.command.capture.projectId == projectId &&
-                    existingEnvelope.command.provenance == provenance,
+                    existingEnvelope.command.provenance == provenance &&
+                    (existingEnvelope.command.capture.images ?: emptyList()) == photos,
             ) { "同じDraft IDが別のCapture作成に使われています。" }
             return captureId
         }
@@ -376,6 +379,7 @@ class MobileOutbox(
                     projectId = projectId,
                     capturedAt = createdAt,
                     textContract = MOBILE_CAPTURE_TEXT_CONTRACT,
+                    images = photos.ifEmpty { null },
                 ),
                 provenance = provenance,
             ),

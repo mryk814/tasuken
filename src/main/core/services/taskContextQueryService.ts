@@ -17,6 +17,7 @@ import {
   normalizeTaskContextInclude,
   publicArtifactMetadata,
   publicAssignmentForContext,
+  publicCaptureSummary,
   publicConversationSummary,
   publicNoteSummary,
   publicReceiptForContext,
@@ -245,6 +246,7 @@ export class TaskContextQueryService {
       resources: [],
       activity: [],
       work_receipts: [],
+      captures: [],
     };
     const selectionExclusions: Record<string, any>[] = includeSet.has("theme")
       ? filteredThemeResult.exclusions.map((entry) => ({
@@ -394,6 +396,24 @@ export class TaskContextQueryService {
         "work_receipt",
         records("work_receipt").filter((receipt) => receipt.task_id === taskId),
         (receipt) => publicReceiptForContext(receipt, budget),
+      );
+    if (includeSet.has("captures"))
+      projectBounded(
+        "captures",
+        "capture_entry",
+        sortUpdated(
+          records("capture_entry").filter(
+            (record) =>
+              access.records.has(entityKey("capture_entry", record.id)) &&
+              relatedIds.get("capture_entry")?.has(String(record.id)),
+          ),
+        ),
+        (record) =>
+          publicCaptureSummary(
+            access.records.get(entityKey("capture_entry", record.id)),
+            budget,
+            relation("capture_entry", record.id),
+          ),
       );
     if (includeSet.has("activity")) {
       const sourceEvents = records("change_event").filter(

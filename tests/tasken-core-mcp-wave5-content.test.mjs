@@ -14,6 +14,7 @@ const bundled = await build({
         getNoteRequestSchema, getNoteResponseSchema,
         getConversationRequestSchema, getConversationResponseSchema,
         getArtifactMetadataRequestSchema, getArtifactMetadataResponseSchema,
+        getCaptureImageRequestSchema, getCaptureImageResponseSchema,
       } from "./src/shared/contracts/task/contentDetailQueries.ts";
     `,
     resolveDir: process.cwd(),
@@ -33,6 +34,8 @@ const {
   getConversationResponseSchema,
   getArtifactMetadataRequestSchema,
   getArtifactMetadataResponseSchema,
+  getCaptureImageRequestSchema,
+  getCaptureImageResponseSchema,
 } = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
 );
@@ -125,6 +128,51 @@ function fixture() {
         updated_at: now,
       },
     ],
+    captures: [
+      {
+        id: "capture-photo",
+        text: "レシピの材料",
+        title: "レシピの材料",
+        kind: "inbox",
+        content_type: "image",
+        project_id: visibleTheme.id,
+        captured_at: now,
+        state: "untriaged",
+        images: [
+          {
+            reference_id: "photo",
+            file_name: "capture-photo-image.png",
+            mime_type: "image/png",
+            size: 4,
+            sha256: "ab".repeat(32),
+            url: "tasken-attachment://local/capture-photo-image.png/photo.png",
+          },
+        ],
+        version: 1,
+        updated_at: now,
+      },
+      {
+        id: "capture-hidden",
+        text: "hidden",
+        kind: "inbox",
+        content_type: "image",
+        project_id: hiddenTheme.id,
+        captured_at: now,
+        state: "untriaged",
+        images: [
+          {
+            reference_id: "photo",
+            file_name: "capture-hidden-image.png",
+            mime_type: "image/png",
+            size: 4,
+            sha256: "ab".repeat(32),
+            url: "tasken-attachment://local/capture-hidden-image.png/photo.png",
+          },
+        ],
+        version: 1,
+        updated_at: now,
+      },
+    ],
   };
 }
 
@@ -141,6 +189,7 @@ class FixturePersistence {
       note: "notes",
       resource: "resources",
       artifact: "artifacts",
+      capture_entry: "captures",
     }[type];
     return (this.workspace[collection] || []).filter(
       (record) => includeDeleted || !record.deleted_at,
@@ -153,11 +202,11 @@ class FixturePersistence {
   }
 }
 
-function serviceFixture() {
+function serviceFixture(imagePort) {
   const workspace = fixture();
   const persistence = new FixturePersistence(workspace);
   const adapter = new WorkspaceContentDetailReadAdapter(persistence);
-  return { workspace, persistence, service: new ContentDetailQueryService(adapter) };
+  return { workspace, persistence, service: new ContentDetailQueryService(adapter, imagePort) };
 }
 
 test("Wave 5 content detail service preserves legacy Note/Conversation/Artifact projections", () => {
@@ -306,6 +355,63 @@ test("Wave 5 shared request/response contracts are strict at the detail boundary
         ...artifact.artifact,
         ai: { ...artifact.artifact.ai, stored_path: "C:/private" },
       },
+    }).success,
+    false,
+  );
+});
+
+test("Capture image query serves staged bytes with manifest ownership and visibility", () => {
+  const photoBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  const imagePort = {
+    read: (fileName) => {
+      assert.equal(fileName, "capture-photo-image.png");
+      return photoBytes;
+    },
+  };
+  const { service } = serviceFixture(imagePort);
+
+  const found = service.getCaptureImage({
+    capture_id: "capture-photo",
+    file_name: "capture-photo-image.png",
+  });
+  assert.equal(getCaptureImageResponseSchema.safeParse(found).success, true);
+  assert.equal(found.image?.capture_id, "capture-photo");
+  assert.equal(found.image?.mime_type, "image/png");
+  assert.equal(found.image?.size, photoBytes.length);
+  assert.equal(Buffer.from(found.image?.data_base64 || "", "base64").equals(photoBytes), true);
+  assert.equal(found.read_only, true);
+
+  assert.equal(
+    service.getCaptureImage({ capture_id: "missing", file_name: "capture-photo-image.png" }).error
+      ?.code,
+    "not_found",
+  );
+  assert.equal(
+    service.getCaptureImage({ capture_id: "capture-photo", file_name: "other.png" }).error?.code,
+    "not_found",
+  );
+  assert.equal(
+    service.getCaptureImage({
+      capture_id: "capture-hidden",
+      file_name: "capture-hidden-image.png",
+    }).error?.code,
+    "not_found",
+  );
+
+  const { service: portless } = serviceFixture();
+  assert.equal(
+    portless.getCaptureImage({
+      capture_id: "capture-photo",
+      file_name: "capture-photo-image.png",
+    }).error?.code,
+    "not_found",
+  );
+
+  assert.equal(
+    getCaptureImageRequestSchema.safeParse({
+      capture_id: "capture-photo",
+      file_name: "capture-photo-image.png",
+      unexpected: true,
     }).success,
     false,
   );

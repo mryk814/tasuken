@@ -87,7 +87,7 @@ export interface StagedProposalMarkdownImages {
   createdPaths: string[];
 }
 
-function sha256(bytes: Buffer | string): string {
+export function sha256(bytes: Buffer | string): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
@@ -250,7 +250,7 @@ function requireDecodedImage(
   requireSafeDimensions(dimensions);
 }
 
-function parseInput(value: unknown): {
+export function parseInput(value: unknown): {
   referenceId: string;
   displayName: string;
   mimeType: ProposalMarkdownImageMediaType;
@@ -277,7 +277,7 @@ function parseInput(value: unknown): {
   return { referenceId, displayName, mimeType, bytes, dimensions: detected.dimensions };
 }
 
-function deterministicFileName(
+export function deterministicFileName(
   proposalId: string,
   referenceId: string,
   contentHash: string,
@@ -295,7 +295,7 @@ function encodeUrlPathSegment(value: string): string {
   );
 }
 
-function attachmentUrl(fileName: string, displayName: string): string {
+export function attachmentUrl(fileName: string, displayName: string): string {
   return `tasken-attachment://local/${encodeUrlPathSegment(fileName)}/${encodeUrlPathSegment(displayName)}`;
 }
 
@@ -314,7 +314,7 @@ function attachmentFileNamesInMarkdown(body: string): Set<string> {
   return fileNames;
 }
 
-function validateManifestEntry(value: unknown): ProposalMarkdownImageManifest {
+export function validateManifestEntry(value: unknown): ProposalMarkdownImageManifest {
   if (!isPlainObject(value) || !hasOnlyKeys(value, MANIFEST_KEYS)) {
     throw imageError("画像情報の形式が不正です。");
   }

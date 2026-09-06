@@ -67,12 +67,23 @@ export interface CreateTaskCommandPayload {
   provenance?: Record<string, unknown>;
 }
 
+export interface CreateCaptureImageManifest {
+  reference_id: string;
+  file_name: string;
+  mime_type: "image/png" | "image/jpeg";
+  size: number;
+  sha256: string;
+  url: string;
+}
+
 export interface CreateCaptureCommandPayload {
   capture: {
     id: string;
     text: string;
     project_id?: string | null;
     captured_at: string;
+    /** stage 済み画像 manifest。画像バイト（base64）は含めない。 */
+    images?: CreateCaptureImageManifest[];
   };
   provenance?: Record<string, unknown>;
 }
@@ -395,7 +406,8 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
       !value.payload.capture.text.trim() ||
       value.payload.capture.text.length > 12_000 ||
       typeof value.payload.capture.captured_at !== "string" ||
-      !value.payload.capture.captured_at.trim())
+      !value.payload.capture.captured_at.trim() ||
+      (value.payload.capture.images !== undefined && !Array.isArray(value.payload.capture.images)))
   ) {
     throw new ApplicationCommandError(
       "INVALID_PAYLOAD",

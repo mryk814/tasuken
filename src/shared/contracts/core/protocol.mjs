@@ -16,6 +16,7 @@ export const TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY = "list_open_items";
 export const TASKEN_CORE_GET_NOTE_CAPABILITY = "get_note";
 export const TASKEN_CORE_GET_CONVERSATION_CAPABILITY = "get_conversation";
 export const TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY = "get_artifact_metadata";
+export const TASKEN_CORE_GET_CAPTURE_IMAGE_CAPABILITY = "get_capture_image";
 export const TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY = "get_activity_entries";
 export const TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY = "get_theme_context";
 export const TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY = "get_recent_notes";

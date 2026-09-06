@@ -252,6 +252,19 @@ internal fun TodayApp(
     val recallSavedState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val paneState = rememberTodayPaneState(restoredCaptureDraft)
     val speechRecognizer = remember(context) { AndroidShortSpeechRecognizer(context.applicationContext) }
+    val photoStore = remember(context) { MobileCapturePhotoStore(context.applicationContext) }
+    var pendingPhotoName by remember { mutableStateOf<String?>(null) }
+    val takePictureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val fileName = pendingPhotoName
+        pendingPhotoName = null
+        if (success && fileName != null && photoStore.hasPhoto(fileName)) {
+            if (paneState.captureOpen) {
+                paneState.captureDraft = paneState.captureDraft.withPhoto(MobileCapturePhoto(fileName))
+            }
+        } else if (fileName != null) {
+            photoStore.deletePhotos(listOf(fileName))
+        }
+    }
     var speechState by remember(speechRecognizer) {
         mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(speechRecognizer.availableMode()))
     }
@@ -919,6 +932,25 @@ internal fun TodayApp(
             requestInputFocus = paneState.captureInputFocusRequested,
             onInputFocusHandled = paneState::consumeInputFocusRequest,
             onSubmit = { behavior -> todayViewModel.createCapture(paneState.captureDraft, behavior) },
+            onTakePhoto = {
+                if (paneState.captureDraft.photos.size < CAPTURE_PHOTO_MAX_COUNT) {
+                    runCatching {
+                        val fileName = photoStore.createPhotoFile()
+                        pendingPhotoName = fileName
+                        takePictureLauncher.launch(photoStore.photoUri(fileName))
+                    }.onFailure {
+                        pendingPhotoName = null
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar("カメラを起動できませんでした。")
+                        }
+                    }
+                }
+            },
+            onRemovePhoto = { fileName ->
+                paneState.captureDraft = paneState.captureDraft.withoutPhoto(fileName)
+                photoStore.deletePhotos(listOf(fileName))
+            },
+            loadPhotoThumbnail = photoStore::loadThumbnail,
             onStartVoice = { requestSpeechRecognition(false) },
             onStopVoice = speechRecognizer::stop,
             onDismiss = {
@@ -950,6 +982,9 @@ internal fun CaptureTaskSheet(
     requestInputFocus: Boolean = false,
     onInputFocusHandled: () -> Unit = {},
     onSubmit: (CaptureCompletionBehavior) -> Unit,
+    onTakePhoto: () -> Unit = {},
+    onRemovePhoto: (String) -> Unit = {},
+    loadPhotoThumbnail: (String) -> androidx.compose.ui.graphics.ImageBitmap? = { null },
     onStartVoice: () -> Unit,
     onStopVoice: () -> Unit,
     onDismiss: () -> Unit,
@@ -1058,6 +1093,15 @@ internal fun CaptureTaskSheet(
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("capture-speech-status"),
             )
+            if (draft.kind == MobileCaptureKind.Capture) {
+                CapturePhotoSection(
+                    photos = draft.photos,
+                    enabled = state !is CaptureUiState.Saving && !speechBusy,
+                    onTakePhoto = onTakePhoto,
+                    onRemovePhoto = onRemovePhoto,
+                    loadThumbnail = loadPhotoThumbnail,
+                )
+            }
             if (onOrganize != null && draft.kind == MobileCaptureKind.Task) CaptureOrganizationControls(
                 themes = themes,
                 draft = draft, speechState = speechState, enabled = !speechBusy && state !is CaptureUiState.Saving,

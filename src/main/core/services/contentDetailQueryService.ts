@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+
 import { projectEntityForAi } from "../../../shared/aiMetadata.mjs";
 import { noteProjectId } from "../../../shared/themeRef.mjs";
 import {
@@ -8,10 +10,13 @@ import {
 } from "../../../shared/taskContext.mjs";
 import {
   getArtifactMetadataRequestSchema,
+  getCaptureImageRequestSchema,
   getConversationRequestSchema,
   getNoteRequestSchema,
   type GetArtifactMetadataRequest,
   type GetArtifactMetadataResponse,
+  type GetCaptureImageRequest,
+  type GetCaptureImageResponse,
   type GetConversationRequest,
   type GetConversationResponse,
   type GetNoteRequest,
@@ -19,6 +24,7 @@ import {
 } from "../../../shared/contracts/task/public.ts";
 import type { AiAudience } from "../../../shared/aiMetadata.mjs";
 import type { ContentDetailReadPort, ContentDetailRecord } from "../ports/contentDetailReadPort.ts";
+import type { CaptureImagePort } from "../ports/captureImagePort.ts";
 
 const AUDIENCE = "coding_agent" as const;
 
@@ -56,7 +62,7 @@ function notFound(codeField: string, id: string, label: string) {
 }
 
 function visibility(
-  type: "note" | "resource" | "artifact",
+  type: "note" | "resource" | "artifact" | "capture_entry",
   record: ContentDetailRecord,
   themes: ContentDetailRecord[],
   workspaceDefault: AiAudience[],
@@ -72,7 +78,7 @@ function visibility(
 }
 
 function visibleRecord(
-  type: "note" | "resource" | "artifact",
+  type: "note" | "resource" | "artifact" | "capture_entry",
   record: ContentDetailRecord | undefined,
   themes: ContentDetailRecord[],
   workspaceDefault: AiAudience[],
@@ -90,7 +96,10 @@ function visibleRecord(
  * dependency is allowed here.
  */
 export class ContentDetailQueryService {
-  constructor(private readonly port: ContentDetailReadPort) {}
+  constructor(
+    private readonly port: ContentDetailReadPort,
+    private readonly captureImagePort?: CaptureImagePort,
+  ) {}
 
   getNote(args: GetNoteRequest): GetNoteResponse {
     const request = getNoteRequestSchema.parse(args);
@@ -219,4 +228,84 @@ export class ContentDetailQueryService {
       ],
     };
   }
+
+  getCaptureImage(args: GetCaptureImageRequest): GetCaptureImageResponse {
+    const request = getCaptureImageRequestSchema.parse(args);
+    const captureId = request.capture_id;
+    const fileName = request.file_name;
+    const includeArchived = Boolean(request.include_archived);
+    const themes = this.port.list("theme", true);
+    const captures = this.port.list("capture_entry", includeArchived);
+    const candidate = captures.find((record) => String(record.id) === captureId);
+    const filtered = visibleRecord(
+      "capture_entry",
+      candidate,
+      themes,
+      this.port.workspaceAiVisibilityDefault(),
+    );
+    if (!filtered.record) return captureImageNotFound(captureId);
+    const images = Array.isArray(filtered.record.images) ? filtered.record.images : [];
+    const manifest = images.find(
+      (entry) =>
+        entry &&
+        typeof entry === "object" &&
+        String((entry as { file_name?: unknown }).file_name) === fileName,
+    ) as
+      | {
+          reference_id?: unknown;
+          file_name?: unknown;
+          mime_type?: unknown;
+          size?: unknown;
+          sha256?: unknown;
+          url?: unknown;
+        }
+      | undefined;
+    if (
+      !manifest ||
+      typeof manifest.reference_id !== "string" ||
+      typeof manifest.file_name !== "string" ||
+      (manifest.mime_type !== "image/png" && manifest.mime_type !== "image/jpeg") ||
+      !Number.isSafeInteger(manifest.size) ||
+      (manifest.size as number) <= 0 ||
+      typeof manifest.sha256 !== "string" ||
+      typeof manifest.url !== "string" ||
+      !this.captureImagePort
+    ) {
+      return captureImageNotFound(captureId);
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = this.captureImagePort.read(manifest.file_name);
+    } catch {
+      return captureImageNotFound(captureId);
+    }
+    if (bytes.length !== (manifest.size as number)) return captureImageNotFound(captureId);
+    return {
+      image: {
+        capture_id: String(filtered.record.id),
+        file_name: manifest.file_name,
+        mime_type: manifest.mime_type,
+        size: manifest.size as number,
+        sha256: manifest.sha256,
+        url: manifest.url,
+        data_base64: Buffer.from(bytes).toString("base64"),
+      },
+      read_only: true,
+      ai_audience: AUDIENCE,
+      next_tools: [TASK_CONTEXT_GUIDANCE, SEARCH_GUIDANCE[0]],
+    };
+  }
+}
+
+function captureImageNotFound(captureId: string): GetCaptureImageResponse {
+  return {
+    error: {
+      code: "not_found" as const,
+      message: "Capture画像が見つかりません。IDまたはAI公開範囲を確認してください。",
+      capture_id: captureId,
+    },
+    read_only: true as const,
+    ai_audience: AUDIENCE,
+    next_tools: SEARCH_GUIDANCE,
+  };
 }

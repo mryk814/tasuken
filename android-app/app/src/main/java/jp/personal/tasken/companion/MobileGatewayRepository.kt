@@ -211,6 +211,7 @@ class AndroidMobileTaskRepository(
     private val json = Json { ignoreUnknownKeys = false }
     private val dao = database.mobileDao()
     private val outbox = MobileOutbox(context.applicationContext, dao, store::deviceId)
+    private val photoStore = MobileCapturePhotoStore(context.applicationContext)
     private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
     private val recallReader = MobileRecallReader(dao) { path ->
         val configuration = store.configuration()
@@ -421,14 +422,20 @@ class AndroidMobileTaskRepository(
 
     override suspend fun undoCreateTask(taskId: String): MobileUndoCreateResult = outbox.undoCreate(taskId)
 
-    override suspend fun enqueueCreateCapture(draft: MobileCaptureDraft): String =
-        outbox.enqueueCapture(
+    override suspend fun enqueueCreateCapture(draft: MobileCaptureDraft): String {
+        val photoNames = draft.photos.map { it.fileName }
+        val photos = if (photoNames.isEmpty()) emptyList() else photoStore.encodePhotos(photoNames)
+        val captureId = outbox.enqueueCapture(
             text = draft.text,
             projectId = draft.projectId,
             draftId = draft.draftId,
             createdAt = draft.createdAt,
             provenance = draft.toCaptureCreationProvenanceDto(),
+            photos = photos,
         )
+        photoStore.deletePhotos(photoNames)
+        return captureId
+    }
 
     override suspend fun undoCreateCapture(captureId: String): MobileUndoCreateResult =
         outbox.undoCapture(captureId)

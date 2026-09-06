@@ -363,9 +363,10 @@ export function createTaskenMcpServer(options = {}) {
               "resources",
               "activity",
               "work_receipts",
+              "captures",
             ]),
           )
-          .max(8)
+          .max(9)
           .optional(),
         max_items_per_type: z.number().int().positive().max(25).optional(),
         max_text_length: boundedTextLength,
@@ -442,6 +443,64 @@ export function createTaskenMcpServer(options = {}) {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     withCoreClient((args) => coreClient.getArtifactMetadata(args)),
+  );
+
+  server.registerTool(
+    "tasken.get_capture_image",
+    {
+      description:
+        "Read one photo attached to a Mobile Capture as an image for LLM context. Returns the managed image bytes alongside its manifest; use capture image manifests from Task context to discover file names.",
+      inputSchema: {
+        capture_id: z.string().trim().min(1).max(200),
+        file_name: z.string().trim().min(1).max(180),
+        include_archived: z.boolean().optional(),
+      },
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async (args) => {
+      let result;
+      try {
+        result = await coreClient.getCaptureImage(args);
+      } catch (error) {
+        if (!(error instanceof TaskenCoreClientError)) throw error;
+        const value = { error: error.toPublicError() };
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(value, null, 2),
+            },
+          ],
+          structuredContent: value,
+          isError: true,
+        };
+      }
+      if (!result || typeof result !== "object" || !("image" in result)) {
+        const value = { error: { code: "not_found", message: "Capture画像が見つかりません。" } };
+        return {
+          content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
+          structuredContent: value,
+          isError: true,
+        };
+      }
+      const image = result.image;
+      const meta = {
+        capture_id: image.capture_id,
+        file_name: image.file_name,
+        mime_type: image.mime_type,
+        size: image.size,
+        sha256: image.sha256,
+        url: image.url,
+        read_only: true,
+      };
+      return {
+        content: [
+          { type: "text", text: JSON.stringify(meta, null, 2) },
+          { type: "image", data: image.data_base64, mimeType: image.mime_type },
+        ],
+        structuredContent: meta,
+      };
+    },
   );
 
   server.registerTool(

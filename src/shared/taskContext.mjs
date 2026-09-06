@@ -10,7 +10,7 @@ const DEFAULT_INCLUDE = [
   "activity",
   "work_receipts",
 ];
-const INCLUDE_VALUES = new Set(DEFAULT_INCLUDE);
+const INCLUDE_VALUES = new Set([...DEFAULT_INCLUDE, "captures"]);
 const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|[\\/]{1,2})/;
 
 function text(value) {
@@ -322,6 +322,35 @@ export function publicResourceSummary(resource, budget, relation) {
       title: takeSafe(resource.title, 500),
       description: takeSafe(resource.description, 600),
       source_url: safeExternalUrl(resource.url),
+      included_because: relation.includedBecause,
+      relation_path: relation.path,
+    },
+    budget,
+  );
+}
+
+export function publicCaptureSummary(capture, budget, relation) {
+  const takeSafe = (value, limit) => budget.take(safeReceiptText(value), limit);
+  const images = Array.isArray(capture.images)
+    ? capture.images.slice(0, 8).map((entry) => ({
+        file_name: text(entry?.file_name),
+        mime_type: text(entry?.mime_type),
+        size: Number(entry?.size || 0),
+        url: text(entry?.url),
+        locator: {
+          tool: "tasken.get_capture_image",
+          arguments: { capture_id: text(capture.id), file_name: text(entry?.file_name) },
+        },
+      }))
+    : [];
+  return withPublicAi(
+    capture,
+    {
+      ...commonFields(capture),
+      title: takeSafe(capture.title, 500),
+      content_type: text(capture.content_type) || null,
+      excerpt: takeSafe(capture.text, 600),
+      images: images.filter((entry) => entry.file_name),
       included_because: relation.includedBecause,
       relation_path: relation.path,
     },

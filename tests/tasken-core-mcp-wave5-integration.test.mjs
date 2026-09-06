@@ -461,3 +461,81 @@ test("Wave 5 MCP registrations have no legacy/native fallback", () => {
     /withReadContext|ReadOnlyTaskenContext|readContextProvider|better-sqlite3/,
   );
 });
+
+test("Capture image query is exact across Core, HTTP, and MCP image content", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave5-capture-image-"));
+  fs.chmodSync(root, 0o700);
+  let host;
+  try {
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const workspace = fixture();
+    workspace.capture_entrys = [
+      {
+        id: "capture-wave5",
+        text: "recipe photo",
+        title: "recipe photo",
+        kind: "inbox",
+        content_type: "image",
+        project_id: "theme-wave5",
+        captured_at: now,
+        state: "untriaged",
+        images: [
+          {
+            reference_id: "photo",
+            file_name: "wave5-photo.png",
+            mime_type: "image/png",
+            size: bytes.length,
+            sha256: "ab".repeat(32),
+            url: "tasken-attachment://local/wave5-photo.png/photo.png",
+          },
+        ],
+        version: 1,
+        updated_at: now,
+      },
+    ];
+    const imagePort = {
+      stage: () => {
+        throw new Error("capture image stage is not used by this query test");
+      },
+      rollback: () => {},
+      read: (fileName) => {
+        assert.equal(fileName, "wave5-photo.png");
+        return bytes;
+      },
+    };
+    const core = createTaskenCore(new FixturePersistence(workspace), {
+      captureImagePort: imagePort,
+    });
+    host = new TaskenCoreHost({ userDataPath: root, ...core });
+    await host.start();
+    const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
+    const status = await client.inspect();
+    assert.ok(status.capabilities.includes("get_capture_image"));
+
+    const args = { capture_id: "capture-wave5", file_name: "wave5-photo.png" };
+    const inProcess = core.getCaptureImage.execute(args);
+    assert.equal(inProcess.image?.mime_type, "image/png");
+    const overHttp = await client.getCaptureImage(args);
+    assert.deepEqual(overHttp, inProcess);
+
+    const overMcp = await mcpCall(client, "tasken.get_capture_image", args);
+    assert.equal(overMcp.isError, undefined);
+    assert.equal(overMcp.content[0].type, "text");
+    assert.equal(overMcp.content[1].type, "image");
+    assert.equal(overMcp.content[1].mimeType, "image/png");
+    assert.equal(Buffer.from(overMcp.content[1].data, "base64").equals(bytes), true);
+    assert.doesNotMatch(JSON.stringify(overMcp.structuredContent), /data_base64/);
+
+    const missing = await mcpCall(client, "tasken.get_capture_image", {
+      capture_id: "capture-wave5",
+      file_name: "other.png",
+    });
+    assert.equal(missing.isError, true);
+  } finally {
+    try {
+      await host?.stop();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
