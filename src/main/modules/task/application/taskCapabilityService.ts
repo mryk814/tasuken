@@ -7,6 +7,7 @@ import {
   taskQueryResultSchema,
   taskReadModelSchema,
   taskScheduleReadModelSchema,
+  taskChecklistItemSchema,
   type TaskCommand,
   type TaskCommandOutcome,
   type TaskCommandResponse,
@@ -17,6 +18,7 @@ import {
   type TaskQueryResponse,
   type TaskReadModel,
   type TaskScheduleReadModel,
+  type TaskChecklistItem,
 } from "../../../../shared/contracts/task/public.ts";
 import {
   ApplicationCommandError,
@@ -314,10 +316,11 @@ function replayApplicationEnvelope(
   if (!taskBefore || !Number.isInteger(taskBefore.version)) return null;
   let replayCommand: TaskCommand;
   if (command.name === "UpdateTask") {
+    const merged = mergeNonOverlappingUpdate(command, taskBefore) as typeof command;
     replayCommand = {
-      ...command,
+      ...merged,
       payload: {
-        ...command.payload,
+        ...merged.payload,
         expected_version: Number(taskBefore.version),
         ...(command.payload.schedule_change
           ? {
@@ -356,6 +359,53 @@ function replayApplicationEnvelope(
   return applicationEnvelope(replayCommand, taskBefore, scheduleBefore || null);
 }
 
+function mergeChecklistItems(
+  base: TaskChecklistItem[],
+  intended: TaskChecklistItem[],
+  currentValue: unknown,
+): TaskChecklistItem[] | null {
+  const parsed = taskChecklistItemSchema
+    .array()
+    .max(100)
+    .safeParse(normalizeChecklistItemsForReadModel(currentValue ?? []));
+  if (!parsed.success) return null;
+  const current = parsed.data;
+  const byId = (items: TaskChecklistItem[]) => new Map(items.map((item) => [item.id, item]));
+  const baseById = byId(base);
+  const intendedById = byId(intended);
+  const currentById = byId(current);
+  if (
+    baseById.size !== base.length ||
+    intendedById.size !== intended.length ||
+    currentById.size !== current.length
+  )
+    return null;
+  const equal = (left: TaskChecklistItem | undefined, right: TaskChecklistItem | undefined) =>
+    left === undefined || right === undefined
+      ? left === right
+      : left.title === right.title &&
+        left.done === right.done &&
+        left.sort_order === right.sort_order &&
+        (left.completed_at || null) === (right.completed_at || null);
+  const merged: TaskChecklistItem[] = [];
+  for (const id of new Set([...currentById.keys(), ...intendedById.keys()])) {
+    const before = baseById.get(id);
+    const local = intendedById.get(id);
+    const remote = currentById.get(id);
+    const selected = equal(local, before)
+      ? remote
+      : equal(remote, before) || equal(local, remote)
+        ? local
+        : null;
+    if (selected === null) return null;
+    if (selected) merged.push(selected);
+  }
+  // Distinct items can merge; competing order slots need an explicit conflict resolution.
+  if (merged.length > 100 || new Set(merged.map((item) => item.sort_order)).size !== merged.length)
+    return null;
+  return merged.sort((left, right) => left.sort_order - right.sort_order);
+}
+
 function mergeNonOverlappingUpdate(command: TaskCommand, current: Entity | null): TaskCommand {
   if (command.name !== "UpdateTask" || !current) return command;
   if (Number(current.version) === command.payload.expected_version) return command;
@@ -367,10 +417,24 @@ function mergeNonOverlappingUpdate(command: TaskCommand, current: Entity | null)
     };
   }
   if (!command.payload.base) return command;
+  let mergedChanges = changes;
   const canMerge = Object.keys(changes).every((key) => {
-    const currentValue = current[key];
+    const currentValue =
+      key === "planned_start_time" || key === "planned_duration_minutes"
+        ? (current[key] ?? null)
+        : current[key];
     const baseValue = command.payload.base?.[key as keyof typeof command.payload.base];
     const intendedValue = changes[key as keyof typeof changes];
+    if (key === "checklist_items" && Array.isArray(baseValue) && Array.isArray(intendedValue)) {
+      const checklist = mergeChecklistItems(
+        baseValue as TaskChecklistItem[],
+        intendedValue as TaskChecklistItem[],
+        currentValue,
+      );
+      if (checklist === null) return false;
+      mergedChanges = { ...mergedChanges, checklist_items: checklist };
+      return true;
+    }
     return (
       JSON.stringify(currentValue) === JSON.stringify(baseValue) ||
       JSON.stringify(currentValue) === JSON.stringify(intendedValue)
@@ -379,7 +443,11 @@ function mergeNonOverlappingUpdate(command: TaskCommand, current: Entity | null)
   if (!canMerge) return command;
   return {
     ...command,
-    payload: { ...command.payload, expected_version: Number(current.version) },
+    payload: {
+      ...command.payload,
+      changes: mergedChanges,
+      expected_version: Number(current.version),
+    },
   };
 }
 

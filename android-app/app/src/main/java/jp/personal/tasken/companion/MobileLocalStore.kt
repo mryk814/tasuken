@@ -156,6 +156,7 @@ data class OutboxCommandEntity(
     val taskId: String? = null,
     val captureId: String? = null,
     val dependsOnCommandId: String? = null,
+    val taskIntentJson: String? = null,
 )
 
 @Entity(tableName = "pending_human_review")
@@ -347,6 +348,7 @@ object OutboxState {
     const val Rejected = "rejected"
     const val RetryWait = "retry_wait"
     const val Conflict = "conflict"
+    const val Blocked = "blocked"
 }
 
 @Dao
@@ -441,6 +443,16 @@ abstract class MobileLocalDao {
 
     @Query("SELECT * FROM outbox_command WHERE captureId = :captureId ORDER BY createdAt, commandId")
     abstract suspend fun outboxForCapture(captureId: String): List<OutboxCommandEntity>
+
+    @Query("SELECT * FROM outbox_command WHERE commandName = 'CreateCapture' ORDER BY createdAt DESC, commandId")
+    abstract fun observePendingCaptures(): Flow<List<OutboxCommandEntity>>
+
+    @Query(
+        "UPDATE outbox_command SET state = 'pending', lastError = NULL " +
+            "WHERE commandId = :commandId AND serverId = :serverId " +
+            "AND commandName = 'CreateCapture' AND state = 'rejected'",
+    )
+    abstract suspend fun retryRejectedCapture(commandId: String, serverId: String): Int
 
     @Query("SELECT * FROM outbox_command WHERE dependsOnCommandId = :commandId ORDER BY createdAt, commandId")
     abstract suspend fun dependents(commandId: String): List<OutboxCommandEntity>
@@ -605,6 +617,12 @@ abstract class MobileLocalDao {
     @Query("UPDATE outbox_command SET state = 'conflict', lastError = :reason WHERE commandId = :commandId")
     abstract suspend fun markConflict(commandId: String, reason: String)
 
+    @Query("UPDATE outbox_command SET state = 'blocked', lastError = :reason WHERE commandId = :commandId AND attemptCount = 0")
+    abstract suspend fun markTaskEditBlocked(commandId: String, reason: String)
+
+    @Query("UPDATE outbox_command SET dependsOnCommandId = :parentId, state = 'pending', lastError = NULL WHERE commandId = :commandId AND state = 'blocked' AND attemptCount = 0")
+    abstract suspend fun resumeTaskEdit(commandId: String, parentId: String): Int
+
     @Query("DELETE FROM outbox_command WHERE commandId = :commandId")
     abstract suspend fun deleteOutbox(commandId: String)
 
@@ -694,6 +712,105 @@ abstract class MobileLocalDao {
     )
     abstract suspend fun replaceUnsentEnvelope(commandId: String, envelopeJson: String): Int
 
+    @Query(
+        "UPDATE outbox_command SET envelopeJson = :replacement " +
+            "WHERE commandId = :commandId AND serverId = :serverId AND taskId = :taskId " +
+            "AND commandName = 'CreateTask' AND state = 'pending' AND attemptCount = 0 " +
+            "AND dependsOnCommandId IS NULL AND envelopeJson = :previous",
+    )
+    abstract suspend fun replaceUnsentCreateEnvelope(
+        commandId: String, serverId: String, taskId: String, previous: String, replacement: String,
+    ): Int
+
+    @Transaction
+    open suspend fun editUnsentCreate(
+        taskId: String,
+        serverId: String,
+        updatedAt: String,
+        edit: (MobileCreateTaskCommandDto) -> MobileCreateTaskCommandDto,
+    ): String? {
+        require(syncState()?.serverId == serverId)
+        val current = requireNotNull(task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
+        val pending = current.optimisticCommandId?.let { outbox(it) } ?: return null
+        if (pending.commandName != "CreateTask") return null
+        require(current.conflictCommandId == null && pending.serverId == serverId)
+        if (!pending.isUnsentCreate()) return null
+        require(current.serverVersion == null)
+        val previous = MobileTaskCommandContract.decodeCreateEnvelope(pending.envelopeJson)
+        val command = edit(previous.command)
+        require(command.name == previous.command.name && command.task.id == taskId &&
+            command.provenance == previous.command.provenance &&
+            command.task.description == previous.command.task.description)
+        val replacement = MobileTaskCommandContract.encode(previous.copy(command = command))
+        require(replaceUnsentCreateEnvelope(pending.commandId, serverId, taskId, pending.envelopeJson, replacement) == 1) {
+            "Taskの送信が始まりました。入力を保持して同期後に再試行してください。"
+        }
+        upsertTask(current.copy(
+            title = command.task.title,
+            themeId = command.task.projectId,
+            todayDate = command.task.todayDate,
+            checklistJson = encodeMobileChecklist(command.task.checklistItems.orEmpty()),
+            plannedStartTime = command.task.plannedStartTime,
+            plannedDurationMinutes = command.task.plannedDurationMinutes,
+            scheduleStartDate = command.schedule?.startDate,
+            scheduleEndDate = command.schedule?.endDate,
+            scheduleRangeSemantics = command.schedule?.rangeSemantics,
+            scheduleDateKind = command.schedule?.let { deriveScheduleDateKind(it.startDate, it.endDate) },
+            scheduleConfidence = command.schedule?.let { "fixed" },
+            scheduleGranularity = command.schedule?.let { "day" },
+            updatedAt = updatedAt,
+        ))
+        return pending.commandId
+    }
+
+    @Transaction
+    open suspend fun enqueueTaskEdit(
+        taskId: String,
+        serverId: String,
+        build: (TaskCacheEntity, OutboxCommandEntity?) -> Pair<TaskCacheEntity, OutboxCommandEntity>,
+    ): String {
+        require(syncState()?.serverId == serverId)
+        val current = requireNotNull(task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
+        require(current.conflictCommandId == null) { "先に同期競合を解決してください。" }
+        val parent = current.optimisticCommandId?.let { requireNotNull(outbox(it)) }
+        require(parent == null || (parent.serverId == serverId && parent.taskId == taskId &&
+            parent.commandName in setOf("CreateTask", "UpdateTask", "CompleteTask", "ReopenTask") &&
+            parent.state in setOf(OutboxState.Pending, OutboxState.Sending, OutboxState.RetryWait))) {
+            "保留中の変更を確認してから編集してください。"
+        }
+        val (updated, command) = build(current, parent)
+        require(updated.id == taskId && updated.optimisticCommandId == command.commandId && command.taskId == taskId)
+        require(command.dependsOnCommandId == parent?.commandId && command.serverId == serverId)
+        if (parent?.commandName == "UpdateTask" && parent.state == OutboxState.Pending && parent.attemptCount == 0 &&
+            dependents(parent.commandId).isEmpty()) {
+            val previous = parent.taskEditIntent()
+            val incoming = command.taskEditIntent()
+            if (previous.changes.keys == incoming.changes.keys &&
+                incoming.changes.keys.all { it in setOf("schedule", "plannedSchedule", "checklistItems") }) {
+                val combined = MobileTaskEditIntent(incoming.changes, previous.base)
+                deleteOutbox(parent.commandId)
+                if (combined.changes == combined.base) {
+                    upsertTask(updated.copy(optimisticCommandId = parent.dependsOnCommandId))
+                } else {
+                    val envelope = if (parent.envelopeJson.isEmpty()) "" else {
+                        val original = MobileTaskCommandContract.decodeUpdateEnvelope(parent.envelopeJson)
+                        MobileTaskCommandContract.encode(original.copy(command = original.command.copy(changes = combined.changes, base = combined.base)))
+                    }
+                    insertOutbox(parent.copy(envelopeJson = envelope, taskIntentJson = combined.encode()))
+                    upsertTask(updated.copy(optimisticCommandId = parent.commandId))
+                }
+                return parent.commandId
+            }
+        }
+        insertOutbox(command)
+        upsertTask(updated)
+        if (command.taskEditIntent().changes.containsKey("themeId")) {
+            outboxForTask(taskId).filter { it.commandId != command.commandId && it.toRejectedThemeUpdateOrNull() != null &&
+                it.serverId == serverId && dependents(it.commandId).isEmpty() }.forEach { deleteOutbox(it.commandId) }
+        }
+        return command.commandId
+    }
+
     @Transaction
     open suspend fun enqueueCreateBatch(block: suspend () -> List<String>): List<String> = block()
 
@@ -753,7 +870,8 @@ abstract class MobileLocalDao {
             "Work Receiptを確認してから操作してください。"
         }
         val pending = current.optimisticCommandId?.let { outbox(it) }
-        if (pending != null && pending.commandName in setOf("CompleteTask", "ReopenTask")) {
+        if (pending != null && pending.commandName in setOf("CompleteTask", "ReopenTask") &&
+            pending.state == OutboxState.Pending && pending.attemptCount == 0) {
             require(pending.serverId == serverId) { "接続先が変わったため、この変更は操作できません。" }
             require(pending.state == OutboxState.Pending && pending.attemptCount == 0) {
                 "送信結果を確認してから再試行してください。"
@@ -774,16 +892,14 @@ abstract class MobileLocalDao {
                 requiresSync = pending.dependsOnCommandId != null,
             )
         }
-        require(pending == null || pending.commandName == "CreateTask") {
-            "Taskの同期完了を待って再試行してください。"
+        require(pending == null || (pending.commandName in setOf("CreateTask", "UpdateTask", "CompleteTask", "ReopenTask") &&
+            pending.state in setOf(OutboxState.Pending, OutboxState.Sending, OutboxState.RetryWait))) {
+            "保留中の変更を確認してから操作してください。"
         }
         if (pending == null) {
             require(current.serverVersion != null) { "Taskの同期完了を待って再試行してください。" }
         } else {
             require(pending.serverId == serverId) { "接続先が変わったため、この変更は操作できません。" }
-            require(pending.state == OutboxState.Pending && pending.attemptCount == 0) {
-                "Task作成の送信結果を確認してから再試行してください。"
-            }
         }
         val envelope = MobileTaskStateEnvelopeDto(
             apiVersion = 1,
@@ -814,7 +930,7 @@ abstract class MobileLocalDao {
                 clientDeviceId = clientDeviceId,
                 issuedAt = issuedAt,
                 commandName = commandName,
-                envelopeJson = MobileTaskCommandContract.encode(envelope),
+                envelopeJson = if (pending == null) MobileTaskCommandContract.encode(envelope) else "",
                 serverId = serverId,
                 state = OutboxState.Pending,
                 attemptCount = 0,
@@ -823,6 +939,10 @@ abstract class MobileLocalDao {
                 lastError = null,
                 taskId = taskId,
                 dependsOnCommandId = pending?.commandId,
+                taskIntentJson = MobileTaskEditIntent(
+                    JsonObject(mapOf("state" to JsonPrimitive(optimisticState))),
+                    JsonObject(mapOf("state" to JsonPrimitive(current.state))),
+                ).encode(),
             ),
         )
         return MobileStateActionResult(commandId, requiresSync = true)
@@ -916,14 +1036,16 @@ abstract class MobileLocalDao {
     open suspend fun cancelUnsentCreate(commandId: String, taskId: String): Boolean {
         val command = outbox(commandId) ?: return false
         val current = task(taskId) ?: return false
+        val following = taskDescendants(commandId)
         if (
             command.commandName != "CreateTask" ||
             command.taskId != taskId ||
             current.serverVersion != null ||
-            current.optimisticCommandId != commandId ||
-            dependents(commandId).isNotEmpty()
+            current.optimisticCommandId != (following.lastOrNull()?.commandId ?: commandId) ||
+            following.any { it.state != OutboxState.Pending || it.attemptCount != 0 }
         ) return false
         if (deleteUnsent(commandId) != 1) return false
+        following.asReversed().forEach { check(deleteUnsent(it.commandId) == 1) }
         deleteTask(taskId)
         return true
     }
@@ -1368,30 +1490,20 @@ abstract class MobileLocalDao {
         val currentTask = task(expectedTaskId) ?: return false
         val canonicalVersion = canonicalTask.serverVersion ?: return false
         if (currentTask.serverVersion?.let { canonicalVersion < it } == true) return false
-        if (dependentCommandId != null) {
-            require(dependentEnvelopeJson != null && optimisticState != null)
-            val dependent = outbox(dependentCommandId) ?: return false
-            if (
-                dependent.serverId != expectedServerId ||
-                dependent.taskId != expectedTaskId ||
-                dependent.dependsOnCommandId != commandId ||
-                dependent.state != OutboxState.Pending ||
-                dependent.attemptCount != 0 ||
-                currentTask.optimisticCommandId != dependentCommandId
-            ) {
-                return false
-            }
-            if (materializeDependent(dependentCommandId, commandId, dependentEnvelopeJson) != 1) return false
-        } else if (currentTask.optimisticCommandId != commandId) {
-            return false
+        // Enqueue and receipt application both own this Room transaction: descendants cannot
+        // appear between enumeration and projection, or be lost by a stale network snapshot.
+        val following = taskDescendants(commandId)
+        if (currentTask.optimisticCommandId != (following.lastOrNull()?.commandId ?: commandId)) return false
+        if (dependentCommandId != null && following.firstOrNull()?.commandId != dependentCommandId) return false
+        if (following.any { it.serverId != expectedServerId || it.taskId != expectedTaskId ||
+                it.state != OutboxState.Pending || it.attemptCount != 0 }) return false
+        following.firstOrNull()?.let { dependent ->
+            check(materializeDependent(dependent.commandId, commandId, dependent.materializedTaskEnvelope(canonicalVersion, canonicalTask.scheduleVersion)) == 1)
         }
-        upsertTask(
-            canonicalTask.copy(
-                state = optimisticState ?: canonicalTask.state,
-                optimisticCommandId = dependentCommandId,
-                conflictCommandId = null,
-            ),
-        )
+        val projected = following.fold(canonicalTask.copy(conflictCommandId = null)) { task, edit ->
+            edit.taskEditIntent().project(task, edit.commandId, edit.issuedAt)
+        }
+        upsertTask(projected)
         upsertSyncState(syncState)
         deleteConflict(commandId)
         deleteOutbox(commandId)
@@ -1526,12 +1638,69 @@ abstract class MobileLocalDao {
         upsertConflict(conflict)
         upsertSyncState(syncState)
         markConflict(commandId, reason)
+        taskDescendants(commandId).forEach { markTaskEditBlocked(it.commandId, "先行変更の競合を確認してください。") }
+    }
+
+    internal suspend fun taskDescendants(commandId: String): List<OutboxCommandEntity> {
+        val result = mutableListOf<OutboxCommandEntity>()
+        val visited = mutableSetOf(commandId)
+        var parent = commandId
+        while (true) {
+            val children = dependents(parent)
+            require(children.size <= 1) { "Task command order is inconsistent" }
+            val child = children.singleOrNull() ?: break
+            require(visited.add(child.commandId))
+            result += child
+            parent = child.commandId
+        }
+        return result
+    }
+
+    @Transaction
+    open suspend fun rejectTaskChain(commandId: String, reason: String) {
+        val command = requireNotNull(outbox(commandId))
+        require(command.taskId != null && command.state == OutboxState.Sending && command.serverId == syncState()?.serverId)
+        markRejected(commandId, reason)
+        taskDescendants(commandId).forEach { markTaskEditBlocked(it.commandId, "先行変更が受理されていません。") }
+    }
+
+    @Transaction
+    open suspend fun applyTaskRejection(block: suspend () -> Unit) = block()
+
+    @Transaction
+    open suspend fun retryRejectedTaskChanges(commandId: String) {
+        val root = requireNotNull(outbox(commandId))
+        require(root.taskId != null && root.serverId == syncState()?.serverId && root.state == OutboxState.Rejected)
+        taskDescendants(commandId).forEach { edit -> check(resumeTaskEdit(edit.commandId, requireNotNull(edit.dependsOnCommandId)) == 1) }
+        // Retrying preserves the exact attempted envelope and idempotency key.
+        markRetry(commandId, "利用者が再試行を選びました。")
+    }
+
+    @Transaction
+    open suspend fun discardRejectedTaskChanges(commandId: String) {
+        val root = requireNotNull(outbox(commandId))
+        val taskId = requireNotNull(root.taskId)
+        require(root.serverId == syncState()?.serverId && root.state == OutboxState.Rejected)
+        val chain = listOf(root) + taskDescendants(commandId)
+        val current = requireNotNull(task(taskId))
+        require(current.optimisticCommandId == chain.last().commandId)
+        if (root.commandName == "CreateTask") {
+            deleteTask(taskId)
+        } else {
+            val restored = chain.asReversed().fold(current) { task, edit ->
+                val intent = edit.taskEditIntent()
+                MobileTaskEditIntent(intent.base, intent.changes).project(task, edit.commandId, task.updatedAt)
+            }
+            upsertTask(restored.copy(optimisticCommandId = null))
+        }
+        chain.asReversed().forEach { deleteOutbox(it.commandId) }
     }
 
     @Transaction
     open suspend fun acceptServer(commandId: String) {
         val command = requireNotNull(outbox(commandId))
         require(syncState()?.serverId == command.serverId)
+        taskDescendants(commandId).asReversed().forEach { deleteOutbox(it.commandId) }
         clearTaskConflict(commandId)
         deleteConflict(commandId)
         deleteOutbox(commandId)
@@ -1547,10 +1716,16 @@ abstract class MobileLocalDao {
         val previous = requireNotNull(outbox(oldCommandId))
         require(command.serverId.isNotBlank() && previous.serverId == command.serverId)
         require(syncState()?.serverId == command.serverId)
+        val following = taskDescendants(oldCommandId)
+        following.forEachIndexed { index, edit ->
+            check(resumeTaskEdit(edit.commandId, if (index == 0) command.commandId else following[index - 1].commandId) == 1)
+        }
         clearTaskConflict(oldCommandId)
         deleteConflict(oldCommandId)
         deleteOutbox(oldCommandId)
-        upsertTask(task.copy(conflictCommandId = null))
+        upsertTask(following.fold(task.copy(conflictCommandId = null)) { projected, edit ->
+            edit.taskEditIntent().project(projected, edit.commandId, edit.issuedAt)
+        })
         insertOutbox(command)
     }
 
@@ -1586,7 +1761,7 @@ abstract class MobileLocalDao {
         PendingTaskDelegationEntity::class,
         TaskNotificationDeliveryEntity::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -1619,8 +1794,15 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_16_17,
                     MIGRATION_17_18,
                     MIGRATION_18_19,
+                    MIGRATION_19_20,
             ).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_19_20 = object : Migration(19, 20) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE outbox_command ADD COLUMN taskIntentJson TEXT")
     }
 }
 
@@ -1959,11 +2141,20 @@ fun TaskCacheWithConflict.toMobileTask(activeServerId: String? = null): MobileTa
         )
     },
     canChangePendingState = optimisticCommand?.let {
-        it.state == OutboxState.Pending &&
-            it.attemptCount == 0 &&
-            it.commandName in setOf("CreateTask", "CompleteTask", "ReopenTask")
+        it.serverId == activeServerId && it.state in setOf(OutboxState.Pending, OutboxState.Sending, OutboxState.RetryWait) &&
+            it.commandName in setOf("CreateTask", "UpdateTask", "CompleteTask", "ReopenTask")
     } == true,
+    canEditPendingTask = task.conflictCommandId == null && optimisticCommand?.let {
+        it.serverId == activeServerId && it.taskId == task.id &&
+            it.state in setOf(OutboxState.Pending, OutboxState.Sending, OutboxState.RetryWait) &&
+            it.commandName in setOf("CreateTask", "UpdateTask", "CompleteTask", "ReopenTask")
+    } == true,
+    heldChanges = if (conflict != null || optimisticCommand?.state in setOf(OutboxState.Rejected, OutboxState.Blocked)) {
+        relatedCommands.filter { it.serverId == activeServerId }.mapNotNull { it.heldTaskChange() }
+    } else emptyList(),
     canEditPendingChecklist = optimisticCommand?.isUnsentChecklistUpdate() == true,
+    canEditPendingCreate = task.serverVersion == null && task.conflictCommandId == null &&
+        optimisticCommand?.let { it.serverId == activeServerId && it.taskId == task.id && it.isUnsentCreate() } == true,
     rejectedThemeUpdate = relatedCommands
         .filter { it.serverId == activeServerId }
         .mapNotNull(OutboxCommandEntity::toRejectedThemeUpdateOrNull)

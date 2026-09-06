@@ -8,12 +8,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -39,6 +43,9 @@ data class MobileTask(
     val conflict: MobileTaskConflict? = null,
     val canChangePendingState: Boolean = false,
     val canEditPendingChecklist: Boolean = false,
+    val canEditPendingCreate: Boolean = false,
+    val canEditPendingTask: Boolean = false,
+    val heldChanges: List<MobileHeldTaskChange> = emptyList(),
     val rejectedThemeUpdate: MobileRejectedThemeUpdate? = null,
     val version: Int = 0,
     val description: String? = null,
@@ -68,6 +75,8 @@ data class MobileTaskScheduleDraft(
     val startDate: String?,
     val endDate: String?,
     val rangeSemantics: String?,
+    val plannedStartTime: String? = null,
+    val plannedDurationMinutes: Int? = null,
 )
 
 data class MobileWorkReceiptSummary(
@@ -319,6 +328,12 @@ sealed interface TodayUiState {
     data class Success(val tasks: List<MobileTask>, val generatedAt: String) : TodayUiState
 }
 
+data class MobileTodayCache(
+    val tasks: List<MobileTask>,
+    val hasStoredTasks: Boolean,
+    val lastSuccessfulSyncAt: String? = null,
+)
+
 enum class CaptureCompletionBehavior { Close, Continue }
 
 sealed interface CaptureUiState {
@@ -350,6 +365,7 @@ class TodayViewModel(
     private val repository: MobileTaskRepository = DisconnectedMobileTaskRepository(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val refreshExternalProjection: () -> Unit = {},
+    private val today: () -> java.time.LocalDate = java.time.LocalDate::now,
 ) : ViewModel() {
     suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> =
         kotlinx.coroutines.withContext(ioDispatcher) {
@@ -359,14 +375,18 @@ class TodayViewModel(
         }
     private val mutableUiState = MutableStateFlow<TodayUiState>(TodayUiState.Loading)
     val uiState: StateFlow<TodayUiState> = mutableUiState.asStateFlow()
+    private val mutableRefreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = mutableRefreshing.asStateFlow()
     private val mutableCaptureState = MutableStateFlow<CaptureUiState>(CaptureUiState.Idle)
     val captureState: StateFlow<CaptureUiState> = mutableCaptureState.asStateFlow()
+    private val mutablePendingCaptures = MutableStateFlow<List<MobilePendingCapture>>(emptyList())
+    val pendingCaptures: StateFlow<List<MobilePendingCapture>> = mutablePendingCaptures.asStateFlow()
     private val mutableTaskActionState = MutableStateFlow<TaskActionUiState>(TaskActionUiState.Idle)
     val taskActionState: StateFlow<TaskActionUiState> = mutableTaskActionState.asStateFlow()
-    private val mutablePendingCount = MutableStateFlow(0)
-    val pendingCount: StateFlow<Int> = mutablePendingCount.asStateFlow()
-    private val mutableConflictCount = MutableStateFlow(0)
-    val conflictCount: StateFlow<Int> = mutableConflictCount.asStateFlow()
+    private val mutablePendingCount = MutableStateFlow<Int?>(null)
+    val pendingCount: StateFlow<Int?> = mutablePendingCount.asStateFlow()
+    private val mutableConflictCount = MutableStateFlow<Int?>(null)
+    val conflictCount: StateFlow<Int?> = mutableConflictCount.asStateFlow()
     private val mutableAllTasks = MutableStateFlow<List<MobileTask>>(emptyList())
     val allTasks: StateFlow<List<MobileTask>> = mutableAllTasks.asStateFlow()
     private val mutableThemes = MutableStateFlow<List<MobileTheme>>(emptyList())
@@ -383,6 +403,8 @@ class TodayViewModel(
     val taskWorkProposals: StateFlow<List<MobileTaskWorkProposal>> = mutableTaskWorkProposals.asStateFlow()
     private val mutableProposalReviewOnline = MutableStateFlow(false)
     val proposalReviewOnline: StateFlow<Boolean> = mutableProposalReviewOnline.asStateFlow()
+    private val mutableProposalRefreshing = MutableStateFlow(false)
+    val proposalRefreshing: StateFlow<Boolean> = mutableProposalRefreshing.asStateFlow()
     private val mutableProposalReviewState = MutableStateFlow<ProposalReviewUiState>(ProposalReviewUiState.Idle)
     val proposalReviewState: StateFlow<ProposalReviewUiState> = mutableProposalReviewState.asStateFlow()
     private val mutableHumanReviewOnline = MutableStateFlow(false)
@@ -398,15 +420,23 @@ class TodayViewModel(
     private val mutablePendingSafeShare = MutableStateFlow<MobileSafeShareDto?>(null)
     val pendingSafeShare: StateFlow<MobileSafeShareDto?> = mutablePendingSafeShare.asStateFlow()
     private var workReceiptLoadJob: Job? = null
-    private var observingCache = false
+    private var proposalRefreshJob: Job? = null
+    private var cacheJob: Job? = null
+    private var cacheDate: java.time.LocalDate? = null
     private var cachedGeneratedAt = ""
     private var cachedPairingRequired: MobileTodayResult.PairingRequired? = null
     private var cachedUnavailable: MobileTodayResult.Unavailable? = null
+    private var pairingFormOpen = false
+    private val connectionGeneration = java.util.concurrent.atomic.AtomicLong()
     private val loadMutex = Mutex()
 
     init {
         val offlineRepository = repository as? MobileOfflineTaskRepository
         if (offlineRepository != null) {
+            observeCache(offlineRepository)
+            viewModelScope.launch(ioDispatcher) {
+                offlineRepository.observePendingCaptures().collect { mutablePendingCaptures.value = it }
+            }
             viewModelScope.launch(ioDispatcher) {
                 offlineRepository.observePendingCount().collect { mutablePendingCount.value = it }
             }
@@ -431,51 +461,114 @@ class TodayViewModel(
     }
 
     fun load() {
+        refreshLocalDate()
         viewModelScope.launch { loadNow() }
     }
 
+    fun refreshLocalDate() {
+        (repository as? MobileOfflineTaskRepository)?.let(::observeCache)
+    }
+
     internal suspend fun loadNow(): Unit = loadMutex.withLock {
-        mutableUiState.value = TodayUiState.Loading
-        val result = withContext(ioDispatcher) { repository.loadToday() }
-        val gatewayConfiguration = (repository as? MobileGatewayRepository)?.configuration()
-        mutableProposalReviewOnline.value = if (result is MobileTodayResult.PairingRequired) {
-            false
-        } else {
-            withContext(ioDispatcher) {
-                (repository as? MobileGatewayRepository)?.refreshTaskWorkProposals() == true
-            }
+        mutableRefreshing.value = true
+        try {
+            refreshTodayNow()
+        } finally {
+            mutableRefreshing.value = false
         }
+    }
+
+    private suspend fun refreshTodayNow() {
+        val generation = connectionGeneration.get()
+        if (pairingFormOpen) return
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository != null) {
+            val cache = currentCache(offlineRepository)
+            if (generation != connectionGeneration.get() || pairingFormOpen) return
+            applyCacheSnapshot(cache)
+        }
+        val result = withContext(ioDispatcher) { repository.loadToday() }
+        if (generation != connectionGeneration.get() || pairingFormOpen) return
+        val gatewayConfiguration = (repository as? MobileGatewayRepository)?.configuration()
         mutableHumanReviewOnline.value = result is MobileTodayResult.Available &&
             gatewayConfiguration?.canReviewWorkReceipts() == true
         mutableHumanReviewRequiresRePairing.value = gatewayConfiguration?.paired == true &&
             !gatewayConfiguration.canReviewWorkReceipts()
         refreshExternalProjection()
-        val offlineRepository = repository as? MobileOfflineTaskRepository
+        var projectedCache = false
         if (offlineRepository != null) {
-            val cachedTasks = withContext(ioDispatcher) { offlineRepository.observeCachedTasks().first() }
-            val allCachedTasks = withContext(ioDispatcher) { offlineRepository.observeAllCachedTasks().first() }
-            val canProjectCache = result !is MobileTodayResult.PairingRequired ||
-                cachedTasks.isNotEmpty() || allCachedTasks.isNotEmpty()
-            if (canProjectCache && (cachedTasks.isNotEmpty() || allCachedTasks.isNotEmpty() || result is MobileTodayResult.Available)) {
+            val cache = currentCache(offlineRepository)
+            if (generation != connectionGeneration.get() || pairingFormOpen) return
+            if (cache.hasStoredTasks || cache.lastSuccessfulSyncAt != null || result is MobileTodayResult.Available) {
                 if (result is MobileTodayResult.Available) cachedGeneratedAt = result.generatedAt
                 cachedPairingRequired = result as? MobileTodayResult.PairingRequired
                 cachedUnavailable = result as? MobileTodayResult.Unavailable
-                applyCachedTasks(cachedTasks)
+                cache.lastSuccessfulSyncAt?.let { cachedGeneratedAt = it }
+                applyCachedTasks(cache.tasks)
                 observeCache(offlineRepository)
-                return
+                projectedCache = true
             }
         }
-        cachedPairingRequired = null
-        cachedUnavailable = null
-        applyResult(result)
+        if (!projectedCache) {
+            cachedPairingRequired = null
+            cachedUnavailable = null
+            applyResult(result)
+        }
+        refreshProposals(result !is MobileTodayResult.PairingRequired)
+    }
+
+    private fun refreshProposals(canConnect: Boolean) {
+        proposalRefreshJob?.cancel()
+        mutableProposalReviewOnline.value = false
+        val gateway = repository as? MobileGatewayRepository
+        if (!canConnect || gateway == null) {
+            mutableProposalRefreshing.value = false
+            return
+        }
+        mutableProposalRefreshing.value = true
+        proposalRefreshJob = viewModelScope.launch(ioDispatcher) {
+            val online = try {
+                gateway.refreshTaskWorkProposals()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Proposal availability is independent of Today; a failed refresh leaves review offline.
+                false
+            }
+            currentCoroutineContext().ensureActive()
+            mutableProposalReviewOnline.value = online
+            mutableProposalRefreshing.value = false
+        }
+    }
+
+    private suspend fun currentCache(repository: MobileOfflineTaskRepository): MobileTodayCache {
+        while (true) {
+            val date = today()
+            observeCache(repository)
+            val cache = withContext(ioDispatcher) { repository.observeTodayCache(date).first() }
+            if (date == today()) return cache
+        }
     }
 
     private fun observeCache(repository: MobileOfflineTaskRepository) {
-        if (observingCache) return
-        observingCache = true
-        viewModelScope.launch(ioDispatcher) {
-            repository.observeCachedTasks().collect(::applyCachedTasks)
+        val date = today()
+        if (cacheDate == date) return
+        cacheJob?.cancel()
+        cacheDate = date
+        cacheJob = viewModelScope.launch(ioDispatcher) {
+            repository.observeTodayCache(date).collect { cache ->
+                if (cacheDate == date) applyCacheSnapshot(cache)
+            }
         }
+    }
+
+    private fun applyCacheSnapshot(cache: MobileTodayCache) {
+        cache.lastSuccessfulSyncAt?.let { cachedGeneratedAt = it }
+        if (pairingFormOpen) return
+        if (cache.hasStoredTasks || cache.lastSuccessfulSyncAt != null ||
+            mutableUiState.value is TodayUiState.Success || mutableUiState.value is TodayUiState.Cached ||
+            mutableUiState.value == TodayUiState.Empty
+        ) applyCachedTasks(cache.tasks)
     }
 
     private fun applyCachedTasks(tasks: List<MobileTask>) {
@@ -495,7 +588,7 @@ class TodayViewModel(
                 message = "${unavailable.message} ${unavailable.recovery}",
                 recovery = TodayUiState.CachedRecovery.Reload,
             )
-        } else if (tasks.isEmpty()) {
+        } else if (tasks.isEmpty() && cachedGeneratedAt.isBlank()) {
             TodayUiState.Empty
         } else {
             TodayUiState.Success(tasks.toList(), cachedGeneratedAt)
@@ -508,12 +601,14 @@ class TodayViewModel(
 
     internal suspend fun pairNow(origin: String, pairingCode: String) {
         val gateway = repository as? MobileGatewayRepository ?: return
+        val generation = connectionGeneration.incrementAndGet()
         val result = withContext(ioDispatcher) { gateway.pair(origin, pairingCode) }
+        if (generation != connectionGeneration.get()) return
+        pairingFormOpen = result !is MobileTodayResult.Available
         cachedPairingRequired = null
         cachedUnavailable = null
         applyResult(result)
-        mutableProposalReviewOnline.value = result is MobileTodayResult.Available &&
-            withContext(ioDispatcher) { gateway.refreshTaskWorkProposals() }
+        refreshProposals(result is MobileTodayResult.Available)
         val configuration = gateway.configuration()
         mutableHumanReviewOnline.value = result is MobileTodayResult.Available && configuration.canReviewWorkReceipts()
         mutableHumanReviewRequiresRePairing.value = configuration.paired && !configuration.canReviewWorkReceipts()
@@ -521,6 +616,10 @@ class TodayViewModel(
 
     fun retryPairing() {
         val gateway = repository as? MobileGatewayRepository ?: return
+        connectionGeneration.incrementAndGet()
+        pairingFormOpen = true
+        proposalRefreshJob?.cancel()
+        mutableProposalRefreshing.value = false
         mutableProposalReviewOnline.value = false
         mutableHumanReviewOnline.value = false
         mutableHumanReviewRequiresRePairing.value = false
@@ -758,13 +857,14 @@ class TodayViewModel(
     ) {
         val entityLabel = if (draft.kind == MobileCaptureKind.Task) "Task" else "Capture"
         val drafts = if (draft.kind == MobileCaptureKind.Task) draft.organizedTaskDrafts() else listOf(draft)
-        val normalizedDrafts = drafts.map { it.withText(it.text.trim()) }
-        if (normalizedDrafts.any { it.text.isEmpty() }) {
+        val normalizedDrafts = drafts.map { if (it.kind == MobileCaptureKind.Task) it.withText(it.text.trim()) else it }
+        if (normalizedDrafts.any { it.text.isBlank() }) {
             mutableCaptureState.value = CaptureUiState.Error("${entityLabel}の内容を入力してください。")
             return
         }
-        if (normalizedDrafts.any { it.text.length > 500 }) {
-            mutableCaptureState.value = CaptureUiState.Error("${entityLabel}は500文字以内で入力してください。")
+        val textLimit = if (draft.kind == MobileCaptureKind.Task) MOBILE_TASK_TITLE_MAX_LENGTH else MOBILE_CAPTURE_TEXT_MAX_LENGTH
+        if (normalizedDrafts.any { it.text.length > textLimit }) {
+            mutableCaptureState.value = CaptureUiState.Error("${entityLabel}は${textLimit}文字以内で入力してください。全文は保持しています。")
             return
         }
         if (normalizedDrafts.any { runCatching { it.organization?.validate() }.isFailure }) {
@@ -795,6 +895,10 @@ class TodayViewModel(
         } catch (_: Exception) {
             CaptureUiState.Error("${entityLabel}を保存できませんでした。入力を残したまま再試行してください。")
         }
+    }
+
+    suspend fun retryPendingCapture(commandId: String): Boolean = withContext(ioDispatcher) {
+        (repository as? MobileOfflineTaskRepository)?.retryPendingCapture(commandId) ?: false
     }
 
     fun undoCreatedCapture(entityId: String, kind: MobileCaptureKind) {
@@ -871,7 +975,7 @@ class TodayViewModel(
     internal suspend fun updateTaskTitleNow(task: MobileTask, title: String) {
         val normalized = title.trim()
         if (normalized.isEmpty() || normalized.length > 500 || normalized == task.title) return
-        if (task.pending || task.conflict != null) {
+        if ((task.pending && !task.canEditPendingCreate && !task.canEditPendingTask) || task.conflict != null) {
             mutableTaskActionState.value = TaskActionUiState.Error(task.id, "このTaskの同期を解決してから編集してください。")
             return
         }
@@ -895,7 +999,7 @@ class TodayViewModel(
 
     internal suspend fun updateTaskTodayDateNow(task: MobileTask, todayDate: java.time.LocalDate?) {
         if (task.todayDate == todayDate?.toString()) return
-        if (task.pending || task.conflict != null) {
+        if ((task.pending && !task.canEditPendingCreate && !task.canEditPendingTask) || task.conflict != null) {
             mutableTaskActionState.value = TaskActionUiState.Error(task.id, "このTaskの同期を解決してから予定を変更してください。")
             return
         }
@@ -930,9 +1034,11 @@ class TodayViewModel(
         if (
             task.schedule?.startDate == normalized.startDate &&
             task.schedule?.endDate == normalized.endDate &&
-            task.schedule?.rangeSemantics == normalized.rangeSemantics
+            task.schedule?.rangeSemantics == normalized.rangeSemantics &&
+            task.plannedStartTime == normalized.plannedStartTime &&
+            task.plannedDurationMinutes == normalized.plannedDurationMinutes
         ) return
-        if (task.pending || task.conflict != null) {
+        if ((task.pending && !task.canEditPendingCreate && !task.canEditPendingTask) || task.conflict != null) {
             mutableTaskActionState.value = TaskActionUiState.Error(task.id, "このTaskの同期を解決してから予定を変更してください。")
             return
         }
@@ -960,10 +1066,12 @@ class TodayViewModel(
         require(draft.rangeSemantics == null || (start != null && end != null && end.isAfter(start))) {
             "期間の意味は開始日と終了日が異なるときだけ設定できます。"
         }
-        return MobileTaskScheduleDraft(start?.toString(), end?.toString(), draft.rangeSemantics)
+        require(draft.plannedStartTime == null || isPlannedStartTime(draft.plannedStartTime)) { "予定開始時刻は HH:mm で入力してください。" }
+        require(draft.plannedDurationMinutes == null || isPlannedDurationMinutes(draft.plannedDurationMinutes)) { "所要時間は1〜10080分で入力してください。" }
+        return draft.copy(startDate = start?.toString(), endDate = end?.toString())
     }
 
-    fun updateTaskTheme(task: MobileTask, themeId: String) {
+    fun updateTaskTheme(task: MobileTask, themeId: String?) {
         viewModelScope.launch { updateTaskThemeNow(task, themeId) }
     }
 
@@ -982,7 +1090,7 @@ class TodayViewModel(
             return
         }
         if (normalized == normalizeChecklist(task.checklistItems)) return
-        if ((task.pending && !task.canEditPendingChecklist) || task.conflict != null) {
+        if ((task.pending && !task.canEditPendingChecklist && !task.canEditPendingCreate && !task.canEditPendingTask) || task.conflict != null) {
             mutableTaskActionState.value = TaskActionUiState.Error(
                 task.id,
                 if (task.conflict != null) "先に同期競合を解決してください。" else "このTaskの同期完了を待ってください。",
@@ -1042,9 +1150,9 @@ class TodayViewModel(
         }
     }
 
-    internal suspend fun updateTaskThemeNow(task: MobileTask, themeId: String) {
+    internal suspend fun updateTaskThemeNow(task: MobileTask, themeId: String?) {
         if (task.themeId == themeId) return
-        if (task.pending || task.conflict != null) {
+        if ((task.pending && !task.canEditPendingCreate && !task.canEditPendingTask) || task.conflict != null) {
             mutableTaskActionState.value = TaskActionUiState.Error(task.id, "このTaskの同期を解決してからThemeを変更してください。")
             return
         }
@@ -1097,14 +1205,18 @@ class TodayViewModel(
     internal suspend fun resolveConflictNow(task: MobileTask, keepLocal: Boolean) {
         val conflict = task.conflict
         val offlineRepository = repository as? MobileOfflineTaskRepository
-        if (conflict == null || offlineRepository == null) {
+        val rejected = task.heldChanges.firstOrNull { it.rejected }
+        if ((conflict == null && rejected == null) || offlineRepository == null) {
             mutableTaskActionState.value = TaskActionUiState.Error(task.id, "競合情報を読み込めませんでした。")
             return
         }
         mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
         mutableTaskActionState.value = try {
             withContext(ioDispatcher) {
-                if (keepLocal) {
+                if (conflict == null) {
+                    if (keepLocal) offlineRepository.retryRejectedTaskChanges(requireNotNull(rejected).commandId)
+                    else offlineRepository.discardRejectedTaskChanges(requireNotNull(rejected).commandId)
+                } else if (keepLocal) {
                     offlineRepository.keepLocalConflict(conflict.commandId)
                 } else {
                     offlineRepository.acceptServerConflict(conflict.commandId)
@@ -1412,6 +1524,10 @@ interface MobileGatewayRepository : MobileTaskRepository {
 interface MobileOfflineTaskRepository {
     fun observeCachedTasks(): Flow<List<MobileTask>>
     fun observeAllCachedTasks(): Flow<List<MobileTask>> = observeCachedTasks()
+    fun observeTodayCache(date: java.time.LocalDate): Flow<MobileTodayCache> =
+        combine(observeCachedTasks(), observeAllCachedTasks()) { tasks, allTasks ->
+            MobileTodayCache(tasks, tasks.isNotEmpty() || allTasks.isNotEmpty())
+        }
     fun observeCachedThemes(): Flow<List<MobileTheme>> = kotlinx.coroutines.flow.flowOf(emptyList())
     fun observeThemeCatalogState(): Flow<MobileThemeCatalogState> = observeCachedThemes().map { themes ->
         MobileThemeCatalogState.Loading(themes = themes.toList())
@@ -1419,6 +1535,8 @@ interface MobileOfflineTaskRepository {
     fun observeCachedTaskWorkProposals(): Flow<List<MobileTaskWorkProposal>> =
         kotlinx.coroutines.flow.flowOf(emptyList())
     fun observePendingCount(): Flow<Int>
+    fun observePendingCaptures(): Flow<List<MobilePendingCapture>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    suspend fun retryPendingCapture(commandId: String): Boolean = false
     fun observeConflictCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     suspend fun enqueueCreateTask(
         draft: MobileCaptureDraft,
@@ -1442,7 +1560,7 @@ interface MobileOfflineTaskRepository {
         error("この環境ではTaskの予定を変更できません。")
     suspend fun enqueueUpdateTaskSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String =
         error("この環境ではTaskの予定を変更できません。")
-    suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String): String =
+    suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String?): String =
         error("この環境ではTaskのThemeを変更できません。")
     suspend fun enqueueUpdateTaskChecklist(taskId: String, items: List<MobileChecklistItem>): String =
         error("この環境ではChecklistを変更できません。")
@@ -1455,4 +1573,6 @@ interface MobileOfflineTaskRepository {
         error("この環境では競合を解決できません。")
     }
     suspend fun keepLocalConflict(commandId: String): String = error("この環境では競合を解決できません。")
+    suspend fun retryRejectedTaskChanges(commandId: String): Unit = error("この環境では再試行できません。")
+    suspend fun discardRejectedTaskChanges(commandId: String): Unit = error("この環境では破棄できません。")
 }

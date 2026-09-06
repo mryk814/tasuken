@@ -2,8 +2,10 @@ package jp.personal.tasken.companion
 
 import android.content.Context
 import android.util.Log
+import java.io.File
 import java.time.Duration
 import java.time.Instant
+import java.util.UUID
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -26,7 +28,9 @@ data class MobileCaptureUndoTarget(
 class MobileCaptureDraftStore(
     context: Context,
     private val now: () -> Instant = Instant::now,
+    recoveryDirectory: File = File(context.applicationContext.filesDir, "capture-draft-recovery"),
 ) {
+    private val recovery = MobileCaptureRecoveryStore(recoveryDirectory, now)
     private val preferences = context.applicationContext.getSharedPreferences(
         PreferencesName,
         Context.MODE_PRIVATE,
@@ -37,26 +41,50 @@ class MobileCaptureDraftStore(
         explicitNulls = true
     }
 
-    @Synchronized
-    fun load(): MobileCaptureDraftSnapshot? {
+    fun load(): MobileCaptureDraftSnapshot? = synchronized(StorageLock) {
         val encoded = preferences.getString(SnapshotKey, null) ?: return null
-        val stored = runCatching { json.decodeFromString<StoredCaptureDraftSnapshot>(encoded) }
-            .getOrElse {
-                Log.w(LogTag, "Discarding an invalid saved Capture Draft", it)
-                clear()
-                return null
+        val stored = decode(encoded)
+        if (stored == null || isExpired(Instant.parse(stored.savedAt))) {
+            if (recovery.archive(encoded, if (stored == null) "unreadable" else "expired")) {
+                if (!preferences.edit().remove(SnapshotKey).commit()) {
+                    Log.e(LogTag, "Failed to remove a preserved input source")
+                }
             }
-        val savedAt = runCatching { Instant.parse(stored.savedAt) }.getOrNull()
-        if (stored.schemaVersion != SchemaVersion || savedAt == null || isExpired(savedAt)) {
-            clear()
             return null
         }
-        return runCatching { stored.toSnapshot() }
-            .getOrElse {
-                Log.w(LogTag, "Discarding an inconsistent saved Capture Draft", it)
-                clear()
-                null
-            }
+        return stored.toSnapshot()
+    }
+
+    fun recoveredInputs(): List<MobileRecoveredInput> = recovery.list().map { entry ->
+        entry.copy(snapshot = decode(entry.raw)?.toSnapshot())
+    }
+
+    fun deleteRecoveredInput(id: String): Boolean = recovery.delete(id)
+
+    fun restoreRecoveredInput(id: String): MobileCaptureDraftSnapshot? = synchronized(StorageLock) {
+        val current = load()
+        if (current != null && (current.draft.text.isNotEmpty() || !current.draft.originalText.isNullOrEmpty())) return null
+        val entry = recoveredInputs().firstOrNull { it.id == id } ?: return null
+        val draft = entry.snapshot?.draft?.copy(draftId = UUID.randomUUID().toString())
+            ?: MobileCaptureDraft.fresh(text = entry.raw, now = now)
+        val restored = MobileCaptureDraftSnapshot(draft, captureOpen = true)
+        return restored.takeIf { save(it) }
+    }
+
+    private fun decode(encoded: String): StoredCaptureDraftSnapshot? = runCatching {
+        json.decodeFromString<StoredCaptureDraftSnapshot>(encoded).also {
+            require(it.schemaVersion == SchemaVersion)
+            Instant.parse(it.savedAt)
+            it.toSnapshot()
+        }
+    }.getOrNull()
+
+    // A failed quarantine must also block subsequent autosave/clear from replacing the source.
+    private fun preserveBeforeReplacing(): Boolean {
+        val encoded = preferences.getString(SnapshotKey, null) ?: return true
+        val stored = decode(encoded)
+        if (stored != null && !isExpired(Instant.parse(stored.savedAt))) return true
+        return recovery.archive(encoded, if (stored == null) "unreadable" else "expired")
     }
 
     @Synchronized
@@ -85,16 +113,16 @@ class MobileCaptureDraftStore(
         }
     }
 
-    @Synchronized
-    fun save(snapshot: MobileCaptureDraftSnapshot): Boolean {
-        if (!snapshot.captureOpen && snapshot.draft.text.isBlank()) {
+    fun save(snapshot: MobileCaptureDraftSnapshot): Boolean = synchronized(StorageLock) {
+        if (!preserveBeforeReplacing()) return false
+        if (!snapshot.captureOpen && snapshot.draft.text.isEmpty() && snapshot.draft.originalText.isNullOrEmpty()) {
             return clear()
         }
         return runCatching {
             val stored = StoredCaptureDraftSnapshot.from(snapshot, now().toString())
             preferences.edit().putString(SnapshotKey, json.encodeToString(stored)).commit()
-        }.onFailure { error ->
-            Log.e(LogTag, "Failed to persist a Capture Draft", error)
+        }.onFailure {
+            Log.e(LogTag, "Failed to persist a Capture Draft")
         }.getOrDefault(false)
     }
 
@@ -111,9 +139,10 @@ class MobileCaptureDraftStore(
         Log.e(LogTag, "Failed to persist a Capture Undo target", error)
     }.getOrDefault(false)
 
-    @Synchronized
-    fun clear(): Boolean = preferences.edit().remove(SnapshotKey).commit().also { cleared ->
-        if (!cleared) Log.e(LogTag, "Failed to clear a saved Capture Draft")
+    fun clear(): Boolean = synchronized(StorageLock) {
+        (preserveBeforeReplacing() && preferences.edit().remove(SnapshotKey).commit()).also { cleared ->
+            if (!cleared) Log.e(LogTag, "Failed to clear a saved Capture Draft")
+        }
     }
 
     @Synchronized
@@ -132,6 +161,8 @@ class MobileCaptureDraftStore(
     }
 
     private companion object {
+        // Activity recreation can briefly leave two store instances alive.
+        val StorageLock = Any()
         const val PreferencesName = "tasken-mobile-input-recovery"
         const val SnapshotKey = "capture-draft-v1"
         const val UndoTargetKey = "capture-undo-target-v1"
@@ -158,13 +189,13 @@ private data class StoredCaptureDraftSnapshot(
     val draftId: String,
     val text: String,
     val kind: String,
-    val projectId: String?,
+    val projectId: String? = null,
     val source: String,
-    val speechRecognitionMode: String?,
-    val speechLanguage: String?,
-    val speechConfidence: Float?,
-    val speechSourceAudioAvailable: Boolean,
-    val sharedMimeType: String?,
+    val speechRecognitionMode: String? = null,
+    val speechLanguage: String? = null,
+    val speechConfidence: Float? = null,
+    val speechSourceAudioAvailable: Boolean = false,
+    val sharedMimeType: String? = null,
     val createdAt: String,
     val organization: MobileCaptureOrganization? = null,
     val additionalOrganizations: List<MobileCaptureOrganization> = emptyList(),

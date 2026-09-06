@@ -469,7 +469,8 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
   }
 
   if (type === "capture_entry") {
-    const text = formText(values, "text") || formText(values, "title");
+    const rawText = String(values.get("text") ?? "");
+    const text = rawText.trim() ? rawText : formText(values, "title");
     if (!text) return { kind: "invalid", field: "title", message: "内容を入力してください。" };
     const entry: CaptureEntry = {
       id: (base.id as string) || uuid(),

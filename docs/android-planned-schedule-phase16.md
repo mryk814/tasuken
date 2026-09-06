@@ -1,5 +1,9 @@
 # Android planned start/duration — withdrawn
 
+2026-09-06: Issue #534で予定開始時刻・所要時間の編集を再導入する。
+現在の書き込み契約は [Task予定・ChecklistのMobile書き込み契約](mobile-schedule-checklist-contract.md) を参照。
+以下は#400当時の撤去判断の記録。
+
 Issue: #400  
 Date: 2026-08-23
 

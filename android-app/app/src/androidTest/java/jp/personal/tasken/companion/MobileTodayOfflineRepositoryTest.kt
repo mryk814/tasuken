@@ -7,6 +7,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.IOException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -43,7 +44,7 @@ class MobileTodayOfflineRepositoryTest {
     }
 
     @Test
-    fun previouslySyncedEmptyTodayRemainsAvailableWhenGatewayIsOffline() = runBlocking {
+    fun previouslySyncedEmptyTodayRetainsCacheWithoutReportingConnectionSuccess() = runBlocking {
         dao.upsertSyncState(
             SyncStateEntity(
                 serverId = "server-1",
@@ -56,12 +57,13 @@ class MobileTodayOfflineRepositoryTest {
             ),
         )
 
-        val result = offlineRepository().loadToday()
+        val repository = offlineRepository()
+        val result = repository.loadToday()
 
-        assertTrue(result is MobileTodayResult.Available)
-        result as MobileTodayResult.Available
-        assertTrue(result.tasks.isEmpty())
-        assertEquals("2026-08-24T01:00:00Z", result.generatedAt)
+        assertTrue(result is MobileTodayResult.Unavailable)
+        val cache = repository.observeTodayCache(java.time.LocalDate.now()).first()
+        assertTrue(cache.tasks.isEmpty())
+        assertEquals("2026-08-24T01:00:00Z", cache.lastSuccessfulSyncAt)
     }
 
     @Test
@@ -69,6 +71,23 @@ class MobileTodayOfflineRepositoryTest {
         val result = offlineRepository().loadToday()
 
         assertTrue(result is MobileTodayResult.Unavailable)
+    }
+
+    @Test
+    fun confirmedUnauthorizedRequiresPairingAndRetainsSyncHistory() = runBlocking {
+        dao.upsertSyncState(SyncStateEntity(
+            serverId = "server-1", apiVersion = 1, schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+            cursor = "cursor-1", lastSuccessfulSyncAt = "2026-09-06T00:00:00Z",
+            lastAttemptAt = "2026-09-06T00:00:00Z", lastError = null,
+        ))
+        val repository = AndroidMobileTaskRepository(
+            context, store, database, scheduleOutboxOnStart = false,
+            httpClient = MobileGatewayHttpClient { _, _, _, _, _ -> GatewayHttpResponse(401,
+                """{"ok":false,"meta":{"apiVersion":1,"schemaVersion":$TASKEN_MOBILE_SCHEMA_VERSION,"serverId":"server-1","serverRevision":1,"generatedAt":"2026-09-06T00:00:00Z","truncated":false},"error":{"code":"unauthorized","message":"Token expired","retryable":false}}""",
+            ) },
+        )
+        assertTrue(repository.loadToday() is MobileTodayResult.PairingRequired)
+        assertEquals("2026-09-06T00:00:00Z", repository.observeTodayCache(java.time.LocalDate.now()).first().lastSuccessfulSyncAt)
     }
 
     private fun offlineRepository() = AndroidMobileTaskRepository(
