@@ -449,8 +449,8 @@ function commandEvent(
   const clientOperation =
     command.source === "mobile" &&
     (command.name === "CreateCapture" ||
-      command.name === "CompleteTask" ||
-      command.name === "ReopenTask" ||
+      activity.event_kind === "task_completed" ||
+      activity.event_kind === "task_reopened" ||
       activity.event_kind === "task_checklist_checked" ||
       activity.event_kind === "task_checklist_unchecked");
   return {
