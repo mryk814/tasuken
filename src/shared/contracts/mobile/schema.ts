@@ -959,6 +959,13 @@ export const mobileSyncResponseSchema = z
   })
   .strict();
 
+const mobilePlannedScheduleSchema = z
+  .object({
+    startTime: mobilePlannedStartTimeSchema,
+    durationMinutes: mobilePlannedDurationMinutesSchema,
+  })
+  .strict();
+
 const mobileCreateTaskCandidateSchema = z
   .object({
     id: taskIdSchema,
@@ -969,6 +976,8 @@ const mobileCreateTaskCandidateSchema = z
     requester: taskRequesterSchema.default("self"),
     intendedExecutor: taskIntendedExecutorSchema.default("self"),
     todayDate: localDateSchema.nullable().optional(),
+    plannedStartTime: mobilePlannedStartTimeSchema.optional(),
+    plannedDurationMinutes: mobilePlannedDurationMinutesSchema.optional(),
     description: z.string().max(50000).optional(),
     checklistItems: mobileChecklistSchema.optional(),
   })
@@ -1076,6 +1085,10 @@ const mobileTaskUpdatePatchSchema = z.union([
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
   z.object({ aiReady: z.boolean() }).strict(),
   z.object({ schedule: mobileScheduleEditSchema }).strict(),
+  z.object({ plannedSchedule: mobilePlannedScheduleSchema }).strict(),
+  z
+    .object({ schedule: mobileScheduleEditSchema, plannedSchedule: mobilePlannedScheduleSchema })
+    .strict(),
   z.object({ checklistItems: mobileChecklistSchema }).strict(),
 ]);
 
@@ -1085,6 +1098,13 @@ const mobileTaskUpdateBaseSchema = z.union([
   z.object({ themeId: entityIdSchema.nullable() }).strict(),
   z.object({ aiReady: z.boolean() }).strict(),
   z.object({ schedule: mobileScheduleBaseSchema.nullable() }).strict(),
+  z.object({ plannedSchedule: mobilePlannedScheduleSchema }).strict(),
+  z
+    .object({
+      schedule: mobileScheduleBaseSchema.nullable(),
+      plannedSchedule: mobilePlannedScheduleSchema,
+    })
+    .strict(),
   z.object({ checklistItems: mobileChecklistSchema }).strict(),
 ]);
 
@@ -1108,16 +1128,19 @@ const mobileTaskCommandSchema = z.discriminatedUnion("name", [
     })
     .strict()
     .superRefine((value, context) => {
-      const changedKey = Object.keys(value.changes)[0];
-      const baseKey = Object.keys(value.base)[0];
-      if (changedKey !== baseKey) {
+      const changedKeys = Object.keys(value.changes).sort();
+      const baseKeys = Object.keys(value.base).sort();
+      if (
+        changedKeys.length !== baseKeys.length ||
+        changedKeys.some((key, index) => key !== baseKeys[index])
+      ) {
         context.addIssue({
           code: "custom",
           path: ["base"],
           message: "baseはchangesと同じfieldを持つ必要があります。",
         });
       }
-      if (changedKey !== "schedule") {
+      if (!("schedule" in value.changes)) {
         if (value.expectedScheduleVersion !== null) {
           context.addIssue({
             code: "custom",
@@ -1213,7 +1236,11 @@ export const mobileTaskCommandResponseSchema = z
 const mobileCreateCaptureCandidateSchema = z
   .object({
     id: entityIdSchema,
-    text: z.string().trim().min(1).max(500),
+    textContract: z.literal("verbatim-utf16-12000").optional(),
+    text: z
+      .string()
+      .max(12_000)
+      .refine((text) => text.trim().length > 0),
     projectId: entityIdSchema.nullable().optional(),
     capturedAt: isoTimestampSchema,
   })

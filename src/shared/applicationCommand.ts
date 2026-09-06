@@ -393,6 +393,7 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
       !value.payload.capture.id.trim() ||
       typeof value.payload.capture.text !== "string" ||
       !value.payload.capture.text.trim() ||
+      value.payload.capture.text.length > 12_000 ||
       typeof value.payload.capture.captured_at !== "string" ||
       !value.payload.capture.captured_at.trim())
   ) {

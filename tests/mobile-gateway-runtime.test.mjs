@@ -276,6 +276,13 @@ test("mobile gateway accepts multibyte organized captures and enforces the 256 K
     assert.equal(accepted.status, 200);
     await accepted.json();
     assert.deepEqual(received[0], JSON.parse(organized));
+    const escapedCapture =
+      '{"command":{"name":"CreateCapture","capture":{"text":"' + "\\u3042".repeat(12000) + '"}}}';
+    assert.ok(Buffer.byteLength(escapedCapture) > 64 * 1024);
+    const captureResponse = await post(escapedCapture);
+    assert.equal(captureResponse.status, 200);
+    await captureResponse.json();
+    assert.equal(received[1].command.capture.text, "あ".repeat(12000));
     const envelopeBytes = Buffer.byteLength(JSON.stringify({ text: "" }));
     const atLimit = JSON.stringify({ text: "x".repeat(256 * 1024 - envelopeBytes) });
     assert.equal(Buffer.byteLength(atLimit), 256 * 1024);
@@ -285,7 +292,7 @@ test("mobile gateway accepts multibyte organized captures and enforces the 256 K
     const rejected = await post(atLimit + " ");
     assert.equal(rejected.status, 413);
     assert.equal((await rejected.json()).error.code, "response_too_large");
-    assert.equal(received.length, 2);
+    assert.equal(received.length, 3);
   } finally {
     await host.stop();
   }

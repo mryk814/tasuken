@@ -94,11 +94,14 @@ data class MobileCreateCaptureCommandDto(
 )
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class MobileCreateCaptureCandidateDto(
     val id: String,
     val text: String,
     val projectId: String? = null,
     val capturedAt: String,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val textContract: String? = null,
 )
 
 @Serializable
@@ -157,6 +160,10 @@ data class MobileCreateTaskCandidateDto(
     val description: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val checklistItems: List<MobileChecklistItem>? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val plannedStartTime: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val plannedDurationMinutes: Int? = null,
 )
 
 @Serializable
@@ -332,6 +339,8 @@ object MobileTaskCommandContract {
         require(envelope.command.task.id.isNotBlank())
         require(envelope.command.task.title.isNotBlank() && envelope.command.task.title.length <= 500)
         envelope.command.task.description?.let { require(it.length <= 50000) }
+        envelope.command.task.plannedStartTime?.let { require(isPlannedStartTime(it)) }
+        envelope.command.task.plannedDurationMinutes?.let { require(isPlannedDurationMinutes(it)) }
         envelope.command.task.checklistItems?.let { items ->
             require(items.size <= 20)
             validateChecklistPatch(json.parseToJsonElement(encodeMobileChecklist(items)))
@@ -386,11 +395,11 @@ object MobileTaskCommandContract {
         require(envelope.command.taskId.isNotBlank())
         require(envelope.command.expectedVersion > 0)
         require(envelope.command.changes.keys == envelope.command.base.keys)
-        val field = envelope.command.changes.keys.singleOrNull()
-            ?: error("UpdateTask must change exactly one field")
+        val fields = envelope.command.changes.keys
+        require(fields.size == 1 || fields == setOf("schedule", "plannedSchedule"))
         validateTaskPatch(envelope.command.changes, allowNullSchedule = false)
         validateTaskPatch(envelope.command.base, allowNullSchedule = true)
-        if (field == "schedule") {
+        if ("schedule" in fields) {
             val baseSchedule = envelope.command.base.getValue("schedule")
             if (baseSchedule == JsonNull) {
                 require(envelope.command.expectedScheduleVersion == null)
@@ -406,8 +415,8 @@ object MobileTaskCommandContract {
     }
 
     private fun validateTaskPatch(patch: JsonObject, allowNullSchedule: Boolean) {
-        require(patch.size == 1)
-        when (val field = patch.keys.single()) {
+        require(patch.size == 1 || patch.keys == setOf("schedule", "plannedSchedule"))
+        for (field in patch.keys) when (field) {
             "title" -> {
                 val value = patch[field]
                 require(value is JsonPrimitive && value.isString)
@@ -433,6 +442,14 @@ object MobileTaskCommandContract {
                 require(value is JsonPrimitive && !value.isString && value.content in setOf("true", "false"))
             }
             "schedule" -> validateSchedulePatch(patch[field], allowNullSchedule)
+            "plannedSchedule" -> {
+                val value = patch[field]
+                require(value is JsonObject && value.keys == setOf("startTime", "durationMinutes"))
+                val start = value.getValue("startTime")
+                val duration = value.getValue("durationMinutes")
+                require(start == JsonNull || (start is JsonPrimitive && start.isString && isPlannedStartTime(start.content)))
+                require(duration == JsonNull || (duration is JsonPrimitive && !duration.isString && duration.content.toIntOrNull()?.let(::isPlannedDurationMinutes) == true))
+            }
             "checklistItems" -> validateChecklistPatch(patch[field])
             else -> error("Unsupported Task patch field: $field")
         }
@@ -600,7 +617,8 @@ object MobileCaptureCommandContract {
         require(envelope.commandId == envelope.idempotencyKey)
         require(envelope.command.name == "CreateCapture")
         require(envelope.command.capture.id.isNotBlank())
-        require(envelope.command.capture.text.isNotBlank() && envelope.command.capture.text.length <= 500)
+        require(envelope.command.capture.text.isNotBlank() && envelope.command.capture.text.length <= MOBILE_CAPTURE_TEXT_MAX_LENGTH)
+        require(envelope.command.capture.textContract == null || envelope.command.capture.textContract == MOBILE_CAPTURE_TEXT_CONTRACT)
         require(envelope.command.capture.projectId == null || envelope.command.capture.projectId.isNotBlank())
         require(runCatching { OffsetDateTime.parse(envelope.command.capture.capturedAt) }.isSuccess)
         require(envelope.command.capture.capturedAt == envelope.issuedAt)

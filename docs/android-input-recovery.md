@@ -1,0 +1,32 @@
+# Androidの回復済み入力
+
+入力途中のdraftは端末内のSharedPreferencesへ保存する。
+既知のv1形式は、AI整理や音声の追加フィールドがない旧draftも互換読み取りする。
+保存から7日を過ぎたdraftは入力欄へ自動復元せず、「回復済み入力」に退避する。
+未来schema、未定義schema、壊れたJSON、矛盾する値は推測変換せず元データを保管する。
+
+退避先はapp-privateな`files/capture-draft-recovery`で、元の保存文字列をUTF-8 bytesのまま`.draft`へ保存する。
+ファイル名は原bytesのSHA-256で、同じ保存データの再処理は重複を作らない。
+退避日時と理由だけを別のmetadataへ保存する。
+AtomicFileの書き込みと読み戻しを確認してから元draftを除去する。
+退避失敗時は元draftを保持し、後続の自動保存やclearによる上書きも拒否する。
+本文とdecode例外を通常ログへ出さない。
+Activity再生成で旧・新のStoreが重なっても、退避元の除去が新しい入力の保存を追い越さないよう、Store間で処理を直列化する。
+
+回復済み入力はコピー、入力への復元、明示削除ができる。
+読めるdraftでは原文と整理案・由来情報を保持し、新しいdraft IDで入力へ戻す。
+読めないデータを戻す場合は元データ全体を文字列として入力へ戻す。
+現在の入力が非空なら復元を拒否し、保存が成功してから入力画面へ反映する。
+回復済み入力は復元後も残し、削除確認を経た明示削除だけで取り除く。
+5 MB以上は整理を促す表示を出すが、自動削除しない。
+既存のCapture Undo対象の24時間保持は変更しない。
+
+検証は`MobileCaptureRecoveryStoreTest`、`MobileCaptureRecoveryUiTest`と既存の`MobileCaptureDraftStoreTest`、`MobileCaptureDraftTest`で行う。
+Storeのfixtureは期限超過の長文、旧v1、未来schema、壊れたJSON、AtomicFile書き込み中断、退避先書込み失敗、重複防止、復元時の編集中draft保護を対象とする。
+Composeの操作確認に加え、compactとexpandedの実画面で長文のスクロールと復元導線を確認する。
+
+2026-09-06、退避元の除去と別Storeの保存を重ねる回帰を含むStore 8件と既存DraftStore 7件が成功した。
+API35 compact/FoldではCompose 2件ずつが成功し、原文表示・コピー・復元不可の説明・削除確認の画像を確認した。
+`InputRecoveryActivityTest`もAPI35 compact/Foldで各1件成功した。
+トップバー→回復一覧→原文復元→Activity再生成→編集中draftを保護する導線を確認し、両幅の復元後画面と復元不可の説明を目視した。
+これはActivity再生成の検証であり、OS process終了・再起動の境界は横断journeyで引き続き確認する。

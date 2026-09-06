@@ -3,6 +3,11 @@ package jp.personal.tasken.companion
 import java.time.Instant
 import java.util.UUID
 
+// Kotlin and the TypeScript wire contract count UTF-16 code units (String.length).
+internal const val MOBILE_CAPTURE_TEXT_MAX_LENGTH = 12000
+internal const val MOBILE_TASK_TITLE_MAX_LENGTH = 500
+internal const val MOBILE_CAPTURE_TEXT_CONTRACT = "verbatim-utf16-12000"
+
 enum class MobileCaptureKind(val wireValue: String) {
     Task("task"),
     Capture("capture"),
@@ -76,7 +81,7 @@ data class MobileCaptureDraft(
         require(additionalOrganizations.size <= 7)
     }
 
-    // Drafts retain the original input; the command boundary enforces the 500-character save limit.
+    // Drafts retain all input, including over-limit text; limits apply only at the command boundary.
     fun withText(value: String): MobileCaptureDraft = copy(text = value, organization = organization?.copy(title = value))
 
     fun withKind(value: MobileCaptureKind): MobileCaptureDraft =

@@ -715,7 +715,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
         base: { plannedSchedule: { startTime: null, durationMinutes: null } },
       },
     }).success,
-    false,
+    true,
   );
   for (const invalid of [
     { ...valid, apiVersion: 2 },
@@ -1089,6 +1089,109 @@ test("Mobile checklist projection and UpdateTask preserve canonical item semanti
   ]);
 });
 
+test("Mobile checklist races merge distinct IDs and retain conflicting item values without array replacement", async () => {
+  const item = (id, title, sortOrder) => ({ id, title, sortOrder, done: false, completedAt: null });
+  const base = [item("a", "A", 0), item("b", "B", 1)];
+  const cases = [
+    {
+      name: "different-item",
+      remote: [{ ...base[0], title: "Desktop A" }, base[1]],
+      local: [base[0], { ...base[1], done: true, completedAt: now }],
+      accepted: true,
+    },
+    {
+      name: "same-item",
+      remote: [{ ...base[0], title: "Desktop A" }, base[1]],
+      local: [{ ...base[0], title: "Android A" }, base[1]],
+      accepted: false,
+    },
+    {
+      name: "remote-delete-local-edit",
+      remote: [base[1]],
+      local: [{ ...base[0], title: "Android A" }, base[1]],
+      accepted: false,
+    },
+    {
+      name: "local-delete-remote-edit",
+      remote: [{ ...base[0], title: "Desktop A" }, base[1]],
+      local: [base[1]],
+      accepted: false,
+    },
+    {
+      name: "remote-add-local-edit",
+      remote: [...base, item("c", "Desktop C", 2)],
+      local: [{ ...base[0], title: "Android A" }, base[1]],
+      accepted: true,
+    },
+    {
+      name: "same-order-slot",
+      remote: [...base, item("c", "Desktop C", 2)],
+      local: [...base, item("d", "Android D", 2)],
+      accepted: false,
+    },
+  ];
+  for (const scenario of cases) {
+    const { repository, service } = capability();
+    const adapter = gateway(service);
+    const post = (id, command) =>
+      adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: {
+          ...createRequest(),
+          requestId: `request-${id}`,
+          commandId: id,
+          idempotencyKey: id,
+          command,
+        },
+      });
+    const create = createRequest().command;
+    create.task.checklistItems = base;
+    assert.equal((await post("checklist-create", create)).status, 200);
+    const update = (checklistItems) => ({
+      name: "UpdateTask",
+      taskId: create.task.id,
+      expectedVersion: 1,
+      expectedScheduleVersion: null,
+      changes: { checklistItems },
+      base: { checklistItems: base },
+    });
+    assert.equal((await post("checklist-remote", update(scenario.remote))).status, 200);
+    const localCommand = update(scenario.local);
+    const response = await post("checklist-local", localCommand);
+    assert.equal(
+      response.status,
+      scenario.accepted ? 200 : 409,
+      scenario.name + JSON.stringify(response.body),
+    );
+    if (scenario.accepted) {
+      const actual = response.body.data.task.checklistItems;
+      assert.deepEqual(
+        actual.map((entry) => entry.id),
+        scenario.name === "remote-add-local-edit" ? ["a", "b", "c"] : ["a", "b"],
+      );
+      assert.equal(
+        actual[0].title,
+        scenario.name === "remote-add-local-edit" ? "Android A" : "Desktop A",
+      );
+      if (scenario.name === "different-item") assert.equal(actual[1].done, true);
+      const events = repository.list("change_event").length;
+      assert.deepEqual((await post("checklist-local", localCommand)).body, response.body);
+      assert.equal(repository.list("change_event").length, events);
+    } else {
+      assert.equal(response.body.error.conflict.conflictField, "task");
+      assert.deepEqual(response.body.error.conflict.currentTask.checklistItems, scenario.remote);
+      assert.deepEqual(localCommand.changes.checklistItems, scenario.local);
+      assert.equal(
+        repository.list("change_event").filter((event) => event.command_id === "checklist-local")
+          .length,
+        0,
+      );
+    }
+  }
+});
+
 test("Mobile Schedule update derives canonical semantics and keeps Schedule identity/version server-owned", async () => {
   const { repository, service } = capability();
   const canonicalCommands = [];
@@ -1215,6 +1318,165 @@ test("Mobile Schedule update derives canonical semantics and keeps Schedule iden
   );
   assert.equal(invalid.status, 400);
   assert.equal(invalid.body.error.code, "validation_failed");
+});
+
+test("Mobile planned time and date Schedule save together, replay, clear, and report the actual conflicting version", async () => {
+  const { repository, service } = capability();
+  const adapter = gateway(service);
+  const post = (id, command) =>
+    adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.commands,
+      principal,
+      body: {
+        ...createRequest(),
+        requestId: `request-${id}`,
+        commandId: id,
+        idempotencyKey: id,
+        command,
+      },
+    });
+  const request = createRequest();
+  request.command.task.plannedStartTime = "09:00";
+  request.command.task.plannedDurationMinutes = 30;
+  const created = await post("planned-create", request.command);
+  assert.equal(created.status, 200);
+  assert.equal(created.body.data.task.plannedStartTime, "09:00");
+  assert.equal(created.body.data.task.plannedDurationMinutes, 30);
+  const todayDate = created.body.data.task.todayDate;
+  const deadline = { startDate: null, endDate: "2026-08-24", rangeSemantics: null };
+  const first = {
+    name: "UpdateTask",
+    taskId: "task-mobile-create",
+    expectedVersion: 1,
+    expectedScheduleVersion: null,
+    changes: { plannedSchedule: { startTime: "10:15", durationMinutes: 90 }, schedule: deadline },
+    base: { schedule: null, plannedSchedule: { startTime: "09:00", durationMinutes: 30 } },
+  };
+  const scheduled = await post("planned-combined", first);
+  assert.equal(scheduled.status, 200, JSON.stringify(scheduled.body));
+  assert.equal(scheduled.body.data.task.version, 2);
+  assert.equal(scheduled.body.data.task.plannedStartTime, "10:15");
+  assert.equal(scheduled.body.data.task.plannedDurationMinutes, 90);
+  assert.equal(scheduled.body.data.task.schedule.version, 1);
+  assert.equal(scheduled.body.data.task.schedule.dateKind, "deadline");
+  assert.equal(scheduled.body.data.task.todayDate, todayDate);
+  assert.equal(repository.get("task", first.taskId).planned_start_time, "10:15");
+  assert.equal(repository.list("schedule").length, 1);
+  const eventCount = repository.list("change_event").length;
+  assert.deepEqual((await post("planned-combined", first)).body, scheduled.body);
+  assert.equal(repository.list("change_event").length, eventCount);
+
+  const current = repository.get("task", first.taskId);
+  assert.equal(
+    service.executeCommand({
+      schemaVersion: 2,
+      command_id: "planned-desktop-time",
+      name: "UpdateTask",
+      actor: { kind: "user", id: "desktop-fixture" },
+      source: "desktop",
+      issued_at: now,
+      payload: {
+        task_id: first.taskId,
+        expected_version: current.version,
+        changes: { planned_start_time: "11:00" },
+      },
+    }).ok,
+    true,
+  );
+  const next = {
+    ...first,
+    expectedVersion: 2,
+    expectedScheduleVersion: 1,
+    changes: {
+      schedule: { ...deadline, endDate: "2026-08-25" },
+      plannedSchedule: { startTime: "12:00", durationMinutes: 60 },
+    },
+    base: { schedule: deadline, plannedSchedule: { startTime: "10:15", durationMinutes: 90 } },
+  };
+  const taskConflict = await post("planned-task-conflict", next);
+  assert.equal(taskConflict.status, 409, JSON.stringify(taskConflict.body));
+  assert.equal(taskConflict.body.error.conflict.conflictField, "task");
+  assert.equal(taskConflict.body.error.conflict.currentTask.plannedStartTime, "11:00");
+  assert.equal(repository.list("schedule")[0].end_date, "2026-08-24");
+  const currentSchedule = repository.list("schedule")[0];
+  repository.save("schedule", { ...currentSchedule, end_date: "2026-08-26" });
+  const scheduleConflict = await post("planned-schedule-conflict", {
+    ...next,
+    expectedVersion: 3,
+    base: { ...next.base, plannedSchedule: { startTime: "11:00", durationMinutes: 90 } },
+  });
+  assert.equal(scheduleConflict.status, 409, JSON.stringify(scheduleConflict.body));
+  assert.equal(scheduleConflict.body.error.conflict.conflictField, "schedule");
+  assert.equal(scheduleConflict.body.error.conflict.currentTask.schedule.version, 2);
+  assert.equal(repository.get("task", first.taskId).planned_start_time, "11:00");
+  assert.equal(repository.get("task", first.taskId).planned_duration_minutes, 90);
+
+  const cleared = await post("planned-clear", {
+    name: "UpdateTask",
+    taskId: first.taskId,
+    expectedVersion: 3,
+    expectedScheduleVersion: null,
+    changes: { plannedSchedule: { startTime: null, durationMinutes: null } },
+    base: { plannedSchedule: { startTime: "11:00", durationMinutes: 90 } },
+  });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.data.task.plannedStartTime, null);
+  assert.equal(cleared.body.data.task.plannedDurationMinutes, null);
+  assert.equal(cleared.body.data.task.schedule.version, 2);
+  assert.equal(cleared.body.data.task.todayDate, todayDate);
+});
+
+test("Mobile planned time merges an unrelated Task edit even when legacy planned fields are absent", async () => {
+  const { repository, service } = capability();
+  const adapter = gateway(service);
+  await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: createRequest(),
+  });
+  const legacy = repository.get("task", "task-mobile-create");
+  assert.equal(legacy.planned_start_time, undefined);
+  assert.equal(legacy.planned_duration_minutes, undefined);
+  assert.equal(
+    service.executeCommand({
+      schemaVersion: 2,
+      command_id: "planned-desktop-title",
+      name: "UpdateTask",
+      actor: { kind: "user", id: "desktop-fixture" },
+      source: "desktop",
+      issued_at: now,
+      payload: {
+        task_id: legacy.id,
+        expected_version: legacy.version,
+        changes: { title: "Desktop renamed" },
+      },
+    }).ok,
+    true,
+  );
+  const response = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: {
+      ...createRequest(),
+      requestId: "planned-legacy",
+      commandId: "planned-legacy",
+      idempotencyKey: "planned-legacy",
+      command: {
+        name: "UpdateTask",
+        taskId: legacy.id,
+        expectedVersion: 1,
+        expectedScheduleVersion: null,
+        changes: { plannedSchedule: { startTime: "08:30", durationMinutes: 45 } },
+        base: { plannedSchedule: { startTime: null, durationMinutes: null } },
+      },
+    },
+  });
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal(response.body.data.task.title, "Desktop renamed");
+  assert.equal(response.body.data.task.plannedStartTime, "08:30");
 });
 
 test("Mobile Schedule conflict remains valid when only the canonical Schedule version advanced", async () => {
@@ -1770,7 +2032,7 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
   assert.equal(repository.get("task", "task-proposal-review").version, acceptedTaskVersion);
 });
 
-test("Mobile UpdateTask rejects plannedSchedule writes after the time editor was withdrawn", async () => {
+test("Mobile UpdateTask rejects plannedSchedule mixed with unrelated fields", async () => {
   const { service } = capability();
   const adapter = gateway(service);
   const rejected = await adapter.handle({
@@ -1784,8 +2046,8 @@ test("Mobile UpdateTask rejects plannedSchedule writes after the time editor was
         taskId: "task-mobile-create",
         expectedScheduleVersion: null,
         expectedVersion: 1,
-        changes: { plannedSchedule: { startTime: "10:00", durationMinutes: 90 } },
-        base: { plannedSchedule: { startTime: null, durationMinutes: null } },
+        changes: { title: "mixed", plannedSchedule: { startTime: "10:00", durationMinutes: 90 } },
+        base: { title: "original", plannedSchedule: { startTime: null, durationMinutes: null } },
       },
     },
   });
@@ -2363,6 +2625,79 @@ test("CreateCapture uses its dedicated scope and returns a body-free canonical r
       },
     },
   });
+});
+
+test("CreateCapture accepts shared UTF-16 boundaries without trimming original text", async () => {
+  const fixtures = JSON.parse(
+    readFileSync(
+      new URL("../fixtures/mobile-capture-text-boundaries.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const calls = [];
+  const adapter = gateway(capability().service, {
+    executeCaptureCommand: (input) => {
+      calls.push(input);
+      return {
+        ok: true,
+        commandId: input.commandId,
+        status: "applied",
+        capture: {
+          id: input.payload.capture.id,
+          version: 1,
+          capturedAt: now,
+          deleted: false,
+        },
+      };
+    },
+  });
+  for (const fixture of fixtures.cases) {
+    const text = fixture.unit.repeat(fixture.repeat) + fixture.suffix;
+    assert.equal(text.length, fixture.expectedUtf16Length);
+    const request = captureRequest();
+    request.command.capture.text = text;
+    request.command.capture.textContract = "verbatim-utf16-12000";
+    const before = calls.length;
+    const response = await adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.commands,
+      principal,
+      body: request,
+    });
+    assert.equal(response.status, fixture.accepted ? 200 : 400, fixture.name);
+    if (fixture.accepted) {
+      assert.equal(calls.at(-1).payload.capture.text, text);
+      assert.equal(JSON.stringify(response.body).includes(text), false);
+    } else {
+      assert.equal(calls.length, before);
+    }
+  }
+  const request = captureRequest();
+  request.command.capture.text = " \n\t原文🔬 https://example.com/ \n ";
+  assert.equal(
+    (
+      await adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: request,
+      })
+    ).status,
+    200,
+  );
+  assert.equal(calls.at(-1).payload.capture.text, request.command.capture.text);
+  request.command.capture.text = " \n\t ";
+  assert.equal(
+    (
+      await adapter.handle({
+        method: "POST",
+        path: TASKEN_MOBILE_ENDPOINTS.commands,
+        principal,
+        body: request,
+      })
+    ).status,
+    400,
+  );
 });
 
 test("DeleteCapture carries the canonical version and remains isolated from Task scope", async () => {

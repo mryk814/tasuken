@@ -245,11 +245,11 @@ test("production audit is deterministic and keeps temporary composition growth v
     assert.equal(first.stdout, second.stdout);
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
-    assert.equal(report.summary.newFindings, 5);
-    assert.equal(report.summary.suppressedFindings, 5);
+    assert.equal(report.summary.newFindings, 6);
+    assert.equal(report.summary.suppressedFindings, 6);
     assert.equal(report.summary.blockingFindings, 0);
     const newFindings = report.findings.filter((entry) => !entry.baseline);
-    assert.equal(newFindings.length, 5);
+    assert.equal(newFindings.length, 6);
     assert.equal(
       newFindings.every((entry) => entry.suppressed && entry.suppression?.issue),
       true,
@@ -266,7 +266,13 @@ test("production audit is deterministic and keeps temporary composition growth v
         ["src/shared/ipc/contracts.ts", true, 407],
       ],
     );
-    assert.equal(report.summary.newCompatibilityConsumers, 0);
+    assert.equal(report.summary.newCompatibilityConsumers, 1);
+    assert.deepEqual(
+      newFindings
+        .filter((entry) => entry.ruleId === "compatibility.consumer_added")
+        .map((entry) => [entry.source, entry.target, entry.suppressed, entry.suppression?.issue]),
+      [["tests/helpers/mobile-offline-gateway.mjs", "workspace-repository", true, 537]],
+    );
     assert.equal(report.summary.unclassifiedSharedFiles, 0);
     assert.equal(
       report.modules.find((entry) => entry.id === "main.task")?.publicEntrypoints[0],

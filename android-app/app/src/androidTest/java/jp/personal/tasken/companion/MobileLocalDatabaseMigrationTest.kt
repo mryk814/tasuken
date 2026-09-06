@@ -16,6 +16,23 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
     @Test
+    fun migrationNineteenToTwentyPreservesAttemptedEnvelopeAndAddsNullableTaskIntent() {
+        helper.createDatabase(DatabaseName, 19).apply {
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt) VALUES ('attempted','key','request','device','time','UpdateTask','immutable','server','retry_wait',2,'time')")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 20, true, MIGRATION_19_20).use { db ->
+            db.query("SELECT idempotencyKey,envelopeJson,attemptCount,taskIntentJson FROM outbox_command").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("key", cursor.getString(0))
+                assertEquals("immutable", cursor.getString(1))
+                assertEquals(2, cursor.getInt(2))
+                assertTrue(cursor.isNull(3))
+            }
+        }
+    }
+
+    @Test
     fun migrationEighteenToNineteenKeepsThemeAndOutboxWhileAddingNullableColor() {
         helper.createDatabase(DatabaseName, 18).apply {
             execSQL("INSERT INTO theme_cache (id,title,catalogId) VALUES ('home','生活',1)")

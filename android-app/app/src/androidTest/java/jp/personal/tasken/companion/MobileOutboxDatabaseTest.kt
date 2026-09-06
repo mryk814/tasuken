@@ -110,6 +110,116 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun unsentCreateEditsAllFieldsWithoutChangingIdentityOrResubmitValues() = runBlocking {
+        storeThemeCatalog(dao, listOf(ThemeCacheEntity("theme-edited", "編集後")))
+        val id = outbox.enqueueCreate("元の名前", draftId = "editable-create")
+        val before = requireNotNull(dao.outbox(requireNotNull(dao.task(id)?.optimisticCommandId)))
+        val items = listOf(MobileChecklistItem("step-1", "確認する", false, 0.0, null))
+        assertEquals(before.commandId, outbox.enqueueUpdateTitle(id, "修正した名前"))
+        assertEquals(before.commandId, outbox.enqueueUpdateTheme(id, "theme-edited"))
+        assertEquals(before.commandId, outbox.enqueueUpdateTodayDate(id, LocalDate.parse("2026-09-07")))
+        assertEquals(before.commandId, outbox.enqueueUpdateSchedule(id,
+            MobileTaskScheduleDraft("2026-09-07", "2026-09-09", "ongoing")))
+        assertEquals(before.commandId, outbox.enqueueUpdateChecklist(id, items))
+        val command = requireNotNull(dao.outbox(before.commandId))
+        val task = requireNotNull(dao.task(id))
+        val envelope = MobileTaskCommandContract.decodeCreateEnvelope(command.envelopeJson)
+        assertEquals(before.copy(envelopeJson = command.envelopeJson), command)
+        assertEquals("修正した名前", task.title)
+        assertEquals(task.title, envelope.command.task.title)
+        assertEquals("theme-edited", envelope.command.task.projectId)
+        assertEquals("2026-09-07", envelope.command.task.todayDate)
+        assertEquals(items, envelope.command.task.checklistItems)
+        assertEquals(items, decodeMobileChecklist(task.checklistJson))
+        assertEquals("2026-09-09", task.scheduleEndDate)
+        assertTrue(dao.observeAllTasks().first().single().toMobileTask("server-1").canEditPendingCreate)
+        assertEquals(id, outbox.enqueueCreate("元の名前", draftId = "editable-create"))
+        assertEquals(command, dao.outbox(before.commandId))
+        assertEquals(1, dao.outboxCount())
+        assertEquals(before.commandId, outbox.enqueueUpdateSchedule(id, MobileTaskScheduleDraft(null, null, null)))
+        assertNull(MobileTaskCommandContract.decodeCreateEnvelope(requireNotNull(dao.outbox(before.commandId)).envelopeJson).command.schedule)
+        assertNull(dao.task(id)?.scheduleDateKind)
+        outbox.undoCreate(id)
+        assertNull(dao.task(id))
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun createClaimUsesLatestEditAndAppendsNewIntentWithoutChangingClaimedEnvelope() = runBlocking {
+        val id = outbox.enqueueCreate("送信前", draftId = "claim-edit")
+        val before = requireNotNull(dao.outbox(requireNotNull(dao.task(id)?.optimisticCommandId)))
+        outbox.enqueueUpdateTitle(id, "送信する本文")
+        val claimed = requireNotNull(dao.claimNext("server-1", "2026-09-06T00:00:00Z"))
+        assertEquals("送信する本文", MobileTaskCommandContract.decodeCreateEnvelope(claimed.envelopeJson).command.task.title)
+        val successor = outbox.enqueueUpdateTitle(id, "送信後に入力したdraft")
+        val cached = dao.task(id)
+        assertEquals("送信後に入力したdraft", cached?.title)
+        assertEquals(claimed.commandId, dao.outbox(successor)?.dependsOnCommandId)
+        assertEquals("", dao.outbox(successor)?.envelopeJson)
+        assertEquals(0, dao.replaceUnsentCreateEnvelope(claimed.commandId, "server-1", id, claimed.envelopeJson, before.envelopeJson))
+        assertEquals(claimed, dao.outbox(claimed.commandId))
+        assertEquals(cached, dao.task(id))
+        assertTrue(!dao.observeAllTasks().first().single().toMobileTask("server-1").canEditPendingCreate)
+        dao.markRetry(claimed.commandId, "接続中断")
+        assertTrue(runCatching { outbox.enqueueUpdateChecklist(id, emptyList()) }.isFailure)
+        assertEquals(claimed.envelopeJson, dao.outbox(claimed.commandId)?.envelopeJson)
+        assertEquals(cached, dao.task(id))
+    }
+
+    @Test
+    fun createEditRollsBackEnvelopeWhenCacheWriteFails() = runBlocking {
+        val id = outbox.enqueueCreate("失敗前", draftId = "create-edit-failure")
+        val cached = requireNotNull(dao.task(id))
+        val command = requireNotNull(dao.outbox(requireNotNull(cached.optimisticCommandId)))
+        database.openHelper.writableDatabase.execSQL(
+            "CREATE TRIGGER fail_create_edit BEFORE INSERT ON task_cache " +
+                "WHEN NEW.title = '保存失敗のdraft' BEGIN SELECT RAISE(ABORT, 'injected cache failure'); END",
+        )
+        assertTrue(runCatching { outbox.enqueueUpdateTitle(id, "保存失敗のdraft") }.isFailure)
+        assertEquals(cached, dao.task(id))
+        assertEquals(command, dao.outbox(command.commandId))
+    }
+
+    @Test
+    fun batchResubmitPreservesPartiallyEditedCreate() = runBlocking {
+        val drafts = listOf(
+            MobileCaptureDraft.fresh(text = "先", newId = { "edited-batch-first" }),
+            MobileCaptureDraft.fresh(text = "後", newId = { "edited-batch-second" }),
+        )
+        val today = LocalDate.parse("2026-09-06")
+        val ids = outbox.enqueueCreateTasks(drafts, today)
+        outbox.enqueueUpdateTitle(ids.first(), "先を編集")
+        assertEquals(ids, outbox.enqueueCreateTasks(drafts, today))
+        assertEquals("先を編集", dao.task(ids.first())?.title)
+        assertEquals(2, dao.outboxCount())
+    }
+
+    @Test
+    fun editedCreateSurvivesDatabaseReopen() = runBlocking {
+        val name = "unsent-create-edit-${UUID.randomUUID()}.db"
+        var durable = Room.databaseBuilder(context, MobileLocalDatabase::class.java, name).build()
+        try {
+            val initialDao = durable.mobileDao()
+            initialDao.upsertSyncState(activeSyncState())
+            val initial = MobileOutbox(context, initialDao, { "android-test-device" }, schedule = {})
+            val id = initial.enqueueCreate("再起動前", draftId = "durable-edit")
+            initial.enqueueUpdateTitle(id, "再起動後も残る")
+            initial.enqueueUpdateTodayDate(id, null)
+            initial.enqueueUpdateSchedule(id, MobileTaskScheduleDraft(null, "2026-09-10", null))
+            initial.enqueueUpdateChecklist(id, listOf(MobileChecklistItem("step", "確認", false, 0.0, null)))
+            val task = requireNotNull(initialDao.task(id))
+            val command = requireNotNull(initialDao.outbox(requireNotNull(task.optimisticCommandId)))
+            durable.close()
+            durable = Room.databaseBuilder(context, MobileLocalDatabase::class.java, name).build()
+            assertEquals(task, durable.mobileDao().task(id))
+            assertEquals(command, durable.mobileDao().outbox(command.commandId))
+        } finally {
+            durable.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun organizedCreatePersistsChecklistScheduleAndOriginalAtomicallyAndRetriesOnce() = runBlocking {
         val draft = MobileCaptureDraft.fresh(text = "明日は牛乳とパンを買う", newId = { "organized-draft" })
             .withOrganization(MobileCaptureOrganization(
@@ -181,7 +291,7 @@ class MobileOutboxDatabaseTest {
             provenance = provenance,
         )
         val second = outbox.enqueueCapture(
-            text = "共有された本文",
+            text = "  共有された本文  ",
             projectId = "theme-research",
             draftId = "capture-draft-stable",
             createdAt = "2026-08-22T01:02:03Z",
@@ -194,7 +304,7 @@ class MobileOutboxDatabaseTest {
         assertNull(receipt.serverVersion)
         val command = requireNotNull(dao.outboxForCapture(first).single())
         val envelope = MobileCaptureCommandContract.decodeCreateEnvelope(command.envelopeJson)
-        assertEquals("共有された本文", envelope.command.capture.text)
+        assertEquals("  共有された本文  ", envelope.command.capture.text)
         assertEquals("share_target", envelope.command.provenance?.reportedVia)
         assertEquals("text/plain", envelope.command.provenance?.sharedMimeType)
         assertEquals(first, command.captureId)
@@ -1271,7 +1381,7 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
-    fun rejectedScheduleUpdateRollsBackAtomicallyAndRemainsEditableAfterRestart() = runBlocking {
+    fun rejectedScheduleRetainsInputAfterRestartUntilExplicitDiscard() = runBlocking {
         val databaseName = "mobile-schedule-rejected-restart-test"
         context.deleteDatabase(databaseName)
         var durableDatabase: MobileLocalDatabase? = null
@@ -1311,10 +1421,9 @@ class MobileOutboxDatabaseTest {
                 )
             })
             assertEquals(OutboxState.Rejected, initialDao.outbox(rejectedCommandId)?.state)
-            assertNull(initialDao.task("rejected-schedule-task")?.scheduleStartDate)
+            assertEquals("2026-08-22", initialDao.task("rejected-schedule-task")?.scheduleStartDate)
             assertEquals("2026-08-24", initialDao.task("rejected-schedule-task")?.scheduleEndDate)
-            assertEquals("deadline", initialDao.task("rejected-schedule-task")?.scheduleDateKind)
-            assertNull(initialDao.task("rejected-schedule-task")?.optimisticCommandId)
+            assertEquals(rejectedCommandId, initialDao.task("rejected-schedule-task")?.optimisticCommandId)
 
             initialDatabase.close()
             val reopenedDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
@@ -1330,10 +1439,14 @@ class MobileOutboxDatabaseTest {
                 schedule = {},
             )
 
+            assertEquals("2026-08-22", reopenedDao.task("rejected-schedule-task")?.scheduleStartDate)
+            assertEquals("2026-08-24", reopenedDao.task("rejected-schedule-task")?.scheduleEndDate)
+            assertEquals(rejectedCommandId, reopenedDao.task("rejected-schedule-task")?.optimisticCommandId)
+            assertEquals(OutboxState.Rejected, reopenedDao.outbox(rejectedCommandId)?.state)
+            recreatedOutbox.discardRejectedTaskChanges(rejectedCommandId)
             assertNull(reopenedDao.task("rejected-schedule-task")?.scheduleStartDate)
             assertEquals("2026-08-24", reopenedDao.task("rejected-schedule-task")?.scheduleEndDate)
             assertNull(reopenedDao.task("rejected-schedule-task")?.optimisticCommandId)
-            assertEquals(OutboxState.Rejected, reopenedDao.outbox(rejectedCommandId)?.state)
             val replacementId = recreatedOutbox.enqueueUpdateSchedule(
                 "rejected-schedule-task",
                 MobileTaskScheduleDraft("2026-08-23", "2026-08-24", null),
@@ -1347,7 +1460,7 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
-    fun rejectedChecklistUpdateRollsBackAtomicallyAndRemainsEditableAfterRestart() = runBlocking {
+    fun rejectedChecklistRetainsInputAfterRestartUntilExplicitDiscard() = runBlocking {
         val databaseName = "mobile-checklist-rejected-restart-test"
         context.deleteDatabase(databaseName)
         var durableDatabase: MobileLocalDatabase? = null
@@ -1381,8 +1494,8 @@ class MobileOutboxDatabaseTest {
                 )
             })
             assertEquals(OutboxState.Rejected, initialDao.outbox(rejectedCommandId)?.state)
-            assertEquals(base, decodeMobileChecklist(requireNotNull(initialDao.task("rejected-checklist-task")?.checklistJson)))
-            assertNull(initialDao.task("rejected-checklist-task")?.optimisticCommandId)
+            assertEquals(local, decodeMobileChecklist(requireNotNull(initialDao.task("rejected-checklist-task")?.checklistJson)))
+            assertEquals(rejectedCommandId, initialDao.task("rejected-checklist-task")?.optimisticCommandId)
 
             initialDatabase.close()
             val reopenedDatabase = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName)
@@ -1398,15 +1511,18 @@ class MobileOutboxDatabaseTest {
                 schedule = {},
             )
 
+            assertEquals(local, decodeMobileChecklist(requireNotNull(reopenedDao.task("rejected-checklist-task")?.checklistJson)))
+            assertEquals(rejectedCommandId, reopenedDao.task("rejected-checklist-task")?.optimisticCommandId)
+            assertEquals(OutboxState.Rejected, reopenedDao.outbox(rejectedCommandId)?.state)
+            recreatedOutbox.discardRejectedTaskChanges(rejectedCommandId)
             assertEquals(base, decodeMobileChecklist(requireNotNull(reopenedDao.task("rejected-checklist-task")?.checklistJson)))
             assertNull(reopenedDao.task("rejected-checklist-task")?.optimisticCommandId)
-            assertEquals(OutboxState.Rejected, reopenedDao.outbox(rejectedCommandId)?.state)
             val replacementId = recreatedOutbox.enqueueUpdateChecklist(
                 "rejected-checklist-task",
                 base + MobileChecklistItem("check-2", "再起動後に追加", false, 1.0),
             )
             assertTrue(replacementId != rejectedCommandId)
-            assertEquals(OutboxState.Rejected, reopenedDao.outbox(rejectedCommandId)?.state)
+            assertNull(reopenedDao.outbox(rejectedCommandId))
             assertEquals(replacementId, reopenedDao.task("rejected-checklist-task")?.optimisticCommandId)
         } finally {
             durableDatabase?.close()

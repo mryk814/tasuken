@@ -671,6 +671,78 @@ test("Mobile CreateCapture/DeleteCapture are canonical, provenance-bounded, and 
   );
 });
 
+test("Capture text boundaries preserve the original through SQLite restart, replay and delete", async () => {
+  const fixtures = JSON.parse(
+    readFileSync(
+      new URL("../fixtures/mobile-capture-text-boundaries.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const directory = await mkdtemp(path.join(tmpdir(), "tasken-long-capture-"));
+  const databasePath = path.join(directory, "workspace.sqlite");
+  let database = new WorkspaceDatabase(databasePath);
+  try {
+    database.loadWorkspace();
+    for (const fixture of fixtures.cases) {
+      const text = fixture.unit.repeat(fixture.repeat) + fixture.suffix;
+      assert.equal(text.length, fixture.expectedUtf16Length);
+      const id = `capture-${fixture.name}`;
+      const command = envelope(
+        "CreateCapture",
+        {
+          capture: { id, text, captured_at: "2026-08-08T00:00:00.000Z" },
+        },
+        `create-${id}`,
+      );
+      command.source = "mobile";
+      let service = new ApplicationCommandService(database);
+      if (!fixture.accepted) {
+        assert.throws(() => service.execute(command), /payload/u);
+        assert.equal(database.get("capture_entry", id), null);
+        continue;
+      }
+      const receipt = service.execute(command);
+      assert.equal(database.get("capture_entry", id).text, text);
+      database.db.close();
+      database = new WorkspaceDatabase(databasePath);
+      database.loadWorkspace();
+      service = new ApplicationCommandService(database);
+      assert.equal(database.get("capture_entry", id).text, text);
+      assert.deepEqual(service.execute(command), receipt);
+      assert.equal(database.list("capture_entry").filter((entry) => entry.id === id).length, 1);
+      const remove = envelope("DeleteCapture", { captureId: id }, `delete-${id}`, [
+        { type: "capture_entry", id, version: 1 },
+      ]);
+      remove.source = "mobile";
+      const deleted = service.execute(remove);
+      assert.deepEqual(service.execute(remove), deleted);
+      assert.equal(database.get("capture_entry", id, true).text, text);
+      assert.equal(database.get("capture_entry", id, true).version, 2);
+      assert.equal(
+        database.list("change_event").filter((event) => event.command_id === remove.commandId)
+          .length,
+        1,
+      );
+    }
+    assert.throws(
+      () =>
+        parseCommandEnvelope(
+          envelope(
+            "CreateCapture",
+            {
+              capture: { id: "blank", text: " \n\t ", captured_at: "2026-08-08T00:00:00.000Z" },
+            },
+            "blank-capture",
+          ),
+        ),
+      /payload/u,
+    );
+  } finally {
+    database.db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Main Today and Today mini use the same explicit-date Task selector", () => {
   const tasks = [
     { id: "today", title: "Today", state: "todo" },
@@ -1111,6 +1183,109 @@ test("Organized CreateTask rolls back Task, checklist, Schedule and receipt afte
     assert.equal(retry.value.task.description, command.payload.task.description);
     assert.deepEqual(retry.value.task.checklist_items, command.payload.task.checklist_items);
     assert.equal(retry.value.task.schedule.version, 1);
+  } finally {
+    database.db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Planned time and Schedule roll back together and retain receipt identity after SQLite restart", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "tasken-planned-schedule-"));
+  const databasePath = path.join(directory, "workspace.sqlite");
+  let database = new WorkspaceDatabase(databasePath);
+  try {
+    database.loadWorkspace();
+    const schedule = {
+      start_date: null,
+      end_date: "2026-09-07",
+      date_kind: "deadline",
+      range_semantics: null,
+      confidence: "fixed",
+      granularity: "day",
+    };
+    new ApplicationCommandService(database).execute(
+      envelope(
+        "CreateTask",
+        {
+          task: {
+            id: "planned-task",
+            title: "予定確認",
+            state: "todo",
+            priority: "normal",
+            requester: "self",
+            intended_executor: "self",
+            project_id: "theme-personal-default",
+            today_date: "2026-09-06",
+            planned_start_time: "09:00",
+            planned_duration_minutes: 30,
+          },
+          schedule: {
+            ...schedule,
+            id: "planned-date",
+            owner_type: "task",
+            owner_id: "planned-task",
+          },
+        },
+        "planned-create",
+      ),
+    );
+    const command = {
+      schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+      command_id: "planned-update",
+      name: "UpdateTask",
+      actor: { kind: "user", id: "mobile-fixture" },
+      source: "mobile",
+      issued_at: "2026-09-06T10:00:00.000Z",
+      payload: {
+        task_id: "planned-task",
+        expected_version: 1,
+        changes: { planned_start_time: "10:30", planned_duration_minutes: 90 },
+        base: { planned_start_time: "09:00", planned_duration_minutes: 30 },
+        schedule_change: {
+          changes: { ...schedule, end_date: "2026-09-08" },
+          base: schedule,
+          expected_version: 1,
+        },
+      },
+    };
+    const beforeTask = database.get("task", "planned-task");
+    const beforeSchedule = database.get("schedule", "planned-date");
+    const eventCount = database.list("change_event").length;
+    let reachedBoth = false;
+    const failing = new TaskCapabilityService(database, (input) =>
+      database.runTransaction(() => {
+        new ApplicationCommandService(database).execute(input);
+        assert.equal(database.get("task", "planned-task").planned_start_time, "10:30");
+        assert.equal(database.get("schedule", "planned-date").end_date, "2026-09-08");
+        reachedBoth = true;
+        throw new Error("simulated persistence failure after both writes");
+      }),
+    );
+    const failed = failing.executeCommand(command);
+    assert.equal(failed.ok, false);
+    assert.equal(reachedBoth, true, JSON.stringify(failed));
+    assert.deepEqual(database.get("task", "planned-task"), beforeTask);
+    assert.deepEqual(database.get("schedule", "planned-date"), beforeSchedule);
+    assert.equal(database.list("change_event").length, eventCount);
+    const service = new TaskCapabilityService(database, (input) =>
+      new ApplicationCommandService(database).execute(input),
+    );
+    const applied = service.executeCommand(command);
+    assert.equal(applied.ok, true, JSON.stringify(applied));
+    assert.equal(applied.value.task.version, 2);
+    assert.equal(applied.value.task.schedule.version, 2);
+    assert.equal(applied.value.task.today_date, "2026-09-06");
+    database.db.close();
+    database = new WorkspaceDatabase(databasePath);
+    database.loadWorkspace();
+    const reopened = new TaskCapabilityService(database, (input) =>
+      new ApplicationCommandService(database).execute(input),
+    );
+    const replayed = reopened.executeCommand(command);
+    assert.deepEqual(replayed, applied);
+    assert.equal(database.list("change_event").length, eventCount + 2);
+    assert.equal(database.get("task", "planned-task").planned_duration_minutes, 90);
+    assert.equal(database.get("schedule", "planned-date").end_date, "2026-09-08");
   } finally {
     database.db.close();
     await rm(directory, { recursive: true, force: true });
