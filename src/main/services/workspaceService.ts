@@ -1,3 +1,5 @@
+import { normalizeWorkLogCommand, type WorkLogReceipt } from "../../shared/workLog";
+import { normalizeWorkLogCompanion, planWorkLog, type WorkLogCompanion } from "./workLogCommand";
 import {
   app,
   BrowserWindow,
@@ -283,6 +285,7 @@ interface CanonicalRecoveryReceipt {
   bodySignature?: string;
   companions?: DocumentSaveReferenceCompanion[];
   noteAiCompanion?: CanonicalNoteAiCompanion;
+  workLogCompanion?: WorkLogCompanion;
 }
 
 type CanonicalSaveOptions = SaveOptions & { __canonicalOperationAt?: string };
@@ -1948,6 +1951,7 @@ export class WorkspaceService {
           throw new Error("recovery receiptのNoteまたは副作用schemaが不正です。");
         }
         normalizeCanonicalNoteAiCompanion(receipt.noteAiCompanion, receipt.noteId);
+        normalizeWorkLogCompanion(receipt.workLogCompanion, receipt.noteId);
       }
       return receipts;
     } catch (error) {
@@ -2081,6 +2085,10 @@ export class WorkspaceService {
           receipt.noteAiCompanion,
           receipt.noteId,
         );
+        const workLogCompanion = normalizeWorkLogCompanion(
+          receipt.workLogCompanion,
+          receipt.noteId,
+        );
         const current = this.repository.get("note", receipt.noteId, true);
         // A later deletion supersedes a pending save. Replaying its binding here
         // would invalidate the deletion backup and could resurrect the Note.
@@ -2201,6 +2209,8 @@ export class WorkspaceService {
               },
               companions,
               noteAiCompanion,
+
+              workLogCompanion,
             );
           }
           remaining.push(receipt);
@@ -2230,6 +2240,8 @@ export class WorkspaceService {
           },
           companions,
           noteAiCompanion,
+
+          workLogCompanion,
         );
       } catch {
         // receiptは検証とDB保存の両方が成功するまで残し、次回起動で再試行する。
@@ -2317,6 +2329,7 @@ export class WorkspaceService {
     options: CanonicalSaveOptions,
     companions: DocumentSaveReferenceCompanion[] = [],
     noteAiCompanion: CanonicalNoteAiCompanion | null = null,
+    workLogCompanion: WorkLogCompanion | null = null,
   ): Record<string, unknown> {
     const noteOperation = {
       action: "save" as const,
@@ -2382,6 +2395,17 @@ export class WorkspaceService {
       ...companions,
       ...stableLinkOperations,
       ...canonicalNoteAiOperations(noteAiCompanion),
+      ...(workLogCompanion &&
+      !this.repository.get("change_event", String(workLogCompanion.event.id), true)
+        ? [
+            {
+              action: "save" as const,
+              type: "change_event",
+              entity: workLogCompanion.event,
+              options: { source: "manual" },
+            },
+          ]
+        : []),
       ...artifactThemeOperations,
     ];
     if (staleLinkIds.length) {
@@ -2406,7 +2430,64 @@ export class WorkspaceService {
     return String(theme?.name || theme?.title || "");
   }
 
-  saveCanonicalNote(requestValue: unknown, companionValue?: unknown): Record<string, unknown> {
+  recordWorkLog(
+    value: unknown,
+    actor: { kind: "user"; id: string } = { kind: "user", id: "desktop-user" },
+  ): WorkLogReceipt {
+    const command = normalizeWorkLogCommand(value);
+    this.recoverCanonicalMarkdownReceipts();
+    const themeId = canonicalThemeId(command.themeId, { defaultPersonal: true });
+    const plan = planWorkLog(command, this.now(), String(themeId), actor);
+    const previous = this.repository.get("change_event", plan.receipt.eventId, true);
+    if (previous) {
+      if (previous.command_fingerprint !== plan.fingerprint)
+        throw new Error("同じCommand IDの内容が異なります。入力を確認してください。");
+      const metadata = parsedRecord(previous.metadata);
+      return metadata.work_log_receipt as WorkLogReceipt;
+    }
+    if (this.repository.get("note", command.commandId, true))
+      throw new Error("同じIDの記録が存在します。新しい入力として保存してください。");
+    if (command.themeId && !this.repository.get("theme", command.themeId))
+      throw new Error("選択したThemeは削除されています。選び直してください。");
+    if (command.taskId && !this.repository.get("task", command.taskId))
+      throw new Error("選択したTaskは削除されています。選び直してください。");
+    this.saveCanonicalNote(
+      {
+        entity: plan.note,
+        snapshot: {
+          owner: { recordType: "note", entityId: command.commandId },
+          body: command.body,
+          expectedRevision: 0,
+        },
+        options: { source: "manual", reason: "work_log_recorded" },
+        companions: command.taskId
+          ? [
+              {
+                action: "save",
+                type: "reference",
+                entity: {
+                  id: "work-log-task-" + command.commandId,
+                  source_type: "note",
+                  source_id: command.commandId,
+                  target_type: "task",
+                  target_id: command.taskId,
+                  relation_type: "derived_from",
+                },
+              },
+            ]
+          : [],
+      },
+      undefined,
+      plan.companion,
+    );
+    return plan.receipt;
+  }
+
+  saveCanonicalNote(
+    requestValue: unknown,
+    companionValue?: unknown,
+    workLogValue?: WorkLogCompanion,
+  ): Record<string, unknown> {
     const request = normalizeDocumentSaveRequest(requestValue);
     const noteId = request.snapshot.owner.entityId;
     const current = this.repository.get("note", noteId, true);
@@ -2421,6 +2502,7 @@ export class WorkspaceService {
       }),
     };
     const noteAiCompanion = normalizeCanonicalNoteAiCompanion(companionValue, noteId);
+    const workLogCompanion = normalizeWorkLogCompanion(workLogValue, noteId);
     const actualRevision = Number(current?.version || 0);
     if (actualRevision !== request.snapshot.expectedRevision) {
       throw new Error(
@@ -2453,6 +2535,8 @@ export class WorkspaceService {
         options,
         request.companions,
         noteAiCompanion,
+
+        workLogCompanion,
       );
     }
 
@@ -2474,6 +2558,8 @@ export class WorkspaceService {
         options,
         request.companions,
         noteAiCompanion,
+
+        workLogCompanion,
       );
     }
     const snapshot = this.readCanonicalFile(target.filePath);
@@ -2488,6 +2574,8 @@ export class WorkspaceService {
         options,
         request.companions,
         noteAiCompanion,
+
+        workLogCompanion,
       );
     }
 
@@ -2506,7 +2594,14 @@ export class WorkspaceService {
         file_ahead_signature: plan.externalSignature,
         last_error: "外部で変更されたMarkdownを確認してから上書きしてください。",
       });
-      return this.saveNoteInternally(note, conflict, options, request.companions, noteAiCompanion);
+      return this.saveNoteInternally(
+        note,
+        conflict,
+        options,
+        request.companions,
+        noteAiCompanion,
+        workLogCompanion,
+      );
     }
 
     // overwriteは外部変更との確認を経た明示操作なので、同じ内容に見えても
@@ -2529,6 +2624,8 @@ export class WorkspaceService {
         options,
         request.companions,
         noteAiCompanion,
+
+        workLogCompanion,
       );
       this.resolveCanonicalRecoveryReceiptsForSave(noteId, operationId, actualRevision);
       return saved;
@@ -2554,6 +2651,7 @@ export class WorkspaceService {
       bodySignature: markdownSignature(String(note.body_markdown || "")),
       companions: request.companions,
       noteAiCompanion: noteAiCompanion || undefined,
+      workLogCompanion: workLogCompanion || undefined,
     });
     let writeWarning: string | null = null;
     try {
@@ -2564,7 +2662,14 @@ export class WorkspaceService {
         last_error: errorText(error),
       });
       this.removeCanonicalRecoveryReceipt(operationId);
-      return this.saveNoteInternally(note, failed, options, request.companions, noteAiCompanion);
+      return this.saveNoteInternally(
+        note,
+        failed,
+        options,
+        request.companions,
+        noteAiCompanion,
+        workLogCompanion,
+      );
     }
 
     const written = this.readCanonicalFile(target.filePath);
@@ -2577,7 +2682,14 @@ export class WorkspaceService {
         last_error:
           written.error || "書き込んだMarkdownの内容を検証できませんでした。再試行してください。",
       });
-      this.saveNoteInternally(note, failed, options, request.companions, noteAiCompanion);
+      this.saveNoteInternally(
+        note,
+        failed,
+        options,
+        request.companions,
+        noteAiCompanion,
+        workLogCompanion,
+      );
       // 実ファイルの再検証に成功するまでreceiptは残す。
       return this.repository.get("note", noteId, true) || note;
     }
@@ -2599,6 +2711,8 @@ export class WorkspaceService {
         options,
         request.companions,
         noteAiCompanion,
+
+        workLogCompanion,
       );
       this.resolveCanonicalRecoveryReceiptsForSave(noteId, operationId, actualRevision);
       return saved;

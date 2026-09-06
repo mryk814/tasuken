@@ -285,6 +285,7 @@ const api: ResearchDeskApi = {
     remove: (type, id) => ipcRenderer.invoke(IPC.entityRemove, type, id),
     restore: (type, id) => ipcRenderer.invoke(IPC.entityRestore, type, id),
   },
+  workLog: { record: (command) => ipcRenderer.invoke(IPC.workLogRecord, command) },
   documents: {
     save: (request) => ipcRenderer.invoke(IPC.documentSave, request),
   },

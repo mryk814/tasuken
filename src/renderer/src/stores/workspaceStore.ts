@@ -1,6 +1,12 @@
 import { create } from "zustand";
 
-import type { Entity, EntityType, SaveOperation, SaveOptions, Workspace } from "../../../shared/types/workspace";
+import type {
+  Entity,
+  EntityType,
+  SaveOperation,
+  SaveOptions,
+  Workspace,
+} from "../../../shared/types/workspace";
 import type { CommandReceipt } from "../../../shared/applicationCommand";
 import { collectionKeyForEntityType } from "../../../shared/entityRegistry.mjs";
 import { workspaceApi } from "../services/workspaceApi";
@@ -8,6 +14,9 @@ import { workspaceApi } from "../services/workspaceApi";
 type LoadState = "idle" | "loading" | "success" | "error";
 
 interface WorkspaceState {
+  recordWorkLog(
+    command: import("../../../shared/workLog").RecordWorkLogCommand,
+  ): Promise<import("../../../shared/workLog").WorkLogReceipt>;
   workspace: Workspace | null;
   loadState: LoadState;
   loadError: string;
@@ -27,19 +36,33 @@ function replaceEntity(workspace: Workspace, type: EntityType, saved: Entity): W
   const key = collectionKeyForEntityType(type) as keyof Workspace;
   const records = (workspace[key] as Entity[] | undefined) || [];
   const next = records.some((entry) => entry.id === saved.id)
-    ? records.map((entry) => entry.id === saved.id ? saved : entry)
+    ? records.map((entry) => (entry.id === saved.id ? saved : entry))
     : [saved, ...records];
   return { ...workspace, [key]: next };
 }
 
 function replaceIfNewer(workspace: Workspace, type: EntityType, saved: Entity): Workspace {
   const key = collectionKeyForEntityType(type) as keyof Workspace;
-  const current = ((workspace[key] as Entity[] | undefined) || []).find((entry) => entry.id === saved.id);
+  const current = ((workspace[key] as Entity[] | undefined) || []).find(
+    (entry) => entry.id === saved.id,
+  );
   if (current && Number(current.version || 0) >= Number(saved.version || 0)) return workspace;
   return replaceEntity(workspace, type, saved);
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
+  async recordWorkLog(command) {
+    const receipt = await window.api.workLog.record(command);
+    try {
+      await get().refresh();
+    } catch (error) {
+      set({
+        loadError: error instanceof Error ? error.message : String(error),
+        loadState: "error",
+      });
+    }
+    return receipt;
+  },
   workspace: null,
   loadState: "idle",
   loadError: "",

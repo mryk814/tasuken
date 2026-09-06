@@ -633,6 +633,11 @@ export function registerIpc(
       ? projectEntityForRenderer(entityType, saved as Entity)
       : saved;
   });
+  ipcMain.handle(IPC.workLogRecord, (_event, command) => {
+    const receipt = service.recordWorkLog(command);
+    notifyEntitiesChanged(["note", "reference", "change_event"]);
+    return receipt;
+  });
   ipcMain.handle(IPC.documentSave, (_event, request) => {
     const saved = service.saveCanonicalNote(request);
     notifyEntitiesChanged(documentSaveChangedTypes(request));

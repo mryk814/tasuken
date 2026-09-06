@@ -108,6 +108,9 @@ function eventLabel(kind: string): string {
 function eventTitle(event: StructuredActivityEvent, ref: { id?: string }, entity: unknown): string {
   const record = entity && typeof entity === "object" ? (entity as Record<string, unknown>) : {};
   const current = String(record.title || record.name || "").trim();
+  const workLog = event.metadata?.work_log as Record<string, unknown> | undefined;
+  if (workLog?.schema === "tasken-work-log/v1")
+    return `${current || "やったことを記録"} · 実施日 ${String(workLog.performed_date)}（本人の申告）`;
   if (event.event_kind === "task_ai_work" && current)
     return `${current} · ${event.metadata?.review_status === "pending" ? "採用待ち" : event.metadata?.review_status === "accepted" ? "採用済み" : "記録済み"}`;
   if (current && event.metadata?.work_action === "accepted") return `${current} · 完了報告を採用`;

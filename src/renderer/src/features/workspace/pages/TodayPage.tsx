@@ -32,6 +32,7 @@ import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { AgentWorkSummaryPanel } from "../components/AgentWorkSummaryPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
+import { WorkLogDialog } from "../components/WorkLogDialog";
 import { ChecklistProgressBadge, InlineTaskChecklist } from "../../task/public";
 import {
   CAPTURE_ENTRY_STATE_LABELS,
@@ -868,6 +869,7 @@ export function TodayPage({
   setToast,
 }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
+  const [showWorkLog, setShowWorkLog] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   const today = todayIso();
@@ -1282,6 +1284,9 @@ export function TodayPage({
         primary actionは一つにし、コピーやDebriefへの移動はmenuへ畳む。
       */}
       <PageHeader route="today">
+        <Button variant="secondary" onClick={() => setShowWorkLog(true)}>
+          やったことを記録
+        </Button>
         <Button variant="secondary" onClick={() => openDailyScratchpad(today)}>
           <IconNotebook size={16} /> 今日のScratchpad
         </Button>
@@ -1312,6 +1317,16 @@ export function TodayPage({
           <IconPlus size={16} /> 今日のTaskを追加
         </Button>
       </PageHeader>
+      <WorkLogDialog
+        open={showWorkLog}
+        today={today}
+        themes={themes}
+        tasks={v2.tasks}
+        close={() => setShowWorkLog(false)}
+        saved={() =>
+          setToast("やったことを保存しました。DebriefのActivityで確認できます。", "success")
+        }
+      />
 
       {showAdd && (
         <InlineAddPanel
