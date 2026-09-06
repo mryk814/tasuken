@@ -72,7 +72,20 @@ ZenのGPT・Claude・Gemini系やGoのMiniMaxなど別形式のモデルは、�
 - 不正な日付、逆転した日付範囲、候補外Theme、余分なキー、途中終了・拒否・形式不正は採用可能な提案として返さない。
 - 意味の正しさはJSON Schemaだけでは証明できない。日付やTask分解は利用者の確認を要する。
 
-Mobile要求の`maxTasks`は省略時1件。新Androidは8件を要求し、`proposals`配列をプレビューする。Desktopは従来の`proposal`も返し、旧Androidの1件入力を維持する。新Androidから旧Desktopへ接続した場合は、新フィールドに対する`validation_failed`に限り従来の1件要求へ戻す。
+Mobile要求の`maxTasks`は省略時1件。新Androidは8件を要求し、`proposals`配列をプレビューする。Desktopは従来の`proposal`も返し、旧Androidの1件入力を維持する。
+
+予定時刻に対応するAndroidは`includePlannedTime:true`も要求する。
+この場合だけ、Desktopは`plannedTimeSupported:true`と、各提案に必須nullableの`plannedStartTime`（`HH:mm`）・`plannedDurationMinutes`（整数1〜10080分）を返す。
+指定のない旧クライアントには時刻フィールドを追加せず、時刻の言及は補足・注意に残す。
+旧Desktopが`validation_failed`で拒否した場合、新Androidは時刻拡張を外した複数提案要求、その要求も拒否された場合だけ従来の1件要求へ戻す。
+その整理案では時刻・所要時間を編集できず、Desktop更新後の再整理を案内する。対応状態は下書きとともに保存する。
+
+「明日の15時から30分」は実行日・予定開始・所要時間へ、「15時、いや16時」は最後の明示訂正へ接続するよう指示する。
+「30分」だけで日付や開始時刻を補わず、「午後」など幅のある指定を固定時刻へ変換しない。判断できない部分は未指定にして注意と原文を残す。
+開始時刻は期限時刻ではなく、今日の割当を自動で追加する情報でもない。
+DesktopとAndroidで確認・編集した値だけを、既存CreateTaskの予定項目と日付へ一度に保存する。
+旧GatewayがCreateTaskの予定項目を拒否した場合も、それを削って再送せず、入力・未送信コマンドを保持する。
+Desktopの相対日基準も入力開始時に固定し、整理失敗・再整理で日付が変わらないようにする。
 
 1回の要求は30秒で中止し、応答本文は展開後256KiBまで読む。
 Mobile Gatewayの要求本文も256KiBを上限とし、日本語の原文・補足を含む整理済みTaskを受け付ける。
@@ -81,7 +94,7 @@ OpenAI/Azureには`store:false`を指定するが、プロバイダーの処理�
 
 ## 検証
 
-`node scripts/run-electron-node.mjs --test tests/mobile-capture-organizer.test.mjs`
+`rtk node scripts/run-electron-node.mjs --test tests/mobile-capture-organizer.test.mjs tests/mobile-capture-organization-gateway.test.mjs tests/quick-capture-organization.test.mjs`
 
 fake fetchで5プロバイダーの送信形式、日付基準、ローカル検証、拒否、サイズ制限、timeout、秘密を含めない失敗を確認する。
 APIキーを使う実通信とモデルごとの整理品質は別の検証境界であり、このテストでは確認しない。
@@ -89,9 +102,9 @@ APIキーを使う実通信とモデルごとの整理品質は別の検証境�
 共通設定とDesktop入力の回帰確認:
 
 ```sh
-node --test tests/capture-organizer-settings.test.mjs tests/quick-capture-organization.test.mjs tests/settings-ia.test.mjs
-npm run typecheck
-npm run package
+rtk node --test tests/capture-organizer-settings.test.mjs tests/settings-ia.test.mjs
+rtk npm run typecheck
+rtk npm run package
 ```
 
 2026-09-05の隔離Electron実動確認では、設定の暗号化保存・再起動後の復元・削除、失敗時の入力保持、Azure欄、ライト／ダーク表示を確認した。
@@ -99,3 +112,10 @@ Quick Captureは推論応答だけを固定fixtureへ置き換え、編集した
 日付逆転時の入力保持、元の入力への復元、整理待ち中の編集に対する古い結果の破棄も確認した。
 接続成功の画面表示にはテスト応答を用い、実APIの成功とは区別した。実キーによる通信・整理品質は未検証。
 2026-09-06にはWindows配布版でも、隔離userDataでTaskの原文・3件のチェック項目の復元、設定の保存・再起動後の復元・削除を確認した。NSIS／portableの生成も成功した。
+
+同日の予定時刻対応では、Androidのunit 140件、整理UI 7件、Gateway互換6件、Outbox 54件、Draft保存7件が成功した。
+予定開始・所要時間の編集、無効値で追加を止める動作、追加Taskの整理案と編集中の時刻の復元、CreateコマンドとRoomの保存後再読込を確認した。
+検証用Androidエミュレータの展開幅とcompact幅で、日付と時刻の区別、追加Taskの編集欄、キーボード表示中のfocusとスクロールを目視した。
+Windowsの隔離Electronでも、整理失敗・元の入力への復元・再整理を経て入力開始時の日時とtime zoneが維持されること、無効な所要時間で保存を止めること、保存失敗後も編集値が残ることを確認した。
+予定開始16:30・所要75分へ編集してCreateTaskへ保存し、SQLiteを開き直して原文・日付・予定値を読み戻した。ライト／ダーク表示も目視した。
+これらの提案は固定fixtureであり、実音声認識・実APIによる時刻解釈の品質を示す結果ではない。

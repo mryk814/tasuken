@@ -78,7 +78,8 @@ class CaptureOrganizationRepositoryTest {
             assertEquals("/v1/capture-organization", path)
             assertEquals("POST", method)
             val data = Json.parseToJsonElement(requireNotNull(body)).jsonObject
-            assertEquals(setOf("text", "capturedAt", "timeZone", "themeId", "maxTasks"), data.keys)
+            assertEquals(setOf("text", "capturedAt", "timeZone", "themeId", "maxTasks", "includePlannedTime"), data.keys)
+            assertEquals("true", data.getValue("includePlannedTime").jsonPrimitive.content)
             assertEquals("8", data.getValue("maxTasks").jsonPrimitive.content)
             assertEquals(original, data.getValue("text").jsonPrimitive.content)
             assertEquals("home", data.getValue("themeId").jsonPrimitive.content)
@@ -101,8 +102,9 @@ class CaptureOrganizationRepositoryTest {
         val repository = repositoryWith { _, _, body ->
             val input = Json.parseToJsonElement(requireNotNull(body)).jsonObject
             calls++
-            if (calls == 1) {
+            if (calls <= 2) {
                 assertEquals("8", input.getValue("maxTasks").jsonPrimitive.content)
+                assertEquals(calls == 1, input.containsKey("includePlannedTime"))
                 GatewayHttpResponse(400, """{"error":{"code":"validation_failed"}}""")
             } else {
                 assertFalse(input.containsKey("maxTasks"))
@@ -115,6 +117,54 @@ class CaptureOrganizationRepositoryTest {
             }
         }
         assertEquals(listOf(proposal), repository.organizeCapture(MobileCaptureDraft.fresh(text = original)))
+        assertEquals(3, calls)
+        assertNoWrites()
+    }
+
+    @Test
+    fun timedResponseRequiresBothFieldsAndCapabilityAndNeverWritesBeforeAdoption() = runBlocking {
+        val timed = proposal.copy(plannedStartTime = "15:00", plannedDurationMinutes = 30, plannedTimeSupported = true)
+        fun timedResponse(fields: String, capability: String = "true") =
+            """{"data":{"plannedTimeSupported":$capability,"proposals":[{"title":"図を直す",$fields}]}}"""
+        val valid = repositoryWith { _, _, _ -> GatewayHttpResponse(200,
+            timedResponse(""""plannedStartTime":"15:00","plannedDurationMinutes":30""")) }
+        val result = valid.organizeCapture(MobileCaptureDraft.fresh(text = "明日の15時から30分、図を直す")).single()
+        assertEquals(timed.plannedStartTime, result.plannedStartTime)
+        assertEquals(timed.plannedDurationMinutes, result.plannedDurationMinutes)
+        assertTrue(result.plannedTimeSupported)
+        for (body in listOf(
+            timedResponse(""""plannedStartTime":"15:00"""),
+            timedResponse(""""plannedStartTime":"15:00","plannedDurationMinutes":30""", "false"),
+            timedResponse(""""plannedStartTime":"25:00","plannedDurationMinutes":30"""),
+            timedResponse(""""plannedStartTime":null,"plannedDurationMinutes":1.5"""),
+            timedResponse(""""plannedStartTime":null,"plannedDurationMinutes":"30"""),
+            timedResponse(""""plannedStartTime":null,"plannedDurationMinutes":30,"plannedTimeSupported":true"""),
+        )) {
+            assertTrue(runCatching {
+                repositoryWith { _, _, _ -> GatewayHttpResponse(200, body) }
+                    .organizeCapture(MobileCaptureDraft.fresh(text = original))
+            }.isFailure)
+        }
+        assertNoWrites()
+    }
+
+    @Test
+    fun legacyBatchFallbackPreservesAllTasksAndDisablesTimeEditing() = runBlocking {
+        var calls = 0
+        val repository = repositoryWith { _, _, body ->
+            calls++
+            val input = Json.parseToJsonElement(requireNotNull(body)).jsonObject
+            if (calls == 1) GatewayHttpResponse(400, """{"error":{"code":"validation_failed"}}""")
+            else {
+                assertFalse(input.containsKey("includePlannedTime"))
+                assertEquals("8", input.getValue("maxTasks").jsonPrimitive.content)
+                GatewayHttpResponse(200, response(proposal))
+            }
+        }
+        val result = repository.organizeCapture(MobileCaptureDraft.fresh(text = original)).single()
+        assertFalse(result.plannedTimeSupported)
+        assertNull(result.plannedStartTime)
+        assertNull(result.plannedDurationMinutes)
         assertEquals(2, calls)
         assertNoWrites()
     }

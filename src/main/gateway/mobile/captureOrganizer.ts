@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { CAPTURE_ORGANIZER_CHAT_MODELS } from "../../../shared/captureOrganizerSettings.ts";
+import {
+  mobilePlannedStartTimeSchema,
+  mobilePlannedDurationMinutesSchema,
+} from "../../../shared/contracts/mobile/public.ts";
 
 const inputSchema = z.strictObject({
   text: z
@@ -30,6 +34,7 @@ const inputSchema = z.strictObject({
     )
     .max(200),
   maxTasks: z.number().int().min(1).max(8).default(1),
+  includePlannedTime: z.boolean().optional(),
 });
 
 const proposalSchema = z.strictObject({
@@ -56,12 +61,21 @@ const proposalSchema = z.strictObject({
 });
 
 export type CaptureOrganizerInput = z.infer<typeof inputSchema>;
-export type CaptureOrganizerProposal = z.infer<typeof proposalSchema>;
+const timedProposalSchema = proposalSchema.extend({
+  plannedStartTime: mobilePlannedStartTimeSchema,
+  plannedDurationMinutes: mobilePlannedDurationMinutesSchema,
+});
+export type CaptureOrganizerProposal =
+  z.infer<typeof proposalSchema> | z.infer<typeof timedProposalSchema>;
 const proposalBatchSchema = z.strictObject({
   tasks: z.array(proposalSchema).min(1).max(8),
   warnings: z.array(z.string().min(1).max(500)).max(10),
 });
-export type CaptureOrganizerBatch = z.infer<typeof proposalBatchSchema>;
+const timedProposalBatchSchema = proposalBatchSchema.extend({
+  tasks: z.array(timedProposalSchema).min(1).max(8),
+});
+export type CaptureOrganizerBatch =
+  z.infer<typeof proposalBatchSchema> | z.infer<typeof timedProposalBatchSchema>;
 
 // Keep the wire schema in the common supported subset; enforce lengths and dates locally.
 const outputSchema = {
@@ -126,6 +140,14 @@ Only set rangeSemantics for a true startDate < endDate range: once_within_window
 For ambiguous dates or meaning, leave the uncertain fields null and explain in warnings (at most 10, each 1-500 characters).
 Put transcript-wide ambiguity or a possible missed topic split in the top-level warnings.
 Never imply proposals have been saved. Return only the object defined by the JSON schema.`;
+
+const plannedTimeInstructions = `
+plannedStartTime is an explicitly stated execution start time in 24-hour HH:mm, not a deadline time.
+plannedDurationMinutes is an explicitly stated duration in whole minutes from 1 to 10080; never estimate effort.
+When no time or duration is mentioned, the respective field MUST be null. A duration alone does not imply a date or start time.
+For "15時、いや16時", prefer the last explicit correction: 16:00. For vague "午後" or conflicting times without a correction, leave the uncertain time null and explain in warnings.
+Resolve an explicit relative execution day from capturedAt/timeZone as above; do not assign a dateless duration to today.
+Preserve the original wording and uncertainty in supplement/warnings. If only a deadline time is given, keep it in supplement with a warning; never relabel it as an execution start time.`;
 
 const failure = () =>
   new Error(
@@ -326,15 +348,32 @@ export function createCaptureOrganizerFromEnvironment(
                 properties: {
                   ...outputSchema.properties.tasks.items.properties,
                   themeId: { type: ["string", "null"], enum: [null, ...themeIds] },
+                  ...(data.includePlannedTime
+                    ? {
+                        plannedStartTime: { type: ["string", "null"] },
+                        plannedDurationMinutes: { type: ["integer", "null"] },
+                      }
+                    : {}),
                 },
+                required: [
+                  ...outputSchema.properties.tasks.items.required,
+                  ...(data.includePlannedTime
+                    ? ["plannedStartTime", "plannedDurationMinutes"]
+                    : []),
+                ],
               },
             },
           },
         };
+        const requestInstructions =
+          instructions +
+          (data.includePlannedTime
+            ? plannedTimeInstructions
+            : "\nThis client cannot store execution start times or durations. If mentioned, preserve them in supplement and warnings; never silently omit them or add fields outside this schema.");
         const body =
           provider === "gemini"
             ? {
-                systemInstruction: { parts: [{ text: instructions }] },
+                systemInstruction: { parts: [{ text: requestInstructions }] },
                 contents: [{ role: "user", parts: [{ text: content }] }],
                 generationConfig: {
                   responseMimeType: "application/json",
@@ -345,7 +384,7 @@ export function createCaptureOrganizerFromEnvironment(
             : {
                 model,
                 messages: [
-                  { role: "system", content: instructions },
+                  { role: "system", content: requestInstructions },
                   { role: "user", content },
                 ],
                 response_format: {
@@ -377,7 +416,9 @@ export function createCaptureOrganizerFromEnvironment(
                 .map((part) => part.text)
                 .join("")
             : chatResponseSchema.parse(raw).choices[0].message.content;
-        const batch = proposalBatchSchema.parse(JSON.parse(text));
+        const batch = (
+          data.includePlannedTime ? timedProposalBatchSchema : proposalBatchSchema
+        ).parse(JSON.parse(text));
         if (batch.tasks.length > data.maxTasks) throw failure();
         for (const proposal of batch.tasks) {
           if (proposal.themeId !== null && !themeIds.has(proposal.themeId)) throw failure();

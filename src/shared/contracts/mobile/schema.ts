@@ -287,11 +287,11 @@ export const mobileTaskScheduleSchema = z
     }
   });
 
-const mobilePlannedStartTimeSchema = z
+export const mobilePlannedStartTimeSchema = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
   .nullable();
-const mobilePlannedDurationMinutesSchema = z.number().int().positive().max(10080).nullable();
+export const mobilePlannedDurationMinutesSchema = z.number().int().positive().max(10080).nullable();
 
 export const mobileWorkReceiptSummarySchema = z
   .object({
@@ -1549,6 +1549,7 @@ export const mobileCaptureOrganizationRequestSchema = z
       }),
     themeId: entityIdSchema.nullable(),
     maxTasks: z.number().int().min(1).max(8).default(1),
+    includePlannedTime: z.boolean().optional(),
   })
   .strict();
 
@@ -1571,6 +1572,18 @@ export const mobileCaptureOrganizationBatchSchema = z
     warnings: z.array(z.string().trim().min(1).max(500)).max(10),
   })
   .strict();
+export const mobileCaptureOrganizationTimedSchema = z
+  .object({
+    ...mobileCaptureOrganizationSchema.shape,
+    plannedStartTime: mobilePlannedStartTimeSchema,
+    plannedDurationMinutes: mobilePlannedDurationMinutesSchema,
+  })
+  .strict()
+  .superRefine(validateMobileScheduleDates);
+export const mobileCaptureOrganizationTimedBatchSchema =
+  mobileCaptureOrganizationBatchSchema.extend({
+    tasks: z.array(mobileCaptureOrganizationTimedSchema).min(1).max(8),
+  });
 export type MobileWorkReceiptSummary = z.output<typeof mobileWorkReceiptSummarySchema>;
 export type MobileWorkReceiptRequest = z.output<typeof mobileWorkReceiptRequestSchema>;
 export type MobileWorkReceiptDetail = z.output<typeof mobileWorkReceiptDetailSchema>;

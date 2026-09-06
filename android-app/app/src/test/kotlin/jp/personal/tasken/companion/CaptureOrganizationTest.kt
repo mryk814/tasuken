@@ -10,6 +10,42 @@ import org.junit.Test
 
 class CaptureOrganizationTest {
     @Test
+    fun plannedTimeSurvivesEditingAndDraftRestorationWithoutInventingDates() {
+        val original = "15時、いや16時から30分、図を直す"
+        val draft = MobileCaptureDraft.fresh(text = original).withOrganizations(listOf(
+            MobileCaptureOrganization("図を直す", plannedStartTime = "16:00", plannedDurationMinutes = 30, plannedTimeSupported = true),
+            MobileCaptureOrganization("資料を読む", plannedDurationMinutes = 45, plannedTimeSupported = true),
+        ))
+        val edited = draft.withEditedOrganizations(listOf(
+            draft.organization!!.copy(plannedStartTime = "16:30", plannedDurationMinutes = 60),
+        ) + draft.additionalOrganizations)
+        val restored = TodayPaneState.restore(TodayPaneState(captureDraft = edited).save()).captureDraft
+        assertEquals(edited, restored)
+        assertEquals("16:30", restored.organization?.plannedStartTime)
+        assertEquals(60, restored.organization?.plannedDurationMinutes)
+        assertNull(restored.organizationSchedule())
+        assertEquals(45, restored.organizedTaskDrafts()[1].organization?.plannedDurationMinutes)
+        assertEquals(original, restored.withoutOrganization().text)
+        assertNull(restored.withoutOrganization().organization)
+    }
+
+    @Test
+    fun legacyDraftsAndInvalidTimeNeverSilentlyBecomeSupportedProposals() {
+        val legacy = Json.decodeFromString<MobileCaptureOrganization>("""{"title":"過去の整理案"}""")
+        assertFalse(legacy.plannedTimeSupported)
+        legacy.validate()
+        assertTrue(runCatching { legacy.copy(plannedStartTime = "15:00").validate() }.isFailure)
+        val timed = legacy.copy(plannedTimeSupported = true)
+        for (time in listOf("24:00", "15:", "3:00", "午後")) {
+            assertTrue(runCatching { timed.copy(plannedStartTime = time).validate() }.isFailure)
+        }
+        for (minutes in listOf(0, -1, 10081)) {
+            assertTrue(runCatching { timed.copy(plannedDurationMinutes = minutes).validate() }.isFailure)
+        }
+        timed.copy(plannedStartTime = "00:00", plannedDurationMinutes = 10080).validate()
+    }
+
+    @Test
     fun discardingProposalRestoresSelectedOrUnassignedThemeAfterReorganizationAndRestore() {
         for (themeId in listOf(null, "original-theme")) {
             val draft = MobileCaptureDraft.fresh(text = "原文", projectId = themeId)

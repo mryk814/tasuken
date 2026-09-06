@@ -66,14 +66,19 @@ class MobileCaptureDraftStoreTest {
 
     @Test
     fun restoresAdoptedOrganizationAndOriginalWithStableChecklistIds() {
-        val draft = MobileCaptureDraft.fresh(text = "原文を失わず残す").withOrganization(
-            MobileCaptureOrganization("整理したタイトル", checklist = listOf("最初に確認する"), supplement = "補足"),
-        ).withText("確認して修正したタイトル")
+        val draft = MobileCaptureDraft.fresh(text = "原文を失わず残す").withOrganizations(listOf(
+            MobileCaptureOrganization("整理したタイトル", checklist = listOf("最初に確認する"), supplement = "補足",
+                plannedStartTime = "16:30", plannedDurationMinutes = 60, plannedTimeSupported = true),
+            MobileCaptureOrganization("次のTask", plannedDurationMinutes = 30, plannedTimeSupported = true),
+        )).withText("確認して修正したタイトル")
         org.junit.Assert.assertTrue(MobileCaptureDraftStore(context).save(MobileCaptureDraftSnapshot(draft, true)))
         val restored = requireNotNull(MobileCaptureDraftStore(context).load()).draft
         assertEquals(draft, restored)
         assertEquals(draft.organizationChecklistItems(), restored.organizationChecklistItems())
         assertEquals(draft.organizationDescription(), restored.organizationDescription())
+        val incomplete = draft.withEditedOrganizations(listOf(draft.organization!!.copy(plannedStartTime = "16:")) + draft.additionalOrganizations)
+        org.junit.Assert.assertTrue(MobileCaptureDraftStore(context).save(MobileCaptureDraftSnapshot(incomplete, true)))
+        assertEquals(incomplete, MobileCaptureDraftStore(context).load()?.draft)
     }
 
     @Test

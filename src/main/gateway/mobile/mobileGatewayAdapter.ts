@@ -18,6 +18,7 @@ import {
   mobileWorkLogResponseSchema,
   mobileCommandRequestSchema,
   mobileCaptureOrganizationBatchSchema,
+  mobileCaptureOrganizationTimedBatchSchema,
   mobileCaptureOrganizationRequestSchema,
   mobileTaskCommandResponseSchema,
   mobileTaskContextPreviewRequestSchema,
@@ -849,9 +850,11 @@ export class MobileGatewayAdapter {
             .map((theme) => ({ id: theme.id, title: theme.name }));
           if (parsed.data.themeId && !themes.some((theme) => theme.id === parsed.data.themeId))
             return this.error(meta, "theme_not_found");
-          const proposalBatch = mobileCaptureOrganizationBatchSchema.parse(
-            await organizer.organize({ ...parsed.data, themes }),
-          );
+          const proposalBatch = (
+            parsed.data.includePlannedTime
+              ? mobileCaptureOrganizationTimedBatchSchema
+              : mobileCaptureOrganizationBatchSchema
+          ).parse(await organizer.organize({ ...parsed.data, themes }));
           if (proposalBatch.tasks.length > parsed.data.maxTasks)
             return this.error(meta, "upstream_unavailable", true);
           if (
@@ -874,6 +877,7 @@ export class MobileGatewayAdapter {
               proposals: proposalBatch.tasks,
               warnings: proposalBatch.warnings,
               providerLabel: organizer.providerLabel,
+              ...(parsed.data.includePlannedTime ? { plannedTimeSupported: true } : {}),
             },
           });
         } catch {
