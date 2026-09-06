@@ -3,6 +3,11 @@ import type { ThemeAiPackPlan, ThemeAiPackManifest } from "../../shared/themeAiP
 export const THEME_AI_PACK_DIRECTORY: "AI Pack";
 export const THEME_AI_PACK_MANIFEST: ".tasken-ai-pack.json";
 export const THEME_AI_PACK_OPERATION_SCHEMA: "tasken-ai-pack-operation/v1";
+export function assertSafeThemeChildPath(input: {
+  themeFolder: string;
+  relativePath: string;
+  fileSystem?: typeof import("node:fs");
+}): string;
 
 export type ThemeAiPackLocation =
   | { status: "needs_root" | "root_unavailable"; dirty: true; retryPending: true }
@@ -19,7 +24,13 @@ export type ThemeAiPackLocation =
     };
 
 export interface ThemeAiPackPublishResult {
-  state: "current" | "skipped" | "current_with_warning" | "failed_retryable" | "root_unavailable" | "recovery_required";
+  state:
+    | "current"
+    | "skipped"
+    | "current_with_warning"
+    | "failed_retryable"
+    | "root_unavailable"
+    | "recovery_required";
   dirty: boolean;
   retryPending: boolean;
   written: boolean;
@@ -31,7 +42,23 @@ export interface ThemeAiPackPublishResult {
 }
 
 export function discoverThemeAiPackLocation(input?: Record<string, unknown>): ThemeAiPackLocation;
-export function ensureThemeAiPackLocation(location: ThemeAiPackLocation, options?: Record<string, unknown>): ThemeAiPackLocation;
-export function inspectThemeAiPack(input: { plan: ThemeAiPackPlan; packDirectory: string; fileSystem?: unknown }): { state: "missing" | "dirty" | "current"; dirty: boolean; manifest?: ThemeAiPackManifest };
-export function publishThemeAiPack(input: { plan: ThemeAiPackPlan; packDirectory: string; recoveryDirectory?: string; operationId?: string; fileSystem?: unknown }): ThemeAiPackPublishResult;
-export function recoverThemeAiPackOperations(input: { recoveryDirectory: string; fileSystem?: unknown }): Array<{ operationId: string; state: string; error?: string }>;
+export function ensureThemeAiPackLocation(
+  location: ThemeAiPackLocation,
+  options?: Record<string, unknown>,
+): ThemeAiPackLocation;
+export function inspectThemeAiPack(input: {
+  plan: ThemeAiPackPlan;
+  packDirectory: string;
+  fileSystem?: unknown;
+}): { state: "missing" | "dirty" | "current"; dirty: boolean; manifest?: ThemeAiPackManifest };
+export function publishThemeAiPack(input: {
+  plan: ThemeAiPackPlan;
+  packDirectory: string;
+  recoveryDirectory?: string;
+  operationId?: string;
+  fileSystem?: unknown;
+}): ThemeAiPackPublishResult;
+export function recoverThemeAiPackOperations(input: {
+  recoveryDirectory: string;
+  fileSystem?: unknown;
+}): Array<{ operationId: string; state: string; error?: string }>;
