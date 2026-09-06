@@ -29,6 +29,39 @@ class CaptureOrganizationUiTest {
     )
 
     @Test
+    fun timeAndDurationAreEditableForEveryProposalAndInvalidInputCannotBeSaved() {
+        val timed = proposal.copy(plannedStartTime = "15:00", plannedDurationMinutes = 30, plannedTimeSupported = true)
+        val draft = freshDraft()
+        val saved = mutableListOf<MobileCaptureDraft>()
+        showSheet(draft, organize = { listOf(timed, timed.copy(title = "資料の図を直す", plannedStartTime = null)) },
+            onSubmit = { saved += it })
+        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.waitUntil { draft.value.additionalOrganizations.size == 1 }
+        composeRule.onNodeWithTag("organization-time").performScrollTo().assertTextContains("15:00")
+        capture("05-planned-time-proposal")
+        composeRule.onNodeWithTag("organization-time").performTextReplacement("16:")
+        composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()
+        composeRule.onNodeWithTag("organization-time").performTextReplacement("16:30")
+        composeRule.onNodeWithTag("organization-duration").performTextReplacement("0")
+        composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()
+        composeRule.onNodeWithTag("organization-duration").performTextReplacement("60")
+        composeRule.onNodeWithTag("organization-additional-0-duration").performScrollTo().performTextReplacement("45")
+        capture("06-planned-time-additional-edited")
+        composeRule.runOnIdle {
+            assertEquals("16:30", draft.value.organization?.plannedStartTime)
+            assertEquals(60, draft.value.organization?.plannedDurationMinutes)
+            assertEquals(45, draft.value.additionalOrganizations.single().plannedDurationMinutes)
+            draft.value = TodayPaneState.restore(TodayPaneState(captureDraft = draft.value).save()).captureDraft
+        }
+        composeRule.onNodeWithTag("organization-additional-0-duration").assertTextContains("45")
+        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsEnabled().performClick()
+        composeRule.runOnIdle {
+            assertEquals(60, saved.single().organization?.plannedDurationMinutes)
+            assertEquals(45, saved.single().additionalOrganizations.single().plannedDurationMinutes)
+        }
+    }
+
+    @Test
     fun organizedProposalRetainsOriginalAndIsSavedOnlyAfterExplicitAdd() {
         val draft = freshDraft()
         val result = CompletableDeferred<List<MobileCaptureOrganization>>()

@@ -209,6 +209,8 @@ class MobileOutbox(
                     description = draft.organizationDescription(),
                     checklistItems = draft.organizationChecklistItems(),
                     schedule = draft.organizationSchedule(), scheduleAfterEnqueue = false,
+                    plannedStartTime = draft.organization?.plannedStartTime,
+                    plannedDurationMinutes = draft.organization?.plannedDurationMinutes,
                 )
             }
         }
@@ -229,6 +231,8 @@ class MobileOutbox(
         description: String? = null,
         checklistItems: List<MobileChecklistItem>? = null,
         schedule: MobileCreateTaskScheduleDto? = null,
+        plannedStartTime: String? = null,
+        plannedDurationMinutes: Int? = null,
         scheduleAfterEnqueue: Boolean = true,
     ): String {
         val normalizedTitle = title.trim()
@@ -247,6 +251,8 @@ class MobileOutbox(
                     existing.taskId == taskId &&
                     existingEnvelope.command.task.id == taskId &&
                     existingEnvelope.command.task.description == description &&
+                    existingEnvelope.command.task.plannedStartTime == plannedStartTime &&
+                    existingEnvelope.command.task.plannedDurationMinutes == plannedDurationMinutes &&
                     existingEnvelope.command.provenance == provenance,
             ) { "同じDraft IDが別のTask作成に使われています。" }
             return taskId
@@ -271,6 +277,8 @@ class MobileOutbox(
                     todayDate = todayDate?.toString(),
                     description = description,
                     checklistItems = checklistItems,
+                    plannedStartTime = plannedStartTime,
+                    plannedDurationMinutes = plannedDurationMinutes,
                 ),
                 provenance = provenance,
                 schedule = schedule,
@@ -289,6 +297,8 @@ class MobileOutbox(
                 optimisticCommandId = commandId,
                 checklistJson = encodeMobileChecklist(checklistItems.orEmpty()),
                 description = description,
+                plannedStartTime = plannedStartTime,
+                plannedDurationMinutes = plannedDurationMinutes,
                 scheduleStartDate = schedule?.startDate,
                 scheduleEndDate = schedule?.endDate,
                 scheduleRangeSemantics = schedule?.rangeSemantics,

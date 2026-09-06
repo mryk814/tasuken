@@ -47,6 +47,134 @@ const json = (value) =>
     headers: { "content-type": "application/json" },
   });
 
+test("fixed planned-time cases preserve provider fields and the capture-day anchor after midnight", async (t) => {
+  // Fixed model responses verify the wire contract and retention, not model inference quality.
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-09-08T00:10:00Z") });
+  const cases = [
+    {
+      text: "明日15時30分から30分、条件を確認",
+      startDate: "2026-09-07",
+      plannedStartTime: "15:30",
+      plannedDurationMinutes: 30,
+    },
+    {
+      text: "明日15時、いや16時に条件を確認",
+      startDate: "2026-09-07",
+      plannedStartTime: "16:00",
+      plannedDurationMinutes: null,
+    },
+    {
+      text: "条件の確認は30分",
+      startDate: null,
+      plannedStartTime: null,
+      plannedDurationMinutes: 30,
+    },
+    {
+      text: "条件を確認する",
+      startDate: null,
+      plannedStartTime: null,
+      plannedDurationMinutes: null,
+    },
+    {
+      text: "明日の午後に条件を確認",
+      startDate: "2026-09-07",
+      plannedStartTime: null,
+      plannedDurationMinutes: null,
+      warnings: ["午後の開始時刻は未指定です"],
+    },
+    {
+      text: "金曜17時までに提出",
+      startDate: null,
+      endDate: "2026-09-11",
+      plannedStartTime: null,
+      plannedDurationMinutes: null,
+      supplement: "金曜17時は提出期限",
+      warnings: ["期限時刻は補足に保持しています"],
+    },
+  ];
+  for (const { text, ...fields } of cases) {
+    const expected = {
+      ...proposal,
+      title: text,
+      startDate: null,
+      endDate: null,
+      checklist: [],
+      supplement: "",
+      warnings: [],
+      ...fields,
+    };
+    const capturedAt = "2026-09-06T14:59:00Z";
+    const organizer = create(env(), async (_target, options) => {
+      const data = JSON.parse(JSON.parse(options.body).messages[1].content);
+      assert.equal(data.text, text);
+      assert.equal(data.capturedAt, capturedAt);
+      assert.equal(data.timeZone, "Asia/Tokyo");
+      assert.equal(data.capturedLocalDate, "2026-09-06");
+      assert.equal(data.capturedLocalTime, "23:59:00");
+      assert.equal(data.relativeDateAnchors.tomorrow, "2026-09-07");
+      return json(chat(batch([expected])));
+    });
+    assert.deepEqual(
+      await organizer.organize({ ...input, text, capturedAt, includePlannedTime: true }),
+      batch([expected]),
+    );
+  }
+});
+
+for (const provider of ["openai", "gemini"]) {
+  test(`${provider} planned-time schema requires nullable fields and rejects malformed model values`, async () => {
+    let result = { ...proposal, plannedStartTime: "16:00", plannedDurationMinutes: 90 };
+    const organizer = create(env(provider), async (_target, options) => {
+      const request = JSON.parse(options.body);
+      const schema =
+        provider === "gemini"
+          ? request.generationConfig.responseJsonSchema
+          : request.response_format.json_schema.schema;
+      const instructions =
+        provider === "gemini"
+          ? request.systemInstruction.parts[0].text
+          : request.messages[0].content;
+      assert.ok(schema.properties.tasks.items.required.includes("plannedStartTime"));
+      assert.ok(schema.properties.tasks.items.required.includes("plannedDurationMinutes"));
+      assert.deepEqual(schema.properties.tasks.items.properties.plannedStartTime.type, [
+        "string",
+        "null",
+      ]);
+      assert.match(instructions, /not a deadline time/);
+      assert.match(instructions, /never estimate effort/);
+      assert.match(instructions, /15時、いや16時/);
+      const value = batch([result]);
+      return json(
+        provider === "gemini"
+          ? {
+              candidates: [
+                { finishReason: "STOP", content: { parts: [{ text: JSON.stringify(value) }] } },
+              ],
+            }
+          : chat(value),
+      );
+    });
+    const timedInput = { ...input, includePlannedTime: true };
+    assert.deepEqual(await organizer.organize(timedInput), batch([result]));
+    result = { ...proposal, plannedStartTime: null, plannedDurationMinutes: null };
+    assert.deepEqual(await organizer.organize(timedInput), batch([result]));
+    for (const invalid of [
+      { plannedStartTime: "24:00" },
+      { plannedStartTime: "16:60" },
+      { plannedStartTime: "午後" },
+      { plannedDurationMinutes: 0 },
+      { plannedDurationMinutes: 1.5 },
+      { plannedDurationMinutes: 10081 },
+      { plannedDurationMinutes: "90" },
+    ]) {
+      result = { ...proposal, plannedStartTime: null, plannedDurationMinutes: null, ...invalid };
+      await assert.rejects(organizer.organize(timedInput), /原文は保持/);
+    }
+    result = proposal;
+    await assert.rejects(organizer.organize(timedInput), /原文は保持/);
+  });
+}
+
 test("unset provider, key or model leaves organizer disabled without network", () => {
   for (const name of [
     "TASKEN_CAPTURE_LLM_PROVIDER",

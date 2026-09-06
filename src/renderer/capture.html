@@ -9,6 +9,8 @@
     <link rel="stylesheet" href="/src/styles/fonts.css" />
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
+      :root { color-scheme: light; }
+      :root[data-theme="dark"] { color-scheme: dark; }
       html, body { height: 100%; overflow: hidden; }
       body {
         font-family: var(--font-base);
@@ -220,6 +222,10 @@
           <label>開始日<input id="organization-start" type="date"></label>
           <label>期限<input id="organization-end" type="date"></label>
         </div>
+        <div class="organization-dates">
+          <label>予定開始<input id="organization-time" type="time"></label>
+          <label>所要時間（分）<input id="organization-duration" type="number" min="1" max="10080" step="1"></label>
+        </div>
         <label>期間の意味<select id="organization-range"><option value="">未指定</option><option value="once_within_window">期間内に一度</option><option value="ongoing">期間中継続</option></select></label>
         <label>チェック項目（1行に1件）<textarea id="organization-checklist"></textarea></label>
         <label>補足<textarea id="organization-supplement" maxlength="12000"></textarea></label>
@@ -256,6 +262,7 @@
       let originalInput = null;
       let organizeRequest = 0;
       let organizing = false;
+      let captureAnchor = null;
 
       function stopOrganizing() {
         ++organizeRequest;
@@ -285,7 +292,7 @@
         organizationStatus.textContent = "AIで整理しています…";
         try {
           const result = await window.captureApi.organize({ text: snapshot.text, themeId: snapshot.themeId || null,
-            capturedAt: new Date().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+            ...(captureAnchor ??= { capturedAt: new Date().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) });
           if (request !== organizeRequest || mode !== "today-task" || input.value !== snapshot.text || themeSelect.value !== snapshot.themeId) return;
           originalInput = snapshot;
           organization = result;
@@ -293,6 +300,8 @@
           themeSelect.value = result.themeId || "";
           document.getElementById("organization-start").value = result.startDate || "";
           document.getElementById("organization-end").value = result.endDate || "";
+          document.getElementById("organization-time").value = result.plannedStartTime || "";
+          document.getElementById("organization-duration").value = result.plannedDurationMinutes ?? "";
           document.getElementById("organization-range").value = result.rangeSemantics || "";
           document.getElementById("organization-checklist").value = result.checklist.join("\n");
           document.getElementById("organization-supplement").value = result.supplement;
@@ -413,12 +422,23 @@
         if (organizing || submitButton.disabled) return;
         const text = input.value.trim();
         if (!text) return;
+        if (organization) {
+          const invalid = [...organizationPanel.querySelectorAll("input")].find((field) => !field.validity.valid);
+          if (invalid) {
+            organizationStatus.textContent = "日付・時刻・所要時間を確認してください。所要時間は1〜10080分の整数で入力できます。";
+            invalid.reportValidity();
+            invalid.focus();
+            return;
+          }
+        }
         submitButton.disabled = true;
         try {
           const usesTheme = mode !== "micro-memo";
           const themeId = usesTheme ? themeSelect.value : "";
           const accepted = organization ? { ...organization, title: text, themeId: themeId || null,
             startDate: document.getElementById("organization-start").value || null,
+            plannedStartTime: document.getElementById("organization-time").value || null,
+            plannedDurationMinutes: document.getElementById("organization-duration").value === "" ? null : Number(document.getElementById("organization-duration").value),
             endDate: document.getElementById("organization-end").value || null,
             rangeSemantics: document.getElementById("organization-range").value || null,
             checklist: document.getElementById("organization-checklist").value.split("\n").map((item) => item.trim()).filter(Boolean),
@@ -429,6 +449,7 @@
             localStorage.setItem("tasken:quick-capture:last-theme-id", themeId);
           }
           input.value = "";
+          captureAnchor = null;
           clearOrganization();
           feedback.style.display = "";
           feedback.style.animation = "none";
@@ -446,7 +467,7 @@
           // 期限を読み取れない等、直せる失敗は原因をそのまま見せる。入力は消さない。
           const reason = String(error?.message || "").replace(/^Error: /, "").replace(/^.*Error invoking remote method '[^']*': Error: /, "");
           if (organization) {
-            organizationStatus.textContent = "保存できませんでした。タイトル・日付・チェック項目を確認して再試行してください。元の入力と整理案は残っています。";
+            organizationStatus.textContent = "保存できませんでした。タイトル・日付・時刻・所要時間・チェック項目を確認して再試行してください。元の入力と整理案は残っています。";
             return;
           }
           feedback.textContent = reason
@@ -460,7 +481,14 @@
       }
 
       submitButton.addEventListener("click", () => submit(false));
-      input.addEventListener("input", () => { if (organizing) { stopOrganizing(); organizationStatus.textContent = "入力が変わったため整理を中止しました。"; } void refreshDuePreview(); });
+      input.addEventListener("input", () => {
+        if (!organization) {
+          if (input.value && !captureAnchor) captureAnchor = { capturedAt: new Date().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+          else if (!input.value) captureAnchor = null;
+        }
+        if (organizing) { stopOrganizing(); organizationStatus.textContent = "入力が変わったため整理を中止しました。"; }
+        void refreshDuePreview();
+      });
       themeSelect.addEventListener("change", () => { if (organizing) { stopOrganizing(); organizationStatus.textContent = "Themeが変わったため整理を中止しました。"; } });
       organizeButton.addEventListener("click", organize);
       document.getElementById("organization-restore").addEventListener("click", () => clearOrganization(true));

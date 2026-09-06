@@ -14,6 +14,10 @@ data class MobileCaptureOrganization(
     val checklist: List<String> = emptyList(),
     val supplement: String = "",
     val warnings: List<String> = emptyList(),
+    val plannedStartTime: String? = null,
+    val plannedDurationMinutes: Int? = null,
+    // Persist capability with the proposal so reopening a legacy draft cannot enable unsupported fields.
+    val plannedTimeSupported: Boolean = false,
 )
 
 internal fun MobileCaptureOrganization.validate() {
@@ -22,6 +26,9 @@ internal fun MobileCaptureOrganization.validate() {
     require(checklist.size <= 20 && checklist.all { it.isNotBlank() && it.length <= 200 })
     require(supplement.length <= 12000)
     require(warnings.size <= 10 && warnings.all { it.length <= 500 })
+    require(plannedStartTime == null || isPlannedStartTime(plannedStartTime))
+    require(plannedDurationMinutes == null || isPlannedDurationMinutes(plannedDurationMinutes))
+    require(plannedTimeSupported || (plannedStartTime == null && plannedDurationMinutes == null))
     val start = startDate?.let(LocalDate::parse)
     val end = endDate?.let(LocalDate::parse)
     require(start == null || end == null || !end.isBefore(start))

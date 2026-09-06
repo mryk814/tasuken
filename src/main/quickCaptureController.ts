@@ -18,8 +18,8 @@ import type { CommandEnvelope, CommandReceipt } from "../shared/applicationComma
 import { IPC } from "../shared/ipc/contracts";
 import {
   mobileCaptureOrganizationRequestSchema,
-  mobileCaptureOrganizationSchema,
-  mobileCaptureOrganizationBatchSchema,
+  mobileCaptureOrganizationTimedSchema,
+  mobileCaptureOrganizationTimedBatchSchema,
 } from "../shared/contracts/mobile/public.ts";
 import type { CaptureOrganizerBatch, CaptureOrganizerInput } from "./gateway/mobile/public";
 
@@ -145,12 +145,12 @@ export function createQuickCaptureController(
       const themes = (options.repository.list("theme") as Entity[])
         .slice(0, 200)
         .map((theme) => ({ id: theme.id, title: String(theme.name || theme.title || "Theme") }));
-      const organized = mobileCaptureOrganizationBatchSchema.parse(
-        await options.organizeCapture({ ...parsed, themes, maxTasks: 1 }),
+      const organized = mobileCaptureOrganizationTimedBatchSchema.parse(
+        await options.organizeCapture({ ...parsed, themes, maxTasks: 1, includePlannedTime: true }),
       );
       if (organized.tasks.length !== 1)
         throw new Error("整理案の件数を確認して再試行してください。");
-      const proposal = mobileCaptureOrganizationSchema.parse({
+      const proposal = mobileCaptureOrganizationTimedSchema.parse({
         ...organized.tasks[0],
         warnings: [...new Set([...organized.warnings, ...organized.tasks[0].warnings])].slice(
           0,
@@ -180,7 +180,7 @@ export function createQuickCaptureController(
         if (organization !== undefined) {
           if (event.sender !== captureWindow?.webContents || mode !== "today-task")
             throw new Error("整理案はTask入力から追加してください。");
-          const proposal = mobileCaptureOrganizationSchema.parse(organization);
+          const proposal = mobileCaptureOrganizationTimedSchema.parse(organization);
           if (text.length > 12000) throw new Error("元の入力は12,000文字以内にしてください。");
           const taskId = randomUUID();
           const now = new Date().toISOString();
@@ -211,6 +211,8 @@ export function createQuickCaptureController(
                   completed_at: null,
                 })),
                 today_date: null,
+                planned_start_time: proposal.plannedStartTime,
+                planned_duration_minutes: proposal.plannedDurationMinutes,
                 created_at: now,
               },
               ...(proposal.startDate || proposal.endDate
