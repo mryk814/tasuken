@@ -452,6 +452,8 @@ export function createTaskenMcpServer(options = {}) {
       inputSchema: {
         task_id: z.string().trim().min(1).max(200),
         profile: z.enum(["default", "recall"]).optional(),
+        cursor: z.string().max(200).optional(),
+        timezone: z.string().trim().max(100).optional(),
         event_kinds: z.array(z.string().trim().min(1).max(100)).max(20).optional(),
         limit: optionalLimit,
         include_archived: z.boolean().optional(),
@@ -990,6 +992,7 @@ export function createTaskenMcpServer(options = {}) {
       inputSchema: {
         date: z.string().trim().max(40).optional(),
         profile: z.enum(["default", "recall"]).optional(),
+        cursor: z.string().max(200).optional(),
         from: z.string().trim().max(80).optional(),
         to: z.string().trim().max(80).optional(),
         theme_id: z.string().trim().max(200).optional(),

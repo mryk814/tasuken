@@ -35,6 +35,24 @@ export interface ActivityProjectionEvent {
   };
 }
 
+export interface ActivityProjectionPage {
+  status: "ok" | "invalid_cursor" | "resync_required";
+  period: {
+    date: string | null;
+    from: string | null;
+    to: string | null;
+    timezone: string;
+    boundaries: "inclusive";
+  };
+  limit: number;
+  returned_count: number;
+  offset: number | null;
+  matched_visible_count: number | null;
+  next_cursor: string | null;
+  revision: string;
+  generated_at: string;
+}
+
 export interface ActivityProjectionResult {
   schema_version: number;
   timezone: string;
@@ -43,10 +61,12 @@ export interface ActivityProjectionResult {
   excluded_count: number;
   excluded_reasons: Array<Record<string, unknown>>;
   truncated: boolean;
-  matched_count?: number;
+  page: ActivityProjectionPage;
+  matched_count?: number | null;
 }
 
 export interface ActivityProjectionQuery {
+  cursor?: string | null;
   profile?: "default" | "recall";
   events?: Array<Record<string, unknown>>;
   workspace?: Record<string, unknown>;
@@ -60,6 +80,7 @@ export interface ActivityProjectionQuery {
   theme_id?: string;
   entityType?: string;
   entity_type?: string;
+  entity_id?: string;
   eventKinds?: string[];
   event_kinds?: string[];
   timezone?: string;

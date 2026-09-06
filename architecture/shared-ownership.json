@@ -81,7 +81,7 @@
       "id": "activity-recall-policy",
       "classification": "pure-domain",
       "owner": "activity",
-      "files": ["src/shared/activityRecall.mjs", "src/shared/activityHistory.mjs"],
+      "files": ["src/shared/activityRecall.mjs", "src/shared/activityHistory.mjs", "src/shared/activityPagination.mjs"],
       "migrationTarget": "Activity read-model policy consumed by shared/activityProjection.mjs"
     },
     {

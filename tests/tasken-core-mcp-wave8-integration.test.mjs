@@ -294,6 +294,16 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
         delete overHttp.generated_at;
         delete overMcp.generated_at;
       }
+      if (method === "getActivity" || method === "getActivityEntries") {
+        for (const response of [inProcess, overHttp, overMcp]) {
+          assert.ok(Number.isFinite(Date.parse(response.page.generated_at)));
+          if (response.activity && typeof response.activity === "object") {
+            assert.deepEqual(response.activity.page, response.page);
+            delete response.activity.page.generated_at;
+          }
+          delete response.page.generated_at;
+        }
+      }
       if (method === "getContextSubgraph") {
         for (const response of [inProcess, overHttp, overMcp]) {
           assert.equal(

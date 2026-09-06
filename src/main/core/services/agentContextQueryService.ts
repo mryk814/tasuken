@@ -73,6 +73,7 @@ export class AgentContextQueryService {
       entity_type: request.entity_type || "",
       event_kinds: request.event_kinds || [],
       profile: request.profile,
+      cursor: request.cursor,
       timezone: request.timezone || "Asia/Tokyo",
       audience: request.audience || AUDIENCE,
       workspaceDefault: snapshot.workspaceAiVisibilityDefault,
@@ -89,7 +90,7 @@ export class AgentContextQueryService {
       result_meta: {
         contract_version: 1,
         returned_count: result.events.length,
-        matched_visible_count: Number(matchedVisible || result.events.length),
+        matched_visible_count: matchedVisible ?? null,
         truncated: result.truncated,
       },
       ai_audience: request.audience || AUDIENCE,

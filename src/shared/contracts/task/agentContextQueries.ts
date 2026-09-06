@@ -1,6 +1,6 @@
 import * as z from "zod/v4";
 
-import { publicActivityEntrySchema } from "./activityEntries.ts";
+import { activityPageSchema, publicActivityEntrySchema } from "./activityEntries.ts";
 
 export const aiContextAudienceSchema = z.enum(["m365", "coding_agent", "external_ai"]);
 export const agentContextEntityTypeSchema = z.enum([
@@ -143,11 +143,13 @@ const activityPayloadSchema = z
     excluded_count: z.number().int().nonnegative(),
     excluded_reasons: z.array(exclusionReasonSchema).max(100),
     truncated: z.boolean(),
+    page: activityPageSchema.optional(),
   })
   .strict();
 
 export const getActivityRequestSchema = z
   .object({
+    cursor: z.string().max(200).optional(),
     profile: z.enum(["default", "recall"]).optional(),
     date: z.string().trim().max(40).optional(),
     from: z.string().trim().max(80).optional(),
@@ -171,7 +173,7 @@ export const getActivityResponseSchema = activityPayloadSchema
       .object({
         contract_version: z.literal(1),
         returned_count: z.number().int().nonnegative(),
-        matched_visible_count: z.number().int().nonnegative(),
+        matched_visible_count: z.number().int().nonnegative().nullable(),
         truncated: z.boolean(),
       })
       .strict(),

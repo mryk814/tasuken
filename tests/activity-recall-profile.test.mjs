@@ -88,7 +88,12 @@ test("Capture source rows are stable, bounded, read-only and do not duplicate cr
   );
   assert.equal(JSON.stringify(workspace), before);
   assert.equal(query([], { workspace }).events[0].id, `capture-input:${capture.id}`);
-  assert.deepEqual(query([], { workspace }), query([], { workspace }));
+  const firstRead = query([], { workspace });
+  const nextRead = query([], { workspace });
+  assert.ok(Number.isFinite(Date.parse(firstRead.page.generated_at)));
+  assert.ok(Number.isFinite(Date.parse(nextRead.page.generated_at)));
+  nextRead.page.generated_at = firstRead.page.generated_at;
+  assert.deepEqual(firstRead, nextRead);
   const organized = { ...capture, state: "processed" };
   assert.equal(query([created], { workspace: { capture_entries: [organized] } }).events.length, 0);
   const formalized = buildActivityEvent({

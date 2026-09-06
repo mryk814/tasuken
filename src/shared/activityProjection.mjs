@@ -9,6 +9,7 @@ import {
 import { projectEntityForAi, summarizeAiExclusions } from "./aiMetadata.mjs";
 import { safeExternalUrl, safeReceiptText } from "./taskContext.mjs";
 import { createActivityHistoryResolver } from "./activityHistory.mjs";
+import { activityBoundaryMatches, paginateActivity } from "./activityPagination.mjs";
 import {
   isCaptureInput,
   isRecallPlanChange,
@@ -608,6 +609,7 @@ export function queryActivityEvents({
   theme_id = "",
   entityType = "",
   entity_type = "",
+  entity_id = "",
   eventKinds = [],
   event_kinds = [],
   timezone = DEFAULT_TIMEZONE,
@@ -618,6 +620,7 @@ export function queryActivityEvents({
   sort_direction = "asc",
   include_match_metadata = false,
   profile = "default",
+  cursor = null,
 } = {}) {
   const sourceWorkspace = {
     ...workspace,
@@ -644,6 +647,17 @@ export function queryActivityEvents({
       ? createActivityHistoryResolver(sourceWorkspace.change_events || events)
       : null;
   const effectiveTimezone = normalizeTimezone(timezone);
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date))
+    throw new Error("Activity date requires a calendar date");
+  // Validate even an empty snapshot; a malformed period is never an empty success.
+  for (const boundary of [date, from, to]) activityBoundaryMatches("", boundary, "from", "");
+  const period = {
+    date: date || null,
+    from: from || null,
+    to: to || null,
+    timezone: effectiveTimezone,
+    boundaries: "inclusive",
+  };
   const kinds = new Set(
     [...(eventKinds.length ? eventKinds : event_kinds)].map(text).filter(Boolean),
   );
@@ -708,8 +722,8 @@ export function queryActivityEvents({
       .filter((event) => {
         const eventDate = localDate(event.occurred_at, effectiveTimezone);
         if (date && eventDate !== date) return false;
-        if (from && event.occurred_at < from) return false;
-        if (to && event.occurred_at > to) return false;
+        if (!activityBoundaryMatches(event.occurred_at, from, "from", eventDate)) return false;
+        if (!activityBoundaryMatches(event.occurred_at, to, "to", eventDate)) return false;
         if (themeId || theme_id) {
           const selected = themeId || theme_id;
           if (
@@ -722,6 +736,7 @@ export function queryActivityEvents({
           const selected = entityType || entity_type;
           if (event.entity_ref?.type !== selected) return false;
         }
+        if (entity_id && event.entity_ref?.id !== entity_id) return false;
         if (kinds.size && !kinds.has(event.event_kind)) return false;
         return true;
       }),
@@ -732,7 +747,7 @@ export function queryActivityEvents({
   for (const event of scopedEvents.sort(
     (a, b) =>
       direction *
-      (String(a.occurred_at).localeCompare(String(b.occurred_at)) ||
+      (Date.parse(a.occurred_at) - Date.parse(b.occurred_at) ||
         String(a.id).localeCompare(String(b.id))),
   )) {
     const result = projectOne(event, {
@@ -753,16 +768,33 @@ export function queryActivityEvents({
         local_time: localTime(event.occurred_at, effectiveTimezone),
       });
   }
-  const max = Math.max(0, Math.min(MAX_EVENTS, Number(limit) || MAX_EVENTS));
+  const max = Math.max(1, Math.min(MAX_EVENTS, Math.floor(Number(limit) || MAX_EVENTS)));
+  const excludedReasons = summarizeAiExclusions(exclusions).excluded_reasons;
+  const page = paginateActivity(projected, {
+    criteria: {
+      period,
+      theme: themeId || theme_id,
+      entity: entityType || entity_type,
+      entity_id,
+      kinds: [...kinds].sort(),
+      profile,
+      audience,
+      direction,
+      limit: max,
+    },
+    exclusions: excludedReasons,
+    limit: max,
+    cursor,
+    period,
+  });
   return {
     schema_version: ACTIVITY_EVENT_SCHEMA_VERSION,
     timezone: effectiveTimezone,
     date: date || null,
-    events: projected.slice(0, max),
+    ...page,
     excluded_count: exclusions.length,
-    excluded_reasons: summarizeAiExclusions(exclusions).excluded_reasons,
-    truncated: projected.length > max,
-    ...(include_match_metadata ? { matched_count: projected.length } : {}),
+    excluded_reasons: excludedReasons,
+    ...(include_match_metadata ? { matched_count: page.page.matched_visible_count } : {}),
   };
 }
 
@@ -783,6 +815,15 @@ export function projectActivityMarkdown(result, { title = "Activity", date = res
     `# ${title}${date ? ` ${date}` : ""}`,
     "",
     `> timezone: ${result?.timezone || DEFAULT_TIMEZONE}`,
+    `> truncated: ${Boolean(result?.truncated)}`,
+    ...(result?.page
+      ? [
+          `> period: date=${result.page.period.date || "any"}; from=${result.page.period.from || "unbounded"}; to=${result.page.period.to || "unbounded"}; boundaries=${result.page.period.boundaries}`,
+          `> status: ${result.page.status}; offset: ${result.page.offset ?? "unknown"}; returned: ${result.page.returned_count}; limit: ${result.page.limit}; matched_visible: ${result.page.matched_visible_count ?? "unknown"}`,
+          `> next_cursor: ${result.page.next_cursor || "none"}`,
+          `> revision: ${result.page.revision}; generated_at: ${result.page.generated_at}`,
+        ]
+      : []),
     "",
     "## Events",
   ];
@@ -812,7 +853,14 @@ export function projectActivityMarkdown(result, { title = "Activity", date = res
     );
   }
   if (result?.excluded_count)
-    lines.push("", `## Excluded by policy`, `- ${result.excluded_count} event(s)`);
+    lines.push(
+      "",
+      `## Excluded by policy`,
+      `- ${result.excluded_count} event(s)`,
+      ...(result.excluded_reasons || []).map(
+        (entry) => `- ${entry.type}: ${entry.reason} (${entry.count})`,
+      ),
+    );
   return lines.join("\n");
 }
 
