@@ -1568,6 +1568,7 @@ export const mobileCaptureOrganizationRequestSchema = z
     themeId: entityIdSchema.nullable(),
     maxTasks: z.number().int().min(1).max(8).default(1),
     includePlannedTime: z.boolean().optional(),
+    images: z.array(noteProposalImageSchema).min(1).max(8).optional(),
   })
   .strict();
 

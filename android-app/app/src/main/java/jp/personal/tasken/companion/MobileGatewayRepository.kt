@@ -370,6 +370,8 @@ class AndroidMobileTaskRepository(
         require(configuration.origin.isNotBlank() && token != null) { "Desktopへ接続するとAI整理を利用できます。" }
         val text = draft.originalText ?: draft.text
         require(text.isNotBlank() && text.length <= 12000) { "AI整理は12000文字以内で利用できます。元の入力は保持しています。" }
+        val photoNames = draft.photos.map { it.fileName }
+        val photos = if (photoNames.isEmpty()) emptyList() else photoStore.encodePhotos(photoNames)
         try {
             fun requestBody(batch: Boolean, plannedTime: Boolean = false) = buildJsonObject {
                     if (plannedTime) put("includePlannedTime", true)
@@ -378,12 +380,27 @@ class AndroidMobileTaskRepository(
                     put("capturedAt", draft.speech?.capturedAt ?: draft.createdAt)
                     put("timeZone", draft.speech?.timeZone ?: java.time.ZoneId.systemDefault().id)
                     put("themeId", draft.projectId?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+                    if (photos.isNotEmpty()) {
+                        put("images", kotlinx.serialization.json.JsonArray(photos.map { photo ->
+                            buildJsonObject {
+                                put("reference_id", photo.referenceId)
+                                put("file_name", photo.fileName)
+                                put("media_type", photo.mediaType)
+                                put("data_base64", photo.dataBase64)
+                            }
+                        }))
+                    }
                 }.toString()
             var response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(true, true), token)
             fun rejectedNewFields() = response.status == 400 && runCatching {
                 json.parseToJsonElement(response.body).jsonObject["error"]?.jsonObject
                     ?.get("code")?.jsonPrimitive?.content == "validation_failed"
             }.getOrDefault(false)
+            // 写真付きは旧Desktopでは受理できない。写真を落として再送すると
+            // LLMが画像を見ない整理になるため、フォールバックせず案内する。
+            if (photos.isNotEmpty() && rejectedNewFields()) {
+                error("このDesktopは写真付きのAI整理に対応していません。Desktopを更新してから再試行してください。写真なしなら通常の追加はそのまま使えます。")
+            }
             if (rejectedNewFields()) {
                 response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(true), token)
             }

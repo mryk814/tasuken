@@ -518,3 +518,58 @@ test("request is aborted after 30 seconds without exposing provider errors", asy
   await rejection;
   assert.equal(signal.aborted, true);
 });
+
+test("attached photos travel as image parts with bytes stripped from the text JSON", async () => {
+  const photo = {
+    reference_id: "photo-1",
+    file_name: "photo-1.jpg",
+    media_type: "image/jpeg",
+    data_base64: "aGVsbG8=",
+  };
+  const withPhoto = { ...input, images: [photo] };
+  const openai = create(env(), async (_url, options) => {
+    const body = JSON.parse(options.body);
+    const userContent = body.messages[1].content;
+    if (typeof userContent === "string") {
+      const data = JSON.parse(userContent);
+      assert.equal(data.text, input.text);
+      assert.ok(!("attachedPhotos" in data));
+      assert.ok(!userContent.includes("aGVsbG8="));
+    } else {
+      assert.equal(userContent.length, 2);
+      assert.equal(userContent[0].type, "text");
+      const data = JSON.parse(userContent[0].text);
+      assert.equal(data.text, input.text);
+      assert.deepEqual(data.attachedPhotos, ["photo-1"]);
+      assert.ok(!userContent[0].text.includes("aGVsbG8="));
+      assert.deepEqual(userContent[1], {
+        type: "image_url",
+        image_url: { url: "data:image/jpeg;base64,aGVsbG8=", detail: "high" },
+      });
+    }
+    return json(chat());
+  });
+  assert.deepEqual(await openai.organize(withPhoto), batch());
+  assert.ok(!JSON.stringify(await openai.organize(input)).includes("attachedPhotos"));
+
+  const gemini = create(env("gemini", "gemini-test"), async (_url, options) => {
+    const body = JSON.parse(options.body);
+    const parts = body.contents[0].parts;
+    assert.equal(parts.length, 2);
+    const data = JSON.parse(parts[0].text);
+    assert.equal(data.text, input.text);
+    assert.deepEqual(parts[1], { inlineData: { mimeType: "image/jpeg", data: "aGVsbG8=" } });
+    return json({
+      candidates: [
+        { finishReason: "STOP", content: { parts: [{ text: JSON.stringify(batch()) }] } },
+      ],
+    });
+  });
+  assert.deepEqual(await gemini.organize(withPhoto), batch());
+
+  const oversized = create(env(), async () => assert.fail("oversized images transmitted"));
+  await assert.rejects(
+    oversized.organize({ ...withPhoto, images: Array(9).fill(photo) }),
+    /AIで整理できませんでした/,
+  );
+});
