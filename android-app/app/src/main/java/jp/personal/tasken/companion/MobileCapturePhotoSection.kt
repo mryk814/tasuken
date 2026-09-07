@@ -43,7 +43,7 @@ internal fun CapturePhotoSection(
             enabled = enabled && photos.size < CAPTURE_PHOTO_MAX_COUNT,
             modifier = Modifier.fillMaxWidth().testTag("capture-photo-action"),
         ) {
-            Icon(painterResource(R.drawable.ic_tabler_plus), contentDescription = null)
+            Icon(painterResource(R.drawable.ic_tabler_camera), contentDescription = null)
             Text("写真を撮る（${photos.size}/${CAPTURE_PHOTO_MAX_COUNT}）", modifier = Modifier.padding(start = 8.dp))
         }
         if (photos.isNotEmpty()) {

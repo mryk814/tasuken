@@ -16,7 +16,7 @@ import {
   quickCaptureContentType,
   quickCaptureTitle,
 } from "../../shared/quickCapture.mjs";
-import { validateCaptureImageManifest } from "./captureImageStore";
+import { validateStagedImageManifest } from "./captureImageStore.ts";
 import {
   selectLatestWorkReceipt,
   taskWorkReportsCoveredBy,
@@ -1377,7 +1377,7 @@ export class ApplicationCommandService {
     }> = [];
     if (payload.capture.images !== undefined) {
       try {
-        stagedImages = validateCaptureImageManifest(payload.capture.id, payload.capture.images);
+        stagedImages = validateStagedImageManifest(payload.capture.id, payload.capture.images);
       } catch {
         throw new ApplicationCommandError("INVALID_PAYLOAD", "Capture画像のmanifestが不正です。");
       }

@@ -3,7 +3,7 @@ import type { ContentDetailReadPort, ContentDetailRecord } from "../../core/publ
 
 export interface ContentDetailWorkspacePersistence {
   list(
-    type: "theme" | "note" | "resource" | "artifact" | "capture_entry",
+    type: "theme" | "note" | "resource" | "artifact" | "capture_entry" | "task",
     includeDeleted?: boolean,
   ): ContentDetailRecord[];
   readPreference(key: "aiVisibilityDefault"): unknown;
@@ -14,7 +14,7 @@ export class WorkspaceContentDetailReadAdapter implements ContentDetailReadPort 
   constructor(private readonly persistence: ContentDetailWorkspacePersistence) {}
 
   list(
-    type: "theme" | "note" | "resource" | "artifact" | "capture_entry",
+    type: "theme" | "note" | "resource" | "artifact" | "capture_entry" | "task",
     includeArchived: boolean,
   ) {
     return this.persistence.list(type, includeArchived);

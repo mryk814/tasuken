@@ -22,7 +22,13 @@ export const taskWorkStateSchema = z.enum([
   "blocked",
   "failed",
 ]);
-export const taskShelfSchema = z.enum(["maybe_today", "this_evening", "this_week", "someday", "backlog"]);
+export const taskShelfSchema = z.enum([
+  "maybe_today",
+  "this_evening",
+  "this_week",
+  "someday",
+  "backlog",
+]);
 export const taskScheduleDateKindSchema = z.enum(["point", "deadline", "range", "unknown"]);
 export const taskScheduleRangeSemanticsSchema = z.enum(["once_within_window", "ongoing"]);
 export const taskScheduleConfidenceSchema = z.enum(["rough", "tentative", "fixed"]);
@@ -88,7 +94,10 @@ function validateTaskSchedule(
 }
 
 /** Canonical Schedule write carried beside the Task aggregate. */
-export const taskScheduleWriteSchema = z.object(taskScheduleFields).strict().superRefine(validateTaskSchedule);
+export const taskScheduleWriteSchema = z
+  .object(taskScheduleFields)
+  .strict()
+  .superRefine(validateTaskSchedule);
 
 const taskScheduleEditFields = {
   start_date: localDateSchema.nullable(),
@@ -99,56 +108,97 @@ const taskScheduleEditFields = {
   granularity: taskScheduleGranularitySchema,
 };
 
-export const taskScheduleEditSchema = z.object(taskScheduleEditFields).strict().superRefine((value, context) => {
-  validateTaskSchedule({
-    id: entityIdSchema.parse("schedule-contract-validation"),
-    owner_type: "task",
-    owner_id: taskIdSchema.parse("task-contract-validation"),
-    ...value,
-  }, context);
-});
+export const taskScheduleEditSchema = z
+  .object(taskScheduleEditFields)
+  .strict()
+  .superRefine((value, context) => {
+    validateTaskSchedule(
+      {
+        id: entityIdSchema.parse("schedule-contract-validation"),
+        owner_type: "task",
+        owner_id: taskIdSchema.parse("task-contract-validation"),
+        ...value,
+      },
+      context,
+    );
+  });
 
 /** Public nested projection. Schedule remains an independently versioned entity. */
-export const taskScheduleReadModelSchema = z.object({
-  ...taskScheduleFields,
-  version: entityVersionSchema,
-  source: z.string().trim().min(1).max(100),
-  created_at: isoTimestampSchema,
-  updated_at: isoTimestampSchema,
-  deleted_at: optionalTimestamp,
-}).strict().superRefine(validateTaskScheduleDates);
+export const taskScheduleReadModelSchema = z
+  .object({
+    ...taskScheduleFields,
+    version: entityVersionSchema,
+    source: z.string().trim().min(1).max(100),
+    created_at: isoTimestampSchema,
+    updated_at: isoTimestampSchema,
+    deleted_at: optionalTimestamp,
+  })
+  .strict()
+  .superRefine(validateTaskScheduleDates);
 
-export const taskRepeatRuleSchema = z.object({
-  frequency: z.enum(["daily", "weekly", "monthly"]),
-  interval: z.number().int().min(1).max(365),
-  weekdays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
-  month_day: z.number().int().min(1).max(31).nullable().optional(),
-  next_from: z.enum(["scheduled", "completed"]),
-  until: localDateSchema.nullable().optional(),
-}).strict();
+export const taskRepeatRuleSchema = z
+  .object({
+    frequency: z.enum(["daily", "weekly", "monthly"]),
+    interval: z.number().int().min(1).max(365),
+    weekdays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+    month_day: z.number().int().min(1).max(31).nullable().optional(),
+    next_from: z.enum(["scheduled", "completed"]),
+    until: localDateSchema.nullable().optional(),
+  })
+  .strict();
 
-export const taskChecklistItemSchema = z.object({
-  id: entityIdSchema,
-  title: z.string().trim().min(1).max(200),
-  done: z.boolean(),
-  sort_order: z.number().finite(),
-  completed_at: optionalTimestamp,
-}).strict();
+export const taskChecklistItemSchema = z
+  .object({
+    id: entityIdSchema,
+    title: z.string().trim().min(1).max(200),
+    done: z.boolean(),
+    sort_order: z.number().finite(),
+    completed_at: optionalTimestamp,
+  })
+  .strict();
 
-const aiSourceRefSchema = z.object({
-  kind: z.enum(["url", "file", "canonical_document", "conversation", "meeting", "repository", "external_system"]),
-  locator: z.string().trim().min(1).max(4000),
-  title: z.string().max(500).optional(),
-  captured_at: isoTimestampSchema.optional(),
-  last_checked_at: isoTimestampSchema.optional(),
-  storage_root_id: entityIdSchema.optional(),
-  relative_path: z.string().max(4000).optional(),
-}).strict();
+const aiSourceRefSchema = z
+  .object({
+    kind: z.enum([
+      "url",
+      "file",
+      "canonical_document",
+      "conversation",
+      "meeting",
+      "repository",
+      "external_system",
+    ]),
+    locator: z.string().trim().min(1).max(4000),
+    title: z.string().max(500).optional(),
+    captured_at: isoTimestampSchema.optional(),
+    last_checked_at: isoTimestampSchema.optional(),
+    storage_root_id: entityIdSchema.optional(),
+    relative_path: z.string().max(4000).optional(),
+  })
+  .strict();
 
-const aiEntityRefSchema = z.object({
-  type: z.string().trim().min(1).max(100),
-  id: entityIdSchema,
-}).strict();
+const aiEntityRefSchema = z
+  .object({
+    type: z.string().trim().min(1).max(100),
+    id: entityIdSchema,
+  })
+  .strict();
+
+/** stage 済み画像 manifest。画像バイト（base64）は含めない。 */
+export const taskImageManifestSchema = z
+  .object({
+    reference_id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+    file_name: z.string().trim().min(1).max(180),
+    mime_type: z.enum(["image/png", "image/jpeg"]),
+    size: z
+      .number()
+      .int()
+      .positive()
+      .max(12 * 1024 * 1024),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/i),
+    url: z.string().trim().min(1).max(2000),
+  })
+  .strict();
 
 const taskFields = {
   id: taskIdSchema,
@@ -169,7 +219,11 @@ const taskFields = {
   priority: taskPrioritySchema,
   today_date: localDateSchema.nullable().optional(),
   planning_shelf: taskShelfSchema.nullable().optional(),
-  planned_start_time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+  planned_start_time: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .nullable()
+    .optional(),
   planned_duration_minutes: z.number().int().positive().max(10080).nullable().optional(),
   reminder_at: optionalTimestamp,
   completed_at: optionalTimestamp,
@@ -178,6 +232,7 @@ const taskFields = {
   repeat_series_id: optionalEntityId,
   repeat_parent_task_id: optionalTaskId,
   checklist_items: z.array(taskChecklistItemSchema).max(100).optional(),
+  images: z.array(taskImageManifestSchema).max(8).optional(),
   source_record_id: optionalEntityId,
   legacy_item_id: optionalEntityId,
   repository_context_mode: z.enum(["inherit", "extend", "override"]).optional(),
@@ -187,25 +242,37 @@ const taskFields = {
   repository_branch_hint: optionalText(500),
   repository_context_detachments: z.array(z.record(z.string(), z.unknown())).max(100).optional(),
   ai_summary: optionalText(20000),
-  ai_summary_authority: z.enum(["user_confirmed", "rule_generated", "ai_generated", "excerpt"]).nullable().optional(),
+  ai_summary_authority: z
+    .enum(["user_confirmed", "rule_generated", "ai_generated", "excerpt"])
+    .nullable()
+    .optional(),
   ai_freshness: z.enum(["current", "stale", "superseded", "unknown"]).nullable().optional(),
-  ai_authority: z.enum(["user_confirmed", "imported", "ai_generated", "inferred", "external_source"]).nullable().optional(),
-  ai_visibility: z.array(z.enum(["m365", "coding_agent", "external_ai"])).max(3).nullable().optional(),
+  ai_authority: z
+    .enum(["user_confirmed", "imported", "ai_generated", "inferred", "external_source"])
+    .nullable()
+    .optional(),
+  ai_visibility: z
+    .array(z.enum(["m365", "coding_agent", "external_ai"]))
+    .max(3)
+    .nullable()
+    .optional(),
   ai_last_verified_at: optionalTimestamp,
   ai_superseded_by: aiEntityRefSchema.nullable().optional(),
   ai_source_refs: z.array(aiSourceRefSchema).max(100).optional(),
 };
 
 /** Public transport DTO. This is not a SQLite row or Renderer form state. */
-export const taskReadModelSchema = z.object({
-  ...taskFields,
-  schedule: taskScheduleReadModelSchema.nullable(),
-  version: entityVersionSchema,
-  source: z.string().trim().min(1).max(100),
-  created_at: isoTimestampSchema,
-  updated_at: isoTimestampSchema,
-  deleted_at: optionalTimestamp,
-}).strict();
+export const taskReadModelSchema = z
+  .object({
+    ...taskFields,
+    schedule: taskScheduleReadModelSchema.nullable(),
+    version: entityVersionSchema,
+    source: z.string().trim().min(1).max(100),
+    created_at: isoTimestampSchema,
+    updated_at: isoTimestampSchema,
+    deleted_at: optionalTimestamp,
+  })
+  .strict();
 
 /** Create input. IDs remain caller-generated so Desktop/Mobile can enqueue offline. */
 export const taskDraftSchema = z.object(taskFields).strict();
@@ -213,7 +280,9 @@ export const taskDraftSchema = z.object(taskFields).strict();
 export const taskPatchSchema = taskDraftSchema
   .omit({ id: true })
   .partial()
-  .refine((value) => Object.keys(value).length > 0, { message: "変更fieldを1件以上指定してください。" });
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "変更fieldを1件以上指定してください。",
+  });
 
 export type TaskId = z.output<typeof taskIdSchema>;
 export type TaskState = z.output<typeof taskStateSchema>;
@@ -231,6 +300,7 @@ export type TaskScheduleEdit = z.output<typeof taskScheduleEditSchema>;
 export type TaskScheduleReadModel = z.output<typeof taskScheduleReadModelSchema>;
 export type TaskRepeatRule = z.output<typeof taskRepeatRuleSchema>;
 export type TaskChecklistItem = z.output<typeof taskChecklistItemSchema>;
+export type TaskImageManifest = z.output<typeof taskImageManifestSchema>;
 export type TaskReadModel = z.output<typeof taskReadModelSchema>;
 export type TaskDraft = z.output<typeof taskDraftSchema>;
 export type TaskPatch = z.output<typeof taskPatchSchema>;

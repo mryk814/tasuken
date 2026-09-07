@@ -10,7 +10,7 @@ import {
   createNativeImageDecoder,
   createNoteProposalImagePort,
 } from "../services/proposalMarkdownImages.ts";
-import { createCaptureImagePort } from "../services/captureImageStore";
+import { createCaptureImagePort } from "../services/captureImageStore.ts";
 import {
   MobileGatewayRuntime,
   type MobileDevicePersistence,

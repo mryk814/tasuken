@@ -331,8 +331,10 @@ class AndroidMobileTaskRepository(
 
     override fun observeConflictCount(): Flow<Int> = outbox.observeConflictCount()
 
-    override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: LocalDate?): String =
-        outbox.enqueueCreate(
+    override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: LocalDate?): String {
+        val photoNames = draft.photos.map { it.fileName }
+        val photos = if (photoNames.isEmpty()) emptyList() else photoStore.encodePhotos(photoNames)
+        val taskId = outbox.enqueueCreate(
             title = draft.text,
             todayDate = todayDate,
             projectId = draft.projectId,
@@ -344,10 +346,23 @@ class AndroidMobileTaskRepository(
             schedule = draft.organizationSchedule(),
             plannedStartTime = draft.organization?.plannedStartTime,
             plannedDurationMinutes = draft.organization?.plannedDurationMinutes,
+            photos = photos,
         )
+        photoStore.deletePhotos(photoNames)
+        return taskId
+    }
 
-    override suspend fun enqueueCreateTasks(drafts: List<MobileCaptureDraft>, todayDate: LocalDate?): List<String> =
-        outbox.enqueueCreateTasks(drafts, todayDate)
+    override suspend fun enqueueCreateTasks(drafts: List<MobileCaptureDraft>, todayDate: LocalDate?): List<String> {
+        val photoNamesByDraftId = drafts.associate { draft ->
+            draft.draftId to draft.photos.map { it.fileName }
+        }
+        val photosByDraftId = photoNamesByDraftId.mapValues { (_, photoNames) ->
+            if (photoNames.isEmpty()) emptyList() else photoStore.encodePhotos(photoNames)
+        }
+        val ids = outbox.enqueueCreateTasks(drafts, todayDate, photosByDraftId)
+        photoStore.deletePhotos(photoNamesByDraftId.values.flatten())
+        return ids
+    }
 
     override suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> {
         val configuration = store.configuration()
@@ -1575,6 +1590,9 @@ class AndroidMobileTaskRepository(
             )
             if (isUnsupportedLongCapture(envelopeJson, response, expectedServerId)) {
                 return MobileCommandSendResult.Rejected("capability_unavailable", LONG_CAPTURE_UPDATE_REQUIRED)
+            }
+            if (isUnsupportedPhotoCapture(envelopeJson, response, expectedServerId)) {
+                return MobileCommandSendResult.Rejected("capability_unavailable", PHOTO_CAPTURE_UPDATE_REQUIRED)
             }
             when {
                 response.status == 200 -> {

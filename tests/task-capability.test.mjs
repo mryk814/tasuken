@@ -244,6 +244,56 @@ test("CreateTask rejects invalid and conflicting schedules without leaving a par
   assert.equal(repository.list("schedule")[0].owner_id, "another-task");
 });
 
+test("CreateTask persists staged photo manifests and UpdateTask preserves them", async () => {
+  const { createHash } = await import("node:crypto");
+  const { repository, service } = capability();
+  const contentHash = createHash("sha256").update("photo-bytes").digest("hex");
+  const fileHash = createHash("sha256")
+    .update(`task-task-photo\u0000photo\u0000${contentHash}`)
+    .digest("hex");
+  const fileName = `${fileHash.slice(0, 8)}-${fileHash.slice(8, 12)}-${fileHash.slice(12, 16)}-${fileHash.slice(16, 20)}-${fileHash.slice(20, 32)}.png`;
+  const manifest = {
+    reference_id: "photo",
+    file_name: fileName,
+    mime_type: "image/png",
+    size: 11,
+    sha256: contentHash,
+    url: `tasken-attachment://local/${fileName}/photo.png`,
+  };
+  const command = createCommand("mobile", "task-photo");
+  command.payload.task.title = "レシピの買い物リスト";
+  command.payload.task.images = [manifest];
+  const created = service.executeCommand(command);
+  assert.equal(created.ok, true);
+  assert.equal(created.value.task.images.length, 1);
+  assert.equal(created.value.task.images[0].file_name, fileName);
+  assert.doesNotMatch(JSON.stringify(created.value.task), /data_base64/);
+
+  const raw = createCommand("mobile", "task-photo-raw");
+  raw.payload.task.images = [{ ...manifest, data_base64: "aGVsbG8=" }];
+  assert.equal(service.executeCommand(raw).ok, false);
+  assert.equal(repository.list("task").length, 1);
+
+  const update = {
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+    command_id: "command-task-photo-update",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "actor-1" },
+    source: "mobile",
+    issued_at: now,
+    payload: {
+      task_id: "task-task-photo",
+      expected_version: 1,
+      changes: { title: "レシピの買い物リスト更新" },
+      base: { title: "レシピの買い物リスト" },
+    },
+  };
+  const updated = service.executeCommand(update);
+  assert.equal(updated.ok, true);
+  assert.equal(updated.value.task.images.length, 1);
+  assert.equal(updated.value.task.images[0].file_name, fileName);
+});
+
 test("AI agent starts only an explicitly AI Ready Task and retries idempotently", () => {
   const { service } = capability();
   const created = service.executeCommand(createCommand("desktop", "ai-start"));

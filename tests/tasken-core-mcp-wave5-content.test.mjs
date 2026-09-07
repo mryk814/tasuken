@@ -15,6 +15,7 @@ const bundled = await build({
         getConversationRequestSchema, getConversationResponseSchema,
         getArtifactMetadataRequestSchema, getArtifactMetadataResponseSchema,
         getCaptureImageRequestSchema, getCaptureImageResponseSchema,
+        getTaskImageRequestSchema, getTaskImageResponseSchema,
       } from "./src/shared/contracts/task/contentDetailQueries.ts";
     `,
     resolveDir: process.cwd(),
@@ -36,6 +37,8 @@ const {
   getArtifactMetadataResponseSchema,
   getCaptureImageRequestSchema,
   getCaptureImageResponseSchema,
+  getTaskImageRequestSchema,
+  getTaskImageResponseSchema,
 } = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
 );
@@ -173,6 +176,26 @@ function fixture() {
         updated_at: now,
       },
     ],
+    tasks: [
+      {
+        id: "task-photo",
+        title: "レシピの買い物リスト",
+        state: "todo",
+        project_id: visibleTheme.id,
+        images: [
+          {
+            reference_id: "photo",
+            file_name: "task-photo-image.png",
+            mime_type: "image/png",
+            size: 4,
+            sha256: "cd".repeat(32),
+            url: "tasken-attachment://local/task-photo-image.png/photo.png",
+          },
+        ],
+        version: 1,
+        updated_at: now,
+      },
+    ],
   };
 }
 
@@ -190,6 +213,7 @@ class FixturePersistence {
       resource: "resources",
       artifact: "artifacts",
       capture_entry: "captures",
+      task: "tasks",
     }[type];
     return (this.workspace[collection] || []).filter(
       (record) => includeDeleted || !record.deleted_at,
@@ -411,6 +435,50 @@ test("Capture image query serves staged bytes with manifest ownership and visibi
     getCaptureImageRequestSchema.safeParse({
       capture_id: "capture-photo",
       file_name: "capture-photo-image.png",
+      unexpected: true,
+    }).success,
+    false,
+  );
+});
+
+test("Task image query serves staged bytes with manifest ownership and visibility", () => {
+  const photoBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  const imagePort = {
+    read: (fileName) => {
+      assert.equal(fileName, "task-photo-image.png");
+      return photoBytes;
+    },
+  };
+  const { service } = serviceFixture(imagePort);
+
+  const found = service.getTaskImage({
+    task_id: "task-photo",
+    file_name: "task-photo-image.png",
+  });
+  assert.equal(getTaskImageResponseSchema.safeParse(found).success, true);
+  assert.equal(found.image?.task_id, "task-photo");
+  assert.equal(found.image?.mime_type, "image/png");
+  assert.equal(Buffer.from(found.image?.data_base64 || "", "base64").equals(photoBytes), true);
+
+  assert.equal(
+    service.getTaskImage({ task_id: "missing", file_name: "task-photo-image.png" }).error?.code,
+    "not_found",
+  );
+  assert.equal(
+    service.getTaskImage({ task_id: "task-photo", file_name: "other.png" }).error?.code,
+    "not_found",
+  );
+
+  const { service: portless } = serviceFixture();
+  assert.equal(
+    portless.getTaskImage({ task_id: "task-photo", file_name: "task-photo-image.png" }).error?.code,
+    "not_found",
+  );
+
+  assert.equal(
+    getTaskImageRequestSchema.safeParse({
+      task_id: "task-photo",
+      file_name: "task-photo-image.png",
       unexpected: true,
     }).success,
     false,

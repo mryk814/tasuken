@@ -8,6 +8,7 @@ import {
   type CommandReceipt,
 } from "../../../../shared/applicationCommand.ts";
 import type { TaskRepository } from "../ports/taskRepository.ts";
+import { validateStagedImageManifest } from "../../../services/captureImageStore.ts";
 import {
   assertHumanAcceptBeforeTaskCompletion,
   assertTaskThemeExists,
@@ -136,6 +137,16 @@ export class TaskCommandHandler {
 
     const task = normalizeTaskForSave(inputTask, current || undefined);
     if (task.state === "done") assertHumanAcceptBeforeTaskCompletion(task);
+    const requestedImages = (task as { images?: unknown }).images;
+    if (requestedImages !== undefined) {
+      try {
+        task.images = validateStagedImageManifest(taskId, requestedImages);
+      } catch {
+        throw new ApplicationCommandError("INVALID_PAYLOAD", "Task画像のmanifestが不正です。");
+      }
+    } else if (!isCreate && current && Array.isArray((current as { images?: unknown }).images)) {
+      task.images = (current as { images?: unknown }).images;
+    }
     if (!isCreate && !this.runtime.hasExpectedVersion(command, "task", taskId)) {
       throw new ApplicationCommandError("CONFLICT", "UpdateTaskにはexpected versionが必要です。", {
         type: "task",

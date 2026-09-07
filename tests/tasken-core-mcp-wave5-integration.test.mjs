@@ -499,7 +499,7 @@ test("Capture image query is exact across Core, HTTP, and MCP image content", as
       },
       rollback: () => {},
       read: (fileName) => {
-        assert.equal(fileName, "wave5-photo.png");
+        assert.ok(["wave5-photo.png", "wave5-task-photo.png"].includes(fileName));
         return bytes;
       },
     };
@@ -531,6 +531,46 @@ test("Capture image query is exact across Core, HTTP, and MCP image content", as
       file_name: "other.png",
     });
     assert.equal(missing.isError, true);
+
+    workspace.tasks.push({
+      id: "task-wave5-photo",
+      title: "買い物リスト",
+      state: "todo",
+      project_id: "theme-wave5",
+      images: [
+        {
+          reference_id: "photo",
+          file_name: "wave5-task-photo.png",
+          mime_type: "image/png",
+          size: bytes.length,
+          sha256: "ab".repeat(32),
+          url: "tasken-attachment://local/wave5-task-photo.png/photo.png",
+        },
+      ],
+      version: 1,
+      updated_at: now,
+    });
+    assert.ok(status.capabilities.includes("get_task_image"));
+
+    const taskArgs = { task_id: "task-wave5-photo", file_name: "wave5-task-photo.png" };
+    const taskInProcess = core.getTaskImage.execute(taskArgs);
+    assert.equal(taskInProcess.image?.mime_type, "image/png");
+    const taskOverHttp = await client.getTaskImage(taskArgs);
+    assert.deepEqual(taskOverHttp, taskInProcess);
+
+    const taskOverMcp = await mcpCall(client, "tasken.get_task_image", taskArgs);
+    assert.equal(taskOverMcp.isError, undefined);
+    assert.equal(taskOverMcp.content[0].type, "text");
+    assert.equal(taskOverMcp.content[1].type, "image");
+    assert.equal(taskOverMcp.content[1].mimeType, "image/png");
+    assert.equal(Buffer.from(taskOverMcp.content[1].data, "base64").equals(bytes), true);
+    assert.doesNotMatch(JSON.stringify(taskOverMcp.structuredContent), /data_base64/);
+
+    const taskMissing = await mcpCall(client, "tasken.get_task_image", {
+      task_id: "task-wave5-photo",
+      file_name: "other.png",
+    });
+    assert.equal(taskMissing.isError, true);
   } finally {
     try {
       await host?.stop();

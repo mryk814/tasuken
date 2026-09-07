@@ -137,6 +137,7 @@ export function createTaskenCore(
     getConversation: { execute: contentDetails.getConversation.bind(contentDetails) },
     getArtifactMetadata: { execute: contentDetails.getArtifactMetadata.bind(contentDetails) },
     getCaptureImage: { execute: contentDetails.getCaptureImage.bind(contentDetails) },
+    getTaskImage: { execute: contentDetails.getTaskImage.bind(contentDetails) },
     getActivityEntries: new ActivityEntriesQueryService(
       new WorkspaceActivityEntriesReadAdapter(persistence),
     ),

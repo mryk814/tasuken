@@ -1093,15 +1093,13 @@ internal fun CaptureTaskSheet(
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("capture-speech-status"),
             )
-            if (draft.kind == MobileCaptureKind.Capture) {
-                CapturePhotoSection(
-                    photos = draft.photos,
-                    enabled = state !is CaptureUiState.Saving && !speechBusy,
-                    onTakePhoto = onTakePhoto,
-                    onRemovePhoto = onRemovePhoto,
-                    loadThumbnail = loadPhotoThumbnail,
-                )
-            }
+            CapturePhotoSection(
+                photos = draft.photos,
+                enabled = state !is CaptureUiState.Saving && !speechBusy,
+                onTakePhoto = onTakePhoto,
+                onRemovePhoto = onRemovePhoto,
+                loadThumbnail = loadPhotoThumbnail,
+            )
             if (onOrganize != null && draft.kind == MobileCaptureKind.Task) CaptureOrganizationControls(
                 themes = themes,
                 draft = draft, speechState = speechState, enabled = !speechBusy && state !is CaptureUiState.Saving,

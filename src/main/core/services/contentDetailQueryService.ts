@@ -11,12 +11,15 @@ import {
 import {
   getArtifactMetadataRequestSchema,
   getCaptureImageRequestSchema,
+  getTaskImageRequestSchema,
   getConversationRequestSchema,
   getNoteRequestSchema,
   type GetArtifactMetadataRequest,
   type GetArtifactMetadataResponse,
   type GetCaptureImageRequest,
   type GetCaptureImageResponse,
+  type GetTaskImageRequest,
+  type GetTaskImageResponse,
   type GetConversationRequest,
   type GetConversationResponse,
   type GetNoteRequest,
@@ -62,7 +65,7 @@ function notFound(codeField: string, id: string, label: string) {
 }
 
 function visibility(
-  type: "note" | "resource" | "artifact" | "capture_entry",
+  type: "note" | "resource" | "artifact" | "capture_entry" | "task",
   record: ContentDetailRecord,
   themes: ContentDetailRecord[],
   workspaceDefault: AiAudience[],
@@ -78,7 +81,7 @@ function visibility(
 }
 
 function visibleRecord(
-  type: "note" | "resource" | "artifact" | "capture_entry",
+  type: "note" | "resource" | "artifact" | "capture_entry" | "task",
   record: ContentDetailRecord | undefined,
   themes: ContentDetailRecord[],
   workspaceDefault: AiAudience[],
@@ -231,19 +234,81 @@ export class ContentDetailQueryService {
 
   getCaptureImage(args: GetCaptureImageRequest): GetCaptureImageResponse {
     const request = getCaptureImageRequestSchema.parse(args);
-    const captureId = request.capture_id;
-    const fileName = request.file_name;
-    const includeArchived = Boolean(request.include_archived);
-    const themes = this.port.list("theme", true);
-    const captures = this.port.list("capture_entry", includeArchived);
-    const candidate = captures.find((record) => String(record.id) === captureId);
-    const filtered = visibleRecord(
+    const found = this.findOwnedImage(
       "capture_entry",
+      request.capture_id,
+      request.file_name,
+      Boolean(request.include_archived),
+    );
+    if (!found) return captureImageNotFound(request.capture_id);
+    return {
+      image: {
+        capture_id: String(found.record.id),
+        file_name: found.manifest.file_name,
+        mime_type: found.manifest.mime_type,
+        size: found.manifest.size,
+        sha256: found.manifest.sha256,
+        url: found.manifest.url,
+        data_base64: Buffer.from(found.bytes).toString("base64"),
+      },
+      read_only: true,
+      ai_audience: AUDIENCE,
+      next_tools: [TASK_CONTEXT_GUIDANCE, SEARCH_GUIDANCE[0]],
+    };
+  }
+
+  getTaskImage(args: GetTaskImageRequest): GetTaskImageResponse {
+    const request = getTaskImageRequestSchema.parse(args);
+    const found = this.findOwnedImage(
+      "task",
+      request.task_id,
+      request.file_name,
+      Boolean(request.include_archived),
+    );
+    if (!found) return taskImageNotFound(request.task_id);
+    return {
+      image: {
+        task_id: String(found.record.id),
+        file_name: found.manifest.file_name,
+        mime_type: found.manifest.mime_type,
+        size: found.manifest.size,
+        sha256: found.manifest.sha256,
+        url: found.manifest.url,
+        data_base64: Buffer.from(found.bytes).toString("base64"),
+      },
+      read_only: true,
+      ai_audience: AUDIENCE,
+      next_tools: [TASK_CONTEXT_GUIDANCE, SEARCH_GUIDANCE[0]],
+    };
+  }
+
+  private findOwnedImage(
+    type: "capture_entry" | "task",
+    ownerId: string,
+    fileName: string,
+    includeArchived: boolean,
+  ): {
+    record: ContentDetailRecord;
+    manifest: {
+      reference_id: string;
+      file_name: string;
+      mime_type: "image/png" | "image/jpeg";
+      size: number;
+      sha256: string;
+      url: string;
+    };
+    bytes: Uint8Array;
+  } | null {
+    const themes = this.port.list("theme", true);
+    const candidates = this.port.list(type, includeArchived);
+    const candidate = candidates.find((record) => String(record.id) === ownerId);
+    const filtered = visibleRecord(
+      type,
       candidate,
       themes,
       this.port.workspaceAiVisibilityDefault(),
     );
-    if (!filtered.record) return captureImageNotFound(captureId);
+    if (!filtered.record) return null;
     const images = Array.isArray(filtered.record.images) ? filtered.record.images : [];
     const manifest = images.find(
       (entry) =>
@@ -271,28 +336,26 @@ export class ContentDetailQueryService {
       typeof manifest.url !== "string" ||
       !this.captureImagePort
     ) {
-      return captureImageNotFound(captureId);
+      return null;
     }
     let bytes: Uint8Array;
     try {
       bytes = this.captureImagePort.read(manifest.file_name);
     } catch {
-      return captureImageNotFound(captureId);
+      return null;
     }
-    if (bytes.length !== (manifest.size as number)) return captureImageNotFound(captureId);
+    if (bytes.length !== (manifest.size as number)) return null;
     return {
-      image: {
-        capture_id: String(filtered.record.id),
+      record: filtered.record,
+      manifest: {
+        reference_id: manifest.reference_id,
         file_name: manifest.file_name,
         mime_type: manifest.mime_type,
         size: manifest.size as number,
         sha256: manifest.sha256,
         url: manifest.url,
-        data_base64: Buffer.from(bytes).toString("base64"),
       },
-      read_only: true,
-      ai_audience: AUDIENCE,
-      next_tools: [TASK_CONTEXT_GUIDANCE, SEARCH_GUIDANCE[0]],
+      bytes,
     };
   }
 }
@@ -303,6 +366,19 @@ function captureImageNotFound(captureId: string): GetCaptureImageResponse {
       code: "not_found" as const,
       message: "Capture画像が見つかりません。IDまたはAI公開範囲を確認してください。",
       capture_id: captureId,
+    },
+    read_only: true as const,
+    ai_audience: AUDIENCE,
+    next_tools: SEARCH_GUIDANCE,
+  };
+}
+
+function taskImageNotFound(taskId: string): GetTaskImageResponse {
+  return {
+    error: {
+      code: "not_found" as const,
+      message: "Task画像が見つかりません。IDまたはAI公開範囲を確認してください。",
+      task_id: taskId,
     },
     read_only: true as const,
     ai_audience: AUDIENCE,

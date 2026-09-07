@@ -2739,6 +2739,61 @@ test("photo Capture stages bytes to managed files and persists manifests without
   assert.deepEqual((await post(request)).body, response.body);
 });
 
+test("photo Task stages bytes and persists manifests on the task read model", async (t) => {
+  const { repository, application } = capability();
+  const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-task-photo-e2e-"));
+  t.after(() => rmSync(userDataPath, { recursive: true, force: true }));
+  const runtime = new TaskenCoreRuntime(
+    userDataPath,
+    repository,
+    (command) => application.execute(command),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createCaptureImagePort(userDataPath, () => ({ width: 1, height: 1 })),
+  );
+  const adapter = runtime.createMobileGateway({
+    current: () => ({ serverId: "desktop-task-photo", serverRevision: 1, generatedAt: now }),
+  });
+  const post = (body) =>
+    adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.commands,
+      principal,
+      body,
+    });
+  const request = createRequest();
+  request.commandId = "command-mobile-task-photo";
+  request.idempotencyKey = "command-mobile-task-photo";
+  request.command.task.id = "task-mobile-photo";
+  request.command.task.title = "レシピの買い物リスト";
+  request.command.task.images = [
+    {
+      reference_id: "photo",
+      file_name: "photo.png",
+      media_type: "image/png",
+      data_base64: PHOTO_PNG_1X1,
+    },
+  ];
+
+  const response = await post(request);
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  const saved = repository.get("task", "task-mobile-photo");
+  assert.equal(saved.images.length, 1);
+  assert.match(saved.images[0].file_name, /\.png$/);
+  assert.doesNotMatch(JSON.stringify(saved), /data_base64/);
+  assert.equal(response.body.data.task.images.length, 1);
+  assert.deepEqual((await post(request)).body, response.body);
+
+  const invalid = createRequest();
+  invalid.commandId = "command-mobile-task-photo-invalid";
+  invalid.idempotencyKey = "command-mobile-task-photo-invalid";
+  invalid.command.task.id = "task-mobile-photo-invalid";
+  invalid.command.task.images = [{ reference_id: "BAD ID" }];
+  assert.equal((await post(invalid)).status, 400);
+});
+
 test("CreateCapture accepts shared UTF-16 boundaries without trimming original text", async () => {
   const fixtures = JSON.parse(
     readFileSync(

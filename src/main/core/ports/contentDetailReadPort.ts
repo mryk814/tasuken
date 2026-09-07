@@ -7,7 +7,7 @@ export interface ContentDetailRecord extends Record<string, any> {
 /** Narrow read-only source used by the MCP content-detail queries. */
 export interface ContentDetailReadPort {
   list(
-    type: "theme" | "note" | "resource" | "artifact" | "capture_entry",
+    type: "theme" | "note" | "resource" | "artifact" | "capture_entry" | "task",
     includeArchived: boolean,
   ): ContentDetailRecord[];
   workspaceAiVisibilityDefault(): AiAudience[];

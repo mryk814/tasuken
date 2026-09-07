@@ -394,14 +394,13 @@ function validateOwnedManifest(
  */
 export class ProposalMarkdownImageStore {
   readonly attachmentDirectory: string;
+  private readonly decoder: ProposalMarkdownImageDecoder;
 
-  constructor(
-    userDataPath: string,
-    private readonly decoder: ProposalMarkdownImageDecoder,
-  ) {
+  constructor(userDataPath: string, decoder: ProposalMarkdownImageDecoder) {
     if (typeof userDataPath !== "string" || !userDataPath.trim())
       throw imageError("画像の保存先が設定されていません。");
     if (typeof decoder !== "function") throw imageError("画像デコーダーが設定されていません。");
+    this.decoder = decoder;
     this.attachmentDirectory = path.join(
       path.resolve(userDataPath),
       "attachments",

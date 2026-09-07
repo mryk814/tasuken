@@ -214,6 +214,14 @@ export const getCaptureImageRequestSchema = z
   })
   .strict();
 
+export const getTaskImageRequestSchema = z
+  .object({
+    task_id: z.string().trim().min(1).max(200),
+    file_name: z.string().trim().min(1).max(180),
+    include_archived: z.boolean().optional(),
+  })
+  .strict();
+
 const captureImageDetailSchema = z
   .object({
     capture_id: z.string(),
@@ -239,6 +247,34 @@ const captureImageDetailResponseSchema = z
   })
   .strict();
 
+const taskImageDetailSchema = captureImageDetailSchema.omit({ capture_id: true }).extend({
+  task_id: z.string(),
+});
+
+const taskImageDetailResponseSchema = z
+  .object({
+    image: taskImageDetailSchema,
+    read_only: z.literal(true),
+    ai_audience: z.literal("coding_agent"),
+    next_tools: z.array(nextToolSchema).max(4),
+  })
+  .strict();
+
+const taskImageNotFoundSchema = z
+  .object({
+    error: z
+      .object({
+        code: z.literal("not_found"),
+        message: z.string().trim().min(1),
+        task_id: z.string(),
+      })
+      .strict(),
+    read_only: z.literal(true),
+    ai_audience: z.literal("coding_agent"),
+    next_tools: z.array(nextToolSchema).max(4),
+  })
+  .strict();
+
 export const getNoteResponseSchema = z.union([noteDetailResponseSchema, noteNotFoundSchema]);
 export const getConversationResponseSchema = z.union([
   conversationDetailResponseSchema,
@@ -252,12 +288,18 @@ export const getCaptureImageResponseSchema = z.union([
   captureImageDetailResponseSchema,
   captureImageNotFoundSchema,
 ]);
+export const getTaskImageResponseSchema = z.union([
+  taskImageDetailResponseSchema,
+  taskImageNotFoundSchema,
+]);
 
 export type GetNoteRequest = z.output<typeof getNoteRequestSchema>;
 export type GetConversationRequest = z.output<typeof getConversationRequestSchema>;
 export type GetArtifactMetadataRequest = z.output<typeof getArtifactMetadataRequestSchema>;
 export type GetCaptureImageRequest = z.output<typeof getCaptureImageRequestSchema>;
+export type GetTaskImageRequest = z.output<typeof getTaskImageRequestSchema>;
 export type GetNoteResponse = z.output<typeof getNoteResponseSchema>;
 export type GetConversationResponse = z.output<typeof getConversationResponseSchema>;
 export type GetArtifactMetadataResponse = z.output<typeof getArtifactMetadataResponseSchema>;
 export type GetCaptureImageResponse = z.output<typeof getCaptureImageResponseSchema>;
+export type GetTaskImageResponse = z.output<typeof getTaskImageResponseSchema>;

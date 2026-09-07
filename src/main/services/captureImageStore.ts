@@ -10,7 +10,7 @@ import {
   validateManifestEntry,
   type ProposalMarkdownImageDecoder,
   type ProposalMarkdownImageManifest,
-} from "./proposalMarkdownImages";
+} from "./proposalMarkdownImages.ts";
 import type { CaptureImagePort } from "../core/ports/captureImagePort";
 
 /**
@@ -42,15 +42,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * stage 済み manifest がこの Capture に属し、保存済みファイルと一致することを
- * fs なしで検証する。Core（applicationCommandService）が使う純粋関数。
+ * stage 済み manifest がこの所有者（Capture/Task）に属し、保存済みファイルと
+ * 一致することを fs なしで検証する。Core が使う純粋関数。
  */
-export function validateCaptureImageManifest(
-  captureId: string,
+export function validateStagedImageManifest(
+  ownerId: string,
   images: unknown,
 ): CaptureImageManifest[] {
-  const cleanCaptureId = typeof captureId === "string" ? captureId.trim() : "";
-  if (!cleanCaptureId) throw captureImageError("Capture IDがありません。");
+  const cleanOwnerId = typeof ownerId === "string" ? ownerId.trim() : "";
+  if (!cleanOwnerId) throw captureImageError("所有IDがありません。");
   if (!Array.isArray(images) || images.length === 0 || images.length > CAPTURE_IMAGE_MAX_COUNT) {
     throw captureImageError("画像は1〜8枚で指定してください。");
   }
@@ -62,13 +62,13 @@ export function validateCaptureImageManifest(
     if ("data_base64" in value) throw captureImageError("画像バイトは保存層でstageしてください。");
     const entry = validateManifestEntry(value);
     const expectedFileName = deterministicFileName(
-      cleanCaptureId,
+      cleanOwnerId,
       entry.reference_id,
       entry.sha256,
       entry.mime_type,
     );
     if (entry.file_name !== expectedFileName)
-      throw captureImageError("画像情報がこのCaptureに属していません。");
+      throw captureImageError("画像情報がこの対象に属していません。");
     if (fileNames.has(entry.file_name) || referenceIds.has(entry.reference_id))
       throw captureImageError("画像情報に重複があります。");
     fileNames.add(entry.file_name);
@@ -82,15 +82,14 @@ export function validateCaptureImageManifest(
 
 export class CaptureImageStore {
   readonly attachmentDirectory: string;
+  private readonly decoder: ProposalMarkdownImageDecoder;
 
-  constructor(
-    userDataPath: string,
-    private readonly decoder: ProposalMarkdownImageDecoder,
-  ) {
+  constructor(userDataPath: string, decoder: ProposalMarkdownImageDecoder) {
     if (typeof userDataPath !== "string" || !userDataPath.trim())
       throw captureImageError("画像の保存先が設定されていません。");
     if (typeof decoder !== "function")
       throw captureImageError("画像デコーダーが設定されていません。");
+    this.decoder = decoder;
     this.attachmentDirectory = path.join(
       path.resolve(userDataPath),
       "attachments",
@@ -139,7 +138,7 @@ export class CaptureImageStore {
       };
     });
     // Core 側と同じ所有検証を通してから保存する。
-    validateCaptureImageManifest(cleanCaptureId, manifest);
+    validateStagedImageManifest(cleanCaptureId, manifest);
     const createdPaths: string[] = [];
     try {
       fs.mkdirSync(this.attachmentDirectory, { recursive: true });
@@ -242,8 +241,8 @@ export function createCaptureImagePort(
 ): CaptureImagePort {
   const store = new CaptureImageStore(userDataPath, decoder);
   return {
-    stage({ captureId, images }) {
-      const staged = store.stage(captureId, images);
+    stage({ ownerId, images }) {
+      const staged = store.stage(ownerId, images);
       const state: { createdPaths: string[] | null } = { createdPaths: staged.createdPaths };
       return {
         manifest: staged.manifest.map((entry) => ({

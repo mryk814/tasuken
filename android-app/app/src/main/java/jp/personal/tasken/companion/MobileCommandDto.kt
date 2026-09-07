@@ -179,6 +179,8 @@ data class MobileCreateTaskCandidateDto(
     val plannedStartTime: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val plannedDurationMinutes: Int? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val images: List<MobileCaptureImageDto>? = null,
 )
 
 @Serializable
@@ -360,6 +362,7 @@ object MobileTaskCommandContract {
             require(items.size <= 20)
             validateChecklistPatch(json.parseToJsonElement(encodeMobileChecklist(items)))
         }
+        envelope.command.task.images?.let(MobileCaptureCommandContract::validateCaptureImages)
         envelope.command.schedule?.let { schedule ->
             validateSchedulePatch(JsonObject(mapOf(
                 "startDate" to (schedule.startDate?.let(::JsonPrimitive) ?: JsonNull),
@@ -637,21 +640,23 @@ object MobileCaptureCommandContract {
         require(envelope.command.capture.projectId == null || envelope.command.capture.projectId.isNotBlank())
         require(runCatching { OffsetDateTime.parse(envelope.command.capture.capturedAt) }.isSuccess)
         require(envelope.command.capture.capturedAt == envelope.issuedAt)
-        envelope.command.capture.images?.let { images ->
-            require(images.size in 1..MOBILE_CAPTURE_IMAGE_MAX_COUNT)
-            val referenceIds = mutableSetOf<String>()
-            images.forEach { image ->
-                require(MOBILE_CAPTURE_IMAGE_REFERENCE_PATTERN.matches(image.referenceId))
-                require(referenceIds.add(image.referenceId))
-                require(image.mediaType == "image/png" || image.mediaType == "image/jpeg")
-                require(image.fileName.isNotBlank() && image.fileName.length <= MOBILE_CAPTURE_IMAGE_FILE_NAME_MAX_LENGTH)
-                require(image.dataBase64.isNotEmpty())
-            }
-        }
+        envelope.command.capture.images?.let(::validateCaptureImages)
         require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)
         envelope.command.provenance?.let {
             validateCreationProvenance(it)
             require(it.capturedAt == envelope.command.capture.capturedAt)
+        }
+    }
+
+    internal fun validateCaptureImages(images: List<MobileCaptureImageDto>) {
+        require(images.size in 1..MOBILE_CAPTURE_IMAGE_MAX_COUNT)
+        val referenceIds = mutableSetOf<String>()
+        images.forEach { image ->
+            require(MOBILE_CAPTURE_IMAGE_REFERENCE_PATTERN.matches(image.referenceId))
+            require(referenceIds.add(image.referenceId))
+            require(image.mediaType == "image/png" || image.mediaType == "image/jpeg")
+            require(image.fileName.isNotBlank() && image.fileName.length <= MOBILE_CAPTURE_IMAGE_FILE_NAME_MAX_LENGTH)
+            require(image.dataBase64.isNotEmpty())
         }
     }
 

@@ -18,11 +18,11 @@ export interface StagedCaptureImages {
   staged: unknown;
 }
 
-/** Owns managed image staging and cleanup for a mobile photo Capture. */
+/** Owns managed image staging and cleanup for a mobile photo Capture or Task. */
 export interface CaptureImagePort {
-  stage(input: { captureId: string; images: readonly NoteProposalImage[] }): StagedCaptureImages;
-  /** Removes only files newly created by stage for this capture. */
+  stage(input: { ownerId: string; images: readonly NoteProposalImage[] }): StagedCaptureImages;
+  /** Removes only files newly created by stage for this owner. */
   rollback(staged: unknown): void;
-  /** Reads staged bytes for LLM handoff. Only files owned by a Capture manifest are served. */
+  /** Reads staged bytes for LLM handoff. Only files owned by a staged manifest are served. */
   read(fileName: string): Uint8Array;
 }

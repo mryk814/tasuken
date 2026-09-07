@@ -15,7 +15,7 @@ const bundled = await build({
   write: false,
   logLevel: "silent",
 });
-const { CaptureImageStore, validateCaptureImageManifest } = await import(
+const { CaptureImageStore, validateStagedImageManifest } = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
 );
 
@@ -94,10 +94,10 @@ test("rejects invalid base64, mismatched types, duplicates, and oversized input"
   );
 });
 
-test("validateCaptureImageManifest rejects manifests that do not belong to the capture", () => {
+test("validateStagedImageManifest rejects manifests that do not belong to the capture", () => {
   assert.throws(
     () =>
-      validateCaptureImageManifest("capture-1", [
+      validateStagedImageManifest("capture-1", [
         {
           reference_id: "photo",
           file_name: "abcdef01-2345-6789-abcd-ef0123456789.png",
@@ -111,16 +111,16 @@ test("validateCaptureImageManifest rejects manifests that do not belong to the c
   );
 });
 
-test("validateCaptureImageManifest rejects foreign manifests and embedded base64", (t) => {
+test("validateStagedImageManifest rejects foreign manifests and embedded base64", (t) => {
   const { store } = fixture(t);
   const staged = store.stage("capture-owned", [image("photo")]);
-  assert.equal(validateCaptureImageManifest("capture-owned", staged.manifest).length, 1);
+  assert.equal(validateStagedImageManifest("capture-owned", staged.manifest).length, 1);
   assert.throws(
-    () => validateCaptureImageManifest("capture-other", staged.manifest),
+    () => validateStagedImageManifest("capture-other", staged.manifest),
     /属していません/,
   );
   assert.throws(
-    () => validateCaptureImageManifest("capture-owned", [image("photo")]),
+    () => validateStagedImageManifest("capture-owned", [image("photo")]),
     /stageしてください/,
   );
 });
