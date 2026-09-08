@@ -1,3 +1,5 @@
+import { focusSessionProperties, isFocusSession } from "../../../../../shared/focusSession.mjs";
+
 export type ActivityDisplayKind = "ai_work" | "outcome" | "record" | "organize";
 
 type ActivityThemeSource = {
@@ -95,6 +97,7 @@ const recordEventKinds = new Set([
   "sketch_updated",
   "capture_formalized",
   "status_updated",
+  "focus_session",
 ]);
 
 function text(value: unknown): string {
@@ -144,6 +147,120 @@ export function activitySessionInterval(
     start_at: new Date(Math.max(sessionStart, dayStart)).toISOString(),
     end_at: new Date(Math.min(sessionEnd, dayEnd)).toISOString(),
   };
+}
+
+type FocusActivityEvent = ActivitySessionEvent & {
+  id?: string;
+  occurred_at?: string;
+  summary?: string;
+  entity_ref?: { type?: string; id?: string };
+  metadata?: Record<string, unknown>;
+  theme_ref?: { kind?: "theme" | "none"; id?: string | null };
+  relation_refs?: Array<{ type?: string; id?: string }>;
+  origin?: { kind?: string; session_id?: string; command_id?: string; command_name?: string };
+};
+
+/** Keep canonical events intact; one focus note owns its displayed work period. */
+export function groupFocusSessionActivity<T extends FocusActivityEvent>(
+  events: T[],
+  notes: Array<Record<string, unknown>>,
+  changes: Array<Record<string, unknown>>,
+  date: string,
+  nowAt?: string,
+): Array<T | FocusActivityEvent> {
+  const sessions = notes.filter(isFocusSession);
+  const sessionById = new Map(sessions.map((note) => [text(note.id), note]));
+  const sessionByEndCommand = new Map<string, string>();
+  const ownerByEvent = new Map<string, string>();
+  const record = (value: unknown): Record<string, unknown> => {
+    if (typeof value === "string") {
+      try {
+        return record(JSON.parse(value));
+      } catch {
+        return {};
+      }
+    }
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  };
+  for (const change of changes) {
+    const ref = record(change.entity_ref);
+    const type = text(ref.type || change.entity_type);
+    const id = text(ref.id || change.entity_id);
+    const after = record(change.after_json);
+    const completedSession =
+      change.reason === "focus_session_completed_task" && type === "task"
+        ? sessions.find((note) => {
+            const properties = focusSessionProperties(note);
+            return (
+              properties.task_id === id &&
+              properties.ended_at &&
+              properties.ended_at === after.completed_at
+            );
+          })
+        : undefined;
+    const sessionId =
+      type === "note" && sessionById.has(id)
+        ? id
+        : type === "reference" &&
+            after.source_type === "note" &&
+            sessionById.has(text(after.source_id))
+          ? text(after.source_id)
+          : completedSession
+            ? text(completedSession.id)
+            : "";
+    if (!sessionId) continue;
+    ownerByEvent.set(text(change.id), sessionId);
+    if (type === "note") {
+      const origin = record(change.origin);
+      if (origin.command_name === "EndFocusSession" && text(origin.command_id)) {
+        sessionByEndCommand.set(text(origin.command_id), sessionId);
+      }
+    }
+  }
+  const visible: FocusActivityEvent[] = sessions.flatMap((session): FocusActivityEvent[] => {
+    const properties = focusSessionProperties(session);
+    const interval = activitySessionInterval(
+      {
+        started_at: properties.started_at,
+        ended_at: properties.ended_at,
+      },
+      date,
+      nowAt,
+    );
+    if (!interval) return [];
+    const active = properties.session_state === "active";
+    return [
+      {
+        id: `focus:${text(session.id)}`,
+        occurred_at: interval.start_at,
+        event_kind: "focus_session",
+        entity_ref: { type: "note", id: text(session.id) },
+        theme_ref: session.project_id
+          ? { kind: "theme", id: text(session.project_id) }
+          : { kind: "none" },
+        summary: text(properties.summary) || (active ? "フォーカス中" : "フォーカスを終了"),
+        origin: { kind: "manual" },
+        metadata: {
+          end_at: interval.end_at,
+          focus_task_id: text(properties.task_id),
+          session_state: properties.session_state,
+        },
+      },
+    ];
+  });
+  const visibleIds = new Set(visible.map((event) => text(event.entity_ref?.id)));
+  return [
+    ...events.filter((event) => {
+      const owner =
+        ownerByEvent.get(text(event.id)) ||
+        sessionByEndCommand.get(event.origin?.command_id || "") ||
+        (event.entity_ref?.type === "note" && sessionById.has(text(event.entity_ref.id))
+          ? text(event.entity_ref.id)
+          : "");
+      return !visibleIds.has(owner || "");
+    }),
+    ...visible,
+  ];
 }
 
 export function buildDailyAgentSessionContexts<

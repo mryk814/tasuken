@@ -8,7 +8,6 @@ import {
   type CommandReceipt,
 } from "../../../../shared/applicationCommand.ts";
 import type { TaskRepository } from "../ports/taskRepository.ts";
-import { validateStagedImageManifest } from "../domain/imageManifest.ts";
 import {
   assertHumanAcceptBeforeTaskCompletion,
   assertTaskThemeExists,
@@ -61,6 +60,7 @@ export const taskApplicationCommandNames = [
 const taskCommandNames = new Set<ApplicationCommandName>(taskApplicationCommandNames);
 
 export interface TaskCommandRuntime {
+  validateImageManifest(ownerId: string, images: unknown): unknown[];
   hasExpectedVersion(command: CommandEnvelope, type: EntityType, id: string): boolean;
   assertExpectedVersion(
     command: CommandEnvelope,
@@ -166,7 +166,7 @@ export class TaskCommandHandler {
     const requestedImages = (task as { images?: unknown }).images;
     if (requestedImages !== undefined) {
       try {
-        task.images = validateStagedImageManifest(taskId, requestedImages);
+        task.images = this.runtime.validateImageManifest(taskId, requestedImages);
       } catch {
         throw new ApplicationCommandError("INVALID_PAYLOAD", "Task画像のmanifestが不正です。");
       }

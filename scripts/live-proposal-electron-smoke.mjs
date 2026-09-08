@@ -26,7 +26,7 @@ if (!fs.existsSync(serverPath)) throw new Error("Tasken MCP server was not found
 
 const title = "MCP live Proposalを確認する";
 const rejectedTitle = "拒否するlive Proposal";
-const staleWorkSummary = "古いversionのWork Receiptは採用しない";
+const staleWorkSummary = "古いversionのチェック項目報告は採用しない";
 const recoveredWorkSummary = "最新versionで再提案したWork Receipt";
 const proposalArguments = {
   idempotency_key: "electron-live-proposal-v1",
@@ -154,10 +154,13 @@ function workReceiptArguments({ taskId, expectedVersion, idempotencyKey, summary
 async function closeElectron() {
   if (!electronApp) return;
   const processHandle = electronApp.process();
-  const closed = await Promise.race([
-    electronApp.close().then(() => true),
-    delay(10_000).then(() => false),
-  ]);
+  const closeEvent = electronApp.waitForEvent("close", { timeout: 10_000 }).then(
+    () => true,
+    () => false,
+  );
+  // Keep the renderer alive while Tasken flushes drafts during before-quit.
+  await electronApp.evaluate(({ app }) => app.quit());
+  const closed = await closeEvent;
   if (!closed && processHandle.exitCode === null) processHandle.kill();
   electronApp = undefined;
   assert.equal(closed, true, "Tasken did not close within ten seconds.");
@@ -275,10 +278,11 @@ try {
     idempotencyKey: "electron-live-task-work-stale-v1",
     summary: staleWorkSummary,
   });
+  staleWorkArguments.completed_checklist_item_ids = ["stale-checklist-item"];
   const staleWork = await callMcp("tasken.append_work_receipt", staleWorkArguments);
   assert.equal(staleWork.status, "queued");
   await openNavigation(page, "AI Inbox");
-  await waitForPendingCount(page, 0);
+  await waitForPendingCount(page, 1);
   await page.locator(".proposal-row-select").first().waitFor();
   await page.locator(".proposal-row-select").first().click();
   await page
@@ -343,8 +347,40 @@ try {
   assert.equal(duplicateCompletedWork.proposal_id, completedWork.proposal_id);
   await waitForPendingCount(page, 0);
 
+  const adoptedTaskContext = await getTaskContext(taskId);
+  assert.equal(adoptedTaskContext.task.state, "todo");
+  assert.equal(adoptedTaskContext.assignment.work_state, "accepted");
+  await openNavigation(page, "ToDo");
+  await page
+    .locator(".table-row", { hasText: title })
+    .first()
+    .getByText(title, { exact: true })
+    .click();
+  await page.getByRole("button", { name: "承認して完了", exact: true }).click();
+  await page.getByText("Work Receiptを承認し、Taskを完了しました。", { exact: true }).waitFor();
+  const completedTaskContext = await getTaskContext(taskId);
+  await page.keyboard.press("Escape");
+  const followUp = await callMcp(
+    "tasken.append_work_receipt",
+    workReceiptArguments({
+      taskId,
+      expectedVersion: refreshedTaskVersion,
+      idempotencyKey: "electron-live-task-work-follow-up",
+      summary: "完了後の追加検証",
+    }),
+  );
+  assert.equal(followUp.status, "queued");
+  await openNavigation(page, "AI Inbox");
+  await waitForPendingCount(page, 1);
+  await page.locator(".proposal-row-select").first().click();
+  await page
+    .locator(".proposal-inline-preview")
+    .getByRole("button", { name: "採用", exact: true })
+    .click();
+  await waitForWorkProposalDecision(page);
   const finalTaskContext = await getTaskContext(taskId);
   assert.equal(finalTaskContext.task.state, "done");
+  assert.deepEqual(finalTaskContext.task, completedTaskContext.task);
   const remainingReadyTasks = await callMcp("tasken.list_agent_ready_tasks", { limit: 100 });
   assert.equal(
     remainingReadyTasks.tasks.some((task) => task.id === taskId),
@@ -392,7 +428,10 @@ try {
       conflictGuidance: true,
       acceptedTaskVisible: true,
       taskMarkedAiReady: true,
-      taskWorkImplicitlyStartedAndCompleted: true,
+      taskWorkImplicitlyStarted: true,
+      taskWorkAdoptedWithoutCompletion: true,
+      taskWorkExplicitlyCompleted: true,
+      completedTaskFollowUpPreserved: true,
       staleTaskWorkGuidance: true,
       staleTaskWorkRecovered: true,
       taskWorkAppliedOnce: true,

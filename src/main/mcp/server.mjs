@@ -1417,6 +1417,13 @@ export function createTaskenMcpServer(options = {}) {
     executor_label: z.string().trim().min(1).max(200),
     summary: z.string().trim().min(1).max(10000),
     completed_items: workItemList,
+    completed_checklist_item_ids: z
+      .array(z.string().trim().min(1).max(200))
+      .max(100)
+      .optional()
+      .describe(
+        "IDs from get_task_context.checklist_items that this work completed. Human adoption checks only these items; include the exact Task expected_version. Never infer IDs or mark unverified work complete.",
+      ),
     changed_or_created_items: workItemList,
     verification: workItemList,
     remaining_work: workItemList,
@@ -1429,7 +1436,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.append_work_receipt",
     {
       description:
-        "Queue an optional interim Work Receipt for long-running work only. Normally send report_task_done once at completion without appending the same result first. Reuse the same idempotency_key, time and content for retries. Reports stay grouped under their Task until human review.",
+        "Queue an append-only progress or follow-up Work Receipt, including for reviewed or completed Tasks. Human adoption preserves Task completion and its original body. Reuse the same idempotency_key, time and content for retries. Include completed_checklist_item_ids for verified checklist work.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },
@@ -1440,7 +1447,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.report_task_done",
     {
       description:
-        "Queue an AI work report for an AI Ready or active Task. If no separate start was adopted, started_at is recorded with the report. Human approval completes the Task.",
+        "Queue an AI work report for any visible Task, including reviewed or completed Tasks. Human adoption records the report and optional completed checklist items; only a separate explicit human action completes the Task. If AI Ready work has no start, adoption records its start too.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },
@@ -1458,6 +1465,7 @@ export function createTaskenMcpServer(options = {}) {
         executor_label: z.string().trim().min(1).max(200),
         blocker: z.string().trim().min(1).max(10000),
         attempted_work: workItemList,
+        completed_checklist_item_ids: receiptProposalSchema.completed_checklist_item_ids,
         needed_input: workItemList,
         retained_artifacts: workItemList,
         external_references: externalReferenceList,

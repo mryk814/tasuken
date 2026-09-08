@@ -77,6 +77,7 @@ const receiptFields = {
   executor_label: boundedText(200),
   summary: boundedText(10_000),
   completed_items: workItemListSchema,
+  completed_checklist_item_ids: z.array(boundedText(200)).max(100).optional(),
   changed_or_created_items: workItemListSchema,
   verification: workItemListSchema,
   remaining_work: workItemListSchema,
@@ -106,6 +107,7 @@ export const proposeTaskWorkRequestSchema = z.discriminatedUnion("action", [
       executor_label: boundedText(200),
       blocker: boundedText(10_000),
       attempted_work: workItemListSchema,
+      completed_checklist_item_ids: z.array(boundedText(200)).max(100).optional(),
       needed_input: workItemListSchema,
       retained_artifacts: workItemListSchema,
       external_references: z.array(taskWorkExternalReferenceSchema).max(100).optional(),
@@ -155,6 +157,9 @@ export function taskWorkReportTime(proposal: WorkRecord): string {
 export function taskWorkReportsCoveredBy<T extends WorkRecord>(done: T, proposals: T[]): T[] {
   const final = taskWorkEntry(done);
   if (final?.action !== "report_done") return [];
+  const finalChecklistIds = new Set(
+    Array.isArray(final.completed_checklist_item_ids) ? final.completed_checklist_item_ids : [],
+  );
   return proposals.filter((proposal) => {
     const entry = taskWorkEntry(proposal);
     return (
@@ -164,6 +169,9 @@ export function taskWorkReportsCoveredBy<T extends WorkRecord>(done: T, proposal
       ["append_receipt", "report_done", "report_blocked"].includes(String(entry.action)) &&
       entry.task_id === final.task_id &&
       entry.expected_version === final.expected_version &&
+      (entry.completed_checklist_item_ids === undefined ||
+        (Array.isArray(entry.completed_checklist_item_ids) &&
+          entry.completed_checklist_item_ids.every((id) => finalChecklistIds.has(id)))) &&
       proposal.source_app === done.source_app &&
       entry.caller === final.caller &&
       (entry.source_session || null) === (final.source_session || null) &&
@@ -194,7 +202,7 @@ export function taskWorkInboxGroups<T extends WorkRecord>(proposals: T[]) {
       taskId: taskWorkEntry(latest)?.task_id as string | undefined,
       reports,
       latest,
-      actionable: pending.length > 0 && (!taskWorkEntry(latest) || terminal.length > 0),
+      actionable: pending.length > 0,
     };
   });
 }

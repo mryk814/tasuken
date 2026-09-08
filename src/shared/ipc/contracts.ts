@@ -276,6 +276,9 @@ export const IPC = {
   quickCaptureSave: "quick-capture:save",
   quickCapturePreviewDue: "quick-capture:preview-due",
   quickCaptureOrganize: "quick-capture:organize",
+  quickCaptureOpenTask: "quick-capture:open-task",
+  quickCaptureExternalPrompt: "quick-capture:external-prompt",
+  quickCaptureExternalImport: "quick-capture:external-import",
   quickCaptureResize: "quick-capture:resize",
   quickCaptureHide: "quick-capture:hide",
   quickCaptureShown: "quick-capture:shown",
@@ -689,6 +692,7 @@ export type WebArtifactPreviewResult =
   | { ok: false; error: string };
 
 export interface ResearchDeskApi {
+  openTaskCapture(): Promise<void>;
   captureOrganizer: {
     openSaved(captureId: string, version: number): Promise<void>;
     proposeTaskSchedule(

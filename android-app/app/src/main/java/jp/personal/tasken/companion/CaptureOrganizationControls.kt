@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
@@ -27,6 +28,9 @@ internal fun CaptureOrganizationControls(
     onBusyChange: (Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val directStore = remember(context) { DirectCaptureSettingsStore(context) }
+    var directSettings by remember { mutableStateOf(directStore.settings()) }
     val currentDraft by rememberUpdatedState(draft)
     val currentBusyChange by rememberUpdatedState(onBusyChange)
     var pending by remember { mutableStateOf<Job?>(null) }
@@ -56,7 +60,9 @@ internal fun CaptureOrganizationControls(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                if (request == requestNumber && currentDraft == requested) error = "AI整理を利用できません。Desktopの設定・接続を確認して再試行してください。通常の追加も使えます。"
+                if (request == requestNumber && currentDraft == requested) error =
+                    if (directSettings.enabled) DIRECT_CAPTURE_FAILURE
+                    else "AI整理を利用できません。Desktopの設定・接続を確認して再試行してください。通常の追加も使えます。"
             } finally { if (request == requestNumber) { pending = null; onBusyChange(false) } }
         }
     }
@@ -68,8 +74,9 @@ internal fun CaptureOrganizationControls(
             Text("音声後にAIで整理", modifier = Modifier.weight(1f))
             Switch(checked = autoOrganize, onCheckedChange = { autoOrganize = it }, enabled = enabled, modifier = Modifier.testTag("capture-auto-organize"))
         }
-        Text("文字とTheme名をDesktopで設定したAIへ送ります。", style = MaterialTheme.typography.bodySmall,
+        Text("文字・録音時刻・Theme名・添付写真を選んだAIへ送ります。", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        DirectCaptureSettingsControls(directSettings, directStore, enabled && pending == null) { directSettings = it }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             if (pending != null) TextButton(onClick = { requestNumber++; pending?.cancel(); pending = null; onBusyChange(false) }) { Text("整理を中止") }
             else OutlinedButton(onClick = { start() }, enabled = enabled && (draft.originalText ?: draft.text).isNotBlank(),

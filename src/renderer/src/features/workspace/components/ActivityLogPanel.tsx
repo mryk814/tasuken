@@ -19,6 +19,7 @@ import {
   activityDisplayKind,
   activityThemeIds,
   buildDailyAgentSessionContexts,
+  groupFocusSessionActivity,
   projectActivitySessionLogEntries,
   reviewableActivityEvents,
 } from "../lib/activityTimeline";
@@ -100,6 +101,7 @@ const EVENT_LABELS: Record<string, string> = {
   capture_formalized: "メモを整理",
   entity_deleted: "削除",
   status_updated: "現在地を更新",
+  focus_session: "フォーカス",
 };
 
 function eventLabel(kind: string): string {
@@ -109,6 +111,7 @@ function eventLabel(kind: string): string {
 function eventTitle(event: StructuredActivityEvent, ref: { id?: string }, entity: unknown): string {
   const record = entity && typeof entity === "object" ? (entity as Record<string, unknown>) : {};
   const current = String(record.title || record.name || "").trim();
+  if (event.event_kind === "focus_session") return current || "フォーカス";
   const workLog = event.metadata?.work_log as Record<string, unknown> | undefined;
   if (workLog?.schema === "tasken-work-log/v1")
     return `${current || "やったことを記録"} · 実施日 ${String(workLog.performed_date)}（本人の申告）`;
@@ -452,10 +455,12 @@ export function ActivityLogPanel({
       },
     ];
   });
-  const allEvents = [
-    ...reviewableActivityEvents(entries.events as StructuredActivityEvent[]),
-    ...taskWorkEvents,
-  ];
+  const allEvents: StructuredActivityEvent[] = groupFocusSessionActivity(
+    [...reviewableActivityEvents(entries.events as StructuredActivityEvent[]), ...taskWorkEvents],
+    data.notes,
+    domain.change_events as unknown as BaseRecord[],
+    date,
+  );
   const agentSessions = buildAgentWorkProjection(domain, {
     limit: Math.max(domain.agent_sessions.length, 1),
   });
@@ -891,8 +896,9 @@ export function ActivityLogPanel({
                               })
                             : burst
                               ? `${localTime(burst.events[0]?.start_at)}–${localTime(burst.events.at(-1)?.end_at)}`
-                              : event?.event_kind === "task_ai_work"
-                                ? `${localTime(row.start_at)}–${localTime(row.end_at)}`
+                              : event?.event_kind === "task_ai_work" ||
+                                  event?.event_kind === "focus_session"
+                                ? `${localTime(row.start_at)}–${event.metadata?.session_state === "active" ? "進行中" : localTime(row.end_at)}`
                                 : event?.local_time || localTime(row.start_at);
                         const originText = event
                           ? originLabel(event)
@@ -1027,8 +1033,9 @@ export function ActivityLogPanel({
                                 end_at: expandedTimelineItem.end_at,
                               },
                             })
-                          : expandedEvent?.event_kind === "task_ai_work"
-                            ? `${localTime(expandedTimelineItem.start_at)}–${localTime(expandedTimelineItem.end_at)}`
+                          : expandedEvent?.event_kind === "task_ai_work" ||
+                              expandedEvent?.event_kind === "focus_session"
+                            ? `${localTime(expandedTimelineItem.start_at)}–${expandedEvent.metadata?.session_state === "active" ? "進行中" : localTime(expandedTimelineItem.end_at)}`
                             : expandedEvent?.local_time || localTime(expandedTimelineItem.start_at)}
                       </span>
                       <span className="activity-event-kind activity-timeline-kind">

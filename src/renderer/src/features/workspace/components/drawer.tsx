@@ -472,45 +472,51 @@ function TaskWorkSection({
             </button>
           </form>
         )}
-        {["reported_done", "needs_human_review"].includes(workState) && sortedReceipts[0] && (
-          <div className="drawer-actions">
-            <button
-              className="primary-button"
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void run(
-                  "AcceptTaskWork",
-                  { taskId: task.id, completeTask: true },
-                  "Work Receiptを承認し、Taskを完了しました。",
-                )
-              }
-            >
-              承認して完了
-            </button>
-            <Field label="差戻し理由">
-              <textarea
-                value={reviewNote}
-                onChange={(event) => setReviewNote(event.target.value)}
-                required
-              />
-            </Field>
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={busy || !reviewNote.trim()}
-              onClick={() =>
-                void run(
-                  "ReturnTaskWork",
-                  { taskId: task.id, reviewNote },
-                  "Work Receiptを差し戻しました。",
-                )
-              }
-            >
-              差し戻す
-            </button>
-          </div>
-        )}
+        {["reported_done", "needs_human_review", "accepted"].includes(workState) &&
+          !["done", "cancelled"].includes(task.state) &&
+          sortedReceipts[0] && (
+            <div className="drawer-actions">
+              <button
+                className="primary-button"
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  void run(
+                    "AcceptTaskWork",
+                    { taskId: task.id, completeTask: true },
+                    "Work Receiptを承認し、Taskを完了しました。",
+                  )
+                }
+              >
+                承認して完了
+              </button>
+              {workState !== "accepted" && (
+                <>
+                  <Field label="差戻し理由">
+                    <textarea
+                      value={reviewNote}
+                      onChange={(event) => setReviewNote(event.target.value)}
+                      required
+                    />
+                  </Field>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={busy || !reviewNote.trim()}
+                    onClick={() =>
+                      void run(
+                        "ReturnTaskWork",
+                        { taskId: task.id, reviewNote },
+                        "Work Receiptを差し戻しました。",
+                      )
+                    }
+                  >
+                    差し戻す
+                  </button>
+                </>
+              )}
+            </div>
+          )}
       </div>
     </details>
   );

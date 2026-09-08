@@ -2046,6 +2046,114 @@ test("Mobile Task Work Proposal uses the canonical human decision boundary and r
   assert.equal(repository.get("task", "task-proposal-review").version, acceptedTaskVersion);
 });
 
+test("Mobile follow-up reports remain reviewable and checklist changes are visible before adoption", async () => {
+  const { repository } = capability();
+  const application = new ApplicationCommandService(repository);
+  const runtime = new TaskenCoreRuntime(os.tmpdir(), repository, (command) =>
+    application.execute(command),
+  );
+  const adapter = runtime.createMobileGateway({
+    current: () => ({ serverId: "desktop-home", serverRevision: 42, generatedAt: now }),
+  });
+  application.execute({
+    commandId: "create-follow-up-task",
+    name: "CreateTask",
+    actor: { kind: "user" },
+    source: "main_ui",
+    issuedAt: now,
+    expectedVersions: [],
+    payload: {
+      task: {
+        id: "completed-report-task",
+        title: "完了後の報告",
+        state: "done",
+        work_state: "accepted",
+        priority: "normal",
+        project_id: "theme-personal-default",
+        completed_at: now,
+        description: "保持する本文",
+        checklist_items: [{ id: "verified", title: "保存を検証する", done: false, sort_order: 0 }],
+      },
+    },
+  });
+  const task = repository.get("task", "completed-report-task");
+  const proposal = (id, extra = {}) =>
+    repository.save("ai_proposal", {
+      id,
+      source: "mcp",
+      source_app: "codex",
+      payload_type: "task_work",
+      status: "pending",
+      received_at: now,
+      payload: {
+        task_work: [
+          {
+            action: "append_receipt",
+            task_id: task.id,
+            expected_version: 1,
+            caller: "Codex",
+            summary: "追加検証",
+            reported_at: now,
+            ...extra,
+          },
+        ],
+      },
+    });
+  const followUp = proposal("33333333-3333-5333-8333-333333333333");
+  const list = () =>
+    adapter.handle({
+      method: "GET",
+      path: TASKEN_MOBILE_ENDPOINTS.proposals,
+      principal,
+      query: { apiVersion: "1", schemaVersion: "7", requestId: "follow-up-list", limit: "50" },
+    });
+  const initialList = await list();
+  assert.equal(initialList.status, 200, JSON.stringify(initialList.body));
+  assert.equal(initialList.body.data.proposals[0].stale, false);
+  const accepted = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.proposalDecisions,
+    principal,
+    body: {
+      apiVersion: 1,
+      schemaVersion: 7,
+      requestId: "follow-up-adopt",
+      commandId: "follow-up-adopt",
+      idempotencyKey: "follow-up-adopt",
+      clientDeviceId: principal.deviceId,
+      issuedAt: now,
+      proposalId: followUp.id,
+      taskId: task.id,
+      expectedProposalVersion: followUp.version,
+      expectedTaskVersion: task.version,
+      decision: "accept",
+    },
+  });
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(repository.get("task", task.id), task);
+  proposal("44444444-4444-5444-8444-444444444444", {
+    expected_version: task.version,
+    completed_checklist_item_ids: ["verified"],
+    completed_items: ["契約テスト"],
+  });
+  const checklistPreview = (await list()).body.data.proposals[0];
+  assert.equal(checklistPreview.stale, false);
+  assert.deepEqual(checklistPreview.completedItems, [
+    "チェックを反映: 保存を検証する",
+    "契約テスト",
+  ]);
+  application.execute({
+    commandId: "update-follow-up-task",
+    name: "UpdateTask",
+    actor: { kind: "user" },
+    source: "main_ui",
+    issuedAt: now,
+    expectedVersions: [{ type: "task", id: task.id, version: task.version }],
+    payload: { task: { ...task, title: "利用者が更新した依頼" } },
+  });
+  assert.equal((await list()).body.data.proposals[0].stale, true);
+});
+
 test("Mobile UpdateTask rejects plannedSchedule mixed with unrelated fields", async () => {
   const { service } = capability();
   const adapter = gateway(service);

@@ -9,6 +9,8 @@ Desktopの「Settings → AI & Context → 入力のAI整理」でOpenAI / Azure
 設定方法と対応モデルの制約は[入力整理プロバイダー](docs/mobile-capture-organizer-providers.md)を参照してください。
 整理案は入力した端末で確認・修正してから追加し、元の入力もTaskの本文へ保持します。
 Desktopの既存Taskでは、編集画面の「文章から日程を変更」から一件の日程変更案を確認・採用できます。[日程変更案の契約](docs/task-schedule-proposal.md)を参照してください。
+WindowsはToday / ToDoのタスク追加にある「音声・AI整理から追加」から進み、入力欄で `Win + H` を使えます。アプリ内AIを使わず、外部AIへの依頼文をコピーして整理結果のJSONを貼り付ける経路も同じ画面にあります。
+Androidは[PCなしのAI整理設定](docs/android-capture-requests.md)で同じサービスを選べます。端末専用キーを設定し、明示的に有効化するとAndroidから直接整理できます。
 
 ## 起動
 
@@ -103,7 +105,7 @@ Coding Agentは`tasken.get_task_context`へTask IDと現在のworkspace情報を
 
 Themeには、人間が書く比較的安定した`Theme Charter`と、現在の方向・問いを持つ`Theme State`を保存できます。MCPでは目的別に`tasken.get_work_context`、`tasken.get_planning_context`、`tasken.get_debrief_context`、`tasken.get_learning_context`を使い分けます。`tasken://themes/{themeId}/intent` ResourceはThemeの意図だけを参照し、`daily-report` / `learning-column` Promptは利用者が明示起動する作業テンプレートです。正本と投影の境界は [`docs/tasken-context-architecture.md`](./docs/tasken-context-architecture.md) を参照してください。
 
-人がAI ReadyにしたTaskを外部AIが選び、`get_task_context`で確認してから`start_task_work`で開始します。開始後の最新versionを使って`append_work_receipt`、`report_task_done`、`report_task_blocked`を送ります。報告はAI Inboxで採用し、Doneの採用はTask完了まで保存します。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
+人がAI ReadyにしたTaskを外部AIが選び、`get_task_context`で確認してから`start_task_work`で開始します。開始後の最新versionを使って`append_work_receipt`、`report_task_done`、`report_task_blocked`を送ります。報告はAI Inboxで採用し、完了報告の採用後もTaskの完了は利用者が明示します。AIは完了したチェック項目のIDを報告に添えられ、採用時に該当項目へ反映されます。Taskの完了後も追加報告を履歴へ残せます。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
 
 AI Readyは事前許可であり、自動実行の予約ではありません。外部AIを普段どおり開き、依頼文を貼り付けるかAI Readyの確認を頼みます。TaskenからCLIを直接起動する機能はありません。実stdioと一時DBを通す検証は [AI collaboration E2E](./docs/ai-collaboration-e2e.md) を参照してください。
 

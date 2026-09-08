@@ -69,7 +69,10 @@ MCPの一覧・参照はread-onlyです。AI Ready Taskを実際に引き受け�
 AI ReadyのTaskへ開始Proposalなしで報告が届いた場合は、報告Proposalの採用時に
 Receiptのstarted_atを使ったstarted eventと報告eventを同じtransactionで保存します。
 完了報告の「採用」自体をWork Receiptの人間確認として扱い、同じtransactionで
-work_state=acceptedとTask完了まで保存します。別の開始承認・Receipt承認は要求しません。
+work_state=acceptedまで保存します。Taskの完了は人間が別途操作します。
+採用時には報告で指定されたChecklist itemだけをチェックし、Taskが完了・中止済み、
+または作業が採用済みの場合の追加報告はその状態を保ったまま追記します。
+別の開始承認・Receipt承認は要求しません。
 Acceptと差戻しはactor.kind=userかつ
 非MCP sourceの人間UI commandに限定し、MCP actorのspoofでは受入れできません。
 executor_labelは表示用の記録であり、provider/modelはruntime_metadataにだけ保存し、

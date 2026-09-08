@@ -1,4 +1,5 @@
 export const captureOrganizerApi = {
+  openTaskCapture: () => window.api.openTaskCapture(),
   openSaved: (captureId: string, version: number) =>
     window.api.captureOrganizer.openSaved(captureId, version),
   getSettings: () => window.api.captureOrganizer.getSettings(),

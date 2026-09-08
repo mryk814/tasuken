@@ -569,8 +569,22 @@ async function runProviderScenario(provider, explicitStart = false) {
       "fixture-done-accepted",
       "Implementation is ready for human review.",
     );
+    const beforeChecklist = fixture.database.get("task", TASK_ID);
+    const checklistTask = fixture.database.save("task", {
+      ...beforeChecklist,
+      checklist_items: [
+        { id: "verified-boundary", title: "保存境界を検証", done: false, sort_order: 0 },
+        { id: "human-check", title: "人が画面を確認", done: false, sort_order: 1 },
+      ],
+    });
+    doneArguments.expected_version = checklistTask.version;
+    doneArguments.completed_checklist_item_ids = ["verified-boundary"];
     const queuedDone = await callTaskWork(client, "tasken.report_task_done", doneArguments);
     const doneProposal = canonicalProposal(fixture.database, queuedDone.proposal_id, fixture.root);
+    assert.deepEqual(doneProposal.payload.task_work[0].completed_checklist_item_ids, [
+      "verified-boundary",
+    ]);
+    assert.equal(fixture.database.get("task", TASK_ID).checklist_items[0].done, false);
 
     const beforeRollback = durableSnapshot(fixture.database);
     const restoreTransactions = injectProposalDecisionFailure(fixture.database);
@@ -592,7 +606,11 @@ async function runProviderScenario(provider, explicitStart = false) {
     const doneDecision = proposalDecisionCommand(fixture.database, doneProposal, "accept");
     const acceptedDone = fixture.service.execute(doneDecision);
     assert.equal(fixture.database.get("task", TASK_ID).work_state, "accepted");
-    assert.equal(fixture.database.get("task", TASK_ID).state, "done");
+    assert.equal(fixture.database.get("task", TASK_ID).state, "todo");
+    assert.deepEqual(
+      fixture.database.get("task", TASK_ID).checklist_items.map((item) => item.done),
+      [true, false],
+    );
     assert.equal(fixture.database.list("work_receipt").length, 2);
     const countsBeforeRetry = {
       receipts: fixture.database.list("work_receipt").length,
@@ -637,14 +655,15 @@ async function runProviderScenario(provider, explicitStart = false) {
         ),
       /AI agentはTaskを直接変更・完了できません/,
     );
-    assert.throws(
-      () =>
-        fixture.database.save("task", {
-          ...reviewTask,
-          work_state: "needs_human_review",
-        }),
-      /work_state=accepted/,
+    fixture.service.execute(
+      command(
+        "AcceptTaskWork",
+        { taskId: TASK_ID, completeTask: true },
+        "human-explicit-completion",
+        [{ type: "task", id: TASK_ID, version: reviewTask.version }],
+      ),
     );
+    assert.equal(fixture.database.get("task", TASK_ID).state, "done");
 
     await client.close();
     await host.stop();
@@ -662,6 +681,14 @@ async function runProviderScenario(provider, explicitStart = false) {
       task_locator: formatTaskLocator(TASK_ID),
     });
     assert.equal(finalContext.task.state, "done");
+    assert.deepEqual(
+      finalContext.task.checklist_items.map((item) => item.done),
+      [true, false],
+    );
+    assert.deepEqual(
+      fixture.database.get("work_receipt", doneProposal.id).completed_checklist_item_ids,
+      ["verified-boundary"],
+    );
     assert.equal(finalContext.related.work_receipts.length, 2);
     assert.ok(finalContext.context_graph.edges.some((edge) => edge.predicate === "created_for"));
     assert.ok(
