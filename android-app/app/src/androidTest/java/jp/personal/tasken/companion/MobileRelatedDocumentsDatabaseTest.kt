@@ -123,7 +123,7 @@ class MobileRelatedDocumentsDatabaseTest {
             }
             val pending = async { reader.refresh("task", false) }
             started.await()
-            dao.revokeRelatedDocuments(meta.serverId)
+            dao.revokeOwnerReadCaches(meta.serverId)
             released.complete(Unit); pending.await()
             assertNull(dao.relatedDocuments(meta.serverId, "task"))
             assertTrue(reader.observe("task").first().documents.isEmpty())

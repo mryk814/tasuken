@@ -248,6 +248,7 @@ internal fun TodayApp(
     var workLogRecordId by rememberSaveable { mutableStateOf<String?>(null) }
     var recallOpen by rememberSaveable { mutableStateOf(false) }
     var relatedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
+    var themeContextId by rememberSaveable { mutableStateOf<String?>(null) }
     var recallCapture by remember { mutableStateOf<MobilePendingCapture?>(null) }
     val recallSavedState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val paneState = rememberTodayPaneState(restoredCaptureDraft)
@@ -804,6 +805,7 @@ internal fun TodayApp(
                         task = task,
                         onRecordWorkLog = { workLogTaskId = it.id; workLogOpen = true },
                         onReadRelatedDocuments = if (todayViewModel.relatedDocumentsRepository != null) ({ relatedTaskId = it.id }) else null,
+                        onReadThemeContext = if (todayViewModel.themeContextRepository != null) ({ themeContextId = it }) else null,
                         actionState = taskActionState,
                         workReceiptDetailState = workReceiptDetailState,
                         taskWorkProposals = taskWorkProposals.filter { it.taskId == task?.id },
@@ -874,6 +876,11 @@ internal fun TodayApp(
         )
     }
 
+    themeContextId?.let { themeId ->
+        todayViewModel.themeContextRepository?.let { repository ->
+            MobileThemeContextSheet(repository, themeId, onDismiss = { themeContextId = null })
+        }
+    }
     relatedTaskId?.let { taskId ->
         todayViewModel.relatedDocumentsRepository?.let { repository ->
             MobileRelatedDocumentsSheet(repository, taskId, onDismiss = { relatedTaskId = null })
@@ -1934,6 +1941,7 @@ internal fun TodayDetailPane(
     actionState: TaskActionUiState,
     onRecordWorkLog: ((MobileTask) -> Unit)? = null,
     onReadRelatedDocuments: ((MobileTask) -> Unit)? = null,
+    onReadThemeContext: ((String) -> Unit)? = null,
     workReceiptDetailState: WorkReceiptDetailUiState = WorkReceiptDetailUiState.Idle,
     taskWorkProposals: List<MobileTaskWorkProposal> = emptyList(),
     proposalReviewOnline: Boolean = false,
@@ -2248,6 +2256,11 @@ internal fun TodayDetailPane(
                 },
                 onThemeSelected = { onThemeUpdate(task, it) },
             )
+            if (task.themeId != null && onReadThemeContext != null) {
+                TextButton(onClick = { onReadThemeContext(task.themeId) }, modifier = Modifier.testTag("task-theme-context")) {
+                    Text("Themeの目的・現在地を読む")
+                }
+            }
             TaskScheduleEditor(
                 task = task,
                 enabled = (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) && task.conflict == null &&

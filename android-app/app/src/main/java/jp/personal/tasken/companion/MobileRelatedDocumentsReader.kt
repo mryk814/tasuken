@@ -24,7 +24,7 @@ internal class MobileRelatedDocumentsReader(private val dao: MobileLocalDao, pri
     }
     private suspend fun update(taskId: String, operation: suspend (String, RelatedDocumentsState) -> RelatedDocumentsState) = lock.withLock {
         val serverId = dao.syncState()?.serverId ?: return@withLock
-        val generation = dao.relatedGeneration(serverId)
+        val generation = dao.ownerReadGeneration(serverId)
         val previous = (dao.relatedDocuments(serverId, taskId)?.let { json.decodeFromString<RelatedDocumentsState>(it.payload) } ?: RelatedDocumentsState())
             .copy(bodies = dao.relatedBodies(serverId, taskId).map { json.decodeFromString<CachedRelatedBody>(it.payload) })
         var accessRevoked = false
@@ -37,14 +37,14 @@ internal class MobileRelatedDocumentsReader(private val dao: MobileLocalDao, pri
         catch (failure: Exception) { previous.copy(error = (failure as? IllegalStateException)?.message ?: "取得できません。端末に保存した内容を表示しています。") }
         dao.saveRelatedDocuments(RelatedDocumentCacheEntity(serverId, taskId, json.encodeToString(next)),
             next.bodies.map { RelatedBodyCacheEntity(serverId, taskId, it.type, it.id, json.encodeToString(it)) },
-            if (accessRevoked) dao.relatedGeneration(serverId) else generation)
+            if (accessRevoked) dao.ownerReadGeneration(serverId) else generation)
     }
     private suspend fun fetch(serverId: String, path: String): GatewayHttpResponse {
         val response = request(path)
         if (response.status == 401 || response.status == 403) {
             val error = runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()
             if (error?.meta?.serverId == serverId && error.error.code == if (response.status == 401) "unauthorized" else "forbidden") {
-                dao.revokeRelatedDocuments(serverId)
+                dao.revokeOwnerReadCaches(serverId)
                 throw RelatedAccessRevoked()
             }
         }

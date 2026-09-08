@@ -15,6 +15,8 @@ import {
   mobileRelatedDocumentRequestSchema,
   mobileRelatedDocumentsDataSchema,
   mobileRelatedDocumentDataSchema,
+  mobileThemeContextRequestSchema,
+  mobileThemeContextDataSchema,
   mobileBootstrapResponseSchema,
   mobileCaptureCommandResponseSchema,
   mobileWorkLogCommandResponseSchema,
@@ -53,6 +55,8 @@ import {
   type MobileRelatedDocumentRequest,
   type MobileRelatedDocumentsData,
   type MobileRelatedDocumentData,
+  type MobileThemeContextRequest,
+  type MobileThemeContextData,
   type MobileErrorCode,
   type MobileResponseMeta,
   type MobileScope,
@@ -187,6 +191,9 @@ export type MobileGatewayCaptureCommandResult =
     };
 
 export interface MobileGatewayCorePort {
+  getThemeContext?(
+    input: MobileThemeContextRequest,
+  ): Promise<MobileThemeContextData> | MobileThemeContextData;
   queryRelatedDocuments?(
     input: MobileRelatedDocumentsRequest,
   ): Promise<MobileRelatedDocumentsData> | MobileRelatedDocumentsData;
@@ -944,6 +951,7 @@ export class MobileGatewayAdapter {
           TASKEN_MOBILE_ENDPOINTS.activity,
           TASKEN_MOBILE_ENDPOINTS.relatedDocuments,
           TASKEN_MOBILE_ENDPOINTS.relatedDocument,
+          TASKEN_MOBILE_ENDPOINTS.themeContext,
           TASKEN_MOBILE_ENDPOINTS.themes,
           TASKEN_MOBILE_ENDPOINTS.workReceipt,
           TASKEN_MOBILE_ENDPOINTS.workLogs,
@@ -1070,6 +1078,7 @@ export class MobileGatewayAdapter {
           TASKEN_MOBILE_ENDPOINTS.activity,
           TASKEN_MOBILE_ENDPOINTS.relatedDocuments,
           TASKEN_MOBILE_ENDPOINTS.relatedDocument,
+          TASKEN_MOBILE_ENDPOINTS.themeContext,
           TASKEN_MOBILE_ENDPOINTS.themes,
           TASKEN_MOBILE_ENDPOINTS.workReceipt,
           TASKEN_MOBILE_ENDPOINTS.proposals,
@@ -1110,6 +1119,19 @@ export class MobileGatewayAdapter {
         return this.error(meta, "capability_unavailable");
       }
 
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.themeContext) {
+        const parsed = mobileThemeContextRequestSchema.safeParse({
+          ...request.query,
+          apiVersion: Number(request.query?.apiVersion),
+          schemaVersion: Number(request.query?.schemaVersion),
+        });
+        if (!parsed.success) return this.error(meta, "validation_failed");
+        if (!this.options.core.getThemeContext) return this.error(meta, "capability_unavailable");
+        const data = mobileThemeContextDataSchema.parse(
+          await this.options.core.getThemeContext(parsed.data),
+        );
+        return this.success({ ok: true, meta: { ...meta, truncated: false }, data });
+      }
       if (request.path === TASKEN_MOBILE_ENDPOINTS.relatedDocuments) {
         const parsed = mobileRelatedDocumentsRequestSchema.safeParse({
           ...request.query,
@@ -1923,6 +1945,8 @@ export class MobileGatewayAdapter {
         capabilities.push(TASKEN_MOBILE_CAPABILITIES.activityRead);
       if (this.options.core.queryRelatedDocuments && this.options.core.getRelatedDocument)
         capabilities.push(TASKEN_MOBILE_CAPABILITIES.relatedDocumentsRead);
+      if (this.options.core.getThemeContext)
+        capabilities.push(TASKEN_MOBILE_CAPABILITIES.themeContextRead);
     }
     if (
       principal.scopes.includes("mobile:context-read") &&

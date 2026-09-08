@@ -107,6 +107,7 @@ export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.todayRead,
   TASKEN_MOBILE_CAPABILITIES.activityRead,
   TASKEN_MOBILE_CAPABILITIES.relatedDocumentsRead,
+  TASKEN_MOBILE_CAPABILITIES.themeContextRead,
   TASKEN_MOBILE_CAPABILITIES.syncRead,
   TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
   TASKEN_MOBILE_CAPABILITIES.proposalRead,
