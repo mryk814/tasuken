@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, clipboard, ipcMain } from "electron";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -22,6 +22,10 @@ import {
   mobileCaptureOrganizationTimedBatchSchema,
 } from "../shared/contracts/mobile/public.ts";
 import { isoTimestampSchema } from "../shared/kernel/public.ts";
+import {
+  buildExternalCapturePrompt,
+  parseExternalCaptureOrganization,
+} from "./quickCaptureExternal";
 import type { CaptureOrganizerBatch, CaptureOrganizerInput } from "./gateway/mobile/public";
 import { SavedCaptureOrganizer } from "./services/savedCaptureOrganizer";
 import type { SavedCaptureOrganizationSource } from "../shared/savedCaptureOrganization";
@@ -84,6 +88,7 @@ export function createQuickCaptureController(
     },
     executeCommands: options.executeCommands,
   });
+  let visibleMode: QuickCaptureMode = "inbox";
 
   function createWindow(): BrowserWindow {
     const win = new BrowserWindow({
@@ -113,7 +118,8 @@ export function createQuickCaptureController(
     }
 
     win.on("blur", () => {
-      if (win.isVisible()) win.hide();
+      // Windows voice typing and clipboard round trips move focus outside this window.
+      if (win.isVisible() && (win !== captureWindow || visibleMode !== "today-task")) win.hide();
     });
     win.on("hide", () => win.webContents.send(IPC.quickCaptureHidden));
     return win;
@@ -144,6 +150,7 @@ export function createQuickCaptureController(
   }
 
   function show(mode: QuickCaptureMode = "inbox"): void {
+    visibleMode = mode;
     if (!captureWindow || captureWindow.isDestroyed()) {
       captureWindow = createWindow();
     }
@@ -280,6 +287,42 @@ export function createQuickCaptureController(
       if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
       else send();
     });
+    ipcMain.handle(IPC.quickCaptureOpenTask, () => show("today-task"));
+    ipcMain.handle(IPC.quickCaptureExternalPrompt, (event, input: unknown) => {
+      if (event.sender !== captureWindow?.webContents)
+        throw new Error("この画面からは依頼文をコピーできません。");
+      const parsed = mobileCaptureOrganizationRequestSchema
+        .extend({ text: z.string().max(12000) })
+        .parse(input);
+      const theme = parsed.themeId ? options.repository.get("theme", parsed.themeId) : null;
+      if (parsed.themeId && !theme) throw new Error("Themeを選び直してください。");
+      clipboard.writeText(
+        buildExternalCapturePrompt({
+          text: parsed.text,
+          theme: theme
+            ? { id: theme.id, name: String(theme.name || theme.title || "Theme") }
+            : null,
+          capturedAt: parsed.capturedAt,
+          timeZone: parsed.timeZone,
+        }),
+      );
+    });
+    ipcMain.handle(IPC.quickCaptureExternalImport, (event, text: unknown) => {
+      if (event.sender !== captureWindow?.webContents)
+        throw new Error("この画面からは整理結果を取り込めません。");
+      try {
+        const result = parseExternalCaptureOrganization(
+          text,
+          (options.repository.list("theme") as Entity[]).map((theme) => theme.id),
+        );
+        return { ok: true as const, ...result };
+      } catch (error) {
+        return {
+          ok: false as const,
+          message: error instanceof Error ? error.message : "整理結果を確認してください。",
+        };
+      }
+    });
     ipcMain.handle(IPC.quickCaptureOrganize, async (event, input: unknown) => {
       if (event.sender === savedCaptureWindow?.webContents) return savedOrganizer.organize(input);
       if (event.sender !== captureWindow?.webContents)
@@ -306,7 +349,10 @@ export function createQuickCaptureController(
         return;
       }
       if (event.sender === captureWindow?.webContents)
-        captureWindow.setSize(420, expanded === true ? 680 : 284);
+        captureWindow.setSize(
+          420,
+          expanded === true ? 680 : visibleMode === "today-task" ? 440 : 284,
+        );
     });
     ipcMain.handle(
       IPC.quickCaptureSave,

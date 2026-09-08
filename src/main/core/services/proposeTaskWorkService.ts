@@ -84,6 +84,9 @@ function receiptFields(
     executor_label: request.executor_label,
     summary: request.summary,
     completed_items: request.completed_items || [],
+    ...(request.completed_checklist_item_ids !== undefined
+      ? { completed_checklist_item_ids: request.completed_checklist_item_ids }
+      : {}),
     changed_or_created_items: request.changed_or_created_items || [],
     verification: request.verification || [],
     remaining_work: request.remaining_work || [],
@@ -113,6 +116,9 @@ function taskWorkEntry(request: ProposeTaskWorkRequest): Record<string, unknown>
       executor_label: request.executor_label,
       summary: request.blocker,
       completed_items: request.attempted_work || [],
+      ...(request.completed_checklist_item_ids !== undefined
+        ? { completed_checklist_item_ids: request.completed_checklist_item_ids }
+        : {}),
       changed_or_created_items: request.retained_artifacts || [],
       verification: [],
       remaining_work: request.needed_input || [],

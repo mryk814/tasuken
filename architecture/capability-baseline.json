@@ -6,12 +6,15 @@
       "file": "src/preload/capture.ts",
       "global": "captureApi",
       "properties": [
+        "copyExternalPrompt",
         "hide",
+        "importExternalResult",
         "onHide",
         "onShow",
         "onThemeChange",
         "onThemes",
         "organize",
+        "platform",
         "previewDue",
         "resize",
         "save"
@@ -42,6 +45,7 @@
         "files",
         "mediaCapture",
         "mobileGateway",
+        "openTaskCapture",
         "preferences",
         "screenRecording",
         "sharedSync",

@@ -7,10 +7,10 @@ import {
   parseInput,
   sha256,
   type ProposalMarkdownImageDecoder,
-  type ProposalMarkdownImageInput,
   type ProposalMarkdownImageManifest,
 } from "./proposalMarkdownImages.ts";
 import { deterministicFileName, validateStagedImageManifest } from "../modules/task/public.ts";
+import type { NoteProposalImage } from "../../shared/contracts/task/public.ts";
 
 export { validateStagedImageManifest } from "../modules/task/public.ts";
 
@@ -203,7 +203,7 @@ export function createCaptureImagePort(
 ) {
   const store = new CaptureImageStore(userDataPath, decoder);
   return {
-    stage({ ownerId, images }: { ownerId: string; images: readonly ProposalMarkdownImageInput[] }) {
+    stage({ ownerId, images }: { ownerId: string; images: readonly NoteProposalImage[] }) {
       const staged = store.stage(ownerId, images);
       const state: { createdPaths: string[] | null } = { createdPaths: staged.createdPaths };
       return {

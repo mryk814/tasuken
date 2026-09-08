@@ -734,11 +734,16 @@ export function AiProposalPanel(props: PageProps) {
           throw new Error(
             "Work proposalにexpected_versionがありません。再取得してから報告してください。",
           );
-        if (proposalExpectedVersion !== currentVersion)
+        const requiresExactTaskVersion =
+          candidate.entry.action === "start" ||
+          (Array.isArray(candidate.entry.completed_checklist_item_ids) &&
+            candidate.entry.completed_checklist_item_ids.length > 0);
+        if (
+          proposalExpectedVersion > currentVersion ||
+          (requiresExactTaskVersion && proposalExpectedVersion !== currentVersion)
+        )
           throw new Error(taskWorkStaleGuidance(proposalExpectedVersion, currentVersion));
-        const expectedVersions = [
-          { type: taskEntityType, id: task.id, version: proposalExpectedVersion },
-        ];
+        const expectedVersions = [{ type: taskEntityType, id: task.id, version: currentVersion }];
         await executeCommand({
           commandId: `${proposal.id}:accept`,
           name: "ApplyTaskWorkProposal",
@@ -760,12 +765,7 @@ export function AiProposalPanel(props: PageProps) {
           ],
           issuedAt: new Date().toISOString(),
         } as CommandEnvelope);
-        setToast(
-          candidate.entry.action === "report_done"
-            ? "報告を採用し、Taskを完了しました。"
-            : "作業報告を採用しました。",
-          "success",
-        );
+        setToast("作業報告を採用しました。", "success");
         setPreview(null);
       } catch (error) {
         setToast(
@@ -942,7 +942,7 @@ export function AiProposalPanel(props: PageProps) {
                 </div>
                 <span className="proposal-row-kind">
                   {taskWorkEntry(proposal)
-                    ? `${taskWorkEntry(proposal)?.action === "report_done" ? "完了報告・採用するとTask完了" : taskWorkEntry(proposal)?.action === "report_blocked" ? "中断報告" : "途中報告・作業中"} / ${proposalGroups.find((group) => group.latest.id === proposal.id)?.reports.length}件の履歴`
+                    ? `${taskWorkEntry(proposal)?.action === "report_done" ? "完了報告" : taskWorkEntry(proposal)?.action === "report_blocked" ? "中断報告" : "追加報告"} / ${proposalGroups.find((group) => group.latest.id === proposal.id)?.reports.length}件の履歴`
                     : proposalTypeLabel(proposal)}
                 </span>
                 {taskWorkEntry(proposal) ? (
@@ -1134,6 +1134,23 @@ export function AiProposalPanel(props: PageProps) {
                     <dl className="proposal-work-details">
                       <dt>結果</dt>
                       <dd>{str(candidate.entry.summary)}</dd>
+                      {Array.isArray(candidate.entry.completed_checklist_item_ids) &&
+                        candidate.entry.completed_checklist_item_ids.length > 0 && (
+                          <>
+                            <dt>チェックを反映</dt>
+                            <dd>
+                              {candidate.entry.completed_checklist_item_ids
+                                .map(
+                                  (id) =>
+                                    domain.tasks
+                                      .find((task) => task.id === candidate.entry.task_id)
+                                      ?.checklist_items?.find((item) => item.id === id)?.title ||
+                                    `見つからない項目 (${String(id)})`,
+                                )
+                                .join(" / ")}
+                            </dd>
+                          </>
+                        )}
                       <dt>検証</dt>
                       <dd>
                         {Array.isArray(candidate.entry.verification)
@@ -1256,7 +1273,7 @@ export function AiProposalPanel(props: PageProps) {
                   action="aiProposalAccept"
                   onClick={() => void acceptProposal(selected)}
                 >
-                  {selectedWork?.action === "report_done" ? "採用してTaskを完了" : "採用"}
+                  採用
                 </ActionButton>
               </div>
             )}
@@ -1377,7 +1394,7 @@ function proposalTargetLabel(proposal: BaseRecord): string {
 
 function proposalDiffLabel(proposal: BaseRecord): string {
   const work = taskWorkEntry(proposal);
-  if (work) return work.action === "report_done" ? "報告の採用とTask完了" : "作業履歴への追記";
+  if (work) return "作業履歴への追記";
   const entries = proposalEntries(proposal);
   if (entries.some((entry) => str(entry.action) === "merge" || str(entry.target_id)))
     return "既存データの更新差分";

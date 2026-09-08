@@ -21,6 +21,7 @@ import type {
 } from "../../../../../shared/calendar";
 import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
+import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
 import type { PageProps } from "../types";
@@ -1338,6 +1339,7 @@ export function TodayPage({
           onTitleChange={setAddTitle}
           onThemeChange={setAddTheme}
           onSubmit={addTask}
+          onOrganize={() => captureOrganizerApi.openTaskCapture()}
         />
       )}
 

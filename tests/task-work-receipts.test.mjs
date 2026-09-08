@@ -103,7 +103,147 @@ function createAiTask(service) {
   );
 }
 
-test("accepting a done Work Receipt Proposal starts and completes an AI Ready Task", () => {
+function saveWorkProposal(repo, task, fields = {}) {
+  return repo.save("ai_proposal", {
+    id: `proposal-${fields.action || "report_done"}-${repo.list("ai_proposal").length}`,
+    source: "mcp",
+    payload_type: "task_work",
+    status: "pending",
+    payload: {
+      task_work: [
+        {
+          action: "report_done",
+          task_id: task.id,
+          expected_version: task.version,
+          summary: "追加の検証を記録",
+          reported_at: "2026-09-08T03:00:00.000Z",
+          ...fields,
+        },
+      ],
+    },
+  });
+}
+
+function adoptWorkProposal(service, repo, proposal) {
+  const task = repo.get("task", proposal.payload.task_work[0].task_id);
+  return service.execute(
+    envelope(
+      "ApplyTaskWorkProposal",
+      { proposalId: proposal.id, decision: "accept" },
+      `${proposal.id}:accept`,
+      [
+        { type: "task", id: task.id, version: task.version },
+        { type: "ai_proposal", id: proposal.id, version: proposal.version },
+      ],
+    ),
+  );
+}
+
+test("follow-up reports append after adoption or human completion without changing the Task", () => {
+  for (const state of ["todo", "done", "cancelled"]) {
+    for (const action of ["append_receipt", "report_done", "report_blocked"]) {
+      const repo = repository();
+      const service = new ApplicationCommandService(repo);
+      createAiTask(service);
+      const oldTask = repo.get("task", "task-ai");
+      const proposal = saveWorkProposal(repo, oldTask, { action });
+      const humanTask = repo.save("task", {
+        ...oldTask,
+        state,
+        work_state: "accepted",
+        description: "人が保存した本文",
+        completed_at: state === "done" ? "2026-09-07T02:00:00.000Z" : null,
+        work_review_note: "前の報告を確認済み",
+      });
+      adoptWorkProposal(service, repo, proposal);
+      assert.deepEqual(repo.get("task", oldTask.id), humanTask, `${state}/${action}`);
+      assert.equal(repo.get("work_receipt", proposal.id).summary, "追加の検証を記録");
+      assert.equal(repo.get("ai_proposal", proposal.id).status, "accepted");
+    }
+  }
+});
+
+test("adoption checks only verified checklist IDs and leaves Task completion to a separate human action", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  const task = repo.save("task", {
+    ...repo.get("task", "task-ai"),
+    description: "本文を保持",
+    checklist_items: [
+      {
+        id: "checked",
+        title: "既に完了",
+        done: true,
+        completed_at: "2026-09-01T00:00:00.000Z",
+        sort_order: 0,
+      },
+      { id: "verified", title: "検証済み", done: false, sort_order: 1 },
+      { id: "remaining", title: "人が確認", done: false, sort_order: 2 },
+    ],
+  });
+  const proposal = saveWorkProposal(repo, task, {
+    completed_checklist_item_ids: ["checked", "verified"],
+  });
+  assert.equal(repo.get("task", task.id).checklist_items[1].done, false);
+  adoptWorkProposal(service, repo, proposal);
+  const adopted = repo.get("task", task.id);
+  assert.equal(adopted.state, "todo");
+  assert.equal(adopted.work_state, "accepted");
+  assert.equal(adopted.description, task.description);
+  assert.deepEqual(
+    adopted.checklist_items.map((item) => item.done),
+    [true, true, false],
+  );
+  assert.deepEqual(adopted.checklist_items[0], task.checklist_items[0]);
+  assert.deepEqual(adopted.checklist_items[2], task.checklist_items[2]);
+  assert.equal(adopted.checklist_items[1].completed_at, "2026-09-08T03:00:00.000Z");
+  assert.deepEqual(repo.get("work_receipt", proposal.id).completed_checklist_item_ids, [
+    "checked",
+    "verified",
+  ]);
+  service.execute(
+    envelope("AcceptTaskWork", { taskId: task.id, completeTask: true }, "human-finish", [
+      { type: "task", id: task.id, version: adopted.version },
+    ]),
+  );
+  assert.equal(repo.get("task", task.id).state, "done");
+});
+
+test("stale, missing and malformed checklist reports are rejected atomically", () => {
+  for (const scenario of ["stale", "missing", "duplicate", "malformed"]) {
+    const repo = repository();
+    const service = new ApplicationCommandService(repo);
+    createAiTask(service);
+    const task = repo.save("task", {
+      ...repo.get("task", "task-ai"),
+      checklist_items: [{ id: "verified", title: "検証済み", done: false, sort_order: 0 }],
+    });
+    const proposal = saveWorkProposal(repo, task, {
+      completed_checklist_item_ids:
+        scenario === "missing"
+          ? ["missing"]
+          : scenario === "duplicate"
+            ? ["verified", "verified"]
+            : scenario === "malformed"
+              ? "verified"
+              : ["verified"],
+    });
+    if (scenario === "stale") repo.save("task", { ...task, description: "報告後に人が更新" });
+    const before = structuredClone(repo.get("task", task.id));
+    const eventCount = repo.list("change_event").length;
+    assert.throws(
+      () => adoptWorkProposal(service, repo, proposal),
+      /更新されています|チェック項目/,
+    );
+    assert.deepEqual(repo.get("task", task.id), before);
+    assert.equal(repo.get("work_receipt", proposal.id), null);
+    assert.equal(repo.get("ai_proposal", proposal.id).status, "pending");
+    assert.equal(repo.list("change_event").length, eventCount);
+  }
+});
+
+test("accepting a done Work Receipt Proposal starts and records work without completing the Task", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);
   createAiTask(service);
@@ -146,7 +286,7 @@ test("accepting a done Work Receipt Proposal starts and completes an AI Ready Ta
   assert.equal(repo.get("ai_proposal", proposal.id).status, "accepted");
   assert.equal(repo.get("work_receipt", proposal.id).task_id, task.id);
   const reviewedTask = repo.get("task", task.id);
-  assert.equal(reviewedTask.state, "done");
+  assert.equal(reviewedTask.state, "todo");
   assert.equal(reviewedTask.work_state, "accepted");
   assert.ok(reviewedTask.work_started_at);
   const workActions = repo
@@ -167,11 +307,11 @@ test("accepting a done Work Receipt Proposal starts and completes an AI Ready Ta
       state: JSON.parse(acceptedEvent.after_json).state,
       work_state: JSON.parse(acceptedEvent.after_json).work_state,
     },
-    { state: "done", work_state: "accepted" },
+    { state: "todo", work_state: "accepted" },
   );
 });
 
-test("done acceptance completes once, folds earlier reports and preserves AI timestamps", () => {
+test("done adoption records once, folds earlier reports and preserves AI timestamps", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);
   createAiTask(service);
@@ -217,7 +357,7 @@ test("done acceptance completes once, folds earlier reports and preserves AI tim
     issuedAt: "2026-08-09T05:00:00.000Z",
   };
   const receipt = service.execute(command);
-  assert.equal(repo.get("task", task.id).state, "done");
+  assert.equal(repo.get("task", task.id).state, "todo");
   assert.equal(repo.get("ai_proposal", progress.id).status, "rejected");
   assert.equal(repo.get("ai_proposal", progress.id).quarantine_reason, `完了報告に集約:${done.id}`);
   assert.equal(repo.get("ai_proposal", progress.id).payload.task_work[0].summary, progress.id);
@@ -228,7 +368,7 @@ test("done acceptance completes once, folds earlier reports and preserves AI tim
       .occurred_at,
     reportedAt,
   );
-  assert.equal(repo.get("task", task.id).completed_at, command.issuedAt);
+  assert.equal(repo.get("task", task.id).completed_at || null, null);
   assert.ok(
     receipt.changes.some(
       (change) => change.type === "ai_proposal" && change.entity.id === progress.id,

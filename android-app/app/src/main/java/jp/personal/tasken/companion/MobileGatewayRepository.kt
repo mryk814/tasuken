@@ -221,6 +221,7 @@ class AndroidMobileTaskRepository(
     private val httpClient: MobileGatewayHttpClient? = null,
     private val themeNow: () -> Instant = Instant::now,
     private val processInstanceId: String = MOBILE_PROCESS_INSTANCE_ID,
+    private val directCaptureHttpClient: DirectCaptureHttpClient? = null,
 ) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileWorkLogOrganizationRepository, MobileRecallRepository, MobileRelatedDocumentsRepository, MobileThemeContextRepository, MobileLocalSearchRepository {
     private val json = Json { ignoreUnknownKeys = false }
     private val dao = database.mobileDao()
@@ -229,6 +230,7 @@ class AndroidMobileTaskRepository(
     override suspend fun localSearchCapture(id: String) = localSearch.localSearchCapture(id)
     private val outbox = MobileOutbox(context.applicationContext, dao, store::deviceId)
     private val photoStore = MobileCapturePhotoStore(context.applicationContext)
+    private val directCaptureSettings = DirectCaptureSettingsStore(context.applicationContext)
     private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
     private val recallReader = MobileRecallReader(dao) { path ->
         val configuration = store.configuration()
@@ -430,6 +432,14 @@ class AndroidMobileTaskRepository(
     }
 
     override suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> {
+        val directSettings = directCaptureSettings.settings()
+        if (directSettings.enabled) {
+            val themes = dao.themeCatalog().toMobileThemeCatalogState().themes
+                .sortedByDescending { it.id == draft.projectId }.take(200)
+            val photos = if (draft.photos.isEmpty()) emptyList() else photoStore.encodePhotos(draft.photos.map { it.fileName })
+            return organizeCaptureDirectly(directSettings, { directCaptureSettings.apiKey(directSettings) }, draft, themes, photos,
+                directCaptureHttpClient ?: AndroidDirectCaptureHttpClient())
+        }
         val configuration = store.configuration()
         val token = store.readToken()
         require(configuration.origin.isNotBlank() && token != null) { "Desktopへ接続するとAI整理を利用できます。" }

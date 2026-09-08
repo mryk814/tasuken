@@ -16,7 +16,9 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 }
 
 const { MediaCaptureService } = await importBundled("src/main/services/mediaCaptureService.ts");
@@ -27,7 +29,10 @@ function fixture(t) {
   const managedDirectory = path.join(root, "managed");
   const sourcePath = path.join(root, "voice.wav");
   fs.mkdirSync(userDataPath, { recursive: true });
-  fs.writeFileSync(sourcePath, Buffer.from("RIFF\x10\x00\x00\x00WAVEfmt tasken-audio-original", "binary"));
+  fs.writeFileSync(
+    sourcePath,
+    Buffer.from("RIFF\x10\x00\x00\x00WAVEfmt tasken-audio-original", "binary"),
+  );
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   return { root, userDataPath, managedDirectory, sourcePath };
 }
@@ -57,9 +62,17 @@ function finalizedAfterDbFailure(t) {
   const firstExecutor = commandExecutor();
   const first = service(paths, firstExecutor);
   const prepared = first.prepareFile(paths.sourcePath);
-  assert.throws(() => first.commit({ sessionId: prepared.sessionId, durationMs: 1200 }), /injected DB failure/);
+  assert.throws(
+    () => first.commit({ sessionId: prepared.sessionId, durationMs: 1200 }),
+    /injected DB failure/,
+  );
   assert.equal(firstExecutor.calls, 1);
-  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", prepared.sessionId);
+  const sessionDirectory = path.join(
+    paths.userDataPath,
+    "media-recovery",
+    "sessions",
+    prepared.sessionId,
+  );
   const manifestPath = path.join(sessionDirectory, "session.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   assert.equal(manifest.state, "finalized");
@@ -85,7 +98,12 @@ test("managed publish rejects staged path swap before writing bytes or calling D
   const executor = commandExecutor({ fail: false });
   const capture = service(paths, executor);
   const prepared = capture.prepareFile(paths.sourcePath);
-  const sessionDirectory = path.join(paths.userDataPath, "media-recovery", "sessions", prepared.sessionId);
+  const sessionDirectory = path.join(
+    paths.userDataPath,
+    "media-recovery",
+    "sessions",
+    prepared.sessionId,
+  );
   const manifestPath = path.join(sessionDirectory, "session.json");
   const preparedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   const stagedPath = path.join(sessionDirectory, preparedManifest.stagedFileName);
@@ -104,7 +122,10 @@ test("managed publish rejects staged path swap before writing bytes or calling D
     return realOpen.call(fs, candidate, flags, mode);
   };
   try {
-    assert.throws(() => capture.commit({ sessionId: prepared.sessionId, durationMs: 1000 }), /差し替え/);
+    assert.throws(
+      () => capture.commit({ sessionId: prepared.sessionId, durationMs: 1000 }),
+      /差し替え/,
+    );
   } finally {
     fs.openSync = realOpen;
   }
@@ -141,7 +162,10 @@ test("finalized recovery does not recreate a deleted final file or write DB", (t
 
 test("finalized recovery revalidates staged original before any DB write", (t) => {
   const state = finalizedAfterDbFailure(t);
-  fs.writeFileSync(path.join(state.sessionDirectory, state.manifest.stagedFileName), "changed-staged-file");
+  fs.writeFileSync(
+    path.join(state.sessionDirectory, state.manifest.stagedFileName),
+    "changed-staged-file",
+  );
   const retryExecutor = commandExecutor({ fail: false });
 
   const result = service(state.paths, retryExecutor).recoverPending();
@@ -158,7 +182,8 @@ test("recovery root rejects an existing symlink or junction ancestor before mkdi
   try {
     fs.symlinkSync(outside, linkedRecovery, process.platform === "win32" ? "junction" : "dir");
   } catch (error) {
-    if (error?.code === "EPERM") return t.skip("junction creation is unavailable in this environment");
+    if (error?.code === "EPERM")
+      return t.skip("junction creation is unavailable in this environment");
     throw error;
   }
 
@@ -174,14 +199,18 @@ test("managed directory rejects a symlink or junction before creating or committ
   try {
     fs.symlinkSync(outside, linkedManaged, process.platform === "win32" ? "junction" : "dir");
   } catch (error) {
-    if (error?.code === "EPERM") return t.skip("junction creation is unavailable in this environment");
+    if (error?.code === "EPERM")
+      return t.skip("junction creation is unavailable in this environment");
     throw error;
   }
   const executor = commandExecutor({ fail: false });
   const capture = service(paths, executor, linkedManaged);
   const prepared = capture.prepareFile(paths.sourcePath);
 
-  assert.throws(() => capture.commit({ sessionId: prepared.sessionId, durationMs: 1200 }), /symlink\/junction/);
+  assert.throws(
+    () => capture.commit({ sessionId: prepared.sessionId, durationMs: 1200 }),
+    /symlink\/junction/,
+  );
   assert.equal(executor.calls, 0);
   assert.deepEqual(fs.readdirSync(outside), []);
 });
@@ -196,25 +225,45 @@ test("Theme media finalize writes and verifies the ID marker before DB commit", 
     userDataPath: paths.userDataPath,
     repository: { get: () => null },
     commands,
-    resolveManagedDirectory: () => ({ kind: "ok", directory: artifactDirectory, themeMarker: { directory: themeFolder, themeId, displayName: "Renamed Theme" } }),
+    resolveManagedDirectory: () => ({
+      kind: "ok",
+      directory: artifactDirectory,
+      themeMarker: { directory: themeFolder, themeId, displayName: "Renamed Theme" },
+    }),
   });
   const prepared = capture.prepareFile(paths.sourcePath, themeId);
-  assert.throws(() => capture.commit({ sessionId: prepared.sessionId, durationMs: 1200 }), /injected DB failure/);
+  assert.throws(
+    () => capture.commit({ sessionId: prepared.sessionId, durationMs: 1200 }),
+    /injected DB failure/,
+  );
   const marker = JSON.parse(fs.readFileSync(path.join(themeFolder, ".tasken-theme.json"), "utf8"));
   assert.equal(marker.themeId, themeId);
 
   const other = fixture(t);
   const otherFolder = path.join(other.managedDirectory, "Themes", "CONFLICT");
   fs.mkdirSync(path.join(otherFolder, "Artifacts"), { recursive: true });
-  fs.writeFileSync(path.join(otherFolder, ".tasken-theme.json"), JSON.stringify({ schema: "tasken-theme-folder/v1", themeId: "00000000-0000-4000-8000-000000000000" }));
+  fs.writeFileSync(
+    path.join(otherFolder, ".tasken-theme.json"),
+    JSON.stringify({
+      schema: "tasken-theme-folder/v1",
+      themeId: "00000000-0000-4000-8000-000000000000",
+    }),
+  );
   const rejected = new MediaCaptureService({
     userDataPath: other.userDataPath,
     repository: { get: () => null },
     commands: commandExecutor({ fail: false }),
-    resolveManagedDirectory: () => ({ kind: "ok", directory: path.join(otherFolder, "Artifacts"), themeMarker: { directory: otherFolder, themeId, displayName: "Theme" } }),
+    resolveManagedDirectory: () => ({
+      kind: "ok",
+      directory: path.join(otherFolder, "Artifacts"),
+      themeMarker: { directory: otherFolder, themeId, displayName: "Theme" },
+    }),
   });
   const otherPrepared = rejected.prepareFile(other.sourcePath, themeId);
-  assert.throws(() => rejected.commit({ sessionId: otherPrepared.sessionId, durationMs: 1200 }), /marker/);
+  assert.throws(
+    () => rejected.commit({ sessionId: otherPrepared.sessionId, durationMs: 1200 }),
+    /marker/,
+  );
 });
 
 test("prepared crash is listed without a source path and remains user-discardable after restart", (t) => {
@@ -226,7 +275,10 @@ test("prepared crash is listed without a source path and remains user-discardabl
 
   assert.equal(pending.length, 1);
   assert.deepEqual(pending[0], prepared);
-  assert.doesNotMatch(JSON.stringify(pending), /sourcePath|stored_path|original_path|voice\.wav.*voice\.wav/);
+  assert.doesNotMatch(
+    JSON.stringify(pending),
+    /sourcePath|stored_path|original_path|voice\.wav.*voice\.wav/,
+  );
   assert.equal(restarted.cancel(prepared.sessionId), true);
   assert.deepEqual(restarted.listPreparedAudio(), []);
 });
@@ -235,25 +287,36 @@ test("corrupt manifest remains visible as a safe diagnostic and cannot be discar
   const paths = fixture(t);
   const capture = service(paths, commandExecutor());
   const prepared = capture.prepareFile(paths.sourcePath);
-  const manifestPath = path.join(paths.userDataPath, "media-recovery", "sessions", prepared.sessionId, "session.json");
+  const manifestPath = path.join(
+    paths.userDataPath,
+    "media-recovery",
+    "sessions",
+    prepared.sessionId,
+    "session.json",
+  );
   fs.writeFileSync(manifestPath, "{corrupt-json");
 
   const pending = service(paths, commandExecutor()).listPreparedAudio();
 
-  assert.deepEqual(pending, [{
-    sessionId: prepared.sessionId,
-    filename: "復旧が必要なMedia",
-    mimeType: "不明",
-    fileSize: 0,
-    mediaUrl: "",
-    status: "recovery_required",
-    availability: "missing",
-    recoveryReason: "manifest_invalid",
-    canCommit: false,
-    canRetry: false,
-    canDiscard: false,
-  }]);
-  assert.doesNotMatch(JSON.stringify(pending), /user-data|media-recovery|session\.json|sourcePath|stored_path/);
+  assert.deepEqual(pending, [
+    {
+      sessionId: prepared.sessionId,
+      filename: "復旧が必要なMedia",
+      mimeType: "不明",
+      fileSize: 0,
+      mediaUrl: "",
+      status: "recovery_required",
+      availability: "missing",
+      recoveryReason: "manifest_invalid",
+      canCommit: false,
+      canRetry: false,
+      canDiscard: false,
+    },
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(pending),
+    /user-data|media-recovery|session\.json|sourcePath|stored_path/,
+  );
   assert.throws(() => capture.cancel(prepared.sessionId));
   assert.equal(capture.listPreparedAudio().length, 1);
 });
@@ -283,7 +346,11 @@ test("prepared list is deterministic: valid createdAt desc then sessionId, inval
   ];
   let idIndex = 0;
   let nowIndex = 0;
-  const times = ["2026-08-09T00:00:00.000Z", "2026-08-09T00:00:02.000Z", "2026-08-09T00:00:02.000Z"];
+  const times = [
+    "2026-08-09T00:00:00.000Z",
+    "2026-08-09T00:00:02.000Z",
+    "2026-08-09T00:00:02.000Z",
+  ];
   const capture = new MediaCaptureService({
     userDataPath: paths.userDataPath,
     repository: { get: () => null },
@@ -292,13 +359,29 @@ test("prepared list is deterministic: valid createdAt desc then sessionId, inval
     idFactory: () => ids[idIndex++],
     now: () => times[nowIndex++] || times.at(-1),
   });
-  const entries = [capture.prepareFile(paths.sourcePath), capture.prepareFile(paths.sourcePath), capture.prepareFile(paths.sourcePath)];
-  fs.writeFileSync(path.join(paths.userDataPath, "media-recovery", "sessions", entries[0].sessionId, "session.json"), "bad");
+  const entries = [
+    capture.prepareFile(paths.sourcePath),
+    capture.prepareFile(paths.sourcePath),
+    capture.prepareFile(paths.sourcePath),
+  ];
+  fs.writeFileSync(
+    path.join(
+      paths.userDataPath,
+      "media-recovery",
+      "sessions",
+      entries[0].sessionId,
+      "session.json",
+    ),
+    "bad",
+  );
 
-  assert.deepEqual(capture.listPreparedAudio().map((entry) => entry.sessionId), [ids[1], ids[2], ids[0]]);
+  assert.deepEqual(
+    capture.listPreparedAudio().map((entry) => entry.sessionId),
+    [ids[1], ids[2], ids[0]],
+  );
 });
 
-test("source path swap after open is rejected before reading bytes or committing", (t) => {
+test("source path swap rejects distinct bigint identities that collide as numbers before reading", (t) => {
   const paths = fixture(t);
   const replacement = path.join(paths.root, "replacement.wav");
   const originalMoved = path.join(paths.root, "voice-original.wav");
@@ -307,11 +390,33 @@ test("source path swap after open is rejected before reading bytes or committing
   const capture = service(paths, executor);
   const realOpen = fs.openSync;
   const realRead = fs.readSync;
+  const realLstat = fs.lstatSync;
+  const realFstat = fs.fstatSync;
+  const originalInode = 11258999074140983n;
+  const replacementInode = 11258999074140984n;
+  assert.equal(Number(originalInode), Number(replacementInode));
   let sourceDescriptor = null;
   let sourceReads = 0;
+  fs.lstatSync = function patchedLstat(candidate, options) {
+    const stat = realLstat.call(fs, candidate, options);
+    if (path.resolve(String(candidate)) === path.resolve(paths.sourcePath)) {
+      const inode = sourceDescriptor === null ? originalInode : replacementInode;
+      stat.ino = options?.bigint ? inode : Number(inode);
+    }
+    return stat;
+  };
+  fs.fstatSync = function patchedFstat(descriptor, options) {
+    const stat = realFstat.call(fs, descriptor, options);
+    if (descriptor === sourceDescriptor)
+      stat.ino = options?.bigint ? originalInode : Number(originalInode);
+    return stat;
+  };
   fs.openSync = function patchedOpen(candidate, flags, mode) {
     const descriptor = realOpen.call(fs, candidate, flags, mode);
-    if (path.resolve(String(candidate)) === path.resolve(paths.sourcePath) && sourceDescriptor === null) {
+    if (
+      path.resolve(String(candidate)) === path.resolve(paths.sourcePath) &&
+      sourceDescriptor === null
+    ) {
       sourceDescriptor = descriptor;
       fs.renameSync(paths.sourcePath, originalMoved);
       fs.renameSync(replacement, paths.sourcePath);
@@ -327,6 +432,8 @@ test("source path swap after open is rejected before reading bytes or committing
   } finally {
     fs.openSync = realOpen;
     fs.readSync = realRead;
+    fs.lstatSync = realLstat;
+    fs.fstatSync = realFstat;
   }
   assert.equal(sourceReads, 0);
   assert.equal(executor.calls, 0);
@@ -380,19 +487,36 @@ test("finalizing session remains explicitly retryable while root is unavailable 
 });
 
 const COMMAND_TAMPERS = [
-  ["capture.title", "tampered"], ["capture.text", "other.wav"], ["capture.kind", "file_capture"],
-  ["capture.content_type", "file"], ["capture.capture_method", "microphone"], ["capture.media_status", "failed"],
-  ["capture.transcription_status", "completed"], ["capture.captured_at", "2020-01-01T00:00:00.000Z"],
-  ["capture.state", "triaged"], ["capture.project_id", "00000000-0000-4000-8000-000000000099"],
-  ["capture.ai_visibility", ["coding_agent"]], ["artifact.title", "tampered"], ["artifact.filename", "other.wav"],
-  ["artifact.file_type", "mp3"], ["artifact.mime_type", "audio/mpeg"], ["artifact.file_size", 1],
-  ["artifact.stored_path", "C:/private/injected.wav"], ["artifact.original_path", "C:/private/source.wav"],
-  ["artifact.storage_mode", "linked"], ["artifact.copied_at", "2020-01-01T00:00:00.000Z"],
-  ["artifact.source_type", "task"], ["artifact.source_id", "00000000-0000-4000-8000-000000000099"],
-  ["artifact.theme_id", "00000000-0000-4000-8000-000000000099"], ["artifact.media_kind", "video"],
-  ["artifact.duration_ms", 9999], ["artifact.container", "mp3"],
-  ["artifact.content_hash", `sha256:${"b".repeat(64)}`], ["artifact.media_availability", "changed"],
-  ["artifact.ai_visibility", ["coding_agent"]], ["command.issuedAt", "2020-01-01T00:00:00.000Z"],
+  ["capture.title", "tampered"],
+  ["capture.text", "other.wav"],
+  ["capture.kind", "file_capture"],
+  ["capture.content_type", "file"],
+  ["capture.capture_method", "microphone"],
+  ["capture.media_status", "failed"],
+  ["capture.transcription_status", "completed"],
+  ["capture.captured_at", "2020-01-01T00:00:00.000Z"],
+  ["capture.state", "triaged"],
+  ["capture.project_id", "00000000-0000-4000-8000-000000000099"],
+  ["capture.ai_visibility", ["coding_agent"]],
+  ["artifact.title", "tampered"],
+  ["artifact.filename", "other.wav"],
+  ["artifact.file_type", "mp3"],
+  ["artifact.mime_type", "audio/mpeg"],
+  ["artifact.file_size", 1],
+  ["artifact.stored_path", "C:/private/injected.wav"],
+  ["artifact.original_path", "C:/private/source.wav"],
+  ["artifact.storage_mode", "linked"],
+  ["artifact.copied_at", "2020-01-01T00:00:00.000Z"],
+  ["artifact.source_type", "task"],
+  ["artifact.source_id", "00000000-0000-4000-8000-000000000099"],
+  ["artifact.theme_id", "00000000-0000-4000-8000-000000000099"],
+  ["artifact.media_kind", "video"],
+  ["artifact.duration_ms", 9999],
+  ["artifact.container", "mp3"],
+  ["artifact.content_hash", `sha256:${"b".repeat(64)}`],
+  ["artifact.media_availability", "changed"],
+  ["artifact.ai_visibility", ["coding_agent"]],
+  ["command.issuedAt", "2020-01-01T00:00:00.000Z"],
 ];
 
 for (const [field, replacement] of COMMAND_TAMPERS) {
@@ -423,11 +547,20 @@ test("manifest themeId accepts a safe legacy ID and rejects untrimmed IDs before
   const rejectedExecutor = commandExecutor({ fail: false });
   const rejectedCapture = service(rejectedPaths, rejectedExecutor);
   const prepared = rejectedCapture.prepareFile(rejectedPaths.sourcePath);
-  const manifestPath = path.join(rejectedPaths.userDataPath, "media-recovery", "sessions", prepared.sessionId, "session.json");
+  const manifestPath = path.join(
+    rejectedPaths.userDataPath,
+    "media-recovery",
+    "sessions",
+    prepared.sessionId,
+    "session.json",
+  );
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   manifest.themeId = " legacy-theme-id";
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-  assert.throws(() => rejectedCapture.commit({ sessionId: prepared.sessionId, durationMs: 100 }), /Theme ID/);
+  assert.throws(
+    () => rejectedCapture.commit({ sessionId: prepared.sessionId, durationMs: 100 }),
+    /Theme ID/,
+  );
   assert.equal(rejectedExecutor.calls, 0);
 });

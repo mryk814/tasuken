@@ -15,6 +15,7 @@ export function InlineAddPanel({
   onSubmit,
   submitLabel = "追加",
   extraFields,
+  onOrganize,
 }: {
   heading: string;
   title: string;
@@ -26,6 +27,7 @@ export function InlineAddPanel({
   onSubmit: () => void | Promise<void>;
   submitLabel?: string;
   extraFields?: ReactNode;
+  onOrganize?: () => void | Promise<void>;
 }) {
   function submitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key !== "Enter") return;
@@ -35,7 +37,9 @@ export function InlineAddPanel({
 
   return (
     <section className="panel">
-      <div className="section-heading"><h2>{heading}</h2></div>
+      <div className="section-heading">
+        <h2>{heading}</h2>
+      </div>
       <div className="inline-add-panel">
         <input
           className="inline-add-title"
@@ -52,8 +56,15 @@ export function InlineAddPanel({
           onChange={onThemeChange}
           ariaLabel="Theme"
         />
-        <Button variant="primary" compact onClick={() => void onSubmit()}>{submitLabel}</Button>
+        <Button variant="primary" compact onClick={() => void onSubmit()}>
+          {submitLabel}
+        </Button>
       </div>
+      {onOrganize && (
+        <Button variant="secondary" compact onClick={() => void onOrganize()}>
+          音声・AI整理から追加
+        </Button>
+      )}
     </section>
   );
 }
