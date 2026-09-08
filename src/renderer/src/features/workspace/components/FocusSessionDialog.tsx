@@ -145,6 +145,9 @@ export function FocusSessionDialog({
   const [summary, setSummary] = useState("");
   const [nextTaskTitle, setNextTaskTitle] = useState("");
   const [ending, setEnding] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [endError, setEndError] = useState("");
+  const dialogRef = useRef<HTMLElement | null>(null);
   const creating = useRef(false);
   const scratchpadRef = useRef<HTMLTextAreaElement | null>(null);
   const related = useMemo(() => relatedToTask(task, data, domain), [data, domain, task]);
@@ -160,6 +163,26 @@ export function FocusSessionDialog({
       ),
     )
     .slice(0, 3);
+
+  useEffect(() => {
+    const origin = document.activeElement as HTMLElement | null;
+    return () => origin?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (workspaceOpen) scratchpadRef.current?.focus();
+    else
+      dialogRef.current
+        ?.querySelector<HTMLButtonElement>(".focus-session-main-actions > button")
+        ?.focus();
+  }, [workspaceOpen]);
+
+  useEffect(() => {
+    if (!endOpen) return;
+    const origin = document.activeElement as HTMLElement | null;
+    dialogRef.current?.querySelector<HTMLInputElement>(".focus-session-end input")?.focus();
+    return () => origin?.focus();
+  }, [endOpen]);
 
   useEffect(() => {
     if (session || creating.current) return;
@@ -352,6 +375,7 @@ export function FocusSessionDialog({
     if (!session) return;
     creating.current = true;
     setEnding(true);
+    setEndError("");
     try {
       const endedAt = new Date().toISOString();
       const operations = [
@@ -464,6 +488,8 @@ export function FocusSessionDialog({
       localStorage.removeItem(focusSessionDraftKey(session.id));
       localStorage.removeItem(focusSessionDraftKey(`task:${task.id}`));
       close();
+    } catch {
+      setEndError("終了を保存できませんでした。入力を残しています。もう一度お試しください。");
     } finally {
       setEnding(false);
     }
@@ -488,37 +514,106 @@ export function FocusSessionDialog({
       }}
     >
       <section
-        className="focus-session-dialog"
+        ref={dialogRef}
+        className={`focus-session-dialog${workspaceOpen ? "" : " is-compact"}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="focus-session-title"
+        onKeyDown={(event) => {
+          if (event.key !== "Tab") return;
+          const surface =
+            dialogRef.current?.querySelector(".focus-session-end") || dialogRef.current;
+          const controls = Array.from(
+            surface?.querySelectorAll<HTMLElement>(
+              "button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), summary",
+            ) || [],
+          ).filter((element) => element.getClientRects().length > 0);
+          const first = controls[0];
+          const last = controls.at(-1);
+          if (
+            event.shiftKey &&
+            (document.activeElement === first || !surface?.contains(document.activeElement))
+          ) {
+            event.preventDefault();
+            last?.focus();
+          } else if (
+            !event.shiftKey &&
+            (document.activeElement === last || !surface?.contains(document.activeElement))
+          ) {
+            event.preventDefault();
+            first?.focus();
+          }
+        }}
       >
         <header>
           <div className="focus-session-heading">
-            <span>FOCUS SESSION</span>
+            <span>{session ? "フォーカス中" : "フォーカスを開始しています…"}</span>
             <h2 id="focus-session-title">{task.title}</h2>
           </div>
           <div className="focus-session-meta">
-            <span>
-              <IconClock size={15} />
-              {elapsedLabel(sessionProps.started_at, now)}
-            </span>
-            <span className={`is-${saveState}`}>
-              {saveState === "saved" && <IconCheck size={14} />}
-              {statusLabel}
-            </span>
-            <button className="secondary-button compact" onClick={() => setEndOpen(true)}>
-              <IconPlayerStop size={15} />
-              終了
-            </button>
+            {workspaceOpen && (
+              <span>
+                <IconClock size={15} />
+                {elapsedLabel(sessionProps.started_at, now)}
+              </span>
+            )}
+            {(workspaceOpen || saveState === "error") && (
+              <span className={`is-${saveState}`} role="status">
+                {saveState === "saved" && <IconCheck size={14} />}
+                {statusLabel}
+              </span>
+            )}
+            {workspaceOpen && (
+              <button
+                className="primary-button compact"
+                disabled={!session}
+                onClick={() => setEndOpen(true)}
+              >
+                <IconPlayerStop size={15} />
+                終了する
+              </button>
+            )}
             <button className="icon-button" onClick={close} aria-label="Focus Sessionを閉じる">
               <IconX size={18} />
             </button>
           </div>
         </header>
-        <div className="focus-session-layout">
+        {!workspaceOpen && (
+          <div className="focus-session-overview">
+            <div className="focus-session-elapsed">
+              <IconClock size={22} aria-hidden="true" />
+              <strong>{elapsedLabel(sessionProps.started_at, now)}</strong>
+              <span>作業時間</span>
+            </div>
+            {task.description && (
+              <p className="focus-session-task-description">{task.description}</p>
+            )}
+            <p className="focus-session-hint">この画面を閉じても、作業時間の記録は続きます。</p>
+            <div className="focus-session-main-actions">
+              <button className="secondary-button" onClick={close}>
+                画面を閉じて作業する
+              </button>
+              <button
+                className="primary-button"
+                disabled={!session}
+                onClick={() => setEndOpen(true)}
+              >
+                <IconPlayerStop size={16} aria-hidden="true" />
+                終了する
+              </button>
+            </div>
+            <button className="text-button" onClick={() => setWorkspaceOpen(true)}>
+              <IconBook size={16} aria-hidden="true" />
+              メモ・関連資料を開く
+            </button>
+          </div>
+        )}
+        <div className="focus-session-layout" hidden={!workspaceOpen}>
           <aside className="focus-session-context">
             <section>
+              <button className="text-button compact" onClick={() => setWorkspaceOpen(false)}>
+                作業時間に戻る
+              </button>
               <span>Task</span>
               <p>{task.description || "説明なし"}</p>
               <button
@@ -692,8 +787,8 @@ export function FocusSessionDialog({
             <section>
               <div className="section-heading">
                 <div>
-                  <span>SESSION END</span>
-                  <h3>作業を整理する</h3>
+                  <span>フォーカスを終了</span>
+                  <h3>おつかれさまでした</h3>
                 </div>
                 <button
                   className="icon-button"
@@ -709,33 +804,39 @@ export function FocusSessionDialog({
                   checked={completeTask}
                   onChange={(event) => setCompleteTask(event.target.checked)}
                 />
-                Taskを完了する
+                タスクも完了する
               </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={keepScratchpad}
-                  onChange={(event) => setKeepScratchpad(event.target.checked)}
-                  disabled={!scratchpad.trim()}
-                />
-                ScratchpadをNoteとして残す
-              </label>
-              <label>
-                <span>短い作業概要</span>
-                <input
-                  value={summary}
-                  onChange={(event) => setSummary(event.target.value)}
-                  placeholder="省略可。Activity Logへ記録します"
-                />
-              </label>
-              <label>
-                <span>次のTask</span>
-                <input
-                  value={nextTaskTitle}
-                  onChange={(event) => setNextTaskTitle(event.target.value)}
-                  placeholder="必要なときだけ入力"
-                />
-              </label>
+              {Boolean(scratchpad.trim()) && (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={keepScratchpad}
+                    onChange={(event) => setKeepScratchpad(event.target.checked)}
+                    disabled={!scratchpad.trim()}
+                  />
+                  ScratchpadをNoteとして残す
+                </label>
+              )}
+              <details className="focus-session-end-details">
+                <summary>作業概要・次のタスクを残す（任意）</summary>
+                <label>
+                  <span>短い作業概要</span>
+                  <input
+                    value={summary}
+                    onChange={(event) => setSummary(event.target.value)}
+                    placeholder="省略可。Activity Logへ記録します"
+                  />
+                </label>
+                <label>
+                  <span>次のTask</span>
+                  <input
+                    value={nextTaskTitle}
+                    onChange={(event) => setNextTaskTitle(event.target.value)}
+                    placeholder="必要なときだけ入力"
+                  />
+                </label>
+              </details>
+              {endError && <p role="alert">{endError}</p>}
               <footer>
                 <button className="secondary-button" onClick={() => setEndOpen(false)}>
                   作業へ戻る
@@ -745,7 +846,11 @@ export function FocusSessionDialog({
                   disabled={ending || !session}
                   onClick={() => void endSession()}
                 >
-                  {ending ? "終了しています…" : "Sessionを終了"}
+                  {ending
+                    ? "終了しています…"
+                    : completeTask
+                      ? "終了してタスクを完了"
+                      : "セッションを終了"}
                 </button>
               </footer>
             </section>
