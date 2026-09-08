@@ -46,6 +46,15 @@ export const workspaceApi = {
   publishDailyContext(request: Parameters<Window["api"]["dailyContext"]["publish"]>[0]) {
     return desktopApi().dailyContext.publish(request);
   },
+  getDailyContextAutoStatus() {
+    return desktopApi().dailyContext.autoStatus();
+  },
+  configureDailyContextAuto(config: Parameters<Window["api"]["dailyContext"]["configureAuto"]>[0]) {
+    return desktopApi().dailyContext.configureAuto(config);
+  },
+  retryDailyContextAuto() {
+    return desktopApi().dailyContext.retryAuto();
+  },
   recordWorkLog(command: Parameters<Window["api"]["workLog"]["record"]>[0]) {
     return desktopApi().workLog.record(command);
   },
