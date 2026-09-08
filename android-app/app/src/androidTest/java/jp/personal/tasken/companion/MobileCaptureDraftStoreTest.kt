@@ -29,6 +29,29 @@ class MobileCaptureDraftStoreTest {
     }
 
     @Test
+    fun restoresEightCandidateEditsAndExcludedSlotsWithStableSaveIds() {
+        val original = "研究の詳しい原文".repeat(500)
+        val draft = MobileCaptureDraft.fresh(text = original).withOrganizations(
+            List(8) { MobileCaptureOrganization("候補 $it") },
+        ).let { initial ->
+            initial.withEditedOrganizations(initial.allOrganizations().mapIndexed { index, item ->
+                when (index) {
+                    0 -> item.copy(excluded = true)
+                    1 -> item.copy(themeId = "research", endDate = "2026-09-20",
+                        checklist = listOf("確認", "記録"), supplement = "詳細を保持")
+                    else -> item
+                }
+            })
+        }
+        org.junit.Assert.assertTrue(MobileCaptureDraftStore(context).save(MobileCaptureDraftSnapshot(draft, true)))
+        val loaded = requireNotNull(MobileCaptureDraftStore(context).load()).draft
+        assertEquals(draft, loaded)
+        assertEquals(original, loaded.originalText)
+        assertEquals("${draft.draftId}:task:1", loaded.organizedTaskDrafts().first().draftId)
+        assertEquals(draft.organizedTaskDrafts(), loaded.organizedTaskDrafts())
+    }
+
+    @Test
     fun restoresFullShareDraftAfterProcessRestart() {
         val savedAt = Instant.parse("2026-08-24T10:00:00Z")
         val draft = MobileCaptureDraft(

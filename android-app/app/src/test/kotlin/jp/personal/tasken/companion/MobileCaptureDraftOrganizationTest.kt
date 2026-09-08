@@ -5,6 +5,39 @@ import org.junit.Test
 
 class MobileCaptureDraftOrganizationTest {
     @Test
+    fun exclusionRetainsSlotsAndEditsAcrossEightCandidatesAndRecreation() {
+        val original = "長い原文".repeat(1000)
+        val draft = MobileCaptureDraft.fresh(text = original).withOrganizations(
+            List(8) { MobileCaptureOrganization("候補 $it") },
+        )
+        val originalIds = draft.organizedTaskDrafts().map { it.draftId }
+        val edited = draft.withEditedOrganizations(draft.allOrganizations().mapIndexed { index, item ->
+            when (index) {
+                0 -> item.copy(excluded = true, title = "")
+                1 -> item.copy(themeId = "research", endDate = "2026-09-15",
+                    checklist = listOf("確認", "記録"), supplement = "補足を保持",
+                    plannedStartTime = "09:00", plannedDurationMinutes = 45, plannedTimeSupported = true)
+                else -> item
+            }
+        })
+        val restored = TodayPaneState.restore(TodayPaneState(captureDraft = edited).save()).captureDraft
+        assertEquals(edited, restored)
+        assertEquals(original, restored.originalText)
+        val tasks = restored.organizedTaskDrafts()
+        assertEquals(originalIds.drop(1), tasks.map { it.draftId })
+        assertEquals("research", tasks.first().projectId)
+        assertEquals("2026-09-15", tasks.first().organizationSchedule()?.endDate)
+        assertEquals(listOf("確認", "記録"), tasks.first().organizationChecklistItems()?.map { it.title })
+        assertEquals(45, tasks.first().organization?.plannedDurationMinutes)
+        assertEquals(emptyList<MobileCaptureDraft>(), restored.withEditedOrganizations(
+            restored.allOrganizations().map { it.copy(excluded = true) },
+        ).organizedTaskDrafts())
+        assertEquals(originalIds, restored.withEditedOrganizations(
+            restored.allOrganizations().map { it.copy(excluded = false) },
+        ).organizedTaskDrafts().map { it.draftId })
+    }
+
+    @Test
     fun oneSpeechDraftExpandsIntoStableIndependentTaskDrafts() {
         val first = MobileCaptureOrganization(
             title = "比較実験を準備",
