@@ -1,5 +1,6 @@
 export * from "./schema.ts";
 export * from "./relatedDocuments.ts";
+export * from "./themeContext.ts";
 export {
   TASKEN_MOBILE_API_VERSION,
   TASKEN_MOBILE_CAPABILITIES,

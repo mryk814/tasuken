@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -171,6 +171,42 @@ export async function createMobileOfflineGateway({ scopes } = {}) {
   }
 
   async function control(action) {
+    if (action.themeContextPhase) {
+      assert.ok(["initial", "updated", "deleted"].includes(action.themeContextPhase));
+      const id = "theme-context-fixture";
+      if (action.themeContextPhase === "initial") {
+        assert.equal(database.get("theme", id), null);
+        const theme = JSON.parse(
+          readFileSync(
+            new URL(
+              "../../contracts/mobile/v1/theme-context-response.golden.json",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        ).data.theme;
+        database.save("theme", {
+          id,
+          name: theme.title,
+          theme_charter: theme.charter,
+          theme_state: theme.currentState,
+          ai_visibility: [],
+        });
+      } else {
+        const theme = database.get("theme", id);
+        assert.ok(theme);
+        if (action.themeContextPhase === "deleted") database.remove("theme", id);
+        else
+          database.save("theme", {
+            ...theme,
+            theme_state: {
+              ...theme.theme_state,
+              current_direction: "濃度と温度を分けて再測定する。",
+              updated_at: "2026-09-06T09:00:00Z",
+            },
+          });
+      }
+    }
     if (action.seedRelatedDocuments === true) {
       const taskId = "related-fixture-task";
       assert.equal(database.get("task", taskId), null);
