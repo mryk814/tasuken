@@ -16,6 +16,9 @@ type LoadState = "idle" | "loading" | "success" | "error";
 interface WorkspaceState {
   previewDailyContext: typeof workspaceApi.previewDailyContext;
   publishDailyContext: typeof workspaceApi.publishDailyContext;
+  getDailyContextAutoStatus: typeof workspaceApi.getDailyContextAutoStatus;
+  configureDailyContextAuto: typeof workspaceApi.configureDailyContextAuto;
+  retryDailyContextAuto: typeof workspaceApi.retryDailyContextAuto;
   recordWorkLog(
     command: import("../../../shared/workLog").RecordWorkLogCommand,
   ): Promise<import("../../../shared/workLog").WorkLogReceipt>;
@@ -55,6 +58,9 @@ function replaceIfNewer(workspace: Workspace, type: EntityType, saved: Entity): 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   previewDailyContext: workspaceApi.previewDailyContext,
   publishDailyContext: workspaceApi.publishDailyContext,
+  getDailyContextAutoStatus: workspaceApi.getDailyContextAutoStatus,
+  configureDailyContextAuto: workspaceApi.configureDailyContextAuto,
+  retryDailyContextAuto: workspaceApi.retryDailyContextAuto,
   async recordWorkLog(command) {
     const receipt = await workspaceApi.recordWorkLog(command);
     try {

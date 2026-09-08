@@ -108,7 +108,24 @@ import {
 } from "../../shared/conversationContext.mjs";
 import { buildThemeAiPackPlan, type ThemeAiPackPlan } from "../../shared/themeAiPack.mjs";
 import { buildDailyContextPlan } from "../../shared/dailyContext";
-import { publishDailyContext } from "./dailyContextPublisher";
+import { localDate as activityLocalDate } from "../../shared/activityProjection.mjs";
+import {
+  createDailyContextAutoState,
+  validateDailyContextAutoConfig,
+  type DailyContextAutoConfig,
+  type DailyContextAutoState,
+  type DailyContextDeviceObservation,
+  type DailyContextFreshness,
+} from "../../shared/dailyContextAuto";
+import { DailyContextAutoPublisher } from "./dailyContextAutoPublisher";
+import { collectDailyContextAutoChanges } from "./dailyContextAutoSources";
+import {
+  publishDailyContext,
+  readDailyContextSelections,
+  publishedSourceIndex,
+  withdrawDailyContext,
+} from "./dailyContextPublisher";
+import { publicSourceThemeIndexPath } from "../../shared/publicSourceProjection";
 import {
   buildCanonicalMarkdownContent,
   canonicalMarkdownBindingFromProperties,
@@ -148,6 +165,7 @@ import { buildMermaidPptxBuffer } from "./mermaidPowerPointService";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
 import {
   THEME_AI_PACK_DIRECTORY,
+  THEME_AI_PACK_MANIFEST,
   discoverThemeAiPackLocation,
   ensureThemeAiPackLocation,
   inspectThemeAiPack,
@@ -258,6 +276,9 @@ interface WorkspaceRepository {
   applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
   getPreference(key: string): unknown;
   setPreference(key: string, value: unknown): unknown;
+  getDailyContextAutoState(): unknown;
+  setDailyContextAutoState(state: DailyContextAutoState): void;
+  getDailyContextDeviceObservations(): DailyContextDeviceObservation[];
   getDataHealthState(): unknown;
   setDataHealthState(expectedRevision: number, value: unknown): unknown;
   get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
@@ -733,6 +754,7 @@ function normalizeMarkdownImageAttachment(value: unknown): MarkdownImageAttachme
 }
 
 export class WorkspaceService {
+  private dailyContextAuto: DailyContextAutoPublisher | null = null;
   private readonly pendingSnapshots = new Map<string, Workspace>();
   private readonly publishingThemeAiPacks = new Set<string>();
   private readonly canonicalRecoveryPath: string;
@@ -805,7 +827,7 @@ export class WorkspaceService {
       typeof receipt.pending !== "boolean" ||
       !binding ||
       typeof receipt.filePath !== "string" ||
-      !this.sameNoteFilePath(binding.canonical_path, receipt.filePath) ||
+      !this.sameFileSystemPath(binding.canonical_path, receipt.filePath) ||
       bufferSignature(Buffer.from(receipt.content, "base64")) !== receipt.signature ||
       binding.file_signature !== receipt.signature
     )
@@ -1005,7 +1027,7 @@ export class WorkspaceService {
       );
       return Boolean(
         otherBinding?.canonical_path &&
-        this.sameNoteFilePath(otherBinding.canonical_path, binding.canonical_path),
+        this.sameFileSystemPath(otherBinding.canonical_path, binding.canonical_path),
       );
     });
     if (sharedOwner)
@@ -1039,7 +1061,7 @@ export class WorkspaceService {
     return removed;
   }
 
-  private sameNoteFilePath(left: string, right: string): boolean {
+  private sameFileSystemPath(left: string, right: string): boolean {
     const normalize = (value: string): string => {
       const resolved = path.resolve(value);
       return process.platform === "win32" ? resolved.toLocaleLowerCase() : resolved;
@@ -1107,7 +1129,8 @@ export class WorkspaceService {
 
   getDailyContextPreview(selection: unknown, generatedAt = new Date().toISOString()) {
     const workspace = this.repository.loadWorkspace(true) as Record<string, unknown>;
-    return buildDailyContextPlan({
+    const publication = objectValue(this.repository.getPreference("dailyContextPublication"));
+    const plan = buildDailyContextPlan({
       workspace: { ...workspace, change_events: this.repository.list("change_event") },
       workspaceId: this.repository.getMeta().workspaceId,
       selection,
@@ -1115,18 +1138,311 @@ export class WorkspaceService {
       workspaceDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
       roots: this.activityCanonicalRootPaths(),
     });
+    return {
+      ...plan,
+      ...(publication.refreshPending === true && typeof publication.root === "string"
+        ? { recoveryRoot: publication.root }
+        : {}),
+    };
   }
 
-  publishDailyContext(request: import("../../shared/ipc/contracts").DailyContextPublishRequest) {
+  private automaticDailyContext(): DailyContextAutoPublisher {
+    if (this.dailyContextAuto) return this.dailyContextAuto;
+    this.dailyContextAuto = new DailyContextAutoPublisher({
+      now: () => new Date(this.now()),
+      onError: (message) => logMain("warn", "daily-context", message),
+      readState: () => {
+        try {
+          const value = this.repository.getDailyContextAutoState();
+          if (value === null) return null;
+          const state = objectValue(value);
+          const config = validateDailyContextAutoConfig(state.config as DailyContextAutoConfig);
+          if (
+            !Array.isArray(state.pendingDates) ||
+            !state.pendingDates.every(
+              (date) => typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date),
+            ) ||
+            typeof state.needsScan !== "boolean" ||
+            !state.sourceHashes ||
+            Array.isArray(state.sourceHashes) ||
+            typeof state.sourceHashes !== "object" ||
+            !Object.values(state.sourceHashes).every((hash) => typeof hash === "string") ||
+            !Array.isArray(state.deviceObservations) ||
+            (state.checkedThrough !== null && typeof state.checkedThrough !== "string")
+          )
+            throw new Error("invalid automatic publication state");
+          return { ...createDailyContextAutoState(), ...state, config } as DailyContextAutoState;
+        } catch {
+          const state = createDailyContextAutoState();
+          state.error =
+            "自動公開の保存状態を読み込めませんでした。既存公開物は残っています。設定を確認してください。";
+          return state;
+        }
+      },
+      writeState: (state) => this.repository.setDailyContextAutoState(state),
+      scan: (state) => {
+        const publication = readDailyContextSelections(
+          state.config.root,
+          this.repository.getMeta().workspaceId,
+          state.config.timezone,
+        );
+        const workspace = this.repository.loadWorkspace(true) as Record<string, unknown>;
+        const scanned = collectDailyContextAutoChanges({
+          workspace: { ...workspace, change_events: this.repository.list("change_event", true) },
+          workspaceDefault: this.repository.getPreference("aiVisibilityDefault"),
+          sourceHashes: state.sourceHashes,
+          checkedThrough: state.checkedThrough,
+          fromDate: state.config.fromDate,
+          today: activityLocalDate(this.now(), state.config.timezone),
+          timezone: state.config.timezone,
+          publishedDays: publication.days,
+        });
+        if (publication.pendingDate && !scanned.dates.includes(publication.pendingDate))
+          scanned.dates.push(publication.pendingDate);
+        const deviceObservations = this.repository.getDailyContextDeviceObservations();
+        if (
+          !scanned.dates.length &&
+          JSON.stringify(deviceObservations) !== JSON.stringify(state.deviceObservations)
+        ) {
+          const lastPublishedDate = Object.keys(publication.days).sort().at(-1);
+          if (lastPublishedDate) scanned.dates.push(lastPublishedDate);
+        }
+        return {
+          ...scanned,
+          priorityDate: publication.pendingDate,
+          deviceObservations,
+        };
+      },
+      publish: (date, config, freshness) => {
+        const previous = readDailyContextSelections(
+          config.root,
+          this.repository.getMeta().workspaceId,
+          config.timezone,
+        ).days[date];
+        const selection = {
+          date,
+          timezone: config.timezone,
+          themeId: config.themeId,
+          includeFullText: config.includeFullText,
+        };
+        // Reuse the publication's generation time for comparison; a new wall clock is not a source edit.
+        let plan = this.getDailyContextPreview(selection, previous?.generatedAt ?? this.now());
+        const changed = !previous || previous.contentHash !== plan.contentHash;
+        if (changed) plan = this.getDailyContextPreview(selection, this.now());
+        const pendingCount =
+          freshness.pendingCount === null ? null : Math.max(0, freshness.pendingCount - 1);
+        this.publishDailyContext(
+          {
+            root: config.root,
+            selection: plan.selection,
+            generatedAt: plan.generatedAt,
+            expectedContentHash: plan.contentHash,
+            allowPartial: false,
+          },
+          {
+            refreshExistingDays: false,
+            freshness: {
+              ...freshness,
+              observedAt: this.now(),
+              pendingCount,
+              publishedThrough:
+                pendingCount === 0 ? activityLocalDate(this.now(), config.timezone) : null,
+              lastLocalWrittenAt: changed ? plan.generatedAt : freshness.lastLocalWrittenAt,
+              sourceRevision: plan.sourceRevision,
+            },
+          },
+        );
+        return {
+          written: changed,
+          generatedAt: plan.generatedAt,
+          sourceRevision: plan.sourceRevision,
+        };
+      },
+    });
+    return this.dailyContextAuto;
+  }
+
+  startDailyContextAuto(): void {
+    this.automaticDailyContext().start();
+  }
+  stopDailyContextAuto(): void {
+    this.dailyContextAuto?.stop();
+  }
+  notifyDailyContextAutoChange(): void {
+    try {
+      this.dailyContextAuto?.wake();
+    } catch {
+      logMain("warn", "daily-context", "自動公開の更新待ちを保存できませんでした。");
+    }
+  }
+  getDailyContextAutoStatus() {
+    return this.automaticDailyContext().status();
+  }
+
+  configureDailyContextAuto(value: unknown) {
+    const config = validateDailyContextAutoConfig(value as DailyContextAutoConfig);
+    const current = this.automaticDailyContext().status().config;
+    if (config.enabled) {
+      if (!path.isAbsolute(config.root))
+        throw new Error("自動公開の保存先フォルダーを選んでください。");
+      config.root = path.resolve(config.root);
+      if (current.root && this.sameFileSystemPath(current.root, config.root))
+        config.root = current.root;
+      const today = activityLocalDate(this.now(), config.timezone);
+      const days =
+        (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${config.fromDate}T00:00:00Z`)) / 86400000 +
+        1;
+      if (days < 1 || (days > 3660 && config.fromDate !== current.fromDate))
+        throw new Error("初回の公開範囲は今日までの1〜3660日で指定してください。");
+      if (config.themeId && !this.repository.get("theme", config.themeId))
+        throw new Error("公開するThemeが見つかりません。選び直してください。");
+      readDailyContextSelections(
+        config.root,
+        this.repository.getMeta().workspaceId,
+        config.timezone,
+      );
+      const publication = objectValue(this.repository.getPreference("dailyContextPublication"));
+      if (
+        publication.refreshPending === true &&
+        (typeof publication.root !== "string" ||
+          !this.sameFileSystemPath(publication.root, config.root) ||
+          publication.timezone !== config.timezone)
+      )
+        throw new Error(
+          "以前の公開更新が未完了です。同じ保存先とタイムゾーンで再公開してから設定を変更してください。",
+        );
+    }
+    this.automaticDailyContext().configure(config);
+    return this.getDailyContextAutoStatus();
+  }
+
+  async retryDailyContextAuto() {
+    this.automaticDailyContext().retry();
+    await this.automaticDailyContext().runOnce();
+    return this.getDailyContextAutoStatus();
+  }
+
+  publishDailyContext(
+    request: import("../../shared/ipc/contracts").DailyContextPublishRequest,
+    {
+      refreshExistingDays = true,
+      freshness,
+    }: { refreshExistingDays?: boolean; freshness?: DailyContextFreshness } = {},
+  ) {
     if (!request || typeof request !== "object" || typeof request.generatedAt !== "string")
       throw new Error("公開要求が不正です。");
     const plan = this.getDailyContextPreview(request.selection, request.generatedAt);
-    return publishDailyContext({
+    if (plan.contentHash !== request.expectedContentHash)
+      throw new Error("公開対象が変わりました。プレビューを更新してください。");
+    if (typeof request.root !== "string" || !path.isAbsolute(request.root))
+      throw new Error("公開先フォルダーを選んでください。");
+    const automatic = this.getDailyContextAutoStatus().config;
+    if (
+      refreshExistingDays &&
+      automatic.enabled &&
+      (!this.sameFileSystemPath(automatic.root, request.root) ||
+        automatic.timezone !== plan.selection.timezone)
+    )
+      throw new Error(
+        "自動公開が有効です。先に自動公開の保存先を変更するか、自動公開を停止してください。",
+      );
+    const publication = objectValue(this.repository.getPreference("dailyContextPublication"));
+    if (
+      publication.refreshPending === true &&
+      (typeof publication.root !== "string" ||
+        !this.sameFileSystemPath(publication.root, request.root) ||
+        publication.timezone !== plan.selection.timezone)
+    )
+      throw new Error(
+        "前の公開先に未完了の更新があります。同じ公開先とタイムゾーンで再公開してください。",
+      );
+    const previous = readDailyContextSelections(
+      request.root,
+      plan.workspaceId,
+      plan.selection.timezone,
+    );
+    const selections = [
+      plan.selection,
+      ...(refreshExistingDays
+        ? previous.selections.filter((selection) => selection.date !== plan.selection.date)
+        : []),
+    ];
+    if (previous.pendingDate) {
+      const pendingIndex = selections.findIndex(
+        (selection) => selection.date === previous.pendingDate,
+      );
+      if (pendingIndex < 0)
+        throw new Error(`${previous.pendingDate} の未完了処理を先に再公開してください。`);
+      selections.unshift(...selections.splice(pendingIndex, 1));
+    }
+    let result: ReturnType<typeof publishDailyContext> | undefined;
+    const retiring = objectValue(
+      publication.retiring ??
+        (typeof publication.root === "string" &&
+        !this.sameFileSystemPath(publication.root, request.root)
+          ? { root: publication.root, timezone: publication.timezone }
+          : null),
+    );
+    if (
+      typeof retiring.root === "string" &&
+      typeof retiring.timezone === "string" &&
+      readDailyContextSelections(retiring.root, plan.workspaceId, retiring.timezone).pendingDate
+    )
+      throw new Error("以前の保存先に未完了の日別更新があります。同じ保存先で再公開してください。");
+    this.repository.setPreference("dailyContextPublication", {
       root: request.root,
-      plan,
-      expectedContentHash: request.expectedContentHash,
-      allowPartial: request.allowPartial === true,
+      timezone: plan.selection.timezone,
+      refreshPending: true,
+      ...(typeof retiring.root === "string" ? { retiring } : {}),
     });
+    if (typeof retiring.root === "string" && typeof retiring.timezone === "string")
+      withdrawDailyContext(retiring.root, plan.workspaceId, retiring.timezone);
+    for (const selection of selections) {
+      const current =
+        selection.date === plan.selection.date
+          ? plan
+          : this.getDailyContextPreview(selection, request.generatedAt);
+      const saved = publishDailyContext({
+        root: request.root,
+        plan: current,
+        expectedContentHash: current.contentHash,
+        allowPartial: current.partial ? request.allowPartial === true : false,
+        freshness,
+      });
+      if (selection.date === plan.selection.date) result = saved;
+    }
+    for (const theme of this.repository.list("theme", true)) {
+      const location = this.resolveThemeAiPack(theme);
+      if (location.status === "needs_root") continue;
+      if (location.status !== "ok")
+        throw new Error(
+          "既存Theme AI Packの保存先を確認できません。保存先を復旧して再公開してください。",
+        );
+      if (!fs.existsSync(path.join(location.packDirectory, THEME_AI_PACK_MANIFEST))) continue;
+      const pack = theme.deleted_at
+        ? publishThemeAiPack({
+            plan: buildThemeAiPackPlan({
+              theme: { ...theme, ai_visibility: [] },
+              generatedAt: request.generatedAt,
+            }),
+            packDirectory: location.packDirectory,
+            recoveryDirectory: this.themeAiPackRecoveryDirectory,
+          })
+        : this.publishThemeAiPack({
+            themeId: theme.id,
+            expectedContentHash: this.getThemeAiPackPreview(theme.id).contentHash,
+          });
+      if ((!pack.written && pack.state !== "skipped") || pack.state === "current_with_warning")
+        throw new Error(
+          "日別と本文は更新しましたが、既存Theme AI Packを更新できませんでした。旧公開物を確認して再公開してください。",
+        );
+    }
+    this.repository.setPreference("dailyContextPublication", {
+      root: request.root,
+      timezone: plan.selection.timezone,
+      refreshPending: false,
+    });
+    return result!;
   }
 
   private buildThemeAiPack(themeIdValue: unknown): {
@@ -1184,8 +1500,33 @@ export class WorkspaceService {
         workspaceDefault,
         generatedAt: this.now(),
         sourceRevision,
+        publicBodyIndexLink: this.publicBodyIndexLink(theme),
       }),
     };
+  }
+
+  private publicBodyIndexLink(theme: Record<string, unknown>): string | null {
+    const setting = objectValue(this.repository.getPreference("dailyContextPublication"));
+    if (typeof setting.root !== "string" || typeof setting.timezone !== "string") return null;
+    const location = this.resolveThemeAiPack(theme);
+    if (location.status !== "ok") return null;
+    try {
+      const target = publishedSourceIndex(
+        setting.root,
+        this.repository.getMeta().workspaceId,
+        setting.timezone,
+        publicSourceThemeIndexPath(String(theme.id)),
+      );
+      if (!target) return null;
+      const relative = path.relative(location.packDirectory, target).replace(/\\/g, "/");
+      if (path.isAbsolute(relative) || /^[a-z]+:/i.test(relative)) return null;
+      return relative
+        .split("/")
+        .map((part) => encodeURIComponent(part))
+        .join("/");
+    } catch {
+      return null;
+    }
   }
 
   async getAiContextPreview(requestValue: unknown): Promise<AiContextPreviewResult> {

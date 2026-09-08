@@ -129,6 +129,7 @@ let memoStickyController: MemoStickyController | null = null;
 let noteWindowController: NoteWindowController | null = null;
 let taskenRootController: TaskenRootController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
+let dailyContextAutoService: WorkspaceService | null = null;
 let smokeMediaCaptureService: MediaCaptureService | null = null;
 let smokeVideoSourcePath = "";
 let lastSmokeStage = "startup";
@@ -287,6 +288,7 @@ function notifyMemoStickyWindowsChanged(): void {
 }
 
 function notifyMainWindowRefresh(change?: WorkspaceChangePayload): void {
+  notifyDailyContextAuto();
   const todayMiniWindow = todayMiniController?.getWindow();
   for (const win of BrowserWindow.getAllWindows()) {
     if (!isAuxiliaryWindow(win) && !win.isDestroyed()) {
@@ -297,6 +299,14 @@ function notifyMainWindowRefresh(change?: WorkspaceChangePayload): void {
   satelliteWindows?.broadcast(IPC.workspaceChanged, change);
   if (todayMiniWindow && !todayMiniWindow.isDestroyed()) {
     todayMiniWindow.webContents.send(IPC.todayMiniRefresh);
+  }
+}
+
+function notifyDailyContextAuto(): void {
+  try {
+    dailyContextAutoService?.notifyDailyContextAutoChange();
+  } catch (error) {
+    logMain("warn", "daily-context", "自動公開の更新待ちを保存できませんでした", error);
   }
 }
 
@@ -322,6 +332,7 @@ function notifyCommandApplied(
       !(receipt as CommandReceipt & { replayed?: boolean }).replayed,
   );
   if (!receipts.length) return;
+  notifyDailyContextAuto();
   const entityChanges = receipts.flatMap((receipt) => receipt.changes);
   const eventChanges = receipts.flatMap(
     (receipt) =>
@@ -2625,6 +2636,7 @@ async function startDesktopApp(): Promise<void> {
     log: (level, message, error) => logMain(level, "automatic-snapshot", message, error),
   });
   registerWebArtifactProtocol(workspaceService);
+  dailyContextAutoService = workspaceService;
   const mediaCapture = new MediaCaptureService({
     userDataPath: app.getPath("userData"),
     repository: workspaceRepository,
@@ -2776,6 +2788,7 @@ async function startDesktopApp(): Promise<void> {
   if (!isSmokeTest) {
     automaticSnapshotBackup.run("startup");
     sharedFolderSyncService.start();
+    workspaceService.startDailyContextAuto();
     trayController.setup();
     reminderController.start();
     const directHandlers: Record<(typeof DIRECT_SHORTCUT_DEFINITIONS)[number]["id"], () => void> = {
@@ -2824,6 +2837,7 @@ app.on("window-all-closed", () => {
 app.on("before-quit", (event) => {
   if (appQuitApproved) {
     sharedFolderSyncService?.stop();
+    dailyContextAutoService?.stopDailyContextAuto();
     return;
   }
   event.preventDefault();
