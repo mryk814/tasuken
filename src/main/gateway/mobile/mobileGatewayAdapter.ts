@@ -1,4 +1,8 @@
 import {
+  workLogOrganizationRequestSchema,
+  validateWorkLogOrganization,
+} from "../../../shared/workLogOrganization.ts";
+import {
   TASKEN_MOBILE_API_VERSION,
   TASKEN_MOBILE_CAPABILITIES,
   TASKEN_MOBILE_ENDPOINTS,
@@ -205,6 +209,7 @@ export interface MobileGatewayCorePort {
     input: MobileGatewayWorkLogCommand,
   ): Promise<MobileGatewayWorkLogCommandResult> | MobileGatewayWorkLogCommandResult;
   getWorkLog?(id: string): Promise<MobileWorkLog | null> | MobileWorkLog | null;
+  canSendWorkLogToExternalAi?(id: string): Promise<boolean> | boolean;
   status(): Promise<{ apiVersion: string; capabilities: readonly string[] }>;
   listThemes(): Promise<readonly MobileGatewayThemeRecord[]> | readonly MobileGatewayThemeRecord[];
   listWorkReceipts():
@@ -841,12 +846,69 @@ export class MobileGatewayAdapter {
         TASKEN_MOBILE_ENDPOINTS.workReviews,
         TASKEN_MOBILE_ENDPOINTS.taskDelegations,
         TASKEN_MOBILE_ENDPOINTS.captureOrganization,
+        TASKEN_MOBILE_ENDPOINTS.workLogOrganization,
       ].includes(request.path as never)
         ? "POST"
         : "GET";
       if (request.method !== expectedMethod) return this.error(meta, "method_not_allowed");
       if (request.method === "GET" && request.body !== undefined)
         return this.error(meta, "validation_failed");
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.workLogOrganization) {
+        if (
+          !request.principal.scopes.includes("mobile:read") ||
+          !request.principal.scopes.includes("mobile:work-log-write")
+        )
+          return this.error(meta, "forbidden");
+        const parsed = workLogOrganizationRequestSchema.safeParse(request.body);
+        if (!parsed.success || Object.keys(request.query || {}).length)
+          return this.error(meta, "validation_failed");
+        if (this.organizingDevices.has(request.principal.deviceId))
+          return this.error(meta, "rate_limited", true);
+        const read = this.options.core.getWorkLog;
+        if (!read) return this.error(meta, "capability_unavailable");
+        const source = await read(parsed.data.sourceId);
+        if (!source || source.deleted) return this.error(meta, "not_found");
+        if (source.version !== parsed.data.sourceVersion)
+          return this.error(meta, "entity_conflict");
+        const allowed = this.options.core.canSendWorkLogToExternalAi;
+        if (!allowed || !(await allowed(source.id))) return this.error(meta, "forbidden");
+        this.organizingDevices.add(request.principal.deviceId);
+        try {
+          const organizer = this.options.getCaptureOrganizer
+            ? this.options.getCaptureOrganizer()
+            : this.options.captureOrganizer === undefined
+              ? createCaptureOrganizerFromEnvironment()
+              : this.options.captureOrganizer;
+          if (!organizer?.organizeWorkLog) return this.error(meta, "capability_unavailable");
+          const proposal = validateWorkLogOrganization(
+            await organizer.organizeWorkLog(source.body),
+            source.body,
+          );
+          const current = await read(source.id);
+          if (
+            !current ||
+            current.deleted ||
+            current.version !== source.version ||
+            current.body !== source.body
+          )
+            return this.error(meta, "entity_conflict");
+          if (!(await allowed(source.id))) return this.error(meta, "forbidden");
+          return this.success({
+            ok: true,
+            meta,
+            data: {
+              sourceId: source.id,
+              sourceVersion: source.version,
+              proposal,
+              providerLabel: organizer.providerLabel,
+            },
+          });
+        } catch {
+          return this.error(meta, "upstream_unavailable", true);
+        } finally {
+          this.organizingDevices.delete(request.principal.deviceId);
+        }
+      }
       if (request.path === TASKEN_MOBILE_ENDPOINTS.captureOrganization) {
         if (
           !request.principal.scopes.includes("mobile:read") ||
@@ -949,9 +1011,12 @@ export class MobileGatewayAdapter {
         const captureCommand = ["CreateCapture", "DeleteCapture"].includes(
           commandRequest.data.command.name,
         );
-        const workLogCommand = ["RecordWorkLog", "DeleteWorkLog", "RestoreWorkLog"].includes(
-          commandRequest.data.command.name,
-        );
+        const workLogCommand = [
+          "RecordWorkLog",
+          "DeleteWorkLog",
+          "RestoreWorkLog",
+          "AdoptWorkLogOrganization",
+        ].includes(commandRequest.data.command.name);
         const requiredScope: MobileScope = workLogCommand
           ? "mobile:work-log-write"
           : captureCommand
@@ -1593,7 +1658,8 @@ export class MobileGatewayAdapter {
       if (
         command.name === "RecordWorkLog" ||
         command.name === "DeleteWorkLog" ||
-        command.name === "RestoreWorkLog"
+        command.name === "RestoreWorkLog" ||
+        command.name === "AdoptWorkLogOrganization"
       ) {
         if (!this.options.core.executeWorkLogCommand)
           return this.error(meta, "capability_unavailable");

@@ -996,7 +996,7 @@ class MobileOutbox(
                     val response = result.response
                     val record = response.data.workLog
                     val valid = response.meta.serverId == serverId && response.data.commandId == command.commandId &&
-                        record.id == command.workLogId && command.commandName in setOf("RecordWorkLog", "DeleteWorkLog", "RestoreWorkLog")
+                        record.id == command.workLogId && command.commandName in setOf("RecordWorkLog", "DeleteWorkLog", "RestoreWorkLog", "AdoptWorkLogOrganization")
                     if (!valid) {
                         dao.markRetry(command.commandId, structuredCommandError("invalid_command_receipt", "作業記録の送信結果が一致しません。本文を保持しています。", true))
                         return true

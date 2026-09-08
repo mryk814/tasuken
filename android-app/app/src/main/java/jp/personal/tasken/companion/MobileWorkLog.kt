@@ -101,7 +101,7 @@ internal object MobileWorkLogContract {
 }
 
 /** A display cache of the Desktop Note, including the locally accepted input before sync. */
-data class MobileWorkLog(val record: WorkLogCacheEntity, val pending: OutboxCommandEntity?) {
+data class MobileWorkLog(val record: WorkLogCacheEntity, val pending: OutboxCommandEntity?, val organization: WorkLogOrganizationEntity? = null) {
     val status: String get() = when (pending?.state) {
         OutboxState.Rejected -> "端末に保存済み・送信を確認してください"
         OutboxState.Sending -> "端末に保存済み・送信中"

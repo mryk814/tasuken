@@ -2576,6 +2576,10 @@ async function startDesktopApp(): Promise<void> {
   ipcMain.handle(IPC.captureOrganizerClearSettings, () => captureOrganizerSettings.clearSettings());
   const composition = (desktopComposition = new TaskenDesktopComposition({
     workLogWriter: {
+      adoptOrganization: (command, actor) => {
+        workspaceService.adoptWorkLogOrganization(command, actor);
+        notifyMainWindowRefresh();
+      },
       record: (command, actor) => {
         const receipt = workspaceService.recordWorkLog(command, actor);
         notifyMainWindowRefresh();
