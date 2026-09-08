@@ -32,6 +32,7 @@
     "hooks:copilot:status": "node scripts/manage-agent-session-hooks.mjs status --client github_copilot",
     "hooks:copilot:uninstall": "node scripts/manage-agent-session-hooks.mjs uninstall --client github_copilot",
     "desktop": "npm run build && electron --disable-gpu --disable-gpu-compositing .",
+    "evaluate:publication": "node scripts/evaluate-publication-context.mjs",
     "smoke:desktop": "npm run build && node scripts/run-electron-smoke.mjs",
     "smoke:desktop:focused": "node scripts/run-electron-smoke.mjs",
     "smoke:desktop:packaged": "node scripts/run-packaged-electron-smoke.mjs",
