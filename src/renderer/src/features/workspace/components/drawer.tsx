@@ -68,6 +68,7 @@ import {
 import { isConversationMarkdown } from "../lib/conversationParser";
 import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
+import type { Entity } from "../../../../../shared/types/workspace";
 import { TaskScheduleProposal } from "./TaskScheduleProposal";
 import {
   AiContextFields,
@@ -957,9 +958,9 @@ export function EntityDrawer({
           {executeCommand && (
             <TaskScheduleProposal
               key={task.id}
-              taskId={task.id}
+              task={task as unknown as Entity}
+              schedule={(schedule as unknown as Entity) ?? null}
               initiallyOpen={Boolean(entity._scheduleProposalOpen)}
-              data={data}
               executeCommand={executeCommand}
               onEdit={(instruction) =>
                 close({

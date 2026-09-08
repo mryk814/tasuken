@@ -40,6 +40,11 @@ function desktopApi() {
 }
 
 export const workspaceApi = {
+  proposeTaskSchedule(
+    request: Parameters<Window["api"]["captureOrganizer"]["proposeTaskSchedule"]>[0],
+  ) {
+    return desktopApi().captureOrganizer.proposeTaskSchedule(request);
+  },
   previewDailyContext(selection: Parameters<Window["api"]["dailyContext"]["preview"]>[0]) {
     return desktopApi().dailyContext.preview(selection);
   },

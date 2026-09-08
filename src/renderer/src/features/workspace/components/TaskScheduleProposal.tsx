@@ -8,7 +8,8 @@ import {
   type TaskScheduleProposalRequest,
 } from "../../../../../shared/taskScheduleProposal";
 import type { Entity } from "../../../../../shared/types/workspace";
-import type { ExecuteCommand, WorkspaceData } from "../types";
+import type { ExecuteCommand } from "../types";
+import { workspaceApi } from "../../../services/workspaceApi";
 
 function errorMessage(cause: unknown) {
   return (cause instanceof Error ? cause.message : String(cause)).replace(
@@ -25,14 +26,14 @@ function display(value: unknown) {
 }
 
 export function TaskScheduleProposal({
-  taskId,
-  data,
+  task,
+  schedule,
   executeCommand,
   onEdit,
   initiallyOpen = false,
 }: {
-  taskId: string;
-  data: WorkspaceData;
+  task: Entity;
+  schedule: Entity | null;
   executeCommand: ExecuteCommand;
   onEdit: (instruction: string) => void;
   initiallyOpen?: boolean;
@@ -51,10 +52,6 @@ export function TaskScheduleProposal({
     commandId: string;
     issuedAt: string | null;
   } | null>(null);
-  const task = data.tasks?.find((entry) => entry.id === taskId) as Entity | undefined;
-  const schedule = (data.schedules?.find(
-    (entry) => entry.owner_type === "task" && entry.owner_id === taskId,
-  ) ?? null) as Entity | null;
   const current = task ? taskScheduleSnapshot(task, schedule) : null;
   const stale = Boolean(
     preview && JSON.stringify(current) !== JSON.stringify(preview.request.current),
@@ -82,7 +79,7 @@ export function TaskScheduleProposal({
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
     try {
-      const proposal = await window.api.captureOrganizer.proposeTaskSchedule(request);
+      const proposal = await workspaceApi.proposeTaskSchedule(request);
       if (run === generation.current)
         setPreview({
           proposal,

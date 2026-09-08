@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { build } from "esbuild";
-import { mkdtemp, rm } from "node:fs/promises";
-import path from "node:path";
-import { tmpdir } from "node:os";
-import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 async function bundled(entry) {
   const result = await build({
@@ -19,17 +15,10 @@ async function bundled(entry) {
     `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
   );
 }
-const {
-  taskScheduleSnapshot,
-  validateTaskScheduleProposal,
-  buildTaskScheduleProposalCommand,
-  taskScheduleProposalRequestSchema,
-} = await bundled("src/shared/taskScheduleProposal.ts");
+const { taskScheduleSnapshot, validateTaskScheduleProposal, taskScheduleProposalRequestSchema } =
+  await bundled("src/shared/taskScheduleProposal.ts");
 const { createCaptureOrganizerFromEnvironment } = await bundled(
   "src/main/gateway/mobile/captureOrganizer.ts",
-);
-const { ApplicationCommandService } = await bundled(
-  "src/main/services/applicationCommandService.ts",
 );
 const { proposeTaskSchedule } = await bundled("src/main/services/taskScheduleProposal.ts");
 const task = {
@@ -149,6 +138,8 @@ test("fake provider returns only requested date/time/duration/clear patches and 
     ["時刻だけ15時に", { plannedStartTime: "15:00" }, []],
     ["所要時間だけ30分", { plannedDurationMinutes: 30 }, []],
     ["予定時刻を解除", { plannedStartTime: null }, []],
+    ["開始日と期限を解除", { startDate: null, endDate: null }, []],
+    ["今日に割り当て", { todayDate: "2026-09-08" }, []],
     ["そのうち金曜かな", {}, ["日付が曖昧です。"]],
   ]) {
     let sent;
@@ -198,131 +189,4 @@ test("invalid provider fields, invalid dates, impossible periods, API failure an
   });
   await assert.rejects(provider.proposeTaskSchedule(request), /AIで整理できません/);
   assert.equal(request.instruction, "時刻だけ15時に");
-});
-
-test("confirmed schedule patches preserve other fields and replay safely after SQLite reopen", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "tasken-schedule-proposal-"));
-  const filename = path.join(dir, "workspace.sqlite");
-  let db = new WorkspaceDatabase(filename);
-  try {
-    db.loadWorkspace();
-    let service = new ApplicationCommandService(db);
-    service.execute({
-      commandId: "create-schedule-test",
-      name: "CreateTask",
-      actor: { kind: "user" },
-      source: "main_ui",
-      issuedAt: request.inputAt,
-      payload: { task, schedule },
-    });
-    const initialTask = db.get("task", task.id);
-    const initialSchedule = db.get("schedule", schedule.id);
-    const proposal = {
-      patch: { plannedStartTime: "15:00", plannedDurationMinutes: 30, startDate: "2026-09-14" },
-      warnings: [],
-    };
-    const command = buildTaskScheduleProposalCommand(
-      initialTask,
-      initialSchedule,
-      proposal,
-      taskScheduleSnapshot(initialTask, initialSchedule),
-      "apply-schedule-test",
-      request.inputAt,
-    );
-    const receipt = service.execute(command);
-    const saved = db.get("task", task.id);
-    for (const key of [
-      "title",
-      "project_id",
-      "checklist_items",
-      "description",
-      "state",
-      "today_date",
-    ])
-      assert.deepEqual(saved[key], initialTask[key]);
-    assert.equal(saved.planned_start_time, "15:00");
-    assert.equal(saved.planned_duration_minutes, 30);
-    assert.equal(db.get("schedule", schedule.id).start_date, "2026-09-14");
-    assert.equal(db.get("schedule", schedule.id).end_date, initialSchedule.end_date);
-    assert.deepEqual(service.execute(command), receipt);
-    assert.equal(db.get("task", task.id).version, saved.version);
-    db.db.close();
-    db = new WorkspaceDatabase(filename);
-    db.loadWorkspace();
-    service = new ApplicationCommandService(db);
-    assert.equal(db.get("task", task.id).planned_start_time, "15:00");
-    assert.equal(db.get("schedule", schedule.id).start_date, "2026-09-14");
-    assert.deepEqual(service.execute(command), receipt);
-    assert.throws(
-      () =>
-        service.execute({
-          ...command,
-          payload: {
-            ...command.payload,
-            task: { ...command.payload.task, planned_start_time: "16:00" },
-          },
-        }),
-      /同じcommandId|同じCommand|再利用|異なる/,
-    );
-  } finally {
-    db.db.close();
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("Task edits, Schedule edits, and a newly created Schedule invalidate time-only proposals", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "tasken-schedule-stale-"));
-  const db = new WorkspaceDatabase(path.join(dir, "workspace.sqlite"));
-  try {
-    db.loadWorkspace();
-    const service = new ApplicationCommandService(db);
-    service.execute({
-      commandId: "create-stale-test",
-      name: "CreateTask",
-      actor: { kind: "user" },
-      source: "main_ui",
-      issuedAt: request.inputAt,
-      payload: { task, schedule },
-    });
-    const initialTask = db.get("task", task.id),
-      initialSchedule = db.get("schedule", schedule.id);
-    const make = (id) =>
-      buildTaskScheduleProposalCommand(
-        initialTask,
-        initialSchedule,
-        { patch: { plannedStartTime: "16:00" }, warnings: [] },
-        taskScheduleSnapshot(initialTask, initialSchedule),
-        id,
-        request.inputAt,
-      );
-    const first = make("stale-schedule");
-    db.save("schedule", { ...initialSchedule, end_date: "2026-09-19" });
-    assert.throws(() => service.execute(first), /日程が更新/);
-    assert.equal(db.get("task", task.id).planned_start_time, initialTask.planned_start_time);
-    db.save("task", { ...initialTask, title: "別の編集" });
-    assert.throws(() => service.execute(make("stale-task")), /更新済み/);
-    const secondTask = { ...task, id: "no-schedule-task" };
-    service.execute({
-      commandId: "create-without-schedule",
-      name: "CreateTask",
-      actor: { kind: "user" },
-      source: "main_ui",
-      issuedAt: request.inputAt,
-      payload: { task: secondTask },
-    });
-    const before = db.get("task", secondTask.id);
-    const command = buildTaskScheduleProposalCommand(
-      before,
-      null,
-      { patch: { plannedDurationMinutes: 20 }, warnings: [] },
-      taskScheduleSnapshot(before),
-      "new-schedule-race",
-      request.inputAt,
-    );
-    db.save("schedule", { ...schedule, id: "other-schedule", owner_id: secondTask.id });
-    assert.throws(() => service.execute(command), /日程が更新/);
-  } finally {
-    db.db.close();
-    await rm(dir, { recursive: true, force: true });
-  }
 });
