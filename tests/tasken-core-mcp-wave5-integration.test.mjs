@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import fs from "node:fs";
 import path from "node:path";
@@ -485,7 +486,7 @@ test("Capture image query is exact across Core, HTTP, and MCP image content", as
             file_name: "wave5-photo.png",
             mime_type: "image/png",
             size: bytes.length,
-            sha256: "ab".repeat(32),
+            sha256: createHash("sha256").update(bytes).digest("hex"),
             url: "tasken-attachment://local/wave5-photo.png/photo.png",
           },
         ],
@@ -543,7 +544,7 @@ test("Capture image query is exact across Core, HTTP, and MCP image content", as
           file_name: "wave5-task-photo.png",
           mime_type: "image/png",
           size: bytes.length,
-          sha256: "ab".repeat(32),
+          sha256: createHash("sha256").update(bytes).digest("hex"),
           url: "tasken-attachment://local/wave5-task-photo.png/photo.png",
         },
       ],

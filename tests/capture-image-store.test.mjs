@@ -19,6 +19,33 @@ const { CaptureImageStore, validateStagedImageManifest } = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
 );
 
+const protocolBundle = await build({
+  entryPoints: [path.resolve("src/main/attachmentProtocol.ts")],
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  write: false,
+  logLevel: "silent",
+  plugins: [
+    {
+      name: "isolated-electron",
+      setup(build) {
+        build.onResolve({ filter: /^electron$/ }, () => ({
+          path: "electron",
+          namespace: "fixture",
+        }));
+        build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
+          contents: "export const app = {}; export const protocol = {};",
+          loader: "js",
+        }));
+      },
+    },
+  ],
+});
+const { resolveAttachmentPath } = await import(
+  `data:text/javascript;base64,${Buffer.from(protocolBundle.outputFiles[0].text).toString("base64")}`
+);
+
 const PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 const PNG_BYTES = Buffer.from(PNG, "base64");
@@ -69,6 +96,24 @@ test("restaging the same command reuses files and stays idempotent", (t) => {
 
   assert.deepEqual(second.manifest, first.manifest);
   assert.equal(second.createdPaths.length, 0);
+});
+
+test("Desktop attachment resolution serves photo and legacy Markdown URLs safely", (t) => {
+  const { userDataPath, store } = fixture(t);
+  const staged = store.stage("capture-url", [image("photo")]);
+  const fileName = new URL(staged.manifest[0].url).pathname.split("/")[1];
+  assert.equal(resolveAttachmentPath(userDataPath, fileName), staged.createdPaths[0]);
+  const markdownRoot = path.join(userDataPath, "attachments", "markdown-images");
+  fs.mkdirSync(markdownRoot);
+  const markdownPath = path.join(markdownRoot, "abcdef.png");
+  fs.writeFileSync(markdownPath, PNG_BYTES);
+  assert.equal(resolveAttachmentPath(userDataPath, "abcdef.png"), markdownPath);
+  assert.equal(resolveAttachmentPath(userDataPath, "../abcdef.png"), null);
+  assert.equal(resolveAttachmentPath(userDataPath, "C:\\abcdef.png"), null);
+  assert.equal(resolveAttachmentPath(userDataPath, "missing.png"), null);
+  fs.renameSync(store.attachmentDirectory, `${store.attachmentDirectory}-real`);
+  fs.symlinkSync(`${store.attachmentDirectory}-real`, store.attachmentDirectory, "junction");
+  assert.equal(resolveAttachmentPath(userDataPath, fileName), null);
 });
 
 test("rejects invalid base64, mismatched types, duplicates, and oversized input", (t) => {

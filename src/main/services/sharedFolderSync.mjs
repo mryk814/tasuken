@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   countMarkdownImageAttachments,
   syncMarkdownImageAttachments,
+  syncCaptureImageAttachments,
 } from "./sharedFolderAttachments.mjs";
 
 const MANIFEST_FILE = "tasken-sync.json";
@@ -31,7 +32,8 @@ function syncErrorMessage(error) {
 
 function referencedMarkdownImageFiles(repository) {
   const fileNames = new Set();
-  const pattern = /tasken-attachment:\/\/local\/([0-9a-f-]+\.(?:png|jpg|gif|webp|bmp))(?:\/|[)\s"'<>]|$)/gi;
+  const pattern =
+    /tasken-attachment:\/\/local\/([0-9a-f-]+\.(?:png|jpg|gif|webp|bmp))(?:\/|[)\s"'<>]|$)/gi;
   for (const type of ["note", "resource"]) {
     for (const entity of repository.list(type)) {
       const markdown = typeof entity.body_markdown === "string" ? entity.body_markdown : "";
@@ -42,10 +44,16 @@ function referencedMarkdownImageFiles(repository) {
 }
 
 export class SharedFolderSyncService {
-  constructor(repository, notifyWorkspaceChanged = () => {}, attachmentDirectory = "") {
+  constructor(
+    repository,
+    notifyWorkspaceChanged = () => {},
+    attachmentDirectory = "",
+    captureImageDirectory = "",
+  ) {
     this.repository = repository;
     this.notifyWorkspaceChanged = notifyWorkspaceChanged;
     this.attachmentDirectory = attachmentDirectory;
+    this.captureImageDirectory = captureImageDirectory;
     this.timer = null;
     this.running = null;
     this.state = "off";
@@ -78,11 +86,13 @@ export class SharedFolderSyncService {
     if (!fs.existsSync(manifestPath)) return null;
     const manifest = readJson(manifestPath);
     if (
-      manifest?.format !== "tasken-shared-folder-sync"
-      || manifest?.formatVersion !== 1
-      || typeof manifest?.workspaceId !== "string"
+      manifest?.format !== "tasken-shared-folder-sync" ||
+      manifest?.formatVersion !== 1 ||
+      typeof manifest?.workspaceId !== "string"
     ) {
-      throw new Error("選択したフォルダのTasken同期設定が壊れています。別のフォルダを選んでください。");
+      throw new Error(
+        "選択したフォルダのTasken同期設定が壊れています。別のフォルダを選んでください。",
+      );
     }
     return manifest;
   }
@@ -123,7 +133,7 @@ export class SharedFolderSyncService {
       directory: String(this.repository.getPreference("sharedSyncDirectory") || ""),
       workspaceId: this.repository.workspaceId,
       deviceId: this.repository.deviceId,
-      state: enabled ? this.state === "off" ? "idle" : this.state : "off",
+      state: enabled ? (this.state === "off" ? "idle" : this.state) : "off",
       lastSyncedAt: String(this.repository.getPreference("sharedSyncLastAt") || ""),
       lastError: String(this.repository.getPreference("sharedSyncLastError") || ""),
       pendingCount: this.repository.syncPendingCount(),
@@ -167,11 +177,31 @@ export class SharedFolderSyncService {
       };
       this.publishPending(directory);
       const incoming = this.receiveChanges(directory);
+      // Database changes are already committed, even if a photo arrives later.
+      if (incoming.applied || incoming.conflicts || attachments.received)
+        this.notifyWorkspaceChanged();
+      const photoManifests = new Map();
+      for (const type of ["capture_entry", "task"]) {
+        for (const entity of this.repository.list(type)) {
+          for (const image of Array.isArray(entity.images) ? entity.images : []) {
+            const previous = photoManifests.get(image.file_name);
+            if (previous && JSON.stringify(previous) !== JSON.stringify(image))
+              throw new Error("写真の同期manifestが競合しています。");
+            photoManifests.set(image.file_name, image);
+          }
+        }
+      }
+      syncCaptureImageAttachments({
+        sharedDirectory: directory,
+        localDirectory: this.captureImageDirectory,
+        deviceId: this.repository.deviceId,
+        photoManifests,
+        onReceived: () => this.notifyWorkspaceChanged(),
+      });
       const timestamp = new Date().toISOString();
       this.repository.setPreference("sharedSyncLastAt", timestamp);
       this.repository.setPreference("sharedSyncLastError", "");
       this.state = this.repository.syncConflictCount() ? "conflict" : "idle";
-      if (incoming.applied || incoming.conflicts || attachments.received) this.notifyWorkspaceChanged();
       return this.status();
     } catch (error) {
       this.state = "error";
@@ -195,13 +225,15 @@ export class SharedFolderSyncService {
     if (!fs.existsSync(devicesRoot)) return { applied: 0, conflicts: 0 };
     let applied = 0;
     let conflicts = 0;
-    const deviceDirectories = fs.readdirSync(devicesRoot, { withFileTypes: true })
+    const deviceDirectories = fs
+      .readdirSync(devicesRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && entry.name !== this.repository.deviceId)
       .sort((a, b) => a.name.localeCompare(b.name));
     for (const deviceEntry of deviceDirectories) {
       const deviceId = deviceEntry.name;
       let cursor = this.repository.syncCursor(deviceId);
-      const files = fs.readdirSync(path.join(devicesRoot, deviceId))
+      const files = fs
+        .readdirSync(path.join(devicesRoot, deviceId))
         .filter((name) => /^\d{12}-[0-9a-f-]+\.json$/i.test(name))
         .sort();
       for (const fileName of files) {

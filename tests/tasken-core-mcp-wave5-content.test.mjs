@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { build } from "esbuild";
 
@@ -147,7 +148,9 @@ function fixture() {
             file_name: "capture-photo-image.png",
             mime_type: "image/png",
             size: 4,
-            sha256: "ab".repeat(32),
+            sha256: createHash("sha256")
+              .update(Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+              .digest("hex"),
             url: "tasken-attachment://local/capture-photo-image.png/photo.png",
           },
         ],
@@ -188,7 +191,9 @@ function fixture() {
             file_name: "task-photo-image.png",
             mime_type: "image/png",
             size: 4,
-            sha256: "cd".repeat(32),
+            sha256: createHash("sha256")
+              .update(Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+              .digest("hex"),
             url: "tasken-attachment://local/task-photo-image.png/photo.png",
           },
         ],
@@ -483,4 +488,24 @@ test("Task image query serves staged bytes with manifest ownership and visibilit
     }).success,
     false,
   );
+});
+
+test("image queries reject changed bytes even when their size is unchanged", () => {
+  for (const bytes of [Buffer.from([1, 2, 3, 4]), Buffer.from([1])]) {
+    const { service } = serviceFixture({ read: () => bytes });
+    assert.equal(
+      service.getCaptureImage({
+        capture_id: "capture-photo",
+        file_name: "capture-photo-image.png",
+      }).error?.code,
+      "not_found",
+    );
+    assert.equal(
+      service.getTaskImage({
+        task_id: "task-photo",
+        file_name: "task-photo-image.png",
+      }).error?.code,
+      "not_found",
+    );
+  }
 });

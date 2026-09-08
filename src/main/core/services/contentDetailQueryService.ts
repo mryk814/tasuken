@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { sha256Hex } from "../../../shared/canonicalMarkdown.mjs";
 
 import { projectEntityForAi } from "../../../shared/aiMetadata.mjs";
 import { noteProjectId } from "../../../shared/themeRef.mjs";
@@ -344,7 +345,8 @@ export class ContentDetailQueryService {
     } catch {
       return null;
     }
-    if (bytes.length !== (manifest.size as number)) return null;
+    if (bytes.length !== (manifest.size as number) || sha256Hex(bytes) !== manifest.sha256)
+      return null;
     return {
       record: filtered.record,
       manifest: {

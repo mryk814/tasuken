@@ -34,6 +34,8 @@ Settingsに「この端末」と「相手端末」を表示し、利用者が残
 ## 現在の対象
 
 SQLiteのWorkspace Entity（Theme、Task、Note、Timeline、Knowledge、Chat Ref、Artifactメタデータ等）と、Noteへ貼り付けたMarkdown画像を同期する。
+Capture／Taskの`images` manifestが参照する撮影画像も、`attachments/capture-images/`として同期する。
+本文・manifestの受信後に画像のサイズとSHA-256を照合し、未到着・不一致は同期エラーとして次回再試行する。未参照のローカル写真は送信しない。
 同期開始前からローカルにあるMarkdown画像も、次回同期時に現在の端末から自動的に公開する。
 受信画像は各端末へキャッシュするため、一度同期した画像は共有フォルダへ接続できない間も表示できる。
 
@@ -45,3 +47,4 @@ managed Artifactの物理ファイルはこの同期に含めない。OneDrive�
 - 未送信差分はOutboxへ残り、アクセス復旧後に再送する。
 - 同期停止は差分やローカルデータを削除しない。
 - TaskenのSnapshotバックアップは同期とは独立して継続する。
+- SnapshotはJSONのEntityと参照情報を保存する形式であり、Markdown画像・撮影画像の実体は含まない。端末移行・復旧時は共有フォルダー同期または`userData/attachments/`の別途バックアップも必要になる。

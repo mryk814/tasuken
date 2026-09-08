@@ -9,8 +9,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.FileProvider
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.time.Duration
-import java.time.Instant
 import java.util.UUID
 
 internal const val CAPTURE_PHOTO_MAX_DIMENSION = 2048
@@ -42,15 +40,10 @@ internal fun scaledPhotoDimensions(width: Int, height: Int, maxDimension: Int): 
  */
 class MobileCapturePhotoStore(
     context: Context,
-    private val now: () -> Instant = Instant::now,
 ) {
     private val applicationContext = context.applicationContext
     private val directory = File(applicationContext.filesDir, "capture-photos").also {
         if (!it.isDirectory) it.mkdirs()
-    }
-
-    init {
-        pruneOlderThan(Duration.ofDays(7))
     }
 
     fun authority(): String = "${applicationContext.packageName}.fileprovider"
@@ -152,15 +145,6 @@ class MobileCapturePhotoStore(
             bitmap.recycle()
         }
     }.getOrNull()
-
-    private fun pruneOlderThan(maxAge: Duration) {
-        val cutoff = now().minus(maxAge).toEpochMilli()
-        runCatching {
-            directory.listFiles()?.forEach { file ->
-                if (file.isFile && file.lastModified() < cutoff) file.delete()
-            }
-        }
-    }
 
     private fun requireValidName(fileName: String) {
         require(isValidName(fileName))
