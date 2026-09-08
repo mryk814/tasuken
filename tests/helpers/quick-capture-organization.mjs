@@ -19,6 +19,7 @@ const bundle = await build({
         }));
         build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
           contents: `
+      export const clipboard = { writeText: (text) => { globalThis.captureFixture.clipboardText = text; } };
       export const ipcMain = { handle: (key, handler) => globalThis.captureFixture.handlers.set(key, handler), on: (key, handler) => globalThis.captureFixture.handlers.set(key, handler) };
       export class BrowserWindow {
         constructor() { this.listeners = new Map(); this.webContents = { id: 19, send(...args) { globalThis.captureFixture.messages.push(args); }, isLoading: () => false }; }

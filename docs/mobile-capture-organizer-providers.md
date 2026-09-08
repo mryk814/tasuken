@@ -6,13 +6,30 @@ Desktopの`src/main/gateway/mobile/captureOrganizer.ts`が、利用者の整理�
 Taskの保存や既存データの変更は行わない。採用まで原文を保持し、返答をプレビューで確認する。
 Androidの整理操作はTask入力にだけ表示する。整理を取り消すと原文と整理前のThemeへ戻る。
 DesktopのQuick CaptureではTask入力の「AIで整理」から同じ処理を使う。整理案のタイトル・Theme・日付・チェック項目・補足を修正し、「追加」で保存する。元の入力へ戻すこともできる。
-APIキーはDesktopで管理し、Android・ログ・返答・プロンプトへ含めない。
+DesktopのAPIキーはDesktopで管理し、Android・ログ・返答・プロンプトへ含めない。
+AndroidでPCなしの整理を使う場合は[Androidの通知・音声入力・PCなしのAI整理](android-capture-requests.md)に従い、専用設定とキーを端末で明示的に有効化する。Desktopのキーは転送しない。
+
+## Windowsのタスク追加と外部AIからの取り込み
+
+Today / ToDoの「タスクを追加」を開き、「音声・AI整理から追加」でQuick CaptureのTask入力へ進む。
+Windowsでは入力欄にカーソルを置いて `Win + H` を押すとOSの音声入力を使える。マイクとインターネット接続が必要で、音声認識はWindows側の設定に従う（[Microsoftの音声入力ガイド](https://support.microsoft.com/en-us/accessibility/windows/use-voice-typing-to-talk-instead-of-type-on-your-pc)）。
+Task入力は音声入力パネルへfocusが移っても閉じず、「閉じる」またはEscで閉じられる。話し終えたら「AIで整理」を押し、候補を確認・修正してまとめて追加する。
+
+アプリ内AIが未設定・接続できない場合は「外部AIで整理した内容を取り込む」を開く。
+「依頼文をコピー」は入力原文・選択中のTheme・日時の基準・返答形式だけをクリップボードへ出し、外部サービスへ自動送信しない。
+入力を空にしてコピーすれば、別のAIとの会話から作業を整理して持ち帰る用途にも使える。
+返答のJSONを貼り、「整理案を確認」で既存の候補編集へ進む。アプリ内AIの設定や接続は不要。
+
+貼り付け形式は `schema: "tasken-task-drafts/v1"`、非空の `originalText`、1〜8件の `tasks`、`warnings`。
+各Taskは上記の予定時刻付き整理案と同じ形式とし、余分なキー・存在しないTheme・不正日付・上限超過は拒否する。JSONコードフェンスは受け付ける。
+取り込みプレビューでは保存せず、利用者の「追加」で既存の一括CreateTaskへ渡す。入力原文がある場合はそれを正本として保持し、空の場合は返答のoriginalTextを本文へ残す。
+形式エラーや保存失敗でも入力・貼り付け結果を保持する。追加が成功した後だけ貼り付け欄を空にする。
 
 ## 画面から設定する
 
 「Settings → AI & Context → 入力のAI整理」でプロバイダー、モデル（Azureではデプロイ名）、APIキーを入力する。Azureのみ接続先も指定する。音声認識で誤記されやすい固有語は「音声・固有語辞書」へ1行に1語で登録できる。
 「接続を確認」は入力中の設定で短い固定テキストを送信する。API利用料が発生する場合があり、設定の保存やTaskの作成は行わない。
-「保存」するとDesktopとAndroidの次の整理要求から適用され、再起動は不要。
+「保存」するとDesktopと、Desktop経由で利用するAndroidの次の整理要求から適用され、再起動は不要。
 保存済みのキーは空欄のまま再利用できるが、プロバイダーまたはAzure接続先を変えると再入力が必要になる。
 
 設定はElectronのuserData配下の`capture-organizer-settings.json`へ保存し、APIキーはOSのsafeStorageで暗号化する。暗号化が利用できない環境では保存しない。
@@ -25,7 +42,7 @@ APIキーはDesktopで管理し、Android・ログ・返答・プロンプトへ
 画面で保存した設定が優先され、保存済み設定がない場合だけ以下を使う。
 このモジュールは`.env`ファイルを自動では読まない。
 `.env.example`は変数名の見本として使う。OSまたは起動用シェルの環境変数へ設定した後、Desktopを終了して同じ環境から起動し直す。
-Android側にはAPIキーを設定せず、Desktop Gatewayとの既存のペアリングを利用する。
+Desktop経由の場合はAndroid側にAPIキーを設定せず、Desktop Gatewayとの既存のペアリングを利用する。
 
 ## 設定
 

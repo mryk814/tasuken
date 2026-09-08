@@ -607,6 +607,7 @@ export function TodoPage({
           onTitleChange={setAddTitle}
           onThemeChange={setAddTheme}
           onSubmit={addTask}
+          onOrganize={() => workspaceApi.openTaskCapture()}
           extraFields={
             <input
               type="date"

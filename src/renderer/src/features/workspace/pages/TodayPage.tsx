@@ -1338,6 +1338,7 @@ export function TodayPage({
           onTitleChange={setAddTitle}
           onThemeChange={setAddTheme}
           onSubmit={addTask}
+          onOrganize={() => workspaceApi.openTaskCapture()}
         />
       )}
 

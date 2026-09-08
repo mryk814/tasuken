@@ -40,6 +40,9 @@ function desktopApi() {
 }
 
 export const workspaceApi = {
+  openTaskCapture() {
+    return desktopApi().openTaskCapture();
+  },
   previewDailyContext(selection: Parameters<Window["api"]["dailyContext"]["preview"]>[0]) {
     return desktopApi().dailyContext.preview(selection);
   },

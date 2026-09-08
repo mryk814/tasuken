@@ -185,6 +185,13 @@
       #organization-empty { font-size: 12px; }
       #organization-status, #organization-warnings { font-size: 12px; white-space: pre-wrap; }
       #original-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 160px; overflow: auto; }
+      .input-help { font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; }
+      #external-input { display: grid; gap: 8px; flex: 0 0 auto; }
+      #external-input summary { cursor: pointer; font-size: 12px; }
+      #external-input label { display: grid; gap: 4px; font-size: 12px; margin-top: 8px; }
+      #external-result { height: 120px; width: 100%; }
+      #external-input button { margin-top: 8px; }
+      #close { padding: 2px 8px; min-height: 28px; -webkit-app-region: no-drag; }
       .feedback {
         position: fixed;
         inset: 0;
@@ -213,6 +220,7 @@
       <div class="capture-header">
         <strong id="title">Inbox に記録</strong>
         <span id="mode-pill" class="mode-pill">Inbox</span>
+        <button id="close" class="secondary" type="button" aria-label="閉じる">閉じる</button>
       </div>
       <span id="hint" class="capture-hint">Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる</span>
       <div id="candidate-row" class="candidate-row" hidden>
@@ -226,7 +234,8 @@
           <option value="">個人業務 / Themeなし</option>
         </select>
       </label>
-      <textarea id="input" placeholder="タスク・メモ・アイデア" autofocus></textarea>
+      <textarea id="input" aria-label="タスク・メモの入力" placeholder="タスク・メモ・アイデア" autofocus></textarea>
+      <p id="voice-help" class="input-help" hidden>この入力欄で <kbd>Win + H</kbd> を押すとWindowsの音声入力を使えます。話し終えたら「AIで整理」へ進みます。</p>
       <span id="due-preview" class="due-preview" role="status" aria-live="polite"></span>
       <div id="range-choice" class="range-choice" hidden aria-label="日付範囲の意味"></div>
       <section id="organization" class="organization" hidden aria-label="整理案を確認">
@@ -246,6 +255,13 @@
         <button id="organization-restore" class="secondary" type="button">元の入力に戻す</button>
       </section>
       <p id="organization-status" role="status" aria-live="polite"></p>
+      <details id="external-input" hidden>
+        <summary>外部AIで整理した内容を取り込む</summary>
+        <p class="input-help">入力と選択中のThemeを含む依頼文をコピーし、お使いのAIへ貼り付けます。入力が空なら、そのAIとの会話から整理できます。</p>
+        <button id="external-copy" class="secondary" type="button">依頼文をコピー</button>
+        <label>AIの整理結果（JSON）<textarea id="external-result" maxlength="262144" spellcheck="false"></textarea></label>
+        <button id="external-preview" class="secondary" type="button">整理案を確認</button>
+      </details>
       <div class="capture-actions">
         <button id="organize" class="secondary" type="button" hidden>AIで整理</button>
         <button id="submit" type="button">記録する</button>
@@ -261,6 +277,11 @@
       const themeRow = document.getElementById("theme-row");
       const themeSelect = document.getElementById("theme-select");
       const hint = document.getElementById("hint");
+      const voiceHelp = document.getElementById("voice-help");
+      const externalInput = document.getElementById("external-input");
+      const externalResult = document.getElementById("external-result");
+      const externalCopy = document.getElementById("external-copy");
+      const externalPreview = document.getElementById("external-preview");
       const duePreview = document.getElementById("due-preview");
       const rangeChoice = document.getElementById("range-choice");
       let mode = "inbox";
@@ -303,6 +324,10 @@
           hint.textContent = "案ごとに内容を確認 / Ctrl+Enter でまとめて追加 / Escで閉じる";
         }
         submitButton.disabled = organizing || saving || Boolean(organization && count === 0);
+        externalInput.hidden = mode !== "today-task" || Boolean(organization);
+        voiceHelp.hidden = mode !== "today-task" || Boolean(organization) || window.captureApi.platform !== "win32";
+        externalCopy.disabled = locked || organizing;
+        externalPreview.disabled = locked || organizing;
       }
 
       function retainCandidate() {
@@ -368,7 +393,7 @@
         organizeButton.hidden = mode !== "today-task";
         applyMode(mode);
         updateOrganizationControls();
-        window.captureApi.resize(false);
+        resizeForInput();
         void refreshDuePreview();
       }
       async function organize() {
@@ -384,23 +409,59 @@
           const result = await window.captureApi.organize({ text: snapshot.text, themeId: snapshot.themeId || null,
             ...(captureAnchor ??= { capturedAt: new Date().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) });
           if (request !== organizeRequest || mode !== "today-task" || input.value !== snapshot.text || themeSelect.value !== snapshot.themeId) return;
-          originalInput = snapshot;
-          organization = result;
-          activeCandidate = 0;
-          showCandidate();
-          document.getElementById("original-text").textContent = snapshot.text;
-          organizationPanel.hidden = false;
-          organizeButton.hidden = true;
-          duePreview.className = "due-preview";
-          rangeChoice.hidden = true;
-          organizationStatus.textContent = "整理案を確認して追加してください。";
-          window.captureApi.resize(true);
+          showOrganization(result, snapshot);
         } catch {
           if (request === organizeRequest) organizationStatus.textContent = "整理できませんでした。設定・接続を確認して再試行してください。入力は残っています。";
         } finally {
           if (request === organizeRequest) stopOrganizing();
         }
       }
+
+      function resizeForInput() {
+        window.captureApi.resize(Boolean(organization) || (mode === "today-task" && externalInput.open));
+      }
+
+      externalInput.addEventListener("toggle", resizeForInput);
+
+      function showOrganization(result, snapshot) {
+        originalInput = snapshot;
+        organization = result;
+        activeCandidate = 0;
+        showCandidate();
+        document.getElementById("original-text").textContent = snapshot.text;
+        organizationPanel.hidden = false;
+        organizeButton.hidden = true;
+        duePreview.className = "due-preview";
+        rangeChoice.hidden = true;
+        organizationStatus.textContent = "整理案を確認して追加してください。";
+        resizeForInput();
+        input.focus();
+      }
+
+      externalCopy.addEventListener("click", async () => {
+        if (organization || organizing || submission || saving) return;
+        try {
+          await window.captureApi.copyExternalPrompt({ text: input.value, themeId: themeSelect.value || null,
+            ...(captureAnchor ??= { capturedAt: new Date().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) });
+          organizationStatus.textContent = "依頼文をコピーしました。外部AIの返答を下の欄へ貼り付けてください。";
+        } catch {
+          organizationStatus.textContent = "コピーできませんでした。入力は12,000文字以内にし、Themeを確認してください。";
+        }
+      });
+      externalPreview.addEventListener("click", async () => {
+        if (organization || organizing || submission || saving) return;
+        const snapshot = { text: input.value, themeId: themeSelect.value };
+        const pasted = externalResult.value;
+        const request = ++organizeRequest;
+        try {
+          const result = await window.captureApi.importExternalResult(pasted);
+          if (request !== organizeRequest || mode !== "today-task" || input.value !== snapshot.text || themeSelect.value !== snapshot.themeId || externalResult.value !== pasted) return;
+          if (!result.ok) { organizationStatus.textContent = result.message; return; }
+          showOrganization(result.organization, { ...snapshot, text: snapshot.text.trim() ? snapshot.text : result.originalText });
+        } catch {
+          organizationStatus.textContent = "整理結果を確認できませんでした。貼り付けた内容は残っています。再試行してください。";
+        }
+      });
 
       function applyThemes(themes) {
         const current = themesInitialized ? themeSelect.value : lastThemeId;
@@ -447,6 +508,8 @@
         rangeChoice.replaceChildren();
         rangeChoice.hidden = true;
         organizeButton.hidden = !isTodayTask || organization !== null;
+        externalInput.hidden = !isTodayTask || organization !== null;
+        voiceHelp.hidden = !isTodayTask || organization !== null || window.captureApi.platform !== "win32";
       }
 
       function renderRangeChoice(result) {
@@ -538,6 +601,8 @@
           input.value = "";
           captureAnchor = null;
           clearOrganization();
+          externalResult.value = "";
+          externalInput.open = false;
           if (savedCount) feedback.textContent = `${savedCount}件のタスクを追加しました`;
           feedback.style.display = "";
           feedback.style.animation = "none";
@@ -570,6 +635,7 @@
       }
 
       submitButton.addEventListener("click", () => submit(false));
+      document.getElementById("close").addEventListener("click", () => { stopOrganizing(); window.captureApi.hide(); });
       input.addEventListener("input", () => {
         if (!organization) {
           if (input.value && !captureAnchor) captureAnchor = { capturedAt: new Date().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
@@ -616,6 +682,7 @@
         if (nextMode !== mode) { clearOrganization(true); }
         applyMode(nextMode);
         updateOrganizationControls();
+        resizeForInput();
         if (organization) { duePreview.className = "due-preview"; rangeChoice.hidden = true; }
         if (organization && resumeFocus && !resumeFocus.disabled && !resumeFocus.hidden) resumeFocus.focus({ preventScroll: true });
         else input.focus({ preventScroll: true });
