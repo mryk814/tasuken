@@ -378,9 +378,22 @@ object OutboxState {
 @Dao
 abstract class MobileLocalDao {
     // Only in-flight requests need this generation: none can survive a process restart.
-    private val relatedRevocations = mutableMapOf<String, Long>()
+    private val ownerReadRevocations = mutableMapOf<String, Long>()
     @Transaction
-    open suspend fun relatedGeneration(serverId: String): Long = relatedRevocations[serverId] ?: 0L
+    open suspend fun ownerReadGeneration(serverId: String): Long = ownerReadRevocations[serverId] ?: 0L
+    @Query("SELECT * FROM theme_context_cache WHERE themeId = :themeId")
+    abstract fun observeThemeContexts(themeId: String): Flow<List<ThemeContextCacheEntity>>
+    @Query("SELECT * FROM theme_context_cache WHERE serverId = :serverId AND themeId = :themeId")
+    abstract suspend fun themeContext(serverId: String, themeId: String): ThemeContextCacheEntity?
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertThemeContext(record: ThemeContextCacheEntity)
+    @Query("DELETE FROM theme_context_cache WHERE serverId = :serverId")
+    abstract suspend fun deleteThemeContexts(serverId: String)
+    @Transaction
+    open suspend fun saveThemeContext(record: ThemeContextCacheEntity, generation: Long) {
+        if (syncState()?.serverId != record.serverId || ownerReadGeneration(record.serverId) != generation) return
+        upsertThemeContext(record)
+    }
     @Query("SELECT * FROM related_document_cache WHERE taskId = :taskId")
     abstract fun observeRelatedDocuments(taskId: String): Flow<List<RelatedDocumentCacheEntity>>
     @Query("SELECT * FROM related_document_cache WHERE serverId = :serverId AND taskId = :taskId")
@@ -400,14 +413,15 @@ abstract class MobileLocalDao {
     @Query("DELETE FROM related_body_cache WHERE serverId = :serverId")
     abstract suspend fun deleteRelatedServerBodies(serverId: String)
     @Transaction
-    open suspend fun revokeRelatedDocuments(serverId: String) {
-        relatedRevocations[serverId] = relatedGeneration(serverId) + 1
+    open suspend fun revokeOwnerReadCaches(serverId: String) {
+        ownerReadRevocations[serverId] = ownerReadGeneration(serverId) + 1
         deleteRelatedDocuments(serverId)
         deleteRelatedServerBodies(serverId)
+        deleteThemeContexts(serverId)
     }
     @Transaction
     open suspend fun saveRelatedDocuments(record: RelatedDocumentCacheEntity, bodies: List<RelatedBodyCacheEntity>, generation: Long) {
-        if (syncState()?.serverId != record.serverId || relatedGeneration(record.serverId) != generation) return
+        if (syncState()?.serverId != record.serverId || ownerReadGeneration(record.serverId) != generation) return
         upsertRelatedDocuments(record)
         deleteRelatedTaskBodies(record.serverId, record.taskId)
         upsertRelatedBodies(bodies)
@@ -1945,6 +1959,7 @@ abstract class MobileLocalDao {
         RecallDayCacheEntity::class,
         RelatedDocumentCacheEntity::class,
         RelatedBodyCacheEntity::class,
+        ThemeContextCacheEntity::class,
         RecallCaptureCacheEntity::class,
         RecallSeenSourceEntity::class,
         ThemeCacheEntity::class,
@@ -1958,7 +1973,7 @@ abstract class MobileLocalDao {
         PendingTaskDelegationEntity::class,
         TaskNotificationDeliveryEntity::class,
     ],
-    version = 23,
+    version = 24,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -1995,8 +2010,15 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_20_21,
                     MIGRATION_21_22,
                     MIGRATION_22_23,
+                    MIGRATION_23_24,
             ).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_23_24 = object : Migration(23, 24) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS theme_context_cache (serverId TEXT NOT NULL, themeId TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(serverId, themeId))")
     }
 }
 

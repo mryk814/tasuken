@@ -207,7 +207,7 @@ class AndroidMobileTaskRepository(
     private val httpClient: MobileGatewayHttpClient? = null,
     private val themeNow: () -> Instant = Instant::now,
     private val processInstanceId: String = MOBILE_PROCESS_INSTANCE_ID,
-) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileRecallRepository, MobileRelatedDocumentsRepository {
+) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileRecallRepository, MobileRelatedDocumentsRepository, MobileThemeContextRepository {
     private val json = Json { ignoreUnknownKeys = false }
     private val dao = database.mobileDao()
     private val outbox = MobileOutbox(context.applicationContext, dao, store::deviceId)
@@ -225,6 +225,13 @@ class AndroidMobileTaskRepository(
     override fun observeRelatedDocuments(taskId: String) = relatedReader.observe(taskId)
     override suspend fun refreshRelatedDocuments(taskId: String, nextPage: Boolean) = relatedReader.refresh(taskId, nextPage)
     override suspend fun loadRelatedDocument(taskId: String, type: String, id: String) = relatedReader.load(taskId, type, id)
+    private val themeContextReader = MobileThemeContextReader(dao) { path ->
+        val configuration = store.configuration()
+        val token = requireNotNull(store.readToken())
+        gatewayRequest(configuration.origin, path, "GET", null, token)
+    }
+    override fun observeThemeContext(themeId: String) = themeContextReader.observe(themeId)
+    override suspend fun refreshThemeContext(themeId: String) = themeContextReader.refresh(themeId)
 
     override fun observeRecallDay(date: LocalDate, timezone: java.time.ZoneId): Flow<MobileRecallDay> = recallReader.observe(date, timezone)
     override suspend fun refreshRecallDay(date: LocalDate, timezone: java.time.ZoneId, nextPage: Boolean) = recallReader.refresh(date, timezone, nextPage)
@@ -1694,7 +1701,7 @@ class AndroidMobileTaskRepository(
             ?: request(origin, path, method, body, accessToken)
         if (response.status == 401) runBlocking {
             dao.syncState()?.serverId?.let { serverId ->
-                if (isConfirmedGatewayUnauthorized(response, serverId)) dao.revokeRelatedDocuments(serverId)
+                if (isConfirmedGatewayUnauthorized(response, serverId)) dao.revokeOwnerReadCaches(serverId)
             }
         }
         return response
