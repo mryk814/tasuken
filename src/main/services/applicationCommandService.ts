@@ -935,6 +935,7 @@ function normalizeCanonicalNote(entity: Entity, fallbackThemeId?: string): Entit
 
 function taskCommandRuntime(repository: Repository): TaskCommandRuntime {
   return {
+    validateImageManifest: validateStagedImageManifest,
     hasExpectedVersion: (command, type, id) => Boolean(expectedVersionFor(command, type, id)),
     assertExpectedVersion: (command, type, id, current) =>
       assertExpectedVersion(repository, command, type, id, current),

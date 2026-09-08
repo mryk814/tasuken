@@ -4,7 +4,7 @@ import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentRead
 import { createMobileThemeContextReadPort } from "./mobileThemeContextReadPort.ts";
 import { createMobileWorkLogPort, type WorkLogWriterPort } from "./mobileWorkLogPort.ts";
 import type { NoteProposalImagePort } from "../core/public.ts";
-import type { CaptureImagePort } from "../core/ports/captureImagePort.ts";
+import type { CaptureImagePort } from "../core/public.ts";
 import type { NoteProposalImage } from "../../shared/contracts/task/public.ts";
 import {
   createTaskenCore,

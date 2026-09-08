@@ -11,7 +11,7 @@ import {
   type ProposalMarkdownImageDecoder,
   type ProposalMarkdownImageManifest,
 } from "./proposalMarkdownImages.ts";
-import type { CaptureImagePort } from "../core/ports/captureImagePort";
+import type { NoteProposalImage } from "../../shared/contracts/task/public.ts";
 
 /**
  * Mobile Capture に添付された撮影画像の保存契約。
@@ -238,10 +238,10 @@ export class CaptureImageStore {
 export function createCaptureImagePort(
   userDataPath: string,
   decoder: ProposalMarkdownImageDecoder,
-): CaptureImagePort {
+) {
   const store = new CaptureImageStore(userDataPath, decoder);
   return {
-    stage({ ownerId, images }) {
+    stage({ ownerId, images }: { ownerId: string; images: readonly NoteProposalImage[] }) {
       const staged = store.stage(ownerId, images);
       const state: { createdPaths: string[] | null } = { createdPaths: staged.createdPaths };
       return {
