@@ -138,6 +138,7 @@ object MobileSyncContract {
             "Invalid plannedDurationMinutes.",
         )
         task.latestWorkReceipt?.let(::validateWorkReceipt)
+        validateTaskImages(task.images, ::requireContract)
         task.schedule?.let(::validateSchedule)
         requireContract(isTimestamp(task.updatedAt), "Invalid Task timestamp.")
     }

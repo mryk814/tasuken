@@ -48,7 +48,26 @@ data class MobileTaskSummaryDto(
     val schedule: MobileTaskScheduleDto?,
     val updatedAt: String,
     val description: String? = null,
+    val images: List<MobileTaskImageSummaryDto> = emptyList(),
 )
+
+@Serializable
+data class MobileTaskImageSummaryDto(
+    val fileName: String,
+    val mimeType: String,
+    val size: Long,
+    val url: String,
+)
+
+internal fun validateTaskImages(images: List<MobileTaskImageSummaryDto>, requireContract: (Boolean, String) -> Unit) {
+    requireContract(images.size <= 8, "Task images exceed the item limit.")
+    images.forEach { image ->
+        requireContract(image.fileName.trim().length in 1..180, "Invalid Task image fileName.")
+        requireContract(image.mimeType in setOf("image/png", "image/jpeg"), "Invalid Task image mimeType.")
+        requireContract(image.size in 1L..(12L * 1024 * 1024), "Invalid Task image size.")
+        requireContract(image.url.trim().length in 1..2000, "Invalid Task image url.")
+    }
+}
 
 @Serializable
 data class MobileWorkReceiptSummaryDto(
@@ -134,6 +153,7 @@ object MobileTodayContract {
             )
             item.latestWorkReceipt?.let(::validateWorkReceipt)
             validateChecklist(item.checklistItems)
+            validateTaskImages(item.images, ::requireContract)
             item.schedule?.let(::validateSchedule)
             requireContract(isTimestamp(item.updatedAt), "Invalid Task updatedAt timestamp.")
         }
