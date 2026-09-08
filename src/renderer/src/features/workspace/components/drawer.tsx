@@ -68,6 +68,8 @@ import {
 import { isConversationMarkdown } from "../lib/conversationParser";
 import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
+import type { Entity } from "../../../../../shared/types/workspace";
+import { TaskScheduleProposal } from "./TaskScheduleProposal";
 import {
   AiContextFields,
   AiContextSummary,
@@ -825,7 +827,7 @@ export function EntityDrawer({
     const task =
       ((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entity.id) ||
       (entity as unknown as Task);
-    const schedule = findSchedule(data, "task", task.id, entity._schedule);
+    const schedule = findSchedule(data, "task", task.id);
     const themeName = (data.themes || []).find((t) => t.id === task.project_id)?.name || "個人業務";
     const completionNote = str((entity as Record<string, unknown>).completion_note);
     const taskWorkState =
@@ -932,6 +934,19 @@ export function EntityDrawer({
             <dd>{themeName}</dd>
             <dt>予定</dt>
             <dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
+            {(task.planned_start_time || task.planned_duration_minutes) && (
+              <>
+                <dt>時刻・所要時間</dt>
+                <dd>
+                  {[
+                    task.planned_start_time,
+                    task.planned_duration_minutes ? `${task.planned_duration_minutes}分` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" / ")}
+                </dd>
+              </>
+            )}
             {/* 完了時のひとことは本文と分けて保存する（#308）。 */}
             {completionNote && (
               <>
@@ -940,6 +955,22 @@ export function EntityDrawer({
               </>
             )}
           </dl>
+          {executeCommand && (
+            <TaskScheduleProposal
+              key={task.id}
+              task={task as unknown as Entity}
+              schedule={(schedule as unknown as Entity) ?? null}
+              initiallyOpen={Boolean(entity._scheduleProposalOpen)}
+              executeCommand={executeCommand}
+              onEdit={(instruction) =>
+                close({
+                  type: "task",
+                  mode: "edit",
+                  entity: { ...task, _schedule: schedule, _scheduleInstruction: instruction },
+                })
+              }
+            />
+          )}
           <TaskWorkSection
             key={`${task.id}:${task.work_state || task.intended_executor || "not_delegated"}`}
             task={task}
@@ -1498,6 +1529,17 @@ function EditDrawer({
               onChecklistSavePending={registerChecklistSave}
               onChecklistSaved={markChecklistSaved}
               onChecklistDraftChange={markChecklistDraftChange}
+              onScheduleProposal={
+                entityId && _executeCommand
+                  ? () =>
+                      close({
+                        type: "task",
+                        mode: "view",
+                        entity: { ...taskFormEntity, _scheduleProposalOpen: true },
+                      })
+                  : undefined
+              }
+              scheduleProposalDisabled={isFormDirty}
             />
           )}
           {type === "waiting" && <WaitingFields entity={entity} data={data} />}

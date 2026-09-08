@@ -126,6 +126,7 @@ export const IPC = {
   captureOrganizerSaveSettings: "capture-organizer:save-settings",
   captureOrganizerTestConnection: "capture-organizer:test-connection",
   captureOrganizerClearSettings: "capture-organizer:clear-settings",
+  taskSchedulePropose: "task-schedule:propose",
   mobileGatewayIssuePairing: "mobile-gateway:issue-pairing",
   mobileGatewayCancelPairing: "mobile-gateway:cancel-pairing",
   mobileGatewayRevokeDevice: "mobile-gateway:revoke-device",
@@ -688,6 +689,9 @@ export type WebArtifactPreviewResult =
 
 export interface ResearchDeskApi {
   captureOrganizer: {
+    proposeTaskSchedule(
+      input: import("../taskScheduleProposal.ts").TaskScheduleProposalRequest,
+    ): Promise<import("../taskScheduleProposal.ts").TaskScheduleProposal>;
     getSettings(): Promise<import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsState>;
     saveSettings(
       input: import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsInput,
