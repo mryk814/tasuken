@@ -37,6 +37,13 @@ const environment = {
 const activityPixelsPerHour = 44;
 const expectedActivityRows = [
   {
+    time: "00:00–進行中",
+    origin: "Tasken",
+    title: "Focus Session: 予測区間のcoverage低下を調べる",
+    source: null,
+    theme: "llzo",
+  },
+  {
     time: "08:30–11:00",
     origin: "Codex",
     title: "集中実験と解析",
