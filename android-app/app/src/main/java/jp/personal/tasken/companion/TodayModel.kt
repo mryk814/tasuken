@@ -860,6 +860,10 @@ class TodayViewModel(
     ) {
         val entityLabel = if (draft.kind == MobileCaptureKind.Task) "Task" else "Capture"
         val drafts = if (draft.kind == MobileCaptureKind.Task) draft.organizedTaskDrafts() else listOf(draft)
+        if (drafts.isEmpty()) {
+            mutableCaptureState.value = CaptureUiState.Error("追加する候補を選んでください。")
+            return
+        }
         val normalizedDrafts = drafts.map { if (it.kind == MobileCaptureKind.Task) it.withText(it.text.trim()) else it }
         if (normalizedDrafts.any { it.text.isBlank() }) {
             mutableCaptureState.value = CaptureUiState.Error("${entityLabel}の内容を入力してください。")

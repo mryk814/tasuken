@@ -18,6 +18,8 @@ data class MobileCaptureOrganization(
     val plannedDurationMinutes: Int? = null,
     // Persist capability with the proposal so reopening a legacy draft cannot enable unsupported fields.
     val plannedTimeSupported: Boolean = false,
+    // Local review state; excluded candidates retain their original slot and draft identity.
+    val excluded: Boolean = false,
 )
 
 internal fun MobileCaptureOrganization.validate() {

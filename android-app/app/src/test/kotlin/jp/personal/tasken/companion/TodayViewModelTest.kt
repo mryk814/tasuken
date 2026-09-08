@@ -571,6 +571,18 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun allExcludedCandidatesDoNotReachSaveAndRemainRecoverable() {
+        val viewModel = TodayViewModel(FakeRepository(emptyList()))
+        val draft = MobileCaptureDraft.fresh(text = "原文").withOrganization(
+            MobileCaptureOrganization("候補", excluded = true),
+        )
+        runBlocking { viewModel.createCaptureNow(draft) }
+        assertEquals(CaptureUiState.Error("追加する候補を選んでください。"), viewModel.captureState.value)
+        assertEquals("原文", draft.originalText)
+        assertEquals(1, draft.allOrganizations().size)
+    }
+
+    @Test
     fun createTaskValidationKeepsActionRecoverable() {
         val viewModel = TodayViewModel(FakeRepository(emptyList()))
 

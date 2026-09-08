@@ -973,12 +973,14 @@ internal fun CaptureTaskSheet(
             speechState is ShortSpeechUiState.Partial || speechState is ShortSpeechUiState.Processing
         val textLimit = if (draft.kind == MobileCaptureKind.Task) MOBILE_TASK_TITLE_MAX_LENGTH else MOBILE_CAPTURE_TEXT_MAX_LENGTH
         val overLimit = draft.text.length > textLimit
-        val organizationValid = draft.allOrganizations().all { runCatching { it.validate() }.isSuccess }
+        val included = draft.allOrganizations().filterNot { it.excluded }
+        val organizationValid = draft.organization == null ||
+            (included.isNotEmpty() && included.all { runCatching { it.validate() }.isSuccess })
         val canSubmit = state !is CaptureUiState.Saving && !speechBusy && !organizationBusy &&
-            draft.text.isNotBlank() && !overLimit && organizationValid
+            (draft.organization != null || (draft.text.isNotBlank() && !overLimit)) && organizationValid
         LaunchedEffect(draft.draftId, requestInputFocus, sheetState.isVisible) {
             // Request focus in the sheet's window after its opening transition.
-            if (requestInputFocus && sheetState.isVisible) {
+            if (requestInputFocus && sheetState.isVisible && draft.organization == null) {
                 focusRequester.requestFocus()
                 keyboardController?.show()
                 onInputFocusHandled()
@@ -997,7 +999,7 @@ internal fun CaptureTaskSheet(
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
             )
-            OutlinedTextField(
+            if (draft.organization == null) OutlinedTextField(
                 value = draft.text,
                 onValueChange = onDraftChanged,
                 label = { Text(if (draft.kind == MobileCaptureKind.Task) "Task名" else "Capture") },
@@ -1059,12 +1061,12 @@ internal fun CaptureTaskSheet(
                 modifier = Modifier.testTag("capture-speech-status"),
             )
             if (onOrganize != null && draft.kind == MobileCaptureKind.Task) CaptureOrganizationControls(
-                themes = themes,
+                themes = themes, themeCatalogState = themeCatalogState,
                 draft = draft, speechState = speechState, enabled = !speechBusy && state !is CaptureUiState.Saving,
                 organize = onOrganize, onChange = onOrganizationChanged,
                 onRestoreOriginal = onOrganizationDiscarded, onBusyChange = { organizationBusy = it },
             )
-            TextButton(
+            if (draft.organization == null) TextButton(
                 onClick = { classificationOpen = !classificationOpen },
                 modifier = Modifier.align(Alignment.End).testTag("capture-classification-toggle"),
             ) {
@@ -1072,7 +1074,7 @@ internal fun CaptureTaskSheet(
                     ?: if (draft.projectId == null) "Themeなし" else "選択済みTheme"
                 Text(if (classificationOpen) "種類・Themeを閉じる" else "$themeName · 種類・Themeを変更")
             }
-            if (classificationOpen) {
+            if (classificationOpen && draft.organization == null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
@@ -1104,6 +1106,9 @@ internal fun CaptureTaskSheet(
                 if (draft.source != MobileCaptureSource.AndroidApp) {
                     Text("入力元: ${captureSourceLabel(draft.source)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+            if (state is CaptureUiState.Error && draft.organization != null) {
+                Text(state.message, color = MaterialTheme.colorScheme.error)
             }
             Row(
                 modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
