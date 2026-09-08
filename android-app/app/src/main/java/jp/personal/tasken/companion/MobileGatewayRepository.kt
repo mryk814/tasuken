@@ -24,8 +24,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -132,6 +135,17 @@ class MobileGatewayConnectionStore(context: Context) {
         return generated
     }
 
+    fun observeOwnerReadAccess(): Flow<Boolean> = callbackFlow {
+        fun publish() {
+            val configuration = configuration()
+            trySend(configuration.paired && "mobile:read" in configuration.scopes)
+        }
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> publish() }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        publish()
+        awaitClose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.distinctUntilChanged()
+
     @Synchronized
     fun save(origin: String, token: String, scopes: Set<String> = emptySet()) {
         require(token.matches(Regex("^[A-Za-z0-9_-]{43}$"))) { "Access token is invalid" }
@@ -207,9 +221,12 @@ class AndroidMobileTaskRepository(
     private val httpClient: MobileGatewayHttpClient? = null,
     private val themeNow: () -> Instant = Instant::now,
     private val processInstanceId: String = MOBILE_PROCESS_INSTANCE_ID,
-) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileWorkLogOrganizationRepository, MobileRecallRepository, MobileRelatedDocumentsRepository, MobileThemeContextRepository {
+) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileWorkLogOrganizationRepository, MobileRecallRepository, MobileRelatedDocumentsRepository, MobileThemeContextRepository, MobileLocalSearchRepository {
     private val json = Json { ignoreUnknownKeys = false }
     private val dao = database.mobileDao()
+    private val localSearch = MobileLocalSearchReader(database, store.observeOwnerReadAccess())
+    override fun observeLocalSearch(request: MobileLocalSearchRequest) = localSearch.observeLocalSearch(request)
+    override suspend fun localSearchCapture(id: String) = localSearch.localSearchCapture(id)
     private val outbox = MobileOutbox(context.applicationContext, dao, store::deviceId)
     private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
     private val recallReader = MobileRecallReader(dao) { path ->
@@ -1740,9 +1757,18 @@ class AndroidMobileTaskRepository(
     ): GatewayHttpResponse {
         val response = httpClient?.request(origin, path, method, body, accessToken)
             ?: request(origin, path, method, body, accessToken)
-        if (response.status == 401) runBlocking {
+        if (response.status == 401 || response.status == 403) runBlocking {
             dao.syncState()?.serverId?.let { serverId ->
-                if (isConfirmedGatewayUnauthorized(response, serverId)) dao.revokeOwnerReadCaches(serverId)
+                val ownerReadPaths = setOf("/v1/today", "/v1/tasks", "/v1/bootstrap", "/v1/sync", "/v1/themes",
+                    "/v1/activity", "/v1/theme-context", "/v1/task-related-documents", "/v1/task-related-document")
+                val readForbidden = response.status == 403 && method == "GET" && path.substringBefore('?') in ownerReadPaths &&
+                    runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()?.let {
+                        it.meta.serverId == serverId && it.error.code == "forbidden"
+                    } == true
+                if (isConfirmedGatewayUnauthorized(response, serverId) || readForbidden) {
+                    if (accessToken != null) store.clearTokenIfMatches(accessToken)
+                    dao.revokeOwnerReadCaches(serverId)
+                }
             }
         }
         return response

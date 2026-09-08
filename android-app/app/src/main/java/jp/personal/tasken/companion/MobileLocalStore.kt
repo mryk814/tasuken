@@ -412,6 +412,12 @@ abstract class MobileLocalDao {
     abstract suspend fun deleteRelatedTaskBodies(serverId: String, taskId: String)
     @Query("DELETE FROM related_body_cache WHERE serverId = :serverId")
     abstract suspend fun deleteRelatedServerBodies(serverId: String)
+
+    @Query("DELETE FROM related_body_cache WHERE serverId = :serverId AND type = :type AND documentId = :id")
+    abstract suspend fun deleteRelatedSourceBodies(serverId: String, type: String, id: String)
+
+    @Query("SELECT * FROM related_document_cache WHERE serverId = :serverId")
+    abstract suspend fun relatedListsForServer(serverId: String): List<RelatedDocumentCacheEntity>
     @Transaction
     open suspend fun revokeOwnerReadCaches(serverId: String) {
         ownerReadRevocations[serverId] = ownerReadGeneration(serverId) + 1
@@ -420,11 +426,23 @@ abstract class MobileLocalDao {
         deleteThemeContexts(serverId)
     }
     @Transaction
-    open suspend fun saveRelatedDocuments(record: RelatedDocumentCacheEntity, bodies: List<RelatedBodyCacheEntity>, generation: Long) {
+    open suspend fun saveRelatedDocuments(record: RelatedDocumentCacheEntity, bodies: List<RelatedBodyCacheEntity>, generation: Long,
+        missingSources: Set<Pair<String, String>> = emptySet()) {
         if (syncState()?.serverId != record.serverId || ownerReadGeneration(record.serverId) != generation) return
+        if (missingSources.isNotEmpty()) {
+            ownerReadRevocations[record.serverId] = generation + 1
+            missingSources.forEach { (type, id) -> deleteRelatedSourceBodies(record.serverId, type, id) }
+            relatedListsForServer(record.serverId).forEach { cached ->
+                val state = Json.decodeFromString<RelatedDocumentsState>(cached.payload)
+                val retained = state.documents.filterNot { (it.type to it.id) in missingSources }
+                val retainedBodies = state.bodies.filterNot { (it.type to it.id) in missingSources }
+                if (retained.size != state.documents.size || retainedBodies.size != state.bodies.size)
+                    upsertRelatedDocuments(cached.copy(payload = Json.encodeToString(state.copy(documents = retained, bodies = retainedBodies))))
+            }
+        }
         upsertRelatedDocuments(record)
         deleteRelatedTaskBodies(record.serverId, record.taskId)
-        upsertRelatedBodies(bodies)
+        upsertRelatedBodies(bodies.filterNot { (it.type to it.documentId) in missingSources })
     }
     @Query("SELECT * FROM recall_day_cache WHERE serverId = :serverId AND date = :date AND timezone = :timezone")
     abstract suspend fun recallDay(serverId: String, date: String, timezone: String): RecallDayCacheEntity?
@@ -2034,6 +2052,7 @@ abstract class MobileLocalDao {
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
+    abstract fun localSearchDao(): MobileLocalSearchDao
     abstract fun mobileDao(): MobileLocalDao
 
     companion object {
