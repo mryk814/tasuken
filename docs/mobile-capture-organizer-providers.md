@@ -99,9 +99,23 @@ Mobile Gatewayの要求本文も256KiBを上限とし、日本語の原文・補
 リダイレクトは拒否する。raw providerエラーや入力本文を例外へ含めず、共通の再試行案内だけを返す。
 OpenAI/Azureには`store:false`を指定するが、プロバイダーの処理・保持方針全般を無効にするものではない。
 
+## 保存済みCaptureからTask候補を作る
+
+Inboxの未整理Captureで「AIでTask候補」を開き、「AIへ送って整理」を押す。
+外部AIを許可した原文・入力日時・タイムゾーンと、許可された所属Theme名だけを送る。
+入力時のタイムゾーンが未記録の場合は指定を求める。整理を実行した日の日時で原文の相対日を解釈しない。
+
+保存済みCapture専用の応答は0〜8件。感想・疑問・曖昧な過去の記述から行動を補わず、明示された次の行動がなければ0件を返すよう指示する。
+新規入力の1〜8件契約は変えない。候補の意味は利用者が確認し、不要な候補を除外して採用する。
+
+採用は既存の`CreateTaskFromCapture`に`extract_task`を指定し、Task・予定・出典参照を一括保存する。
+元Captureの原文・状態・日時・添付は変更しない。Taskへ原文を複製せず、Task編集の「元のCaptureを開く」から戻れる。
+全除外・0件・中止でも原文は残る。元Captureの更新・削除や公開範囲変更があれば未保存の候補を拒否する。
+保存結果が不明な場合は候補を固定し、同じ送信IDで再確認する。確定済みの再送ではTaskを増やさない。
+
 ## 検証
 
-`rtk node scripts/run-electron-node.mjs --test tests/mobile-capture-organizer.test.mjs tests/mobile-capture-organization-gateway.test.mjs tests/quick-capture-organization.test.mjs`
+`rtk node scripts/run-electron-node.mjs --test tests/mobile-capture-organizer.test.mjs tests/mobile-capture-organization-gateway.test.mjs tests/quick-capture-organization.test.mjs tests/application-command.test.mjs`
 
 fake fetchで5プロバイダーの送信形式、日付基準、ローカル検証、拒否、サイズ制限、timeout、秘密を含めない失敗を確認する。
 APIキーを使う実通信とモデルごとの整理品質は別の検証境界であり、このテストでは確認しない。

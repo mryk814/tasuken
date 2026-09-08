@@ -8,6 +8,8 @@ type Unsubscribe = () => void;
 
 const api: ResearchDeskApi = {
   captureOrganizer: {
+    openSaved: (captureId, version) =>
+      ipcRenderer.invoke(IPC.captureOrganizerOpenSaved, captureId, version),
     getSettings: () => ipcRenderer.invoke(IPC.captureOrganizerGetSettings),
     saveSettings: (input) => ipcRenderer.invoke(IPC.captureOrganizerSaveSettings, input),
     testConnection: (input) => ipcRenderer.invoke(IPC.captureOrganizerTestConnection, input),

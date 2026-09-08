@@ -3071,7 +3071,7 @@ export class ApplicationCommandService {
       schedule?: Entity | null;
       captureId: string;
       captureVersion: number;
-      transition: "triage_to_task";
+      transition: "triage_to_task" | "extract_task";
       artifactIds?: string[];
       references?: Entity[];
     };
@@ -3082,6 +3082,18 @@ export class ApplicationCommandService {
       );
     }
     const inputTask = asTask(payload);
+    const extracting = payload.transition === "extract_task";
+    if (
+      extracting &&
+      (inputTask.state !== "todo" ||
+        inputTask.completed_at ||
+        inputTask.completion_note ||
+        payload.artifactIds?.length)
+    )
+      throw new ApplicationCommandError(
+        "INVALID_PAYLOAD",
+        "候補採用は未完了Taskの作成だけです。原Captureと添付は移動しません。",
+      );
     const currentTask = this.repository.get("task", inputTask.id, true);
     if (currentTask) {
       throw new ApplicationCommandError("CONFLICT", "同じTask IDが既に存在します。", {
@@ -3141,7 +3153,27 @@ export class ApplicationCommandService {
       operations.push({ action: "save", type: "schedule", entity: schedule });
       changed.push("schedule");
     }
-    const references = referencesForTask(this.repository, command, task.id);
+    const sourceReference: Entity = {
+      id: `${command.commandId}-capture-source`,
+      source_type: "task",
+      source_id: task.id,
+      target_type: "capture_entry",
+      target_id: capture.id,
+      relation_type: "derived_from",
+      origin: "user",
+      reason: "保存済みCaptureから選択して採用",
+      created_at: command.issuedAt,
+    };
+    const references = referencesForTask(
+      this.repository,
+      extracting
+        ? {
+            ...command,
+            payload: { ...payload, references: [...(payload.references || []), sourceReference] },
+          }
+        : command,
+      task.id,
+    );
     operations.push(...references);
     changed.push(...references.map(() => "reference" as const));
 
@@ -3151,8 +3183,10 @@ export class ApplicationCommandService {
       triaged_to_type: "task",
       triaged_to_id: task.id,
     };
-    operations.push({ action: "save", type: "capture_entry", entity: triagedCapture });
-    changed.push("capture_entry");
+    if (!extracting) {
+      operations.push({ action: "save", type: "capture_entry", entity: triagedCapture });
+      changed.push("capture_entry");
+    }
 
     const artifactIds = payload.artifactIds || [];
     const seenArtifactIds = new Set<string>();
@@ -3209,7 +3243,8 @@ export class ApplicationCommandService {
       capture,
       triagedCapture,
     );
-    for (const event of [taskEvent, captureEvent]) {
+    if (extracting) taskEvent.source_refs = [{ type: "capture_entry", id: capture.id }];
+    for (const event of extracting ? [taskEvent] : [taskEvent, captureEvent]) {
       event.command_source = command.source;
       event.actor_kind = command.actor.kind;
       event.actor_id = command.actor.id || null;

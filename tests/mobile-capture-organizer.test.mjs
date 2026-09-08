@@ -47,6 +47,57 @@ const json = (value) =>
     headers: { "content-type": "application/json" },
   });
 
+test("saved Capture fixed cases permit zero through eight while new input still requires one", async () => {
+  // Fixtures verify provider schemas/local validation, not live model judgement.
+  const cases = [
+    ["今日は疲れた", []],
+    ["この条件でよかっただろうか", []],
+    ["昨日は何か試した気がする", []],
+    ["条件を比較する", [{ ...proposal, title: "条件を比較する", startDate: null, checklist: [] }]],
+    [
+      "条件を比較する。結果を送る",
+      [
+        { ...proposal, title: "条件を比較する" },
+        { ...proposal, title: "結果を送る" },
+      ],
+    ],
+  ];
+  for (const provider of ["openai", "gemini"]) {
+    for (const [text, tasks] of cases) {
+      let wire;
+      const organizer = create(env(provider), async (_url, options) => {
+        wire = JSON.parse(options.body);
+        return json(
+          provider === "gemini"
+            ? {
+                candidates: [
+                  {
+                    finishReason: "STOP",
+                    content: { parts: [{ text: JSON.stringify(batch(tasks)) }] },
+                  },
+                ],
+              }
+            : chat(batch(tasks)),
+        );
+      });
+      assert.deepEqual(
+        await organizer.organize({
+          ...input,
+          text,
+          mode: "saved_capture",
+          capturedAt: "2026-09-06T00:30:00",
+          maxTasks: 8,
+        }),
+        batch(tasks),
+      );
+      assert.match(JSON.stringify(wire), /minItems.{0,4}0/);
+      assert.match(JSON.stringify(wire), /2026-09-06/);
+      if (!tasks.length)
+        await assert.rejects(organizer.organize(input), /AIで整理できませんでした/);
+    }
+  }
+});
+
 test("fixed planned-time cases preserve provider fields and the capture-day anchor after midnight", async (t) => {
   // Fixed model responses verify the wire contract and retention, not model inference quality.
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-09-08T00:10:00Z") });
