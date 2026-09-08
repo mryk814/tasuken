@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -71,7 +71,7 @@ const {
 );
 
 /** A real Gateway/Core/SQLite route, with faults confined to a loopback test proxy. */
-export async function createMobileOfflineGateway({ scopes } = {}) {
+export async function createMobileOfflineGateway({ scopes, organizer = null } = {}) {
   const directory = mkdtempSync(path.join(os.tmpdir(), "tasken-offline-journey-"));
   const serverId = `offline-${randomUUID()}`;
   const deviceId = `test-${randomUUID()}`;
@@ -106,6 +106,8 @@ export async function createMobileOfflineGateway({ scopes } = {}) {
       undefined,
       {
         record: (command, actor) => workspaceService.recordWorkLog(command, actor),
+        adoptOrganization: (command, actor) =>
+          workspaceService.adoptWorkLogOrganization(command, actor),
         changeLifecycle: (command, actor) =>
           workspaceService.changeWorkLogLifecycle(command, actor),
       },
@@ -134,7 +136,7 @@ export async function createMobileOfflineGateway({ scopes } = {}) {
       devices.pair({ code: ticket.code, deviceId, deviceLabel: "Isolated offline journey" });
     }
     host = new MobileGatewayHost({
-      adapter: runtime.createMobileGateway(state),
+      adapter: runtime.createMobileGateway(state, undefined, () => organizer),
       devices,
       state,
       port: 0,
@@ -171,6 +173,42 @@ export async function createMobileOfflineGateway({ scopes } = {}) {
   }
 
   async function control(action) {
+    if (action.themeContextPhase) {
+      assert.ok(["initial", "updated", "deleted"].includes(action.themeContextPhase));
+      const id = "theme-context-fixture";
+      if (action.themeContextPhase === "initial") {
+        assert.equal(database.get("theme", id), null);
+        const theme = JSON.parse(
+          readFileSync(
+            new URL(
+              "../../contracts/mobile/v1/theme-context-response.golden.json",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        ).data.theme;
+        database.save("theme", {
+          id,
+          name: theme.title,
+          theme_charter: theme.charter,
+          theme_state: theme.currentState,
+          ai_visibility: [],
+        });
+      } else {
+        const theme = database.get("theme", id);
+        assert.ok(theme);
+        if (action.themeContextPhase === "deleted") database.remove("theme", id);
+        else
+          database.save("theme", {
+            ...theme,
+            theme_state: {
+              ...theme.theme_state,
+              current_direction: "濃度と温度を分けて再測定する。",
+              updated_at: "2026-09-06T09:00:00Z",
+            },
+          });
+      }
+    }
     if (action.seedRelatedDocuments === true) {
       const taskId = "related-fixture-task";
       assert.equal(database.get("task", taskId), null);
@@ -245,6 +283,21 @@ export async function createMobileOfflineGateway({ scopes } = {}) {
         payload: { taskId: task.id },
         expectedVersions: [{ type: "task", id: task.id, version: task.version }],
       });
+    }
+    if (Object.hasOwn(action, "workspaceAiVisibility")) {
+      database.setPreference("aiVisibilityDefault", action.workspaceAiVisibility);
+    }
+    if (action.workLogAiVisibility) {
+      const { id, audiences } = action.workLogAiVisibility;
+      const note = database.get("note", id);
+      assert.ok(note?.properties_json?.work_log);
+      database.save("note", { ...note, ai_visibility: audiences });
+    }
+    if (action.themeAiVisibility) {
+      const { id, audiences } = action.themeAiVisibility;
+      const theme = database.get("theme", id);
+      assert.ok(theme);
+      database.save("theme", { ...theme, default_ai_visibility: audiences });
     }
     if (action.editWorkLog) {
       const { id, body } = action.editWorkLog;

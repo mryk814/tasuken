@@ -4,6 +4,7 @@ import {
   createQuickCaptureOrganizationFixture,
 } from "./helpers/quick-capture-organization.mjs";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { build } from "esbuild";
 import path from "node:path";
@@ -2404,4 +2405,439 @@ test("Desktop organized execution time and original text survive canonical Creat
     database?.db.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+{
+  const { SavedCaptureOrganizer } = await importBundled(
+    "src/main/services/savedCaptureOrganizer.ts",
+  );
+  const proposal = {
+    title: "条件を比較する",
+    themeId: null,
+    startDate: null,
+    endDate: null,
+    rangeSemantics: null,
+    checklist: [],
+    supplement: "",
+    warnings: [],
+    plannedStartTime: null,
+    plannedDurationMinutes: null,
+  };
+  const original = "今日は疲れた。\n条件を比較する。前の実験は終わっている。";
+
+  async function fixture(t, organize = async () => ({ tasks: [], warnings: [] })) {
+    const directory = await mkdtemp(path.join(tmpdir(), "tasken-saved-capture-"));
+    const filename = path.join(directory, "workspace.sqlite");
+    let db;
+    const f = {
+      open() {
+        db = new WorkspaceDatabase(filename);
+        db.loadWorkspace();
+      },
+      get db() {
+        return db;
+      },
+      reopen() {
+        db.db.close();
+        f.open();
+      },
+      service(executeCommands) {
+        return new SavedCaptureOrganizer({
+          repository: db,
+          organize,
+          executeCommands:
+            executeCommands ||
+            ((commands) => new ApplicationCommandService(db).executeBatch(commands)),
+        });
+      },
+    };
+    f.open();
+    t.after(async () => {
+      db.db.close();
+      await rm(directory, { recursive: true, force: true });
+    });
+    f.capture = db.save("capture_entry", {
+      id: "source",
+      text: original,
+      captured_at: "2026-09-06T12:34:00",
+      state: "untriaged",
+      ai_visibility: ["external_ai"],
+      properties_json: { capture_timezone: "Asia/Tokyo" },
+    });
+    f.request = { captureId: "source", captureVersion: f.capture.version, timeZone: "Asia/Tokyo" };
+    f.submission = (tasks = [proposal]) => ({
+      submissionId: randomUUID(),
+      issuedAt: "2026-09-08T00:00:00Z",
+      captureId: "source",
+      captureVersion: f.capture.version,
+      tasks,
+      warnings: [],
+    });
+    return f;
+  }
+
+  test("saved Capture proposes zero without mutation and sends only its permitted source context", async (t) => {
+    let input;
+    const f = await fixture(t, async (value) => {
+      input = value;
+      return { tasks: [], warnings: [] };
+    });
+    f.db.save("capture_entry", {
+      id: "private-other",
+      text: "unrelated secret",
+      state: "untriaged",
+      captured_at: "2026-09-08T00:00:00Z",
+    });
+    assert.deepEqual(await f.service().organize(f.request), { tasks: [], warnings: [] });
+    assert.deepEqual(input, {
+      mode: "saved_capture",
+      text: original,
+      capturedAt: "2026-09-06T12:34:00",
+      timeZone: "Asia/Tokyo",
+      themeId: null,
+      themes: [],
+      maxTasks: 8,
+      includePlannedTime: true,
+    });
+    assert.deepEqual(f.db.get("capture_entry", "source"), f.capture);
+    assert.equal(f.db.list("task").length, 0);
+    assert.throws(() => f.service().save(f.submission([])));
+    assert.equal(f.service().source("source", f.capture.version).timeZone, "Asia/Tokyo");
+  });
+
+  test("saved editor has its own auxiliary window and rejects requests from other senders", async (t) => {
+    const f = await fixture(t);
+    const ui = createQuickCaptureOrganizationFixture(undefined, undefined, {
+      repository: f.db,
+      isMainSender: (id) => id === 91,
+    });
+    const open = ui.handlers.get("capture-organizer:open-saved");
+    assert.throws(() => open({ sender: { id: 99 } }, "source", f.capture.version), /メイン画面/);
+    open({ sender: { id: 91 } }, "source", f.capture.version);
+    const saved = ui.controller.getSavedWindow();
+    assert.ok(saved);
+    assert.notEqual(saved, ui.controller.getWindow());
+    open({ sender: { id: 91 } }, "source", f.capture.version);
+    assert.equal(ui.controller.getSavedWindow(), saved);
+    assert.equal(ui.messages.find((message) => message[1] === "saved-capture")[2].text, original);
+    assert.equal(f.db.list("task").length, 0);
+  });
+
+  test("a UTC storage timestamp does not invent the missing recording timezone", async (t) => {
+    const f = await fixture(t);
+    const capture = f.db.save("capture_entry", {
+      ...f.capture,
+      captured_at: "2026-09-06T15:30:00Z",
+      properties_json: {},
+    });
+    assert.equal(f.service().source(capture.id, capture.version).timeZone, "");
+    await assert.rejects(
+      f.service().organize({ ...f.request, captureVersion: capture.version, timeZone: "" }),
+    );
+  });
+
+  test("date-only Capture sources survive restart and adoption without changing the recorded date", async (t) => {
+    let sent;
+    const f = await fixture(t, async (input) => {
+      sent = input;
+      return { tasks: [proposal], warnings: [] };
+    });
+    const capture = f.db.save("capture_entry", {
+      ...f.capture,
+      captured_at: "2026-09-06",
+      properties_json: {},
+    });
+    f.reopen();
+    assert.equal(f.service().source(capture.id, capture.version).capturedAt, "2026-09-06");
+    await f.service().organize({ ...f.request, captureVersion: capture.version });
+    assert.equal(sent.capturedAt, "2026-09-06");
+    const submission = { ...f.submission(), captureVersion: capture.version };
+    f.service().save(submission);
+    f.reopen();
+    assert.deepEqual(f.db.get("capture_entry", "source"), capture);
+    assert.equal(f.db.list("task").length, 1);
+    assert.equal(f.db.list("reference")[0].target_id, capture.id);
+  });
+
+  test("source visibility is enforced before network, after response, and before adoption", async (t) => {
+    let calls = 0;
+    const f = await fixture(t, async () => {
+      calls++;
+      return { tasks: [proposal], warnings: [] };
+    });
+    const privateSource = f.db.save("capture_entry", { ...f.capture, ai_visibility: [] });
+    await assert.rejects(
+      f.service().organize({ ...f.request, captureVersion: privateSource.version }),
+      /外部AI/,
+    );
+    assert.equal(calls, 0);
+    const inherited = f.db.save("capture_entry", { ...privateSource, ai_visibility: null });
+    f.request.captureVersion = inherited.version;
+    f.db.setPreference("aiVisibilityDefault", ["external_ai"]);
+    const service = new SavedCaptureOrganizer({
+      repository: f.db,
+      organize: async () => {
+        f.db.setPreference("aiVisibilityDefault", []);
+        return { tasks: [proposal], warnings: [] };
+      },
+      executeCommands: () => assert.fail("visibility change must not write"),
+    });
+    await assert.rejects(service.organize(f.request), /公開範囲/);
+    assert.equal(
+      service.save({ ...f.submission(), captureVersion: inherited.version }).status,
+      "not_saved",
+    );
+  });
+
+  test("source update, deletion and provider failure preserve the source and create no Tasks", async (t) => {
+    const f = await fixture(t, async () => {
+      throw new Error("provider unavailable");
+    });
+    await assert.rejects(f.service().organize(f.request), /provider unavailable/);
+    assert.deepEqual(f.db.get("capture_entry", "source"), f.capture);
+    const submission = f.submission();
+    f.db.save("capture_entry", { ...f.capture, text: "編集後の原文" });
+    assert.equal(f.service().save(submission).status, "not_saved");
+    f.db.remove("capture_entry", "source");
+    assert.equal(f.service().save(submission).status, "not_saved");
+    assert.equal(f.db.list("task").length, 0);
+  });
+
+  test("a source changed while the provider is pending cannot become an adoptable candidate", async (t) => {
+    let resolve;
+    const f = await fixture(
+      t,
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const pending = f.service().organize(f.request);
+    f.db.save("capture_entry", { ...f.capture, text: "回答を待っている間の編集" });
+    resolve({ tasks: [proposal], warnings: [] });
+    await assert.rejects(pending, /更新されています/);
+    assert.equal(f.db.list("task").length, 0);
+  });
+
+  test("selected Tasks, source references and exact original survive reopen and committed retry", async (t) => {
+    const f = await fixture(t);
+    const submission = f.submission([
+      proposal,
+      { ...proposal, title: "結果を送る", endDate: "2026-09-11", checklist: ["添付を確認"] },
+    ]);
+    const receipts = f.service().save(submission);
+    assert.equal(receipts.length, 2);
+    const check = () => {
+      assert.deepEqual(f.db.get("capture_entry", "source"), f.capture);
+      const tasks = f.db.list("task");
+      assert.equal(tasks.length, 2);
+      for (const task of tasks) {
+        assert.equal(task.state, "todo");
+        assert.ok(!task.description?.includes(original));
+        const reference = f.db.list("reference").find((ref) => ref.source_id === task.id);
+        assert.equal(reference.target_type, "capture_entry");
+        assert.equal(reference.target_id, "source");
+        assert.equal(reference.relation_type, "derived_from");
+      }
+      assert.equal(f.db.list("schedule").length, 1);
+    };
+    check();
+    f.reopen();
+    check();
+    assert.deepEqual(f.service().save(submission), receipts);
+    assert.equal(f.db.list("task").length, 2);
+    assert.throws(() => f.service().save({ ...submission, tasks: [proposal] }), /候補集合/);
+    assert.throws(() =>
+      f
+        .service()
+        .save({ ...submission, tasks: [{ ...proposal, title: "変更" }, submission.tasks[1]] }),
+    );
+    f.db.remove("capture_entry", "source");
+    assert.deepEqual(f.service().save(submission), receipts);
+  });
+
+  test("a failed batch rolls back Tasks and references, then the identical submission retries once", async (t) => {
+    const f = await fixture(t);
+    const submission = f.submission([
+      proposal,
+      { ...proposal, title: "second", themeId: "missing" },
+    ]);
+    assert.throws(() => f.service().save(submission));
+    assert.equal(f.db.list("task").length, 0);
+    assert.equal(f.db.list("reference").length, 0);
+    assert.deepEqual(f.db.get("capture_entry", "source"), f.capture);
+    f.db.save("theme", { id: "missing", name: "追加Theme" });
+    assert.equal(f.service().save(submission).length, 2);
+    assert.equal(f.service().save(submission).length, 2);
+    assert.equal(f.db.list("task").length, 2);
+  });
+}
+test("Task schedule proposal Command persistence and stale read dependencies", async (t) => {
+  const { taskScheduleSnapshot, buildTaskScheduleProposalCommand } = await importBundled(
+    "src/shared/taskScheduleProposal.ts",
+  );
+  const task = {
+    id: "task-schedule-test",
+    version: 1,
+    title: "試験片の測定",
+    project_id: "theme-personal-default",
+    state: "todo",
+    priority: "normal",
+    description: "本文を保持",
+    checklist_items: [{ id: "check-1", title: "温度記録", done: false, sort_order: 0 }],
+    today_date: null,
+    planned_start_time: "14:00",
+    planned_duration_minutes: 60,
+  };
+  const schedule = {
+    id: "schedule-test",
+    version: 1,
+    owner_type: "task",
+    owner_id: task.id,
+    start_date: "2026-09-11",
+    end_date: "2026-09-18",
+    range_semantics: null,
+    date_kind: "range",
+    confidence: "fixed",
+    granularity: "day",
+  };
+  const current = taskScheduleSnapshot(task, schedule);
+  const request = {
+    current,
+    instruction: "時刻だけ15時に",
+    inputAt: "2026-09-08T04:00:00Z",
+    timeZone: "Asia/Tokyo",
+  };
+  await t.test(
+    "confirmed schedule patches preserve other fields and replay safely after SQLite reopen",
+    async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "tasken-schedule-proposal-"));
+      const filename = path.join(dir, "workspace.sqlite");
+      let db = new WorkspaceDatabase(filename);
+      try {
+        db.loadWorkspace();
+        let service = new ApplicationCommandService(db);
+        service.execute({
+          commandId: "create-schedule-test",
+          name: "CreateTask",
+          actor: { kind: "user" },
+          source: "main_ui",
+          issuedAt: request.inputAt,
+          payload: { task, schedule },
+        });
+        const initialTask = db.get("task", task.id);
+        const initialSchedule = db.get("schedule", schedule.id);
+        const proposal = {
+          patch: { plannedStartTime: "15:00", plannedDurationMinutes: 30, startDate: "2026-09-14" },
+          warnings: [],
+        };
+        const command = buildTaskScheduleProposalCommand(
+          initialTask,
+          initialSchedule,
+          proposal,
+          taskScheduleSnapshot(initialTask, initialSchedule),
+          "apply-schedule-test",
+          request.inputAt,
+        );
+        const receipt = service.execute(command);
+        const saved = db.get("task", task.id);
+        for (const key of [
+          "title",
+          "project_id",
+          "checklist_items",
+          "description",
+          "state",
+          "today_date",
+        ])
+          assert.deepEqual(saved[key], initialTask[key]);
+        assert.equal(saved.planned_start_time, "15:00");
+        assert.equal(saved.planned_duration_minutes, 30);
+        assert.equal(db.get("schedule", schedule.id).start_date, "2026-09-14");
+        assert.equal(db.get("schedule", schedule.id).end_date, initialSchedule.end_date);
+        assert.deepEqual(service.execute(command), receipt);
+        assert.equal(db.get("task", task.id).version, saved.version);
+        db.db.close();
+        db = new WorkspaceDatabase(filename);
+        db.loadWorkspace();
+        service = new ApplicationCommandService(db);
+        assert.equal(db.get("task", task.id).planned_start_time, "15:00");
+        assert.equal(db.get("schedule", schedule.id).start_date, "2026-09-14");
+        assert.deepEqual(service.execute(command), receipt);
+        assert.throws(
+          () =>
+            service.execute({
+              ...command,
+              payload: {
+                ...command.payload,
+                task: { ...command.payload.task, planned_start_time: "16:00" },
+              },
+            }),
+          /同じcommandId|同じCommand|再利用|異なる/,
+        );
+      } finally {
+        db.db.close();
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  await t.test(
+    "Task edits, Schedule edits, and a newly created Schedule invalidate time-only proposals",
+    async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "tasken-schedule-stale-"));
+      const db = new WorkspaceDatabase(path.join(dir, "workspace.sqlite"));
+      try {
+        db.loadWorkspace();
+        const service = new ApplicationCommandService(db);
+        service.execute({
+          commandId: "create-stale-test",
+          name: "CreateTask",
+          actor: { kind: "user" },
+          source: "main_ui",
+          issuedAt: request.inputAt,
+          payload: { task, schedule },
+        });
+        const initialTask = db.get("task", task.id),
+          initialSchedule = db.get("schedule", schedule.id);
+        const make = (id) =>
+          buildTaskScheduleProposalCommand(
+            initialTask,
+            initialSchedule,
+            { patch: { plannedStartTime: "16:00" }, warnings: [] },
+            taskScheduleSnapshot(initialTask, initialSchedule),
+            id,
+            request.inputAt,
+          );
+        const first = make("stale-schedule");
+        db.save("schedule", { ...initialSchedule, end_date: "2026-09-19" });
+        assert.throws(() => service.execute(first), /日程が更新/);
+        assert.equal(db.get("task", task.id).planned_start_time, initialTask.planned_start_time);
+        db.save("task", { ...initialTask, title: "別の編集" });
+        assert.throws(() => service.execute(make("stale-task")), /更新済み/);
+        const secondTask = { ...task, id: "no-schedule-task" };
+        service.execute({
+          commandId: "create-without-schedule",
+          name: "CreateTask",
+          actor: { kind: "user" },
+          source: "main_ui",
+          issuedAt: request.inputAt,
+          payload: { task: secondTask },
+        });
+        const before = db.get("task", secondTask.id);
+        const command = buildTaskScheduleProposalCommand(
+          before,
+          null,
+          { patch: { plannedDurationMinutes: 20 }, warnings: [] },
+          taskScheduleSnapshot(before),
+          "new-schedule-race",
+          request.inputAt,
+        );
+        db.save("schedule", { ...schedule, id: "other-schedule", owner_id: secondTask.id });
+        assert.throws(() => service.execute(command), /日程が更新/);
+      } finally {
+        db.db.close();
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });

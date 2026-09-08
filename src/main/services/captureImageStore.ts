@@ -4,14 +4,15 @@ import path from "node:path";
 
 import {
   attachmentUrl,
-  deterministicFileName,
   parseInput,
   sha256,
-  validateManifestEntry,
   type ProposalMarkdownImageDecoder,
+  type ProposalMarkdownImageInput,
   type ProposalMarkdownImageManifest,
 } from "./proposalMarkdownImages.ts";
-import type { CaptureImagePort } from "../core/ports/captureImagePort";
+import { deterministicFileName, validateStagedImageManifest } from "../modules/task/public.ts";
+
+export { validateStagedImageManifest } from "../modules/task/public.ts";
 
 /**
  * Mobile Capture に添付された撮影画像の保存契約。
@@ -39,45 +40,6 @@ function captureImageError(reason: string): Error {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * stage 済み manifest がこの所有者（Capture/Task）に属し、保存済みファイルと
- * 一致することを fs なしで検証する。Core が使う純粋関数。
- */
-export function validateStagedImageManifest(
-  ownerId: string,
-  images: unknown,
-): CaptureImageManifest[] {
-  const cleanOwnerId = typeof ownerId === "string" ? ownerId.trim() : "";
-  if (!cleanOwnerId) throw captureImageError("所有IDがありません。");
-  if (!Array.isArray(images) || images.length === 0 || images.length > CAPTURE_IMAGE_MAX_COUNT) {
-    throw captureImageError("画像は1〜8枚で指定してください。");
-  }
-  const fileNames = new Set<string>();
-  const referenceIds = new Set<string>();
-  let totalBytes = 0;
-  return images.map((value) => {
-    if (!isPlainObject(value)) throw captureImageError("画像情報の形式が不正です。");
-    if ("data_base64" in value) throw captureImageError("画像バイトは保存層でstageしてください。");
-    const entry = validateManifestEntry(value);
-    const expectedFileName = deterministicFileName(
-      cleanOwnerId,
-      entry.reference_id,
-      entry.sha256,
-      entry.mime_type,
-    );
-    if (entry.file_name !== expectedFileName)
-      throw captureImageError("画像情報がこの対象に属していません。");
-    if (fileNames.has(entry.file_name) || referenceIds.has(entry.reference_id))
-      throw captureImageError("画像情報に重複があります。");
-    fileNames.add(entry.file_name);
-    referenceIds.add(entry.reference_id);
-    totalBytes += entry.size;
-    if (totalBytes > CAPTURE_IMAGE_MAX_TOTAL_BYTES)
-      throw captureImageError("画像の合計サイズが上限を超えています。");
-    return entry;
-  });
 }
 
 export class CaptureImageStore {
@@ -238,10 +200,10 @@ export class CaptureImageStore {
 export function createCaptureImagePort(
   userDataPath: string,
   decoder: ProposalMarkdownImageDecoder,
-): CaptureImagePort {
+) {
   const store = new CaptureImageStore(userDataPath, decoder);
   return {
-    stage({ ownerId, images }) {
+    stage({ ownerId, images }: { ownerId: string; images: readonly ProposalMarkdownImageInput[] }) {
       const staged = store.stage(ownerId, images);
       const state: { createdPaths: string[] | null } = { createdPaths: staged.createdPaths };
       return {

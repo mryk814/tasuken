@@ -1,9 +1,10 @@
 import { TaskenCoreHost } from "../infrastructure/http/taskenCoreHost.ts";
 import { createMobileActivityReadPort } from "./mobileActivityReadPort.ts";
 import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentReadPort.ts";
+import { createMobileThemeContextReadPort } from "./mobileThemeContextReadPort.ts";
 import { createMobileWorkLogPort, type WorkLogWriterPort } from "./mobileWorkLogPort.ts";
 import type { NoteProposalImagePort } from "../core/public.ts";
-import type { CaptureImagePort } from "../core/ports/captureImagePort.ts";
+import type { CaptureImagePort } from "../core/public.ts";
 import type { NoteProposalImage } from "../../shared/contracts/task/public.ts";
 import {
   createTaskenCore,
@@ -259,6 +260,7 @@ export class TaskenCoreRuntime {
       core: {
         queryActivity: createMobileActivityReadPort(this.persistence),
         ...createMobileRelatedDocumentReadPort(this.persistence),
+        getThemeContext: createMobileThemeContextReadPort(this.persistence),
         ...createMobileWorkLogPort(this.persistence, this.workLogWriter),
         status: async () => ({
           apiVersion: TASKEN_CORE_API_VERSION,

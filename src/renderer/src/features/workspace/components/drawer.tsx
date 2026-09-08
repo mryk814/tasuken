@@ -12,6 +12,7 @@ import {
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
+import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
 import { useUiStore } from "../../../stores/uiStore";
 import { noteExportSignature } from "../../../../../shared/fileExport";
 import { noteProjectId } from "../../../../../shared/themeRef.mjs";
@@ -68,6 +69,8 @@ import {
 import { isConversationMarkdown } from "../lib/conversationParser";
 import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
+import type { Entity } from "../../../../../shared/types/workspace";
+import { TaskScheduleProposal } from "./TaskScheduleProposal";
 import {
   AiContextFields,
   AiContextSummary,
@@ -825,7 +828,7 @@ export function EntityDrawer({
     const task =
       ((data.tasks || []) as unknown as Task[]).find((candidate) => candidate.id === entity.id) ||
       (entity as unknown as Task);
-    const schedule = findSchedule(data, "task", task.id, entity._schedule);
+    const schedule = findSchedule(data, "task", task.id);
     const themeName = (data.themes || []).find((t) => t.id === task.project_id)?.name || "個人業務";
     const completionNote = str((entity as Record<string, unknown>).completion_note);
     const taskWorkState =
@@ -932,6 +935,19 @@ export function EntityDrawer({
             <dd>{themeName}</dd>
             <dt>予定</dt>
             <dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
+            {(task.planned_start_time || task.planned_duration_minutes) && (
+              <>
+                <dt>時刻・所要時間</dt>
+                <dd>
+                  {[
+                    task.planned_start_time,
+                    task.planned_duration_minutes ? `${task.planned_duration_minutes}分` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" / ")}
+                </dd>
+              </>
+            )}
             {/* 完了時のひとことは本文と分けて保存する（#308）。 */}
             {completionNote && (
               <>
@@ -940,6 +956,22 @@ export function EntityDrawer({
               </>
             )}
           </dl>
+          {executeCommand && (
+            <TaskScheduleProposal
+              key={task.id}
+              task={task as unknown as Entity}
+              schedule={(schedule as unknown as Entity) ?? null}
+              initiallyOpen={Boolean(entity._scheduleProposalOpen)}
+              executeCommand={executeCommand}
+              onEdit={(instruction) =>
+                close({
+                  type: "task",
+                  mode: "edit",
+                  entity: { ...task, _schedule: schedule, _scheduleInstruction: instruction },
+                })
+              }
+            />
+          )}
           <TaskWorkSection
             key={`${task.id}:${task.work_state || task.intended_executor || "not_delegated"}`}
             task={task}
@@ -1238,7 +1270,10 @@ export function EntityDrawer({
         <DrawerHeader title="キャプチャ詳細" close={close} />
         <div className="drawer-content">
           <StatusBadge value={entry.state} label={CAPTURE_ENTRY_STATE_LABELS[entry.state]} />
-          <h2>{entry.title || entry.text}</h2>
+          <h2>{entry.title || "Captureの原文"}</h2>
+          <p className="capture-original-body" data-testid="capture-original-body">
+            {entry.text}
+          </p>
           <dl>
             <dt>記録日</dt>
             <dd>{formatDate(entry.captured_at)}</dd>
@@ -1256,6 +1291,24 @@ export function EntityDrawer({
             workspaceDefault={workspaceAiVisibility(data)}
           />
           <div className="drawer-actions">
+            {entry.state === "untriaged" && (
+              <button
+                className="secondary-button"
+                data-testid="saved-capture-organize"
+                onClick={async () => {
+                  try {
+                    await captureOrganizerApi.openSaved(entry.id, Number(entity.version || 0));
+                  } catch {
+                    setToast(
+                      "Captureを開けませんでした。再読み込みしてから再試行してください。",
+                      "danger",
+                    );
+                  }
+                }}
+              >
+                AIでTask候補を整理
+              </button>
+            )}
             <button
               className="secondary-button"
               onClick={() => close({ type: "capture_entry", mode: "edit", entity })}
@@ -1422,6 +1475,31 @@ function EditDrawer({
               集中して作業する
             </button>
           )}
+          {type === "task" &&
+            entityId &&
+            data.references
+              .filter(
+                (reference) =>
+                  reference.source_type === "task" &&
+                  reference.source_id === entityId &&
+                  reference.target_type === "capture_entry" &&
+                  reference.relation_type === "derived_from",
+              )
+              .map((reference) => {
+                const source = data.capture_entrys.find(
+                  (capture) => capture.id === reference.target_id,
+                );
+                return source ? (
+                  <button
+                    key={reference.id}
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => close({ type: "capture_entry", entity: source })}
+                  >
+                    元のCaptureを開く
+                  </button>
+                ) : null;
+              })}
           {type === "theme" && (
             <>
               <Field label="テーマ名">
@@ -1498,6 +1576,17 @@ function EditDrawer({
               onChecklistSavePending={registerChecklistSave}
               onChecklistSaved={markChecklistSaved}
               onChecklistDraftChange={markChecklistDraftChange}
+              onScheduleProposal={
+                entityId && _executeCommand
+                  ? () =>
+                      close({
+                        type: "task",
+                        mode: "view",
+                        entity: { ...taskFormEntity, _scheduleProposalOpen: true },
+                      })
+                  : undefined
+              }
+              scheduleProposalDisabled={isFormDirty}
             />
           )}
           {type === "waiting" && <WaitingFields entity={entity} data={data} />}

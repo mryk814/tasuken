@@ -8,7 +8,7 @@ import {
   type CommandReceipt,
 } from "../../../../shared/applicationCommand.ts";
 import type { TaskRepository } from "../ports/taskRepository.ts";
-import { validateStagedImageManifest } from "../../../services/captureImageStore.ts";
+import { validateStagedImageManifest } from "../domain/imageManifest.ts";
 import {
   assertHumanAcceptBeforeTaskCompletion,
   assertTaskThemeExists,
@@ -134,6 +134,32 @@ export class TaskCommandHandler {
         id: taskId,
       });
     this.runtime.assertExpectedVersion(command, "task", taskId, current);
+    if (!isCreate && Object.prototype.hasOwnProperty.call(command.payload, "expectedSchedule")) {
+      const expected = (command.payload as { expectedSchedule?: unknown }).expectedSchedule;
+      if (
+        expected !== null &&
+        (!expected ||
+          typeof expected !== "object" ||
+          typeof (expected as { id?: unknown }).id !== "string" ||
+          !Number.isInteger((expected as { version?: unknown }).version) ||
+          Number((expected as { version?: unknown }).version) < 1)
+      )
+        throw new ApplicationCommandError("INVALID_PAYLOAD", "確認時の日程が不正です。");
+      const schedule = this.repository
+        .list("schedule")
+        .find((entry) => entry.owner_type === "task" && entry.owner_id === taskId);
+      const before = expected as { id: string; version: number } | null;
+      if (
+        before
+          ? !schedule || schedule.id !== before.id || Number(schedule.version) !== before.version
+          : Boolean(schedule)
+      )
+        throw new ApplicationCommandError(
+          "CONFLICT",
+          "日程が更新されています。現在の予定で提案を作り直してください。",
+          { type: "schedule", conflictReason: "version_conflict" },
+        );
+    }
 
     const task = normalizeTaskForSave(inputTask, current || undefined);
     if (task.state === "done") assertHumanAcceptBeforeTaskCompletion(task);

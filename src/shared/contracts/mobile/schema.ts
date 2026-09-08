@@ -7,6 +7,7 @@ import {
   localDateSchema,
   isWellFormedUnicode,
 } from "../../kernel/public.ts";
+
 import {
   activityPageSchema,
   publicActivityEntrySchema,
@@ -32,6 +33,23 @@ import {
   TASKEN_MOBILE_SCHEMA_VERSION,
   parseTaskLocator,
 } from "./public.mjs";
+
+const workLogOrganizationQuoteSchema = z
+  .string()
+  .min(1)
+  .max(12000)
+  .refine((value) => value.trim().length > 0);
+
+/** The mobile organization response and adoption command share one proposal contract. */
+export const workLogOrganizationSchema = z.strictObject({
+  done: z.array(workLogOrganizationQuoteSchema).max(10),
+  observations: z.array(workLogOrganizationQuoteSchema).max(10),
+  unresolved: z.array(workLogOrganizationQuoteSchema).max(10),
+  nextActions: z
+    .array(workLogOrganizationQuoteSchema.refine((value) => value.length <= 500))
+    .max(3),
+});
+export type WorkLogOrganization = z.infer<typeof workLogOrganizationSchema>;
 
 const apiVersionSchema = z.literal(TASKEN_MOBILE_API_VERSION);
 const schemaVersionSchema = z.literal(TASKEN_MOBILE_SCHEMA_VERSION);
@@ -107,6 +125,7 @@ export const mobileCapabilitySchema = z.enum([
   TASKEN_MOBILE_CAPABILITIES.todayRead,
   TASKEN_MOBILE_CAPABILITIES.activityRead,
   TASKEN_MOBILE_CAPABILITIES.relatedDocumentsRead,
+  TASKEN_MOBILE_CAPABILITIES.themeContextRead,
   TASKEN_MOBILE_CAPABILITIES.syncRead,
   TASKEN_MOBILE_CAPABILITIES.workReceiptRead,
   TASKEN_MOBILE_CAPABILITIES.proposalRead,
@@ -1395,6 +1414,12 @@ export const mobileCaptureCommandRequestSchema = z
   );
 
 export const mobileWorkLogCommandSchema = z.discriminatedUnion("name", [
+  z.strictObject({
+    name: z.literal("AdoptWorkLogOrganization"),
+    sourceId: entityIdSchema,
+    sourceVersion: entityVersionSchema,
+    proposal: workLogOrganizationSchema,
+  }),
   z
     .object({
       name: z.literal("RecordWorkLog"),

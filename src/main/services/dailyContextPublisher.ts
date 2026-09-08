@@ -12,6 +12,8 @@ import {
 } from "../../shared/dailyContext";
 import { assertSafeThemeChildPath } from "./themeAiPackPublisher.mjs";
 import { writeAtomicTextFile } from "./atomicText.mjs";
+import { buildPublicSourceIndexes } from "../../shared/publicSourceProjection";
+import type { DailyContextFreshness } from "../../shared/dailyContextAuto";
 import {
   buildPeriodContextFiles,
   publishedDayGroups,
@@ -19,6 +21,9 @@ import {
 } from "../../shared/periodContext";
 
 const hashPattern = /^sha256:\d+:[a-f0-9]{64}$/;
+const bodyPathPattern = /^Sources\/(note|capture_entry)-[a-f0-9]{64}\.md$/;
+const derivedPathPattern =
+  /^(README\.md|Years\/\d{4}\.md|Months\/\d{4}-\d{2}\.md|Weeks\/\d{4}-W\d{2}\.md|Sources\/README\.md|Sources\/Themes\/[a-f0-9]{64}\.md|Sources\/(note|capture_entry)-[a-f0-9]{64}\.md)$/;
 interface DailyContextManifest {
   schema: string;
   workspaceId: string;
@@ -27,6 +32,7 @@ interface DailyContextManifest {
   indexFiles?: Record<string, string>;
   operationId?: string;
   manifestBackupHash?: string;
+  freshness?: DailyContextFreshness;
   pending: {
     date: string;
     contentHash: string;
@@ -97,6 +103,22 @@ function readManifest(
           )))
     )
       throw new Error("公開履歴の索引情報が不正です。");
+    if (
+      entry.bodySources !== undefined &&
+      (!Array.isArray(entry.bodySources) ||
+        !entry.bodySources.every(
+          (source) =>
+            source &&
+            bodyPathPattern.test(source.relativePath) &&
+            hashPattern.test(source.contentHash) &&
+            typeof source.title === "string" &&
+            (source.themeId === null || typeof source.themeId === "string") &&
+            source.source &&
+            ["note", "capture_entry"].includes(source.source.type) &&
+            typeof source.source.id === "string",
+        ))
+    )
+      throw new Error("公開本文の管理情報が不正です。");
   }
   for (const indexes of [
     manifest.indexFiles,
@@ -109,10 +131,7 @@ function readManifest(
       typeof indexes !== "object" ||
       Array.isArray(indexes) ||
       Object.entries(indexes).some(
-        ([name, hash]) =>
-          !/^(README\.md|Years\/\d{4}\.md|Months\/\d{4}-\d{2}\.md|Weeks\/\d{4}-W\d{2}\.md)$/.test(
-            name,
-          ) || !hashPattern.test(hash),
+        ([name, hash]) => !derivedPathPattern.test(name) || !hashPattern.test(hash),
       )
     )
       throw new Error("公開索引の管理情報が不正です。");
@@ -133,6 +152,84 @@ function readManifest(
   if (manifest.manifestBackupHash !== undefined && !hashPattern.test(manifest.manifestBackupHash))
     throw new Error("公開履歴の退避情報が不正です。");
   return { directory, manifest };
+}
+
+export function readDailyContextSelections(root: string, workspaceId: string, timezone: string) {
+  const { directory, manifest } = readManifest(root, workspaceId, timezone, fs);
+  const selections = Object.values(manifest.days)
+    .filter((day) => fs.existsSync(safePath(directory, day.relativePath, fs)))
+    .map((day) => day.selection);
+  return { selections, pendingDate: manifest.pending?.date ?? null, days: manifest.days };
+}
+
+/** Withdraw only files still owned by this workspace's publication manifest. */
+export function withdrawDailyContext(root: string, workspaceId: string, timezone: string) {
+  const { directory, manifest } = readManifest(root, workspaceId, timezone, fs);
+  if (!fs.existsSync(directory)) return;
+  if (manifest.pending)
+    throw new Error("以前の保存先に未完了の日別更新があります。同じ保存先で再公開してください。");
+  cleanupPreviousOperation(directory, manifest, fs);
+  const managed = new Map([
+    ...Object.values(manifest.days).map((day) => [day.relativePath, day.contentHash] as const),
+    ...Object.entries(manifest.indexFiles ?? {}),
+  ]);
+  for (const [name, hash] of managed) {
+    const target = safePath(directory, name, fs);
+    if (!fs.existsSync(target)) continue;
+    if (
+      !fs.statSync(target).isFile() ||
+      markdownSignature(fs.readFileSync(target, "utf8")) !== hash
+    )
+      throw new Error("以前の保存先の公開物が外部で変更されています。撤去せず停止しました。");
+  }
+  for (const name of managed.keys()) {
+    const target = safePath(directory, name, fs);
+    if (fs.existsSync(target)) fs.unlinkSync(target);
+  }
+  const manifestPath = safePath(directory, DAILY_CONTEXT_MANIFEST, fs);
+  const operationId = manifest.operationId ?? randomUUID();
+  const empty: DailyContextManifest = {
+    schema: DAILY_CONTEXT_SCHEMA,
+    workspaceId,
+    timezone,
+    days: {},
+    indexFiles: {},
+    pending: null,
+    operationId,
+    manifestBackupHash: markdownSignature(fs.readFileSync(manifestPath, "utf8")),
+  };
+  const warning = writeAtomicTextFile(
+    manifestPath,
+    `${JSON.stringify(empty, null, 2)}\n`,
+    operationId,
+  );
+  if (warning)
+    throw new Error(
+      "以前の保存先の退避ファイルを撤去できませんでした。同じ公開先で再試行してください。",
+    );
+}
+
+export function publishedSourceIndex(
+  root: string,
+  workspaceId: string,
+  timezone: string,
+  relativePath: string,
+) {
+  const { directory, manifest } = readManifest(root, workspaceId, timezone, fs);
+  if (
+    manifest.pending ||
+    !derivedPathPattern.test(relativePath) ||
+    !manifest.indexFiles?.[relativePath]
+  )
+    return null;
+  const target = safePath(directory, relativePath, fs);
+  if (
+    !fs.existsSync(target) ||
+    !fs.statSync(target).isFile() ||
+    markdownSignature(fs.readFileSync(target, "utf8")) !== manifest.indexFiles[relativePath]
+  )
+    return null;
+  return target;
 }
 
 function cleanupPreviousOperation(
@@ -191,12 +288,14 @@ export function publishDailyContext({
   plan,
   expectedContentHash,
   allowPartial = false,
+  freshness,
   fileSystem = fs,
 }: {
   root: string;
   plan: DailyContextPlan;
   expectedContentHash: string;
   allowPartial?: boolean;
+  freshness?: DailyContextFreshness;
   fileSystem?: typeof fs;
 }): DailyContextPublishResult {
   validateDailyContextSelection(plan?.selection);
@@ -267,6 +366,15 @@ export function publishDailyContext({
     excludedReasons: plan.excludedReasons,
     partial: plan.partial,
     groups: publishedDayGroups(plan),
+    bodySources: (plan.publicSources ?? []).map(
+      ({ source, themeId, title, relativePath, contentHash }) => ({
+        source,
+        themeId,
+        title,
+        relativePath,
+        contentHash,
+      }),
+    ),
   };
   const nextDays = { ...manifest.days, [date]: entry };
   // A removed managed day is a withdrawal; do not leave dangling links in indexes.
@@ -280,7 +388,42 @@ export function publishDailyContext({
     )
       throw new Error("日別公開物が外部で変更されています。索引の更新を停止しました。");
   }
-  const indexContents = buildPeriodContextFiles({ days: nextDays, timezone: manifest.timezone });
+  const nextFreshness = freshness ?? manifest.freshness;
+  const indexContents = buildPeriodContextFiles({
+    days: nextDays,
+    timezone: manifest.timezone,
+    freshness: nextFreshness,
+  });
+  const bodySources = Object.values(nextDays).flatMap((day) => day.bodySources ?? []);
+  if (
+    bodySources.length ||
+    Object.keys(manifest.indexFiles ?? {}).some((name) => name.startsWith("Sources/"))
+  ) {
+    Object.assign(
+      indexContents,
+      buildPublicSourceIndexes(
+        bodySources,
+        Object.keys(manifest.indexFiles ?? {}).filter((name) => name.startsWith("Sources/Themes/")),
+      ),
+    );
+  }
+  for (const source of bodySources) {
+    if (indexContents[source.relativePath] !== undefined) continue;
+    const current = plan.publicSources?.find((entry) => entry.relativePath === source.relativePath);
+    if (current) {
+      if (
+        !bodyPathPattern.test(current.relativePath) ||
+        markdownSignature(current.content) !== current.contentHash
+      )
+        throw new Error("公開本文が不正です。");
+      indexContents[current.relativePath] = current.content;
+    } else {
+      const bodyPath = safePath(directory, source.relativePath, fileSystem);
+      if (!fileSystem.existsSync(bodyPath) || !fileSystem.statSync(bodyPath).isFile())
+        throw new Error("公開本文が見つかりません。該当日を再公開してください。");
+      indexContents[source.relativePath] = fileSystem.readFileSync(bodyPath, "utf8");
+    }
+  }
   const indexFiles = Object.fromEntries(
     Object.entries(indexContents).map(([name, content]) => [name, markdownSignature(content)]),
   );
@@ -329,13 +472,17 @@ export function publishDailyContext({
     throw error;
   }
   try {
-    const warning = writeAtomicTextFile(target, plan.content, operationId, fileSystem);
+    const warning =
+      previousContentHash === plan.contentHash
+        ? null
+        : writeAtomicTextFile(target, plan.content, operationId, fileSystem);
     if (warning)
       throw new Error(
         "旧公開物の退避ファイルが残っています。非公開にした内容が残る可能性があります。",
       );
     for (const name of managedNames) {
       const indexPath = safePath(directory, name, fileSystem);
+      if (indexFiles[name] && pending.previousIndexFiles[name] === indexFiles[name]) continue;
       if (indexContents[name] === undefined) {
         if (fileSystem.existsSync(indexPath)) fileSystem.unlinkSync(indexPath);
       } else {
@@ -355,6 +502,7 @@ export function publishDailyContext({
       pending: null,
       operationId,
       manifestBackupHash: markdownSignature(manifestText(pendingManifest)),
+      ...(nextFreshness ? { freshness: nextFreshness } : {}),
     });
     return {
       status: "written",

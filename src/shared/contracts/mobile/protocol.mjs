@@ -91,6 +91,7 @@ export const TASKEN_MOBILE_CAPABILITIES = Object.freeze({
   todayRead: "mobile.today.read",
   activityRead: "mobile.activity.read",
   relatedDocumentsRead: "mobile.task-related.read",
+  themeContextRead: "mobile.theme-context.read",
   syncRead: "mobile.sync.read",
   workReceiptRead: "mobile.work-receipt.read",
   proposalRead: "mobile.proposal.read",
@@ -110,6 +111,7 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   activity: "/v1/activity",
   relatedDocuments: "/v1/task-related-documents",
   relatedDocument: "/v1/task-related-document",
+  themeContext: "/v1/theme-context",
   themes: "/v1/themes",
   workReceipt: "/v1/work-receipt",
   proposals: "/v1/proposals",
@@ -122,4 +124,5 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   commands: "/v1/commands",
   workLogs: "/v1/work-logs",
   captureOrganization: "/v1/capture-organization",
+  workLogOrganization: "/v1/work-log-organization",
 });

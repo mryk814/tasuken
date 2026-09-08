@@ -8,6 +8,9 @@ type Unsubscribe = () => void;
 
 const api: ResearchDeskApi = {
   captureOrganizer: {
+    openSaved: (captureId, version) =>
+      ipcRenderer.invoke(IPC.captureOrganizerOpenSaved, captureId, version),
+    proposeTaskSchedule: (input) => ipcRenderer.invoke(IPC.taskSchedulePropose, input),
     getSettings: () => ipcRenderer.invoke(IPC.captureOrganizerGetSettings),
     saveSettings: (input) => ipcRenderer.invoke(IPC.captureOrganizerSaveSettings, input),
     testConnection: (input) => ipcRenderer.invoke(IPC.captureOrganizerTestConnection, input),
@@ -39,6 +42,9 @@ const api: ResearchDeskApi = {
   dailyContext: {
     preview: (selection) => ipcRenderer.invoke(IPC.dailyContextPreview, selection),
     publish: (request) => ipcRenderer.invoke(IPC.dailyContextPublish, request),
+    autoStatus: () => ipcRenderer.invoke(IPC.dailyContextAutoStatus),
+    configureAuto: (config) => ipcRenderer.invoke(IPC.dailyContextAutoConfigure, config),
+    retryAuto: () => ipcRenderer.invoke(IPC.dailyContextAutoRetry),
   },
   themeAiPack: {
     status: (themeId) => ipcRenderer.invoke(IPC.themeAiPackStatus, themeId),

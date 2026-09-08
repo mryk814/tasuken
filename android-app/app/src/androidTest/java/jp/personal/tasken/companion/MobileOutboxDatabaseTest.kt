@@ -280,6 +280,39 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun reviewedCandidatesSaveEditedFieldsAndRetryWithoutDuplicatingAfterFailure() = runBlocking {
+        val draft = MobileCaptureDraft.fresh(text = "研究と買物の原文").withOrganizations(listOf(
+            MobileCaptureOrganization("除外する先頭"),
+            MobileCaptureOrganization("後続"),
+            MobileCaptureOrganization("最後"),
+        )).let { initial ->
+            initial.withEditedOrganizations(listOf(
+                initial.organization!!.copy(excluded = true),
+                initial.additionalOrganizations[0].copy(title = "後続を修正", themeId = "research",
+                    endDate = "2026-09-20", checklist = listOf("確認", "記録"), supplement = "詳細"),
+                initial.additionalOrganizations[1].copy(title = ""),
+            ))
+        }
+        val drafts = draft.organizedTaskDrafts()
+        assertTrue(runCatching { outbox.enqueueCreateTasks(drafts, null) }.isFailure)
+        assertEquals(0, dao.tasks().size)
+        assertEquals(0, dao.outboxCount())
+        val corrected = drafts.map { if (it.text.isBlank()) it.withText("最後を修正") else it }
+        val ids = outbox.enqueueCreateTasks(corrected, null)
+        assertEquals(ids, outbox.enqueueCreateTasks(corrected, null))
+        assertEquals(2, dao.tasks().size)
+        assertEquals(2, dao.outboxCount())
+        val task = requireNotNull(dao.task(ids.first()))
+        val command = requireNotNull(dao.outbox(requireNotNull(task.optimisticCommandId)))
+        val envelope = MobileTaskCommandContract.decodeCreateEnvelope(command.envelopeJson)
+        assertEquals("後続を修正", task.title)
+        assertEquals("research", task.themeId)
+        assertEquals("2026-09-20", envelope.command.schedule?.endDate)
+        assertEquals(listOf("確認", "記録"), envelope.command.task.checklistItems?.map { it.title })
+        assertEquals(corrected.first().organizationDescription(), envelope.command.task.description)
+    }
+
+    @Test
     fun batchCreateRollsBackEarlierTasksOnLaterFailureAndCanRetry() = runBlocking {
         var scheduled = 0
         val batchOutbox = MobileOutbox(context, dao, { "android-test-device" }, schedule = { scheduled++ })

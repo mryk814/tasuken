@@ -5,6 +5,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -29,6 +30,48 @@ class CaptureOrganizationUiTest {
     )
 
     @Test
+    fun secondCandidateUsesSameEditorAndExcludingFirstKeepsItsIdentity() {
+        val draft = freshDraft()
+        showSheet(draft, organize = { List(8) { proposal.copy(title = "候補 $it") } })
+        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.waitUntil { draft.value.allOrganizations().size == 8 }
+        selectCandidate(1)
+        composeRule.onNodeWithTag("organization-title").performScrollTo().performTextReplacement("次の候補を編集")
+        composeRule.onNodeWithTag("capture-theme-options").performScrollTo()
+        composeRule.onNodeWithTag("capture-theme-none-option").performClick()
+        composeRule.runOnIdle { assertEquals(null, draft.value.additionalOrganizations.first().themeId) }
+        composeRule.onNodeWithTag("organization-end").performScrollTo().performTextReplacement("2026-09-20")
+        composeRule.onNodeWithTag("organization-checklist").performScrollTo().performTextReplacement("確認する\n記録する")
+        composeRule.onNodeWithTag("organization-supplement").performScrollTo().performTextReplacement("長い補足".repeat(100))
+        capture("07-second-candidate-full-editor")
+        selectCandidate(0)
+        composeRule.onNodeWithTag("organization-select-0").assertIsSelected()
+        composeRule.onNodeWithTag("organization-exclude").performScrollTo().performClick()
+        composeRule.runOnIdle { assertEquals(true, draft.value.organization?.excluded) }
+        selectCandidate(1)
+        composeRule.onNodeWithTag("organization-title").assertTextContains("次の候補を編集")
+        composeRule.onNodeWithTag("organization-end").assertTextContains("2026-09-20")
+        composeRule.onNodeWithTag("organization-checklist").assertTextContains("確認する\n記録する")
+        composeRule.runOnIdle {
+            val before = draft.value
+            draft.value = TodayPaneState.restore(TodayPaneState(captureDraft = before).save()).captureDraft
+            assertEquals(before, draft.value)
+            assertEquals("${before.draftId}:task:1", draft.value.organizedTaskDrafts().first().draftId)
+            assertEquals(null, draft.value.organizedTaskDrafts().first().projectId)
+        }
+        composeRule.onNodeWithTag("organization-counts").performScrollTo().assertTextContains("追加対象 7件 · 除外 1件")
+        capture("08-first-excluded")
+        composeRule.runOnIdle {
+            draft.value = draft.value.withEditedOrganizations(draft.value.allOrganizations().map { it.copy(excluded = true) })
+        }
+        composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()
+        composeRule.onNodeWithTag("organization-counts").assertTextContains("追加対象 0件 · 除外 8件")
+        capture("09-all-excluded")
+        composeRule.onNodeWithTag("organization-exclude").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled()
+    }
+
+    @Test
     fun timeAndDurationAreEditableForEveryProposalAndInvalidInputCannotBeSaved() {
         val timed = proposal.copy(plannedStartTime = "15:00", plannedDurationMinutes = 30, plannedTimeSupported = true)
         val draft = freshDraft()
@@ -45,7 +88,8 @@ class CaptureOrganizationUiTest {
         composeRule.onNodeWithTag("organization-duration").performTextReplacement("0")
         composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()
         composeRule.onNodeWithTag("organization-duration").performTextReplacement("60")
-        composeRule.onNodeWithTag("organization-additional-0-duration").performScrollTo().performTextReplacement("45")
+        selectCandidate(1)
+        composeRule.onNodeWithTag("organization-duration").performScrollTo().performTextReplacement("45")
         capture("06-planned-time-additional-edited")
         composeRule.runOnIdle {
             assertEquals("16:30", draft.value.organization?.plannedStartTime)
@@ -53,7 +97,7 @@ class CaptureOrganizationUiTest {
             assertEquals(45, draft.value.additionalOrganizations.single().plannedDurationMinutes)
             draft.value = TodayPaneState.restore(TodayPaneState(captureDraft = draft.value).save()).captureDraft
         }
-        composeRule.onNodeWithTag("organization-additional-0-duration").assertTextContains("45")
+        composeRule.onNodeWithTag("organization-duration").assertTextContains("45")
         composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsEnabled().performClick()
         composeRule.runOnIdle {
             assertEquals(60, saved.single().organization?.plannedDurationMinutes)
@@ -78,9 +122,9 @@ class CaptureOrganizationUiTest {
             result.complete(listOf(proposal))
         }
         composeRule.waitUntil { draft.value.organization != null }
-        composeRule.onNodeWithTag("capture-text-input").assertTextContains(proposal.title)
+        composeRule.onNodeWithTag("organization-title").assertTextContains(proposal.title)
         composeRule.onNodeWithText("日付を確認してください。").assertExists()
-        composeRule.onNodeWithTag("capture-text-input").performScrollTo()
+        composeRule.onNodeWithTag("organization-title").performScrollTo()
         capture("01-organization-proposal")
         composeRule.onNodeWithText("元の入力を見る").performScrollTo().performClick()
         composeRule.onNodeWithTag("organization-original").assertTextEquals(original)
@@ -127,8 +171,8 @@ class CaptureOrganizationUiTest {
 
         composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
         composeRule.waitUntil { draft.value.additionalOrganizations.size == 1 }
-        composeRule.onNodeWithText("ほか 1件のTask").performScrollTo().assertExists()
-        composeRule.onNodeWithTag("organization-additional-0").assertExists()
+        composeRule.onNodeWithTag("organization-counts").performScrollTo().assertTextEquals("追加対象 2件 · 除外 0件")
+        selectCandidate(1)
         composeRule.onNodeWithText("研究会の会場を予約").assertExists()
         capture("03-organization-multiple")
         composeRule.onNodeWithText("このTaskを外す").performScrollTo()
@@ -136,9 +180,9 @@ class CaptureOrganizationUiTest {
         composeRule.onNodeWithText("このTaskを外す").performClick()
 
         composeRule.runOnIdle {
-            assertEquals(listOf(proposal), draft.value.allOrganizations())
+            assertEquals(listOf(proposal), draft.value.organizedTaskDrafts().map { it.organization })
         }
-        composeRule.onNodeWithTag("organization-additional-0").assertDoesNotExist()
+        composeRule.onNodeWithTag("organization-counts").assertTextEquals("追加対象 1件 · 除外 1件")
     }
 
     @Test
@@ -147,13 +191,15 @@ class CaptureOrganizationUiTest {
         showSheet(draft, organize = { listOf(proposal, proposal.copy(title = "別のTask")) })
         composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
         composeRule.waitUntil { draft.value.additionalOrganizations.size == 1 }
-        composeRule.onNodeWithTag("organization-additional-title-0")
+        selectCandidate(1)
+        composeRule.onNodeWithTag("organization-title")
             .performScrollTo().performTextReplacement("")
         composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()
         composeRule.runOnIdle { assertEquals("", draft.value.additionalOrganizations.single().title) }
-        composeRule.onNodeWithTag("organization-additional-title-0")
+        composeRule.onNodeWithTag("organization-title")
             .performScrollTo().performTextReplacement("別のTaskを修正")
         composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled()
+        selectCandidate(0)
         composeRule.onNodeWithTag("organization-start").performScrollTo().performTextReplacement("2026-")
         composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()
         composeRule.runOnIdle { assertEquals("2026-", draft.value.organization?.startDate) }
@@ -193,6 +239,13 @@ class CaptureOrganizationUiTest {
             assertEquals(null, draft.value.originalText)
         }
         composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled()
+    }
+
+    private fun selectCandidate(index: Int) {
+        // The chips have their own horizontal scroller; reveal its parent vertically first.
+        composeRule.onNodeWithTag("organization-counts").performScrollTo()
+        composeRule.onNodeWithTag("organization-select-$index").performScrollTo().performClick()
+        composeRule.onNodeWithTag("organization-select-$index").assertIsSelected()
     }
 
     private fun freshDraft() = mutableStateOf(MobileCaptureDraft.fresh(text = original))

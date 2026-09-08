@@ -1,0 +1,29 @@
+.task-schedule-proposal label,
+.task-schedule-proposal section {
+  display: grid;
+  gap: var(--space-2);
+}
+.task-schedule-proposal textarea {
+  width: 100%;
+  resize: vertical;
+}
+.task-schedule-proposal .button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.task-schedule-proposal table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.task-schedule-proposal th,
+.task-schedule-proposal td {
+  padding: var(--space-2);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-subtle);
+  overflow-wrap: anywhere;
+}
+.task-schedule-proposal [role="alert"] {
+  color: var(--color-danger);
+}

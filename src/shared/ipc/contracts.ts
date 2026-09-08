@@ -3,6 +3,7 @@ import type {
   DailyContextSelection,
   DailyContextPublishResult,
 } from "../dailyContext";
+import type { DailyContextAutoConfig, DailyContextAutoStatus } from "../dailyContextAuto";
 export interface DailyContextPublishRequest {
   selection: DailyContextSelection;
   root: string;
@@ -125,6 +126,8 @@ export const IPC = {
   captureOrganizerSaveSettings: "capture-organizer:save-settings",
   captureOrganizerTestConnection: "capture-organizer:test-connection",
   captureOrganizerClearSettings: "capture-organizer:clear-settings",
+  captureOrganizerOpenSaved: "capture-organizer:open-saved",
+  taskSchedulePropose: "task-schedule:propose",
   mobileGatewayIssuePairing: "mobile-gateway:issue-pairing",
   mobileGatewayCancelPairing: "mobile-gateway:cancel-pairing",
   mobileGatewayRevokeDevice: "mobile-gateway:revoke-device",
@@ -259,6 +262,9 @@ export const IPC = {
   themeAiPackStatus: "theme-ai-pack:status",
   dailyContextPreview: "daily-context:preview",
   dailyContextPublish: "daily-context:publish",
+  dailyContextAutoStatus: "daily-context:auto-status",
+  dailyContextAutoConfigure: "daily-context:auto-configure",
+  dailyContextAutoRetry: "daily-context:auto-retry",
   themeAiPackPreview: "theme-ai-pack:preview",
   themeAiPackPublish: "theme-ai-pack:publish",
   themeAiPackOpenFolder: "theme-ai-pack:open-folder",
@@ -684,6 +690,10 @@ export type WebArtifactPreviewResult =
 
 export interface ResearchDeskApi {
   captureOrganizer: {
+    openSaved(captureId: string, version: number): Promise<void>;
+    proposeTaskSchedule(
+      input: import("../taskScheduleProposal.ts").TaskScheduleProposalRequest,
+    ): Promise<import("../taskScheduleProposal.ts").TaskScheduleProposal>;
     getSettings(): Promise<import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsState>;
     saveSettings(
       input: import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsInput,
@@ -721,6 +731,9 @@ export interface ResearchDeskApi {
   dailyContext: {
     preview(selection: DailyContextSelection): Promise<DailyContextPlan>;
     publish(request: DailyContextPublishRequest): Promise<DailyContextPublishResult>;
+    autoStatus(): Promise<DailyContextAutoStatus>;
+    configureAuto(config: DailyContextAutoConfig): Promise<DailyContextAutoStatus>;
+    retryAuto(): Promise<DailyContextAutoStatus>;
   };
   themeAiPack: {
     status(themeId: string): Promise<ThemeAiPackStatusResult>;

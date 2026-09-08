@@ -47,6 +47,140 @@ const json = (value) =>
     headers: { "content-type": "application/json" },
   });
 
+test("saved Capture fixed cases permit zero through eight while new input still requires one", async () => {
+  // Fixtures verify provider schemas/local validation, not live model judgement.
+  const cases = [
+    ["今日は疲れた", []],
+    ["この条件でよかっただろうか", []],
+    ["昨日は何か試した気がする", []],
+    ["条件を比較する", [{ ...proposal, title: "条件を比較する", startDate: null, checklist: [] }]],
+    [
+      "条件を比較する。結果を送る",
+      [
+        { ...proposal, title: "条件を比較する" },
+        { ...proposal, title: "結果を送る" },
+      ],
+    ],
+  ];
+  for (const provider of ["openai", "gemini"]) {
+    for (const [text, tasks] of cases) {
+      let wire;
+      const organizer = create(env(provider), async (_url, options) => {
+        wire = JSON.parse(options.body);
+        return json(
+          provider === "gemini"
+            ? {
+                candidates: [
+                  {
+                    finishReason: "STOP",
+                    content: { parts: [{ text: JSON.stringify(batch(tasks)) }] },
+                  },
+                ],
+              }
+            : chat(batch(tasks)),
+        );
+      });
+      assert.deepEqual(
+        await organizer.organize({
+          ...input,
+          text,
+          mode: "saved_capture",
+          capturedAt: "2026-09-06T00:30:00",
+          maxTasks: 8,
+        }),
+        batch(tasks),
+      );
+      assert.match(JSON.stringify(wire), /minItems.{0,4}0/);
+      assert.match(JSON.stringify(wire), /2026-09-06/);
+      if (!tasks.length)
+        await assert.rejects(organizer.organize(input), /AIで整理できませんでした/);
+    }
+  }
+});
+test("saved Capture date-only records anchor relative dates without inventing a capture time", async () => {
+  for (const provider of ["openai", "gemini"]) {
+    let sent;
+    const organizer = create(env(provider), async (_url, options) => {
+      const wire = JSON.parse(options.body);
+      sent = JSON.parse(
+        provider === "gemini" ? wire.contents[0].parts[0].text : wire.messages[1].content,
+      );
+      return json(
+        provider === "gemini"
+          ? {
+              candidates: [
+                { finishReason: "STOP", content: { parts: [{ text: JSON.stringify(batch([])) }] } },
+              ],
+            }
+          : chat(batch([])),
+      );
+    });
+    assert.deepEqual(
+      await organizer.organize({
+        ...input,
+        capturedAt: "2026-09-06",
+        mode: "saved_capture",
+        maxTasks: 8,
+      }),
+      batch([]),
+    );
+    assert.equal(sent.capturedAt, "2026-09-06");
+    assert.equal(sent.capturedLocalDate, "2026-09-06");
+    assert.equal(sent.capturedLocalTime, null);
+    assert.equal(sent.relativeDateAnchors.tomorrow, "2026-09-07");
+    await assert.rejects(organizer.organize({ ...input, capturedAt: "2026-09-06" }));
+    await assert.rejects(
+      organizer.organize({ ...input, capturedAt: "2026-02-30", mode: "saved_capture" }),
+    );
+  }
+});
+
+test("work-log organization preserves whole uncertain sentences and permits zero actions", async () => {
+  const cases = [
+    [
+      "調査を始めたがまだ途中。",
+      { done: [], observations: [], unresolved: ["調査を始めたがまだ途中。"], nextActions: [] },
+    ],
+    [
+      "条件Aで試したが失敗した。",
+      { done: ["条件Aで試したが失敗した。"], observations: [], unresolved: [], nextActions: [] },
+    ],
+    [
+      "原因は温度が怪しい。",
+      { done: [], observations: [], unresolved: ["原因は温度が怪しい。"], nextActions: [] },
+    ],
+    [
+      "今日は疲れた。",
+      { done: [], observations: ["今日は疲れた。"], unresolved: [], nextActions: [] },
+    ],
+    [
+      "結果を眺めた。次の行動は決めていない。",
+      {
+        done: ["結果を眺めた。"],
+        observations: [],
+        unresolved: ["次の行動は決めていない。"],
+        nextActions: [],
+      },
+    ],
+  ];
+  for (const [source, proposal] of cases) {
+    const organizer = create(env(), async (_url, options) => {
+      const body = JSON.parse(options.body);
+      assert.equal(body.response_format.json_schema.name, "work_log_organization");
+      assert.match(body.messages[0].content, /never rewrite it as 原因と判明/);
+      return json(chat(proposal));
+    });
+    assert.deepEqual(await organizer.organizeWorkLog(source), proposal);
+  }
+  const source = "原因と判明していない。温度が怪しい。";
+  for (const invented of ["原因と判明", "温度が原因と判明。", "30分で完了。", "2026-09-09に実施。"])
+    await assert.rejects(
+      create(env(), async () =>
+        json(chat({ done: [invented], observations: [], unresolved: [], nextActions: [] })),
+      ).organizeWorkLog(source),
+    );
+});
+
 test("fixed planned-time cases preserve provider fields and the capture-day anchor after midnight", async (t) => {
   // Fixed model responses verify the wire contract and retention, not model inference quality.
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-09-08T00:10:00Z") });

@@ -3,9 +3,17 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  deterministicFileName,
+  validateManifestEntry,
+  type ImageManifest,
+} from "../modules/task/public.ts";
+
+import {
   findTaskenUploadImagePlaceholders,
   hasTaskenUploadImageDestination,
 } from "../../shared/contracts/task/public.ts";
+
+export { deterministicFileName, validateManifestEntry } from "../modules/task/public.ts";
 
 const MAX_IMAGE_COUNT = 8;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -15,7 +23,6 @@ const MAX_IMAGE_PIXELS = 40_000_000;
 const MAX_TOTAL_IMAGE_PIXELS = 80_000_000;
 const REFERENCE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const ATTACHMENT_FILE_PATTERN = /^[a-f0-9-]+\.(png|jpg)$/i;
-const MANIFEST_KEYS = ["reference_id", "file_name", "mime_type", "size", "sha256", "url"];
 const INPUT_KEYS = ["reference_id", "file_name", "media_type", "data_base64"];
 
 const EXTENSION_BY_MIME: Record<ProposalMarkdownImageMediaType, string> = {
@@ -62,14 +69,7 @@ export interface ProposalMarkdownImageInput {
   data_base64: string;
 }
 
-export interface ProposalMarkdownImageManifest {
-  reference_id: string;
-  file_name: string;
-  mime_type: ProposalMarkdownImageMediaType;
-  size: number;
-  sha256: string;
-  url: string;
-}
+export type ProposalMarkdownImageManifest = ImageManifest;
 
 interface PreparedProposalMarkdownImage {
   manifest: ProposalMarkdownImageManifest;
@@ -277,17 +277,6 @@ export function parseInput(value: unknown): {
   return { referenceId, displayName, mimeType, bytes, dimensions: detected.dimensions };
 }
 
-export function deterministicFileName(
-  proposalId: string,
-  referenceId: string,
-  contentHash: string,
-  mimeType: ProposalMarkdownImageMediaType,
-): string {
-  const fileHash = sha256(`${proposalId}\u0000${referenceId}\u0000${contentHash}`);
-  const uuidLike = `${fileHash.slice(0, 8)}-${fileHash.slice(8, 12)}-${fileHash.slice(12, 16)}-${fileHash.slice(16, 20)}-${fileHash.slice(20, 32)}`;
-  return `${uuidLike}.${EXTENSION_BY_MIME[mimeType]}`;
-}
-
 function encodeUrlPathSegment(value: string): string {
   return encodeURIComponent(value).replace(
     /[!'()*]/g,
@@ -312,47 +301,6 @@ function attachmentFileNamesInMarkdown(body: string): Set<string> {
     }
   }
   return fileNames;
-}
-
-export function validateManifestEntry(value: unknown): ProposalMarkdownImageManifest {
-  if (!isPlainObject(value) || !hasOnlyKeys(value, MANIFEST_KEYS)) {
-    throw imageError("画像情報の形式が不正です。");
-  }
-  const referenceId = typeof value.reference_id === "string" ? value.reference_id : "";
-  const fileName = typeof value.file_name === "string" ? value.file_name : "";
-  const mimeType = value.mime_type;
-  const size = value.size;
-  const contentHash = typeof value.sha256 === "string" ? value.sha256 : "";
-  const url = typeof value.url === "string" ? value.url : "";
-  if (!REFERENCE_ID_PATTERN.test(referenceId))
-    throw imageError("画像情報のreference_idが不正です。");
-  if (!ATTACHMENT_FILE_PATTERN.test(fileName)) throw imageError("画像情報のファイル名が不正です。");
-  if (
-    !isMediaType(mimeType) ||
-    path.extname(fileName).toLowerCase() !== `.${EXTENSION_BY_MIME[mimeType]}`
-  ) {
-    throw imageError("画像情報の形式が不正です。");
-  }
-  if (
-    typeof size !== "number" ||
-    !Number.isSafeInteger(size) ||
-    size <= 0 ||
-    size > MAX_IMAGE_BYTES
-  ) {
-    throw imageError("画像情報のサイズが不正です。");
-  }
-  if (!/^[a-f0-9]{64}$/i.test(contentHash)) throw imageError("画像情報のハッシュが不正です。");
-  if (!url.startsWith(`tasken-attachment://local/${encodeUrlPathSegment(fileName)}/`)) {
-    throw imageError("画像情報のURLが不正です。");
-  }
-  return {
-    reference_id: referenceId,
-    file_name: fileName,
-    mime_type: mimeType,
-    size,
-    sha256: contentHash.toLowerCase(),
-    url,
-  };
 }
 
 function validateOwnedManifest(

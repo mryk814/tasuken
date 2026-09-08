@@ -197,6 +197,14 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       work_review_note: (base.work_review_note as string | null) ?? null,
       priority: values.has("priority_flag") ? "high" : "normal",
       today_date: (base.today_date as string | null) ?? null,
+      planned_start_time: hasField("planned_start_time")
+        ? formText(values, "planned_start_time") || null
+        : ((base.planned_start_time as string | null) ?? null),
+      planned_duration_minutes: hasField("planned_duration_minutes")
+        ? formText(values, "planned_duration_minutes")
+          ? Number(formText(values, "planned_duration_minutes"))
+          : null
+        : ((base.planned_duration_minutes as number | null) ?? null),
       planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
       reminder_at: normalizeReminderDateTime(formText(values, "reminder_at")),
       description: formText(values, "description") || null,

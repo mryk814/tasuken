@@ -248,6 +248,13 @@ internal fun TodayApp(
     var workLogRecordId by rememberSaveable { mutableStateOf<String?>(null) }
     var recallOpen by rememberSaveable { mutableStateOf(false) }
     var relatedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
+    var themeContextId by rememberSaveable { mutableStateOf<String?>(null) }
+    var localSearchOpen by rememberSaveable { mutableStateOf(false) }
+    var localSearchTaskReturn by rememberSaveable { mutableStateOf<String?>(null) }
+    var searchDocumentType by rememberSaveable { mutableStateOf<String?>(null) }
+    var searchDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
+    var localSearchNotice by remember { mutableStateOf<String?>(null) }
+    val localSearchSavedState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var recallCapture by remember { mutableStateOf<MobilePendingCapture?>(null) }
     val recallSavedState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val paneState = rememberTodayPaneState(restoredCaptureDraft)
@@ -745,6 +752,7 @@ internal fun TodayApp(
                                 actionState = taskActionState,
                                 onTaskStateAction = todayViewModel::toggleTaskState,
                                 onChecklistUpdate = todayViewModel::updateTaskChecklist,
+                                onLocalSearch = if (todayViewModel.localSearchRepository != null) ({ localSearchOpen = true }) else null,
                             )
                             AppSection.Ai -> AiInboxListPane(
                                 uiState = uiState,
@@ -800,10 +808,15 @@ internal fun TodayApp(
                             todayViewModel.loadWorkReceipt(task.id, receiptId)
                         }
                     }
+                    Column(Modifier.fillMaxSize()) {
+                    if (localSearchTaskReturn != null) TextButton(onClick = { localSearchOpen = true; localSearchTaskReturn = null },
+                        modifier = Modifier.testTag("local-search-return")) { Text("検索へ戻る") }
+                    Box(Modifier.weight(1f)) {
                     TodayDetailPane(
                         task = task,
                         onRecordWorkLog = { workLogTaskId = it.id; workLogOpen = true },
                         onReadRelatedDocuments = if (todayViewModel.relatedDocumentsRepository != null) ({ relatedTaskId = it.id }) else null,
+                        onReadThemeContext = if (todayViewModel.themeContextRepository != null) ({ themeContextId = it }) else null,
                         actionState = taskActionState,
                         workReceiptDetailState = workReceiptDetailState,
                         taskWorkProposals = taskWorkProposals.filter { it.taskId == task?.id },
@@ -830,6 +843,8 @@ internal fun TodayApp(
                         onHumanReview = todayViewModel::reviewTaskWork,
                         onTaskAiReady = todayViewModel::setTaskAiReady,
                     )
+                    }
+                    }
                 }
             },
             modifier = Modifier.padding(padding),
@@ -874,9 +889,44 @@ internal fun TodayApp(
         )
     }
 
+    themeContextId?.let { themeId ->
+        todayViewModel.themeContextRepository?.let { repository ->
+            MobileThemeContextSheet(repository, themeId, onDismiss = { themeContextId = null })
+        }
+    }
+    androidx.activity.compose.BackHandler(localSearchTaskReturn != null && !localSearchOpen && !workLogOpen &&
+        relatedTaskId == null && themeContextId == null && !paneState.captureOpen) {
+        localSearchOpen = true; localSearchTaskReturn = null
+    }
+    if (localSearchOpen && !workLogOpen && recallCapture == null && relatedTaskId == null) {
+        todayViewModel.localSearchRepository?.let { repository ->
+            localSearchSavedState.SaveableStateProvider("local-search") {
+                MobileLocalSearchSheet(repository, themes, initialQuery = paneState.taskSearch, initialThemeId = paneState.taskThemeId,
+                    notice = localSearchNotice, onDismiss = { localSearchOpen = false; localSearchNotice = null }, onOpen = { hit ->
+                        localSearchNotice = null
+                        when {
+                            hit.kind == MobileLocalSearchKind.Task -> {
+                                localSearchOpen = false; localSearchTaskReturn = hit.sourceId
+                                paneState.selectedTaskId = hit.sourceId
+                                coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, hit.sourceId) }
+                            }
+                            hit.kind == MobileLocalSearchKind.WorkLog -> { workLogRecordId = hit.sourceId; workLogTaskId = null; workLogOpen = true }
+                            hit.relatedTaskId != null -> { relatedTaskId = hit.relatedTaskId; searchDocumentType = hit.kind.sourceType; searchDocumentId = hit.sourceId }
+                            hit.kind == MobileLocalSearchKind.Capture -> coroutineScope.launch {
+                                val capture = repository.localSearchCapture(hit.sourceId)
+                                if (capture == null) localSearchNotice = "原文が見つからないか、閲覧権限が変わりました。検索結果を確認してください。"
+                                else recallCapture = capture
+                            }
+                        }
+                    })
+            }
+        }
+    }
     relatedTaskId?.let { taskId ->
         todayViewModel.relatedDocumentsRepository?.let { repository ->
-            MobileRelatedDocumentsSheet(repository, taskId, onDismiss = { relatedTaskId = null })
+            MobileRelatedDocumentsSheet(repository, taskId, onDismiss = { relatedTaskId = null; searchDocumentType = null; searchDocumentId = null },
+                initialDocument = searchDocumentId?.let { id -> searchDocumentType?.let { it to id } },
+                dismissLabel = if (localSearchOpen) "検索へ戻る" else "Taskへ戻る")
         }
     }
     if (recallOpen && !workLogOpen && recallCapture == null) {
@@ -1008,12 +1058,14 @@ internal fun CaptureTaskSheet(
             speechState is ShortSpeechUiState.Partial || speechState is ShortSpeechUiState.Processing
         val textLimit = if (draft.kind == MobileCaptureKind.Task) MOBILE_TASK_TITLE_MAX_LENGTH else MOBILE_CAPTURE_TEXT_MAX_LENGTH
         val overLimit = draft.text.length > textLimit
-        val organizationValid = draft.allOrganizations().all { runCatching { it.validate() }.isSuccess }
+        val included = draft.allOrganizations().filterNot { it.excluded }
+        val organizationValid = draft.organization == null ||
+            (included.isNotEmpty() && included.all { runCatching { it.validate() }.isSuccess })
         val canSubmit = state !is CaptureUiState.Saving && !speechBusy && !organizationBusy &&
-            draft.text.isNotBlank() && !overLimit && organizationValid
+            (draft.organization != null || (draft.text.isNotBlank() && !overLimit)) && organizationValid
         LaunchedEffect(draft.draftId, requestInputFocus, sheetState.isVisible) {
             // Request focus in the sheet's window after its opening transition.
-            if (requestInputFocus && sheetState.isVisible) {
+            if (requestInputFocus && sheetState.isVisible && draft.organization == null) {
                 focusRequester.requestFocus()
                 keyboardController?.show()
                 onInputFocusHandled()
@@ -1032,7 +1084,7 @@ internal fun CaptureTaskSheet(
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
             )
-            OutlinedTextField(
+            if (draft.organization == null) OutlinedTextField(
                 value = draft.text,
                 onValueChange = onDraftChanged,
                 label = { Text(if (draft.kind == MobileCaptureKind.Task) "Task名" else "Capture") },
@@ -1101,12 +1153,12 @@ internal fun CaptureTaskSheet(
                 loadThumbnail = loadPhotoThumbnail,
             )
             if (onOrganize != null && draft.kind == MobileCaptureKind.Task) CaptureOrganizationControls(
-                themes = themes,
+                themes = themes, themeCatalogState = themeCatalogState,
                 draft = draft, speechState = speechState, enabled = !speechBusy && state !is CaptureUiState.Saving,
                 organize = onOrganize, onChange = onOrganizationChanged,
                 onRestoreOriginal = onOrganizationDiscarded, onBusyChange = { organizationBusy = it },
             )
-            TextButton(
+            if (draft.organization == null) TextButton(
                 onClick = { classificationOpen = !classificationOpen },
                 modifier = Modifier.align(Alignment.End).testTag("capture-classification-toggle"),
             ) {
@@ -1114,7 +1166,7 @@ internal fun CaptureTaskSheet(
                     ?: if (draft.projectId == null) "Themeなし" else "選択済みTheme"
                 Text(if (classificationOpen) "種類・Themeを閉じる" else "$themeName · 種類・Themeを変更")
             }
-            if (classificationOpen) {
+            if (classificationOpen && draft.organization == null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
@@ -1146,6 +1198,9 @@ internal fun CaptureTaskSheet(
                 if (draft.source != MobileCaptureSource.AndroidApp) {
                     Text("入力元: ${captureSourceLabel(draft.source)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+            if (state is CaptureUiState.Error && draft.organization != null) {
+                Text(state.message, color = MaterialTheme.colorScheme.error)
             }
             Row(
                 modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
@@ -1477,6 +1532,7 @@ internal fun TasksListPane(
     actionState: TaskActionUiState,
     onTaskStateAction: (MobileTask) -> Unit,
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
+    onLocalSearch: (() -> Unit)? = null,
 ) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
@@ -1501,6 +1557,9 @@ internal fun TasksListPane(
                     label = { Text("Taskを検索") },
                     singleLine = true,
                 )
+                onLocalSearch?.let { open ->
+                    TextButton(onClick = open, modifier = Modifier.padding(horizontal = 12.dp).testTag("open-local-search")) { Text("端末内の記録を検索") }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1934,6 +1993,7 @@ internal fun TodayDetailPane(
     actionState: TaskActionUiState,
     onRecordWorkLog: ((MobileTask) -> Unit)? = null,
     onReadRelatedDocuments: ((MobileTask) -> Unit)? = null,
+    onReadThemeContext: ((String) -> Unit)? = null,
     workReceiptDetailState: WorkReceiptDetailUiState = WorkReceiptDetailUiState.Idle,
     taskWorkProposals: List<MobileTaskWorkProposal> = emptyList(),
     proposalReviewOnline: Boolean = false,
@@ -2248,6 +2308,11 @@ internal fun TodayDetailPane(
                 },
                 onThemeSelected = { onThemeUpdate(task, it) },
             )
+            if (task.themeId != null && onReadThemeContext != null) {
+                TextButton(onClick = { onReadThemeContext(task.themeId) }, modifier = Modifier.testTag("task-theme-context")) {
+                    Text("Themeの目的・現在地を読む")
+                }
+            }
             TaskScheduleEditor(
                 task = task,
                 enabled = (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) && task.conflict == null &&

@@ -1,4 +1,7 @@
 import type { DailyContextPlan, DailyContextSource } from "./dailyContext";
+import type { PublicSourceProjection } from "./publicSourceProjection";
+import type { DailyContextFreshness } from "./dailyContextAuto";
+import { safeReceiptText } from "./taskContext.mjs";
 
 export interface PublishedContextDay extends Pick<
   DailyContextPlan,
@@ -18,6 +21,9 @@ export interface PublishedContextDay extends Pick<
     themeTitle: string | null;
     sources: DailyContextSource[];
   }>;
+  bodySources?: Array<
+    Pick<PublicSourceProjection, "source" | "themeId" | "title" | "relativePath" | "contentHash">
+  >;
 }
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -74,10 +80,12 @@ export function buildPeriodContextFiles({
   days,
   timezone,
   pendingDate = null,
+  freshness,
 }: {
   days: Record<string, PublishedContextDay>;
   timezone: string;
   pendingDate?: string | null;
+  freshness?: DailyContextFreshness;
 }): Record<string, string> {
   const dates = Object.keys(days).sort(compare);
   const files: Record<string, string> = {};
@@ -176,5 +184,28 @@ export function buildPeriodContextFiles({
     ]);
   files["README.md"] =
     `# Taskenの公開記録\n\n${common}\n\n収録期間: ${dates.length ? `${dates[0]}〜${dates.at(-1)}` : "公開日なし"}\n\n${pendingDate ? `未反映: ${pendingDate}。再公開が必要です。\n\n` : ""}## 年から読む\n\n${years.map((year) => `- ${link(`Years/${year}.md`, year)}`).join("\n") || "公開日なし"}\n\n各年の索引から月・週、日別記録、出典へ進めます。掲載のない日は未公開です。\n`;
+  if (freshness) {
+    const safe = (value: string) => inline(safeReceiptText(value));
+    files["README.md"] += [
+      "",
+      "## 自動公開で観測した鮮度",
+      "",
+      `- 観測時刻: ${safe(freshness.observedAt)}。これ以降の更新状態はこのファイルからは分かりません。`,
+      `- 初回の遡り開始日: ${safe(freshness.configuredFromDate)} / Desktopが照合した日: ${safe(freshness.publishedThrough ?? "不明")}`,
+      `- 最終ローカル書込み: ${safe(freshness.lastLocalWrittenAt ?? "まだありません")}`,
+      `- 公開revision: ${safe(freshness.sourceRevision ?? "不明")}`,
+      `- この観測時点でDesktopが把握した処理残件: ${freshness.pendingCount === null ? "不明" : `${freshness.pendingCount}日`}`,
+      "- Androidの未送信件数: 不明。Desktop停止中は更新できません。",
+      "- OneDrive等のクラウド同期・外部AIの索引更新: 未確認。ローカル保存成功とは別です。",
+      ...freshness.deviceObservations.map(
+        (device) =>
+          `- ${device.kind === "android_connection" ? "Android最終接続を観測（同期完了ではありません）" : "共有フォルダー差分の受信を観測"}: ${safe(device.deviceId)} / ${safe(device.observedAt)}${device.revision === undefined ? "" : ` / revision ${safe(String(device.revision))}`}`,
+      ),
+      ...(freshness.deviceObservations.length
+        ? []
+        : ["- 端末別の接続・受信観測: まだありません。"]),
+      "",
+    ].join("\n");
+  }
   return files;
 }

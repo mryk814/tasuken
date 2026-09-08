@@ -1,0 +1,41 @@
+{
+  "ok": true,
+  "meta": {
+    "apiVersion": 1,
+    "schemaVersion": 7,
+    "serverId": "theme-context-server",
+    "serverRevision": 12,
+    "generatedAt": "2026-09-06T08:00:00Z",
+    "truncated": false
+  },
+  "data": {
+    "themeId": "theme-context-fixture",
+    "status": "available",
+    "theme": {
+      "id": "theme-context-fixture",
+      "title": "測定方法を見直す",
+      "version": 3,
+      "updatedAt": "2026-09-06T07:00:00Z",
+      "charter": {
+        "schema": "tasken-theme-charter/v1",
+        "purpose": "少量の試料でも再現性のある測定を行う。",
+        "desired_outcome": "測定条件と誤差の関係を説明できる。",
+        "principles": ["生データを残す", "条件を一つずつ変える"],
+        "scope": "試料調製と測定条件の比較",
+        "non_goals": ["装置の新規開発"],
+        "long_term_questions": ["微量成分を安定して検出できるか"],
+        "learning_interests": ["誤差の伝播"]
+      },
+      "currentState": {
+        "schema": "tasken-theme-state/v1",
+        "current_direction": "温度を固定して希釈条件を比較する。",
+        "active_questions": ["希釈倍率でばらつきが変わるか"],
+        "current_bets": ["前処理を揃えると誤差が減る"],
+        "blockers": ["比較用試料の到着待ち"],
+        "unresolved_decisions": ["繰り返し数を決める"],
+        "next_frontier": "別の測定法と比較する。",
+        "updated_at": "2026-09-06T06:00:00Z"
+      }
+    }
+  }
+}

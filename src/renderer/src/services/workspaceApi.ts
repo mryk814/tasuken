@@ -40,11 +40,25 @@ function desktopApi() {
 }
 
 export const workspaceApi = {
+  proposeTaskSchedule(
+    request: Parameters<Window["api"]["captureOrganizer"]["proposeTaskSchedule"]>[0],
+  ) {
+    return desktopApi().captureOrganizer.proposeTaskSchedule(request);
+  },
   previewDailyContext(selection: Parameters<Window["api"]["dailyContext"]["preview"]>[0]) {
     return desktopApi().dailyContext.preview(selection);
   },
   publishDailyContext(request: Parameters<Window["api"]["dailyContext"]["publish"]>[0]) {
     return desktopApi().dailyContext.publish(request);
+  },
+  getDailyContextAutoStatus() {
+    return desktopApi().dailyContext.autoStatus();
+  },
+  configureDailyContextAuto(config: Parameters<Window["api"]["dailyContext"]["configureAuto"]>[0]) {
+    return desktopApi().dailyContext.configureAuto(config);
+  },
+  retryDailyContextAuto() {
+    return desktopApi().dailyContext.retryAuto();
   },
   recordWorkLog(command: Parameters<Window["api"]["workLog"]["record"]>[0]) {
     return desktopApi().workLog.record(command);

@@ -25,6 +25,7 @@ import {
 } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
+import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { PageProps } from "../types";
 import { inferChatServiceFromUrl } from "../lib/chatServices";
@@ -1372,6 +1373,30 @@ export function InboxPage({
                         />
                       </label>
                       <div className="form-actions">
+                        <Button
+                          variant="secondary"
+                          compact
+                          disabled={isOrganizing}
+                          onClick={() =>
+                            void captureOrganizerApi
+                              .openSaved(
+                                row.entry.id,
+                                Number(
+                                  data.capture_entrys.find((entry) => entry.id === row.entry.id)
+                                    ?.version,
+                                ),
+                              )
+                              .catch((error) =>
+                                setToast(
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Captureを開けませんでした。",
+                                ),
+                              )
+                          }
+                        >
+                          AIでTask候補
+                        </Button>
                         <button
                           className="row-action-button"
                           onClick={() =>

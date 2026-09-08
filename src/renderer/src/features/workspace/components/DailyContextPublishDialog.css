@@ -25,6 +25,16 @@
   display: grid;
   gap: 6px;
 }
+.daily-context-dialog .daily-context-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.daily-context-checkbox input[type="checkbox"] {
+  width: auto;
+  flex: none;
+  margin-top: 4px;
+}
 .daily-context-destination {
   display: flex;
   align-items: center;
@@ -47,4 +57,16 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+.daily-context-auto {
+  margin-block: 16px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.daily-context-auto summary {
+  cursor: pointer;
+}
+.daily-context-auto-status {
+  overflow-wrap: anywhere;
 }

@@ -370,6 +370,8 @@ class TodayViewModel(
     val workLogRepository: MobileWorkLogRepository? get() = repository as? MobileWorkLogRepository
     val recallRepository: MobileRecallRepository? get() = repository as? MobileRecallRepository
     val relatedDocumentsRepository: MobileRelatedDocumentsRepository? get() = repository as? MobileRelatedDocumentsRepository
+    val themeContextRepository: MobileThemeContextRepository? get() = repository as? MobileThemeContextRepository
+    val localSearchRepository: MobileLocalSearchRepository? get() = repository as? MobileLocalSearchRepository
     suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> =
         kotlinx.coroutines.withContext(ioDispatcher) {
             val gateway = repository as? MobileGatewayRepository
@@ -860,6 +862,10 @@ class TodayViewModel(
     ) {
         val entityLabel = if (draft.kind == MobileCaptureKind.Task) "Task" else "Capture"
         val drafts = if (draft.kind == MobileCaptureKind.Task) draft.organizedTaskDrafts() else listOf(draft)
+        if (drafts.isEmpty()) {
+            mutableCaptureState.value = CaptureUiState.Error("追加する候補を選んでください。")
+            return
+        }
         val normalizedDrafts = drafts.map { if (it.kind == MobileCaptureKind.Task) it.withText(it.text.trim()) else it }
         if (normalizedDrafts.any { it.text.isBlank() }) {
             mutableCaptureState.value = CaptureUiState.Error("${entityLabel}の内容を入力してください。")
