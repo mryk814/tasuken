@@ -108,3 +108,5 @@ Android内の未送信入力、OneDriveの同期完了、外部AIへの反映は
 READMEはローカル公開時点の情報であり、その後に発生した未処理データまで保証しない。
 
 境界の検証: `rtk node scripts/run-electron-node.mjs --test tests/daily-context-auto.test.mjs tests/daily-context-auto-sources.test.mjs tests/theme-ai-pack-workspace.test.mjs`。
+
+質問ごとの出典・期間・除外・更新後の撤去を固定データで確認するには、[公開Contextの評価手順](publication-context-evaluation.md)を使う。OneDriveと外部AIの実結果はローカル検証と分けて記録する。
