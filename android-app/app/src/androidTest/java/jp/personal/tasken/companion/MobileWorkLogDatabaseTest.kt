@@ -12,6 +12,62 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MobileWorkLogDatabaseTest {
+    @Test fun nextActionAddsOneUnscheduledTaskOnlyAfterSeparateChoice() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, MobileLocalDatabase::class.java).build()
+        try {
+            val dao = db.mobileDao(); dao.upsertSyncState(state())
+            val raw = "温度が怪しい。次は条件Bを調べる。"
+            val original = WorkLogCacheEntity("action-source", "server-540", 1, raw, "2026-09-06", time, null, null, false, false, null, "original-envelope")
+            dao.upsertWorkLog(original)
+            val proposal = MobileWorkLogOrganization(emptyList(), emptyList(), listOf("温度が怪しい。"), listOf("次は条件Bを調べる。"))
+            dao.upsertWorkLogOrganization(WorkLogOrganizationEntity(original.id, original.serverId, 1, "action-proposal", time, "adopted", MobileWorkLogContract.json.encodeToString(proposal)))
+            assertEquals(0, dao.tasks().size)
+            val repository = AndroidMobileTaskRepository(context, database = db, scheduleOutboxOnStart = false)
+            repository.createWorkLogNextAction(original.id, 0)
+            repository.createWorkLogNextAction(original.id, 0)
+            val task = dao.tasks().single()
+            assertEquals("次は条件Bを調べる。", task.title)
+            assertEquals("todo", task.state)
+            assertNull(task.todayDate); assertNull(task.plannedStartTime); assertNull(task.plannedDurationMinutes)
+            assertTrue(requireNotNull(task.description).contains("action-source / version 1"))
+            assertEquals("0", dao.workLogOrganization(original.id)?.createdTaskIndices)
+            assertEquals(original, dao.workLog(original.id))
+            assertEquals(1, dao.outboxCount())
+        } finally { db.close() }
+    }
+
+    @Test fun organizationRejectsLateAndStaleResultsThenAdoptsOnceAcrossRestart() = runBlocking {
+        val name = "work-log-organization-${UUID.randomUUID()}.db"
+        var db = Room.databaseBuilder(context, MobileLocalDatabase::class.java, name).build()
+        val draft = MobileWorkLogDraft(id = "source", body = "原因は温度が怪しい。", enteredAt = time)
+        val proposal = MobileWorkLogOrganization(emptyList(), emptyList(), listOf(draft.body), emptyList())
+        try {
+            var dao = db.mobileDao(); dao.upsertSyncState(state())
+            dao.upsertWorkLog(WorkLogCacheEntity(draft.id, "server-540", 1, draft.body, draft.performedDate, draft.enteredAt, null, null, false, false, null, "original-envelope"))
+            val discarded = dao.beginWorkLogOrganization(draft.id, "discarded", time)
+            dao.discardWorkLogOrganization(draft.id)
+            assertFalse(dao.completeWorkLogOrganization(discarded, proposal))
+            val stale = dao.beginWorkLogOrganization(draft.id, "stale", time)
+            dao.upsertWorkLog(requireNotNull(dao.workLog(draft.id)).copy(serverVersion = 2))
+            assertFalse(dao.completeWorkLogOrganization(stale, proposal))
+            val current = dao.beginWorkLogOrganization(draft.id, "adopt-once", time)
+            assertTrue(dao.completeWorkLogOrganization(current, proposal))
+            db.close(); db = Room.databaseBuilder(context, MobileLocalDatabase::class.java, name).build(); dao = db.mobileDao()
+            assertEquals(proposal, dao.workLogOrganization(draft.id)?.proposal())
+            val outbox = MobileWorkLogOutbox(dao, { "device" }, {})
+            outbox.adoptOrganization(draft.id); outbox.adoptOrganization(draft.id)
+            assertEquals(1, dao.outboxCount())
+            assertEquals("original-envelope", dao.workLog(draft.id)?.creationEnvelopeJson)
+            val sender = MobileOutbox(context, dao, { "device" }, schedule = {})
+            assertFalse(sender.drain("server-540") { receipt(draft, "adopt-once", 2, false) })
+            assertEquals("adopted", dao.workLogOrganization(draft.id)?.state)
+            assertEquals(draft.body, dao.workLog(draft.id)?.body)
+            assertEquals(0, dao.tasks().size)
+            outbox.adoptOrganization(draft.id)
+            assertEquals(0, dao.outboxCount())
+        } finally { db.close(); context.deleteDatabase(name) }
+    }
+
     private val context = object : ContextWrapper(InstrumentationRegistry.getInstrumentation().targetContext) {
         override fun getApplicationContext(): Context = this
         override fun getSharedPreferences(name: String, mode: Int) = super.getSharedPreferences("work-log-540-db-$name", mode)

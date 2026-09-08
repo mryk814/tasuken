@@ -674,6 +674,7 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     sync: "/v1/sync",
     commands: "/v1/commands",
     captureOrganization: "/v1/capture-organization",
+    workLogOrganization: "/v1/work-log-organization",
     workLogs: "/v1/work-logs",
   });
   const valid = createRequest();

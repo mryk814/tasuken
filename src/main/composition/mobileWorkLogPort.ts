@@ -1,4 +1,5 @@
 import { ApplicationCommandError } from "../../shared/applicationCommand.ts";
+import type { AdoptWorkLogOrganizationCommand } from "../../shared/workLogOrganization.ts";
 import {
   normalizeWorkLogCommand,
   type RecordWorkLogCommand,
@@ -13,6 +14,10 @@ import type {
 } from "../gateway/mobile/public.ts";
 
 export interface WorkLogWriterPort {
+  adoptOrganization?(
+    command: AdoptWorkLogOrganizationCommand,
+    actor: { kind: "user"; id: string },
+  ): void;
   record(command: RecordWorkLogCommand, actor: { kind: "user"; id: string }): WorkLogReceipt;
   changeLifecycle(
     command: WorkLogLifecycleCommand,
@@ -85,6 +90,20 @@ export function createMobileWorkLogPort(
           }
           const receipt = writer.record(command, actor);
           noteId = receipt.noteId;
+          status = previous ? "no_change" : "applied";
+        } else if (input.command.name === "AdoptWorkLogOrganization") {
+          if (!writer.adoptOrganization) return { ok: false, code: "validation_failed" };
+          writer.adoptOrganization(
+            {
+              commandId: input.commandId,
+              issuedAt: input.issuedAt,
+              sourceId: input.command.sourceId,
+              sourceVersion: input.command.sourceVersion,
+              proposal: input.command.proposal,
+            },
+            actor,
+          );
+          noteId = input.command.sourceId;
           status = previous ? "no_change" : "applied";
         } else {
           const receipt = writer.changeLifecycle(

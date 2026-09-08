@@ -21,6 +21,26 @@ Room 20→21は既存のTask/Capture/outboxを保持し、`work_log_cache`とnul
 
 ## 同期と回復
 
+保存済みの記録を開くと、任意の「原文をAIで整理」を利用できる。
+Desktopの既存AI設定を使用し、選んだ原文1件だけを送信する。
+原文の保存にはAI接続を必要としない。
+整理案は原文の文を「やったこと／気づき・所感／未解決・仮説」に分類する。
+否定や不確実さを途中で切り落とさないよう、文末まで一致する引用だけを受け付ける。
+句点や改行がない長い一文は、そのまま一項目になる。自由な要約や言い換えは行わない。
+
+「整理案を補足として採用」は別Noteを保存し、元の本文・実施日・Task状態を変更しない。
+AI整理と原文ID/versionを表示し、確認済みの知識や実績として扱わない。
+採用後、明示された次の行動がある場合だけ個別にTaskへ追加できる。
+候補0件も正常であり、補足の採用だけで完了する。
+Task追加は採用とは別操作で、日付・時間・完了を推定しない。
+
+整理APIは`POST /v1/work-log-organization`で、`mobile:read`と既存`mobile:work-log-write`を要求する。
+採用は既存commands経路の`AdoptWorkLogOrganization`で送る。
+Room 24→25は原文cacheとoutboxを保持し、原文IDに対応する整理案・生成ID・採用状態だけを別tableへ追加する。
+原文versionの変更、取り消し後の遅延応答、再送・二重採用を検査する。
+採用中の送信失敗は既存の再送操作、version競合は「Desktopの記録を確認」から回復する。
+整理失敗や破棄でも原文は保持する。
+
 書き込みは既存の`POST /v1/commands`へ`RecordWorkLog`、`DeleteWorkLog`、`RestoreWorkLog`を送る。
 書き込みには`mobile:work-log-write`、単体取得`GET /v1/work-logs?id=...`には`mobile:read`が必要。
 新規pairにだけ専用書き込みscopeを付与し、既存pairの権限を自動で広げない。
@@ -58,6 +78,9 @@ rtk .\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest
 `MobileWorkLogDatabaseTest`は原子保存失敗、二重submit、Room再open、旧Gateway拒否、同じenvelopeの再送、未送信取消し、削除・復元・version競合回復を検証する。
 `MobileLocalDatabaseMigrationTest#migrationTwentyToTwentyOneKeepsExistingCommandsAndAddsWorkLogCache`は既存outboxの不変性とmigrationを検証する。
 `MobileWorkLogUiTest`は長文、保存失敗、日付、保存済み表示、Task参照初期値、Task状態を変えない入口を検証する。
+`MobileWorkLogOrganizationUiTest`は整理案、失敗、破棄、採用後の独立したTask追加と候補0件を検証する。
+`MobileWorkLogDatabaseTest`には遅延応答・version競合・再open・二重採用を含む。
+固定provider応答で未完了の調査、失敗した試行、仮説、所感だけ、次の行動なしを検証する。実モデルの分類品質はこの検証に含まない。
 
 Android APKをbuildしてからrepo rootで実Gatewayの別PID journeyを実行する。
 

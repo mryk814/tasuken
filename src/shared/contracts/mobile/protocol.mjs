@@ -124,4 +124,5 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   commands: "/v1/commands",
   workLogs: "/v1/work-logs",
   captureOrganization: "/v1/capture-organization",
+  workLogOrganization: "/v1/work-log-organization",
 });
