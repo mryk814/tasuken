@@ -13,6 +13,7 @@ import {
 import { assertSafeThemeChildPath } from "./themeAiPackPublisher.mjs";
 import { writeAtomicTextFile } from "./atomicText.mjs";
 import { buildPublicSourceIndexes } from "../../shared/publicSourceProjection";
+import type { DailyContextFreshness } from "../../shared/dailyContextAuto";
 import {
   buildPeriodContextFiles,
   publishedDayGroups,
@@ -31,6 +32,7 @@ interface DailyContextManifest {
   indexFiles?: Record<string, string>;
   operationId?: string;
   manifestBackupHash?: string;
+  freshness?: DailyContextFreshness;
   pending: {
     date: string;
     contentHash: string;
@@ -157,7 +159,7 @@ export function readDailyContextSelections(root: string, workspaceId: string, ti
   const selections = Object.values(manifest.days)
     .filter((day) => fs.existsSync(safePath(directory, day.relativePath, fs)))
     .map((day) => day.selection);
-  return { selections, pendingDate: manifest.pending?.date ?? null };
+  return { selections, pendingDate: manifest.pending?.date ?? null, days: manifest.days };
 }
 
 /** Withdraw only files still owned by this workspace's publication manifest. */
@@ -286,12 +288,14 @@ export function publishDailyContext({
   plan,
   expectedContentHash,
   allowPartial = false,
+  freshness,
   fileSystem = fs,
 }: {
   root: string;
   plan: DailyContextPlan;
   expectedContentHash: string;
   allowPartial?: boolean;
+  freshness?: DailyContextFreshness;
   fileSystem?: typeof fs;
 }): DailyContextPublishResult {
   validateDailyContextSelection(plan?.selection);
@@ -384,7 +388,12 @@ export function publishDailyContext({
     )
       throw new Error("日別公開物が外部で変更されています。索引の更新を停止しました。");
   }
-  const indexContents = buildPeriodContextFiles({ days: nextDays, timezone: manifest.timezone });
+  const nextFreshness = freshness ?? manifest.freshness;
+  const indexContents = buildPeriodContextFiles({
+    days: nextDays,
+    timezone: manifest.timezone,
+    freshness: nextFreshness,
+  });
   const bodySources = Object.values(nextDays).flatMap((day) => day.bodySources ?? []);
   if (
     bodySources.length ||
@@ -463,13 +472,17 @@ export function publishDailyContext({
     throw error;
   }
   try {
-    const warning = writeAtomicTextFile(target, plan.content, operationId, fileSystem);
+    const warning =
+      previousContentHash === plan.contentHash
+        ? null
+        : writeAtomicTextFile(target, plan.content, operationId, fileSystem);
     if (warning)
       throw new Error(
         "旧公開物の退避ファイルが残っています。非公開にした内容が残る可能性があります。",
       );
     for (const name of managedNames) {
       const indexPath = safePath(directory, name, fileSystem);
+      if (indexFiles[name] && pending.previousIndexFiles[name] === indexFiles[name]) continue;
       if (indexContents[name] === undefined) {
         if (fileSystem.existsSync(indexPath)) fileSystem.unlinkSync(indexPath);
       } else {
@@ -489,6 +502,7 @@ export function publishDailyContext({
       pending: null,
       operationId,
       manifestBackupHash: markdownSignature(manifestText(pendingManifest)),
+      ...(nextFreshness ? { freshness: nextFreshness } : {}),
     });
     return {
       status: "written",

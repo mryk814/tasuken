@@ -412,6 +412,12 @@ abstract class MobileLocalDao {
     abstract suspend fun deleteRelatedTaskBodies(serverId: String, taskId: String)
     @Query("DELETE FROM related_body_cache WHERE serverId = :serverId")
     abstract suspend fun deleteRelatedServerBodies(serverId: String)
+
+    @Query("DELETE FROM related_body_cache WHERE serverId = :serverId AND type = :type AND documentId = :id")
+    abstract suspend fun deleteRelatedSourceBodies(serverId: String, type: String, id: String)
+
+    @Query("SELECT * FROM related_document_cache WHERE serverId = :serverId")
+    abstract suspend fun relatedListsForServer(serverId: String): List<RelatedDocumentCacheEntity>
     @Transaction
     open suspend fun revokeOwnerReadCaches(serverId: String) {
         ownerReadRevocations[serverId] = ownerReadGeneration(serverId) + 1
@@ -420,11 +426,23 @@ abstract class MobileLocalDao {
         deleteThemeContexts(serverId)
     }
     @Transaction
-    open suspend fun saveRelatedDocuments(record: RelatedDocumentCacheEntity, bodies: List<RelatedBodyCacheEntity>, generation: Long) {
+    open suspend fun saveRelatedDocuments(record: RelatedDocumentCacheEntity, bodies: List<RelatedBodyCacheEntity>, generation: Long,
+        missingSources: Set<Pair<String, String>> = emptySet()) {
         if (syncState()?.serverId != record.serverId || ownerReadGeneration(record.serverId) != generation) return
+        if (missingSources.isNotEmpty()) {
+            ownerReadRevocations[record.serverId] = generation + 1
+            missingSources.forEach { (type, id) -> deleteRelatedSourceBodies(record.serverId, type, id) }
+            relatedListsForServer(record.serverId).forEach { cached ->
+                val state = Json.decodeFromString<RelatedDocumentsState>(cached.payload)
+                val retained = state.documents.filterNot { (it.type to it.id) in missingSources }
+                val retainedBodies = state.bodies.filterNot { (it.type to it.id) in missingSources }
+                if (retained.size != state.documents.size || retainedBodies.size != state.bodies.size)
+                    upsertRelatedDocuments(cached.copy(payload = Json.encodeToString(state.copy(documents = retained, bodies = retainedBodies))))
+            }
+        }
         upsertRelatedDocuments(record)
         deleteRelatedTaskBodies(record.serverId, record.taskId)
-        upsertRelatedBodies(bodies)
+        upsertRelatedBodies(bodies.filterNot { (it.type to it.documentId) in missingSources })
     }
     @Query("SELECT * FROM recall_day_cache WHERE serverId = :serverId AND date = :date AND timezone = :timezone")
     abstract suspend fun recallDay(serverId: String, date: String, timezone: String): RecallDayCacheEntity?
@@ -481,6 +499,54 @@ abstract class MobileLocalDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertWorkLog(record: WorkLogCacheEntity)
 
+    @Query("SELECT * FROM work_log_organization")
+    abstract fun observeWorkLogOrganizations(): Flow<List<WorkLogOrganizationEntity>>
+
+    @Query("SELECT * FROM work_log_organization WHERE sourceId = :id")
+    abstract suspend fun workLogOrganization(id: String): WorkLogOrganizationEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertWorkLogOrganization(value: WorkLogOrganizationEntity)
+
+    @Transaction
+    open suspend fun beginWorkLogOrganization(id: String, generationId: String, issuedAt: String): WorkLogOrganizationEntity {
+        val record = requireNotNull(workLog(id))
+        require(syncState()?.serverId == record.serverId && !record.deleted && record.optimisticCommandId == null)
+        require(workLogOrganization(id)?.state !in setOf("adopting", "adopted")) { "採用済みの整理補足があります。" }
+        return WorkLogOrganizationEntity(id, record.serverId, requireNotNull(record.serverVersion), generationId, issuedAt, "generating", null).also { upsertWorkLogOrganization(it) }
+    }
+
+    @Transaction
+    open suspend fun completeWorkLogOrganization(expected: WorkLogOrganizationEntity, proposal: MobileWorkLogOrganization): Boolean {
+        val record = workLog(expected.sourceId) ?: return false
+        if (workLogOrganization(expected.sourceId) != expected || syncState()?.serverId != expected.serverId ||
+            record.serverVersion != expected.sourceVersion || record.deleted || record.optimisticCommandId != null) return false
+        proposal.validate(record.body)
+        upsertWorkLogOrganization(expected.copy(state = "proposal", proposalJson = MobileWorkLogContract.json.encodeToString(proposal)))
+        return true
+    }
+
+    @Transaction
+    open suspend fun discardWorkLogOrganization(id: String) {
+        val value = workLogOrganization(id) ?: return
+        require(syncState()?.serverId == value.serverId && value.state !in setOf("adopting", "adopted"))
+        upsertWorkLogOrganization(value.copy(state = "discarded"))
+    }
+
+    @Transaction
+    open suspend fun enqueueWorkLogOrganization(id: String, command: OutboxCommandEntity) {
+        val record = requireNotNull(workLog(id))
+        val value = requireNotNull(workLogOrganization(id))
+        if (value.state in setOf("adopting", "adopted")) return
+        require(syncState()?.serverId == value.serverId && command.serverId == record.serverId && value.serverId == record.serverId)
+        require(value.state == "proposal" && value.sourceVersion == record.serverVersion && !record.deleted && record.optimisticCommandId == null)
+        require(command.commandId == value.generationId)
+        requireNotNull(value.proposal()).validate(record.body)
+        insertOutbox(command)
+        upsertWorkLog(record.copy(optimisticCommandId = command.commandId))
+        upsertWorkLogOrganization(value.copy(state = "adopting"))
+    }
+
     @Transaction
     open suspend fun enqueueWorkLog(record: WorkLogCacheEntity, command: OutboxCommandEntity) {
         require(syncState()?.serverId == command.serverId && record.serverId == command.serverId)
@@ -516,6 +582,11 @@ abstract class MobileLocalDao {
             pending.attemptCount != command.attemptCount || pending.envelopeJson != command.envelopeJson) return false
         val record = requireNotNull(workLog(projection.id))
         require(record.serverId == command.serverId && record.optimisticCommandId == command.commandId)
+        if (command.commandName == "AdoptWorkLogOrganization") {
+            val value = requireNotNull(workLogOrganization(record.id))
+            require(value.generationId == command.commandId && value.state == "adopting")
+            upsertWorkLogOrganization(value.copy(state = "adopted"))
+        }
         upsertWorkLog(record.copy(serverVersion = projection.version, body = projection.body,
             performedDate = projection.performedDate, enteredAt = projection.enteredAt,
             themeId = projection.themeId, taskId = projection.taskId, taskMissing = projection.taskMissing,
@@ -528,10 +599,13 @@ abstract class MobileLocalDao {
     open suspend fun refreshWorkLog(record: WorkLogCacheEntity) {
         val current = workLog(record.id) ?: return
         val pending = current.optimisticCommandId?.let { outbox(it) }
-        val rejectedLifecycle = pending?.state == OutboxState.Rejected && pending.commandName in setOf("DeleteWorkLog", "RestoreWorkLog")
+        val rejectedLifecycle = pending?.state == OutboxState.Rejected && pending.commandName in setOf("DeleteWorkLog", "RestoreWorkLog", "AdoptWorkLogOrganization")
         if (syncState()?.serverId == record.serverId && current.serverId == record.serverId && (pending == null || rejectedLifecycle) &&
             (record.serverVersion ?: 0) >= (current.serverVersion ?: 0)) {
-            if (rejectedLifecycle) deleteOutbox(requireNotNull(pending).commandId)
+            if (rejectedLifecycle) {
+                deleteOutbox(requireNotNull(pending).commandId)
+                if (pending.commandName == "AdoptWorkLogOrganization") workLogOrganization(record.id)?.let { upsertWorkLogOrganization(it.copy(state = "discarded")) }
+            }
             upsertWorkLog(record.copy(optimisticCommandId = null))
         }
     }
@@ -1956,6 +2030,7 @@ abstract class MobileLocalDao {
         TaskCacheEntity::class,
         CaptureReceiptEntity::class,
         WorkLogCacheEntity::class,
+        WorkLogOrganizationEntity::class,
         RecallDayCacheEntity::class,
         RelatedDocumentCacheEntity::class,
         RelatedBodyCacheEntity::class,
@@ -1973,10 +2048,11 @@ abstract class MobileLocalDao {
         PendingTaskDelegationEntity::class,
         TaskNotificationDeliveryEntity::class,
     ],
-    version = 24,
+    version = 25,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
+    abstract fun localSearchDao(): MobileLocalSearchDao
     abstract fun mobileDao(): MobileLocalDao
 
     companion object {
@@ -2011,8 +2087,15 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_21_22,
                     MIGRATION_22_23,
                     MIGRATION_23_24,
+                    MIGRATION_24_25,
             ).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_24_25 = object : Migration(24, 25) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS work_log_organization (sourceId TEXT NOT NULL PRIMARY KEY, serverId TEXT NOT NULL, sourceVersion INTEGER NOT NULL, generationId TEXT NOT NULL, issuedAt TEXT NOT NULL, state TEXT NOT NULL, proposalJson TEXT, createdTaskIndices TEXT NOT NULL)")
     }
 }
 

@@ -24,8 +24,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -132,6 +135,17 @@ class MobileGatewayConnectionStore(context: Context) {
         return generated
     }
 
+    fun observeOwnerReadAccess(): Flow<Boolean> = callbackFlow {
+        fun publish() {
+            val configuration = configuration()
+            trySend(configuration.paired && "mobile:read" in configuration.scopes)
+        }
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> publish() }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        publish()
+        awaitClose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.distinctUntilChanged()
+
     @Synchronized
     fun save(origin: String, token: String, scopes: Set<String> = emptySet()) {
         require(token.matches(Regex("^[A-Za-z0-9_-]{43}$"))) { "Access token is invalid" }
@@ -207,9 +221,12 @@ class AndroidMobileTaskRepository(
     private val httpClient: MobileGatewayHttpClient? = null,
     private val themeNow: () -> Instant = Instant::now,
     private val processInstanceId: String = MOBILE_PROCESS_INSTANCE_ID,
-) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileRecallRepository, MobileRelatedDocumentsRepository, MobileThemeContextRepository {
+) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileWorkLogOrganizationRepository, MobileRecallRepository, MobileRelatedDocumentsRepository, MobileThemeContextRepository, MobileLocalSearchRepository {
     private val json = Json { ignoreUnknownKeys = false }
     private val dao = database.mobileDao()
+    private val localSearch = MobileLocalSearchReader(database, store.observeOwnerReadAccess())
+    override fun observeLocalSearch(request: MobileLocalSearchRequest) = localSearch.observeLocalSearch(request)
+    override suspend fun localSearchCapture(id: String) = localSearch.localSearchCapture(id)
     private val outbox = MobileOutbox(context.applicationContext, dao, store::deviceId)
     private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
     private val recallReader = MobileRecallReader(dao) { path ->
@@ -253,14 +270,55 @@ class AndroidMobileTaskRepository(
     }
 
     override fun observeWorkLogs(): Flow<List<MobileWorkLog>> =
-        combine(dao.observeWorkLogs(), dao.observeSyncState()) { records, state ->
-            records.filter { it.record.serverId == state?.serverId }.map { MobileWorkLog(it.record, it.command) }
+        combine(dao.observeWorkLogs(), dao.observeSyncState(), dao.observeWorkLogOrganizations()) { records, state, organizations ->
+            records.filter { it.record.serverId == state?.serverId }.map { record -> MobileWorkLog(record.record, record.command, organizations.firstOrNull { it.sourceId == record.record.id && it.serverId == state?.serverId }) }
         }
 
     override suspend fun recordWorkLog(draft: MobileWorkLogDraft): String = workLogOutbox.record(draft)
     override suspend fun deleteWorkLog(id: String) = workLogOutbox.delete(id)
     override suspend fun restoreWorkLog(id: String) = workLogOutbox.restore(id)
     override suspend fun retryWorkLog(id: String) = workLogOutbox.retry(id)
+
+    override suspend fun discardWorkLogOrganization(id: String) = dao.discardWorkLogOrganization(id)
+    override suspend fun adoptWorkLogOrganization(id: String) = workLogOutbox.adoptOrganization(id)
+
+    override suspend fun organizeWorkLog(id: String) {
+        val configuration = store.configuration()
+        val token = requireNotNull(store.readToken()) { "Desktopへ接続してください。原文は保存済みです。" }
+        val expected = dao.beginWorkLogOrganization(id, java.util.UUID.randomUUID().toString(), java.time.Instant.now().toString())
+        try {
+            val response = gatewayRequest(configuration.origin, "/v1/work-log-organization", "POST", buildJsonObject {
+                put("sourceId", id); put("sourceVersion", expected.sourceVersion)
+            }.toString(), token)
+            require(response.status in 200..299)
+            val result = MobileWorkLogContract.json.decodeFromString<MobileWorkLogOrganizationResponse>(response.body)
+            require(result.ok && result.meta.serverId == expected.serverId && result.meta.apiVersion == TASKEN_MOBILE_API_VERSION && result.meta.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
+            require(result.data.sourceId == id && result.data.sourceVersion == expected.sourceVersion)
+            require(dao.completeWorkLogOrganization(expected, result.data.proposal))
+        } catch (error: CancellationException) { throw error }
+        catch (_: Exception) { throw IllegalStateException("整理できませんでした。Desktopの記録・AI設定・接続を確認して再試行してください。原文は保存済みです。") }
+    }
+
+    override suspend fun createWorkLogNextAction(id: String, index: Int) {
+        dao.enqueueCreateBatch {
+            val value = requireNotNull(dao.workLogOrganization(id))
+            val record = requireNotNull(dao.workLog(id))
+            require(value.serverId == dao.syncState()?.serverId && value.state == "adopted" && !record.deleted && record.serverVersion == value.sourceVersion)
+            val proposal = requireNotNull(value.proposal()).also { it.validate(record.body) }
+            val quote = proposal.nextActions[index]
+            val created = value.createdTaskIndices.split(',').mapNotNull(String::toIntOrNull).toSet()
+            if (index in created) return@enqueueCreateBatch emptyList()
+            val taskId = outbox.enqueueCreate(
+                draftId = "${value.generationId}:action:$index", title = quote, projectId = record.themeId,
+                todayDate = null,
+                description = "AI整理から選んで追加。元の作業記録: $id / version ${value.sourceVersion}\n原文引用:\n$quote",
+                scheduleAfterEnqueue = false,
+            )
+            dao.upsertWorkLogOrganization(value.copy(createdTaskIndices = (created + index).sorted().joinToString(",")))
+            listOf(taskId)
+        }
+        MobileOutboxScheduler.enqueue(context)
+    }
 
     override suspend fun refreshWorkLog(id: String) {
         val record = requireNotNull(dao.workLog(id))
@@ -1565,7 +1623,7 @@ class AndroidMobileTaskRepository(
             val commandName = Json.parseToJsonElement(envelopeJson)
                 .jsonObject.getValue("command").jsonObject.getValue("name").jsonPrimitive.content
             val captureCommand = commandName in setOf("CreateCapture", "DeleteCapture")
-            val workLogCommand = commandName in setOf("RecordWorkLog", "DeleteWorkLog", "RestoreWorkLog")
+            val workLogCommand = commandName in setOf("RecordWorkLog", "DeleteWorkLog", "RestoreWorkLog", "AdoptWorkLogOrganization")
             val response = gatewayRequest(
                 origin = origin,
                 path = "/v1/commands",
@@ -1662,7 +1720,7 @@ class AndroidMobileTaskRepository(
         try {
             connection.requestMethod = method
             connection.connectTimeout = REQUEST_TIMEOUT_MS
-            connection.readTimeout = if (path == "/v1/capture-organization") 35_000 else REQUEST_TIMEOUT_MS
+            connection.readTimeout = if (path in setOf("/v1/capture-organization", "/v1/work-log-organization")) 35_000 else REQUEST_TIMEOUT_MS
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/json")
             if (accessToken != null) connection.setRequestProperty("Authorization", "Bearer $accessToken")
@@ -1699,9 +1757,18 @@ class AndroidMobileTaskRepository(
     ): GatewayHttpResponse {
         val response = httpClient?.request(origin, path, method, body, accessToken)
             ?: request(origin, path, method, body, accessToken)
-        if (response.status == 401) runBlocking {
+        if (response.status == 401 || response.status == 403) runBlocking {
             dao.syncState()?.serverId?.let { serverId ->
-                if (isConfirmedGatewayUnauthorized(response, serverId)) dao.revokeOwnerReadCaches(serverId)
+                val ownerReadPaths = setOf("/v1/today", "/v1/tasks", "/v1/bootstrap", "/v1/sync", "/v1/themes",
+                    "/v1/activity", "/v1/theme-context", "/v1/task-related-documents", "/v1/task-related-document")
+                val readForbidden = response.status == 403 && method == "GET" && path.substringBefore('?') in ownerReadPaths &&
+                    runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()?.let {
+                        it.meta.serverId == serverId && it.error.code == "forbidden"
+                    } == true
+                if (isConfirmedGatewayUnauthorized(response, serverId) || readForbidden) {
+                    if (accessToken != null) store.clearTokenIfMatches(accessToken)
+                    dao.revokeOwnerReadCaches(serverId)
+                }
             }
         }
         return response

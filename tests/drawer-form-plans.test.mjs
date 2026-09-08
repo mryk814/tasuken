@@ -69,6 +69,33 @@ const emptyDomain = {
   change_events: [],
 };
 
+test("manual schedule fallback edits or clears planned time without losing unspecified values", () => {
+  const base = {
+    id: "task-timed",
+    title: "測定",
+    planned_start_time: "14:00",
+    planned_duration_minutes: 60,
+  };
+  const saved = (entries) =>
+    plan("task", [["title", "測定"], ...entries], base).operations.find(
+      (operation) => operation.type === "task",
+    ).entity;
+  assert.equal(saved([]).planned_start_time, "14:00");
+  assert.equal(saved([]).planned_duration_minutes, 60);
+  const changed = saved([
+    ["planned_start_time", "15:00"],
+    ["planned_duration_minutes", "30"],
+  ]);
+  assert.equal(changed.planned_start_time, "15:00");
+  assert.equal(changed.planned_duration_minutes, 30);
+  const cleared = saved([
+    ["planned_start_time", ""],
+    ["planned_duration_minutes", ""],
+  ]);
+  assert.equal(cleared.planned_start_time, null);
+  assert.equal(cleared.planned_duration_minutes, null);
+});
+
 function plan(type, entries, base = {}, data = emptyData) {
   const values = new FormData();
   for (const [key, value] of entries) values.append(key, value);

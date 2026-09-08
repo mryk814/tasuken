@@ -1,5 +1,11 @@
 import { ApplicationCommandError } from "../../shared/applicationCommand.ts";
 import {
+  isAiAudienceAllowed,
+  normalizeAiVisibility,
+  resolveAiVisibility,
+} from "../../shared/aiMetadata.mjs";
+import type { AdoptWorkLogOrganizationCommand } from "../../shared/workLogOrganization.ts";
+import {
   normalizeWorkLogCommand,
   type RecordWorkLogCommand,
   type WorkLogReceipt,
@@ -13,6 +19,10 @@ import type {
 } from "../gateway/mobile/public.ts";
 
 export interface WorkLogWriterPort {
+  adoptOrganization?(
+    command: AdoptWorkLogOrganizationCommand,
+    actor: { kind: "user"; id: string },
+  ): void;
   record(command: RecordWorkLogCommand, actor: { kind: "user"; id: string }): WorkLogReceipt;
   changeLifecycle(
     command: WorkLogLifecycleCommand,
@@ -23,6 +33,7 @@ export interface WorkLogWriterPort {
 interface WorkLogReadPersistence {
   get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
   list(type: string, includeDeleted?: boolean): Record<string, unknown>[];
+  readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -35,7 +46,10 @@ function object(value: unknown): Record<string, unknown> {
 export function createMobileWorkLogPort(
   persistence: WorkLogReadPersistence,
   writer?: WorkLogWriterPort,
-): Pick<MobileGatewayCorePort, "getWorkLog" | "executeWorkLogCommand"> {
+): Pick<
+  MobileGatewayCorePort,
+  "getWorkLog" | "canSendWorkLogToExternalAi" | "executeWorkLogCommand"
+> {
   if (!writer) return {};
   function getWorkLog(id: string): MobileWorkLog | null {
     const note = persistence.get("note", id, true);
@@ -57,6 +71,23 @@ export function createMobileWorkLogPort(
   }
   return {
     getWorkLog,
+    canSendWorkLogToExternalAi(id) {
+      const note = persistence.get("note", id);
+      if (
+        !note ||
+        note.deleted_at ||
+        object(object(note.properties_json).work_log).schema !== "tasken-work-log/v1"
+      )
+        return false;
+      const theme =
+        typeof note.project_id === "string" ? persistence.get("theme", note.project_id) : null;
+      const visibility = resolveAiVisibility({
+        entity: note,
+        theme,
+        workspaceDefault: normalizeAiVisibility(persistence.readPreference("aiVisibilityDefault")),
+      });
+      return isAiAudienceAllowed(visibility.audiences, "external_ai");
+    },
     executeWorkLogCommand(input): MobileGatewayWorkLogCommandResult {
       const actor = { kind: "user" as const, id: input.actorId };
       const previous = persistence
@@ -85,6 +116,20 @@ export function createMobileWorkLogPort(
           }
           const receipt = writer.record(command, actor);
           noteId = receipt.noteId;
+          status = previous ? "no_change" : "applied";
+        } else if (input.command.name === "AdoptWorkLogOrganization") {
+          if (!writer.adoptOrganization) return { ok: false, code: "validation_failed" };
+          writer.adoptOrganization(
+            {
+              commandId: input.commandId,
+              issuedAt: input.issuedAt,
+              sourceId: input.command.sourceId,
+              sourceVersion: input.command.sourceVersion,
+              proposal: input.command.proposal,
+            },
+            actor,
+          );
+          noteId = input.command.sourceId;
           status = previous ? "no_change" : "applied";
         } else {
           const receipt = writer.changeLifecycle(

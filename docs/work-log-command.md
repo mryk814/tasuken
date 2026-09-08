@@ -43,6 +43,13 @@ Mobile responseは初回receiptと現在のNote表示を区別し、再送時も
 
 ## Desktopの公開能力
 
+Androidの任意整理を採用する`AdoptWorkLogOrganization`は、元NoteのID/versionと原文引用を検証し、独立した通常Noteを保存する。
+補足は`properties_json.work_log_organization`に`assertion: ai_organized`、元ID/version、引用、採用日時を保持し、`ai_authority: ai_generated`を明示する。
+元Noteの明示的なAI公開範囲があれば補足へ継承し、それ以外は同じThemeの規則に従う。
+`derived_from` ReferenceとCommand eventをcanonical Note保存に同伴させ、DB失敗後も同じreceipt経路で復旧する。
+元の作業記録markerを補足へ複製せず、新しい作業実績として数えない。
+Command IDによる再送は初回結果へ戻し、別内容・別actorのID再利用を拒否する。
+
 `api.workLog.record`はTodayを表示するmain windowの`src/preload/index.ts`だけへ公開する。
 Quick Capture・Today mini・付箋などの専用preloadへは追加しない。
 IPCは専用の`work-log:record`に限定し、commandを共通validatorで検証する。

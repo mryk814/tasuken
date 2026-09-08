@@ -16,6 +16,20 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
     @Test
+    fun migrationTwentyFourToTwentyFiveKeepsOriginalAndPendingCommand() {
+        helper.createDatabase(DatabaseName, 24).apply {
+            execSQL("INSERT INTO work_log_cache(id,serverId,serverVersion,body,performedDate,enteredAt,taskMissing,deleted,creationEnvelopeJson) VALUES ('source','server',1,'原因は温度が怪しい。','2026-09-06','2026-09-06T00:00:00Z',0,0,'元のenvelope')")
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt,workLogId) VALUES ('command','command','request','device','2026-09-06T00:00:00Z','RecordWorkLog','保持する入力','server','pending',0,'2026-09-06T00:00:00Z','source')")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 25, true, MIGRATION_24_25).use { db ->
+            db.query("SELECT body,creationEnvelopeJson FROM work_log_cache").use { cursor -> assertTrue(cursor.moveToFirst()); assertEquals("原因は温度が怪しい。", cursor.getString(0)); assertEquals("元のenvelope", cursor.getString(1)) }
+            db.query("SELECT envelopeJson FROM outbox_command").use { cursor -> assertTrue(cursor.moveToFirst()); assertEquals("保持する入力", cursor.getString(0)) }
+            db.query("SELECT COUNT(*) FROM work_log_organization").use { cursor -> assertTrue(cursor.moveToFirst()); assertEquals(0, cursor.getInt(0)) }
+        }
+    }
+
+    @Test
     fun migrationTwentyThreeToTwentyFourPreservesRelatedBodiesAndPendingWrites() {
         helper.createDatabase(DatabaseName, 23).apply {
             execSQL("INSERT INTO related_body_cache(serverId,taskId,type,documentId,payload) VALUES ('server','task','note','note','保持する本文')")
