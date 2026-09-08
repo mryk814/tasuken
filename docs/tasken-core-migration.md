@@ -8,7 +8,7 @@ Desktop Mainが`WorkspaceDatabase`を生成して`TaskenDesktopComposition`へ�
 
 Windowsでdiscoveryのrenameが`EPERM`になった場合だけ、50ms間隔で最大3回試行する。既存discoveryを先に削除せず、回復しない場合は元のエラーで起動を失敗させ、待ち受けserverを閉じる。`node --test tests/tasken-core-discovery.test.mjs`で一過性エラーからの回復、恒久失敗時の既存ファイル保全と一時ファイル・serverの後始末を検証する。
 
-stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 27 toolsとProposal 14 toolsはすべて認証済みCore clientを通る。
+stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 29 toolsとProposal 14 toolsはすべて認証済みCore clientを通る。
 
 ```text
 MCP client
@@ -46,15 +46,18 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 
 ## MCP inventory
 
-### Read 27 / 27 Core
+### Read 29 / 29 Core
 
 - Work selection: `search_items`, `list_open_items`, `list_agent_ready_tasks`, `get_task_assignment`
 - Task detail: `get_task_context`, `get_note`, `get_conversation`, `get_artifact_metadata`, `get_activity_entries`
+- Photo: `get_capture_image`, `get_task_image`
 - Repository: `resolve_repository_context`, `find_themes_for_repository`, `find_tasks_for_repository`, `get_repository_context`
 - Agent session: `get_agent_session_context`, `get_debrief_context`
 - Purpose-built Context: `get_work_context`, `get_planning_context`, `get_learning_context`
 - Theme / Knowledge: `get_theme_context`, `get_recent_notes`, `search_knowledge`, `get_knowledge_context`, `get_plan_health`, `get_knowledge_health`
 - Cross-cutting: `get_activity`, `get_context_subgraph`, `export_ai_context`
+
+写真対応で`get_task_context.related`へ`captures`配列を追加した。`include: ["captures"]`を明示した場合だけ関連Captureの要約と画像manifestを含め、未指定時は空配列を返す。画像本体はmanifestのlocatorが示すPhoto toolから取得する。
 
 ### Proposal 14 / 14 Core
 
@@ -87,7 +90,7 @@ Task work proposalはexpected versionとagent identityを必須にする。publi
 - contract hardening: unknown request field、unknown response field、Core停止後のqueryをfail closedにする
 - plain Node source MCP: Core停止時のstructured fail-closed、native import sentinel
 - built `mcp-dist/server.mjs`: native/Electron/inbox symbol sentinel
-- Windows packaged Desktop: Desktop Core起動後、system Nodeでbundled MCPへ接続し、41 tools、read、Proposal commandを確認
+- Windows packaged Desktop: Desktop Core起動後、system Nodeでbundled MCPへ接続し、43 tools、read、Proposal commandを確認
 - actual MCP client config: Settingsからコピーした`node <resources>/mcp/server.mjs`で接続
 - architecture audit: `main.composition`をenforced moduleにし、`src/main/index.ts`の#412 suppressionを撤去する。監査結果は65 findings / 3 new candidates / 0 blocking
 

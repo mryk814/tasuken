@@ -295,7 +295,7 @@ async function callMcp(
   }
 }
 
-test("MCP Wave 3 get_task_context is exact across legacy, in-process, HTTP, and MCP", async () => {
+test("MCP Wave 3 get_task_context preserves legacy fields and the empty capture collection across Core, HTTP, and MCP", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave3-"));
   const workspace = fixture();
   const repository = new FixtureRepository(workspace);
@@ -318,6 +318,7 @@ test("MCP Wave 3 get_task_context is exact across legacy, in-process, HTTP, and 
         workspace: { remote_url: "git@github.com:mryk814/tasuken.git", cwd: "/private/tasuken" },
       },
       { task_id: "task-visible", include: ["repository"], max_text_length: 5_000 },
+      { task_id: "task-visible", include: ["captures"] },
       { task_id: "task-hidden" },
       { task_id: "task-active-under-archived-private-theme" },
       { task_id: "task-archived" },
@@ -325,6 +326,9 @@ test("MCP Wave 3 get_task_context is exact across legacy, in-process, HTTP, and 
       { task_id: "missing" },
     ]) {
       const expected = legacy.toolGetTaskContext(request);
+      // The frozen legacy fixture predates photo summaries. This workspace has no captures;
+      // require the additive empty collection while keeping every legacy field exact.
+      if (expected.related) expected.related.captures = [];
       if (request.task_id === "task-active-under-archived-private-theme") {
         assert.equal(expected.error.code, "not_found");
         assert.equal(expected.excluded_count, 1);
@@ -352,7 +356,9 @@ test("Wave 3 preserves graph/text bounds and redacts receipt, URL, and local pat
   try {
     const request = { task_id: "task-visible", max_items_per_type: 25, max_text_length: 100_000 };
     const result = core.getTaskContext.execute(request);
-    assert.deepEqual(result, legacy.toolGetTaskContext(request));
+    const expected = legacy.toolGetTaskContext(request);
+    expected.related.captures = [];
+    assert.deepEqual(result, expected);
     assert.ok(result.context_graph.nodes.length <= 100);
     assert.ok(result.context_graph.edges.length <= 200);
     assert.ok(result.context_selection.estimated_characters <= 100_000);
