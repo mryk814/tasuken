@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -573,7 +574,6 @@ internal fun TodayApp(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -707,6 +707,7 @@ internal fun TodayApp(
             }
         },
     ) { padding ->
+        Box(Modifier.fillMaxSize()) {
         NavigableListDetailPaneScaffold(
             navigator = navigator,
             listPane = {
@@ -836,6 +837,11 @@ internal fun TodayApp(
             },
             modifier = Modifier.padding(padding),
         )
+            SnackbarHost(snackbarHostState, modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = padding.calculateTopPadding())
+                .testTag("top-snackbar-host"))
+        }
     }
 
     if (pendingCapturesOpen) {
@@ -1079,6 +1085,18 @@ internal fun CaptureTaskSheet(
             if (draft.text.isNotEmpty() && (draft.kind == MobileCaptureKind.Capture || overLimit)) {
                 CaptureCopyButton(draft.text)
             }
+            val speechStatusScroll = rememberScrollState()
+            LaunchedEffect(speechState, speechStatusScroll.maxValue) {
+                speechStatusScroll.scrollTo(speechStatusScroll.maxValue)
+            }
+            Text(
+                speechStatusText(speechState),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (speechState is ShortSpeechUiState.Error) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().height(120.dp)
+                    .testTag("capture-speech-status").verticalScroll(speechStatusScroll),
+            )
             OutlinedButton(
                 onClick = {
                     keyboardController?.hide()
@@ -1095,13 +1113,6 @@ internal fun CaptureTaskSheet(
                     else -> "音声で入力"
                 }, modifier = Modifier.padding(start = 8.dp))
             }
-            Text(
-                speechStatusText(speechState),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (speechState is ShortSpeechUiState.Error) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.testTag("capture-speech-status"),
-            )
             CapturePhotoSection(
                 photos = draft.photos,
                 enabled = state !is CaptureUiState.Saving && !speechBusy,
