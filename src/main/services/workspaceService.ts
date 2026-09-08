@@ -98,7 +98,13 @@ import {
 } from "../../shared/conversationContext.mjs";
 import { buildThemeAiPackPlan, type ThemeAiPackPlan } from "../../shared/themeAiPack.mjs";
 import { buildDailyContextPlan } from "../../shared/dailyContext";
-import { publishDailyContext } from "./dailyContextPublisher";
+import {
+  publishDailyContext,
+  readDailyContextSelections,
+  publishedSourceIndex,
+  withdrawDailyContext,
+} from "./dailyContextPublisher";
+import { publicSourceThemeIndexPath } from "../../shared/publicSourceProjection";
 import {
   buildCanonicalMarkdownContent,
   canonicalMarkdownBindingFromProperties,
@@ -138,6 +144,7 @@ import { buildMermaidPptxBuffer } from "./mermaidPowerPointService";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
 import {
   THEME_AI_PACK_DIRECTORY,
+  THEME_AI_PACK_MANIFEST,
   discoverThemeAiPackLocation,
   ensureThemeAiPackLocation,
   inspectThemeAiPack,
@@ -1097,7 +1104,8 @@ export class WorkspaceService {
 
   getDailyContextPreview(selection: unknown, generatedAt = new Date().toISOString()) {
     const workspace = this.repository.loadWorkspace(true) as Record<string, unknown>;
-    return buildDailyContextPlan({
+    const publication = objectValue(this.repository.getPreference("dailyContextPublication"));
+    const plan = buildDailyContextPlan({
       workspace: { ...workspace, change_events: this.repository.list("change_event") },
       workspaceId: this.repository.getMeta().workspaceId,
       selection,
@@ -1105,18 +1113,113 @@ export class WorkspaceService {
       workspaceDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
       roots: this.activityCanonicalRootPaths(),
     });
+    return {
+      ...plan,
+      ...(publication.refreshPending === true && typeof publication.root === "string"
+        ? { recoveryRoot: publication.root }
+        : {}),
+    };
   }
 
   publishDailyContext(request: import("../../shared/ipc/contracts").DailyContextPublishRequest) {
     if (!request || typeof request !== "object" || typeof request.generatedAt !== "string")
       throw new Error("公開要求が不正です。");
     const plan = this.getDailyContextPreview(request.selection, request.generatedAt);
-    return publishDailyContext({
+    if (plan.contentHash !== request.expectedContentHash)
+      throw new Error("公開対象が変わりました。プレビューを更新してください。");
+    if (typeof request.root !== "string" || !path.isAbsolute(request.root))
+      throw new Error("公開先フォルダーを選んでください。");
+    const publication = objectValue(this.repository.getPreference("dailyContextPublication"));
+    if (
+      publication.refreshPending === true &&
+      (publication.root !== request.root || publication.timezone !== plan.selection.timezone)
+    )
+      throw new Error(
+        "前の公開先に未完了の更新があります。同じ公開先とタイムゾーンで再公開してください。",
+      );
+    const previous = readDailyContextSelections(
+      request.root,
+      plan.workspaceId,
+      plan.selection.timezone,
+    );
+    const selections = [
+      plan.selection,
+      ...previous.selections.filter((selection) => selection.date !== plan.selection.date),
+    ];
+    if (previous.pendingDate) {
+      const pendingIndex = selections.findIndex(
+        (selection) => selection.date === previous.pendingDate,
+      );
+      if (pendingIndex < 0)
+        throw new Error(`${previous.pendingDate} の未完了処理を先に再公開してください。`);
+      selections.unshift(...selections.splice(pendingIndex, 1));
+    }
+    let result: ReturnType<typeof publishDailyContext> | undefined;
+    const retiring = objectValue(
+      publication.retiring ??
+        (typeof publication.root === "string" && publication.root !== request.root
+          ? { root: publication.root, timezone: publication.timezone }
+          : null),
+    );
+    if (
+      typeof retiring.root === "string" &&
+      typeof retiring.timezone === "string" &&
+      readDailyContextSelections(retiring.root, plan.workspaceId, retiring.timezone).pendingDate
+    )
+      throw new Error("以前の保存先に未完了の日別更新があります。同じ保存先で再公開してください。");
+    this.repository.setPreference("dailyContextPublication", {
       root: request.root,
-      plan,
-      expectedContentHash: request.expectedContentHash,
-      allowPartial: request.allowPartial === true,
+      timezone: plan.selection.timezone,
+      refreshPending: true,
+      ...(typeof retiring.root === "string" ? { retiring } : {}),
     });
+    if (typeof retiring.root === "string" && typeof retiring.timezone === "string")
+      withdrawDailyContext(retiring.root, plan.workspaceId, retiring.timezone);
+    for (const selection of selections) {
+      const current =
+        selection.date === plan.selection.date
+          ? plan
+          : this.getDailyContextPreview(selection, request.generatedAt);
+      const saved = publishDailyContext({
+        root: request.root,
+        plan: current,
+        expectedContentHash: current.contentHash,
+        allowPartial: current.partial ? request.allowPartial === true : false,
+      });
+      if (selection.date === plan.selection.date) result = saved;
+    }
+    for (const theme of this.repository.list("theme", true)) {
+      const location = this.resolveThemeAiPack(theme);
+      if (location.status === "needs_root") continue;
+      if (location.status !== "ok")
+        throw new Error(
+          "既存Theme AI Packの保存先を確認できません。保存先を復旧して再公開してください。",
+        );
+      if (!fs.existsSync(path.join(location.packDirectory, THEME_AI_PACK_MANIFEST))) continue;
+      const pack = theme.deleted_at
+        ? publishThemeAiPack({
+            plan: buildThemeAiPackPlan({
+              theme: { ...theme, ai_visibility: [] },
+              generatedAt: request.generatedAt,
+            }),
+            packDirectory: location.packDirectory,
+            recoveryDirectory: this.themeAiPackRecoveryDirectory,
+          })
+        : this.publishThemeAiPack({
+            themeId: theme.id,
+            expectedContentHash: this.getThemeAiPackPreview(theme.id).contentHash,
+          });
+      if ((!pack.written && pack.state !== "skipped") || pack.state === "current_with_warning")
+        throw new Error(
+          "日別と本文は更新しましたが、既存Theme AI Packを更新できませんでした。旧公開物を確認して再公開してください。",
+        );
+    }
+    this.repository.setPreference("dailyContextPublication", {
+      root: request.root,
+      timezone: plan.selection.timezone,
+      refreshPending: false,
+    });
+    return result!;
   }
 
   private buildThemeAiPack(themeIdValue: unknown): {
@@ -1174,8 +1277,33 @@ export class WorkspaceService {
         workspaceDefault,
         generatedAt: this.now(),
         sourceRevision,
+        publicBodyIndexLink: this.publicBodyIndexLink(theme),
       }),
     };
+  }
+
+  private publicBodyIndexLink(theme: Record<string, unknown>): string | null {
+    const setting = objectValue(this.repository.getPreference("dailyContextPublication"));
+    if (typeof setting.root !== "string" || typeof setting.timezone !== "string") return null;
+    const location = this.resolveThemeAiPack(theme);
+    if (location.status !== "ok") return null;
+    try {
+      const target = publishedSourceIndex(
+        setting.root,
+        this.repository.getMeta().workspaceId,
+        setting.timezone,
+        publicSourceThemeIndexPath(String(theme.id)),
+      );
+      if (!target) return null;
+      const relative = path.relative(location.packDirectory, target).replace(/\\/g, "/");
+      if (path.isAbsolute(relative) || /^[a-z]+:/i.test(relative)) return null;
+      return relative
+        .split("/")
+        .map((part) => encodeURIComponent(part))
+        .join("/");
+    } catch {
+      return null;
+    }
   }
 
   async getAiContextPreview(requestValue: unknown): Promise<AiContextPreviewResult> {

@@ -4,7 +4,8 @@ import {
   type ActivityProjectionEvent,
   type ActivityProjectionResult,
 } from "./activityProjection.mjs";
-import { collectionKeyForEntityType } from "./entityRegistry.mjs";
+import { collectionKeyForEntityType, domainCollectionKeyForEntityType } from "./entityRegistry.mjs";
+import { buildPublicSourceProjection, type PublicSourceProjection } from "./publicSourceProjection";
 
 export const DAILY_CONTEXT_SCHEMA = "tasken-daily-context/v1";
 export const DAILY_CONTEXT_DIRECTORY = "Tasken Context";
@@ -14,6 +15,7 @@ export interface DailyContextSelection {
   date: string;
   timezone: string;
   themeId: string | null;
+  includeFullText?: boolean;
 }
 export interface DailyContextPublishResult {
   status: "written";
@@ -59,6 +61,8 @@ export interface DailyContextPlan {
   excludedReasons: Array<{ type: string; reason: string; count: number }>;
   partial: boolean;
   matchedVisibleCount: number | null;
+  publicSources?: PublicSourceProjection[];
+  recoveryRoot?: string;
 }
 
 const STAGES = Object.freeze({
@@ -89,6 +93,20 @@ function sourceKey(ref: { type: string; id: string }) {
   return `${ref.type}:${ref.id}`;
 }
 
+function workspaceEntity(workspace: Record<string, unknown>, type: string, id: string) {
+  const keys = [
+    collectionKeyForEntityType(type as Parameters<typeof collectionKeyForEntityType>[0]),
+    domainCollectionKeyForEntityType(type),
+  ];
+  return keys
+    .flatMap((key) =>
+      key && Array.isArray(workspace[key])
+        ? (workspace[key] as Array<Record<string, unknown>>)
+        : [],
+    )
+    .find((entity) => entity.id === id);
+}
+
 export function validateDailyContextSelection(value: unknown): DailyContextSelection {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("公開する日を指定してください。");
@@ -111,7 +129,14 @@ export function validateDailyContextSelection(value: unknown): DailyContextSelec
   const themeId = input.themeId == null || input.themeId === "" ? null : text(input.themeId);
   if (themeId !== null && (!themeId || themeId.length > 200))
     throw new Error("公開するThemeが不正です。");
-  return { date, timezone, themeId };
+  if (input.includeFullText !== undefined && typeof input.includeFullText !== "boolean")
+    throw new Error("本文公開の指定が不正です。");
+  return {
+    date,
+    timezone,
+    themeId,
+    ...(input.includeFullText === true ? { includeFullText: true } : {}),
+  };
 }
 
 /** Uses the same visibility and opaque pagination contract as recall readers. No canonical writes. */
@@ -171,10 +196,7 @@ export function buildDailyContextPlan({
   if (!result) throw new Error("公開対象の取得に失敗しました。");
   const rows: DailyContextRow[] = events.map((event) => {
     const ref = event.recall?.source_ref || event.entity_ref;
-    const collection = (workspace[
-      collectionKeyForEntityType(ref.type as Parameters<typeof collectionKeyForEntityType>[0])
-    ] || []) as Array<Record<string, unknown>>;
-    const currentSource = collection.find((item) => item.id === ref.id);
+    const currentSource = workspaceEntity(workspace, ref.type, ref.id);
     const stage = event.recall && event.recall.stage in STAGES ? event.recall.stage : "changed";
     return {
       id: event.id,
@@ -199,7 +221,26 @@ export function buildDailyContextPlan({
     };
   });
   const sources = [...new Map(rows.map((row) => [sourceKey(row.source), row.source])).values()];
-  const sourceRevision = markdownSignature(JSON.stringify([selected, revision]));
+  const publicSources = sources.flatMap((source) => {
+    const entity = workspaceEntity(workspace, source.type, source.id);
+    if (!entity) return [];
+    const themeId = entity.project_id || entity.theme_id;
+    const theme = themeId ? workspaceEntity(workspace, "theme", String(themeId)) : undefined;
+    const projection = buildPublicSourceProjection({
+      type: source.type,
+      entity,
+      theme,
+      workspaceDefault: workspaceDefault as Parameters<
+        typeof buildPublicSourceProjection
+      >[0]["workspaceDefault"],
+      generatedAt,
+      explicitlyAllowed: selected.includeFullText === true,
+    });
+    return projection ? [projection] : [];
+  });
+  const sourceRevision = markdownSignature(
+    JSON.stringify([selected, revision, publicSources.map((source) => source.contentHash)]),
+  );
   const partial = Boolean(cursor);
   const excludedReasons = result.excluded_reasons.map((item) => ({
     type: text(item.type),
@@ -251,6 +292,14 @@ export function buildDailyContextPlan({
           `- 関連出典: ${row.sourceRefs.map((ref) => `\`${inline(sourceKey(ref))}\``).join(", ")}`,
         );
       if (row.summary) lines.push("", quote(row.summary));
+      const publishedBody = publicSources.find(
+        (entry) => sourceKey(entry.source) === sourceKey(row.source),
+      );
+      if (publishedBody)
+        lines.push(
+          "",
+          `[公開した現在版の本文](../${publishedBody.relativePath})（過去版の再現ではありません）`,
+        );
       lines.push("");
     }
   }
@@ -263,7 +312,9 @@ export function buildDailyContextPlan({
       : ["- 公開policyによる除外なし。"]),
   );
   lines.push(
-    "- 本文は振り返り用の抜粋です。長文の全文、保存されていない過去版、未同期の入力は含みません。",
+    publicSources.length
+      ? "- 日別は抜粋です。明示許可した現在版の本文はSourcesへのリンクから読めます。保存されていない過去版・添付・未同期の入力は含みません。"
+      : "- 本文は振り返り用の抜粋です。長文の全文、保存されていない過去版、未同期の入力は含みません。",
     "",
   );
   const content = lines.join("\n");
@@ -285,5 +336,6 @@ export function buildDailyContextPlan({
     excludedReasons,
     partial,
     matchedVisibleCount: result.page.matched_visible_count,
+    publicSources,
   };
 }
