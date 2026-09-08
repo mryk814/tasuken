@@ -5,6 +5,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import type { PageProps } from "../types";
 import { Button, ThemePickerSelect } from "./common";
 import "./DailyContextPublishDialog.css";
+import { DailyContextAutoSettings } from "./DailyContextAutoSettings";
 
 export function DailyContextPublishDialog({
   today,
@@ -76,6 +77,7 @@ export function DailyContextPublishDialog({
     >
       <h2 id="daily-context-title">公開用Markdown</h2>
       <p>現在M365への公開を許可した記録を、読み取り専用のMarkdownにまとめます。</p>
+      <DailyContextAutoSettings today={today} themes={themes} />
       <fieldset disabled={working}>
         <label>
           対象日

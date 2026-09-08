@@ -265,6 +265,11 @@ export function registerIpc(
   ipcMain.handle(IPC.dailyContextPublish, (_event, request) =>
     service.publishDailyContext(request),
   );
+  ipcMain.handle(IPC.dailyContextAutoStatus, () => service.getDailyContextAutoStatus());
+  ipcMain.handle(IPC.dailyContextAutoConfigure, (_event, config) =>
+    service.configureDailyContextAuto(config),
+  );
+  ipcMain.handle(IPC.dailyContextAutoRetry, () => service.retryDailyContextAuto());
   ipcMain.handle(IPC.themeAiPackStatus, (_event, themeId) =>
     service.getThemeAiPackStatus(requireId(themeId)),
   );
@@ -302,6 +307,9 @@ export function registerIpc(
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => {
     const normalizedKey = requireId(key);
     const saved = repository.setPreference(normalizedKey, value);
+    if (normalizedKey === "aiVisibilityDefault" || normalizedKey === "artifactDirectory") {
+      service.notifyDailyContextAutoChange();
+    }
     if (normalizedKey === "themeMode") {
       const mode = value === "dark" ? "dark" : "light";
       publishIpc(IPC.todayMiniTheme, mode);
