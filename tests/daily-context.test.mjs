@@ -63,6 +63,122 @@ test("daily plans paginate beyond 500 and label incomplete coverage", () => {
   assert.match(partial.content, /部分取得/);
 });
 
+test("explicit capture bodies use stable managed paths and recover a missing source without modifying canonical text", (t) => {
+  const input = fixture(0);
+  const capture = {
+    id: "long-capture",
+    text: "測定条件🧪\n".repeat(1000),
+    state: "untriaged",
+    captured_at: "2026-09-06T10:00:00.000Z",
+    version: 1,
+    ai_visibility: ["m365"],
+  };
+  input.workspace.capture_entries = [capture];
+  assert.equal(buildDailyContextPlan(input).publicSources.length, 0);
+  input.selection.includeFullText = true;
+  const plan = buildDailyContextPlan(input);
+  assert.equal(plan.publicSources.length, 1);
+  const root = temporary(t);
+  publish(root, plan);
+  const bodyPath = path.join(root, "Tasken Context", plan.publicSources[0].relativePath);
+  assert.match(fs.readFileSync(bodyPath, "utf8"), /測定条件🧪/);
+  fs.unlinkSync(bodyPath);
+  publish(root, plan);
+  assert.ok(fs.existsSync(bodyPath));
+  fs.writeFileSync(bodyPath, "external change");
+  assert.throws(() => publish(root, plan), /外部で変更/);
+  assert.equal(capture.text, "測定条件🧪\n".repeat(1000));
+  fs.writeFileSync(bodyPath, plan.publicSources[0].content);
+  capture.deleted_at = "2026-09-06T11:00:00.000Z";
+  publish(root, buildDailyContextPlan(input));
+  assert.equal(fs.existsSync(bodyPath), false);
+  assert.doesNotMatch(
+    fs.readFileSync(path.join(root, "Tasken Context", plan.relativePath), "utf8"),
+    /公開した現在版の本文/,
+  );
+  delete capture.deleted_at;
+  publish(root, buildDailyContextPlan(input));
+  input.workspace.capture_entries = [];
+  publish(root, buildDailyContextPlan(input));
+  assert.equal(fs.existsSync(bodyPath), false);
+});
+
+test("source replacement failure remains retryable and a new destination does not overwrite the old one", (t) => {
+  const input = fixture(0);
+  input.workspace.capture_entries = [
+    {
+      id: "source-retry",
+      text: "old body",
+      state: "untriaged",
+      captured_at: "2026-09-06T10:00:00.000Z",
+      version: 1,
+      ai_visibility: ["m365"],
+    },
+  ];
+  input.selection.includeFullText = true;
+  const root = temporary(t);
+  const original = buildDailyContextPlan(input);
+  publish(root, original);
+  input.workspace.capture_entries[0].text = "new body";
+  input.workspace.capture_entries[0].version = 2;
+  const next = buildDailyContextPlan(input);
+  assert.notEqual(next.contentHash, original.contentHash);
+  const failing = {
+    ...fs,
+    writeFileSync(target, ...args) {
+      if (String(target).includes(`${path.sep}Sources${path.sep}.capture_entry-`))
+        throw new Error("disk full");
+      return fs.writeFileSync(target, ...args);
+    },
+  };
+  assert.throws(() => publish(root, next, { fileSystem: failing }), /未完了/);
+  assert.ok(
+    JSON.parse(fs.readFileSync(path.join(root, "Tasken Context/.tasken-context.json"), "utf8"))
+      .pending,
+  );
+  publish(root, next);
+  assert.match(
+    fs.readFileSync(path.join(root, "Tasken Context", next.publicSources[0].relativePath), "utf8"),
+    /new body/,
+  );
+  const secondRoot = temporary(t);
+  publish(secondRoot, next);
+  assert.equal(
+    fs.readFileSync(path.join(root, "Tasken Context", next.relativePath), "utf8"),
+    fs.readFileSync(path.join(secondRoot, "Tasken Context", next.relativePath), "utf8"),
+  );
+});
+
+test("Sources junction is refused before the published day changes", (t) => {
+  const input = fixture(0);
+  input.workspace.capture_entries = [
+    {
+      id: "junction-source",
+      text: "body",
+      state: "untriaged",
+      captured_at: "2026-09-06T10:00:00.000Z",
+      version: 1,
+      ai_visibility: ["m365"],
+    },
+  ];
+  const root = temporary(t);
+  const before = buildDailyContextPlan(input);
+  publish(root, before);
+  const outside = temporary(t);
+  fs.symlinkSync(
+    outside,
+    path.join(root, "Tasken Context/Sources"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  input.selection.includeFullText = true;
+  assert.throws(() => publish(root, buildDailyContextPlan(input)), /symlink|junction/);
+  assert.equal(
+    fs.readFileSync(path.join(root, "Tasken Context", before.relativePath), "utf8"),
+    before.content,
+  );
+  assert.deepEqual(fs.readdirSync(outside), []);
+});
+
 test("one published day distinguishes incomplete work, input, plans, AI reports and human acceptance", (t) => {
   const input = fixture();
   const task = { ...input.workspace.tasks[0], state: "doing", version: 2 };

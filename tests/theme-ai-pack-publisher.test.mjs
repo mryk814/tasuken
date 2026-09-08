@@ -351,6 +351,87 @@ test("manifestが同じでも実Markdown driftを検出して再生成する（#
   }
 });
 
+test("旧Packの撤去失敗はreceiptを保持し同一内容の再公開でも回収する（#546）", () => {
+  const item = fixture("tasken-ai-pack-cleanup-");
+  try {
+    const location = prepareLocation(item.root);
+    const options = {
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+    };
+    publishThemeAiPack({ ...options, plan: plan("private-old"), operationId: "old" });
+    const failing = fsWith({
+      rmSync(target, ...args) {
+        if (String(target).endsWith(".backup")) throw new Error("backup locked");
+        return fs.rmSync(target, ...args);
+      },
+    });
+    const result = publishThemeAiPack({
+      ...options,
+      plan: plan("public-new"),
+      operationId: "cleanup",
+      fileSystem: failing,
+    });
+    assert.equal(result.state, "current_with_warning");
+    assert.equal(result.retryPending, true);
+    assert.deepEqual(fs.readdirSync(item.recoveryDirectory), ["cleanup.json"]);
+    const backup = path.join(location.themeFolder, ".AI Pack.cleanup.backup");
+    assert.match(readFileSync(path.join(backup, "01 Current Work.md"), "utf8"), /private-old/);
+    const blocked = publishThemeAiPack({
+      ...options,
+      plan: plan("public-new"),
+      fileSystem: failing,
+    });
+    assert.equal(blocked.state, "recovery_required");
+    const retried = publishThemeAiPack({ ...options, plan: plan("public-new") });
+    assert.equal(retried.state, "skipped");
+    assert.equal(fs.existsSync(backup), false);
+    assert.deepEqual(fs.readdirSync(item.recoveryDirectory), []);
+  } finally {
+    item.close();
+  }
+});
+
+test("撤去待ちbackupの外部編集は再公開でも削除せずreceiptを残す（#546）", () => {
+  const item = fixture("tasken-ai-pack-cleanup-edited-");
+  try {
+    const location = prepareLocation(item.root);
+    const options = {
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+    };
+    publishThemeAiPack({ ...options, plan: plan("private-old"), operationId: "old" });
+    const failing = fsWith({
+      rmSync(target, ...args) {
+        if (String(target).endsWith(".backup")) throw new Error("backup locked");
+        return fs.rmSync(target, ...args);
+      },
+    });
+    publishThemeAiPack({
+      ...options,
+      plan: plan("public-new"),
+      operationId: "cleanup",
+      fileSystem: failing,
+    });
+    const backupFile = path.join(
+      location.themeFolder,
+      ".AI Pack.cleanup.backup",
+      "01 Current Work.md",
+    );
+    fs.appendFileSync(backupFile, "\nexternal edit");
+    const result = publishThemeAiPack({ ...options, plan: plan("public-next") });
+    assert.equal(result.state, "recovery_required");
+    assert.match(readFileSync(backupFile, "utf8"), /external edit/);
+    assert.deepEqual(fs.readdirSync(item.recoveryDirectory), ["cleanup.json"]);
+    assert.match(
+      readFileSync(path.join(location.packDirectory, "01 Current Work.md"), "utf8"),
+      /public-new/,
+    );
+  } finally {
+    item.close();
+  }
+});
+
 test("staging write failureは旧Packを保ちretryableにする（#295）", () => {
   const item = fixture("tasken-ai-pack-stage-failure-");
   try {

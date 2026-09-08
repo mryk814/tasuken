@@ -80,6 +80,7 @@ export interface BuildThemeAiPackPlanInput {
   generatedAt?: string;
   sourceRevision?: string | number | null;
   maxBodyChars?: number;
+  publicBodyIndexLink?: string | null;
 }
 
 export const THEME_AI_PACK_SCHEMA: "tasken-ai-pack/v1";

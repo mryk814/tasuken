@@ -227,10 +227,22 @@ function renderFile(title, entries, emptyLabel = "対象なし") {
   ].join("\n");
 }
 
-function renderOverview(themeEntry, sectionCounts, excludedSummary) {
+function renderOverview(themeEntry, sectionCounts, excludedSummary, publicBodyIndexLink) {
   const lines = ["# Theme Overview", "", GENERATED_MARKER, ""];
   if (themeEntry) lines.push(renderEntry(themeEntry), "");
   else lines.push("- Theme本文はM365公開対象外です。", "");
+  if (
+    themeEntry &&
+    publicBodyIndexLink &&
+    /^(?:\.\.\/)*(?:[A-Za-z0-9_%.-]+\/)*Sources\/Themes\/[a-f0-9]{64}\.md$/.test(
+      publicBodyIndexLink,
+    )
+  ) {
+    lines.push(
+      `- [明示公開した現在版の本文](${publicBodyIndexLink})（Pack外の読み取り専用公開物）`,
+      "",
+    );
+  }
   lines.push(
     "## Pack contents",
     ...THEME_AI_PACK_FILES.filter((file) => file.key !== "overview").map(
@@ -339,6 +351,7 @@ export function buildThemeAiPackPlan({
   generatedAt = new Date().toISOString(),
   sourceRevision = null,
   maxBodyChars = DEFAULT_MAX_BODY_CHARS,
+  publicBodyIndexLink = null,
 } = {}) {
   const themeEntity = record(theme);
   const themeId = text(themeEntity.id).trim();
@@ -483,7 +496,7 @@ export function buildThemeAiPackPlan({
     activity: projectedActivity.length,
   };
   const contents = {
-    overview: renderOverview(themeEntry, sectionCounts, excludedSummary),
+    overview: renderOverview(themeEntry, sectionCounts, excludedSummary, publicBodyIndexLink),
     current_work: renderFile("Current Work", sections.current_work),
     decisions: renderFile("Decisions", sections.decisions),
     meetings: renderFile("Meetings", sections.meetings),

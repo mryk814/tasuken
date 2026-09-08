@@ -554,6 +554,23 @@ export function publishThemeAiPack({
   if (!isDirectory(fileSystem, parentDirectory) || isSymbolicLink(fileSystem, parentDirectory)) {
     return { state: "root_unavailable", dirty: true, retryPending: true, written: false };
   }
+  const recoveryRoot = path.resolve(
+    recoveryDirectory || path.join(parentDirectory, ".tasken-ai-pack-recovery"),
+  );
+  const pending = recoverThemeAiPackOperations({
+    recoveryDirectory: recoveryRoot,
+    fileSystem,
+    targetDirectory,
+  }).find((result) => result.state === "recovery_required");
+  if (pending)
+    return {
+      state: "recovery_required",
+      dirty: true,
+      retryPending: true,
+      written: false,
+      operationId: pending.operationId,
+      error: pending.error,
+    };
   const current = inspectThemeAiPack({
     plan: normalized,
     packDirectory: targetDirectory,
@@ -569,9 +586,6 @@ export function publishThemeAiPack({
   const backupDirectory = path.join(
     parentDirectory,
     `.${THEME_AI_PACK_DIRECTORY}.${operationId}.backup`,
-  );
-  const recoveryRoot = path.resolve(
-    recoveryDirectory || path.join(parentDirectory, ".tasken-ai-pack-recovery"),
   );
   if (!isWithin(parentDirectory, stageDirectory) || !isWithin(parentDirectory, backupDirectory)) {
     throw new Error("Theme AI Pack operation directoryが保存先の外にあります。");
@@ -687,11 +701,10 @@ export function publishThemeAiPack({
         backupCreated = false;
         fsyncDirectory(fileSystem, parentDirectory);
       } catch (cleanupError) {
-        removeReceipt(fileSystem, receiptPath);
         return {
           state: "current_with_warning",
-          dirty: false,
-          retryPending: false,
+          dirty: true,
+          retryPending: true,
           written: true,
           operationId,
           manifest: readPackManifest(fileSystem, targetDirectory),
@@ -846,7 +859,11 @@ function receiptPathsAreSafe(receipt) {
 }
 
 /** receiptと各directory内部manifestの両方が一致したoperationだけを回収する。 */
-export function recoverThemeAiPackOperations({ recoveryDirectory, fileSystem = fs } = {}) {
+export function recoverThemeAiPackOperations({
+  recoveryDirectory,
+  fileSystem = fs,
+  targetDirectory,
+} = {}) {
   if (!isDirectory(fileSystem, recoveryDirectory) || isSymbolicLink(fileSystem, recoveryDirectory))
     return [];
   const results = [];
@@ -858,6 +875,12 @@ export function recoverThemeAiPackOperations({ recoveryDirectory, fileSystem = f
     let receipt;
     try {
       receipt = readJson(fileSystem, receiptPath, 64 * 1024);
+      if (
+        targetDirectory &&
+        typeof receipt.targetDirectory === "string" &&
+        path.resolve(receipt.targetDirectory) !== path.resolve(targetDirectory)
+      )
+        continue;
       if (receipt.schema !== THEME_AI_PACK_OPERATION_SCHEMA || !receiptPathsAreSafe(receipt))
         throw new Error("recovery receiptが不正です。");
       const themeId = text(receipt.themeId);

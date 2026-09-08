@@ -558,6 +558,29 @@ export class WorkspaceDatabase {
         this.ensureMeta("automatic_snapshot_backup_generations", "5"),
       );
     }
+    if (key === "dailyContextPublication") {
+      try {
+        const value = JSON.parse(this.ensureMeta("daily_context_publication", "null"));
+        return value &&
+          typeof value.root === "string" &&
+          path.isAbsolute(value.root) &&
+          typeof value.timezone === "string"
+          ? {
+              root: value.root,
+              timezone: value.timezone,
+              refreshPending: value.refreshPending === true,
+              ...(value.retiring &&
+              typeof value.retiring.root === "string" &&
+              path.isAbsolute(value.retiring.root) &&
+              typeof value.retiring.timezone === "string"
+                ? { retiring: { root: value.retiring.root, timezone: value.retiring.timezone } }
+                : {}),
+            }
+          : null;
+      } catch {
+        return null;
+      }
+    }
     // AI公開範囲のworkspace既定（#294）。Entity・Themeが未設定のときだけ使う。
     if (key === "aiVisibilityDefault") {
       const raw = this.ensureMeta("ai_visibility_default", JSON.stringify(DEFAULT_AI_VISIBILITY));
@@ -600,6 +623,42 @@ export class WorkspaceDatabase {
   }
 
   setPreference(key, value) {
+    if (key === "dailyContextPublication") {
+      if (
+        !value ||
+        typeof value.root !== "string" ||
+        !path.isAbsolute(value.root) ||
+        typeof value.timezone !== "string"
+      )
+        throw new Error("公開先の設定が不正です。");
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: value.timezone }).format();
+      } catch {
+        throw new Error("公開先のタイムゾーンが不正です。");
+      }
+      const normalized = {
+        root: value.root,
+        timezone: value.timezone,
+        refreshPending: value.refreshPending === true,
+      };
+      if (value.retiring !== undefined) {
+        if (
+          !value.retiring ||
+          typeof value.retiring.root !== "string" ||
+          !path.isAbsolute(value.retiring.root) ||
+          typeof value.retiring.timezone !== "string"
+        )
+          throw new Error("以前の公開先の設定が不正です。");
+        new Intl.DateTimeFormat("en", { timeZone: value.retiring.timezone }).format();
+        normalized.retiring = { root: value.retiring.root, timezone: value.retiring.timezone };
+      }
+      this.db
+        .prepare(
+          "INSERT INTO workspace_meta(key, value) VALUES('daily_context_publication', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .run(JSON.stringify(normalized));
+      return normalized;
+    }
     if (key === "themeMode") {
       if (!["light", "dark"].includes(value)) throw new Error("カラーモードの値が不正です。");
       this.db
