@@ -9,6 +9,12 @@ import {
   isoTimestampSchema,
 } from "../../shared/kernel/public.ts";
 import { ApplicationCommandError } from "../../shared/applicationCommand.ts";
+import {
+  adoptWorkLogOrganizationSchema,
+  validateWorkLogOrganization,
+  workLogOrganizationMarkdown,
+  type AdoptWorkLogOrganizationCommand,
+} from "../../shared/workLogOrganization.ts";
 
 export interface WorkLogLifecycleCommit {
   command: WorkLogLifecycleCommand;
@@ -81,7 +87,7 @@ export function workLogLifecycleEvent(
 }
 
 export interface WorkLogCompanion {
-  schema: "tasken-work-log-companion/v1";
+  schema: "tasken-work-log-companion/v1" | "tasken-work-log-organization-companion/v1";
   noteId: string;
   event: Entity;
 }
@@ -97,6 +103,26 @@ export function normalizeWorkLogCompanion(value: unknown, noteId: string): WorkL
     /* reject below */
   }
   const metadata = event?.metadata as Record<string, unknown> | undefined;
+  if (item.schema === "tasken-work-log-organization-companion/v1") {
+    const marker = metadata?.work_log_organization as Record<string, unknown> | undefined;
+    if (
+      item.noteId !== noteId ||
+      event?.command_name !== "AdoptWorkLogOrganization" ||
+      event.command_id !== noteId ||
+      event.entity_type !== "note" ||
+      event.entity_id !== noteId ||
+      event.id !== `work-log-organization-${noteId}` ||
+      event.event_kind !== "note_created" ||
+      after.id !== noteId ||
+      !/^[a-f0-9]{64}$/.test(String(event.command_fingerprint)) ||
+      marker?.schema !== "tasken-work-log-organization/v1" ||
+      marker.assertion !== "ai_organized" ||
+      typeof marker.source_id !== "string" ||
+      !Number.isInteger(marker.source_version)
+    )
+      throw new Error("作業記録の整理補足の復旧データが不正です。");
+    return item;
+  }
   const receipt = metadata?.work_log_receipt as WorkLogReceipt | undefined;
   const report = metadata?.work_log as Record<string, unknown> | undefined;
   if (
@@ -122,6 +148,70 @@ export function normalizeWorkLogCompanion(value: unknown, noteId: string): WorkL
   )
     throw new Error("作業記録の復旧データが不正です。");
   return item;
+}
+
+export function planWorkLogOrganization(
+  value: AdoptWorkLogOrganizationCommand,
+  source: Record<string, unknown>,
+  acceptedAt: string,
+  actor: { kind: "user"; id: string },
+) {
+  const command = adoptWorkLogOrganizationSchema.parse(value);
+  const proposal = validateWorkLogOrganization(
+    command.proposal,
+    String(source.body_markdown || ""),
+  );
+  const fingerprint = workLogOrganizationFingerprint(command, actor);
+  const marker = {
+    schema: "tasken-work-log-organization/v1",
+    assertion: "ai_organized",
+    source_id: command.sourceId,
+    source_version: command.sourceVersion,
+    proposal,
+    adopted_at: command.issuedAt,
+  };
+  const note: Entity = {
+    id: command.commandId,
+    title: `AI整理: ${String(source.title || "作業記録").slice(0, 70)}`,
+    note_type: "note",
+    project_id: source.project_id,
+    ai_authority: "ai_generated",
+    ...(Array.isArray(source.ai_visibility) ? { ai_visibility: [...source.ai_visibility] } : {}),
+    body_markdown: workLogOrganizationMarkdown(proposal, command.sourceId, command.sourceVersion),
+    properties_json: { work_log_organization: marker },
+  };
+  const event = buildActivityEvent({
+    id: `work-log-organization-${command.commandId}`,
+    entity_type: "note",
+    entity_id: note.id,
+    event_kind: "note_created",
+    command_id: command.commandId,
+    command_name: "AdoptWorkLogOrganization",
+    command_fingerprint: fingerprint,
+    occurred_at: command.issuedAt,
+    changed_at: acceptedAt,
+    after_json: JSON.stringify(note),
+    actor,
+    source: "manual",
+    summary: "作業記録のAI整理を補足として採用",
+    metadata: { work_log_organization: marker },
+  }) as Entity;
+  return {
+    note,
+    fingerprint,
+    companion: {
+      schema: "tasken-work-log-organization-companion/v1",
+      noteId: note.id,
+      event,
+    } satisfies WorkLogCompanion,
+  };
+}
+
+export function workLogOrganizationFingerprint(
+  command: AdoptWorkLogOrganizationCommand,
+  actor: { kind: "user"; id: string },
+): string {
+  return createHash("sha256").update(JSON.stringify({ command, actor })).digest("hex");
 }
 
 export function planWorkLog(

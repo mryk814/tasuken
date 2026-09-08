@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { workLogOrganizationSchema } from "../../workLogOrganization.ts";
 
 import {
   entityIdSchema,
@@ -1379,6 +1380,12 @@ export const mobileCaptureCommandRequestSchema = z
   );
 
 export const mobileWorkLogCommandSchema = z.discriminatedUnion("name", [
+  z.strictObject({
+    name: z.literal("AdoptWorkLogOrganization"),
+    sourceId: entityIdSchema,
+    sourceVersion: entityVersionSchema,
+    proposal: workLogOrganizationSchema,
+  }),
   z
     .object({
       name: z.literal("RecordWorkLog"),

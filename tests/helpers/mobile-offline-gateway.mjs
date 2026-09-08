@@ -71,7 +71,7 @@ const {
 );
 
 /** A real Gateway/Core/SQLite route, with faults confined to a loopback test proxy. */
-export async function createMobileOfflineGateway({ scopes } = {}) {
+export async function createMobileOfflineGateway({ scopes, organizer = null } = {}) {
   const directory = mkdtempSync(path.join(os.tmpdir(), "tasken-offline-journey-"));
   const serverId = `offline-${randomUUID()}`;
   const deviceId = `test-${randomUUID()}`;
@@ -106,6 +106,8 @@ export async function createMobileOfflineGateway({ scopes } = {}) {
       undefined,
       {
         record: (command, actor) => workspaceService.recordWorkLog(command, actor),
+        adoptOrganization: (command, actor) =>
+          workspaceService.adoptWorkLogOrganization(command, actor),
         changeLifecycle: (command, actor) =>
           workspaceService.changeWorkLogLifecycle(command, actor),
       },
@@ -134,7 +136,7 @@ export async function createMobileOfflineGateway({ scopes } = {}) {
       devices.pair({ code: ticket.code, deviceId, deviceLabel: "Isolated offline journey" });
     }
     host = new MobileGatewayHost({
-      adapter: runtime.createMobileGateway(state),
+      adapter: runtime.createMobileGateway(state, undefined, () => organizer),
       devices,
       state,
       port: 0,

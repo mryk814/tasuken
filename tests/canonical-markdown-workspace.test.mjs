@@ -82,6 +82,73 @@ async function importWorkspaceService() {
 
 const { WorkspaceService } = await importWorkspaceService();
 
+test("work-log AI supplement keeps source unchanged, rejects stale adoption and survives restart/replay", () => {
+  const fixture = createFixture("tasken-work-log-organization");
+  try {
+    let service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const body = "条件Aで試したが失敗した。原因は温度が怪しい。明日は条件Bを調べる。";
+    service.recordWorkLog({
+      schemaVersion: 1,
+      commandName: "RecordWorkLog",
+      commandId: "organization-source",
+      body,
+      performedDate: "2026-09-01",
+      issuedAt: "2026-09-06T00:00:00Z",
+    });
+    const source = fixture.database.get("note", "organization-source");
+    const actor = { kind: "user", id: "test-device" };
+    const command = {
+      commandId: "organization-adopt",
+      sourceId: source.id,
+      sourceVersion: source.version,
+      issuedAt: "2026-09-06T01:00:00Z",
+      proposal: {
+        done: ["条件Aで試したが失敗した。"],
+        observations: [],
+        unresolved: ["原因は温度が怪しい。"],
+        nextActions: ["明日は条件Bを調べる。"],
+      },
+    };
+    assert.throws(
+      () =>
+        service.adoptWorkLogOrganization({ ...command, sourceVersion: source.version + 1 }, actor),
+      /更新/,
+    );
+    assert.throws(
+      () =>
+        service.adoptWorkLogOrganization(
+          { ...command, proposal: { ...command.proposal, unresolved: ["原因は温度と判明した。"] } },
+          actor,
+        ),
+      /引用/,
+    );
+    service.adoptWorkLogOrganization(command, actor);
+    assert.deepEqual(fixture.database.get("note", source.id), source);
+    const supplement = fixture.database.get("note", command.commandId);
+    assert.equal(supplement.properties_json.work_log_organization.assertion, "ai_organized");
+    assert.equal(supplement.properties_json.work_log, undefined);
+    assert.match(supplement.body_markdown, /原因は温度が怪しい。/);
+    assert.equal(fixture.database.list("task").length, 0);
+    assert.equal(
+      fixture.database.list("reference").find((ref) => ref.source_id === supplement.id).target_id,
+      source.id,
+    );
+    service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    service.adoptWorkLogOrganization(command, actor);
+    assert.equal(
+      fixture.database.list("note").filter((note) => note.id === command.commandId).length,
+      1,
+    );
+    assert.throws(
+      () =>
+        service.adoptWorkLogOrganization({ ...command, issuedAt: "2026-09-06T02:00:00Z" }, actor),
+      /Command ID/,
+    );
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
 test("WorkLog lifecycle marker commits with Note deletion and restores through the canonical owner", () => {
   const fixture = createFixture("tasken-work-log-lifecycle");
   try {

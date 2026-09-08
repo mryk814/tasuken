@@ -129,6 +129,9 @@ internal fun MobileWorkLogSheet(
                                     if ((item.pending == null || item.pending.state == OutboxState.Rejected) && record.serverVersion != null) {
                                         TextButton(onClick = { action { repository.refreshWorkLog(record.id) } }, enabled = !busy) { Text("Desktopの記録を確認") }
                                     }
+                                    if (repository is MobileWorkLogOrganizationRepository && !record.deleted) {
+                                        key(record.id) { MobileWorkLogOrganizationControls(item, repository, !busy) }
+                                    }
                                     HorizontalDivider()
                                     if (record.deleted) {
                                         TextButton(onClick = { action { repository.restoreWorkLog(record.id) } }, enabled = !busy && item.pending == null) { Text("削除を元に戻す") }

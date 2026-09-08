@@ -1,5 +1,15 @@
 import { normalizeWorkLogCommand, type WorkLogReceipt } from "../../shared/workLog";
-import { normalizeWorkLogCompanion, planWorkLog, type WorkLogCompanion } from "./workLogCommand";
+import {
+  normalizeWorkLogCompanion,
+  planWorkLog,
+  planWorkLogOrganization,
+  workLogOrganizationFingerprint,
+  type WorkLogCompanion,
+} from "./workLogCommand";
+import {
+  adoptWorkLogOrganizationSchema,
+  type AdoptWorkLogOrganizationCommand,
+} from "../../shared/workLogOrganization.ts";
 import {
   normalizeWorkLogLifecycleCommand,
   workLogLifecycleFingerprint,
@@ -2562,6 +2572,68 @@ export class WorkspaceService {
     if (!themeId) return "";
     const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
     return String(theme?.name || theme?.title || "");
+  }
+
+  adoptWorkLogOrganization(
+    value: AdoptWorkLogOrganizationCommand,
+    actor: { kind: "user"; id: string },
+  ): void {
+    const command = adoptWorkLogOrganizationSchema.parse(value);
+    this.recoverCanonicalMarkdownReceipts();
+    const previous = this.repository.get(
+      "change_event",
+      `work-log-organization-${command.commandId}`,
+      true,
+    );
+    if (previous) {
+      if (previous.command_fingerprint !== workLogOrganizationFingerprint(command, actor))
+        throw new ApplicationCommandError(
+          "COMMAND_ID_REUSED",
+          "同じCommand IDの内容が異なります。",
+        );
+      return;
+    }
+    const source = this.repository.get("note", command.sourceId);
+    if (
+      !source ||
+      parsedRecord(parsedRecord(source.properties_json).work_log).schema !== "tasken-work-log/v1"
+    )
+      throw new ApplicationCommandError("NOT_FOUND", "元の作業記録が見つかりません。");
+    if (Number(source.version) !== command.sourceVersion)
+      throw new ApplicationCommandError(
+        "CONFLICT",
+        "原文が更新されています。読み直して整理してください。",
+      );
+    if (this.repository.get("note", command.commandId, true))
+      throw new ApplicationCommandError("CONFLICT", "同じIDの補足が存在します。");
+    const plan = planWorkLogOrganization(command, source, this.now(), actor);
+    this.saveCanonicalNote(
+      {
+        entity: plan.note,
+        snapshot: {
+          owner: { recordType: "note", entityId: plan.note.id },
+          body: plan.note.body_markdown,
+          expectedRevision: 0,
+        },
+        options: { source: "manual", reason: "work_log_organization_adopted" },
+        companions: [
+          {
+            action: "save",
+            type: "reference",
+            entity: {
+              id: `work-log-organization-source-${command.commandId}`,
+              source_type: "note",
+              source_id: command.commandId,
+              target_type: "note",
+              target_id: command.sourceId,
+              relation_type: "derived_from",
+            },
+          },
+        ],
+      },
+      undefined,
+      plan.companion,
+    );
   }
 
   recordWorkLog(

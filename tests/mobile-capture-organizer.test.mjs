@@ -47,6 +47,52 @@ const json = (value) =>
     headers: { "content-type": "application/json" },
   });
 
+test("work-log organization preserves whole uncertain sentences and permits zero actions", async () => {
+  const cases = [
+    [
+      "調査を始めたがまだ途中。",
+      { done: [], observations: [], unresolved: ["調査を始めたがまだ途中。"], nextActions: [] },
+    ],
+    [
+      "条件Aで試したが失敗した。",
+      { done: ["条件Aで試したが失敗した。"], observations: [], unresolved: [], nextActions: [] },
+    ],
+    [
+      "原因は温度が怪しい。",
+      { done: [], observations: [], unresolved: ["原因は温度が怪しい。"], nextActions: [] },
+    ],
+    [
+      "今日は疲れた。",
+      { done: [], observations: ["今日は疲れた。"], unresolved: [], nextActions: [] },
+    ],
+    [
+      "結果を眺めた。次の行動は決めていない。",
+      {
+        done: ["結果を眺めた。"],
+        observations: [],
+        unresolved: ["次の行動は決めていない。"],
+        nextActions: [],
+      },
+    ],
+  ];
+  for (const [source, proposal] of cases) {
+    const organizer = create(env(), async (_url, options) => {
+      const body = JSON.parse(options.body);
+      assert.equal(body.response_format.json_schema.name, "work_log_organization");
+      assert.match(body.messages[0].content, /never rewrite it as 原因と判明/);
+      return json(chat(proposal));
+    });
+    assert.deepEqual(await organizer.organizeWorkLog(source), proposal);
+  }
+  const source = "原因と判明していない。温度が怪しい。";
+  for (const invented of ["原因と判明", "温度が原因と判明。", "30分で完了。", "2026-09-09に実施。"])
+    await assert.rejects(
+      create(env(), async () =>
+        json(chat({ done: [invented], observations: [], unresolved: [], nextActions: [] })),
+      ).organizeWorkLog(source),
+    );
+});
+
 test("fixed planned-time cases preserve provider fields and the capture-day anchor after midnight", async (t) => {
   // Fixed model responses verify the wire contract and retention, not model inference quality.
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-09-08T00:10:00Z") });
