@@ -144,7 +144,8 @@ data class MobileCaptureDraft(
     fun organizedTaskDrafts(): List<MobileCaptureDraft> {
         val proposals = allOrganizations()
         if (proposals.isEmpty()) return listOf(this)
-        return proposals.mapIndexed { index, proposal ->
+        return proposals.mapIndexedNotNull { index, proposal ->
+            if (proposal.excluded) return@mapIndexedNotNull null
             copy(
                 draftId = if (index == 0) draftId else "$draftId:task:$index",
                 text = proposal.title,
