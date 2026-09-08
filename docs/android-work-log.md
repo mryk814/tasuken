@@ -36,6 +36,7 @@ Task追加は採用とは別操作で、日付・時間・完了を推定しな�
 
 整理APIは`POST /v1/work-log-organization`で、`mobile:read`と既存`mobile:work-log-write`を要求する。
 採用は既存commands経路の`AdoptWorkLogOrganization`で送る。
+補足の採用日時とTaskの追加日時は、それぞれ本人が初回操作した時刻をoutboxへ固定し、再送でも保持する。整理案の生成日時や原文の入力日時は流用しない。
 Room 24→25は原文cacheとoutboxを保持し、原文IDに対応する整理案・生成ID・採用状態だけを別tableへ追加する。
 原文versionの変更、取り消し後の遅延応答、再送・二重採用を検査する。
 採用中の送信失敗は既存の再送操作、version競合は「Desktopの記録を確認」から回復する。
@@ -79,7 +80,7 @@ rtk .\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest
 `MobileLocalDatabaseMigrationTest#migrationTwentyToTwentyOneKeepsExistingCommandsAndAddsWorkLogCache`は既存outboxの不変性とmigrationを検証する。
 `MobileWorkLogUiTest`は長文、保存失敗、日付、保存済み表示、Task参照初期値、Task状態を変えない入口を検証する。
 `MobileWorkLogOrganizationUiTest`は整理案、失敗、破棄、採用後の独立したTask追加と候補0件を検証する。
-`MobileWorkLogDatabaseTest`には遅延応答・version競合・再open・二重採用を含む。
+`MobileWorkLogDatabaseTest`には遅延応答・version競合・再open・二重採用と、生成後の採用／Task追加の操作日時および再送時の保持を含む。
 固定provider応答で未完了の調査、失敗した試行、仮説、所感だけ、次の行動なしを検証する。実モデルの分類品質はこの検証に含まない。
 
 Android APKをbuildしてからrepo rootで実Gatewayの別PID journeyを実行する。

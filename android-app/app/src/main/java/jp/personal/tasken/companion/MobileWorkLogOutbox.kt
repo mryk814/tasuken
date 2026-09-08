@@ -59,7 +59,7 @@ internal class MobileWorkLogOutbox(
         if (value.state in setOf("adopting", "adopted")) return
         val envelope = MobileWorkLogEnvelope(
             requestId = "work-log-organization-${value.generationId}", commandId = value.generationId,
-            idempotencyKey = value.generationId, clientDeviceId = deviceId(), issuedAt = value.issuedAt,
+            idempotencyKey = value.generationId, clientDeviceId = deviceId(), issuedAt = now().toString(),
             command = buildJsonObject {
                 put("name", "AdoptWorkLogOrganization"); put("sourceId", id); put("sourceVersion", value.sourceVersion)
                 put("proposal", MobileWorkLogContract.json.parseToJsonElement(requireNotNull(value.proposalJson)))
