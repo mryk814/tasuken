@@ -1,4 +1,5 @@
 import type { DailyContextPlan, DailyContextSource } from "./dailyContext";
+import type { PublicSourceProjection } from "./publicSourceProjection";
 
 export interface PublishedContextDay extends Pick<
   DailyContextPlan,
@@ -18,6 +19,9 @@ export interface PublishedContextDay extends Pick<
     themeTitle: string | null;
     sources: DailyContextSource[];
   }>;
+  bodySources?: Array<
+    Pick<PublicSourceProjection, "source" | "themeId" | "title" | "relativePath" | "contentHash">
+  >;
 }
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);

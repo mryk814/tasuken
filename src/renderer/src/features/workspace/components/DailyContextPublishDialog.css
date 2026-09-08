@@ -25,6 +25,16 @@
   display: grid;
   gap: 6px;
 }
+.daily-context-dialog .daily-context-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.daily-context-checkbox input[type="checkbox"] {
+  width: auto;
+  flex: none;
+  margin-top: 4px;
+}
 .daily-context-destination {
   display: flex;
   align-items: center;

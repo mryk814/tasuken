@@ -19,6 +19,7 @@ export function DailyContextPublishDialog({
   const busy = useRef(false);
   const [date, setDate] = useState(today);
   const [theme, setTheme] = useState("all");
+  const [includeFullText, setIncludeFullText] = useState(false);
   const [root, setRoot] = useState("");
   const [plan, setPlan] = useState<DailyContextPlan | null>(null);
   const [working, setWorking] = useState(false);
@@ -102,6 +103,20 @@ export function DailyContextPublishDialog({
             }}
           />
         </label>
+        <label className="daily-context-checkbox">
+          <input
+            type="checkbox"
+            checked={includeFullText}
+            onChange={(event) => {
+              setIncludeFullText(event.target.checked);
+              changed();
+            }}
+          />
+          この日の公開対象Note・Capture・作業記録の本文も公開する
+        </label>
+        <p className="muted">
+          本文公開は初期状態では無効です。Conversation・添付・未同期の入力は含めません。
+        </p>
         <div className="daily-context-destination">
           <span>{root || "公開先を選択してください"}</span>
           <Button
@@ -127,7 +142,14 @@ export function DailyContextPublishDialog({
           onClick={() =>
             void run(async () => {
               setPlan(null);
-              setPlan(await preview({ date, timezone, themeId: theme === "all" ? null : theme }));
+              setPlan(
+                await preview({
+                  date,
+                  timezone,
+                  themeId: theme === "all" ? null : theme,
+                  includeFullText,
+                }),
+              );
             })
           }
         >
@@ -136,6 +158,12 @@ export function DailyContextPublishDialog({
       </fieldset>
       {plan && (
         <>
+          {plan.recoveryRoot && (
+            <p role="status">
+              前回の公開更新が未完了です。古い本文やリンクが残っている可能性があります。 保存先「
+              {plan.recoveryRoot}」を選んで再公開してください。
+            </p>
+          )}
           <p>
             {plan.includedCount}件を収録・{plan.excludedCount}件を除外。保存先: Tasken Context/
             {plan.relativePath}
@@ -143,8 +171,29 @@ export function DailyContextPublishDialog({
           <pre className="daily-context-preview" tabIndex={0} aria-label="公開Markdownプレビュー">
             {plan.content}
           </pre>
+          {(plan.publicSources ?? []).length > 0 && (
+            <div>
+              <p>公開する現在版の本文: {plan.publicSources!.length}件（長さによる省略なし）</p>
+              {plan.publicSources!.map((source) => (
+                <details key={source.relativePath}>
+                  <summary>
+                    {source.title || source.source.type} — revision{" "}
+                    {source.source.revision ?? "不明"}
+                    {source.redacted ? "・秘匿化あり" : ""}
+                  </summary>
+                  <pre
+                    className="daily-context-preview"
+                    tabIndex={0}
+                    aria-label={`本文プレビュー ${source.title}`}
+                  >
+                    {source.content}
+                  </pre>
+                </details>
+              ))}
+            </div>
+          )}
           {plan.partial && (
-            <label>
+            <label className="daily-context-checkbox">
               <input
                 type="checkbox"
                 checked={partialConfirmed}
@@ -156,6 +205,8 @@ export function DailyContextPublishDialog({
           )}
           <p className="muted">
             同じ日付の公開物を置き換えます。範囲を狭めた場合も、クラウドやAI側の旧内容の削除・更新はここでは確認できません。
+            同じ保存先の既存公開日・本文リンク・既存Theme AI
+            Packも現在の公開範囲で更新します。保存先を変える場合、以前の保存先でTaskenが管理する日別記録・本文・索引を撤去します。
           </p>
         </>
       )}
