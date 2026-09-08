@@ -31,28 +31,34 @@ function plan(body = "測定する", generatedAt = "2026-08-09T00:00:00.000Z") {
   return buildThemeAiPackPlan({
     theme,
     generatedAt,
-    candidates: [{
-      type: "task",
-      entity: {
-        id: "task-1",
-        title: "測定",
-        description: body,
-        project_id: theme.id,
-        state: "doing",
-        ai_visibility: ["m365"],
-        ai_freshness: "current",
-        ai_authority: "user_confirmed",
-        ai_summary: body,
-        ai_summary_authority: "user_confirmed",
+    candidates: [
+      {
+        type: "task",
+        entity: {
+          id: "task-1",
+          title: "測定",
+          description: body,
+          project_id: theme.id,
+          state: "doing",
+          ai_visibility: ["m365"],
+          ai_freshness: "current",
+          ai_authority: "user_confirmed",
+          ai_summary: body,
+          ai_summary_authority: "user_confirmed",
+        },
       },
-    }],
+    ],
   });
 }
 
 function fixture(prefix) {
   const root = mkdtempSync(path.join(os.tmpdir(), prefix));
   const recoveryDirectory = path.join(root, "recovery");
-  return { root, recoveryDirectory, close: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return {
+    root,
+    recoveryDirectory,
+    close: () => fs.rmSync(root, { recursive: true, force: true }),
+  };
 }
 
 function prepareLocation(root, code = theme.code) {
@@ -89,23 +95,42 @@ function fsWith(overrides) {
 function writeOperationPack(directory, packPlan, operationId, phase) {
   fs.mkdirSync(directory, { recursive: true });
   for (const file of packPlan.files) writeFileSync(path.join(directory, file.name), file.content);
-  writeFileSync(path.join(directory, THEME_AI_PACK_MANIFEST), `${JSON.stringify({
-    ...packPlan.manifest,
-    operation: { schema: THEME_AI_PACK_OPERATION_SCHEMA, themeId: theme.id, operationId, phase },
-  }, null, 2)}\n`);
+  writeFileSync(
+    path.join(directory, THEME_AI_PACK_MANIFEST),
+    `${JSON.stringify(
+      {
+        ...packPlan.manifest,
+        operation: {
+          schema: THEME_AI_PACK_OPERATION_SCHEMA,
+          themeId: theme.id,
+          operationId,
+          phase,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
 }
 
 function writeRecoveryReceipt(recoveryDirectory, location, operationId, phase) {
   fs.mkdirSync(recoveryDirectory, { recursive: true });
-  writeFileSync(path.join(recoveryDirectory, `${operationId}.json`), `${JSON.stringify({
-    schema: THEME_AI_PACK_OPERATION_SCHEMA,
-    themeId: theme.id,
-    operationId,
-    phase,
-    targetDirectory: location.packDirectory,
-    stageDirectory: path.join(location.themeFolder, `.AI Pack.${operationId}.staging`),
-    backupDirectory: path.join(location.themeFolder, `.AI Pack.${operationId}.backup`),
-  }, null, 2)}\n`);
+  writeFileSync(
+    path.join(recoveryDirectory, `${operationId}.json`),
+    `${JSON.stringify(
+      {
+        schema: THEME_AI_PACK_OPERATION_SCHEMA,
+        themeId: theme.id,
+        operationId,
+        phase,
+        targetDirectory: location.packDirectory,
+        stageDirectory: path.join(location.themeFolder, `.AI Pack.${operationId}.staging`),
+        backupDirectory: path.join(location.themeFolder, `.AI Pack.${operationId}.backup`),
+      },
+      null,
+      2,
+    )}\n`,
+  );
 }
 
 test("Theme ID markerからrename前folderを再発見し、重複markerを拒否する（#295）", () => {
@@ -113,18 +138,34 @@ test("Theme ID markerからrename前folderを再発見し、重複markerを拒�
   try {
     const oldFolder = path.join(item.root, "Themes", "OLD");
     fs.mkdirSync(oldFolder, { recursive: true });
-    writeFileSync(path.join(oldFolder, THEME_FOLDER_MANIFEST), `${JSON.stringify(buildThemeFolderManifest({ themeId: theme.id, displayName: "Old" }))}\n`);
-    const found = discoverThemeAiPackLocation({ syncRoot: item.root, themeId: theme.id, themeCode: "NEW", displayName: "New" });
+    writeFileSync(
+      path.join(oldFolder, THEME_FOLDER_MANIFEST),
+      `${JSON.stringify(buildThemeFolderManifest({ themeId: theme.id, displayName: "Old" }))}\n`,
+    );
+    const found = discoverThemeAiPackLocation({
+      syncRoot: item.root,
+      themeId: theme.id,
+      themeCode: "NEW",
+      displayName: "New",
+    });
     assert.equal(found.status, "ok");
     assert.equal(found.themeFolder, oldFolder);
     assert.equal(found.source, "theme_manifest");
 
     const duplicate = path.join(item.root, "Themes", "DUP");
     fs.mkdirSync(duplicate);
-    writeFileSync(path.join(duplicate, THEME_FOLDER_MANIFEST), `${JSON.stringify(buildThemeFolderManifest({ themeId: theme.id, displayName: "Duplicate" }))}\n`);
+    writeFileSync(
+      path.join(duplicate, THEME_FOLDER_MANIFEST),
+      `${JSON.stringify(buildThemeFolderManifest({ themeId: theme.id, displayName: "Duplicate" }))}\n`,
+    );
     assert.deepEqual(
       discoverThemeAiPackLocation({ syncRoot: item.root, themeId: theme.id, themeCode: "NEW" }),
-      { status: "identity_conflict", dirty: true, retryPending: false, reason: "duplicate_theme_manifest" },
+      {
+        status: "identity_conflict",
+        dirty: true,
+        retryPending: false,
+        reason: "duplicate_theme_manifest",
+      },
     );
   } finally {
     item.close();
@@ -140,10 +181,20 @@ test("root unavailableと別Themeのpreferred folderは既存データを変更�
     );
     const preferred = path.join(item.root, "Themes", "MAT");
     fs.mkdirSync(preferred, { recursive: true });
-    writeFileSync(path.join(preferred, THEME_FOLDER_MANIFEST), `${JSON.stringify(buildThemeFolderManifest({ themeId: "theme-other", displayName: "Other" }))}\n`);
-    const result = discoverThemeAiPackLocation({ syncRoot: item.root, themeId: theme.id, themeCode: "MAT" });
+    writeFileSync(
+      path.join(preferred, THEME_FOLDER_MANIFEST),
+      `${JSON.stringify(buildThemeFolderManifest({ themeId: "theme-other", displayName: "Other" }))}\n`,
+    );
+    const result = discoverThemeAiPackLocation({
+      syncRoot: item.root,
+      themeId: theme.id,
+      themeCode: "MAT",
+    });
     assert.equal(result.status, "identity_conflict");
-    assert.equal(JSON.parse(readFileSync(path.join(preferred, THEME_FOLDER_MANIFEST), "utf8")).themeId, "theme-other");
+    assert.equal(
+      JSON.parse(readFileSync(path.join(preferred, THEME_FOLDER_MANIFEST), "utf8")).themeId,
+      "theme-other",
+    );
   } finally {
     item.close();
   }
@@ -161,7 +212,14 @@ test("operation ID traversalとAI Pack/stage/backup junctionをwrite前に拒否
       },
     });
     assert.throws(
-      () => publishThemeAiPack({ plan: plan(), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "../escape", fileSystem: counting }),
+      () =>
+        publishThemeAiPack({
+          plan: plan(),
+          packDirectory: location.packDirectory,
+          recoveryDirectory: item.recoveryDirectory,
+          operationId: "../escape",
+          fileSystem: counting,
+        }),
       /operation ID/,
     );
     assert.equal(writes, 0);
@@ -170,7 +228,14 @@ test("operation ID traversalとAI Pack/stage/backup junctionをwrite前に拒否
     fs.mkdirSync(outside);
     fs.symlinkSync(outside, location.packDirectory, "junction");
     assert.throws(
-      () => publishThemeAiPack({ plan: plan(), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "target-link", fileSystem: counting }),
+      () =>
+        publishThemeAiPack({
+          plan: plan(),
+          packDirectory: location.packDirectory,
+          recoveryDirectory: item.recoveryDirectory,
+          operationId: "target-link",
+          fileSystem: counting,
+        }),
       /symlink\/junction/,
     );
     assert.equal(writes, 0);
@@ -178,10 +243,20 @@ test("operation ID traversalとAI Pack/stage/backup junctionをwrite前に拒否
 
     for (const suffix of ["staging", "backup"]) {
       const operationId = `${suffix}-link`;
-      const operationDirectory = path.join(location.themeFolder, `.AI Pack.${operationId}.${suffix}`);
+      const operationDirectory = path.join(
+        location.themeFolder,
+        `.AI Pack.${operationId}.${suffix}`,
+      );
       fs.symlinkSync(outside, operationDirectory, "junction");
       assert.throws(
-        () => publishThemeAiPack({ plan: plan(), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId, fileSystem: counting }),
+        () =>
+          publishThemeAiPack({
+            plan: plan(),
+            packDirectory: location.packDirectory,
+            recoveryDirectory: item.recoveryDirectory,
+            operationId,
+            fileSystem: counting,
+          }),
         /symlink\/junction/,
       );
       assert.equal(writes, 0);
@@ -196,7 +271,12 @@ test("fixed 7 Markdown + manifestをstaging swapし、unchangedはmtimeもgenera
   const item = fixture("tasken-ai-pack-publish-");
   try {
     const location = prepareLocation(item.root);
-    const first = publishThemeAiPack({ plan: plan(), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "first" });
+    const first = publishThemeAiPack({
+      plan: plan(),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "first",
+    });
     assert.equal(first.state, "current");
     assert.equal(first.written, true);
     const names = fs.readdirSync(location.packDirectory).sort();
@@ -210,13 +290,31 @@ test("fixed 7 Markdown + manifestをstaging swapし、unchangedはmtimeもgenera
       "05 Knowledge.md",
       "06 Activity.md",
     ]);
-    const before = new Map(names.map((name) => [name, fs.statSync(path.join(location.packDirectory, name)).mtimeMs]));
-    const generatedAt = JSON.parse(readFileSync(path.join(location.packDirectory, THEME_AI_PACK_MANIFEST), "utf8")).generatedAt;
-    const second = publishThemeAiPack({ plan: plan("測定する", "2026-08-10T00:00:00.000Z"), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "second" });
+    const before = new Map(
+      names.map((name) => [name, fs.statSync(path.join(location.packDirectory, name)).mtimeMs]),
+    );
+    const generatedAt = JSON.parse(
+      readFileSync(path.join(location.packDirectory, THEME_AI_PACK_MANIFEST), "utf8"),
+    ).generatedAt;
+    const second = publishThemeAiPack({
+      plan: plan("測定する", "2026-08-10T00:00:00.000Z"),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "second",
+    });
     assert.equal(second.state, "skipped");
     assert.equal(second.written, false);
-    assert.equal(JSON.parse(readFileSync(path.join(location.packDirectory, THEME_AI_PACK_MANIFEST), "utf8")).generatedAt, generatedAt);
-    assert.deepEqual(new Map(names.map((name) => [name, fs.statSync(path.join(location.packDirectory, name)).mtimeMs])), before);
+    assert.equal(
+      JSON.parse(readFileSync(path.join(location.packDirectory, THEME_AI_PACK_MANIFEST), "utf8"))
+        .generatedAt,
+      generatedAt,
+    );
+    assert.deepEqual(
+      new Map(
+        names.map((name) => [name, fs.statSync(path.join(location.packDirectory, name)).mtimeMs]),
+      ),
+      before,
+    );
   } finally {
     item.close();
   }
@@ -226,12 +324,28 @@ test("manifestが同じでも実Markdown driftを検出して再生成する（#
   const item = fixture("tasken-ai-pack-drift-");
   try {
     const location = prepareLocation(item.root);
-    publishThemeAiPack({ plan: plan(), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "first" });
+    publishThemeAiPack({
+      plan: plan(),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "first",
+    });
     writeFileSync(path.join(location.packDirectory, "01 Current Work.md"), "外部変更\n");
-    assert.equal(inspectThemeAiPack({ plan: plan(), packDirectory: location.packDirectory }).state, "dirty");
-    const repaired = publishThemeAiPack({ plan: plan(), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "repair" });
+    assert.equal(
+      inspectThemeAiPack({ plan: plan(), packDirectory: location.packDirectory }).state,
+      "dirty",
+    );
+    const repaired = publishThemeAiPack({
+      plan: plan(),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "repair",
+    });
     assert.equal(repaired.state, "current");
-    assert.match(readFileSync(path.join(location.packDirectory, "01 Current Work.md"), "utf8"), /測定する/);
+    assert.match(
+      readFileSync(path.join(location.packDirectory, "01 Current Work.md"), "utf8"),
+      /測定する/,
+    );
   } finally {
     item.close();
   }
@@ -241,17 +355,32 @@ test("staging write failureは旧Packを保ちretryableにする（#295）", () 
   const item = fixture("tasken-ai-pack-stage-failure-");
   try {
     const location = prepareLocation(item.root);
-    publishThemeAiPack({ plan: plan("old"), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "old" });
+    publishThemeAiPack({
+      plan: plan("old"),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "old",
+    });
     const old = readFileSync(path.join(location.packDirectory, "01 Current Work.md"), "utf8");
     const failing = fsWith({
       writeFileSync(targetPath, ...args) {
-        if (String(targetPath).includes("02 Decisions.md")) throw new Error("simulated stage write failure");
+        if (String(targetPath).includes("02 Decisions.md"))
+          throw new Error("simulated stage write failure");
         return fs.writeFileSync(targetPath, ...args);
       },
     });
-    const result = publishThemeAiPack({ plan: plan("new"), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "stage-fail", fileSystem: failing });
+    const result = publishThemeAiPack({
+      plan: plan("new"),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "stage-fail",
+      fileSystem: failing,
+    });
     assert.equal(result.state, "failed_retryable");
-    assert.equal(readFileSync(path.join(location.packDirectory, "01 Current Work.md"), "utf8"), old);
+    assert.equal(
+      readFileSync(path.join(location.packDirectory, "01 Current Work.md"), "utf8"),
+      old,
+    );
   } finally {
     item.close();
   }
@@ -261,17 +390,32 @@ test("Windows stage→target rename failureはbackupを復元する（#295）", 
   const item = fixture("tasken-ai-pack-rename-failure-");
   try {
     const location = prepareLocation(item.root);
-    publishThemeAiPack({ plan: plan("old"), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "old" });
+    publishThemeAiPack({
+      plan: plan("old"),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "old",
+    });
     const old = readFileSync(path.join(location.packDirectory, "01 Current Work.md"), "utf8");
     const failing = fsWith({
       renameSync(from, to) {
-        if (String(from).endsWith(".staging") && path.basename(String(to)) === "AI Pack") throw new Error("simulated Windows rename lock");
+        if (String(from).endsWith(".staging") && path.basename(String(to)) === "AI Pack")
+          throw new Error("simulated Windows rename lock");
         return fs.renameSync(from, to);
       },
     });
-    const result = publishThemeAiPack({ plan: plan("new"), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "rename-fail", fileSystem: failing });
+    const result = publishThemeAiPack({
+      plan: plan("new"),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "rename-fail",
+      fileSystem: failing,
+    });
     assert.equal(result.state, "failed_retryable");
-    assert.equal(readFileSync(path.join(location.packDirectory, "01 Current Work.md"), "utf8"), old);
+    assert.equal(
+      readFileSync(path.join(location.packDirectory, "01 Current Work.md"), "utf8"),
+      old,
+    );
   } finally {
     item.close();
   }
@@ -281,15 +425,28 @@ test("rollbackも失敗したoperationはreceiptを残し、marker不一致な�
   const item = fixture("tasken-ai-pack-recovery-");
   try {
     const location = prepareLocation(item.root);
-    publishThemeAiPack({ plan: plan("old"), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "old" });
+    publishThemeAiPack({
+      plan: plan("old"),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "old",
+    });
     const failing = fsWith({
       renameSync(from, to) {
-        if (String(from).endsWith(".staging") && path.basename(String(to)) === "AI Pack") throw new Error("publish rename failed");
-        if (String(from).endsWith(".backup") && path.basename(String(to)) === "AI Pack") throw new Error("restore rename failed");
+        if (String(from).endsWith(".staging") && path.basename(String(to)) === "AI Pack")
+          throw new Error("publish rename failed");
+        if (String(from).endsWith(".backup") && path.basename(String(to)) === "AI Pack")
+          throw new Error("restore rename failed");
         return fs.renameSync(from, to);
       },
     });
-    const result = publishThemeAiPack({ plan: plan("new"), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "needs-recovery", fileSystem: failing });
+    const result = publishThemeAiPack({
+      plan: plan("new"),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "needs-recovery",
+      fileSystem: failing,
+    });
     assert.equal(result.state, "recovery_required");
     const receiptFiles = fs.readdirSync(item.recoveryDirectory);
     assert.deepEqual(receiptFiles, ["needs-recovery.json"]);
@@ -311,15 +468,28 @@ test("正しいoperation markerでもbackup Markdown改ざん時は復旧しな�
   const item = fixture("tasken-ai-pack-recovery-tamper-");
   try {
     const location = prepareLocation(item.root);
-    publishThemeAiPack({ plan: plan("old"), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "old" });
+    publishThemeAiPack({
+      plan: plan("old"),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "old",
+    });
     const failing = fsWith({
       renameSync(from, to) {
-        if (String(from).endsWith(".staging") && path.basename(String(to)) === "AI Pack") throw new Error("publish rename failed");
-        if (String(from).endsWith(".backup") && path.basename(String(to)) === "AI Pack") throw new Error("restore rename failed");
+        if (String(from).endsWith(".staging") && path.basename(String(to)) === "AI Pack")
+          throw new Error("publish rename failed");
+        if (String(from).endsWith(".backup") && path.basename(String(to)) === "AI Pack")
+          throw new Error("restore rename failed");
         return fs.renameSync(from, to);
       },
     });
-    const result = publishThemeAiPack({ plan: plan("new"), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "tampered-content", fileSystem: failing });
+    const result = publishThemeAiPack({
+      plan: plan("new"),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "tampered-content",
+      fileSystem: failing,
+    });
     assert.equal(result.state, "recovery_required");
     const backup = path.join(location.themeFolder, ".AI Pack.tampered-content.backup");
     writeFileSync(path.join(backup, "01 Current Work.md"), "改ざん済み\n");
@@ -337,12 +507,18 @@ test("inspectはMarkdown symlink/junctionをfollowせずdirtyにする（#295）
   try {
     const location = prepareLocation(item.root);
     const packPlan = plan();
-    publishThemeAiPack({ plan: packPlan, packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "first" });
+    publishThemeAiPack({
+      plan: packPlan,
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "first",
+    });
     const linkedPath = path.join(location.packDirectory, "01 Current Work.md");
     let linkedReads = 0;
     const linked = fsWith({
       lstatSync(targetPath, ...args) {
-        if (path.resolve(String(targetPath)) === path.resolve(linkedPath)) return { isSymbolicLink: () => true };
+        if (path.resolve(String(targetPath)) === path.resolve(linkedPath))
+          return { isSymbolicLink: () => true };
         return fs.lstatSync(targetPath, ...args);
       },
       readFileSync(targetPath, ...args) {
@@ -350,7 +526,14 @@ test("inspectはMarkdown symlink/junctionをfollowせずdirtyにする（#295）
         return fs.readFileSync(targetPath, ...args);
       },
     });
-    assert.equal(inspectThemeAiPack({ plan: packPlan, packDirectory: location.packDirectory, fileSystem: linked }).state, "dirty");
+    assert.equal(
+      inspectThemeAiPack({
+        plan: packPlan,
+        packDirectory: location.packDirectory,
+        fileSystem: linked,
+      }).state,
+      "dirty",
+    );
     assert.equal(linkedReads, 0);
   } finally {
     item.close();
@@ -364,14 +547,24 @@ test("backup marker後のcrashは旧Packをcurrentへ戻しstagingを回収す�
     const oldPlan = plan("old");
     const newPlan = plan("new");
     const operationId = "crash-backup-pending";
-    publishThemeAiPack({ plan: oldPlan, packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "old" });
+    publishThemeAiPack({
+      plan: oldPlan,
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "old",
+    });
     writeOperationPack(location.packDirectory, oldPlan, operationId, "backup");
     const stage = path.join(location.themeFolder, `.AI Pack.${operationId}.staging`);
     writeOperationPack(stage, newPlan, operationId, "staged");
     writeRecoveryReceipt(item.recoveryDirectory, location, operationId, "backup_pending");
 
-    assert.deepEqual(recoverThemeAiPackOperations({ recoveryDirectory: item.recoveryDirectory }), [{ operationId, state: "restored" }]);
-    assert.equal(inspectThemeAiPack({ plan: oldPlan, packDirectory: location.packDirectory }).state, "current");
+    assert.deepEqual(recoverThemeAiPackOperations({ recoveryDirectory: item.recoveryDirectory }), [
+      { operationId, state: "restored" },
+    ]);
+    assert.equal(
+      inspectThemeAiPack({ plan: oldPlan, packDirectory: location.packDirectory }).state,
+      "current",
+    );
     assert.equal(fs.existsSync(stage), false);
     assert.equal(fs.existsSync(path.join(item.recoveryDirectory, `${operationId}.json`)), false);
   } finally {
@@ -386,15 +579,25 @@ test("stage→target後のcrashは新Packのpublishを完了してbackupを回�
     const oldPlan = plan("old");
     const newPlan = plan("new");
     const operationId = "crash-swapped";
-    publishThemeAiPack({ plan: oldPlan, packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "old" });
+    publishThemeAiPack({
+      plan: oldPlan,
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "old",
+    });
     const backup = path.join(location.themeFolder, `.AI Pack.${operationId}.backup`);
     fs.renameSync(location.packDirectory, backup);
     writeOperationPack(backup, oldPlan, operationId, "backup");
     writeOperationPack(location.packDirectory, newPlan, operationId, "staged");
     writeRecoveryReceipt(item.recoveryDirectory, location, operationId, "swapping");
 
-    assert.deepEqual(recoverThemeAiPackOperations({ recoveryDirectory: item.recoveryDirectory }), [{ operationId, state: "published" }]);
-    assert.equal(inspectThemeAiPack({ plan: newPlan, packDirectory: location.packDirectory }).state, "current");
+    assert.deepEqual(recoverThemeAiPackOperations({ recoveryDirectory: item.recoveryDirectory }), [
+      { operationId, state: "published" },
+    ]);
+    assert.equal(
+      inspectThemeAiPack({ plan: newPlan, packDirectory: location.packDirectory }).state,
+      "current",
+    );
     assert.equal(fs.existsSync(backup), false);
     assert.equal(fs.existsSync(path.join(item.recoveryDirectory, `${operationId}.json`)), false);
   } finally {
@@ -406,7 +609,12 @@ test("publish成功後のbackup cleanup failureはcurrent_with_warningで新Pack
   const item = fixture("tasken-ai-pack-cleanup-warning-");
   try {
     const location = prepareLocation(item.root);
-    publishThemeAiPack({ plan: plan("old"), packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "old" });
+    publishThemeAiPack({
+      plan: plan("old"),
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "old",
+    });
     const failing = fsWith({
       rmSync(targetPath, ...args) {
         if (String(targetPath).endsWith(".backup")) throw new Error("simulated cleanup failure");
@@ -414,10 +622,19 @@ test("publish成功後のbackup cleanup failureはcurrent_with_warningで新Pack
       },
     });
     const nextPlan = plan("new");
-    const result = publishThemeAiPack({ plan: nextPlan, packDirectory: location.packDirectory, recoveryDirectory: item.recoveryDirectory, operationId: "cleanup-warning", fileSystem: failing });
+    const result = publishThemeAiPack({
+      plan: nextPlan,
+      packDirectory: location.packDirectory,
+      recoveryDirectory: item.recoveryDirectory,
+      operationId: "cleanup-warning",
+      fileSystem: failing,
+    });
     assert.equal(result.state, "current_with_warning");
     assert.equal(result.written, true);
-    assert.equal(inspectThemeAiPack({ plan: nextPlan, packDirectory: location.packDirectory }).state, "current");
+    assert.equal(
+      inspectThemeAiPack({ plan: nextPlan, packDirectory: location.packDirectory }).state,
+      "current",
+    );
   } finally {
     item.close();
   }

@@ -15,7 +15,10 @@ async function importWorkspaceService() {
   const electronMock = {
     name: "electron-mock",
     setup(buildApi) {
-      buildApi.onResolve({ filter: /^electron$/ }, () => ({ path: "electron-mock", namespace: "electron-mock" }));
+      buildApi.onResolve({ filter: /^electron$/ }, () => ({
+        path: "electron-mock",
+        namespace: "electron-mock",
+      }));
       buildApi.onLoad({ filter: /.*/, namespace: "electron-mock" }, () => ({
         contents: `
           export const app = { getPath: () => "" };
@@ -27,19 +30,31 @@ async function importWorkspaceService() {
         `,
         loader: "js",
       }));
-      buildApi.onResolve({ filter: /^adm-zip$/ }, () => ({ path: "adm-zip-mock", namespace: "adm-zip-mock" }));
+      buildApi.onResolve({ filter: /^adm-zip$/ }, () => ({
+        path: "adm-zip-mock",
+        namespace: "adm-zip-mock",
+      }));
       buildApi.onLoad({ filter: /.*/, namespace: "adm-zip-mock" }, () => ({
-        contents: "export default class AdmZip { constructor() { throw new Error('adm-zip is not used by Theme AI Pack tests'); } }",
+        contents:
+          "export default class AdmZip { constructor() { throw new Error('adm-zip is not used by Theme AI Pack tests'); } }",
         loader: "js",
       }));
-      buildApi.onResolve({ filter: /^better-sqlite3$/ }, () => ({ path: "better-sqlite3-mock", namespace: "better-sqlite3-mock" }));
+      buildApi.onResolve({ filter: /^better-sqlite3$/ }, () => ({
+        path: "better-sqlite3-mock",
+        namespace: "better-sqlite3-mock",
+      }));
       buildApi.onLoad({ filter: /.*/, namespace: "better-sqlite3-mock" }, () => ({
-        contents: "export default class Database { constructor() { throw new Error('database path is not used by Theme AI Pack tests'); } }",
+        contents:
+          "export default class Database { constructor() { throw new Error('database path is not used by Theme AI Pack tests'); } }",
         loader: "js",
       }));
-      buildApi.onResolve({ filter: /workspaceRepository\.mjs$/ }, () => ({ path: "workspace-repository-mock", namespace: "workspace-repository-mock" }));
+      buildApi.onResolve({ filter: /workspaceRepository\.mjs$/ }, () => ({
+        path: "workspace-repository-mock",
+        namespace: "workspace-repository-mock",
+      }));
       buildApi.onLoad({ filter: /.*/, namespace: "workspace-repository-mock" }, () => ({
-        contents: "export const workspaceEntityTypes = []; export const workspaceSchemaVersion = 1;",
+        contents:
+          "export const workspaceEntityTypes = []; export const workspaceSchemaVersion = 1;",
         loader: "js",
       }));
     },
@@ -100,30 +115,51 @@ function fixture(prefix) {
 test("PreviewとpublishはMainで同じplanを再構築し、stale previewではwriteしない（#295）", () => {
   const item = fixture("tasken-ai-pack-workspace");
   try {
-    const service = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T01:00:00.000Z");
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T01:00:00.000Z",
+    );
     const preview = service.getThemeAiPackPreview("theme-pack");
     assert.equal(preview.state, "missing");
     assert.equal(preview.files.length, 7);
-    assert.equal(preview.files.some((file) => file.content.includes("公開対象Task")), true);
+    assert.equal(
+      preview.files.some((file) => file.content.includes("公開対象Task")),
+      true,
+    );
 
-    const stale = service.publishThemeAiPack({ themeId: "theme-pack", expectedContentHash: "stale" });
+    const stale = service.publishThemeAiPack({
+      themeId: "theme-pack",
+      expectedContentHash: "stale",
+    });
     assert.equal(stale.state, "stale_preview");
     assert.equal(stale.written, false);
     assert.equal(fs.existsSync(path.join(item.syncRoot, "Themes")), false);
 
-    const published = service.publishThemeAiPack({ themeId: "theme-pack", expectedContentHash: preview.contentHash });
+    const published = service.publishThemeAiPack({
+      themeId: "theme-pack",
+      expectedContentHash: preview.contentHash,
+    });
     assert.equal(published.state, "current");
     assert.equal(published.written, true);
     const packDirectory = path.join(item.syncRoot, "Themes", "PACK", "AI Pack");
     assert.equal(fs.readdirSync(packDirectory).length, 8);
 
-    const later = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-10T01:00:00.000Z");
+    const later = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-10T01:00:00.000Z",
+    );
     const status = later.getThemeAiPackStatus("theme-pack");
     assert.equal(status.plannedGeneratedAt, "2026-08-10T01:00:00.000Z");
     assert.equal(status.lastPublishedAt, "2026-08-09T01:00:00.000Z");
 
     later.publishingThemeAiPacks.add("theme-pack");
-    assert.equal(later.publishThemeAiPack({ themeId: "theme-pack", expectedContentHash: status.contentHash }).state, "publishing");
+    assert.equal(
+      later.publishThemeAiPack({ themeId: "theme-pack", expectedContentHash: status.contentHash })
+        .state,
+      "publishing",
+    );
     later.publishingThemeAiPacks.delete("theme-pack");
 
     const currentWork = path.join(packDirectory, "01 Current Work.md");
@@ -135,7 +171,10 @@ test("PreviewとpublishはMainで同じplanを再構築し、stale previewでは
     const unavailablePreview = later.getThemeAiPackPreview("theme-pack");
     assert.equal(unavailablePreview.state, "root_unavailable");
     assert.equal(unavailablePreview.retryPending, true);
-    const unavailablePublish = later.publishThemeAiPack({ themeId: "theme-pack", expectedContentHash: unavailablePreview.contentHash });
+    const unavailablePublish = later.publishThemeAiPack({
+      themeId: "theme-pack",
+      expectedContentHash: unavailablePreview.contentHash,
+    });
     assert.equal(unavailablePublish.state, "root_unavailable");
     assert.equal(unavailablePublish.written, false);
     assert.equal(fs.readFileSync(currentWork, "utf8"), previousPack);
@@ -148,7 +187,11 @@ test("folder openはMainでTheme containmentとAI Pack junctionを再検証す�
   const item = fixture("tasken-ai-pack-open-folder");
   globalThis.__taskenOpenedPaths = [];
   try {
-    const service = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T01:00:00.000Z");
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T01:00:00.000Z",
+    );
     const preview = service.getThemeAiPackPreview("theme-pack");
     service.publishThemeAiPack({ themeId: "theme-pack", expectedContentHash: preview.contentHash });
     const packDirectory = path.join(item.syncRoot, "Themes", "PACK", "AI Pack");

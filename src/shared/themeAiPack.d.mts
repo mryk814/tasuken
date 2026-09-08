@@ -83,6 +83,8 @@ export interface BuildThemeAiPackPlanInput {
 }
 
 export const THEME_AI_PACK_SCHEMA: "tasken-ai-pack/v1";
-export const THEME_AI_PACK_FILES: ReadonlyArray<Readonly<{ key: string; name: string; title: string }>>;
+export const THEME_AI_PACK_FILES: ReadonlyArray<
+  Readonly<{ key: string; name: string; title: string }>
+>;
 /** generatedAt/sourceRevisionはmanifest専用で、生成Markdownとstable content hashへは入れない。 */
 export function buildThemeAiPackPlan(input: BuildThemeAiPackPlanInput): ThemeAiPackPlan;
