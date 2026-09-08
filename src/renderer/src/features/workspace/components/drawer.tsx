@@ -12,6 +12,7 @@ import {
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
+import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
 import { useUiStore } from "../../../stores/uiStore";
 import { noteExportSignature } from "../../../../../shared/fileExport";
 import { noteProjectId } from "../../../../../shared/themeRef.mjs";
@@ -1269,7 +1270,10 @@ export function EntityDrawer({
         <DrawerHeader title="キャプチャ詳細" close={close} />
         <div className="drawer-content">
           <StatusBadge value={entry.state} label={CAPTURE_ENTRY_STATE_LABELS[entry.state]} />
-          <h2>{entry.title || entry.text}</h2>
+          <h2>{entry.title || "Captureの原文"}</h2>
+          <p className="capture-original-body" data-testid="capture-original-body">
+            {entry.text}
+          </p>
           <dl>
             <dt>記録日</dt>
             <dd>{formatDate(entry.captured_at)}</dd>
@@ -1287,6 +1291,24 @@ export function EntityDrawer({
             workspaceDefault={workspaceAiVisibility(data)}
           />
           <div className="drawer-actions">
+            {entry.state === "untriaged" && (
+              <button
+                className="secondary-button"
+                data-testid="saved-capture-organize"
+                onClick={async () => {
+                  try {
+                    await captureOrganizerApi.openSaved(entry.id, Number(entity.version || 0));
+                  } catch {
+                    setToast(
+                      "Captureを開けませんでした。再読み込みしてから再試行してください。",
+                      "danger",
+                    );
+                  }
+                }}
+              >
+                AIでTask候補を整理
+              </button>
+            )}
             <button
               className="secondary-button"
               onClick={() => close({ type: "capture_entry", mode: "edit", entity })}
@@ -1453,6 +1475,31 @@ function EditDrawer({
               集中して作業する
             </button>
           )}
+          {type === "task" &&
+            entityId &&
+            data.references
+              .filter(
+                (reference) =>
+                  reference.source_type === "task" &&
+                  reference.source_id === entityId &&
+                  reference.target_type === "capture_entry" &&
+                  reference.relation_type === "derived_from",
+              )
+              .map((reference) => {
+                const source = data.capture_entrys.find(
+                  (capture) => capture.id === reference.target_id,
+                );
+                return source ? (
+                  <button
+                    key={reference.id}
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => close({ type: "capture_entry", entity: source })}
+                  >
+                    元のCaptureを開く
+                  </button>
+                ) : null;
+              })}
           {type === "theme" && (
             <>
               <Field label="テーマ名">

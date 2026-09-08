@@ -261,6 +261,7 @@ function applyApplicationMenu(): void {
 function isAuxiliaryWindow(win: BrowserWindow): boolean {
   if (win === taskenRootController?.getWindow()) return true;
   if (win === quickCaptureController?.getWindow()) return true;
+  if (win === quickCaptureController?.getSavedWindow()) return true;
   if (win === todayMiniController?.getWindow()) return true;
   return satelliteWindows?.has(win) === true;
 }
@@ -2749,6 +2750,7 @@ async function startDesktopApp(): Promise<void> {
   });
   taskenRootController.registerIpc();
   quickCaptureController = createQuickCaptureController({
+    isMainSender: (senderId) => findMainWindow()?.webContents.id === senderId,
     organizeCapture: (input) => captureOrganizerSettings.organize(input),
     repository: workspaceRepository,
     notifyWorkspaceChanged: notifyMainWindowRefresh,

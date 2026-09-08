@@ -6979,6 +6979,12 @@ textarea:hover {
 .link-value a:hover {
   color: var(--color-accent);
 }
+.capture-original-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+  line-height: var(--lh-base);
+}
 .drawer-content h2 {
   font-size: var(--text-xl);
 }

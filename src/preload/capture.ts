@@ -13,8 +13,20 @@ contextBridge.exposeInMainWorld("captureApi", {
   resize: (expanded: boolean) => ipcRenderer.send(IPC.quickCaptureResize, expanded),
   previewDue: (text: string) => ipcRenderer.invoke(IPC.quickCapturePreviewDue, text),
   hide: () => ipcRenderer.send(IPC.quickCaptureHide),
-  onShow: (callback: (mode: string) => void) => {
-    ipcRenderer.on(IPC.quickCaptureShown, (_event, mode: string) => callback(mode));
+  onShow: (
+    callback: (
+      mode: string,
+      source?: import("../shared/savedCaptureOrganization").SavedCaptureOrganizationSource,
+    ) => void,
+  ) => {
+    ipcRenderer.on(
+      IPC.quickCaptureShown,
+      (
+        _event,
+        mode: string,
+        source?: import("../shared/savedCaptureOrganization").SavedCaptureOrganizationSource,
+      ) => callback(mode, source),
+    );
   },
   onHide: (callback: () => void) => {
     ipcRenderer.on(IPC.quickCaptureHidden, () => callback());

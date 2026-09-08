@@ -91,11 +91,13 @@ export function createQuickCaptureOrganizationFixture(
       overrides.notifyCommandApplied?.(receipt);
     },
     organizeCapture,
+    isMainSender: overrides.isMainSender,
   });
   controller.registerIpc();
   controller.show("today-task");
   const event = { sender: controller.getWindow().webContents };
   return {
+    controller,
     commands,
     batches,
     saves,

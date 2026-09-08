@@ -47,6 +47,94 @@ const json = (value) =>
     headers: { "content-type": "application/json" },
   });
 
+test("saved Capture fixed cases permit zero through eight while new input still requires one", async () => {
+  // Fixtures verify provider schemas/local validation, not live model judgement.
+  const cases = [
+    ["今日は疲れた", []],
+    ["この条件でよかっただろうか", []],
+    ["昨日は何か試した気がする", []],
+    ["条件を比較する", [{ ...proposal, title: "条件を比較する", startDate: null, checklist: [] }]],
+    [
+      "条件を比較する。結果を送る",
+      [
+        { ...proposal, title: "条件を比較する" },
+        { ...proposal, title: "結果を送る" },
+      ],
+    ],
+  ];
+  for (const provider of ["openai", "gemini"]) {
+    for (const [text, tasks] of cases) {
+      let wire;
+      const organizer = create(env(provider), async (_url, options) => {
+        wire = JSON.parse(options.body);
+        return json(
+          provider === "gemini"
+            ? {
+                candidates: [
+                  {
+                    finishReason: "STOP",
+                    content: { parts: [{ text: JSON.stringify(batch(tasks)) }] },
+                  },
+                ],
+              }
+            : chat(batch(tasks)),
+        );
+      });
+      assert.deepEqual(
+        await organizer.organize({
+          ...input,
+          text,
+          mode: "saved_capture",
+          capturedAt: "2026-09-06T00:30:00",
+          maxTasks: 8,
+        }),
+        batch(tasks),
+      );
+      assert.match(JSON.stringify(wire), /minItems.{0,4}0/);
+      assert.match(JSON.stringify(wire), /2026-09-06/);
+      if (!tasks.length)
+        await assert.rejects(organizer.organize(input), /AIで整理できませんでした/);
+    }
+  }
+});
+test("saved Capture date-only records anchor relative dates without inventing a capture time", async () => {
+  for (const provider of ["openai", "gemini"]) {
+    let sent;
+    const organizer = create(env(provider), async (_url, options) => {
+      const wire = JSON.parse(options.body);
+      sent = JSON.parse(
+        provider === "gemini" ? wire.contents[0].parts[0].text : wire.messages[1].content,
+      );
+      return json(
+        provider === "gemini"
+          ? {
+              candidates: [
+                { finishReason: "STOP", content: { parts: [{ text: JSON.stringify(batch([])) }] } },
+              ],
+            }
+          : chat(batch([])),
+      );
+    });
+    assert.deepEqual(
+      await organizer.organize({
+        ...input,
+        capturedAt: "2026-09-06",
+        mode: "saved_capture",
+        maxTasks: 8,
+      }),
+      batch([]),
+    );
+    assert.equal(sent.capturedAt, "2026-09-06");
+    assert.equal(sent.capturedLocalDate, "2026-09-06");
+    assert.equal(sent.capturedLocalTime, null);
+    assert.equal(sent.relativeDateAnchors.tomorrow, "2026-09-07");
+    await assert.rejects(organizer.organize({ ...input, capturedAt: "2026-09-06" }));
+    await assert.rejects(
+      organizer.organize({ ...input, capturedAt: "2026-02-30", mode: "saved_capture" }),
+    );
+  }
+});
+
 test("work-log organization preserves whole uncertain sentences and permits zero actions", async () => {
   const cases = [
     [

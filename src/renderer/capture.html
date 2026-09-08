@@ -206,6 +206,9 @@
       @keyframes fade-out {
         to { opacity: 0; }
       }
+      #saved-source label { display: grid; gap: var(--space-1); font-size: var(--text-sm); }
+      #saved-source input { min-width: 0; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); }
+      #saved-source p { margin-block: var(--space-2); }
     </style>
   </head>
   <body>
@@ -215,6 +218,11 @@
         <span id="mode-pill" class="mode-pill">Inbox</span>
       </div>
       <span id="hint" class="capture-hint">Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる</span>
+      <div id="saved-source" hidden>
+        <p id="saved-source-date" class="capture-hint"></p>
+        <label>入力時のタイムゾーン<input id="saved-source-zone" placeholder="例: Asia/Tokyo" aria-label="入力時のタイムゾーン"></label>
+        <p id="saved-source-policy" class="capture-hint"></p>
+      </div>
       <div id="candidate-row" class="candidate-row" hidden>
         <select id="candidate-select" aria-label="編集する整理案"></select>
         <button id="candidate-remove" class="secondary" type="button">この案を除外</button>
@@ -247,6 +255,7 @@
       </section>
       <p id="organization-status" role="status" aria-live="polite"></p>
       <div class="capture-actions">
+        <button id="saved-source-return" class="secondary" type="button" hidden>元Captureへ戻る</button>
         <button id="organize" class="secondary" type="button" hidden>AIで整理</button>
         <button id="submit" type="button">記録する</button>
       </div>
@@ -280,6 +289,9 @@
       let saving = false;
       let resumeFocus = null;
       let themesInitialized = false;
+      let savedSource = null;
+      let feedbackTimeout = null;
+      const savedSourceZone = document.getElementById("saved-source-zone");
       const candidateRow = document.getElementById("candidate-row");
       const candidateSelect = document.getElementById("candidate-select");
       const candidateRemove = document.getElementById("candidate-remove");
@@ -300,9 +312,18 @@
         themeRow.classList.toggle("is-visible", mode !== "micro-memo" && (!organization || count > 0));
         if (organization) {
           submitButton.textContent = submission ? `${count}件の保存を再確認` : `${count}件を追加`;
-          hint.textContent = "案ごとに内容を確認 / Ctrl+Enter でまとめて追加 / Escで閉じる";
+          hint.textContent = count ? "案ごとに内容を確認 / Ctrl+Enter でまとめて追加 / Escで閉じる" : "候補0件 / 原文は保持 / Escで閉じる";
         }
         submitButton.disabled = organizing || saving || Boolean(organization && count === 0);
+        if (mode === "saved-capture") {
+          input.readOnly = !organization;
+          submitButton.disabled ||= !organization;
+          submitButton.hidden = !organization;
+          savedSourceZone.disabled = organizing || Boolean(organization) || locked;
+          themeSelect.disabled ||= !organization;
+          organizeButton.disabled = !savedSource?.canOrganize;
+          document.getElementById("organization-empty").textContent = "Task候補はありません。原文はそのまま残っています。";
+        } else { input.readOnly = false; submitButton.hidden = false; organizeButton.disabled = false; }
       }
 
       function retainCandidate() {
@@ -353,7 +374,7 @@
       function stopOrganizing() {
         ++organizeRequest;
         organizing = false;
-        organizeButton.textContent = "AIで整理";
+        organizeButton.textContent = mode === "saved-capture" ? "AIへ送って整理" : "AIで整理";
         updateOrganizationControls();
       }
       function clearOrganization(restore = false) {
@@ -365,7 +386,7 @@
         originalInput = null;
         organizationPanel.hidden = true;
         organizationStatus.textContent = "";
-        organizeButton.hidden = mode !== "today-task";
+        organizeButton.hidden = !["today-task", "saved-capture"].includes(mode);
         applyMode(mode);
         updateOrganizationControls();
         window.captureApi.resize(false);
@@ -373,7 +394,8 @@
       }
       async function organize() {
         if (organizing) { stopOrganizing(); organizationStatus.textContent = "整理を中止しました。入力は残っています。"; return; }
-        if (mode !== "today-task" || !input.value.trim() || submission || saving) return;
+        if (!["today-task", "saved-capture"].includes(mode) || !input.value.trim() || submission || saving) return;
+        if (mode === "saved-capture" && !savedSourceZone.value.trim()) { organizationStatus.textContent = "入力時のタイムゾーンは未記録です。指定してから送信してください。"; savedSourceZone.focus(); return; }
         const snapshot = { text: input.value, themeId: themeSelect.value };
         const request = ++organizeRequest;
         organizing = true;
@@ -381,9 +403,11 @@
         submitButton.disabled = true;
         organizationStatus.textContent = "AIで整理しています…";
         try {
-          const result = await window.captureApi.organize({ text: snapshot.text, themeId: snapshot.themeId || null,
-            ...(captureAnchor ??= { capturedAt: new Date().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) });
-          if (request !== organizeRequest || mode !== "today-task" || input.value !== snapshot.text || themeSelect.value !== snapshot.themeId) return;
+          const result = await window.captureApi.organize(mode === "saved-capture"
+            ? { captureId: savedSource.id, captureVersion: savedSource.version, timeZone: savedSourceZone.value.trim() }
+            : { text: snapshot.text, themeId: snapshot.themeId || null,
+              ...(captureAnchor ??= { capturedAt: new Date().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) });
+          if (request !== organizeRequest || !["today-task", "saved-capture"].includes(mode) || input.value !== snapshot.text || themeSelect.value !== snapshot.themeId) return;
           originalInput = snapshot;
           organization = result;
           activeCandidate = 0;
@@ -393,7 +417,7 @@
           organizeButton.hidden = true;
           duePreview.className = "due-preview";
           rangeChoice.hidden = true;
-          organizationStatus.textContent = "整理案を確認して追加してください。";
+          organizationStatus.textContent = result.tasks.length ? "整理案を確認し、不要な案を除外して追加してください。" : "明示された次の行動はありません。原文は保持しています。";
           window.captureApi.resize(true);
         } catch {
           if (request === organizeRequest) organizationStatus.textContent = "整理できませんでした。設定・接続を確認して再試行してください。入力は残っています。";
@@ -421,7 +445,7 @@
         themeSelect.value = [...themeSelect.options].some((option) => option.value === current) ? current : "";
       }
 
-      const MODES = new Set(["today-task", "micro-memo", "done-task"]);
+      const MODES = new Set(["today-task", "micro-memo", "done-task", "saved-capture"]);
 
       function applyMode(nextMode) {
         mode = MODES.has(nextMode) ? nextMode : "inbox";
@@ -446,7 +470,20 @@
         selectedRangeSemantics = "";
         rangeChoice.replaceChildren();
         rangeChoice.hidden = true;
-        organizeButton.hidden = !isTodayTask || organization !== null;
+        organizeButton.hidden = !(isTodayTask || mode === "saved-capture") || organization !== null;
+        const isSaved = mode === "saved-capture";
+        document.getElementById("saved-source").hidden = !isSaved;
+        document.getElementById("saved-source-return").hidden = !isSaved;
+        if (isSaved) {
+          title.textContent = "保存したCaptureを整理";
+          modePill.textContent = "Capture";
+          hint.textContent = "選んだ候補だけ追加 / 原文はCaptureに保持";
+          organizeButton.textContent = "AIへ送って整理";
+          document.getElementById("saved-source-date").textContent = `元の入力日時: ${savedSource?.capturedAt || "不明"}`;
+          document.getElementById("saved-source-policy").textContent = savedSource?.canOrganize
+            ? "この原文・入力日時・タイムゾーンと、公開を許可した所属Theme名だけを設定済みAIへ送ります。"
+            : "CaptureのAI公開範囲で「外部AI」を許可すると整理できます。";
+        }
       }
 
       function renderRangeChoice(result) {
@@ -517,6 +554,7 @@
               return;
             }
             submission = { ...structuredClone(organization), submissionId: crypto.randomUUID(), issuedAt: new Date().toISOString() };
+            if (mode === "saved-capture") Object.assign(submission, { captureId: savedSource.id, captureVersion: savedSource.version });
           }
         }
         saving = true;
@@ -535,7 +573,7 @@
             lastThemeId = themeId;
             localStorage.setItem("tasken:quick-capture:last-theme-id", themeId);
           }
-          input.value = "";
+          input.value = mode === "saved-capture" ? savedSource.text : "";
           captureAnchor = null;
           clearOrganization();
           if (savedCount) feedback.textContent = `${savedCount}件のタスクを追加しました`;
@@ -543,7 +581,7 @@
           feedback.style.animation = "none";
           feedback.offsetHeight;
           feedback.style.animation = "";
-          setTimeout(() => {
+          feedbackTimeout = setTimeout(() => {
             feedback.style.display = "none";
             if (continueCapturing) {
               input.focus();
@@ -596,6 +634,7 @@
         else document.getElementById("organization-restore").focus();
       });
       organizeButton.addEventListener("click", organize);
+      document.getElementById("saved-source-return").addEventListener("click", () => { stopOrganizing(); window.captureApi.hide(); });
       document.getElementById("organization-restore").addEventListener("click", () => { if (!submission && !saving) { clearOrganization(true); input.focus(); } });
 
       document.addEventListener("keydown", (event) => {
@@ -610,9 +649,18 @@
         }
       });
 
-      window.captureApi.onShow((nextMode) => {
+      window.captureApi.onShow((nextMode, source) => {
+        clearTimeout(feedbackTimeout);
         stopOrganizing();
         if (submission || saving) nextMode = mode;
+        if (source && !submission && !saving && (!savedSource || source.id !== savedSource.id || source.version !== savedSource.version)) {
+          clearOrganization();
+          savedSource = source;
+          input.value = source.text;
+          savedSourceZone.value = source.timeZone;
+          themeSelect.value = source.themeId || "";
+        }
+        if (source && savedSource?.id === source.id && !submission && !saving) savedSource.canOrganize = source.canOrganize;
         if (nextMode !== mode) { clearOrganization(true); }
         applyMode(nextMode);
         updateOrganizationControls();

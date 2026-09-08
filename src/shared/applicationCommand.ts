@@ -86,7 +86,7 @@ export interface CreateTaskFromCaptureCommandPayload {
   schedule?: Entity | null;
   captureId: string;
   captureVersion: number;
-  transition: "triage_to_task";
+  transition: "triage_to_task" | "extract_task";
   artifactIds?: string[];
   references?: Entity[];
 }
@@ -728,7 +728,7 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
       typeof value.payload.captureVersion !== "number" ||
       !Number.isInteger(value.payload.captureVersion) ||
       value.payload.captureVersion < 0 ||
-      value.payload.transition !== "triage_to_task" ||
+      !["triage_to_task", "extract_task"].includes(String(value.payload.transition)) ||
       (value.payload.artifactIds !== undefined &&
         (!Array.isArray(value.payload.artifactIds) ||
           value.payload.artifactIds.some((id) => typeof id !== "string" || !id.trim())))
