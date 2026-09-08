@@ -514,6 +514,45 @@ export class WorkspaceDatabase {
     };
   }
 
+  getDailyContextAutoState() {
+    const row = this.db
+      .prepare("SELECT value FROM workspace_meta WHERE key = 'daily_context_auto_state'")
+      .get();
+    return row ? JSON.parse(row.value) : null;
+  }
+
+  setDailyContextAutoState(state) {
+    this.db
+      .prepare(
+        "INSERT INTO workspace_meta(key, value) VALUES('daily_context_auto_state', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
+      .run(JSON.stringify(state));
+  }
+
+  /** @returns {import('../../shared/dailyContextAuto').DailyContextDeviceObservation[]} */
+  getDailyContextDeviceObservations() {
+    return [
+      ...this.listMobileDevices()
+        .filter((device) => !device.revokedAt && device.lastSeenAt)
+        .map((device) => ({
+          kind: /** @type {const} */ ("android_connection"),
+          deviceId: device.id,
+          observedAt: device.lastSeenAt,
+        })),
+      ...this.db
+        .prepare(
+          "SELECT device_id, last_sequence, updated_at FROM sync_device_cursors ORDER BY device_id",
+        )
+        .all()
+        .map((row) => ({
+          kind: /** @type {const} */ ("shared_folder_received"),
+          deviceId: row.device_id,
+          observedAt: row.updated_at,
+          revision: row.last_sequence,
+        })),
+    ];
+  }
+
   getPreference(key) {
     if (key === "themeMode") return this.ensureMeta("theme_mode", "light");
     if (key === "activeGroups") {
