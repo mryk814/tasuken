@@ -34,11 +34,12 @@ private fun relatedReasonLabel(reason: RelatedReason): String = when {
 }
 
 @Composable
-internal fun MobileRelatedDocumentsSheet(repository: MobileRelatedDocumentsRepository, taskId: String, onDismiss: () -> Unit) {
+internal fun MobileRelatedDocumentsSheet(repository: MobileRelatedDocumentsRepository, taskId: String, onDismiss: () -> Unit,
+    initialDocument: Pair<String, String>? = null, dismissLabel: String = "Taskへ戻る") {
     val flow = remember(repository, taskId) { repository.observeRelatedDocuments(taskId) }
     val state by flow.collectAsState(RelatedDocumentsState())
-    var selectedType by rememberSaveable(taskId) { mutableStateOf<String?>(null) }
-    var selectedId by rememberSaveable(taskId) { mutableStateOf<String?>(null) }
+    var selectedType by rememberSaveable(taskId) { mutableStateOf(initialDocument?.first) }
+    var selectedId by rememberSaveable(taskId) { mutableStateOf(initialDocument?.second) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listScroll = rememberScrollState()
@@ -48,14 +49,14 @@ internal fun MobileRelatedDocumentsSheet(repository: MobileRelatedDocumentsRepos
         busy = true
         scope.launch { try { withContext(Dispatchers.IO) { block() } } finally { busy = false } }
     }
-    LaunchedEffect(taskId) { action { repository.refreshRelatedDocuments(taskId) } }
+    LaunchedEffect(taskId) { if (initialDocument == null) action { repository.refreshRelatedDocuments(taskId) } }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         BackHandler(selectedId != null) { selectedId = null; selectedType = null }
         Surface(Modifier.widthIn(max = 720.dp).fillMaxWidth().fillMaxHeight(0.92f).testTag("related-documents"), shape = MaterialTheme.shapes.large) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(if (selectedId == null) "関連資料" else "本文", style = MaterialTheme.typography.titleLarge)
-                    TextButton(onClick = onDismiss) { Text("Taskへ戻る") }
+                    TextButton(onClick = onDismiss) { Text(dismissLabel) }
                 }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
