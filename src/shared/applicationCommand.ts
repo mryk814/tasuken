@@ -94,6 +94,8 @@ export interface CreateTaskFromCaptureCommandPayload {
 export interface UpdateTaskCommandPayload {
   task: Entity;
   schedule?: Entity | null;
+  /** Optional read dependency for a proposal, including no active Schedule. */
+  expectedSchedule?: { id: string; version: number } | null;
   references?: Entity[];
 }
 

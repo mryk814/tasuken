@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { registerIpc } from "./ipc/registerIpc";
 import { registerMobileGatewayIpc } from "./ipc/registerMobileGatewayIpc";
 import { CaptureOrganizerSettingsService } from "./services/captureOrganizerSettings";
+import { proposeTaskSchedule } from "./services/taskScheduleProposal";
 import { registerAttachmentProtocol, registerAttachmentScheme } from "./attachmentProtocol";
 import { registerMediaProtocol, registerMediaScheme } from "./mediaProtocol";
 import { registerWebArtifactProtocol, registerWebArtifactScheme } from "./webArtifactProtocol";
@@ -2563,6 +2564,14 @@ async function startDesktopApp(): Promise<void> {
     captureOrganizerSettings.testConnection(input),
   );
   ipcMain.handle(IPC.captureOrganizerClearSettings, () => captureOrganizerSettings.clearSettings());
+  ipcMain.handle(IPC.taskSchedulePropose, async (_event, input) => {
+    const organizer = captureOrganizerSettings.createOrganizer();
+    if (!organizer)
+      throw new Error("AI整理が未設定です。Settingsで設定するか、通常の日程編集を使ってください。");
+    return proposeTaskSchedule(workspaceRepository, input, (request) =>
+      organizer.proposeTaskSchedule(request),
+    );
+  });
   const composition = (desktopComposition = new TaskenDesktopComposition({
     workLogWriter: {
       adoptOrganization: (command, actor) => {
