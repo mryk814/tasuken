@@ -356,7 +356,9 @@ MCP接続時とNoteの作成・編集tool schemaで、次の契約を案内す�
 
 型・権限・容量の検証と、Markdownの書き方の推奨は区別する。見出しの存在や推奨書式からの逸脱だけでは登録を拒否しない。
 
-Task作業報告だけは既存TaskへのApplication Commandを提案する専用workflowとして、`tasken.start_task_work`、`tasken.append_work_receipt`、`tasken.report_task_done`、`tasken.report_task_blocked`を提供する。BridgeはTask本文やstateを直接更新せず、`task_work` ProposalをInboxへ送る。途中のReceipt追加と最終報告はtyped Application Commandを分け、Appendは`in_progress`を維持し、Doneだけが`needs_human_review`へ進む。Task Work Proposalのaccept/rejectはMain-owned `ApplyTaskWorkProposal`で行い、canonical Proposalからtyped commandを再構築してTask / Receipt / ChangeEvent / Proposal statusを一つのSQLite transactionへ保存する。全操作にTaskの`expected_version`、再試行用`idempotency_key`、`caller`を必須とし、任意で`source_session`、実行時刻、RepositoryContextを記録する。RepositoryContextは`repository_context_id`、provider、repository slug、branchだけの公開whitelistとし、cwd、git root、workspace folder、remote URLは受理も永続化もしない。同じkeyと同じpayloadの再送は同一Proposalとして扱い、異なるpayloadでのkey再利用は拒否する。Done / Blockedはいずれもappend-only Work Receiptであり、Task完了や正式な状態変更は人間のPreview採用後にApplication Command境界で行う。
+Task作業報告は既存TaskへのApplication Commandを提案する専用workflowとして、`tasken.start_task_work`、`tasken.append_work_receipt`、`tasken.report_task_done`、`tasken.report_task_blocked`を提供する。人がAI ReadyにしたTaskの明示開始だけを直接保存し、報告は`task_work` ProposalをInboxへ送る。Task Work Proposalのaccept/rejectはMain-owned `ApplyTaskWorkProposal`で行い、canonical Proposalからtyped commandを再構築してTask / Receipt / ChangeEvent / Proposal statusを一つのSQLite transactionへ保存する。Doneの採用ではWork Receiptを受け入れるだけで、Task完了は別の人間操作で判断する。採用済み・完了済み・中止済みTaskにも報告を追記でき、Task本文と既存のwork_state・完了日時を保持する。
+
+全操作にTaskの`expected_version`、再試行用`idempotency_key`、`caller`を必須とし、任意で`source_session`、実行時刻、RepositoryContextを記録する。追記だけの報告は提出後のTask更新を許容する。開始および`completed_checklist_item_ids`によるチェック反映は提出時versionの一致が必要で、採用時に存在するIDだけを完了にする。未知のID・重複・競合では報告全体を拒否し、チェック解除や本文の置換は行わない。RepositoryContextは`repository_context_id`、provider、repository slug、branchだけの公開whitelistとし、cwd、git root、workspace folder、remote URLは受理も永続化もしない。同じkeyと同じpayloadの再送は同一Proposalとして扱い、異なるpayloadでのkey再利用は拒否する。
 
 ## AI Import統合
 

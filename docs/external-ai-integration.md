@@ -72,7 +72,9 @@ WSL・別PC・Web版AIからの接続はこのWindows用設定では検証して
 2. 普段使うAIに依頼文を貼り付けます。Taskドロワーの「依頼文をコピー」から取り直せます。解除時や既存AI Readyの編集時はクリップボードを変えません。コピー失敗時もAI Readyは保存され、再コピーの案内を表示します。
 3. AIは`get_task_context`で対象と作業先を確認し、実際に着手するときだけ`start_task_work`を呼びます。
 4. AIは通常、完了時に最新versionで`report_task_done`を一度だけ送ります。完了直前に同じ結果を`append_work_receipt`で送る必要はありません。途中報告は長期作業で必要なとき、中断報告は人の対応が必要なときに使います。`reported_at`にはAIが作業を終えた時刻を指定します。
-5. 人がAI InboxでTaskごとの時系列を確認し、「採用してTaskを完了」を押します。確認した過去報告も同時に履歴化します。ActivityとDebriefのAI作業期間は、採用日時ではなく開始・報告時刻で表示します。
+5. 人がAI InboxでTaskごとの時系列を確認し、「採用」を押します。検証済みのチェック項目IDを`completed_checklist_item_ids`に添えた報告は、プレビューで項目名を確認してから反映します。報告の採用ではTaskを完了せず、人がTaskドロワーの「承認して完了」などで別途判断します。ActivityとDebriefのAI作業期間は、採用日時ではなく開始・報告時刻で表示します。
+
+採用後やTask完了後も`append_work_receipt`で追加報告できます。報告の採用でTask本文・既存の完了状態は変わりません。チェックを反映する場合は最新のTask versionが必要です。チェック項目やversionが変わった場合は`get_task_context`で再確認して報告を作り直します。
 
 AI ReadyにしただけではAIを起動せず、定期実行も開始しません。
 まずは必要なときに依頼する運用とし、自動巡回が必要になった場合に実行間隔と対象を決めます。
@@ -104,8 +106,8 @@ version競合はTaskを読み直して内容を再判断します。新しい要
 | 選択会話を公開する       | [Conversation AI Context](conversation-ai-context.md) | 明示公開したMarkdown     |
 | AI作業の履歴を集める     | [Agent Session hooks](agent-session-provenance.md)    | Session記録／Debrief     |
 
-Context Packから構造化JSONを貼り戻してTaskへ適用するUIは、現在のAI Inboxにはありません。
-MCP以外の往復が必要になった際の追加候補です。
+Context Packから構造化JSONを貼り戻して既存Taskを更新するUIは、現在のAI Inboxにはありません。
+新規Taskの作成には、Today・ToDoの[外部AI取り込み](mobile-capture-organizer-providers.md)で自然文を外部AIへ渡し、返ってきたJSONをプレビューして採用できます。
 MCPツールの正確な引数は接続先の`tools/list`、Contextの選び方は[Context設計](tasken-context-architecture.md)を参照してください。
 
 ## 検証と設定の出典
@@ -134,6 +136,11 @@ MCPツールの正確な引数は接続先の`tools/list`、Contextの選び方�
 - installer / portableを作成し、配布版のMCP smokeとlive Proposal smokeが成功。インストール先の実行ファイルでもMCP smokeが成功し、同梱MCPのハッシュが検証済みbuildと一致。
 - 作業ブランチは`codex/local-update-0.1.49`。未コミットで保持し、push・タグ作成・GitHub Release公開は行っていない。
 - 新しいMCPを使うにはTaskenを起動し、AIクライアントの既存セッションは再接続または新規セッションへ切り替える。会社PCのClaude Codeでの実使用フィードバックは別途確認する。
+
+### 2026-09-08の隔離検証
+
+一時userDataで実Electronとstdio MCPを使い、報告の採用だけではTaskを完了しないこと、人が別操作で完了できること、完了後の追加報告でTask本文・完了状態を維持することを確認しました。
+AI Inboxの項目名プレビューから指定Checklist itemだけをチェックし、古いTask versionのチェック報告は採用を拒否してプレビューを保持することも確認しました。
 
 ### 参照先
 

@@ -38,8 +38,8 @@ function report(id, action, reportedAt, extra = {}) {
 const progress = report("progress", "append_receipt", "2026-09-05T14:50:00.000Z");
 const done = report("done", "report_done", end);
 
-test("Inbox groups by Task ID, orders reports and counts only terminal review", () => {
-  assert.equal(taskWorkInboxGroups([progress])[0].actionable, false);
+test("Inbox groups by Task ID, orders reports and makes follow-up reports reviewable", () => {
+  assert.equal(taskWorkInboxGroups([progress])[0].actionable, true);
   const groups = taskWorkInboxGroups([done, progress]);
   assert.equal(groups.length, 1);
   assert.deepEqual(
@@ -66,6 +66,23 @@ test("done covers only earlier reports for this Task, producer, session and vers
     taskWorkReportsCoveredBy(done, [done, progress, ...unrelated]).map((item) => item.id),
     ["progress"],
   );
+});
+
+test("done keeps earlier checklist proposals pending unless it includes every requested item", () => {
+  const checklistProgress = report("checklist-progress", "append_receipt", start, {
+    completed_checklist_item_ids: ["api-check", "build-check"],
+  });
+  assert.deepEqual(taskWorkReportsCoveredBy(done, [checklistProgress]), []);
+  const partialDone = report("partial-done", "report_done", end, {
+    completed_checklist_item_ids: ["api-check"],
+  });
+  assert.deepEqual(taskWorkReportsCoveredBy(partialDone, [checklistProgress]), []);
+  const completeDone = report("complete-done", "report_done", end, {
+    completed_checklist_item_ids: ["api-check", "build-check", "manual-check"],
+  });
+  assert.deepEqual(taskWorkReportsCoveredBy(completeDone, [checklistProgress]), [
+    checklistProgress,
+  ]);
 });
 
 test("work interval and identity survive next-day adoption and a later Task restart", () => {

@@ -532,7 +532,16 @@ function projectTaskWorkProposal(
   if (proposal.status !== "pending") return null;
   const parsed = taskWorkProposalEntry(proposal);
   if (!parsed || parsed.taskId !== task.id) return null;
-  const completed = projectWorkReceiptItemList(parsed.entry.completed_items);
+  const checklistIds = Array.isArray(parsed.entry.completed_checklist_item_ids)
+    ? parsed.entry.completed_checklist_item_ids
+    : [];
+  const completed = projectWorkReceiptItemList([
+    ...checklistIds.map((id) => {
+      const item = task.checklist_items?.find((entry) => entry.id === id);
+      return item ? `チェックを反映: ${item.title}` : `見つからないチェック項目 (${String(id)})`;
+    }),
+    ...(Array.isArray(parsed.entry.completed_items) ? parsed.entry.completed_items : []),
+  ]);
   const changed = projectWorkReceiptItemList(parsed.entry.changed_or_created_items);
   const verification = projectWorkReceiptItemList(parsed.entry.verification);
   const remaining = projectWorkReceiptItemList(parsed.entry.remaining_work);
@@ -571,7 +580,10 @@ function projectTaskWorkProposal(
       sourceApp: sourceApp.slice(0, 120),
       receivedAt,
       expectedTaskVersion: parsed.expectedTaskVersion,
-      stale: parsed.expectedTaskVersion !== task.version,
+      stale:
+        parsed.expectedTaskVersion > task.version ||
+        ((parsed.action === "start" || checklistIds.length > 0) &&
+          parsed.expectedTaskVersion !== task.version),
       executorLabel: executorLabel ? executorLabel.slice(0, 200) : null,
       startedAt: validTimestamp(parsed.entry.started_at),
       reportedAt: validTimestamp(parsed.entry.reported_at),

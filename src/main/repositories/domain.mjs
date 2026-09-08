@@ -541,6 +541,17 @@ export function validateEntity(type, input) {
     if (typeof input.summary !== "string" || !input.summary.trim() || input.summary.length > 10000)
       throw new Error("work_receipt.summaryは1〜10000文字で入力してください。");
     validateWorkItemList(input.completed_items, "work_receipt.completed_items");
+    if (
+      input.completed_checklist_item_ids !== undefined &&
+      (!Array.isArray(input.completed_checklist_item_ids) ||
+        input.completed_checklist_item_ids.length > 100 ||
+        input.completed_checklist_item_ids.some(
+          (id) => typeof id !== "string" || !id.trim() || id.length > 200,
+        ) ||
+        new Set(input.completed_checklist_item_ids).size !==
+          input.completed_checklist_item_ids.length)
+    )
+      throw new Error("work_receipt.completed_checklist_item_idsが不正です。");
     validateWorkItemList(input.changed_or_created_items, "work_receipt.changed_or_created_items");
     validateWorkItemList(input.verification, "work_receipt.verification");
     validateWorkItemList(input.remaining_work, "work_receipt.remaining_work");

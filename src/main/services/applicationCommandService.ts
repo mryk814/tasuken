@@ -1842,10 +1842,15 @@ export class ApplicationCommandService {
         id: taskId,
       });
     const proposalExpectedVersion = Number(entry.expected_version);
+    const requiresExactTaskVersion =
+      entry.action === "start" ||
+      (Array.isArray(entry.completed_checklist_item_ids) &&
+        entry.completed_checklist_item_ids.length > 0);
     if (
       !Number.isInteger(proposalExpectedVersion) ||
       proposalExpectedVersion < 0 ||
-      proposalExpectedVersion !== Number(task.version || 0)
+      proposalExpectedVersion > Number(task.version || 0) ||
+      (requiresExactTaskVersion && proposalExpectedVersion !== Number(task.version || 0))
     ) {
       throw new ApplicationCommandError(
         "CONFLICT",
@@ -1919,6 +1924,9 @@ export class ApplicationCommandService {
           reported_at: reportedAt,
           summary: typeof entry.summary === "string" ? entry.summary : "",
           completed_items: Array.isArray(entry.completed_items) ? entry.completed_items : [],
+          ...(entry.completed_checklist_item_ids !== undefined
+            ? { completed_checklist_item_ids: entry.completed_checklist_item_ids }
+            : {}),
           changed_or_created_items: Array.isArray(entry.changed_or_created_items)
             ? entry.changed_or_created_items
             : [],
@@ -1944,7 +1952,7 @@ export class ApplicationCommandService {
       commandId: `${command.commandId}:work`,
       name,
       payload: workPayload as unknown as CommandEnvelope["payload"],
-      expectedVersions: [{ type: "task", id: taskId, version: proposalExpectedVersion }],
+      expectedVersions: [{ type: "task", id: taskId, version: Number(task.version || 0) }],
     };
     const workReceipt = this.executeParsed(
       workCommand,
@@ -1953,7 +1961,9 @@ export class ApplicationCommandService {
         : undefined,
     );
     const acceptanceReceipt =
-      action === "report_done"
+      action === "report_done" &&
+      !["done", "cancelled"].includes(String(task.state)) &&
+      currentWorkState(task) !== "accepted"
         ? (() => {
             const reportedTask = this.repository.get("task", taskId);
             if (!reportedTask)
@@ -1969,7 +1979,7 @@ export class ApplicationCommandService {
               payload: {
                 taskId,
                 receiptId: proposal.id,
-                completeTask: true,
+                completeTask: false,
               } as unknown as CommandEnvelope["payload"],
               expectedVersions: [
                 { type: "task", id: taskId, version: Number(reportedTask.version || 0) },
@@ -2029,15 +2039,12 @@ export class ApplicationCommandService {
         { type: "task", id: taskId },
       );
     assertExpectedVersion(this.repository, command, "task", taskId, current);
-    if (current.state === "done" || current.state === "cancelled")
-      throw new ApplicationCommandError(
-        "INVALID_TRANSITION",
-        "完了済みまたは中止済みTaskへWork Receiptを追加できません。",
-        { id: taskId },
-      );
     const currentState = currentWorkState(current);
-    const startsReadyTask = startReadyTask && currentState === "ready_for_agent";
-    if (currentState !== "in_progress" && !startsReadyTask)
+    const preservesWorkState =
+      current.state === "done" || current.state === "cancelled" || currentState === "accepted";
+    const startsReadyTask =
+      startReadyTask && currentState === "ready_for_agent" && !preservesWorkState;
+    if (currentState !== "in_progress" && !startReadyTask)
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",
         "作業中のTaskだけにWork Receiptを追加できます。",
@@ -2086,6 +2093,9 @@ export class ApplicationCommandService {
       completed_items: Array.isArray(payload.receipt.completed_items)
         ? payload.receipt.completed_items
         : [],
+      ...(payload.receipt.completed_checklist_item_ids !== undefined
+        ? { completed_checklist_item_ids: payload.receipt.completed_checklist_item_ids }
+        : {}),
       changed_or_created_items: Array.isArray(payload.receipt.changed_or_created_items)
         ? payload.receipt.changed_or_created_items
         : [],
@@ -2105,8 +2115,9 @@ export class ApplicationCommandService {
       source: provenance.source,
     };
     workReceiptDefinition.parseCreate(receipt);
-    const nextTask: Entity =
-      outcome === "continue"
+    let nextTask: Entity = preservesWorkState
+      ? current
+      : outcome === "continue"
         ? { ...startedTask, work_state: "in_progress" }
         : {
             ...startedTask,
@@ -2114,6 +2125,37 @@ export class ApplicationCommandService {
             work_reported_at: receipt.reported_at,
             work_review_note: null,
           };
+    const rawChecklistIds = receipt.completed_checklist_item_ids;
+    if (
+      rawChecklistIds !== undefined &&
+      (!Array.isArray(rawChecklistIds) ||
+        rawChecklistIds.length > 100 ||
+        rawChecklistIds.some((id) => typeof id !== "string" || !id.trim() || id.length > 200) ||
+        new Set(rawChecklistIds).size !== rawChecklistIds.length)
+    )
+      throw new ApplicationCommandError("INVALID_PAYLOAD", "報告のチェック項目IDが不正です。");
+    const completedChecklistIds = (rawChecklistIds || []) as string[];
+    if (completedChecklistIds.length > 0) {
+      const checklist = Array.isArray(current.checklist_items)
+        ? (current.checklist_items as Record<string, unknown>[])
+        : [];
+      const knownIds = new Set(checklist.map((item) => item.id));
+      if (completedChecklistIds.some((id) => !knownIds.has(id)))
+        throw new ApplicationCommandError(
+          "CONFLICT",
+          "報告のチェック項目が見つかりません。Taskを再取得して報告を作り直してください。",
+          { id: taskId },
+        );
+      const completedIds = new Set(completedChecklistIds);
+      nextTask = {
+        ...nextTask,
+        checklist_items: checklist.map((item) =>
+          completedIds.has(String(item.id)) && !item.done
+            ? { ...item, done: true, completed_at: receipt.reported_at }
+            : item,
+        ),
+      };
+    }
     taskDefinition.parseUpdate(nextTask);
     assertThemeExists(this.repository, nextTask);
     const startedCommand: CommandEnvelope | null = startsReadyTask
@@ -2176,7 +2218,9 @@ export class ApplicationCommandService {
     };
     event.occurred_at = receipt.reported_at;
     const operations: SaveOperation[] = [
-      { action: "save", type: "task", entity: nextTask },
+      ...(nextTask !== current
+        ? [{ action: "save", type: "task", entity: nextTask } as SaveOperation]
+        : []),
       { action: "save", type: "work_receipt", entity: receipt },
       ...(startedEvent
         ? [{ action: "save", type: "change_event", entity: startedEvent } as SaveOperation]
@@ -2218,9 +2262,12 @@ export class ApplicationCommandService {
         { type: "task", id: taskId },
       );
     assertExpectedVersion(this.repository, command, "task", taskId, current);
-    if (currentWorkState(current) === "accepted")
+    if (
+      currentWorkState(current) === "accepted" &&
+      (!payload.completeTask || current.state === "done")
+    )
       return persistNoChange(this.repository, command, taskId, current);
-    if (!["reported_done", "needs_human_review"].includes(currentWorkState(current)))
+    if (!["reported_done", "needs_human_review", "accepted"].includes(currentWorkState(current)))
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",
         "確認待ちのTaskだけをAcceptできます。",
