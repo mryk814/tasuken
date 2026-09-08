@@ -23,6 +23,7 @@ import {
   taskStateSchema,
   taskSpeechRecognitionModeSchema,
   taskWorkStateSchema,
+  noteProposalImageSchema,
 } from "../task/public.ts";
 import {
   TASKEN_MOBILE_API_VERSION,
@@ -572,6 +573,19 @@ const mobileChecklistSchema = z
     });
   });
 
+export const mobileTaskImageSummarySchema = z
+  .object({
+    fileName: z.string().trim().min(1).max(180),
+    mimeType: z.enum(["image/png", "image/jpeg"]),
+    size: z
+      .number()
+      .int()
+      .positive()
+      .max(12 * 1024 * 1024),
+    url: z.string().trim().min(1).max(2000),
+  })
+  .strict();
+
 export const mobileTaskSummarySchema = z
   .object({
     id: taskIdSchema,
@@ -586,6 +600,7 @@ export const mobileTaskSummarySchema = z
     plannedDurationMinutes: mobilePlannedDurationMinutesSchema.optional(),
     latestWorkReceipt: mobileWorkReceiptSummarySchema.nullable().optional(),
     checklistItems: mobileChecklistSchema.default([]),
+    images: z.array(mobileTaskImageSummarySchema).max(8).optional(),
     schedule: mobileTaskScheduleSchema.nullable(),
     updatedAt: isoTimestampSchema,
   })
@@ -1078,6 +1093,7 @@ const mobileCreateTaskCandidateSchema = z
     plannedDurationMinutes: mobilePlannedDurationMinutesSchema.optional(),
     description: z.string().max(50000).optional(),
     checklistItems: mobileChecklistSchema.optional(),
+    images: z.array(noteProposalImageSchema).min(1).max(8).optional(),
   })
   .strict();
 
@@ -1341,6 +1357,7 @@ const mobileCreateCaptureCandidateSchema = z
       .refine((text) => text.trim().length > 0),
     projectId: entityIdSchema.nullable().optional(),
     capturedAt: isoTimestampSchema,
+    images: z.array(noteProposalImageSchema).min(1).max(8).optional(),
   })
   .strict();
 
@@ -1576,6 +1593,7 @@ export const mobileCaptureOrganizationRequestSchema = z
     themeId: entityIdSchema.nullable(),
     maxTasks: z.number().int().min(1).max(8).default(1),
     includePlannedTime: z.boolean().optional(),
+    images: z.array(noteProposalImageSchema).min(1).max(8).optional(),
   })
   .strict();
 

@@ -4,6 +4,8 @@ import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentRead
 import { createMobileThemeContextReadPort } from "./mobileThemeContextReadPort.ts";
 import { createMobileWorkLogPort, type WorkLogWriterPort } from "./mobileWorkLogPort.ts";
 import type { NoteProposalImagePort } from "../core/public.ts";
+import type { CaptureImagePort } from "../core/public.ts";
+import type { NoteProposalImage } from "../../shared/contracts/task/public.ts";
 import {
   createTaskenCore,
   type AgentReadyTaskWorkspacePersistence,
@@ -98,6 +100,63 @@ function captureCommandFailure(error: ApplicationCommandError): MobileGatewayCap
   return { ok: false, code: "validation_failed" };
 }
 
+type PreparedImageCommand =
+  | { ok: true; payload: Record<string, unknown>; rollback: () => void }
+  | { ok: false; code: "validation_failed" };
+
+/**
+ * Mobile の base64 画像を Core の外側で stage し、Core へ渡すのは manifest
+ * だけにする（change_event 肥大を避ける）。stage 済みファイルは Core 成功時
+ * だけ残し、それ以外は rollback する（再送は決定的ファイル名で再利用）。
+ * CreateCapture の capture、CreateTask の task が対象。
+ */
+function prepareCommandImages(
+  port: CaptureImagePort | undefined,
+  input: { name: string; payload: Record<string, unknown> },
+): PreparedImageCommand {
+  const noop = () => {};
+  const ownerKey =
+    input.name === "CreateCapture" ? "capture" : input.name === "CreateTask" ? "task" : null;
+  if (!ownerKey) return { ok: true, payload: input.payload, rollback: noop };
+  const owner: unknown = input.payload[ownerKey];
+  if (!owner || typeof owner !== "object" || Array.isArray(owner)) {
+    return { ok: true, payload: input.payload, rollback: noop };
+  }
+  const images: unknown = (owner as { images?: unknown }).images;
+  if (images === undefined) return { ok: true, payload: input.payload, rollback: noop };
+  const ownerId: unknown = (owner as { id?: unknown }).id;
+  if (typeof ownerId !== "string" || !ownerId.trim()) {
+    return { ok: false, code: "validation_failed" };
+  }
+  if (!port) return { ok: false, code: "validation_failed" };
+  let staged: { manifest: readonly unknown[]; staged: unknown };
+  try {
+    staged = port.stage({ ownerId, images: images as readonly NoteProposalImage[] });
+  } catch {
+    return { ok: false, code: "validation_failed" };
+  }
+  const manifest = (Array.isArray(staged.manifest) ? staged.manifest : []).map((entry) => {
+    const record = (entry || {}) as Record<string, unknown>;
+    return {
+      reference_id: record.reference_id,
+      file_name: record.file_name,
+      mime_type: record.mime_type,
+      size: record.size,
+      sha256: record.sha256,
+      url: record.url,
+    };
+  });
+  const state = staged.staged;
+  return {
+    ok: true,
+    payload: {
+      ...input.payload,
+      [ownerKey]: { ...(owner as Record<string, unknown>), images: manifest },
+    },
+    rollback: () => port.rollback(state),
+  };
+}
+
 function delegationFailure(error: ApplicationCommandError): MobileGatewayTaskDelegationResult {
   if (error.code === "COMMAND_ID_REUSED") return { ok: false, code: "idempotency_conflict" };
   if (error.code === "NOT_FOUND") return { ok: false, code: "not_found" };
@@ -137,12 +196,14 @@ export class TaskenCoreRuntime {
     ) => CommandReceipt,
     noteProposalImagePort?: NoteProposalImagePort,
     private readonly workLogWriter?: WorkLogWriterPort,
+    private readonly captureImagePort?: CaptureImagePort,
   ) {
     this.persistence = persistence;
     this.executeApplicationCommand = executeApplicationCommand;
     const core = createTaskenCore(persistence, {
       onProposalCommitted,
       noteProposalImagePort,
+      captureImagePort: this.captureImagePort,
     });
     this.taskContext = core.getTaskContext;
     this.executeTaskDelegation = executeTaskDelegation;
@@ -164,6 +225,8 @@ export class TaskenCoreRuntime {
       getNote: core.getNote,
       getConversation: core.getConversation,
       getArtifactMetadata: core.getArtifactMetadata,
+      getCaptureImage: core.getCaptureImage,
+      getTaskImage: core.getTaskImage,
       getActivityEntries: core.getActivityEntries,
       getThemeContext: core.getThemeContext,
       getRecentNotes: core.getRecentNotes,
@@ -296,8 +359,41 @@ export class TaskenCoreRuntime {
           }
         },
         executeTaskQuery: (input) => this.taskCapability.executeQuery(input),
-        executeTaskCommand: (input) => this.taskCapability.executeCommand(input),
+        executeTaskCommand: (input) => {
+          const record = (input || {}) as { name?: unknown; payload?: unknown };
+          const prepared = prepareCommandImages(this.captureImagePort, {
+            name: typeof record.name === "string" ? record.name : "",
+            payload: (record.payload || {}) as Record<string, unknown>,
+          });
+          if (!prepared.ok) {
+            return {
+              ok: false as const,
+              error: {
+                code: "INVALID_COMMAND" as const,
+                message: "Task画像をstageできませんでした。画像を確認して再送してください。",
+                issues: [],
+                retryable: false,
+              },
+            };
+          }
+          try {
+            const result = this.taskCapability.executeCommand({
+              ...(input as Record<string, unknown>),
+              payload: prepared.payload,
+            });
+            if (!result.ok) prepared.rollback();
+            return result;
+          } catch (error) {
+            prepared.rollback();
+            throw error;
+          }
+        },
         executeCaptureCommand: (input) => {
+          const prepared = prepareCommandImages(this.captureImagePort, {
+            name: input.name,
+            payload: (input.payload || {}) as Record<string, unknown>,
+          });
+          if (!prepared.ok) return { ok: false, code: prepared.code };
           try {
             const receipt = this.executeApplicationCommand({
               commandId: input.commandId,
@@ -305,7 +401,7 @@ export class TaskenCoreRuntime {
               actor: { kind: "user", id: input.actorId },
               source: "mobile",
               issuedAt: input.issuedAt,
-              payload: input.payload as unknown as ApplicationCommandPayload,
+              payload: prepared.payload as unknown as ApplicationCommandPayload,
               expectedVersions:
                 input.name === "DeleteCapture"
                   ? [
@@ -317,7 +413,10 @@ export class TaskenCoreRuntime {
                     ]
                   : [],
             });
-            if (receipt.status === "conflict") return { ok: false, code: "entity_conflict" };
+            if (receipt.status === "conflict") {
+              prepared.rollback();
+              return { ok: false, code: "entity_conflict" };
+            }
             const capture = receipt.changes.find(
               (change) => change.type === "capture_entry",
             )?.entity;
@@ -342,6 +441,7 @@ export class TaskenCoreRuntime {
               },
             };
           } catch (error) {
+            prepared.rollback();
             if (error instanceof ApplicationCommandError) return captureCommandFailure(error);
             throw error;
           }

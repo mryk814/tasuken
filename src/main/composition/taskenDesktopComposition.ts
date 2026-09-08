@@ -10,6 +10,7 @@ import {
   createNativeImageDecoder,
   createNoteProposalImagePort,
 } from "../services/proposalMarkdownImages.ts";
+import { createCaptureImagePort } from "../services/captureImageStore.ts";
 import {
   MobileGatewayRuntime,
   type MobileDevicePersistence,
@@ -122,6 +123,7 @@ export class TaskenDesktopComposition<
         ),
       createNoteProposalImagePort(options.userDataPath, createNativeImageDecoder(nativeImage)),
       options.workLogWriter,
+      createCaptureImagePort(options.userDataPath, createNativeImageDecoder(nativeImage)),
     );
     const mobileState: MobileGatewayStatePort = {
       current: () => this.repository.mobileGatewayState(),

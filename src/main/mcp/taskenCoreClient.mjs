@@ -6,6 +6,8 @@ import {
   findThemesForRepositoryResponseSchema,
   getActivityEntriesResponseSchema,
   getArtifactMetadataResponseSchema,
+  getCaptureImageResponseSchema,
+  getTaskImageResponseSchema,
   getConversationResponseSchema,
   getNoteResponseSchema,
   getRepositoryContextResponseSchema,
@@ -37,6 +39,8 @@ import {
   TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
   TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
+  TASKEN_CORE_GET_CAPTURE_IMAGE_CAPABILITY,
+  TASKEN_CORE_GET_TASK_IMAGE_CAPABILITY,
   TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
   TASKEN_CORE_GET_NOTE_CAPABILITY,
   TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY,
@@ -63,6 +67,7 @@ import {
 } from "../../shared/contracts/core/public.mjs";
 
 export const TASKEN_CORE_CLIENT_TIMEOUT_MS = 5_000;
+export const TASKEN_CORE_IMAGE_QUERY_TIMEOUT_MS = 30_000;
 export const TASKEN_CORE_IMAGE_PROPOSAL_TIMEOUT_MS = 30_000;
 
 export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
@@ -303,6 +308,30 @@ export class TaskenCoreClient {
       TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
       request,
       getArtifactMetadataResponseSchema,
+    );
+  }
+
+  async getCaptureImage(request = {}) {
+    return this.request(
+      "/v1/queries/get-capture-image",
+      TASKEN_CORE_GET_CAPTURE_IMAGE_CAPABILITY,
+      request,
+      getCaptureImageResponseSchema,
+      "get-capture-image",
+      {},
+      TASKEN_CORE_IMAGE_QUERY_TIMEOUT_MS,
+    );
+  }
+
+  async getTaskImage(request = {}) {
+    return this.request(
+      "/v1/queries/get-task-image",
+      TASKEN_CORE_GET_TASK_IMAGE_CAPABILITY,
+      request,
+      getTaskImageResponseSchema,
+      "get-task-image",
+      {},
+      TASKEN_CORE_IMAGE_QUERY_TIMEOUT_MS,
     );
   }
 

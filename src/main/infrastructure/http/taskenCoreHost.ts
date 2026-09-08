@@ -21,6 +21,10 @@ import type {
   GetConversationResponse,
   GetNoteRequest,
   GetNoteResponse,
+  GetCaptureImageRequest,
+  GetCaptureImageResponse,
+  GetTaskImageRequest,
+  GetTaskImageResponse,
   GetRecentNotesRequest,
   GetRecentNotesResponse,
   SearchKnowledgeRequest,
@@ -67,6 +71,8 @@ import {
   getAgentSessionContextRequestSchema,
   getThemeContextRequestSchema,
   getArtifactMetadataRequestSchema,
+  getCaptureImageRequestSchema,
+  getTaskImageRequestSchema,
   getConversationRequestSchema,
   getNoteRequestSchema,
   getRecentNotesRequestSchema,
@@ -100,6 +106,8 @@ import {
   TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
   TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
+  TASKEN_CORE_GET_CAPTURE_IMAGE_CAPABILITY,
+  TASKEN_CORE_GET_TASK_IMAGE_CAPABILITY,
   TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
   TASKEN_CORE_GET_NOTE_CAPABILITY,
   TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY,
@@ -161,6 +169,8 @@ export interface TaskenCoreHostOptions {
   getNote?: QueryProvider<GetNoteRequest, GetNoteResponse>;
   getConversation?: QueryProvider<GetConversationRequest, GetConversationResponse>;
   getArtifactMetadata?: QueryProvider<GetArtifactMetadataRequest, GetArtifactMetadataResponse>;
+  getCaptureImage?: QueryProvider<GetCaptureImageRequest, GetCaptureImageResponse>;
+  getTaskImage?: QueryProvider<GetTaskImageRequest, GetTaskImageResponse>;
   getActivityEntries?: QueryProvider<GetActivityEntriesRequest, GetActivityEntriesResponse>;
   getThemeContext?: QueryProvider<GetThemeContextRequest, GetThemeContextResponse>;
   getRecentNotes?: QueryProvider<GetRecentNotesRequest, GetRecentNotesResponse>;
@@ -253,25 +263,30 @@ function parseOperationRequest(url: string, body: unknown): unknown {
                                     ? getConversationRequestSchema
                                     : url === "/v1/queries/get-artifact-metadata"
                                       ? getArtifactMetadataRequestSchema
-                                      : url === "/v1/queries/get-activity-entries"
-                                        ? getActivityEntriesRequestSchema
-                                        : url === "/v1/queries/get-theme-context"
-                                          ? getThemeContextRequestSchema
-                                          : url === "/v1/queries/get-recent-notes"
-                                            ? getRecentNotesRequestSchema
-                                            : url === "/v1/queries/search-knowledge"
-                                              ? searchKnowledgeRequestSchema
-                                              : url === "/v1/queries/get-knowledge-context"
-                                                ? getKnowledgeContextRequestSchema
-                                                : url === "/v1/queries/get-plan-health"
-                                                  ? getPlanHealthRequestSchema
-                                                  : url === "/v1/queries/get-knowledge-health"
-                                                    ? getKnowledgeHealthRequestSchema
-                                                    : url === "/v1/queries/get-activity"
-                                                      ? getActivityRequestSchema
-                                                      : url === "/v1/queries/get-context-subgraph"
-                                                        ? getContextSubgraphRequestSchema
-                                                        : exportAiContextRequestSchema;
+                                      : url === "/v1/queries/get-capture-image"
+                                        ? getCaptureImageRequestSchema
+                                        : url === "/v1/queries/get-task-image"
+                                          ? getTaskImageRequestSchema
+                                          : url === "/v1/queries/get-activity-entries"
+                                            ? getActivityEntriesRequestSchema
+                                            : url === "/v1/queries/get-theme-context"
+                                              ? getThemeContextRequestSchema
+                                              : url === "/v1/queries/get-recent-notes"
+                                                ? getRecentNotesRequestSchema
+                                                : url === "/v1/queries/search-knowledge"
+                                                  ? searchKnowledgeRequestSchema
+                                                  : url === "/v1/queries/get-knowledge-context"
+                                                    ? getKnowledgeContextRequestSchema
+                                                    : url === "/v1/queries/get-plan-health"
+                                                      ? getPlanHealthRequestSchema
+                                                      : url === "/v1/queries/get-knowledge-health"
+                                                        ? getKnowledgeHealthRequestSchema
+                                                        : url === "/v1/queries/get-activity"
+                                                          ? getActivityRequestSchema
+                                                          : url ===
+                                                              "/v1/queries/get-context-subgraph"
+                                                            ? getContextSubgraphRequestSchema
+                                                            : exportAiContextRequestSchema;
   const result = schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
@@ -476,6 +491,8 @@ export class TaskenCoreHost {
       ...(this.options.getNote ? [TASKEN_CORE_GET_NOTE_CAPABILITY] : []),
       ...(this.options.getConversation ? [TASKEN_CORE_GET_CONVERSATION_CAPABILITY] : []),
       ...(this.options.getArtifactMetadata ? [TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY] : []),
+      ...(this.options.getCaptureImage ? [TASKEN_CORE_GET_CAPTURE_IMAGE_CAPABILITY] : []),
+      ...(this.options.getTaskImage ? [TASKEN_CORE_GET_TASK_IMAGE_CAPABILITY] : []),
       ...(this.options.getActivityEntries ? [TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY] : []),
       ...(this.options.getThemeContext ? [TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY] : []),
       ...(this.options.getRecentNotes ? [TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY] : []),
@@ -571,6 +588,8 @@ export class TaskenCoreHost {
         ...(this.options.getNote ? ["/v1/queries/get-note"] : []),
         ...(this.options.getConversation ? ["/v1/queries/get-conversation"] : []),
         ...(this.options.getArtifactMetadata ? ["/v1/queries/get-artifact-metadata"] : []),
+        ...(this.options.getCaptureImage ? ["/v1/queries/get-capture-image"] : []),
+        ...(this.options.getTaskImage ? ["/v1/queries/get-task-image"] : []),
         ...(this.options.getActivityEntries ? ["/v1/queries/get-activity-entries"] : []),
         ...(this.options.getThemeContext ? ["/v1/queries/get-theme-context"] : []),
         ...(this.options.getRecentNotes ? ["/v1/queries/get-recent-notes"] : []),
@@ -713,6 +732,14 @@ export class TaskenCoreHost {
             200,
             this.options.getArtifactMetadata!.execute(body as GetArtifactMetadataRequest),
           );
+        } else if (request.url === "/v1/queries/get-capture-image") {
+          json(
+            response,
+            200,
+            this.options.getCaptureImage!.execute(body as GetCaptureImageRequest),
+          );
+        } else if (request.url === "/v1/queries/get-task-image") {
+          json(response, 200, this.options.getTaskImage!.execute(body as GetTaskImageRequest));
         } else if (request.url === "/v1/queries/get-activity-entries") {
           json(
             response,

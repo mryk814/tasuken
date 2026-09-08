@@ -18,8 +18,26 @@ export function registerAttachmentScheme(): void {
   ]);
 }
 
-function markdownAttachmentDirectory(): string {
-  return path.join(app.getPath("userData"), "attachments", "markdown-images");
+export function resolveAttachmentPath(userDataPath: string, fileName: string): string | null {
+  if (!/^[a-f0-9-]+\.(png|jpg|gif|webp|bmp)$/i.test(fileName)) return null;
+  const attachments = path.resolve(userDataPath, "attachments");
+  // Keep existing URLs and command fingerprints stable. Older photo manifests
+  // use the same local URL form as Markdown images.
+  for (const directory of ["markdown-images", "capture-images"]) {
+    const root = path.join(attachments, directory);
+    const target = path.join(root, fileName);
+    if (!fs.existsSync(target)) continue;
+    if (
+      fs.lstatSync(attachments).isSymbolicLink() ||
+      fs.lstatSync(root).isSymbolicLink() ||
+      fs.lstatSync(target).isSymbolicLink() ||
+      !fs.statSync(target).isFile() ||
+      path.dirname(fs.realpathSync(target)) !== fs.realpathSync(root)
+    )
+      return null;
+    return target;
+  }
+  return null;
 }
 
 function attachmentMimeType(fileName: string): string {
@@ -40,9 +58,8 @@ export function registerAttachmentProtocol(): void {
       if (!/^[a-f0-9-]+\.(png|jpg|gif|webp|bmp)$/i.test(fileName)) {
         return new Response("Not found", { status: 404 });
       }
-      const root = path.resolve(markdownAttachmentDirectory());
-      const filePath = path.resolve(root, fileName);
-      if (!filePath.startsWith(`${root}${path.sep}`) || !fs.existsSync(filePath)) {
+      const filePath = resolveAttachmentPath(app.getPath("userData"), fileName);
+      if (!filePath) {
         return new Response("Not found", { status: 404 });
       }
       const bytes = fs.readFileSync(filePath);

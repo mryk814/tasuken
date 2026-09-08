@@ -198,7 +198,11 @@ class MobileOutbox(
 
     fun observeConflictCount(): Flow<Int> = dao.observeConflictCount()
 
-    suspend fun enqueueCreateTasks(drafts: List<MobileCaptureDraft>, todayDate: LocalDate?): List<String> {
+    suspend fun enqueueCreateTasks(
+        drafts: List<MobileCaptureDraft>,
+        todayDate: LocalDate?,
+        photosByDraftId: Map<String, List<MobileCaptureImageDto>> = emptyMap(),
+    ): List<String> {
         require(drafts.isNotEmpty() && drafts.size <= 8)
         val ids = dao.enqueueCreateBatch {
             drafts.map { draft ->
@@ -211,6 +215,7 @@ class MobileOutbox(
                     schedule = draft.organizationSchedule(), scheduleAfterEnqueue = false,
                     plannedStartTime = draft.organization?.plannedStartTime,
                     plannedDurationMinutes = draft.organization?.plannedDurationMinutes,
+                    photos = photosByDraftId[draft.draftId].orEmpty(),
                 )
             }
         }
@@ -234,11 +239,13 @@ class MobileOutbox(
         plannedStartTime: String? = null,
         plannedDurationMinutes: Int? = null,
         scheduleAfterEnqueue: Boolean = true,
+        photos: List<MobileCaptureImageDto> = emptyList(),
     ): String {
         val normalizedTitle = title.trim()
         require(normalizedTitle.isNotEmpty() && normalizedTitle.length <= 500)
         require(projectId == null || projectId.isNotBlank())
         require(draftId.isNotBlank())
+        require(photos.size <= MOBILE_CAPTURE_IMAGE_MAX_COUNT)
         val taskId = stableDraftId("task", draftId)
         val commandId = stableDraftId("command", draftId)
         val requestId = stableDraftId("request", draftId)
@@ -253,7 +260,8 @@ class MobileOutbox(
                     existingEnvelope.command.task.description == description &&
                     existingEnvelope.command.task.plannedStartTime == plannedStartTime &&
                     existingEnvelope.command.task.plannedDurationMinutes == plannedDurationMinutes &&
-                    existingEnvelope.command.provenance == provenance,
+                    existingEnvelope.command.provenance == provenance &&
+                    (existingEnvelope.command.task.images ?: emptyList()) == photos,
             ) { "同じDraft IDが別のTask作成に使われています。" }
             return taskId
         }
@@ -279,6 +287,7 @@ class MobileOutbox(
                     checklistItems = checklistItems,
                     plannedStartTime = plannedStartTime,
                     plannedDurationMinutes = plannedDurationMinutes,
+                    images = photos.ifEmpty { null },
                 ),
                 provenance = provenance,
                 schedule = schedule,
@@ -336,11 +345,13 @@ class MobileOutbox(
             reportedVia = MobileCaptureSource.AndroidApp.wireValue,
             capturedAt = createdAt,
         ),
+        photos: List<MobileCaptureImageDto> = emptyList(),
     ): String {
         val normalizedText = text
         require(normalizedText.isNotBlank() && normalizedText.length <= MOBILE_CAPTURE_TEXT_MAX_LENGTH)
         require(projectId == null || projectId.isNotBlank())
         require(draftId.isNotBlank())
+        require(photos.size <= MOBILE_CAPTURE_IMAGE_MAX_COUNT)
         val captureId = stableDraftId("capture", draftId)
         val commandId = stableDraftId("capture-command", draftId)
         val requestId = stableDraftId("capture-request", draftId)
@@ -353,7 +364,8 @@ class MobileOutbox(
                     existingEnvelope.command.capture.id == captureId &&
                     existingEnvelope.command.capture.text == normalizedText &&
                     existingEnvelope.command.capture.projectId == projectId &&
-                    existingEnvelope.command.provenance == provenance,
+                    existingEnvelope.command.provenance == provenance &&
+                    (existingEnvelope.command.capture.images ?: emptyList()) == photos,
             ) { "同じDraft IDが別のCapture作成に使われています。" }
             return captureId
         }
@@ -376,6 +388,7 @@ class MobileOutbox(
                     projectId = projectId,
                     capturedAt = createdAt,
                     textContract = MOBILE_CAPTURE_TEXT_CONTRACT,
+                    images = photos.ifEmpty { null },
                 ),
                 provenance = provenance,
             ),

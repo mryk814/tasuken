@@ -2670,6 +2670,7 @@ async function startDesktopApp(): Promise<void> {
     workspaceRepository,
     notifyMainWindowRefresh,
     path.join(app.getPath("userData"), "attachments", "markdown-images"),
+    path.join(app.getPath("userData"), "attachments", "capture-images"),
   );
   registerIpc(
     workspaceRepository,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +7,7 @@ import test from "node:test";
 
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
+import { syncCaptureImageAttachments } from "../src/main/services/sharedFolderAttachments.mjs";
 
 function task(id, title, overrides = {}) {
   return {
@@ -26,20 +28,24 @@ function createPair() {
   const secondAttachments = path.join(secondRoot, "attachments", "markdown-images");
   const first = new WorkspaceDatabase(path.join(firstRoot, "research-desk.sqlite"));
   const second = new WorkspaceDatabase(path.join(secondRoot, "research-desk.sqlite"));
-  const firstSync = new SharedFolderSyncService(first, () => {}, firstAttachments);
-  const secondSync = new SharedFolderSyncService(second, () => {}, secondAttachments);
+  const firstPhotos = path.join(firstRoot, "attachments", "capture-images");
+  const secondPhotos = path.join(secondRoot, "attachments", "capture-images");
+  const firstSync = new SharedFolderSyncService(first, () => {}, firstAttachments, firstPhotos);
+  const secondSync = new SharedFolderSyncService(second, () => {}, secondAttachments, secondPhotos);
   return {
     root,
     shared,
     firstAttachments,
     secondAttachments,
+    firstPhotos,
+    secondPhotos,
     first,
     second,
     firstSync,
     secondSync,
     close() {
-      first.db.close();
-      second.db.close();
+      if (first.db.open) first.db.close();
+      if (second.db.open) second.db.close();
       fs.rmSync(root, { recursive: true, force: true });
     },
   };
@@ -74,6 +80,187 @@ test("shared folder sync bootstraps an empty second device and exchanges later c
   }
 });
 
+test("photo Capture and Task retain source text, manifests and bytes across two devices and restart", async () => {
+  const pair = createPair();
+  const bytes = Buffer.from("photo canonical bytes");
+  const fileName = "123e4567-e89b-02d3-0456-426614174001.jpg";
+  const orphan = "123e4567-e89b-02d3-0456-426614174099.jpg";
+  const manifest = {
+    reference_id: "photo",
+    file_name: fileName,
+    mime_type: "image/jpeg",
+    size: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    url: `tasken-attachment://local/${fileName}/photo.jpg`,
+  };
+  try {
+    writeMarkdownImage(pair.firstPhotos, fileName, bytes);
+    writeMarkdownImage(pair.firstPhotos, orphan, "private orphan");
+    pair.first.save("capture_entry", {
+      id: "photo-source",
+      title: "source",
+      text: "original source text",
+      kind: "inbox",
+      content_type: "image",
+      state: "untriaged",
+      captured_at: new Date().toISOString(),
+      images: [manifest],
+    });
+    pair.first.save(
+      "task",
+      task("photo-task", "photo task", {
+        description: "unchanged instruction",
+        images: [manifest],
+      }),
+    );
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+    assert.equal(pair.second.get("capture_entry", "photo-source").text, "original source text");
+    assert.deepEqual(pair.second.get("task", "photo-task").images, [manifest]);
+    assert.equal(pair.second.get("task", "photo-task").description, "unchanged instruction");
+    assert.deepEqual(fs.readFileSync(path.join(pair.secondPhotos, fileName)), bytes);
+    assert.equal(
+      fs.existsSync(
+        path.join(
+          pair.shared,
+          "devices",
+          pair.first.deviceId,
+          "attachments",
+          "capture-images",
+          orphan,
+        ),
+      ),
+      false,
+    );
+    pair.second.db.close();
+    const reopened = new WorkspaceDatabase(path.join(pair.root, "second", "research-desk.sqlite"));
+    try {
+      const restarted = new SharedFolderSyncService(
+        reopened,
+        () => {},
+        pair.secondAttachments,
+        pair.secondPhotos,
+      );
+      await restarted.syncNow();
+      assert.deepEqual(reopened.get("capture_entry", "photo-source").images, [manifest]);
+      assert.deepEqual(fs.readFileSync(path.join(pair.secondPhotos, fileName)), bytes);
+      fs.writeFileSync(path.join(pair.secondPhotos, fileName), Buffer.alloc(bytes.length, 1));
+      await assert.rejects(restarted.syncNow(), /一致|変わ/);
+    } finally {
+      reopened.db.close();
+    }
+    assert.equal(
+      fs.existsSync(
+        path.join(
+          pair.shared,
+          "devices",
+          pair.second.deviceId,
+          "attachments",
+          "capture-images",
+          fileName,
+        ),
+      ),
+      false,
+    );
+  } finally {
+    pair.close();
+  }
+});
+
+test("photo sync reports missing bytes and recovers on the next poll", async () => {
+  const pair = createPair();
+  const notifications = [];
+  pair.secondSync.notifyWorkspaceChanged = () =>
+    notifications.push({
+      title: pair.second.get("task", "unrelated-task")?.title,
+      photos: fs.existsSync(pair.secondPhotos)
+        ? fs.readdirSync(pair.secondPhotos).filter((name) => name.endsWith(".jpg")).length
+        : 0,
+    });
+  const fileName = "123e4567-e89b-02d3-0456-426614174001.jpg";
+  const bytes = Buffer.from("delayed photo");
+  const manifest = {
+    reference_id: "photo",
+    file_name: fileName,
+    mime_type: "image/jpeg",
+    size: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    url: `tasken-attachment://local/${fileName}/photo.jpg`,
+  };
+  try {
+    pair.first.save("task", task("unrelated-task", "Before edit"));
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+    notifications.length = 0;
+    pair.first.save("task", task("unrelated-task", "Updated without photo"));
+    writeMarkdownImage(pair.firstPhotos, fileName, bytes);
+    const firstFileName = "123e4567-e89b-02d3-0456-426614174000.jpg";
+    writeMarkdownImage(pair.firstPhotos, firstFileName, bytes);
+    pair.first.save(
+      "task",
+      task("delayed-photo", "Keep original", {
+        images: [
+          {
+            ...manifest,
+            reference_id: "first-photo",
+            file_name: firstFileName,
+            url: `tasken-attachment://local/${firstFileName}/photo.jpg`,
+          },
+          manifest,
+        ],
+      }),
+    );
+    await pair.firstSync.syncNow();
+    const remote = path.join(
+      pair.shared,
+      "devices",
+      pair.first.deviceId,
+      "attachments",
+      "capture-images",
+      fileName,
+    );
+    fs.renameSync(remote, `${remote}.delayed`);
+    await assert.rejects(pair.secondSync.syncNow(), /到着/);
+    assert.equal(pair.second.get("task", "delayed-photo").title, "Keep original");
+    assert.equal(pair.secondSync.status().state, "error");
+    assert.ok(notifications.some((entry) => entry.title === "Updated without photo"));
+    assert.ok(notifications.some((entry) => entry.photos === 1));
+    notifications.length = 0;
+    fs.renameSync(`${remote}.delayed`, remote);
+    await pair.secondSync.syncNow();
+    assert.equal(pair.secondSync.status().state, "idle");
+    assert.deepEqual(fs.readFileSync(path.join(pair.secondPhotos, fileName)), bytes);
+    assert.ok(notifications.some((entry) => entry.photos === 2));
+  } finally {
+    pair.close();
+  }
+});
+
+test("photo sync rejects invalid manifest paths, size, hash and linked roots", () => {
+  const pair = createPair();
+  try {
+    const fileName = "123e4567-e89b-02d3-0456-426614174001.jpg";
+    const entry = { mime_type: "image/jpeg", size: 1, sha256: "a".repeat(64) };
+    const sync = (name, image) =>
+      syncCaptureImageAttachments({
+        sharedDirectory: pair.shared,
+        localDirectory: pair.firstPhotos,
+        deviceId: pair.first.deviceId,
+        photoManifests: new Map([[name, image]]),
+      });
+    assert.throws(() => sync("../image.jpg", entry), /manifest/);
+    assert.throws(() => sync(fileName, { ...entry, size: 13 * 1024 * 1024 }), /manifest/);
+    assert.throws(() => sync(fileName, { ...entry, sha256: "invalid" }), /manifest/);
+    fs.mkdirSync(path.dirname(pair.firstPhotos), { recursive: true });
+    const outside = path.join(pair.root, "private");
+    fs.mkdirSync(outside);
+    fs.symlinkSync(outside, pair.firstPhotos, "junction");
+    assert.throws(() => sync(fileName, entry), /リンク/);
+  } finally {
+    pair.close();
+  }
+});
+
 test("shared folder sync publishes existing Markdown images and caches them on another device", async () => {
   const pair = createPair();
   const fileName = "123e4567-e89b-42d3-a456-426614174000.png";
@@ -97,29 +284,36 @@ test("shared folder sync publishes existing Markdown images and caches them on a
       fs.readFileSync(path.join(pair.secondAttachments, fileName), "utf8"),
       "tasken-image",
     );
-    assert.match(pair.second.get("note", "note-with-image").body_markdown, /tasken-attachment:\/\/local\//);
+    assert.match(
+      pair.second.get("note", "note-with-image").body_markdown,
+      /tasken-attachment:\/\/local\//,
+    );
     assert.equal(
-      fs.existsSync(path.join(
-        pair.shared,
-        "devices",
-        pair.first.deviceId,
-        "attachments",
-        "markdown-images",
-        orphanFileName,
-      )),
+      fs.existsSync(
+        path.join(
+          pair.shared,
+          "devices",
+          pair.first.deviceId,
+          "attachments",
+          "markdown-images",
+          orphanFileName,
+        ),
+      ),
       false,
     );
 
     await pair.secondSync.syncNow();
     assert.equal(
-      fs.existsSync(path.join(
-        pair.shared,
-        "devices",
-        pair.second.deviceId,
-        "attachments",
-        "markdown-images",
-        fileName,
-      )),
+      fs.existsSync(
+        path.join(
+          pair.shared,
+          "devices",
+          pair.second.deviceId,
+          "attachments",
+          "markdown-images",
+          fileName,
+        ),
+      ),
       false,
     );
 
@@ -162,10 +356,7 @@ test("shared folder sync never confirms an incomplete or corrupted Markdown imag
     );
     fs.writeFileSync(remoteImagePath, "partial");
 
-    await assert.rejects(
-      () => pair.secondSync.configure(pair.shared),
-      /同期途中か破損しています/,
-    );
+    await assert.rejects(() => pair.secondSync.configure(pair.shared), /同期途中か破損しています/);
     assert.equal(fs.existsSync(path.join(pair.secondAttachments, fileName)), false);
   } finally {
     pair.close();
@@ -186,7 +377,10 @@ test("Markdown images remain local when the shared folder is unavailable and pub
     fs.renameSync(pair.shared, `${pair.shared}-offline`);
 
     await assert.rejects(() => pair.firstSync.syncNow(), /Tasken設定が見つかりません/);
-    assert.equal(fs.readFileSync(path.join(pair.firstAttachments, fileName), "utf8"), "offline-image");
+    assert.equal(
+      fs.readFileSync(path.join(pair.firstAttachments, fileName), "utf8"),
+      "offline-image",
+    );
 
     fs.renameSync(`${pair.shared}-offline`, pair.shared);
     const recovered = await pair.firstSync.syncNow();
@@ -232,10 +426,7 @@ test("joining another workspace never overwrites a non-empty local database", as
     pair.first.save("task", task("task-a", "Desktop task"));
     pair.second.save("task", task("task-b", "Notebook-only task"));
     await pair.firstSync.configure(pair.shared);
-    assert.throws(
-      () => pair.secondSync.configure(pair.shared),
-      /空のTaskenから同期フォルダへ参加/,
-    );
+    assert.throws(() => pair.secondSync.configure(pair.shared), /空のTaskenから同期フォルダへ参加/);
     assert.equal(pair.second.get("task", "task-b").title, "Notebook-only task");
   } finally {
     pair.close();

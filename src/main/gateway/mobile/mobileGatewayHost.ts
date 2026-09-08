@@ -22,6 +22,11 @@ import { MobileDeviceRegistry, MobileDeviceRegistryError } from "./mobileDeviceR
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 48_177;
 const MAX_BODY_BYTES = 256 * 1024;
+// Photo CreateCapture/CreateTask carry base64 images (contract: up to 8 images).
+// Keep the default small, but allow photo payloads on /v1/commands.
+const MAX_COMMAND_BODY_BYTES = 36 * 1024 * 1024;
+// AI organize requests may also carry photos for the organizing LLM.
+const MAX_ORGANIZE_BODY_BYTES = 12 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 5_000;
 const RATE_WINDOW_MS = 60_000;
 const REQUESTS_PER_WINDOW = 120;
@@ -98,13 +103,16 @@ function rateKey(value: string): string {
     .digest("hex");
 }
 
-async function requestBody(request: IncomingMessage): Promise<unknown> {
+async function requestBody(
+  request: IncomingMessage,
+  maxBytes: number = MAX_BODY_BYTES,
+): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > MAX_BODY_BYTES) throw new MobileGatewayHostRequestError("response_too_large");
+    if (size > maxBytes) throw new MobileGatewayHostRequestError("response_too_large");
     chunks.push(buffer);
   }
   if (size === 0) throw new MobileGatewayHostRequestError("validation_failed");
@@ -301,7 +309,14 @@ export class MobileGatewayHost {
       deviceId = principal?.deviceId || "";
       let body: unknown;
       if (method === "POST") {
-        body = await requestBody(request);
+        body = await requestBody(
+          request,
+          path === TASKEN_MOBILE_ENDPOINTS.commands
+            ? MAX_COMMAND_BODY_BYTES
+            : path === TASKEN_MOBILE_ENDPOINTS.captureOrganization
+              ? MAX_ORGANIZE_BODY_BYTES
+              : MAX_BODY_BYTES,
+        );
       } else if (request.headers["content-length"] || request.headers["transfer-encoding"]) {
         request.resume();
         throw new MobileGatewayHostRequestError("validation_failed");

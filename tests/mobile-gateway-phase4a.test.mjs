@@ -13,6 +13,7 @@ const bundled = await build({
       export { ApplicationCommandService } from "./src/main/services/applicationCommandService.ts";
       export { TaskCapabilityService } from "./src/main/modules/task/public.ts";
       export { TaskenCoreRuntime } from "./src/main/composition/taskenCoreRuntime.ts";
+      export { CaptureImageStore, createCaptureImagePort } from "./src/main/services/captureImageStore.ts";
       export { TaskenCoreClient } from "./src/main/mcp/taskenCoreClient.mjs";
       export { MobileGatewayAdapter, MobileGatewayClient, MobileGatewayClientError, MobileGatewayCoreUnavailableError } from "./src/main/gateway/mobile/public.ts";
       export { selectLatestWorkReceipt } from "./src/shared/contracts/task/public.ts";
@@ -32,6 +33,7 @@ const mobile = await import(
 );
 const {
   ApplicationCommandService,
+  CaptureImageStore,
   MobileGatewayAdapter,
   MobileGatewayClient,
   MobileGatewayClientError,
@@ -42,6 +44,7 @@ const {
   TaskCapabilityService,
   TaskenCoreClient,
   TaskenCoreRuntime,
+  createCaptureImagePort,
   decodeTaskenMobileThemeCursor,
   encodeTaskenMobileThemeCursor,
   mobileCapabilitySchema,
@@ -2636,6 +2639,162 @@ test("CreateCapture uses its dedicated scope and returns a body-free canonical r
       },
     },
   });
+});
+
+const PHOTO_PNG_1X1 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+
+test("CreateCapture forwards attached photos to the Core capture command", async () => {
+  const calls = [];
+  const adapter = gateway(capability().service, {
+    executeCaptureCommand: (input) => {
+      calls.push(input);
+      return {
+        ok: true,
+        commandId: input.commandId,
+        status: "applied",
+        capture: {
+          id: input.payload.capture.id,
+          version: 1,
+          capturedAt: now,
+          deleted: false,
+        },
+      };
+    },
+  });
+  const photo = {
+    reference_id: "photo",
+    file_name: "photo.png",
+    media_type: "image/png",
+    data_base64: PHOTO_PNG_1X1,
+  };
+  const request = captureRequest();
+  request.command.capture.images = [photo];
+  const response = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: request,
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls[0].payload.capture.images, [photo]);
+  assert.doesNotMatch(JSON.stringify(response.body), /data_base64/);
+
+  const invalid = captureRequest();
+  invalid.command.capture.images = [{ ...photo, reference_id: "BAD ID" }];
+  const rejected = await adapter.handle({
+    method: "POST",
+    path: TASKEN_MOBILE_ENDPOINTS.commands,
+    principal,
+    body: invalid,
+  });
+  assert.equal(rejected.status, 400);
+  assert.equal(calls.length, 1);
+});
+
+test("photo Capture stages bytes to managed files and persists manifests without bytes", async (t) => {
+  const { repository, application } = capability();
+  const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-photo-e2e-"));
+  t.after(() => rmSync(userDataPath, { recursive: true, force: true }));
+  const runtime = new TaskenCoreRuntime(
+    userDataPath,
+    repository,
+    (command) => application.execute(command),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createCaptureImagePort(userDataPath, () => ({ width: 1, height: 1 })),
+  );
+  const adapter = runtime.createMobileGateway({
+    current: () => ({ serverId: "desktop-photo", serverRevision: 1, generatedAt: now }),
+  });
+  const post = (body) =>
+    adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.commands,
+      principal,
+      body,
+    });
+  const request = captureRequest();
+  request.commandId = "command-mobile-photo";
+  request.idempotencyKey = "command-mobile-photo";
+  request.command.capture.id = "capture-mobile-photo";
+  request.command.capture.text = "レシピの材料";
+  request.command.capture.images = [
+    {
+      reference_id: "photo",
+      file_name: "photo.png",
+      media_type: "image/png",
+      data_base64: PHOTO_PNG_1X1,
+    },
+  ];
+
+  const response = await post(request);
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  const saved = repository.get("capture_entry", "capture-mobile-photo");
+  assert.equal(saved.content_type, "image");
+  assert.equal(saved.images.length, 1);
+  assert.match(saved.images[0].file_name, /\.png$/);
+  assert.match(saved.images[0].url, /^tasken-attachment:\/\/local\//);
+  assert.doesNotMatch(JSON.stringify(saved), /data_base64/);
+  assert.deepEqual((await post(request)).body, response.body);
+});
+
+test("photo Task stages bytes and persists manifests on the task read model", async (t) => {
+  const { repository, application } = capability();
+  const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-task-photo-e2e-"));
+  t.after(() => rmSync(userDataPath, { recursive: true, force: true }));
+  const runtime = new TaskenCoreRuntime(
+    userDataPath,
+    repository,
+    (command) => application.execute(command),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createCaptureImagePort(userDataPath, () => ({ width: 1, height: 1 })),
+  );
+  const adapter = runtime.createMobileGateway({
+    current: () => ({ serverId: "desktop-task-photo", serverRevision: 1, generatedAt: now }),
+  });
+  const post = (body) =>
+    adapter.handle({
+      method: "POST",
+      path: TASKEN_MOBILE_ENDPOINTS.commands,
+      principal,
+      body,
+    });
+  const request = createRequest();
+  request.commandId = "command-mobile-task-photo";
+  request.idempotencyKey = "command-mobile-task-photo";
+  request.command.task.id = "task-mobile-photo";
+  request.command.task.title = "レシピの買い物リスト";
+  request.command.task.images = [
+    {
+      reference_id: "photo",
+      file_name: "photo.png",
+      media_type: "image/png",
+      data_base64: PHOTO_PNG_1X1,
+    },
+  ];
+
+  const response = await post(request);
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  const saved = repository.get("task", "task-mobile-photo");
+  assert.equal(saved.images.length, 1);
+  assert.match(saved.images[0].file_name, /\.png$/);
+  assert.doesNotMatch(JSON.stringify(saved), /data_base64/);
+  assert.equal(response.body.data.task.images.length, 1);
+  assert.deepEqual((await post(request)).body, response.body);
+
+  const invalid = createRequest();
+  invalid.commandId = "command-mobile-task-photo-invalid";
+  invalid.idempotencyKey = "command-mobile-task-photo-invalid";
+  invalid.command.task.id = "task-mobile-photo-invalid";
+  invalid.command.task.images = [{ reference_id: "BAD ID" }];
+  assert.equal((await post(invalid)).status, 400);
 });
 
 test("CreateCapture accepts shared UTF-16 boundaries without trimming original text", async () => {

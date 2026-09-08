@@ -626,6 +626,23 @@ function projectTask(
         sortOrder: item.sort_order,
         completedAt: item.completed_at ?? null,
       })),
+    ...(Array.isArray(task.images) && task.images.length > 0
+      ? {
+          images: (
+            task.images as Array<{
+              file_name: unknown;
+              mime_type: unknown;
+              size: unknown;
+              url: unknown;
+            }>
+          ).map((image) => ({
+            fileName: image.file_name,
+            mimeType: image.mime_type,
+            size: image.size,
+            url: image.url,
+          })),
+        }
+      : {}),
     schedule: task.schedule
       ? {
           id: task.schedule.id,
@@ -1687,6 +1704,7 @@ export class MobileGatewayAdapter {
                   text: command.capture.text,
                   project_id: command.capture.projectId ?? null,
                   captured_at: command.capture.capturedAt,
+                  ...(command.capture.images ? { images: command.capture.images } : {}),
                 },
                 ...(command.provenance
                   ? {
@@ -1766,6 +1784,7 @@ export class MobileGatewayAdapter {
                 ...(command.task.checklistItems
                   ? taskUpdatePatch({ checklistItems: command.task.checklistItems })
                   : {}),
+                ...(command.task.images ? { images: command.task.images } : {}),
               },
               ...(command.schedule ? { schedule: canonicalSchedule(command.schedule) } : {}),
               ...(command.provenance

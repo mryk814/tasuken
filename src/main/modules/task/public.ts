@@ -23,6 +23,12 @@ export {
 export { registerTaskIpc, type TaskIpcHost } from "./transport/ipc/registerTaskIpc.ts";
 
 export { normalizeTaskAssignment } from "./domain/taskAssignment.ts";
+export {
+  deterministicFileName,
+  validateManifestEntry,
+  validateStagedImageManifest,
+  type ImageManifest,
+} from "./domain/imageManifest.ts";
 
 export type { TaskCommandRuntime } from "./application/taskCommandHandler.ts";
 export type {

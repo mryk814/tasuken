@@ -228,6 +228,7 @@ class AndroidMobileTaskRepository(
     override fun observeLocalSearch(request: MobileLocalSearchRequest) = localSearch.observeLocalSearch(request)
     override suspend fun localSearchCapture(id: String) = localSearch.localSearchCapture(id)
     private val outbox = MobileOutbox(context.applicationContext, dao, store::deviceId)
+    private val photoStore = MobileCapturePhotoStore(context.applicationContext)
     private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
     private val recallReader = MobileRecallReader(dao) { path ->
         val configuration = store.configuration()
@@ -395,8 +396,10 @@ class AndroidMobileTaskRepository(
 
     override fun observeConflictCount(): Flow<Int> = outbox.observeConflictCount()
 
-    override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: LocalDate?): String =
-        outbox.enqueueCreate(
+    override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: LocalDate?): String {
+        val photoNames = draft.photos.map { it.fileName }
+        val photos = if (photoNames.isEmpty()) emptyList() else photoStore.encodePhotos(photoNames)
+        val taskId = outbox.enqueueCreate(
             title = draft.text,
             todayDate = todayDate,
             projectId = draft.projectId,
@@ -408,10 +411,23 @@ class AndroidMobileTaskRepository(
             schedule = draft.organizationSchedule(),
             plannedStartTime = draft.organization?.plannedStartTime,
             plannedDurationMinutes = draft.organization?.plannedDurationMinutes,
+            photos = photos,
         )
+        photoStore.deletePhotos(photoNames)
+        return taskId
+    }
 
-    override suspend fun enqueueCreateTasks(drafts: List<MobileCaptureDraft>, todayDate: LocalDate?): List<String> =
-        outbox.enqueueCreateTasks(drafts, todayDate)
+    override suspend fun enqueueCreateTasks(drafts: List<MobileCaptureDraft>, todayDate: LocalDate?): List<String> {
+        val photoNamesByDraftId = drafts.associate { draft ->
+            draft.draftId to draft.photos.map { it.fileName }
+        }
+        val photosByDraftId = photoNamesByDraftId.mapValues { (_, photoNames) ->
+            if (photoNames.isEmpty()) emptyList() else photoStore.encodePhotos(photoNames)
+        }
+        val ids = outbox.enqueueCreateTasks(drafts, todayDate, photosByDraftId)
+        photoStore.deletePhotos(photoNamesByDraftId.values.flatten())
+        return ids
+    }
 
     override suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> {
         val configuration = store.configuration()
@@ -419,6 +435,8 @@ class AndroidMobileTaskRepository(
         require(configuration.origin.isNotBlank() && token != null) { "Desktopへ接続するとAI整理を利用できます。" }
         val text = draft.originalText ?: draft.text
         require(text.isNotBlank() && text.length <= 12000) { "AI整理は12000文字以内で利用できます。元の入力は保持しています。" }
+        val photoNames = draft.photos.map { it.fileName }
+        val photos = if (photoNames.isEmpty()) emptyList() else photoStore.encodePhotos(photoNames)
         try {
             fun requestBody(batch: Boolean, plannedTime: Boolean = false) = buildJsonObject {
                     if (plannedTime) put("includePlannedTime", true)
@@ -427,12 +445,27 @@ class AndroidMobileTaskRepository(
                     put("capturedAt", draft.speech?.capturedAt ?: draft.createdAt)
                     put("timeZone", draft.speech?.timeZone ?: java.time.ZoneId.systemDefault().id)
                     put("themeId", draft.projectId?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+                    if (photos.isNotEmpty()) {
+                        put("images", kotlinx.serialization.json.JsonArray(photos.map { photo ->
+                            buildJsonObject {
+                                put("reference_id", photo.referenceId)
+                                put("file_name", photo.fileName)
+                                put("media_type", photo.mediaType)
+                                put("data_base64", photo.dataBase64)
+                            }
+                        }))
+                    }
                 }.toString()
             var response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(true, true), token)
             fun rejectedNewFields() = response.status == 400 && runCatching {
                 json.parseToJsonElement(response.body).jsonObject["error"]?.jsonObject
                     ?.get("code")?.jsonPrimitive?.content == "validation_failed"
             }.getOrDefault(false)
+            // 写真付きは旧Desktopでは受理できない。写真を落として再送すると
+            // LLMが画像を見ない整理になるため、フォールバックせず案内する。
+            if (photos.isNotEmpty() && rejectedNewFields()) {
+                error("このDesktopは写真付きのAI整理に対応していません。Desktopを更新してから再試行してください。写真なしなら通常の追加はそのまま使えます。")
+            }
             if (rejectedNewFields()) {
                 response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(true), token)
             }
@@ -486,14 +519,20 @@ class AndroidMobileTaskRepository(
 
     override suspend fun undoCreateTask(taskId: String): MobileUndoCreateResult = outbox.undoCreate(taskId)
 
-    override suspend fun enqueueCreateCapture(draft: MobileCaptureDraft): String =
-        outbox.enqueueCapture(
+    override suspend fun enqueueCreateCapture(draft: MobileCaptureDraft): String {
+        val photoNames = draft.photos.map { it.fileName }
+        val photos = if (photoNames.isEmpty()) emptyList() else photoStore.encodePhotos(photoNames)
+        val captureId = outbox.enqueueCapture(
             text = draft.text,
             projectId = draft.projectId,
             draftId = draft.draftId,
             createdAt = draft.createdAt,
             provenance = draft.toCaptureCreationProvenanceDto(),
+            photos = photos,
         )
+        photoStore.deletePhotos(photoNames)
+        return captureId
+    }
 
     override suspend fun undoCreateCapture(captureId: String): MobileUndoCreateResult =
         outbox.undoCapture(captureId)
@@ -1633,6 +1672,9 @@ class AndroidMobileTaskRepository(
             )
             if (isUnsupportedLongCapture(envelopeJson, response, expectedServerId)) {
                 return MobileCommandSendResult.Rejected("capability_unavailable", LONG_CAPTURE_UPDATE_REQUIRED)
+            }
+            if (isUnsupportedPhotoCapture(envelopeJson, response, expectedServerId)) {
+                return MobileCommandSendResult.Rejected("capability_unavailable", PHOTO_CAPTURE_UPDATE_REQUIRED)
             }
             when {
                 response.status == 200 -> {

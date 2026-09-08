@@ -14,6 +14,7 @@ import {
   TaskContextQueryService,
   ThemeContextQueryService,
   type NoteProposalImagePort,
+  type CaptureImagePort,
 } from "../../core/public.ts";
 import { WorkspaceAiProposalWriteAdapter } from "./workspaceAiProposalWriteAdapter.ts";
 import {
@@ -93,6 +94,7 @@ export function createTaskenCore(
   options: {
     onProposalCommitted?: ConstructorParameters<typeof WorkspaceAiProposalWriteAdapter>[1];
     noteProposalImagePort?: NoteProposalImagePort;
+    captureImagePort?: CaptureImagePort;
   } = {},
 ) {
   const agentWorkspace = new AgentWorkspaceQueryService(
@@ -101,6 +103,7 @@ export function createTaskenCore(
   const itemQueries = new ItemQueryService(new WorkspaceItemQueryReadAdapter(persistence));
   const contentDetails = new ContentDetailQueryService(
     new WorkspaceContentDetailReadAdapter(persistence),
+    options.captureImagePort,
   );
   const knowledge = new KnowledgeQueryService(new WorkspaceKnowledgeReadAdapter(persistence));
   const agentContext = new AgentContextQueryService(
@@ -133,6 +136,8 @@ export function createTaskenCore(
     getNote: { execute: contentDetails.getNote.bind(contentDetails) },
     getConversation: { execute: contentDetails.getConversation.bind(contentDetails) },
     getArtifactMetadata: { execute: contentDetails.getArtifactMetadata.bind(contentDetails) },
+    getCaptureImage: { execute: contentDetails.getCaptureImage.bind(contentDetails) },
+    getTaskImage: { execute: contentDetails.getTaskImage.bind(contentDetails) },
     getActivityEntries: new ActivityEntriesQueryService(
       new WorkspaceActivityEntriesReadAdapter(persistence),
     ),

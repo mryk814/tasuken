@@ -72,3 +72,8 @@ export type {
   NoteProposalImagePort,
   PreparedNoteProposalImages,
 } from "./ports/noteProposalImagePort.ts";
+export type {
+  CaptureImageManifestEntry,
+  CaptureImagePort,
+  StagedCaptureImages,
+} from "./ports/captureImagePort.ts";

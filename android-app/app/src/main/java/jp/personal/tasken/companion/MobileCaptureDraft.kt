@@ -61,6 +61,18 @@ data class MobileShareProvenance(
     }
 }
 
+/**
+ * A photo attached to a Capture draft. Only the app-private file name is kept
+ * here; bytes are encoded at the command boundary so drafts stay small.
+ */
+data class MobileCapturePhoto(
+    val fileName: String,
+) {
+    init {
+        require(fileName.isNotBlank())
+    }
+}
+
 data class MobileCaptureDraft(
     val draftId: String,
     val text: String,
@@ -74,6 +86,7 @@ data class MobileCaptureDraft(
     val additionalOrganizations: List<MobileCaptureOrganization> = emptyList(),
     val originalText: String? = null,
     val originalThemeId: String? = null,
+    val photos: List<MobileCapturePhoto> = emptyList(),
 ) {
     init {
         require(speech == null || source == MobileCaptureSource.AndroidSpeech)
@@ -83,6 +96,12 @@ data class MobileCaptureDraft(
 
     // Drafts retain all input, including over-limit text; limits apply only at the command boundary.
     fun withText(value: String): MobileCaptureDraft = copy(text = value, organization = organization?.copy(title = value))
+
+    fun withPhoto(photo: MobileCapturePhoto): MobileCaptureDraft =
+        if (photos.any { it.fileName == photo.fileName }) this else copy(photos = photos + photo)
+
+    fun withoutPhoto(fileName: String): MobileCaptureDraft =
+        copy(photos = photos.filterNot { it.fileName == fileName })
 
     fun withKind(value: MobileCaptureKind): MobileCaptureDraft =
         if (value == kind) this else withoutOrganization().copy(kind = value)

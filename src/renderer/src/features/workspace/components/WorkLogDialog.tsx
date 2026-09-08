@@ -25,6 +25,7 @@ export function WorkLogDialog({
   const bodyInput = useRef<HTMLTextAreaElement>(null);
   const pending = useRef<RecordWorkLogCommand | null>(null);
   const busy = useRef(false);
+  const edited = useRef(false);
   const [body, setBody] = useState("");
   const [date, setDate] = useState(today);
   const [theme, setTheme] = useState("");
@@ -32,6 +33,9 @@ export function WorkLogDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const record = useWorkspaceStore((state) => state.recordWorkLog);
+  useEffect(() => {
+    if (open && !edited.current) setDate(today);
+  }, [open, today]);
   useEffect(() => {
     if (!open) {
       dialog.current?.close();
@@ -46,6 +50,7 @@ export function WorkLogDialog({
     };
   }, [open]);
   function changed() {
+    edited.current = true;
     pending.current = null;
     setError("");
   }
@@ -69,6 +74,7 @@ export function WorkLogDialog({
     try {
       const receipt = await record(command);
       pending.current = null;
+      edited.current = false;
       setBody("");
       setDate(today);
       setTheme("");

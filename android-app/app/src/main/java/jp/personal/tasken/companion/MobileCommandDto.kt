@@ -5,6 +5,7 @@ import java.time.OffsetDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -94,6 +95,18 @@ data class MobileCreateCaptureCommandDto(
 )
 
 @Serializable
+data class MobileCaptureImageDto(
+    @SerialName("reference_id") val referenceId: String,
+    @SerialName("file_name") val fileName: String,
+    @SerialName("media_type") val mediaType: String,
+    @SerialName("data_base64") val dataBase64: String,
+)
+
+internal val MOBILE_CAPTURE_IMAGE_REFERENCE_PATTERN = Regex("^[a-z0-9][a-z0-9._-]{0,63}$")
+internal const val MOBILE_CAPTURE_IMAGE_MAX_COUNT = 8
+internal const val MOBILE_CAPTURE_IMAGE_FILE_NAME_MAX_LENGTH = 180
+
+@Serializable
 @OptIn(ExperimentalSerializationApi::class)
 data class MobileCreateCaptureCandidateDto(
     val id: String,
@@ -102,6 +115,8 @@ data class MobileCreateCaptureCandidateDto(
     val capturedAt: String,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val textContract: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val images: List<MobileCaptureImageDto>? = null,
 )
 
 @Serializable
@@ -164,6 +179,8 @@ data class MobileCreateTaskCandidateDto(
     val plannedStartTime: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val plannedDurationMinutes: Int? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val images: List<MobileCaptureImageDto>? = null,
 )
 
 @Serializable
@@ -345,6 +362,7 @@ object MobileTaskCommandContract {
             require(items.size <= 20)
             validateChecklistPatch(json.parseToJsonElement(encodeMobileChecklist(items)))
         }
+        envelope.command.task.images?.let(MobileCaptureCommandContract::validateCaptureImages)
         envelope.command.schedule?.let { schedule ->
             validateSchedulePatch(JsonObject(mapOf(
                 "startDate" to (schedule.startDate?.let(::JsonPrimitive) ?: JsonNull),
@@ -622,10 +640,23 @@ object MobileCaptureCommandContract {
         require(envelope.command.capture.projectId == null || envelope.command.capture.projectId.isNotBlank())
         require(runCatching { OffsetDateTime.parse(envelope.command.capture.capturedAt) }.isSuccess)
         require(envelope.command.capture.capturedAt == envelope.issuedAt)
+        envelope.command.capture.images?.let(::validateCaptureImages)
         require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)
         envelope.command.provenance?.let {
             validateCreationProvenance(it)
             require(it.capturedAt == envelope.command.capture.capturedAt)
+        }
+    }
+
+    internal fun validateCaptureImages(images: List<MobileCaptureImageDto>) {
+        require(images.size in 1..MOBILE_CAPTURE_IMAGE_MAX_COUNT)
+        val referenceIds = mutableSetOf<String>()
+        images.forEach { image ->
+            require(MOBILE_CAPTURE_IMAGE_REFERENCE_PATTERN.matches(image.referenceId))
+            require(referenceIds.add(image.referenceId))
+            require(image.mediaType == "image/png" || image.mediaType == "image/jpeg")
+            require(image.fileName.isNotBlank() && image.fileName.length <= MOBILE_CAPTURE_IMAGE_FILE_NAME_MAX_LENGTH)
+            require(image.dataBase64.isNotEmpty())
         }
     }
 

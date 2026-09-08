@@ -381,6 +381,44 @@ async function assertNoHorizontalClipping() {
   });
 }
 
+async function assertWorkLogDateRollover() {
+  const now = new Date();
+  await page.clock.setFixedTime(new Date(2026, 7, 24, 12));
+  await page.reload();
+  const open = page.getByRole("button", { name: "やったことを記録", exact: true });
+  await open.waitFor();
+  // Keep Today mounted overnight, then start a new record.
+  await page.clock.setFixedTime(new Date(2026, 7, 25, 12));
+  await open.click();
+  const dialog = page.getByRole("dialog", { name: "やったことを記録" });
+  const date = dialog.getByLabel("実施日", { exact: true });
+  const body = dialog.getByLabel("やったこと（必須）");
+  assert.equal(await date.inputValue(), "2026-08-25");
+  assert.equal(await body.evaluate((element) => document.activeElement === element), true);
+  await body.fill("日跨ぎ検証の作業記録。下書きの実施日を保持する。");
+  await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
+  assert.equal(await open.evaluate((element) => document.activeElement === element), true);
+  await page.clock.setFixedTime(new Date(2026, 7, 26, 12));
+  await open.click();
+  assert.equal(await date.inputValue(), "2026-08-25");
+  await date.fill("2026-08-23");
+  await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
+  await page.clock.setFixedTime(new Date(2026, 7, 27, 12));
+  await open.click();
+  assert.equal(await date.inputValue(), "2026-08-23");
+  await dialog.getByRole("button", { name: "記録を保存", exact: true }).click();
+  await dialog.waitFor({ state: "hidden" });
+  await page
+    .getByText("やったことを保存しました。DebriefのActivityで確認できます。", { exact: true })
+    .waitFor();
+  await open.click();
+  assert.equal(await date.inputValue(), "2026-08-27");
+  assert.equal(await body.inputValue(), "");
+  await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
+  await page.clock.setFixedTime(now);
+  await page.reload();
+}
+
 try {
   fs.mkdirSync(outputDirectory, { recursive: true });
   const seeded = seedRepresentativeWorkspace();
@@ -397,12 +435,13 @@ try {
   });
   page = await electronApp.firstWindow();
   await page.waitForLoadState("domcontentloaded");
+  await page.getByRole("button", { name: "Today", exact: true }).waitFor();
   await electronApp.evaluate(({ BrowserWindow }) => {
     const [window] = BrowserWindow.getAllWindows();
     window?.setSize(1440, 720);
     window?.center();
   });
-  await page.getByRole("button", { name: "Today", exact: true }).waitFor();
+  await assertWorkLogDateRollover();
   await page.getByRole("button", { name: "Debrief", exact: true }).click();
   const activityDate = page.getByLabel("Activity対象日");
   await activityDate.waitFor();
@@ -449,6 +488,7 @@ try {
       calendarWindow: "08:00-19:00",
       ...calendarEvidence,
       taskEditOpened: true,
+      workLogDateRollover: true,
       horizontalClipping: false,
       screenshotPath,
     }),

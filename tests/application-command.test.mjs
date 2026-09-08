@@ -677,6 +677,113 @@ test("Mobile CreateCapture/DeleteCapture are canonical, provenance-bounded, and 
   );
 });
 
+test("Mobile CreateCapture with staged images persists photo manifests without bytes", async () => {
+  const { CaptureImageStore } = await importBundled("src/main/services/captureImageStore.ts");
+  const directory = await mkdtemp(path.join(tmpdir(), "tasken-capture-photo-"));
+  try {
+    const store = new CaptureImageStore(directory, () => ({ width: 1, height: 1 }));
+    const PNG =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    const { manifest } = store.stage("capture-photo", [
+      {
+        reference_id: "photo",
+        file_name: "photo.png",
+        media_type: "image/png",
+        data_base64: PNG,
+      },
+    ]);
+    assert.doesNotMatch(JSON.stringify(manifest), /data_base64/);
+
+    const repo = repository();
+    const service = new ApplicationCommandService(repo);
+    const create = {
+      ...envelope(
+        "CreateCapture",
+        {
+          capture: {
+            id: "capture-photo",
+            text: "レシピの材料",
+            project_id: "",
+            captured_at: "2026-08-08T00:00:00.000Z",
+            images: manifest,
+          },
+        },
+        "mobile-capture-photo",
+      ),
+      source: "mobile",
+    };
+    const created = service.execute(create);
+    assert.equal(created.status, "applied");
+    const saved = repo.get("capture_entry", "capture-photo");
+    assert.equal(saved.content_type, "image");
+    assert.deepEqual(saved.images, manifest);
+    assert.deepEqual(service.execute(create), created);
+
+    const foreign = {
+      ...create,
+      commandId: "mobile-capture-photo-foreign",
+      payload: {
+        capture: {
+          id: "capture-photo-foreign",
+          text: "レシピの材料",
+          captured_at: "2026-08-08T00:00:00.000Z",
+          images: manifest,
+        },
+      },
+    };
+    assert.throws(() => service.execute(foreign), /manifest/);
+
+    const raw = {
+      ...create,
+      commandId: "mobile-capture-photo-raw",
+      payload: {
+        capture: {
+          id: "capture-photo-raw",
+          text: "レシピの材料",
+          captured_at: "2026-08-08T00:00:00.000Z",
+          images: [{ ...manifest[0], data_base64: PNG }],
+        },
+      },
+    };
+    assert.throws(() => service.execute(raw), /manifest/);
+
+    const sqliteDirectory = await mkdtemp(path.join(tmpdir(), "tasken-capture-photo-sqlite-"));
+    let database = new WorkspaceDatabase(path.join(sqliteDirectory, "workspace.sqlite"));
+    try {
+      database.loadWorkspace();
+      const sqliteService = new ApplicationCommandService(database);
+      const sqliteCreate = {
+        ...create,
+        commandId: "mobile-capture-photo-sqlite",
+        payload: {
+          capture: { ...create.payload.capture, id: "capture-photo-sqlite" },
+        },
+      };
+      const sqliteManifest = store.stage("capture-photo-sqlite", [
+        {
+          reference_id: "photo",
+          file_name: "photo.png",
+          media_type: "image/png",
+          data_base64: PNG,
+        },
+      ]).manifest;
+      sqliteCreate.payload.capture.images = sqliteManifest;
+      assert.equal(sqliteService.execute(sqliteCreate).status, "applied");
+      database.db.close();
+      database = new WorkspaceDatabase(path.join(sqliteDirectory, "workspace.sqlite"));
+      database.loadWorkspace();
+      const reloaded = database.get("capture_entry", "capture-photo-sqlite");
+      assert.equal(reloaded.content_type, "image");
+      assert.deepEqual(reloaded.images, sqliteManifest);
+    } finally {
+      database.db.close();
+      await rm(sqliteDirectory, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Capture text boundaries preserve the original through SQLite restart, replay and delete", async () => {
   const fixtures = JSON.parse(
     readFileSync(

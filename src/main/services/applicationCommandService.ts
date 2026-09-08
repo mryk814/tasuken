@@ -16,6 +16,7 @@ import {
   quickCaptureContentType,
   quickCaptureTitle,
 } from "../../shared/quickCapture.mjs";
+import { validateStagedImageManifest } from "./captureImageStore.ts";
 import {
   selectLatestWorkReceipt,
   taskWorkReportsCoveredBy,
@@ -1356,6 +1357,7 @@ export class ApplicationCommandService {
         text: string;
         project_id?: string | null;
         captured_at: string;
+        images?: unknown;
       };
       provenance?: Record<string, unknown>;
     };
@@ -1365,23 +1367,41 @@ export class ApplicationCommandService {
         id: payload.capture.id,
       });
     }
+    let stagedImages: Array<{
+      reference_id: string;
+      file_name: string;
+      mime_type: "image/png" | "image/jpeg";
+      size: number;
+      sha256: string;
+      url: string;
+    }> = [];
+    if (payload.capture.images !== undefined) {
+      try {
+        stagedImages = validateStagedImageManifest(payload.capture.id, payload.capture.images);
+      } catch {
+        throw new ApplicationCommandError("INVALID_PAYLOAD", "Capture画像のmanifestが不正です。");
+      }
+    }
     const captureUrl = firstCaptureUrl(payload.capture.text);
     const capture: Entity = {
       id: payload.capture.id,
       text: payload.capture.text,
       title: quickCaptureTitle(payload.capture.text),
       kind: "inbox",
-      content_type: quickCaptureContentType(payload.capture.text),
+      content_type:
+        stagedImages.length > 0 ? "image" : quickCaptureContentType(payload.capture.text),
       url: captureUrl || null,
       project_id: canonicalThemeId(payload.capture.project_id, { defaultPersonal: true }),
       captured_at: payload.capture.captured_at,
       state: "untriaged",
+      ...(stagedImages.length > 0 ? { images: stagedImages } : {}),
     };
     captureDefinition.parseCreate(capture);
     if (
       capture.state !== "untriaged" ||
       capture.kind !== "inbox" ||
-      !["text", "url", "markdown"].includes(String(capture.content_type)) ||
+      !["text", "url", "markdown", "image"].includes(String(capture.content_type)) ||
+      (capture.content_type === "image" && stagedImages.length === 0) ||
       (capture.content_type === "url" && !capture.url)
     ) {
       throw new ApplicationCommandError(
@@ -1397,6 +1417,14 @@ export class ApplicationCommandService {
         commandEvent(command, "capture_entry", capture.id, "created", null, capture),
       ),
     );
+    if (stagedImages.length > 0) {
+      event.metadata = {
+        ...((event.metadata as Record<string, unknown>) || {}),
+        include_in_activity: true,
+        media_kind: "image",
+        image_count: stagedImages.length,
+      };
+    }
     return persistReceipt(
       this.repository,
       command,

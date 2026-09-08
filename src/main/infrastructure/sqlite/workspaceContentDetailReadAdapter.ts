@@ -2,7 +2,10 @@ import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../../shared/ai
 import type { ContentDetailReadPort, ContentDetailRecord } from "../../core/public.ts";
 
 export interface ContentDetailWorkspacePersistence {
-  list(type: "theme" | "note" | "resource" | "artifact", includeDeleted?: boolean): ContentDetailRecord[];
+  list(
+    type: "theme" | "note" | "resource" | "artifact" | "capture_entry" | "task",
+    includeDeleted?: boolean,
+  ): ContentDetailRecord[];
   readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
@@ -10,12 +13,18 @@ export interface ContentDetailWorkspacePersistence {
 export class WorkspaceContentDetailReadAdapter implements ContentDetailReadPort {
   constructor(private readonly persistence: ContentDetailWorkspacePersistence) {}
 
-  list(type: "theme" | "note" | "resource" | "artifact", includeArchived: boolean) {
+  list(
+    type: "theme" | "note" | "resource" | "artifact" | "capture_entry" | "task",
+    includeArchived: boolean,
+  ) {
     return this.persistence.list(type, includeArchived);
   }
 
   workspaceAiVisibilityDefault() {
-    return normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault"))
-      || [...DEFAULT_AI_VISIBILITY];
+    return (
+      normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault")) || [
+        ...DEFAULT_AI_VISIBILITY,
+      ]
+    );
   }
 }
