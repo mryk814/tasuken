@@ -17,7 +17,9 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 }
 
 const { MediaCaptureService } = await importBundled("src/main/services/mediaCaptureService.ts");
@@ -43,7 +45,10 @@ function fixture(t) {
   return { root, userDataPath, managedDirectory, sourcePath, bytes };
 }
 
-function harness(paths, { fail = false, ownerThemeId = null, missingTheme = false, legacyTheme = false } = {}) {
+function harness(
+  paths,
+  { fail = false, ownerThemeId = null, missingTheme = false, legacyTheme = false } = {},
+) {
   let index = 0;
   const commands = {
     calls: [],
@@ -58,9 +63,12 @@ function harness(paths, { fail = false, ownerThemeId = null, missingTheme = fals
     repository: {
       get(type, id) {
         if (type === "artifact") return null;
-        if (type === "task" && id === "task-1") return { id, state: "todo", project_id: ownerThemeId };
-        if (type === "project" && id === ownerThemeId && !missingTheme && !legacyTheme) return { id, name: "Owner Theme" };
-        if (type === "theme" && id === ownerThemeId && !missingTheme && legacyTheme) return { id, name: "Legacy Owner Theme" };
+        if (type === "task" && id === "task-1")
+          return { id, state: "todo", project_id: ownerThemeId };
+        if (type === "project" && id === ownerThemeId && !missingTheme && !legacyTheme)
+          return { id, name: "Owner Theme" };
+        if (type === "theme" && id === ownerThemeId && !missingTheme && legacyTheme)
+          return { id, name: "Legacy Owner Theme" };
         return null;
       },
     },
@@ -97,11 +105,26 @@ test("trim export keeps the original bytes and commits a separate derived Artifa
   const paths = fixture(t);
   const ffmpegExecutable = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
   const ffmpegPath = path.resolve("node_modules", "ffmpeg-static", ffmpegExecutable);
-  const generated = spawnSync(ffmpegPath, [
-    "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-    "-f", "lavfi", "-i", "color=c=blue:s=320x180:d=2",
-    "-c:v", "libx264", "-pix_fmt", "yuv420p", paths.sourcePath,
-  ], { windowsHide: true });
+  const generated = spawnSync(
+    ffmpegPath,
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-nostdin",
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=blue:s=320x180:d=2",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      paths.sourcePath,
+    ],
+    { windowsHide: true },
+  );
   assert.equal(generated.status, 0, generated.stderr?.toString("utf8"));
   const originalBytes = fs.readFileSync(paths.sourcePath);
   const records = new Map([["task:task-1", { id: "task-1", state: "todo", project_id: null }]]);
@@ -109,12 +132,24 @@ test("trim export keeps the original bytes and commits a separate derived Artifa
   const calls = [];
   const media = new MediaCaptureService({
     userDataPath: paths.userDataPath,
-    repository: { get(type, id) { return records.get(`${type}:${id}`) || null; } },
+    repository: {
+      get(type, id) {
+        return records.get(`${type}:${id}`) || null;
+      },
+    },
     commands: {
       executeMediaCapture(command) {
         calls.push(command);
-        if (command.payload.artifact) records.set(`artifact:${command.payload.artifact.id}`, { ...command.payload.artifact, version: 1 });
-        if (command.payload.reference) records.set(`reference:${command.payload.reference.id}`, { ...command.payload.reference, version: 1 });
+        if (command.payload.artifact)
+          records.set(`artifact:${command.payload.artifact.id}`, {
+            ...command.payload.artifact,
+            version: 1,
+          });
+        if (command.payload.reference)
+          records.set(`reference:${command.payload.reference.id}`, {
+            ...command.payload.reference,
+            version: 1,
+          });
         return { status: "applied", commandId: command.commandId, changes: [], events: [] };
       },
     },
@@ -124,7 +159,12 @@ test("trim export keeps the original bytes and commits a separate derived Artifa
     ffmpegPath,
   });
   const prepared = media.prepareVideoFile(paths.sourcePath, request);
-  const committed = media.commitVideo({ sessionId: prepared.sessionId, durationMs: 2000, widthPx: 320, heightPx: 180 });
+  const committed = media.commitVideo({
+    sessionId: prepared.sessionId,
+    durationMs: 2000,
+    widthPx: 320,
+    heightPx: 180,
+  });
   const source = media.getVideoTrimSource(committed.publicResult.artifactId);
   const originalArtifact = records.get(`artifact:${source.artifactId}`);
   const result = await media.exportTrimmedVideo({
@@ -164,7 +204,10 @@ test("video theme authority is derived from the saved owner before bytes are sta
   const sessionsPath = path.join(paths.userDataPath, "media-recovery", "sessions");
   const sessionsBeforeRejectedAttempt = fs.readdirSync(sessionsPath);
   const missing = harness(paths, { ownerThemeId, missingTheme: true }).media;
-  assert.throws(() => missing.prepareVideoFile(paths.sourcePath, request), /添付先Themeが見つかりません/);
+  assert.throws(
+    () => missing.prepareVideoFile(paths.sourcePath, request),
+    /添付先Themeが見つかりません/,
+  );
   assert.deepEqual(fs.readdirSync(sessionsPath), sessionsBeforeRejectedAttempt);
 });
 
@@ -185,14 +228,22 @@ test("prepared video remains discardable when its owner is deleted or changes Th
           return null;
         },
       },
-      commands: { executeMediaCapture(command) { calls.push(command); return { status: "applied", commandId: command.commandId, changes: [], events: [] }; } },
+      commands: {
+        executeMediaCapture(command) {
+          calls.push(command);
+          return { status: "applied", commandId: command.commandId, changes: [], events: [] };
+        },
+      },
       resolveManagedDirectory: () => ({ kind: "ok", directory: paths.managedDirectory }),
       idFactory: () => IDS[index++],
       now: () => "2026-08-09T00:00:00.000Z",
     });
     const prepared = media.prepareVideoFile(paths.sourcePath, request);
     owner = mutation === "deleted" ? null : { id: "task-1", state: "todo", project_id: themeB };
-    assert.throws(() => media.commitVideo({ sessionId: prepared.sessionId, ...metadata }), /破棄して/);
+    assert.throws(
+      () => media.commitVideo({ sessionId: prepared.sessionId, ...metadata }),
+      /破棄して/,
+    );
     assert.equal(calls.length, 0);
     const pending = media.listPreparedVideo();
     assert.equal(pending[0].status, "ready");
@@ -220,17 +271,28 @@ test("owner change at the finalizing boundary rolls the session back to prepared
         return null;
       },
     },
-    commands: { executeMediaCapture(command) { calls.push(command); return { status: "applied", commandId: command.commandId, changes: [], events: [] }; } },
+    commands: {
+      executeMediaCapture(command) {
+        calls.push(command);
+        return { status: "applied", commandId: command.commandId, changes: [], events: [] };
+      },
+    },
     resolveManagedDirectory: () => ({ kind: "ok", directory: paths.managedDirectory }),
     idFactory: () => IDS[index++],
     now: () => "2026-08-09T00:00:00.000Z",
   });
   const prepared = media.prepareVideoFile(paths.sourcePath, request);
-  assert.throws(() => media.commitVideo({ sessionId: prepared.sessionId, ...metadata }), /Themeが変更/);
+  assert.throws(
+    () => media.commitVideo({ sessionId: prepared.sessionId, ...metadata }),
+    /Themeが変更/,
+  );
   assert.equal(calls.length, 0);
-  assert.equal(fs.existsSync(paths.managedDirectory)
-    ? fs.readdirSync(paths.managedDirectory).filter((name) => name.endsWith(".mp4")).length
-    : 0, 0);
+  assert.equal(
+    fs.existsSync(paths.managedDirectory)
+      ? fs.readdirSync(paths.managedDirectory).filter((name) => name.endsWith(".mp4")).length
+      : 0,
+    0,
+  );
   const pending = media.listPreparedVideo()[0];
   assert.equal(pending.status, "ready");
   assert.equal(pending.canDiscard, true);
@@ -239,8 +301,29 @@ test("owner change at the finalizing boundary rolls the session back to prepared
 test("linked video revalidates original on retry and never returns its path", (t) => {
   const paths = fixture(t);
   const first = harness(paths, { fail: true });
-  const prepared = first.media.prepareVideoFile(paths.sourcePath, { ...request, storageMode: "linked" });
-  assert.throws(() => first.media.commitVideo({ sessionId: prepared.sessionId, ...metadata }), /injected DB failure/);
+  const prepared = first.media.prepareVideoFile(paths.sourcePath, {
+    ...request,
+    storageMode: "linked",
+  });
+  const savedIdentity = JSON.parse(
+    fs.readFileSync(
+      path.join(
+        paths.userDataPath,
+        "media-recovery",
+        "sessions",
+        prepared.sessionId,
+        "session.json",
+      ),
+      "utf8",
+    ),
+  );
+  const legacyStat = fs.statSync(paths.sourcePath);
+  assert.equal(savedIdentity.sourceDevice, String(legacyStat.dev));
+  assert.equal(savedIdentity.sourceInode, String(legacyStat.ino));
+  assert.throws(
+    () => first.media.commitVideo({ sessionId: prepared.sessionId, ...metadata }),
+    /injected DB failure/,
+  );
   assert.equal(JSON.stringify(first.media.listPreparedVideo()).includes(paths.root), false);
   fs.writeFileSync(paths.sourcePath, Buffer.from("changed"));
   const retry = harness(paths);
@@ -261,8 +344,14 @@ test("linked video revalidates original on retry and never returns its path", (t
 test("linked video rejects a same-bytes replacement inode until the original identity is restored", (t) => {
   const paths = fixture(t);
   const first = harness(paths, { fail: true });
-  const prepared = first.media.prepareVideoFile(paths.sourcePath, { ...request, storageMode: "linked" });
-  assert.throws(() => first.media.commitVideo({ sessionId: prepared.sessionId, ...metadata }), /injected DB failure/);
+  const prepared = first.media.prepareVideoFile(paths.sourcePath, {
+    ...request,
+    storageMode: "linked",
+  });
+  assert.throws(
+    () => first.media.commitVideo({ sessionId: prepared.sessionId, ...metadata }),
+    /injected DB failure/,
+  );
   const originalPath = path.join(paths.root, "original-evidence.mp4");
   fs.renameSync(paths.sourcePath, originalPath);
   fs.writeFileSync(paths.sourcePath, paths.bytes);
@@ -289,29 +378,55 @@ test("video signature mismatch is rejected before a durable session exists", (t)
 });
 
 for (const [label, storageMode, tamper] of [
-  ["managed sourcePath", "managed", (manifest, paths) => { manifest.sourcePath = paths.sourcePath; }],
-  ["linked managed root", "linked", (manifest, paths) => {
-    manifest.managedRootPath = paths.managedDirectory;
-    manifest.managedRootRealPath = paths.managedDirectory;
-    manifest.managedRootDevice = "1";
-    manifest.managedRootInode = "1";
-  }],
-  ["linked source identity", "linked", (manifest) => { manifest.sourceDevice = `${manifest.sourceDevice}-tampered`; }],
-]) test(`tampered ${label} manifest remains pending with zero retry DB writes`, (t) => {
-  const paths = fixture(t);
-  const first = harness(paths, { fail: true });
-  const prepared = first.media.prepareVideoFile(paths.sourcePath, { ...request, storageMode });
-  assert.throws(() => first.media.commitVideo({ sessionId: prepared.sessionId, ...metadata }), /injected DB failure/);
-  const manifestPath = path.join(paths.userDataPath, "media-recovery", "sessions", prepared.sessionId, "session.json");
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-  tamper(manifest, paths);
-  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  [
+    "managed sourcePath",
+    "managed",
+    (manifest, paths) => {
+      manifest.sourcePath = paths.sourcePath;
+    },
+  ],
+  [
+    "linked managed root",
+    "linked",
+    (manifest, paths) => {
+      manifest.managedRootPath = paths.managedDirectory;
+      manifest.managedRootRealPath = paths.managedDirectory;
+      manifest.managedRootDevice = "1";
+      manifest.managedRootInode = "1";
+    },
+  ],
+  [
+    "linked source identity",
+    "linked",
+    (manifest) => {
+      manifest.sourceDevice = `${manifest.sourceDevice}-tampered`;
+    },
+  ],
+])
+  test(`tampered ${label} manifest remains pending with zero retry DB writes`, (t) => {
+    const paths = fixture(t);
+    const first = harness(paths, { fail: true });
+    const prepared = first.media.prepareVideoFile(paths.sourcePath, { ...request, storageMode });
+    assert.throws(
+      () => first.media.commitVideo({ sessionId: prepared.sessionId, ...metadata }),
+      /injected DB failure/,
+    );
+    const manifestPath = path.join(
+      paths.userDataPath,
+      "media-recovery",
+      "sessions",
+      prepared.sessionId,
+      "session.json",
+    );
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    tamper(manifest, paths);
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-  const retry = harness(paths);
-  assert.deepEqual(retry.media.recoverPending(), { recovered: 0, pending: 1 });
-  assert.equal(retry.commands.calls.length, 0);
-  const diagnostics = retry.media.listPreparedVideo();
-  assert.equal(diagnostics.length, 1);
-  assert.equal(diagnostics[0].recoveryReason, "manifest_invalid");
-  assert.equal(diagnostics[0].sourceId, undefined);
-});
+    const retry = harness(paths);
+    assert.deepEqual(retry.media.recoverPending(), { recovered: 0, pending: 1 });
+    assert.equal(retry.commands.calls.length, 0);
+    const diagnostics = retry.media.listPreparedVideo();
+    assert.equal(diagnostics.length, 1);
+    assert.equal(diagnostics[0].recoveryReason, "manifest_invalid");
+    assert.equal(diagnostics[0].sourceId, undefined);
+  });
