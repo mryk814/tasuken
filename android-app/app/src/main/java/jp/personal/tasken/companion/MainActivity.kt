@@ -249,6 +249,12 @@ internal fun TodayApp(
     var recallOpen by rememberSaveable { mutableStateOf(false) }
     var relatedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var themeContextId by rememberSaveable { mutableStateOf<String?>(null) }
+    var localSearchOpen by rememberSaveable { mutableStateOf(false) }
+    var localSearchTaskReturn by rememberSaveable { mutableStateOf<String?>(null) }
+    var searchDocumentType by rememberSaveable { mutableStateOf<String?>(null) }
+    var searchDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
+    var localSearchNotice by remember { mutableStateOf<String?>(null) }
+    val localSearchSavedState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var recallCapture by remember { mutableStateOf<MobilePendingCapture?>(null) }
     val recallSavedState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val paneState = rememberTodayPaneState(restoredCaptureDraft)
@@ -733,6 +739,7 @@ internal fun TodayApp(
                                 actionState = taskActionState,
                                 onTaskStateAction = todayViewModel::toggleTaskState,
                                 onChecklistUpdate = todayViewModel::updateTaskChecklist,
+                                onLocalSearch = if (todayViewModel.localSearchRepository != null) ({ localSearchOpen = true }) else null,
                             )
                             AppSection.Ai -> AiInboxListPane(
                                 uiState = uiState,
@@ -788,6 +795,10 @@ internal fun TodayApp(
                             todayViewModel.loadWorkReceipt(task.id, receiptId)
                         }
                     }
+                    Column(Modifier.fillMaxSize()) {
+                    if (localSearchTaskReturn != null) TextButton(onClick = { localSearchOpen = true; localSearchTaskReturn = null },
+                        modifier = Modifier.testTag("local-search-return")) { Text("検索へ戻る") }
+                    Box(Modifier.weight(1f)) {
                     TodayDetailPane(
                         task = task,
                         onRecordWorkLog = { workLogTaskId = it.id; workLogOpen = true },
@@ -819,6 +830,8 @@ internal fun TodayApp(
                         onHumanReview = todayViewModel::reviewTaskWork,
                         onTaskAiReady = todayViewModel::setTaskAiReady,
                     )
+                    }
+                    }
                 }
             },
             modifier = Modifier.padding(padding),
@@ -868,9 +881,39 @@ internal fun TodayApp(
             MobileThemeContextSheet(repository, themeId, onDismiss = { themeContextId = null })
         }
     }
+    androidx.activity.compose.BackHandler(localSearchTaskReturn != null && !localSearchOpen && !workLogOpen &&
+        relatedTaskId == null && themeContextId == null && !paneState.captureOpen) {
+        localSearchOpen = true; localSearchTaskReturn = null
+    }
+    if (localSearchOpen && !workLogOpen && recallCapture == null && relatedTaskId == null) {
+        todayViewModel.localSearchRepository?.let { repository ->
+            localSearchSavedState.SaveableStateProvider("local-search") {
+                MobileLocalSearchSheet(repository, themes, initialQuery = paneState.taskSearch, initialThemeId = paneState.taskThemeId,
+                    notice = localSearchNotice, onDismiss = { localSearchOpen = false; localSearchNotice = null }, onOpen = { hit ->
+                        localSearchNotice = null
+                        when {
+                            hit.kind == MobileLocalSearchKind.Task -> {
+                                localSearchOpen = false; localSearchTaskReturn = hit.sourceId
+                                paneState.selectedTaskId = hit.sourceId
+                                coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, hit.sourceId) }
+                            }
+                            hit.kind == MobileLocalSearchKind.WorkLog -> { workLogRecordId = hit.sourceId; workLogTaskId = null; workLogOpen = true }
+                            hit.relatedTaskId != null -> { relatedTaskId = hit.relatedTaskId; searchDocumentType = hit.kind.sourceType; searchDocumentId = hit.sourceId }
+                            hit.kind == MobileLocalSearchKind.Capture -> coroutineScope.launch {
+                                val capture = repository.localSearchCapture(hit.sourceId)
+                                if (capture == null) localSearchNotice = "原文が見つからないか、閲覧権限が変わりました。検索結果を確認してください。"
+                                else recallCapture = capture
+                            }
+                        }
+                    })
+            }
+        }
+    }
     relatedTaskId?.let { taskId ->
         todayViewModel.relatedDocumentsRepository?.let { repository ->
-            MobileRelatedDocumentsSheet(repository, taskId, onDismiss = { relatedTaskId = null })
+            MobileRelatedDocumentsSheet(repository, taskId, onDismiss = { relatedTaskId = null; searchDocumentType = null; searchDocumentId = null },
+                initialDocument = searchDocumentId?.let { id -> searchDocumentType?.let { it to id } },
+                dismissLabel = if (localSearchOpen) "検索へ戻る" else "Taskへ戻る")
         }
     }
     if (recallOpen && !workLogOpen && recallCapture == null) {
@@ -1447,6 +1490,7 @@ internal fun TasksListPane(
     actionState: TaskActionUiState,
     onTaskStateAction: (MobileTask) -> Unit,
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
+    onLocalSearch: (() -> Unit)? = null,
 ) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
@@ -1471,6 +1515,9 @@ internal fun TasksListPane(
                     label = { Text("Taskを検索") },
                     singleLine = true,
                 )
+                onLocalSearch?.let { open ->
+                    TextButton(onClick = open, modifier = Modifier.padding(horizontal = 12.dp).testTag("open-local-search")) { Text("端末内の記録を検索") }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
