@@ -284,6 +284,21 @@ export async function createMobileOfflineGateway({ scopes, organizer = null } = 
         expectedVersions: [{ type: "task", id: task.id, version: task.version }],
       });
     }
+    if (Object.hasOwn(action, "workspaceAiVisibility")) {
+      database.setPreference("aiVisibilityDefault", action.workspaceAiVisibility);
+    }
+    if (action.workLogAiVisibility) {
+      const { id, audiences } = action.workLogAiVisibility;
+      const note = database.get("note", id);
+      assert.ok(note?.properties_json?.work_log);
+      database.save("note", { ...note, ai_visibility: audiences });
+    }
+    if (action.themeAiVisibility) {
+      const { id, audiences } = action.themeAiVisibility;
+      const theme = database.get("theme", id);
+      assert.ok(theme);
+      database.save("theme", { ...theme, default_ai_visibility: audiences });
+    }
     if (action.editWorkLog) {
       const { id, body } = action.editWorkLog;
       const note = database.get("note", id);
