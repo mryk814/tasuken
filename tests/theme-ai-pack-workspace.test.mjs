@@ -73,6 +73,295 @@ async function importWorkspaceService() {
 
 const { WorkspaceService } = await importWorkspaceService();
 
+function autoConfig(root, overrides = {}) {
+  return {
+    enabled: true,
+    root,
+    timezone: "Asia/Tokyo",
+    themeId: null,
+    fromDate: "2026-09-06",
+    includeFullText: true,
+    ...overrides,
+  };
+}
+
+function contextManifest(root) {
+  return JSON.parse(
+    fs.readFileSync(path.join(root, "Tasken Context/.tasken-context.json"), "utf8"),
+  );
+}
+
+async function finishAutoQueue(service) {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const status = await service.retryDailyContextAuto();
+    assert.equal(status.error, null);
+    if (status.freshness.pendingCount === 0) return status;
+  }
+  assert.fail("automatic publication did not drain its bounded test queue");
+}
+
+test("自動公開は停止中に公開先へ触れず、初回の各日を1件ずつ永続キューから処理する（#547）", async () => {
+  const item = fixture("tasken-auto-queue");
+  let reopened;
+  try {
+    const now = () => "2026-09-08T01:00:00.000Z";
+    const service = new WorkspaceService(item.database, item.userDataPath, now);
+    item.database.setPreference("aiVisibilityDefault", ["m365"]);
+    service.recordWorkLog({
+      schemaVersion: 1,
+      commandName: "RecordWorkLog",
+      commandId: "auto-unchanged-note",
+      issuedAt: now(),
+      performedDate: "2026-09-06",
+      themeId: "theme-pack",
+      body: "mtimeを保つ公開本文",
+    });
+    const missingRoot = path.join(item.userDataPath, "not-created");
+    assert.equal(service.getDailyContextAutoStatus().config.enabled, false);
+    service.configureDailyContextAuto(autoConfig(missingRoot, { enabled: false }));
+    let reads = 0;
+    const original = item.database.loadWorkspace.bind(item.database);
+    item.database.loadWorkspace = (...args) => {
+      reads++;
+      return original(...args);
+    };
+    await service.retryDailyContextAuto();
+    assert.equal(reads, 0);
+    assert.equal(fs.existsSync(missingRoot), false);
+    assert.equal(fs.existsSync(path.join(item.syncRoot, "Tasken Context")), false);
+    service.configureDailyContextAuto(autoConfig(item.syncRoot));
+    const first = await service.retryDailyContextAuto();
+    assert.equal(first.error, null);
+    assert.equal(first.freshness.pendingCount, 2);
+    assert.deepEqual(Object.keys(contextManifest(item.syncRoot).days), ["2026-09-06"]);
+    assert.deepEqual(item.database.getDailyContextAutoState().pendingDates, [
+      "2026-09-07",
+      "2026-09-08",
+    ]);
+    reopened = new WorkspaceDatabase(path.join(item.userDataPath, "workspace.sqlite"));
+    const resumed = new WorkspaceService(reopened, item.userDataPath, now);
+    assert.equal(resumed.getDailyContextAutoStatus().freshness.pendingCount, 2);
+    const second = await resumed.retryDailyContextAuto();
+    assert.equal(second.freshness.pendingCount, 1);
+    assert.deepEqual(Object.keys(contextManifest(item.syncRoot).days), [
+      "2026-09-06",
+      "2026-09-07",
+    ]);
+    const complete = await finishAutoQueue(resumed);
+    assert.equal(complete.freshness.publishedThrough, "2026-09-08");
+    assert.deepEqual(Object.keys(contextManifest(item.syncRoot).days), [
+      "2026-09-06",
+      "2026-09-07",
+      "2026-09-08",
+    ]);
+    const dayFiles = Object.values(contextManifest(item.syncRoot).days).map((day) =>
+      path.join(item.syncRoot, "Tasken Context", day.relativePath),
+    );
+    const sourceFiles = Object.keys(contextManifest(item.syncRoot).indexFiles).filter((relative) =>
+      /^Sources\/(note|capture_entry)-/.test(relative),
+    );
+    assert.ok(sourceFiles.length > 0);
+    dayFiles.push(
+      ...sourceFiles.map((relative) => path.join(item.syncRoot, "Tasken Context", relative)),
+    );
+    for (const file of dayFiles)
+      fs.utimesSync(file, new Date("2001-01-01T00:00:00Z"), new Date("2001-01-01T00:00:00Z"));
+    const before = dayFiles.map((file) => ({
+      content: fs.readFileSync(file, "utf8"),
+      mtime: fs.statSync(file).mtimeMs,
+    }));
+    // Changing the initial range forces a fresh scan, but the already-published days and bodies are unchanged.
+    resumed.configureDailyContextAuto(autoConfig(item.syncRoot, { fromDate: "2026-09-07" }));
+    await finishAutoQueue(resumed);
+    assert.deepEqual(
+      dayFiles.map((file) => ({
+        content: fs.readFileSync(file, "utf8"),
+        mtime: fs.statSync(file).mtimeMs,
+      })),
+      before,
+    );
+  } finally {
+    reopened?.db.close();
+    item.close();
+  }
+});
+
+test("端末受信の観測だけが変わってもREADMEを更新し日別ファイルは維持する（#547）", async () => {
+  const item = fixture("tasken-auto-observation");
+  try {
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-09-08T01:00:00.000Z",
+    );
+    service.configureDailyContextAuto(autoConfig(item.syncRoot, { fromDate: "2026-09-08" }));
+    await finishAutoQueue(service);
+    const day = path.join(item.syncRoot, "Tasken Context/Days/2026-09-08.md");
+    const before = { text: fs.readFileSync(day, "utf8"), mtime: fs.statSync(day).mtimeMs };
+    item.database.db
+      .prepare(
+        "INSERT INTO sync_device_cursors(device_id, last_sequence, updated_at) VALUES(?, ?, ?)",
+      )
+      .run("observation-only-device", 7, "2026-09-08T01:10:00.000Z");
+    await finishAutoQueue(service);
+    assert.match(
+      fs.readFileSync(path.join(item.syncRoot, "Tasken Context/README.md"), "utf8"),
+      /observation-only-device.*2026-09-08T01:10:00.000Z.*revision 7/,
+    );
+    assert.deepEqual(
+      { text: fs.readFileSync(day, "utf8"), mtime: fs.statSync(day).mtimeMs },
+      before,
+    );
+  } finally {
+    item.close();
+  }
+});
+
+test("自動公開は初回範囲より古い公開済み本文もprivateへの変更で撤去する（#547）", async () => {
+  const item = fixture("tasken-auto-private");
+  try {
+    item.database.setPreference("aiVisibilityDefault", ["m365"]);
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-09-08T01:00:00.000Z",
+    );
+    service.recordWorkLog({
+      schemaVersion: 1,
+      commandName: "RecordWorkLog",
+      commandId: "auto-private-note",
+      issuedAt: "2026-09-08T01:00:00.000Z",
+      performedDate: "2026-09-05",
+      themeId: "theme-pack",
+      body: "auto-old-private-body",
+    });
+    const plan = service.getDailyContextPreview({
+      date: "2026-09-05",
+      timezone: "Asia/Tokyo",
+      themeId: null,
+      includeFullText: true,
+    });
+    service.publishDailyContext({
+      root: item.syncRoot,
+      selection: plan.selection,
+      generatedAt: plan.generatedAt,
+      expectedContentHash: plan.contentHash,
+    });
+    const bodyPath = path.join(item.syncRoot, "Tasken Context", plan.publicSources[0].relativePath);
+    assert.match(fs.readFileSync(bodyPath, "utf8"), /auto-old-private-body/);
+    service.configureDailyContextAuto(autoConfig(item.syncRoot, { fromDate: "2026-09-08" }));
+    await finishAutoQueue(service);
+    const note = item.database.get("note", "auto-private-note");
+    item.database.save("note", { ...note, ai_visibility: [] });
+    await finishAutoQueue(service);
+    assert.equal(fs.existsSync(bodyPath), false);
+    for (const relative of fs.readdirSync(path.join(item.syncRoot, "Tasken Context"), {
+      recursive: true,
+    })) {
+      const file = path.join(item.syncRoot, "Tasken Context", relative);
+      if (fs.statSync(file).isFile())
+        assert.doesNotMatch(fs.readFileSync(file, "utf8"), /auto-old-private-body/);
+    }
+    assert.equal(item.database.get("note", "auto-private-note").body_markdown, note.body_markdown);
+  } finally {
+    item.close();
+  }
+});
+
+test("自動公開の保存先不達を再試行でき、別rootへの手動公開を拒否して設定変更で移行する（#547）", async () => {
+  const item = fixture("tasken-auto-folder");
+  try {
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-09-08T01:00:00.000Z",
+    );
+    service.configureDailyContextAuto(autoConfig(item.syncRoot, { fromDate: "2026-09-08" }));
+    const moved = path.join(item.userDataPath, "disconnected-root");
+    fs.renameSync(item.syncRoot, moved);
+    const failed = await service.retryDailyContextAuto();
+    assert.match(failed.error, /保存先/);
+    assert.ok(failed.retryAt);
+    assert.equal(fs.existsSync(item.syncRoot), false);
+    assert.equal(item.database.getDailyContextAutoState().config.enabled, true);
+    fs.renameSync(moved, item.syncRoot);
+    await finishAutoQueue(service);
+    const oldDay = path.join(item.syncRoot, "Tasken Context/Days/2026-09-08.md");
+    const oldContent = fs.readFileSync(oldDay, "utf8");
+    const otherRoot = path.join(item.userDataPath, "new-publication-root");
+    fs.mkdirSync(otherRoot);
+    const plan = service.getDailyContextPreview({
+      date: "2026-09-08",
+      timezone: "Asia/Tokyo",
+      themeId: null,
+      includeFullText: true,
+    });
+    assert.throws(
+      () =>
+        service.publishDailyContext({
+          root: otherRoot,
+          selection: plan.selection,
+          generatedAt: plan.generatedAt,
+          expectedContentHash: plan.contentHash,
+        }),
+      /自動公開/,
+    );
+    assert.equal(fs.readFileSync(oldDay, "utf8"), oldContent);
+    assert.deepEqual(fs.readdirSync(otherRoot), []);
+    service.configureDailyContextAuto(autoConfig(otherRoot, { fromDate: "2026-09-08" }));
+    await finishAutoQueue(service);
+    assert.ok(fs.existsSync(path.join(otherRoot, "Tasken Context/Days/2026-09-08.md")));
+    assert.equal(fs.existsSync(oldDay), false);
+    assert.equal(item.database.getPreference("dailyContextPublication").root, otherRoot);
+  } finally {
+    item.close();
+  }
+});
+
+test(
+  "Windowsのslashと大文字小文字が異なる同一公開先は別rootへの手動公開と判定しない（#547）",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const item = fixture("tasken-auto-root-identity");
+    try {
+      const service = new WorkspaceService(
+        item.database,
+        item.userDataPath,
+        () => "2026-09-08T01:00:00.000Z",
+      );
+      service.configureDailyContextAuto(autoConfig(item.syncRoot, { fromDate: "2026-09-08" }));
+      await finishAutoQueue(service);
+      const alternate = item.syncRoot.replaceAll("\\", "/").toUpperCase();
+      const plan = service.getDailyContextPreview({
+        date: "2026-09-08",
+        timezone: "Asia/Tokyo",
+        themeId: null,
+        includeFullText: true,
+      });
+      assert.doesNotThrow(() =>
+        service.publishDailyContext({
+          root: alternate,
+          selection: plan.selection,
+          generatedAt: plan.generatedAt,
+          expectedContentHash: plan.contentHash,
+        }),
+      );
+      assert.ok(contextManifest(item.syncRoot).days["2026-09-08"]);
+      assert.equal(item.database.getPreference("dailyContextPublication").retiring, undefined);
+      const lastWrittenAt = service.getDailyContextAutoStatus().freshness.lastLocalWrittenAt;
+      assert.ok(lastWrittenAt);
+      service.configureDailyContextAuto(autoConfig(alternate, { fromDate: "2026-09-08" }));
+      assert.equal(
+        service.getDailyContextAutoStatus().freshness.lastLocalWrittenAt,
+        lastWrittenAt,
+        "same Windows folder must retain its publication freshness when only path spelling changes",
+      );
+    } finally {
+      item.close();
+    }
+  },
+);
+
 test("明示した長文を日別と既存Packから読み、再公開で全公開日のprivate本文と参照を除去する（#546）", () => {
   const item = fixture("tasken-full-body");
   try {

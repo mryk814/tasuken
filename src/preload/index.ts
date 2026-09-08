@@ -40,6 +40,9 @@ const api: ResearchDeskApi = {
   dailyContext: {
     preview: (selection) => ipcRenderer.invoke(IPC.dailyContextPreview, selection),
     publish: (request) => ipcRenderer.invoke(IPC.dailyContextPublish, request),
+    autoStatus: () => ipcRenderer.invoke(IPC.dailyContextAutoStatus),
+    configureAuto: (config) => ipcRenderer.invoke(IPC.dailyContextAutoConfigure, config),
+    retryAuto: () => ipcRenderer.invoke(IPC.dailyContextAutoRetry),
   },
   themeAiPack: {
     status: (themeId) => ipcRenderer.invoke(IPC.themeAiPackStatus, themeId),

@@ -293,7 +293,7 @@ class AndroidMobileTaskRepository(
             if (index in created) return@enqueueCreateBatch emptyList()
             val taskId = outbox.enqueueCreate(
                 draftId = "${value.generationId}:action:$index", title = quote, projectId = record.themeId,
-                createdAt = value.issuedAt, todayDate = null,
+                todayDate = null,
                 description = "AI整理から選んで追加。元の作業記録: $id / version ${value.sourceVersion}\n原文引用:\n$quote",
                 scheduleAfterEnqueue = false,
             )

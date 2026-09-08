@@ -3,6 +3,7 @@ import type {
   DailyContextSelection,
   DailyContextPublishResult,
 } from "../dailyContext";
+import type { DailyContextAutoConfig, DailyContextAutoStatus } from "../dailyContextAuto";
 export interface DailyContextPublishRequest {
   selection: DailyContextSelection;
   root: string;
@@ -260,6 +261,9 @@ export const IPC = {
   themeAiPackStatus: "theme-ai-pack:status",
   dailyContextPreview: "daily-context:preview",
   dailyContextPublish: "daily-context:publish",
+  dailyContextAutoStatus: "daily-context:auto-status",
+  dailyContextAutoConfigure: "daily-context:auto-configure",
+  dailyContextAutoRetry: "daily-context:auto-retry",
   themeAiPackPreview: "theme-ai-pack:preview",
   themeAiPackPublish: "theme-ai-pack:publish",
   themeAiPackOpenFolder: "theme-ai-pack:open-folder",
@@ -725,6 +729,9 @@ export interface ResearchDeskApi {
   dailyContext: {
     preview(selection: DailyContextSelection): Promise<DailyContextPlan>;
     publish(request: DailyContextPublishRequest): Promise<DailyContextPublishResult>;
+    autoStatus(): Promise<DailyContextAutoStatus>;
+    configureAuto(config: DailyContextAutoConfig): Promise<DailyContextAutoStatus>;
+    retryAuto(): Promise<DailyContextAutoStatus>;
   };
   themeAiPack: {
     status(themeId: string): Promise<ThemeAiPackStatusResult>;

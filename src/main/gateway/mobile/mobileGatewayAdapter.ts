@@ -209,6 +209,7 @@ export interface MobileGatewayCorePort {
     input: MobileGatewayWorkLogCommand,
   ): Promise<MobileGatewayWorkLogCommandResult> | MobileGatewayWorkLogCommandResult;
   getWorkLog?(id: string): Promise<MobileWorkLog | null> | MobileWorkLog | null;
+  canSendWorkLogToExternalAi?(id: string): Promise<boolean> | boolean;
   status(): Promise<{ apiVersion: string; capabilities: readonly string[] }>;
   listThemes(): Promise<readonly MobileGatewayThemeRecord[]> | readonly MobileGatewayThemeRecord[];
   listWorkReceipts():
@@ -869,6 +870,8 @@ export class MobileGatewayAdapter {
         if (!source || source.deleted) return this.error(meta, "not_found");
         if (source.version !== parsed.data.sourceVersion)
           return this.error(meta, "entity_conflict");
+        const allowed = this.options.core.canSendWorkLogToExternalAi;
+        if (!allowed || !(await allowed(source.id))) return this.error(meta, "forbidden");
         this.organizingDevices.add(request.principal.deviceId);
         try {
           const organizer = this.options.getCaptureOrganizer
@@ -889,6 +892,7 @@ export class MobileGatewayAdapter {
             current.body !== source.body
           )
             return this.error(meta, "entity_conflict");
+          if (!(await allowed(source.id))) return this.error(meta, "forbidden");
           return this.success({
             ok: true,
             meta,

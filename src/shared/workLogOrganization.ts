@@ -1,21 +1,7 @@
 import { z } from "zod";
 import { entityIdSchema, entityVersionSchema, isoTimestampSchema } from "./kernel/public.ts";
-
-const quoteSchema = z
-  .string()
-  .min(1)
-  .max(12000)
-  .refine((value) => value.trim().length > 0);
-
-/** Extractive proposals preserve the user's uncertainty instead of introducing new assertions. */
-export const workLogOrganizationSchema = z.strictObject({
-  done: z.array(quoteSchema).max(10),
-  observations: z.array(quoteSchema).max(10),
-  unresolved: z.array(quoteSchema).max(10),
-  nextActions: z.array(quoteSchema.refine((value) => value.length <= 500)).max(3),
-});
-
-export type WorkLogOrganization = z.infer<typeof workLogOrganizationSchema>;
+import { workLogOrganizationSchema, type WorkLogOrganization } from "./contracts/mobile/public.ts";
+export { workLogOrganizationSchema, type WorkLogOrganization } from "./contracts/mobile/public.ts";
 
 export const adoptWorkLogOrganizationSchema = z.strictObject({
   commandId: entityIdSchema,

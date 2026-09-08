@@ -74,6 +74,7 @@ test("saved work-log organization checks source version, keeps adoption separate
     assert.equal(calls, 0);
     assert.equal((await api.organize("organized-source", 2)).status, 409);
     assert.equal(calls, 0);
+    await fixture.control({ workspaceAiVisibility: ["external_ai"] });
     const organized = await api.organize("organized-source", 1);
     assert.equal(organized.status, 200, JSON.stringify(organized.body));
     assert.deepEqual(organized.body.data.proposal, proposal);
@@ -141,11 +142,81 @@ test("work-log organization rejects read-only access and a source edited during 
         "changing-source",
       ),
     );
+    await fixture.control({ workspaceAiVisibility: ["external_ai"] });
     assert.equal((await api.organize("changing-source", 1)).status, 409);
     assert.equal(
       (await api.get("changing-source")).body.data.workLog.body,
       "Desktopで追記した原文。",
     );
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("work-log organization requires external AI policy and rechecks revocation during inference", async () => {
+  let calls = 0;
+  let revokeDuringInference = false;
+  let fixture;
+  fixture = await createMobileOfflineGateway({
+    organizer: {
+      providerLabel: "fixture",
+      organizeWorkLog: async (body) => {
+        calls++;
+        assert.equal(body, "公開範囲を確認する。");
+        if (revokeDuringInference) await fixture.control({ workspaceAiVisibility: [] });
+        return { done: [], observations: [], unresolved: [], nextActions: [body] };
+      },
+    },
+  });
+  try {
+    const api = client(fixture);
+    await api.send(
+      api.envelope(
+        {
+          name: "RecordWorkLog",
+          body: "公開範囲を確認する。",
+          performedDate: "2026-09-01",
+          themeId: "theme-offline-fixture",
+        },
+        "policy-source",
+      ),
+    );
+    const organize = async () => {
+      const source = await api.get("policy-source");
+      assert.equal(source.status, 200); // Owner reads remain available regardless of AI grants.
+      return api.organize("policy-source", source.body.data.workLog.version);
+    };
+    assert.equal((await organize()).status, 403);
+    assert.equal(calls, 0);
+    await fixture.control({ workspaceAiVisibility: ["m365", "coding_agent"] });
+    assert.equal((await organize()).status, 403);
+    assert.equal(calls, 0);
+    await fixture.control({
+      themeAiVisibility: { id: "theme-offline-fixture", audiences: ["external_ai"] },
+    });
+    assert.equal((await organize()).status, 200);
+    assert.equal(calls, 1);
+    await fixture.control({ workLogAiVisibility: { id: "policy-source", audiences: [] } });
+    assert.equal((await organize()).status, 403);
+    assert.equal(calls, 1);
+    await fixture.control({
+      workLogAiVisibility: { id: "policy-source", audiences: ["external_ai"] },
+      themeAiVisibility: { id: "theme-offline-fixture", audiences: [] },
+    });
+    assert.equal((await organize()).status, 200);
+    assert.equal(calls, 2);
+    await fixture.control({
+      workLogAiVisibility: { id: "policy-source", audiences: null },
+      themeAiVisibility: { id: "theme-offline-fixture", audiences: null },
+      workspaceAiVisibility: ["external_ai"],
+    });
+    revokeDuringInference = true;
+    const denied = await organize();
+    assert.equal(denied.status, 403);
+    assert.equal(calls, 3);
+    assert.equal(denied.body.data, undefined);
+    assert.equal((await api.get("policy-source")).body.data.workLog.body, "公開範囲を確認する。");
+    assert.equal(fixture.snapshot().workLogs.length, 1);
   } finally {
     await fixture.close();
   }
