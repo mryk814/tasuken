@@ -1436,7 +1436,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.append_work_receipt",
     {
       description:
-        "Queue an append-only progress or follow-up Work Receipt, including for reviewed or completed Tasks. Human adoption preserves Task completion and its original body. Reuse the same idempotency_key, time and content for retries. Include completed_checklist_item_ids for verified checklist work.",
+        "Queue an append-only progress or follow-up Work Receipt, including for reviewed or completed Tasks. Human adoption preserves Task completion and its original body. Reuse the same idempotency_key, time and content for retries. Follow-ups use a new idempotency_key and stack onto the same Task in AI Inbox. Include completed_checklist_item_ids for verified checklist work.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },
@@ -1447,7 +1447,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.report_task_done",
     {
       description:
-        "Queue an AI work report for any visible Task, including reviewed or completed Tasks. Human adoption records the report and optional completed checklist items; only a separate explicit human action completes the Task. If AI Ready work has no start, adoption records its start too.",
+        "Queue an AI work report for any visible Task, including reviewed or completed Tasks. Human adoption records the report and optional completed checklist items; only a separate explicit human action completes the Task. If AI Ready work has no start, adoption records its start too. Follow-up reports use a new idempotency_key and stack onto the same Task in AI Inbox.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },

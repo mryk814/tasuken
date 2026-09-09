@@ -85,7 +85,7 @@ test("actual MCP proposal emits one post-commit Desktop delta and duplicate retr
     assert.equal(conflict.structuredContent.error.code, "IDEMPOTENCY_CONFLICT");
     assert.equal(
       conflict.structuredContent.error.next_action,
-      "内容を変える場合は新しいidempotency_keyを使用してください。",
+      "内容を変える場合は新しいidempotency_keyを使用してください。追報告は新しいkeyで送ると同じTaskに積まれます。",
     );
     assert.equal(delivered.length, 1);
   } finally {

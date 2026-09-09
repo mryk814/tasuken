@@ -12,6 +12,7 @@ import { build } from "esbuild";
 import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
 import { queueMcpProposal, validateMcpProposalEnvelope } from "./fixtures/legacyProposalInbox.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
+import { taskWorkInboxGroups } from "../src/shared/contracts/task/public.ts";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 import { previewTaskCoding, previewThemeCoding } from "../src/shared/aiContextPreview.mjs";
 
@@ -1069,6 +1070,86 @@ test("Core task-work idempotency binds actor/source identity and survives host r
     );
     assert.equal(database.list("ai_proposal").length, 1);
     assert.equal(fs.existsSync(path.join(root, "mcp-inbox")), false);
+  } finally {
+    try {
+      await host?.stop();
+    } finally {
+      database.db.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("follow-up reports with new keys stack onto the same Task instead of conflicting", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-task-work-stack-"));
+  fs.chmodSync(root, 0o700);
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
+  let host = null;
+  const startHost = async () => {
+    host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) });
+    await host.start();
+    return new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
+  };
+  const base = {
+    task_id: "task-stack",
+    expected_version: 3,
+    caller: "Codex",
+    actor: { kind: "ai_agent", id: "agent-a" },
+    source: "mcp",
+    source_session: "session-a",
+    source_app: "stack-fixture",
+    executor_kind: "ai_agent",
+    executor_label: "Codex",
+  };
+  try {
+    const coreClient = await startHost();
+    const done = await coreClient.proposeTaskWork({
+      ...base,
+      action: "report_done",
+      idempotency_key: "stack-done-1",
+      summary: "完了報告",
+      reported_at: "2026-09-09T02:00:00.000Z",
+    });
+    assert.equal(done.status, "queued");
+    const followUp = await coreClient.proposeTaskWork({
+      ...base,
+      action: "append_receipt",
+      idempotency_key: "stack-append-1",
+      summary: "追報告",
+      reported_at: "2026-09-09T03:00:00.000Z",
+    });
+    assert.equal(followUp.status, "queued");
+    const pending = database.list("ai_proposal").filter((item) => item.status === "pending");
+    assert.equal(pending.length, 2);
+    const groups = taskWorkInboxGroups(pending);
+    assert.equal(groups.length, 1);
+    assert.deepEqual(
+      groups[0].reports.map((item) => item.id).sort(),
+      [done.proposal_id, followUp.proposal_id].sort(),
+    );
+    assert.equal(groups[0].latest.id, done.proposal_id);
+    assert.equal(
+      (
+        await coreClient.proposeTaskWork({
+          ...base,
+          action: "report_done",
+          idempotency_key: "stack-done-1",
+          summary: "完了報告",
+          reported_at: "2026-09-09T02:00:00.000Z",
+        })
+      ).status,
+      "duplicate",
+    );
+    await assert.rejects(
+      coreClient.proposeTaskWork({
+        ...base,
+        action: "report_done",
+        idempotency_key: "stack-done-1",
+        summary: "書き換え",
+        reported_at: "2026-09-09T04:00:00.000Z",
+      }),
+      (error) => error instanceof TaskenCoreClientError && error.code === "IDEMPOTENCY_CONFLICT",
+    );
   } finally {
     try {
       await host?.stop();

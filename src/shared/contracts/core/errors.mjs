@@ -24,7 +24,8 @@ const CORE_ERROR_GUIDANCE = Object.freeze({
   NOT_FOUND: { retryable: false, next_action: "endpointまたは対象IDを確認してください。" },
   IDEMPOTENCY_CONFLICT: {
     retryable: false,
-    next_action: "内容を変える場合は新しいidempotency_keyを使用してください。",
+    next_action:
+      "内容を変える場合は新しいidempotency_keyを使用してください。追報告は新しいkeyで送ると同じTaskに積まれます。",
   },
   CONFLICT: {
     retryable: false,
