@@ -102,6 +102,7 @@ test("Settings copies the exact typed MCP client config generated for the runtim
       tasken: {
         command: "node",
         args: ["C:/Program Files/Tasken/resources/mcp/server.mjs"],
+        env: { TASKEN_USER_DATA_DIR: "" },
       },
     },
   });
@@ -114,6 +115,12 @@ test("Settings copies the exact typed MCP client config generated for the runtim
     return true;
   }, info);
   assert.equal(copied, info.configJson);
+  const developmentInfo = createMcpBridgeInfo({
+    args: ["scripts/mcp-server.mjs"],
+    pendingProposalCount: 0,
+    packaged: false,
+  });
+  assert.equal(JSON.parse(developmentInfo.configJson).mcpServers.tasken.env, undefined);
   assert.match(
     settings,
     /copyMcpBridgeConfig\(\(text\) => workspaceApi\.copyText\(text\), mcpInfo\)/,

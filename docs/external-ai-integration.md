@@ -60,7 +60,11 @@ Task本文は出力せず、着手やProposal送信もしません。
 `task_work_available=false`なら着手ツールが公開されていません。読み取り専用設定またはMCP bridgeの版を確認してください。
 診断成功と、各AIの権限・モデルによる作業完遂は別の検証です。
 
-独自の保存先を使っている場合は、診断と各MCP設定の`env`に同じ`TASKEN_USER_DATA_DIR`を設定します。
+配布版TaskenのSettingsがコピーするMCP設定には、開発用環境変数を継承しないため
+`env: { "TASKEN_USER_DATA_DIR": "" }`が含まれます。Portable版・インストーラー版とも、
+設定は各WindowsのTaskenから生成してください。server pathはインストール先に依存するため、
+別端末へ設定JSONだけをコピーしないでください。
+独自の保存先を使う開発版では、診断と各MCP設定の`env`に同じ`TASKEN_USER_DATA_DIR`を設定します。
 起動中Taskenの保存先と一致させ、discoveryファイルやtokenを手でコピーしないでください。
 調べるだけの接続には`TASKEN_MCP_READ_ONLY=1`を設定できます。
 アプリを移動した場合は、各クライアントのserverパスも更新します。
