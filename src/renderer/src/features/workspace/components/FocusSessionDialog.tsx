@@ -272,7 +272,7 @@ export function FocusSessionDialog({
       setSaveState("saving");
       void saveEntity(
         "note",
-        { ...session, body_markdown: body },
+        { ...session, body_markdown: body, content_format: "markdown" },
         { reason: "focus_session_autosave", quiet: true },
       )
         .then(() => {
@@ -315,7 +315,7 @@ export function FocusSessionDialog({
       setSaveState("saving");
       void saveEntity(
         "note",
-        { ...selectedNote, body_markdown: body },
+        { ...selectedNote, body_markdown: body, content_format: "markdown" },
         { reason: "focus_session_document_autosave", quiet: true },
       )
         .then(() => {
@@ -383,6 +383,7 @@ export function FocusSessionDialog({
           {
             ...session,
             body_markdown: keepScratchpad ? scratchpad : "",
+            content_format: "markdown",
             properties_json: {
               ...sessionProps,
               document_role: FOCUS_SESSION_ROLE,
@@ -401,6 +402,7 @@ export function FocusSessionDialog({
             {
               ...selectedNote,
               body_markdown: documentBody,
+              content_format: "markdown",
             },
             { now: endedAt, reason: "focus_session_document_saved_on_end" },
           ),

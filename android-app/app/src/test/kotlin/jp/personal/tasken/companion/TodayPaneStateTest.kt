@@ -90,6 +90,9 @@ class TodayPaneStateTest {
         state.openCapture(MobileCaptureSource.AndroidApp)
         assertEquals(false, state.captureInputFocusRequested)
 
+        state.openCapture(MobileCaptureSource.AndroidApp, requestInputFocus = true)
+        assertEquals(true, state.captureInputFocusRequested)
+
         state.captureDraft = MobileCaptureDraft.fresh(text = "保留中のTask")
         state.openCapture(MobileCaptureSource.AndroidApp, replaceDraft = false)
         assertEquals("保留中のTask", state.captureDraft.text)

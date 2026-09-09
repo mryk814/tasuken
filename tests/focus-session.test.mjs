@@ -42,16 +42,33 @@ test("Sessionと関連文書の同期前ドラフトを別々に退避する", (
 });
 
 test("Task詳細・Command Palette・再開・終了整理が同じFocus実装へ接続される", () => {
-  const app = fs.readFileSync(new URL("../src/renderer/src/features/workspace/WorkspaceApp.tsx", import.meta.url), "utf8");
-  const drawer = fs.readFileSync(new URL("../src/renderer/src/features/workspace/components/drawer.tsx", import.meta.url), "utf8");
-  const focus = fs.readFileSync(new URL("../src/renderer/src/features/workspace/components/FocusSessionDialog.tsx", import.meta.url), "utf8");
-  const notes = fs.readFileSync(new URL("../src/renderer/src/features/workspace/pages/NotesPage.tsx", import.meta.url), "utf8");
+  const app = fs.readFileSync(
+    new URL("../src/renderer/src/features/workspace/WorkspaceApp.tsx", import.meta.url),
+    "utf8",
+  );
+  const drawer = fs.readFileSync(
+    new URL("../src/renderer/src/features/workspace/components/drawer.tsx", import.meta.url),
+    "utf8",
+  );
+  const focus = fs.readFileSync(
+    new URL(
+      "../src/renderer/src/features/workspace/components/FocusSessionDialog.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const notes = fs.readFileSync(
+    new URL("../src/renderer/src/features/workspace/pages/NotesPage.tsx", import.meta.url),
+    "utf8",
+  );
 
   assert.match(app, /Focus Sessionを再開/);
   assert.match(app, /集中して作業する:/);
   assert.match(drawer, /集中して作業する/);
   assert.match(focus, /focus_session_autosave/);
   assert.match(focus, /focus_session_document_autosave/);
+  assert.match(focus, /body_markdown: body, content_format: "markdown"/);
+  assert.match(focus, /body_markdown: documentBody,\s*content_format: "markdown"/);
   assert.match(focus, /ScratchpadをNoteとして残す/);
   assert.match(focus, /focus_session_summary/);
   assert.match(focus, /creating\.current = true;\s+setEnding\(true\)/);

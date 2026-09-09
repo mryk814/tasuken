@@ -411,10 +411,11 @@ test("位置・サイズを覚え、画面外へ復元しない配線がある�
 });
 
 test("Notesのdebounce/manual/route flushはowner queueと終了registryを共有する（#291 / #290）", () => {
-  assert.match(notesPageSource, /window\.setTimeout\(\(\) => \{[\s\S]*\}, 1500\)/);
+  assert.match(notesPageSource, /入力中は下書きだけを更新し/);
+  assert.doesNotMatch(notesPageSource, /window\.setTimeout\(\(\) => \{[\s\S]*\}, 1500\)/);
   assert.match(notesPageSource, /draftSaveQueuesRef/);
   assert.match(notesPageSource, /sameDraftSaveJob/);
-  assert.match(notesPageSource, /cancelAutosaveTimer\(\);[\s\S]*flushDraftSnapshot/);
+  assert.match(notesPageSource, /flushDraftSnapshot\(captureCurrentDraftSnapshot\(\)\)/);
   assert.match(notesPageSource, /detail\.flush = flushDraftSnapshot/);
   assert.match(
     notesPageSource,

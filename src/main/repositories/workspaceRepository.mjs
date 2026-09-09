@@ -17,7 +17,12 @@ import {
 import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../shared/aiMetadata.mjs";
 import { DATA_HEALTH_STATE_SCHEMA, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
-import { isThemeDeletable, planPersonalDefaultTheme } from "../../shared/personalTheme.mjs";
+import {
+  isPersonalDefaultTheme,
+  isThemeDeletable,
+  PERSONAL_DEFAULT_THEME_ID,
+  planPersonalDefaultTheme,
+} from "../../shared/personalTheme.mjs";
 import { validateRepositoryGraph } from "./repositoryGraphPolicy.mjs";
 import {
   collectionKeyForEntityType,
@@ -900,6 +905,21 @@ export class WorkspaceDatabase {
 
   isEmpty() {
     return this.db.prepare("SELECT COUNT(*) AS count FROM entities").get().count === 0;
+  }
+
+  isEmptyForSyncJoin() {
+    const entities = [];
+    for (const type of workspaceEntityTypes) {
+      for (const entity of this.list(type, true)) entities.push({ type, entity });
+    }
+    if (entities.length === 0) return true;
+    return (
+      entities.length === 1 &&
+      entities[0].type === "theme" &&
+      entities[0].entity.id === PERSONAL_DEFAULT_THEME_ID &&
+      isPersonalDefaultTheme(entities[0].entity) &&
+      !entities[0].entity.deleted_at
+    );
   }
 
   list(type, includeDeleted = false) {
@@ -2241,7 +2261,7 @@ export class WorkspaceDatabase {
   }
 
   adoptSyncWorkspace(workspaceId) {
-    if (!this.isEmpty()) {
+    if (!this.isEmptyForSyncJoin()) {
       throw new Error(
         "この端末には既存データがあります。空のTaskenから同期フォルダへ参加してください。",
       );

@@ -53,7 +53,7 @@ function noteSaveHarness(syncState, { confirmOverwrite = true, holdSave = false 
   let commandAssignment;
   let keyboardEffect;
   let selectedBodyEffect;
-  let autosaveEffect;
+  let draftRefEffect;
   let saveEnabledDeclaration = "";
   function visit(node) {
     if (ts.isFunctionDeclaration(node) && node.name) functions.set(node.name.text, node);
@@ -91,9 +91,11 @@ function noteSaveHarness(syncState, { confirmOverwrite = true, holdSave = false 
     if (
       ts.isCallExpression(node) &&
       node.expression.getText(tree) === "useEffect" &&
-      node.arguments[0]?.getText(tree).includes("void autoSaveDraft(autosaveRef.current)")
+      node.arguments[0]
+        ?.getText(tree)
+        .includes("autosaveRef.current = captureCurrentDraftSnapshot()")
     ) {
-      autosaveEffect = node.arguments[0];
+      draftRefEffect = node.arguments[0];
     }
     ts.forEachChild(node, visit);
   }
@@ -109,12 +111,10 @@ function noteSaveHarness(syncState, { confirmOverwrite = true, holdSave = false 
     "currentDraftBodyForSelected",
     "captureCurrentDraftSnapshot",
     "persistDraftSnapshot",
-    "cancelAutosaveTimer",
     "sameDraftSaveJob",
     "startDraftSaveQueue",
     "enqueueDraftSave",
     "saveQueuedDraft",
-    "autoSaveDraft",
     "flushDraftSnapshot",
     "saveSelectedDraft",
   ];
@@ -232,7 +232,8 @@ function noteSaveHarness(syncState, { confirmOverwrite = true, holdSave = false 
     `${commandAssignment.getText(tree)};`,
     "globalThis.commandSave = commandActionsRef.current.save;",
     `globalThis.receiveSelectedBody = ${selectedBodyEffect.getText(tree)};`,
-    `globalThis.scheduleAutosave = ${autosaveEffect.getText(tree)};`,
+    `globalThis.refreshDraftRef = ${draftRefEffect.getText(tree)};`,
+    "globalThis.flushDraft = (snapshot) => flushDraftSnapshot(snapshot);",
     `(${keyboardEffect.getText(tree)})();`,
   ].join("\n");
   vm.runInNewContext(ts.transpile(code, { target: ts.ScriptTarget.ES2022 }), context);
@@ -261,15 +262,15 @@ function noteSaveHarness(syncState, { confirmOverwrite = true, holdSave = false 
       context.selectedBody = body;
       context.receiveSelectedBody();
     },
-    async startAutosave() {
-      context.scheduleAutosave();
-      assert.equal(timers.length, 1);
-      timers[0]();
+    async startSave() {
+      context.refreshDraftRef();
+      context.pendingSave = context.saveQueuedDraft(context.autosaveRef.current);
       await new Promise(setImmediate);
     },
     async finishSave() {
       releaseSave?.();
       await draftFlush.flushPendingNoteDraftSaves();
+      await context.pendingSave?.catch(() => {});
       await new Promise(setImmediate);
     },
     select(nextNote) {
@@ -355,7 +356,7 @@ test("未同期の再試行は保存先復旧と競合確認を扱い、同期�
 test("保存応答で同じNoteの正本が進んでも保存中の追加入力を戻さない（#291）", async () => {
   const harness = noteSaveHarness("in_sync", { holdSave: true });
   harness.edit("応答した一つ前の本文");
-  await harness.startAutosave();
+  await harness.startSave();
   harness.edit("保存中に追加した最新の本文");
   await harness.finishSave();
   harness.receiveSavedBody("応答した一つ前の本文", 8);
@@ -396,7 +397,7 @@ test("本文が同じmetadata更新後も未保存本文を最新Theme・revisio
 test("保存中に元本文へUndoした入力も保存応答で戻さない（#291）", async () => {
   const harness = noteSaveHarness("in_sync", { holdSave: true });
   harness.edit("保存中の変更本文");
-  await harness.startAutosave();
+  await harness.startSave();
   harness.edit(harness.note.body_markdown);
   harness.receiveSavedBody("保存中の変更本文", 8);
   await harness.finishSave();

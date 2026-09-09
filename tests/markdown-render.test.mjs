@@ -1014,12 +1014,13 @@ test("math editor plugin transforms inline math beyond top-level paragraphs", ()
   assert.match(source, /hasFormat\("code"\)/);
 });
 
-test("notes page keeps mode switches draft-only and autosaves when the note leaves the screen", () => {
+test("notes page keeps edits local until an explicit save or the note leaves the screen", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/NotesPage.tsx", "utf8");
 
   assert.match(source, /autosaveRef/);
-  assert.match(source, /function autoSaveDraft/);
+  assert.match(source, /autosaveRef\.current = captureCurrentDraftSnapshot\(\)/);
   assert.match(source, /自動保存に失敗しました/);
+  assert.doesNotMatch(source, /autoSaveDraft|window\.setTimeout\(\(\) => \{[\s\S]*?\}, 1500\)/);
   const switchStart = source.indexOf("function switchPreviewMode");
   const switchEnd = source.indexOf("\n  function insertDraftMarkdown", switchStart);
   const switchSource = source.slice(switchStart, switchEnd);
@@ -1033,7 +1034,7 @@ test("notes page keeps mode switches draft-only and autosaves when the note leav
   );
   assert.match(
     source,
-    /useEffect\(\s*\(\) => \(\) => \{\s*cancelAutosaveTimer\(\);\s*const pending = autosaveRef\.current;\s*if \(pending\?\.snapshot\.dirty\) void saveQueuedDraft\(pending\);/,
+    /useEffect\(\s*\(\) => \(\) => \{\s*const pending = autosaveRef\.current;\s*if \(pending\?\.snapshot\.dirty\) void saveQueuedDraft\(pending\);/,
   );
   assert.match(source, /\},\s*\[\],?\s*\);/);
   assert.doesNotMatch(source, /\[selected\?\.id, saveEntity, setToast\]/);

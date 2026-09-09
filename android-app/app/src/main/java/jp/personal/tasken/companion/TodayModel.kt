@@ -1346,6 +1346,7 @@ class TodayPaneState(
         source: MobileCaptureSource,
         initialText: String = "",
         requestVoice: Boolean = false,
+        requestInputFocus: Boolean = false,
         sharedMimeType: String? = null,
         replaceDraft: Boolean = true,
     ) {
@@ -1363,7 +1364,7 @@ class TodayPaneState(
         }
         captureOpen = true
         captureVoiceStartRequested = requestVoice
-        captureInputFocusRequested = false
+        captureInputFocusRequested = requestInputFocus
     }
 
     fun consumeVoiceStartRequest() {

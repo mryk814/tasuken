@@ -227,8 +227,6 @@ export function WorkspaceApp() {
   const drawerFormInitialNonChecklistSignature = useRef("");
   const [drawerFormDirty, setDrawerFormDirty] = useState(false);
   const drawerAutosavePromise = useRef<Promise<boolean> | null>(null);
-  const noteAutoSaveTimer = useRef<number | null>(null);
-  const noteAutoSaveTriggerRef = useRef<() => void>(() => {});
   const updateCheckStarted = useRef(false);
   /** 実行中Focusのtask id（#316）。global shortcutから最新値を読むため。 */
   const activeFocusTaskIdRef = useRef<string>("");
@@ -752,7 +750,6 @@ export function WorkspaceApp() {
     const target = event.target;
     if (target instanceof HTMLInputElement && isChecklistFormField(target.name)) return;
     setDrawerFormDirty(true);
-    noteAutoSaveTriggerRef.current();
   }, []);
   const markDrawerFormDirty = useCallback(() => setDrawerFormDirty(true), []);
 
@@ -761,10 +758,6 @@ export function WorkspaceApp() {
       const previous = drawerFormRef.current;
       if (previous && previous !== form)
         previous.removeEventListener("input", handleDrawerFormInput);
-      if (noteAutoSaveTimer.current) {
-        window.clearTimeout(noteAutoSaveTimer.current);
-        noteAutoSaveTimer.current = null;
-      }
       drawerAutosavePromise.current = null;
       drawerFormRef.current = form;
       drawerFormInitialSignature.current = form ? formSignature(form) : "";
@@ -801,49 +794,9 @@ export function WorkspaceApp() {
     );
   }, []);
 
-  // 既存メモのメタ（タイトル・種別など）は入力が止まって1.5秒後に静かに自動保存する。
-  // 本文は Notes 中央エリアの正本。新規作成中（entity.id未確定）やタイトルが空の間は対象外。
-  async function autoSaveNoteDrawerForm(): Promise<void> {
-    const form = drawerFormRef.current;
-    if (!form || !drawer || drawer.type !== "note" || !drawer.entity?.id) return;
-    if (drawerAutosavePromise.current || !isDrawerFormDirty()) return;
-    const values = new FormData(form);
-    if (!formText(values, "title")) return;
-    const saving = saveFormElement(form, { closeAfterSave: false, quiet: true });
-    drawerAutosavePromise.current = saving;
-    try {
-      await saving;
-    } catch {
-      // 失敗時はsaveEntity側で既にエラートーストを出しているため、ここでは自動保存を諦めるだけでよい。
-    } finally {
-      if (drawerAutosavePromise.current === saving) drawerAutosavePromise.current = null;
-    }
-  }
-
-  useEffect(() => {
-    noteAutoSaveTriggerRef.current = () => {
-      if (!drawer || drawer.type !== "note" || !drawer.entity?.id) return;
-      if (noteAutoSaveTimer.current) window.clearTimeout(noteAutoSaveTimer.current);
-      noteAutoSaveTimer.current = window.setTimeout(() => {
-        void autoSaveNoteDrawerForm();
-      }, 1500);
-    };
-  });
-
-  useEffect(
-    () => () => {
-      if (noteAutoSaveTimer.current) window.clearTimeout(noteAutoSaveTimer.current);
-    },
-    [],
-  );
-
   async function saveDirtyDrawerForm(): Promise<boolean> {
     const form = drawerFormRef.current;
     if (!form || !drawer) return true;
-    if (noteAutoSaveTimer.current) {
-      window.clearTimeout(noteAutoSaveTimer.current);
-      noteAutoSaveTimer.current = null;
-    }
     const pending = drawerAutosavePromise.current;
     if (pending) {
       try {

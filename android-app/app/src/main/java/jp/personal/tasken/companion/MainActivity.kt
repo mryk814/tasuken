@@ -777,6 +777,7 @@ internal fun TodayApp(
                                     onClick = {
                                         paneState.openCapture(
                                             source = MobileCaptureSource.AndroidApp,
+                                            requestInputFocus = true,
                                             replaceDraft = false,
                                         )
                                         speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
@@ -1163,6 +1164,26 @@ internal fun CaptureTaskSheet(
                 onRemovePhoto = onRemovePhoto,
                 loadThumbnail = loadPhotoThumbnail,
             )
+            Row(
+                modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = { onSubmit(CaptureCompletionBehavior.Continue) },
+                    enabled = canSubmit,
+                    modifier = Modifier.testTag("capture-submit-continue"),
+                ) {
+                    Text("追加して次へ")
+                }
+                Button(
+                    onClick = { onSubmit(CaptureCompletionBehavior.Close) },
+                    enabled = canSubmit,
+                    modifier = Modifier.testTag("capture-submit-close"),
+                ) {
+                    Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
+                }
+            }
             if (onOrganize != null && draft.kind == MobileCaptureKind.Task) CaptureOrganizationControls(
                 themes = themes, themeCatalogState = themeCatalogState,
                 draft = draft, speechState = speechState, enabled = !speechBusy && state !is CaptureUiState.Saving,
@@ -1212,26 +1233,6 @@ internal fun CaptureTaskSheet(
             }
             if (state is CaptureUiState.Error && draft.organization != null) {
                 Text(state.message, color = MaterialTheme.colorScheme.error)
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    onClick = { onSubmit(CaptureCompletionBehavior.Continue) },
-                    enabled = canSubmit,
-                    modifier = Modifier.testTag("capture-submit-continue"),
-                ) {
-                    Text("追加して次へ")
-                }
-                Button(
-                    onClick = { onSubmit(CaptureCompletionBehavior.Close) },
-                    enabled = canSubmit,
-                    modifier = Modifier.testTag("capture-submit-close"),
-                ) {
-                    Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
-                }
             }
             Spacer(
                 modifier = Modifier
