@@ -1083,6 +1083,78 @@ test("MCP interim receipt keeps work in progress and only the done report enters
   assert.equal(repo.list("work_receipt").length, 2);
 });
 
+test("explicit completion accepts an append receipt from in-progress while plain acceptance stays review-only", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  service.execute(
+    envelope("StartTaskWork", { taskId: "task-ai" }, "start-append-complete", [
+      { type: "task", id: "task-ai", version: 1 },
+    ]),
+  );
+  repo.save("ai_proposal", {
+    id: "proposal-progress-complete",
+    source: "mcp",
+    payload_type: "task_work",
+    payload: { task_work: [{ action: "append_receipt", task_id: "task-ai" }] },
+    request: {
+      tool: "tasken.append_work_receipt",
+      caller: "Codex",
+      idempotency_key: "progress-complete",
+    },
+    status: "pending",
+  });
+  service.execute(
+    envelope(
+      "AppendWorkReceipt",
+      {
+        taskId: "task-ai",
+        receipt: {
+          id: "receipt-progress-complete",
+          task_id: "task-ai",
+          executor_kind: "ai_agent",
+          executor_label: "Codex",
+          reported_at: "2026-08-09T00:05:00.000Z",
+          summary: "追報告",
+          completed_items: [],
+          changed_or_created_items: [],
+          source_session: "proposal-progress-complete",
+        },
+      },
+      "proposal-progress-complete",
+      [{ type: "task", id: "task-ai", version: 2 }],
+    ),
+  );
+  const inProgress = repo.get("task", "task-ai");
+  assert.equal(inProgress.work_state, "in_progress");
+  assert.equal(inProgress.state, "todo");
+
+  // 採用だけでは作業中のまま（既存契約を維持する）
+  assert.throws(
+    () =>
+      service.execute(
+        envelope("AcceptTaskWork", { taskId: "task-ai" }, "accept-progress-only", [
+          { type: "task", id: "task-ai", version: inProgress.version },
+        ]),
+      ),
+    /確認待ちのTaskだけをAcceptできます/,
+  );
+
+  // 人が明示的に完了を選んだときだけ、作業中の追加報告から完了できる
+  service.execute(
+    envelope(
+      "AcceptTaskWork",
+      { taskId: "task-ai", receiptId: "receipt-progress-complete", completeTask: true },
+      "complete-from-progress",
+      [{ type: "task", id: "task-ai", version: inProgress.version }],
+    ),
+  );
+  const completed = repo.get("task", "task-ai");
+  assert.equal(completed.state, "done");
+  assert.equal(completed.work_state, "accepted");
+  assert.ok(completed.completed_at);
+});
+
 test("MCP blocker report appends a receipt, retains audit metadata, and moves work to blocked without completing Task", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);

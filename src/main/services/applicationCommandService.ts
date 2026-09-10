@@ -2267,10 +2267,17 @@ export class ApplicationCommandService {
       (!payload.completeTask || current.state === "done")
     )
       return persistNoChange(this.repository, command, taskId, current);
-    if (!["reported_done", "needs_human_review", "accepted"].includes(currentWorkState(current)))
+    // 追加報告(append_receipt)は採用してもwork_stateを進めないため、人が明示的に完了を
+    // 選んだ場合に限り、作業中(in_progress)からの採用＋完了も許可する。
+    const acceptableWorkStates = payload.completeTask
+      ? ["reported_done", "needs_human_review", "accepted", "in_progress"]
+      : ["reported_done", "needs_human_review", "accepted"];
+    if (!acceptableWorkStates.includes(currentWorkState(current)))
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",
-        "確認待ちのTaskだけをAcceptできます。",
+        payload.completeTask
+          ? "確認待ちまたは作業中のTaskだけを完了できます。"
+          : "確認待ちのTaskだけをAcceptできます。",
         { id: taskId, work_state: currentWorkState(current) },
       );
     const receipt = exactReceiptId
