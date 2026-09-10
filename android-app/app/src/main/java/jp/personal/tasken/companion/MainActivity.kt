@@ -1431,14 +1431,13 @@ internal fun TodayListPane(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("この端末に保存済み", style = MaterialTheme.typography.labelMedium)
                     Text(
                         when {
                             refreshing -> "PCへの接続を確認中"
-                            cached != null -> "PCへの接続を再確認してください（PCなし整理は追加画面から利用可）"
+                            cached != null -> "PCへの接続を再確認してください"
                             else -> "保存済みの今日のTask"
                         },
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
                     )
                     Text(
