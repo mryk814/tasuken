@@ -18,6 +18,7 @@ class WidgetRefreshTriggerTest {
     fun taskCacheWriteEmitsWidgetRefreshTrigger() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val dao = MobileLocalDatabase.open(context).mobileDao()
+        val taskId = "widget-refresh-${UUID.randomUUID()}"
         val signals = Channel<Unit>(Channel.CONFLATED)
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch { widgetRefreshTriggers(dao).collect { signals.trySend(Unit) } }
@@ -27,7 +28,7 @@ class WidgetRefreshTriggerTest {
             while (signals.tryReceive().isSuccess) { /* drain */ }
             dao.upsertTask(
                 TaskCacheEntity(
-                    id = "widget-refresh-${UUID.randomUUID()}",
+                    id = taskId,
                     serverVersion = 1,
                     title = "更新検知",
                     themeId = null,
@@ -41,6 +42,7 @@ class WidgetRefreshTriggerTest {
             val received = withTimeout(5000) { signals.receive() }
             assertTrue(received == Unit)
         } finally {
+            dao.deleteTask(taskId)
             scope.cancel()
         }
     }

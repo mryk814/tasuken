@@ -153,7 +153,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
         const val ACTION_TOGGLE_TASK_PUBLIC = ACTION_TOGGLE_TASK
         const val EXTRA_TASK_ID_PUBLIC = EXTRA_TASK_ID
         const val EXTRA_MARK_DONE_PUBLIC = EXTRA_MARK_DONE
-        private const val MAX_TASK_COUNT = 6
+        internal const val WIDGET_LIST_LIMIT = 50
         private const val SMALL_WIDTH_DP = 110f
         private const val SMALL_HEIGHT_DP = 60f
         private const val MEDIUM_WIDTH_DP = 180f
@@ -213,15 +213,16 @@ class TaskenTodayWidget : AppWidgetProvider() {
         private suspend fun loadSnapshot(context: Context, today: String = LocalDate.now().toString()): TaskenWidgetSnapshot {
             val dao = MobileLocalDatabase.open(context).mobileDao()
             val themesById = dao.themes().associate { it.id to it }
-            val allTasks = dao.tasks()
+            // ウィジェットは未完了の作業だけを出す。完了/取消はタスクリストの「完了」フィルタで確認する。
+            val openTasks = dao.tasks().filter { it.state != "done" && it.state != "cancelled" }
             val ordered = orderWidgetTasks(
-                allTasks.map {
+                openTasks.map {
                     val theme = it.themeId?.let(themesById::get)
                     val requiresWorkReceipt = it.workState in widgetStateActionWorkStates
                     TaskenWidgetTask(
                         id = it.id,
                         title = it.title,
-                        isDone = it.state == "done",
+                        isDone = false,
                         themeTitle = theme?.title,
                         themeColor = theme?.let { widgetThemeColorInt(it.color) },
                         section = widgetSectionFor(it.todayDate, today),
@@ -230,13 +231,10 @@ class TaskenTodayWidget : AppWidgetProvider() {
                         requiresWorkReceipt = requiresWorkReceipt,
                         canToggleState = canToggleTaskState(dao, it),
                     )
-                }.filter { task ->
-                    // Keep the widget focused: overdue + dated + undated open work, capped by mode limit.
-                    task.section != null
                 },
                 today,
-                allTasks.associate { it.id to it.todayDate },
-            ).take(MAX_TASK_COUNT)
+                openTasks.associate { it.id to it.todayDate },
+            )
             return TaskenWidgetSnapshot(
                 tasks = ordered,
                 totalTaskCount = ordered.size,
@@ -331,7 +329,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
             mode: TaskenWidgetMode,
             layoutId: Int,
         ): RemoteViews = RemoteViews(context.packageName, layoutId).apply {
-            val visibleTasks = snapshot.tasks.take(mode.taskLimit)
             setOnClickPendingIntent(R.id.widget_open_today, openAppIntent(context, widgetId, "tasken://today?source=widget"))
             bindAddAction(context, widgetId)
             bindVoiceAction(context, widgetId)
@@ -340,7 +337,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
             if (hasLayoutElement(layoutId, "widget_count")) {
                 setTextViewText(R.id.widget_count, taskCountText(snapshot))
             }
-            val hasItems = visibleTasks.isNotEmpty()
+            val hasItems = snapshot.tasks.isNotEmpty()
             setViewVisibility(R.id.widget_empty, if (hasItems) View.GONE else View.VISIBLE)
             setViewVisibility(R.id.widget_list, if (hasItems) View.VISIBLE else View.GONE)
             setRemoteAdapter(R.id.widget_list, Intent(context, TaskenWidgetViewsService::class.java))
