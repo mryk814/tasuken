@@ -18,6 +18,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
@@ -45,16 +46,13 @@ class TaskEntryFlowUiTest {
         composeRule.onNodeWithText("追加").performClick()
         composeRule.onNodeWithText("Task名").assertIsNotFocused()
         capture("01-add-open")
-        composeRule.onNodeWithTag("capture-theme-options").assertDoesNotExist()
-        composeRule.onNodeWithTag("capture-classification-toggle").performClick()
         composeRule.onNodeWithTag("capture-theme-option-theme-nemorium")
+            .performScrollTo()
             .assertIsDisplayed()
             .performClick()
         composeRule.runOnIdle { assertEquals("theme-nemorium", pane.captureDraft.projectId) }
         composeRule.onNodeWithText("Task名").assertIsFocused().performTextInput("実験結果を整理する")
         composeRule.runOnIdle { assertEquals(false, pane.captureInputFocusRequested) }
-        composeRule.onNodeWithTag("capture-theme-options").assertDoesNotExist()
-        composeRule.onNodeWithText("ねもりうむ · 種類・Themeを変更").assertIsDisplayed()
         capture("02-add-entered")
         composeRule.onNodeWithTag("capture-submit-continue").assertIsDisplayed().performClick()
         composeRule.runOnIdle { assertEquals("", pane.captureDraft.text) }

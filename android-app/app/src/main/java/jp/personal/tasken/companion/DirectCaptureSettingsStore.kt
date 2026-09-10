@@ -138,7 +138,13 @@ internal class AndroidDirectCaptureHttpClient : DirectCaptureHttpClient {
             val bytes = body.toByteArray(Charsets.UTF_8)
             connection.setFixedLengthStreamingMode(bytes.size)
             connection.outputStream.use { it.write(bytes) }
-            require(connection.responseCode in 200..299)
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                val errorBody = runCatching {
+                    connection.errorStream?.use { readCapped(it, PROVIDER_ERROR_BODY_LIMIT) }.orEmpty()
+                }.getOrDefault("")
+                throw DirectCaptureHttpException(status, sanitizedProviderCode(errorBody))
+            }
             require(connection.contentEncoding == null || connection.contentEncoding.equals("identity", ignoreCase = true))
             require(connection.contentLengthLong <= DIRECT_CAPTURE_RESPONSE_LIMIT)
             return connection.inputStream.use { input ->
@@ -158,6 +164,19 @@ internal class AndroidDirectCaptureHttpClient : DirectCaptureHttpClient {
             connection.disconnect()
         }
     }
+
+    private fun readCapped(input: java.io.InputStream, limit: Int): String {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(2048)
+        while (output.size() < limit) {
+            val read = input.read(buffer, 0, minOf(buffer.size, limit - output.size()))
+            if (read == -1) break
+            output.write(buffer, 0, read)
+        }
+        return output.toString(Charsets.UTF_8.name())
+    }
+
+    private companion object { const val PROVIDER_ERROR_BODY_LIMIT = 8192 }
 }
 
 internal suspend fun organizeCaptureDirectly(
@@ -168,17 +187,39 @@ internal suspend fun organizeCaptureDirectly(
     photos: List<MobileCaptureImageDto>,
     client: DirectCaptureHttpClient = AndroidDirectCaptureHttpClient(),
 ): List<MobileCaptureOrganization> = withContext(Dispatchers.IO) {
-    try {
+    val prepared = try {
         require(settings.enabled)
         val destination = settings.destination()
         val body = directCaptureRequest(settings, draft, themes, photos)
         val key = apiKey()
         require(key.isNotBlank() && key.length <= 8192 && key.none { it.code < 32 || it.code == 127 })
-        val response = client.post(destination, if (settings.provider == CaptureAiProvider.Gemini) "x-goog-api-key" else "Authorization", key, body)
-        decodeDirectCaptureResponse(settings.provider, response, themes.map { it.id }.toSet())
+        Triple(destination, body, key)
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
         throw IllegalStateException(DIRECT_CAPTURE_FAILURE)
+    }
+    val response = try {
+        client.post(
+            prepared.first,
+            if (settings.provider == CaptureAiProvider.Gemini) "x-goog-api-key" else "Authorization",
+            prepared.third,
+            prepared.second,
+        )
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (http: DirectCaptureHttpException) {
+        throw IllegalStateException(
+            directCaptureHttpMessage(settings.provider, settings.model, http.status, http.providerCode),
+        )
+    } catch (_: Exception) {
+        throw IllegalStateException(DIRECT_CAPTURE_NETWORK_FAILURE)
+    }
+    try {
+        decodeDirectCaptureResponse(settings.provider, response, themes.map { it.id }.toSet())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        throw IllegalStateException(DIRECT_CAPTURE_RESPONSE_MISMATCH)
     }
 }

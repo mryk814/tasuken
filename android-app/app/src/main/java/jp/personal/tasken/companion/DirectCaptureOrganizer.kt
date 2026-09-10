@@ -5,6 +5,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.*
 
 internal enum class CaptureAiProvider(val id: String, val label: String) {
@@ -56,9 +57,75 @@ internal val directCaptureChatModels = mapOf(
 
 internal const val DIRECT_CAPTURE_RESPONSE_LIMIT = 256 * 1024
 internal const val DIRECT_CAPTURE_FAILURE = "AI整理を利用できません。AndroidのAI設定・通信を確認して再試行してください。元の入力は保持しています。"
+internal const val DIRECT_CAPTURE_NETWORK_FAILURE = "ネットワークに接続できません。Androidの接続を確認して再試行してください。"
+internal const val DIRECT_CAPTURE_RESPONSE_MISMATCH = "AIの返答形式が想定と異なります。Structured Outputs（JSON Schema）対応モデルを選んでください。"
+
+/** Non-2xx provider response. Only status and a short provider code are kept; no body or key. */
+internal class DirectCaptureHttpException(val status: Int, val providerCode: String?) :
+    Exception("direct capture http $status")
 private val directJson = Json { ignoreUnknownKeys = false; isLenient = false; coerceInputValues = false }
 private val proposalKeys = setOf("title", "themeId", "startDate", "endDate", "rangeSemantics", "checklist",
     "supplement", "warnings", "plannedStartTime", "plannedDurationMinutes")
+
+/** Sends a tiny fixed request through the real path and returns a sanitized result message. */
+internal suspend fun testDirectCaptureConnection(
+    settings: DirectCaptureSettings,
+    apiKey: () -> String,
+    client: DirectCaptureHttpClient = AndroidDirectCaptureHttpClient(),
+): String = try {
+    organizeCaptureDirectly(
+        settings.copy(enabled = true),
+        apiKey,
+        MobileCaptureDraft.fresh(text = "接続確認"),
+        emptyList(),
+        emptyList(),
+        client,
+    )
+    "接続を確認しました。"
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (failure: Exception) {
+    failure.message ?: DIRECT_CAPTURE_FAILURE
+}
+
+private val providerCodePattern = Regex("^[A-Za-z0-9_.-]{1,64}$")
+
+/** Reads only a short machine-readable provider error code, never the human message. */
+internal fun sanitizedProviderCode(body: String): String? {
+    if (body.isBlank()) return null
+    val root = runCatching { directJson.parseToJsonElement(body) }.getOrNull() as? JsonObject ?: return null
+    val error = root["error"] as? JsonObject ?: return null
+    return listOf(error["code"], error["type"], error["status"]).firstNotNullOfOrNull { element ->
+        (element as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
+            ?.takeIf { providerCodePattern.matches(it) && it.any(Char::isLetter) }
+    }
+}
+
+internal fun directCaptureHttpMessage(
+    provider: CaptureAiProvider,
+    model: String,
+    status: Int,
+    providerCode: String?,
+): String {
+    val code = providerCode?.lowercase()
+    return when {
+        status == 401 || code in setOf(
+            "invalid_api_key", "invalid_authentication", "authentication_error", "api_key_invalid", "unauthenticated",
+        ) -> "${provider.label}のAPIキーが拒否されました。AndroidのAI設定でキーを確認してください。"
+        status == 403 || code in setOf("permission_denied", "insufficient_permissions") ->
+            "${provider.label}でこのキーまたはモデルが許可されていません。利用権限を確認してください。"
+        status == 404 || code in setOf("model_not_found", "not_found") ->
+            "モデル「$model」が${provider.label}で見つかりません。モデルIDを確認してください。"
+        code in setOf("insufficient_quota", "quota_exceeded", "resource_exhausted", "billing_hard_limit_reached") ->
+            "${provider.label}の利用枠に達しました。プランや利用状況を確認してください。"
+        status == 429 || status in setOf(408, 409, 425) -> "一時的に混み合っています。少し待って再試行してください。"
+        status == 413 -> "入力が大きすぎます。入力を短くして再試行してください。"
+        status == 400 || code in setOf("invalid_request_error", "invalid_argument", "bad_request") ->
+            "このモデルはStructured Outputs（JSON Schema）に未対応の可能性があります。対応モデルを選んでください。"
+        status in 500..599 -> "${provider.label}側で一時的なエラーが発生しました。時間をおいて再試行してください。"
+        else -> "接続できません。APIキー、モデル、接続先を確認してください。"
+    }
+}
 
 internal fun directCaptureRequest(
     settings: DirectCaptureSettings,

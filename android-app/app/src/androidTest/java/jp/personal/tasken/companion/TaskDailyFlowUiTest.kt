@@ -182,7 +182,6 @@ class TaskDailyFlowUiTest {
         val bounds = input.getBoundsInRoot()
         assertTrue((bounds.bottom - bounds.top).value > 80f)
         capture("07-long-spoken-capture")
-        composeRule.onNodeWithTag("capture-classification-toggle").performScrollTo().performClick()
         composeRule.onNodeWithTag("capture-theme-option-ideas").performScrollTo().performClick()
         input.assertIsNotFocused().assertTextContains(text)
         val overLimit = text + "補足".repeat(6000)
