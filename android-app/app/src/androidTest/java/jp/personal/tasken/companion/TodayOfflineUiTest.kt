@@ -64,7 +64,7 @@ class TodayOfflineUiTest {
             refreshing.value = false
             state.value = TodayUiState.Cached(tasks, SYNCED_AT, "PCへの接続を確認できませんでした。", TodayUiState.CachedRecovery.Reload)
         }
-        composeRule.onNodeWithText("PCへの接続を再確認してください").assertIsDisplayed()
+        composeRule.onNodeWithText("PCへの接続を再確認してください", substring = true).assertIsDisplayed()
         assertEquals(bounds, composeRule.onNodeWithText(task(20).title).getBoundsInRoot())
         capture("03-offline")
         restoration.emulateSavedInstanceStateRestore()

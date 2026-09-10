@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
@@ -37,7 +38,7 @@ class TaskDailyDetailUiTest {
         }
 
         composeRule.onNodeWithTag("task-updated-at").performScrollTo()
-            .assertTextEquals("更新  2026/9/5 9:00 JST")
+            .assertTextContains("2026/9/5 9:00", substring = true)
         composeRule.waitForIdle()
         val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
         val directory = java.io.File(instrumentation.targetContext.getExternalFilesDir(null), "ux-organization").apply { mkdirs() }

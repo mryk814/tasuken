@@ -24,12 +24,12 @@ private class TaskenWidgetViewsFactory(
     private val context: Context,
 ) : RemoteViewsService.RemoteViewsFactory {
     private var items: List<TaskenWidgetListItem> = emptyList()
-    private var limit: Int = 6
+    private var limit: Int = TaskenTodayWidget.WIDGET_LIST_LIMIT
 
     override fun onCreate() = Unit
 
     override fun onDataSetChanged() {
-        limit = 6
+        limit = TaskenTodayWidget.WIDGET_LIST_LIMIT
         items = runBlocking(Dispatchers.IO) {
             TaskenTodayWidget.loadListItems(context, LocalDate.now().toString(), limit)
         }

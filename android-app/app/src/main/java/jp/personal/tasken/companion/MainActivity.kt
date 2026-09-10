@@ -1076,6 +1076,7 @@ internal fun CaptureTaskSheet(
         val keyboardController = LocalSoftwareKeyboardController.current
         val speechBusy = speechState is ShortSpeechUiState.Listening ||
             speechState is ShortSpeechUiState.Partial || speechState is ShortSpeechUiState.Processing
+        val speechActive = speechState !is ShortSpeechUiState.Idle
         val textLimit = if (draft.kind == MobileCaptureKind.Task) MOBILE_TASK_TITLE_MAX_LENGTH else MOBILE_CAPTURE_TEXT_MAX_LENGTH
         val overLimit = draft.text.length > textLimit
         val included = draft.allOrganizations().filterNot { it.excluded }
@@ -1096,7 +1097,7 @@ internal fun CaptureTaskSheet(
                 .fillMaxWidth()
                 .testTag("capture-sheet-content")
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
@@ -1104,109 +1105,48 @@ internal fun CaptureTaskSheet(
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
             )
-            if (draft.organization == null) OutlinedTextField(
-                value = draft.text,
-                onValueChange = onDraftChanged,
-                label = { Text(if (draft.kind == MobileCaptureKind.Task) "Task名" else "Capture") },
-                placeholder = {
-                    Text(
-                        if (draft.kind == MobileCaptureKind.Task) {
-                            "例: 帰りに牛乳を買う"
-                        } else {
-                            "思いついたことをそのまま"
-                        },
-                    )
-                },
-                supportingText = if (overLimit) {
-                    { Text("${draft.text.length} / ${textLimit}文字。全文を保持しています。編集するか、全文をコピーして回収できます。") }
-                } else if (state is CaptureUiState.Error) {
-                    { Text(state.message) }
-                } else if (draft.text.length >= textLimit * 4 / 5) {
-                    { Text("${draft.text.length} / ${textLimit}文字") }
-                } else {
-                    null
-                },
-                isError = state is CaptureUiState.Error || overLimit,
-                enabled = state !is CaptureUiState.Saving && !speechBusy,
-                minLines = 1,
-                maxLines = 6,
-                keyboardOptions = KeyboardOptions(imeAction = if (draft.kind == MobileCaptureKind.Task) ImeAction.Done else ImeAction.Default),
-                keyboardActions = KeyboardActions(onDone = {
-                    if (draft.kind == MobileCaptureKind.Task && canSubmit) onSubmit(CaptureCompletionBehavior.Close)
-                }),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester)
-                    .testTag("capture-text-input"),
-            )
-            if (draft.text.isNotEmpty() && (draft.kind == MobileCaptureKind.Capture || overLimit)) {
-                CaptureCopyButton(draft.text)
-            }
-            val speechStatusScroll = rememberScrollState()
-            LaunchedEffect(speechState, speechStatusScroll.maxValue) {
-                speechStatusScroll.scrollTo(speechStatusScroll.maxValue)
-            }
-            Text(
-                speechStatusText(speechState),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (speechState is ShortSpeechUiState.Error) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth().height(120.dp)
-                    .testTag("capture-speech-status").verticalScroll(speechStatusScroll),
-            )
-            OutlinedButton(
-                onClick = {
-                    keyboardController?.hide()
-                    if (speechBusy) onStopVoice() else onStartVoice()
-                },
-                enabled = state !is CaptureUiState.Saving && speechState !is ShortSpeechUiState.Processing,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("capture-voice-action"),
-            ) {
-                Icon(painterResource(R.drawable.ic_tabler_microphone), contentDescription = null)
-                Text(when {
-                    speechState is ShortSpeechUiState.Processing -> "文字にしています…"
-                    speechBusy -> "音声を確定"
-                    draft.text.isNotBlank() -> "話し直して置き換える"
-                    else -> "音声で入力"
-                }, modifier = Modifier.padding(start = 8.dp))
-            }
-            CapturePhotoSection(
-                photos = draft.photos,
-                enabled = state !is CaptureUiState.Saving && !speechBusy,
-                onTakePhoto = onTakePhoto,
-                onRemovePhoto = onRemovePhoto,
-                loadThumbnail = loadPhotoThumbnail,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    onClick = { onSubmit(CaptureCompletionBehavior.Continue) },
-                    enabled = canSubmit,
-                    modifier = Modifier.testTag("capture-submit-continue"),
-                ) {
-                    Text("追加して次へ")
-                }
-                Button(
-                    onClick = { onSubmit(CaptureCompletionBehavior.Close) },
-                    enabled = canSubmit,
-                    modifier = Modifier.testTag("capture-submit-close"),
-                ) {
-                    Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
-                }
-            }
-            if (onOrganize != null && draft.kind == MobileCaptureKind.Task) CaptureOrganizationControls(
-                themes = themes, themeCatalogState = themeCatalogState,
-                draft = draft, speechState = speechState, enabled = !speechBusy && state !is CaptureUiState.Saving,
-                organize = onOrganize, onChange = onOrganizationChanged,
-                onRestoreOriginal = onOrganizationDiscarded, onBusyChange = { organizationBusy = it },
-            )
             if (draft.organization == null) {
+                OutlinedTextField(
+                    value = draft.text,
+                    onValueChange = onDraftChanged,
+                    label = { Text(if (draft.kind == MobileCaptureKind.Task) "Task名" else "Capture") },
+                    placeholder = {
+                        Text(
+                            if (draft.kind == MobileCaptureKind.Task) {
+                                "例: 帰りに牛乳を買う"
+                            } else {
+                                "思いついたことをそのまま"
+                            },
+                        )
+                    },
+                    supportingText = if (overLimit) {
+                        { Text("${draft.text.length} / ${textLimit}文字。全文を保持しています。編集するか、全文をコピーして回収できます。") }
+                    } else if (state is CaptureUiState.Error) {
+                        { Text(state.message) }
+                    } else if (draft.text.length >= textLimit * 4 / 5) {
+                        { Text("${draft.text.length} / ${textLimit}文字") }
+                    } else {
+                        null
+                    },
+                    isError = state is CaptureUiState.Error || overLimit,
+                    enabled = state !is CaptureUiState.Saving && !speechBusy,
+                    minLines = 1,
+                    maxLines = 6,
+                    keyboardOptions = KeyboardOptions(imeAction = if (draft.kind == MobileCaptureKind.Task) ImeAction.Done else ImeAction.Default),
+                    keyboardActions = KeyboardActions(onDone = {
+                        if (draft.kind == MobileCaptureKind.Task && canSubmit) onSubmit(CaptureCompletionBehavior.Close)
+                    }),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .testTag("capture-text-input"),
+                )
+                if (draft.text.isNotEmpty() && (draft.kind == MobileCaptureKind.Capture || overLimit)) {
+                    CaptureCopyButton(draft.text)
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     MobileCaptureKind.entries.forEach { kind ->
                         FilterChip(
@@ -1234,9 +1174,87 @@ internal fun CaptureTaskSheet(
                 if (draft.source != MobileCaptureSource.AndroidApp) {
                     Text("入力元: ${captureSourceLabel(draft.source)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (speechActive) {
+                    val speechStatusScroll = rememberScrollState()
+                    LaunchedEffect(speechState, speechStatusScroll.maxValue) {
+                        speechStatusScroll.scrollTo(speechStatusScroll.maxValue)
+                    }
+                    Text(
+                        speechStatusText(speechState),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (speechState is ShortSpeechUiState.Error) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth().height(120.dp)
+                            .testTag("capture-speech-status").verticalScroll(speechStatusScroll),
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            keyboardController?.hide()
+                            if (speechBusy) onStopVoice() else onStartVoice()
+                        },
+                        enabled = state !is CaptureUiState.Saving && speechState !is ShortSpeechUiState.Processing,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("capture-voice-action"),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_tabler_microphone), contentDescription = null)
+                        Text(
+                            when {
+                                speechState is ShortSpeechUiState.Processing -> "文字にしています…"
+                                speechBusy -> "音声を確定"
+                                draft.text.isNotBlank() -> "話し直す"
+                                else -> "音声で入力"
+                            },
+                            modifier = Modifier.padding(start = 8.dp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    CapturePhotoButton(
+                        photoCount = draft.photos.size,
+                        enabled = state !is CaptureUiState.Saving && !speechBusy,
+                        onTakePhoto = onTakePhoto,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    )
+                }
+                CapturePhotoStrip(
+                    photos = draft.photos,
+                    enabled = state !is CaptureUiState.Saving && !speechBusy,
+                    onRemovePhoto = onRemovePhoto,
+                    loadThumbnail = loadPhotoThumbnail,
+                )
             }
+            if (onOrganize != null && draft.kind == MobileCaptureKind.Task) CaptureOrganizationControls(
+                themes = themes, themeCatalogState = themeCatalogState,
+                draft = draft, speechState = speechState, enabled = !speechBusy && state !is CaptureUiState.Saving,
+                organize = onOrganize, onChange = onOrganizationChanged,
+                onRestoreOriginal = onOrganizationDiscarded, onBusyChange = { organizationBusy = it },
+            )
             if (state is CaptureUiState.Error && draft.organization != null) {
                 Text(state.message, color = MaterialTheme.colorScheme.error)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = { onSubmit(CaptureCompletionBehavior.Continue) },
+                    enabled = canSubmit,
+                    modifier = Modifier.testTag("capture-submit-continue"),
+                ) {
+                    Text("追加して次へ")
+                }
+                Button(
+                    onClick = { onSubmit(CaptureCompletionBehavior.Close) },
+                    enabled = canSubmit,
+                    modifier = Modifier.testTag("capture-submit-close"),
+                ) {
+                    Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
+                }
             }
             Spacer(
                 modifier = Modifier
@@ -1407,14 +1425,13 @@ internal fun TodayListPane(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("この端末に保存済み", style = MaterialTheme.typography.labelMedium)
                     Text(
                         when {
                             refreshing -> "PCへの接続を確認中"
-                            cached != null -> "PCへの接続を再確認してください（PCなし整理は追加画面から利用可）"
+                            cached != null -> "PCへの接続を再確認してください"
                             else -> "保存済みの今日のTask"
                         },
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
                     )
                     Text(
@@ -1900,12 +1917,12 @@ internal fun TodayTaskList(
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         Text(task.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            TaskThemeLabel(task.themeId, themes)
-                            if (task.conflict != null || requiresWorkReceipt) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                TaskThemeLabel(task.themeId, themes)
+                                if (task.conflict != null || requiresWorkReceipt) {
                                 val conflict = task.conflict != null
                                 Surface(
                                     color = if (conflict) {
@@ -1940,16 +1957,18 @@ internal fun TodayTaskList(
                                     )
                                 }
                             }
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(7.dp),
-                            ) {
-                                Text(
-                                    taskStateLabel(task.state),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelMedium,
-                                )
+                            if (task.state !in setOf("todo", "done")) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(7.dp),
+                                ) {
+                                    Text(
+                                        taskStateLabel(task.state),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelMedium,
+                                    )
+                                }
                             }
                         }
                     }

@@ -75,8 +75,6 @@ internal fun CaptureOrganizationControls(
             Text("音声後にAIで整理", modifier = Modifier.weight(1f))
             Switch(checked = autoOrganize, onCheckedChange = { autoOrganize = it }, enabled = enabled, modifier = Modifier.testTag("capture-auto-organize"))
         }
-        Text("文字・録音時刻・Theme名・添付写真を選んだAIへ送ります。", style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
         DirectCaptureSettingsControls(directSettings, directStore, enabled && pending == null) { directSettings = it }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             if (pending != null) TextButton(onClick = { requestNumber++; pending?.cancel(); pending = null; onBusyChange(false) }) { Text("整理を中止") }

@@ -15,7 +15,7 @@ import java.io.File
 import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -46,33 +46,39 @@ class TaskenWidgetBindingUiTest {
             dao.upsertTask(widgetTask("widget-verify-2", "今日の件", "widget-verify-green", "todo", todayText, null))
             dao.upsertTask(widgetTask("widget-verify-3", "完了済みの件", null, "done", todayText, null))
             dao.upsertTask(widgetTask("widget-verify-4", "今後の件", "widget-verify-blue", "todo", future, "cmd-missing"))
+            dao.upsertTask(widgetTask("widget-verify-5", "取消済みの件", null, "cancelled", todayText, null))
         }
 
-        val items = runBlocking { TaskenTodayWidget.loadListItems(context, todayText, 6) }
+        val items = runBlocking { TaskenTodayWidget.loadListItems(context, todayText, TaskenTodayWidget.WIDGET_LIST_LIMIT) }
         val flat = items.map {
             when (it) {
                 is TaskenWidgetListItem.Header -> "H:${it.title}"
                 is TaskenWidgetListItem.Row -> "R:${it.task.id}:${TaskenTodayWidget.taskText(it.task)}"
             }
         }
+        val seeded = flat.filter { it.startsWith("H:") || it.contains("widget-verify") }
+            .fold(mutableListOf<String>()) { acc, value ->
+                if (acc.lastOrNull() != value) acc.add(value)
+                acc
+            }
         assertEquals(
             listOf(
                 "H:期限切れ",
                 "R:widget-verify-1:期限切れの件",
                 "H:今日",
                 "R:widget-verify-2:今日の件",
-                "R:widget-verify-3:完了済みの件",
                 "H:今後",
                 "R:widget-verify-4:今後の件",
             ),
-            flat,
+            seeded,
         )
+        // 完了・取消のタスクはウィジェットに出さない（タスクリストの「完了」フィルタで確認する）。
+        assertFalse(seeded.any { it.contains("完了済みの件") || it.contains("取消済みの件") })
         val rows = items.filterIsInstance<TaskenWidgetListItem.Row>().associate { it.task.id to it.task }
         // 返信待ちのような送信待ち表示は行に出さない。
         assertTrue(rows.getValue("widget-verify-4").isPending)
         assertEquals(0xFF2D7FB8.toInt(), rows.getValue("widget-verify-1").themeColor)
         assertEquals(0xFF2E8B57.toInt(), rows.getValue("widget-verify-2").themeColor)
-        assertNull(rows.getValue("widget-verify-3").themeColor)
         assertTrue(rows.getValue("widget-verify-1").canToggleState)
 
         composeRule.setContent {
@@ -118,7 +124,12 @@ class TaskenWidgetBindingUiTest {
             }
         }
         composeRule.runOnIdle { assertTrue("host laid out: ${hostSize.toList()}", hostSize[0] > 0 && hostSize[1] > 0) }
-        composeRule.runOnIdle { assertEquals(7, items.size) }
+        composeRule.runOnIdle {
+            assertEquals(
+                3,
+                items.filterIsInstance<TaskenWidgetListItem.Row>().count { it.task.id.startsWith("widget-verify") },
+            )
+        }
         val shownTexts = mutableListOf<String>()
         composeRule.runOnUiThread {
             val root = composeRule.activity.window.decorView as android.view.ViewGroup
@@ -132,9 +143,10 @@ class TaskenWidgetBindingUiTest {
             }
         }
         // 実RemoteViewsの適用結果が画面階層に存在すること（ドット・タイトル・右チェックの行）。
-        listOf("期限切れ", "期限切れの件", "今日", "今日の件", "完了済みの件", "今後", "今後の件").forEach { expected ->
+        listOf("期限切れ", "期限切れの件", "今日", "今日の件", "今後", "今後の件").forEach { expected ->
             assertTrue("missing in view hierarchy: $expected", shownTexts.any { it.contains(expected) })
         }
+        assertEquals(null, shownTexts.firstOrNull { it.contains("完了済みの件") || it.contains("取消済みの件") })
     }
 
     private fun widgetTask(

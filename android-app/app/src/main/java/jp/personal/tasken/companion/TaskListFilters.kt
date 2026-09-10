@@ -49,7 +49,7 @@ internal fun TaskListFilters(paneState: TodayPaneState, themes: List<MobileTheme
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.End,
+                    textAlign = TextAlign.Start,
                 )
             }
         }

@@ -168,7 +168,7 @@ class TaskScheduleEditorUiTest {
     }
 
     @Test
-    fun pendingConflictAndSavingEachDisableScheduleEditing() {
+    fun pendingConflictAndSavingKeepScheduleEditorClosed() {
         val gate = mutableIntStateOf(0)
         val task = sampleTask(
             schedule = schedule(
@@ -197,12 +197,12 @@ class TaskScheduleEditorUiTest {
             }
         }
 
-        openScheduleEditor()
-        assertScheduleDisabled()
+        // 未完了(pending)/競合/保存中は予定編集のトグルが無効で、編集欄は開かない。
+        assertScheduleEditorClosed()
         composeRule.runOnIdle { gate.intValue = 1 }
-        assertScheduleDisabled()
+        assertScheduleEditorClosed()
         composeRule.runOnIdle { gate.intValue = 2 }
-        assertScheduleDisabled()
+        assertScheduleEditorClosed()
     }
 
     @Test
@@ -272,11 +272,10 @@ class TaskScheduleEditorUiTest {
         composeRule.onNodeWithTag("schedule-edit-toggle").performScrollTo().performClick()
     }
 
-    private fun assertScheduleDisabled() {
-        composeRule.onNodeWithTag("schedule-start-date").assertIsNotEnabled()
-        composeRule.onNodeWithTag("schedule-end-date").assertIsNotEnabled()
-        composeRule.onNodeWithTag("schedule-start-clear").assertIsNotEnabled()
-        composeRule.onNodeWithTag("schedule-save").assertIsNotEnabled()
+    private fun assertScheduleEditorClosed() {
+        composeRule.onNodeWithTag("schedule-edit-toggle").assertIsNotEnabled()
+        composeRule.onNodeWithTag("schedule-start-date").assertDoesNotExist()
+        composeRule.onNodeWithTag("schedule-save").assertDoesNotExist()
     }
 
     private fun sampleTask(schedule: MobileTaskSchedule?) = MobileTask(
