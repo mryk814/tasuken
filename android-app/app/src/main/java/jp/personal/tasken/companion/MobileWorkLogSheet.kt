@@ -184,14 +184,6 @@ internal fun MobileWorkLogEditor(
 ) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
-    OutlinedTextField(value = draft.body, onValueChange = { onChange(draft.copy(body = it)) },
-        label = { Text("やったこと") }, placeholder = { Text("例: 測定条件を確認し、次の試験方法を決めた") },
-        modifier = Modifier.fillMaxWidth().testTag("work-log-body").focusRequester(focus), minLines = 4, maxLines = 10,
-        enabled = enabled, isError = draft.body.length > MOBILE_WORK_LOG_BODY_LIMIT,
-        supportingText = { Text("${draft.body.length} / 12,000文字・原文のまま保存") })
-    OutlinedTextField(value = draft.performedDate, onValueChange = { onChange(draft.copy(performedDate = it)) },
-        label = { Text("実施日（YYYY-MM-DD）") }, singleLine = true, enabled = enabled,
-        modifier = Modifier.fillMaxWidth().testTag("work-log-date"))
     Text(
         "Taskの状態は変えません。Taskにしなかった完了済みのこともメモとして残せます。",
         style = MaterialTheme.typography.bodySmall,
@@ -253,4 +245,12 @@ internal fun MobileWorkLogEditor(
     if (draft.taskId != null && tasks.none { it.id == draft.taskId }) {
         Text("関連Taskが見つかりません。記録は保持しています。", style = MaterialTheme.typography.bodySmall)
     }
+    OutlinedTextField(value = draft.body, onValueChange = { onChange(draft.copy(body = it)) },
+        label = { Text("やったこと") }, placeholder = { Text("例: 測定条件を確認し、次の試験方法を決めた") },
+        modifier = Modifier.fillMaxWidth().testTag("work-log-body").focusRequester(focus), minLines = 3, maxLines = 10,
+        enabled = enabled, isError = draft.body.length > MOBILE_WORK_LOG_BODY_LIMIT,
+        supportingText = { Text("${draft.body.length} / 12,000文字・原文のまま保存") })
+    OutlinedTextField(value = draft.performedDate, onValueChange = { onChange(draft.copy(performedDate = it)) },
+        label = { Text("実施日（YYYY-MM-DD）") }, singleLine = true, enabled = enabled,
+        modifier = Modifier.fillMaxWidth().testTag("work-log-date"))
 }

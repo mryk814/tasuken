@@ -1,7 +1,9 @@
 package jp.personal.tasken.companion
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,6 +15,43 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun DirectAiSettingsSheet(
+    store: DirectCaptureSettingsStore,
+    onChanged: (DirectCaptureSettings) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var settings by remember(store) { mutableStateOf(store.settings()) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        contentWindowInsets = { WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top) },
+    ) {
+        Column(
+            Modifier.fillMaxWidth().fillMaxHeight(0.9f)
+                .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("PCなしで整理する設定", style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("direct-ai-settings-title"))
+            Text(
+                "PCがオフでも、この端末から選んだAIへ直接送って整理できます。整理の実行時はこの設定が自動で使われます。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "Desktopと同じサービス・モデルを選べば同じAPIを活用できます。Desktopのキーが転送されることはありません。キーはこの端末にのみ暗号化して保存します。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            DirectCaptureSettingsControls(settings, store, true) { settings = it; onChanged(it) }
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.End).testTag("direct-ai-settings-close"),
+            ) { Text("閉じる") }
+        }
+    }
+}
 
 @Composable
 internal fun DirectCaptureSettingsControls(

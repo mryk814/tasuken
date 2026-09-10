@@ -255,6 +255,7 @@ internal fun TodayApp(
     var relatedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var themeContextId by rememberSaveable { mutableStateOf<String?>(null) }
     var localSearchOpen by rememberSaveable { mutableStateOf(false) }
+    var directAiSettingsOpen by rememberSaveable { mutableStateOf(false) }
     var localSearchTaskReturn by rememberSaveable { mutableStateOf<String?>(null) }
     var searchDocumentType by rememberSaveable { mutableStateOf<String?>(null) }
     var searchDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -769,6 +770,7 @@ internal fun TodayApp(
                                 onRetryPairing = todayViewModel::retryPairing,
                                 onPair = todayViewModel::pair,
                                 onTaskSelected = onTaskSelected,
+                                onOpenAiSettings = { directAiSettingsOpen = true },
                             )
                         }
                         if (paneState.activeSection != AppSection.Ai) {
@@ -970,6 +972,10 @@ internal fun TodayApp(
             MobileWorkLogSheet(repository, themes, allTasks, allTasks.firstOrNull { it.id == workLogTaskId }, initialRecordId = workLogRecordId,
                 onDismiss = { workLogOpen = false; workLogRecordId = null })
         }
+    }
+    if (directAiSettingsOpen) {
+        val directStore = remember(context) { DirectCaptureSettingsStore(context.applicationContext) }
+        DirectAiSettingsSheet(directStore, onChanged = {}, onDismiss = { directAiSettingsOpen = false })
     }
     if (paneState.captureOpen) {
         CaptureTaskSheet(
@@ -1632,7 +1638,15 @@ internal fun AiInboxListPane(
     onRetryPairing: () -> Unit,
     onPair: (String, String) -> Unit,
     onTaskSelected: (String) -> Unit,
+    onOpenAiSettings: (() -> Unit)? = null,
 ) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        onOpenAiSettings?.let { open ->
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = open, modifier = Modifier.testTag("open-direct-ai-settings")) { Text("PCなし整理の設定") }
+            }
+        }
+        Box(modifier = Modifier.weight(1f)) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
         uiState is TodayUiState.Error && tasks.isEmpty() -> GatewayErrorState(uiState, onRetry, onRetryPairing)
@@ -1766,6 +1780,8 @@ internal fun AiInboxListPane(
                     }
                 }
             }
+        }
+        }
         }
     }
 }

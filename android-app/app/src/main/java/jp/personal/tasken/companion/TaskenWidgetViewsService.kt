@@ -53,32 +53,7 @@ private class TaskenWidgetViewsFactory(
             }
             is TaskenWidgetListItem.Row -> {
                 val task = item.task
-                RemoteViews(context.packageName, R.layout.tasken_widget_list_row).apply {
-                    setTextViewText(R.id.widget_row_title, TaskenTodayWidget.taskText(task))
-                    setImageViewResource(
-                        R.id.widget_row_button,
-                        when {
-                            task.hasConflict || task.requiresWorkReceipt -> R.drawable.ic_tabler_alert_triangle
-                            task.isDone -> R.drawable.ic_tabler_circle_check
-                            else -> R.drawable.ic_tabler_circle
-                        },
-                    )
-                    setContentDescription(
-                        R.id.widget_row_button,
-                        when {
-                            task.hasConflict -> "競合を確認: ${task.title}"
-                            task.requiresWorkReceipt -> "Work Receiptを確認: ${task.title}"
-                            !task.canToggleState -> "同期状況を確認: ${task.title}"
-                            task.isDone -> "Taskを再開: ${task.title}"
-                            else -> "Taskを完了: ${task.title}"
-                        },
-                    )
-                    if (task.themeColor != null) {
-                        setViewVisibility(R.id.widget_row_dot, View.VISIBLE)
-                        setInt(R.id.widget_row_dot, "setColorFilter", task.themeColor)
-                    } else {
-                        setViewVisibility(R.id.widget_row_dot, View.INVISIBLE)
-                    }
+                TaskenTodayWidget.rowViews(context, task).apply {
                     val openFill = Intent().apply {
                         data = Uri.parse("${MobileTaskLocator.format(task.id)}?source=widget")
                     }
