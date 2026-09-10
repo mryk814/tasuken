@@ -46,7 +46,7 @@ internal fun DirectCaptureSettingsControls(
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            if (settings.enabled) "送信先: ${settings.provider.label}（Androidから直接）" else "送信先: Desktopで設定したAI",
+            if (settings.enabled) "送信先: ${settings.provider.label}（Androidから直接・PCオフでも利用可）" else "送信先: Desktopで設定したAI（PCオフでは使えません）",
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.testTag("capture-ai-destination"),
         )

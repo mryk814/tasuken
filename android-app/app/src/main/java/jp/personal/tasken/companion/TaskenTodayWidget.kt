@@ -24,6 +24,8 @@ data class TaskenWidgetTask(
     val title: String,
     val isDone: Boolean,
     val themeTitle: String? = null,
+    val themeColor: Int? = null,
+    val section: String? = null,
     val isPending: Boolean = false,
     val hasConflict: Boolean = false,
     val requiresWorkReceipt: Boolean = false,
@@ -52,6 +54,38 @@ internal fun widgetModeFor(widthDp: Int, heightDp: Int): TaskenWidgetMode = when
     heightDp >= 230 -> TaskenWidgetMode.Large
     widthDp >= 360 && heightDp >= 180 -> TaskenWidgetMode.Wide
     else -> TaskenWidgetMode.Medium
+}
+
+/** Light chart tokens mirror TaskVisuals.taskenThemeColor so the dot matches the app. */
+internal fun widgetThemeColorInt(token: String?): Int = when (token?.trim()) {
+    "chart-2" -> 0xFF2D7FB8.toInt()
+    "chart-3" -> 0xFF2E8B57.toInt()
+    "chart-4" -> 0xFFC77D29.toInt()
+    "chart-5" -> 0xFF6D5BC7.toInt()
+    "chart-6" -> 0xFF7C746E.toInt()
+    "theme-extra-1" -> 0xFF6B5B9E.toInt()
+    "theme-extra-2" -> 0xFF2FA39A.toInt()
+    "theme-extra-3" -> 0xFF7BA23F.toInt()
+    "theme-extra-4" -> 0xFF8A7FC0.toInt()
+    else -> 0xFF8A2F3B.toInt()
+}
+
+internal fun widgetSectionFor(todayDate: String?, today: String): String = when {
+    todayDate == null -> "日付なし"
+    todayDate < today -> "期限切れ"
+    todayDate == today -> "今日"
+    else -> "今後"
+}
+
+internal fun orderWidgetTasks(
+    tasks: List<TaskenWidgetTask>,
+    today: String,
+    todayDates: Map<String, String?>,
+): List<TaskenWidgetTask> {
+    val rank = mapOf("期限切れ" to 0, "今日" to 1, "今後" to 2, "日付なし" to 3)
+    return tasks.sortedWith(
+        compareBy({ rank[widgetSectionFor(todayDates[it.id], today)] ?: 9 }, { it.title }),
+    )
 }
 
 class TaskenTodayWidget : AppWidgetProvider() {
@@ -113,9 +147,12 @@ class TaskenTodayWidget : AppWidgetProvider() {
     }
 
     companion object {
-        private const val ACTION_TOGGLE_TASK = "jp.personal.tasken.companion.action.TOGGLE_WIDGET_TASK"
-        private const val EXTRA_TASK_ID = "task_id"
-        private const val EXTRA_MARK_DONE = "mark_done"
+        internal const val ACTION_TOGGLE_TASK = "jp.personal.tasken.companion.action.TOGGLE_WIDGET_TASK"
+        internal const val EXTRA_TASK_ID = "task_id"
+        internal const val EXTRA_MARK_DONE = "mark_done"
+        const val ACTION_TOGGLE_TASK_PUBLIC = ACTION_TOGGLE_TASK
+        const val EXTRA_TASK_ID_PUBLIC = EXTRA_TASK_ID
+        const val EXTRA_MARK_DONE_PUBLIC = EXTRA_MARK_DONE
         private const val MAX_TASK_COUNT = 6
         private const val SMALL_WIDTH_DP = 110f
         private const val SMALL_HEIGHT_DP = 60f
@@ -127,16 +164,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
         private const val WIDE_WIDTH_DP = 360f
         private const val WIDE_HEIGHT_DP = 180f
         private val widgetStateActionWorkStates = setOf("needs_human_review", "reported_done", "blocked")
-        private val mediumRowIds = listOf(
-            Triple(R.id.widget_task_1, R.id.widget_task_1_button, R.id.widget_task_1_title),
-            Triple(R.id.widget_task_2, R.id.widget_task_2_button, R.id.widget_task_2_title),
-            Triple(R.id.widget_task_3, R.id.widget_task_3_button, R.id.widget_task_3_title),
-        )
-        private val expandedRowIds = mediumRowIds + listOf(
-            Triple(R.id.widget_task_4, R.id.widget_task_4_button, R.id.widget_task_4_title),
-            Triple(R.id.widget_task_5, R.id.widget_task_5_button, R.id.widget_task_5_title),
-            Triple(R.id.widget_task_6, R.id.widget_task_6_button, R.id.widget_task_6_title),
-        )
 
         fun updateAll(context: Context) {
             CoroutineScope(Dispatchers.IO).launch { updateAllNow(context.applicationContext) }
@@ -149,6 +176,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
             val snapshot = loadSnapshot(context)
             ids.forEach { id ->
                 manager.updateAppWidget(id, views(context, id, snapshot, manager.getAppWidgetOptions(id)))
+                manager.notifyAppWidgetViewDataChanged(id, R.id.widget_list)
             }
         }
 
@@ -159,27 +187,59 @@ class TaskenTodayWidget : AppWidgetProvider() {
             options: Bundle,
         ) {
             manager.updateAppWidget(widgetId, views(context, widgetId, loadSnapshot(context), options))
+            manager.notifyAppWidgetViewDataChanged(widgetId, R.id.widget_list)
         }
 
-        private suspend fun loadSnapshot(context: Context): TaskenWidgetSnapshot {
+        internal suspend fun loadListItems(
+            context: Context,
+            today: String,
+            limit: Int,
+        ): List<TaskenWidgetListItem> {
+            val snapshot = loadSnapshot(context, today)
+            val rows = snapshot.tasks.take(limit)
+            val items = mutableListOf<TaskenWidgetListItem>()
+            var lastSection: String? = null
+            rows.forEach { task ->
+                val section = task.section
+                if (section != null && section != lastSection) {
+                    items += TaskenWidgetListItem.Header(section)
+                    lastSection = section
+                }
+                items += TaskenWidgetListItem.Row(task)
+            }
+            return items
+        }
+
+        private suspend fun loadSnapshot(context: Context, today: String = LocalDate.now().toString()): TaskenWidgetSnapshot {
             val dao = MobileLocalDatabase.open(context).mobileDao()
-            val themesById = dao.themes().associate { it.id to it.title }
-            val todayTasks = dao.tasksForDate(LocalDate.now().toString())
-            return TaskenWidgetSnapshot(
-                tasks = todayTasks.take(MAX_TASK_COUNT).map {
+            val themesById = dao.themes().associate { it.id to it }
+            val allTasks = dao.tasks()
+            val ordered = orderWidgetTasks(
+                allTasks.map {
+                    val theme = it.themeId?.let(themesById::get)
                     val requiresWorkReceipt = it.workState in widgetStateActionWorkStates
                     TaskenWidgetTask(
                         id = it.id,
                         title = it.title,
                         isDone = it.state == "done",
-                        themeTitle = it.themeId?.let(themesById::get),
+                        themeTitle = theme?.title,
+                        themeColor = theme?.let { widgetThemeColorInt(it.color) },
+                        section = widgetSectionFor(it.todayDate, today),
                         isPending = it.optimisticCommandId != null,
                         hasConflict = it.conflictCommandId != null,
                         requiresWorkReceipt = requiresWorkReceipt,
                         canToggleState = canToggleTaskState(dao, it),
                     )
+                }.filter { task ->
+                    // Keep the widget focused: overdue + dated + undated open work, capped by mode limit.
+                    task.section != null
                 },
-                totalTaskCount = todayTasks.size,
+                today,
+                allTasks.associate { it.id to it.todayDate },
+            ).take(MAX_TASK_COUNT)
+            return TaskenWidgetSnapshot(
+                tasks = ordered,
+                totalTaskCount = ordered.size,
                 pendingCount = dao.pendingCount(),
                 conflictCount = dao.conflictCount(),
                 lastSuccessfulSyncAt = dao.syncState()?.lastSuccessfulSyncAt,
@@ -207,7 +267,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
                     snapshot,
                     TaskenWidgetMode.Medium,
                     R.layout.tasken_today_widget,
-                    mediumRowIds,
                 ),
                 SizeF(LARGE_WIDTH_DP, LARGE_HEIGHT_DP) to taskViews(
                     context,
@@ -215,7 +274,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
                     snapshot,
                     TaskenWidgetMode.Large,
                     R.layout.tasken_today_widget_large,
-                    expandedRowIds,
                 ),
                 SizeF(WIDE_WIDTH_DP, WIDE_HEIGHT_DP) to taskViews(
                     context,
@@ -223,7 +281,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
                     snapshot,
                     TaskenWidgetMode.Wide,
                     R.layout.tasken_today_widget_wide,
-                    expandedRowIds,
                 ),
                 SizeF(WIDE_WIDTH_DP, LARGE_HEIGHT_DP) to taskViews(
                     context,
@@ -231,7 +288,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
                     snapshot,
                     TaskenWidgetMode.Large,
                     R.layout.tasken_today_widget_large,
-                    expandedRowIds,
                 ),
                 SizeF(LARGE_WIDTH_DP, TALL_HEIGHT_DP) to taskViews(
                     context,
@@ -239,7 +295,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
                     snapshot,
                     TaskenWidgetMode.Tall,
                     R.layout.tasken_today_widget_large,
-                    expandedRowIds,
                 ),
                 SizeF(WIDE_WIDTH_DP, TALL_HEIGHT_DP) to taskViews(
                     context,
@@ -247,7 +302,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
                     snapshot,
                     TaskenWidgetMode.Tall,
                     R.layout.tasken_today_widget_large,
-                    expandedRowIds,
                 ),
             ),
         )
@@ -259,10 +313,10 @@ class TaskenTodayWidget : AppWidgetProvider() {
             mode: TaskenWidgetMode,
         ): RemoteViews = when (mode) {
             TaskenWidgetMode.Small -> smallViews(context, widgetId)
-            TaskenWidgetMode.Medium -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget, mediumRowIds)
-            TaskenWidgetMode.Large -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget_large, expandedRowIds)
-            TaskenWidgetMode.Tall -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget_large, expandedRowIds)
-            TaskenWidgetMode.Wide -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget_wide, expandedRowIds)
+            TaskenWidgetMode.Medium -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget)
+            TaskenWidgetMode.Large -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget_large)
+            TaskenWidgetMode.Tall -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget_large)
+            TaskenWidgetMode.Wide -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget_wide)
         }
 
         private fun smallViews(context: Context, widgetId: Int): RemoteViews =
@@ -276,18 +330,35 @@ class TaskenTodayWidget : AppWidgetProvider() {
             snapshot: TaskenWidgetSnapshot,
             mode: TaskenWidgetMode,
             layoutId: Int,
-            rows: List<Triple<Int, Int, Int>>,
         ): RemoteViews = RemoteViews(context.packageName, layoutId).apply {
             val visibleTasks = snapshot.tasks.take(mode.taskLimit)
             setOnClickPendingIntent(R.id.widget_open_today, openAppIntent(context, widgetId, "tasken://today?source=widget"))
             bindAddAction(context, widgetId)
+            bindVoiceAction(context, widgetId)
             setTextViewText(R.id.widget_status, statusText(snapshot))
             setOnClickPendingIntent(R.id.widget_status, openAppIntent(context, widgetId + 30_000, "tasken://today?source=widget"))
-            setViewVisibility(R.id.widget_empty, if (visibleTasks.isEmpty()) View.VISIBLE else View.GONE)
-            if (mode == TaskenWidgetMode.Large || mode == TaskenWidgetMode.Tall || mode == TaskenWidgetMode.Wide) {
+            if (hasLayoutElement(layoutId, "widget_count")) {
                 setTextViewText(R.id.widget_count, taskCountText(snapshot))
             }
-            bindRows(context, widgetId, visibleTasks, rows)
+            val hasItems = visibleTasks.isNotEmpty()
+            setViewVisibility(R.id.widget_empty, if (hasItems) View.GONE else View.VISIBLE)
+            setViewVisibility(R.id.widget_list, if (hasItems) View.VISIBLE else View.GONE)
+            setRemoteAdapter(R.id.widget_list, Intent(context, TaskenWidgetViewsService::class.java))
+            setEmptyView(R.id.widget_list, R.id.widget_empty)
+            setPendingIntentTemplate(
+                R.id.widget_list,
+                PendingIntent.getActivity(
+                    context,
+                    widgetId + 40_000,
+                    Intent(Intent.ACTION_VIEW, Uri.parse("tasken://today?source=widget"), context, MainActivity::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+                ),
+            )
+        }
+
+        private fun hasLayoutElement(layoutId: Int, name: String): Boolean = when (layoutId) {
+            R.layout.tasken_today_widget_large, R.layout.tasken_today_widget_wide -> name == "widget_count"
+            else -> false
         }
 
         private fun RemoteViews.bindAddAction(context: Context, widgetId: Int) {
@@ -297,60 +368,22 @@ class TaskenTodayWidget : AppWidgetProvider() {
             )
         }
 
-        private fun RemoteViews.bindRows(
-            context: Context,
-            widgetId: Int,
-            tasks: List<TaskenWidgetTask>,
-            rows: List<Triple<Int, Int, Int>>,
-        ) {
-            rows.forEachIndexed { index, (rowId, buttonId, titleId) ->
-                val task = tasks.getOrNull(index)
-                setViewVisibility(rowId, if (task == null) View.GONE else View.VISIBLE)
-                if (task == null) return@forEachIndexed
-                val taskIntent = openAppIntent(
-                    context,
-                    widgetId * 100 + index + 1,
-                    "${MobileTaskLocator.format(task.id)}?source=widget",
-                )
-                setImageViewResource(
-                    buttonId,
-                    when {
-                        task.hasConflict || task.requiresWorkReceipt -> R.drawable.ic_tabler_alert_triangle
-                        task.isDone -> R.drawable.ic_tabler_circle_check
-                        else -> R.drawable.ic_tabler_circle
-                    },
-                )
-                setTextViewText(titleId, taskText(task))
-                setContentDescription(
-                    buttonId,
-                    when {
-                        task.hasConflict -> "競合を確認: ${task.title}"
-                        task.requiresWorkReceipt -> "Work Receiptを確認: ${task.title}"
-                        !task.canToggleState -> "同期状況を確認: ${task.title}"
-                        task.isDone -> "Taskを再開: ${task.title}"
-                        else -> "Taskを完了: ${task.title}"
-                    },
-                )
-                setOnClickPendingIntent(
-                    buttonId,
-                    if (task.canToggleState) toggleIntent(context, widgetId, index, task) else taskIntent,
-                )
-                setOnClickPendingIntent(titleId, taskIntent)
-            }
+        private fun RemoteViews.bindVoiceAction(context: Context, widgetId: Int) {
+            setOnClickPendingIntent(
+                R.id.widget_voice,
+                openAppIntent(context, widgetId + 20_000, "tasken://capture/new?voice=1&source=widget"),
+            )
         }
 
         internal fun taskText(task: TaskenWidgetTask): String {
-            val theme = task.themeTitle?.trim()?.takeIf { it.isNotEmpty() }
             val attention = when {
                 task.hasConflict -> "競合"
                 task.requiresWorkReceipt -> "要確認"
-                task.isPending -> "送信待ち"
                 else -> null
             }
             return buildString {
                 if (attention != null) append(attention).append(" ・ ")
                 append(task.title)
-                if (theme != null) append(" ・ ").append(theme)
             }
         }
 
@@ -395,22 +428,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
             context,
             requestCode,
             Intent(Intent.ACTION_VIEW, Uri.parse(uri), context, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-
-        private fun toggleIntent(
-            context: Context,
-            widgetId: Int,
-            index: Int,
-            task: TaskenWidgetTask,
-        ): PendingIntent = PendingIntent.getBroadcast(
-            context,
-            widgetId * 10 + index,
-            Intent(context, TaskenTodayWidget::class.java).apply {
-                action = ACTION_TOGGLE_TASK
-                putExtra(EXTRA_TASK_ID, task.id)
-                putExtra(EXTRA_MARK_DONE, !task.isDone)
-            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }

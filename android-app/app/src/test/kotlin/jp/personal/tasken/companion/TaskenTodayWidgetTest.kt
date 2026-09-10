@@ -25,7 +25,7 @@ class TaskenTodayWidgetTest {
     }
 
     @Test
-    fun task_text_keeps_theme_and_exposes_pending_or_conflict_state() {
+    fun task_text_hides_pending_and_theme_name_but_keeps_conflict_state() {
         val task = TaskenWidgetTask(
             id = "task-1",
             title = "旅程を確認",
@@ -33,16 +33,41 @@ class TaskenTodayWidgetTest {
             themeTitle = "Travel",
         )
 
-        assertEquals("旅程を確認 ・ Travel", TaskenTodayWidget.taskText(task))
-        assertEquals("送信待ち ・ 旅程を確認 ・ Travel", TaskenTodayWidget.taskText(task.copy(isPending = true)))
+        assertEquals("旅程を確認", TaskenTodayWidget.taskText(task))
+        // 返信待ちのような送信待ち表示は行に出さない（ヘッダの件数表示に集約）。
+        assertEquals("旅程を確認", TaskenTodayWidget.taskText(task.copy(isPending = true)))
         assertEquals(
-            "競合 ・ 旅程を確認 ・ Travel",
+            "競合 ・ 旅程を確認",
             TaskenTodayWidget.taskText(task.copy(isPending = true, hasConflict = true)),
         )
         assertEquals(
-            "要確認 ・ 旅程を確認 ・ Travel",
+            "要確認 ・ 旅程を確認",
             TaskenTodayWidget.taskText(task.copy(requiresWorkReceipt = true)),
         )
+    }
+
+    @Test
+    fun widget_sections_split_overdue_today_and_upcoming() {
+        assertEquals("期限切れ", widgetSectionFor("2026-09-09", "2026-09-10"))
+        assertEquals("今日", widgetSectionFor("2026-09-10", "2026-09-10"))
+        assertEquals("今後", widgetSectionFor("2026-09-11", "2026-09-10"))
+        assertEquals("日付なし", widgetSectionFor(null, "2026-09-10"))
+
+        val tasks = listOf(
+            TaskenWidgetTask("future", "今後", false),
+            TaskenWidgetTask("today", "今日", false),
+            TaskenWidgetTask("overdue", "期限切れ", false),
+        )
+        val dates = mapOf("future" to "2026-09-11", "today" to "2026-09-10", "overdue" to "2026-09-09")
+        val ordered = orderWidgetTasks(tasks, "2026-09-10", dates)
+        assertEquals(listOf("overdue", "today", "future"), ordered.map { it.id })
+    }
+
+    @Test
+    fun theme_color_mapping_matches_app_chart_tokens() {
+        assertEquals(0xFF8A2F3B.toInt(), widgetThemeColorInt(null))
+        assertEquals(0xFF2D7FB8.toInt(), widgetThemeColorInt("chart-2"))
+        assertEquals(0xFF2E8B57.toInt(), widgetThemeColorInt("chart-3"))
     }
 
     @Test

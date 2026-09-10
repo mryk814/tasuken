@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="tasken_widget_surface">#211A1B</color>
-    <color name="tasken_widget_outline">#665458</color>
-    <color name="tasken_widget_on_surface">#F4E7E8</color>
-    <color name="tasken_widget_on_surface_variant">#D6C2C5</color>
-    <color name="tasken_widget_primary">#FFB2BE</color>
-    <color name="tasken_widget_primary_container">#6E2431</color>
+    <color name="tasken_widget_surface">#221B19</color>
+    <color name="tasken_widget_outline">#4A3236</color>
+    <color name="tasken_widget_on_surface">#F1EAE7</color>
+    <color name="tasken_widget_on_surface_variant">#B7ABA6</color>
+    <color name="tasken_widget_primary">#BD4F5D</color>
+    <color name="tasken_widget_primary_container">#2F1E21</color>
 </resources>
