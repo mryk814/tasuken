@@ -13,7 +13,7 @@ export function buildTaskAiRequest(tasks: RequestTask[]): string {
     "",
     "1. 各Taskの tasken.get_task_context に task_id を渡し、公開Context・完了条件・作業対象を確認してください。MCPに接続できない場合は作業を始めず知らせてください。",
     "2. AI Readyを確認し、取得したversionをexpected_versionに指定して tasken.start_task_work を明示的に呼んでから着手してください。開始に失敗したら再取得して状態を確認してください。",
-    "3. start_task_workが返した最新のTask versionを以後のexpected_versionに使ってください。通常は完了時に tasken.report_task_done を一度だけ送り、結果・検証・残作業とAI作業終了時刻reported_atを報告してください。完了直前の tasken.append_work_receipt は不要です。長期作業で残す必要がある途中経過だけappend_work_receipt、人の対応が必要な中断だけ tasken.report_task_blocked を使ってください。同じ報告を再送するときは同じidempotency_key・日時・内容を維持してください。",
+    "3. start_task_workが返した最新のTask versionを以後のexpected_versionに使ってください。通常は完了時に tasken.report_task_done を一度だけ送り、結果・検証・残作業とAI作業終了時刻reported_atを報告してください。完了直前の tasken.append_work_receipt は不要です。長期作業で残す必要がある途中経過だけappend_work_receipt、人の対応が必要な中断だけ tasken.report_task_blocked を使ってください。同じ報告を再送するときは同じidempotency_key・日時・内容を維持してください。完了報告の後で追報告が必要になったら、新しいidempotency_keyで送ると同じTaskに積まれ、AI Inboxでまとめて確認できます。",
     "4. 検証できたチェック項目はget_task_contextで取得したIDをcompleted_checklist_item_idsに含めてください。チェック反映には最新expected_versionが必要です。報告はProposalとして人がAI Inboxで採用して正式保存されます。Taskの完了は人が別途判断します。採用後やTask完了後もContextを再取得し、append_work_receiptで追加報告できます。",
   ].join("\n");
 }

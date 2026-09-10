@@ -424,10 +424,18 @@ export function createMcpBridgeInfo(input: {
   latestProposalAt?: string;
 }): McpBridgeInfo {
   const command = "node";
+  const server = {
+    command,
+    args: input.args,
+    // Packaged settings must not inherit a development profile from the AI client.
+    // An empty override keeps the config portable and lets each Windows account
+    // resolve its own default `%APPDATA%/tasken` profile.
+    ...(input.packaged ? { env: { TASKEN_USER_DATA_DIR: "" } } : {}),
+  };
   return {
     command,
     args: [...input.args],
-    configJson: JSON.stringify({ mcpServers: { tasken: { command, args: input.args } } }, null, 2),
+    configJson: JSON.stringify({ mcpServers: { tasken: server } }, null, 2),
     pendingProposalCount: input.pendingProposalCount,
     transport: "stdio-core",
     packaged: input.packaged,

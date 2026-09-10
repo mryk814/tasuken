@@ -15,6 +15,7 @@ const aiProposalPanelSource = readFileSync(
   "src/renderer/src/features/workspace/components/AiProposalPanel.tsx",
   "utf8",
 );
+const semanticActionsSource = readFileSync("src/renderer/src/pages/semanticActions.ts", "utf8");
 const stylesSource = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
 test("AI proposals use the existing AI route beside Inbox with an action count", () => {
@@ -139,6 +140,31 @@ test("1050x800でもProposal一覧と選択previewを同じviewportへ収める"
     /\.proposal-inbox-panel\.has-selection\s*\{[^}]*align-items:\s*stretch;/s,
   );
   assert.equal(Math.min(800 * 0.42, 360), 336);
+});
+
+test("AI Inbox offers adopt-and-complete only for completable Task work reports", () => {
+  assert.match(
+    aiProposalPanelSource,
+    /ActionButton\s+action="aiProposalAcceptAndComplete"[\s\S]*?void acceptProposal\(selected, \{ completeTask: true \}\)/,
+  );
+  assert.match(
+    semanticActionsSource,
+    /aiProposalAcceptAndComplete: \{[\s\S]*?label: "完了"[\s\S]*?role: "primary"/,
+  );
+  assert.match(aiProposalPanelSource, /selectedWork && canCompleteSelectedWork && \(/);
+  assert.match(
+    aiProposalPanelSource,
+    /onClick=\{\(\) => void acceptProposal\(selected, \{ completeTask: true \}\)\}/,
+  );
+  assert.match(aiProposalPanelSource, /name: "AcceptTaskWork"/);
+  assert.match(aiProposalPanelSource, /receiptId: proposal\.id, completeTask: true/);
+  assert.match(aiProposalPanelSource, /\["done", "cancelled"\]\.includes\(str\(/);
+  assert.match(aiProposalPanelSource, /作業報告を採用し、Taskを完了しました。/);
+  assert.match(aiProposalPanelSource, /対象Taskは既に完了またはキャンセルされています。/);
+  assert.match(
+    aiProposalPanelSource,
+    /ActionButton\s+action="aiProposalAccept"[\s\S]*?void acceptProposal\(selected\)/,
+  );
 });
 
 test("Proposal rows lead with a content-specific headline", () => {

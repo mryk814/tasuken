@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
@@ -23,7 +24,7 @@ class CaptureDraftRecreationTest {
 
         composeRule.activityRule.scenario.recreate()
 
-        composeRule.onNodeWithTag("capture-submit-close").assertIsDisplayed()
+        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("rotationdraft").assertIsDisplayed()
     }
 }

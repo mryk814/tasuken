@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
@@ -117,6 +118,9 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
@@ -251,6 +255,7 @@ internal fun TodayApp(
     var relatedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var themeContextId by rememberSaveable { mutableStateOf<String?>(null) }
     var localSearchOpen by rememberSaveable { mutableStateOf(false) }
+    var directAiSettingsOpen by rememberSaveable { mutableStateOf(false) }
     var localSearchTaskReturn by rememberSaveable { mutableStateOf<String?>(null) }
     var searchDocumentType by rememberSaveable { mutableStateOf<String?>(null) }
     var searchDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -765,6 +770,7 @@ internal fun TodayApp(
                                 onRetryPairing = todayViewModel::retryPairing,
                                 onPair = todayViewModel::pair,
                                 onTaskSelected = onTaskSelected,
+                                onOpenAiSettings = { directAiSettingsOpen = true },
                             )
                         }
                         if (paneState.activeSection != AppSection.Ai) {
@@ -777,6 +783,7 @@ internal fun TodayApp(
                                     onClick = {
                                         paneState.openCapture(
                                             source = MobileCaptureSource.AndroidApp,
+                                            requestInputFocus = true,
                                             replaceDraft = false,
                                         )
                                         speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
@@ -808,6 +815,9 @@ internal fun TodayApp(
                         if (task != null && receiptId != null) {
                             todayViewModel.loadWorkReceipt(task.id, receiptId)
                         }
+                    }
+                    val navigateToList: () -> Unit = {
+                        coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
                     }
                     Column(Modifier.fillMaxSize()) {
                     if (localSearchTaskReturn != null) TextButton(onClick = { localSearchOpen = true; localSearchTaskReturn = null },
@@ -843,6 +853,7 @@ internal fun TodayApp(
                         onProposalDecision = todayViewModel::reviewTaskWorkProposal,
                         onHumanReview = todayViewModel::reviewTaskWork,
                         onTaskAiReady = todayViewModel::setTaskAiReady,
+                        onNavigateBack = if (task != null) navigateToList else null,
                     )
                     }
                     }
@@ -961,6 +972,10 @@ internal fun TodayApp(
             MobileWorkLogSheet(repository, themes, allTasks, allTasks.firstOrNull { it.id == workLogTaskId }, initialRecordId = workLogRecordId,
                 onDismiss = { workLogOpen = false; workLogRecordId = null })
         }
+    }
+    if (directAiSettingsOpen) {
+        val directStore = remember(context) { DirectCaptureSettingsStore(context.applicationContext) }
+        DirectAiSettingsSheet(directStore, onChanged = {}, onDismiss = { directAiSettingsOpen = false })
     }
     if (paneState.captureOpen) {
         CaptureTaskSheet(
@@ -1163,6 +1178,26 @@ internal fun CaptureTaskSheet(
                 onRemovePhoto = onRemovePhoto,
                 loadThumbnail = loadPhotoThumbnail,
             )
+            Row(
+                modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = { onSubmit(CaptureCompletionBehavior.Continue) },
+                    enabled = canSubmit,
+                    modifier = Modifier.testTag("capture-submit-continue"),
+                ) {
+                    Text("追加して次へ")
+                }
+                Button(
+                    onClick = { onSubmit(CaptureCompletionBehavior.Close) },
+                    enabled = canSubmit,
+                    modifier = Modifier.testTag("capture-submit-close"),
+                ) {
+                    Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
+                }
+            }
             if (onOrganize != null && draft.kind == MobileCaptureKind.Task) CaptureOrganizationControls(
                 themes = themes, themeCatalogState = themeCatalogState,
                 draft = draft, speechState = speechState, enabled = !speechBusy && state !is CaptureUiState.Saving,
@@ -1212,26 +1247,6 @@ internal fun CaptureTaskSheet(
             }
             if (state is CaptureUiState.Error && draft.organization != null) {
                 Text(state.message, color = MaterialTheme.colorScheme.error)
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    onClick = { onSubmit(CaptureCompletionBehavior.Continue) },
-                    enabled = canSubmit,
-                    modifier = Modifier.testTag("capture-submit-continue"),
-                ) {
-                    Text("追加して次へ")
-                }
-                Button(
-                    onClick = { onSubmit(CaptureCompletionBehavior.Close) },
-                    enabled = canSubmit,
-                    modifier = Modifier.testTag("capture-submit-close"),
-                ) {
-                    Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
-                }
             }
             Spacer(
                 modifier = Modifier
@@ -1406,7 +1421,7 @@ internal fun TodayListPane(
                     Text(
                         when {
                             refreshing -> "PCへの接続を確認中"
-                            cached != null -> "PCへの接続を再確認してください"
+                            cached != null -> "PCへの接続を再確認してください（PCなし整理は追加画面から利用可）"
                             else -> "保存済みの今日のTask"
                         },
                         style = MaterialTheme.typography.bodySmall,
@@ -1623,7 +1638,15 @@ internal fun AiInboxListPane(
     onRetryPairing: () -> Unit,
     onPair: (String, String) -> Unit,
     onTaskSelected: (String) -> Unit,
+    onOpenAiSettings: (() -> Unit)? = null,
 ) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        onOpenAiSettings?.let { open ->
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = open, modifier = Modifier.testTag("open-direct-ai-settings")) { Text("PCなし整理の設定") }
+            }
+        }
+        Box(modifier = Modifier.weight(1f)) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
         uiState is TodayUiState.Error && tasks.isEmpty() -> GatewayErrorState(uiState, onRetry, onRetryPairing)
@@ -1757,6 +1780,8 @@ internal fun AiInboxListPane(
                     }
                 }
             }
+        }
+        }
         }
     }
 }
@@ -1991,7 +2016,7 @@ private fun TaskThemeLabel(themeId: String?, themes: List<MobileTheme>) {
 }
 
 @Composable
-private fun ThemeColorDot(theme: MobileTheme) {
+internal fun ThemeColorDot(theme: MobileTheme) {
     Box(Modifier.size(8.dp).background(
         taskenThemeColor(theme.color, MaterialTheme.colorScheme.surface.luminance() < 0.5f),
         CircleShape,
@@ -2031,6 +2056,7 @@ internal fun TodayDetailPane(
     onProposalDecision: (MobileTaskWorkProposal, String) -> Unit = { _, _ -> },
     onHumanReview: (MobileTask, String, String?) -> Unit = { _, _, _ -> },
     onTaskAiReady: (MobileTask, Boolean) -> Unit = { _, _ -> },
+    onNavigateBack: (() -> Unit)? = null,
     displayZoneId: ZoneId = ZoneId.systemDefault(),
 ) {
     if (task == null) {
@@ -2062,8 +2088,26 @@ internal fun TodayDetailPane(
         }
     }
     val today = LocalDate.now()
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+    onNavigateBack?.let { back -> BackHandler { back() } }
+    Surface(
+        modifier = Modifier.fillMaxSize().pointerInput(task?.id, onNavigateBack) {
+            if (onNavigateBack == null) return@pointerInput
+            var dragTotal = 0f
+            detectHorizontalDragGestures(
+                onDragStart = { dragTotal = 0f },
+                onHorizontalDrag = { _, dragAmount -> dragTotal += dragAmount },
+                onDragEnd = { if (dragTotal > 120f) onNavigateBack() },
+            )
+        },
+        color = MaterialTheme.colorScheme.surface,
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
+        onNavigateBack?.let { back ->
+            TextButton(
+                onClick = back,
+                modifier = Modifier.testTag("task-detail-back").statusBarsPadding(),
+            ) { Text("〈 一覧へ戻る") }
+        }
         Column(
             modifier = Modifier.weight(1f).fillMaxWidth().testTag("task-detail-content")
                 .verticalScroll(rememberScrollState()).padding(20.dp),
@@ -3256,7 +3300,6 @@ private fun LocalDate.toPickerMillis(): Long = toEpochDay() * MillisPerDay
 
 private fun Long.toPickerLocalDate(): LocalDate = LocalDate.ofEpochDay(Math.floorDiv(this, MillisPerDay))
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TaskThemePicker(
     taskId: String,
@@ -3269,14 +3312,10 @@ private fun TaskThemePicker(
     stateDescription: String?,
     onThemeSelected: (String?) -> Unit,
 ) {
-    var expanded by rememberSaveable(taskId) { mutableStateOf(false) }
     val selectedTheme = themes.firstOrNull { it.id == themeId }
     val catalogAllowsSelection = catalogState is MobileThemeCatalogState.Available ||
         catalogState is MobileThemeCatalogState.Stale
     val pickerEnabled = enabled && catalogAllowsSelection && (themes.isNotEmpty() || allowUnassigned)
-    LaunchedEffect(openRequest, pickerEnabled) {
-        if (openRequest > 0 && pickerEnabled) expanded = true
-    }
     val displayedState = stateDescription ?: selectedTheme?.let { "現在のTheme: ${it.title}" }
         ?: "現在のTheme情報なし"
     val emptyValue = when (catalogState) {
@@ -3287,47 +3326,45 @@ private fun TaskThemePicker(
         is MobileThemeCatalogState.Stale -> "Theme情報なし"
     }
 
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { if (pickerEnabled) expanded = !expanded },
-        modifier = Modifier.fillMaxWidth(),
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .testTag("task-theme-picker")
+            .semantics { this.stateDescription = displayedState },
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        OutlinedTextField(
-            value = selectedTheme?.title ?: emptyValue,
-            onValueChange = {},
-            modifier = Modifier
-                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = pickerEnabled)
-                .fillMaxWidth()
-                .testTag("task-theme-picker")
-                .semantics { this.stateDescription = displayedState },
-            label = { Text("Theme") },
-            leadingIcon = selectedTheme?.let { { ThemeColorDot(it) } },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            readOnly = true,
-            singleLine = true,
-            enabled = pickerEnabled,
+        Text(
+            "Theme${selectedTheme?.let { ": ${it.title}" } ?: ": $emptyValue"}",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(end = 20.dp),
         ) {
             if (allowUnassigned) {
-                DropdownMenuItem(
-                    text = { Text("Theme未指定") },
-                    onClick = { expanded = false; onThemeSelected(null) },
-                    modifier = Modifier.testTag("task-theme-unassigned"),
-                )
+                item(key = "theme-unassigned") {
+                    FilterChip(
+                        selected = themeId == null,
+                        onClick = { if (themeId != null) onThemeSelected(null) },
+                        label = { Text("Theme未指定") },
+                        enabled = pickerEnabled,
+                        modifier = Modifier.heightIn(min = 44.dp).testTag("task-theme-unassigned")
+                            .semantics { selected = themeId == null },
+                    )
+                }
             }
-            themes.forEach { theme ->
+            items(themes, key = { it.id }) { theme ->
                 val isSelected = theme.id == themeId
-                DropdownMenuItem(
-                    text = { ColoredThemeLabel(theme) },
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { if (!isSelected) onThemeSelected(theme.id) },
+                    label = { Text(theme.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingIcon = { ThemeColorDot(theme) },
                     trailingIcon = { if (isSelected) Text("選択中") },
-                    onClick = {
-                        expanded = false
-                        if (!isSelected) onThemeSelected(theme.id)
-                    },
-                    modifier = Modifier.semantics { selected = isSelected },
+                    enabled = pickerEnabled,
+                    modifier = Modifier.heightIn(min = 44.dp).widthIn(max = 220.dp)
+                        .semantics { selected = isSelected },
                 )
             }
         }

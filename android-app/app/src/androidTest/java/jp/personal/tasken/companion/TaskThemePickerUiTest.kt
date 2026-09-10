@@ -5,13 +5,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.platform.app.InstrumentationRegistry
+import android.graphics.Bitmap
+import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -34,15 +38,53 @@ class TaskThemePickerUiTest {
             }
         }
 
+        composeRule.onNodeWithText("Theme: Research", substring = true).assertExists()
         composeRule.onNodeWithTag("task-theme-picker")
-            .assertIsEnabled()
-            .assertTextContains("Research")
             .assert(hasStateDescription("現在のTheme: Research"))
-            .performClick()
         composeRule.onNodeWithText("選択中").assertExists()
+        screenshot("01-theme-chips-direct")
         composeRule.onNodeWithText("Personal").performClick()
 
         composeRule.runOnIdle { assertEquals("theme-personal", submittedThemeId) }
+    }
+
+    @Test
+    fun detailBackButtonReturnsToList() {
+        var backCount = 0
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = sampleTask(themeId = "theme-research"),
+                    actionState = TaskActionUiState.Idle,
+                    themes = sampleThemes(),
+                    onStateAction = {},
+                    onNavigateBack = { backCount++ },
+                )
+            }
+        }
+
+        screenshot("02-detail-back-button")
+        composeRule.onNodeWithTag("task-detail-back").assertIsEnabled().performClick()
+        composeRule.runOnIdle { assertTrue(backCount == 1) }
+    }
+
+    @Test
+    fun detailWithoutBackCallbackHidesBackButton() {
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = sampleTask(themeId = "theme-research"),
+                    actionState = TaskActionUiState.Idle,
+                    themes = sampleThemes(),
+                    onStateAction = {},
+                    onNavigateBack = null,
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithTag("task-detail-back").fetchSemanticsNodes().let {
+            assertTrue(it.isEmpty())
+        }
     }
 
     @Test
@@ -59,8 +101,8 @@ class TaskThemePickerUiTest {
         }
 
         composeRule.onNodeWithTag("task-theme-picker")
-            .assertIsNotEnabled()
             .assert(hasStateDescription("同期後に変更"))
+        composeRule.onNodeWithText("Personal").assertIsNotEnabled()
     }
 
     @Test
@@ -89,7 +131,6 @@ class TaskThemePickerUiTest {
         }
 
         composeRule.onNodeWithTag("task-theme-picker")
-            .assertIsNotEnabled()
             .assert(hasStateDescription("競合を解決してから変更"))
         composeRule.onNodeWithText("Desktop  Theme Research").assertExists()
         composeRule.onNodeWithText("この端末  Theme Personal").assertExists()
@@ -110,12 +151,10 @@ class TaskThemePickerUiTest {
             }
         }
 
+        composeRule.onNodeWithText("Theme情報なし", substring = true).assertExists()
         composeRule.onNodeWithTag("task-theme-picker")
-            .assertIsEnabled()
-            .assertTextContains("Theme情報なし")
             .assert(hasStateDescription("現在のTheme情報なし"))
         composeRule.runOnIdle { assertEquals("", submittedThemeId) }
-        composeRule.onNodeWithTag("task-theme-picker").performClick()
         composeRule.onNodeWithText("Personal").performClick()
         composeRule.runOnIdle { assertEquals("theme-personal", submittedThemeId) }
     }
@@ -133,9 +172,8 @@ class TaskThemePickerUiTest {
             }
         }
 
+        composeRule.onNodeWithText("読み込み中", substring = true).assertExists()
         composeRule.onNodeWithTag("task-theme-picker")
-            .assertIsNotEnabled()
-            .assertTextContains("読み込み中")
             .assert(hasStateDescription("Theme一覧を読み込み中"))
     }
 
@@ -163,9 +201,7 @@ class TaskThemePickerUiTest {
         }
 
         composeRule.onNodeWithTag("task-theme-picker")
-            .assertIsEnabled()
             .assert(hasStateDescription("オフラインのTheme一覧を使用中"))
-            .performClick()
         composeRule.onNodeWithText("Personal").performClick()
         composeRule.onNodeWithText("Theme一覧はオフラインです。変更は送信待ちになります。").assertExists()
         composeRule.runOnIdle { assertEquals("theme-personal", submittedThemeId) }
@@ -188,9 +224,8 @@ class TaskThemePickerUiTest {
             }
         }
 
+        composeRule.onNodeWithText("未対応", substring = true).assertExists()
         composeRule.onNodeWithTag("task-theme-picker")
-            .assertIsNotEnabled()
-            .assertTextContains("未対応")
             .assert(hasStateDescription("このDesktopではTheme編集を利用できません"))
         composeRule.onNodeWithText("Desktopを更新するとThemeを変更できます。").assertExists()
         composeRule.onNodeWithText("完了する").assertExists()
@@ -213,9 +248,8 @@ class TaskThemePickerUiTest {
             }
         }
 
+        composeRule.onNodeWithText("取得できません", substring = true).assertExists()
         composeRule.onNodeWithTag("task-theme-picker")
-            .assertIsNotEnabled()
-            .assertTextContains("取得できません")
             .assert(hasStateDescription("Theme一覧を取得できません"))
         composeRule.onNodeWithText("接続を確認して再試行してください。").assertExists()
     }
@@ -280,7 +314,7 @@ class TaskThemePickerUiTest {
     }
 
     @Test
-    fun openThemePickerSurvivesParentRecomposition() {
+    fun themeChipsStayVisibleAcrossParentRecomposition() {
         val recompositionTrigger = mutableStateOf(0)
         composeRule.setContent {
             recompositionTrigger.value
@@ -293,7 +327,6 @@ class TaskThemePickerUiTest {
                 )
             }
         }
-        composeRule.onNodeWithTag("task-theme-picker").performClick()
         composeRule.onNodeWithText("Personal").assertExists()
 
         composeRule.runOnIdle { recompositionTrigger.value += 1 }
@@ -314,4 +347,14 @@ class TaskThemePickerUiTest {
         workState = null,
         updatedAt = "2026-08-21T09:00:00.000Z",
     )
+
+    private fun screenshot(name: String) {
+        composeRule.waitForIdle()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val form = InstrumentationRegistry.getArguments().getString("themePickerForm", "compact")
+        val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "theme-picker-541").apply { mkdirs() }
+        val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+        File(directory, "$form-$name.png").outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+        bitmap.recycle()
+    }
 }

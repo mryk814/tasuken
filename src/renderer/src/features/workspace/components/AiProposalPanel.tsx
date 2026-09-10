@@ -601,6 +601,14 @@ export function AiProposalPanel(props: PageProps) {
   const coveredReports = selected
     ? taskWorkReportsCoveredBy(selected, data.ai_proposals || [])
     : [];
+  const selectedWorkTaskId = selected ? str(taskWorkEntry(selected)?.task_id) : "";
+  const selectedWorkTask = selectedWorkTaskId
+    ? domain.tasks.find((entry) => entry.id === selectedWorkTaskId)
+    : null;
+  const canCompleteSelectedWork = Boolean(
+    selectedWorkTask &&
+    !["done", "cancelled"].includes(str((selectedWorkTask as unknown as BaseRecord).state)),
+  );
 
   const refreshProposals = useCallback(
     async (showFeedback: boolean) => {
@@ -711,7 +719,7 @@ export function AiProposalPanel(props: PageProps) {
     setPreview(null);
   }
 
-  async function acceptProposal(proposal: BaseRecord) {
+  async function acceptProposal(proposal: BaseRecord, options: { completeTask?: boolean } = {}) {
     if (!preview) {
       previewProposal(proposal);
       return;
@@ -744,7 +752,7 @@ export function AiProposalPanel(props: PageProps) {
         )
           throw new Error(taskWorkStaleGuidance(proposalExpectedVersion, currentVersion));
         const expectedVersions = [{ type: taskEntityType, id: task.id, version: currentVersion }];
-        await executeCommand({
+        const acceptReceipt = await executeCommand({
           commandId: `${proposal.id}:accept`,
           name: "ApplyTaskWorkProposal",
           payload: {
@@ -765,7 +773,36 @@ export function AiProposalPanel(props: PageProps) {
           ],
           issuedAt: new Date().toISOString(),
         } as CommandEnvelope);
-        setToast("作業報告を採用しました。", "success");
+        if (options.completeTask) {
+          const completed = acceptReceipt.saved.find(
+            (entry) => entry.type === taskEntityType && entry.id === task.id,
+          );
+          const completedVersion = completed
+            ? Number(completed.version || 0)
+            : Number(
+                acceptReceipt.changes.find(
+                  (entry) => entry.type === taskEntityType && entry.entity.id === task.id,
+                )?.entity.version || currentVersion,
+              );
+          const latestTask = domain.tasks.find((entry) => entry.id === task.id);
+          if (
+            !latestTask ||
+            ["done", "cancelled"].includes(str((latestTask as unknown as BaseRecord).state))
+          )
+            throw new Error("対象Taskは既に完了またはキャンセルされています。");
+          await executeCommand({
+            commandId: `${proposal.id}:accept:complete`,
+            name: "AcceptTaskWork",
+            payload: { taskId: task.id, receiptId: proposal.id, completeTask: true },
+            actor: { kind: "user" },
+            source: "main_ui",
+            expectedVersions: [{ type: taskEntityType, id: task.id, version: completedVersion }],
+            issuedAt: new Date().toISOString(),
+          } as CommandEnvelope);
+          setToast("作業報告を採用し、Taskを完了しました。", "success");
+        } else {
+          setToast("作業報告を採用しました。", "success");
+        }
         setPreview(null);
       } catch (error) {
         setToast(
@@ -1275,6 +1312,14 @@ export function AiProposalPanel(props: PageProps) {
                 >
                   採用
                 </ActionButton>
+                {selectedWork && canCompleteSelectedWork && (
+                  <ActionButton
+                    action="aiProposalAcceptAndComplete"
+                    onClick={() => void acceptProposal(selected, { completeTask: true })}
+                  >
+                    完了
+                  </ActionButton>
+                )}
               </div>
             )}
             {selected.status === "pending" && (

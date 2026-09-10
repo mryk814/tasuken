@@ -62,7 +62,7 @@ internal fun CaptureOrganizationControls(
             } catch (_: Exception) {
                 if (request == requestNumber && currentDraft == requested) error =
                     if (directSettings.enabled) DIRECT_CAPTURE_FAILURE
-                    else "AI整理を利用できません。Desktopの設定・接続を確認して再試行してください。通常の追加も使えます。"
+                    else "AI整理を利用できません。PCがオフの場合は「PCなしで整理する設定」を開くとAndroidから直接整理できます。通常の追加も使えます。"
             } finally { if (request == requestNumber) { pending = null; onBusyChange(false) } }
         }
     }

@@ -60,7 +60,11 @@ Task本文は出力せず、着手やProposal送信もしません。
 `task_work_available=false`なら着手ツールが公開されていません。読み取り専用設定またはMCP bridgeの版を確認してください。
 診断成功と、各AIの権限・モデルによる作業完遂は別の検証です。
 
-独自の保存先を使っている場合は、診断と各MCP設定の`env`に同じ`TASKEN_USER_DATA_DIR`を設定します。
+配布版TaskenのSettingsがコピーするMCP設定には、開発用環境変数を継承しないため
+`env: { "TASKEN_USER_DATA_DIR": "" }`が含まれます。Portable版・インストーラー版とも、
+設定は各WindowsのTaskenから生成してください。server pathはインストール先に依存するため、
+別端末へ設定JSONだけをコピーしないでください。
+独自の保存先を使う開発版では、診断と各MCP設定の`env`に同じ`TASKEN_USER_DATA_DIR`を設定します。
 起動中Taskenの保存先と一致させ、discoveryファイルやtokenを手でコピーしないでください。
 調べるだけの接続には`TASKEN_MCP_READ_ONLY=1`を設定できます。
 アプリを移動した場合は、各クライアントのserverパスも更新します。
@@ -71,7 +75,7 @@ WSL・別PC・Web版AIからの接続はこのWindows用設定では検証して
 1. Taskenで完了条件と関連Themeを整え、TaskをAI Readyにします。デスクトップでは保存成功後に依頼文を自動コピーします。
 2. 普段使うAIに依頼文を貼り付けます。Taskドロワーの「依頼文をコピー」から取り直せます。解除時や既存AI Readyの編集時はクリップボードを変えません。コピー失敗時もAI Readyは保存され、再コピーの案内を表示します。
 3. AIは`get_task_context`で対象と作業先を確認し、実際に着手するときだけ`start_task_work`を呼びます。
-4. AIは通常、完了時に最新versionで`report_task_done`を一度だけ送ります。完了直前に同じ結果を`append_work_receipt`で送る必要はありません。途中報告は長期作業で必要なとき、中断報告は人の対応が必要なときに使います。`reported_at`にはAIが作業を終えた時刻を指定します。
+4. AIは通常、完了時に最新versionで`report_task_done`を一度だけ送ります。完了直前に同じ結果を`append_work_receipt`で送る必要はありません。途中報告は長期作業で必要なとき、中断報告は人の対応が必要なときに使います。`reported_at`にはAIが作業を終えた時刻を指定します。完了報告の後で追報告が必要になったら、新しい`idempotency_key`で送ると同じTaskに積まれ、AI Inboxでまとめて確認できます。同じ`idempotency_key`で内容を変えると競合になるため、再送時は日時・内容も維持します。
 5. 人がAI InboxでTaskごとの時系列を確認し、「採用」を押します。検証済みのチェック項目IDを`completed_checklist_item_ids`に添えた報告は、プレビューで項目名を確認してから反映します。報告の採用ではTaskを完了せず、人がTaskドロワーの「承認して完了」などで別途判断します。ActivityとDebriefのAI作業期間は、採用日時ではなく開始・報告時刻で表示します。
 
 採用後やTask完了後も`append_work_receipt`で追加報告できます。報告の採用でTask本文・既存の完了状態は変わりません。チェックを反映する場合は最新のTask versionが必要です。チェック項目やversionが変わった場合は`get_task_context`で再確認して報告を作り直します。

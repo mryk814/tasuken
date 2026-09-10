@@ -80,6 +80,23 @@ test("shared folder sync bootstraps an empty second device and exchanges later c
   }
 });
 
+test("shared folder sync allows a freshly started device with only the personal default theme", async () => {
+  const pair = createPair();
+  try {
+    pair.first.ensurePersonalDefaultTheme();
+    pair.second.ensurePersonalDefaultTheme();
+    pair.first.save("task", task("task-a", "Desktop task"));
+
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+
+    assert.equal(pair.second.workspaceId, pair.first.workspaceId);
+    assert.equal(pair.second.get("task", "task-a").title, "Desktop task");
+  } finally {
+    pair.close();
+  }
+});
+
 test("photo Capture and Task retain source text, manifests and bytes across two devices and restart", async () => {
   const pair = createPair();
   const bytes = Buffer.from("photo canonical bytes");

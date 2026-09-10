@@ -141,6 +141,13 @@ export const ACTION_DEFINITIONS = {
     id: "aiProposalAccept",
     label: "採用",
     icon: IconCheck,
+    role: "secondary",
+    availability: "when-selection",
+  },
+  aiProposalAcceptAndComplete: {
+    id: "aiProposalAcceptAndComplete",
+    label: "完了",
+    icon: IconCheck,
     role: "primary",
     availability: "when-selection",
   },

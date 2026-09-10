@@ -957,10 +957,6 @@ export function NotesPage({
       previous &&
       (!selectedOwnerKey || noteDraftOwnerKey(previous.snapshot.owner) !== selectedOwnerKey)
     ) {
-      if (autosaveTimerRef.current) {
-        window.clearTimeout(autosaveTimerRef.current);
-        autosaveTimerRef.current = null;
-      }
       void flushDraftSnapshot(previous);
     }
     // 本文が同じmetadata更新は、編集中の本文を変えず新しいrevisionへ接続できる。
@@ -1001,23 +997,14 @@ export function NotesPage({
 
   // ctxRefはレンダー中に新しい選択で上書きされるため、コミット済みの値を保持する専用refを使う。
   const autosaveRef = useRef<{ selected: Combined; snapshot: NoteDraftSnapshot } | null>(null);
-  const autosaveTimerRef = useRef<number | null>(null);
   const draftSaveQueuesRef = useRef(new Map<string, DraftSaveQueue>());
   const saveEntityRef = useRef(saveEntity);
   const setToastRef = useRef(setToast);
   saveEntityRef.current = saveEntity;
   setToastRef.current = setToast;
   useEffect(() => {
-    const current = captureCurrentDraftSnapshot();
-    autosaveRef.current = current;
-    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
-    autosaveTimerRef.current = null;
-    if (current?.snapshot.dirty) {
-      autosaveTimerRef.current = window.setTimeout(() => {
-        autosaveTimerRef.current = null;
-        void autoSaveDraft(autosaveRef.current);
-      }, 1500);
-    }
+    // 入力中は下書きだけを更新し、Note切替・画面遷移・終了時にまとめて確定する。
+    autosaveRef.current = captureCurrentDraftSnapshot();
   }, [selectedOwnerKey, selectedBody, draftBody, draftDirty]);
 
   // 本体へ戻すときに、対象Noteを選び直す（#290）。
@@ -1151,12 +1138,6 @@ export function NotesPage({
     return savedFileState;
   }
 
-  function cancelAutosaveTimer(): void {
-    if (!autosaveTimerRef.current) return;
-    window.clearTimeout(autosaveTimerRef.current);
-    autosaveTimerRef.current = null;
-  }
-
   function sameDraftSaveJob(left: DraftSaveJob, right: DraftSaveJob): boolean {
     return (
       sameNoteDraftOwner(left.request.snapshot.owner, right.request.snapshot.owner) &&
@@ -1238,16 +1219,10 @@ export function NotesPage({
     }
   }
 
-  async function autoSaveDraft(snapshot = autosaveRef.current): Promise<boolean> {
-    if (!snapshot) return true;
-    return (await saveQueuedDraft(snapshot)).ok;
-  }
-
   async function flushDraftSnapshot(
     snapshot: { selected: Combined; snapshot: NoteDraftSnapshot } | null,
     options: SaveOptions = {},
   ): Promise<DraftSaveResult> {
-    cancelAutosaveTimer();
     if (!snapshot || (!snapshot.snapshot.dirty && !needsCanonicalMarkdownRetry(snapshot.selected)))
       return { ok: true, fileState: "none" };
     const ownerKey = noteDraftOwnerKey(snapshot.snapshot.owner);
@@ -1268,7 +1243,6 @@ export function NotesPage({
   }
 
   async function flushCurrentNoteAndReadLatest(target: Combined): Promise<Combined> {
-    cancelAutosaveTimer();
     const targetOwner = noteDraftOwner("note", target.id);
     const current = captureCurrentDraftSnapshot();
     if (current && sameNoteDraftOwner(current.snapshot.owner, targetOwner)) {
@@ -1321,7 +1295,6 @@ export function NotesPage({
 
   useEffect(
     () => () => {
-      cancelAutosaveTimer();
       const pending = autosaveRef.current;
       if (pending?.snapshot.dirty) void saveQueuedDraft(pending);
     },
@@ -1390,7 +1363,6 @@ export function NotesPage({
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "s") {
         event.preventDefault();
-        cancelAutosaveTimer();
         void commandActionsRef.current.save();
       }
     }

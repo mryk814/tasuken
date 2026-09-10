@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -17,6 +19,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -177,30 +182,75 @@ internal fun MobileWorkLogEditor(
     enabled: Boolean,
     onChange: (MobileWorkLogDraft) -> Unit,
 ) {
-    var themeOpen by remember { mutableStateOf(false) }
-    var taskOpen by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
+    Text(
+        "Taskの状態は変えません。Taskにしなかった完了済みのこともメモとして残せます。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Text("Theme（任意・1タップで選択）", style = MaterialTheme.typography.labelLarge)
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().testTag("work-log-theme-options"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item(key = "theme-none") {
+            val selected = draft.themeId == null
+            FilterChip(
+                selected = selected,
+                onClick = { onChange(draft.copy(themeId = null)) },
+                label = { Text("指定しない") },
+                enabled = enabled,
+                modifier = Modifier.semantics { this.selected = selected },
+            )
+        }
+        items(themes, key = { it.id }) { theme ->
+            val isSelected = theme.id == draft.themeId
+            FilterChip(
+                selected = isSelected,
+                onClick = { onChange(draft.copy(themeId = if (isSelected) null else theme.id)) },
+                label = { Text(theme.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                leadingIcon = { ThemeColorDot(theme) },
+                enabled = enabled,
+                modifier = Modifier.widthIn(max = 220.dp).semantics { selected = isSelected },
+            )
+        }
+    }
+    Text("Task（任意・記録のための参照のみ）", style = MaterialTheme.typography.labelLarge)
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().testTag("work-log-task-options"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item(key = "task-none") {
+            val selected = draft.taskId == null
+            FilterChip(
+                selected = selected,
+                onClick = { onChange(draft.copy(taskId = null)) },
+                label = { Text("指定しない") },
+                enabled = enabled,
+                modifier = Modifier.semantics { this.selected = selected },
+            )
+        }
+        items(tasks.take(50), key = { it.id }) { task ->
+            val isSelected = task.id == draft.taskId
+            FilterChip(
+                selected = isSelected,
+                onClick = { onChange(draft.copy(taskId = if (isSelected) null else task.id)) },
+                label = { Text(task.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                enabled = enabled,
+                modifier = Modifier.widthIn(max = 220.dp).semantics { selected = isSelected },
+            )
+        }
+    }
+    if (draft.taskId != null && tasks.none { it.id == draft.taskId }) {
+        Text("関連Taskが見つかりません。記録は保持しています。", style = MaterialTheme.typography.bodySmall)
+    }
     OutlinedTextField(value = draft.body, onValueChange = { onChange(draft.copy(body = it)) },
         label = { Text("やったこと") }, placeholder = { Text("例: 測定条件を確認し、次の試験方法を決めた") },
-        modifier = Modifier.fillMaxWidth().testTag("work-log-body").focusRequester(focus), minLines = 4, maxLines = 10,
+        modifier = Modifier.fillMaxWidth().testTag("work-log-body").focusRequester(focus), minLines = 3, maxLines = 10,
         enabled = enabled, isError = draft.body.length > MOBILE_WORK_LOG_BODY_LIMIT,
         supportingText = { Text("${draft.body.length} / 12,000文字・原文のまま保存") })
     OutlinedTextField(value = draft.performedDate, onValueChange = { onChange(draft.copy(performedDate = it)) },
         label = { Text("実施日（YYYY-MM-DD）") }, singleLine = true, enabled = enabled,
         modifier = Modifier.fillMaxWidth().testTag("work-log-date"))
-    TextButton(onClick = { themeOpen = !themeOpen }, enabled = enabled) {
-        Text("Theme: ${themes.firstOrNull { it.id == draft.themeId }?.title ?: if (draft.themeId == null) "未指定" else "参照先を確認"}")
-    }
-    if (themeOpen) {
-        TextButton(onClick = { onChange(draft.copy(themeId = null)); themeOpen = false }) { Text("Themeを指定しない") }
-        themes.forEach { theme -> TextButton(onClick = { onChange(draft.copy(themeId = theme.id)); themeOpen = false }) { Text(theme.title) } }
-    }
-    TextButton(onClick = { taskOpen = !taskOpen }, enabled = enabled) {
-        Text("Task: ${tasks.firstOrNull { it.id == draft.taskId }?.title ?: if (draft.taskId == null) "未指定" else "参照先を確認"}")
-    }
-    if (taskOpen) {
-        TextButton(onClick = { onChange(draft.copy(taskId = null)); taskOpen = false }) { Text("Taskを指定しない") }
-        tasks.forEach { task -> TextButton(onClick = { onChange(draft.copy(taskId = task.id)); taskOpen = false }) { Text(task.title) } }
-    }
 }
