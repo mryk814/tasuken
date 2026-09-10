@@ -67,7 +67,12 @@ class AndroidCaptureRequestsUiTest {
         val before = composeRule.onNodeWithTag("capture-voice-action").getBoundsInRoot()
         val status = composeRule.onNodeWithTag("capture-speech-status").getBoundsInRoot()
         assertTrue(status.bottom <= before.top)
-        assertTrue(before.bottom <= composeRule.onNodeWithTag("capture-photo-action").getBoundsInRoot().top)
+        // 音声と写真は同じ副操作行に並ぶ。
+        assertEquals(
+            before.top.value.toDouble(),
+            composeRule.onNodeWithTag("capture-photo-action").getBoundsInRoot().top.value.toDouble(),
+            1.0,
+        )
         composeRule.onNodeWithTag("capture-submit-row").performScrollTo().assertIsDisplayed()
         val photo = composeRule.onNodeWithTag("capture-photo-action").getBoundsInRoot()
         val submit = composeRule.onNodeWithTag("capture-submit-row").getBoundsInRoot()

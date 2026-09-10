@@ -33,6 +33,7 @@ class CaptureOrganizationUiTest {
     fun secondCandidateUsesSameEditorAndExcludingFirstKeepsItsIdentity() {
         val draft = freshDraft()
         showSheet(draft, organize = { List(8) { proposal.copy(title = "候補 $it") } })
+        capture("00-ai-collapsed")
         composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
         composeRule.waitUntil { draft.value.allOrganizations().size == 8 }
         selectCandidate(1)
