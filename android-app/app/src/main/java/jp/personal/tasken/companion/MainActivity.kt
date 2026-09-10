@@ -1064,7 +1064,6 @@ internal fun CaptureTaskSheet(
         .only(WindowInsetsSides.Bottom),
 ) {
     val focusRequester = remember(draft.draftId) { FocusRequester() }
-    var classificationOpen by rememberSaveable { mutableStateOf(false) }
     var organizationBusy by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
@@ -1204,15 +1203,7 @@ internal fun CaptureTaskSheet(
                 organize = onOrganize, onChange = onOrganizationChanged,
                 onRestoreOriginal = onOrganizationDiscarded, onBusyChange = { organizationBusy = it },
             )
-            if (draft.organization == null) TextButton(
-                onClick = { classificationOpen = !classificationOpen },
-                modifier = Modifier.align(Alignment.End).testTag("capture-classification-toggle"),
-            ) {
-                val themeName = themes.firstOrNull { it.id == draft.projectId }?.title
-                    ?: if (draft.projectId == null) "Themeなし" else "選択済みTheme"
-                Text(if (classificationOpen) "種類・Themeを閉じる" else "$themeName · 種類・Themeを変更")
-            }
-            if (classificationOpen && draft.organization == null) {
+            if (draft.organization == null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
@@ -1234,7 +1225,6 @@ internal fun CaptureTaskSheet(
                     enabled = state !is CaptureUiState.Saving && !speechBusy,
                     onThemeSelected = { themeId ->
                         onThemeSelected(themeId)
-                        classificationOpen = false
                         if (draft.source != MobileCaptureSource.AndroidSpeech) {
                             focusRequester.requestFocus()
                             keyboardController?.show()

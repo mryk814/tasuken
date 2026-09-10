@@ -6,9 +6,12 @@
 
 - 共通Snackbarは画面上部へ表示する。一覧・詳細のレイアウトを押し下げず、下部の追加・音声入力・ナビゲーションに重ねない。エラー通知と取り消し操作は維持する。
 - 「音声を確定」は認識中欄の下、写真操作の上に置く。認識状態の表示領域を固定し、長い認識文字はその領域内でスクロールする。認識中・再待機・確定処理の切替でボタン位置を変えない。
-- Task追加のAI整理欄から「PCなしで整理する設定」を開く。OpenAI / Azure OpenAI / Gemini / OpenCode Zen / OpenCode Go、モデル、Android専用APIキーを指定する。AzureだけHTTPS接続先を入力する。固有語辞書は任意。
+- Task追加のAI整理欄から「PCなしで整理する設定」を開く。OpenAI / Azure OpenAI / Gemini / OpenCode Zen / OpenCode Go、モデル、Android専用APIキーを指定する。AzureだけHTTPS接続先を入力する。固有語辞書は任意。AI欄の「PCなし整理の設定」からはCapture画面を開かずに同じ設定を単独で開ける。
+- 「接続を確認」は入力中のサービス・モデル・キーで短い固定入力（「接続確認」）を送信し、設定を保存せずに結果だけを表示する。API利用料が発生する場合がある。認証・モデル未検出・利用枠・レート制限・未対応JSON Schema・応答形式・ネットワークをそれぞれ区別した案内を返し、キーやプロンプト本文は表示しない。
+- 整理失敗時も、有効化済みならプロバイダーの状態碼に応じた理由を表示する（例: 「モデル「X」が…見つかりません」「APIキーが拒否されました」）。未設定・PC接続必須時の案内は従来どおり。
 - 「この端末から選んだAIへ送信して整理する」を選んで保存した場合、以降のAI整理はAndroidから直接送る。未選択の保存は資格情報の保存だけで、Desktop経由を維持する。「Desktop経由へ戻す」はキーを保持して無効化し、「設定を削除」は端末専用設定を消す。
 - 整理結果は既存の候補編集画面へ表示する。候補の切替・編集・除外後、「追加する」を押すまでTaskやOutboxは作成しない。Androidのインターネット接続は必要で、TaskのDesktop同期は従来どおりPCへの接続後に行う。
+- Task追加画面の種類（Task / Capture）とThemeチップは常時表示し、「種類・Themeを変更」の展開タップを要さず1タップで選択できる。
 
 ## 通信と保存
 
@@ -45,3 +48,5 @@ rtk adb -s emulator-5582 shell am instrument -w -e class jp.personal.tasken.comp
 2026-09-08の隔離検証では、unit 159件、debug APK・test APKのbuildが成功した。暗号化・PC未接続経路5件、設定の別プロセス復元2件、UI4件、既存候補編集8件、既存Gateway互換6件が成功した。UI4件はAPI35の展開幅2076×2152とcompact幅1080×2340で確認し、キーボード表示中の保存操作、通知と一覧位置、短文・長文の認識表示を目視した。スクリーンショットは検証用アプリの `files/ux-android-requests` に保存する。
 
 別プロセステストのphase引数追加後もtest APKを再buildし、phaseなしのクラス指定で2件ともskip・失敗なし、save→reloadを別々に呼び出して各phaseの1件が成功することを再確認した。
+
+2026-09-10には接続確認と失敗理由の区別、接続確認UI、Task追加画面のThemeチップ常時表示を追加した。unit 167件（`DirectCaptureOrganizerTest`のHTTP理由・応答形式・接続確認の各テストを含む）、debug APK・test APKのbuildが成功した。隔離エミュレータで`CaptureThemePickerUiTest`8件、`TaskEntryFlowUiTest`4件、`TaskDailyFlowUiTest`3件、`MobileLongCaptureUiTest`4件、`DirectAiSettingsSheetUiTest`1件、`AndroidCaptureRequestsUiTest`4件、`MobileWorkLogUiTest`5件、`TaskListContextUiTest`4件が成功した。実キーによる接続確認・整理品質は引き続き検証対象外。

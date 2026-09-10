@@ -136,8 +136,63 @@ class DirectCaptureOrganizerTest {
         assertEquals(0, calls)
         val failure = runCatching { organizeCaptureDirectly(settings(CaptureAiProvider.OpenAi), { "test-secret" }, draft, themes, emptyList(),
             DirectCaptureHttpClient { _, _, _, _ -> calls++; error("test-secret body") }) }.exceptionOrNull()
-        assertEquals(DIRECT_CAPTURE_FAILURE, failure?.message)
+        assertEquals(DIRECT_CAPTURE_NETWORK_FAILURE, failure?.message)
         assertFalse(failure?.stackTraceToString().orEmpty().contains("test-secret"))
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun httpFailuresMapToActionableMessagesWithoutProviderBodyOrSecrets() = runBlocking {
+        listOf(
+            401 to "invalid_api_key",
+            403 to "permission_denied",
+            404 to "model_not_found",
+            429 to null,
+            400 to "invalid_request_error",
+            500 to null,
+        ).forEach { (status, code) ->
+            val failure = runCatching {
+                organizeCaptureDirectly(settings(CaptureAiProvider.OpenAi), { "test-secret" }, draft, themes, emptyList(),
+                    DirectCaptureHttpClient { _, _, _, _ -> throw DirectCaptureHttpException(status, code) })
+            }.exceptionOrNull()
+            val message = failure?.message
+            assertNotNull(message)
+            assertNotEquals(DIRECT_CAPTURE_FAILURE, message)
+            assertFalse(message!!.contains("test-secret"))
+        }
+        assertEquals(
+            "モデル「gpt-4o」がOpenAIで見つかりません。モデルIDを確認してください。",
+            directCaptureHttpMessage(CaptureAiProvider.OpenAi, "gpt-4o", 404, null),
+        )
+        assertEquals(
+            "OpenAIのAPIキーが拒否されました。AndroidのAI設定でキーを確認してください。",
+            directCaptureHttpMessage(CaptureAiProvider.OpenAi, "gpt-4o", 401, null),
+        )
+    }
+
+    @Test
+    fun unsupportedSchemaAndUnparsableResponsesAreDistinctFromNetworkFailures() = runBlocking {
+        assertEquals("invalid_api_key", sanitizedProviderCode("""{"error":{"code":"invalid_api_key","message":"secret prompt"}}"""))
+        assertEquals("INVALID_ARGUMENT", sanitizedProviderCode("""{"error":{"code":400,"status":"INVALID_ARGUMENT"}}"""))
+        assertNull(sanitizedProviderCode("not json"))
+        assertNull(sanitizedProviderCode("""{"error":{"message":"no code"}}"""))
+
+        val mismatch = runCatching {
+            organizeCaptureDirectly(settings(CaptureAiProvider.OpenAi), { "test-secret" }, draft, themes, emptyList(),
+                DirectCaptureHttpClient { _, _, _, _ -> "not a provider response" })
+        }.exceptionOrNull()
+        assertEquals(DIRECT_CAPTURE_RESPONSE_MISMATCH, mismatch?.message)
+    }
+
+    @Test
+    fun connectionProbeReportsSanitizedSuccessOrReason() = runBlocking {
+        val ok = testDirectCaptureConnection(settings(CaptureAiProvider.OpenAi), { "test-secret" },
+            DirectCaptureHttpClient { _, _, _, _ -> response(CaptureAiProvider.OpenAi, proposal.replace("\"themeId\":\"home\"", "\"themeId\":null")) })
+        assertEquals("接続を確認しました。", ok)
+
+        val rejected = testDirectCaptureConnection(settings(CaptureAiProvider.OpenAi), { "test-secret" },
+            DirectCaptureHttpClient { _, _, _, _ -> throw DirectCaptureHttpException(401, "invalid_api_key") })
+        assertTrue(rejected.contains("APIキー"))
+        assertFalse(rejected.contains("test-secret"))
     }
 }
