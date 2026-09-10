@@ -178,7 +178,7 @@ class TaskStateActionUiTest {
         }
 
         composeRule.onNodeWithText("日付  未設定").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("今日に入れる").assertIsDisplayed().assertIsEnabled().performClick()
+        composeRule.onNodeWithText("今日の予定に追加").assertIsDisplayed().assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals(LocalDate.now(), submitted) }
     }
 

@@ -5,15 +5,16 @@
 ## 操作
 
 - 共通Snackbarは画面上部へ表示する。一覧・詳細のレイアウトを押し下げず、下部の追加・音声入力・ナビゲーションに重ねない。エラー通知と取り消し操作は維持する。
-- Task追加画面は「入力 → 選択（種類・Theme）→ 副操作（音声・写真）→ AI整理 → 追加」の一列に並べ、追加・追加して次へは最下部にまとめる。余白は `--space-2/3/4` 相当に統一する。
-- 音声と写真の副操作は認識中欄の下に横並びで置く。認識状態の表示領域は発話中・結果・エラー時のみ120dpで固定し、長い認識文字はその領域内でスクロールする。待機時はこの領域を表示せず、音声の取り扱い注記だけを1行で示す。認識中・再待機・確定処理の切替で音声ボタン位置を変えない。
-- AI整理は「音声後にAIで整理」トグルと「AIで整理」だけを常時表示し、送信先・設定・説明は「PCなしで整理する設定」の展開時だけ表示する。
-- Task追加のAI整理欄から「PCなしで整理する設定」を開く。OpenAI / Azure OpenAI / Gemini / OpenCode Zen / OpenCode Go、モデル、Android専用APIキーを指定する。AzureだけHTTPS接続先を入力する。固有語辞書は任意。AI欄の「PCなし整理の設定」からはCapture画面を開かずに同じ設定を単独で開ける。
+- Task追加画面は「入力 → 選択（Theme）→ 副操作（音声・写真・AI整理）→ 追加」の一列に並べ、追加・追加して次へは最下部にまとめる。余白は `--space-2/3/4` 相当に統一する。
+- 音声と写真とAI整理の副操作は認識中欄の下に横並びで置く。AI整理は文字ではなくアイコンで示す。認識状態の表示領域は発話中・結果・エラー時のみ120dpで固定し、長い認識文字はその領域内でスクロールする。待機時はこの領域を表示せず、注記も出さない。認識中・再待機・確定処理の切替で副操作の位置を変えない。
+- AI整理は音声確定後に自動で始めるのを基本とし、手動でも同じアイコンから実行・中止できる。送信先・PCなし整理の設定は追加フローへ出さず、AIタブの「PCなし整理の設定」に集約する。
+- 「PCなしで整理する設定」はOpenAI / Azure OpenAI / Gemini / OpenCode Zen / OpenCode Go、モデル、Android専用APIキーを指定する。AzureだけHTTPS接続先を入力する。固有語辞書は任意。
 - 「接続を確認」は入力中のサービス・モデル・キーで短い固定入力（「接続確認」）を送信し、設定を保存せずに結果だけを表示する。API利用料が発生する場合がある。認証・モデル未検出・利用枠・レート制限・未対応JSON Schema・応答形式・ネットワークをそれぞれ区別した案内を返し、キーやプロンプト本文は表示しない。
-- 整理失敗時も、有効化済みならプロバイダーの状態碼に応じた理由を表示する（例: 「モデル「X」が…見つかりません」「APIキーが拒否されました」）。未設定・PC接続必須時の案内は従来どおり。
+- 整理失敗時も、有効化済みならプロバイダーの状態碼に応じた理由を表示する（例: 「モデル「X」が…見つかりません」「APIキーが拒否されました」）。未設定・PC接続必須時はPCなし整理の設定を案内する。
 - 「この端末から選んだAIへ送信して整理する」を選んで保存した場合、以降のAI整理はAndroidから直接送る。未選択の保存は資格情報の保存だけで、Desktop経由を維持する。「Desktop経由へ戻す」はキーを保持して無効化し、「設定を削除」は端末専用設定を消す。
-- 整理結果は既存の候補編集画面へ表示する。候補の切替・編集・除外後、「追加する」を押すまでTaskやOutboxは作成しない。Androidのインターネット接続は必要で、TaskのDesktop同期は従来どおりPCへの接続後に行う。
-- Task追加画面の種類（Task / Capture）とThemeチップは常時表示し、「種類・Themeを変更」の展開タップを要さず1タップで選択できる。
+- 整理結果は既存の候補編集画面へ表示する。編集中は「追加する」「追加して次へ」を下端に固定し、長い候補でも常に押せる。候補の切替・編集・除外後、「追加する」を押すまでTaskやOutboxは作成しない。Androidのインターネット接続は必要で、TaskのDesktop同期は従来どおりPCへの接続後に行う。
+- 種類（Task / Capture）の切り替えUIは持たない。500文字を超える入力は原文を保つため自動でメモ(Capture)として保存し、それ以外はTaskとして保存する。
+- 一覧の行には、まだ今日に入っていないTaskへ「今日の予定に追加」をワンタップで出す。詳細では「今日の予定に追加 / 今日の予定から外す」をDesktopと同じ名称とアイコンで示す。
 
 ## 通信と保存
 
@@ -54,3 +55,5 @@ rtk adb -s emulator-5582 shell am instrument -w -e class jp.personal.tasken.comp
 2026-09-10のTask追加画面UI洗練では、待機時の固定120dp空白を廃止し、種類・Themeチップの入力直下配置、音声・写真の横並び副操作、AI整理の折りたたみ、最下部の追加操作に再構成した。unit 167件、debug APK・test APKのbuildが成功した。隔離エミュレータで`CaptureThemePickerUiTest`8件、`TaskEntryFlowUiTest`4件、`TaskDailyFlowUiTest`3件、`MobileLongCaptureUiTest`4件、`CaptureOrganizationUiTest`8件、`CaptureDraftRecreationTest`1件、`AndroidCaptureRequestsUiTest`4件が成功した。待機・発話中・AI整理折りたたみ・設定展開の各状態をスクリーンショットで目視した（`files/ux-audit`、`files/ux-organization`）。実音声認識と物理端末は引き続き対象外。
 
 2026-09-10には接続確認と失敗理由の区別、接続確認UI、Task追加画面のThemeチップ常時表示を追加した。unit 167件（`DirectCaptureOrganizerTest`のHTTP理由・応答形式・接続確認の各テストを含む）、debug APK・test APKのbuildが成功した。隔離エミュレータで`CaptureThemePickerUiTest`8件、`TaskEntryFlowUiTest`4件、`TaskDailyFlowUiTest`3件、`MobileLongCaptureUiTest`4件、`DirectAiSettingsSheetUiTest`1件、`AndroidCaptureRequestsUiTest`4件、`MobileWorkLogUiTest`5件、`TaskListContextUiTest`4件が成功した。実キーによる接続確認・整理品質は引き続き検証対象外。
+
+2026-09-11のTask追加画面の再構成では、種類（Task / Capture）の切り替えUIを削除し、AI整理をアイコン化して音声確定後の自動整理を基本にした。PCなし整理の設定はAIタブの単独シートへ集約し、追加フローから外した。整理案の編集中は確定操作を下端に固定し、500文字を超える入力は自動でメモとして保存する。一覧に「今日の予定に追加」のワンタップ操作を追加し、詳細の名称をDesktopと同じ「今日の予定に追加 / 今日の予定から外す」に揃えた。unit 167件、debug・test APKのbuildが成功した。隔離エミュレータでCaptureThemePickerUiTest 8件、MobileLongCaptureUiTest 4件、AndroidCaptureRequestsUiTest 4件、CaptureOrganizationUiTest 8件、TaskStateActionUiTest 12件、TaskEntryFlowUiTest 4件、TaskDailyFlowUiTest 3件、CaptureDraftRecreationTest 1件、DirectAiSettingsSheetUiTest 1件、TaskListContextUiTest 4件、TaskThemePickerUiTest 13件、TodayOfflineUiTest 2件、MobileWorkLogUiTest 5件が成功した。待機・AI整理アイコン・整理案編集中の固定フッターをスクリーンショットで目視した。

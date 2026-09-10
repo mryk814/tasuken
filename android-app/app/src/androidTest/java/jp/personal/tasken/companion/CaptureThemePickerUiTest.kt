@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -219,15 +220,13 @@ class CaptureThemePickerUiTest {
     }
 
     @Test
-    fun quickAddSwitchesBetweenTaskAndCanonicalCapture() {
-        val selectedKind = mutableStateOf(MobileCaptureKind.Task)
+    fun longInputSwitchesToMemoOnSubmitWithoutACaptureToggle() {
+        val draft = mutableStateOf(MobileCaptureDraft.fresh(text = "思いつき"))
+        var submitted: MobileCaptureDraft? = null
         composeRule.setContent {
             MaterialTheme {
                 CaptureTaskSheet(
-                    draft = MobileCaptureDraft.fresh(
-                        text = "思いつき",
-                        kind = selectedKind.value,
-                    ),
+                    draft = draft.value,
                     state = CaptureUiState.Idle,
                     speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
                     themes = emptyList(),
@@ -237,10 +236,10 @@ class CaptureThemePickerUiTest {
                         serverRevision = 1,
                         generatedAt = "2026-08-23T00:00:00Z",
                     ),
-                    onDraftChanged = {},
+                    onDraftChanged = { draft.value = draft.value.withText(it) },
                     onThemeSelected = {},
-                    onKindSelected = { selectedKind.value = it },
-                    onSubmit = {},
+                    onKindSelected = { draft.value = draft.value.withKind(it) },
+                    onSubmit = { submitted = draft.value },
                     onStartVoice = {},
                     onStopVoice = {},
                     onDismiss = {},
@@ -248,10 +247,11 @@ class CaptureThemePickerUiTest {
             }
         }
 
-        composeRule.onNodeWithTag("capture-kind-capture").performScrollTo().performClick()
-
-        composeRule.runOnIdle { assertEquals(MobileCaptureKind.Capture, selectedKind.value) }
-        composeRule.onNodeWithTag("capture-kind-capture").assertIsSelected()
+        // 種類の切り替えUIは持たず、500文字を超える入力だけがメモとして保存される。
+        composeRule.onNodeWithTag("capture-kind-capture").assertDoesNotExist()
+        composeRule.onNodeWithTag("capture-text-input").performTextReplacement("短いタスク")
+        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().performClick()
+        composeRule.runOnIdle { assertEquals(MobileCaptureKind.Task, submitted?.kind) }
     }
 
     @Test

@@ -196,7 +196,7 @@ class TaskDailyFlowUiTest {
         composeRule.runOnIdle {
             assertEquals(text, submitted?.text)
             assertEquals("ideas", submitted?.projectId)
-            assertEquals(MobileCaptureKind.Capture, submitted?.kind)
+            assertEquals(MobileCaptureKind.Task, submitted?.kind)
         }
     }
 

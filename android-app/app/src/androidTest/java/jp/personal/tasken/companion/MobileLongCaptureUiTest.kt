@@ -134,7 +134,6 @@ class MobileLongCaptureUiTest {
         composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
         composeRule.onNodeWithTag("capture-organization-error").assertExists()
         composeRule.runOnIdle { assertEquals(text, draft.value.text) }
-        composeRule.onNodeWithTag("capture-kind-capture").performScrollTo().performClick()
         composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsEnabled().performClick()
         composeRule.runOnIdle {
             assertEquals(MobileCaptureKind.Capture, submitted?.kind)
