@@ -1187,12 +1187,6 @@ internal fun CaptureTaskSheet(
                         modifier = Modifier.fillMaxWidth().height(120.dp)
                             .testTag("capture-speech-status").verticalScroll(speechStatusScroll),
                     )
-                } else {
-                    Text(
-                        speechPrivacyDescription((speechState as ShortSpeechUiState.Idle).availableMode),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1923,12 +1917,12 @@ internal fun TodayTaskList(
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         Text(task.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            TaskThemeLabel(task.themeId, themes)
-                            if (task.conflict != null || requiresWorkReceipt) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                TaskThemeLabel(task.themeId, themes)
+                                if (task.conflict != null || requiresWorkReceipt) {
                                 val conflict = task.conflict != null
                                 Surface(
                                     color = if (conflict) {
@@ -1963,16 +1957,18 @@ internal fun TodayTaskList(
                                     )
                                 }
                             }
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(7.dp),
-                            ) {
-                                Text(
-                                    taskStateLabel(task.state),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelMedium,
-                                )
+                            if (task.state !in setOf("todo", "done")) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(7.dp),
+                                ) {
+                                    Text(
+                                        taskStateLabel(task.state),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelMedium,
+                                    )
+                                }
                             }
                         }
                     }

@@ -111,11 +111,6 @@ internal fun DirectCaptureSettingsControls(
         }
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            if (settings.enabled) "送信先: ${settings.provider.label}（Androidから直接・PCオフでも利用可）" else "送信先: Desktopで設定したAI（PCオフでは使えません）",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.testTag("capture-ai-destination"),
-        )
         if (showToggle) {
             TextButton(onClick = { open = !open; if (!open) apiKey = "" }, enabled = enabled && !busy,
                 modifier = Modifier.align(Alignment.End).testTag("capture-direct-ai-settings")) {
@@ -123,6 +118,11 @@ internal fun DirectCaptureSettingsControls(
             }
         }
         if (open) {
+            Text(
+                if (settings.enabled) "送信先: ${settings.provider.label}（Androidから直接・PCオフでも利用可）" else "送信先: Desktopで設定したAI（PCオフでは使えません）",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("capture-ai-destination"),
+            )
             Text("Android専用のAI設定", style = MaterialTheme.typography.titleSmall)
             Text("PCがオフラインでも、Androidから選んだサービスへ通信して整理できます。文字・録音時刻・Theme名・添付写真を送信します。API利用料が発生する場合があります。",
                 style = MaterialTheme.typography.bodySmall)

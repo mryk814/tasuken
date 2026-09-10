@@ -160,6 +160,8 @@ class AndroidCaptureRequestsUiTest {
             screenshot("10-settings-in-task-sheet-keyboard")
             composeRule.onNodeWithTag("direct-ai-save").performClick()
             composeRule.waitUntil { store.settings().enabled }
+            // 保存後は設定が閉じるため、送信先は開き直して確認する。
+            composeRule.onNodeWithTag("capture-direct-ai-settings").performScrollTo().performClick()
             composeRule.onNodeWithTag("capture-ai-destination").performScrollTo().assertTextEquals("送信先: OpenAI（Androidから直接・PCオフでも利用可）")
         } finally { store.clear() }
     }
