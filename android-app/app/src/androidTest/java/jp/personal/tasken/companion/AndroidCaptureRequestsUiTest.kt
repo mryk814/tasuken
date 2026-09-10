@@ -137,7 +137,7 @@ class AndroidCaptureRequestsUiTest {
         } finally { store.clear() }
     }
 
-    @Test fun pcIndependentSettingsAreReachableInsideTaskSheetWithKeyboard() {
+    @Test fun addSheetKeepsSettingsOutOfTheCaptureFlow() {
         val store = DirectCaptureSettingsStore(ApplicationProvider.getApplicationContext())
         store.clear()
         try {
@@ -150,19 +150,11 @@ class AndroidCaptureRequestsUiTest {
                         onSubmit = {}, onStartVoice = {}, onStopVoice = {}, onDismiss = {})
                 }
             }
-            composeRule.onNodeWithTag("capture-direct-ai-settings").performScrollTo().performClick()
-            composeRule.onNodeWithTag("direct-ai-model").performScrollTo().performTextReplacement("fixture-model")
-            composeRule.onNodeWithTag("direct-ai-key").performScrollTo().performTextReplacement("fixture-secret")
-            // IME animation runs outside the Compose clock. Wait before choosing the final scroll offset.
-            InstrumentationRegistry.getInstrumentation().uiAutomation.waitForIdle(500, 5000)
-            composeRule.onNodeWithTag("direct-ai-consent").performScrollTo().performClick()
-            composeRule.onNodeWithTag("direct-ai-save").performScrollTo().assertIsDisplayed()
-            screenshot("10-settings-in-task-sheet-keyboard")
-            composeRule.onNodeWithTag("direct-ai-save").performClick()
-            composeRule.waitUntil { store.settings().enabled }
-            // 保存後は設定が閉じるため、送信先は開き直して確認する。
-            composeRule.onNodeWithTag("capture-direct-ai-settings").performScrollTo().performClick()
-            composeRule.onNodeWithTag("capture-ai-destination").performScrollTo().assertTextEquals("送信先: OpenAI（Androidから直接・PCオフでも利用可）")
+            // PCなし整理の設定はAIタブの単独シートへ移し、追加フローには出さない。
+            composeRule.onNodeWithTag("capture-direct-ai-settings").assertDoesNotExist()
+            composeRule.onNodeWithTag("capture-ai-destination").assertDoesNotExist()
+            composeRule.onNodeWithTag("capture-kind-capture").assertDoesNotExist()
+            screenshot("12-add-sheet-without-ai-settings")
         } finally { store.clear() }
     }
 

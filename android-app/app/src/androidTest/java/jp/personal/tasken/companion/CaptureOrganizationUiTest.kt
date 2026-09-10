@@ -99,7 +99,7 @@ class CaptureOrganizationUiTest {
             draft.value = TodayPaneState.restore(TodayPaneState(captureDraft = draft.value).save()).captureDraft
         }
         composeRule.onNodeWithTag("organization-duration").assertTextContains("45")
-        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled().performClick()
         composeRule.runOnIdle {
             assertEquals(60, saved.single().organization?.plannedDurationMinutes)
             assertEquals(45, saved.single().additionalOrganizations.single().plannedDurationMinutes)
@@ -137,7 +137,7 @@ class CaptureOrganizationUiTest {
             assertEquals("home", draft.value.projectId)
             assertEquals(emptyList<MobileCaptureDraft>(), saved)
         }
-        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled().performClick()
         composeRule.runOnIdle {
             assertEquals(proposal, saved.single().organization)
             assertEquals(original, saved.single().originalText)
@@ -218,7 +218,7 @@ class CaptureOrganizationUiTest {
         composeRule.onNodeWithText("private-provider-error").assertDoesNotExist()
         composeRule.onNodeWithTag("capture-text-input").assertTextContains(original)
         composeRule.runOnIdle { assertEquals(null, draft.value.organization) }
-        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals(original, saved.single().text) }
     }
 

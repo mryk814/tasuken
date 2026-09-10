@@ -72,7 +72,7 @@ class TaskEntryFlowUiTest {
             sharedMimeType = "text/plain",
         )
         showCapture(pane, dark = true)
-        composeRule.onNodeWithText("Captureを追加").assertIsDisplayed()
+        composeRule.onNodeWithText("Taskを追加").assertIsDisplayed()
         composeRule.onNodeWithText("打ち合わせで受け取った比較条件を、次の実験で確認する")
             .assertIsNotFocused()
         capture("05-shared-capture-dark")

@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
@@ -103,10 +104,12 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -142,7 +145,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -745,6 +750,7 @@ internal fun TodayApp(
                                 actionState = taskActionState,
                                 onTaskStateAction = todayViewModel::toggleTaskState,
                                 onChecklistUpdate = todayViewModel::updateTaskChecklist,
+                                onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                             )
                             AppSection.Tasks -> TasksListPane(
                                 uiState = uiState,
@@ -758,6 +764,7 @@ internal fun TodayApp(
                                 actionState = taskActionState,
                                 onTaskStateAction = todayViewModel::toggleTaskState,
                                 onChecklistUpdate = todayViewModel::updateTaskChecklist,
+                                onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                                 onLocalSearch = if (todayViewModel.localSearchRepository != null) ({ localSearchOpen = true }) else null,
                             )
                             AppSection.Ai -> AiInboxListPane(
@@ -1064,8 +1071,69 @@ internal fun CaptureTaskSheet(
         .only(WindowInsetsSides.Bottom),
 ) {
     val focusRequester = remember(draft.draftId) { FocusRequester() }
-    var organizationBusy by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val directStore = remember(context) { DirectCaptureSettingsStore(context.applicationContext) }
+    var organizeJob by remember { mutableStateOf<Job?>(null) }
+    var organizeRequest by remember { mutableIntStateOf(0) }
+    var organizeBusy by remember { mutableStateOf(false) }
+    var organizeError by remember(draft.draftId) { mutableStateOf<String?>(null) }
+    val currentDraft by rememberUpdatedState(draft)
+    DisposableEffect(Unit) {
+        onDispose {
+            organizeRequest++
+            organizeJob?.cancel()
+        }
+    }
+    fun startOrganize() {
+        val organize = onOrganize ?: return
+        val requested = draft
+        if ((requested.originalText ?: requested.text).isBlank()) return
+        val request = ++organizeRequest
+        organizeJob?.cancel()
+        organizeError = null
+        organizeBusy = true
+        organizeJob = scope.launch {
+            try {
+                val proposals = organize(requested)
+                require(proposals.isNotEmpty() && proposals.size <= 8)
+                proposals.forEach(MobileCaptureOrganization::validate)
+                if (request == organizeRequest && currentDraft == requested) onOrganizationChanged(proposals)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (request == organizeRequest && currentDraft == requested) {
+                    organizeError = if (directStore.settings().enabled) {
+                        failure.message ?: DIRECT_CAPTURE_FAILURE
+                    } else {
+                        "AI整理を利用できません。PCがオフの場合はAIタブの「PCなし整理の設定」から直接整理できます。通常の追加も使えます。"
+                    }
+                }
+            } finally {
+                if (request == organizeRequest) {
+                    organizeJob = null
+                    organizeBusy = false
+                }
+            }
+        }
+    }
+    fun submit(behavior: CaptureCompletionBehavior) {
+        // 500文字を超える入力は、原文を保つためメモ(Capture)として保存する。
+        val nextKind = if (draft.text.length > MOBILE_TASK_TITLE_MAX_LENGTH) {
+            MobileCaptureKind.Capture
+        } else {
+            MobileCaptureKind.Task
+        }
+        if (draft.kind != nextKind) onKindSelected(nextKind)
+        onSubmit(behavior)
+    }
+    // 音声を確定した後はAI整理を基本にする。
+    LaunchedEffect(speechState, onOrganize) {
+        if (onOrganize != null && speechState is ShortSpeechUiState.Result && draft.organization == null && !organizeBusy) {
+            startOrganize()
+        }
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -1077,12 +1145,12 @@ internal fun CaptureTaskSheet(
         val speechBusy = speechState is ShortSpeechUiState.Listening ||
             speechState is ShortSpeechUiState.Partial || speechState is ShortSpeechUiState.Processing
         val speechActive = speechState !is ShortSpeechUiState.Idle
-        val textLimit = if (draft.kind == MobileCaptureKind.Task) MOBILE_TASK_TITLE_MAX_LENGTH else MOBILE_CAPTURE_TEXT_MAX_LENGTH
-        val overLimit = draft.text.length > textLimit
+        val overLimit = draft.text.length > MOBILE_CAPTURE_TEXT_MAX_LENGTH
+        val taskOverLimit = draft.text.length > MOBILE_TASK_TITLE_MAX_LENGTH
         val included = draft.allOrganizations().filterNot { it.excluded }
         val organizationValid = draft.organization == null ||
             (included.isNotEmpty() && included.all { runCatching { it.validate() }.isSuccess })
-        val canSubmit = state !is CaptureUiState.Saving && !speechBusy && !organizationBusy &&
+        val canSubmit = state !is CaptureUiState.Saving && !speechBusy && !organizeBusy &&
             (draft.organization != null || (draft.text.isNotBlank() && !overLimit)) && organizationValid
         LaunchedEffect(draft.draftId, requestInputFocus, sheetState.isVisible) {
             // Request focus in the sheet's window after its opening transition.
@@ -1092,77 +1160,47 @@ internal fun CaptureTaskSheet(
                 onInputFocusHandled()
             }
         }
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("capture-sheet-content")
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                if (draft.kind == MobileCaptureKind.Task) "Taskを追加" else "Captureを追加",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-            )
+        val sheetEnabled = state !is CaptureUiState.Saving && !speechBusy
+        val body: @Composable () -> Unit = {
+            Text("Taskを追加", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             if (draft.organization == null) {
                 OutlinedTextField(
                     value = draft.text,
                     onValueChange = onDraftChanged,
-                    label = { Text(if (draft.kind == MobileCaptureKind.Task) "Task名" else "Capture") },
-                    placeholder = {
-                        Text(
-                            if (draft.kind == MobileCaptureKind.Task) {
-                                "例: 帰りに牛乳を買う"
-                            } else {
-                                "思いついたことをそのまま"
-                            },
-                        )
-                    },
+                    label = { Text("Task名") },
+                    placeholder = { Text("例: 帰りに牛乳を買う") },
                     supportingText = if (overLimit) {
-                        { Text("${draft.text.length} / ${textLimit}文字。全文を保持しています。編集するか、全文をコピーして回収できます。") }
+                        { Text("${draft.text.length} / ${MOBILE_CAPTURE_TEXT_MAX_LENGTH}文字。全文を保持しています。編集するか、全文をコピーして回収できます。") }
+                    } else if (taskOverLimit) {
+                        { Text("${draft.text.length}文字。長文はメモとして保存します。") }
                     } else if (state is CaptureUiState.Error) {
                         { Text(state.message) }
-                    } else if (draft.text.length >= textLimit * 4 / 5) {
-                        { Text("${draft.text.length} / ${textLimit}文字") }
+                    } else if (draft.text.length >= MOBILE_TASK_TITLE_MAX_LENGTH * 4 / 5) {
+                        { Text("${draft.text.length} / ${MOBILE_TASK_TITLE_MAX_LENGTH}文字") }
                     } else {
                         null
                     },
                     isError = state is CaptureUiState.Error || overLimit,
-                    enabled = state !is CaptureUiState.Saving && !speechBusy,
+                    enabled = sheetEnabled,
                     minLines = 1,
                     maxLines = 6,
-                    keyboardOptions = KeyboardOptions(imeAction = if (draft.kind == MobileCaptureKind.Task) ImeAction.Done else ImeAction.Default),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
-                        if (draft.kind == MobileCaptureKind.Task && canSubmit) onSubmit(CaptureCompletionBehavior.Close)
+                        if (canSubmit) submit(CaptureCompletionBehavior.Close)
                     }),
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester)
                         .testTag("capture-text-input"),
                 )
-                if (draft.text.isNotEmpty() && (draft.kind == MobileCaptureKind.Capture || overLimit)) {
+                if (draft.text.isNotEmpty() && overLimit) {
                     CaptureCopyButton(draft.text)
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    MobileCaptureKind.entries.forEach { kind ->
-                        FilterChip(
-                            selected = draft.kind == kind,
-                            onClick = { onKindSelected(kind) },
-                            label = { Text(if (kind == MobileCaptureKind.Task) "Task" else "Capture") },
-                            enabled = state !is CaptureUiState.Saving && !speechBusy,
-                            modifier = Modifier.testTag("capture-kind-${kind.wireValue}"),
-                        )
-                    }
                 }
                 CaptureThemePicker(
                     themeId = draft.projectId,
                     themes = themes,
                     catalogState = themeCatalogState,
-                    enabled = state !is CaptureUiState.Saving && !speechBusy,
+                    enabled = sheetEnabled,
                     onThemeSelected = { themeId ->
                         onThemeSelected(themeId)
                         if (draft.source != MobileCaptureSource.AndroidSpeech) {
@@ -1171,9 +1209,6 @@ internal fun CaptureTaskSheet(
                         }
                     },
                 )
-                if (draft.source != MobileCaptureSource.AndroidApp) {
-                    Text("入力元: ${captureSourceLabel(draft.source)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
                 if (speechActive) {
                     val speechStatusScroll = rememberScrollState()
                     LaunchedEffect(speechState, speechStatusScroll.maxValue) {
@@ -1191,6 +1226,7 @@ internal fun CaptureTaskSheet(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     OutlinedButton(
                         onClick = {
@@ -1215,53 +1251,126 @@ internal fun CaptureTaskSheet(
                     }
                     CapturePhotoButton(
                         photoCount = draft.photos.size,
-                        enabled = state !is CaptureUiState.Saving && !speechBusy,
+                        enabled = sheetEnabled,
                         onTakePhoto = onTakePhoto,
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     )
+                    if (onOrganize != null) {
+                        IconButton(
+                            onClick = {
+                                keyboardController?.hide()
+                                if (organizeBusy) {
+                                    organizeRequest++
+                                    organizeJob?.cancel()
+                                    organizeJob = null
+                                    organizeBusy = false
+                                } else {
+                                    startOrganize()
+                                }
+                            },
+                            enabled = sheetEnabled && (draft.originalText ?: draft.text).isNotBlank(),
+                            modifier = Modifier.size(48.dp).testTag("capture-organize"),
+                        ) {
+                            if (organizeBusy) {
+                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(painterResource(R.drawable.ic_tabler_sparkles), contentDescription = "AIで整理")
+                            }
+                        }
+                    }
                 }
                 CapturePhotoStrip(
                     photos = draft.photos,
-                    enabled = state !is CaptureUiState.Saving && !speechBusy,
+                    enabled = sheetEnabled,
                     onRemovePhoto = onRemovePhoto,
                     loadThumbnail = loadPhotoThumbnail,
                 )
+                if (organizeBusy) {
+                    Text("整理中…", style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("capture-organizing"))
+                }
+                organizeError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("capture-organization-error"))
+                }
+            } else {
+                CaptureOrganizationEditor(
+                    draft = draft,
+                    themes = themes,
+                    themeCatalogState = themeCatalogState,
+                    enabled = sheetEnabled,
+                    onChange = onOrganizationChanged,
+                    onRestoreOriginal = onOrganizationDiscarded,
+                )
             }
-            if (onOrganize != null && draft.kind == MobileCaptureKind.Task) CaptureOrganizationControls(
-                themes = themes, themeCatalogState = themeCatalogState,
-                draft = draft, speechState = speechState, enabled = !speechBusy && state !is CaptureUiState.Saving,
-                organize = onOrganize, onChange = onOrganizationChanged,
-                onRestoreOriginal = onOrganizationDiscarded, onBusyChange = { organizationBusy = it },
-            )
             if (state is CaptureUiState.Error && draft.organization != null) {
                 Text(state.message, color = MaterialTheme.colorScheme.error)
             }
+        }
+        val submitRow: @Composable () -> Unit = {
             Row(
                 modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(
-                    onClick = { onSubmit(CaptureCompletionBehavior.Continue) },
+                    onClick = { submit(CaptureCompletionBehavior.Continue) },
                     enabled = canSubmit,
                     modifier = Modifier.testTag("capture-submit-continue"),
                 ) {
                     Text("追加して次へ")
                 }
                 Button(
-                    onClick = { onSubmit(CaptureCompletionBehavior.Close) },
+                    onClick = { submit(CaptureCompletionBehavior.Close) },
                     enabled = canSubmit,
                     modifier = Modifier.testTag("capture-submit-close"),
                 ) {
                     Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
                 }
             }
+        }
+        val bottomInset: @Composable () -> Unit = {
             Spacer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .windowInsetsBottomHeight(bottomContentInsets)
                     .testTag("capture-bottom-inset-spacer"),
             )
+        }
+        if (draft.organization == null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("capture-sheet-content")
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                body()
+                submitRow()
+                bottomInset()
+            }
+        } else {
+            // 整理案の編集中は確定操作を常に押せるよう下部に固定する。
+            Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.94f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .testTag("capture-sheet-content")
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    body()
+                }
+                Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        submitRow()
+                        bottomInset()
+                    }
+                }
+            }
         }
     }
 }
@@ -1404,6 +1513,7 @@ internal fun TodayListPane(
     actionState: TaskActionUiState,
     onTaskStateAction: (MobileTask) -> Unit,
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit,
+    onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
 ) {
     val tasks = when (uiState) {
         is TodayUiState.Success -> uiState.tasks
@@ -1459,6 +1569,7 @@ internal fun TodayListPane(
                         actionState = actionState,
                         onTaskStateAction = onTaskStateAction,
                         onChecklistUpdate = onChecklistUpdate,
+                        onTodayDateUpdate = onTodayDateUpdate,
                     )
                 }
             }
@@ -1565,6 +1676,7 @@ internal fun TasksListPane(
     actionState: TaskActionUiState,
     onTaskStateAction: (MobileTask) -> Unit,
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
+    onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
     onLocalSearch: (() -> Unit)? = null,
 ) {
     when {
@@ -1627,6 +1739,7 @@ internal fun TasksListPane(
                         actionState = actionState,
                         onTaskStateAction = onTaskStateAction,
                         onChecklistUpdate = onChecklistUpdate,
+                        onTodayDateUpdate = onTodayDateUpdate,
                     )
                 }
             }
@@ -1855,6 +1968,7 @@ internal fun TodayTaskList(
     actionState: TaskActionUiState,
     onTaskStateAction: (MobileTask) -> Unit,
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
+    onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
 ) {
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = if (allTasksMode) paneState.taskListScrollIndex else paneState.listScrollIndex,
@@ -1970,6 +2084,18 @@ internal fun TodayTaskList(
                                     )
                                 }
                             }
+                        }
+                    }
+                    if (onTodayDateUpdate != null && task.state !in setOf("done", "cancelled") &&
+                        task.todayDate != LocalDate.now().toString()
+                    ) {
+                        IconButton(
+                            onClick = { onTodayDateUpdate(task, LocalDate.now()) },
+                            enabled = (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) &&
+                                task.conflict == null && actionState !is TaskActionUiState.Saving,
+                            modifier = Modifier.testTag("task-today-quick-${task.id}"),
+                        ) {
+                            Icon(painterResource(R.drawable.ic_tabler_sun), contentDescription = "今日の予定に追加")
                         }
                     }
                     TaskCompletionControl(
@@ -2498,7 +2624,13 @@ internal fun TodayDetailPane(
                     onClick = { onTodayDateUpdate(task, if (task.todayDate == today.toString()) null else today) },
                     enabled = (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) && task.conflict == null && actionState !is TaskActionUiState.Saving,
                     modifier = Modifier.heightIn(min = 48.dp).testTag("task-today-action"),
-                ) { Text(if (task.todayDate == today.toString()) "今日から外す" else "今日に入れる") }
+                ) {
+                    Icon(painterResource(R.drawable.ic_tabler_sun), contentDescription = null)
+                    Text(
+                        if (task.todayDate == today.toString()) "今日の予定から外す" else "今日の予定に追加",
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
                 Button(
                     onClick = { onStateAction(task) },
                     enabled = (!task.pending || task.canChangePendingState) &&
