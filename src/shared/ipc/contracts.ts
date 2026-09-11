@@ -246,6 +246,7 @@ export const IPC = {
   sharedSyncConfigure: "shared-sync:configure",
   sharedSyncDisable: "shared-sync:disable",
   sharedSyncNow: "shared-sync:now",
+  sharedSyncRepublish: "shared-sync:republish",
   sharedSyncResolve: "shared-sync:resolve",
   markdownFileExport: "markdown-file:export",
   markdownPdfExport: "markdown-pdf:export",
@@ -673,6 +674,11 @@ export interface SharedSyncStatus {
   lastMarkdownImagesReceived: number;
 }
 
+export interface SharedSyncRepublishResult {
+  republished: number;
+  status: SharedSyncStatus;
+}
+
 export interface AutomaticSnapshotBackupConfig {
   enabled: boolean;
   directory: string;
@@ -918,6 +924,7 @@ export interface ResearchDeskApi {
     configure(directory: string): Promise<SharedSyncStatus>;
     disable(): Promise<SharedSyncStatus>;
     syncNow(): Promise<SharedSyncStatus>;
+    republish(): Promise<SharedSyncRepublishResult>;
     resolveConflict(
       conflictId: string,
       choice: "local" | "incoming",

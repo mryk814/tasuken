@@ -2220,6 +2220,23 @@ export class WorkspaceDatabase {
       }));
   }
 
+  allSyncPackets() {
+    return this.db
+      .prepare(
+        `
+      SELECT change_id, device_sequence, payload_json
+      FROM sync_outbox
+      ORDER BY device_sequence
+    `,
+      )
+      .all()
+      .map((row) => ({
+        changeId: row.change_id,
+        deviceSequence: row.device_sequence,
+        packet: JSON.parse(row.payload_json),
+      }));
+  }
+
   markSyncPublished(changeId) {
     this.db
       .prepare("UPDATE sync_outbox SET published_at = ? WHERE change_id = ?")

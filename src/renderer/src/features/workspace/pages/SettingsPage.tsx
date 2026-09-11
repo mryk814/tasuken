@@ -396,6 +396,28 @@ export function SettingsPage({
     }
   }
 
+  async function republishSharedSync() {
+    setSyncBusy(true);
+    try {
+      const result = await workspaceApi.republishSharedSync();
+      setSyncStatus(result.status);
+      setToast(
+        result.republished
+          ? `同期差分を${result.republished}件再公開しました。共有フォルダの同期後に参加側で「今すぐ同期」を実行してください。`
+          : "再公開が必要な同期差分はありませんでした。",
+        result.republished ? "success" : "info",
+      );
+    } catch (error) {
+      setToast(
+        `差分を再公開できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+      setSyncStatus(await workspaceApi.sharedSyncStatus().catch(() => syncStatus));
+    } finally {
+      setSyncBusy(false);
+    }
+  }
+
   async function disableSharedSync() {
     setSyncBusy(true);
     try {
@@ -1069,6 +1091,9 @@ export function SettingsPage({
                   <>
                     <Button variant="primary" disabled={syncBusy} onClick={runSharedSync}>
                       {syncBusy ? "同期中" : "今すぐ同期"}
+                    </Button>
+                    <Button variant="secondary" disabled={syncBusy} onClick={republishSharedSync}>
+                      差分を再公開
                     </Button>
                     <button className="text-button" disabled={syncBusy} onClick={disableSharedSync}>
                       停止

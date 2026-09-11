@@ -400,6 +400,9 @@ export const workspaceApi = {
   runSharedSync() {
     return desktopApi().sharedSync.syncNow();
   },
+  republishSharedSync() {
+    return desktopApi().sharedSync.republish();
+  },
   resolveSharedSyncConflict(conflictId: string, choice: "local" | "incoming") {
     return desktopApi().sharedSync.resolveConflict(conflictId, choice);
   },

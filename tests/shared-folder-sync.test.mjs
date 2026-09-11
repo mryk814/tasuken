@@ -471,3 +471,37 @@ test("later changes wait when an earlier shared-folder file has not arrived yet"
     pair.close();
   }
 });
+
+test("republishing deleted packets lets a new device join from the middle", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "First change"));
+    pair.first.save("task", task("task-b", "Second change"));
+    pair.first.save("task", task("task-c", "Third change"));
+    await pair.firstSync.configure(pair.shared);
+
+    const deviceDirectory = path.join(pair.shared, "devices", pair.first.deviceId);
+    const files = fs.readdirSync(deviceDirectory).sort();
+    assert.ok(files.length >= 3);
+    fs.unlinkSync(path.join(deviceDirectory, files[0]));
+    fs.unlinkSync(path.join(deviceDirectory, files[1]));
+
+    await assert.rejects(
+      () => pair.secondSync.configure(pair.shared),
+      /同期差分 000000000001 を待っています/,
+    );
+
+    const repair = pair.firstSync.republishMissing();
+    assert.equal(repair.republished, 2);
+
+    await pair.secondSync.configure(pair.shared);
+    assert.equal(pair.second.get("task", "task-a").title, "First change");
+    assert.equal(pair.second.get("task", "task-b").title, "Second change");
+    assert.equal(pair.second.get("task", "task-c").title, "Third change");
+
+    const repeat = pair.firstSync.republishMissing();
+    assert.equal(repeat.republished, 0);
+  } finally {
+    pair.close();
+  }
+});
