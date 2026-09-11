@@ -46,7 +46,7 @@
     },
     {
       "file": "src/renderer/src/services/workspaceApi.ts",
-      "lines": 436,
+      "lines": 440,
       "imports": 10,
       "moduleDependencies": 3
     },
