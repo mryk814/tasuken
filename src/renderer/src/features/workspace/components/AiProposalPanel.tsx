@@ -648,6 +648,27 @@ export function AiProposalPanel(props: PageProps) {
     }
   }
 
+  function nextPendingProposal(currentId: string) {
+    const index = proposals.findIndex((proposal) => proposal.id === currentId);
+    if (index >= 0) return proposals[index + 1] || proposals[index - 1] || null;
+    return proposals.find((proposal) => proposal.id !== currentId) || null;
+  }
+
+  function advanceAfterDecision(currentId: string) {
+    const next = nextPendingProposal(currentId);
+    if (!next) {
+      setSelectedId("");
+      setPreview(null);
+      return;
+    }
+    setSelectedId(next.id);
+    try {
+      setPreview(buildPreview(next, { data, themes, items }));
+    } catch {
+      setPreview(null);
+    }
+  }
+
   async function rejectProposal(proposal: BaseRecord) {
     if (str(proposal.payload_type) === "task_work") {
       await executeCommand({
@@ -662,7 +683,7 @@ export function AiProposalPanel(props: PageProps) {
         issuedAt: new Date().toISOString(),
       } as CommandEnvelope);
       setToast("Work proposalを却下しました。", "success");
-      setPreview(null);
+      advanceAfterDecision(proposal.id);
       return;
     }
     try {
@@ -691,7 +712,7 @@ export function AiProposalPanel(props: PageProps) {
           new Date(0).toISOString(),
       } as CommandEnvelope);
       setToast("Proposalを却下しました。", "success");
-      setPreview(null);
+      advanceAfterDecision(proposal.id);
     } catch (error) {
       setToast(
         `Proposalを却下できませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -716,7 +737,7 @@ export function AiProposalPanel(props: PageProps) {
       "Proposalを隔離しました。",
     );
     setQuarantineReason("");
-    setPreview(null);
+    advanceAfterDecision(proposal.id);
   }
 
   async function acceptProposal(proposal: BaseRecord, options: { completeTask?: boolean } = {}) {
@@ -803,7 +824,7 @@ export function AiProposalPanel(props: PageProps) {
         } else {
           setToast("作業報告を採用しました。", "success");
         }
-        setPreview(null);
+        advanceAfterDecision(proposal.id);
       } catch (error) {
         setToast(
           `Work proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -917,7 +938,7 @@ export function AiProposalPanel(props: PageProps) {
         status === "rejected" ? "Proposalを却下しました。" : "Proposalを採用しました。",
         "success",
       );
-      setPreview(null);
+      advanceAfterDecision(proposal.id);
     } catch (error) {
       setToast(
         `Proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -954,68 +975,74 @@ export function AiProposalPanel(props: PageProps) {
           </div>
         )}
         <div className="proposal-list" aria-label="AIからの提案一覧">
-          {proposals.map((proposal) => (
-            <div
-              aria-pressed={selected?.id === proposal.id}
-              className="proposal-row-select"
-              key={proposal.id}
-              onClick={() => previewProposal(proposal)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  previewProposal(proposal);
-                }
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              <div className="proposal-row-main">
-                <div className="proposal-row-heading">
-                  <strong className="proposal-row-title">
-                    {domain.tasks.find((task) => task.id === taskWorkEntry(proposal)?.task_id)
-                      ?.title || proposalHeadline(proposal)}
-                  </strong>
-                  {!taskWorkEntry(proposal) && <ProposalRisk proposal={proposal} />}
+          {proposals.map((proposal) => {
+            const work = taskWorkEntry(proposal);
+            const group = proposalGroups.find((entry) => entry.latest.id === proposal.id);
+            return (
+              <div
+                aria-pressed={selected?.id === proposal.id}
+                className="proposal-row-select"
+                key={proposal.id}
+                onClick={() => previewProposal(proposal)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    previewProposal(proposal);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="proposal-row-main">
+                  <div className="proposal-row-heading">
+                    <strong className="proposal-row-title">
+                      {domain.tasks.find((task) => task.id === taskWorkEntry(proposal)?.task_id)
+                        ?.title || proposalHeadline(proposal)}
+                    </strong>
+                    {!work && <ProposalRisk proposal={proposal} />}
+                  </div>
+                  {work ? (
+                    <div className="proposal-row-meta">
+                      <span className="proposal-row-kind">{taskWorkActionLabel(work)}</span>
+                      <span className="proposal-row-count">
+                        {group?.reports.length || 1}件の履歴
+                      </span>
+                      <span className="proposal-row-source">{proposalSourceLabel(proposal)}</span>
+                      <time className="proposal-row-time" dateTime={taskWorkReportTime(proposal)}>
+                        {formatDisplayDateTime(taskWorkReportTime(proposal))}
+                      </time>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="proposal-row-kind">{proposalTypeLabel(proposal)}</span>
+                      <dl className="proposal-meta-list">
+                        <div>
+                          <dt>Source</dt>
+                          <dd>{proposalSourceLabel(proposal)}</dd>
+                        </div>
+                        <div>
+                          <dt>Target</dt>
+                          <dd>{proposalTargetLabel(proposal)}</dd>
+                        </div>
+                        <div>
+                          <dt>Diff</dt>
+                          <dd>{proposalDiffLabel(proposal)}</dd>
+                        </div>
+                        <div>
+                          <dt>受信</dt>
+                          <dd>{formatProposalDate(proposal)}</dd>
+                        </div>
+                      </dl>
+                      <p className="proposal-validation-hint">
+                        <IconAlertTriangle size={14} aria-hidden="true" />
+                        選択すると、本文と採用範囲を確認できます。
+                      </p>
+                    </>
+                  )}
                 </div>
-                <span className="proposal-row-kind">
-                  {taskWorkEntry(proposal)
-                    ? `${taskWorkEntry(proposal)?.action === "report_done" ? "完了報告" : taskWorkEntry(proposal)?.action === "report_blocked" ? "中断報告" : "追加報告"} / ${proposalGroups.find((group) => group.latest.id === proposal.id)?.reports.length}件の履歴`
-                    : proposalTypeLabel(proposal)}
-                </span>
-                {taskWorkEntry(proposal) ? (
-                  <p className="proposal-preview-context">
-                    {proposalSourceLabel(proposal)} ·{" "}
-                    {new Date(taskWorkReportTime(proposal)).toLocaleString("ja-JP")}
-                  </p>
-                ) : (
-                  <dl className="proposal-meta-list">
-                    <div>
-                      <dt>Source</dt>
-                      <dd>{proposalSourceLabel(proposal)}</dd>
-                    </div>
-                    <div>
-                      <dt>Target</dt>
-                      <dd>{proposalTargetLabel(proposal)}</dd>
-                    </div>
-                    <div>
-                      <dt>Diff</dt>
-                      <dd>{proposalDiffLabel(proposal)}</dd>
-                    </div>
-                    <div>
-                      <dt>受信</dt>
-                      <dd>{formatProposalDate(proposal)}</dd>
-                    </div>
-                  </dl>
-                )}
-                {!taskWorkEntry(proposal) && (
-                  <p className="proposal-validation-hint">
-                    <IconAlertTriangle size={14} aria-hidden="true" />
-                    選択すると、本文と採用範囲を確認できます。
-                  </p>
-                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         {passiveSessionProposals.length > 0 && (
           <details className="panel proposal-history session-observation-history">
@@ -1082,7 +1109,7 @@ export function AiProposalPanel(props: PageProps) {
           </details>
         )}
         {selected && preview && (
-          <div className="proposal-inline-preview">
+          <div className="proposal-inline-preview" key={selected.id}>
             <div className="section-heading">
               <h3>{selectedWork ? "作業報告を確認" : "内容を確認"}</h3>
               <span>
@@ -1094,32 +1121,44 @@ export function AiProposalPanel(props: PageProps) {
                 Target: {proposalTargetLabel(selected)} · {proposalDiffLabel(selected)}
               </p>
             )}
+            {selectedWork && (
+              <p className="proposal-preview-context">
+                <strong>{selectedWorkTask?.title || "Task"}</strong>
+                <span aria-hidden="true"> · </span>
+                {taskWorkActionLabel(selectedWork)}
+                <span aria-hidden="true"> · </span>
+                {formatDisplayDateTime(taskWorkReportTime(selected))}
+              </p>
+            )}
             {selectedWork && selectedGroup && (
               <details aria-label="同じTaskの作業履歴" className="proposal-task-history">
                 <summary>作業の経過を見る（{selectedGroup.reports.length}件）</summary>
                 <ol>
-                  {selectedGroup.reports.map((report) => (
-                    <li key={report.id}>
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        aria-current={report.id === selected.id ? "true" : undefined}
-                        onClick={() => previewProposal(report)}
-                      >
-                        <time>{new Date(taskWorkReportTime(report)).toLocaleString("ja-JP")}</time>{" "}
-                        {taskWorkEntry(report)?.action === "report_done"
-                          ? "完了報告"
-                          : taskWorkEntry(report)?.action === "report_blocked"
-                            ? "中断報告"
-                            : "途中報告"}
-                        {" · "}
-                        {str(report.quarantine_reason).startsWith("完了報告に集約:")
-                          ? "完了報告に集約"
-                          : proposalStatusLabel(report)}
-                      </button>
-                      <p>{str(taskWorkEntry(report)?.summary)}</p>
-                    </li>
-                  ))}
+                  {selectedGroup.reports.map((report) => {
+                    const reportEntry = taskWorkEntry(report) || {};
+                    const summarized = str(report.quarantine_reason).startsWith("完了報告に集約:");
+                    return (
+                      <li key={report.id}>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          aria-current={report.id === selected.id ? "true" : undefined}
+                          onClick={() => previewProposal(report)}
+                        >
+                          <time dateTime={taskWorkReportTime(report)}>
+                            {formatDisplayDateTime(taskWorkReportTime(report))}
+                          </time>
+                          <span className="proposal-work-action">
+                            {taskWorkActionLabel(reportEntry)}
+                          </span>
+                          <span className={`proposal-status proposal-status-${str(report.status)}`}>
+                            {summarized ? "完了報告に集約" : proposalStatusLabel(report)}
+                          </span>
+                        </button>
+                        <p>{str(reportEntry.summary)}</p>
+                      </li>
+                    );
+                  })}
                 </ol>
                 {coveredReports.length > 0 && (
                   <p>
@@ -1134,7 +1173,7 @@ export function AiProposalPanel(props: PageProps) {
             )}
             {preview.candidates.map((candidate, index) => (
               <div
-                className={`import-candidate${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`}
+                className={`import-candidate${candidate.type === "task_work" ? " is-work-report" : ""}${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`}
                 key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}
               >
                 <div>
@@ -1168,39 +1207,51 @@ export function AiProposalPanel(props: PageProps) {
                     </div>
                   )}
                   {candidate.type === "task_work" && (
-                    <dl className="proposal-work-details">
-                      <dt>結果</dt>
-                      <dd>{str(candidate.entry.summary)}</dd>
-                      {Array.isArray(candidate.entry.completed_checklist_item_ids) &&
-                        candidate.entry.completed_checklist_item_ids.length > 0 && (
-                          <>
-                            <dt>チェックを反映</dt>
-                            <dd>
-                              {candidate.entry.completed_checklist_item_ids
-                                .map(
-                                  (id) =>
-                                    domain.tasks
-                                      .find((task) => task.id === candidate.entry.task_id)
-                                      ?.checklist_items?.find((item) => item.id === id)?.title ||
-                                    `見つからない項目 (${String(id)})`,
-                                )
-                                .join(" / ")}
-                            </dd>
-                          </>
+                    <>
+                      <div className="proposal-work-head">
+                        <span className="proposal-work-action">
+                          {taskWorkActionLabel(candidate.entry)}
+                        </span>
+                        {str(candidate.entry.reported_at) && (
+                          <time dateTime={str(candidate.entry.reported_at)}>
+                            {formatDisplayDateTime(candidate.entry.reported_at)}
+                          </time>
                         )}
-                      <dt>検証</dt>
-                      <dd>
-                        {Array.isArray(candidate.entry.verification)
-                          ? candidate.entry.verification.join(" / ") || "記録なし"
-                          : "記録なし"}
-                      </dd>
-                      <dt>残作業</dt>
-                      <dd>
-                        {Array.isArray(candidate.entry.remaining_work)
-                          ? candidate.entry.remaining_work.join(" / ") || "なし"
-                          : "記録なし"}
-                      </dd>
-                    </dl>
+                      </div>
+                      <dl className="proposal-work-details">
+                        <dt>結果</dt>
+                        <dd>{str(candidate.entry.summary)}</dd>
+                        {Array.isArray(candidate.entry.completed_checklist_item_ids) &&
+                          candidate.entry.completed_checklist_item_ids.length > 0 && (
+                            <>
+                              <dt>チェックを反映</dt>
+                              <dd>
+                                {candidate.entry.completed_checklist_item_ids
+                                  .map(
+                                    (id) =>
+                                      domain.tasks
+                                        .find((task) => task.id === candidate.entry.task_id)
+                                        ?.checklist_items?.find((item) => item.id === id)?.title ||
+                                      `見つからない項目 (${String(id)})`,
+                                  )
+                                  .join(" / ")}
+                              </dd>
+                            </>
+                          )}
+                        <dt>検証</dt>
+                        <dd>
+                          {Array.isArray(candidate.entry.verification)
+                            ? candidate.entry.verification.join(" / ") || "記録なし"
+                            : "記録なし"}
+                        </dd>
+                        <dt>残作業</dt>
+                        <dd>
+                          {Array.isArray(candidate.entry.remaining_work)
+                            ? candidate.entry.remaining_work.join(" / ") || "なし"
+                            : "記録なし"}
+                        </dd>
+                      </dl>
+                    </>
                   )}
                 </div>
                 {candidate.type !== "task_work" && (
@@ -1454,6 +1505,20 @@ function formatProposalDate(proposal: BaseRecord): string {
   const date = new Date(timestamp);
   return Number.isNaN(date.getTime())
     ? timestamp.slice(0, 10)
+    : date.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
+}
+
+function taskWorkActionLabel(entry: Record<string, unknown>): string {
+  const action = str(entry.action);
+  if (action === "report_done") return "完了報告";
+  if (action === "report_blocked") return "中断報告";
+  return "追加報告";
+}
+
+function formatDisplayDateTime(value: unknown): string {
+  const date = new Date(str(value));
+  return Number.isNaN(date.getTime())
+    ? ""
     : date.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
 }
 
