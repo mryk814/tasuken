@@ -120,8 +120,16 @@ function eventTitle(event: StructuredActivityEvent, ref: { id?: string }, entity
   const workLog = event.metadata?.work_log as Record<string, unknown> | undefined;
   if (workLog?.schema === "tasken-work-log/v1")
     return `${current || "やったことを記録"} · 実施日 ${String(workLog.performed_date)}（本人の申告）`;
-  if (event.event_kind === "task_ai_work" && current)
-    return `${current} · ${event.metadata?.review_status === "pending" ? "採用待ち" : event.metadata?.review_status === "accepted" ? "採用済み" : "記録済み"}`;
+  if (event.event_kind === "task_ai_work" && current) {
+    const review =
+      event.metadata?.review_status === "pending"
+        ? "採用待ち"
+        : event.metadata?.review_status === "accepted"
+          ? "採用済み"
+          : "記録済み";
+    return `${current} · ${review}${event.metadata?.task_state === "done" ? "・完了" : ""}`;
+  }
+  if (current && event.event_kind === "task_completed") return `${current} · 完了`;
   if (current && event.metadata?.work_action === "accepted") return `${current} · 完了報告を採用`;
   if (current && event.metadata?.work_action === "started") return `${current} · 作業開始`;
   if (current && event.metadata?.work_action === "reported") return `${current} · 作業終了報告`;
@@ -476,6 +484,7 @@ export function ActivityLogPanel({
     },
     { label: "Capture", rows: entries.captures.map((entry) => entry.title || entry.text) },
   ].filter((group) => group.rows.length > 0);
+  const workPeriodTaskIds = new Set<string>();
   const taskWorkEvents: StructuredActivityEvent[] = taskWorkPeriods(
     domain.tasks as unknown as BaseRecord[],
     domain.ai_proposals,
@@ -483,6 +492,7 @@ export function ActivityLogPanel({
   ).flatMap((work) => {
     const interval = activitySessionInterval(work, date);
     if (!interval) return [];
+    workPeriodTaskIds.add(work.task_id);
     const task = domain.tasks.find((entry) => entry.id === work.task_id);
     return [
       {
@@ -494,7 +504,7 @@ export function ActivityLogPanel({
         theme_ref: task?.project_id ? { kind: "theme", id: task.project_id } : { kind: "none" },
         actor: { kind: "ai_agent", id: work.executor_label },
         origin: { kind: "task_work_report" },
-        metadata: { ...work, end_at: interval.end_at },
+        metadata: { ...work, end_at: interval.end_at, task_state: task?.state || "" },
       },
     ];
   });
@@ -515,7 +525,22 @@ export function ActivityLogPanel({
       ),
     ),
   );
-  const events = allEvents.filter((event) => !sessionOriginIds.has(event.origin?.session_id || ""));
+  // 同じTaskの作業は区間(task_ai_work)へ集約し、開始/報告/採用/完了の細かなイベントは重ねない。
+  const taskLifecycleEventKinds = new Set([
+    "task_work_recorded",
+    "task_ai_reported",
+    "task_ai_accepted",
+    "task_completed",
+  ]);
+  const events = allEvents.filter(
+    (event) =>
+      !sessionOriginIds.has(event.origin?.session_id || "") &&
+      !(
+        event.entity_ref?.type === "task" &&
+        workPeriodTaskIds.has(String(event.entity_ref.id)) &&
+        taskLifecycleEventKinds.has(String(event.event_kind))
+      ),
+  );
   const datedEvents = events.filter((event) => localDate(event.occurred_at) === date);
   const visibleEvents = datedEvents.filter((event) => {
     const themeIds = activityThemeIds(event);
