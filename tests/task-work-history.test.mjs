@@ -147,3 +147,36 @@ test("human work receipts are not represented as AI work", () => {
   };
   assert.deepEqual(taskWorkPeriods([task], [], [receipt]), []);
 });
+
+test("a start-only record stays active only while the Task is in progress", () => {
+  const started = report("started", "start", start);
+  const active = taskWorkPeriods([{ ...task, work_state: "in_progress" }], [started], []);
+  assert.equal(active.length, 1);
+  assert.equal(active[0].status, "active");
+  assert.equal(active[0].ended_at, null);
+
+  const completed = taskWorkPeriods(
+    [{ ...task, state: "done", work_state: "accepted", completed_at: end, work_reported_at: end }],
+    [started],
+    [],
+  );
+  assert.equal(completed.length, 1);
+  assert.equal(completed[0].status, "completed");
+  assert.equal(completed[0].ended_at, end);
+
+  const returned = taskWorkPeriods(
+    [
+      {
+        ...task,
+        work_state: "ready_for_agent",
+        work_started_at: null,
+        updated_at: end,
+      },
+    ],
+    [started],
+    [],
+  );
+  assert.equal(returned.length, 1);
+  assert.equal(returned[0].status, "completed");
+  assert.equal(returned[0].ended_at, end);
+});

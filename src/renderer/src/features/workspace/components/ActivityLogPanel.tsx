@@ -883,10 +883,33 @@ export function ActivityLogPanel({
                         const sessionRow = row.item_type === "session" ? row.session_row : null;
                         const session = sessionRow?.session || null;
                         const eventActor = event ? actorLabel(event) : null;
+                        const burstEntityTitle = burst
+                          ? (() => {
+                              const refs = burst.events.map(
+                                (entry) =>
+                                  (
+                                    entry as {
+                                      event?: { entity_ref?: { type?: string; id?: string } };
+                                    }
+                                  ).event?.entity_ref || {},
+                              );
+                              const first = refs[0] || {};
+                              const sameEntity = refs.every(
+                                (candidate) =>
+                                  candidate.type === first.type && candidate.id === first.id,
+                              );
+                              if (!sameEntity || !first.type || !first.id) return "";
+                              const resolved = findActivityEntity(domain, first) as
+                                { title?: unknown; name?: unknown } | null | undefined;
+                              return String(resolved?.title || resolved?.name || "").trim();
+                            })()
+                          : "";
                         const title = event
                           ? eventTitle(event, ref, entity)
                           : burst
-                            ? `${burst.events.length}件のActivity`
+                            ? burstEntityTitle
+                              ? `${burstEntityTitle} · ${burst.events.length}件`
+                              : `${burst.events.length}件のActivity`
                             : session?.intent.summary || session?.client_label || "AI セッション";
                         const timeLabel =
                           session && sessionRow

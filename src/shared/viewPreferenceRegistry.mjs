@@ -23,6 +23,7 @@ const TIMELINE_DEFAULT = {
   showLightning: true,
   rangeBufferMonths: 0,
   collapsedThemes: [],
+  themeCollapseTouched: false,
   scrollLeft: 0,
 };
 
@@ -131,6 +132,7 @@ function normalizeTimeline(value) {
     showLightning: bool(raw.showLightning, TIMELINE_DEFAULT.showLightning),
     rangeBufferMonths: oneOf(raw.rangeBufferMonths, [0, 3, 6], TIMELINE_DEFAULT.rangeBufferMonths),
     collapsedThemes: stringArray(raw.collapsedThemes),
+    themeCollapseTouched: bool(raw.themeCollapseTouched, TIMELINE_DEFAULT.themeCollapseTouched),
     scrollLeft: Math.max(
       0,
       Math.min(10000000, finite(raw.scrollLeft, TIMELINE_DEFAULT.scrollLeft)),

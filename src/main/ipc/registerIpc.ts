@@ -747,6 +747,7 @@ export function registerIpc(
   );
   ipcMain.handle(IPC.sharedSyncDisable, () => sharedSync.disable());
   ipcMain.handle(IPC.sharedSyncNow, () => sharedSync.syncNow());
+  ipcMain.handle(IPC.sharedSyncRepublish, () => sharedSync.republishMissing());
   ipcMain.handle(IPC.sharedSyncResolve, (_event, conflictId, choice) =>
     sharedSync.resolveConflict(requireId(conflictId), choice === "incoming" ? "incoming" : "local"),
   );

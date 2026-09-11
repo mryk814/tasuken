@@ -276,12 +276,28 @@ export function taskWorkPeriods(
     )
       continue;
     const id = `task-work:${task.id}:${new Date(started).toISOString()}`;
+    // A Task that is completed, cancelled or no longer in progress cannot keep an
+    // open-ended "作業中" period alive through a start-only record.
+    const taskState = String(task.state || "");
+    const taskWorkState = String(task.work_state || "");
+    const taskClosed =
+      taskState === "done" ||
+      taskState === "cancelled" ||
+      (taskWorkState !== "" && taskWorkState !== "in_progress");
     const terminal =
       report.action === "report_done" ||
       report.action === "report_blocked" ||
       (report.runtime_metadata as Record<string, unknown> | undefined)?.report_kind === "done" ||
       (report.runtime_metadata as Record<string, unknown> | undefined)?.report_kind === "blocked" ||
-      task.work_reported_at === ended;
+      task.work_reported_at === ended ||
+      taskClosed;
+    const closedAt = String(task.work_reported_at || task.completed_at || task.updated_at || ended);
+    const terminalEnd =
+      taskClosed &&
+      Number.isFinite(Date.parse(closedAt)) &&
+      Date.parse(closedAt) >= Date.parse(started)
+        ? closedAt
+        : ended;
     // Old untyped receipts do not prove that work is still active after a return.
     // Keep the receipt itself, but do not invent an open-ended work period.
     if (
@@ -302,7 +318,7 @@ export function taskWorkPeriods(
       task_id: task.id,
       title: String(task.title || task.id),
       started_at: started,
-      ended_at: terminal ? ended : null,
+      ended_at: terminal ? terminalEnd : null,
       status: !terminal
         ? "active"
         : report.action === "report_blocked" ||

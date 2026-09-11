@@ -220,6 +220,31 @@ export class SharedFolderSyncService {
     }
   }
 
+  republishMissing(directoryValue) {
+    const directory =
+      typeof directoryValue === "string" && directoryValue
+        ? path.resolve(directoryValue)
+        : String(this.repository.getPreference("sharedSyncDirectory") || "");
+    if (!directory) throw new Error("同期フォルダが設定されていません。");
+    const manifest = this.readManifest(directory);
+    if (!manifest) throw new Error("同期フォルダのTasken設定が見つかりません。");
+    if (manifest.workspaceId !== this.repository.workspaceId) {
+      throw new Error("選択した同期フォルダは別のWorkspace用です。");
+    }
+    const deviceDirectory = path.join(directory, DEVICE_DIRECTORY, this.repository.deviceId);
+    fs.mkdirSync(deviceDirectory, { recursive: true });
+    let republished = 0;
+    for (const entry of this.repository.allSyncPackets()) {
+      const filePath = path.join(deviceDirectory, packetFileName(entry.packet));
+      if (!fs.existsSync(filePath)) {
+        writeJsonAtomic(filePath, entry.packet);
+        republished += 1;
+      }
+      this.repository.markSyncPublished(entry.changeId);
+    }
+    return { republished, status: this.status() };
+  }
+
   receiveChanges(directory) {
     const devicesRoot = path.join(directory, DEVICE_DIRECTORY);
     if (!fs.existsSync(devicesRoot)) return { applied: 0, conflicts: 0 };
@@ -241,7 +266,7 @@ export class SharedFolderSyncService {
         if (!Number.isFinite(sequence) || sequence <= cursor) continue;
         if (sequence !== cursor + 1) {
           throw new Error(
-            `${deviceId} の同期差分 ${String(cursor + 1).padStart(12, "0")} を待っています。共有フォルダの同期完了後に再試行します。`,
+            `${deviceId} の同期差分 ${String(cursor + 1).padStart(12, "0")} を待っています。共有フォルダの同期完了後に再試行します。解消しない場合は送信側の端末で差分の再公開を実行してください。`,
           );
         }
         const packet = readJson(path.join(devicesRoot, deviceId, fileName));
