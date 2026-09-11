@@ -39,6 +39,7 @@ export interface TimelinePreferenceValue {
   showLightning: boolean;
   rangeBufferMonths: 0 | 3 | 6;
   collapsedThemes: string[];
+  themeCollapseTouched: boolean;
   scrollLeft: number;
 }
 

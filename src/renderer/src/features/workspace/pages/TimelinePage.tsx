@@ -73,6 +73,8 @@ interface TimelinePrefs {
   showDependencies: boolean;
   showLightning: boolean;
   rangeBufferMonths: 0 | 3 | 6;
+  collapsedThemes?: string[];
+  themeCollapseTouched?: boolean;
   scrollLeft: number;
 }
 /**
@@ -136,6 +138,7 @@ export function TimelinePage({
     showLightning,
     rangeBufferMonths = 0,
     collapsedThemes,
+    themeCollapseTouched = false,
     scrollLeft = 0,
   } = prefs;
   const scale = scaleFromDayWidth(dayWidth);
@@ -146,6 +149,7 @@ export function TimelinePage({
     setPrefs((current) => ({
       ...current,
       collapsedThemes: typeof next === "function" ? next(current.collapsedThemes) : next,
+      themeCollapseTouched: true,
     }));
   };
   const [connecting, setConnecting] = useState<ConnectingState | null>(null);
@@ -340,6 +344,18 @@ export function TimelinePage({
   // 一括開閉は一つのtoggleにする（#318）。すべて畳んでいるときだけ「展開」を出す。
   const allThemesCollapsed =
     groupKeys.length > 0 && groupKeys.every((key) => collapsedThemes.includes(key));
+  // 初回表示で全テーマを展開しない。ユーザーが開閉を選んだ後はその状態を尊重する。
+  const didDefaultThemeCollapse = useRef(false);
+  useEffect(() => {
+    if (!preferenceLoad.isReady || didDefaultThemeCollapse.current) return;
+    didDefaultThemeCollapse.current = true;
+    if (themeCollapseTouched || collapsedThemes.length > 0 || groupKeys.length < 2) return;
+    setPrefs((current) => ({
+      ...current,
+      collapsedThemes: groupKeys,
+      themeCollapseTouched: true,
+    }));
+  }, [preferenceLoad.isReady, themeCollapseTouched, collapsedThemes.length, groupKeys, setPrefs]);
 
   /** 表示倍率の変更。中心位置を保ったまま拡大縮小する。 */
   function applyZoom(nextDayWidth: number) {
