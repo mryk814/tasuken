@@ -13139,6 +13139,14 @@ kbd {
 .activity-calendar-event.is-selected {
   z-index: 2;
 }
+.activity-calendar-event.is-calendar .activity-calendar-event-button::before {
+  border-style: dashed;
+  background: var(--color-surface-subtle);
+}
+.activity-calendar-event.is-calendar .activity-calendar-event-title {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium);
+}
 .activity-calendar-event-button {
   display: flex;
   position: absolute;

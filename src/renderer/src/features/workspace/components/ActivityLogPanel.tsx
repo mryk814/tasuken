@@ -39,6 +39,11 @@ import {
 import { themeColor } from "../lib/domain";
 import { findReminderSettingsView, normalizeReminderSettings } from "../lib/reminders";
 import type { PageProps } from "../types";
+import type { CalendarEvent } from "../../../../../shared/calendar";
+import {
+  buildActivityCalendarTimelineItems,
+  type ActivityCalendarTimelineItem,
+} from "../lib/activityCalendar";
 import { Button, EmptyState, ThemePickerSelect } from "./common";
 import { DailyContextPublishDialog } from "./DailyContextPublishDialog";
 
@@ -146,13 +151,15 @@ type ActivityTimelineItem =
       theme_ids: string[];
       session_row: AgentWorkProjectionRow;
       session_events: StructuredActivityEvent[];
-    };
+    }
+  | ActivityCalendarTimelineItem;
 
 const ACTIVITY_DISPLAY_LABELS = {
   outcome: "成果",
   record: "記録",
   organize: "整理",
   ai_work: "AI作業",
+  calendar: "予定",
   mixed: "複数種別",
 } as const;
 
@@ -356,6 +363,42 @@ export function ActivityLogPanel({
   const activityCalendarRef = useRef<HTMLDivElement>(null);
   const activityDetailRef = useRef<HTMLElement>(null);
   const activityEventButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [calendarConnected, setCalendarConnected] = useState(false);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+
+  useEffect(() => {
+    let canceled = false;
+    void workspaceApi
+      .calendarStatus()
+      .then((status) => {
+        if (!canceled) setCalendarConnected(status.connected);
+      })
+      .catch(() => {
+        // Calendar is optional; an unavailable connection simply hides the overlay.
+      });
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!calendarConnected) {
+      setCalendarEvents([]);
+      return;
+    }
+    let canceled = false;
+    void workspaceApi
+      .calendarEvents(date)
+      .then((result) => {
+        if (!canceled) setCalendarEvents(result.events || []);
+      })
+      .catch(() => {
+        if (!canceled) setCalendarEvents([]);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [calendarConnected, date]);
 
   useEffect(() => {
     let canceled = false;
@@ -504,6 +547,7 @@ export function ActivityLogPanel({
             }) === typeFilter,
         )),
   );
+  const calendarTimelineItems = buildActivityCalendarTimelineItems(calendarEvents);
   const timelineItems: ActivityTimelineItem[] = [
     ...visibleEvents.map((event) => ({
       id: `event:${String(event.id)}`,
@@ -527,6 +571,7 @@ export function ActivityLogPanel({
       session_row: sessionRow,
       session_events: relatedEvents,
     })),
+    ...calendarTimelineItems,
   ];
   const timeline = buildActivityTimelineLayout(timelineItems, { date });
   const calendarTimeline = buildActivityTimelineBursts(timeline);
@@ -877,6 +922,8 @@ export function ActivityLogPanel({
                     <ol className="activity-calendar-events" aria-label="Activity を時刻順に表示">
                       {calendarTimeline.map((row) => {
                         const event = row.item_type === "event" ? row.event : null;
+                        const calendarEvent =
+                          row.item_type === "calendar" ? row.calendar_event : null;
                         const burst = row.item_type === "burst" ? row : null;
                         const ref = event?.entity_ref || {};
                         const entity = event ? findActivityEntity(domain, ref) : null;
@@ -904,15 +951,20 @@ export function ActivityLogPanel({
                               return String(resolved?.title || resolved?.name || "").trim();
                             })()
                           : "";
-                        const title = event
-                          ? eventTitle(event, ref, entity)
-                          : burst
-                            ? burstEntityTitle
-                              ? `${burstEntityTitle} · ${burst.events.length}件`
-                              : `${burst.events.length}件のActivity`
-                            : session?.intent.summary || session?.client_label || "AI セッション";
-                        const timeLabel =
-                          session && sessionRow
+                        const title = calendarEvent
+                          ? calendarEvent.title || "(予定)"
+                          : event
+                            ? eventTitle(event, ref, entity)
+                            : burst
+                              ? burstEntityTitle
+                                ? `${burstEntityTitle} · ${burst.events.length}件`
+                                : `${burst.events.length}件のActivity`
+                              : session?.intent.summary || session?.client_label || "AI セッション";
+                        const timeLabel = calendarEvent
+                          ? calendarEvent.isAllDay
+                            ? "終日"
+                            : `${localTime(row.start_at)}–${localTime(row.end_at)}`
+                          : session && sessionRow
                             ? activitySessionTimeLabel({
                                 sessionRow,
                                 interval: { start_at: row.start_at, end_at: row.end_at },
@@ -923,13 +975,15 @@ export function ActivityLogPanel({
                                   event?.event_kind === "focus_session"
                                 ? `${localTime(row.start_at)}–${event.metadata?.session_state === "active" ? "進行中" : localTime(row.end_at)}`
                                 : event?.local_time || localTime(row.start_at);
-                        const originText = event
-                          ? originLabel(event)
-                          : session
-                            ? agentSessionClientLabel(session)
-                            : burst
-                              ? burstOriginLabel(burst.origin)
-                              : "由来不明";
+                        const originText = calendarEvent
+                          ? calendarEvent.calendarName || "カレンダー"
+                          : event
+                            ? originLabel(event)
+                            : session
+                              ? agentSessionClientLabel(session)
+                              : burst
+                                ? burstOriginLabel(burst.origin)
+                                : "由来不明";
                         const timeAnchors = burst
                           ? burst.events.map((burstEvent) => ({
                               id: burstEvent.id,
@@ -980,7 +1034,7 @@ export function ActivityLogPanel({
                         return (
                           <li
                             key={row.id}
-                            className={`activity-calendar-event activity-timeline-row--${row.display_kind}${compact ? " is-compact" : ""}${isRange ? " is-range-event" : " is-point-event"}${expandedTimelineItemId === row.id ? " is-selected" : ""}`}
+                            className={`activity-calendar-event activity-timeline-row--${row.display_kind}${compact ? " is-compact" : ""}${isRange ? " is-range-event" : " is-point-event"}${calendarEvent ? " is-calendar" : ""}${expandedTimelineItemId === row.id ? " is-selected" : ""}`}
                             style={blockStyle}
                           >
                             {timeAnchors.map((anchor) => (
@@ -996,28 +1050,43 @@ export function ActivityLogPanel({
                                 }
                               />
                             ))}
-                            <button
-                              type="button"
-                              className="activity-calendar-event-button"
-                              ref={(element) => {
-                                activityEventButtonRefs.current[row.id] = element;
-                              }}
-                              onClick={() =>
-                                setExpandedTimelineItemId((current) =>
-                                  current === row.id ? "" : row.id,
-                                )
-                              }
-                              aria-expanded={expandedTimelineItemId === row.id}
-                              aria-controls={`activity-timeline-detail-${row.id}`}
-                              aria-label={`${timeLabel}、${displayKindLabel(row.display_kind)}、${originText}、${themeSummary}、${title}`}
-                            >
-                              <span className="activity-calendar-event-title">{title}</span>
-                              {sourceMarker && (
+                            {calendarEvent ? (
+                              <div
+                                className="activity-calendar-event-button is-calendar"
+                                aria-label={`${timeLabel}、予定、${originText}、${title}`}
+                              >
+                                <span className="activity-calendar-event-title">{title}</span>
                                 <span className="activity-calendar-event-source" aria-hidden="true">
-                                  {sourceMarker}
+                                  予定
                                 </span>
-                              )}
-                            </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="activity-calendar-event-button"
+                                ref={(element) => {
+                                  activityEventButtonRefs.current[row.id] = element;
+                                }}
+                                onClick={() =>
+                                  setExpandedTimelineItemId((current) =>
+                                    current === row.id ? "" : row.id,
+                                  )
+                                }
+                                aria-expanded={expandedTimelineItemId === row.id}
+                                aria-controls={`activity-timeline-detail-${row.id}`}
+                                aria-label={`${timeLabel}、${displayKindLabel(row.display_kind)}、${originText}、${themeSummary}、${title}`}
+                              >
+                                <span className="activity-calendar-event-title">{title}</span>
+                                {sourceMarker && (
+                                  <span
+                                    className="activity-calendar-event-source"
+                                    aria-hidden="true"
+                                  >
+                                    {sourceMarker}
+                                  </span>
+                                )}
+                              </button>
+                            )}
                           </li>
                         );
                       })}

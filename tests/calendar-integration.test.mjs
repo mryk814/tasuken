@@ -17,12 +17,17 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString("base64")}`
+  );
 }
 
 const calendarTypes = await importBundled("src/shared/calendar.ts");
 const calendarAdapter = await importBundled("src/main/services/calendarAdapter.ts");
 const calendarService = await importBundled("src/main/services/calendarService.ts");
+const activityCalendar = await importBundled(
+  "src/renderer/src/features/workspace/lib/activityCalendar.ts",
+);
 
 test("Calendar shared types export correctly", () => {
   assert.ok(calendarTypes);
@@ -40,8 +45,14 @@ test("Calendar namespace is exposed in ResearchDeskApi", () => {
   const source = readFileSync("src/shared/ipc/contracts.ts", "utf8");
   assert.match(source, /calendar: \{/);
   assert.match(source, /getStatus\(\): Promise<CalendarConnectionStatus>/);
-  assert.match(source, /connect\(request: CalendarConnectRequest\): Promise<CalendarConnectionStatus>/);
-  assert.match(source, /disconnect\(request: CalendarDisconnectRequest\): Promise<CalendarConnectionStatus>/);
+  assert.match(
+    source,
+    /connect\(request: CalendarConnectRequest\): Promise<CalendarConnectionStatus>/,
+  );
+  assert.match(
+    source,
+    /disconnect\(request: CalendarDisconnectRequest\): Promise<CalendarConnectionStatus>/,
+  );
   assert.match(source, /getEvents\(date: string\): Promise<CalendarEventsResult>/);
 });
 
@@ -70,7 +81,9 @@ test("TodayPage includes the connected calendar section and keeps connection set
   assert.match(source, /safeMeetingUrlFor/);
   assert.match(source, /event\.sensitivity !== "normal"/);
   assert.match(source, /会議を開く/);
-  const calendarMeta = source.match(/function CalendarEventMeta[\s\S]*?\r?\n}\r?\n\r?\nfunction TodayCalendarSection/);
+  const calendarMeta = source.match(
+    /function CalendarEventMeta[\s\S]*?\r?\n}\r?\n\r?\nfunction TodayCalendarSection/,
+  );
   assert.ok(calendarMeta, "CalendarEventMeta source is present");
   assert.match(calendarMeta[0], /href=\{meetingUrl\}/);
   assert.match(calendarMeta[0], /target="_blank"/);
@@ -84,9 +97,44 @@ test("SettingsPage includes calendar connection panel", () => {
   assert.match(source, /calendar-settings-panel/);
   assert.match(source, /カレンダー連携/);
   assert.match(source, /Microsoftアカウントで接続/);
+  assert.match(source, /Googleアカウントで接続/);
   assert.match(source, /接続を解除/);
   assert.match(source, /calendarConnect/);
   assert.match(source, /calendarDisconnect/);
+});
+
+test("Activity calendar overlay maps connected events and drops invalid ones", () => {
+  const items = activityCalendar.buildActivityCalendarTimelineItems([
+    {
+      id: "e1",
+      startTime: "2026-08-08T09:00:00.000+09:00",
+      endTime: "2026-08-08T10:00:00.000+09:00",
+      title: "予定",
+    },
+    {
+      id: "",
+      startTime: "2026-08-08T10:00:00.000+09:00",
+      endTime: "2026-08-08T11:00:00.000+09:00",
+    },
+    { id: "e2", startTime: "not-a-time", endTime: "" },
+  ]);
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].id, "calendar:e1");
+  assert.equal(items[0].item_type, "calendar");
+  assert.equal(items[0].start_at, "2026-08-08T09:00:00.000+09:00");
+});
+
+test("Activity timeline overlays connected calendar events", () => {
+  const activity = readFileSync(
+    "src/renderer/src/features/workspace/components/ActivityLogPanel.tsx",
+    "utf8",
+  );
+  assert.match(activity, /calendarStatus\(\)/);
+  assert.match(activity, /calendarEvents\(date\)/);
+  assert.match(activity, /is-calendar/);
+  const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
+  assert.match(styles, /\.activity-calendar-event\.is-calendar/);
 });
 
 test("CalendarService follows safeStorage encryption pattern", () => {
@@ -156,14 +204,17 @@ test("Calendar range uses explicit local timezone offsets", () => {
 
 test("Microsoft adapter paginates, projects recurrence, and redacts private details", async () => {
   const requests = [];
-  const fetcher = queuedFetcher([
-    response(calendarFixture.calendar),
-    response({
-      value: calendarFixture.events,
-      "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/calendarview?page=2",
-    }),
-    response(calendarPageTwo),
-  ], requests);
+  const fetcher = queuedFetcher(
+    [
+      response(calendarFixture.calendar),
+      response({
+        value: calendarFixture.events,
+        "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/calendarview?page=2",
+      }),
+      response(calendarPageTwo),
+    ],
+    requests,
+  );
   const adapter = new calendarAdapter.MicrosoftCalendarAdapter(fetcher);
   const range = calendarTypes.buildCalendarRange("2026-08-08", "Asia/Tokyo");
   const events = await adapter.listEvents("access-token", range);
@@ -205,6 +256,175 @@ test("Microsoft adapter classifies organization constraints without exposing pro
   assert.doesNotMatch(error.message, /DO_NOT_SHOW|AADSTS65001/);
 });
 
+test("Google adapter paginates, maps all-day events, and redacts private details", async () => {
+  const requests = [];
+  const fetcher = queuedFetcher(
+    [
+      response({ summary: "研究カレンダー" }),
+      response({
+        items: [
+          {
+            id: "g-1",
+            summary: "実験レビュー",
+            start: { dateTime: "2026-08-08T09:00:00+09:00" },
+            end: { dateTime: "2026-08-08T10:00:00+09:00" },
+            location: "会議室A",
+            conferenceData: {
+              entryPoints: [
+                { entryPointType: "video", uri: "https://meet.google.com/abc-defg-hij" },
+              ],
+            },
+          },
+          {
+            id: "g-2",
+            summary: "秘密の会議",
+            visibility: "private",
+            start: { dateTime: "2026-08-08T11:00:00+09:00" },
+            end: { dateTime: "2026-08-08T12:00:00+09:00" },
+          },
+          {
+            id: "g-3",
+            summary: "終日作業",
+            start: { date: "2026-08-08" },
+            end: { date: "2026-08-09" },
+            recurringEventId: "series-1",
+          },
+        ],
+        nextPageToken: "page-2",
+      }),
+      response({
+        items: [
+          {
+            id: "g-4",
+            summary: "追加",
+            start: { dateTime: "2026-08-08T15:00:00+09:00" },
+            end: { dateTime: "2026-08-08T16:00:00+09:00" },
+          },
+        ],
+      }),
+    ],
+    requests,
+  );
+  const adapter = new calendarAdapter.GoogleCalendarAdapter(fetcher);
+  const range = calendarTypes.buildCalendarRange("2026-08-08", "Asia/Tokyo");
+  const events = await adapter.listEvents("access-token", range);
+
+  assert.equal(events.length, 4);
+  assert.equal(requests.length, 3);
+  assert.match(requests[0].url, /\/calendars\/primary$/);
+  assert.match(requests[1].url, /timeMin=2026-08-08T00%3A00%3A00%2B09%3A00/);
+  assert.match(requests[1].url, /singleEvents=true/);
+  assert.equal(requests[1].options.headers.Authorization, "Bearer access-token");
+  assert.match(requests[2].url, /pageToken=page-2/);
+  assert.equal(events[0].calendarName, "研究カレンダー");
+  assert.equal(events[0].meetingUrl, "https://meet.google.com/abc-defg-hij");
+  assert.equal(events[1].title, "非公開の予定");
+  assert.equal(events[1].location, "");
+  assert.equal(events[1].meetingUrl, "");
+  assert.equal(events[2].isAllDay, true);
+  assert.equal(events[2].seriesMasterId, "series-1");
+  assert.equal(events[2].occurrenceType, "occurrence");
+  assert.equal(
+    calendarAdapter.parseGoogleEvent(
+      { id: "x", summary: "s", start: { date: "2026-08-08" }, end: { date: "2026-08-09" } },
+      "c",
+      "Asia/Tokyo",
+    ).startTime,
+    "2026-08-08T00:00:00+09:00",
+  );
+});
+
+test("Calendar service connects Google with the Google OAuth endpoints", async () => {
+  const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-calendar-google-"));
+  const storage = fakeSafeStorage();
+  const googleEvents = [
+    {
+      id: "google-only",
+      title: "Google予定",
+      startTime: "2026-08-08T09:00:00.000+09:00",
+      endTime: "2026-08-08T10:00:00.000+09:00",
+      startTimeZone: "Asia/Tokyo",
+      endTimeZone: "Asia/Tokyo",
+      isAllDay: false,
+      location: "",
+      meetingUrl: "",
+      calendarName: "Google",
+      sensitivity: "normal",
+      seriesMasterId: null,
+      occurrenceType: "singleInstance",
+      recurrence: null,
+    },
+  ];
+  try {
+    const service = new calendarService.CalendarService(
+      userDataPath,
+      storage,
+      async (url, options = {}) => {
+        assert.match(url, /^https:\/\/oauth2\.googleapis\.com\/token$/);
+        assert.match(
+          options.body,
+          /scope=openid\+email\+profile\+https%3A%2F%2Fwww\.googleapis\.com%2Fauth%2Fcalendar\.readonly/,
+        );
+        return response({
+          access_token: "google-token",
+          refresh_token: "google-refresh",
+          expires_in: 3600,
+          id_token: idTokenFor("google@example.com"),
+        });
+      },
+      async (authorizeUrl) => {
+        const authorize = new URL(authorizeUrl);
+        assert.equal(
+          `${authorize.origin}${authorize.pathname}`,
+          "https://accounts.google.com/o/oauth2/v2/auth",
+        );
+        assert.equal(authorize.searchParams.get("access_type"), "offline");
+        assert.equal(authorize.searchParams.get("prompt"), "consent");
+        const callbackUrl = new URL(authorize.searchParams.get("redirect_uri"));
+        callbackUrl.searchParams.set("state", authorize.searchParams.get("state"));
+        callbackUrl.searchParams.set("code", "google-code");
+        await fetch(callbackUrl);
+      },
+      {
+        googleClientId: "google-client",
+        timeZone: "Asia/Tokyo",
+        adapters: { google: { provider: "google", listEvents: async () => googleEvents } },
+      },
+    );
+    const status = await service.connect({ provider: "google" });
+    assert.equal(status.provider, "google");
+    assert.equal(status.accountName, "google@example.com");
+    const result = await service.getEvents("2026-08-08");
+    assert.equal(result.provider, "google");
+    assert.deepEqual(result.events, googleEvents);
+
+    const configText = readFileSync(path.join(userDataPath, "calendar-provider.json"), "utf8");
+    assert.doesNotMatch(configText, /google-token|google-refresh/);
+  } finally {
+    rmSync(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test("Calendar service rejects Google connect when its client ID is not configured", async () => {
+  const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-calendar-google-config-"));
+  try {
+    const service = new calendarService.CalendarService(
+      userDataPath,
+      fakeSafeStorage(),
+      async () => response({}),
+      async () => {},
+      { googleClientId: "", timeZone: "Asia/Tokyo" },
+    );
+    await assert.rejects(
+      service.connect({ provider: "google" }),
+      (error) =>
+        error?.code === "not_configured" && /TASKEN_GOOGLE_CLIENT_ID/.test(String(error.message)),
+    );
+  } finally {
+    rmSync(userDataPath, { recursive: true, force: true });
+  }
+});
+
 function fakeSafeStorage() {
   return {
     isEncryptionAvailable: () => true,
@@ -220,13 +440,17 @@ function fakeSafeStorage() {
 function seedConnectedConfig(userDataPath, storage) {
   writeFileSync(
     path.join(userDataPath, "calendar-provider.json"),
-    `${JSON.stringify({
-      provider: "microsoft",
-      accountName: "fixture@example.com",
-      encryptedAccessToken: storage.encryptString("access-token").toString("base64"),
-      tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      lastFetchedAt: "",
-    }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        provider: "microsoft",
+        accountName: "fixture@example.com",
+        encryptedAccessToken: storage.encryptString("access-token").toString("base64"),
+        tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        lastFetchedAt: "",
+      },
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
 }
@@ -260,7 +484,9 @@ test("Calendar service caches fresh empty results and serves them stale after pr
       {
         adapter: {
           provider: "microsoft",
-          listEvents: async () => { throw new Error("SECRET_EVENT_BODY token=secret"); },
+          listEvents: async () => {
+            throw new Error("SECRET_EVENT_BODY token=secret");
+          },
         },
         clientId: "test-client",
         timeZone: "Asia/Tokyo",
@@ -343,7 +569,10 @@ test("Calendar account switch clears memory cache before a failed first fetch", 
     const fetcher = async (url, options = {}) => {
       assert.match(url, /oauth2\/v2\.0\/token$/);
       assert.match(options.body, /redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A/);
-      assert.match(options.body, /scope=openid\+profile\+email\+offline_access\+Calendars\.ReadBasic/);
+      assert.match(
+        options.body,
+        /scope=openid\+profile\+email\+offline_access\+Calendars\.ReadBasic/,
+      );
       assert.doesNotMatch(options.body, /User\.Read/);
       return response({
         access_token: "account-b-access-token",
@@ -358,7 +587,10 @@ test("Calendar account switch clears memory cache before a failed first fetch", 
       fetcher,
       async (authorizeUrl) => {
         const authorize = new URL(authorizeUrl);
-        assert.equal(authorize.searchParams.get("redirect_uri").startsWith("http://127.0.0.1:"), true);
+        assert.equal(
+          authorize.searchParams.get("redirect_uri").startsWith("http://127.0.0.1:"),
+          true,
+        );
         const callbackUrl = new URL(authorize.searchParams.get("redirect_uri"));
         callbackUrl.searchParams.set("state", authorize.searchParams.get("state"));
         callbackUrl.searchParams.set("code", "account-b-code");
@@ -371,7 +603,9 @@ test("Calendar account switch clears memory cache before a failed first fetch", 
     await service.connect({ provider: "microsoft" });
     assert.equal(service.getStatus().accountName, "account-b@example.com");
 
-    adapter.listEvents = async () => { throw new Error("account B provider failure"); };
+    adapter.listEvents = async () => {
+      throw new Error("account B provider failure");
+    };
     const afterSwitchFailure = await service.getEvents("2026-08-08");
     assert.deepEqual(afterSwitchFailure.events, []);
     assert.equal(afterSwitchFailure.stale, false);
@@ -390,7 +624,11 @@ test("OAuth callback ignores unrelated requests before accepting the matching st
       async (url, options = {}) => {
         assert.match(url, /oauth2\/v2\.0\/token$/);
         assert.match(options.body, /redirect_uri=http%3A%2F%2F127\.0\.0\.1%3A/);
-        return response({ access_token: "state-test-token", expires_in: 3600, id_token: idTokenFor("state@example.com") });
+        return response({
+          access_token: "state-test-token",
+          expires_in: 3600,
+          id_token: idTokenFor("state@example.com"),
+        });
       },
       async (authorizeUrl) => {
         const authorize = new URL(authorizeUrl);

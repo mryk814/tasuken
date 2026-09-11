@@ -5,6 +5,7 @@ import type {
   CalendarEvent,
   CalendarErrorCode,
   CalendarOccurrenceType,
+  CalendarProvider,
   CalendarRange,
   CalendarRecurrence,
   CalendarRecurrencePattern,
@@ -13,6 +14,7 @@ import type {
 import { localDateTimeToIso } from "../../shared/calendar";
 
 export const MICROSOFT_GRAPH_BASE = "https://graph.microsoft.com/v1.0";
+export const GOOGLE_CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
 const MAX_CALENDAR_PAGES = 100;
 
 type FetchLike = typeof fetch;
@@ -44,10 +46,14 @@ export class MicrosoftCalendarAdapter implements CalendarAdapter {
 
     for (let page = 0; nextUrl; page += 1) {
       if (page >= MAX_CALENDAR_PAGES) {
-        throw new CalendarProviderError("invalid_response", "カレンダーAPIのページ数が上限を超えました。");
+        throw new CalendarProviderError(
+          "invalid_response",
+          "カレンダーAPIのページ数が上限を超えました。",
+        );
       }
       const response = await this.fetcher(nextUrl, { headers });
-      if (!response.ok) throw await providerErrorFromResponse(response, "カレンダー予定の取得に失敗しました。");
+      if (!response.ok)
+        throw await providerErrorFromResponse(response, "カレンダー予定の取得に失敗しました。");
       const payload = await readJsonObject(response, "カレンダーAPIの応答形式が不正です。");
       const values = payload.value;
       if (!Array.isArray(values)) {
@@ -57,7 +63,8 @@ export class MicrosoftCalendarAdapter implements CalendarAdapter {
         events.push(parseGraphEvent(value, calendarName, range.timeZone));
       }
 
-      const candidate = typeof payload["@odata.nextLink"] === "string" ? payload["@odata.nextLink"] : "";
+      const candidate =
+        typeof payload["@odata.nextLink"] === "string" ? payload["@odata.nextLink"] : "";
       nextUrl = candidate ? validateNextLink(candidate, this.graphBase) : "";
     }
 
@@ -69,7 +76,8 @@ export class MicrosoftCalendarAdapter implements CalendarAdapter {
     url.search = new URLSearchParams({
       startDateTime: range.start,
       endDateTime: range.end,
-      $select: "id,subject,start,end,isAllDay,location,onlineMeeting,onlineMeetingUrl,sensitivity,calendar,recurrence,seriesMasterId,type",
+      $select:
+        "id,subject,start,end,isAllDay,location,onlineMeeting,onlineMeetingUrl,sensitivity,calendar,recurrence,seriesMasterId,type",
       $expand: "calendar($select=name)",
       $orderby: "start/dateTime",
       $top: "1000",
@@ -81,7 +89,8 @@ export class MicrosoftCalendarAdapter implements CalendarAdapter {
     const url = new URL(`${this.graphBase}/me/calendar`);
     url.search = new URLSearchParams({ $select: "name" }).toString();
     const response = await this.fetcher(url.toString(), { headers });
-    if (!response.ok) throw await providerErrorFromResponse(response, "既定カレンダーの取得に失敗しました。");
+    if (!response.ok)
+      throw await providerErrorFromResponse(response, "既定カレンダーの取得に失敗しました。");
     const payload = await readJsonObject(response, "既定カレンダーの応答形式が不正です。");
     return text(payload.name);
   }
@@ -94,7 +103,128 @@ export class MicrosoftCalendarAdapter implements CalendarAdapter {
   }
 }
 
-export function parseGraphEvent(raw: unknown, defaultCalendarName: string, timeZone: string): CalendarEvent {
+export class GoogleCalendarAdapter implements CalendarAdapter {
+  readonly provider = "google" as const;
+
+  constructor(
+    private readonly fetcher: FetchLike = fetch,
+    private readonly calendarBase = GOOGLE_CALENDAR_BASE,
+  ) {}
+
+  async listEvents(accessToken: string, range: CalendarRange): Promise<CalendarEvent[]> {
+    const headers: HeadersInit = { Authorization: `Bearer ${accessToken}` };
+    const calendarName = await this.fetchCalendarName(headers);
+    const events: CalendarEvent[] = [];
+    let pageToken = "";
+
+    for (let page = 0; ; page += 1) {
+      if (page >= MAX_CALENDAR_PAGES) {
+        throw new CalendarProviderError(
+          "invalid_response",
+          "カレンダーAPIのページ数が上限を超えました。",
+        );
+      }
+      const url = new URL(`${this.calendarBase}/calendars/primary/events`);
+      url.search = new URLSearchParams({
+        timeMin: range.start,
+        timeMax: range.end,
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "2500",
+        ...(pageToken ? { pageToken } : {}),
+      }).toString();
+      const response = await this.fetcher(url.toString(), { headers });
+      if (!response.ok)
+        throw await providerErrorFromResponse(
+          response,
+          "カレンダー予定の取得に失敗しました。",
+          "google",
+        );
+      const payload = await readJsonObject(response, "カレンダーAPIの応答形式が不正です。");
+      const values = payload.items;
+      if (!Array.isArray(values)) {
+        throw new CalendarProviderError("invalid_response", "カレンダーAPIの予定一覧が不正です。");
+      }
+      for (const value of values) {
+        events.push(parseGoogleEvent(value, calendarName, range.timeZone));
+      }
+      pageToken = text(payload.nextPageToken);
+      if (!pageToken) break;
+    }
+
+    return dedupeEvents(events);
+  }
+
+  private async fetchCalendarName(headers: HeadersInit): Promise<string> {
+    const response = await this.fetcher(`${this.calendarBase}/calendars/primary`, { headers });
+    if (!response.ok) {
+      throw await providerErrorFromResponse(
+        response,
+        "既定カレンダーの取得に失敗しました。",
+        "google",
+      );
+    }
+    const payload = await readJsonObject(response, "既定カレンダーの応答形式が不正です。");
+    return text(payload.summary) || "Google Calendar";
+  }
+}
+
+export function parseGoogleEvent(
+  raw: unknown,
+  defaultCalendarName: string,
+  timeZone: string,
+): CalendarEvent {
+  const event = record(raw);
+  const start = record(event.start);
+  const end = record(event.end);
+  const sensitivity = text(event.visibility) === "private" ? "private" : "normal";
+  const restricted = sensitivity === "private";
+  const startDate = text(start.date);
+  const isAllDay = Boolean(startDate);
+  const startTime = isAllDay
+    ? localDateTimeToIso(`${startDate}T00:00:00`, timeZone)
+    : text(start.dateTime) || localDateTimeToIso(`${startDate}T00:00:00`, timeZone);
+  const endDate = text(end.date);
+  const endTime = isAllDay
+    ? localDateTimeToIso(`${endDate || startDate}T00:00:00`, timeZone)
+    : text(end.dateTime) || startTime;
+  const recurringEventId = text(event.recurringEventId);
+
+  return {
+    id: text(event.id),
+    title: restricted ? "非公開の予定" : text(event.summary),
+    startTime,
+    endTime,
+    startTimeZone: text(start.timeZone) || timeZone,
+    endTimeZone: text(end.timeZone) || timeZone,
+    isAllDay,
+    location: restricted ? "" : text(event.location),
+    meetingUrl: restricted ? "" : safeMeetingUrl(googleMeetingUrl(event)),
+    calendarName: defaultCalendarName,
+    sensitivity,
+    seriesMasterId: recurringEventId || null,
+    occurrenceType: recurringEventId ? "occurrence" : "singleInstance",
+    recurrence: null,
+  };
+}
+
+function googleMeetingUrl(event: Record<string, unknown>): string {
+  const conference = record(event.conferenceData);
+  const entryPoints = Array.isArray(conference.entryPoints) ? conference.entryPoints : [];
+  for (const value of entryPoints) {
+    const entryPoint = record(value);
+    if (text(entryPoint.entryPointType) === "video" && text(entryPoint.uri)) {
+      return text(entryPoint.uri);
+    }
+  }
+  return text(event.hangoutLink);
+}
+
+export function parseGraphEvent(
+  raw: unknown,
+  defaultCalendarName: string,
+  timeZone: string,
+): CalendarEvent {
   const event = record(raw);
   const start = record(event.start);
   const end = record(event.end);
@@ -103,7 +233,8 @@ export function parseGraphEvent(raw: unknown, defaultCalendarName: string, timeZ
   const calendar = record(event.calendar);
   const sensitivity = calendarSensitivity(event.sensitivity);
   const occurrenceType = occurrenceTypeValue(event.type);
-  const seriesMasterId = text(event.seriesMasterId) || (occurrenceType === "seriesMaster" ? text(event.id) : "") || null;
+  const seriesMasterId =
+    text(event.seriesMasterId) || (occurrenceType === "seriesMaster" ? text(event.id) : "") || null;
   const recurrence = parseRecurrence(event.recurrence, seriesMasterId);
   const restricted = sensitivity === "private" || sensitivity === "confidential";
 
@@ -116,7 +247,9 @@ export function parseGraphEvent(raw: unknown, defaultCalendarName: string, timeZ
     endTimeZone: text(end.timeZone) || timeZone,
     isAllDay: event.isAllDay === true,
     location: restricted ? "" : text(location.displayName),
-    meetingUrl: restricted ? "" : safeMeetingUrl(text(onlineMeeting.joinUrl) || text(event.onlineMeetingUrl)),
+    meetingUrl: restricted
+      ? ""
+      : safeMeetingUrl(text(onlineMeeting.joinUrl) || text(event.onlineMeetingUrl)),
     calendarName: text(calendar.name) || defaultCalendarName,
     sensitivity,
     seriesMasterId,
@@ -161,42 +294,121 @@ export function calendarErrorMessage(code: CalendarErrorCode): string {
   }
 }
 
-export function classifyCalendarProviderError(status: number, body: string, fallback: CalendarErrorCode = "unknown"): CalendarProviderError {
-  const normalized = body.toLowerCase();
-  if (hasAny(normalized, ["conditional access", "aadsts53000", "aadsts53001", "aadsts53003", "device policy", "multifactor"])) {
-    return new CalendarProviderError("conditional_access", calendarErrorMessage("conditional_access"), status);
+export function calendarErrorMessageFor(
+  provider: CalendarProvider,
+  code: CalendarErrorCode,
+): string {
+  if (provider !== "google") return calendarErrorMessage(code);
+  switch (code) {
+    case "not_configured":
+      return "Google連携が未設定です。TASKEN_GOOGLE_CLIENT_IDにクライアントIDを設定してください。";
+    case "consent_required":
+      return "Googleのカレンダー権限への同意が必要です。ブラウザで再接続してください。";
+    case "admin_approval_required":
+      return "Google Workspaceの管理者承認が必要です。管理者にカレンダー読み取り権限の承認を依頼してください。";
+    case "permission_denied":
+      return "カレンダー権限が拒否されました。権限を確認してSettingsから再接続してください。";
+    case "authentication_required":
+      return "Googleの認証が必要です。Settingsから再接続してください。";
+    case "token_expired":
+      return "Googleの認証が期限切れです。Settingsから再接続してください。";
+    case "provider_unavailable":
+      return "Googleカレンダーが一時的に利用できません。時間をおいて再試行してください。";
+    case "invalid_response":
+      return "Googleカレンダーの応答を解釈できませんでした。再試行してください。";
+    default:
+      return calendarErrorMessage(code);
   }
-  if (hasAny(normalized, ["admin consent", "admin approval", "aadsts65001", "aadsts90094", "authorization_requestdenied"])) {
-    return new CalendarProviderError("admin_approval_required", calendarErrorMessage("admin_approval_required"), status);
-  }
-  if (hasAny(normalized, ["consent_required", "consent required", "consent" ])) {
-    return new CalendarProviderError("consent_required", calendarErrorMessage("consent_required"), status);
-  }
-  if (status === 401 || hasAny(normalized, ["invalid_grant", "login_required", "interaction_required"])) {
-    return new CalendarProviderError("authentication_required", calendarErrorMessage("authentication_required"), status);
-  }
-  if (status === 403) {
-    return new CalendarProviderError("permission_denied", calendarErrorMessage("permission_denied"), status);
-  }
-  if (status === 429) {
-    return new CalendarProviderError("rate_limited", calendarErrorMessage("rate_limited"), status);
-  }
-  if (status >= 500) {
-    return new CalendarProviderError("provider_unavailable", calendarErrorMessage("provider_unavailable"), status);
-  }
-  return new CalendarProviderError(fallback, calendarErrorMessage(fallback), status);
 }
 
-async function providerErrorFromResponse(response: Response, fallbackMessage: string): Promise<CalendarProviderError> {
+export function classifyCalendarProviderError(
+  status: number,
+  body: string,
+  fallback: CalendarErrorCode = "unknown",
+  provider: CalendarProvider = "microsoft",
+): CalendarProviderError {
+  const message = (code: CalendarErrorCode) => calendarErrorMessageFor(provider, code);
+  const normalized = body.toLowerCase();
+  if (
+    hasAny(normalized, [
+      "conditional access",
+      "aadsts53000",
+      "aadsts53001",
+      "aadsts53003",
+      "device policy",
+      "multifactor",
+    ])
+  ) {
+    return new CalendarProviderError("conditional_access", message("conditional_access"), status);
+  }
+  if (
+    hasAny(normalized, [
+      "admin consent",
+      "admin approval",
+      "aadsts65001",
+      "aadsts90094",
+      "authorization_requestdenied",
+      "admin_policy_enforced",
+    ])
+  ) {
+    return new CalendarProviderError(
+      "admin_approval_required",
+      message("admin_approval_required"),
+      status,
+    );
+  }
+  if (hasAny(normalized, ["consent_required", "consent required", "consent"])) {
+    return new CalendarProviderError("consent_required", message("consent_required"), status);
+  }
+  if (
+    status === 401 ||
+    hasAny(normalized, [
+      "invalid_grant",
+      "login_required",
+      "interaction_required",
+      "unauthenticated",
+    ])
+  ) {
+    return new CalendarProviderError(
+      "authentication_required",
+      message("authentication_required"),
+      status,
+    );
+  }
+  if (status === 403) {
+    return new CalendarProviderError("permission_denied", message("permission_denied"), status);
+  }
+  if (status === 429) {
+    return new CalendarProviderError("rate_limited", message("rate_limited"), status);
+  }
+  if (status >= 500) {
+    return new CalendarProviderError(
+      "provider_unavailable",
+      message("provider_unavailable"),
+      status,
+    );
+  }
+  return new CalendarProviderError(fallback, message(fallback), status);
+}
+
+async function providerErrorFromResponse(
+  response: Response,
+  fallbackMessage: string,
+  provider: CalendarProvider = "microsoft",
+): Promise<CalendarProviderError> {
   const body = await response.text().catch(() => "");
-  const error = classifyCalendarProviderError(response.status, body);
-  if (error.code === "unknown") return new CalendarProviderError("unknown", fallbackMessage, response.status);
+  const error = classifyCalendarProviderError(response.status, body, "unknown", provider);
+  if (error.code === "unknown")
+    return new CalendarProviderError("unknown", fallbackMessage, response.status);
   return error;
 }
 
-async function readJsonObject(response: Response, message: string): Promise<Record<string, unknown>> {
+async function readJsonObject(
+  response: Response,
+  message: string,
+): Promise<Record<string, unknown>> {
   try {
-    const payload = await response.json() as unknown;
+    const payload = (await response.json()) as unknown;
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       throw new Error("object");
     }
@@ -272,7 +484,13 @@ function safeMeetingUrl(value: string): string {
 }
 
 function occurrenceTypeValue(value: unknown): CalendarOccurrenceType {
-  if (value === "singleInstance" || value === "occurrence" || value === "exception" || value === "seriesMaster") return value;
+  if (
+    value === "singleInstance" ||
+    value === "occurrence" ||
+    value === "exception" ||
+    value === "seriesMaster"
+  )
+    return value;
   return "unknown";
 }
 
@@ -282,7 +500,7 @@ function calendarSensitivity(value: unknown): CalendarEvent["sensitivity"] {
 }
 
 function record(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
+  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
 function text(value: unknown): string {
