@@ -219,13 +219,28 @@ export function buildDailyDebriefEvidence(
       verification: work.verification,
       remainingWork: work.remaining_work,
       strength: "agent_reported",
-      hasContent: true,
+      hasContent: Boolean(
+        work.summary || work.verification.length > 0 || work.remaining_work.length > 0,
+      ),
       proposal:
         work.review_status === "pending"
           ? domain.ai_proposals.find((proposal) => proposal.id === work.proposal_id)
           : undefined,
     }));
-  return [...canonical, ...pending, ...taskWork].sort((left, right) =>
+  const seenSessionIds = new Set<string>();
+  const sessionEvidence = [...canonical, ...pending]
+    .sort(
+      (left, right) =>
+        Number(right.hasContent) - Number(left.hasContent) ||
+        left.startedAt.localeCompare(right.startedAt),
+    )
+    .filter((entry) => {
+      const key = entry.sourceSessionId || entry.id;
+      if (seenSessionIds.has(key)) return false;
+      seenSessionIds.add(key);
+      return true;
+    });
+  return [...sessionEvidence, ...taskWork].sort((left, right) =>
     left.startedAt.localeCompare(right.startedAt),
   );
 }

@@ -153,6 +153,46 @@ test("daily report request limits AI to proposal and leaves answers for human re
   assert.doesNotMatch(request, /tasken\.(?:create|save|update)_note/);
 });
 
+test("Daily Debrief removes duplicate source sessions and flags empty task work", () => {
+  const base = domainFixture();
+  const session = base.agent_sessions[0];
+  const duplicated = {
+    ...base,
+    ai_proposals: [],
+    agent_sessions: [
+      { ...session, id: "session-old", started_at: new Date(2026, 7, 25, 8).toISOString() },
+      { ...session, id: "session-new", started_at: new Date(2026, 7, 25, 9).toISOString() },
+    ],
+  };
+  const evidence = buildDailyDebriefEvidence(duplicated, "2026-08-25");
+  assert.equal(
+    evidence.filter((entry) => entry.sourceSessionId === session.source_session_id).length,
+    1,
+  );
+
+  const startedAt = new Date(2026, 7, 25, 10).toISOString();
+  const taskDomain = {
+    tasks: [
+      { id: "task-x", title: "空の作業", work_state: "in_progress", work_started_at: startedAt },
+    ],
+    work_receipts: [],
+    agent_sessions: [],
+    ai_proposals: [
+      {
+        id: "started",
+        payload_type: "task_work",
+        status: "pending",
+        received_at: startedAt,
+        request: { work_started_at: startedAt },
+        payload: { task_work: [{ task_id: "task-x", action: "start", reported_at: startedAt }] },
+      },
+    ],
+  };
+  const taskEvidence = buildDailyDebriefEvidence(taskDomain, "2026-08-25");
+  assert.equal(taskEvidence.length, 1);
+  assert.equal(taskEvidence[0].hasContent, false);
+});
+
 test("readTaskenDebrief keeps legacy saved reports readable", () => {
   const note = {
     id: "legacy-debrief",

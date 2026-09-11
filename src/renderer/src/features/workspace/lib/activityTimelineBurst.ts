@@ -40,6 +40,14 @@ function isStandalonePoint<T extends BurstSource>(item: T): boolean {
   return item.item_type === "event" && item.end_minutes <= item.start_minutes;
 }
 
+function entityKey(item: BurstSource): string {
+  const ref = (item.event as { entity_ref?: { type?: unknown; id?: unknown } } | undefined)
+    ?.entity_ref;
+  const type = String(ref?.type || "").trim();
+  const id = String(ref?.id || "").trim();
+  return type && id ? `${type}:${id}` : "";
+}
+
 function rawOrigin(item: BurstSource): string {
   const value = item.origin ?? item.event?.origin;
   if (typeof value === "string") return value.trim().toLowerCase();
@@ -138,6 +146,19 @@ export function buildActivityTimelineBursts<T extends BurstSource>(
     cluster.push(point);
   }
   finishCluster();
+
+  // 同じEntityへの細かな更新は、時刻が離れていても1行にまとめる（似た行の氾濫を防ぐ）。
+  const burstMemberIds = new Set(bursts.flat().map((event) => event.id));
+  const byEntity = new Map<string, T[]>();
+  for (const point of points) {
+    if (burstMemberIds.has(point.id)) continue;
+    const key = entityKey(point);
+    if (!key) continue;
+    byEntity.set(key, [...(byEntity.get(key) || []), point]);
+  }
+  for (const group of byEntity.values()) {
+    if (group.length >= 2) bursts.push(group);
+  }
 
   const firstByEventId = new Map(bursts.map((burst) => [burst[0].id, burst]));
   const hiddenEventIds = new Set(bursts.flatMap((burst) => burst.slice(1).map((item) => item.id)));

@@ -110,3 +110,24 @@ test("event origin objects classify Tasken saves separately from AI origins", ()
 
   assert.equal(burst.origin, "mixed");
 });
+
+test("same-entity updates collapse into one burst even when spread across the day", () => {
+  const items = ["01", "05"].map((hour, index) => ({
+    id: `note-${index}`,
+    item_type: "event",
+    start_at: `2026-08-28T${hour}:00:00.000Z`,
+    end_at: `2026-08-28T${hour}:00:00.000Z`,
+    display_kind: "record",
+    origin: "tasken",
+    theme_ids: [],
+    event: { entity_ref: { type: "note", id: "note-a" } },
+  }));
+  const calendarItems = buildActivityTimelineBursts(
+    buildActivityTimelineLayout(items, { date: "2026-08-28" }),
+  );
+  const bursts = calendarItems.filter((item) => item.item_type === "burst");
+
+  assert.equal(calendarItems.length, 1);
+  assert.equal(bursts.length, 1);
+  assert.equal(bursts[0].events.length, 2);
+});
