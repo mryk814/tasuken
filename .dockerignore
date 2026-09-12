@@ -24,3 +24,5 @@ fixtures
 design-audits
 design-standard
 docs
+deploy/synology/state
+deploy/synology/backup

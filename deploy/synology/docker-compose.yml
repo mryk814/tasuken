@@ -1,10 +1,10 @@
 # Synology Container Manager（Project / docker compose）向け
 #
-# 1. /volume1/tasken-sync を、データ端末と共有しているフォルダへ合わせる。
-#    （Synology Drive や Cloud Sync で OneDrive/社内共有フォルダをNASへ同期した先）
-# 2. tasken-data はNASローカルのvolume。SQLiteを同期フォルダへ置かない。
+# 1. .env で TASKEN_SYNC_DIR を、データ端末と共有しているフォルダのNAS絶対パスへ合わせる。
+#    例: \\synologyDS723\Tasken\sync に対応する /volume1/Tasken/sync
+# 2. /data は ./state のホストbind（NASローカル）。SQLiteを同期フォルダへ置かない。
 # 3. 起動前にデータ端末側で共有フォルダ同期を設定し、差分が公開されていること。
-# 4. 必ずUID/GIDを揃える（deploy/synology/README を参照）。二重writerにしない。
+# 4. .env で UID/GID を揃える。二重writerにしない。詳細は docs/synology-headless-node.md。
 services:
   tasken-headless:
     build:
@@ -26,8 +26,8 @@ services:
       - --user-data-dir=/data
       - --sync-directory=/sync
     volumes:
-      - tasken-data:/data
-      - /volume1/tasken-sync:/sync
+      - ./state:/data
+      - ${TASKEN_SYNC_DIR:-/volume1/Tasken/sync}:/sync
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
     stop_grace_period: 20s
@@ -36,6 +36,3 @@ services:
       options:
         max-size: 10m
         max-file: "3"
-
-volumes:
-  tasken-data:

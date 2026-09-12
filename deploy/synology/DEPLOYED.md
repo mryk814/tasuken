@@ -18,4 +18,4 @@ Gitのbranch先端・build完了・ローカル検証とは別物です。更新
   - replicaの `workspace_id` がホストと一致、`task-smoke-a` を受信、pending差分0。
   - `docker exec` + `TASKEN_MCP_READ_ONLY=1` で `tool_count 29`、`start_task_work` 非公開、`search_items` で同期Taskを読み取り。
   - snapshot要素検証: `/data` tar化、隔離read-only SQLite `integrity_check` と `workspace_id` 検査、`docker stop --time 20` → `docker start` → health `healthy`。
-- 未確認: 実Synology実機、arm64/armv7、Synology Drive同期の遅延、`backup.sh` のNAS上での一連実行、MCP transport/tunnel。
+- 未確認: 実Synology実機、arm64/armv7、Synology Drive同期の遅延、`backup.sh` のNAS上での一連実行、MCP transport/tunnel、composeの `./state` bind + `TASKEN_SYNC_DIR` 版（ローカル検証は等価なrun flagsで実施）。

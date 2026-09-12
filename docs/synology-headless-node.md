@@ -21,62 +21,79 @@ Desktopが停止していても、NASのローカルSQLiteが最新の同期差�
 
 ## 前提
 
-- DSM 7.2以降 + Container Manager（またはDockerが使えること）
+- DSM 7.2以降 + Container Manager
+- NASへSSHできる（この手順はTailscale経由のSSH/scpを前提。`ssh <user>@synologyDS723`）
 - CPUアーキテクチャを確認する。x86_64（Intel/AMD）またはaarch64（ARM64）を推奨。32-bit ARM（armv7）は非推奨。
   ```bash
   uname -m
   ```
 - データ端末（Desktop）側で「設定 → 端末間同期」を設定し、共有フォルダへ差分が公開済みであること。NASは空のnodeとして参加するため、**最初にデータ端末で設定**します。
-- NASの同期フォルダはSynology Drive Client / Cloud Sync等で、データ端末と同じ共有フォルダへ同期しておきます。
+
+## 共有フォルダの置き場所
+
+同期フォルダは「データ端末とNASが同じものを見る」フォルダです。次のどちらかです。
+
+- **直接SMB（推奨・最小構成）**: NASの共有フォルダを作り、PCからSMBで開く。
+  - NAS側: 共有フォルダ `Tasken` を作り、その下に `sync`（例 `/volume1/Tasken/sync`）。
+  - PC側: `\\synologyDS723\Tasken\sync` をTaskenの「端末間同期」で選ぶ（`T:` などドライブ割り当てを推奨）。
+  - クラウド同期を挟まないため遅延や途中欠けが少ない。
+- **OneDrive + Cloud Sync**: PCはOneDriveフォルダ、NASはCloud Syncで同じフォルダを `/volume1/...` に落とす。既にOneDrive運用がある場合はこちら。
+
+いずれも**SQLite / WAL / userDataを同期フォルダへ置かない**。共有するのは `tasken-sync.json`・`devices/{deviceId}/` の差分と添付だけです。SQLiteはNASローカルの `deploy/synology/state`（ホストbind、コンテナの`/data`）に置きます。
 
 ## 手順
 
-### 1. フォルダとvolume
+### 1. フォルダを用意
 
-- `devices/{deviceId}/` に差分ファイルを置くための同期フォルダを用意する（例: `/volume1/tasken-sync`）。
-- **SQLite / WAL / userDataを同期フォルダへ置かない。** 共有するのはapplication-levelの差分と添付だけ。
-- SQLiteはDocker named volume（`tasken-data`）に置き、NASローカルに保持する。同期フォルダはバックアップの代わりにはならない。
+- NAS側: 共有フォルダ `Tasken` に `sync` を作る（例 `/volume1/Tasken/sync`）。空のままでよい（データ端末が公開した差分が入る）。
+- `deploy/synology/state` は初回に作る（コンテナの`/data`）。ホストbindなのでNASローカルに置かれ、同期フォルダとは別。
 
-### 2. イメージを作る
+### 2. イメージとソースを転送する
 
-リポジトリrootをbuild contextにします。`.dockerignore` でnode_modules等を除外済みです。
-
-NAS上でビルドする場合（SSH）:
+開発機（Docker Desktop）でlinux/amd64を作り、NASへ転送してloadする。NAS上ではbuildしない。
 
 ```bash
-mkdir -p /volume1/docker && cd /volume1/docker
-git clone <Taskenのリポジトリ> tasken
-cd tasken
-sudo docker build -f deploy/synology/Dockerfile -t tasken-headless:local .
+# 開発機で（リポジトリroot）
+docker build --platform linux/amd64 -f deploy/synology/Dockerfile -t tasken-headless:local .
+docker save tasken-headless:local | gzip -1 > tasken-headless-linux-amd64.tar.gz
+git archive --format=tar HEAD | gzip -9 > tasken-source.tar.gz
 ```
-
-NASにbuildツールを入れたくない場合は、開発機で作って転送します。NASの`uname -m`に合わせてplatformを選びます（x86_64 → linux/amd64、aarch64 → linux/arm64）。
 
 ```bash
-docker buildx build --platform linux/amd64 \
-  -f deploy/synology/Dockerfile -t tasken-headless:local --load .
-docker save tasken-headless:local | gzip > tasken-headless.tar.gz
-# NASへコピーして
-sudo docker load < tasken-headless.tar.gz
+# NASへ（Tailscale経由）。docker-composeはContainer Manager同梱のpathを使う。
+ssh <user>@synologyDS723 "sudo mkdir -p /volume1/docker/tasken && sudo chown \$(id -u):\$(id -g) /volume1/docker/tasken"
+scp -O tasken-headless-linux-amd64.tar.gz tasken-source.tar.gz <user>@synologyDS723:/volume1/docker/tasken/
+ssh <user>@synologyDS723 "cd /volume1/docker/tasken && tar -xzf tasken-source.tar.gz && gzip -dc tasken-headless-linux-amd64.tar.gz | sudo docker load"
 ```
 
-### 3. 起動
+### 3. 起動前の準備と確認
+
+```bash
+ssh <user>@synologyDS723
+cd /volume1/docker/tasken/deploy/synology
+cp .env.example .env
+# .env を編集: TASKEN_UID/GID（id -u / id -g の値）、TASKEN_SYNC_DIR=/volume1/Tasken/sync
+mkdir -p state
+sudo chown -R "$(id -u):$(id -g)" state /volume1/Tasken/sync
+```
+
+コンテナのuidで `/data` と `/sync` へ書けるかを確認する（write-probe）:
+
+```bash
+sudo /var/packages/ContainerManager/target/usr/bin/docker-compose run --rm --entrypoint node tasken-headless -e \
+  "const fs=require('node:fs');for(const p of ['/data/.write-probe','/sync/.write-probe']){fs.writeFileSync(p,'ok');fs.unlinkSync(p)};console.log('WRITE_OK')"
+```
+
+### 4. 起動
 
 Container Managerの「プロジェクト」で `deploy/synology/docker-compose.yml` を読み込むか、SSHで:
 
 ```bash
-cd /volume1/docker/tasken/deploy/synology
-sudo docker compose up -d
-sudo docker logs -f tasken-headless
+sudo /var/packages/ContainerManager/target/usr/bin/docker-compose up -d
+sudo /var/packages/ContainerManager/target/usr/bin/docker-compose logs -f tasken-headless
 ```
-
-`/volume1/tasken-sync` のパスは環境に合わせてcomposeを編集してください。コンテナは uid 1000（`node`）で動くため、同期フォルダをそのuidが読み書きできる必要があります。
 
 Container Managerの「プロジェクト」は`build:`を実行しないことがあります。手順2でイメージを先に読み込んだ場合は、composeの`build:`ブロックを削除して`image: tasken-headless:local`だけにしてください。
-
-```bash
-sudo chown -R 1000:1000 /volume1/tasken-sync
-```
 
 起動ログに次が出れば参加に成功しています（`sync_directory` が設定したパス）。
 
@@ -84,7 +101,7 @@ sudo chown -R 1000:1000 /volume1/tasken-sync
 TASKEN_HEADLESS_CORE_READY {"...","sync_directory":"/sync",...}
 ```
 
-### 4. 動作確認
+### 5. 動作確認
 
 - healthcheck: `sudo docker inspect --format '{{.State.Health.Status}}' tasken-headless`
 - replicaがホストと同じWorkspaceを採用しているか（workspace_idがデータ端末と一致する）:
@@ -93,7 +110,7 @@ TASKEN_HEADLESS_CORE_READY {"...","sync_directory":"/sync",...}
   ```
 - データ端末側でTaskを追加し、10秒pollの後にNASが受信していることをMCP読み取りで確認する（下記）。
 
-### 5. MCPをread-onlyで使う
+### 6. MCPをread-onlyで使う
 
 Coreは`127.0.0.1`のloopbackにだけ待ち受け、discovery fileはowner-only（mode 0600、uid一致）です。そのため**MCP bridgeはCoreと同じコンテナ・同じuidで起動**します。別コンテナや別ユーザーからは接続できません（`DISCOVERY_OWNER_MISMATCH`）。
 
@@ -108,8 +125,9 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 
 `deploy/synology/docker-compose.yml` は次の前提で組んでいます。
 
-- `user: "${TASKEN_UID:-1000}:${TASKEN_GID:-1000}"`。`deploy/synology/.env`（`.env.example` を参照）でNASの所有者に合わせる。Coreが書く `/data` と `/sync` はこのUID/GIDが読み書きできること。
-- `read_only: true`、`cap_drop: ALL`、`security_opt: no-new-privileges`、`init: true`。書き込みは `/data`・`/sync` のvolumeと `/tmp` のtmpfsだけ。
+- `user: "${TASKEN_UID:-1000}:${TASKEN_GID:-1000}"`。`deploy/synology/.env`（`.env.example` を参照）でNASの所有者に合わせる。Coreが書く `state`（`/data`）と同期フォルダ（`/sync`）はこのUID/GIDが読み書きできること。
+- `read_only: true`、`cap_drop: ALL`、`security_opt: no-new-privileges`、`init: true`。書き込みは `./state`・`TASKEN_SYNC_DIR` のbindと `/tmp` のtmpfsだけ。
+- `/data` は `./state` のホストbind（NASローカル）。`/sync` は `${TASKEN_SYNC_DIR}`（例 `/volume1/Tasken/sync`）。
 - `restart: unless-stopped`、`stop_grace_period: 20s`（SIGTERMでCoreがdiscoveryを削除して終了する時間）。
 - ログは `json-file` を10MB×3でローテーション。
 - ImageのHEALTHCHECKがdiscoveryと `/health` を確認する。
@@ -120,7 +138,7 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 | -------------------- | ----------------------------------------------- |
 | `Dockerfile`         | core-dist / mcp-dist を作るNode専用image        |
 | `docker-compose.yml` | Container Manager Project用のservice定義        |
-| `.env.example`       | `TASKEN_UID` / `TASKEN_GID`                     |
+| `.env.example`       | `TASKEN_UID` / `TASKEN_GID` / `TASKEN_SYNC_DIR` |
 | `backup.sh`          | 稼働中replicaのsnapshotと隔離検証（後述）       |
 | `DEPLOYED.md`        | 最後に観測した稼働状態（branch・versionとは別） |
 
@@ -140,7 +158,7 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
    ```
    - `backup/VERIFIED` が出て、元コンテナがhealthyに戻ったことを確認してから次へ進む。
    - これはreplicaの復旧用。正本のwriter権限を移すものではない（別nodeとして同時起動しない）。
-3. 同じCompose project・同じ絶対配置を維持し、`image:` だけ新候補へ向けて `docker compose up -d`。`tasken-data` volumeと `/sync` は初期化しない。
+3. 同じCompose project・同じ絶対配置を維持し、`image:` だけ新候補へ向けて `docker compose up -d`。`state` と `TASKEN_SYNC_DIR` は初期化しない。
 4. healthだけでなく、データ端末側で追加したTaskがMCP読み取りに出ること、`workspaceId`がホストと一致することを確認する。
 5. `DEPLOYED.md` に固定commit・image・snapshot結果・確認範囲を追記する。
 

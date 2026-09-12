@@ -5,6 +5,7 @@
 /mcp-dist
 /core-dist
 /deploy/synology/backup/
+/deploy/synology/state/
 /deploy/synology/.env
 /build
 /android-app/.gradle/
