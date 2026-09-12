@@ -50,58 +50,44 @@ Desktopが停止していても、NASのローカルSQLiteが最新の同期差�
 
 ### 2. イメージとソースを転送する
 
-開発機（Docker Desktop）でlinux/amd64を作り、NASへ転送してloadする。NAS上ではbuildしない。
+開発機（Docker Desktop）でlinux/amd64を作り、NASへ渡す。NAS上ではbuildしない。PowerShellでバイナリをパイプすると壊れるため、`docker save -o` と `git archive -o` で直接ファイルへ書く。
 
-```bash
-# 開発機で（リポジトリroot）
+SMBで共有フォルダを割り当てている場合（最小構成。例: `T:` = `\\synologyDS723\tasken`）:
+
+```powershell
+# 開発機（リポジトリroot）
 docker build --platform linux/amd64 -f deploy/synology/Dockerfile -t tasken-headless:local .
-docker save tasken-headless:local | gzip -1 > tasken-headless-linux-amd64.tar.gz
-git archive --format=tar HEAD | gzip -9 > tasken-source.tar.gz
+New-Item -ItemType Directory -Force T:\_deploy | Out-Null
+docker save -o T:\_deploy\tasken-headless-linux-amd64.tar tasken-headless:local
+git archive -o T:\_deploy\tasken-source.tar HEAD
+Copy-Item deploy/synology/nas-install.sh T:\_deploy\nas-install.sh
 ```
+
+SSH/scpを使う場合（Tailscale経由）:
 
 ```bash
-# NASへ（Tailscale経由）。docker-composeはContainer Manager同梱のpathを使う。
-ssh <user>@synologyDS723 "sudo mkdir -p /volume1/docker/tasken && sudo chown \$(id -u):\$(id -g) /volume1/docker/tasken"
-scp -O tasken-headless-linux-amd64.tar.gz tasken-source.tar.gz <user>@synologyDS723:/volume1/docker/tasken/
-ssh <user>@synologyDS723 "cd /volume1/docker/tasken && tar -xzf tasken-source.tar.gz && gzip -dc tasken-headless-linux-amd64.tar.gz | sudo docker load"
+docker save -o tasken-headless-linux-amd64.tar tasken-headless:local
+git archive -o tasken-source.tar HEAD
+ssh <user>@synologyDS723 "sudo mkdir -p /volume1/tasken/_deploy"
+scp -O tasken-headless-linux-amd64.tar tasken-source.tar deploy/synology/nas-install.sh <user>@synologyDS723:/volume1/tasken/_deploy/
 ```
 
-### 3. 起動前の準備と確認
+`docker-compose` はContainer Manager同梱の `/var/packages/ContainerManager/target/usr/bin/docker-compose` を使う。
+
+### 3. NAS上で配置して起動
+
+`nas-install.sh` が source展開・image load・`.env`作成・`state`と`sync`のchown・write-probe・`compose up` をまとめて行う。NAS上で:
 
 ```bash
-ssh <user>@synologyDS723
-cd /volume1/docker/tasken/deploy/synology
-cp .env.example .env
-# .env を編集: TASKEN_UID/GID（id -u / id -g の値）、TASKEN_SYNC_DIR=/volume1/Tasken/sync
-mkdir -p state
-sudo chown -R "$(id -u):$(id -g)" state /volume1/Tasken/sync
+sudo bash /volume1/tasken/_deploy/nas-install.sh
 ```
 
-コンテナのuidで `/data` と `/sync` へ書けるかを確認する（write-probe）:
+- UID/GIDは同期フォルダの所有者から自動で取る。パスが違う場合は環境変数で上書きする:
+  `sudo DEPLOY_SRC=/volume1/... SYNC_DIR=/volume1/... PROJECT_DIR=/volume1/... bash nas-install.sh`
+- 途中の `WRITE_OK` と、最後の `TASKEN_HEADLESS_CORE_READY ... "sync_directory":"/sync"` を確認する。
+- Container Managerの「プロジェクト」で読み込む場合は、composeの`build:`を削除して`image: tasken-headless:local`だけにし、`.env`を配置する（`TASKEN_UID`/`TASKEN_GID`/`TASKEN_SYNC_DIR`）。
 
-```bash
-sudo /var/packages/ContainerManager/target/usr/bin/docker-compose run --rm --entrypoint node tasken-headless -e \
-  "const fs=require('node:fs');for(const p of ['/data/.write-probe','/sync/.write-probe']){fs.writeFileSync(p,'ok');fs.unlinkSync(p)};console.log('WRITE_OK')"
-```
-
-### 4. 起動
-
-Container Managerの「プロジェクト」で `deploy/synology/docker-compose.yml` を読み込むか、SSHで:
-
-```bash
-sudo /var/packages/ContainerManager/target/usr/bin/docker-compose up -d
-sudo /var/packages/ContainerManager/target/usr/bin/docker-compose logs -f tasken-headless
-```
-
-Container Managerの「プロジェクト」は`build:`を実行しないことがあります。手順2でイメージを先に読み込んだ場合は、composeの`build:`ブロックを削除して`image: tasken-headless:local`だけにしてください。
-
-起動ログに次が出れば参加に成功しています（`sync_directory` が設定したパス）。
-
-```text
-TASKEN_HEADLESS_CORE_READY {"...","sync_directory":"/sync",...}
-```
-
-### 5. 動作確認
+### 4. 動作確認
 
 - healthcheck: `sudo docker inspect --format '{{.State.Health.Status}}' tasken-headless`
 - replicaがホストと同じWorkspaceを採用しているか（workspace_idがデータ端末と一致する）:
@@ -110,7 +96,7 @@ TASKEN_HEADLESS_CORE_READY {"...","sync_directory":"/sync",...}
   ```
 - データ端末側でTaskを追加し、10秒pollの後にNASが受信していることをMCP読み取りで確認する（下記）。
 
-### 6. MCPをread-onlyで使う
+### 5. MCPをread-onlyで使う
 
 Coreは`127.0.0.1`のloopbackにだけ待ち受け、discovery fileはowner-only（mode 0600、uid一致）です。そのため**MCP bridgeはCoreと同じコンテナ・同じuidで起動**します。別コンテナや別ユーザーからは接続できません（`DISCOVERY_OWNER_MISMATCH`）。
 
@@ -134,13 +120,14 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 
 `deploy/synology/` の各ファイル:
 
-| ファイル             | 役割                                            |
-| -------------------- | ----------------------------------------------- |
-| `Dockerfile`         | core-dist / mcp-dist を作るNode専用image        |
-| `docker-compose.yml` | Container Manager Project用のservice定義        |
-| `.env.example`       | `TASKEN_UID` / `TASKEN_GID` / `TASKEN_SYNC_DIR` |
-| `backup.sh`          | 稼働中replicaのsnapshotと隔離検証（後述）       |
-| `DEPLOYED.md`        | 最後に観測した稼働状態（branch・versionとは別） |
+| ファイル             | 役割                                                         |
+| -------------------- | ------------------------------------------------------------ |
+| `Dockerfile`         | core-dist / mcp-dist を作るNode専用image                     |
+| `docker-compose.yml` | Container Manager Project用のservice定義                     |
+| `.env.example`       | `TASKEN_UID` / `TASKEN_GID` / `TASKEN_SYNC_DIR`              |
+| `backup.sh`          | 稼働中replicaのsnapshotと隔離検証（後述）                    |
+| `nas-install.sh`     | NAS上の配置入口（source展開・load・.env/state・probe・起動） |
+| `DEPLOYED.md`        | 最後に観測した稼働状態（branch・versionとは別）              |
 
 ## 更新と復旧
 
