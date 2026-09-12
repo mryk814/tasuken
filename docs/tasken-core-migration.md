@@ -99,3 +99,7 @@ package/buildだけではWindows packaged E2Eやactual client接続の代わり�
 ## Mobile境界
 
 Mobile GatewayはCoreの外向きadapterだが、local MCPのdiscovery tokenやloopback exposure policyを流用しない。device identity、scope、conflict、offline/pending、deep link、release signing、実機postureは`docs/mobile-gateway-phase4a.md`を正本とする。
+
+## Headless Core (#588 Phase 1)
+
+Electron・renderer・Windows UIを必須とせずCoreを起動するcomposition rootを`src/main/headless/`へ追加した。既存MCP bridgeはdiscovery経由でそのまま接続する。起動・停止・health・含まない境界・Synology運用の前提は[headless-core.md](headless-core.md)を正本とする。

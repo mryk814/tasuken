@@ -519,7 +519,7 @@ export class TaskenCoreRuntime {
   }
 
   async start() {
-    await this.host.start();
+    return this.host.start();
   }
 
   async stop() {
