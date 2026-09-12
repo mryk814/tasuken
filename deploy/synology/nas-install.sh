@@ -64,7 +64,7 @@ printf 'TASKEN_UID=%s\nTASKEN_GID=%s\nTASKEN_ADMIN_GID=%s\nTASKEN_SYNC_DIR=%s\nC
   "$uid" "$gid" "$admin_gid" "$SYNC_DIR" "$tunnel_id" >"$deploy/.env"
 mkdir -p "$deploy/state" "$deploy/secrets"
 chmod 700 "$deploy/secrets"
-chown -R "$uid:$gid" "$deploy/state" "$SYNC_DIR"
+chown -R "$uid:$gid" "$deploy/state" "$SYNC_DIR" "$deploy/secrets"
 
 printf '== write probe\n'
 "$DOCKER" run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \

@@ -121,10 +121,14 @@ NASのCoreはloopbackのみなので、ChatGPT/Codex等へはOpenAI Secure MCP T
 cd /volume1/docker/tasken/deploy/synology
 # .env の CONTROL_PLANE_TUNNEL_ID=tunnel_... を設定（未使用時は空のまま）
 umask 077; printf '%s' 'sk-...' | sudo tee secrets/control_plane_api_key >/dev/null
+UID_=$(sed -n 's/^TASKEN_UID=//p' .env); GID_=$(sed -n 's/^TASKEN_GID=//p' .env)
+sudo chown -R "$UID_:$GID_" secrets
 sudo chmod 600 secrets/control_plane_api_key
 sudo /var/packages/ContainerManager/target/usr/bin/docker-compose \
   --env-file .env -f docker-compose.yml -f docker-compose.tunnel.yml up -d --no-build
 ```
+
+`docker compose`のsecretはbindされるだけで所有者は変わらないため、**secretの所有者をコンテナ実行uid（`TASKEN_UID`）に合わせる**必要があります。合っていないと`read control-plane api key file /run/secrets/control_plane_api_key: permission denied`で再起動を繰り返します。
 
 `nas-install.sh`は、`CONTROL_PLANE_TUNNEL_ID`と`secrets/control_plane_api_key`が揃っていればtunnelも自動起動します。keyは`.env`・ログ・チャットへ出さず、`secrets/control_plane_api_key`（git管理外、chmod 600）だけに置きます。読み取りは`--control-plane.api-key=file:/run/secrets/control_plane_api_key`で行います。
 
@@ -209,14 +213,15 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 
 ## トラブルシューティング
 
-| 症状                                    | 原因と対処                                                                                                                  |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `SYNC_FOLDER_NOT_READY`                 | 共有フォルダが未初期化。先にデータ端末で同期を設定する                                                                      |
-| `CORE_ALREADY_RUNNING`                  | 同じuserDataで別Coreが稼働中。既存コンテナ/プロセスを止める                                                                 |
-| `DISCOVERY_OWNER_MISMATCH`              | MCP bridgeが別uid/別コンテナ。同じコンテナで`docker exec`する                                                               |
-| `NODE_MODULE_VERSION` 不一致            | `better-sqlite3`が別runtime向け。イメージを再buildする（`npm rebuild better-sqlite3`）                                      |
-| 権限エラー（EACCES/EPERM）              | `/volume1/tasken/sync` の所有者・権限を確認                                                                                 |
-| 共有フォルダだけEACCES（mode 0000表示） | Synologyの`synoacl`（NFSv4 ACL）。`group_add`のgid（DSM標準は101=administrators）を合わせる。`nas-install.sh`が自動検出する |
+| 症状                                                       | 原因と対処                                                                                                                  |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `SYNC_FOLDER_NOT_READY`                                    | 共有フォルダが未初期化。先にデータ端末で同期を設定する                                                                      |
+| `CORE_ALREADY_RUNNING`                                     | 同じuserDataで別Coreが稼働中。既存コンテナ/プロセスを止める                                                                 |
+| `DISCOVERY_OWNER_MISMATCH`                                 | MCP bridgeが別uid/別コンテナ。同じコンテナで`docker exec`する                                                               |
+| `NODE_MODULE_VERSION` 不一致                               | `better-sqlite3`が別runtime向け。イメージを再buildする（`npm rebuild better-sqlite3`）                                      |
+| 権限エラー（EACCES/EPERM）                                 | `/volume1/tasken/sync` の所有者・権限を確認                                                                                 |
+| 共有フォルダだけEACCES（mode 0000表示）                    | Synologyの`synoacl`（NFSv4 ACL）。`group_add`のgid（DSM標準は101=administrators）を合わせる。`nas-install.sh`が自動検出する |
+| tunnelの`read control-plane api key ... permission denied` | secretの所有者を`TASKEN_UID`に合わせる（`chown -R "$UID_:$GID_" secrets`）                                                  |
 
 ## 検証
 
