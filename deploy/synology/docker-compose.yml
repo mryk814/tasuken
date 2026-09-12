@@ -13,6 +13,10 @@ services:
     image: tasken-headless:local
     container_name: tasken-headless
     user: "${TASKEN_UID:-1000}:${TASKEN_GID:-1000}"
+    # Synologyの共有フォルダはsynoacl(NFSv4 ACL)でadministratorsに許可している。
+    # コンテナに同gidを付与しないと共有フォルダがmode 0000扱いでEACCESになる。
+    group_add:
+      - "${TASKEN_ADMIN_GID:-101}"
     restart: unless-stopped
     init: true
     read_only: true

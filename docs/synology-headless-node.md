@@ -112,6 +112,7 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 `deploy/synology/docker-compose.yml` は次の前提で組んでいます。
 
 - `user: "${TASKEN_UID:-1000}:${TASKEN_GID:-1000}"`。`deploy/synology/.env`（`.env.example` を参照）でNASの所有者に合わせる。Coreが書く `state`（`/data`）と同期フォルダ（`/sync`）はこのUID/GIDが読み書きできること。
+- `group_add: ["${TASKEN_ADMIN_GID:-101}"]`。Synologyの共有フォルダは`synoacl`（NFSv4 ACL）で`administrators`に許可しており、コンテナにgid 101を付けないと共有フォルダがmode 0000扱いになりEACCESになる。`nas-install.sh`が`administrators`のgidを自動検出して`.env`へ書く。
 - `read_only: true`、`cap_drop: ALL`、`security_opt: no-new-privileges`、`init: true`。書き込みは `./state`・`TASKEN_SYNC_DIR` のbindと `/tmp` のtmpfsだけ。
 - `/data` は `./state` のホストbind（NASローカル）。`/sync` は `${TASKEN_SYNC_DIR}`（例 `/volume1/Tasken/sync`）。
 - `restart: unless-stopped`、`stop_grace_period: 20s`（SIGTERMでCoreがdiscoveryを削除して終了する時間）。
@@ -120,14 +121,14 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 
 `deploy/synology/` の各ファイル:
 
-| ファイル             | 役割                                                         |
-| -------------------- | ------------------------------------------------------------ |
-| `Dockerfile`         | core-dist / mcp-dist を作るNode専用image                     |
-| `docker-compose.yml` | Container Manager Project用のservice定義                     |
-| `.env.example`       | `TASKEN_UID` / `TASKEN_GID` / `TASKEN_SYNC_DIR`              |
-| `backup.sh`          | 稼働中replicaのsnapshotと隔離検証（後述）                    |
-| `nas-install.sh`     | NAS上の配置入口（source展開・load・.env/state・probe・起動） |
-| `DEPLOYED.md`        | 最後に観測した稼働状態（branch・versionとは別）              |
+| ファイル             | 役割                                                                 |
+| -------------------- | -------------------------------------------------------------------- |
+| `Dockerfile`         | core-dist / mcp-dist を作るNode専用image                             |
+| `docker-compose.yml` | Container Manager Project用のservice定義                             |
+| `.env.example`       | `TASKEN_UID` / `TASKEN_GID` / `TASKEN_ADMIN_GID` / `TASKEN_SYNC_DIR` |
+| `backup.sh`          | 稼働中replicaのsnapshotと隔離検証（後述）                            |
+| `nas-install.sh`     | NAS上の配置入口（source展開・load・.env/state・probe・起動）         |
+| `DEPLOYED.md`        | 最後に観測した稼働状態（branch・versionとは別）                      |
 
 ## 更新と復旧
 
@@ -171,13 +172,14 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 
 ## トラブルシューティング
 
-| 症状                         | 原因と対処                                                                             |
-| ---------------------------- | -------------------------------------------------------------------------------------- |
-| `SYNC_FOLDER_NOT_READY`      | 共有フォルダが未初期化。先にデータ端末で同期を設定する                                 |
-| `CORE_ALREADY_RUNNING`       | 同じuserDataで別Coreが稼働中。既存コンテナ/プロセスを止める                            |
-| `DISCOVERY_OWNER_MISMATCH`   | MCP bridgeが別uid/別コンテナ。同じコンテナで`docker exec`する                          |
-| `NODE_MODULE_VERSION` 不一致 | `better-sqlite3`が別runtime向け。イメージを再buildする（`npm rebuild better-sqlite3`） |
-| 権限エラー（EACCES/EPERM）   | `/volume1/tasken-sync` の所有者・権限。`chown 1000:1000` を確認                        |
+| 症状                                    | 原因と対処                                                                                                                  |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `SYNC_FOLDER_NOT_READY`                 | 共有フォルダが未初期化。先にデータ端末で同期を設定する                                                                      |
+| `CORE_ALREADY_RUNNING`                  | 同じuserDataで別Coreが稼働中。既存コンテナ/プロセスを止める                                                                 |
+| `DISCOVERY_OWNER_MISMATCH`              | MCP bridgeが別uid/別コンテナ。同じコンテナで`docker exec`する                                                               |
+| `NODE_MODULE_VERSION` 不一致            | `better-sqlite3`が別runtime向け。イメージを再buildする（`npm rebuild better-sqlite3`）                                      |
+| 権限エラー（EACCES/EPERM）              | `/volume1/tasken/sync` の所有者・権限を確認                                                                                 |
+| 共有フォルダだけEACCES（mode 0000表示） | Synologyの`synoacl`（NFSv4 ACL）。`group_add`のgid（DSM標準は101=administrators）を合わせる。`nas-install.sh`が自動検出する |
 
 ## 検証（2026-09-12 / Linux amd64コンテナ）
 

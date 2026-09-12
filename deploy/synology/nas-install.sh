@@ -40,8 +40,11 @@ DC="$(command -v docker-compose || true)"
 uid_gid="$(stat -c '%u:%g' "$SYNC_DIR")"
 uid="${uid_gid%%:*}"
 gid="${uid_gid##*:}"
+admin_gid="${TASKEN_ADMIN_GID:-$(getent group administrators 2>/dev/null | cut -d: -f3 || true)}"
+[[ -n "$admin_gid" ]] || admin_gid=101
 
-printf '== project=%s\n== sync=%s\n== uid:gid=%s\n' "$PROJECT_DIR" "$SYNC_DIR" "$uid_gid"
+printf '== project=%s\n== sync=%s\n== uid:gid=%s\n== admin_gid=%s\n' \
+  "$PROJECT_DIR" "$SYNC_DIR" "$uid_gid" "$admin_gid"
 
 mkdir -p "$PROJECT_DIR"
 tar -xf "$SOURCE_TAR" -C "$PROJECT_DIR"
@@ -50,13 +53,14 @@ tar -xf "$SOURCE_TAR" -C "$PROJECT_DIR"
 deploy="$PROJECT_DIR/deploy/synology"
 [[ -f "$deploy/docker-compose.yml" ]] || fail "composeが見つかりません: $deploy"
 
-printf 'TASKEN_UID=%s\nTASKEN_GID=%s\nTASKEN_SYNC_DIR=%s\n' "$uid" "$gid" "$SYNC_DIR" >"$deploy/.env"
+printf 'TASKEN_UID=%s\nTASKEN_GID=%s\nTASKEN_ADMIN_GID=%s\nTASKEN_SYNC_DIR=%s\n' \
+  "$uid" "$gid" "$admin_gid" "$SYNC_DIR" >"$deploy/.env"
 mkdir -p "$deploy/state"
 chown -R "$uid:$gid" "$deploy/state" "$SYNC_DIR"
 
 printf '== write probe\n'
 "$DOCKER" run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
-  --user "$uid:$gid" --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
+  --user "$uid:$gid" --group-add "$admin_gid" --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
   -v "$deploy/state:/data" -v "$SYNC_DIR:/sync" \
   --entrypoint node tasken-headless:local -e \
   "const fs=require('node:fs');for(const p of ['/data/.write-probe','/sync/.write-probe']){fs.writeFileSync(p,'ok');fs.unlinkSync(p)};console.log('WRITE_OK')"
