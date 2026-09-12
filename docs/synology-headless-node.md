@@ -144,7 +144,8 @@ sudo docker logs --tail=30 tasken-tunnel
 補足:
 
 - tunnel-clientのimageは`--build-arg TUNNEL_CLIENT_IMAGE=ghcr.io/openai/tunnel-client:vX.Y.Z`で固定できます（既定`latest`。本番は固定を推奨）。
-- 未検証: 実tunnel-id/runtime keyでのChatGPTからのtool call、transport切断・再接続、NAS再起動後の自動復帰。
+- 2026-09-12時点の実機観測: NAS側のdaemonは`healthy`・metadata取得済みだが、**ChatGPT Plus + Personal workspaceでは`Connection: Tunnel`の一覧にtunnelが出ない**（OpenAI側の既知問題。`tunnel_principal_association_unverified`）。Business/Enterprise workspaceかOpenAI側の修正待ち。経緯は[deploy/synology/DEPLOYED.md](../../deploy/synology/DEPLOYED.md)。
+- 未検証: ChatGPTからのtool call（上記理由で保留）、transport切断・再接続、NAS再起動後の自動復帰。
 
 ## コンテナ設定（堅牢化）
 

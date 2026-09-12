@@ -19,7 +19,16 @@ Gitのbranch先端・build完了・ローカル検証とは別物です。更新
   - **PCのTaskenを終了した状態**でread-only MCPを再実行しても同じ結果。NAS単体でContextを返せることを確認（Desktop停止中の最初の成功journey）。
 - 途中で解消した実機固有の問題:
   - 共有フォルダがコンテナ内でmode 0000表示になりEACCES。Synologyの`synoacl`（NFSv4 ACL）が`administrators`にのみ許可しているため。composeに`group_add: [101]`（`TASKEN_ADMIN_GID`）を追加して解消。
-- 未確認: arm64/armv7、Synology Drive/Cloud Sync経由の同期、`backup.sh`のNAS上での一連実行、MCP transport/tunnel、write有効化。
+- 未確認: arm64/armv7、Synology Drive/Cloud Sync経由の同期、`backup.sh`のNAS上での一連実行、write有効化。
+
+### 2026-09-12 Phase 3（Secure MCP Tunnel）— ChatGPT側の不具合で保留
+
+- `deploy/synology/docker-compose.tunnel.yml` のサイドカーを`tasken-tunnel`として配置。Coreとnetwork namespaceを共有し、`node /app/mcp-dist/server.mjs`（`TASKEN_MCP_READ_ONLY=1`）をstdio子プロセスで起動。
+- tunnel-id `tunnel_6aa4aa138f10819198458b82e82c079e`（workspace `3083b9a4-b8ca-4bfd-a492-d01dc70d1361` / org `org-eUJyc2qzXK19pSW6VV0RZhqO`）。daemonはhealth `healthy`、metadata取得成功、poller稼働。
+- 途中修正: runtime imageへ`ca-certificates`追加（`x509: certificate signed by unknown authority`）、secretの所有者を`TASKEN_UID`へ（`permission denied`）。
+- **保留理由**: ChatGPT Plus + Personal workspaceでは、developer-mode app作成の`Connection: Tunnel`にtunnelが一覧表示されない（「No available tunnels」）。OpenAI側の既知問題（`tunnel_principal_association_unverified`、2026年半ばから複数報告・Support対応中）で、Tasken側の設定漏れではない。
+- 再開条件: OpenAI側の修正、またはBusiness/Enterprise workspaceでの接続。Codex plugin（PC側runtimeが必要）やResponses API/AgentKitは別経路として利用可能。
+- 保留中の運用: `tasken-headless`（replica）は稼働継続。`tasken-tunnel`は起動したままでも負荷は小さく、止める場合は`sudo docker stop tasken-tunnel`（再開は`docker-compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --no-build`）。
 
 ## ローカル検証（NASではない）
 
