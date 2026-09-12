@@ -182,15 +182,23 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 | 権限エラー（EACCES/EPERM）              | `/volume1/tasken/sync` の所有者・権限を確認                                                                                 |
 | 共有フォルダだけEACCES（mode 0000表示） | Synologyの`synoacl`（NFSv4 ACL）。`group_add`のgid（DSM標準は101=administrators）を合わせる。`nas-install.sh`が自動検出する |
 
-## 検証（2026-09-12 / Linux amd64コンテナ）
+## 検証
 
-Docker Desktop（Linux containers, amd64）でイメージをbuildし、runtimeコンテナでreplica参加まで確認した。
+### 2026-09-12 実機NAS（DS723+ / DSM 7.2 / amd64）
+
+開発機のDocker Desktopで`linux/amd64`を作り、SMB共有フォルダ経由で搬入して配置した。詳細な観測値は[deploy/synology/DEPLOYED.md](../../deploy/synology/DEPLOYED.md)。
+
+- `nas-install.sh`で`WRITE_OK` → `TASKEN_HEADLESS_CORE_READY ... "capability_count":31,"sync_directory":"/sync"`、health `healthy`。
+- replica SQLite: `workspace_id`がPC側と一致、`tasks=19`、pending差分0、ホスト端末のcursorが196まで進行。
+- read-only MCP（one-offコンテナ + `nas-read-check.mjs`）: `TOOL_COUNT 29`、write tools非公開、`search_items`が実Task IDを返却。
+- 実機固有の修正: 共有フォルダの`synoacl`によりコンテナ内でmode 0000/EACCES → composeの`group_add: [101]`（`TASKEN_ADMIN_GID`）で解消。
+
+### 2026-09-12 Linux amd64コンテナ（Docker Desktop）
 
 - `docker build -f deploy/synology/Dockerfile -t tasken-headless:local .` が成功（Node 24.20 / Debian bookworm）。
 - ホスト役のseed（build stage, uid 1000）が共有volumeへ差分公開 → replicaコンテナ（runtime, uid 1000）が `TASKEN_HEADLESS_CORE_READY ... "sync_directory":"/sync"` で起動。
-- healthcheckが `healthy`。
-- replicaのSQLiteはホストと同一 `workspace_id`、`task-smoke-a` を受信、pending差分0。
-- `docker exec`（`TASKEN_MCP_READ_ONLY=1`）で `tool_count 29`・`start_task_work` 非公開、`search_items` で同期Taskを読み取り。
+- healthcheckが `healthy`、replicaのSQLiteはホストと同一 `workspace_id`、Taskを受信、pending差分0。
+- `docker exec`（`TASKEN_MCP_READ_ONLY=1`）で `tool_count 29`・write tools非公開、`search_items` で同期Taskを読み取り。
 - 堅牢化compose相当（`--user 1000:1000 --init --read-only --security-opt no-new-privileges --cap-drop ALL --tmpfs /tmp`）でも上記が成立。
 - snapshot手順の要素検証: `bash -n deploy/synology/backup.sh`、`/data`のtar化、隔離したread-only SQLite `integrity_check` と `workspace_id` 検査、稼働コンテナの `docker stop --time 20` → `docker start` → health `healthy`。
 - Capture / Task画像のreplica読み取り（`get_capture_image`・`get_task_image`、`sha256`照合、改ざん時not_found）は `tests/tasken-headless-core.test.mjs` で確認。
@@ -199,10 +207,11 @@ Docker Desktop（Linux containers, amd64）でイメージをbuildし、runtime�
 
 ## 未検証・既知の制約
 
-- 実Synology実機（DSM / Container Manager）での権限・Synology Drive同期の遅延・SMB/クラウドの一時的な欠け、arm64 / armv7の可否は未検証。検証はLinux amd64コンテナまで。
-- `backup.sh` はコンポーネント検証まで。NAS上でのwrapper実行（compose検出・排他lock・再起動まで含む一連）は未実施。
+- arm64 / armv7のNASは未検証（実機確認はamd64のDS723+）。
+- Synology Drive / Cloud Sync経由の同期（実機確認はSMB共有フォルダ直結）。
+- Desktop停止状態でのNAS読み取り再確認、`backup.sh`のNAS上での一連実行（compose検出・排他lock・再起動を含む）は未実施。
 - MCP transport / Secure MCP Tunnelの常時稼働、再接続、write有効化はPhase 3/4で、Core側のwrite capability gateは未実装（現状はMCP bridgeのread-only設定に依存）。
-- 添付画像のreplica検証、bootstrap / compaction / revoke / schema upgradeのowner決定はPhase 2の残り。Capture / Task画像のreplica読み取り（`get_capture_image`・`get_task_image`）はheadlessテストで確認済みだが、コンテナ上での再実行とNote Markdown画像の扱いは未検証。
+- bootstrap / compaction / revoke / schema upgradeのowner決定はPhase 2の残り。Note Markdown画像の扱いと、コンテナ上での画像MCP再実行は未検証。
 - イメージbuild/runにはDocker daemonが必要。
 
 ## 参照
