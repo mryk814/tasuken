@@ -10,6 +10,7 @@ Issue #588 Phase 2 のTasken headless replica配置です。詳細な手順・�
 | `.env.example`       | `TASKEN_UID` / `TASKEN_GID` / `TASKEN_ADMIN_GID` / `TASKEN_SYNC_DIR`     |
 | `backup.sh`          | 稼働中replicaの`/data`を停止中にsnapshotし、隔離read-only検証を行う      |
 | `nas-install.sh`     | NAS上の配置入口（source展開・image load・.env/state・write-probe・起動） |
+| `nas-read-check.mjs` | 稼働中Coreへread-only MCP(stdio)で接続する読み取り確認                   |
 | `DEPLOYED.md`        | 最後に観測した稼働状態（branch・versionとは別）                          |
 
 守ること:
