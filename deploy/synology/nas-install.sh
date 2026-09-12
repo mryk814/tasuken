@@ -53,9 +53,17 @@ tar -xf "$SOURCE_TAR" -C "$PROJECT_DIR"
 deploy="$PROJECT_DIR/deploy/synology"
 [[ -f "$deploy/docker-compose.yml" ]] || fail "composeが見つかりません: $deploy"
 
-printf 'TASKEN_UID=%s\nTASKEN_GID=%s\nTASKEN_ADMIN_GID=%s\nTASKEN_SYNC_DIR=%s\n' \
-  "$uid" "$gid" "$admin_gid" "$SYNC_DIR" >"$deploy/.env"
-mkdir -p "$deploy/state"
+# 既存の.envを尊重する（特にCONTROL_PLANE_TUNNEL_IDを消さない）。
+existing_tunnel_id=""
+if [[ -f "$deploy/.env" ]]; then
+  existing_tunnel_id="$(sed -n 's/^CONTROL_PLANE_TUNNEL_ID=//p' "$deploy/.env" | tail -1)"
+fi
+tunnel_id="${CONTROL_PLANE_TUNNEL_ID:-$existing_tunnel_id}"
+
+printf 'TASKEN_UID=%s\nTASKEN_GID=%s\nTASKEN_ADMIN_GID=%s\nTASKEN_SYNC_DIR=%s\nCONTROL_PLANE_TUNNEL_ID=%s\n' \
+  "$uid" "$gid" "$admin_gid" "$SYNC_DIR" "$tunnel_id" >"$deploy/.env"
+mkdir -p "$deploy/state" "$deploy/secrets"
+chmod 700 "$deploy/secrets"
 chown -R "$uid:$gid" "$deploy/state" "$SYNC_DIR"
 
 printf '== write probe\n'
@@ -72,4 +80,16 @@ printf '== up\n'
 "$DC" --env-file "$deploy/.env" -f "$deploy/docker-compose.yml" up -d --no-build
 sleep 3
 "$DC" --env-file "$deploy/.env" -f "$deploy/docker-compose.yml" logs --tail=50 tasken-headless || true
+
+if [[ -n "$tunnel_id" && -s "$deploy/secrets/control_plane_api_key" ]]; then
+  printf '== tunnel up\n'
+  "$DC" --env-file "$deploy/.env" \
+    -f "$deploy/docker-compose.yml" -f "$deploy/docker-compose.tunnel.yml" up -d --no-build
+  sleep 3
+  "$DC" --env-file "$deploy/.env" \
+    -f "$deploy/docker-compose.yml" -f "$deploy/docker-compose.tunnel.yml" logs --tail=30 tasken-tunnel || true
+else
+  printf '== tunnel未起動（CONTROL_PLANE_TUNNEL_IDまたはsecrets/control_plane_api_keyが未設定）\n'
+  printf '   .envにCONTROL_PLANE_TUNNEL_IDを設定し、secrets/control_plane_api_keyへRuntime API keyを保存して再実行\n'
+fi
 printf '== done. 期待ログ: TASKEN_HEADLESS_CORE_READY ... "sync_directory":"/sync"\n'

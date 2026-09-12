@@ -7,6 +7,11 @@
 # build context はリポジトリ root:
 #   docker build -f deploy/synology/Dockerfile -t tasken-headless:local .
 
+# OpenAI Secure MCP Tunnelのtunnel-client（Coreと同じimageへ同梱し、サイドカーで動かす）。
+# 本番ではタグを固定する: --build-arg TUNNEL_CLIENT_IMAGE=ghcr.io/openai/tunnel-client:vX.Y.Z
+ARG TUNNEL_CLIENT_IMAGE=ghcr.io/openai/tunnel-client:latest
+FROM ${TUNNEL_CLIENT_IMAGE} AS tunnel-client
+
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
 RUN apt-get update \
@@ -30,6 +35,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/core-dist ./core-dist
 COPY --from=build /app/mcp-dist ./mcp-dist
+COPY --from=tunnel-client /usr/bin/tunnel-client /usr/local/bin/tunnel-client
 USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync(process.env.TASKEN_USER_DATA_DIR+'/tasken-core.json','utf8'));fetch(d.origin+'/health',{headers:{authorization:'Bearer '+d.token}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

@@ -105,7 +105,42 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 ```
 
 - `TASKEN_MCP_READ_ONLY=1` でwrite tools（`start_task_work`・`report_task_done`・`propose_*`等）は公開されません（読み取りtoolsのみ）。replicaからcanonical stateを書き換えないための必須設定です。
-- 外部AIへつなぐSecure MCP Tunnel等のクライアントは、NASホスト側でこの`docker exec`をstdio起動する形にします。transportの設定と常時稼働はPhase 3で、このリポジトリでは未検証です。
+- 外部AIへつなぐSecure MCP Tunnel等のクライアントは、NASホスト側でこの`docker exec`をstdio起動する形にします。常時稼働させる構成は次のPhase 3を参照してください。
+
+## Phase 3: Secure MCP Tunnelで外部AIへ公開
+
+NASのCoreはloopbackのみなので、ChatGPT/Codex等へはOpenAI Secure MCP Tunnelの`tunnel-client`をNAS側で常駐させ、**outbound HTTPSだけ**で接続します（inboundポートは開けません）。実装は`deploy/synology/docker-compose.tunnel.yml`のサイドカーで、Coreとネットワーク名前空間を共有し、`node /app/mcp-dist/server.mjs`をstdio子プロセスとして起動します（`TASKEN_MCP_READ_ONLY=1`）。Tasken domain側へtransport固有logicは持ち込みません。
+
+準備:
+
+1. PlatformのTunnels managementで`tunnel_id`を取得（`tunnel_`＋32桁hex）。
+2. PlatformのRuntime API keysでruntime keyを作成（**admin keyは使わない**）。
+3. NASで`.env`とsecretを用意し、tunnel serviceを起動する。
+
+```bash
+cd /volume1/docker/tasken/deploy/synology
+# .env の CONTROL_PLANE_TUNNEL_ID=tunnel_... を設定（未使用時は空のまま）
+umask 077; printf '%s' 'sk-...' | sudo tee secrets/control_plane_api_key >/dev/null
+sudo chmod 600 secrets/control_plane_api_key
+sudo /var/packages/ContainerManager/target/usr/bin/docker-compose \
+  --env-file .env -f docker-compose.yml -f docker-compose.tunnel.yml up -d --no-build
+```
+
+`nas-install.sh`は、`CONTROL_PLANE_TUNNEL_ID`と`secrets/control_plane_api_key`が揃っていればtunnelも自動起動します。keyは`.env`・ログ・チャットへ出さず、`secrets/control_plane_api_key`（git管理外、chmod 600）だけに置きます。読み取りは`--control-plane.api-key=file:/run/secrets/control_plane_api_key`で行います。
+
+4. 確認:
+
+```bash
+sudo docker inspect --format '{{.State.Health.Status}}' tasken-tunnel
+sudo docker logs --tail=30 tasken-tunnel
+```
+
+5. ChatGPT: `https://chatgpt.com/#settings/Connectors` で **Connection: Tunnel** を選び、このtunnelを選択（または`tunnel_id`を貼る）。daemonがhealthyな間だけ選択できます。
+
+補足:
+
+- tunnel-clientのimageは`--build-arg TUNNEL_CLIENT_IMAGE=ghcr.io/openai/tunnel-client:vX.Y.Z`で固定できます（既定`latest`。本番は固定を推奨）。
+- 未検証: 実tunnel-id/runtime keyでのChatGPTからのtool call、transport切断・再接続、NAS再起動後の自動復帰。
 
 ## コンテナ設定（堅牢化）
 
@@ -122,14 +157,15 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 
 `deploy/synology/` の各ファイル:
 
-| ファイル             | 役割                                                                 |
-| -------------------- | -------------------------------------------------------------------- |
-| `Dockerfile`         | core-dist / mcp-dist を作るNode専用image                             |
-| `docker-compose.yml` | Container Manager Project用のservice定義                             |
-| `.env.example`       | `TASKEN_UID` / `TASKEN_GID` / `TASKEN_ADMIN_GID` / `TASKEN_SYNC_DIR` |
-| `backup.sh`          | 稼働中replicaのsnapshotと隔離検証（後述）                            |
-| `nas-install.sh`     | NAS上の配置入口（source展開・load・.env/state・probe・起動）         |
-| `DEPLOYED.md`        | 最後に観測した稼働状態（branch・versionとは別）                      |
+| ファイル                    | 役割                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------ |
+| `Dockerfile`                | core-dist / mcp-dist を作るNode専用image                                                         |
+| `docker-compose.yml`        | Container Manager Project用のservice定義                                                         |
+| `docker-compose.tunnel.yml` | Secure MCP Tunnelサイドカー（Phase 3、上書き用）                                                 |
+| `.env.example`              | `TASKEN_UID` / `TASKEN_GID` / `TASKEN_ADMIN_GID` / `TASKEN_SYNC_DIR` / `CONTROL_PLANE_TUNNEL_ID` |
+| `backup.sh`                 | 稼働中replicaのsnapshotと隔離検証（後述）                                                        |
+| `nas-install.sh`            | NAS上の配置入口（source展開・load・.env/state・probe・起動）                                     |
+| `DEPLOYED.md`               | 最後に観測した稼働状態（branch・versionとは別）                                                  |
 
 ## 更新と復旧
 
