@@ -1,5 +1,9 @@
 # Synology Container Manager（Project / docker compose）向け
 #
+# composeプロジェクト名は tasken。同じNASの別アプリ（例: nemoriumの synology プロジェクト）と
+# down/remove-orphansが干渉しないよう分離する。--remove-orphans は使わない。
+name: tasken
+#
 # 1. .env で TASKEN_SYNC_DIR を、データ端末と共有しているフォルダのNAS絶対パスへ合わせる。
 #    例: \\synologyDS723\Tasken\sync に対応する /volume1/Tasken/sync
 # 2. /data は ./state のホストbind（NASローカル）。SQLiteを同期フォルダへ置かない。

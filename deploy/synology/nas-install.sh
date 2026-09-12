@@ -66,6 +66,9 @@ printf '== write probe\n'
   "const fs=require('node:fs');for(const p of ['/data/.write-probe','/sync/.write-probe']){fs.writeFileSync(p,'ok');fs.unlinkSync(p)};console.log('WRITE_OK')"
 
 printf '== up\n'
+# 旧プロジェクト（synology）で作られた同名コンテナが残っていても作り直せるようにする。
+# nemorium等の別コンテナには触らない。
+"$DOCKER" rm -f tasken-headless >/dev/null 2>&1 || true
 "$DC" --env-file "$deploy/.env" -f "$deploy/docker-compose.yml" up -d --no-build
 sleep 3
 "$DC" --env-file "$deploy/.env" -f "$deploy/docker-compose.yml" logs --tail=50 tasken-headless || true

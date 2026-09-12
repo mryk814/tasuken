@@ -113,6 +113,7 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 
 - `user: "${TASKEN_UID:-1000}:${TASKEN_GID:-1000}"`。`deploy/synology/.env`（`.env.example` を参照）でNASの所有者に合わせる。Coreが書く `state`（`/data`）と同期フォルダ（`/sync`）はこのUID/GIDが読み書きできること。
 - `group_add: ["${TASKEN_ADMIN_GID:-101}"]`。Synologyの共有フォルダは`synoacl`（NFSv4 ACL）で`administrators`に許可しており、コンテナにgid 101を付けないと共有フォルダがmode 0000扱いになりEACCESになる。`nas-install.sh`が`administrators`のgidを自動検出して`.env`へ書く。
+- composeプロジェクト名は`name: tasken`。同じNASの別アプリ（例: nemoriumの`synology`プロジェクト）と`down`や`--remove-orphans`が干渉しないよう分離している。**`--remove-orphans`は使わない。**
 - `read_only: true`、`cap_drop: ALL`、`security_opt: no-new-privileges`、`init: true`。書き込みは `./state`・`TASKEN_SYNC_DIR` のbindと `/tmp` のtmpfsだけ。
 - `/data` は `./state` のホストbind（NASローカル）。`/sync` は `${TASKEN_SYNC_DIR}`（例 `/volume1/Tasken/sync`）。
 - `restart: unless-stopped`、`stop_grace_period: 20s`（SIGTERMでCoreがdiscoveryを削除して終了する時間）。
