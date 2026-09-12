@@ -65,6 +65,9 @@ printf 'TASKEN_UID=%s\nTASKEN_GID=%s\nTASKEN_ADMIN_GID=%s\nTASKEN_SYNC_DIR=%s\nC
 mkdir -p "$deploy/state" "$deploy/secrets"
 chmod 700 "$deploy/secrets"
 chown -R "$uid:$gid" "$deploy/state" "$SYNC_DIR" "$deploy/secrets"
+# .envもコンテナ実行uidが読み書きできるようにする（root所有のままだと編集にsudoが要る）。
+chown "$uid:$gid" "$deploy/.env"
+chmod 600 "$deploy/.env"
 
 printf '== write probe\n'
 "$DOCKER" run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
