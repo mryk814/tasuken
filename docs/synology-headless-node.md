@@ -190,7 +190,7 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 
 - `nas-install.sh`で`WRITE_OK` → `TASKEN_HEADLESS_CORE_READY ... "capability_count":31,"sync_directory":"/sync"`、health `healthy`。
 - replica SQLite: `workspace_id`がPC側と一致、`tasks=19`、pending差分0、ホスト端末のcursorが196まで進行。
-- read-only MCP（one-offコンテナ + `nas-read-check.mjs`）: `TOOL_COUNT 29`、write tools非公開、`search_items`が実Task IDを返却。
+- read-only MCP（one-offコンテナ + `nas-read-check.mjs`）: `TOOL_COUNT 29`、write tools非公開、`search_items`が実Task IDを返却。**PCのTasken終了後も同じ結果**（Desktop停止中でもNAS単体で読み取り可能）。
 - 実機固有の修正: 共有フォルダの`synoacl`によりコンテナ内でmode 0000/EACCES → composeの`group_add: [101]`（`TASKEN_ADMIN_GID`）で解消。
 
 ### 2026-09-12 Linux amd64コンテナ（Docker Desktop）
@@ -209,7 +209,7 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 
 - arm64 / armv7のNASは未検証（実機確認はamd64のDS723+）。
 - Synology Drive / Cloud Sync経由の同期（実機確認はSMB共有フォルダ直結）。
-- Desktop停止状態でのNAS読み取り再確認、`backup.sh`のNAS上での一連実行（compose検出・排他lock・再起動を含む）は未実施。
+- `backup.sh`のNAS上での一連実行（compose検出・排他lock・再起動を含む）は未実施。
 - MCP transport / Secure MCP Tunnelの常時稼働、再接続、write有効化はPhase 3/4で、Core側のwrite capability gateは未実装（現状はMCP bridgeのread-only設定に依存）。
 - bootstrap / compaction / revoke / schema upgradeのowner決定はPhase 2の残り。Note Markdown画像の扱いと、コンテナ上での画像MCP再実行は未検証。
 - イメージbuild/runにはDocker daemonが必要。

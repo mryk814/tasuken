@@ -16,9 +16,10 @@ Gitのbranch先端・build完了・ローカル検証とは別物です。更新
   - `docker logs`: `TASKEN_HEADLESS_CORE_READY ... "capability_count":31,"sync_directory":"/sync"`、health `healthy`。
   - replica SQLite: `workspace_id=047c7258-51d5-4399-a22c-c38c6d274b07`（PC側と一致）、`tasks=19`、`pending=0`、cursor `14efbb12-...: 196`。
   - read-only MCP（`nas-read-check.mjs`をone-offコンテナで実行）: `TOOL_COUNT 29`、`HAS_WRITE false`、`IS_ERROR false`、Task IDを返却。
+  - **PCのTaskenを終了した状態**でread-only MCPを再実行しても同じ結果。NAS単体でContextを返せることを確認（Desktop停止中の最初の成功journey）。
 - 途中で解消した実機固有の問題:
   - 共有フォルダがコンテナ内でmode 0000表示になりEACCES。Synologyの`synoacl`（NFSv4 ACL）が`administrators`にのみ許可しているため。composeに`group_add: [101]`（`TASKEN_ADMIN_GID`）を追加して解消。
-- 未確認: arm64/armv7、Synology Drive/Cloud Sync経由の同期、`backup.sh`のNAS上での一連実行、Desktop停止状態での再確認、MCP transport/tunnel、write有効化。
+- 未確認: arm64/armv7、Synology Drive/Cloud Sync経由の同期、`backup.sh`のNAS上での一連実行、MCP transport/tunnel、write有効化。
 
 ## ローカル検証（NASではない）
 
