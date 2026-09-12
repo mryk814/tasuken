@@ -31,6 +31,10 @@ FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     TASKEN_USER_DATA_DIR=/data
+# tunnel-client / SDKがhttpsを使うため、システムCAを含める。
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/core-dist ./core-dist

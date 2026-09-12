@@ -78,7 +78,8 @@ printf '== write probe\n'
 
 printf '== up\n'
 # 旧プロジェクト（synology）で作られた同名コンテナが残っていても作り直せるようにする。
-# nemorium等の別コンテナには触らない。
+# nemorium等の別コンテナには触らない。tunnelはCoreのnetwork namespaceに依存するため先に外す。
+"$DOCKER" rm -f tasken-tunnel >/dev/null 2>&1 || true
 "$DOCKER" rm -f tasken-headless >/dev/null 2>&1 || true
 "$DC" --env-file "$deploy/.env" -f "$deploy/docker-compose.yml" up -d --no-build
 sleep 3
