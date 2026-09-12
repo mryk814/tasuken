@@ -91,7 +91,7 @@ if [[ -n "$tunnel_id" && -s "$deploy/secrets/control_plane_api_key" ]]; then
     -f "$deploy/docker-compose.yml" -f "$deploy/docker-compose.tunnel.yml" up -d --no-build
   sleep 3
   "$DC" --env-file "$deploy/.env" \
-    -f "$deploy/docker-compose.yml" -f "$deploy/docker-compose.tunnel.yml" logs --tail=30 tasken-tunnel || true
+    -f "$deploy/docker-compose.yml" -f "$deploy/docker-compose.tunnel.yml" logs --tail=30 tunnel-client || true
 else
   printf '== tunnel未起動（CONTROL_PLANE_TUNNEL_IDまたはsecrets/control_plane_api_keyが未設定）\n'
   printf '   .envにCONTROL_PLANE_TUNNEL_IDを設定し、secrets/control_plane_api_keyへRuntime API keyを保存して再実行\n'
