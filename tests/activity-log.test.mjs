@@ -307,3 +307,14 @@ test("catch-up checkpoints each successful date and leaves a failed date for ret
   assert.deepEqual(exported, ["2026-07-08"]);
   assert.deepEqual(marked, ["2026-07-08"]);
 });
+
+test("Activity consolidates Task lifecycle events into one AI work interval", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(
+    "src/renderer/src/features/workspace/components/ActivityLogPanel.tsx",
+    "utf8",
+  );
+  assert.match(source, /workPeriodTaskIds/);
+  assert.match(source, /taskLifecycleEventKinds/);
+  assert.match(source, /task_completed/);
+});

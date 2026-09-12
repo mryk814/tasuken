@@ -12,21 +12,27 @@ import type {
   CalendarErrorCode,
   CalendarEvent,
   CalendarEventsResult,
+  CalendarProvider,
 } from "../../shared/calendar";
-import { buildCalendarRange } from "../../shared/calendar";
+import { buildCalendarRange, CALENDAR_PROVIDERS } from "../../shared/calendar";
 import {
   CalendarProviderError,
   calendarErrorMessage,
+  calendarErrorMessageFor,
   classifyCalendarProviderError,
+  GoogleCalendarAdapter,
   MicrosoftCalendarAdapter,
 } from "./calendarAdapter";
 
 const MICROSOFT_AUTHORITY = "https://login.microsoftonline.com/common";
 const MICROSOFT_SCOPES = "openid profile email offline_access Calendars.ReadBasic";
+const GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GOOGLE_SCOPES = "openid email profile https://www.googleapis.com/auth/calendar.readonly";
 const OAUTH_TIMEOUT_MS = 120_000;
 
 interface StoredCalendarConfig {
-  provider: "microsoft";
+  provider: CalendarProvider;
   accountName: string;
   encryptedAccessToken: string;
   encryptedRefreshToken?: string;
@@ -35,7 +41,7 @@ interface StoredCalendarConfig {
 }
 
 interface StoredCalendarCache {
-  provider: "microsoft";
+  provider: CalendarProvider;
   date: string;
   timeZone: string;
   fetchedAt: string;
@@ -43,10 +49,18 @@ interface StoredCalendarCache {
 }
 
 interface CalendarCacheEntry {
+  provider: CalendarProvider;
   date: string;
   timeZone: string;
   fetchedAt: string;
   events: CalendarEvent[];
+}
+
+interface OAuthProviderConfig {
+  authorizeUrl: string;
+  tokenUrl: string;
+  scopes: string;
+  extraAuthorizeParams?: Record<string, string>;
 }
 
 export interface SafeStorageAdapter {
@@ -57,7 +71,9 @@ export interface SafeStorageAdapter {
 
 export interface CalendarServiceOptions {
   adapter?: CalendarAdapter;
+  adapters?: Partial<Record<CalendarProvider, CalendarAdapter>>;
   clientId?: string;
+  googleClientId?: string;
   timeZone?: string;
 }
 
@@ -65,7 +81,10 @@ type FetchLike = typeof fetch;
 type ShellOpenLike = (url: string) => Promise<void>;
 
 export class CalendarServiceError extends Error {
-  constructor(public readonly code: CalendarErrorCode, message: string) {
+  constructor(
+    public readonly code: CalendarErrorCode,
+    message: string,
+  ) {
     super(message);
     this.name = "CalendarServiceError";
   }
@@ -75,11 +94,31 @@ function buildDisconnectedStatus(): CalendarConnectionStatus {
   return { provider: null, accountName: "", connected: false, lastFetchedAt: "" };
 }
 
+function isCalendarProvider(value: unknown): value is CalendarProvider {
+  return typeof value === "string" && (CALENDAR_PROVIDERS as readonly string[]).includes(value);
+}
+
+function oauthConfigFor(provider: CalendarProvider): OAuthProviderConfig {
+  if (provider === "google") {
+    return {
+      authorizeUrl: GOOGLE_AUTHORIZE_URL,
+      tokenUrl: GOOGLE_TOKEN_URL,
+      scopes: GOOGLE_SCOPES,
+      extraAuthorizeParams: { access_type: "offline", prompt: "consent" },
+    };
+  }
+  return {
+    authorizeUrl: `${MICROSOFT_AUTHORITY}/oauth2/v2.0/authorize`,
+    tokenUrl: `${MICROSOFT_AUTHORITY}/oauth2/v2.0/token`,
+    scopes: MICROSOFT_SCOPES,
+  };
+}
+
 export class CalendarService {
   private readonly configPath: string;
   private readonly cachePath: string;
-  private readonly adapter: CalendarAdapter;
-  private readonly clientId: string;
+  private readonly adapters: Record<CalendarProvider, CalendarAdapter>;
+  private readonly clientIds: Record<CalendarProvider, string>;
   private readonly timeZone: string;
   private cached: CalendarCacheEntry | null = null;
   private pendingConnect: Promise<CalendarConnectionStatus> | null = null;
@@ -93,14 +132,21 @@ export class CalendarService {
   ) {
     this.configPath = path.join(userDataPath, "calendar-provider.json");
     this.cachePath = path.join(userDataPath, "calendar-cache.json");
-    this.adapter = options.adapter || new MicrosoftCalendarAdapter(fetcher);
-    this.clientId = options.clientId?.trim() || process.env.TASKEN_MICROSOFT_CLIENT_ID?.trim() || "";
+    this.adapters = {
+      microsoft:
+        options.adapters?.microsoft || options.adapter || new MicrosoftCalendarAdapter(fetcher),
+      google: options.adapters?.google || new GoogleCalendarAdapter(fetcher),
+    };
+    this.clientIds = {
+      microsoft: options.clientId?.trim() || process.env.TASKEN_MICROSOFT_CLIENT_ID?.trim() || "",
+      google: options.googleClientId?.trim() || process.env.TASKEN_GOOGLE_CLIENT_ID?.trim() || "",
+    };
     this.timeZone = options.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   }
 
   getStatus(): CalendarConnectionStatus {
     const config = this.readConfig();
-    if (!config || config.provider !== this.adapter.provider || !config.encryptedAccessToken) {
+    if (!config || !config.encryptedAccessToken) {
       return buildDisconnectedStatus();
     }
     return {
@@ -113,14 +159,22 @@ export class CalendarService {
 
   async connect(request: CalendarConnectRequest): Promise<CalendarConnectionStatus> {
     this.assertProvider(request.provider);
-    if (!this.clientId) {
-      throw new CalendarServiceError("not_configured", calendarErrorMessage("not_configured"));
+    if (!this.clientIds[request.provider]) {
+      throw new CalendarServiceError(
+        "not_configured",
+        calendarErrorMessageFor(request.provider, "not_configured"),
+      );
     }
     if (!this.storage.isEncryptionAvailable()) {
-      throw new CalendarServiceError("storage_unavailable", calendarErrorMessage("storage_unavailable"));
+      throw new CalendarServiceError(
+        "storage_unavailable",
+        calendarErrorMessage("storage_unavailable"),
+      );
     }
     if (this.pendingConnect) return this.pendingConnect;
-    this.pendingConnect = this.performOAuthFlow().finally(() => { this.pendingConnect = null; });
+    this.pendingConnect = this.performOAuthFlow(request.provider).finally(() => {
+      this.pendingConnect = null;
+    });
     return this.pendingConnect;
   }
 
@@ -142,30 +196,32 @@ export class CalendarService {
     if (!config || !config.encryptedAccessToken) {
       throw new CalendarServiceError("not_connected", calendarErrorMessage("not_connected"));
     }
+    const provider = config.provider;
+    const adapter = this.adapters[provider];
 
     try {
       const accessToken = await this.ensureValidToken(config);
-      const events = await this.adapter.listEvents(accessToken, range);
+      const events = await adapter.listEvents(accessToken, range);
       const fetchedAt = new Date().toISOString();
       try {
-        this.writeCache({ date, timeZone: range.timeZone, fetchedAt, events });
+        this.writeCache({ provider, date, timeZone: range.timeZone, fetchedAt, events });
         this.updateLastFetchedAt(fetchedAt);
       } catch {
         /* A provider result remains usable when the optional local cache cannot be refreshed. */
       }
       return {
-        provider: this.adapter.provider,
+        provider,
         events,
         fetchedAt,
         timeZone: range.timeZone,
         stale: false,
       };
     } catch (error) {
-      const failure = normalizeCalendarError(error);
-      const cached = this.getCachedEvents(date, range.timeZone);
+      const failure = normalizeCalendarError(error, provider);
+      const cached = this.getCachedEvents(date, range.timeZone, provider);
       if (cached) {
         return {
-          provider: this.adapter.provider,
+          provider,
           events: cached.events,
           fetchedAt: cached.fetchedAt,
           timeZone: range.timeZone,
@@ -175,7 +231,7 @@ export class CalendarService {
         };
       }
       return {
-        provider: this.adapter.provider,
+        provider,
         events: [],
         fetchedAt: "",
         timeZone: range.timeZone,
@@ -187,56 +243,79 @@ export class CalendarService {
   }
 
   private assertProvider(provider: CalendarConnectRequest["provider"]): void {
-    if (provider !== this.adapter.provider) {
-      throw new CalendarServiceError("unsupported_provider", calendarErrorMessage("unsupported_provider"));
+    if (!isCalendarProvider(provider) || !this.adapters[provider]) {
+      throw new CalendarServiceError(
+        "unsupported_provider",
+        calendarErrorMessage("unsupported_provider"),
+      );
     }
   }
 
-  private async performOAuthFlow(): Promise<CalendarConnectionStatus> {
+  private async performOAuthFlow(provider: CalendarProvider): Promise<CalendarConnectionStatus> {
+    const oauth = oauthConfigFor(provider);
     const codeVerifier = base64url(randomBytes(32));
     const codeChallenge = base64url(createHash("sha256").update(codeVerifier).digest());
     const state = randomBytes(16).toString("hex");
-    const { code, redirectUri } = await this.listenForAuthCode(state, codeChallenge);
-    const tokenResponse = await this.fetcher(
-      `${MICROSOFT_AUTHORITY}/oauth2/v2.0/token`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: this.clientId,
-          scope: MICROSOFT_SCOPES,
-          code,
-          redirect_uri: redirectUri,
-          grant_type: "authorization_code",
-          code_verifier: codeVerifier,
-        }).toString(),
-      },
+    const { code, redirectUri } = await this.listenForAuthCode(
+      state,
+      codeChallenge,
+      oauth,
+      this.clientIds[provider],
     );
+    const tokenResponse = await this.fetcher(oauth.tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: this.clientIds[provider],
+        scope: oauth.scopes,
+        code,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+        code_verifier: codeVerifier,
+      }).toString(),
+    });
     if (!tokenResponse.ok) {
       const body = await tokenResponse.text().catch(() => "");
-      throw classifyCalendarProviderError(tokenResponse.status, body, "authentication_required");
+      throw classifyCalendarProviderError(
+        tokenResponse.status,
+        body,
+        "authentication_required",
+        provider,
+      );
     }
     const tokens = await readTokenResponse(tokenResponse);
     if (!tokens.access_token) {
-      throw new CalendarServiceError("invalid_response", calendarErrorMessage("invalid_response"));
+      throw new CalendarServiceError(
+        "invalid_response",
+        calendarErrorMessageFor(provider, "invalid_response"),
+      );
     }
 
-    const accountName = decodeAccountName(tokens.id_token) || "Microsoft account";
+    const accountName =
+      decodeAccountName(tokens.id_token) ||
+      (provider === "google" ? "Google account" : "Microsoft account");
     this.removeFile(this.cachePath, "切替前のカレンダーキャッシュ");
     this.cached = null;
     const expiresAt = new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString();
     this.writeConfig({
-      provider: "microsoft",
+      provider,
       accountName,
       encryptedAccessToken: this.encryptToken(tokens.access_token),
-      encryptedRefreshToken: tokens.refresh_token ? this.encryptToken(tokens.refresh_token) : undefined,
+      encryptedRefreshToken: tokens.refresh_token
+        ? this.encryptToken(tokens.refresh_token)
+        : undefined,
       tokenExpiresAt: expiresAt,
       lastFetchedAt: "",
     });
-    return { provider: "microsoft", accountName, connected: true, lastFetchedAt: "" };
+    return { provider, accountName, connected: true, lastFetchedAt: "" };
   }
 
-  private listenForAuthCode(state: string, codeChallenge: string): Promise<{ code: string; redirectUri: string }> {
+  private listenForAuthCode(
+    state: string,
+    codeChallenge: string,
+    oauth: OAuthProviderConfig,
+    clientId: string,
+  ): Promise<{ code: string; redirectUri: string }> {
     return new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => {
         const url = new URL(req.url || "/", "http://127.0.0.1");
@@ -247,19 +326,25 @@ export class CalendarService {
 
         if (returnedState !== state || (!code && !error)) {
           res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-          res.end("<html><body><h2>不正なリクエストです</h2><p>このタブを閉じてTaskenから再試行してください。</p></body></html>");
+          res.end(
+            "<html><body><h2>不正なリクエストです</h2><p>このタブを閉じてTaskenから再試行してください。</p></body></html>",
+          );
           return;
         }
         if (error) {
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-          res.end("<html><body><h2>接続に失敗しました</h2><p>このタブを閉じてTaskenに戻ってください。</p></body></html>");
+          res.end(
+            "<html><body><h2>接続に失敗しました</h2><p>このタブを閉じてTaskenに戻ってください。</p></body></html>",
+          );
           cleanup();
           reject(classifyOAuthError(error, errorDescription));
           return;
         }
         if (!code) return;
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end("<html><body><h2>接続が完了しました</h2><p>このタブを閉じてTaskenに戻ってください。</p></body></html>");
+        res.end(
+          "<html><body><h2>接続が完了しました</h2><p>このタブを閉じてTaskenに戻ってください。</p></body></html>",
+        );
         const address = server.address() as { port: number };
         cleanup();
         resolve({ code, redirectUri: `http://127.0.0.1:${address.port}` });
@@ -267,7 +352,12 @@ export class CalendarService {
 
       const timeout = setTimeout(() => {
         cleanup();
-        reject(new CalendarServiceError("authentication_required", "認証がタイムアウトしました。再度接続してください。"));
+        reject(
+          new CalendarServiceError(
+            "authentication_required",
+            "認証がタイムアウトしました。再度接続してください。",
+          ),
+        );
       }, OAUTH_TIMEOUT_MS);
 
       function cleanup() {
@@ -282,24 +372,35 @@ export class CalendarService {
       server.listen(0, "127.0.0.1", () => {
         const address = server.address() as { port: number };
         const redirectUri = `http://127.0.0.1:${address.port}`;
-        const authorizeUrl = `${MICROSOFT_AUTHORITY}/oauth2/v2.0/authorize?${new URLSearchParams({
-          client_id: this.clientId,
+        const authorizeUrl = `${oauth.authorizeUrl}?${new URLSearchParams({
+          client_id: clientId,
           response_type: "code",
           redirect_uri: redirectUri,
-          scope: MICROSOFT_SCOPES,
+          scope: oauth.scopes,
           state,
           code_challenge: codeChallenge,
           code_challenge_method: "S256",
+          ...(oauth.extraAuthorizeParams || {}),
         })}`;
         this.shellOpen(authorizeUrl).catch(() => {
           cleanup();
-          reject(new CalendarServiceError("authentication_required", "ブラウザを開けませんでした。Settingsから再試行してください。"));
+          reject(
+            new CalendarServiceError(
+              "authentication_required",
+              "ブラウザを開けませんでした。Settingsから再試行してください。",
+            ),
+          );
         });
       });
 
       server.on("error", () => {
         cleanup();
-        reject(new CalendarServiceError("authentication_required", "認証用サーバーを起動できませんでした。再度接続してください。"));
+        reject(
+          new CalendarServiceError(
+            "authentication_required",
+            "認証用サーバーを起動できませんでした。再度接続してください。",
+          ),
+        );
       });
     });
   }
@@ -307,42 +408,68 @@ export class CalendarService {
   private async ensureValidToken(config: StoredCalendarConfig): Promise<string> {
     const expiresAt = new Date(config.tokenExpiresAt).getTime();
     const bufferMs = 5 * 60 * 1000;
-    if (config.encryptedAccessToken && Number.isFinite(expiresAt) && Date.now() < expiresAt - bufferMs) {
+    if (
+      config.encryptedAccessToken &&
+      Number.isFinite(expiresAt) &&
+      Date.now() < expiresAt - bufferMs
+    ) {
       return this.decryptToken(config.encryptedAccessToken);
     }
     if (!config.encryptedRefreshToken) {
-      throw new CalendarServiceError("token_expired", calendarErrorMessage("token_expired"));
+      throw new CalendarServiceError(
+        "token_expired",
+        calendarErrorMessageFor(config.provider, "token_expired"),
+      );
     }
 
+    const oauth = oauthConfigFor(config.provider);
     const refreshToken = this.decryptToken(config.encryptedRefreshToken);
-    const response = await this.fetcher(`${MICROSOFT_AUTHORITY}/oauth2/v2.0/token`, {
+    const response = await this.fetcher(oauth.tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        client_id: this.clientId,
+        client_id: this.clientIds[config.provider],
         refresh_token: refreshToken,
         grant_type: "refresh_token",
       }).toString(),
     });
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      throw classifyCalendarProviderError(response.status, body, "token_expired");
+      throw classifyCalendarProviderError(response.status, body, "token_expired", config.provider);
     }
     const tokens = await readTokenResponse(response);
-    if (!tokens.access_token) throw new CalendarServiceError("invalid_response", calendarErrorMessage("invalid_response"));
+    if (!tokens.access_token) {
+      throw new CalendarServiceError(
+        "invalid_response",
+        calendarErrorMessageFor(config.provider, "invalid_response"),
+      );
+    }
     const updated: StoredCalendarConfig = {
       ...config,
       encryptedAccessToken: this.encryptToken(tokens.access_token),
-      encryptedRefreshToken: tokens.refresh_token ? this.encryptToken(tokens.refresh_token) : config.encryptedRefreshToken,
+      encryptedRefreshToken: tokens.refresh_token
+        ? this.encryptToken(tokens.refresh_token)
+        : config.encryptedRefreshToken,
       tokenExpiresAt: new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString(),
     };
     this.writeConfig(updated);
     return tokens.access_token;
   }
 
-  private getCachedEvents(date: string, timeZone: string): CalendarCacheEntry | null {
-    if (this.cached && this.cached.date === date && this.cached.timeZone === timeZone) return this.cached;
-    const stored = this.readCache();
+  private getCachedEvents(
+    date: string,
+    timeZone: string,
+    provider: CalendarProvider,
+  ): CalendarCacheEntry | null {
+    if (
+      this.cached &&
+      this.cached.date === date &&
+      this.cached.timeZone === timeZone &&
+      this.cached.provider === provider
+    ) {
+      return this.cached;
+    }
+    const stored = this.readCache(provider);
     if (!stored || stored.date !== date || stored.timeZone !== timeZone) return null;
     this.cached = stored;
     return stored;
@@ -351,8 +478,16 @@ export class CalendarService {
   private readConfig(): StoredCalendarConfig | null {
     if (!fs.existsSync(this.configPath)) return null;
     try {
-      const value = JSON.parse(fs.readFileSync(this.configPath, "utf8")) as Partial<StoredCalendarConfig>;
-      if (value.provider !== "microsoft" || typeof value.accountName !== "string" || typeof value.encryptedAccessToken !== "string") return null;
+      const value = JSON.parse(
+        fs.readFileSync(this.configPath, "utf8"),
+      ) as Partial<StoredCalendarConfig>;
+      if (
+        !isCalendarProvider(value.provider) ||
+        typeof value.accountName !== "string" ||
+        typeof value.encryptedAccessToken !== "string"
+      ) {
+        return null;
+      }
       return value as StoredCalendarConfig;
     } catch {
       /* A corrupt local credential file is treated as disconnected and never logged. */
@@ -360,20 +495,27 @@ export class CalendarService {
     }
   }
 
-  private readCache(): CalendarCacheEntry | null {
+  private readCache(provider: CalendarProvider): CalendarCacheEntry | null {
     if (!this.storage.isEncryptionAvailable() || !fs.existsSync(this.cachePath)) return null;
     try {
-      const stored = JSON.parse(fs.readFileSync(this.cachePath, "utf8")) as Partial<StoredCalendarCache>;
+      const stored = JSON.parse(
+        fs.readFileSync(this.cachePath, "utf8"),
+      ) as Partial<StoredCalendarCache>;
       if (
-        stored.provider !== "microsoft"
-        || typeof stored.date !== "string"
-        || typeof stored.timeZone !== "string"
-        || typeof stored.fetchedAt !== "string"
-        || typeof stored.encryptedEvents !== "string"
-      ) return null;
-      const payload = JSON.parse(this.storage.decryptString(Buffer.from(stored.encryptedEvents, "base64"))) as Partial<CalendarCacheEntry>;
+        stored.provider !== provider ||
+        typeof stored.date !== "string" ||
+        typeof stored.timeZone !== "string" ||
+        typeof stored.fetchedAt !== "string" ||
+        typeof stored.encryptedEvents !== "string"
+      ) {
+        return null;
+      }
+      const payload = JSON.parse(
+        this.storage.decryptString(Buffer.from(stored.encryptedEvents, "base64")),
+      ) as Partial<CalendarCacheEntry>;
       if (!Array.isArray(payload.events)) return null;
       return {
+        provider,
         date: stored.date,
         timeZone: stored.timeZone,
         fetchedAt: stored.fetchedAt,
@@ -388,20 +530,28 @@ export class CalendarService {
   private writeCache(cache: CalendarCacheEntry): void {
     if (!this.storage.isEncryptionAvailable()) return;
     const stored: StoredCalendarCache = {
-      provider: "microsoft",
+      provider: cache.provider,
       date: cache.date,
       timeZone: cache.timeZone,
       fetchedAt: cache.fetchedAt,
-      encryptedEvents: this.storage.encryptString(JSON.stringify({ events: cache.events })).toString("base64"),
+      encryptedEvents: this.storage
+        .encryptString(JSON.stringify({ events: cache.events }))
+        .toString("base64"),
     };
     fs.mkdirSync(path.dirname(this.cachePath), { recursive: true });
-    fs.writeFileSync(this.cachePath, `${JSON.stringify(stored, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    fs.writeFileSync(this.cachePath, `${JSON.stringify(stored, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     this.cached = cache;
   }
 
   private writeConfig(config: StoredCalendarConfig): void {
     fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
-    fs.writeFileSync(this.configPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    fs.writeFileSync(this.configPath, `${JSON.stringify(config, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
   }
 
   private updateLastFetchedAt(fetchedAt: string): void {
@@ -413,7 +563,10 @@ export class CalendarService {
     try {
       return this.storage.encryptString(token).toString("base64");
     } catch {
-      throw new CalendarServiceError("storage_unavailable", calendarErrorMessage("storage_unavailable"));
+      throw new CalendarServiceError(
+        "storage_unavailable",
+        calendarErrorMessage("storage_unavailable"),
+      );
     }
   }
 
@@ -421,7 +574,10 @@ export class CalendarService {
     try {
       return this.storage.decryptString(Buffer.from(encryptedToken, "base64"));
     } catch {
-      throw new CalendarServiceError("storage_unavailable", calendarErrorMessage("storage_unavailable"));
+      throw new CalendarServiceError(
+        "storage_unavailable",
+        calendarErrorMessage("storage_unavailable"),
+      );
     }
   }
 
@@ -430,7 +586,10 @@ export class CalendarService {
     try {
       fs.unlinkSync(filePath);
     } catch {
-      throw new CalendarServiceError("storage_unavailable", `${label}を削除できませんでした。アプリを再起動して再試行してください。`);
+      throw new CalendarServiceError(
+        "storage_unavailable",
+        `${label}を削除できませんでした。アプリを再起動して再試行してください。`,
+      );
     }
   }
 }
@@ -441,16 +600,22 @@ function base64url(buffer: Buffer): string {
 
 function classifyOAuthError(error: string, description: string): CalendarProviderError {
   if (error === "access_denied") {
-    return new CalendarProviderError("permission_denied", calendarErrorMessage("permission_denied"));
+    return new CalendarProviderError(
+      "permission_denied",
+      calendarErrorMessage("permission_denied"),
+    );
   }
   return classifyCalendarProviderError(400, `${error} ${description}`, "consent_required");
 }
 
-function normalizeCalendarError(error: unknown): { code: CalendarErrorCode; message: string } {
+function normalizeCalendarError(
+  error: unknown,
+  provider: CalendarProvider,
+): { code: CalendarErrorCode; message: string } {
   if (error instanceof CalendarProviderError || error instanceof CalendarServiceError) {
     return { code: error.code, message: error.message };
   }
-  return { code: "unknown", message: calendarErrorMessage("unknown") };
+  return { code: "unknown", message: calendarErrorMessageFor(provider, "unknown") };
 }
 
 async function readTokenResponse(response: Response): Promise<{
@@ -460,7 +625,7 @@ async function readTokenResponse(response: Response): Promise<{
   id_token?: string;
 }> {
   try {
-    const value = await response.json() as Record<string, unknown>;
+    const value = (await response.json()) as Record<string, unknown>;
     return {
       access_token: typeof value.access_token === "string" ? value.access_token : undefined,
       refresh_token: typeof value.refresh_token === "string" ? value.refresh_token : undefined,
@@ -477,7 +642,9 @@ function decodeAccountName(idToken: string | undefined): string {
   try {
     const payload = idToken.split(".")[1];
     if (!payload) return "";
-    const value = JSON.parse(Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")) as Record<string, unknown>;
+    const value = JSON.parse(
+      Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"),
+    ) as Record<string, unknown>;
     for (const key of ["name", "preferred_username", "email"]) {
       if (typeof value[key] === "string" && value[key]) return value[key];
     }

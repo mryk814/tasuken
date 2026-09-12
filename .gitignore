@@ -3,6 +3,11 @@
 /dist
 /out
 /mcp-dist
+/core-dist
+/deploy/synology/backup/
+/deploy/synology/state/
+/deploy/synology/secrets/
+/deploy/synology/.env
 /build
 /android-app/.gradle/
 /android-app/.kotlin/

@@ -39,6 +39,11 @@ import {
 import { themeColor } from "../lib/domain";
 import { findReminderSettingsView, normalizeReminderSettings } from "../lib/reminders";
 import type { PageProps } from "../types";
+import type { CalendarEvent } from "../../../../../shared/calendar";
+import {
+  buildActivityCalendarTimelineItems,
+  type ActivityCalendarTimelineItem,
+} from "../lib/activityCalendar";
 import { Button, EmptyState, ThemePickerSelect } from "./common";
 import { DailyContextPublishDialog } from "./DailyContextPublishDialog";
 
@@ -115,8 +120,16 @@ function eventTitle(event: StructuredActivityEvent, ref: { id?: string }, entity
   const workLog = event.metadata?.work_log as Record<string, unknown> | undefined;
   if (workLog?.schema === "tasken-work-log/v1")
     return `${current || "やったことを記録"} · 実施日 ${String(workLog.performed_date)}（本人の申告）`;
-  if (event.event_kind === "task_ai_work" && current)
-    return `${current} · ${event.metadata?.review_status === "pending" ? "採用待ち" : event.metadata?.review_status === "accepted" ? "採用済み" : "記録済み"}`;
+  if (event.event_kind === "task_ai_work" && current) {
+    const review =
+      event.metadata?.review_status === "pending"
+        ? "採用待ち"
+        : event.metadata?.review_status === "accepted"
+          ? "採用済み"
+          : "記録済み";
+    return `${current} · ${review}${event.metadata?.task_state === "done" ? "・完了" : ""}`;
+  }
+  if (current && event.event_kind === "task_completed") return `${current} · 完了`;
   if (current && event.metadata?.work_action === "accepted") return `${current} · 完了報告を採用`;
   if (current && event.metadata?.work_action === "started") return `${current} · 作業開始`;
   if (current && event.metadata?.work_action === "reported") return `${current} · 作業終了報告`;
@@ -146,13 +159,15 @@ type ActivityTimelineItem =
       theme_ids: string[];
       session_row: AgentWorkProjectionRow;
       session_events: StructuredActivityEvent[];
-    };
+    }
+  | ActivityCalendarTimelineItem;
 
 const ACTIVITY_DISPLAY_LABELS = {
   outcome: "成果",
   record: "記録",
   organize: "整理",
   ai_work: "AI作業",
+  calendar: "予定",
   mixed: "複数種別",
 } as const;
 
@@ -356,6 +371,42 @@ export function ActivityLogPanel({
   const activityCalendarRef = useRef<HTMLDivElement>(null);
   const activityDetailRef = useRef<HTMLElement>(null);
   const activityEventButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [calendarConnected, setCalendarConnected] = useState(false);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+
+  useEffect(() => {
+    let canceled = false;
+    void workspaceApi
+      .calendarStatus()
+      .then((status) => {
+        if (!canceled) setCalendarConnected(status.connected);
+      })
+      .catch(() => {
+        // Calendar is optional; an unavailable connection simply hides the overlay.
+      });
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!calendarConnected) {
+      setCalendarEvents([]);
+      return;
+    }
+    let canceled = false;
+    void workspaceApi
+      .calendarEvents(date)
+      .then((result) => {
+        if (!canceled) setCalendarEvents(result.events || []);
+      })
+      .catch(() => {
+        if (!canceled) setCalendarEvents([]);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [calendarConnected, date]);
 
   useEffect(() => {
     let canceled = false;
@@ -433,6 +484,7 @@ export function ActivityLogPanel({
     },
     { label: "Capture", rows: entries.captures.map((entry) => entry.title || entry.text) },
   ].filter((group) => group.rows.length > 0);
+  const workPeriodTaskIds = new Set<string>();
   const taskWorkEvents: StructuredActivityEvent[] = taskWorkPeriods(
     domain.tasks as unknown as BaseRecord[],
     domain.ai_proposals,
@@ -440,6 +492,7 @@ export function ActivityLogPanel({
   ).flatMap((work) => {
     const interval = activitySessionInterval(work, date);
     if (!interval) return [];
+    workPeriodTaskIds.add(work.task_id);
     const task = domain.tasks.find((entry) => entry.id === work.task_id);
     return [
       {
@@ -451,7 +504,7 @@ export function ActivityLogPanel({
         theme_ref: task?.project_id ? { kind: "theme", id: task.project_id } : { kind: "none" },
         actor: { kind: "ai_agent", id: work.executor_label },
         origin: { kind: "task_work_report" },
-        metadata: { ...work, end_at: interval.end_at },
+        metadata: { ...work, end_at: interval.end_at, task_state: task?.state || "" },
       },
     ];
   });
@@ -472,7 +525,22 @@ export function ActivityLogPanel({
       ),
     ),
   );
-  const events = allEvents.filter((event) => !sessionOriginIds.has(event.origin?.session_id || ""));
+  // 同じTaskの作業は区間(task_ai_work)へ集約し、開始/報告/採用/完了の細かなイベントは重ねない。
+  const taskLifecycleEventKinds = new Set([
+    "task_work_recorded",
+    "task_ai_reported",
+    "task_ai_accepted",
+    "task_completed",
+  ]);
+  const events = allEvents.filter(
+    (event) =>
+      !sessionOriginIds.has(event.origin?.session_id || "") &&
+      !(
+        event.entity_ref?.type === "task" &&
+        workPeriodTaskIds.has(String(event.entity_ref.id)) &&
+        taskLifecycleEventKinds.has(String(event.event_kind))
+      ),
+  );
   const datedEvents = events.filter((event) => localDate(event.occurred_at) === date);
   const visibleEvents = datedEvents.filter((event) => {
     const themeIds = activityThemeIds(event);
@@ -504,6 +572,7 @@ export function ActivityLogPanel({
             }) === typeFilter,
         )),
   );
+  const calendarTimelineItems = buildActivityCalendarTimelineItems(calendarEvents);
   const timelineItems: ActivityTimelineItem[] = [
     ...visibleEvents.map((event) => ({
       id: `event:${String(event.id)}`,
@@ -527,6 +596,7 @@ export function ActivityLogPanel({
       session_row: sessionRow,
       session_events: relatedEvents,
     })),
+    ...calendarTimelineItems,
   ];
   const timeline = buildActivityTimelineLayout(timelineItems, { date });
   const calendarTimeline = buildActivityTimelineBursts(timeline);
@@ -877,6 +947,8 @@ export function ActivityLogPanel({
                     <ol className="activity-calendar-events" aria-label="Activity を時刻順に表示">
                       {calendarTimeline.map((row) => {
                         const event = row.item_type === "event" ? row.event : null;
+                        const calendarEvent =
+                          row.item_type === "calendar" ? row.calendar_event : null;
                         const burst = row.item_type === "burst" ? row : null;
                         const ref = event?.entity_ref || {};
                         const entity = event ? findActivityEntity(domain, ref) : null;
@@ -904,15 +976,20 @@ export function ActivityLogPanel({
                               return String(resolved?.title || resolved?.name || "").trim();
                             })()
                           : "";
-                        const title = event
-                          ? eventTitle(event, ref, entity)
-                          : burst
-                            ? burstEntityTitle
-                              ? `${burstEntityTitle} · ${burst.events.length}件`
-                              : `${burst.events.length}件のActivity`
-                            : session?.intent.summary || session?.client_label || "AI セッション";
-                        const timeLabel =
-                          session && sessionRow
+                        const title = calendarEvent
+                          ? calendarEvent.title || "(予定)"
+                          : event
+                            ? eventTitle(event, ref, entity)
+                            : burst
+                              ? burstEntityTitle
+                                ? `${burstEntityTitle} · ${burst.events.length}件`
+                                : `${burst.events.length}件のActivity`
+                              : session?.intent.summary || session?.client_label || "AI セッション";
+                        const timeLabel = calendarEvent
+                          ? calendarEvent.isAllDay
+                            ? "終日"
+                            : `${localTime(row.start_at)}–${localTime(row.end_at)}`
+                          : session && sessionRow
                             ? activitySessionTimeLabel({
                                 sessionRow,
                                 interval: { start_at: row.start_at, end_at: row.end_at },
@@ -923,13 +1000,15 @@ export function ActivityLogPanel({
                                   event?.event_kind === "focus_session"
                                 ? `${localTime(row.start_at)}–${event.metadata?.session_state === "active" ? "進行中" : localTime(row.end_at)}`
                                 : event?.local_time || localTime(row.start_at);
-                        const originText = event
-                          ? originLabel(event)
-                          : session
-                            ? agentSessionClientLabel(session)
-                            : burst
-                              ? burstOriginLabel(burst.origin)
-                              : "由来不明";
+                        const originText = calendarEvent
+                          ? calendarEvent.calendarName || "カレンダー"
+                          : event
+                            ? originLabel(event)
+                            : session
+                              ? agentSessionClientLabel(session)
+                              : burst
+                                ? burstOriginLabel(burst.origin)
+                                : "由来不明";
                         const timeAnchors = burst
                           ? burst.events.map((burstEvent) => ({
                               id: burstEvent.id,
@@ -980,7 +1059,7 @@ export function ActivityLogPanel({
                         return (
                           <li
                             key={row.id}
-                            className={`activity-calendar-event activity-timeline-row--${row.display_kind}${compact ? " is-compact" : ""}${isRange ? " is-range-event" : " is-point-event"}${expandedTimelineItemId === row.id ? " is-selected" : ""}`}
+                            className={`activity-calendar-event activity-timeline-row--${row.display_kind}${compact ? " is-compact" : ""}${isRange ? " is-range-event" : " is-point-event"}${calendarEvent ? " is-calendar" : ""}${expandedTimelineItemId === row.id ? " is-selected" : ""}`}
                             style={blockStyle}
                           >
                             {timeAnchors.map((anchor) => (
@@ -996,28 +1075,43 @@ export function ActivityLogPanel({
                                 }
                               />
                             ))}
-                            <button
-                              type="button"
-                              className="activity-calendar-event-button"
-                              ref={(element) => {
-                                activityEventButtonRefs.current[row.id] = element;
-                              }}
-                              onClick={() =>
-                                setExpandedTimelineItemId((current) =>
-                                  current === row.id ? "" : row.id,
-                                )
-                              }
-                              aria-expanded={expandedTimelineItemId === row.id}
-                              aria-controls={`activity-timeline-detail-${row.id}`}
-                              aria-label={`${timeLabel}、${displayKindLabel(row.display_kind)}、${originText}、${themeSummary}、${title}`}
-                            >
-                              <span className="activity-calendar-event-title">{title}</span>
-                              {sourceMarker && (
+                            {calendarEvent ? (
+                              <div
+                                className="activity-calendar-event-button is-calendar"
+                                aria-label={`${timeLabel}、予定、${originText}、${title}`}
+                              >
+                                <span className="activity-calendar-event-title">{title}</span>
                                 <span className="activity-calendar-event-source" aria-hidden="true">
-                                  {sourceMarker}
+                                  予定
                                 </span>
-                              )}
-                            </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="activity-calendar-event-button"
+                                ref={(element) => {
+                                  activityEventButtonRefs.current[row.id] = element;
+                                }}
+                                onClick={() =>
+                                  setExpandedTimelineItemId((current) =>
+                                    current === row.id ? "" : row.id,
+                                  )
+                                }
+                                aria-expanded={expandedTimelineItemId === row.id}
+                                aria-controls={`activity-timeline-detail-${row.id}`}
+                                aria-label={`${timeLabel}、${displayKindLabel(row.display_kind)}、${originText}、${themeSummary}、${title}`}
+                              >
+                                <span className="activity-calendar-event-title">{title}</span>
+                                {sourceMarker && (
+                                  <span
+                                    className="activity-calendar-event-source"
+                                    aria-hidden="true"
+                                  >
+                                    {sourceMarker}
+                                  </span>
+                                )}
+                              </button>
+                            )}
                           </li>
                         );
                       })}

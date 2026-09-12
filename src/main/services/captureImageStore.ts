@@ -232,3 +232,21 @@ export function createCaptureImagePort(
     },
   };
 }
+
+/**
+ * read-only node向けのcapture-image port。stageは提供せず、参照manifestを持つ
+ * ファイルだけを読む。bytesはContentDetailQueryServiceがmanifestのsize/sha256と
+ * 照合してから返すため、同期で届いた画像も安全にMCPへ渡せる。
+ */
+export function createReadOnlyCaptureImagePort(userDataPath: string) {
+  const store = new CaptureImageStore(userDataPath, () => null);
+  return {
+    stage(): never {
+      throw captureImageError("read-only nodeでは画像を保存できません。");
+    },
+    rollback(): void {},
+    read(fileName: string) {
+      return store.read(fileName);
+    },
+  };
+}

@@ -14,7 +14,7 @@ import type {
   MobileGatewayPairingTicket,
 } from "../../../../../shared/mobileGatewayIpc";
 import { copyMcpBridgeConfig } from "../../../../../shared/ipc/contracts";
-import type { CalendarConnectionStatus } from "../../../../../shared/calendar";
+import type { CalendarConnectionStatus, CalendarProvider } from "../../../../../shared/calendar";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
 import { AI_AUDIENCES, DEFAULT_AI_VISIBILITY } from "../../../../../shared/aiMetadata.mjs";
 import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
@@ -601,10 +601,10 @@ export function SettingsPage({
     setToast("MCPクライアント設定をコピーしました。", "success");
   }
 
-  async function connectCalendar() {
+  async function connectCalendar(provider: CalendarProvider) {
     setCalendarBusy(true);
     try {
-      const status = await workspaceApi.calendarConnect({ provider: "microsoft" });
+      const status = await workspaceApi.calendarConnect({ provider });
       setCalendarStatus(status);
       setToast("カレンダーを接続しました。", "success");
     } catch (error) {
@@ -618,9 +618,11 @@ export function SettingsPage({
   }
 
   async function disconnectCalendar() {
+    const provider = calendarStatus?.provider;
+    if (!provider) return;
     setCalendarBusy(true);
     try {
-      const status = await workspaceApi.calendarDisconnect({ provider: "microsoft" });
+      const status = await workspaceApi.calendarDisconnect({ provider });
       setCalendarStatus(status);
       setToast("カレンダーの接続を解除しました。", "info");
     } catch (error) {
@@ -1354,12 +1356,16 @@ export function SettingsPage({
                 />
               </div>
               <p className="field-help">
-                Outlook / Microsoft
-                365のカレンダーを読み取り専用で表示します。メールや連絡先にはアクセスしません。
+                Outlook / Microsoft 365 または Google
+                カレンダーを読み取り専用で表示します。メールや連絡先にはアクセスしません。
               </p>
               {calendarStatus?.connected ? (
                 <>
                   <dl className="settings-meta-list">
+                    <div>
+                      <dt>種類</dt>
+                      <dd>{calendarStatus.provider === "google" ? "Google" : "Microsoft"}</dd>
+                    </div>
                     <div>
                       <dt>アカウント</dt>
                       <dd>{calendarStatus.accountName}</dd>
@@ -1385,8 +1391,19 @@ export function SettingsPage({
                 </>
               ) : (
                 <div className="settings-action-row">
-                  <Button variant="primary" disabled={calendarBusy} onClick={connectCalendar}>
+                  <Button
+                    variant="primary"
+                    disabled={calendarBusy}
+                    onClick={() => connectCalendar("microsoft")}
+                  >
                     {calendarBusy ? "接続中…" : "Microsoftアカウントで接続"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={calendarBusy}
+                    onClick={() => connectCalendar("google")}
+                  >
+                    {calendarBusy ? "接続中…" : "Googleアカウントで接続"}
                   </Button>
                 </div>
               )}

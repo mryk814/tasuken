@@ -56,6 +56,26 @@
       "issue": 481,
       "expiresAt": "2026-11-30",
       "removalCondition": "Extract Activity export and Prompt metadata state into feature hooks, then reset the reviewed WorkspaceApp composition baseline."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "src/main/headless/taskenHeadlessCore.ts",
+      "target": "workspace-repository",
+      "reason": "#588 needs the production SQLite database and single-writer Core path without the Electron Desktop composition. The headless node owns its own userData on its own machine; it does not read Desktop userData concurrently.",
+      "owner": "issue-588-synology-replica",
+      "issue": 588,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Replace direct WorkspaceDatabase construction when the SQLite composition exposes a public headless-database factory."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "tests/tasken-headless-core.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#588 isolates the headless Core E2E on a temporary SQLite database to prove MCP reads stop cleanly without Electron; no runtime consumer is added.",
+      "owner": "issue-588-synology-replica",
+      "issue": 588,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Use the public headless-database fixture factory once it exists."
     }
   ]
 }

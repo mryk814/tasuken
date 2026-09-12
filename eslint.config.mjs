@@ -13,6 +13,7 @@ export default defineConfig([
     "**/coverage/**",
     "**/artifacts/**",
     "**/mcp-dist/**",
+    "**/core-dist/**",
     "**/architecture/**",
     "**/generated/**",
     "output/**",

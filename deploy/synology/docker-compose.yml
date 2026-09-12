@@ -1,0 +1,46 @@
+# Synology Container Manager（Project / docker compose）向け
+#
+# composeプロジェクト名は tasken。同じNASの別アプリ（例: nemoriumの synology プロジェクト）と
+# down/remove-orphansが干渉しないよう分離する。--remove-orphans は使わない。
+name: tasken
+#
+# 1. .env で TASKEN_SYNC_DIR を、データ端末と共有しているフォルダのNAS絶対パスへ合わせる。
+#    例: \\synologyDS723\Tasken\sync に対応する /volume1/Tasken/sync
+# 2. /data は ./state のホストbind（NASローカル）。SQLiteを同期フォルダへ置かない。
+# 3. 起動前にデータ端末側で共有フォルダ同期を設定し、差分が公開されていること。
+# 4. .env で UID/GID を揃える。二重writerにしない。詳細は docs/synology-headless-node.md。
+services:
+  tasken-headless:
+    build:
+      context: ../..
+      dockerfile: deploy/synology/Dockerfile
+    image: tasken-headless:local
+    container_name: tasken-headless
+    user: "${TASKEN_UID:-1000}:${TASKEN_GID:-1000}"
+    # Synologyの共有フォルダはsynoacl(NFSv4 ACL)でadministratorsに許可している。
+    # コンテナに同gidを付与しないと共有フォルダがmode 0000扱いでEACCESになる。
+    group_add:
+      - "${TASKEN_ADMIN_GID:-101}"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      TASKEN_USER_DATA_DIR: /data
+    command:
+      - --user-data-dir=/data
+      - --sync-directory=/sync
+    volumes:
+      - ./state:/data
+      - ${TASKEN_SYNC_DIR:-/volume1/Tasken/sync}:/sync
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
