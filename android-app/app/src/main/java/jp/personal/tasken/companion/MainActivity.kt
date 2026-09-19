@@ -2692,18 +2692,19 @@ private fun TaskAiReadyToggle(
                     Text("AI Ready", fontWeight = FontWeight.Bold)
                     Text("AIに渡せる状態", color = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
-                Switch(
-                    checked = isReady,
-                    onCheckedChange = { onChange(task, it) },
+                val actionLabel = if (isReady) "AI Readyを解除" else "AI Readyにする"
+                Button(
+                    onClick = { onChange(task, !isReady) },
                     enabled = !updating && !task.pending && task.conflict == null &&
                         task.state !in setOf("done", "cancelled"),
                     modifier = Modifier
+                        .heightIn(min = 48.dp)
                         .semantics {
-                            contentDescription = if (isReady) "AI Readyを解除" else "AI Readyにする"
+                            contentDescription = actionLabel
                             stateDescription = if (isReady) "AIが対応可能" else "自分が対応"
                         }
                         .testTag("task-ai-ready-toggle-${task.id}"),
-                )
+                ) { Text(actionLabel) }
             }
             when {
                 updating -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -167,7 +167,7 @@ class TaskDailyDetailUiTest {
         composeRule.onNodeWithTag("task-ai-options-toggle").performScrollTo().performClick()
         composeRule.onNodeWithTag("task-ai-ready-toggle-daily").assertDoesNotExist()
         composeRule.runOnIdle { current.value = current.value.copy(workState = "ready_for_agent") }
-        composeRule.onNodeWithTag("task-ai-ready-toggle-daily").performScrollTo().assertIsOn()
+        composeRule.onNodeWithText("AI Readyを解除").assertExists()
         composeRule.runOnIdle {
             current.value = current.value.copy(workState = "not_delegated")
             aiState.value = AiReadyUiState.Unavailable("daily", "接続を確認して再試行してください。")
