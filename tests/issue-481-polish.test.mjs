@@ -91,12 +91,22 @@ test("Chat Refs exposes a direct original-chat action on rows with URLs", () => 
   assert.match(page, /IconExternalLink/);
 });
 
-test("Chat Refs uses a fixed right-to-up connector beside the favorite action", () => {
+test("Chat Refs shows visible child direction and keeps relationship labels separate", () => {
   const page = source("src/renderer/src/features/workspace/pages/ChatRefsPage.tsx");
   assert.match(page, /className="chat-thread-connector"/);
-  assert.match(page, /d="M21 17H4V4"/);
-  assert.match(page, /d="m1 7 3-3 3 3"/);
-  assert.match(page, /chat-row-drag-handle[\s\S]*chat-thread-connector[\s\S]*chat-star/);
+  assert.match(page, /d="M4 4v12h16"/);
+  assert.match(page, /d="m16 12 4 4-4 4"/);
+  assert.match(page, /const parentVisible = Boolean\(/);
+  assert.match(page, /threadLabels\.map\(/);
+});
+
+test("Focus Session stays named at the top of the Sidebar", () => {
+  const shell = source("src/renderer/src/features/workspace/components/shell.tsx");
+  const styles = source("src/renderer/src/styles/app.css");
+  assert.match(shell, /<aside className="sidebar">\s*\{activeFocus && openActiveFocus/);
+  assert.match(shell, /!collapsed && "フォーカス中"/);
+  assert.match(styles, /\.sidebar-focus[\s\S]*position: sticky[\s\S]*top: var\(--space-2\)/);
+  assert.doesNotMatch(styles, /\.sidebar-focus\s*\{[\s\S]*margin-top:\s*auto/);
 });
 
 test("Timeline restores the stored scroll after preferences load and exposes empty Theme milestone lanes", async () => {

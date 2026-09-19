@@ -235,15 +235,6 @@ export function ChatRefsPage({
     () => new Map(chatResources.map((resource) => [resource.id, resource])),
     [chatResources],
   );
-  const childrenByParentId = useMemo(() => {
-    const map = new Map<string, Resource[]>();
-    for (const resource of chatResources) {
-      const parentId = str(resource.parent_resource_id);
-      if (!parentId) continue;
-      map.set(parentId, [...(map.get(parentId) || []), resource]);
-    }
-    return map;
-  }, [chatResources]);
   const allGroupKeys = useMemo(() => groups.map((g) => g.key), [groups]);
   const collapsePreferenceKey = (groupKey: string, mode: ListMode = listMode) =>
     chatGroupCollapsePreferenceKey(selectedThemeId || null, mode, groupKey);
@@ -958,8 +949,13 @@ export function ChatRefsPage({
                       draggingGroupKey === null || draggingGroupKey === group.key;
                     const activeDropTarget = dragTarget?.id === r.id && draggingId !== r.id;
                     const parent = resourceById.get(str(r.parent_resource_id));
-                    const childCount = childrenByParentId.get(r.id)?.length || 0;
-                    const threadDepth = threadDepthById.get(r.id) || 0;
+                    const parentVisible = Boolean(
+                      parent && group.resources.some((resource) => resource.id === parent.id),
+                    );
+                    const childCount = group.resources.filter(
+                      (resource) => str(resource.parent_resource_id) === r.id,
+                    ).length;
+                    const threadDepth = parentVisible ? threadDepthById.get(r.id) || 0 : 0;
                     const threadLabels = chatThreadMetaLabels({
                       parentTitle: parent ? str(parent.title || parent.url) : "",
                       childCount,
@@ -1030,13 +1026,13 @@ export function ChatRefsPage({
                           </span>
                         )}
                         <span
-                          className={`chat-thread-branch ${parent ? "" : "is-empty"}`}
+                          className={`chat-thread-branch ${parentVisible ? "" : "is-empty"}`}
                           aria-hidden="true"
                         >
-                          {parent && (
+                          {parentVisible && (
                             <svg className="chat-thread-connector" viewBox="0 0 24 24">
-                              <path d="M21 17H4V4" />
-                              <path d="m1 7 3-3 3 3" />
+                              <path d="M4 4v12h16" />
+                              <path d="m16 12 4 4-4 4" />
                             </svg>
                           )}
                         </span>
@@ -1063,11 +1059,11 @@ export function ChatRefsPage({
                           {(archived || threadLabels.length > 0) && (
                             <span className="chat-link-meta">
                               {archived && <small className="chat-thread-meta">Archive</small>}
-                              {threadLabels.length > 0 && (
-                                <small className="chat-thread-meta">
-                                  {threadLabels.join(" / ")}
+                              {threadLabels.map((label) => (
+                                <small className="chat-thread-meta" key={label}>
+                                  {label}
                                 </small>
-                              )}
+                              ))}
                             </span>
                           )}
                         </span>

@@ -15563,12 +15563,14 @@ kbd {
 }
 
 /*
- * 実行中のFocus Session（#316）。Sidebar下部の常設領域に置き、
- * navigationを圧迫せず見失わないようにする。色だけでなくlabelと経過時間で示す。
+ * 実行中のFocus Session（#316）。Sidebar上部に常設し、スクロールしても見失わないようにする。
+ * 色だけでなくlabelと経過時間で示す。
  */
 .sidebar-focus {
+  position: sticky;
+  top: var(--space-2);
+  z-index: 2;
   flex: 0 0 auto;
-  margin-top: auto;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -15579,6 +15581,7 @@ kbd {
   background: var(--color-accent-subtle-bg);
   color: var(--color-text);
   text-align: left;
+  box-shadow: 0 1px 0 var(--color-border-subtle);
 }
 .sidebar-focus:hover {
   border-color: var(--color-accent);

@@ -121,7 +121,12 @@ class TaskenTodayWidget : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action != ACTION_TOGGLE_TASK) return
+        val itemAction = intent.getStringExtra(EXTRA_WIDGET_ITEM_ACTION)
+        if (itemAction == WIDGET_ITEM_OPEN || intent.action == ACTION_OPEN_TASK) {
+            openTask(context, intent)
+            return
+        }
+        if (itemAction != WIDGET_ITEM_TOGGLE && intent.action != ACTION_TOGGLE_TASK) return
         val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: return
         val markDone = intent.getBooleanExtra(EXTRA_MARK_DONE, true)
         val pendingResult = goAsync()
@@ -148,8 +153,13 @@ class TaskenTodayWidget : AppWidgetProvider() {
 
     companion object {
         internal const val ACTION_TOGGLE_TASK = "jp.personal.tasken.companion.action.TOGGLE_WIDGET_TASK"
+        internal const val ACTION_OPEN_TASK = "jp.personal.tasken.companion.action.OPEN_WIDGET_TASK"
+        private const val ACTION_WIDGET_ITEM = "jp.personal.tasken.companion.action.WIDGET_ITEM"
         internal const val EXTRA_TASK_ID = "task_id"
         internal const val EXTRA_MARK_DONE = "mark_done"
+        internal const val EXTRA_WIDGET_ITEM_ACTION = "widget_item_action"
+        private const val WIDGET_ITEM_OPEN = "open"
+        private const val WIDGET_ITEM_TOGGLE = "toggle"
         const val ACTION_TOGGLE_TASK_PUBLIC = ACTION_TOGGLE_TASK
         const val EXTRA_TASK_ID_PUBLIC = EXTRA_TASK_ID
         const val EXTRA_MARK_DONE_PUBLIC = EXTRA_MARK_DONE
@@ -344,11 +354,9 @@ class TaskenTodayWidget : AppWidgetProvider() {
             setEmptyView(R.id.widget_list, R.id.widget_empty)
             setPendingIntentTemplate(
                 R.id.widget_list,
-                PendingIntent.getActivity(
+                widgetItemPendingIntent(
                     context,
                     widgetId + 40_000,
-                    Intent(Intent.ACTION_VIEW, Uri.parse("tasken://today?source=widget"), context, MainActivity::class.java),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
                 ),
             )
         }
@@ -368,8 +376,31 @@ class TaskenTodayWidget : AppWidgetProvider() {
         private fun RemoteViews.bindVoiceAction(context: Context, widgetId: Int) {
             setOnClickPendingIntent(
                 R.id.widget_voice,
-                openAppIntent(context, widgetId + 20_000, "tasken://capture/new?voice=1&source=widget"),
+                PendingIntent.getActivity(
+                    context,
+                    widgetId + 20_000,
+                    WidgetVoiceCaptureActivity.voiceCaptureIntent(context),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
             )
+        }
+
+        internal fun widgetItemPendingIntent(context: Context, requestCode: Int): PendingIntent = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            Intent(context, TaskenTodayWidget::class.java).setAction(ACTION_WIDGET_ITEM),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+        )
+
+        internal fun widgetOpenTaskIntent(taskId: String): Intent = Intent(ACTION_OPEN_TASK).apply {
+            putExtra(EXTRA_WIDGET_ITEM_ACTION, WIDGET_ITEM_OPEN)
+            data = Uri.parse("${MobileTaskLocator.format(taskId)}?source=widget")
+        }
+
+        internal fun widgetToggleTaskIntent(taskId: String, markDone: Boolean): Intent = Intent(ACTION_TOGGLE_TASK).apply {
+            putExtra(EXTRA_WIDGET_ITEM_ACTION, WIDGET_ITEM_TOGGLE)
+            putExtra(EXTRA_TASK_ID, taskId)
+            putExtra(EXTRA_MARK_DONE, markDone)
         }
 
         internal fun taskText(task: TaskenWidgetTask): String {
@@ -430,6 +461,20 @@ class TaskenTodayWidget : AppWidgetProvider() {
             snapshot.pendingCount > 0 -> "送信待ち ${snapshot.pendingCount}件"
             snapshot.lastSuccessfulSyncAt == null -> "未同期"
             else -> ""
+        }
+
+        private fun openTask(context: Context, intent: Intent) {
+            val taskId = intent.data?.toString()?.let { rawUri ->
+                runCatching { MobileTaskLocator.parse(java.net.URI(rawUri)) }.getOrNull()
+            } ?: return
+            context.startActivity(
+                Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("${MobileTaskLocator.format(taskId)}?source=widget"),
+                    context,
+                    MainActivity::class.java,
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
         }
 
         private fun modeFrom(options: Bundle): TaskenWidgetMode {

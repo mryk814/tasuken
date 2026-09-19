@@ -309,7 +309,7 @@ function elapsedFocusLabel(startedAt: string, now: number): string {
 
 /**
  * 実行中のFocus Session（#316）。
- * navigationを圧迫しないよう下部の固定領域に置き、色だけでなくlabelと経過時間で示す。
+ * Sidebar上部に固定して見失わないようにし、色だけでなくlabelと経過時間で示す。
  * pulse等の動きは `prefers-reduced-motion` をCSS側で尊重する。
  */
 function SidebarFocus({
@@ -337,7 +337,7 @@ function SidebarFocus({
     >
       <span className="sidebar-focus-label">
         <span className="sidebar-focus-dot" aria-hidden="true" />
-        {!collapsed && "FOCUS"}
+        {!collapsed && "フォーカス中"}
       </span>
       {!collapsed && (
         <>
@@ -424,6 +424,9 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
+      {activeFocus && openActiveFocus && (
+        <SidebarFocus focus={activeFocus} collapsed={collapsed} onOpen={openActiveFocus} />
+      )}
       <nav className="primary-nav nav-group" aria-label="今日の運用">
         <div className="nav-heading">
           <span>今日の運用</span>
@@ -495,9 +498,6 @@ export function Sidebar({
         </div>
         {toolNavigation.map(renderNavButton)}
       </nav>
-      {activeFocus && openActiveFocus && (
-        <SidebarFocus focus={activeFocus} collapsed={collapsed} onOpen={openActiveFocus} />
-      )}
     </aside>
   );
 }

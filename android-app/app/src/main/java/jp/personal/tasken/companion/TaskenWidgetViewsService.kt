@@ -2,8 +2,6 @@ package jp.personal.tasken.companion
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import java.time.LocalDate
@@ -54,16 +52,10 @@ private class TaskenWidgetViewsFactory(
             is TaskenWidgetListItem.Row -> {
                 val task = item.task
                 TaskenTodayWidget.rowViews(context, task).apply {
-                    val openFill = Intent().apply {
-                        data = Uri.parse("${MobileTaskLocator.format(task.id)}?source=widget")
-                    }
+                    val openFill = TaskenTodayWidget.widgetOpenTaskIntent(task.id)
                     setOnClickFillInIntent(R.id.widget_row_title, openFill)
                     if (task.canToggleState) {
-                        val toggleFill = Intent().apply {
-                            action = TaskenTodayWidget.ACTION_TOGGLE_TASK_PUBLIC
-                            putExtra(TaskenTodayWidget.EXTRA_TASK_ID_PUBLIC, task.id)
-                            putExtra(TaskenTodayWidget.EXTRA_MARK_DONE_PUBLIC, !task.isDone)
-                        }
+                        val toggleFill = TaskenTodayWidget.widgetToggleTaskIntent(task.id, !task.isDone)
                         setOnClickFillInIntent(R.id.widget_row_button, toggleFill)
                     } else {
                         setOnClickFillInIntent(R.id.widget_row_button, openFill)

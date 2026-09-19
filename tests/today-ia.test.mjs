@@ -166,23 +166,21 @@ test("Todayのprimary actionはTask追加ひとつにする（#316）", () => {
   );
 });
 
-test("実行中のFocusはSidebar下部から確認・再開できる（#316）", () => {
+test("実行中のFocusはSidebar上部から確認・再開できる（#316）", () => {
   const shell = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
   const app = readFileSync("src/renderer/src/features/workspace/WorkspaceApp.tsx", "utf8");
   const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
-  // 右下floatingをやめ、Sidebar下部の常設領域へ移す。
+  // 右下floatingをやめ、Sidebar上部の常設領域へ移す。
   assert.equal(/focus-resume-chip/.test(app), false);
   assert.equal(/focus-resume-chip/.test(styles), false);
   assert.match(shell, /function SidebarFocus\(/);
-  assert.match(
-    shell,
-    /<SidebarFocus focus=\{activeFocus\} collapsed=\{collapsed\} onOpen=\{openActiveFocus\} \/>/,
-  );
-  assert.match(styles, /\.sidebar-focus \{[\s\S]*?margin-top: auto;/);
+  assert.match(shell, /<aside className="sidebar">\s*\{activeFocus && openActiveFocus/);
+  assert.match(styles, /\.sidebar-focus[\s\S]*?position: sticky;/);
+  assert.equal(/\.sidebar-focus\s*\{[\s\S]*?margin-top: auto;/.test(styles), false);
 
   // 色だけでactiveを示さず、labelと経過時間を出す。
-  assert.match(shell, /FOCUS/);
+  assert.match(shell, /フォーカス中/);
   assert.match(shell, /function elapsedFocusLabel\(/);
   // 動きを減らす設定ではpulseを止める。
   assert.match(

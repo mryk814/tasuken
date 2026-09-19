@@ -43,6 +43,12 @@
                 android:resource="@xml/tasken_shortcuts" />
         </activity>
         <activity
+            android:name=".WidgetVoiceCaptureActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:theme="@style/Theme.TaskenCompanion.NotificationGate" />
+        <activity
             android:name=".MobileTaskNotificationOpenActivity"
             android:excludeFromRecents="true"
             android:exported="false"
