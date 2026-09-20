@@ -16507,3 +16507,80 @@ kbd {
     border-left: 0;
   }
 }
+
+/* --- Today: 期限の確認と「扱う日を変更」（#454） --- */
+.today-deadline-panel .today-deadline-count {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.today-deadline-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.today-deadline-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  padding: 10px 0;
+  border-top: 1px solid var(--color-border-subtle);
+  min-width: 0;
+}
+
+.today-deadline-row:first-child {
+  border-top: 0;
+}
+
+.today-deadline-open {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-base);
+  text-align: left;
+  word-break: keep-all;
+  cursor: pointer;
+}
+
+.today-deadline-open:hover {
+  color: var(--color-accent-strong);
+}
+
+.today-deadline-open:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+
+.today-deadline-meta {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.today-date-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+}
+
+.today-date-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.today-date-pick input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-base);
+}

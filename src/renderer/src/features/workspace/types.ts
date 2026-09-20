@@ -417,7 +417,15 @@ export interface PageProps {
   ): Promise<CommandReceipt>;
   removeEntity: RemoveEntity;
   removeEntityQuiet(type: EntityType, id: string): Promise<void>;
-  setToast(message: string, tone?: "info" | "success" | "warning" | "danger"): void;
+  /**
+   * トーストを出す。`undo` を渡すと「元に戻す」を同じ位置に出す（#454）。
+   * 取り消しの実行は呼び出し側が持ち、押されたときに一度だけ走る。
+   */
+  setToast(
+    message: string,
+    tone?: "info" | "success" | "warning" | "danger",
+    undo?: { label: string; run(): void | Promise<void> } | null,
+  ): void;
   snapshotPreview: SnapshotPreview | null;
   setSnapshotPreview(preview: SnapshotPreview | null): void;
 }

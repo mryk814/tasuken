@@ -35,6 +35,36 @@ test("Today page removes low-read metric cards from the main scan path", () => {
   assert.doesNotMatch(todayPageSource, /metric-card panel metric-button/);
 });
 
+test("Todayの「扱う日を変更」は today_date だけを変え、締切を動かさない（#454）", () => {
+  assert.match(todayPageSource, /handleChangeTodayDate/);
+  // Scheduleを動かす旧「延期」は残さない。締切の変更はTask詳細の予定編集へ分ける。
+  assert.doesNotMatch(todayPageSource, /handlePostpone/);
+  assert.doesNotMatch(todayPageSource, /\+1d/);
+  const start = todayPageSource.indexOf("async function handleChangeTodayDate");
+  const handler = todayPageSource.slice(
+    start,
+    todayPageSource.indexOf("async function handleToggleToday"),
+  );
+  assert.match(handler, /today_date: target/);
+  assert.doesNotMatch(handler, /buildSaveScheduleOperations/);
+  // 期限が関係する場合だけ、締切が変わっていないことを短く説明する。
+  assert.match(handler, /締切は\$\{formatDate\(deadline\)\}のままです。/);
+});
+
+test("扱う日のメニューは5つの選択肢とUndoを持つ（#454）", () => {
+  for (const label of ["今日", "明日", "来週（", "日付を選ぶ", "今日の選択を外す"]) {
+    assert.ok(todayPageSource.includes(label), `扱う日のメニューに ${label} がない`);
+  }
+  assert.match(todayPageSource, /label: "元に戻す"/);
+});
+
+test("Todayは期限の確認を持ち、実行一覧と候補棚に丸ごと重複させない（#454）", () => {
+  assert.match(todayPageSource, /<h2>期限の確認<\/h2>/);
+  assert.match(todayPageSource, /isDeadlineReviewRow/);
+  assert.match(todayPageSource, /shelfOverdueRows/);
+  assert.doesNotMatch(todayPageSource, /rows=\{dailyCandidates\.overdue\.slice/);
+});
+
 test("Today page keeps inbox and unscheduled work out of row sections", () => {
   assert.doesNotMatch(todayPageSource, /<h2>Inbox未整理<\/h2>/);
   assert.doesNotMatch(todayPageSource, /<h2>予定なし<\/h2>/);

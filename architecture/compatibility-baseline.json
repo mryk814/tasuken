@@ -194,6 +194,7 @@
       "consumerPaths": [
         "scripts/model-smoke.mjs",
         "scripts/seed-materials-informatics-workspace.mjs",
+        "scripts/today-date-audit.mjs",
         "scripts/update-materials-informatics-workspace.mjs",
         "src/main/index.ts",
         "src/main/memoStickyController.ts",
