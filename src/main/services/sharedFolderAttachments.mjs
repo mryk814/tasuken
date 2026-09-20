@@ -92,6 +92,13 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+function imageWaitingError(message, sourceDeviceId, fileName) {
+  const error = new Error(message);
+  error.code = "SYNC_IMAGE_WAITING";
+  error.details = { deviceId: sourceDeviceId || "", fileName };
+  return error;
+}
+
 function validateDescriptor(value, expectedFileName, expectedDeviceId) {
   if (
     !value ||
@@ -246,22 +253,32 @@ function receiveRemoteImages({
         assertPhotoPath(path.join(remoteDirectory, descriptorName));
         assertPhotoPath(path.join(remoteDirectory, fileName));
       }
-      const descriptor = validateDescriptor(
-        readJson(path.join(remoteDirectory, descriptorName)),
-        fileName,
-        sourceDeviceId,
-      );
+      let rawDescriptor = null;
+      try {
+        rawDescriptor = readJson(path.join(remoteDirectory, descriptorName));
+      } catch {
+        throw imageWaitingError(
+          `${sourceDeviceId} の添付画像 ${fileName} は同期途中か破損しています。共有フォルダの同期完了後に再試行します。`,
+          sourceDeviceId,
+          fileName,
+        );
+      }
+      const descriptor = validateDescriptor(rawDescriptor, fileName, sourceDeviceId);
       const remoteImagePath = path.join(remoteDirectory, fileName);
       if (!fs.existsSync(remoteImagePath)) {
-        throw new Error(
+        throw imageWaitingError(
           `${sourceDeviceId} の添付画像 ${fileName} の到着を待っています。共有フォルダの同期完了後に再試行します。`,
+          sourceDeviceId,
+          fileName,
         );
       }
       const remoteImage = readImage(remoteImagePath, fileName);
       if (photoManifests) verifyPhoto(remoteImage, photoManifests.get(fileName));
       if (remoteImage.size !== descriptor.size || remoteImage.sha256 !== descriptor.sha256) {
-        throw new Error(
+        throw imageWaitingError(
           `${sourceDeviceId} の添付画像 ${fileName} は同期途中か破損しています。共有フォルダの同期完了後に再試行します。`,
+          sourceDeviceId,
+          fileName,
         );
       }
       const localImagePath = path.join(localDirectory, fileName);
@@ -344,7 +361,11 @@ export function syncCaptureImageAttachments({
     const target = path.join(localDirectory, fileName);
     assertPhotoPath(target);
     if (!fs.existsSync(target))
-      throw new Error("写真の到着を待っています。共有フォルダーの同期後に再試行してください。");
+      throw imageWaitingError(
+        "写真の到着を待っています。共有フォルダーの同期後に再試行してください。",
+        "",
+        fileName,
+      );
     verifyPhoto(readImage(target, fileName), photoManifests.get(fileName));
   }
   return { published, received };

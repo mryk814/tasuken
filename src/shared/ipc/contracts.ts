@@ -672,6 +672,9 @@ export interface SharedSyncStatus {
   markdownImageCount: number;
   lastMarkdownImagesPublished: number;
   lastMarkdownImagesReceived: number;
+  waitingFor: { deviceId: string; sequence: number } | null;
+  waitingImage: { deviceId: string; fileName: string } | null;
+  lastAutoRepublished: number;
 }
 
 export interface SharedSyncRepublishResult {

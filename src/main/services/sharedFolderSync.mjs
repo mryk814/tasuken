@@ -58,6 +58,9 @@ export class SharedFolderSyncService {
     this.running = null;
     this.state = "off";
     this.attachmentStats = { published: 0, received: 0 };
+    this.waitingFor = null;
+    this.waitingImage = null;
+    this.healStats = { republished: 0 };
   }
 
   start() {
@@ -142,6 +145,9 @@ export class SharedFolderSyncService {
       markdownImageCount: countMarkdownImageAttachments(this.attachmentDirectory),
       lastMarkdownImagesPublished: this.attachmentStats.published,
       lastMarkdownImagesReceived: this.attachmentStats.received,
+      waitingFor: this.waitingFor,
+      waitingImage: this.waitingImage,
+      lastAutoRepublished: this.healStats.republished,
     };
   }
 
@@ -159,6 +165,8 @@ export class SharedFolderSyncService {
     if (!directory) throw new Error("同期フォルダが設定されていません。");
     this.state = "syncing";
     try {
+      this.waitingFor = null;
+      this.waitingImage = null;
       const manifest = this.readManifest(directory);
       if (!manifest) throw new Error("同期フォルダのTasken設定が見つかりません。");
       if (manifest.workspaceId !== this.repository.workspaceId) {
@@ -205,6 +213,9 @@ export class SharedFolderSyncService {
       return this.status();
     } catch (error) {
       this.state = "error";
+      if (error && error.code === "SYNC_IMAGE_WAITING") {
+        this.waitingImage = error.details ?? null;
+      }
       this.repository.setPreference("sharedSyncLastError", syncErrorMessage(error));
       throw error;
     }
@@ -213,11 +224,25 @@ export class SharedFolderSyncService {
   publishPending(directory) {
     const deviceDirectory = path.join(directory, DEVICE_DIRECTORY, this.repository.deviceId);
     fs.mkdirSync(deviceDirectory, { recursive: true });
-    for (const pending of this.repository.pendingSyncChanges()) {
-      const filePath = path.join(deviceDirectory, packetFileName(pending.packet));
-      if (!fs.existsSync(filePath)) writeJsonAtomic(filePath, pending.packet);
-      this.repository.markSyncPublished(pending.changeId);
+    const present = new Set(
+      fs.readdirSync(deviceDirectory).filter((name) => name.endsWith(".json")),
+    );
+    let republished = 0;
+    for (const header of this.repository.syncPacketHeaders()) {
+      const fileName = packetFileName({
+        deviceSequence: header.deviceSequence,
+        changeId: header.changeId,
+      });
+      if (!present.has(fileName)) {
+        const entry = this.repository.syncPacket(header.changeId);
+        const filePath = path.join(deviceDirectory, packetFileName(entry.packet));
+        if (!fs.existsSync(filePath)) writeJsonAtomic(filePath, entry.packet);
+        present.add(path.basename(filePath));
+        republished += 1;
+      }
+      if (!header.published) this.repository.markSyncPublished(header.changeId);
     }
+    this.healStats = { republished };
   }
 
   republishMissing(directoryValue) {
@@ -265,11 +290,20 @@ export class SharedFolderSyncService {
         const sequence = Number(fileName.slice(0, 12));
         if (!Number.isFinite(sequence) || sequence <= cursor) continue;
         if (sequence !== cursor + 1) {
+          this.waitingFor = { deviceId, sequence: cursor + 1 };
           throw new Error(
             `${deviceId} の同期差分 ${String(cursor + 1).padStart(12, "0")} を待っています。共有フォルダの同期完了後に再試行します。解消しない場合は送信側の端末で差分の再公開を実行してください。`,
           );
         }
-        const packet = readJson(path.join(devicesRoot, deviceId, fileName));
+        let packet = null;
+        try {
+          packet = readJson(path.join(devicesRoot, deviceId, fileName));
+        } catch {
+          this.waitingFor = { deviceId, sequence };
+          throw new Error(
+            `${deviceId} の同期差分 ${String(sequence).padStart(12, "0")} の到着を待っています。共有フォルダの同期完了後に再試行します。解消しない場合は送信側の端末で差分の再公開を実行してください。`,
+          );
+        }
         if (packet.deviceId !== deviceId || Number(packet.deviceSequence) !== sequence) {
           throw new Error(`同期差分 ${fileName} の端末情報が一致しません。`);
         }

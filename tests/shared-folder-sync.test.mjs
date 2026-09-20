@@ -375,6 +375,10 @@ test("shared folder sync never confirms an incomplete or corrupted Markdown imag
 
     await assert.rejects(() => pair.secondSync.configure(pair.shared), /同期途中か破損しています/);
     assert.equal(fs.existsSync(path.join(pair.secondAttachments, fileName)), false);
+    assert.deepEqual(pair.secondSync.status().waitingImage, {
+      deviceId: pair.first.deviceId,
+      fileName,
+    });
   } finally {
     pair.close();
   }
@@ -501,6 +505,50 @@ test("republishing deleted packets lets a new device join from the middle", asyn
 
     const repeat = pair.firstSync.republishMissing();
     assert.equal(repeat.republished, 0);
+  } finally {
+    pair.close();
+  }
+});
+
+test("syncNow automatically republishes deleted packets without manual republish", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "First change"));
+    pair.first.save("task", task("task-b", "Second change"));
+    await pair.firstSync.configure(pair.shared);
+
+    const deviceDirectory = path.join(pair.shared, "devices", pair.first.deviceId);
+    const files = fs.readdirSync(deviceDirectory).sort();
+    assert.ok(files.length >= 2);
+    fs.unlinkSync(path.join(deviceDirectory, files[0]));
+
+    const status = await pair.firstSync.syncNow();
+    assert.equal(status.lastAutoRepublished, 1);
+
+    await pair.secondSync.configure(pair.shared);
+    assert.equal(pair.second.get("task", "task-a").title, "First change");
+    assert.equal(pair.second.get("task", "task-b").title, "Second change");
+  } finally {
+    pair.close();
+  }
+});
+
+test("an unreadable packet file is reported as waiting instead of corrupt", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "First change"));
+    pair.first.save("task", task("task-b", "Second change"));
+    await pair.firstSync.configure(pair.shared);
+
+    const deviceDirectory = path.join(pair.shared, "devices", pair.first.deviceId);
+    const files = fs.readdirSync(deviceDirectory).sort();
+    fs.writeFileSync(path.join(deviceDirectory, files[1]), "{partial");
+
+    await assert.rejects(() => pair.secondSync.configure(pair.shared), /到着を待っています/);
+    assert.deepEqual(pair.secondSync.status().waitingFor, {
+      deviceId: pair.first.deviceId,
+      sequence: 2,
+    });
   } finally {
     pair.close();
   }
