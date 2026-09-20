@@ -239,6 +239,12 @@ internal fun TodayApp(
     val humanReviewOnline by todayViewModel.humanReviewOnline.collectAsState()
     val humanReviewRequiresRePairing by todayViewModel.humanReviewRequiresRePairing.collectAsState()
     val humanReviewState by todayViewModel.humanReviewState.collectAsState()
+    val attentionRows by todayViewModel.attention.collectAsState()
+    val attentionCounts by todayViewModel.attentionCounts.collectAsState()
+    val attentionFetchedAt by todayViewModel.attentionFetchedAt.collectAsState()
+    val attentionOnline by todayViewModel.attentionOnline.collectAsState()
+    val attentionRefreshing by todayViewModel.attentionRefreshing.collectAsState()
+    val agentReplyState by todayViewModel.agentReplyState.collectAsState()
     val aiReadyState by todayViewModel.aiReadyState.collectAsState()
     val pendingSafeShare by todayViewModel.pendingSafeShare.collectAsState()
     val themes = themeCatalogState.themes
@@ -778,6 +784,15 @@ internal fun TodayApp(
                                 onPair = todayViewModel::pair,
                                 onTaskSelected = onTaskSelected,
                                 onOpenAiSettings = { directAiSettingsOpen = true },
+                                attention = attentionRows,
+                                attentionCounts = attentionCounts,
+                                attentionFetchedAt = attentionFetchedAt,
+                                attentionOnline = attentionOnline,
+                                attentionRefreshing = attentionRefreshing,
+                                agentReplyState = agentReplyState,
+                                onRefreshAttention = todayViewModel::refreshAttention,
+                                onReplyToAgent = todayViewModel::replyToAgent,
+                                onResetAgentReply = todayViewModel::resetAgentReplyState,
                             )
                         }
                         if (paneState.activeSection != AppSection.Ai) {
@@ -1759,7 +1774,25 @@ internal fun AiInboxListPane(
     onPair: (String, String) -> Unit,
     onTaskSelected: (String) -> Unit,
     onOpenAiSettings: (() -> Unit)? = null,
+    attention: List<AttentionRow> = emptyList(),
+    attentionCounts: MobileAttentionCountsDto? = null,
+    attentionFetchedAt: String? = null,
+    attentionOnline: Boolean = false,
+    attentionRefreshing: Boolean = false,
+    agentReplyState: AgentReplyUiState = AgentReplyUiState.Idle,
+    onRefreshAttention: () -> Unit = {},
+    onReplyToAgent: (AttentionRow, String?, String) -> Unit = { _, _, _ -> },
+    onResetAgentReply: () -> Unit = {},
 ) {
+    var replyTarget by remember { mutableStateOf<AttentionRow?>(null) }
+    var replyBody by remember { mutableStateOf("") }
+    // 正式に保存できたときだけ、入力と選択を閉じる。失敗時は入力を保持する。
+    LaunchedEffect(agentReplyState) {
+        if (agentReplyState is AgentReplyUiState.Applied) {
+            replyTarget = null
+            replyBody = ""
+        }
+    }
     Column(modifier = Modifier.fillMaxSize()) {
         onOpenAiSettings?.let { open ->
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
@@ -1772,13 +1805,12 @@ internal fun AiInboxListPane(
         uiState is TodayUiState.Error && tasks.isEmpty() -> GatewayErrorState(uiState, onRetry, onRetryPairing)
         uiState is TodayUiState.Loading && tasks.isEmpty() -> CenteredState {
             CircularProgressIndicator()
-            Text("AI Inboxを読み込んでいます")
+            Text("Agent Deskを読み込んでいます")
         }
         else -> {
             val sections = filterAiInboxTasks(tasks)
-            if (sections.isEmpty() && proposals.isEmpty()) {
-                CenteredState { Text("AI作業中のTaskはありません") }
-            } else {
+            // 要対応が0件でも見出しは出す。「取得できていない」と「0件」を利用者が区別できるようにする。
+            run {
                 val listState = rememberLazyListState(
                     initialFirstVisibleItemIndex = paneState.aiListScrollIndex,
                     initialFirstVisibleItemScrollOffset = paneState.aiListScrollOffset,
@@ -1793,6 +1825,47 @@ internal fun AiInboxListPane(
                     contentPadding = PaddingValues(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    item(key = "section-attention") {
+                        AgentAttentionHeader(
+                            counts = attentionCounts,
+                            fetchedAt = attentionFetchedAt,
+                            online = attentionOnline,
+                            refreshing = attentionRefreshing,
+                            onRefresh = onRefreshAttention,
+                        )
+                    }
+                    items(attention, key = { "attention-${it.attentionId}" }) { row ->
+                        AgentAttentionCard(
+                            row = row,
+                            selected = replyTarget?.attentionId == row.attentionId,
+                            onOpenReply = {
+                                replyTarget = row
+                                replyBody = ""
+                                onResetAgentReply()
+                            },
+                            onOpenTask = { row.taskId?.let(onTaskSelected) },
+                        )
+                    }
+                    replyTarget?.let { target ->
+                        item(key = "attention-reply") {
+                            AgentReplyEditor(
+                                row = target,
+                                body = replyBody,
+                                onBodyChange = { replyBody = it.take(10_000) },
+                                state = agentReplyState,
+                                online = attentionOnline,
+                                onSend = { onReplyToAgent(target, null, replyBody) },
+                                onCancel = {
+                                    replyTarget = null
+                                    replyBody = ""
+                                    onResetAgentReply()
+                                },
+                            )
+                        }
+                    }
+                    item(key = "section-agent-counts") {
+                        AgentWorkCounts(counts = attentionCounts)
+                    }
                     if (proposals.isNotEmpty()) {
                         item(key = "section-proposals") {
                             Text(
@@ -1906,9 +1979,262 @@ internal fun AiInboxListPane(
     }
 }
 
+/**
+ * 要対応の見出し（#601）。
+ *
+ * 件数はDesktopのbadgeと同じ意味で、**判断の数**。まだ読めていない間は
+ * 「0件」と書かず、取得できていないことを示す。
+ */
 @Composable
-private fun GatewayErrorState(
-    state: TodayUiState.Error,
+private fun AgentAttentionHeader(
+    counts: MobileAttentionCountsDto?,
+    fetchedAt: String?,
+    online: Boolean,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().testTag("attention-header")) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (counts == null) "対応待ち" else "対応待ち ${counts.needsYou}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            TextButton(onClick = onRefresh, enabled = !refreshing, modifier = Modifier.testTag("attention-refresh")) {
+                Text(if (refreshing) "更新中" else "更新")
+            }
+        }
+        if (counts == null) {
+            Text(
+                "要対応をまだ取得できていません。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+                modifier = Modifier.testTag("attention-unavailable"),
+            )
+        } else if (counts.needsYou == 0) {
+            Text(
+                "対応待ちはありません。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("attention-empty"),
+            )
+        }
+        if (counts != null && !online) {
+            Text(
+                "Desktopへ接続できません。表示は最後に取得した内容です。",
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 12.sp,
+                modifier = Modifier.testTag("attention-stale"),
+            )
+        }
+        fetchedAt?.let { at ->
+            Text(
+                "最終取得 ${attentionTimeLabel(at)}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+            )
+        }
+    }
+}
+
+/** 作業中・開始待ちは要対応ではない。件数だけを別枠で示す。 */
+@Composable
+private fun AgentWorkCounts(counts: MobileAttentionCountsDto?) {
+    if (counts == null) return
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text(
+            "作業中 ${counts.working}",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            "開始待ち ${counts.queued}",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            "開始は未確認",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+@Composable
+private fun AgentAttentionCard(
+    row: AttentionRow,
+    selected: Boolean,
+    onOpenReply: () -> Unit,
+    onOpenTask: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("attention-row-${row.attentionId}")
+            .semantics { role = Role.Button },
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    row.headline,
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    attentionKindLabel(row.kind),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            row.taskTitle?.let { title ->
+                Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            }
+            row.agentLabel?.let { label ->
+                Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            }
+            Text(row.summary, maxLines = 3)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (row.canReply) {
+                    Button(
+                        onClick = onOpenReply,
+                        modifier = Modifier.testTag("attention-reply-open-${row.attentionId}"),
+                    ) {
+                        Text("回答する")
+                    }
+                }
+                if (row.taskId != null) {
+                    TextButton(
+                        onClick = onOpenTask,
+                        modifier = Modifier.testTag("attention-open-task-${row.attentionId}"),
+                    ) {
+                        Text("Taskを開く")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 質問への短い返答（#601）。下部に回答欄と主操作を置く。
+ *
+ * 送信していない・送信中・保存済みを区別して示す。失敗しても入力を消さない。
+ */
+@Composable
+private fun AgentReplyEditor(
+    row: AttentionRow,
+    body: String,
+    onBodyChange: (String) -> Unit,
+    state: AgentReplyUiState,
+    online: Boolean,
+    onSend: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val sending = state is AgentReplyUiState.Replying
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("attention-reply-editor"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("回答", fontWeight = FontWeight.Bold)
+            Text(row.questionOrAction)
+            OutlinedTextField(
+                value = body,
+                onValueChange = onBodyChange,
+                modifier = Modifier.fillMaxWidth().testTag("attention-reply-text"),
+                label = { Text("回答を入力") },
+                minLines = 2,
+                enabled = !sending,
+            )
+            if (!online) {
+                Text(
+                    "Desktopへ接続してから回答してください。",
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp,
+                )
+            }
+            when (state) {
+                is AgentReplyUiState.Applied -> Text(
+                    "回答を送りました。${agentDisplayStateLabel(state.displayState)}",
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.testTag("attention-reply-message"),
+                )
+                is AgentReplyUiState.Conflict -> Text(
+                    state.message,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("attention-reply-message"),
+                )
+                is AgentReplyUiState.Rejected -> Text(
+                    state.message,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("attention-reply-message"),
+                )
+                is AgentReplyUiState.Unavailable -> Text(
+                    state.message,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("attention-reply-message"),
+                )
+                else -> Unit
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onSend,
+                    enabled = body.isNotBlank() && !sending && online,
+                    modifier = Modifier.testTag("attention-reply-send"),
+                ) {
+                    Text(if (sending) "送信中" else "回答を送る")
+                }
+                TextButton(onClick = onCancel, enabled = !sending, modifier = Modifier.testTag("attention-reply-cancel")) {
+                    Text("閉じる")
+                }
+            }
+        }
+    }
+}
+
+internal fun attentionKindLabel(kind: AttentionKind): String = when (kind) {
+    AttentionKind.AnswerRequest -> "回答待ち"
+    AttentionKind.DecisionRequest -> "判断待ち"
+    AttentionKind.ReviewReport -> "成果確認"
+    AttentionKind.ProposalPending -> "変更案"
+    AttentionKind.Unknown -> "要確認"
+}
+
+/** Desktopが返した表示状態の言い換え。Android側で状態を作り直さない。 */
+internal fun agentDisplayStateLabel(displayState: String): String = when (displayState) {
+    "answered_resume_waiting" -> "agentの再開を待ちます。"
+    "working" -> "agentが作業中です。"
+    "review_waiting" -> "成果の確認待ちです。"
+    else -> "Desktopの状態を確認してください。"
+}
+
+internal fun attentionTimeLabel(value: String): String = runCatching {
+    java.time.OffsetDateTime.parse(value).atZoneSameInstant(java.time.ZoneId.systemDefault())
+}.map { at ->
+    "${at.monthValue}月${at.dayOfMonth}日 ${String.format("%02d:%02d", at.hour, at.minute)}"
+}.getOrElse { "時刻不明" }
+
+@Composable
+private fun GatewayErrorState(    state: TodayUiState.Error,
     onRetry: () -> Unit,
     onRetryPairing: () -> Unit,
 ) {

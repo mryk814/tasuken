@@ -177,6 +177,17 @@ sealed interface MobileAgentReplyResult {
     data class Unavailable(val attentionId: String, val message: String) : MobileAgentReplyResult
 }
 
+/** 回答の送信状況（#601）。未送信・保留と正式成功を区別する。 */
+sealed interface AgentReplyUiState {
+    data object Idle : AgentReplyUiState
+    data class Replying(val attentionId: String) : AgentReplyUiState
+    /** `displayState` はDesktopが返した表示状態。画面側で「回答済み」を作り直さない。 */
+    data class Applied(val attentionId: String, val displayState: String) : AgentReplyUiState
+    data class Conflict(val attentionId: String, val message: String) : AgentReplyUiState
+    data class Rejected(val attentionId: String, val message: String) : AgentReplyUiState
+    data class Unavailable(val attentionId: String, val message: String) : AgentReplyUiState
+}
+
 data class MobileHumanReviewPending(
     val taskId: String,
     val action: String,
@@ -438,6 +449,18 @@ class TodayViewModel(
     val humanReviewRequiresRePairing: StateFlow<Boolean> = mutableHumanReviewRequiresRePairing.asStateFlow()
     private val mutableHumanReviewState = MutableStateFlow<HumanReviewUiState>(HumanReviewUiState.Idle)
     val humanReviewState: StateFlow<HumanReviewUiState> = mutableHumanReviewState.asStateFlow()
+    private val mutableAttention = MutableStateFlow<List<AttentionRow>>(emptyList())
+    val attention: StateFlow<List<AttentionRow>> = mutableAttention.asStateFlow()
+    private val mutableAttentionCounts = MutableStateFlow<MobileAttentionCountsDto?>(null)
+    val attentionCounts: StateFlow<MobileAttentionCountsDto?> = mutableAttentionCounts.asStateFlow()
+    private val mutableAttentionFetchedAt = MutableStateFlow<String?>(null)
+    val attentionFetchedAt: StateFlow<String?> = mutableAttentionFetchedAt.asStateFlow()
+    private val mutableAttentionOnline = MutableStateFlow(false)
+    val attentionOnline: StateFlow<Boolean> = mutableAttentionOnline.asStateFlow()
+    private val mutableAttentionRefreshing = MutableStateFlow(false)
+    val attentionRefreshing: StateFlow<Boolean> = mutableAttentionRefreshing.asStateFlow()
+    private val mutableAgentReplyState = MutableStateFlow<AgentReplyUiState>(AgentReplyUiState.Idle)
+    val agentReplyState: StateFlow<AgentReplyUiState> = mutableAgentReplyState.asStateFlow()
     private val mutableTaskDelegationState = MutableStateFlow<TaskDelegationUiState>(TaskDelegationUiState.Idle)
     val taskDelegationState: StateFlow<TaskDelegationUiState> = mutableTaskDelegationState.asStateFlow()
     private val mutableAiReadyState = MutableStateFlow<AiReadyUiState>(AiReadyUiState.Idle)
@@ -446,6 +469,7 @@ class TodayViewModel(
     val pendingSafeShare: StateFlow<MobileSafeShareDto?> = mutablePendingSafeShare.asStateFlow()
     private var workReceiptLoadJob: Job? = null
     private var proposalRefreshJob: Job? = null
+    private var attentionRefreshJob: Job? = null
     private var cacheJob: Job? = null
     private var cacheDate: java.time.LocalDate? = null
     private var cachedGeneratedAt = ""
@@ -480,6 +504,13 @@ class TodayViewModel(
             viewModelScope.launch(ioDispatcher) {
                 offlineRepository.observeCachedTaskWorkProposals().collect { proposals ->
                     mutableTaskWorkProposals.value = proposals.toList()
+                }
+            }
+            viewModelScope.launch(ioDispatcher) {
+                offlineRepository.observeCachedAttention().collect { snapshot ->
+                    mutableAttention.value = snapshot.items
+                    mutableAttentionCounts.value = snapshot.counts
+                    mutableAttentionFetchedAt.value = snapshot.fetchedAt
                 }
             }
         }
@@ -540,6 +571,99 @@ class TodayViewModel(
             applyResult(result)
         }
         refreshProposals(result !is MobileTodayResult.PairingRequired)
+        refreshAttentionQueue(result !is MobileTodayResult.PairingRequired)
+    }
+
+    /**
+     * 要対応の取り直し（#601）。Proposal一覧とは独立に走らせ、
+     * 失敗しても読み込み済みの一覧は保持する。
+     */
+    private fun refreshAttentionQueue(canConnect: Boolean) {
+        attentionRefreshJob?.cancel()
+        mutableAttentionOnline.value = false
+        val gateway = repository as? MobileGatewayRepository
+        if (!canConnect || gateway == null) {
+            mutableAttentionRefreshing.value = false
+            return
+        }
+        mutableAttentionRefreshing.value = true
+        attentionRefreshJob = viewModelScope.launch(ioDispatcher) {
+            val online = try {
+                gateway.refreshAttention()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                false
+            }
+            currentCoroutineContext().ensureActive()
+            mutableAttentionOnline.value = online
+            mutableAttentionRefreshing.value = false
+        }
+    }
+
+    fun refreshAttention() {
+        refreshAttentionQueue(canConnect = true)
+    }
+
+    fun replyToAgent(item: AttentionRow, choiceId: String?, body: String) {
+        viewModelScope.launch { replyToAgentNow(item, choiceId, body) }
+    }
+
+    /**
+     * 短い返答を送る（#601）。Taskは変えず、回答Receiptだけが増える。
+     * 送れなかったことを成功として扱わず、保留・競合・拒否をそれぞれ示す。
+     */
+    internal suspend fun replyToAgentNow(item: AttentionRow, choiceId: String?, body: String) {
+        val normalizedBody = body.trim()
+        if (!item.canReply || item.requestId == null || item.taskId == null || item.taskVersion == null) {
+            mutableAgentReplyState.value = AgentReplyUiState.Rejected(
+                item.attentionId,
+                "この判断には回答できません。要対応を取り直してください。",
+            )
+            return
+        }
+        if (normalizedBody.isEmpty()) {
+            mutableAgentReplyState.value = AgentReplyUiState.Rejected(item.attentionId, "回答を入力してください。")
+            return
+        }
+        if (!mutableAttentionOnline.value) {
+            mutableAgentReplyState.value = AgentReplyUiState.Unavailable(
+                item.attentionId,
+                "Desktopへ接続してから回答してください。",
+            )
+            return
+        }
+        val gateway = repository as? MobileGatewayRepository
+        if (gateway == null) {
+            mutableAgentReplyState.value = AgentReplyUiState.Unavailable(
+                item.attentionId,
+                "この環境では回答できません。",
+            )
+            return
+        }
+        mutableAgentReplyState.value = AgentReplyUiState.Replying(item.attentionId)
+        when (val result = withContext(ioDispatcher) { gateway.replyToAgent(item, choiceId, normalizedBody) }) {
+            is MobileAgentReplyResult.Applied -> {
+                mutableAttentionOnline.value = true
+                mutableAgentReplyState.value = AgentReplyUiState.Applied(result.attentionId, result.displayState)
+            }
+            is MobileAgentReplyResult.Conflict -> {
+                mutableAttentionOnline.value = true
+                mutableAgentReplyState.value = AgentReplyUiState.Conflict(result.attentionId, result.message)
+            }
+            is MobileAgentReplyResult.Rejected -> {
+                mutableAttentionOnline.value = true
+                mutableAgentReplyState.value = AgentReplyUiState.Rejected(result.attentionId, result.message)
+            }
+            is MobileAgentReplyResult.Unavailable -> {
+                mutableAttentionOnline.value = false
+                mutableAgentReplyState.value = AgentReplyUiState.Unavailable(result.attentionId, result.message)
+            }
+        }
+    }
+
+    fun resetAgentReplyState() {
+        mutableAgentReplyState.value = AgentReplyUiState.Idle
     }
 
     private fun refreshProposals(canConnect: Boolean) {
@@ -634,6 +758,7 @@ class TodayViewModel(
         cachedUnavailable = null
         applyResult(result)
         refreshProposals(result is MobileTodayResult.Available)
+        refreshAttentionQueue(result is MobileTodayResult.Available)
         val configuration = gateway.configuration()
         mutableHumanReviewOnline.value = result is MobileTodayResult.Available && configuration.canReviewWorkReceipts()
         mutableHumanReviewRequiresRePairing.value = configuration.paired && !configuration.canReviewWorkReceipts()
@@ -644,8 +769,11 @@ class TodayViewModel(
         connectionGeneration.incrementAndGet()
         pairingFormOpen = true
         proposalRefreshJob?.cancel()
+        attentionRefreshJob?.cancel()
         mutableProposalRefreshing.value = false
         mutableProposalReviewOnline.value = false
+        mutableAttentionRefreshing.value = false
+        mutableAttentionOnline.value = false
         mutableHumanReviewOnline.value = false
         mutableHumanReviewRequiresRePairing.value = false
         cachedPairingRequired = null

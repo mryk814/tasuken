@@ -275,6 +275,20 @@ Desktopと同じ導出を、Android用のread modelとして渡す。**Android�
 - 回答Receiptの `provenance.reported_via` は呼び出し元のsource（`mobile` / `main_ui` など）を記録し、Desktopからの回答と取り違えない。
 - mobile向けの射影は `src/main/gateway/mobile/attentionProjection.ts`、Core側の読み出しは `taskenCoreRuntime.ts` の `readAttention` / `replyToAgentRequest`。
 
+#### Androidの画面（#601）
+
+「AI」面の先頭に **対応待ち** を置き、その下に作業中・開始待ちの件数を出す。
+
+- 見出しの数はDesktopから受け取った値をそのまま表示する。Android側で数え直さない。
+- **まだ取得できていない間は「対応待ち 0」と書かない。** 未取得と0件を区別して示す。
+- 回答は行ごとの「回答する」から開き、下部の入力欄と「回答を送る」で送る。
+  送信中・保存済み・競合・未接続を区別し、**失敗しても入力を消さない**。
+- 回答後はDesktopが返した `displayState` をそのまま文言へ写す。「回答済み」を画面側で作らない。
+- 「開始待ち」は **「開始は未確認」** と添える。agentがContextを取得したかは観測していない。
+- 選択肢（`choiceId`）は要対応itemに含まれないため、Androidからの回答は自由記述のみ（`choiceId` は送らない）。
+
+実装は `MobileAttentionDto.kt`（契約と射影）、`MobileLocalStore.kt`（`attention_cache` / `attention_state` / `pending_agent_reply`、DB v26）、`MobileGatewayRepository.kt`（取得と回答の再送）、`MainActivity.kt`（一覧と回答欄）、`TodayViewModel`（`attention` と `agentReplyState`）。
+
 ## 9. migration と rollback
 
 - **DBスキーマ変更なし。** Entityの `properties_json` に任意fieldが増えるだけで、`entities` テーブルの列は変わらない。migrationは不要。
@@ -283,20 +297,30 @@ Desktopと同じ導出を、Android用のread modelとして渡す。**Android�
 - **旧版アプリ**は新しいMCP引数を送らない。その場合Taskに作業単位IDが付かないため `legacyAttemptTracking` として従来どおり動く。
 - **rollback** は新しいfieldを書かないように戻すだけでよい。既に保存された値は誰も読まなくなり、既存のProposal/Receipt経路は影響を受けない。
 
+### Android側のストレージ（#601）
+
+- Desktopの正本データに変更はない。AndroidのキャッシュDBだけが **v25 → v26** へ上がる（`attention_cache` / `attention_state` / `pending_agent_reply` を追加）。
+- 既存のTask・Outbox・Pending Human Review・通知配送はmigrationで保持する（`MobileLocalDatabaseMigrationTest` と `MobilePhotoUpgradeTest` で確認）。
+- 要対応はキャッシュであり、正本は常にDesktop。**アプリを再インストールしても失うのは表示だけ**で、回答は `pending_agent_reply` に残る。
+
 ## 10. 実装を置く境界
 
-| 境界                                             | 責務                                                                  |
-| ------------------------------------------------ | --------------------------------------------------------------------- |
-| `src/shared/contracts/task/agentWork.ts`         | 表示状態、要対応item、操作ID、導出、並び順                            |
-| `src/shared/contracts/task/attentionQueue.ts`    | 未解決判断の集約、件数、重複排除、並び（#596 / #601）                 |
-| `src/shared/contracts/task/handoff.ts`           | Handoffの委任先、Context参照版、差分の説明（#598）                    |
-| `src/renderer/.../components/AgentDeskPanel.tsx` | 4見出しの一覧と確認詳細。表示とCommand接続だけを持つ（#599）          |
-| `src/shared/contracts/task/taskWorkProposal.ts`  | 報告の入力契約（新fieldの受理と検証）                                 |
-| `src/shared/applicationCommand.ts`               | `StartTaskWork.workAttemptId` と `ReplyToAgentRequest` の検証         |
-| `src/main/services/applicationCommandService.ts` | Taskの現在参照の更新、Receiptへの引き継ぎ、質問の有効性確認、人の返答 |
-| `src/main/repositories/domain.mjs`               | 保存時の形式検証（UUID・範囲・`receipt_kind`）                        |
-| `src/main/mcp/server.mjs`                        | agent向けの入力schema                                                 |
-| Desktop UI / Android                             | read modelを表示するだけ。**独自の状態導出を増やさない**              |
+| 境界                                                    | 責務                                                                    |
+| ------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `src/shared/contracts/task/agentWork.ts`                | 表示状態、要対応item、操作ID、導出、並び順                              |
+| `src/shared/contracts/task/attentionQueue.ts`           | 未解決判断の集約、件数、重複排除、並び（#596 / #601）                   |
+| `src/shared/contracts/task/handoff.ts`                  | Handoffの委任先、Context参照版、差分の説明（#598）                      |
+| `src/renderer/.../components/AgentDeskPanel.tsx`        | 4見出しの一覧と確認詳細。表示とCommand接続だけを持つ（#599）            |
+| `src/shared/contracts/task/taskWorkProposal.ts`         | 報告の入力契約（新fieldの受理と検証）                                   |
+| `src/shared/applicationCommand.ts`                      | `StartTaskWork.workAttemptId` と `ReplyToAgentRequest` の検証           |
+| `src/main/services/applicationCommandService.ts`        | Taskの現在参照の更新、Receiptへの引き継ぎ、質問の有効性確認、人の返答   |
+| `src/main/repositories/domain.mjs`                      | 保存時の形式検証（UUID・範囲・`receipt_kind`）                          |
+| `src/main/mcp/server.mjs`                               | agent向けの入力schema                                                   |
+| `src/main/gateway/mobile/attentionProjection.ts`        | 要対応のmobile向け射影（上限・truncated・件数）（#601）                 |
+| `src/main/composition/taskenCoreRuntime.ts`             | 要対応の読み出しと回答の受理（`readAttention` / `replyToAgentRequest`） |
+| Android `MobileAttentionDto.kt` / `MobileLocalStore.kt` | 要対応の契約・キャッシュ・回答の保留（#601）                            |
+| Android `MainActivity.kt` / `TodayViewModel`            | 要対応の一覧と回答欄。表示と入力だけを持つ（#601）                      |
+| Desktop UI / Android                                    | read modelを表示するだけ。**独自の状態導出を増やさない**                |
 
 ### 要対応queue（#596）
 
