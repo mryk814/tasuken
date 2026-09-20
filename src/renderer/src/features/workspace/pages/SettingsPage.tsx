@@ -19,6 +19,7 @@ import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types
 import { AI_AUDIENCES, DEFAULT_AI_VISIBILITY } from "../../../../../shared/aiMetadata.mjs";
 import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import { AI_AUDIENCE_LABELS } from "../domain-model/labels";
+import { todayIso as todayIsoDate } from "../domain-model/scheduleSemantics";
 import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
 import { CaptureOrganizerSettings } from "../components/CaptureOrganizerSettings";
@@ -89,6 +90,7 @@ export function SettingsPage({
   const [mcpBusy, setMcpBusy] = useState(false);
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarBusy, setCalendarBusy] = useState(false);
+  const [calendarRefreshNote, setCalendarRefreshNote] = useState<string | null>(null);
   // AI公開範囲のworkspace既定（#294）。Theme・項目が未設定のときだけ使う。
   const [aiVisibilityDefault, setAiVisibilityDefault] = useState<AiAudience[]>([
     ...DEFAULT_AI_VISIBILITY,
@@ -623,6 +625,36 @@ export function SettingsPage({
     }
   }
 
+  /**
+   * 接続中のカレンダーを取り直す（#273）。今日の予定を読み、最終取得を更新する。
+   * 失敗しても接続は切らず、原因をこの領域へ残す（期限切れと未設定を混同しない）。
+   */
+  async function refreshCalendar() {
+    if (calendarBusy) return;
+    setCalendarBusy(true);
+    setCalendarRefreshNote(null);
+    try {
+      const result = await workspaceApi.calendarEvents(todayIsoDate());
+      const status = await workspaceApi.calendarStatus().catch(() => calendarStatus);
+      if (status) setCalendarStatus(status);
+      if (result.error && !result.stale) {
+        setCalendarRefreshNote(`更新できませんでした。${result.error}`);
+      } else if (result.stale) {
+        setCalendarRefreshNote(
+          `前回取得分を表示しています。${result.error ? ` ${result.error}` : ""}`,
+        );
+      } else {
+        setCalendarRefreshNote(`予定を${result.events.length}件取得しました。`);
+      }
+    } catch (error) {
+      setCalendarRefreshNote(
+        `更新できませんでした。${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setCalendarBusy(false);
+    }
+  }
+
   async function disconnectCalendar() {
     const provider = calendarStatus?.provider;
     if (!provider) return;
@@ -630,6 +662,7 @@ export function SettingsPage({
     try {
       const status = await workspaceApi.calendarDisconnect({ provider });
       setCalendarStatus(status);
+      setCalendarRefreshNote(null);
       setToast("カレンダーの接続を解除しました。", "info");
     } catch (error) {
       setToast(
@@ -1439,6 +1472,16 @@ export function SettingsPage({
                       </dd>
                     </div>
                   </dl>
+                  <div className="settings-action-row">
+                    <Button variant="secondary" disabled={calendarBusy} onClick={refreshCalendar}>
+                      {calendarBusy ? "更新中…" : "更新"}
+                    </Button>
+                  </div>
+                  {calendarRefreshNote ? (
+                    <p className="field-help" role="status">
+                      {calendarRefreshNote}
+                    </p>
+                  ) : null}
                   <div className="settings-danger-zone">
                     <h3>Danger Zone</h3>
                     <Button variant="danger" disabled={calendarBusy} onClick={disconnectCalendar}>
