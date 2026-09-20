@@ -1,0 +1,253 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1680" viewBox="0 0 1800 1680" role="img" aria-labelledby="title desc">
+  <title id="title">TaskenのFeed、Agent Desk、Today、Androidの画面構成案</title>
+  <desc id="desc">2026年9月20日の設計提案。架空の研究業務データを使った静的な図。上段は広幅のFeedと質問への回答。下段はAgent Desk、Today、狭幅Androidの成果確認。既存のburgundyとクリーム色のトークンを使用する。</desc>
+  <defs>
+    <style>
+      :root { --color-bg:#ECE2DF; --color-surface:#FFFFFF; --color-surface-subtle:#F7F1F1; --color-text:#26201E; --color-text-secondary:#7C746E; --color-border:#DCC1C4; --color-border-subtle:#ECE0DE; --color-accent:#8A2F3B; --color-selected:#FBF3F4; --color-ai:#1C557D; --color-ai-bg:#E8F1F8; --color-blocked:#8A5212; --color-blocked-bg:#FBF0DD; --color-review:#564AA8; --color-review-bg:#EEEBFA; }
+      text { font-family:"Nunito Variable","Noto Sans JP Variable","Yu Gothic UI",sans-serif; fill:var(--color-text); font-size:16px; }
+      .bg { fill:var(--color-bg); } .surface { fill:var(--color-surface); } .subtle { fill:var(--color-surface-subtle); }
+      .border { stroke:var(--color-border); stroke-width:1; } .rule { stroke:var(--color-border-subtle); stroke-width:1; }
+      .title { font-size:30px; font-weight:700; } .section { font-size:22px; font-weight:700; }
+      .h { font-size:18px; font-weight:700; } .bold { font-weight:700; }
+      .small { font-size:14px; } .caption { font-size:13px; } .muted { fill:var(--color-text-secondary); }
+      .accent { fill:var(--color-accent); } .ai { fill:var(--color-ai); } .review { fill:var(--color-review); }
+      .blocked { fill:var(--color-blocked); } .white { fill:#FFFFFF; } .mono { font-variant-numeric:tabular-nums; }
+      .button { fill:var(--color-surface); stroke:var(--color-border); stroke-width:1; }
+      .lineicon { fill:none; stroke:var(--color-text-secondary); stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+    </style>
+    <symbol id="agent" viewBox="0 0 32 32"><rect x="6" y="9" width="20" height="17" rx="5" class="lineicon"/><path d="M16 5v4M12 21h8" class="lineicon"/><circle cx="12" cy="16" r="1.5" fill="#1C557D"/><circle cx="20" cy="16" r="1.5" fill="#1C557D"/></symbol>
+    <symbol id="note" viewBox="0 0 32 32"><path d="M8 5h12l5 5v17H8zM19 5v6h6M12 16h9M12 21h9" class="lineicon"/></symbol>
+    <symbol id="task" viewBox="0 0 32 32"><rect x="6" y="6" width="20" height="20" rx="5" class="lineicon"/><path d="m11 16 4 4 7-8" class="lineicon"/></symbol>
+    <symbol id="more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5" fill="#7C746E"/><circle cx="12" cy="12" r="1.5" fill="#7C746E"/><circle cx="19" cy="12" r="1.5" fill="#7C746E"/></symbol>
+  </defs>
+
+  <rect width="1800" height="1680" class="bg"/>
+  <text x="40" y="54" class="title">変化を読み、必要な判断を終えて、仕事へ戻る。</text>
+  <text x="40" y="84" class="muted">Tasken / 設計提案 2026-09-20 / #604 Feed・#593 Agent Desk・#454 Today</text>
+  <text x="1760" y="55" text-anchor="end" class="small muted">静的な構成図 / 架空データ</text>
+  <text x="1760" y="79" text-anchor="end" class="small muted">現行画面や操作可能な試作品ではありません</text>
+
+  <!-- Wide desktop concept: persistent context only above the existing 1680px threshold. -->
+  <rect x="24" y="110" width="1752" height="764" rx="10" class="surface border"/>
+  <path d="M34 110h1732a10 10 0 0 1 10 10v30H24v-30a10 10 0 0 1 10-10" class="subtle"/>
+  <text x="44" y="136" class="small bold">Tasken</text>
+  <text x="1700" y="136" text-anchor="end" class="caption muted">広幅の構成例：実効1680px超</text>
+  <path d="M244 150v724M984 150v724" class="rule"/>
+  <rect x="24" y="150" width="220" height="724" class="subtle"/>
+  <text x="48" y="192" class="small muted">日常</text>
+  <rect x="36" y="210" width="196" height="44" rx="7" fill="#F3DCE0"/>
+  <rect x="36" y="214" width="3" height="36" fill="#8A2F3B"/>
+  <text x="56" y="238" class="accent bold">Feed</text>
+  <text x="166" y="238" class="caption accent">試用</text>
+  <text x="56" y="287">Today</text>
+  <text x="56" y="333">ToDo</text>
+  <text x="56" y="379">Agent Desk</text>
+  <rect x="194" y="360" width="24" height="24" rx="12" fill="#EEEBFA"/>
+  <text x="206" y="378" text-anchor="middle" class="small review bold">2</text>
+  <text x="48" y="432" class="small muted">整理と記録</text>
+  <text x="56" y="474">Inbox</text>
+  <text x="56" y="519">Notes</text>
+  <text x="56" y="564">Activity</text>
+  <text x="48" y="617" class="small muted">Theme</text>
+  <circle cx="59" cy="650" r="4" fill="#8A2F3B"/>
+  <text x="74" y="655" class="small">高分子材料評価</text>
+  <circle cx="59" cy="688" r="4" fill="#7C746E"/>
+  <text x="74" y="693" class="small">個人業務</text>
+  <text x="56" y="836" class="muted">Settings</text>
+
+  <text x="268" y="190" class="section accent">Feed</text>
+  <rect x="861" y="164" width="99" height="34" rx="7" class="button"/>
+  <text x="910" y="187" text-anchor="middle" class="small">＋ 追加</text>
+  <text x="286" y="234" class="bold accent">今見る</text>
+  <text x="420" y="234" class="muted">対応待ち 2</text>
+  <text x="592" y="234" class="muted">最近の更新</text>
+  <path d="M244 251h740" class="rule"/>
+  <path d="M268 250h94" stroke="#8A2F3B" stroke-width="3"/>
+
+  <!-- 1: Needs You / explicit human reply. -->
+  <rect x="244" y="253" width="740" height="132" fill="#FBF3F4"/>
+  <rect x="244" y="253" width="3" height="132" fill="#8A2F3B"/>
+  <circle cx="286" cy="286" r="19" fill="#E8F1F8"/>
+  <use href="#agent" x="270" y="270" width="32" height="32"/>
+  <text x="322" y="278" class="small bold ai">Codex</text>
+  <text x="938" y="278" text-anchor="end" class="caption muted">12分前</text>
+  <text x="322" y="306" class="h">測定温度を選んでください</text>
+  <rect x="785" y="291" width="84" height="24" rx="4" fill="#FBF0DD"/>
+  <text x="827" y="309" text-anchor="middle" class="caption blocked">回答待ち</text>
+  <text x="322" y="331">25℃と40℃のどちらで粘度を測定しますか。</text>
+  <text x="322" y="353" class="caption muted">高分子材料評価 › 粘度測定の条件を決める</text>
+  <text x="322" y="376" class="small accent bold">回答する</text>
+  <text x="427" y="376" class="small muted">後で見る</text>
+  <use href="#more" x="946" y="295" width="24" height="24"/>
+  <path d="M244 385h740" class="rule"/>
+
+  <!-- 2: Review ready, reported evidence stays attributed. -->
+  <circle cx="286" cy="416" r="19" fill="#E8F1F8"/>
+  <use href="#agent" x="270" y="400" width="32" height="32"/>
+  <text x="322" y="408" class="small bold ai">Codex</text>
+  <text x="938" y="408" text-anchor="end" class="caption muted">28分前</text>
+  <text x="322" y="436" class="h">比較表の作成報告が届きました</text>
+  <rect x="785" y="421" width="98" height="24" rx="4" fill="#EEEBFA"/>
+  <text x="834" y="439" text-anchor="middle" class="caption review">成果確認待ち</text>
+  <text x="322" y="462">3条件を比較。検証結果1件、未確認事項1件。</text>
+  <text x="322" y="485" class="caption muted">高分子材料評価 › 試験結果の比較表を作る</text>
+  <text x="322" y="508" class="small accent bold">成果を確認</text>
+  <text x="441" y="508" class="small muted">Taskを開く</text>
+  <path d="M244 518h740" class="rule"/>
+
+  <!-- 3: Human task. -->
+  <circle cx="286" cy="548" r="19" class="subtle"/>
+  <use href="#task" x="270" y="532" width="32" height="32"/>
+  <text x="322" y="540" class="small bold">今日扱うTask</text>
+  <text x="938" y="540" text-anchor="end" class="caption muted">9:10に追加</text>
+  <text x="322" y="568" class="h">引張試験の結果を比較する</text>
+  <text x="322" y="594" class="small muted">高分子材料評価　　今日扱う / 締切 9月25日</text>
+  <text x="322" y="620" class="small accent bold">Taskを開く</text>
+  <text x="443" y="620" class="small muted">扱う日を変更</text>
+  <path d="M244 632h740" class="rule"/>
+
+  <!-- 4: AI suggestion is explicitly not a canonical assertion. -->
+  <circle cx="286" cy="662" r="19" fill="#E8F1F8"/>
+  <use href="#agent" x="270" y="646" width="32" height="32"/>
+  <text x="322" y="654" class="small bold ai">Tasken AI</text>
+  <rect x="419" y="638" width="64" height="22" rx="4" fill="#E8F1F8"/>
+  <text x="451" y="654" text-anchor="middle" class="caption ai">AI提案</text>
+  <text x="322" y="682" class="h">比較条件を先に揃える案</text>
+  <text x="322" y="708" class="small muted">表示理由：対象Taskに3日間更新がありません。</text>
+  <text x="322" y="734" class="small accent bold">提案を見る</text>
+  <text x="443" y="734" class="small muted">今回は見送る</text>
+  <path d="M244 746h740" class="rule"/>
+
+  <!-- 5: Source memory stays linked to its original record. -->
+  <circle cx="286" cy="776" r="19" class="subtle"/>
+  <use href="#note" x="270" y="760" width="32" height="32"/>
+  <text x="322" y="769" class="small bold">自分の記録</text>
+  <text x="466" y="769" class="caption muted">9月4日のNote</text>
+  <text x="322" y="797" class="h">この条件を選んだ記録があります</text>
+  <text x="322" y="823" class="small accent bold">記録を開く</text>
+  <text x="443" y="823" class="small muted">今回は見送る</text>
+  <text x="614" y="857" text-anchor="middle" class="caption muted">今確認する更新は以上です</text>
+
+  <!-- Selected detail occupies the single right-side slot. -->
+  <text x="1012" y="188" class="small muted">Feed › 粘度測定の条件を決める</text>
+  <text x="1738" y="188" text-anchor="end" class="muted">閉じる ×</text>
+  <text x="1012" y="232" class="section">測定温度を選んでください</text>
+  <rect x="1012" y="250" width="84" height="26" rx="4" fill="#FBF0DD"/>
+  <text x="1054" y="268" text-anchor="middle" class="small blocked">回答待ち</text>
+  <text x="1110" y="268" class="small muted">Codexからの質問 / Taskは未完了</text>
+  <text x="1012" y="318">前回の試験と条件を揃えるため、測定温度を確認したいです。</text>
+  <text x="1012" y="345">25℃と40℃のどちらで進めますか。</text>
+  <rect x="1012" y="370" width="726" height="74" rx="7" class="subtle border"/>
+  <text x="1032" y="397" class="small bold">判断の根拠</text>
+  <text x="1032" y="423" class="small">前回の試験は25℃で実施。温度を揃えると粘度を比較できます。</text>
+  <text x="1012" y="480" class="h">回答</text>
+  <rect x="1012" y="498" width="726" height="44" rx="7" fill="#FBF3F4" stroke="#8A2F3B"/>
+  <circle cx="1037" cy="520" r="8" fill="#FFFFFF" stroke="#8A2F3B"/>
+  <circle cx="1037" cy="520" r="4" fill="#8A2F3B"/>
+  <text x="1059" y="526">25℃で測定する</text>
+  <text x="1718" y="526" text-anchor="end" class="small muted">AIの推奨</text>
+  <rect x="1012" y="550" width="726" height="44" rx="7" class="button"/>
+  <circle cx="1037" cy="572" r="8" fill="#FFFFFF" stroke="#DCC1C4"/>
+  <text x="1059" y="578">40℃で測定する</text>
+  <text x="1012" y="630" class="small bold">補足（任意）</text>
+  <rect x="1012" y="645" width="726" height="82" rx="7" class="subtle border"/>
+  <text x="1028" y="675">前回と同じ条件で比較してください。</text>
+  <text x="1012" y="759" class="caption muted">人が選択した入力例 / まだ送信していません</text>
+  <rect x="1578" y="743" width="160" height="44" rx="7" fill="#8A2F3B"/>
+  <text x="1658" y="771" text-anchor="middle" class="white bold">回答を送る</text>
+  <path d="M1012 811h726" class="rule"/>
+  <text x="1012" y="841" class="small accent">Taskを開く</text>
+  <text x="1150" y="841" class="small accent">渡したContextを見る</text>
+
+  <text x="40" y="911" class="small bold">読み順を固定</text>
+  <text x="184" y="911" class="small muted">出所 → 必要な判断 → 対象Task → 主操作。本文と根拠は残し、実装用の情報は詳細へ。</text>
+  <text x="40" y="941" class="small bold">狭幅は2領域へ</text>
+  <text x="184" y="941" class="small muted">実効1680px以下では右詳細を重ねて開く。中央の幅、選択、スクロール位置を動かさない。</text>
+
+  <!-- Secondary surface concepts. -->
+  <text x="40" y="999" class="section">任せた仕事を点検する</text>
+  <text x="680" y="999" class="section">今日、自分が実行する</text>
+  <text x="1324" y="999" class="section">外出中は短い判断</text>
+
+  <rect x="24" y="1020" width="620" height="522" rx="10" class="surface border"/>
+  <text x="48" y="1062" class="section accent">Agent Desk</text>
+  <text x="48" y="1105" class="h">対応待ち 2</text>
+  <text x="600" y="1105" text-anchor="end" class="small muted">絞り込み</text>
+  <path d="M48 1121h572" class="rule"/>
+  <text x="48" y="1151" class="bold">測定温度を選んでください</text>
+  <text x="48" y="1177" class="small muted">Codex / 粘度測定の条件を決める</text>
+  <text x="592" y="1165" text-anchor="end" class="small accent bold">回答する</text>
+  <path d="M48 1191h572" class="rule"/>
+  <text x="48" y="1221" class="bold">比較表の成果確認</text>
+  <text x="48" y="1247" class="small muted">Codex / 検証1件、未確認1件</text>
+  <text x="592" y="1235" text-anchor="end" class="small accent bold">成果を確認</text>
+  <text x="48" y="1301" class="h">作業中 1</text>
+  <text x="48" y="1331">文献の測定条件を整理する</text>
+  <text x="600" y="1331" text-anchor="end" class="small muted">最終報告 12分前</text>
+  <text x="48" y="1382" class="h">開始待ち 1</text>
+  <text x="48" y="1412">次回の測定手順をまとめる</text>
+  <text x="600" y="1412" text-anchor="end" class="small muted">開始は未確認</text>
+  <text x="48" y="1463" class="h">最近の結果</text>
+  <text x="48" y="1493">比較方法の調査</text>
+  <text x="600" y="1493" text-anchor="end" class="small muted">受入れ済み / Taskは継続</text>
+
+  <rect x="664" y="1020" width="620" height="522" rx="10" class="surface border"/>
+  <text x="688" y="1062" class="section accent">Today</text>
+  <text x="1256" y="1062" text-anchor="end" class="small muted">9月20日（日）</text>
+  <text x="688" y="1105" class="h">今日やること</text>
+  <path d="M688 1121h572" class="rule"/>
+  <text x="688" y="1151" class="bold">引張試験の結果を比較する</text>
+  <text x="688" y="1177" class="small muted">締切 9月25日</text>
+  <rect x="1180" y="1139" width="76" height="36" rx="7" class="button"/>
+  <text x="1218" y="1163" text-anchor="middle" class="small">着手</text>
+  <path d="M688 1191h572" class="rule"/>
+  <text x="688" y="1221" class="bold">比較グラフをNoteへ残す</text>
+  <text x="688" y="1247" class="small muted">高分子材料評価</text>
+  <rect x="1180" y="1209" width="76" height="36" rx="7" class="button"/>
+  <text x="1218" y="1233" text-anchor="middle" class="small">完了</text>
+  <rect x="688" y="1271" width="572" height="52" rx="7" class="subtle"/>
+  <text x="704" y="1303" class="small bold">次の予定</text>
+  <text x="816" y="1303" class="small">15:00–15:30　設計レビュー</text>
+  <text x="688" y="1358" class="h">期限の確認 1</text>
+  <text x="688" y="1387">評価条件の回答</text>
+  <text x="1256" y="1387" text-anchor="end" class="small blocked">締切 9/19 / 明日扱う</text>
+  <path d="M688 1405h572" class="rule"/>
+  <text x="688" y="1440" class="small bold">続けること</text>
+  <text x="816" y="1440" class="small">運動</text>
+  <text x="1256" y="1440" text-anchor="end" class="small muted">今週 1/3回</text>
+  <text x="688" y="1477" class="small bold">手入れの目安</text>
+  <text x="816" y="1477" class="small">フィルター清掃</text>
+  <text x="1256" y="1477" text-anchor="end" class="small muted">9/25ごろ</text>
+  <text x="688" y="1517" class="small accent">未整理の記録 3件を整理する</text>
+
+  <rect x="1344" y="1020" width="408" height="572" rx="10" class="surface border"/>
+  <text x="1368" y="1058" class="small muted">‹ Agent Desk</text>
+  <text x="1728" y="1058" text-anchor="end" class="caption muted">15:24</text>
+  <text x="1368" y="1102" class="h">比較表の作成報告</text>
+  <rect x="1368" y="1118" width="98" height="24" rx="4" fill="#EEEBFA"/>
+  <text x="1417" y="1136" text-anchor="middle" class="caption review">成果確認待ち</text>
+  <text x="1480" y="1136" class="caption muted">Codex</text>
+  <text x="1368" y="1180" class="small bold">成果</text>
+  <text x="1368" y="1207">3条件の粘度を比較しました。</text>
+  <text x="1368" y="1234" class="small accent">比較表を開く</text>
+  <path d="M1368 1251h360" class="rule"/>
+  <text x="1368" y="1281" class="small bold">確認できたこと</text>
+  <text x="1368" y="1308" class="small">集計結果と元データの行数が一致。</text>
+  <text x="1368" y="1351" class="small bold">未確認事項</text>
+  <text x="1368" y="1378" class="small">測定条件の妥当性は人が確認。</text>
+  <path d="M1344 1410h408" class="rule"/>
+  <rect x="1368" y="1431" width="18" height="18" rx="4" class="button"/>
+  <text x="1396" y="1445" class="small">Taskも完了する</text>
+  <rect x="1544" y="1465" width="184" height="48" rx="7" fill="#8A2F3B"/>
+  <text x="1636" y="1495" text-anchor="middle" class="white bold">報告を採用</text>
+  <text x="1412" y="1495" text-anchor="middle" class="small accent">修正を依頼</text>
+  <text x="1548" y="1543" text-anchor="middle" class="caption muted">完了の選択は初期状態でオフ</text>
+  <path d="M1510 1572h76" stroke="#7C746E" stroke-width="3" stroke-linecap="round"/>
+
+  <text x="40" y="1578" class="small muted">4見出しの一列リスト。状態を見るために横へ目を走らせない。</text>
+  <text x="680" y="1578" class="small muted">扱う日を変えても締切は残す。生活の記録は小さく添える。</text>
+  <path d="M40 1611h1720" class="border"/>
+  <text x="40" y="1641" class="small bold">この図で固定するもの</text>
+  <text x="272" y="1641" class="small muted">情報の優先順 / 操作の意味 / 出所の見分け / 詳細の1スロット / 採用と完了の区別</text>
+  <text x="1760" y="1664" text-anchor="end" class="caption muted">実装時の寸法はdesign-standardのtokenと実画面で調整。狭幅・dark・focus・IMEは別途検証。</text>
+</svg>
