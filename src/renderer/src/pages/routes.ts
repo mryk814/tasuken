@@ -20,6 +20,7 @@ export type CanonicalRouteId =
   | "todo"
   | "waiting"
   | "inbox"
+  | "feed"
   | "timeline"
   | "knowledge"
   | "notes"
@@ -124,6 +125,16 @@ export const ROUTE_DEFINITIONS = {
     availability: "always",
     navigation: { group: "cross", order: 2 },
     aliases: [{ id: "proposal-inbox", parent: "ai-io" }],
+  },
+  feed: {
+    id: "feed",
+    label: "Feed",
+    description:
+      "前回から何が変わり、今どこに反応するかを読みます。設計検証中の試作で、架空のデータを表示します。",
+    icon: IconTimeline,
+    semanticRole: "context",
+    availability: "always",
+    navigation: { group: "cross", order: 0 },
   },
   debrief: {
     id: "debrief",

@@ -1,0 +1,422 @@
+/*
+ * Feed（#604前半）の設計検証用surface。
+ * 規則の正本は docs/feed-surface.md、色・余白・角丸の実値は design-standard/tokens.css。
+ * 白い連続面と横罫線で構成し、1行を丸い箱に分けない。
+ */
+
+.feed-page {
+  --feed-reading-width: 720px;
+  --feed-detail-width: 380px;
+}
+
+.feed-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+  min-width: 0;
+}
+
+.feed-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: var(--feed-reading-width);
+  min-width: 0;
+}
+
+.feed-notice {
+  padding: 10px var(--space-3);
+  border: 1px solid var(--action-ai-bd);
+  border-radius: var(--radius-md);
+  background: var(--action-ai-bg);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: var(--lh-base);
+}
+
+.feed-notice strong {
+  color: var(--action-ai-fg);
+  margin-right: var(--space-1);
+}
+
+.feed-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.feed-tabs {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.feed-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-base);
+  cursor: pointer;
+  word-break: keep-all;
+}
+
+.feed-tabs button:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.feed-tabs button.is-active {
+  background: var(--color-accent-subtle-bg);
+  color: var(--color-accent-strong);
+  font-weight: var(--weight-medium);
+}
+
+.feed-tabs button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.feed-tab-count {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.feed-new-arrivals {
+  padding: 4px 10px;
+  border: 1px solid var(--color-accent-subtle-bd);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-accent-strong);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.feed-new-arrivals:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.feed-deferred-note,
+.feed-notice-line {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-empty,
+.feed-end {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.feed-end {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.feed-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.feed-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.feed-row:last-child {
+  border-bottom: 0;
+}
+
+/* 選択は淡い背景とアクセントバー。focusは別に --focus-ring で示す。 */
+.feed-row.is-selected {
+  background: var(--color-surface-subtle);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.feed-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.feed-actor {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.feed-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-row-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.feed-row-title h3 {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  line-height: var(--lh-tight);
+  word-break: keep-all;
+}
+
+/* 見出しを読めば必要な行動が分かる。行全体を巨大なbuttonで囲まず、本文は選択できる。 */
+.feed-row-open {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.feed-row-open:hover {
+  color: var(--color-accent-strong);
+}
+
+.feed-row-open:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+
+.feed-state,
+.feed-generated {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.feed-state-active {
+  color: var(--color-status-active-fg);
+  background: var(--color-status-active-bg);
+  border: 1px solid var(--color-status-active-bd);
+}
+
+.feed-state-blocked {
+  color: var(--color-status-blocked-fg);
+  background: var(--color-status-blocked-bg);
+  border: 1px solid var(--color-status-blocked-bd);
+}
+
+.feed-state-review {
+  color: var(--color-status-review-fg);
+  background: var(--color-status-review-bg);
+  border: 1px solid var(--color-status-review-bd);
+}
+
+.feed-state-done {
+  color: var(--color-status-done-fg);
+  background: var(--color-status-done-bg);
+  border: 1px solid var(--color-status-done-bd);
+}
+
+.feed-state-info {
+  color: var(--color-status-idle-fg);
+  background: var(--color-status-idle-bg);
+  border: 1px solid var(--color-status-idle-bd);
+}
+
+/* 生成文は事実と色だけで区別させない。文字ラベルを必ず併記する。 */
+.feed-generated {
+  color: var(--action-ai-fg);
+  background: var(--action-ai-bg);
+  border: 1px solid var(--action-ai-bd);
+}
+
+.feed-row-summary {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+  color: var(--color-text);
+}
+
+.feed-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  min-width: 0;
+}
+
+.feed-row-due {
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-row-path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.feed-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: 2px;
+}
+
+.feed-more {
+  align-self: flex-start;
+}
+
+/* --- 詳細スロット --- */
+
+.feed-detail {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.feed-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.feed-detail-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: var(--lh-tight);
+}
+
+.feed-detail-reason,
+.feed-detail-source {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.feed-detail-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.feed-detail-rows dt {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.feed-detail-rows dd {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+}
+
+.feed-reply {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.feed-reply label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.feed-reply textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--text-base);
+}
+
+.feed-reply .semantic-button {
+  align-self: flex-start;
+}
+
+.feed-detail-empty {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+
+/*
+ * 実効幅1680px以下では右Context Paneを常設しない（docs/responsive-layout.md）。
+ * 判定はウィンドウ幅ではなく実際のpanel幅で行う。
+ */
+@container page (min-width: 1180px) {
+  /*
+   * 中央本文を画面幅いっぱいに伸ばさない。読み幅を固定し、詳細を隣へ置く。
+   * 余白は右端に残し、一覧と詳細の間に不自然な隙間を作らない。
+   */
+  .feed-layout {
+    grid-template-columns: minmax(0, var(--feed-reading-width)) var(--feed-detail-width);
+    max-width: calc(var(--feed-reading-width) + var(--feed-detail-width) + var(--space-4));
+  }
+
+  .feed-detail {
+    display: flex;
+    position: sticky;
+    top: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+  }
+
+  .feed-detail.is-empty {
+    min-height: 120px;
+  }
+}
+
+@container page (max-width: 1179px) {
+  .feed-detail:not(.is-empty) {
+    display: flex;
+    position: fixed;
+    inset-block: 40px 0;
+    inset-inline-end: 0;
+    z-index: 30;
+    width: min(420px, 92vw);
+    overflow: auto;
+    padding: var(--space-4);
+    border-left: 1px solid var(--color-border);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-row,
+  .feed-tabs button {
+    transition: none;
+  }
+}

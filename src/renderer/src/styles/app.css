@@ -3,6 +3,7 @@
 @import "katex/dist/katex.min.css";
 @import "@mdxeditor/editor/style.css";
 @import "./artifacts.css";
+@import "./feed.css";
 
 @theme inline {
   --color-app-accent: var(--color-accent);

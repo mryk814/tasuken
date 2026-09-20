@@ -160,6 +160,7 @@
         "src/renderer/src/features/workspace/pages/ArtifactsPage.tsx",
         "src/renderer/src/features/workspace/pages/DebriefPage.tsx",
         "src/renderer/src/features/workspace/pages/ChatRefsPage.tsx",
+        "src/renderer/src/features/workspace/pages/FeedPage.tsx",
         "src/renderer/src/features/workspace/pages/InboxPage.tsx",
         "src/renderer/src/features/workspace/pages/KnowledgePage.tsx",
         "src/renderer/src/features/workspace/pages/NotesPage.tsx",
@@ -176,6 +177,7 @@
         "tests/agent-session-projection.test.mjs",
         "tests/tasken-debrief.test.mjs",
         "tests/ai-import.test.mjs",
+        "tests/feed-fixtures.test.mjs",
         "tests/inbox-ia.test.mjs",
         "tests/knowledge-health.test.mjs",
         "tests/todo-sort.test.mjs"

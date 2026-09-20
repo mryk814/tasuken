@@ -46,6 +46,7 @@
     "smoke:proposal-live:packaged": "node scripts/live-proposal-electron-smoke.mjs release/win-unpacked/Tasken.exe",
     "smoke:mcp-package": "node scripts/mcp-package-smoke.mjs",
     "audit:responsive": "node scripts/responsive-audit.mjs",
+    "audit:feed": "node scripts/feed-surface-audit.mjs",
     "audit:materials-demo": "node scripts/audit-materials-demo.mjs",
     "audit:note-window": "node scripts/note-window-audit.mjs",
     "audit:mermaid-powerpoint": "node scripts/mermaid-powerpoint-audit.mjs",
