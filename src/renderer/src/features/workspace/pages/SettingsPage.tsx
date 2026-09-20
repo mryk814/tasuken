@@ -1136,11 +1136,11 @@ export function SettingsPage({
                   </p>
                   <p className="field-help">参加し直すときの手順</p>
                   <ol className="field-help">
-                    <li>データがある端末で「差分を再公開」し、OneDriveの同期完了を待つ。</li>
-                    <li>作り直す端末のデータを「手動の移行・復元」から書き出す。</li>
-                    <li>作り直す端末で同期を「停止」し、Taskenを終了する。</li>
-                    <li>作り直す端末の %APPDATA%\tasken を削除せず名前変更で退避する。</li>
-                    <li>空のTaskenで同じ同期フォルダを選び、「今すぐ同期」する。</li>
+                    <li>1. データがある端末で「差分を再公開」し、OneDriveの同期完了を待つ。</li>
+                    <li>2. 作り直す端末のデータを「手動の移行・復元」から書き出す。</li>
+                    <li>3. 作り直す端末で同期を「停止」し、Taskenを終了する。</li>
+                    <li>4. 作り直す端末の %APPDATA%\tasken を削除せず名前変更で退避する。</li>
+                    <li>5. 空のTaskenで同じ同期フォルダを選び、「今すぐ同期」する。</li>
                   </ol>
                   <p className="field-help">
                     同期フォルダ内の tasken-sync.json や devices/
