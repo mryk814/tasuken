@@ -1,9 +1,13 @@
 /**
- * Feed surface の目視・レイアウト監査（#604前半）
+ * Feed surface の目視・レイアウト監査（#604前半 / #604後半）
  *
  * 隔離した一時userDataでビルド済みアプリを起動し、Feedを広幅と最小幅で確認する。
  * 「スクリーンショットを撮った」だけで終わらせず、行の描画・横スクロール・
  * 詳細スロットの出方・focusの戻り先を実測して判定する。
+ *
+ * #604後半では**実データ**を表示するため、起動前に隔離workspaceを用意する
+ * （`scripts/seed-feed-audit-workspace.mjs`）。行がfixtureではなく
+ * Desktopと同じ導出から出ていることを、件数と見送りの挙動で確かめる。
  *
  *   npm run build && npm run audit:feed
  *
@@ -11,6 +15,7 @@
  */
 import { _electron as electron } from "playwright";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
@@ -22,6 +27,8 @@ const SIZES = [
   { label: "min-980", width: 980, height: 680 },
 ];
 const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
+/** 隔離workspaceに入れる判断の数（質問1・成果確認1・変更案1）。 */
+const EXPECTED_UNRESOLVED = 3;
 
 function detectLayoutBreakage() {
   const overflowing = [];
@@ -67,10 +74,19 @@ function detectLayoutBreakage() {
 
 mkdirSync(OUT_DIR, { recursive: true });
 const userDataDir = mkdtempSync(path.join(os.tmpdir(), "tasken-feed-audit-"));
+const seeded = spawnSync(
+  process.execPath,
+  ["scripts/run-electron-node.mjs", "scripts/seed-feed-audit-workspace.mjs", userDataDir],
+  { encoding: "utf8" },
+);
+if (seeded.status !== 0) {
+  throw new Error(`Feed監査のworkspaceを用意できませんでした: ${seeded.stderr || seeded.stdout}`);
+}
 const failures = [];
 
 const app = await electron.launch({
   args: [".", "--disable-gpu", "--disable-gpu-compositing", `--user-data-dir=${userDataDir}`],
+  env: { ...process.env, TASKEN_USER_DATA_DIR: userDataDir },
 });
 try {
   const page = await app.firstWindow();
@@ -91,9 +107,15 @@ try {
   await page.waitForTimeout(1200);
 
   const rowCount = await page.locator(".feed-row").count();
-  if (rowCount < 5) failures.push(`行が5件未満です（${rowCount}件）。`);
+  if (rowCount < 4) failures.push(`行が4件未満です（${rowCount}件）。`);
+  // 実データのAI変更案だけが生成ラベルを持つ。
   const generatedLabels = await page.locator(".feed-generated").count();
   if (generatedLabels < 1) failures.push("AI生成の文字ラベルが表示されていません。");
+  // 要対応の件数はDesktopと同じ導出から来る（隔離workspaceの判断3件）。
+  const unresolvedText = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (unresolvedText !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(`要対応の件数が${EXPECTED_UNRESOLVED}件ではありません（${unresolvedText}）。`);
+  }
 
   for (const size of SIZES) {
     await app.evaluate(
@@ -152,10 +174,10 @@ try {
     if (!focusOnRow) failures.push(`${size.label}: 閉じた後に起点の行へfocusが戻りません。`);
   }
 
-  // 「後で見る」は未解決件数を減らさない。
+  // 「後で見る」は未解決件数を減らさない。実データの質問行で確かめる。
   const before = await page.locator(".feed-tabs button", { hasText: "対応待ち" }).innerText();
   await page
-    .locator(".feed-row", { hasText: "測定温度を選んでください" })
+    .locator(".feed-row", { hasText: "測定温度が決まっていません" })
     .locator("button", { hasText: "後で見る" })
     .first()
     .click();
@@ -163,6 +185,13 @@ try {
   const after = await page.locator(".feed-tabs button", { hasText: "対応待ち" }).innerText();
   if (before.replace(/\s+/g, "") !== after.replace(/\s+/g, "")) {
     failures.push(`後で見るで要対応件数が変わりました（${before} → ${after}）。`);
+  }
+  // 行は消えても、未解決の判断は残っている。
+  const stillCounted = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (stillCounted !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(
+      `後で見るの後に要対応件数が${EXPECTED_UNRESOLVED}件ではありません（${stillCounted}）。`,
+    );
   }
 
   await page.screenshot({ path: `${OUT_DIR}/after-defer.png`, fullPage: true });

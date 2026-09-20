@@ -10,7 +10,13 @@
 
 /** 表示行の種類。同じ文章を並べず、行動の違いを検証する単位。 */
 export type FeedItemKind =
-  "today_task" | "stale_suggestion" | "human_question" | "review_ready" | "past_context";
+  | "today_task"
+  | "stale_suggestion"
+  | "human_question"
+  | "review_ready"
+  | "past_context"
+  /** 実データの未処理Proposal（#604後半）。提案を見る／今回は見送るの組を持つ。 */
+  | "proposal_pending";
 
 /**
  * 並び順の段階。docs/feed-surface.md の順序規則そのもの。
@@ -58,6 +64,15 @@ export interface FeedItem {
   kind: FeedItemKind;
   group: FeedGroup;
   actor: FeedActorId;
+  /**
+   * 実データの出所表示名（#604後半）。fixtureでは未設定で、`actor` のラベルを使う。
+   * 実在のagent名をそのまま出し、架空のactorへ寄せない。
+   */
+  actorLabel?: string | null;
+  /** 実データの参照（#604後半）。回答とTask操作はこのIDを使う。 */
+  taskId?: string | null;
+  /** 回答対象の質問ID。質問以外では null。 */
+  requestId?: string | null;
   /** 受信時刻。並び順はこの値を使い、発信側の時計だけに依存しない。 */
   receivedAt: string;
   /** 人が設定した期限。同段階の並びで優先する。 */

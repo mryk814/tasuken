@@ -294,6 +294,13 @@
   align-self: flex-start;
 }
 
+/* 詳細の操作は既存Commandへの入口。開いただけでは正式データを変えない。 */
+.feed-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 /* --- 詳細スロット --- */
 
 .feed-detail {
