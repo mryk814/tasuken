@@ -232,6 +232,34 @@ export function countAttention(items: readonly AttentionItem[]): number {
   return items.length;
 }
 
+/**
+ * Agent Deskが同時に示す3つの数（#601）。
+ *
+ * Desktopの画面とAndroidは同じ数を出す。片方だけが独自に数えると
+ * 「要対応0件」と「まだ取得できていない」の意味が食い違うため、導出をここへ集約する。
+ * ここで数えるのは**判断の数**と**Taskの数**で、意味が違う点に注意する。
+ */
+export function buildAgentDeskSummary(input: {
+  tasks?: readonly unknown[];
+  proposals?: readonly unknown[];
+  receipts?: readonly unknown[];
+  themes?: readonly unknown[];
+}): { attention: AttentionItem[]; working: number; queued: number } {
+  const attention = buildAttentionQueue(input);
+  const tasks = asRecords(input.tasks).filter((task) => !task.deleted_at);
+  const proposals = asRecords(input.proposals);
+  const receipts = asRecords(input.receipts);
+  let working = 0;
+  let queued = 0;
+  for (const task of tasks) {
+    const state = deriveAgentWorkState({ task, proposals, receipts })?.state;
+    // 要対応として人の判断を待っているTaskは、作業中や開始待ちには数えない。
+    if (state === "working") working += 1;
+    else if (state === "start_waiting") queued += 1;
+  }
+  return { attention, working, queued };
+}
+
 function proposalLabel(proposal: WorkRecord): string {
   const type = text(proposal.payload_type);
   const labels: Record<string, string> = {

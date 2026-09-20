@@ -259,6 +259,22 @@ Task詳細の「AIへ任せる」から、**Taskの正本を変えずに**外部
 「回答を送る」で `ReplyToAgentRequest` を呼び、保存後は要対応から外れて「回答済み／再開待ち」になる。
 **Taskの状態は変えない**（§6）。
 
+### Android向けの面（#601）
+
+Desktopと同じ導出を、Android用のread modelとして渡す。**Android側で状態を再導出しない。**
+
+| 経路                     | scope                 | 内容                                                                                   |
+| ------------------------ | --------------------- | -------------------------------------------------------------------------------------- |
+| `GET /v1/attention`      | `mobile:read`         | `buildAttentionQueue` の結果と件数（要対応・作業中・開始待ち）。上限超過は `truncated` |
+| `POST /v1/agent-replies` | `mobile:human-review` | 質問IDへの短い返答。Taskは変えず、回答Receiptだけを増やす                              |
+
+- 件数は**判断単位**で数える。同じTaskの独立した判断は2件、Taskに紐づかないProposalも1件。
+- 回答には `taskVersion`（競合検出）と `requestId`（回答対象）が必要。
+  版が古い場合と回答済みの場合は `entity_conflict`（409）を返し、**成功として返さない**。
+- 応答を失った再送は、同じ `commandId` なら同じ結果、別 `commandId` でも同じ内容なら `no_change` を返し、回答を増やさない。
+- 回答Receiptの `provenance.reported_via` は呼び出し元のsource（`mobile` / `main_ui` など）を記録し、Desktopからの回答と取り違えない。
+- mobile向けの射影は `src/main/gateway/mobile/attentionProjection.ts`、Core側の読み出しは `taskenCoreRuntime.ts` の `readAttention` / `replyToAgentRequest`。
+
 ## 9. migration と rollback
 
 - **DBスキーマ変更なし。** Entityの `properties_json` に任意fieldが増えるだけで、`entities` テーブルの列は変わらない。migrationは不要。
@@ -272,7 +288,7 @@ Task詳細の「AIへ任せる」から、**Taskの正本を変えずに**外部
 | 境界                                             | 責務                                                                  |
 | ------------------------------------------------ | --------------------------------------------------------------------- |
 | `src/shared/contracts/task/agentWork.ts`         | 表示状態、要対応item、操作ID、導出、並び順                            |
-| `src/shared/contracts/task/attentionQueue.ts`    | 未解決判断の集約、件数、重複排除、並び（#596）                        |
+| `src/shared/contracts/task/attentionQueue.ts`    | 未解決判断の集約、件数、重複排除、並び（#596 / #601）                 |
 | `src/shared/contracts/task/handoff.ts`           | Handoffの委任先、Context参照版、差分の説明（#598）                    |
 | `src/renderer/.../components/AgentDeskPanel.tsx` | 4見出しの一覧と確認詳細。表示とCommand接続だけを持つ（#599）          |
 | `src/shared/contracts/task/taskWorkProposal.ts`  | 報告の入力契約（新fieldの受理と検証）                                 |
@@ -310,6 +326,7 @@ rtk node scripts/run-electron-node.mjs --test tests/agent-reply.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/attention-queue.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/task-handoff.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/agent-desk.test.mjs
+rtk node scripts/run-electron-node.mjs --test tests/mobile-attention-golden.test.mjs tests/mobile-agent-attention.test.mjs
 rtk npm run build && rtk npm run audit:handoff && rtk npm run audit:agent-desk
 rtk node scripts/run-electron-node.mjs --test tests/task-work-receipts.test.mjs tests/task-work-history.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/mcp-task-context.test.mjs
@@ -322,12 +339,12 @@ rtk npm run build:mcp
 
 ## 12. この単位で確認していないこと
 
-| 未確認                  | 内容                                                                                                                                                                                                   |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 回答のUI                | Agent Deskから回答できる。**Task詳細からの回答導線は未接続**                                                                                                                                           |
-| 回答のMCP越しの受け渡し | `get_task_context` が返すことは確認したが、実stdio MCPのE2E往復（質問→回答→再取得）は `tests/ai-collaboration-e2e.test.mjs` へ未追加                                                                   |
-| 再割当のUI操作          | 委任の解除はTask詳細から行える。「新しい作業単位での再委任」を利用者が実行する導線は未実装（#602）                                                                                                     |
-| 表示                    | Agent DeskはTask詳細と同じ詳細コンポーネントをまだ共有していない（#600で統合する）                                                                                                                     |
-| HandoffのCancel         | 委任の解除はTaskを `not_delegated` へ戻すだけ。実行中に解除した場合のagent側の扱いは未検証                                                                                                             |
-| Android                 | Gatewayの `/v1/attention` と `/v1/agent-replies` は**契約のみ**。HTTP handlerとCore側の読み出しが未実装（#601）。AndroidもDTOとgoldenの復号までで、Roomキャッシュ・画面・offline送信・実機確認は未着手 |
-| Export往復の実走        | Snapshot形式は変更していないため未検証。ただしEntity単位の往復は `tests/agent-work-attempt.test.mjs` で確認している                                                                                    |
+| 未確認                  | 内容                                                                                                                                                                                                                                      |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 回答のUI                | Agent Deskから回答できる。**Task詳細からの回答導線は未接続**                                                                                                                                                                              |
+| 回答のMCP越しの受け渡し | `get_task_context` が返すことは確認したが、実stdio MCPのE2E往復（質問→回答→再取得）は `tests/ai-collaboration-e2e.test.mjs` へ未追加                                                                                                      |
+| 再割当のUI操作          | 委任の解除はTask詳細から行える。「新しい作業単位での再委任」を利用者が実行する導線は未実装（#602）                                                                                                                                        |
+| 表示                    | Agent DeskはTask詳細と同じ詳細コンポーネントをまだ共有していない（#600で統合する）                                                                                                                                                        |
+| HandoffのCancel         | 委任の解除はTaskを `not_delegated` へ戻すだけ。実行中に解除した場合のagent側の扱いは未検証                                                                                                                                                |
+| Android                 | Gatewayの `/v1/attention` と `/v1/agent-replies` はHTTP handlerとCore側の読み出しまで実装済み（#601、`tests/mobile-agent-attention.test.mjs`）。AndroidはDTOとgoldenの復号までで、**Roomキャッシュ・画面・offline送信・実機確認は未着手** |
+| Export往復の実走        | Snapshot形式は変更していないため未検証。ただしEntity単位の往復は `tests/agent-work-attempt.test.mjs` で確認している                                                                                                                       |

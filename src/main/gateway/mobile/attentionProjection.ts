@@ -36,6 +36,16 @@ export function projectAttentionItem(
   } as unknown as MobileAttentionItem;
 }
 
+/** 一覧全体を射影する。上限は呼び出し側（adapter）が決める。 */
+export function projectAttentionItems(
+  items: readonly AttentionItem[],
+  taskVersions: ReadonlyMap<string, number>,
+): MobileAttentionItem[] {
+  return items.map((item) =>
+    projectAttentionItem(item, item.taskId ? (taskVersions.get(item.taskId) ?? null) : null),
+  );
+}
+
 /** 一覧全体を射影する。件数は**判断単位**で数え、Desktopのbadgeと同じ意味にする。 */
 export function projectAttentionQueue(input: {
   items: readonly AttentionItem[];
@@ -50,14 +60,7 @@ export function projectAttentionQueue(input: {
 } {
   const truncated = input.items.length > input.limit;
   return {
-    attention: input.items
-      .slice(0, input.limit)
-      .map((item) =>
-        projectAttentionItem(
-          item,
-          item.taskId ? (input.taskVersions.get(item.taskId) ?? null) : null,
-        ),
-      ),
+    attention: projectAttentionItems(input.items, input.taskVersions).slice(0, input.limit),
     counts: { needsYou: input.items.length, working: input.working, queued: input.queued },
     truncated,
   };

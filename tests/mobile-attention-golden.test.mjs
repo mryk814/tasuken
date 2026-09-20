@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import test from "node:test";
 
 import { mobileAttentionResponseSchema } from "../src/shared/contracts/mobile/public.ts";
-import { buildAttentionQueue, deriveAgentWorkState } from "../src/shared/contracts/task/public.ts";
+import { buildAgentDeskSummary } from "../src/shared/contracts/task/public.ts";
 import {
   REQUEST_MEASUREMENT,
   TASK_ID,
@@ -96,24 +96,19 @@ function goldenWorkspace() {
 
 async function readModel() {
   const { tasks, proposals, receipts } = goldenWorkspace();
-  const items = buildAttentionQueue({
+  // DesktopのCoreと同じ導出を通す。goldenは「Androidが受け取る形」だけを固定する。
+  const summary = buildAgentDeskSummary({
     tasks,
     proposals,
     receipts,
     themes: [{ id: "theme-materials", name: "高分子材料評価" }],
   });
-  const working = tasks.filter(
-    (task) => deriveAgentWorkState({ task, proposals, receipts })?.state === "working",
-  ).length;
-  const queued = tasks.filter(
-    (task) => deriveAgentWorkState({ task, proposals, receipts })?.state === "start_waiting",
-  ).length;
   const projectAttentionQueue = await buildProjection();
   const projected = projectAttentionQueue({
-    items,
+    items: summary.attention,
     taskVersions: new Map(tasks.map((task) => [String(task.id), Number(task.version || 0)])),
-    working,
-    queued,
+    working: summary.working,
+    queued: summary.queued,
     limit: 50,
   });
   return {
@@ -174,7 +169,8 @@ test("回答に必要な質問IDとTask版を落とさない（#601）", async (
 
 test("Androidの射影はDesktopの導出と食い違わない（#601）", async () => {
   const { tasks, proposals, receipts } = goldenWorkspace();
-  const items = buildAttentionQueue({ tasks, proposals, receipts });
+  const summary = buildAgentDeskSummary({ tasks, proposals, receipts });
+  const items = summary.attention;
   const projectAttentionQueue = await buildProjection();
   const projected = projectAttentionQueue({
     items,

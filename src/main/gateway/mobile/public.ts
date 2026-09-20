@@ -1,6 +1,8 @@
 export {
   MobileGatewayAdapter,
   MobileGatewayCoreUnavailableError,
+  type MobileGatewayAgentReplyResult,
+  type MobileGatewayAttentionRead,
   type MobileGatewayCorePort,
   type MobileGatewayWorkLogCommand,
   type MobileGatewayWorkLogCommandResult,
@@ -20,7 +22,11 @@ export {
   type MobileGatewayStatePort,
   type MobilePrincipal,
 } from "./mobileGatewayAdapter.ts";
-export { projectAttentionItem, projectAttentionQueue } from "./attentionProjection.ts";
+export {
+  projectAttentionItem,
+  projectAttentionItems,
+  projectAttentionQueue,
+} from "./attentionProjection.ts";
 export {
   MobileGatewayClient,
   MobileGatewayClientError,

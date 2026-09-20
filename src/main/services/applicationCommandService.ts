@@ -2580,7 +2580,8 @@ export class ApplicationCommandService {
       ...(payload.choiceId ? { reply_choice_id: payload.choiceId } : {}),
       ...(payload.note ? { reply_note: payload.note } : {}),
       ...(question.attemptId ? { work_attempt_id: question.attemptId } : {}),
-      provenance: { reported_via: "desktop", request_id: payload.requestId },
+      // どこから答えたかは来歴として残す。mobileからの回答をデスクトップ扱いにしない。
+      provenance: { reported_via: command.source, request_id: payload.requestId },
       source: "manual",
     };
     workReceiptDefinition.parseCreate(reply);

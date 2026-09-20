@@ -296,6 +296,7 @@ export {
 export {
   attentionKindSchema,
   attentionSourceTypeSchema,
+  buildAgentDeskSummary,
   buildAttentionQueue,
   countAttention,
   isPassiveAgentSessionProposal,

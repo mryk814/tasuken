@@ -11,6 +11,7 @@ import {
 import {
   activityPageSchema,
   agentWorkActionIdSchema,
+  agentWorkDisplayStateSchema,
   attentionKindSchema,
   attentionSourceTypeSchema,
   publicActivityEntrySchema,
@@ -1785,8 +1786,11 @@ export const mobileAgentReplyResponseSchema = z
         taskId: taskIdSchema,
         taskVersion: entityVersionSchema,
         questionId: entityIdSchema,
-        /** 回答後に残る表示状態。Desktopと同じ意味。 */
-        displayState: z.literal("answered_resume_waiting"),
+        /**
+         * 返答直後の表示状態。Desktopと同じ `deriveAgentWorkState` の結果をそのまま返す。
+         * mobile側で意味を再導出しない。
+         */
+        displayState: agentWorkDisplayStateSchema,
       })
       .strict(),
   })
