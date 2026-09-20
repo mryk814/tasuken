@@ -30,6 +30,23 @@ Gitのbranch先端・build完了・ローカル検証とは別物です。更新
 - 再開条件: OpenAI側の修正、またはBusiness/Enterprise workspaceでの接続。Codex plugin（PC側runtimeが必要）やResponses API/AgentKitは別経路として利用可能。
 - 保留中の運用: `tasken-headless`（replica）は稼働継続。`tasken-tunnel`は起動したままでも負荷は小さく、止める場合は`sudo docker stop tasken-tunnel`（再開は`docker-compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --no-build`）。
 
+### 2026-09-20 PC側からの再確認（#588 / N1の一部）
+
+9月12日の記録を成功として流用しないため、PCから観測できる範囲を測り直した。**コンテナ側は未確認**（下記）。
+
+- Tailscale: `synologyds723`（`100.109.102.122`）は `active`（direct `192.168.11.18:41641`）。共有 `\\synologyDS723\tasken` は `T:` に割当済みで到達できる。
+- 共有の中身: `sync/`（`Activity` / `Inbox` / `devices` / `tasken-sync.json`）、`_deploy/`、`#recycle/`。
+- replicaが読む差分の鮮度: ホスト端末 `14efbb12-...` の差分は `000000003184-...json`（2026-09-20 20:05）まで届いている。もう一方の端末 `9aab88aa-...` は 2026-09-12 10:13 で止まっている。
+- 未確認（NAS側でしか分からない）: 配置済みimageとsourceの版、`tasken-headless` の稼働とhealth、replica SQLiteの `workspace_id` とcursor、read-onlyの強制、`backup.sh`の実行結果、`tasken-tunnel` の現在の状態。
+- 確認方法: SSHは鍵認証が未設定のため、NAS上で次を実行して出力を記録する（読み取りのみ）。
+  ```sh
+  docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'
+  docker logs --tail 5 tasken-headless 2>&1 | tail -5
+  sudo docker exec tasken-headless ls -l /data 2>/dev/null | head -5
+  grep -E 'workspace_id|pending|cursor' /volume1/docker/tasken/deploy/synology/state/* 2>/dev/null | head -5
+  sudo ls -l /volume1/docker/tasken/deploy/synology/state | head -10
+  ```
+
 ## ローカル検証（NASではない）
 
 ### 2026-09-12 Linux amd64コンテナ（Docker Desktop）
