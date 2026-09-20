@@ -23,6 +23,7 @@ export const applicationCommandNames = [
   "ReportTaskBlocked",
   "AcceptTaskWork",
   "ReturnTaskWork",
+  "ReplyToAgentRequest",
   "CommitAudioCapture",
   "CommitVideoArtifact",
   "CommitTrimmedVideoArtifact",
@@ -211,6 +212,23 @@ export interface TaskWorkReviewCommandPayload {
   completeTask?: boolean;
 }
 
+/**
+ * 人間がagentの質問へ答える（#597）。
+ * 回答は質問IDと作業単位IDへ紐づき、同じ質問へ二度目は書けない。
+ */
+export interface ReplyToAgentRequestCommandPayload {
+  taskId: string;
+  /** 回答対象の質問ID。`report_blocked` の `request_id`。 */
+  requestId: string;
+  /** 回答本文。選択肢を選んでも自由記述を許す。 */
+  body: string;
+  /** 選択肢を選んだ場合のID。 */
+  choiceId?: string | null;
+  /** `body` に添える補足。 */
+  note?: string | null;
+  repliedAt?: string | null;
+}
+
 export interface CommitAudioCaptureCommandPayload {
   capture: Entity;
   artifact: Entity;
@@ -240,6 +258,7 @@ export type ApplicationCommandPayload =
   | StartTaskWorkCommandPayload
   | AppendWorkReceiptCommandPayload
   | TaskWorkReviewCommandPayload
+  | ReplyToAgentRequestCommandPayload
   | CommitAudioCaptureCommandPayload
   | CommitVideoArtifactCommandPayload
   | CommitTrimmedVideoArtifactCommandPayload;
@@ -505,6 +524,25 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     throw new ApplicationCommandError(
       "INVALID_PAYLOAD",
       "StartTaskWorkのworkAttemptIdはUUIDで指定してください。",
+    );
+  }
+  if (
+    name === "ReplyToAgentRequest" &&
+    (typeof value.payload.requestId !== "string" ||
+      !UUID_PATTERN.test(value.payload.requestId) ||
+      typeof value.payload.body !== "string" ||
+      !value.payload.body.trim() ||
+      value.payload.body.length > 10_000 ||
+      (value.payload.choiceId !== undefined &&
+        value.payload.choiceId !== null &&
+        (typeof value.payload.choiceId !== "string" || value.payload.choiceId.length > 200)) ||
+      (value.payload.note !== undefined &&
+        value.payload.note !== null &&
+        (typeof value.payload.note !== "string" || value.payload.note.length > 2_000)))
+  ) {
+    throw new ApplicationCommandError(
+      "INVALID_PAYLOAD",
+      "ReplyToAgentRequestのrequestIdまたはbodyが不正です。",
     );
   }
   if (["AppendWorkReceipt", "ReportTaskDone", "ReportTaskBlocked"].includes(name)) {

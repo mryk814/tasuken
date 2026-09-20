@@ -549,6 +549,11 @@ export function publicReceiptForContext(receipt, budget) {
         }))
       : [],
     source_session: takeSafe(receipt.source_session, 500) || null,
+    // 人の返答と質問の対応。agentが次回queryで回答を取り戻せるようにIDを返す（#597）。
+    ...(receipt.receipt_kind ? { receipt_kind: safeScalar(receipt.receipt_kind) } : {}),
+    ...(receipt.request_id ? { request_id: safeScalar(receipt.request_id) } : {}),
+    ...(receipt.work_attempt_id ? { work_attempt_id: safeScalar(receipt.work_attempt_id) } : {}),
+    ...(receipt.reply_choice_id ? { reply_choice_id: safeScalar(receipt.reply_choice_id) } : {}),
     provenance,
     ...(Object.keys(repositoryContext).length ? { repository_context: repositoryContext } : {}),
     ...(Object.keys(runtimeMetadata).length ? { runtime_metadata: runtimeMetadata } : {}),

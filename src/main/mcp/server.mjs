@@ -342,7 +342,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.get_task_context",
     {
       description:
-        "Return bounded, AI-visible Task context by raw task_id or canonical task_locator: assignment, Theme, RepositoryContext match, explicit/provenance-related summaries, Activity, and Work Receipts. Summary items contain stable locators instead of full bodies.",
+        "Return bounded, AI-visible Task context by raw task_id or canonical task_locator: assignment, Theme, RepositoryContext match, explicit/provenance-related summaries, Activity, and Work Receipts. Summary items contain stable locators instead of full bodies. Receipts with receipt_kind 'human_reply' are the human answers to your questions; match them by request_id to the question you sent, and honor work_attempt_id so a late report does not revive a finished attempt.",
       inputSchema: {
         task_id: z
           .string()

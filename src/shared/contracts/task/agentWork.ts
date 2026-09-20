@@ -242,6 +242,8 @@ export function deriveAgentWorkState(input: {
     if (reports.some((report) => report.receiptId === String(receipt.id))) continue;
     const metadata = receipt.runtime_metadata as Record<string, unknown> | undefined;
     const kind = text(metadata?.report_kind);
+    // 人の返答は型付きの receipt_kind で判別する。旧データは runtime_metadata で読む（#597）。
+    const isHumanReply = text(receipt.receipt_kind) === "human_reply" || kind === "human_reply";
     const attemptId = attemptIdOf(receipt);
     reports.push({
       proposalId: null,
@@ -250,14 +252,13 @@ export function deriveAgentWorkState(input: {
       workAttemptId: attemptId,
       isCurrentAttempt: legacyAttemptTracking || attemptId === currentAttemptId,
       displayState: "working",
-      action:
-        kind === "done"
+      action: isHumanReply
+        ? "human_reply"
+        : kind === "done"
           ? "report_done"
           : kind === "blocked"
             ? "report_blocked"
-            : kind === "human_reply"
-              ? "human_reply"
-              : "append_receipt",
+            : "append_receipt",
       summary: text(receipt.summary),
       executorLabel: text(receipt.executor_label) || text(task.executor_identity) || "AI",
       reportedAt: timeOf(receipt.reported_at),
@@ -277,7 +278,11 @@ export function deriveAgentWorkState(input: {
     receipts
       .map((receipt) => {
         const metadata = receipt.runtime_metadata as Record<string, unknown> | undefined;
-        return text(metadata?.report_kind) === "human_reply" ? text(metadata?.request_id) : "";
+        const isHumanReply =
+          text(receipt.receipt_kind) === "human_reply" ||
+          text(metadata?.report_kind) === "human_reply";
+        // 質問の識別は型付きの request_id を優先し、旧データだけ metadata を読む。
+        return isHumanReply ? text(receipt.request_id) || text(metadata?.request_id) : "";
       })
       .filter(Boolean),
   );

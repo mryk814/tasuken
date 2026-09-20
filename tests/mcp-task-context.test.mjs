@@ -1159,3 +1159,65 @@ test("follow-up reports with new keys stack onto the same Task instead of confli
     }
   }
 });
+
+test("get_task_context surfaces human replies with their question and work attempt IDs (#597)", () => {
+  const requestId = "33333333-3333-4333-8333-333333333333";
+  const attemptId = "11111111-1111-4111-8111-111111111111";
+  const context = new ReadOnlyTaskenContext("ignored", {
+    workspace: {
+      themes: [{ id: "theme-1", name: "Theme", state: "active" }],
+      tasks: [
+        {
+          id: "task-1",
+          title: "粘度測定の条件を決める",
+          state: "doing",
+          project_id: "theme-1",
+          intended_executor: "ai_agent",
+          work_state: "blocked",
+          work_attempt_id: attemptId,
+        },
+      ],
+      work_receipts: [
+        {
+          id: "question-1",
+          task_id: "task-1",
+          executor_kind: "ai_agent",
+          executor_label: "Codex",
+          reported_at: "2026-09-20T09:00:00.000Z",
+          summary: "測定温度が決まっていません。",
+          request_id: requestId,
+          work_attempt_id: attemptId,
+        },
+        {
+          id: "reply-1",
+          task_id: "task-1",
+          executor_kind: "human",
+          executor_label: "自分",
+          reported_at: "2026-09-20T09:30:00.000Z",
+          summary: "25℃で進めてください。",
+          receipt_kind: "human_reply",
+          request_id: requestId,
+          work_attempt_id: attemptId,
+          reply_choice_id: "choice-25c",
+        },
+      ],
+    },
+  });
+  try {
+    const result = context.toolGetTaskContext({ task_id: "task-1", max_text_length: 5000 });
+    assert.equal(result.error, undefined);
+    const receipts = result.related.work_receipts;
+    const reply = receipts.find((entry) => entry.receipt_kind === "human_reply");
+    assert.ok(reply, "人の返答がcontextに含まれる");
+    assert.equal(reply.summary, "25℃で進めてください。");
+    assert.equal(reply.request_id, requestId);
+    assert.equal(reply.work_attempt_id, attemptId);
+    assert.equal(reply.reply_choice_id, "choice-25c");
+    // agentは質問IDで自分の質問への回答だと分かる。
+    const question = receipts.find((entry) => entry.id === "question-1");
+    assert.equal(question.request_id, requestId);
+    assert.equal(question.receipt_kind, undefined);
+  } finally {
+    context.close();
+  }
+});

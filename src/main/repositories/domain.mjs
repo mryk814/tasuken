@@ -92,6 +92,8 @@ const taskStates = new Set(["todo", "doing", "waiting", "review", "done", "cance
 const taskRequesters = new Set(["self", "human", "ai_agent", "external", "unknown"]);
 const taskIntendedExecutors = new Set(["self", "human", "ai_agent", "unassigned"]);
 const taskExecutorKinds = new Set(["self", "human", "ai_agent", "external", "unknown"]);
+/** Work Receiptの種別。省略時は従来のAI報告として読む（#597）。 */
+const workReceiptKinds = new Set(["ai_report", "human_reply"]);
 const taskWorkStates = new Set([
   "not_delegated",
   "ready_for_agent",
@@ -591,6 +593,24 @@ export function validateEntity(type, input) {
         input.report_sequence > 100000)
     )
       throw new Error("work_receipt.report_sequenceが不正です。");
+    if (
+      input.receipt_kind != null &&
+      input.receipt_kind !== "" &&
+      !workReceiptKinds.has(input.receipt_kind)
+    )
+      throw new Error("work_receipt.receipt_kindが不正です。");
+    if (
+      input.reply_choice_id != null &&
+      input.reply_choice_id !== "" &&
+      (typeof input.reply_choice_id !== "string" || input.reply_choice_id.length > 200)
+    )
+      throw new Error("work_receipt.reply_choice_idは200文字以内で入力してください。");
+    if (
+      input.reply_note != null &&
+      input.reply_note !== "" &&
+      (typeof input.reply_note !== "string" || input.reply_note.length > 2000)
+    )
+      throw new Error("work_receipt.reply_noteは2000文字以内で入力してください。");
   }
   if (type === "waiting" && !waitingStates.has(input.state))
     throw new Error("waiting.stateが不正です。");

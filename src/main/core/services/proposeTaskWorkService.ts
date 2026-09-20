@@ -73,6 +73,9 @@ function commonEntry(request: ProposeTaskWorkRequest) {
     caller: request.caller,
     source_session: request.source_session || null,
     repository_context: request.repository_context || null,
+    // 作業単位と報告順序は報告の帰属を決める。payloadへ必ず引き継ぐ（#595）。
+    ...(request.work_attempt_id ? { work_attempt_id: request.work_attempt_id } : {}),
+    ...(request.report_sequence !== undefined ? { report_sequence: request.report_sequence } : {}),
   };
 }
 
@@ -130,6 +133,8 @@ function taskWorkEntry(request: ProposeTaskWorkRequest): Record<string, unknown>
         ...(request.model ? { model: request.model } : {}),
         report_kind: "blocked",
       },
+      // 人間が回答すべき一回の質問を識別する（#597）。
+      ...(request.request_id ? { request_id: request.request_id } : {}),
     };
   }
   return { ...commonEntry(request), ...receiptFields(request) };
