@@ -1,49 +1,19 @@
-# Research Desk 実装ロードマップ
+# Tasken 実装状況
 
-`docs/SPEC.md` 12章以降を、既存データを維持しながら段階導入する。
+旧名「Research Desk」時代のロードマップは役割を終えたため、現在地の案内に置き換えた。
+作業の正本は `AGENTS.md`、仕様は `docs/SPEC.md`、UI規則は `design-standard/design-guide.md`、
+保存契約は `docs/engineering-contracts.md` とする。
 
-## 実装済み
+## 現在地（2026-09-20）
 
-- Electron IPC + SQLiteを正本とするWorkspace保存層
-- 共通Entity validation、正規化、連番DB migration基盤
-- 複数Entityを原子的に保存するtransaction IPC
-- Entity参照整合性検証と、削除・Undo時の参照退避・復元
-- 旧 `localStorage` データの初回移行
-- UUID、論理削除、端末ID、source、version、schema migration
-- Theme、Item、Note、Link、Personの統一CRUD
-- task、waiting、phase、milestoneのItem統合
-- ToDoサマリー、Quick Add、完了履歴、一括状態・Theme変更
-- Split Gantt、階層表示、縮尺切替、今日線、バー移動・リサイズ
-- 日程未確定、仮予定、確定予定、粗い日程表現
-- Plan Revisionと任意の変更理由
-- Workspace Snapshot ZIP v2のExport、論理削除情報、Plan Revision、差分プレビュー、競合選択、Import
-- 通常起動時のWorkspace Snapshot自動作成、設定可能な保存先、既定5世代のローテーション保持
-- Recall PaletteによるTask / Plan・Milestone / Note本文 / Waiting / Inbox記録 / Knowledge / Chat Ref / Theme / Resource / Artifactの横断検索
-- Saved View、Milestone Map、Theme Status Update、SourceRecord
-- Custom Field定義・値、ItemRelation、ItemDependency、LogEntry
-- AI Importプレビュー（Item / Note / Link）、範囲指定付きAI向けMarkdown / YAML / JSON Export
-- イナズマ線（計画進捗と実進捗の差分）
-- RelationのItem / Note / Link / SourceRecord対象選択
-- CSV / TSV貼り付けプレビュー、一括日程シフト
-- Itemのlevel（計画＝大きな線 / タスク＝細かい仕事）による粒度分離。kindから導出する後方互換（DB無改修・JSONブロブ保存）
-- Timelineのテーマ別レーン化。既定は計画レベル（期間・マイルストーン）のみ表示し、「タスクを表示」トグルでタスクを親の下に従属表示
-- サイドバーの横断（テーマ非依存）/ テーマ別（コンテキスト切替）/ ツールの3区分IA
-- electron-viteによるMain / Preload / Renderer統合ビルド
-- `src/main` / `src/preload` / `src/renderer` / `src/shared`へのアプリ構造移行
-- TypeScript strictのshared契約、Main、Preload、Store、Renderer entry
-- `window.api`を正本とするtyped IPCと入力検証
-- Workspace Repository、Snapshot/OS Service、IPC登録の責任分割
-- ZustandによるWorkspace正式データとUI状態の分離
-- Tailwind CSS v4とdesign tokenの接続、Tabler Icons導入
-- electron-builderによるNSIS installer + portable同時生成
-- KnowledgeNode / KnowledgeRelation / AiProposalのWorkspace Entity追加
-- Knowledge一覧、Noteからの手動構造化、Knowledge Relation作成
-- AI Context ExportのKnowledge-aware Markdown section
-- AI ImportプレビューのKnowledgeNode / KnowledgeRelation対応
-- Knowledge Health Checkの簡易一覧
-- Read-only MCP Server（search/list/context/health/export tools）
-- インストール版に同梱するMCP BridgeとSafe Write Proposal Inbox
-- MCPからのTask / Note / Note編集 / Knowledge提案、Note version競合検出
+- 日常利用の摩擦は大きなIssueへ溜めず、見つけ次第小さなIssueへ切り出す運用に変えた（#518 は閉じた）。
+- 進行中の大きな方向性は GitHub の Open Issue が正本である。
+  - Agent Desk と Feed の AI 連携群（#593 Epic、#594–#602、#604）
+  - Synology 常時稼働 replica（#588。Phase 3 は外部要因で保留）
+  - 全文公開の WIP はローカルの stash（`#546 全文公開の途中作業`）に保持している。
+- 版ごとの利用者向け変更は `docs/releases/` を参照する。
+  v0.1.47–v0.1.65 は `docs/releases/v0.1.47-v0.1.65.md` の回顧メモにまとめた。
+- 2026-09-01 時点の Issue 棚卸しは `docs/issue-inventory-2026-09-01.md` に残す（日付付きスナップショットであり、書き換えない）。
 
 ## 継続改善
 
@@ -52,18 +22,6 @@
 2. 互換維持のためfeature単位に残したJSXは、機能変更時にpage/component単位でTypeScript化する。
 3. Critical Path、Workload / Capacity、グラフビューは実データで必要性を確認して設計する。
 4. Spreadsheet Modeの列マッピング保存や行単位エラー修正は、日常運用で必要性を確認して追加する。
-
-## 次期方針: Knowledge Model + AI/MCP連携
-
-Taskenを「思考・知識・作業文脈をAIと共有できる個人用Thinking Graph」に拡張する。
-詳細方針は[`knowledge-mcp-policy.md`](./knowledge-mcp-policy.md)を正本とする。
-
-優先順は以下とする。
-
-1. Knowledge UIは実験・診断用の既存データ棚卸しに限定する。Knowledge候補の取り込みは既存AI Import / Proposal契約で扱い、Notesの日常導線へ戻さない。
-2. MCP writeは直接Entityを作らず、`ai_proposal`としてpreview inboxに入れる。（実装済み）
-3. VS Code / Copilot / Cursor連携はSettingsの接続設定からMCP経由で行う。
-4. アプリ内LLMは同じProposal契約を使い、独自の書き込み経路を作らない。
 
 ## 検証
 
