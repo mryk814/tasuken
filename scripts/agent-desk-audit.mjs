@@ -1,0 +1,260 @@
+/**
+ * Agent Desk の一往復の実動監査（#599）
+ *
+ * 一時userDataへ「回答待ち」「成果確認」「作業中」「開始待ち」「最近の結果」を仕込んでから
+ * アプリを起動し、4つの見出しと確認詳細が設計どおりに出ることを実測する。
+ *
+ *   npm run build && npm run audit:agent-desk
+ */
+import { _electron as electron } from "playwright";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+// playwrightはprocess.envを引き継ぐ。起動するElectronがNodeモードにならないよう外す。
+delete process.env.ELECTRON_RUN_AS_NODE;
+
+const OUT_DIR = process.argv[2] || "output/playwright/agent-desk-audit";
+const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
+const ATTEMPT = "11111111-1111-4111-8111-111111111111";
+const REQUEST = "33333333-3333-4333-8333-333333333333";
+
+mkdirSync(OUT_DIR, { recursive: true });
+const userDataDir = mkdtempSync(path.join(os.tmpdir(), "tasken-agent-desk-audit-"));
+const failures = [];
+const { WorkspaceDatabase } = await import("../src/main/repositories/workspaceRepository.mjs");
+
+const seed = new WorkspaceDatabase(path.join(userDataDir, "research-desk.sqlite"));
+seed.loadWorkspace();
+const theme = "theme-personal-default";
+seed.save("task", {
+  id: "desk-review",
+  title: "比較表の作成",
+  state: "doing",
+  project_id: theme,
+  priority: "normal",
+  intended_executor: "ai_agent",
+  executor_identity: "Codex",
+  work_state: "needs_human_review",
+  work_attempt_id: ATTEMPT,
+});
+seed.save("task", {
+  id: "desk-question",
+  title: "粘度測定の条件を決める",
+  state: "doing",
+  project_id: theme,
+  priority: "normal",
+  intended_executor: "ai_agent",
+  executor_identity: "Codex",
+  work_state: "blocked",
+  work_attempt_id: ATTEMPT,
+});
+seed.save("task", {
+  id: "desk-working",
+  title: "劣化試験の計画",
+  state: "doing",
+  project_id: theme,
+  priority: "normal",
+  intended_executor: "ai_agent",
+  executor_identity: "外部AI",
+  work_state: "in_progress",
+  work_attempt_id: ATTEMPT,
+  work_started_at: "2026-09-20T08:00:00.000Z",
+});
+seed.save("task", {
+  id: "desk-waiting",
+  title: "粘度データの整理",
+  state: "todo",
+  project_id: theme,
+  priority: "normal",
+  intended_executor: "ai_agent",
+  executor_identity: "外部AI",
+  work_state: "ready_for_agent",
+  handoff_requested_at: "2026-09-20T08:30:00.000Z",
+});
+seed.save("ai_proposal", {
+  id: "desk-review-proposal",
+  source: "mcp",
+  source_app: "codex",
+  payload_type: "task_work",
+  status: "pending",
+  received_at: "2026-09-20T09:20:00.000Z",
+  created_at: "2026-09-20T09:20:00.000Z",
+  payload: {
+    task_work: [
+      {
+        task_id: "desk-review",
+        action: "report_done",
+        work_attempt_id: ATTEMPT,
+        executor_kind: "ai_agent",
+        executor_label: "Codex",
+        summary: "3条件の比較表を作成しました。",
+        verification: ["数値の転記誤りがないこと"],
+        remaining_work: ["測定条件が妥当かは人が判断"],
+        reported_at: "2026-09-20T09:20:00.000Z",
+      },
+    ],
+  },
+});
+seed.save("ai_proposal", {
+  id: "desk-question-proposal",
+  source: "mcp",
+  source_app: "codex",
+  payload_type: "task_work",
+  status: "pending",
+  received_at: "2026-09-20T09:10:00.000Z",
+  created_at: "2026-09-20T09:10:00.000Z",
+  payload: {
+    task_work: [
+      {
+        task_id: "desk-question",
+        action: "report_blocked",
+        work_attempt_id: ATTEMPT,
+        executor_kind: "ai_agent",
+        executor_label: "Codex",
+        summary: "測定温度が決まっていません。",
+        blocker: "測定温度が決まっていません。",
+        needed_input: ["25℃で測定する", "40℃で測定する"],
+        request_id: REQUEST,
+        reported_at: "2026-09-20T09:10:00.000Z",
+      },
+    ],
+  },
+});
+// 割当が変わると work_state は idle へ正規化される（正常な仕様）。
+// 実運用ではStartTaskWorkが作業中を作るため、fixtureでは2回目の保存で状態を置く。
+for (const [id, workState] of [
+  ["desk-review", "needs_human_review"],
+  ["desk-question", "blocked"],
+  ["desk-working", "in_progress"],
+]) {
+  seed.save("task", { ...seed.get("task", id), work_state: workState });
+}
+seed.db.close();
+
+const app = await electron.launch({
+  args: [".", "--disable-gpu", "--disable-gpu-compositing", `--user-data-dir=${userDataDir}`],
+});
+try {
+  const page = await app.firstWindow();
+  await page.waitForLoadState("domcontentloaded");
+  await page.evaluate(
+    ([key, value]) => window.localStorage.setItem(key, JSON.stringify(value)),
+    [ZOOM_STORAGE_KEY, 1],
+  );
+  await page.reload();
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(3500);
+
+  const nav = page.locator(".sidebar button", { hasText: "AI Inbox" }).first();
+  if (!(await nav.count())) throw new Error("SidebarにAI Inboxの入口がありません。");
+  await nav.click();
+  await page.waitForTimeout(1200);
+
+  const desk = page.locator(".agent-desk");
+  if (!(await desk.count())) throw new Error("Agent Deskが表示されていません。");
+  const headings = await page.locator(".agent-desk-section h2").allInnerTexts();
+  for (const heading of ["対応待ち", "作業中", "開始待ち", "最近の結果"]) {
+    if (!headings.includes(heading)) failures.push(`見出し「${heading}」がありません。`);
+  }
+  const listText = (await page.locator(".agent-desk-list").innerText()).replace(/\s+/g, " ");
+
+  // 対応待ち: 質問と成果確認が判断単位で並ぶ。
+  if (!listText.includes("測定温度が決まっていません。"))
+    failures.push("質問が対応待ちに出ていません。");
+  if (!listText.includes("3条件の比較表を作成しました。"))
+    failures.push("成果報告が対応待ちに出ていません。");
+  // 作業中: 経過だけで状態を変えず、最終報告を添える。
+  if (!listText.includes("劣化試験の計画")) failures.push("作業中のTaskが出ていません。");
+  // 開始待ち: 取得済みと偽らない。
+  if (!listText.includes("粘度データの整理")) failures.push("開始待ちのTaskが出ていません。");
+  if (!listText.includes("開始は未確認")) failures.push("開始待ちに「開始は未確認」がありません。");
+  await page.screenshot({ path: `${OUT_DIR}/agent-desk-list.png`, fullPage: true });
+
+  // 質問を選ぶと選択肢と返答欄が出る。
+  await page.locator(".agent-desk-open", { hasText: "測定温度" }).first().click();
+  await page.waitForTimeout(500);
+  const questionDetail = (await page.locator(".agent-desk-detail").innerText()).replace(
+    /\s+/g,
+    " ",
+  );
+  for (const label of [
+    "25℃で測定する",
+    "40℃で測定する",
+    "回答（選択肢がある場合も自由記述できます）",
+    "回答を送る",
+  ]) {
+    if (!questionDetail.includes(label)) failures.push(`質問詳細に「${label}」がありません。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/agent-desk-question.png`, fullPage: true });
+
+  // 成果確認を選ぶと読み順と操作名が設計どおりになる。
+  await page.locator(".agent-desk-open", { hasText: "比較表" }).first().click();
+  await page.waitForTimeout(500);
+  const reviewDetail = (await page.locator(".agent-desk-detail").innerText()).replace(/\s+/g, " ");
+  for (const label of [
+    "成果",
+    "確認できたこと",
+    "未確認事項",
+    "Taskenへ反映する内容",
+    "報告を採用",
+    "修正を依頼",
+    "Taskも完了する",
+  ]) {
+    if (!reviewDetail.includes(label)) failures.push(`成果確認に「${label}」がありません。`);
+  }
+  const completeChecked = await page
+    .locator(".agent-desk-option input[type=checkbox]")
+    .first()
+    .isChecked();
+  if (completeChecked) failures.push("「Taskも完了する」が最初から選ばれています。");
+  const primaryLabel = (
+    await page.locator(".agent-desk-detail .semantic-button-primary").first().innerText()
+  ).trim();
+  if (primaryLabel !== "報告を採用") {
+    failures.push(`成果確認の主操作が「報告を採用」ではありません: ${primaryLabel}`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/agent-desk-review.png`, fullPage: true });
+
+  // 回答を送ると要対応から外れ、Taskは完了しない。
+  await page.locator(".agent-desk-open", { hasText: "測定温度" }).first().click();
+  await page.waitForTimeout(400);
+  await page.locator(".agent-desk-detail textarea").first().fill("25℃で進めてください。");
+  await page.locator(".agent-desk-detail .semantic-button-primary").first().click();
+  await page.waitForTimeout(2000);
+  const afterReply = (await page.locator(".agent-desk-list").innerText()).replace(/\s+/g, " ");
+  if (afterReply.includes("測定温度が決まっていません。")) {
+    failures.push("回答後も質問が対応待ちに残っています。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/agent-desk-after-reply.png`, fullPage: true });
+
+  // 狭幅でも横スクロールしない。
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 680));
+  await page.waitForTimeout(700);
+  const overflowing = await page.evaluate(() => {
+    const found = [];
+    for (const element of document.querySelectorAll(".main-area, .main-area *")) {
+      const style = getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden") continue;
+      if (element.scrollWidth > element.clientWidth + 1 && element.clientWidth > 0) {
+        found.push(
+          `${element.tagName.toLowerCase()}.${(element.className?.toString?.() || "").slice(0, 40)}`,
+        );
+      }
+    }
+    return found;
+  });
+  if (overflowing.length) failures.push(`狭幅で横あふれ: ${overflowing.join(", ")}`);
+  await page.screenshot({ path: `${OUT_DIR}/agent-desk-min-980.png`, fullPage: true });
+} finally {
+  await app.close();
+  rmSync(userDataDir, { recursive: true, force: true });
+}
+
+if (failures.length) {
+  console.error(`Agent Desk監査で${failures.length}件の問題を検出しました。`);
+  for (const failure of failures) console.error(`  NG ${failure}`);
+  console.error(`スクリーンショット: ${OUT_DIR}`);
+  process.exit(1);
+}
+console.log(`Agent Desk監査: OK（スクリーンショットは ${OUT_DIR}）`);

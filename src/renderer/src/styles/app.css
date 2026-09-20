@@ -16708,3 +16708,232 @@ kbd {
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
 }
+
+/* --- Agent Desk（#599） --- */
+.agent-desk-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.agent-desk-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.agent-desk-section .section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.agent-desk-section .section-heading h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.agent-desk-count {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.agent-desk-empty {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.agent-desk-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-desk-row {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.agent-desk-row:first-child {
+  border-top: 0;
+}
+
+.agent-desk-row.is-selected {
+  background: var(--color-surface-subtle);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.agent-desk-open {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 10px var(--space-3);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.agent-desk-open:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.agent-desk-headline {
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+  word-break: keep-all;
+}
+
+.agent-desk-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  min-width: 0;
+}
+
+.agent-desk-actor {
+  color: var(--color-text);
+}
+
+.agent-desk-path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-desk-kind {
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  border: 1px solid var(--color-border);
+}
+
+.agent-desk-kind.is-answer_request {
+  color: var(--color-status-blocked-fg);
+  background: var(--color-status-blocked-bg);
+  border-color: var(--color-status-blocked-bd);
+}
+
+.agent-desk-kind.is-decision_request {
+  color: var(--color-status-blocked-fg);
+  background: var(--color-status-blocked-bg);
+  border-color: var(--color-status-blocked-bd);
+}
+
+.agent-desk-kind.is-review_report {
+  color: var(--color-status-review-fg);
+  background: var(--color-status-review-bg);
+  border-color: var(--color-status-review-bd);
+}
+
+.agent-desk-kind.is-proposal_pending {
+  color: var(--action-ai-fg);
+  background: var(--action-ai-bg);
+  border-color: var(--action-ai-bd);
+}
+
+.agent-desk-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  min-width: 0;
+}
+
+.agent-desk-detail h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: var(--lh-tight);
+}
+
+.agent-desk-summary,
+.agent-desk-note {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+}
+
+.agent-desk-note {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.agent-desk-rows-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.agent-desk-rows-detail dt {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.agent-desk-rows-detail dd {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+}
+
+.agent-desk-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.agent-desk-choices label,
+.agent-desk-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+}
+
+.agent-desk-return {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.agent-desk-return label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.agent-desk-return textarea {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-base);
+  resize: vertical;
+}
+
+.agent-desk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+@container page (min-width: 1180px) {
+  .agent-desk-layout {
+    grid-template-columns: minmax(0, 1fr) 380px;
+  }
+
+  .agent-desk-detail {
+    position: sticky;
+    top: var(--space-4);
+  }
+}

@@ -218,7 +218,48 @@ Task詳細の「AIへ任せる」から、**Taskの正本を変えずに**外部
 - **agentがContextを取得したかは観測していない。** 取得済みとは表示しない。
 - 委任の解除は「委任を解除」と表示し、外部プロセスの停止は保証しない。
 
-## 8. migration と rollback
+## 8. Agent Desk（#599）
+
+`ai-io` の面の先頭に、任せた仕事の進みと待ちを**4つの見出し**で一覧する。
+4列Kanbanにはしない。対応待ちを先頭に置く。
+
+```text
+対応待ち 2
+  測定温度が決まっていません。   Codex  粘度測定の条件を決める   [回答待ち]
+  3条件の比較表を作成しました。  Codex  比較表の作成            [成果確認]
+作業中 0
+開始待ち 1
+  粘度データの整理               外部AI  開始は未確認
+最近の結果 0件
+```
+
+- 一覧は `buildAttentionQueue` と `deriveAgentWorkState` の**導出結果を表示するだけ**。
+  画面側に状態の正本を持たない（選択と入力だけを持つ）。
+- 「作業中」は稼働監視ではない。**経過時間だけで成功・停止・失敗へ変えない。** 報告が無ければ「報告はまだありません」。
+- 「開始待ち」は **「開始は未確認」** と表示する。agentがContextを取得したかは観測していないので「取得済み」とは書かない。
+
+### 確認詳細の読み順
+
+成果確認は **「成果」「確認できたこと」「未確認事項」「Taskenへ反映する内容」** の順に読む。
+
+| 操作名             | 保存される結果                                   | 既定                               |
+| ------------------ | ------------------------------------------------ | ---------------------------------- |
+| 報告を採用         | 報告を正式Receiptへ保存する。**Taskは継続**      | 主操作                             |
+| 採用してTaskを完了 | 採用範囲を保存し、人が明示したTask完了を実行する | 「Taskも完了する」を選んだときだけ |
+| 修正を依頼         | 修正内容を残し、対象の作業を差戻す。Taskは継続   | —                                  |
+| この変更案を却下   | Proposalを不採用にする                           | —                                  |
+
+「Taskも完了する」は**最初から選ばれていない明示オプション**にする。
+採用と完了は二つのCommandなので、前半だけ成功した場合は
+「既に採用済みの場合は、Task完了だけを再試行できます」と示し、**全体を失敗扱いして報告を二重保存しない**。
+
+### 回答
+
+詳細の上半分に質問と選択肢、下に返答欄を置く。選択肢がある場合も自由記述を許す。
+「回答を送る」で `ReplyToAgentRequest` を呼び、保存後は要対応から外れて「回答済み／再開待ち」になる。
+**Taskの状態は変えない**（§6）。
+
+## 9. migration と rollback
 
 - **DBスキーマ変更なし。** Entityの `properties_json` に任意fieldが増えるだけで、`entities` テーブルの列は変わらない。migrationは不要。
 - **Export / Import・Snapshot形式の変更なし。** 既存のSnapshotはEntityを丸ごと運ぶため、新しい任意fieldもそのまま往復する。
@@ -226,13 +267,14 @@ Task詳細の「AIへ任せる」から、**Taskの正本を変えずに**外部
 - **旧版アプリ**は新しいMCP引数を送らない。その場合Taskに作業単位IDが付かないため `legacyAttemptTracking` として従来どおり動く。
 - **rollback** は新しいfieldを書かないように戻すだけでよい。既に保存された値は誰も読まなくなり、既存のProposal/Receipt経路は影響を受けない。
 
-## 9. 実装を置く境界
+## 10. 実装を置く境界
 
 | 境界                                             | 責務                                                                  |
 | ------------------------------------------------ | --------------------------------------------------------------------- |
 | `src/shared/contracts/task/agentWork.ts`         | 表示状態、要対応item、操作ID、導出、並び順                            |
 | `src/shared/contracts/task/attentionQueue.ts`    | 未解決判断の集約、件数、重複排除、並び（#596）                        |
 | `src/shared/contracts/task/handoff.ts`           | Handoffの委任先、Context参照版、差分の説明（#598）                    |
+| `src/renderer/.../components/AgentDeskPanel.tsx` | 4見出しの一覧と確認詳細。表示とCommand接続だけを持つ（#599）          |
 | `src/shared/contracts/task/taskWorkProposal.ts`  | 報告の入力契約（新fieldの受理と検証）                                 |
 | `src/shared/applicationCommand.ts`               | `StartTaskWork.workAttemptId` と `ReplyToAgentRequest` の検証         |
 | `src/main/services/applicationCommandService.ts` | Taskの現在参照の更新、Receiptへの引き継ぎ、質問の有効性確認、人の返答 |
@@ -259,7 +301,7 @@ Task詳細の「AIへ任せる」から、**Taskの正本を変えずに**外部
 - Sidebarのbadgeは `countAttention` の値、つまり**未処理のhuman attentionの数**を表す。
   同じTaskの独立した判断は2件として数える。
 
-## 10. 検証
+## 11. 検証
 
 ```powershell
 rtk node scripts/run-electron-node.mjs --test tests/agent-work-state.test.mjs
@@ -267,7 +309,8 @@ rtk node scripts/run-electron-node.mjs --test tests/agent-work-attempt.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/agent-reply.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/attention-queue.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/task-handoff.test.mjs
-rtk npm run build && rtk npm run audit:handoff
+rtk node scripts/run-electron-node.mjs --test tests/agent-desk.test.mjs
+rtk npm run build && rtk npm run audit:handoff && rtk npm run audit:agent-desk
 rtk node scripts/run-electron-node.mjs --test tests/task-work-receipts.test.mjs tests/task-work-history.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/mcp-task-context.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/ai-collaboration-e2e.test.mjs
@@ -277,14 +320,14 @@ rtk npm run build:mcp
 
 共有fixtureは `tests/fixtures/agentWorkScenarios.mjs`。Desktopのread modelテストと、後続のAndroid golden fixture（#601 / #602）が同じ意味の入力を参照する。
 
-## 11. この単位で確認していないこと
+## 12. この単位で確認していないこと
 
 | 未確認                  | 内容                                                                                                                                 |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 回答のUI                | `ReplyToAgentRequest` を呼ぶ画面はまだ無い（#599のAgent Deskで接続する）                                                             |
+| 回答のUI                | Agent Deskから回答できる。**Task詳細からの回答導線は未接続**                                                                         |
 | 回答のMCP越しの受け渡し | `get_task_context` が返すことは確認したが、実stdio MCPのE2E往復（質問→回答→再取得）は `tests/ai-collaboration-e2e.test.mjs` へ未追加 |
 | 再割当のUI操作          | 委任の解除はTask詳細から行える。「新しい作業単位での再委任」を利用者が実行する導線は未実装（#602）                                   |
-| 表示                    | `AgentWorkReadModel` を描画する画面はまだ無い（#596 / #599）。Handoffの「開始待ち」はTaskの `work_state` から出している              |
+| 表示                    | Agent DeskはTask詳細と同じ詳細コンポーネントをまだ共有していない（#600で統合する）                                                   |
 | HandoffのCancel         | 委任の解除はTaskを `not_delegated` へ戻すだけ。実行中に解除した場合のagent側の扱いは未検証                                           |
 | Android                 | Kotlin側のDTOとgolden fixtureは未接続（#601）。回答の送信経路も未実装                                                                |
 | Export往復の実走        | Snapshot形式は変更していないため未検証。ただしEntity単位の往復は `tests/agent-work-attempt.test.mjs` で確認している                  |

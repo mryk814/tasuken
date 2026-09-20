@@ -194,6 +194,7 @@
     },
     "workspace-repository": {
       "consumerPaths": [
+        "scripts/agent-desk-audit.mjs",
         "scripts/model-smoke.mjs",
         "scripts/seed-materials-informatics-workspace.mjs",
         "scripts/task-handoff-audit.mjs",
