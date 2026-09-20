@@ -216,6 +216,11 @@ const taskFields = {
   work_started_at: optionalTimestamp,
   work_reported_at: optionalTimestamp,
   work_review_note: optionalText(2000),
+  /**
+   * 現在参照している作業単位（Taskへの一回の委任）のID。
+   * 再委任・明示的な再依頼で更新する。未設定の旧Taskでは遅着判定を行わない。
+   */
+  work_attempt_id: z.string().uuid().optional(),
   priority: taskPrioritySchema,
   today_date: localDateSchema.nullable().optional(),
   planning_shelf: taskShelfSchema.nullable().optional(),

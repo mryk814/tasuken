@@ -178,6 +178,7 @@ export interface ApplyAiProposalCommandPayload {
 const MAX_AI_PROPOSAL_DECISIONS = 100;
 const MAX_AI_PROPOSAL_ACCEPTED_HUNKS = 32_768;
 const MAX_AI_PROPOSAL_HUNK_INDEX = 32_767;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface ApplyTaskWorkProposalCommandPayload {
   proposalId: string;
@@ -191,6 +192,11 @@ export interface StartTaskWorkCommandPayload {
   executorIdentity?: string | null;
   startedAt?: string | null;
   sourceSession?: string | null;
+  /**
+   * 今回の委任を識別する作業単位ID（UUID）。指定するとTaskの現在参照を更新し、
+   * 以降の報告はこのIDを持つものだけが current とみなされる。省略時は従来の挙動を保つ。
+   */
+  workAttemptId?: string | null;
 }
 
 export interface AppendWorkReceiptCommandPayload {
@@ -487,6 +493,18 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     throw new ApplicationCommandError(
       "INVALID_PAYLOAD",
       "AcceptTaskWorkのcompleteTaskが不正です。",
+    );
+  }
+  if (
+    name === "StartTaskWork" &&
+    value.payload.workAttemptId !== undefined &&
+    value.payload.workAttemptId !== null &&
+    (typeof value.payload.workAttemptId !== "string" ||
+      !UUID_PATTERN.test(value.payload.workAttemptId))
+  ) {
+    throw new ApplicationCommandError(
+      "INVALID_PAYLOAD",
+      "StartTaskWorkのworkAttemptIdはUUIDで指定してください。",
     );
   }
   if (["AppendWorkReceipt", "ReportTaskDone", "ReportTaskBlocked"].includes(name)) {

@@ -6,7 +6,7 @@ Issue #594 の成果物。Agent Desk（#593 Epic、#595–#602）と Feed（#604
 
 調査対象は `main@acc65ab1`、アプリ版 `0.1.65`。外部事例の確認日は 2026-09-20。
 
-関連: [Product Atlas](./product-atlas.md)（製品像）／[AI collaboration E2E contract](./ai-collaboration-e2e.md)（検証の正本）／[外部AI連携](./external-ai-integration.md)（利用者向け手順）／[用語辞書](./glossary.md)／[設計計画](./issue-design-plan-2026-09-20.md)（実装順序）／[6製品の画面比較](./research/feed-six-product-comparison.md)（§2の証拠）。
+関連: [Product Atlas](./product-atlas.md)（製品像）／[AI collaboration E2E contract](./ai-collaboration-e2e.md)（検証の正本）／[外部AI連携](./external-ai-integration.md)（利用者向け手順）／[用語辞書](./glossary.md)／[設計計画](./issue-design-plan-2026-09-20.md)（実装順序）／[6製品の画面比較](./research/feed-six-product-comparison.md)（§2の証拠）／[Agent work実装契約](./agent-work-contract.md)（§6の実装）。
 
 ---
 
@@ -224,16 +224,20 @@ Tasken が採らない差分：
 
 ### 6.2 canonical 追加が必要なもの
 
-既存modelでは表現できないと確認したものだけ。#595 / #597 で versioned contract へ加える。**新しいテーブルは初手にしない。**
+既存modelでは表現できないと確認したものだけを versioned contract へ加える。**新しいテーブルは初手にしない。**
 
-| 追加                                  | 何のため                                          | 無いと何が壊れるか                                                           |
-| ------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------- |
-| 作業単位ID                            | Taskへの一回の委任を識別する                      | 同じsession内の再依頼と、旧作業からの遅着報告を区別できない                  |
-| 質問ID                                | 一回の回答または判断を識別する                    | 再送・他端末の回答で、どの質問への回答か確定できない                         |
-| 報告順序                              | 作業単位内の順番                                  | 発信側の時計だけでcurrent stateを選ぶことになる                              |
-| 人間の返答の型付き記録                | 回答本文・選択肢ID・作業単位IDをappend-onlyに残す | 自由記述の `work_review_note` と `runtime_metadata` のJSONが実質の正本になる |
-| 操作の冪等キー（回答・採用・Handoff） | 再送で同じ結果を返す                              | 応答喪失時の再送が二重保存になる                                             |
-| `AttentionDisposition`                | 既読・見送り・再表示日時の保存                    | DesktopとAndroidで保留を共有できない（fixtureではメモリ内のみ）              |
+**実装状況（#595で完了）**
+
+| 追加                                  | 何のため                                          | 無いと何が壊れるか                                                           | 状況                                                           |
+| ------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 作業単位ID                            | Taskへの一回の委任を識別する                      | 同じsession内の再依頼と、旧作業からの遅着報告を区別できない                  | **実装済み**（`Task.work_attempt_id`）                         |
+| 質問ID                                | 一回の回答または判断を識別する                    | 再送・他端末の回答で、どの質問への回答か確定できない                         | **契約のみ**（`request_id` は保存される。回答の経路は#597）    |
+| 報告順序                              | 作業単位内の順番                                  | 発信側の時計だけでcurrent stateを選ぶことになる                              | **実装済み**（`report_sequence`）                              |
+| 人間の返答の型付き記録                | 回答本文・選択肢ID・作業単位IDをappend-onlyに残す | 自由記述の `work_review_note` と `runtime_metadata` のJSONが実質の正本になる | #597                                                           |
+| 操作の冪等キー（回答・採用・Handoff） | 再送で同じ結果を返す                              | 応答喪失時の再送が二重保存になる                                             | 報告は既存の `idempotency_key`。回答・採用・Handoffは#597/#598 |
+| `AttentionDisposition`                | 既読・見送り・再表示日時の保存                    | DesktopとAndroidで保留を共有できない（fixtureではメモリ内のみ）              | #596以降                                                       |
+
+**追加したfieldと状態導出の実装契約は [agent-work-contract.md](./agent-work-contract.md)。** 表示状態の導出は `src/shared/contracts/task/agentWork.ts` の `deriveAgentWorkState` が持つ。
 
 `AttentionDisposition` は**製品接続時のみ**。source参照と再表示日時だけを持ち、Feed本文や要対応状態を複製しない。**「後で見る」を `Task.today_date` へ保存しない。**
 

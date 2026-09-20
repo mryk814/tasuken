@@ -117,6 +117,8 @@ const scheduleRangeSemantics = new Set(["once_within_window", "ongoing"]);
 // Themeの種別（#282）。personal_default は常設の既定Themeで、削除・アーカイブ・改名できない。
 // 表示名の文字列比較で特別扱いせず、この値と安定IDで識別する。
 const themeSystemKinds = new Set(["personal_default"]);
+/** 作業単位ID・質問IDは等値比較に使うため、形式を保存時に固定する。 */
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const entityRefTypes = new Set([
   "project",
   "capture_entry",
@@ -515,6 +517,12 @@ export function validateEntity(type, input) {
     }
     if (input.work_review_note != null && input.work_review_note.length > 2000)
       throw new Error("task.work_review_noteは2000文字以内で入力してください。");
+    if (
+      input.work_attempt_id != null &&
+      input.work_attempt_id !== "" &&
+      (typeof input.work_attempt_id !== "string" || !uuidPattern.test(input.work_attempt_id))
+    )
+      throw new Error("task.work_attempt_idが不正です。");
   }
   if (type === "work_receipt") {
     if (typeof input.task_id !== "string" || !input.task_id.trim())
@@ -568,6 +576,21 @@ export function validateEntity(type, input) {
       throw new Error("work_receipt.source_sessionは200文字以内で入力してください。");
     if (input.provenance != null && !isPlainObject(input.provenance))
       throw new Error("work_receipt.provenanceが不正です。");
+    for (const field of ["work_attempt_id", "request_id"]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || !uuidPattern.test(input[field]))
+      )
+        throw new Error(`work_receipt.${field}が不正です。`);
+    }
+    if (
+      input.report_sequence != null &&
+      (!Number.isInteger(input.report_sequence) ||
+        input.report_sequence < 0 ||
+        input.report_sequence > 100000)
+    )
+      throw new Error("work_receipt.report_sequenceが不正です。");
   }
   if (type === "waiting" && !waitingStates.has(input.state))
     throw new Error("waiting.stateが不正です。");

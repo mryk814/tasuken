@@ -280,6 +280,20 @@ export {
   type GetContextSubgraphResponse,
 } from "./agentContextQueries.ts";
 export {
+  agentWorkActionIdSchema,
+  agentWorkAttentionKindSchema,
+  agentWorkDisplayStateSchema,
+  agentWorkOrderKey,
+  deriveAgentWorkState,
+  type AgentWorkActionId,
+  type AgentWorkAttentionItem,
+  type AgentWorkAttentionKind,
+  type AgentWorkDisplayState,
+  type AgentWorkReadModel,
+  type AgentWorkReportView,
+  type AgentWorkSourceRef,
+} from "./agentWork.ts";
+export {
   taskWorkEntry,
   taskWorkReportTime,
   taskWorkReportsCoveredBy,

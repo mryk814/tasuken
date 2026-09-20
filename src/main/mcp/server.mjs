@@ -1207,6 +1207,23 @@ export function createTaskenMcpServer(options = {}) {
     source_session: z.string().trim().min(1).max(200).optional(),
     repository_context: taskWorkRepositoryContextSchema,
     source_app: z.string().trim().min(1).max(120).optional(),
+    work_attempt_id: z
+      .string()
+      .trim()
+      .uuid()
+      .optional()
+      .describe(
+        "UUID identifying this one delegation of the Task. Generate a new one when you explicitly start over; reuse it for every report of the same attempt. Reports without it stay readable as history but cannot settle the current state after re-delegation.",
+      ),
+    report_sequence: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(100000)
+      .optional()
+      .describe(
+        "Order of this report within the same work_attempt_id. Use it so late deliveries do not decide the current state by sender clock alone.",
+      ),
   };
   const queueTaskWork = (args, action) =>
     coreClient.proposeTaskWork({
@@ -1231,6 +1248,7 @@ export function createTaskenMcpServer(options = {}) {
         executor_identity: args.caller,
         started_at: args.started_at,
         ...(args.source_session ? { source_session: args.source_session } : {}),
+        ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
       },
     });
   const requiredTimestamp = z
@@ -1464,6 +1482,14 @@ export function createTaskenMcpServer(options = {}) {
         executor_kind: z.enum(["self", "human", "ai_agent", "external", "unknown"]).optional(),
         executor_label: z.string().trim().min(1).max(200),
         blocker: z.string().trim().min(1).max(10000),
+        request_id: z
+          .string()
+          .trim()
+          .uuid()
+          .optional()
+          .describe(
+            "UUID for the single question the human must answer. Keep it stable when re-sending the same question; use a new one for a different question.",
+          ),
         attempted_work: workItemList,
         completed_checklist_item_ids: receiptProposalSchema.completed_checklist_item_ids,
         needed_input: workItemList,

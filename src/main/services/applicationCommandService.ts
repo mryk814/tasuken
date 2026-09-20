@@ -1683,6 +1683,7 @@ export class ApplicationCommandService {
       executorIdentity?: string | null;
       startedAt?: string | null;
       sourceSession?: string | null;
+      workAttemptId?: string | null;
     };
     const taskId = asTaskId(payload);
     const current = this.repository.get("task", taskId);
@@ -1768,6 +1769,9 @@ export class ApplicationCommandService {
           : payload.startedAt || assignedTask.work_started_at || now(),
       work_reported_at: null,
       work_review_note: null,
+      // A new explicit start with an attempt id begins a new unit of delegated work. Reports that
+      // still carry the previous id stay readable as history and cannot settle the current state.
+      ...(payload.workAttemptId ? { work_attempt_id: payload.workAttemptId } : {}),
       ...(payload.executorIdentity !== undefined
         ? { executor_identity: payload.executorIdentity || null }
         : {}),
@@ -1938,6 +1942,15 @@ export class ApplicationCommandService {
           source_session: proposal.id,
           repository_context: safeTaskWorkRepositoryContext(entry.repository_context),
           runtime_metadata: safeTaskWorkRuntimeMetadata(entry.runtime_metadata),
+          ...(typeof entry.work_attempt_id === "string" && entry.work_attempt_id
+            ? { work_attempt_id: entry.work_attempt_id }
+            : {}),
+          ...(typeof entry.request_id === "string" && entry.request_id
+            ? { request_id: entry.request_id }
+            : {}),
+          ...(typeof entry.report_sequence === "number"
+            ? { report_sequence: entry.report_sequence }
+            : {}),
         },
       };
     } else {
@@ -2111,6 +2124,15 @@ export class ApplicationCommandService {
       ...(repositoryContext ? { repository_context: repositoryContext } : {}),
       ...(provenance.sourceSession ? { source_session: provenance.sourceSession } : {}),
       ...(runtimeMetadata ? { runtime_metadata: runtimeMetadata } : {}),
+      ...(typeof payload.receipt.work_attempt_id === "string" && payload.receipt.work_attempt_id
+        ? { work_attempt_id: payload.receipt.work_attempt_id }
+        : {}),
+      ...(typeof payload.receipt.request_id === "string" && payload.receipt.request_id
+        ? { request_id: payload.receipt.request_id }
+        : {}),
+      ...(typeof payload.receipt.report_sequence === "number"
+        ? { report_sequence: payload.receipt.report_sequence }
+        : {}),
       provenance: provenance.metadata,
       source: provenance.source,
     };

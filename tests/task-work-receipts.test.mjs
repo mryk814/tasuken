@@ -877,6 +877,83 @@ test("SQLite repository enforces AI completion, append-only receipts, and task r
   }
 });
 
+test("作業単位IDと質問IDはSQLiteへ保存され、開き直しても残る（#595）", async () => {
+  const directory = await mkdtemp(path.join(process.cwd(), ".tasken-work-receipt-"));
+  const file = path.join(directory, "workspace.sqlite");
+  const attemptId = "22222222-2222-4222-8222-222222222222";
+  const requestId = "33333333-3333-4333-8333-333333333333";
+  let reopened = null;
+  try {
+    const database = new WorkspaceDatabase(file);
+    database.loadWorkspace();
+    const task = database.save("task", {
+      id: "sqlite-attempt-task",
+      title: "作業単位の保存",
+      state: "doing",
+      project_id: "theme-personal-default",
+      intended_executor: "ai_agent",
+      requester: "self",
+      work_state: "in_progress",
+      work_attempt_id: attemptId,
+    });
+    assert.equal(task.work_attempt_id, attemptId);
+    database.save("work_receipt", {
+      id: "sqlite-attempt-receipt",
+      task_id: "sqlite-attempt-task",
+      executor_kind: "ai_agent",
+      executor_label: "Codex",
+      reported_at: "2026-09-20T09:00:00.000Z",
+      summary: "質問つきの停止報告",
+      completed_items: [],
+      changed_or_created_items: [],
+      work_attempt_id: attemptId,
+      request_id: requestId,
+      report_sequence: 2,
+      source: "ai",
+    });
+
+    // 開き直して、任意fieldが往復することを確認する。
+    database.db.close();
+    reopened = new WorkspaceDatabase(file);
+    const workspace = reopened.loadWorkspace();
+    const savedTask = workspace.tasks.find((item) => item.id === "sqlite-attempt-task");
+    const savedReceipt = workspace.work_receipts.find(
+      (item) => item.id === "sqlite-attempt-receipt",
+    );
+    assert.equal(savedTask.work_attempt_id, attemptId);
+    assert.equal(savedReceipt.work_attempt_id, attemptId);
+    assert.equal(savedReceipt.request_id, requestId);
+    assert.equal(savedReceipt.report_sequence, 2);
+
+    assert.throws(
+      () => reopened.save("task", { ...savedTask, work_attempt_id: "not-a-uuid" }),
+      /work_attempt_idが不正です/,
+    );
+    // Work Receiptはappend-onlyなので、不正値の検証は新規Receiptで確認する。
+    assert.throws(
+      () =>
+        reopened.save("work_receipt", {
+          ...savedReceipt,
+          id: "sqlite-attempt-receipt-bad-request",
+          request_id: "not-a-uuid",
+        }),
+      /request_idが不正です/,
+    );
+    assert.throws(
+      () =>
+        reopened.save("work_receipt", {
+          ...savedReceipt,
+          id: "sqlite-attempt-receipt-bad-sequence",
+          report_sequence: -1,
+        }),
+      /report_sequenceが不正です/,
+    );
+  } finally {
+    reopened?.db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("human UI accept unlocks ordinary Task completion and receipt metadata is canonical", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);

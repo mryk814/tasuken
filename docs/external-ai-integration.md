@@ -101,6 +101,19 @@ version競合はTaskを読み直して内容を再判断します。新しい要
 作業開始は直接保存されますが、結果報告は採用まで正式反映されません。
 既存のReceipt採用経路は、開始を省略したAI Ready Taskにも開始記録を補います。
 
+### 作業単位IDを付ける（任意）
+
+同じTaskへ何度も委任する場合は、一回の委任を `work_attempt_id`（UUID）で識別できます。
+付けると、再委任後に届いた前の作業の報告が「過去の作業報告」として扱われ、いまの状態を巻き戻しません。
+
+1. `start_task_work` に `work_attempt_id` を付けて委任を始める。やり直すときだけ新しいUUIDにする。
+2. 同じ委任の `append_work_receipt` / `report_task_done` / `report_task_blocked` には同じ `work_attempt_id` を付ける。
+3. 同じ作業単位の中で順番が問題になる場合は `report_sequence`（0以上の整数）を付ける。付けると、到着順や発信時刻ではなくこの順番で並びます。
+4. 人に判断を求める `report_task_blocked` には `request_id`（UUID）を付ける。同じ質問を送り直すときは同じIDを使い、別の質問には新しいIDを使う。
+
+省略した場合はこれまでと同じ動作です（Taskに作業単位IDが付いていない間は、すべての報告がいまの作業として扱われます）。
+詳細は [agent-work-contract.md](./agent-work-contract.md)。
+
 ## その他の入口
 
 | 目的                     | 入口                                                  | 返り先                   |
