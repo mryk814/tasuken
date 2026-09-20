@@ -44,6 +44,7 @@
     "smoke:proposal-live": "npm run build && npm run build:mcp && node scripts/live-proposal-electron-smoke.mjs",
     "smoke:proposal-live:focused": "node scripts/live-proposal-electron-smoke.mjs",
     "smoke:proposal-live:packaged": "node scripts/live-proposal-electron-smoke.mjs release/win-unpacked/Tasken.exe",
+    "smoke:calendar-live": "npm run build && node scripts/live-calendar-electron-smoke.mjs",
     "smoke:mcp-package": "node scripts/mcp-package-smoke.mjs",
     "audit:responsive": "node scripts/responsive-audit.mjs",
     "audit:feed": "node scripts/feed-surface-audit.mjs",
