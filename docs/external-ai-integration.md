@@ -1,7 +1,7 @@
 # 外部AI連携
 
 TaskenのTaskをClaude Code、Codex、GitHub Copilot CLIに依頼するための利用ガイドです。
-Taskenは正本を保持し、外部AIはMCPで文脈を読み、結果をAI Inboxへ返します。
+Taskenは正本を保持し、外部AIはMCPで文脈を読み、結果をAgent Deskへ返します。
 
 ## 最初の接続
 
@@ -75,12 +75,12 @@ WSL・別PC・Web版AIからの接続はこのWindows用設定では検証して
 1. Taskenで完了条件と関連Themeを整え、TaskをAI Readyにします。デスクトップでは保存成功後に依頼文を自動コピーします。
 2. 普段使うAIに依頼文を貼り付けます。Taskドロワーの「依頼文をコピー」から取り直せます。解除時や既存AI Readyの編集時はクリップボードを変えません。コピー失敗時もAI Readyは保存され、再コピーの案内を表示します。
 3. AIは`get_task_context`で対象と作業先を確認し、実際に着手するときだけ`start_task_work`を呼びます。
-4. AIは通常、完了時に最新versionで`report_task_done`を一度だけ送ります。完了直前に同じ結果を`append_work_receipt`で送る必要はありません。途中報告は長期作業で必要なとき、中断報告は人の対応が必要なときに使います。`reported_at`にはAIが作業を終えた時刻を指定します。完了報告の後で追報告が必要になったら、新しい`idempotency_key`で送ると同じTaskに積まれ、AI Inboxでまとめて確認できます。同じ`idempotency_key`で内容を変えると競合になるため、再送時は日時・内容も維持します。
-5. 人がAI InboxでTaskごとの時系列を確認し、「採用」を押します。検証済みのチェック項目IDを`completed_checklist_item_ids`に添えた報告は、プレビューで項目名を確認してから反映します。報告の採用ではTaskを完了せず、人がTaskドロワーの「承認して完了」などで別途判断します。ActivityとDebriefのAI作業期間は、採用日時ではなく開始・報告時刻で表示します。
+4. AIは通常、完了時に最新versionで`report_task_done`を一度だけ送ります。完了直前に同じ結果を`append_work_receipt`で送る必要はありません。途中報告は長期作業で必要なとき、中断報告は人の対応が必要なときに使います。`reported_at`にはAIが作業を終えた時刻を指定します。完了報告の後で追報告が必要になったら、新しい`idempotency_key`で送ると同じTaskに積まれ、Agent Deskでまとめて確認できます。同じ`idempotency_key`で内容を変えると競合になるため、再送時は日時・内容も維持します。
+5. 人がAgent DeskでTaskごとの時系列を確認し、「採用」を押します。検証済みのチェック項目IDを`completed_checklist_item_ids`に添えた報告は、プレビューで項目名を確認してから反映します。報告の採用ではTaskを完了せず、人がTaskドロワーの「承認して完了」などで別途判断します。ActivityとDebriefのAI作業期間は、採用日時ではなく開始・報告時刻で表示します。
 
 採用後やTask完了後も`append_work_receipt`で追加報告できます。報告の採用でTask本文・既存の完了状態は変わりません。チェックを反映する場合は最新のTask versionが必要です。チェック項目やversionが変わった場合は`get_task_context`で再確認して報告を作り直します。
 
-追加報告は採用しても`work_state`を進めないため、AI Inboxの「採用」では作業中のままです。同じ画面の「完了」を人が選んだときだけ、追加報告の採用とTaskの完了を同時に行います。
+追加報告は採用しても`work_state`を進めないため、Agent Deskの「採用」では作業中のままです。同じ画面の「完了」を人が選んだときだけ、追加報告の採用とTaskの完了を同時に行います。
 
 AI ReadyにしただけではAIを起動せず、定期実行も開始しません。
 まずは必要なときに依頼する運用とし、自動巡回が必要になった場合に実行間隔と対象を決めます。
@@ -116,16 +116,16 @@ version競合はTaskを読み直して内容を再判断します。新しい要
 
 ## その他の入口
 
-| 目的                     | 入口                                                  | 返り先                   |
-| ------------------------ | ----------------------------------------------------- | ------------------------ |
-| 日報                     | MCP Prompt `daily-report`、Debriefの依頼文            | Note Proposal → AI Inbox |
-| 学びのコラム             | MCP Prompt `learning-column`                          | 提案内容を確認して採用   |
-| 選んだ資料を任意AIへ渡す | [Context Pack](context-pack.md)                       | 通常Noteとして回答を保存 |
-| M365へThemeを渡す        | [Theme AI Pack](theme-ai-pack.md)                     | OneDrive上の読み取り投影 |
-| 選択会話を公開する       | [Conversation AI Context](conversation-ai-context.md) | 明示公開したMarkdown     |
-| AI作業の履歴を集める     | [Agent Session hooks](agent-session-provenance.md)    | Session記録／Debrief     |
+| 目的                     | 入口                                                  | 返り先                     |
+| ------------------------ | ----------------------------------------------------- | -------------------------- |
+| 日報                     | MCP Prompt `daily-report`、Debriefの依頼文            | Note Proposal → Agent Desk |
+| 学びのコラム             | MCP Prompt `learning-column`                          | 提案内容を確認して採用     |
+| 選んだ資料を任意AIへ渡す | [Context Pack](context-pack.md)                       | 通常Noteとして回答を保存   |
+| M365へThemeを渡す        | [Theme AI Pack](theme-ai-pack.md)                     | OneDrive上の読み取り投影   |
+| 選択会話を公開する       | [Conversation AI Context](conversation-ai-context.md) | 明示公開したMarkdown       |
+| AI作業の履歴を集める     | [Agent Session hooks](agent-session-provenance.md)    | Session記録／Debrief       |
 
-Context Packから構造化JSONを貼り戻して既存Taskを更新するUIは、現在のAI Inboxにはありません。
+Context Packから構造化JSONを貼り戻して既存Taskを更新するUIは、現在のAgent Deskにはありません。
 新規Taskの作成には、Today・ToDoの[外部AI取り込み](mobile-capture-organizer-providers.md)で自然文を外部AIへ渡し、返ってきたJSONをプレビューして採用できます。
 MCPツールの正確な引数は接続先の`tools/list`、Contextの選び方は[Context設計](tasken-context-architecture.md)を参照してください。
 
@@ -138,7 +138,7 @@ MCPツールの正確な引数は接続先の`tools/list`、Contextの選び方�
 - Windowsのユーザー設定でCodexの既存登録を確認し、Claude CodeとCopilot CLIに`tasken`を登録。
 - 一時データ専用のTaskenとMCPを使い、Codex・Copilot CLIのモデルからAI Ready一覧を実際に読み取り。
 - DesktopのToday・ToDoでAI Ready保存後の自動コピー、解除時のクリップボード保持、コピー失敗後の保存保持と手動再コピーを確認。
-- 実stdio MCPで開始・完了報告後、再読み込みなしでAI Inboxから採用し、Task完了とReceipt保存を確認。
+- 実stdio MCPで開始・完了報告後、再読み込みなしでAgent Deskから採用し、Task完了とReceipt保存を確認。
 - 開始コマンドのschema version不一致と、Core経由の開始後にDesktopへ変更通知が届かない不具合を修正。後者はDesktop compositionを通す回帰テストを追加。
 - 関連30テスト、AI協働E2E 2テスト、型検査、Desktop buildが成功。
 
@@ -159,7 +159,7 @@ MCPツールの正確な引数は接続先の`tools/list`、Contextの選び方�
 ### 2026-09-08の隔離検証
 
 一時userDataで実Electronとstdio MCPを使い、報告の採用だけではTaskを完了しないこと、人が別操作で完了できること、完了後の追加報告でTask本文・完了状態を維持することを確認しました。
-AI Inboxの項目名プレビューから指定Checklist itemだけをチェックし、古いTask versionのチェック報告は採用を拒否してプレビューを保持することも確認しました。
+Agent Deskの項目名プレビューから指定Checklist itemだけをチェックし、古いTask versionのチェック報告は採用を拒否してプレビューを保持することも確認しました。
 
 ### 参照先
 

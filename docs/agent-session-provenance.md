@@ -16,7 +16,7 @@ Issue #498 の Phase 0 で確定した、repository・作業環境・AI session 
 | 保存・更新・関連付け等の細粒度な事実                               | `ChangeEvent` / Activity | 既存 event identity と origin                                                        | session summary や日報本文                         |
 | commit、branch、PR/MR、pipeline、file 等の証拠                     | external reference       | provider-neutral kind と安全な locator                                               | provider API の raw response、credential           |
 | その日のAI作業を確認するための事実集約                             | Evidence recap           | Session / Packet / Receipt / Activity / referenceから都度生成                        | 人間の判断・内省                                   |
-| 一日の記録から日報草稿を作り、後から回答を追記する導線             | Tasken Debrief           | ActivityとSessionを確認し、AI Inboxで採用したReport NoteをNotesで編集する            | AIによる人の回答・完了の捏造                       |
+| 一日の記録から日報草稿を作り、後から回答を追記する導線             | Tasken Debrief           | ActivityとSessionを確認し、Agent Deskで採用したReport NoteをNotesで編集する          | AIによる人の回答・完了の捏造                       |
 
 ## Naming decision
 
@@ -110,7 +110,7 @@ Phase 3 では次の3 toolを公開する。
 - `tasken.finish_agent_session`: active SessionのID・version・source sessionを照合し、terminal statusと構造化outcomeを`agent_sessions` AI Proposalとして作る。
 
 start/finishはofficial `AgentSession` や `Reference` を直接更新しない。
-利用者がAI Inboxで内容を確認し、`ApplyAiProposal` を実行した時だけcanonical dataへ反映する。
+利用者がAgent Deskで内容を確認し、`ApplyAiProposal` を実行した時だけcanonical dataへ反映する。
 start時のintentとclient metadataはfinish時に変更できず、finishはoutcomeだけを追加する。
 同じidempotency keyと同じrequestは、Proposal受理後や人間の採用後もduplicateとして同じsession/proposal identityを返す。
 同じkeyへ異なるrequestを送った場合はconflictとする。
@@ -127,7 +127,7 @@ Evidence recapは`AgentSession`、Session Packet、`Reference`、`WorkReceipt`�
 - Theme詳細の`Recent AI work`は同じprojectionをThemeで絞り込む。
 - 各SessionはIntent → Outcome → 残りを一続きに表示し、関連Task、Work Receipt、Activity、commit・PR/MR等のexternal referenceへ展開できる。
 - `Tasken Debrief`はActivityを最上部に表示し、その下でAI作業をカードとして確認する。カードはhoverまたはfocusでIntent、Outcome、残り、記録された確認をpreviewする。
-- AIは当日の根拠に沿う可変の問いと空の回答欄を含むReport草稿をproposalとして送る。人はAI Inboxで採用した後、NotesのMarkdownを編集して回答する。
+- AIは当日の根拠に沿う可変の問いと空の回答欄を含むReport草稿をproposalとして送る。人はAgent Deskで採用した後、NotesのMarkdownを編集して回答する。
 - `tasken.propose_note`はReport Proposalを作るだけで、採用前にNoteを保存せず、TaskやReferenceを作らない。採用後は`properties_json.daily_report.date`で対象日を識別する。
 - WorkingCopyとのrelationは公開可能なRepositoryContextへ投影し、local pathを表示しない。
 
@@ -157,7 +157,7 @@ SessionEnd ─────────┘          └─ Stopで結果を観測
 ```
 
 開始と終了を別Proposalにしないことで、開始Proposalの採用待ち中に終了hookが来てもOutcomeを失わない。
-正式AgentSessionとReferenceは、AI InboxのSession observationsから個別採用した時、またはDebrief保存時の一つの確認境界で保存する。
+正式AgentSessionとReferenceは、Agent DeskのSession observationsから個別採用した時、またはDebrief保存時の一つの確認境界で保存する。
 
 収集対象はcanonical metadataだけである。GitHub Copilotの`agentStop` / `Stop`だけは、そのhookが指すローカルJSONLをadapter境界で一時的に読む。読み込み対象は`COPILOT_HOME/session-state`（未指定時は`~/.copilot/session-state`）のreal path配下にある通常fileへ限定し、上限を超える本文は末尾だけを読む。root agentの最後の`assistant.message.data.content`だけを取り出し、raw transcript、path、user/tool event、subagent結果、hidden reasoning、client固有raw schemaはsession observationにもProposalにも保存しない。ファイルを読めない場合も終了理由だけで収集を継続する。
 最初に観測したuser promptをIntentとして固定しつつ、後続のuser requestとassistant response checkpointも順序付きで保持する。Outcome summaryは最後のcheckpointから作るが、途中の方針転換は捨てない。

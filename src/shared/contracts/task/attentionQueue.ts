@@ -72,7 +72,7 @@ function text(value: unknown): string {
 
 /**
  * 外部AI clientの接続hookが送ったAgent Sessionの観測。
- * 判断待ちではなく観測なので、要対応の件数に数えない（既存のAI Inboxと同じ扱い）。
+ * 判断待ちではなく観測なので、要対応の件数に数えない（Agent Deskの提案一覧と同じ扱い）。
  */
 export function isPassiveAgentSessionProposal(proposal: Record<string, unknown>): boolean {
   return (

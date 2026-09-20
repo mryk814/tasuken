@@ -73,7 +73,7 @@ export function buildDailyReportRequest(date: string): string {
     `${date} の日報をTasken MCPでまとめてください。`,
     `tasken.get_debrief_contextにdate: "${date}", include_recent_debriefs: falseを指定して、この日の通常ActivityとAI Sessionを確認してください。daily-reportコマンドの当日ではなく、ここで指定した日付を使ってください。Repositoryで絞らず、収集済みの一日の作業全体を扱い、raw logは再収集しないでください。`,
     "取得したContextのwriting_guidanceに沿って、作業ごとの成果・記録された判断・未解決事項をまとめてください。回答や人間の判断を推測で埋めず、採用後に人間がNotesのMarkdownへ追記する問いとして残してください。",
-    `草稿はtasken.propose_noteのnote_type: "report", report_date: "${date}"で提案してください。Theme未指定は個人業務です。正式保存はAI Inboxでの確認・採用に委ねてください。`,
+    `草稿はtasken.propose_noteのnote_type: "report", report_date: "${date}"で提案してください。Theme未指定は個人業務です。正式保存はAgent Deskでの確認・採用に委ねてください。`,
   ].join("\n\n");
 }
 

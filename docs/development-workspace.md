@@ -75,12 +75,12 @@ node --run workspace:materials-demo:add -- --scenario report
 node --run workspace:materials-demo:add -- --scenario waiting
 ```
 
-| scenario | 追加される具体例 |
-|---|---|
-| `experiment` | 焼成後密度のTask、当日Schedule、実験ログ、未整理の観察 |
-| `model` | calibration診断Task、モデル診断Note、Evidence |
-| `report` | レビュー待ちTask、進捗Report、予測と実測を分けた記述 |
-| `waiting` | SEM画像の受領待ちTask、Waiting、Reminder、受領後チェックNote |
+| scenario     | 追加される具体例                                             |
+| ------------ | ------------------------------------------------------------ |
+| `experiment` | 焼成後密度のTask、当日Schedule、実験ログ、未整理の観察       |
+| `model`      | calibration診断Task、モデル診断Note、Evidence                |
+| `report`     | レビュー待ちTask、進捗Report、予測と実測を分けた記述         |
+| `waiting`    | SEM画像の受領待ちTask、Waiting、Reminder、受領後チェックNote |
 
 `--date YYYY-MM-DD` も併用できる。
 同じ日付とscenarioの組み合わせは決定的なIDを使うため、再実行しても重複しない。
@@ -105,7 +105,7 @@ node scripts/run-electron-node.mjs scripts/seed-materials-informatics-workspace.
 - Knowledge: Question / Evidence / Claim / Decision / Insightと支持・反証・依存関係
 - Chat Refs / Artifacts: 外部AIとの検討履歴、ローカルCSV/JSON/Markdown、URL参照
 - Sketch: ベイズ最適化ループと焼結プロセスの手描き風図解
-- AI Inbox: Pendingと採用済みProposal
+- Agent Desk: Pendingと採用済みProposal
 
 画面確認用なので、すべてを成功状態に揃えない。
 未整理・待ち・確認待ち・期限超過・リンク切れ・低信頼の仮説も意図的に残す。

@@ -1922,7 +1922,7 @@ export class ApplicationCommandService {
       if (!report || !expectedVersionFor(command, "ai_proposal", id)) {
         throw new ApplicationCommandError(
           "CONFLICT",
-          "集約対象の報告が変わりました。AI Inboxを更新して確認してください。",
+          "集約対象の報告が変わりました。Agent Deskを更新して確認してください。",
         );
       }
       assertExpectedVersion(this.repository, command, "ai_proposal", id, report);

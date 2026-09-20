@@ -118,12 +118,14 @@ export const ROUTE_DEFINITIONS = {
   },
   "ai-io": {
     id: "ai-io",
-    label: "AI Inbox",
-    description: "外部AIから届いたProposalを確認し、採用する内容だけをTaskenへ反映します。",
+    label: "Agent Desk",
+    description:
+      "任せた仕事の進みと待ちを確認し、回答・成果確認・変更案の採否を行います。外部AIから届いたProposalもここで確認します。",
     icon: IconSparkles,
     semanticRole: "tool",
     availability: "always",
     navigation: { group: "cross", order: 2 },
+    // 旧名のdeep linkを壊さない。表示名は変わってもroute IDは保持する（#600）。
     aliases: [{ id: "proposal-inbox", parent: "ai-io" }],
   },
   feed: {

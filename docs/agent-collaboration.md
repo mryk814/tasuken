@@ -41,26 +41,26 @@ Issue #594 の成果物。Agent Desk（#593 Epic、#595–#602）と Feed（#604
 | Agent Session projection                                | `src/renderer/.../agentSessionProjection.ts`        | `presentation: "attention" \| "content" \| "record"`                                                                                                 |
 | Today selector                                          | `src/shared/todayTasks.mjs`                         | bucket `today \| overdue \| due \| ongoing \| execution_window`                                                                                      |
 
-projection の利用箇所は、nav badge（`shell.tsx`）、AI Inbox（`AiProposalPanel.tsx`）、Activity（`ActivityLogPanel.tsx`）、Debrief（`taskenDebrief.ts`）、MCP（`agentWorkspaceQueryService.ts`）。**要対応を返す共通 read model はまだ無い。**
+projection の利用箇所は、nav badge（`shell.tsx`）、Agent Desk（`AgentDeskPanel.tsx` / `AiProposalPanel.tsx`）、Activity（`ActivityLogPanel.tsx`）、Debrief（`taskenDebrief.ts`）、MCP（`agentWorkspaceQueryService.ts`）。**要対応を返す共通 read model はまだ無い。**
 
 ### 1.3 route / surface
 
 `src/renderer/src/pages/routes.ts` の `ROUTE_DEFINITIONS` が名称・アイコン・ナビゲーションの正本。
 
-| 表示名   | route ID   | 実体                                             | 現在の位置づけ            |
-| -------- | ---------- | ------------------------------------------------ | ------------------------- |
-| Today    | `today`    | `TodayPage.tsx`                                  | Core daily                |
-| ToDo     | `todo`     | `TodoPage.tsx`（alias `todo-done`）              | Core daily                |
-| Waiting  | `waiting`  | `WaitingPage.tsx`                                | Sidebar非表示、Todayから  |
-| Inbox    | `inbox`    | `InboxPage.tsx`（alias `micro-memos`）           | Core daily                |
-| AI Inbox | `ai-io`    | `ImportExportPage.tsx`（alias `proposal-inbox`） | Supporting / Experimental |
-| Timeline | `timeline` | `TimelinePage.tsx`                               | Supporting                |
-| Debrief  | `debrief`  | `DebriefPage.tsx`                                | Supporting                |
-| Settings | `settings` | `SettingsPage.tsx`                               | Tool                      |
+| 表示名     | route ID   | 実体                                             | 現在の位置づけ               |
+| ---------- | ---------- | ------------------------------------------------ | ---------------------------- |
+| Today      | `today`    | `TodayPage.tsx`                                  | Core daily                   |
+| ToDo       | `todo`     | `TodoPage.tsx`（alias `todo-done`）              | Core daily                   |
+| Waiting    | `waiting`  | `WaitingPage.tsx`                                | Sidebar非表示、Todayから     |
+| Inbox      | `inbox`    | `InboxPage.tsx`（alias `micro-memos`）           | Core daily                   |
+| Agent Desk | `ai-io`    | `ImportExportPage.tsx`（alias `proposal-inbox`） | Core daily（#600で統合済み） |
+| Timeline   | `timeline` | `TimelinePage.tsx`                               | Supporting                   |
+| Debrief    | `debrief`  | `DebriefPage.tsx`                                | Supporting                   |
+| Settings   | `settings` | `SettingsPage.tsx`                               | Tool                         |
 
 注意すべき現行の事実：
 
-- 表示名はすでに `AI Inbox`。`AI IO` は過去の呼称（`docs/responsive-layout.md` に残る）。
+- 表示名は `Agent Desk`（#600で統合）。`AI IO` / `AI Inbox` は過去の呼称。
 - `proposal-inbox` は alias であり独立routeではない。**架空の `/ai-inbox` を移行元として実装しない。**
 - **experimental / hidden / feature-flag の機構は存在しない。** `RouteDefinition` の gate は `availability: "always" | "requires-active-theme"` だけで、`routeAvailability()` に呼び出し元も無い。
 - `activity` というrouteは**存在しない**。Activityは `ActivityLogPanel` であり独立画面ではない。
@@ -193,17 +193,17 @@ Tasken が採らない差分：
 
 ### 5.2 使わない語
 
-| 使わない語                      | 代わりに                          | 理由                                                                         |
-| ------------------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
-| Needs You                       | 対応待ち                          | 内部語を通常画面へ出さない                                                   |
-| Agent Run                       | 作業単位（work attempt）          | Taskenが外部プロセスを監視・制御していると誤解させる                         |
-| review_ready / queued / working | 成果確認待ち / 開始待ち / 作業中  | 内部enumを表示名にしない                                                     |
-| Assignee                        | 委任先 / 任せる相手               | `intended_executor` と重複する別概念を作らない                               |
-| Owner（利用者以外）             | 起案者 / 委任先                   | 多人数owner管理を持ち込まない                                                |
-| 最近完了                        | 最近の結果                        | Taskを完了しなかった受入れも含むため                                         |
-| 停滞している（断定）            | 「3日間更新がない」＋AI提案ラベル | 推測を事実として表示しない                                                   |
-| AI IO                           | Agent Desk                        | 過去の呼称。route ID `ai-io` は内部識別子としてのみ残す                      |
-| AI Inbox（今後の新規UI）        | Agent Desk                        | 同じ画面へ複数名を付けない。既存の採用済みProposal・履歴はAgent Desk内へ移す |
+| 使わない語                         | 代わりに                          | 理由                                                                                                               |
+| ---------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Needs You                          | 対応待ち                          | 内部語を通常画面へ出さない                                                                                         |
+| Agent Run                          | 作業単位（work attempt）          | Taskenが外部プロセスを監視・制御していると誤解させる                                                               |
+| review_ready / queued / working    | 成果確認待ち / 開始待ち / 作業中  | 内部enumを表示名にしない                                                                                           |
+| Assignee                           | 委任先 / 任せる相手               | `intended_executor` と重複する別概念を作らない                                                                     |
+| Owner（利用者以外）                | 起案者 / 委任先                   | 多人数owner管理を持ち込まない                                                                                      |
+| 最近完了                           | 最近の結果                        | Taskを完了しなかった受入れも含むため                                                                               |
+| 停滞している（断定）               | 「3日間更新がない」＋AI提案ラベル | 推測を事実として表示しない                                                                                         |
+| AI IO                              | Agent Desk                        | 過去の呼称。route ID `ai-io` は内部識別子としてのみ残す                                                            |
+| AI Inbox / AI IO（新規UIでの使用） | Agent Desk                        | 同じ画面へ複数名を付けない。表示名は#600で統合済み。route ID `ai-io` は旧deep linkのために内部識別子としてのみ残す |
 
 ---
 

@@ -146,8 +146,8 @@ try {
   await page.waitForLoadState("domcontentloaded");
   await page.waitForTimeout(3500);
 
-  const nav = page.locator(".sidebar button", { hasText: "AI Inbox" }).first();
-  if (!(await nav.count())) throw new Error("SidebarにAI Inboxの入口がありません。");
+  const nav = page.locator(".sidebar button", { hasText: "Agent Desk" }).first();
+  if (!(await nav.count())) throw new Error("SidebarにAgent Deskの入口がありません。");
   await nav.click();
   await page.waitForTimeout(1200);
 

@@ -1027,7 +1027,7 @@ test("AiProposalPanel accepts through ApplyAiProposal without direct saveEntitie
   assert.doesNotMatch(rejectBlock, /saveEntities\(/);
 });
 
-test("AI Inbox applies Agent Session start and finish while keeping original intent immutable", () => {
+test("Agent Desk applies Agent Session start and finish while keeping original intent immutable", () => {
   const directory = root();
   const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
   try {

@@ -41,7 +41,7 @@ Taskenが日報本文を自動保存したり、人の回答を補ったりは�
 4. 利用者は「Tasken日報」をAI clientで実行するか、補助のコピー操作で同じ依頼文を渡す。
 5. AIは`tasken.get_debrief_context`へ対象日を渡し、boundedな当日ActivityとAIへ公開可能なSessionを読む。日報ではRepositoryで絞らない。
 6. AIは事実に基づく草稿と、その日の内容に応じた問いを作り、`tasken.propose_note`でReportをpending Proposalとして送る。
-7. 利用者はAI Inboxで本文を確認して採用する。
+7. 利用者はAgent Deskで本文を確認して採用する。
 8. 採用後のReport NoteをDebriefまたはNotesから開き、Markdownの回答欄を人が編集して保存する。
 
 フォーカスを開始すると、タスク名・経過時間・終了操作を中心に表示する。
@@ -85,7 +85,7 @@ Proposalの受信時刻・人の採用時刻・Taskの正式完了時刻は別�
 旧Receiptで終了・継続を確定できない場合は、元の記録を保持し、無期限の作業中として期間表示しない。
 `get_debrief_context`の`task_work`は既存のAI公開範囲と本文のサニタイズを通し、作業ごとの報告を返す。
 
-AI Inboxでは同じTaskの報告を時系列にまとめる。
+Agent Deskでは同じTaskの報告を時系列にまとめる。
 完了報告の「採用」は、選択した報告を正式保存し、プレビューに表示した同じproducer・session・Task versionの過去報告を一緒に履歴化する。Task完了は人が別途判断し、完了後の追加報告でも完了状態を保持する。
 過去報告の本文は消さず、採用した完了報告のIDを残す。
 集約対象のversionも採用時に確認し、途中で変わっていれば全体を適用せず再確認する。
@@ -101,7 +101,7 @@ AI Inboxでは同じTaskの報告を時系列にまとめる。
 
 成功時に返るのはNote IDではなくpendingのProposal IDである。
 
-AI Inboxで人が採用した時だけReport Noteが作成され、`properties_json.daily_report = { date: report_date }`が保存される。
+Agent Deskで人が採用した時だけReport Noteが作成され、`properties_json.daily_report = { date: report_date }`が保存される。
 
 Themeを指定しない日報は既存の「個人業務」Themeに保存される。
 

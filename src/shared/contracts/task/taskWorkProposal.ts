@@ -150,7 +150,7 @@ export function taskWorkEntry(proposal: WorkRecord): Record<string, unknown> | n
       ? entries[0]
       : null;
   } catch {
-    return null; // Invalid legacy payloads remain individually reviewable in AI Inbox.
+    return null; // Invalid legacy payloads remain individually reviewable in Agent Desk.
   }
 }
 

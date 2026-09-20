@@ -52,7 +52,7 @@ flowchart LR
     ACTIVITY[Activity Event Index]
     CONTEXT[AI Context Preview / Pack]
     MCP[MCP / Coding Agent]
-    PROPOSAL[AI Inbox / Proposal Review]
+    PROPOSAL[Agent Desk / Proposal Review]
     GRAPH[Provenance / Context Graph]
   end
 
@@ -83,8 +83,7 @@ flowchart LR
 | Artifacts  | 実ファイル・Media・Web成果物      | Artifact                        | Output library        | Core, growing                                 |
 | Theme      | 一つのThemeの現在地               | Theme + related entities        | Projection / Context  | Core                                          |
 | Themes     | Theme横断の一覧                   | Theme                           | Portfolio view        | Supporting                                    |
-| AI Inbox   | AIからの変更案を確認する          | AiProposal                      | Review boundary       | Supporting / Experimental                     |
-| Agent Desk | 任せた仕事の進みと待ちを確認する  | AiProposal / WorkReceipt / Task | Review + Queue        | 計画中（#593。当面は `ai-io` を拡張）         |
+| Agent Desk | 任せた仕事の進みと待ちを確認する  | AiProposal / WorkReceipt / Task | Review + Queue        | Core daily（#600で統合。route IDは `ai-io`）  |
 | Feed       | 変化と判断を流し読みする          | 既存canonicalからのprojection   | Attention projection  | 試作中 / Experimental（#604。架空データのみ） |
 | Knowledge  | Relation・既存Knowledgeを診断する | Relation / KnowledgeNode        | Research / Diagnostic | Experimental                                  |
 | Settings   | 保存・接続・AI・表示を設定する    | Preferences / Profiles          | Tool                  | Supporting                                    |
@@ -211,10 +210,10 @@ URL、本文、ファイル、会話ログを一つの曖昧な「関連資料�
 ### AI cluster
 
 ```text
-AI Inbox / Agent Desk / Feed / MCP / Agent Session / AI Pack / Context Preview
+Agent Desk / Agent Desk / Feed / MCP / Agent Session / AI Pack / Context Preview
 ```
 
-- AI Inbox: 書き込み案の人間確認（今後の表示名は Agent Desk）
+- Agent Desk: 書き込み案の人間確認（今後の表示名は Agent Desk）
 - Agent Desk: 任せた仕事の進みと待ちの確認。要対応件数のbadgeはここへ集約する
 - Feed: 変化と判断を流し読みする任意入口。既定画面にはせず、独立した正本DBを作らない
 - MCP: 外部AgentへのContext提供と安全なProposal受領
@@ -254,7 +253,7 @@ core:
   Today, ToDo, Inbox, Notes, Theme, Artifacts
 
 supporting:
-  Waiting, Timeline, Themes, Sketch, Chat Refs, Settings, AI Inbox
+  Waiting, Timeline, Themes, Sketch, Chat Refs, Settings, Agent Desk
 
 experimental:
   Voice Capture, Screen Recording, Web Artifact, Source Anchor, Agent連携再設計
@@ -307,7 +306,7 @@ UI component単位ではなく、利用者にとって意味のあるcapability�
 | Notes                   | core       |     today |  184 |           3 | healthy                     |
 | Waiting                 | supporting |   64 days |    2 |           1 | review                      |
 | Knowledge manual create | dormant?   |     never |    7 |           2 | UI may be unnecessary       |
-| AI Inbox                | supporting |   21 days |    4 |           1 | occasional, keep contextual |
+| Agent Desk              | supporting |   21 days |    4 |           1 | occasional, keep contextual |
 
 利用回数だけで自動削除・降格しない。判断材料として使う。
 
@@ -331,7 +330,7 @@ UI component単位ではなく、利用者にとって意味のあるcapability�
 1. Waitingは独立画面を維持するか、Today / Taskの状態へ寄せるか
 2. Timelineは中長期計画だけに絞れているか
 3. Knowledge画面は診断面として十分か、通常ナビから下げるか
-4. AI Inboxは独立画面か、Proposalがある時だけ現れるContextual入口か
+4. Agent Deskは独立画面か、Proposalがある時だけ現れるContextual入口か
 5. Resource / Chat Ref / Artifactの違いが利用者に伝わるか
 6. Activity / Work Receipt / Revisionを一つの来歴面で辿れるか
 7. Experimental Media / Web / Pointingが通常UIを圧迫していないか

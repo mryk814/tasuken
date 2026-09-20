@@ -466,8 +466,8 @@ test("DebriefはAI作業をTheme単位に整理し、Repositoryと未割当を�
   );
 });
 
-test("AI Inbox stays beside Inbox and keeps Settings as the utility tool", () => {
-  // #604前半でFeedを横断グループの先頭へ足した。AI Inboxの位置と順序は変えていない。
+test("Agent Desk stays beside Inbox and keeps Settings as the utility tool", () => {
+  // #604前半でFeedを横断グループの先頭へ足した。Agent Deskの位置と順序は変えていない。
   assert.deepEqual(crossNavigation, ["feed", "inbox", "ai-io", "debrief", "timeline"]);
   assert.deepEqual(toolNavigation, ["settings", "knowledge"]);
 });
