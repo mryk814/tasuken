@@ -43,6 +43,8 @@ const definitions = /** @type {const} */ ([
   { type: "change_event", collectionKey: "change_events", domainCollectionKey: "change_events", label: "Change event", iconKey: "history", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["entity_type", "entity_id", "changed_at", "change_type", "source"] },
   { type: "artifact", collectionKey: "artifacts", label: "Artifact", iconKey: "file", projection: "legacy", themePolicy: "optional", themeField: "theme_id", requiredFields: ["title", "filename", "source_type", "source_id"] },
   { type: "sketch", collectionKey: "sketches", domainCollectionKey: "sketches", label: "Sketch", iconKey: "pencil", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
+  { type: "habit", collectionKey: "habits", domainCollectionKey: "habits", label: "Habit", iconKey: "clock", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "schedule_kind", "state"] },
+  { type: "habit_entry", collectionKey: "habit_entrys", domainCollectionKey: "habit_entries", label: "Habit entry", iconKey: "history", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["habit_id", "performed_on", "recorded_at"] },
 ]);
 
 /** @typedef {(typeof definitions)[number]["type"]} RegistryEntityType */

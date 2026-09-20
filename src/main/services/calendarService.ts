@@ -98,6 +98,15 @@ function isCalendarProvider(value: unknown): value is CalendarProvider {
   return typeof value === "string" && (CALENDAR_PROVIDERS as readonly string[]).includes(value);
 }
 
+/**
+ * token取得の失敗理由（OAuthのerrorコード）だけを取り出す。
+ * providerの本文やtokenは残さない。診断ログ専用（#273）。
+ */
+function oauthErrorCode(body: string): string {
+  const matched = /"error"\s*:\s*"([a-z_]{3,40})"/u.exec(body);
+  return matched ? matched[1] : "unknown";
+}
+
 function oauthConfigFor(provider: CalendarProvider): OAuthProviderConfig {
   if (provider === "google") {
     return {
@@ -276,6 +285,16 @@ export class CalendarService {
     });
     if (!tokenResponse.ok) {
       const body = await tokenResponse.text().catch(() => "");
+      // 端末の画面には実装用語を出さず、失敗の種類だけを診断用に標準エラーへ残す（#273）。
+      // providerの本文・token・codeは出さない。
+      process.stderr.write(
+        `TASKEN_CALENDAR_OAUTH_FAILED ${JSON.stringify({
+          schema_version: 1,
+          provider,
+          status: tokenResponse.status,
+          oauth_error: oauthErrorCode(body),
+        })}\n`,
+      );
       throw classifyCalendarProviderError(
         tokenResponse.status,
         body,

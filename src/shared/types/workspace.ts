@@ -66,6 +66,8 @@ export interface Workspace {
   change_events?: Entity[];
   artifacts?: Entity[];
   sketches?: Entity[];
+  habits?: Entity[];
+  habit_entrys?: Entity[];
   plan_revisions?: Entity[];
   [key: string]: Entity[] | WorkspaceMeta | undefined;
 }

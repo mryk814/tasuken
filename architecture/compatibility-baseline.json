@@ -219,6 +219,7 @@
         "tests/canonical-markdown-workspace.test.mjs",
         "tests/conversation-context-workspace.test.mjs",
         "tests/data-health.test.mjs",
+        "tests/habit-storage.test.mjs",
         "tests/media-capture-sqlite.test.mjs",
         "tests/repository-context.test.mjs",
         "tests/shared-folder-sync.test.mjs",

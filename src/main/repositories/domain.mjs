@@ -107,6 +107,10 @@ const taskWorkStates = new Set([
 const taskRepeatFrequencies = new Set(["daily", "weekly", "monthly"]);
 const taskRepeatNextFromValues = new Set(["scheduled", "completed"]);
 const waitingStates = new Set(["waiting", "received", "cancelled"]);
+// Habitの最小実験（#454後半）。記録は手動だけで、Taskを自動生成しない。
+const habitScheduleKinds = new Set(["daily", "weekly"]);
+const habitStates = new Set(["active", "paused"]);
+const datePattern = /^\d{4}-\d{2}-\d{2}$/u;
 const planNodeTypes = new Set(["phase", "milestone", "deliverable"]);
 const planNodeStates = new Set(["planned", "active", "done", "cancelled"]);
 const scheduleOwnerTypes = new Set(["task", "waiting", "plan_node"]);
@@ -712,6 +716,70 @@ export function validateEntity(type, input) {
     if (input.origin_capture_id != null && typeof input.origin_capture_id !== "string") {
       throw new Error("sketch.origin_capture_idが不正です。");
     }
+  }
+  if (type === "habit") {
+    // Habitの最小実験（#454後半）。手動記録だけを扱い、日付ごとのTaskを自動生成しない。
+    if (typeof input.title !== "string" || !input.title.trim() || input.title.length > 200)
+      throw new Error("habit.titleは1〜200文字で入力してください。");
+    if (!habitScheduleKinds.has(input.schedule_kind))
+      throw new Error("habit.schedule_kindが不正です。");
+    if (!habitStates.has(input.state)) throw new Error("habit.stateが不正です。");
+    if (input.schedule_kind === "weekly") {
+      if (
+        !Number.isInteger(input.weekly_target) ||
+        input.weekly_target < 1 ||
+        input.weekly_target > 7
+      )
+        throw new Error("habit.weekly_targetは1〜7で入力してください。");
+    } else if (input.weekly_target != null && input.weekly_target !== "") {
+      throw new Error("毎日のHabitにweekly_targetは指定できません。");
+    }
+    if (input.project_id != null && input.project_id !== "" && typeof input.project_id !== "string")
+      throw new Error("habit.project_idが不正です。");
+    for (const field of ["started_on", "last_performed_on"]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || !datePattern.test(input[field]))
+      )
+        throw new Error(`habit.${field}はYYYY-MM-DDで入力してください。`);
+    }
+    for (const field of ["paused_at", "resumed_at"]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input[field]))
+      )
+        throw new Error(`habit.${field}が不正です。`);
+    }
+    if (
+      input.note != null &&
+      input.note !== "" &&
+      (typeof input.note !== "string" || input.note.length > 1000)
+    )
+      throw new Error("habit.noteは1000文字以内で入力してください。");
+  }
+  if (type === "habit_entry") {
+    if (typeof input.habit_id !== "string" || !input.habit_id.trim())
+      throw new Error("habit_entry.habit_idを入力してください。");
+    if (typeof input.performed_on !== "string" || !datePattern.test(input.performed_on))
+      throw new Error("habit_entry.performed_onはYYYY-MM-DDで入力してください。");
+    if (!Number.isInteger(input.sequence) || input.sequence < 1 || input.sequence > 50)
+      throw new Error("habit_entry.sequenceは1〜50で入力してください。");
+    if (typeof input.recorded_at !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input.recorded_at))
+      throw new Error("habit_entry.recorded_atが不正です。");
+    if (
+      input.corrected_at != null &&
+      input.corrected_at !== "" &&
+      (typeof input.corrected_at !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input.corrected_at))
+    )
+      throw new Error("habit_entry.corrected_atが不正です。");
+    if (
+      input.note != null &&
+      input.note !== "" &&
+      (typeof input.note !== "string" || input.note.length > 1000)
+    )
+      throw new Error("habit_entry.noteは1000文字以内で入力してください。");
   }
   if (type === "artifact") {
     if (!artifactSourceTypes.has(input.source_type))

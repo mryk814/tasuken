@@ -443,6 +443,8 @@ function emptyWorkspaceDomain(): WorkspaceDomain {
     notes: [],
     resources: [],
     sketches: [],
+    habits: [],
+    habit_entries: [],
     knowledge_nodes: [],
     references: [],
     task_dependencies: [],
@@ -723,6 +725,8 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pWorkReceipts = castRecords<WorkReceipt>(data.work_receipts);
   const pResources = castRecords<Resource>(data.resources);
   const pSketches = castRecords<Sketch>(data.sketches);
+  const pHabits = castRecords<Record<string, unknown> & { id: string }>(data.habits);
+  const pHabitEntries = castRecords<Record<string, unknown> & { id: string }>(data.habit_entrys);
 
   const hasPersistedDomain =
     pProjects.length ||
@@ -742,6 +746,8 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     pWorkReceipts.length ||
     pResources.length ||
     pSketches.length ||
+    pHabits.length ||
+    pHabitEntries.length ||
     pRepositoryContexts.length;
 
   if (!hasPersistedDomain) return legacy;
@@ -759,6 +765,8 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     notes: legacy.notes as Note[],
     resources: mergeById(pResources, legacy.resources),
     sketches: pSketches,
+    habits: pHabits,
+    habit_entries: pHabitEntries,
     knowledge_nodes: legacy.knowledge_nodes,
     references: mergeById(pReferences, legacy.references),
     task_dependencies: mergeById(pTaskDeps, legacy.task_dependencies),
@@ -1075,6 +1083,8 @@ export function projectLegacyWorkspace(
     ],
     notes: domain.notes as WorkspaceData["notes"],
     sketches: domain.sketches as WorkspaceData["sketches"],
+    habits: domain.habits as WorkspaceData["habits"],
+    habit_entrys: domain.habit_entries as WorkspaceData["habit_entrys"],
     repository_contexts: domain.repository_contexts as WorkspaceData["repository_contexts"],
     working_copies: domain.working_copies as WorkspaceData["working_copies"],
     agent_sessions: domain.agent_sessions as WorkspaceData["agent_sessions"],

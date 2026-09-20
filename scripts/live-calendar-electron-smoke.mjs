@@ -47,6 +47,13 @@ async function openNavigation(page, label) {
   await page.waitForTimeout(600);
 }
 
+/** Settingsは節ごとに表示を切り替える。カレンダー連携はIntegrationsにある。 */
+async function openIntegrationsSection(page) {
+  await openNavigation(page, "Settings");
+  await page.locator("button", { hasText: "Integrations" }).first().click();
+  await page.locator(".calendar-settings-panel").waitFor({ state: "visible", timeout: 20_000 });
+}
+
 async function calendarStatusLabel(page) {
   return (
     await page
@@ -60,18 +67,30 @@ async function calendarStatusLabel(page) {
 /** Settingsの接続状態が「接続済み」になるまで待つ。同意はブラウザで本人が行う。 */
 async function waitForConnected(page) {
   const deadline = Date.now() + CONSENT_TIMEOUT_MS;
+  let lastToast = "";
+  let lastPanel = "";
   while (Date.now() < deadline) {
-    const text = await page
+    lastPanel = await page
       .locator(".calendar-settings-panel")
       .innerText()
       .catch(() => "");
-    if (text.includes("接続済み")) return text;
-    if (text.includes("Google連携が未設定")) {
+    if (lastPanel.includes("接続済み")) return lastPanel;
+    if (lastPanel.includes("Google連携が未設定")) {
       throw new Error("client IDがGoogleへ受理されませんでした（未設定として返っています）。");
     }
+    lastToast = await page
+      .locator(".toast-message")
+      .first()
+      .innerText()
+      .catch(() => lastToast);
     await delay(1_000);
   }
-  throw new Error(`${CONSENT_TIMEOUT_MS / 1000}秒以内に接続が完了しませんでした。`);
+  await page.screenshot({ path: `${OUT_DIR}/06-consent-timeout.png` }).catch(() => {});
+  throw new Error(
+    `${CONSENT_TIMEOUT_MS / 1000}秒以内に接続が完了しませんでした。` +
+      ` 画面: ${JSON.stringify(lastPanel.slice(0, 200))}` +
+      ` 通知: ${JSON.stringify(lastToast.slice(0, 200))}`,
+  );
 }
 
 let electronApp;
@@ -85,6 +104,12 @@ try {
   });
   const page = await electronApp.firstWindow();
   await page.waitForLoadState("domcontentloaded");
+  // 失敗の種類だけを診断として拾う（tokenやcodeはアプリ側も出さない）。
+  electronApp.process().stderr?.on("data", (chunk) => {
+    for (const line of String(chunk).split("\n")) {
+      if (line.includes("TASKEN_CALENDAR_OAUTH_FAILED")) console.log(`[診断] ${line.trim()}`);
+    }
+  });
   await page.getByText("Today", { exact: true }).first().waitFor();
 
   // 1. 未接続ではTodayに予定欄を出さず、Settingsだけを入口にする。
@@ -92,8 +117,7 @@ try {
   if (todayHasSection !== 0) failures.push("未接続なのにTodayへ予定欄が出ています。");
   else record("未接続のToday", "予定欄なし");
 
-  await openNavigation(page, "Settings");
-  await page.locator(".calendar-settings-panel").waitFor();
+  await openIntegrationsSection(page);
   const beforeConnect = await page.locator(".calendar-settings-panel").innerText();
   if (!beforeConnect.includes("未接続"))
     failures.push("Settingsの初期状態が未接続ではありません。");
@@ -177,7 +201,7 @@ try {
   await page.screenshot({ path: `${OUT_DIR}/04-activity.png`, fullPage: true });
 
   // 6. 切断はローカルで完結し、Todayから予定欄が消える。
-  await openNavigation(page, "Settings");
+  await openIntegrationsSection(page);
   await page.locator("button", { hasText: "接続を解除" }).first().click();
   await page.waitForTimeout(1_200);
   const afterDisconnect = await page.locator(".calendar-settings-panel").innerText();

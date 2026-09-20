@@ -301,6 +301,9 @@ export interface WorkspaceData {
   change_events: BaseRecord[];
   artifacts: Artifact[];
   sketches: Sketch[];
+  /** Habitの最小実験（#454後半）。実施記録は habit_entrys に置く。 */
+  habits: BaseRecord[];
+  habit_entrys: BaseRecord[];
   canonical_root_status?: CanonicalRootStatusMap;
   meta?: WorkspaceMeta;
 }
