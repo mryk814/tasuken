@@ -434,6 +434,12 @@ export function SettingsPage({
     }
   }
 
+  async function openSyncDirectory() {
+    if (!syncStatus?.directory) return;
+    const result = await workspaceApi.openPath(syncStatus.directory);
+    if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
+  }
+
   async function resolveSyncConflict(conflictId: string, choice: "local" | "incoming") {
     setSyncBusy(true);
     try {
@@ -1085,6 +1091,25 @@ export function SettingsPage({
               {syncStatus?.lastError && (
                 <p className="form-error">同期エラー: {syncStatus.lastError}</p>
               )}
+              {syncStatus?.waitingFor && (
+                <p className="field-help">
+                  相手端末 {syncStatus.waitingFor.deviceId.slice(0, 8)} の差分{" "}
+                  {String(syncStatus.waitingFor.sequence).padStart(12, "0")}{" "}
+                  の到着を待っています。OneDriveの同期完了後に「今すぐ同期」を実行してください。送信側のTaskenが起動していれば、欠けた差分は自動で書き戻されます。
+                </p>
+              )}
+              {syncStatus?.waitingImage && (
+                <p className="field-help">
+                  画像 {syncStatus.waitingImage.fileName.slice(0, 8)}…
+                  の到着を待っています。OneDriveの同期完了後に「今すぐ同期」を実行してください。
+                </p>
+              )}
+              {syncStatus && syncStatus.lastAutoRepublished > 0 && (
+                <p className="field-help">
+                  欠けた同期差分を{syncStatus.lastAutoRepublished}
+                  件自動で書き戻しました。共有フォルダの同期後に参加側で「今すぐ同期」を実行してください。
+                </p>
+              )}
               <div className="settings-action-row">
                 <Button variant="secondary" disabled={syncBusy} onClick={chooseSyncDirectory}>
                   {syncStatus?.directory ? "同期先を変更" : "同期先を選ぶ"}
@@ -1103,6 +1128,38 @@ export function SettingsPage({
                   </>
                 )}
               </div>
+              <details className="settings-detail">
+                <summary>うまくいかないとき</summary>
+                <div className="settings-detail-body">
+                  <p className="field-help">
+                    差分や画像の到着待ちは、OneDriveの同期完了後に「今すぐ同期」で直ることがほとんどです。送信側のTaskenが起動していれば、欠けた差分は自動で書き戻されます。
+                  </p>
+                  <p className="field-help">参加し直すときの手順</p>
+                  <ol className="field-help">
+                    <li>データがある端末で「差分を再公開」し、OneDriveの同期完了を待つ。</li>
+                    <li>作り直す端末のデータを「手動の移行・復元」から書き出す。</li>
+                    <li>作り直す端末で同期を「停止」し、Taskenを終了する。</li>
+                    <li>作り直す端末の %APPDATA%\tasken を削除せず名前変更で退避する。</li>
+                    <li>空のTaskenで同じ同期フォルダを選び、「今すぐ同期」する。</li>
+                  </ol>
+                  <p className="field-help">
+                    同期フォルダ内の tasken-sync.json や devices/
+                    は消さないでください。SQLite本体も共有フォルダへ置きません。
+                  </p>
+                  <div className="settings-action-row">
+                    <Button variant="secondary" disabled={busy} onClick={exportSnapshot}>
+                      バックアップを書き出す
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={syncBusy || !syncStatus?.directory}
+                      onClick={openSyncDirectory}
+                    >
+                      同期フォルダを開く
+                    </Button>
+                  </div>
+                </div>
+              </details>
             </section>
             <section className="panel settings-form" hidden={activeSection !== "storage"}>
               {/* 保存先の設定は同期ルート一つに集約し、配下はTaskenが自動生成する（#306）。 */}
