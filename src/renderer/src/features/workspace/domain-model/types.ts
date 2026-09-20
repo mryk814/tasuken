@@ -181,6 +181,13 @@ export interface Task extends AiMetadata {
   work_started_at?: string | null;
   work_reported_at?: string | null;
   work_review_note?: string | null;
+  /** 現在参照している作業単位（Taskへの一回の委任）のID。 */
+  work_attempt_id?: string | null;
+  /** AIへ任せたときの依頼内容（#598）。Task本文は変えない。 */
+  handoff_expected_result?: string | null;
+  handoff_instruction?: string | null;
+  handoff_context_ref?: string | null;
+  handoff_requested_at?: string | null;
   priority: "normal" | "high";
   /** ユーザーが今日やると選んだ日。Scheduleの期限とは別に保持する。 */
   today_date?: string | null;

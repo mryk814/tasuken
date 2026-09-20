@@ -525,6 +525,24 @@ export function validateEntity(type, input) {
       (typeof input.work_attempt_id !== "string" || !uuidPattern.test(input.work_attempt_id))
     )
       throw new Error("task.work_attempt_idが不正です。");
+    for (const [field, limit] of [
+      ["handoff_expected_result", 2000],
+      ["handoff_instruction", 4000],
+      ["handoff_context_ref", 2000],
+    ]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || input[field].length > limit)
+      )
+        throw new Error(`task.${field}は${limit}文字以内で入力してください。`);
+    }
+    if (
+      input.handoff_requested_at != null &&
+      input.handoff_requested_at !== "" &&
+      Number.isNaN(new Date(input.handoff_requested_at).getTime())
+    )
+      throw new Error("task.handoff_requested_atが不正です。");
   }
   if (type === "work_receipt") {
     if (typeof input.task_id !== "string" || !input.task_id.trim())

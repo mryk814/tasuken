@@ -6,10 +6,37 @@ type RequestTask = {
   state?: unknown;
 };
 
-export function buildTaskAiRequest(tasks: RequestTask[]): string {
+/** Handoffで確認した依頼内容（#598）。コピーする依頼とContext Previewは同じ参照を指す。 */
+export type HandoffRequestInfo = {
+  /** 任せる相手の表示名。 */
+  delegateLabel?: string | null;
+  /** 期待する成果。任意。 */
+  expectedResult?: string | null;
+  /** 追加指示。任意。 */
+  instruction?: string | null;
+  /** 確認したContext Previewの参照版。 */
+  contextRef?: string | null;
+};
+
+export function buildTaskAiRequest(tasks: RequestTask[], handoff?: HandoffRequestInfo): string {
+  const delegate = String(handoff?.delegateLabel || "").trim();
+  const expectedResult = String(handoff?.expectedResult || "").trim();
+  const instruction = String(handoff?.instruction || "").trim();
+  const contextRef = String(handoff?.contextRef || "").trim();
   return [
     "次のTaskをTasken MCPで確認し、作業してください。",
     ...tasks.map((task) => `Task ID: ${task.id}\nタイトル: ${String(task.title || "")}`),
+    ...(delegate ? ["", `任せる相手: ${delegate}`] : []),
+    ...(expectedResult ? ["", "期待する成果:", expectedResult] : []),
+    ...(instruction ? ["", "追加指示:", instruction] : []),
+    ...(contextRef
+      ? [
+          "",
+          "Taskenで確認したContextの参照版:",
+          contextRef,
+          "この参照版と異なるContextが返った場合は、勝手に作業を進めず知らせてください。",
+        ]
+      : []),
     "",
     "1. 各Taskの tasken.get_task_context に task_id を渡し、公開Context・完了条件・作業対象を確認してください。MCPに接続できない場合は作業を始めず知らせてください。",
     "2. AI Readyを確認し、取得したversionをexpected_versionに指定して tasken.start_task_work を明示的に呼んでから着手してください。開始に失敗したら再取得して状態を確認してください。",

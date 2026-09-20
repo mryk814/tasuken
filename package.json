@@ -48,6 +48,7 @@
     "audit:responsive": "node scripts/responsive-audit.mjs",
     "audit:feed": "node scripts/feed-surface-audit.mjs",
     "audit:today-dates": "node scripts/run-electron-node.mjs scripts/today-date-audit.mjs",
+    "audit:handoff": "node scripts/run-electron-node.mjs scripts/task-handoff-audit.mjs",
     "audit:materials-demo": "node scripts/audit-materials-demo.mjs",
     "audit:note-window": "node scripts/note-window-audit.mjs",
     "audit:mermaid-powerpoint": "node scripts/mermaid-powerpoint-audit.mjs",

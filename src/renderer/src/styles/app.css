@@ -16584,3 +16584,127 @@ kbd {
   font: inherit;
   font-size: var(--text-base);
 }
+
+/* --- Task詳細: AIへ任せる（Handoff #598） --- */
+.task-handoff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.task-handoff .section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.task-handoff .section-heading h4 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+
+.task-handoff-state {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  color: var(--color-status-idle-fg);
+  background: var(--color-status-idle-bg);
+  border: 1px solid var(--color-status-idle-bd);
+}
+
+.task-handoff-state.is-working {
+  color: var(--color-status-active-fg);
+  background: var(--color-status-active-bg);
+  border-color: var(--color-status-active-bd);
+}
+
+.task-handoff-fields {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.task-handoff-fields label {
+  display: grid;
+  gap: 4px;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  min-width: 0;
+}
+
+.task-handoff-fields select,
+.task-handoff-fields textarea {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-base);
+  resize: vertical;
+}
+
+.task-handoff-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.task-handoff-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.task-handoff-preview p {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.task-handoff-preview-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.task-handoff-preview-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.task-handoff-preview-list em {
+  font-style: normal;
+  color: var(--color-text-tertiary);
+}
+
+.task-handoff-warning {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-warning-strong);
+}
+
+.task-handoff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.task-handoff-note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}

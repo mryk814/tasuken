@@ -121,6 +121,7 @@
         "src/renderer/src/features/workspace/components/SketchCanvas.tsx",
         "src/renderer/src/features/workspace/components/SketchPageSizePicker.tsx",
         "src/renderer/src/features/workspace/components/SlideTimelineDialog.tsx",
+        "src/renderer/src/features/workspace/components/TaskHandoffPanel.tsx",
         "src/renderer/src/features/workspace/components/VoiceRecorderPanel.tsx",
         "src/renderer/src/features/workspace/components/artifacts.tsx",
         "src/renderer/src/features/workspace/components/common.tsx",
@@ -180,6 +181,7 @@
         "tests/feed-fixtures.test.mjs",
         "tests/inbox-ia.test.mjs",
         "tests/knowledge-health.test.mjs",
+        "tests/task-handoff.test.mjs",
         "tests/todo-sort.test.mjs"
       ]
     },
@@ -194,6 +196,7 @@
       "consumerPaths": [
         "scripts/model-smoke.mjs",
         "scripts/seed-materials-informatics-workspace.mjs",
+        "scripts/task-handoff-audit.mjs",
         "scripts/today-date-audit.mjs",
         "scripts/update-materials-informatics-workspace.mjs",
         "src/main/index.ts",

@@ -221,6 +221,15 @@ const taskFields = {
    * 再委任・明示的な再依頼で更新する。未設定の旧Taskでは遅着判定を行わない。
    */
   work_attempt_id: z.string().uuid().optional(),
+  /**
+   * AIへ任せたときの依頼内容（#598）。**Task本文は変えない。**
+   * `intended_executor` + `executor_identity` が委任先、以下は依頼の記録。
+   */
+  handoff_expected_result: optionalText(2000),
+  handoff_instruction: optionalText(4000),
+  /** 確認したContext Previewの参照版。準備時と一致しなければ再確認させる。 */
+  handoff_context_ref: optionalText(2000),
+  handoff_requested_at: optionalTimestamp,
   priority: taskPrioritySchema,
   today_date: localDateSchema.nullable().optional(),
   planning_shelf: taskShelfSchema.nullable().optional(),
