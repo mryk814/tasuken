@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { taskWorkInboxGroups } from "../../../../../shared/contracts/task/public";
+import { buildAttentionQueue, countAttention } from "../../../../../shared/contracts/task/public";
 import {
   IconChevronDown,
   IconCalendarCheck,
@@ -28,11 +28,7 @@ import type { OpenDrawer, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { isPersonalDefaultTheme } from "../../../../../shared/personalTheme.mjs";
 import { themeColor } from "../lib/domain";
-import {
-  buildDailyDebriefEvidence,
-  findDailyDebriefNote,
-  isPassiveAgentSessionProposal,
-} from "../lib/taskenDebrief";
+import { buildDailyDebriefEvidence, findDailyDebriefNote } from "../lib/taskenDebrief";
 import { preloadWorkspacePage } from "../workspacePageLoaders";
 
 const taskenIconUrl = new URL("../../../../../../resources/icon.png", import.meta.url).href;
@@ -385,9 +381,15 @@ export function Sidebar({
     const due = String(s?.end_date || "");
     return Boolean(due && due < today);
   }).length;
-  const proposalCount = taskWorkInboxGroups(
-    domain.ai_proposals.filter((proposal) => !isPassiveAgentSessionProposal(proposal)),
-  ).filter((group) => group.actionable).length;
+  // badgeは「未処理のhuman attention」の数。判断単位で数え、同じTaskの質問と変更案は2件とする（#596）。
+  const proposalCount = countAttention(
+    buildAttentionQueue({
+      tasks: domain.tasks,
+      proposals: domain.ai_proposals,
+      receipts: domain.work_receipts,
+      themes,
+    }),
+  );
   const debriefCount =
     buildDailyDebriefEvidence(domain, today).length > 0 &&
     !findDailyDebriefNote(domain.notes, today)

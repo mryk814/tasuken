@@ -196,6 +196,7 @@ MCPの `tasken.get_task_context` は `work_receipts` に `receipt_kind` / `reque
 | 境界                                             | 責務                                                                  |
 | ------------------------------------------------ | --------------------------------------------------------------------- |
 | `src/shared/contracts/task/agentWork.ts`         | 表示状態、要対応item、操作ID、導出、並び順                            |
+| `src/shared/contracts/task/attentionQueue.ts`    | 未解決判断の集約、件数、重複排除、並び（#596）                        |
 | `src/shared/contracts/task/taskWorkProposal.ts`  | 報告の入力契約（新fieldの受理と検証）                                 |
 | `src/shared/applicationCommand.ts`               | `StartTaskWork.workAttemptId` と `ReplyToAgentRequest` の検証         |
 | `src/main/services/applicationCommandService.ts` | Taskの現在参照の更新、Receiptへの引き継ぎ、質問の有効性確認、人の返答 |
@@ -203,12 +204,32 @@ MCPの `tasken.get_task_context` は `work_receipts` に `receipt_kind` / `reque
 | `src/main/mcp/server.mjs`                        | agent向けの入力schema                                                 |
 | Desktop UI / Android                             | read modelを表示するだけ。**独自の状態導出を増やさない**              |
 
+### 要対応queue（#596）
+
+`buildAttentionQueue` が、未解決の判断を一つのcontractへ集約する。
+**新しいInbox Entityではない。** 各itemは元のsourceへlocator（`sourceType` / `sourceId` / `sourceVersion`）を持つ。
+
+| 写像元                                                                | kind               |
+| --------------------------------------------------------------------- | ------------------ |
+| `blocked` / `input_required`（`report_blocked` + `needed_input`）     | `answer_request`   |
+| `decision_required`（`report_blocked`）                               | `decision_request` |
+| `review_ready`（pending `report_done`）                               | `review_report`    |
+| `proposal_pending`（Task work以外のpending Proposal。Taskなしも含む） | `proposal_pending` |
+
+- **Task workの判断は `deriveAgentWorkState` の結果をそのまま使う。** 二重実装しない。
+- 同じreportから生じたreviewとProposalは**1件**。同じ質問の再送も増殖しない。
+- 接続hookのAgent Session観測（`tasken-session-hook:*`）は判断待ちではないため数えない。
+- 解決済み（`accepted` / `rejected`）と削除済みのsourceは自然に消える。**staleなsourceを成功扱いにしない。**
+- Sidebarのbadgeは `countAttention` の値、つまり**未処理のhuman attentionの数**を表す。
+  同じTaskの独立した判断は2件として数える。
+
 ## 9. 検証
 
 ```powershell
 rtk node scripts/run-electron-node.mjs --test tests/agent-work-state.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/agent-work-attempt.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/agent-reply.test.mjs
+rtk node scripts/run-electron-node.mjs --test tests/attention-queue.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/task-work-receipts.test.mjs tests/task-work-history.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/mcp-task-context.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/ai-collaboration-e2e.test.mjs

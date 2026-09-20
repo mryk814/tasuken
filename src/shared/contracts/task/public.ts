@@ -294,6 +294,16 @@ export {
   type AgentWorkSourceRef,
 } from "./agentWork.ts";
 export {
+  attentionKindSchema,
+  attentionSourceTypeSchema,
+  buildAttentionQueue,
+  countAttention,
+  isPassiveAgentSessionProposal,
+  type AttentionItem,
+  type AttentionKind,
+  type AttentionSourceType,
+} from "./attentionQueue.ts";
+export {
   taskWorkEntry,
   taskWorkReportTime,
   taskWorkReportsCoveredBy,

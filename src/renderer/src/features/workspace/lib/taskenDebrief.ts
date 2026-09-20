@@ -160,14 +160,12 @@ function sessionsFromProposal(proposal: BaseRecord): AgentSession[] {
   });
 }
 
-export function isPassiveAgentSessionProposal(proposal: Record<string, unknown>): boolean {
-  return (
-    proposal.status === "pending" &&
-    proposal.payload_type === "agent_sessions" &&
-    stringValue(proposal.source_app).startsWith("tasken-session-hook:")
-  );
-}
-
+/**
+ * 外部AI clientの接続hookが送ったAgent Sessionの観測。
+ * 判断待ちではないため要対応に数えない（#596）。規則の正本はshared contract側に置く。
+ */
+import { isPassiveAgentSessionProposal } from "../../../../../shared/contracts/task/public.ts";
+export { isPassiveAgentSessionProposal };
 export function buildDailyDebriefEvidence(
   domain: WorkspaceDomain,
   date: string,
