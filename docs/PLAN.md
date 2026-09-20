@@ -9,6 +9,7 @@
 - 日常利用の摩擦は大きなIssueへ溜めず、見つけ次第小さなIssueへ切り出す運用に変えた（#518 は閉じた）。
 - 進行中の大きな方向性は GitHub の Open Issue が正本である。
   - Agent Desk と Feed の AI 連携群（#593 Epic、#594–#602、#604）
+    - #594（用語・再利用範囲・採用contractの固定）は [agent-collaboration.md](./agent-collaboration.md) に成果を残した。以降の実装は同書の用語・導出表・route統合方針を参照する。
   - Synology 常時稼働 replica（#588。Phase 3 は外部要因で保留）
   - 全文公開の WIP はローカルの stash（`#546 全文公開の途中作業`）に保持している。
 - 版ごとの利用者向け変更は `docs/releases/` を参照する。
