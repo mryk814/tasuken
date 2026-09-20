@@ -157,6 +157,26 @@ sealed interface MobileHumanReviewResult {
     data class Unavailable(val taskId: String, val message: String) : MobileHumanReviewResult
 }
 
+/**
+ * 保存済みの要対応（#601）。
+ * `counts` が `null` の間は**まだ読めていない**。0件と混同しない。
+ */
+data class MobileAttentionSnapshot(
+    val items: List<AttentionRow>,
+    val counts: MobileAttentionCountsDto?,
+    val truncated: Boolean,
+    val fetchedAt: String?,
+)
+
+sealed interface MobileAgentReplyResult {
+    /** Desktopへ保存された。`displayState` はDesktopの導出結果をそのまま持つ。 */
+    data class Applied(val attentionId: String, val taskId: String, val displayState: String) :
+        MobileAgentReplyResult
+    data class Conflict(val attentionId: String, val message: String) : MobileAgentReplyResult
+    data class Rejected(val attentionId: String, val message: String) : MobileAgentReplyResult
+    data class Unavailable(val attentionId: String, val message: String) : MobileAgentReplyResult
+}
+
 data class MobileHumanReviewPending(
     val taskId: String,
     val action: String,
@@ -1525,6 +1545,15 @@ interface MobileGatewayRepository : MobileTaskRepository {
         task.id,
         "このDesktopではWork Receipt判断を利用できません。",
     )
+    suspend fun refreshAttention(): Boolean = false
+    suspend fun replyToAgent(
+        item: AttentionRow,
+        choiceId: String?,
+        body: String,
+    ): MobileAgentReplyResult = MobileAgentReplyResult.Unavailable(
+        item.attentionId,
+        "このDesktopではagentへ回答できません。",
+    )
     suspend fun setTaskAiReady(task: MobileTask, enabled: Boolean): MobileAiReadyResult =
         MobileAiReadyResult.Unavailable(task.id, "このDesktopではAI Readyを変更できません。")
     suspend fun previewTaskContext(task: MobileTask): MobileTaskContextPreviewResult =
@@ -1553,6 +1582,10 @@ interface MobileOfflineTaskRepository {
     }
     fun observeCachedTaskWorkProposals(): Flow<List<MobileTaskWorkProposal>> =
         kotlinx.coroutines.flow.flowOf(emptyList())
+    fun observeCachedAttention(): Flow<MobileAttentionSnapshot> =
+        kotlinx.coroutines.flow.flowOf(
+            MobileAttentionSnapshot(items = emptyList(), counts = null, truncated = false, fetchedAt = null),
+        )
     fun observePendingCount(): Flow<Int>
     fun observePendingCaptures(): Flow<List<MobilePendingCapture>> = kotlinx.coroutines.flow.flowOf(emptyList())
     suspend fun retryPendingCapture(commandId: String): Boolean = false

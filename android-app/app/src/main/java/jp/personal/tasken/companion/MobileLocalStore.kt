@@ -222,6 +222,60 @@ data class TaskNotificationDeliveryEntity(
     val deliveredAt: String? = null,
 )
 
+@Entity(
+    tableName = "attention_cache",
+    indices = [Index(value = ["serverId"])],
+)
+data class AttentionCacheEntity(
+    @PrimaryKey val attentionId: String,
+    val serverId: String,
+    /** Desktopが返した並び。Android側で並べ替えない。 */
+    val position: Int,
+    val kind: String,
+    val taskId: String?,
+    val taskTitle: String?,
+    val taskVersion: Long?,
+    val headline: String,
+    val summary: String,
+    val questionOrAction: String,
+    val agentLabel: String?,
+    val requestId: String?,
+    val canReply: Boolean,
+    /** 受け取ったitem全体。表示を増やしても取り直さずに済む。 */
+    val payloadJson: String,
+    val fetchedAt: String,
+)
+
+/**
+ * 要対応の件数。`null` と「0件」を混同しないため、状態rowの有無で未取得を表す。
+ * 作業中・開始待ちは要対応ではないので別枠で持つ。
+ */
+@Entity(tableName = "attention_state")
+data class AttentionStateEntity(
+    @PrimaryKey val serverId: String,
+    val needsYou: Int,
+    val working: Int,
+    val queued: Int,
+    val truncated: Boolean,
+    val generatedAt: String,
+    val fetchedAt: String,
+)
+
+/** 送信中の回答。応答を失っても同じcommandIdで再送する（#601）。 */
+@Entity(
+    tableName = "pending_agent_reply",
+    indices = [Index(value = ["serverId", "taskId"])],
+)
+data class PendingAgentReplyEntity(
+    @PrimaryKey val commandId: String,
+    val serverId: String,
+    val taskId: String,
+    val questionId: String,
+    val attentionId: String,
+    val envelopeJson: String,
+    val createdAt: String,
+)
+
 private fun taskNotificationSignal(task: TaskCacheEntity): String? = when (task.workState) {
     "blocked" -> "blocked"
     "needs_human_review" -> "needs_human_review"
@@ -671,6 +725,21 @@ abstract class MobileLocalDao {
     @Query("SELECT * FROM task_work_proposal_cache ORDER BY receivedAt DESC, id ASC")
     abstract fun observeTaskWorkProposals(): Flow<List<TaskWorkProposalCacheEntity>>
 
+    @Query("SELECT * FROM attention_cache ORDER BY position ASC")
+    abstract fun observeAttention(): Flow<List<AttentionCacheEntity>>
+
+    @Query("SELECT * FROM attention_state LIMIT 1")
+    abstract fun observeAttentionState(): Flow<AttentionStateEntity?>
+
+    @Query("SELECT * FROM attention_state WHERE serverId = :serverId")
+    abstract suspend fun attentionState(serverId: String): AttentionStateEntity?
+
+    @Query("SELECT * FROM attention_cache WHERE attentionId = :attentionId AND serverId = :serverId")
+    abstract suspend fun attention(attentionId: String, serverId: String): AttentionCacheEntity?
+
+    @Query("SELECT * FROM pending_agent_reply WHERE commandId = :commandId")
+    abstract suspend fun pendingAgentReply(commandId: String): PendingAgentReplyEntity?
+
     @Query("SELECT * FROM task_work_proposal_cache WHERE id = :proposalId AND serverId = :serverId")
     abstract suspend fun taskWorkProposal(proposalId: String, serverId: String): TaskWorkProposalCacheEntity?
 
@@ -779,6 +848,64 @@ abstract class MobileLocalDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertTaskWorkProposals(proposals: List<TaskWorkProposalCacheEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertAttentionItems(items: List<AttentionCacheEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertAttentionState(state: AttentionStateEntity)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    abstract suspend fun insertPendingAgentReply(reply: PendingAgentReplyEntity)
+
+    @Query("DELETE FROM attention_cache WHERE serverId = :serverId")
+    abstract suspend fun deleteAttention(serverId: String)
+
+    @Query("DELETE FROM attention_cache WHERE attentionId = :attentionId")
+    abstract suspend fun deleteAttentionItem(attentionId: String)
+
+    @Query("DELETE FROM pending_agent_reply WHERE commandId = :commandId")
+    abstract suspend fun deletePendingAgentReply(commandId: String)
+
+    @Query(
+        "UPDATE attention_state SET needsYou = MAX(needsYou - 1, 0) WHERE serverId = :serverId",
+    )
+    abstract suspend fun decrementAttentionNeedsYou(serverId: String)
+
+    /**
+     * 取得できた一覧で置き換える。**部分更新にしない。**
+     * 解決済みの判断はDesktopから消えて届くので、ここで残すと要対応が増え続ける。
+     */
+    @Transaction
+    open suspend fun replaceAttention(
+        serverId: String,
+        items: List<AttentionCacheEntity>,
+        state: AttentionStateEntity,
+    ) {
+        deleteAttention(serverId)
+        if (items.isNotEmpty()) upsertAttentionItems(items)
+        upsertAttentionState(state)
+    }
+
+    @Transaction
+    open suspend fun pendingAgentReplyOrInsert(reply: PendingAgentReplyEntity): PendingAgentReplyEntity {
+        val existing = pendingAgentReply(reply.commandId)
+        if (existing != null) return existing
+        insertPendingAgentReply(reply)
+        return reply
+    }
+
+    /**
+     * 回答がDesktopへ保存された後の後始末。
+     * 回答済みの判断が要対応から外れるのはDesktopが確定した事実なので、
+     * その1件をローカルからも除く（Androidが状態を導出しているわけではない）。
+     */
+    @Transaction
+    open suspend fun applyAgentReplySuccess(commandId: String, serverId: String, attentionId: String) {
+        deletePendingAgentReply(commandId)
+        deleteAttentionItem(attentionId)
+        decrementAttentionNeedsYou(serverId)
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertConflict(conflict: TaskConflictEntity)
@@ -2047,8 +2174,11 @@ abstract class MobileLocalDao {
         PendingHumanReviewEntity::class,
         PendingTaskDelegationEntity::class,
         TaskNotificationDeliveryEntity::class,
+        AttentionCacheEntity::class,
+        AttentionStateEntity::class,
+        PendingAgentReplyEntity::class,
     ],
-    version = 25,
+    version = 26,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -2088,8 +2218,19 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_22_23,
                     MIGRATION_23_24,
                     MIGRATION_24_25,
+                    MIGRATION_25_26,
             ).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_25_26 = object : Migration(25, 26) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS attention_cache (attentionId TEXT NOT NULL PRIMARY KEY, serverId TEXT NOT NULL, position INTEGER NOT NULL, kind TEXT NOT NULL, taskId TEXT, taskTitle TEXT, taskVersion INTEGER, headline TEXT NOT NULL, summary TEXT NOT NULL, questionOrAction TEXT NOT NULL, agentLabel TEXT, requestId TEXT, canReply INTEGER NOT NULL, payloadJson TEXT NOT NULL, fetchedAt TEXT NOT NULL)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_attention_cache_serverId ON attention_cache (serverId)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS attention_state (serverId TEXT NOT NULL PRIMARY KEY, needsYou INTEGER NOT NULL, working INTEGER NOT NULL, queued INTEGER NOT NULL, truncated INTEGER NOT NULL, generatedAt TEXT NOT NULL, fetchedAt TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS pending_agent_reply (commandId TEXT NOT NULL PRIMARY KEY, serverId TEXT NOT NULL, taskId TEXT NOT NULL, questionId TEXT NOT NULL, attentionId TEXT NOT NULL, envelopeJson TEXT NOT NULL, createdAt TEXT NOT NULL)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_pending_agent_reply_serverId_taskId ON pending_agent_reply (serverId, taskId)")
     }
 }
 
