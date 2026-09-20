@@ -246,6 +246,9 @@ function applicationEnvelope(
         executorIdentity: command.payload.executor_identity,
         startedAt: command.payload.started_at,
         sourceSession: command.payload.source_session || null,
+        ...(command.payload.work_attempt_id
+          ? { workAttemptId: command.payload.work_attempt_id }
+          : {}),
       },
       expectedVersions: expectedVersions(command, currentSchedule),
     };

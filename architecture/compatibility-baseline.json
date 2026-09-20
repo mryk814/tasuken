@@ -208,6 +208,7 @@
         "src/main/services/snapshotService.mjs",
         "src/main/todayMiniController.ts",
         "tests/activity-event.test.mjs",
+        "tests/agent-roundtrip-acceptance.test.mjs",
         "tests/ai-collaboration-e2e.test.mjs",
         "tests/application-command.test.mjs",
         "tests/artifacts.test.mjs",

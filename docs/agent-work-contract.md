@@ -355,6 +355,7 @@ rtk npm run build && rtk npm run audit:handoff && rtk npm run audit:agent-desk
 rtk node scripts/run-electron-node.mjs --test tests/task-work-receipts.test.mjs tests/task-work-history.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/mcp-task-context.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/ai-collaboration-e2e.test.mjs
+rtk node scripts/run-electron-node.mjs --test tests/agent-roundtrip-acceptance.test.mjs
 rtk npm run typecheck
 rtk npm run build:mcp
 ```
@@ -363,10 +364,14 @@ rtk npm run build:mcp
 
 ## 12. この単位で確認していないこと
 
+一往復の受け入れ証跡は `tests/agent-roundtrip-acceptance.test.mjs`（#602 / 単位K）。
+Task作成 → Handoff → MCP開始 → 質問 → Android回答 → MCP再取得 → 成果報告 → 採用 → 明示完了を、
+実SQLite・実stdio MCP・実mobile gatewayで同じTask IDのまま通す。
+
 | 未確認                  | 内容                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 回答のUI                | Agent Deskから回答できる。**Task詳細からの回答導線は未接続**                                                                                                                                                                                                                                                                                                                                 |
-| 回答のMCP越しの受け渡し | `get_task_context` が返すことは確認したが、実stdio MCPのE2E往復（質問→回答→再取得）は `tests/ai-collaboration-e2e.test.mjs` へ未追加                                                                                                                                                                                                                                                         |
+| 回答のUI                | Agent DeskとAndroidのAI面から回答できる。**Task詳細からの回答導線は未接続**                                                                                                                                                                                                                                                                                                                  |
+| 回答のMCP越しの受け渡し | 実stdio MCP → Desktop Core → Android回答 → MCP再取得までを通した（`tests/agent-roundtrip-acceptance.test.mjs`）。**実クライアント（Codex等）からの接続は未検証**                                                                                                                                                                                                                             |
 | 再割当のUI操作          | 委任の解除はTask詳細から行える。「新しい作業単位での再委任」を利用者が実行する導線は未実装（#602）                                                                                                                                                                                                                                                                                           |
 | 表示                    | Agent DeskはTask詳細と同じ詳細コンポーネントをまだ共有していない（#600で統合する）                                                                                                                                                                                                                                                                                                           |
 | HandoffのCancel         | 委任の解除はTaskを `not_delegated` へ戻すだけ。実行中に解除した場合のagent側の扱いは未検証                                                                                                                                                                                                                                                                                                   |

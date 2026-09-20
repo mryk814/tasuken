@@ -135,6 +135,9 @@ function taskWorkEntry(request: ProposeTaskWorkRequest): Record<string, unknown>
       },
       // 人間が回答すべき一回の質問を識別する（#597）。
       ...(request.request_id ? { request_id: request.request_id } : {}),
+      // 人が何を答えれば進めるかを残す。`remaining_work` は作業の残りで意味が違う。
+      // 要対応の導出（answer_request / decision_request）はこちらを読む（#596）。
+      ...(request.needed_input?.length ? { needed_input: request.needed_input } : {}),
     };
   }
   return { ...commonEntry(request), ...receiptFields(request) };
