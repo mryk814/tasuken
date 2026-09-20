@@ -20,6 +20,7 @@ export {
   type MobileGatewayStatePort,
   type MobilePrincipal,
 } from "./mobileGatewayAdapter.ts";
+export { projectAttentionItem, projectAttentionQueue } from "./attentionProjection.ts";
 export {
   MobileGatewayClient,
   MobileGatewayClientError,

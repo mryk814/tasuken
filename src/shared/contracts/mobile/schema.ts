@@ -10,6 +10,9 @@ import {
 
 import {
   activityPageSchema,
+  agentWorkActionIdSchema,
+  attentionKindSchema,
+  attentionSourceTypeSchema,
   publicActivityEntrySchema,
   taskIdSchema,
   taskCreationReportedViaSchema,
@@ -1672,3 +1675,125 @@ export type MobileCommandRequest = z.output<typeof mobileCommandRequestSchema>;
 export type MobilePairRequest = z.output<typeof mobilePairRequestSchema>;
 export type MobilePairResponse = z.output<typeof mobilePairResponseSchema>;
 export type MobileErrorResponse = z.output<typeof mobileErrorResponseSchema>;
+
+/* ---------------------------------------------------------------------------
+ * Agent Desk（#601）
+ *
+ * Androidは状態を独自に導出しない。Desktopと同じ `buildAttentionQueue` の結果を
+ * このread modelで受け取り、表示と短い返答だけを行う。
+ * ------------------------------------------------------------------------- */
+
+/** 要対応の1件。Taskに紐づかないProposalでは taskId が null になる。 */
+export const mobileAttentionItemSchema = z
+  .object({
+    attentionId: z.string().trim().min(1).max(300),
+    kind: attentionKindSchema,
+    taskId: taskIdSchema.nullable(),
+    taskTitle: z.string().trim().max(500).nullable(),
+    /** 回答や採用の競合検出に使う。TaskなしのProposalでは null。 */
+    taskVersion: entityVersionSchema.nullable(),
+    themeId: entityIdSchema.nullable(),
+    themeName: z.string().trim().max(200).nullable(),
+    agentLabel: z.string().trim().max(200).nullable(),
+    headline: z.string().trim().max(1000),
+    summary: z.string().trim().max(10000),
+    questionOrAction: z.string().trim().max(10000),
+    createdAt: isoTimestampSchema.nullable(),
+    updatedAt: isoTimestampSchema.nullable(),
+    sourceType: attentionSourceTypeSchema,
+    sourceId: entityIdSchema,
+    sourceVersion: entityVersionSchema.nullable(),
+    workAttemptId: entityIdSchema.nullable(),
+    /** 回答対象の質問ID。`answer_request` / `decision_request` で入る。 */
+    requestId: entityIdSchema.nullable(),
+    availableActions: z.array(agentWorkActionIdSchema).max(12),
+  })
+  .strict();
+
+export const mobileAttentionCountsSchema = z
+  .object({
+    /** 未処理のhuman attentionの数。Desktopのbadgeと同じ意味。 */
+    needsYou: z.number().int().nonnegative(),
+    working: z.number().int().nonnegative(),
+    queued: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const mobileAttentionRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    limit: z
+      .number()
+      .int()
+      .positive()
+      .max(TASKEN_MOBILE_MAX_ITEMS)
+      .default(TASKEN_MOBILE_MAX_ITEMS),
+  })
+  .strict();
+
+export const mobileAttentionResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        attention: z.array(mobileAttentionItemSchema).max(TASKEN_MOBILE_MAX_ITEMS),
+        counts: mobileAttentionCountsSchema,
+        /** 一覧を切り詰めたか。0件と「取得できていない」を混同させない。 */
+        truncated: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
+/**
+ * agentの質問への短い返答。Task本文は変えない。
+ * 同じ質問への二度目の返答はconflictとして拒否される（Desktopと同じ）。
+ */
+export const mobileAgentReplyRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    commandId: entityIdSchema,
+    idempotencyKey: entityIdSchema,
+    clientDeviceId: entityIdSchema,
+    issuedAt: isoTimestampSchema,
+    taskId: taskIdSchema,
+    /** 回答対象の質問ID。`attention` の `requestId` をそのまま渡す。 */
+    questionId: entityIdSchema,
+    body: z.string().trim().min(1).max(10000),
+    choiceId: z.string().trim().max(200).nullable().optional(),
+    expectedTaskVersion: entityVersionSchema,
+  })
+  .strict()
+  .refine((value) => value.commandId === value.idempotencyKey, {
+    path: ["idempotencyKey"],
+    message: "commandIdとidempotencyKeyを一致させてください。",
+  });
+
+export const mobileAgentReplyResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        commandId: entityIdSchema,
+        commandStatus: z.enum(["applied", "no_change"]),
+        taskId: taskIdSchema,
+        taskVersion: entityVersionSchema,
+        questionId: entityIdSchema,
+        /** 回答後に残る表示状態。Desktopと同じ意味。 */
+        displayState: z.literal("answered_resume_waiting"),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type MobileAttentionItem = z.output<typeof mobileAttentionItemSchema>;
+export type MobileAttentionRequest = z.output<typeof mobileAttentionRequestSchema>;
+export type MobileAttentionResponse = z.output<typeof mobileAttentionResponseSchema>;
+export type MobileAgentReplyRequest = z.output<typeof mobileAgentReplyRequestSchema>;
+export type MobileAgentReplyResponse = z.output<typeof mobileAgentReplyResponseSchema>;

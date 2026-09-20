@@ -147,7 +147,8 @@ export function buildAttentionQueue(input: {
         themeId,
         themeName: themeId ? themeName.get(themeId) || null : null,
         agentLabel: state.delegate.lastExecutorLabel || state.delegate.executorIdentity || null,
-        headline: attention.headline,
+        // 質問には見出しが無い。空の見出しを返さず、要旨をそのまま見出しに使う。
+        headline: attention.headline || attention.summary,
         summary: attention.summary,
         questionOrAction: attention.summary,
         createdAt: attention.receivedAt || attention.reportedAt,

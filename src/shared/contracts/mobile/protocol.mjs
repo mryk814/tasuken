@@ -117,6 +117,10 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   proposals: "/v1/proposals",
   proposalDecisions: "/v1/proposal-decisions",
   workReviews: "/v1/work-reviews",
+  /** Agent Deskの要対応read model（#601）。Desktopと同じprojectionを返す。 */
+  attention: "/v1/attention",
+  /** agentの質問への短い返答（#601）。 */
+  agentReplies: "/v1/agent-replies",
   taskContextPreview: "/v1/task-context-preview",
   taskDelegations: "/v1/task-delegations",
   bootstrap: "/v1/bootstrap",
