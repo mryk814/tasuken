@@ -255,6 +255,23 @@
   color: var(--color-text-secondary);
 }
 
+/* 採用済みのNoteが削除された添付。参照先がないことを示し、元に戻す導線を案内する。 */
+.feed-attachment.is-missing {
+  border-style: dashed;
+  border-color: var(--color-warning-bd);
+  background: var(--color-warning-bg);
+}
+
+.feed-attachment.is-missing .feed-attachment-intro {
+  color: var(--color-warning-strong);
+}
+
+.feed-attachment-missing {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
 .feed-figure {
   margin-top: var(--space-2);
   padding: var(--space-3);

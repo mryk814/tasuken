@@ -15,6 +15,7 @@ import {
   draftNoteEntity,
   draftNoteId,
   feedReactionId,
+  noteReferenceOf,
 } from "../src/renderer/src/features/workspace/lib/feedPosts.ts";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
@@ -310,6 +311,52 @@ test("記事の草稿は「Noteに保存」で正式Noteになり、投稿とブ
       "ブックマークは投稿のIDのまま",
     );
     assert.equal(attentionCount(database), before);
+  });
+});
+
+test("採用済みのNoteを削除すると参照先がないと分かり、元に戻すと同じ参照が開ける", async () => {
+  await withWorkspace(async ({ database, application, client }) => {
+    const queued = await callTool(client, "tasken.propose_feed_post", {
+      idempotency_key: "feed-post-note-removed",
+      caller: "Codex",
+      source_app: "codex",
+      topic: "learning",
+      body: ["参照先が消えたときの見え方を確かめます。"],
+      theme: THEME_ID,
+      article: { title: "参照の切れ方", body: DRAFT_BODY, note_type: "memo" },
+    });
+    const post = feedPosts(database).find((entry) => entry.proposalId === queued.proposal_id);
+    const note = draftNoteEntity(post);
+    assert.ok(note);
+    // 採用前は草稿のまま読める。
+    assert.equal(noteReferenceOf(post, null), "draft");
+
+    const proposal = database.get("ai_proposal", queued.proposal_id);
+    application.execute(
+      acceptEnvelope(
+        proposal,
+        [{ type: "note", entity: note }],
+        `feed-post:${queued.proposal_id}:save-note:v${proposal.version}`,
+      ),
+    );
+
+    const currentPost = () =>
+      feedPosts(database).find((entry) => entry.proposalId === queued.proposal_id);
+    const currentNote = () => database.get("note", note.id) ?? null;
+    assert.equal(currentPost().proposalStatus, "accepted");
+    assert.equal(noteReferenceOf(currentPost(), currentNote()), "saved");
+
+    // Noteを削除しても投稿と草稿は残り、参照先がないことが分かる。
+    database.remove("note", note.id);
+    const removedPost = currentPost();
+    assert.ok(removedPost, "Noteを削除しても投稿は残る");
+    assert.equal(removedPost.draft.markdown, DRAFT_BODY, "草稿の本文は投稿に残る");
+    assert.equal(noteReferenceOf(removedPost, currentNote()), "missing");
+
+    // 元に戻すと同じIDのNoteが戻るので、同じ参照からまた読める。
+    database.restore("note", note.id);
+    assert.equal(currentNote().id, note.id);
+    assert.equal(noteReferenceOf(currentPost(), currentNote()), "saved");
   });
 });
 

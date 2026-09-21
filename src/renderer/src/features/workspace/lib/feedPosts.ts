@@ -27,6 +27,8 @@ export interface FeedPostRefs {
   evidence?: string[];
   /** 添えられた記事の草稿（採用前）。fixtureでは未設定。 */
   draft?: FeedPostDraft | null;
+  /** 読み物Proposalの状態。`accepted` は草稿が正式Noteになった（採用済み）。 */
+  proposalStatus?: string;
 }
 
 /**
@@ -627,6 +629,7 @@ export function buildPostsFromProposals(input: {
       taskTitle: taskId ? (taskTitles.get(taskId) ?? null) : null,
       evidence: paragraphs(post.evidence),
       draft,
+      proposalStatus: text(proposal.status),
     } as FeedPost);
   }
   return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
@@ -664,6 +667,27 @@ export function draftNoteEntity(post: FeedPost): {
     note_type: post.draft.noteType,
     project_id: post.draft.themeId || null,
   };
+}
+
+/** 草稿が正式Noteになった状態を表すProposalの状態（`docs/feed-surface.md` §5）。 */
+const ADOPTED_PROPOSAL_STATUSES = new Set(["accepted", "partially_accepted"]);
+
+/**
+ * 添付Noteの参照先の状態。
+ *
+ * `missing` は**採用済みのNoteが削除されている**状態である。草稿の本文は投稿に残るので
+ * 読めるが、正式Noteは無い。読み物Proposalは採用後に戻せないため「Noteに保存」は出さない。
+ * Noteの削除は既存の「元に戻す」で同じIDへ復元でき、そのときこの参照もまた開ける。
+ */
+export type FeedNoteReference = "saved" | "missing" | "draft" | "none";
+
+export function noteReferenceOf(
+  post: FeedPost,
+  savedNote: unknown | null | undefined,
+): FeedNoteReference {
+  if (savedNote) return "saved";
+  if (!post.draft) return "none";
+  return ADOPTED_PROPOSAL_STATUSES.has(text(post.proposalStatus)) ? "missing" : "draft";
 }
 
 /* -------------------------------------------------------------------------

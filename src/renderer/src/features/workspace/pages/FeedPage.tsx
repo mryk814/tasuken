@@ -25,6 +25,7 @@ import {
   feedReplyEntity,
   filterPosts,
   needsMore,
+  noteReferenceOf,
   postsBookmarked,
   postsForHome,
   postsForLearning,
@@ -878,6 +879,8 @@ export function FeedPage({
                   const collapsible = needsMore(post);
                   // 記事の草稿は採用前と採用後で状態を書き分ける。
                   const savedNote = savedNoteOf(post);
+                  const noteRef = noteReferenceOf(post, savedNote);
+                  const noteMissing = noteRef === "missing";
                   const body =
                     isExpanded || !collapsible ? post.paragraphs : post.paragraphs.slice(0, 1);
                   return (
@@ -974,14 +977,29 @@ export function FeedPage({
                             </button>
                           ) : null}
                           {post.attachment ? (
-                            <div className={`feed-attachment is-${post.attachment.kind}`}>
+                            <div
+                              className={`feed-attachment is-${post.attachment.kind}${
+                                noteMissing ? " is-missing" : ""
+                              }`}
+                            >
                               <span className="feed-attachment-kind">
-                                {savedNote ? "Note" : attachmentKindLabel(post.attachment.kind)}
+                                {savedNote || noteMissing
+                                  ? "Note"
+                                  : attachmentKindLabel(post.attachment.kind)}
                               </span>
                               <h4 className="feed-attachment-title">{post.attachment.title}</h4>
                               <p className="feed-attachment-intro">
-                                {savedNote ? "保存済みのNote" : post.attachment.intro}
+                                {savedNote
+                                  ? "保存済みのNote"
+                                  : noteMissing
+                                    ? "参照先が削除されています"
+                                    : post.attachment.intro}
                               </p>
+                              {noteMissing ? (
+                                <p className="feed-attachment-missing">
+                                  元のNoteを「元に戻す」と、この参照からまた読めます。草稿の本文は残っています。
+                                </p>
+                              ) : null}
                               {post.attachment.figureLabel ? (
                                 <div className="feed-figure">
                                   <span className="feed-figure-label">
@@ -1044,7 +1062,7 @@ export function FeedPage({
                                     >
                                       Noteで読む
                                     </Button>
-                                  ) : (
+                                  ) : noteMissing ? null : (
                                     <Button
                                       variant="secondary"
                                       compact

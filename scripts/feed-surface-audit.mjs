@@ -687,6 +687,54 @@ async function auditLiveRestart(page) {
       }
     }
   }
+
+  // 採用済みのNoteを削除すると参照先がないと分かり、元に戻すと同じ参照からまた読める。
+  const openSaved = page.locator(".feed-attachment button", { hasText: "Noteで読む" }).first();
+  if (!(await openSaved.count())) {
+    failures.push("参照先を確かめるための「Noteで読む」がありません。");
+    return;
+  }
+  await openSaved.click();
+  await page.waitForTimeout(900);
+  const noteDrawer = page.locator(".drawer", { hasText: LIVE_ARTICLE_TITLE }).first();
+  if (!(await noteDrawer.count())) {
+    failures.push("保存したNoteの詳細を開けません。");
+    return;
+  }
+  await noteDrawer.locator("button", { hasText: "削除する" }).first().click();
+  await page.waitForTimeout(1500);
+  const missing = page.locator(".feed-attachment.is-missing").first();
+  if (!(await missing.count())) {
+    failures.push("Noteを削除しても、添付が参照先の不在を示していません。");
+  } else {
+    const message = await missing.innerText();
+    if (!message.includes("参照先が削除されています")) {
+      failures.push(`参照先がない案内が出ていません（${message}）。`);
+    }
+    if (await missing.locator("button", { hasText: "Noteに保存" }).count()) {
+      failures.push("参照先がない添付に「Noteに保存」が残っています。");
+    }
+    if (!(await missing.locator("button", { hasText: "草稿を読む" }).count())) {
+      failures.push("参照先がない添付から草稿を読めません。");
+    }
+  }
+  await page.screenshot({ path: `${OUT_DIR}/live-note-missing.png`, fullPage: true });
+
+  // 「元に戻す」は同じIDのNoteを戻すので、同じ参照からまた読める。
+  const undo = page.locator(".toast button", { hasText: "元に戻す" }).first();
+  if (!(await undo.count())) {
+    failures.push("Noteの削除を元に戻す導線が出ていません。");
+    return;
+  }
+  await undo.click();
+  await page.waitForTimeout(1800);
+  if (await page.locator(".feed-attachment.is-missing").count()) {
+    failures.push("元に戻しても添付が参照先の不在を示したままです。");
+  }
+  if (!(await page.locator(".feed-attachment button", { hasText: "Noteで読む" }).count())) {
+    failures.push("元に戻した後、同じ参照からNoteを開けません。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/live-note-restored.png`, fullPage: true });
 }
 
 try {
