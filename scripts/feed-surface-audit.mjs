@@ -258,6 +258,24 @@ try {
   if (afterBookmark !== String(EXPECTED_UNRESOLVED)) {
     failures.push(`ブックマークで対応待ち件数が変わりました（${afterBookmark}）。`);
   }
+
+  // 9. 返信の下書きは投稿ごとに残り、閉じても消えない。
+  const replyTarget = page.locator(".feed-post").first();
+  await replyTarget.locator(".feed-reaction", { hasText: "返信" }).first().click();
+  await page.waitForTimeout(300);
+  const draftText = "サンプル数を増やして同じ見方で比べたい";
+  await replyTarget.locator(".feed-reply textarea").fill(draftText);
+  await replyTarget.locator("button", { hasText: "閉じる（下書きは残る）" }).first().click();
+  await page.waitForTimeout(300);
+  if (await replyTarget.locator(".feed-reply textarea").count()) {
+    failures.push("返信の下書き欄を閉じられません。");
+  }
+  await replyTarget.locator(".feed-reaction", { hasText: "返信" }).first().click();
+  await page.waitForTimeout(300);
+  const restoredDraft = await replyTarget.locator(".feed-reply textarea").inputValue();
+  if (restoredDraft !== draftText) {
+    failures.push(`返信の下書きが復元されません（${restoredDraft}）。`);
+  }
 } finally {
   await app.close();
   rmSync(userDataDir, { recursive: true, force: true });
