@@ -437,6 +437,44 @@ async function auditFixtures(app, page) {
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: `${OUT_DIR}/dark-${size.label}-home.png`, fullPage: true });
   }
+
+  // 11. 読み上げの順序は 出所 → 本文 → 添付 → 反応。新着を自動で読み上げない。
+  const readOrder = await page.evaluate(() => {
+    const post = document.querySelector(".feed-post");
+    if (!post) return null;
+    const marks = [
+      ".feed-author-name",
+      ".feed-post-time",
+      ".feed-post-text",
+      ".feed-attachment",
+      ".feed-reactions",
+    ];
+    const order = [];
+    for (const node of post.querySelectorAll("*")) {
+      const index = marks.findIndex((selector) => node.matches(selector));
+      if (index >= 0 && !order.includes(index)) order.push(index);
+    }
+    const sorted = [...order].sort((a, b) => a - b);
+    return {
+      order,
+      ascending: order.length > 1 && order.join(",") === sorted.join(","),
+      liveRegions: document.querySelectorAll(
+        ".feed-timeline [aria-live], .feed-timeline [role='status'], .feed-timeline [role='alert'], .feed-timeline [role='log']",
+      ).length,
+    };
+  });
+  if (!readOrder) {
+    failures.push("読み上げ順を確かめる投稿がありません。");
+  } else {
+    if (!readOrder.ascending) {
+      failures.push(
+        `投稿の中の読み上げ順が 出所→本文→添付→反応 ではありません（${readOrder.order}）。`,
+      );
+    }
+    if (readOrder.liveRegions > 0) {
+      failures.push(`投稿の一覧に自動で読み上げる領域が${readOrder.liveRegions}件あります。`);
+    }
+  }
 }
 
 /**
