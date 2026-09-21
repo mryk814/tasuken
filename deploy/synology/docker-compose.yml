@@ -33,6 +33,8 @@ services:
     command:
       - --user-data-dir=/data
       - --sync-directory=/sync
+      # 既定はread-only。proposalsを選んだ場合だけ、テキストの投稿・提案を受け付ける。
+      - --write-mode=${TASKEN_CORE_WRITE_MODE:-read-only}
     volumes:
       - ./state:/data
       - ${TASKEN_SYNC_DIR:-/volume1/Tasken/sync}:/sync

@@ -30,7 +30,8 @@ services:
       - tasken-headless
     environment:
       TASKEN_USER_DATA_DIR: /data
-      TASKEN_MCP_READ_ONLY: "1"
+      # 既定は読み取り専用。投稿・提案を受け付ける配備では0にする（Core側の--write-mode=proposalsと両方必要）。
+      TASKEN_MCP_READ_ONLY: "${TASKEN_MCP_READ_ONLY:-1}"
       CONTROL_PLANE_TUNNEL_ID: "${CONTROL_PLANE_TUNNEL_ID:-}"
       MCP_COMMAND: "command=node /app/mcp-dist/server.mjs,channel=main"
       HEALTH_LISTEN_ADDR: "127.0.0.1:18080"

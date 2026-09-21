@@ -107,9 +107,18 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 - `TASKEN_MCP_READ_ONLY=1` でwrite tools（`start_task_work`・`report_task_done`・`propose_*`等）は公開されません（読み取りtoolsのみ）。replicaからcanonical stateを書き換えないための必須設定です。
 - 外部AIへつなぐSecure MCP Tunnel等のクライアントは、NASホスト側でこの`docker exec`をstdio起動する形にします。常時稼働させる構成は次のPhase 3を参照してください。
 
+### 投稿・提案を受け付ける（`--write-mode=proposals`）
+
+既定では読み取りだけです。`deploy/synology/.env`で`TASKEN_CORE_WRITE_MODE=proposals`にすると、CoreはテキストのFeed投稿・Note案・Task案だけを受け付けます。さらにtunnel側で`TASKEN_MCP_READ_ONLY=0`にすると、外部AIからこれらの提案を送れます（**両方の設定が必要**）。
+
+- Core側が許可範囲を強制します。範囲外の種類（`note_edit`・`feed_reply`・画像付きNote・`repository_context`・直接開始など）は`WRITE_NOT_ALLOWED`で拒否されます。
+- 作ったProposalは正式データではなく、DesktopのAgent Desk・Feedで人が確認して採用します。
+- 1つの`idempotency_key`は1つのnodeだけへ送ってください。DesktopとNASの両方へ同じkeyを送ると競合になります。
+- 画像付きProposalのstageはNASにはないため、画像付きNote案は受け付けられません。
+
 ## Phase 3: Secure MCP Tunnelで外部AIへ公開
 
-NASのCoreはloopbackのみなので、ChatGPT/Codex等へはOpenAI Secure MCP Tunnelの`tunnel-client`をNAS側で常駐させ、**outbound HTTPSだけ**で接続します（inboundポートは開けません）。実装は`deploy/synology/docker-compose.tunnel.yml`のサイドカーで、Coreとネットワーク名前空間を共有し、`node /app/mcp-dist/server.mjs`をstdio子プロセスとして起動します（`TASKEN_MCP_READ_ONLY=1`）。Tasken domain側へtransport固有logicは持ち込みません。
+NASのCoreはloopbackのみなので、ChatGPT/Codex等へはOpenAI Secure MCP Tunnelの`tunnel-client`をNAS側で常駐させ、**outbound HTTPSだけ**で接続します（inboundポートは開けません）。実装は`deploy/synology/docker-compose.tunnel.yml`のサイドカーで、Coreとネットワーク名前空間を共有し、`node /app/mcp-dist/server.mjs`をstdio子プロセスとして起動します（`TASKEN_MCP_READ_ONLY`は既定`1`）。Tasken domain側へtransport固有logicは持ち込みません。
 
 準備:
 

@@ -126,6 +126,10 @@
 
 Phase 0の同期調査結果を設計ゲートとする。read-only設定の単純解除では実施しない。
 
+状態: ローカル実装済み（2026-09-21）。実Synologyへの配置は未実施。
+
+実装内容: Headless Coreに `--write-mode`（`read-only` 既定 / `proposals`）を追加。既定は書き込みcapabilityを公開せず、`proposals` ではテキストのFeed投稿・Note案・Task案だけを受け付け、Core自身が種類単位で拒否する（`WRITE_NOT_ALLOWED`、HTTP 403）。Desktopは変更しない。`scripts/mcp-doctor.mjs` は `read-only`・`proposals` 配備を正常として診断する。NAS側のcompose・`.env.example` にも `TASKEN_CORE_WRITE_MODE` とtunnel側の `TASKEN_MCP_READ_ONLY` 既定を反映した。
+
 ### 作業
 
 1. 読み取り専用／投稿・提案受付の能力を明示する。既存Desktop動作との互換を維持する。
