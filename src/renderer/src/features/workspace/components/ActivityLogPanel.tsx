@@ -83,6 +83,7 @@ const EVENT_LABELS: Record<string, string> = {
   task_ai_work: "AI作業",
   task_ai_accepted: "作業を受領",
   task_ai_returned: "作業を差し戻し",
+  task_ai_reassigned: "任せ直し",
   waiting_received: "待ちを受領",
   waiting_updated: "待ちを更新",
   plan_node_created: "計画を追加",

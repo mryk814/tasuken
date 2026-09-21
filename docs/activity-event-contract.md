@@ -30,7 +30,7 @@ Task の CompleteTask / ReopenTask はそれぞれ
 task_completed / task_reopened です。
 Task の作業経路は task_work_recorded（開始・人間作業の報告）、
 task_ai_reported（AIのWork Receipt報告）、task_ai_accepted（人間の受入れ）、
-task_ai_returned（人間の差戻し）です。Work Receiptは task_id と
+task_ai_returned（人間の差戻し）、task_ai_reassigned（人間の任せ直し）です。Work Receiptは task_id と
 work_receipt_ref でTaskへ結びますが、Receipt本文はappend-onlyです。
 AIの報告・Receiptの追加はTaskのstateをdoneへ変更せず、
 CompleteTaskはAI Taskがacceptedになった後だけ許可します。
@@ -84,6 +84,10 @@ Taskの永続化境界では、intended_executor=ai_agentかつstate=doneを
 work_state=accepted以外で保存できません。intended_executorの変更は同じ境界で正規化し、
 AIへ割り当てる場合はready_for_agent、AIから外す場合はnot_delegatedへ戻します。
 in_progress / reported_done / needs_human_review 中の再割当は、Receiptの帰属を曖昧にしないため拒否します。
+ただし `ReassignTaskWork`（#602の明示Command。人間UI限定）は、この境界を通らずに
+**委任を解除して新しい作業単位IDで任せ直せます**。作業単位が変わるので、前の相手の遅い報告は
+`past_attempt_report` として読め、現在の判断を復活させません。確認中（reported_done /
+needs_human_review）だけは先に採用か差戻しを求めます。外部プロセスの停止は保証しません。
 
 ## canonical / AI projection
 

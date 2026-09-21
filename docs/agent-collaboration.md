@@ -165,29 +165,30 @@ Tasken が採らない差分：
 
 ### 5.1 決定した用語
 
-| 語                          | 種別                   | 意味                                                                                                               | 実装上の対応                                         |
-| --------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| **Agent Desk**              | 表示名（採用）         | 任せた仕事がどこまで進み、何を待っているかを確認する画面。見出しは「対応待ち」「作業中」「開始待ち」「最近の結果」 | route ID は初回 `ai-io` を保持する（§6.4）           |
-| **Feed**                    | 表示名（experimental） | 前回から何が変わり、今どこに反応するかを読む任意入口。既定画面にはしない                                           | 新規route。起動時の既定routeを変更しない             |
-| **Today**                   | 表示名（既存）         | 今日、自分が何を実行するかを選ぶ場所                                                                               | route `today` を変更しない                           |
-| **Task**                    | canonical              | 仕事の唯一の正本。ownerは常に利用者                                                                                | `Task` entity                                        |
-| **起案者 / Requester**      | canonical              | Taskを起案した主体。人間の責任主体とは同一視しない                                                                 | `Task.requester`                                     |
-| **委任先 / Delegate**       | canonical              | 現在このTaskの作業を任せている相手                                                                                 | `Task.intended_executor` ＋ `Task.executor_identity` |
-| **実行者 / Executor**       | canonical              | 実際に作業し報告した相手                                                                                           | `work_receipt.executor_kind` / `executor_label`      |
-| **作業単位 / work attempt** | 新規（#595で固定）     | Taskへの**一回の委任**を識別する単位。再委任・明示的な再依頼で更新する                                             | 新規ID。§6.2                                         |
-| **質問 / request**          | 新規（#597で固定）     | agentから人間へ届いた、一回の回答または判断の要求。再送でIDを変えない                                              | 新規ID。§6.2                                         |
-| **要対応 / attention**      | projection             | 未解決の質問・レビュー・Proposalから導出した判断待ち。正本のentityではない                                         | 共通read model。§6.3                                 |
-| **対応待ち**                | 表示名                 | 要対応のうち、人間の操作が必要なもの                                                                               | —                                                    |
-| **成果確認**                | 表示名                 | agentの報告を人が確認する状態                                                                                      | `work_state: needs_human_review` 相当のprojection    |
-| **受入れ / 採用**           | 操作名                 | 報告を正式Receiptとして保存すること。Taskは完了しない                                                              | `AcceptTaskWork`（`complete_task: false`）           |
-| **採用してTaskを完了**      | 操作名                 | 採用範囲を保存し、人が明示したTask完了を実行する                                                                   | `AcceptTaskWork`（`complete_task: true`）            |
-| **委任を解除**              | 操作名                 | 実行中の相手への委任を終えること。外部プロセスの停止は保証しない                                                   | #602で明示Command化                                  |
-| **後で見る**                | 操作名                 | この質問や報告の再表示日時を選ぶ。Taskの日程は変えない                                                             | `AttentionDisposition`（§6.2）                       |
-| **扱う日を変更**            | 操作名                 | Taskの `today_date` を変える。締切（Scheduleの終了日）は変えない                                                   | `today_date` のみ更新                                |
-| **締切を変更**              | 操作名                 | Scheduleの終了日を変える                                                                                           | `Schedule.end_date`                                  |
-| **自分**                    | 表示上の主体           | 単一利用者workspaceの前提。多人数owner管理を増やさない                                                             | 新fieldを作らない                                    |
-| **AI Ready**                | 既存                   | `intended_executor=ai_agent` かつ `work_state=ready_for_agent`。事前許可                                           | 変更しない                                           |
-| **Agent Session**           | 既存                   | 外部AI clientと利用者が一続きに行った作業のprovenance。作業単位とは別概念                                          | `AgentSession` entity                                |
+| 語                           | 種別                   | 意味                                                                                                               | 実装上の対応                                         |
+| ---------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| **Agent Desk**               | 表示名（採用）         | 任せた仕事がどこまで進み、何を待っているかを確認する画面。見出しは「対応待ち」「作業中」「開始待ち」「最近の結果」 | route ID は初回 `ai-io` を保持する（§6.4）           |
+| **Feed**                     | 表示名（experimental） | 前回から何が変わり、今どこに反応するかを読む任意入口。既定画面にはしない                                           | 新規route。起動時の既定routeを変更しない             |
+| **Today**                    | 表示名（既存）         | 今日、自分が何を実行するかを選ぶ場所                                                                               | route `today` を変更しない                           |
+| **Task**                     | canonical              | 仕事の唯一の正本。ownerは常に利用者                                                                                | `Task` entity                                        |
+| **起案者 / Requester**       | canonical              | Taskを起案した主体。人間の責任主体とは同一視しない                                                                 | `Task.requester`                                     |
+| **委任先 / Delegate**        | canonical              | 現在このTaskの作業を任せている相手                                                                                 | `Task.intended_executor` ＋ `Task.executor_identity` |
+| **実行者 / Executor**        | canonical              | 実際に作業し報告した相手                                                                                           | `work_receipt.executor_kind` / `executor_label`      |
+| **作業単位 / work attempt**  | 新規（#595で固定）     | Taskへの**一回の委任**を識別する単位。再委任・明示的な再依頼で更新する                                             | 新規ID。§6.2                                         |
+| **質問 / request**           | 新規（#597で固定）     | agentから人間へ届いた、一回の回答または判断の要求。再送でIDを変えない                                              | 新規ID。§6.2                                         |
+| **要対応 / attention**       | projection             | 未解決の質問・レビュー・Proposalから導出した判断待ち。正本のentityではない                                         | 共通read model。§6.3                                 |
+| **対応待ち**                 | 表示名                 | 要対応のうち、人間の操作が必要なもの                                                                               | —                                                    |
+| **成果確認**                 | 表示名                 | agentの報告を人が確認する状態                                                                                      | `work_state: needs_human_review` 相当のprojection    |
+| **受入れ / 採用**            | 操作名                 | 報告を正式Receiptとして保存すること。Taskは完了しない                                                              | `AcceptTaskWork`（`complete_task: false`）           |
+| **採用してTaskを完了**       | 操作名                 | 採用範囲を保存し、人が明示したTask完了を実行する                                                                   | `AcceptTaskWork`（`complete_task: true`）            |
+| **委任を解除**               | 操作名                 | 実行中の相手への委任を終えること。外部プロセスの停止は保証しない                                                   | `ReassignTaskWork`（#602）                           |
+| **新しい作業単位で任せ直す** | 操作名                 | 委任を解除し、別の相手へ新しい作業単位IDで任せ直す。前の相手の遅い報告は履歴になる                                 | `ReassignTaskWork`（#602）                           |
+| **後で見る**                 | 操作名                 | この質問や報告の再表示日時を選ぶ。Taskの日程は変えない                                                             | `AttentionDisposition`（§6.2）                       |
+| **扱う日を変更**             | 操作名                 | Taskの `today_date` を変える。締切（Scheduleの終了日）は変えない                                                   | `today_date` のみ更新                                |
+| **締切を変更**               | 操作名                 | Scheduleの終了日を変える                                                                                           | `Schedule.end_date`                                  |
+| **自分**                     | 表示上の主体           | 単一利用者workspaceの前提。多人数owner管理を増やさない                                                             | 新fieldを作らない                                    |
+| **AI Ready**                 | 既存                   | `intended_executor=ai_agent` かつ `work_state=ready_for_agent`。事前許可                                           | 変更しない                                           |
+| **Agent Session**            | 既存                   | 外部AI clientと利用者が一続きに行った作業のprovenance。作業単位とは別概念                                          | `AgentSession` entity                                |
 
 **「作業単位」と「Agent Session」は別物。** 一つのSessionが複数Taskを扱いうるし、一つのTaskに複数の作業単位が生じうる。両者を同じIDで扱わない。
 

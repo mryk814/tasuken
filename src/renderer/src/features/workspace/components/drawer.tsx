@@ -1656,6 +1656,7 @@ function EditDrawer({
             key={`handoff:${taskForWorkSection.id}:${taskForWorkSection.work_state || taskForWorkSection.intended_executor || "not_delegated"}`}
             task={taskForWorkSection}
             saveEntities={saveEntities}
+            executeCommand={_executeCommand}
             setToast={setToast}
           />
         )}

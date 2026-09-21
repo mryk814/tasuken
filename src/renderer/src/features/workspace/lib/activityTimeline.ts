@@ -77,6 +77,7 @@ const outcomeEventKinds = new Set([
   "task_ai_reported",
   "task_ai_accepted",
   "task_ai_returned",
+  "task_ai_reassigned",
   "waiting_received",
 ]);
 

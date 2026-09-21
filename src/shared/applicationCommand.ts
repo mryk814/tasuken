@@ -23,6 +23,7 @@ export const applicationCommandNames = [
   "ReportTaskBlocked",
   "AcceptTaskWork",
   "ReturnTaskWork",
+  "ReassignTaskWork",
   "ReplyToAgentRequest",
   "CommitAudioCapture",
   "CommitVideoArtifact",
@@ -571,6 +572,22 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     typeof value.payload.reviewNote !== "string"
   ) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", "ReturnTaskWorkのreviewNoteが不正です。");
+  }
+  if (
+    name === "ReassignTaskWork" &&
+    (typeof value.payload.taskId !== "string" ||
+      !value.payload.taskId.trim() ||
+      typeof value.payload.executorIdentity !== "string" ||
+      !value.payload.executorIdentity.trim() ||
+      value.payload.executorIdentity.length > 200 ||
+      (value.payload.reason !== undefined &&
+        value.payload.reason !== null &&
+        (typeof value.payload.reason !== "string" || value.payload.reason.length > 2_000)))
+  ) {
+    throw new ApplicationCommandError(
+      "INVALID_PAYLOAD",
+      "ReassignTaskWorkのtaskIdまたはexecutorIdentityが不正です。",
+    );
   }
   if (name === "CompleteTaskWithLearning") {
     const required = ["task", "note"];

@@ -241,6 +241,129 @@ test("再割当後は前の作業単位の報告が過去の報告になり、�
   assert.deepEqual(new Set(past.map((report) => report.workAttemptId)), new Set([ATTEMPT_A]));
 });
 
+function reassign(service, repo, { commandId = "reassign-b", executorIdentity = "Claude" } = {}) {
+  const task = repo.get("task", "task-viscosity");
+  return service.execute(
+    envelope(
+      "ReassignTaskWork",
+      { taskId: task.id, executorIdentity, reason: "相手を交代" },
+      commandId,
+      [{ type: "task", id: task.id, version: task.version }],
+    ),
+  );
+}
+
+test("明示Commandで任せ直すと新しい作業単位になり、前の相手の報告は履歴になる（#602 再割当）", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  startWork(service, repo, {
+    commandId: "start-a",
+    attemptId: ATTEMPT_A,
+    executorIdentity: "Codex",
+  });
+  adoptWorkProposal(
+    service,
+    repo,
+    saveWorkProposal(repo, {
+      proposalId: "progress-a",
+      action: "append_receipt",
+      summary: "条件を比較中",
+      reportedAt: "2026-09-20T08:30:00.000Z",
+      workAttemptId: ATTEMPT_A,
+    }),
+  );
+
+  // 作業中でも、人間の明示操作なら委任を解除して任せ直せる。
+  const receipt = reassign(service, repo);
+  assert.equal(receipt.status, "applied");
+  const task = repo.get("task", "task-viscosity");
+  const attemptB = task.work_attempt_id;
+  assert.ok(attemptB && attemptB !== ATTEMPT_A, "作業単位IDが新しくなる");
+  assert.equal(task.intended_executor, "ai_agent");
+  assert.equal(task.executor_identity, "Claude");
+  assert.equal(task.work_state, "ready_for_agent");
+  assert.equal(task.work_started_at ?? null, null);
+  assert.equal(task.work_reported_at ?? null, null);
+
+  // 前の相手の遅い完了報告は履歴として読め、現在の判断を復活させない。
+  saveWorkProposal(repo, {
+    proposalId: "done-a-late",
+    action: "report_done",
+    summary: "A の完了報告",
+    reportedAt: "2026-09-20T12:00:00.000Z",
+    workAttemptId: ATTEMPT_A,
+  });
+  const state = readModel(repo);
+  assert.equal(state.workAttemptId, attemptB);
+  assert.equal(state.state, "start_waiting");
+  assert.equal(state.attention.length, 0);
+  assert.equal(
+    state.reports.some((report) => report.displayState === "past_attempt_report"),
+    true,
+  );
+
+  // 任せ直しはActivityへ残る。
+  const event = repo
+    .list("change_event")
+    .find((entry) => entry.event_kind === "task_ai_reassigned");
+  assert.ok(event);
+  assert.equal(event.metadata.work_action, "reassigned");
+  assert.equal(event.metadata.executor_label, "Claude");
+  assert.equal(event.metadata.previous_work_attempt_id, ATTEMPT_A);
+  assert.equal(event.metadata.work_attempt_id, attemptB);
+});
+
+test("確認待ちの委任は任せ直せず、先に採用か差戻しを求める", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  repo.save("task", {
+    ...repo.get("task", "task-viscosity"),
+    work_state: "needs_human_review",
+    work_attempt_id: ATTEMPT_A,
+    work_reported_at: "2026-09-20T09:00:00.000Z",
+  });
+  assert.throws(
+    () => reassign(service, repo),
+    /確認待ちの委任は、先に採用か差戻しを行ってください/,
+  );
+  assert.equal(repo.get("task", "task-viscosity").work_attempt_id, ATTEMPT_A);
+});
+
+test("任せ直しはMCPやAI agentからは実行できない", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  const task = repo.get("task", "task-viscosity");
+  assert.throws(
+    () =>
+      service.execute({
+        ...envelope(
+          "ReassignTaskWork",
+          { taskId: task.id, executorIdentity: "Claude" },
+          "reassign-mcp",
+          [{ type: "task", id: task.id, version: task.version }],
+        ),
+        source: "mcp",
+      }),
+    /人間UIからのみ/,
+  );
+  assert.throws(
+    () =>
+      service.execute(
+        envelope(
+          "ReassignTaskWork",
+          { taskId: task.id, executorIdentity: "Claude" },
+          "reassign-ai",
+          [{ type: "task", id: task.id, version: task.version }],
+          { kind: "ai_agent", id: "codex" },
+        ),
+      ),
+    /AI agentはTaskを直接変更・完了できません/,
+  );
+});
+
 test("質問IDは受領したReceiptへ保存され、回答待ちの識別子になる", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);

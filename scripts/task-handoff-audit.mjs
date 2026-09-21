@@ -2,7 +2,8 @@
  * Task詳細のAIへ任せる（Handoff #598）の実動監査
  *
  * 一時userDataへ架空のTaskを仕込んでからアプリを起動し、
- * Context Previewが出ること、準備後に「開始待ち」になり、working扱いしないことを実測する。
+ * Context Previewが出ること、準備後に「開始待ち」になり、working扱いしないこと、
+ * 明示操作で新しい作業単位へ任せ直せること（#602の再割当）を実測する。
  *
  *   npm run build && npm run audit:handoff
  */
@@ -33,10 +34,13 @@ seed.save("task", {
   priority: "normal",
 });
 seed.db.close();
+const databasePath = path.join(userDataDir, "research-desk.sqlite");
 
 const app = await electron.launch({
   args: [".", "--disable-gpu", "--disable-gpu-compositing", `--user-data-dir=${userDataDir}`],
 });
+/** 画面の操作を最後まで通せたか。途中で失敗したときは保存状態を判定しない。 */
+let reachedEnd = false;
 try {
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
@@ -105,8 +109,68 @@ try {
     failures.push("再起動後に追加指示が失われています。");
   }
   await page.screenshot({ path: `${OUT_DIR}/handoff-after-reload.png`, fullPage: true });
+
+  // 明示操作で、新しい作業単位へ任せ直せる（#602の再割当）。
+  await page.locator(".task-handoff select").first().selectOption({ label: "Claude Code" });
+  await page
+    .locator(".task-handoff button", { hasText: "新しい作業単位で任せ直す" })
+    .first()
+    .click();
+  await page.waitForTimeout(2500);
+  const reassignedText = (await page.locator(".task-handoff").innerText()).replace(/\s+/g, " ");
+  if (!reassignedText.includes("Claude Code")) {
+    failures.push(`任せ直し後の相手が表示されていません: ${reassignedText.slice(0, 200)}`);
+  }
+  if (!reassignedText.includes("開始待ち")) {
+    failures.push("任せ直し後に開始待ちへ戻っていません。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/handoff-reassigned.png`, fullPage: true });
+  reachedEnd = true;
 } finally {
   await app.close();
+  // 画面の操作が正式データへ残ったかを、同じworkspaceを開き直して確かめる。
+  if (reachedEnd) {
+    const verify = new WorkspaceDatabase(databasePath);
+    try {
+      verify.loadWorkspace();
+      const task = verify.get("task", "handoff-audit-task");
+      if (task.intended_executor !== "ai_agent") failures.push("委任先がAIになっていません。");
+      if (task.executor_identity !== "Claude Code") {
+        failures.push(`任せ直し後の相手が違います（${task.executor_identity}）。`);
+      }
+      if (task.work_state !== "ready_for_agent") {
+        failures.push(`任せ直し後のwork_stateが違います（${task.work_state}）。`);
+      }
+      if (!/^[0-9a-f-]{36}$/u.test(String(task.work_attempt_id || ""))) {
+        failures.push(`作業単位IDが新しく採番されていません（${task.work_attempt_id}）。`);
+      }
+      if (task.work_started_at || task.work_reported_at) {
+        failures.push("任せ直し後も開始・報告の時刻が残っています。");
+      }
+      const event = verify
+        .list("change_event")
+        .find((entry) => entry.event_kind === "task_ai_reassigned");
+      if (!event) {
+        failures.push("任せ直しがActivityの出来事として残っていません。");
+      } else {
+        if (event.metadata.work_action !== "reassigned") {
+          failures.push("任せ直しのwork_actionが違います。");
+        }
+        if (event.metadata.executor_label !== "Claude Code") {
+          failures.push("任せ直しの実行者名が残っていません。");
+        }
+        if (event.metadata.work_attempt_id !== task.work_attempt_id) {
+          failures.push("任せ直しの作業単位IDがTaskと一致しません。");
+        }
+      }
+      // 依頼内容はTaskの正本として残る（Handoffは本文を変えない）。
+      if (String(task.description || "") !== "25℃と40℃の比較を進める。") {
+        failures.push("HandoffでTask本文が変わっています。");
+      }
+    } finally {
+      verify.db.close();
+    }
+  }
   rmSync(userDataDir, { recursive: true, force: true });
 }
 

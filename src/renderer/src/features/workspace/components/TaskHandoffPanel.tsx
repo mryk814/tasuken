@@ -7,10 +7,12 @@ import {
   isSameHandoffContextRef,
   type HandoffDelegate,
 } from "../../../../../shared/contracts/task/public.ts";
+import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { Task } from "../domain-model/types";
 import { buildSaveTaskOperations } from "../domain-model/persistence";
-import type { SaveEntities } from "../types";
+import type { SaveEntities, ExecuteCommand } from "../types";
+import { uuid } from "../lib/format";
 import { buildTaskAiRequest, type HandoffRequestInfo } from "../lib/taskAiRequest";
 import { Button } from "./common";
 
@@ -62,10 +64,12 @@ function previewSummary(result: PreviewResult | null): string {
 export function TaskHandoffPanel({
   task,
   saveEntities,
+  executeCommand,
   setToast,
 }: {
   task: Task;
   saveEntities: SaveEntities;
+  executeCommand?: ExecuteCommand;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
 }) {
   const [delegate, setDelegate] = useState<HandoffDelegate>(() =>
@@ -86,6 +90,8 @@ export function TaskHandoffPanel({
     task.work_state ||
     (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
   const waitingForStart = Boolean(task.handoff_requested_at) && workState === "ready_for_agent";
+  /** 確認待ちは先に採用か差戻しをしてもらう。それ以外は明示操作で任せ直せる。 */
+  const reassignable = !["reported_done", "needs_human_review"].includes(workState);
 
   const loadPreview = useCallback(async () => {
     setBusy(true);
@@ -220,8 +226,51 @@ export function TaskHandoffPanel({
     }
   }
 
+  /**
+   * 委任を解除して、新しい作業単位で任せ直す（#602）。
+   *
+   * 実行中の相手を止める保証はないため、「停止」とは書かない。作業単位が変わるので、
+   * 前の相手の遅い報告は履歴として読め、いまの判断を動かさない。
+   */
+  async function reassignWork() {
+    if (busy || !executeCommand) return;
+    setBusy(true);
+    try {
+      await executeCommand({
+        commandId: uuid(),
+        name: "ReassignTaskWork",
+        payload: {
+          taskId: task.id,
+          executorIdentity: HANDOFF_DELEGATE_LABELS[delegate],
+        },
+        actor: { kind: "user" },
+        source: "main_ui",
+        expectedVersions: [
+          {
+            type: "task",
+            id: task.id,
+            version: Number((task as { version?: number }).version || 0),
+          },
+        ],
+        issuedAt: new Date().toISOString(),
+      } as unknown as CommandEnvelope);
+      setToast(
+        "委任を解除して、新しい作業単位で任せ直しました。外部AIでの実行停止は保証されません。",
+        "success",
+      );
+    } catch (error) {
+      setToast(
+        `任せ直せませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="task-handoff">
+      {" "}
       <div className="section-heading">
         <h4>AIへ任せる</h4>
         {waitingForStart ? (
@@ -230,14 +279,12 @@ export function TaskHandoffPanel({
           <span className="task-handoff-state is-working">作業中</span>
         ) : null}
       </div>
-
       {waitingForStart ? (
         <p className="task-handoff-note">
           {String(task.executor_identity || "外部AI")}へ依頼文を渡すと開始できます。
           開始の報告を受けるまでは「開始待ち」です。
         </p>
       ) : null}
-
       <div className="task-handoff-fields">
         <label>
           任せる相手
@@ -271,7 +318,6 @@ export function TaskHandoffPanel({
           />
         </label>
       </div>
-
       <div className="task-handoff-preview" role="group" aria-label="Context Preview">
         <div className="task-handoff-preview-head">
           <strong>Context Preview</strong>
@@ -300,13 +346,11 @@ export function TaskHandoffPanel({
           </p>
         ))}
       </div>
-
       {staleNotice ? (
         <p className="task-handoff-warning" role="status">
           {staleNotice}
         </p>
       ) : null}
-
       <p className="task-handoff-note">
         準備しても外部AIは自動で起動しません。依頼文を渡したあと、開始の報告を受けるまで「開始待ち」です。
       </p>
@@ -324,6 +368,12 @@ export function TaskHandoffPanel({
         {waitingForStart || task.intended_executor === "ai_agent" ? (
           <Button variant="secondary" onClick={() => void releaseDelegation()} disabled={busy}>
             委任を解除
+          </Button>
+        ) : null}
+        {/* 実行中でも、明示操作として新しい作業単位へ任せ直せる（安易なラベル差し替えはしない）。 */}
+        {task.intended_executor === "ai_agent" && reassignable ? (
+          <Button variant="secondary" onClick={() => void reassignWork()} disabled={busy}>
+            新しい作業単位で任せ直す
           </Button>
         ) : null}
       </div>

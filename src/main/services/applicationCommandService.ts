@@ -1316,6 +1316,7 @@ export class ApplicationCommandService {
     if (command.name === "AcceptTaskWork")
       return this.acceptTaskWork(command, taskWorkContext?.exactReceiptId);
     if (command.name === "ReturnTaskWork") return this.returnTaskWork(command);
+    if (command.name === "ReassignTaskWork") return this.reassignTaskWork(command);
     if (command.name === "ReplyToAgentRequest") return this.replyToAgentRequest(command);
     throw new ApplicationCommandError(
       "INVALID_ENVELOPE",
@@ -2581,6 +2582,90 @@ export class ApplicationCommandService {
       },
     });
     return mergeCommandReceipts(this.repository, command, [returned, decision]);
+  }
+
+  /**
+   * 委任を解除して、新しい作業単位で任せ直す（#602の再割当）。
+   *
+   * 実行中の相手を止める保証はないため、「AIを停止」とは扱わない。作業単位IDを新しくするので、
+   * 前の相手の遅い報告は履歴として読め、現在の判断を復活させない。
+   * 確認中（reported_done / needs_human_review）は先に採用か差戻しを求める。
+   */
+  private reassignTaskWork(command: CommandEnvelope): CommandReceipt {
+    assertHumanReviewActor(command, "ReassignTaskWork");
+    const payload = command.payload as {
+      taskId: string;
+      executorIdentity: string;
+      reason?: string | null;
+    };
+    const taskId = asTaskId(payload);
+    const current = this.repository.get("task", taskId);
+    if (!current)
+      throw new ApplicationCommandError("NOT_FOUND", "再委任するTaskがありません。", {
+        id: taskId,
+      });
+    if (!expectedVersionFor(command, "task", taskId))
+      throw new ApplicationCommandError(
+        "CONFLICT",
+        "ReassignTaskWorkにはexpected versionが必要です。",
+        { type: "task", id: taskId },
+      );
+    assertExpectedVersion(this.repository, command, "task", taskId, current);
+    if (["done", "cancelled"].includes(String(current.state)))
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        "完了・中止したTaskへは任せ直せません。",
+        { id: taskId, state: current.state },
+      );
+    const currentState = currentWorkState(current);
+    if (currentState === "reported_done" || currentState === "needs_human_review")
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        "確認待ちの委任は、先に採用か差戻しを行ってください。",
+        { id: taskId, work_state: currentState },
+      );
+    const executorIdentity = payload.executorIdentity.trim();
+    const previousAttemptId =
+      typeof current.work_attempt_id === "string" && current.work_attempt_id
+        ? current.work_attempt_id
+        : null;
+    const workAttemptId = randomUUID();
+    const nextTask: Entity = {
+      ...current,
+      intended_executor: "ai_agent",
+      executor_identity: executorIdentity,
+      work_state: "ready_for_agent",
+      work_attempt_id: workAttemptId,
+      work_started_at: null,
+      work_reported_at: null,
+      work_review_note: null,
+    };
+    taskDefinition.parseUpdate(nextTask);
+    assertThemeExists(this.repository, nextTask);
+    const reason = typeof payload.reason === "string" ? payload.reason.trim() : "";
+    const event = annotateEvent(
+      command,
+      commandEvent(command, "task", taskId, "updated", current, nextTask, "task_ai_reassigned"),
+    );
+    event.metadata = {
+      ...((event.metadata as Record<string, unknown>) || {}),
+      include_in_activity: true,
+      work_action: "reassigned",
+      executor_label: executorIdentity,
+      work_attempt_id: workAttemptId,
+      ...(previousAttemptId ? { previous_work_attempt_id: previousAttemptId } : {}),
+      ...(reason ? { reason } : {}),
+    };
+    return persistReceipt(
+      this.repository,
+      command,
+      [
+        { action: "save", type: "task", entity: nextTask },
+        { action: "save", type: "change_event", entity: event },
+      ],
+      [event.id],
+      ["task"],
+    );
   }
 
   /**
