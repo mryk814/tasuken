@@ -86,7 +86,12 @@ test("offlineでキャッシュがあれば、前回取得分と「更新でき�
   });
   assert.equal(state, "stale");
   assert.equal(
-    calendarFetchedLabel({ fetchedAt: "2026-09-21T05:20:00.000Z", stale: true, locale: "ja-JP" }),
+    calendarFetchedLabel({
+      fetchedAt: "2026-09-21T05:20:00.000Z",
+      stale: true,
+      locale: "ja-JP",
+      timeZone: "Asia/Tokyo",
+    }),
     "最終更新 14:20／更新できません",
   );
 });
@@ -134,9 +139,37 @@ test("取得に失敗し前回の結果も無いときは、接続のやり直�
 
 test("取得時刻の表示は、更新できたときと できていないときを区別する", () => {
   assert.equal(
-    calendarFetchedLabel({ fetchedAt: "2026-09-21T05:20:00.000Z", stale: false, locale: "ja-JP" }),
+    calendarFetchedLabel({
+      fetchedAt: "2026-09-21T05:20:00.000Z",
+      stale: false,
+      locale: "ja-JP",
+      timeZone: "Asia/Tokyo",
+    }),
     "最終更新 14:20",
   );
   assert.equal(calendarFetchedLabel({ fetchedAt: "", stale: false }), "");
   assert.equal(calendarFetchedLabel({ fetchedAt: "not-a-date", stale: true }), "");
+});
+
+test("取得時刻の表示は実行環境のタイムゾーンに依存せず、カレンダーのtimeZoneで決まる", () => {
+  const at = "2026-09-21T05:20:00.000Z";
+  // 同じ取得時刻でも、カレンダーのtimeZoneが違えば表示も変わる（JSTとUTCで9時間差）。
+  assert.equal(
+    calendarFetchedLabel({ fetchedAt: at, stale: false, locale: "ja-JP", timeZone: "Asia/Tokyo" }),
+    "最終更新 14:20",
+  );
+  assert.equal(
+    calendarFetchedLabel({ fetchedAt: at, stale: false, locale: "ja-JP", timeZone: "UTC" }),
+    "最終更新 05:20",
+  );
+  // 未知のtimeZoneでも表示自体は落とさない（providerの異常値で欄を消さない）。
+  assert.match(
+    calendarFetchedLabel({
+      fetchedAt: at,
+      stale: false,
+      locale: "ja-JP",
+      timeZone: "Not/AZone",
+    }),
+    /^最終更新 \d{2}:\d{2}$/u,
+  );
 });

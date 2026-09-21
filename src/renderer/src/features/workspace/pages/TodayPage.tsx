@@ -911,6 +911,7 @@ function TodayCalendarSection({ onReconnect }: { onReconnect: () => void }) {
   const fetchedLabel = calendarFetchedLabel({
     fetchedAt: calendarResult?.fetchedAt || "",
     stale: calendarResult?.stale === true,
+    timeZone: calendarResult?.timeZone,
   });
   const titleFor = (event: CalendarEvent) =>
     event.sensitivity === "normal" ? event.title : "予定あり";

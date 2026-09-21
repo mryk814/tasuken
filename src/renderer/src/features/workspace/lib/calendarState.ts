@@ -50,19 +50,30 @@ export function todayCalendarState(input: {
   return "empty";
 }
 
-/** 「最終更新 14:20／更新できません」のように、取得できた時刻と今の状態を短く示す。 */
+/**
+ * 「最終更新 14:20／更新できません」のように、取得できた時刻と今の状態を短く示す。
+ *
+ * 表示はカレンダー結果の `timeZone` で行う。実行環境のタイムゾーンで整形すると、
+ * 同じ取得時刻でも端末ごとに違う時刻を出してしまう（CIはUTC、利用者はJSTなど）。
+ */
 export function calendarFetchedLabel(input: {
   fetchedAt: string;
   stale: boolean;
   locale?: string;
+  timeZone?: string;
 }): string {
   if (!input.fetchedAt) return "";
   const at = new Date(input.fetchedAt);
   if (Number.isNaN(at.getTime())) return "";
-  const time = at.toLocaleTimeString(input.locale || "ja-JP", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const options: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
+  if (input.timeZone) options.timeZone = input.timeZone;
+  let time: string;
+  try {
+    time = at.toLocaleTimeString(input.locale || "ja-JP", options);
+  } catch {
+    // providerが未知のタイムゾーンを返した場合も、取得時刻の表示自体は落とさない。
+    time = at.toLocaleTimeString(input.locale || "ja-JP", { hour: "2-digit", minute: "2-digit" });
+  }
   return input.stale ? `最終更新 ${time}／更新できません` : `最終更新 ${time}`;
 }
 
