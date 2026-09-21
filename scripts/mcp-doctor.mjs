@@ -13,13 +13,63 @@ import {
   TaskenCoreClient,
   TaskenCoreClientError,
 } from "../src/main/mcp/taskenCoreClient.mjs";
+import {
+  TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
+  TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
+  TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
+  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+} from "../src/shared/contracts/core/public.mjs";
+
+/**
+ * 書き込みcapability。配備によって公開範囲が変わるため、読み取りとは別に診断する。
+ * `proposals`配備はテキストのFeed投稿・Note案・Task案だけを公開する。
+ */
+const WRITE_CORE_CAPABILITIES = [
+  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+  TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
+  TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
+  TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
+  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+];
+const PROPOSALS_ONLY_CORE_CAPABILITIES = [
+  TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
+  TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
+];
+
+/**
+ * Coreが公開している書き込みの範囲。
+ * `partial`は既知の配備と一致しない組み合わせで、更新や設定の不一致として扱う。
+ */
+export function writeProfile(capabilities) {
+  const present = (capability) => capabilities.includes(capability);
+  const presentWrites = WRITE_CORE_CAPABILITIES.filter(present);
+  const missingWrites = WRITE_CORE_CAPABILITIES.filter((capability) => !present(capability));
+  if (presentWrites.length === 0) return { profile: "read-only", missingWrites };
+  if (missingWrites.length === 0) return { profile: "full", missingWrites };
+  if (
+    presentWrites.length === PROPOSALS_ONLY_CORE_CAPABILITIES.length &&
+    PROPOSALS_ONLY_CORE_CAPABILITIES.every(present)
+  ) {
+    return { profile: "proposals", missingWrites };
+  }
+  return { profile: "partial", missingWrites };
+}
 
 export async function buildReport(coreClient = new TaskenCoreClient()) {
   try {
     const status = await coreClient.inspect();
-    const missing = TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter(
+    const writeCapabilities = new Set(WRITE_CORE_CAPABILITIES);
+    const readCapabilities = TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter(
+      (capability) => !writeCapabilities.has(capability),
+    );
+    const missingRead = readCapabilities.filter(
       (capability) => !status.capabilities.includes(capability),
     );
+    const { profile, missingWrites } = writeProfile(status.capabilities);
+    // 既知の配備（read-only / proposals）は書き込みが無くても正常。
+    // 既知でない組み合わせだけを不足として報告する。
+    const missing = profile === "partial" ? [...missingRead, ...missingWrites] : [...missingRead];
     const checks = [
       {
         status: "ok",
@@ -31,18 +81,32 @@ export async function buildReport(coreClient = new TaskenCoreClient()) {
         code: "MCP_CORE_VERSION_MATCH",
         message: `Tasken Core API ${status.api_version} に接続しました。`,
       },
-      missing.length === 0
+      missing.length > 0
         ? {
-            status: "ok",
-            code: "MCP_CORE_CAPABILITIES_READY",
-            message: `MCPに必要な ${TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.length} capabilitiesを確認しました。`,
-          }
-        : {
             status: "error",
             code: "MCP_CORE_CAPABILITIES_MISSING",
             message: `MCPに必要な capabilitiesが ${missing.length} 件不足しています。`,
             missing_capabilities: missing,
-          },
+          }
+        : profile === "read-only"
+          ? {
+              status: "ok",
+              code: "MCP_CORE_WRITE_DISABLED",
+              message:
+                "このCoreは書き込みを公開していません。読み取り専用の配備として診断しました。",
+            }
+          : profile === "proposals"
+            ? {
+                status: "ok",
+                code: "MCP_CORE_WRITE_PROPOSALS_ONLY",
+                message:
+                  "このCoreはテキストのFeed投稿・Note案・Task案だけを受け付けます。直接開始と作業報告は公開していません。",
+              }
+            : {
+                status: "ok",
+                code: "MCP_CORE_CAPABILITIES_READY",
+                message: `MCPに必要な ${TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.length} capabilitiesを確認しました。`,
+              },
     ];
     return {
       schema_version: 2,
@@ -50,7 +114,11 @@ export async function buildReport(coreClient = new TaskenCoreClient()) {
       ok: missing.length === 0,
       status: missing.length === 0 ? "ready" : "blocked",
       checks,
-      core: { api_version: status.api_version, capability_count: status.capabilities.length },
+      core: {
+        api_version: status.api_version,
+        capability_count: status.capabilities.length,
+        write_profile: profile,
+      },
     };
   } catch (error) {
     const publicError =

@@ -38,6 +38,11 @@ import {
 } from "../modules/task/public.ts";
 import { TaskenCoreClient } from "../mcp/taskenCoreClient.mjs";
 import {
+  restrictContentProposals,
+  restrictRepositoryTaskProposals,
+  type CoreProposalAccess,
+} from "../core/public.ts";
+import {
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
@@ -214,9 +219,16 @@ export class TaskenCoreRuntime {
     noteProposalImagePort?: NoteProposalImagePort,
     private readonly workLogWriter?: WorkLogWriterPort,
     private readonly captureImagePort?: CaptureImagePort,
+    options: { proposalAccess?: CoreProposalAccess } = {},
   ) {
     this.persistence = persistence;
     this.executeApplicationCommand = executeApplicationCommand;
+    const proposalAccess = options.proposalAccess || "full";
+    // 常時稼働nodeでは、読み取りはそのままに書き込みだけを絞る。
+    // capabilityを外した経路はMCP bridgeから見ても利用不可になり、
+    // 種類単位の制限は実行時にWRITE_NOT_ALLOWEDで拒否する。
+    const allowsProposals = proposalAccess !== "read-only";
+    const restrictsProposals = proposalAccess === "proposals";
     const core = createTaskenCore(persistence, {
       onProposalCommitted,
       noteProposalImagePort,
@@ -228,7 +240,10 @@ export class TaskenCoreRuntime {
     this.host = new TaskenCoreHost({
       userDataPath,
       taskQuery: { execute: this.taskCapability.executeQuery.bind(this.taskCapability) },
-      taskCommand: { execute: this.taskCapability.executeCommand.bind(this.taskCapability) },
+      // start_task_workはProposalではなく直接書き込みなので、書き込みを絞る配備では公開しない。
+      ...(proposalAccess === "full"
+        ? { taskCommand: { execute: this.taskCapability.executeCommand.bind(this.taskCapability) } }
+        : {}),
       listAgentReadyTasks: core.listAgentReadyTasks,
       resolveRepositoryContext: core.resolveRepositoryContext,
       findTasksForRepository: core.findTasksForRepository,
@@ -255,10 +270,23 @@ export class TaskenCoreRuntime {
       getContextSubgraph: core.getContextSubgraph,
       getFeedContext: core.getFeedContext,
       exportAiContext: core.exportAiContext,
-      proposeTaskWork: core.proposeTaskWork,
-      proposeAgentSession: core.proposeAgentSession,
-      proposeRepositoryTask: core.proposeRepositoryTask,
-      proposeContent: core.proposeContent,
+      ...(allowsProposals
+        ? {
+            proposeRepositoryTask: restrictsProposals
+              ? restrictRepositoryTaskProposals(core.proposeRepositoryTask)
+              : core.proposeRepositoryTask,
+            proposeContent: restrictsProposals
+              ? restrictContentProposals(core.proposeContent)
+              : core.proposeContent,
+          }
+        : {}),
+      // Task作業報告とAgent Sessionは常時稼働nodeの受付対象外。
+      ...(proposalAccess === "full"
+        ? {
+            proposeTaskWork: core.proposeTaskWork,
+            proposeAgentSession: core.proposeAgentSession,
+          }
+        : {}),
     });
   }
 

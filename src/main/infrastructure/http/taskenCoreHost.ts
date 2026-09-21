@@ -381,6 +381,16 @@ function publicRequestError(error: unknown) {
       }),
     };
   }
+  if (error instanceof Error && error.name === "CoreWriteNotAllowedError") {
+    const details =
+      "details" in error && error.details && typeof error.details === "object"
+        ? (error.details as Record<string, unknown>)
+        : {};
+    return {
+      status: 403,
+      body: errorResponse("WRITE_NOT_ALLOWED", error.message, { details }),
+    };
+  }
   if (error instanceof Error && error.name === "ProposeContentError" && "code" in error) {
     if (error.code === "PROPOSAL_TOO_LARGE") {
       return { status: 413, body: errorResponse("PROPOSAL_TOO_LARGE", error.message) };

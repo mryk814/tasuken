@@ -20,6 +20,12 @@ export {
   ProposeRepositoryTaskService,
 } from "./services/proposeRepositoryTaskService.ts";
 export { ProposeContentError, ProposeContentService } from "./services/proposeContentService.ts";
+export {
+  CoreWriteNotAllowedError,
+  restrictContentProposals,
+  restrictRepositoryTaskProposals,
+} from "./services/proposalAccessPolicy.ts";
+export type { CoreProposalAccess } from "./services/proposalAccessPolicy.ts";
 export type {
   AgentReadyTaskReadPort,
   AgentReadyTaskSourceRecord,
