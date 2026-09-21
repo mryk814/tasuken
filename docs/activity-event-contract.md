@@ -75,6 +75,9 @@ work_state=acceptedまで保存します。Taskの完了は人間が別途操作
 別の開始承認・Receipt承認は要求しません。
 Acceptと差戻しはactor.kind=userかつ
 非MCP sourceの人間UI commandに限定し、MCP actorのspoofでは受入れできません。
+差戻しは**採用前の報告（pendingのTask Work Proposal）にも行え**、その場合はTaskへ理由を保存し、
+報告Proposalを `quarantine_reason: 差戻し:<理由>` として決着させ、Work Receiptは作りません。
+人が見ている判断がその場で消え、agentは同じ作業単位のまま理由を読んでやり直せます。
 executor_labelは表示用の記録であり、provider/modelはruntime_metadataにだけ保存し、
 Taskのexecutor_identity表示名を上書きしません。
 Taskの永続化境界では、intended_executor=ai_agentかつstate=doneを

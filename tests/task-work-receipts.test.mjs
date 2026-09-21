@@ -437,6 +437,76 @@ test("採用して完了の後半だけが失敗しても、完了だけを再�
   assert.equal(repo.list("work_receipt").length, 1);
 });
 
+test("採用前の成果報告も差戻せて、理由が残り要対応から外れる（#602 差戻し）", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  const task = repo.get("task", "task-ai");
+  const proposal = saveWorkProposal(repo, task, {
+    executor_kind: "ai_agent",
+    executor_label: "Codex",
+  });
+  // 報告が届いた状態（確認待ち）。採用前なのでWork Receiptはまだ無い。
+  const reviewTask = repo.save("task", {
+    ...repo.get("task", task.id),
+    work_state: "needs_human_review",
+    work_reported_at: "2026-09-08T03:00:00.000Z",
+  });
+  assert.equal(repo.list("work_receipt").length, 0);
+  assert.equal(repo.get("ai_proposal", proposal.id).status, "pending");
+
+  const returned = service.execute(
+    envelope(
+      "ReturnTaskWork",
+      { taskId: task.id, receiptId: proposal.id, reviewNote: "検証の条件を明記してください。" },
+      "return-pending-report",
+      [{ type: "task", id: task.id, version: reviewTask.version }],
+    ),
+  );
+  assert.equal(returned.status, "applied");
+  const next = repo.get("task", task.id);
+  assert.equal(next.state, "todo");
+  assert.equal(next.work_state, "ready_for_agent");
+  assert.equal(next.work_review_note, "検証の条件を明記してください。");
+  assert.equal(next.work_reported_at ?? null, null);
+  // 採用していないのでReceiptは作らない。報告は判断として決着する。
+  assert.equal(repo.list("work_receipt").length, 0);
+  const decided = repo.get("ai_proposal", proposal.id);
+  assert.equal(decided.status, "rejected");
+  assert.equal(decided.quarantine_reason, "差戻し:検証の条件を明記してください。");
+  const event = repo
+    .list("change_event")
+    .find((entry) => entry.metadata?.work_action === "returned");
+  assert.ok(event);
+  assert.equal(event.metadata.review_note, "検証の条件を明記してください。");
+  assert.equal(event.metadata.executor_label, "Codex");
+});
+
+test("報告が無いTaskは差戻せない", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  const task = repo.save("task", {
+    ...repo.get("task", "task-ai"),
+    work_state: "needs_human_review",
+    work_attempt_id: "11111111-1111-4111-8111-111111111111",
+    work_reported_at: "2026-09-08T03:00:00.000Z",
+  });
+  assert.throws(
+    () =>
+      service.execute(
+        envelope(
+          "ReturnTaskWork",
+          { taskId: task.id, reviewNote: "やり直してください。" },
+          "return-without-report",
+          [{ type: "task", id: task.id, version: task.version }],
+        ),
+      ),
+    /差戻し対象の報告がありません/,
+  );
+  assert.equal(repo.get("task", task.id).work_review_note ?? null, null);
+});
+
 test("public ReportTaskDone cannot use the proposal-only implicit start context", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);

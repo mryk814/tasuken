@@ -123,6 +123,44 @@ function mcpTaskWorkProposal(
     : null;
 }
 
+/**
+ * 採用前の成果報告（pending の Task Work Proposal）を、そのTaskの報告として解決する。
+ *
+ * 採用前の報告にはWork Receiptが無いため、差戻しの対象はProposalそのものになる（#602 差戻し）。
+ * 形が違うpayloadでは例外を投げず、対象なしとして扱う。
+ */
+function pendingTaskReport(
+  repository: Repository,
+  proposalId: string,
+  taskId: string,
+): { proposal: Entity; executorLabel: string; executorKind: string } | null {
+  const proposal = repository.get("ai_proposal", proposalId);
+  if (!proposal || String(proposal.status) !== "pending") return null;
+  if (String(proposal.payload_type) !== "task_work") return null;
+  let payload: unknown = proposal.payload;
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      return null;
+    }
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const entries = (payload as { task_work?: unknown }).task_work;
+  const first = Array.isArray(entries) ? entries[0] : null;
+  if (!first || typeof first !== "object" || Array.isArray(first)) return null;
+  const entry = first as Record<string, unknown>;
+  if (String(entry.task_id) !== taskId) return null;
+  if (!["append_receipt", "report_done", "report_blocked"].includes(String(entry.action))) {
+    return null;
+  }
+  return {
+    proposal,
+    executorLabel: typeof entry.executor_label === "string" ? entry.executor_label : "",
+    executorKind: typeof entry.executor_kind === "string" ? entry.executor_kind : "",
+  };
+}
+
 function mcpProposalAudit(proposal: Entity | null): Record<string, unknown> {
   if (!proposal) return {};
   const request =
@@ -2442,21 +2480,34 @@ export class ApplicationCommandService {
         "INVALID_PAYLOAD",
         "差戻し理由を1〜2000文字で入力してください。",
       );
-    const receipt = latestWorkReceipt(this.repository, taskId);
-    if (!receipt)
-      throw new ApplicationCommandError("NOT_FOUND", "差戻し対象のWork Receiptがありません。", {
+    // 差戻しの対象は人が見ている報告そのもの。採用前のProposalと、採用済みのWork Receiptの両方を受け付ける。
+    const pending = payload.receiptId
+      ? pendingTaskReport(this.repository, String(payload.receiptId), taskId)
+      : null;
+    const latest = latestWorkReceipt(this.repository, taskId);
+    const receipt = pending
+      ? null
+      : payload.receiptId
+        ? (() => {
+            const found = this.repository.get("work_receipt", String(payload.receiptId));
+            return found && String(found.task_id) === taskId ? found : null;
+          })()
+        : latest;
+    if (!pending && !receipt) {
+      if (latest && payload.receiptId && latest.id !== payload.receiptId) {
+        throw new ApplicationCommandError(
+          "CONFLICT",
+          "Work Receiptが更新されています。最新の内容を確認し直してください。",
+          {
+            id: taskId,
+            expected_receipt_id: payload.receiptId,
+            current_receipt_id: latest.id,
+          },
+        );
+      }
+      throw new ApplicationCommandError("NOT_FOUND", "差戻し対象の報告がありません。", {
         id: taskId,
       });
-    if (payload.receiptId && receipt.id !== payload.receiptId) {
-      throw new ApplicationCommandError(
-        "CONFLICT",
-        "Work Receiptが更新されています。最新の内容を確認し直してください。",
-        {
-          id: taskId,
-          expected_receipt_id: payload.receiptId,
-          current_receipt_id: receipt.id,
-        },
-      );
     }
     const nextTask: Entity = {
       ...current,
@@ -2468,24 +2519,37 @@ export class ApplicationCommandService {
     taskDefinition.parseUpdate(nextTask);
     assertThemeExists(this.repository, nextTask);
     const eventKind =
-      current.intended_executor === "ai_agent" || receipt.executor_kind === "ai_agent"
+      current.intended_executor === "ai_agent" ||
+      (pending
+        ? pending.executorKind === "ai_agent"
+        : String(receipt?.executor_kind) === "ai_agent")
         ? "task_ai_returned"
         : "task_work_recorded";
     const event = annotateEvent(
       command,
-      commandEvent(command, "task", taskId, "updated", current, nextTask, eventKind, {
-        type: "work_receipt",
-        id: receipt.id,
-      }),
+      commandEvent(
+        command,
+        "task",
+        taskId,
+        "updated",
+        current,
+        nextTask,
+        eventKind,
+        pending
+          ? { type: "ai_proposal", id: String(pending.proposal.id) }
+          : { type: "work_receipt", id: String(receipt?.id) },
+      ),
     );
     event.metadata = {
       ...((event.metadata as Record<string, unknown>) || {}),
       include_in_activity: true,
       work_action: "returned",
       review_note: reviewNote,
-      executor_label: workExecutorLabel(nextTask, receipt),
+      executor_label: pending
+        ? pending.executorLabel || workExecutorLabel(nextTask)
+        : workExecutorLabel(nextTask, receipt as Entity),
     };
-    return persistReceipt(
+    const returned = persistReceipt(
       this.repository,
       command,
       [
@@ -2495,6 +2559,28 @@ export class ApplicationCommandService {
       [event.id],
       ["task"],
     );
+    if (!pending) return returned;
+    // 採用前の報告は同じ判断が要対応へ残らないよう決着させる。理由はTask側に残る。
+    const decision = this.applyAiProposal({
+      ...command,
+      commandId: `${command.commandId}:return`,
+      expectedVersions: [
+        {
+          type: "ai_proposal",
+          id: String(pending.proposal.id),
+          version: Number(pending.proposal.version || 0),
+        },
+      ],
+      payload: {
+        proposal: {
+          ...pending.proposal,
+          status: "rejected",
+          quarantine_reason: `差戻し:${reviewNote}`,
+        },
+        candidates: [],
+      },
+    });
+    return mergeCommandReceipts(this.repository, command, [returned, decision]);
   }
 
   /**

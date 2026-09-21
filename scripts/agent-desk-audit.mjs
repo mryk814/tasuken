@@ -84,6 +84,7 @@ seed.save("ai_proposal", {
     task_work: [
       {
         task_id: "desk-review",
+        expected_version: 2,
         action: "report_done",
         work_attempt_id: ATTEMPT,
         executor_kind: "ai_agent",
@@ -108,6 +109,7 @@ seed.save("ai_proposal", {
     task_work: [
       {
         task_id: "desk-question",
+        expected_version: 2,
         action: "report_blocked",
         work_attempt_id: ATTEMPT,
         executor_kind: "ai_agent",
@@ -121,20 +123,97 @@ seed.save("ai_proposal", {
     ],
   },
 });
+// 「採用してTaskを完了」用の成果報告（採用前なのでWork Receiptはまだ無い）。
+seed.save("task", {
+  id: "desk-complete",
+  title: "劣化データの再集計",
+  state: "doing",
+  project_id: theme,
+  priority: "normal",
+  intended_executor: "ai_agent",
+  executor_identity: "Codex",
+  work_state: "needs_human_review",
+  work_attempt_id: ATTEMPT,
+});
+seed.save("ai_proposal", {
+  id: "desk-complete-proposal",
+  source: "mcp",
+  source_app: "codex",
+  payload_type: "task_work",
+  status: "pending",
+  received_at: "2026-09-20T09:30:00.000Z",
+  created_at: "2026-09-20T09:30:00.000Z",
+  payload: {
+    task_work: [
+      {
+        task_id: "desk-complete",
+        expected_version: 2,
+        action: "report_done",
+        work_attempt_id: ATTEMPT,
+        executor_kind: "ai_agent",
+        executor_label: "Codex",
+        summary: "再集計を終えました。",
+        verification: ["再計算の一致"],
+        reported_at: "2026-09-20T09:30:00.000Z",
+      },
+    ],
+  },
+});
+// 「修正を依頼」用の成果報告。採用前の報告でも差戻せることを確かめる。
+seed.save("task", {
+  id: "desk-return",
+  title: "粘度の再測定",
+  state: "doing",
+  project_id: theme,
+  priority: "normal",
+  intended_executor: "ai_agent",
+  executor_identity: "Codex",
+  work_state: "needs_human_review",
+  work_attempt_id: ATTEMPT,
+});
+seed.save("ai_proposal", {
+  id: "desk-return-proposal",
+  source: "mcp",
+  source_app: "codex",
+  payload_type: "task_work",
+  status: "pending",
+  received_at: "2026-09-20T09:40:00.000Z",
+  created_at: "2026-09-20T09:40:00.000Z",
+  payload: {
+    task_work: [
+      {
+        task_id: "desk-return",
+        expected_version: 2,
+        action: "report_done",
+        work_attempt_id: ATTEMPT,
+        executor_kind: "ai_agent",
+        executor_label: "Codex",
+        summary: "再測定を終えました。",
+        verification: ["3回の平均"],
+        reported_at: "2026-09-20T09:40:00.000Z",
+      },
+    ],
+  },
+});
 // 割当が変わると work_state は idle へ正規化される（正常な仕様）。
 // 実運用ではStartTaskWorkが作業中を作るため、fixtureでは2回目の保存で状態を置く。
 for (const [id, workState] of [
   ["desk-review", "needs_human_review"],
   ["desk-question", "blocked"],
   ["desk-working", "in_progress"],
+  ["desk-complete", "needs_human_review"],
+  ["desk-return", "needs_human_review"],
 ]) {
   seed.save("task", { ...seed.get("task", id), work_state: workState });
 }
 seed.db.close();
+const databasePath = path.join(userDataDir, "research-desk.sqlite");
 
 const app = await electron.launch({
   args: [".", "--disable-gpu", "--disable-gpu-compositing", `--user-data-dir=${userDataDir}`],
 });
+/** 画面の操作を最後まで通せたか。途中で失敗したときは保存状態を判定しない。 */
+let reachedEnd = false;
 try {
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
@@ -228,6 +307,72 @@ try {
   }
   await page.screenshot({ path: `${OUT_DIR}/agent-desk-after-reply.png`, fullPage: true });
 
+  // 成果確認: 「報告を採用」でReceiptが残り、Taskは継続する。
+  await page.locator(".agent-desk-open", { hasText: "3条件の比較表" }).first().click();
+  await page.waitForTimeout(400);
+  await page.locator(".agent-desk-detail .semantic-button-primary").first().click();
+  await page.waitForTimeout(1200);
+  const acceptedToast = (await page.locator(".toast").first().innerText()).replace(/\s+/g, " ");
+  if (!acceptedToast.includes("報告を採用しました。Taskは継続します。")) {
+    failures.push(`採用の案内が違います: ${acceptedToast}`);
+  }
+  await page.waitForTimeout(1200);
+  const afterAccept = (await page.locator(".agent-desk-list").innerText()).replace(/\s+/g, " ");
+  if (afterAccept.includes("3条件の比較表を作成しました。")) {
+    failures.push("採用後も成果確認が対応待ちに残っています。");
+  }
+  // 最近の結果は、採用しただけの報告を「Taskは継続」として読ませる。
+  await page
+    .locator(".agent-desk-section", { hasText: "最近の結果" })
+    .locator("button", { hasText: "件" })
+    .first()
+    .click();
+  await page.waitForTimeout(500);
+  const recent = (await page.locator(".agent-desk-list").innerText()).replace(/\s+/g, " ");
+  if (!recent.includes("受入れ済み／Taskは継続")) {
+    failures.push("採用しただけの報告が最近の結果に出ていません。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/agent-desk-after-accept.png`, fullPage: true });
+
+  // 「Taskも完了する」を選ぶと主操作が変わり、Taskが完了する。
+  await page.locator(".agent-desk-open", { hasText: "再集計" }).first().click();
+  await page.waitForTimeout(400);
+  await page.locator(".agent-desk-option input[type=checkbox]").first().check();
+  await page.waitForTimeout(300);
+  const completeLabel = (
+    await page.locator(".agent-desk-detail .semantic-button-primary").first().innerText()
+  ).trim();
+  if (completeLabel !== "採用してTaskを完了") {
+    failures.push(`完了を選んだときの主操作が違います: ${completeLabel}`);
+  }
+  await page.locator(".agent-desk-detail .semantic-button-primary").first().click();
+  await page.waitForTimeout(2500);
+  const recentCompleted = (await page.locator(".agent-desk-list").innerText()).replace(/\s+/g, " ");
+  if (!recentCompleted.includes("受入れ済み／Task完了")) {
+    failures.push("採用して完了したTaskが最近の結果で完了になっていません。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/agent-desk-after-complete.png`, fullPage: true });
+
+  // 修正を依頼: 採用前の報告でも差戻せて、Taskは開始待ちへ戻る。
+  await page.locator(".agent-desk-open", { hasText: "再測定" }).first().click();
+  await page.waitForTimeout(400);
+  await page.locator("#agent-desk-return-note").fill("検証の条件を明記してください。");
+  await page.locator(".agent-desk-return button", { hasText: "修正を依頼" }).first().click();
+  await page.waitForTimeout(1200);
+  const returnToast = (await page.locator(".toast").first().innerText()).replace(/\s+/g, " ");
+  if (!returnToast.includes("修正を依頼しました。Taskは継続します。")) {
+    failures.push(`差戻しの案内が違います: ${returnToast}`);
+  }
+  await page.waitForTimeout(1300);
+  const afterReturn = (await page.locator(".agent-desk-list").innerText()).replace(/\s+/g, " ");
+  if (afterReturn.includes("再測定を終えました。")) {
+    failures.push("差戻し後も成果確認が対応待ちに残っています。");
+  }
+  if (!afterReturn.includes("粘度の再測定")) {
+    failures.push("差戻し後のTaskが開始待ちに出ていません。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/agent-desk-after-return.png`, fullPage: true });
+
   // 狭幅でも横スクロールしない。
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 680));
   await page.waitForTimeout(700);
@@ -246,8 +391,69 @@ try {
   });
   if (overflowing.length) failures.push(`狭幅で横あふれ: ${overflowing.join(", ")}`);
   await page.screenshot({ path: `${OUT_DIR}/agent-desk-min-980.png`, fullPage: true });
+  reachedEnd = true;
 } finally {
   await app.close();
+  // 画面の操作が正式データへ残ったかを、同じworkspaceを開き直して確かめる。
+  if (reachedEnd) {
+    const verify = new WorkspaceDatabase(databasePath);
+    try {
+      verify.loadWorkspace();
+      const taskOf = (id) => verify.get("task", id);
+      const receiptsOf = (taskId) =>
+        verify.list("work_receipt").filter((receipt) => receipt.task_id === taskId);
+
+      // 採用しただけのTaskは完了しない。
+      if (
+        taskOf("desk-review").state !== "doing" ||
+        taskOf("desk-review").work_state !== "accepted"
+      ) {
+        failures.push("採用しただけのTaskが完了しています。");
+      }
+      if (receiptsOf("desk-review").length !== 1) {
+        failures.push(
+          `採用した報告のReceiptが1件ではありません（${receiptsOf("desk-review").length}件）。`,
+        );
+      }
+      // 採用して完了したTaskは完了する。
+      if (
+        taskOf("desk-complete").state !== "done" ||
+        taskOf("desk-complete").work_state !== "accepted"
+      ) {
+        failures.push("採用して完了したTaskが完了していません。");
+      }
+      // 差戻しは理由を残して開始待ちへ戻し、Receiptを作らない。
+      const returned = taskOf("desk-return");
+      if (returned.work_state !== "ready_for_agent") {
+        failures.push(`差戻し後のwork_stateが違います（${returned.work_state}）。`);
+      }
+      if (returned.work_review_note !== "検証の条件を明記してください。") {
+        failures.push(`差戻し理由が残っていません（${returned.work_review_note}）。`);
+      }
+      if (returned.work_reported_at || returned.state === "done") {
+        failures.push("差戻し後もTaskが報告済み・完了のままです。");
+      }
+      if (receiptsOf("desk-return").length !== 0) {
+        failures.push("差戻しでReceiptが作られています。");
+      }
+      const returnedProposal = verify.get("ai_proposal", "desk-return-proposal");
+      if (
+        returnedProposal.status !== "rejected" ||
+        !String(returnedProposal.quarantine_reason || "").startsWith("差戻し:")
+      ) {
+        failures.push("差戻したProposalが要対応として残っています。");
+      }
+      // 回答はReceiptとして残り、Taskは停止中のまま（再開待ち）。
+      if (taskOf("desk-question").work_state !== "blocked") {
+        failures.push("回答でTaskの作業状態が変わっています。");
+      }
+      if (!receiptsOf("desk-question").some((receipt) => receipt.receipt_kind === "human_reply")) {
+        failures.push("回答がReceiptとして残っていません。");
+      }
+    } finally {
+      verify.db.close();
+    }
+  }
   rmSync(userDataDir, { recursive: true, force: true });
 }
 
