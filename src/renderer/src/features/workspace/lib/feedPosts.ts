@@ -34,6 +34,13 @@ export interface FeedPostRefs {
    * 投稿は本文と参照だけを持ち、Noteの読書面は既存の導線へ渡す。
    */
   referencedNoteId?: string | null;
+  /** 手動貼付の由来。既存返信では未設定。 */
+  manualOrigin?: FeedManualOrigin | null;
+  /** 手動貼付の質問・出所・会話URL・自分の一言。 */
+  manualQuestion?: string | null;
+  manualSource?: string | null;
+  manualUrl?: string | null;
+  manualComment?: string | null;
 }
 
 /**
@@ -746,6 +753,7 @@ export function buildRepliesFromEntities(input: {
     const label = text(reply.author_label);
     const replyId = String(reply.id);
     const requested = !isAi && text(reply.ai_requested_at) !== "";
+    const manual = text(reply.origin) === "manual_paste";
     replies.push({
       id: replyPostId(replyId),
       author: isAi ? authorIdForLabel(label) : "self",
@@ -757,6 +765,11 @@ export function buildRepliesFromEntities(input: {
       learnable: false,
       replyId,
       aiState: requested ? (answered.has(replyId) ? "answered" : "requested") : null,
+      manualOrigin: manual ? "manual_paste" : null,
+      manualQuestion: manual ? text(reply.question) || null : null,
+      manualSource: manual ? text(reply.external_source) || null : null,
+      manualUrl: manual ? text(reply.external_url) || null : null,
+      manualComment: manual ? text(reply.comment) || null : null,
     } as FeedPost);
   }
   for (const { proposal, entry } of answers) {
@@ -904,4 +917,219 @@ export function feedReplyEntity(input: {
     author_kind: "self",
     ...(input.askAi ? { ai_requested_at: input.createdAt } : {}),
   };
+}
+
+/* -------------------------------------------------------------------------
+ * 外部AIクリップボード往復（`docs/feed-external-ai-handoff-plan.md`）
+ *
+ * 基本は「質問と文脈をコピー → 普段の外部AIに聞く → 回答を貼り付け →
+ * 確認して返信として保存」。Taskenは送信・起動・自動取得をしない。
+ * 保存場所は元投稿のスレッドで、回答保管庫のNote化はしない。
+ * 新テーブルを作らず、既存 `feed_reply` の任意メタデータで由来を表す。
+ * 本文へ固定ヘッダーを埋めて判定する方式にしない。
+ * ---------------------------------------------------------------------- */
+
+/** 手動貼付返信の本文上限。既存の返信上限（4000文字）をそのまま使う。 */
+export const FEED_MANUAL_REPLY_MAX = 4000;
+/** 手動貼付に添える質問の上限。回答と一緒に再訪できる形で保持する。 */
+export const FEED_MANUAL_QUESTION_MAX = 2000;
+/** 自分の補足（一言）の上限。AIの回答本文と混ぜない。 */
+export const FEED_MANUAL_COMMENT_MAX = 1000;
+/** 出所表示（例: M365 Copilot）の上限。未指定可。 */
+export const FEED_MANUAL_SOURCE_MAX = 100;
+/** 会話URLの上限。任意で、利用者提供の参照に留める。 */
+export const FEED_MANUAL_URL_MAX = 2000;
+/** コピーへ添える抜粋の上限。長い元投稿は選択・編集可能な抜粋とし、省略を明示する。 */
+export const FEED_COPY_EXCERPT_MAX = 2000;
+
+/** 手動貼付であることの印。本文の文言では判定しない。 */
+export type FeedManualOrigin = "manual_paste";
+
+export interface FeedManualPasteInput {
+  id: string;
+  postId: string;
+  /** 外部AIの回答本文（プレーンテキスト・Markdown・日本語）。 */
+  body: string;
+  createdAt: string;
+  /** 元の質問。回答と一緒に再訪できる形で保持する。ID紐付けは初版対象外。 */
+  question: string;
+  /** 出所表示（例: M365 Copilot）。空なら未指定として扱う。 */
+  externalSource?: string;
+  /** 任意の会話URL。利用者提供であり事実確認済みを意味しない。 */
+  externalUrl?: string;
+  /** 自分の一言（解釈・気づき）。任意で、回答本文と混ぜない。 */
+  comment?: string;
+}
+
+export interface FeedManualPasteEntity {
+  id: string;
+  post_id: string;
+  body: string;
+  created_at: string;
+  author_kind: "self";
+  origin: FeedManualOrigin;
+  question: string;
+  external_source: string | null;
+  external_url: string | null;
+  comment: string | null;
+}
+
+function manualText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** 会話URLの許可scheme。既存の安全な描画経路（`safeMarkdownLinkUrl`）と合わせる。 */
+function isAllowedManualUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  if (trimmed.length > FEED_MANUAL_URL_MAX) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return (
+      parsed.protocol === "https:" || parsed.protocol === "http:" || parsed.protocol === "mailto:"
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 手動貼付返信のEntity。保存主体は人間、回答の出所は外部AIとして区別する。
+ * `ai_requested_at` を付けず、MCPの待ち状態を偽装しない。
+ * 再試行は同じIDを使い、呼び出し側で採番する。
+ */
+export function feedManualPasteEntity(input: FeedManualPasteInput): FeedManualPasteEntity {
+  const postId = manualText(input.postId);
+  if (!postId || postId.length > 200) throw new Error("保存先の投稿を確認してください。");
+  const body = typeof input.body === "string" ? input.body.trim() : "";
+  if (!body) throw new Error("回答の本文を入力してください。");
+  if (body.length > FEED_MANUAL_REPLY_MAX)
+    throw new Error(`回答は${FEED_MANUAL_REPLY_MAX}文字以内で入力してください。`);
+  const question = typeof input.question === "string" ? input.question.trim() : "";
+  if (!question) throw new Error("質問を入力してください。");
+  if (question.length > FEED_MANUAL_QUESTION_MAX)
+    throw new Error(`質問は${FEED_MANUAL_QUESTION_MAX}文字以内で入力してください。`);
+  const externalSource = manualText(input.externalSource);
+  if (externalSource.length > FEED_MANUAL_SOURCE_MAX)
+    throw new Error(`出所は${FEED_MANUAL_SOURCE_MAX}文字以内で入力してください。`);
+  const externalUrl = manualText(input.externalUrl);
+  if (!isAllowedManualUrl(externalUrl))
+    throw new Error("会話URLはhttps / http / mailtoで入力してください。");
+  const comment = manualText(input.comment);
+  if (comment.length > FEED_MANUAL_COMMENT_MAX)
+    throw new Error(`自分の一言は${FEED_MANUAL_COMMENT_MAX}文字以内で入力してください。`);
+  return {
+    id: input.id,
+    post_id: postId,
+    body,
+    created_at: input.createdAt,
+    author_kind: "self",
+    origin: "manual_paste",
+    question,
+    external_source: externalSource || null,
+    external_url: externalUrl || null,
+    comment: comment || null,
+  };
+}
+
+/** 手動貼付か。本文の文言では判定しない。 */
+export function isManualPasteReply(row: unknown): boolean {
+  if (!row || typeof row !== "object") return false;
+  return (row as Record<string, unknown>).origin === "manual_paste";
+}
+
+/**
+ * 手動貼付の表示ラベル。認証済み投稿や自動受信と誤認させない。
+ * 例:「自分が貼り付け · M365 Copilot」、未指定なら「自分が貼り付け · 外部AI」。
+ */
+export function manualPasteLabel(row: { external_source?: unknown }): string {
+  const source = manualText(row.external_source);
+  return source ? `自分が貼り付け · ${source}` : "自分が貼り付け · 外部AI";
+}
+
+/** 実データがあるか。自分の投稿だけでもfixtureから切り替える。 */
+export function hasLiveFeedData(input: {
+  livePosts?: readonly unknown[];
+  replyPosts?: readonly unknown[];
+  ownPosts?: readonly unknown[];
+}): boolean {
+  return (
+    (input.livePosts ?? []).length > 0 ||
+    (input.replyPosts ?? []).length > 0 ||
+    (input.ownPosts ?? []).length > 0
+  );
+}
+
+export interface FeedCopyInput {
+  /** 利用者の質問。 */
+  question: string;
+  /** 元投稿の本文（段落）。長い場合は呼び出し側で抜粋・編集して渡す。 */
+  postParagraphs: readonly string[];
+  /** 出所の表示名（投稿者ラベル等）。内部IDをURLのように見せない。 */
+  sourceLabel: string;
+  /** 利用者が選んだ引用・資料URL。任意で、自動付加しない。 */
+  referenceUrl?: string;
+  /** 抜粋が省略を含むか。含む場合は明示する。 */
+  excerptTruncated?: boolean;
+}
+
+/**
+ * 外部AIへ渡すコピー本文を作る。プレビューした内容だけを返す。
+ * 添付Note全文・Task詳細・他のスレッド・ファイルパス・秘密情報は自動で付けない。
+ * JSONやTasken固有書式を要求せず、通常の文章で答えてもらう。
+ */
+export function buildExternalAiCopyText(input: FeedCopyInput): string {
+  const question = input.question.trim();
+  if (!question) throw new Error("質問を入力してください。");
+  const excerpt = input.postParagraphs.join("\n\n").trim();
+  if (!excerpt) throw new Error("コピーする元投稿の本文を確認してください。");
+  if (excerpt.length > FEED_COPY_EXCERPT_MAX)
+    throw new Error(
+      `抜粋は${FEED_COPY_EXCERPT_MAX}文字以内に編集してください。省略した場合は「（以下省略）」を残してください。`,
+    );
+  const sourceLabel = input.sourceLabel.trim() || "Taskenの投稿";
+  const referenceUrl = (input.referenceUrl ?? "").trim();
+  if (referenceUrl && !isAllowedManualUrl(referenceUrl))
+    throw new Error("引用・資料URLはhttps / http / mailtoで入力してください。");
+  const lines = [question, "", "---", `元投稿（${sourceLabel}より引用）:`, excerpt];
+  if (input.excerptTruncated) lines.push("（以下省略）");
+  if (referenceUrl) lines.push("", `参考: ${referenceUrl}`);
+  lines.push("", "与えた文脈と推測を区別し、分からない点は明示して回答してください。");
+  return lines.join("\n");
+}
+
+/** 手動貼付からNote作成画面へ渡す候補。本文は人が確認して保存する。 */
+export function manualPasteNoteCandidate(input: {
+  postId: string;
+  question: string;
+  answer: string;
+  externalSource?: string;
+  externalUrl?: string;
+  comment?: string;
+}): { title: string; body_markdown: string } {
+  const question = input.question.trim();
+  const answer = input.answer.trim();
+  if (!question || !answer) throw new Error("質問と回答を確認してください。");
+  const source = manualText(input.externalSource) || "外部AI";
+  const titleSource = noteTitleFrom(answer);
+  const lines = [
+    `外部AIの回答メモ（${source}より自分が貼り付け）`,
+    "",
+    `元投稿: ${input.postId}`,
+    `出所: ${source}`,
+    ...(manualText(input.externalUrl) ? [`会話: ${manualText(input.externalUrl)}`] : []),
+    "",
+    "【質問】",
+    question,
+    "",
+    "【回答】",
+    answer,
+  ];
+  const comment = manualText(input.comment);
+  if (comment) lines.push("", "【自分の一言】", comment);
+  lines.push(
+    "",
+    "※ 回答内容・出所・会話URLは利用者提供であり、Taskenによる事実確認済みを意味しません。",
+  );
+  return { title: titleSource, body_markdown: lines.join("\n") };
 }

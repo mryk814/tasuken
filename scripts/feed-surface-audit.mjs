@@ -61,6 +61,11 @@ const LIVE_OWN_POST_BODY = "条件を先に決めると、測り直しが減る�
 /** 隔離workspaceへ用意する質問とAIの返答（第3段階）。 */
 const LIVE_SEEDED_QUESTION = "この条件は40℃の比較にも同じように使えますか。";
 const LIVE_SEEDED_ANSWER = "40℃では裾が広がるため、平均ではなく幅だけで比べてください。";
+/** 外部AIクリップボード往復の架空回答（外部送信なし、handoff §8-1/2）。 */
+const LIVE_MANUAL_QUESTION = "外部AIへのコピー質問：ばらつきの判断材料は。";
+const LIVE_MANUAL_ANSWER = "架空回答：3回以下のときは幅だけを見てください。";
+const LIVE_MANUAL_SOURCE = "M365 Copilot";
+const LIVE_MANUAL_COMMENT = "架空の一言：次も同じ表で見たい。";
 /** 連続読込の実測（`--bulk`）で入れる投稿の件数と、1回の読み込み件数。 */
 const BULK_POSTS = 120;
 const FEED_PAGE_SIZE = 20;
@@ -648,10 +653,11 @@ async function auditLivePost(page) {
   await page.screenshot({ path: `${OUT_DIR}/live-reply.png`, fullPage: true });
 
   // 9. 「AIに聞く」は依頼として残り、押した時点ではAIが動いたように見せない。
+  // 外部AI往復の「外部AIに聞く」と区別するため、接続済みAI側は完全一致で押す。
   await replyTarget.locator(".feed-reaction", { hasText: "返信" }).first().click();
   await page.waitForTimeout(400);
   await replyTarget.locator(".feed-reply textarea").fill(LIVE_QUESTION_BODY);
-  await replyTarget.locator("button", { hasText: "AIに聞く" }).click();
+  await replyTarget.getByRole("button", { name: "AIに聞く（接続済みAIへ残す）" }).click();
   await page.waitForTimeout(1500);
   const requested = page.locator(".feed-thread-state", { hasText: "AIに依頼済み" });
   if ((await requested.count()) !== 1) {
@@ -706,6 +712,49 @@ async function auditLivePost(page) {
   await page.waitForTimeout(1500);
   const rootsReposted = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
   if (rootsReposted !== 2) failures.push(`自分の投稿を載せ直せません（${rootsReposted}件）。`);
+
+  // 11. 外部AIクリップボード往復は架空回答で一周できる（外部送信なし）。
+  const externalTarget = page.locator(".feed-post").first();
+  await externalTarget.locator(".feed-reaction", { hasText: "返信" }).first().click();
+  await page.waitForTimeout(400);
+  await externalTarget.getByRole("button", { name: "外部AIに聞く" }).click();
+  await page.waitForTimeout(400);
+  const copyQuestion = externalTarget.locator('[id^="feed-copy-q-"]');
+  await copyQuestion.fill(LIVE_MANUAL_QUESTION);
+  await externalTarget.getByRole("button", { name: "コピーする" }).click();
+  await page.waitForTimeout(1200);
+  // コピー成否にかかわらず質問は残る。成功時は普段のAIへの案内が出る。
+  if ((await copyQuestion.inputValue()) !== LIVE_MANUAL_QUESTION) {
+    failures.push("コピー後に質問が残っていません。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/live-external-copy.png`, fullPage: true });
+
+  await externalTarget.getByRole("button", { name: "外部AIの回答を貼り付け" }).click();
+  await page.waitForTimeout(400);
+  await externalTarget.locator('[id^="feed-paste-a-"]').fill(LIVE_MANUAL_ANSWER);
+  await externalTarget.locator('[id^="feed-paste-q-"]').fill(LIVE_MANUAL_QUESTION);
+  await externalTarget.locator('[id^="feed-paste-s-"]').fill(LIVE_MANUAL_SOURCE);
+  await externalTarget.locator('[id^="feed-paste-c-"]').fill(LIVE_MANUAL_COMMENT);
+  // 保存前プレビューで出所の区別が出る。
+  if (!(await externalTarget.locator(".feed-preview").innerText()).includes("自分が貼り付け")) {
+    failures.push("貼り付けのプレビューに出所の区別が出ていません。");
+  }
+  await externalTarget.getByRole("button", { name: "返信として保存" }).click();
+  await page.waitForTimeout(1500);
+  const timelineAfterPaste = await page.locator(".feed-timeline").innerText();
+  for (const expected of [LIVE_MANUAL_ANSWER, LIVE_MANUAL_QUESTION, LIVE_MANUAL_COMMENT]) {
+    if (!timelineAfterPaste.includes(expected)) {
+      failures.push(`貼り付けた回答が表示されていません（${expected}）。`);
+    }
+  }
+  if (!timelineAfterPaste.includes(`自分が貼り付け · ${LIVE_MANUAL_SOURCE}`)) {
+    failures.push("手動貼付と自動受信の区別が表示されていません。");
+  }
+  const countAfterPaste = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (countAfterPaste !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(`貼り付けで対応待ち件数が変わりました（${countAfterPaste}）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/live-external-paste.png`, fullPage: true });
 }
 
 /** 起動し直しても、投稿と読者の印、保存したNote、返信・AIへの依頼と返答、自分の投稿が残る。 */
@@ -714,17 +763,22 @@ async function auditLiveRestart(page) {
   if (rootCount !== 2) failures.push(`再起動後の投稿が2件ではありません（${rootCount}件）。`);
   const thread = page.locator(".feed-posts .feed-post.is-reply");
   const threadCount = await thread.count();
-  if (threadCount !== 4) failures.push(`再起動後の返信が4件ではありません（${threadCount}件）。`);
+  if (threadCount !== 5) failures.push(`再起動後の返信が5件ではありません（${threadCount}件）。`);
   const timelineText = await page.locator(".feed-timeline").innerText();
   for (const expected of [
     LIVE_REPLY_BODY,
     LIVE_QUESTION_BODY,
     LIVE_SEEDED_ANSWER,
     LIVE_OWN_POST_BODY,
+    LIVE_MANUAL_ANSWER,
+    LIVE_MANUAL_QUESTION,
   ]) {
     if (!timelineText.includes(expected)) {
       failures.push(`再起動後に出ない文言があります（${expected}）。`);
     }
+  }
+  if (!timelineText.includes(`自分が貼り付け · ${LIVE_MANUAL_SOURCE}`)) {
+    failures.push("再起動後に手動貼付の区別が残っていません。");
   }
   if ((await page.locator(".feed-thread-state", { hasText: "AIに依頼済み" }).count()) !== 1) {
     failures.push("再起動後にAIへの依頼が残っていません。");

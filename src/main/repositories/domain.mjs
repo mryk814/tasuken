@@ -118,6 +118,8 @@ const habitStates = new Set(["active", "paused"]);
 const feedReactionKinds = new Set(["bookmark", "interesting", "hidden", "known"]);
 /** 返信の書き手。人が書いた返信とAIの返答を同じスレッドへ並べる。 */
 const feedReplyAuthorKinds = new Set(["self", "ai"]);
+/** 手動貼付の由来。既存返信はそのまま読めるよう任意フィールドにする。 */
+const feedReplyOrigins = new Set(["manual_paste"]);
 const datePattern = /^\d{4}-\d{2}-\d{2}$/u;
 const planNodeTypes = new Set(["phase", "milestone", "deliverable"]);
 const planNodeStates = new Set(["planned", "active", "done", "cancelled"]);
@@ -799,6 +801,7 @@ export function validateEntity(type, input) {
   }
   if (type === "feed_reply") {
     // 投稿への返信（SNS型Feedの第3段階）。人とAIの会話は投稿のIDに紐づけて残す。
+    // 外部AIクリップボード往復の手動貼付は任意メタデータで由来を表す。本文埋め込みでは判定しない。
     if (typeof input.post_id !== "string" || !input.post_id.trim() || input.post_id.length > 200)
       throw new Error("feed_reply.post_idは1〜200文字で入力してください。");
     if (typeof input.body !== "string" || !input.body.trim() || input.body.length > 4000)
@@ -826,6 +829,41 @@ export function validateEntity(type, input) {
         !/^\d{4}-\d{2}-\d{2}T/u.test(input.ai_answered_at))
     )
       throw new Error("feed_reply.ai_answered_atが不正です。");
+    if (input.origin != null && !feedReplyOrigins.has(input.origin))
+      throw new Error("feed_reply.originが不正です。");
+    if (
+      input.question != null &&
+      (typeof input.question !== "string" || !input.question.trim() || input.question.length > 2000)
+    )
+      throw new Error("feed_reply.questionは1〜2000文字で入力してください。");
+    if (
+      input.external_source != null &&
+      (typeof input.external_source !== "string" ||
+        !input.external_source.trim() ||
+        input.external_source.length > 100)
+    )
+      throw new Error("feed_reply.external_sourceは1〜100文字で入力してください。");
+    if (input.external_source != null && input.origin !== "manual_paste")
+      throw new Error("feed_reply.external_sourceは手動貼付だけに付けられます。");
+    if (
+      input.external_url != null &&
+      (typeof input.external_url !== "string" ||
+        !input.external_url.trim() ||
+        input.external_url.length > 2000 ||
+        !/^(https:|http:|mailto:)/u.test(input.external_url.trim()))
+    )
+      throw new Error("feed_reply.external_urlはhttps / http / mailtoで入力してください。");
+    if (input.external_url != null && input.origin !== "manual_paste")
+      throw new Error("feed_reply.external_urlは手動貼付だけに付けられます。");
+    if (
+      input.comment != null &&
+      (typeof input.comment !== "string" || !input.comment.trim() || input.comment.length > 1000)
+    )
+      throw new Error("feed_reply.commentは1〜1000文字で入力してください。");
+    if (input.comment != null && input.origin !== "manual_paste")
+      throw new Error("feed_reply.commentは手動貼付だけに付けられます。");
+    if (input.question != null && input.origin !== "manual_paste")
+      throw new Error("feed_reply.questionは手動貼付だけに付けられます。");
   }
   if (type === "maintenance") {
     // 手入れの目安（#454後半）。目安は推奨間隔からの提案で、Taskの締切ではない。

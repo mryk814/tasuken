@@ -880,6 +880,58 @@
   align-self: flex-start;
 }
 
+/* 外部AIクリップボード往復。既存の返信導線へまとめ、常時ボタンを増やさない。 */
+.feed-external-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.feed-external-panel label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.feed-external-panel textarea,
+.feed-external-panel input[type="url"],
+.feed-external-panel input:not([type]) {
+  width: 100%;
+  font: inherit;
+  font-size: var(--text-base);
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+}
+
+.feed-external-panel textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.feed-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.feed-manual-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
 .feed-detail-empty {
   margin: 0;
   font-size: var(--text-sm);

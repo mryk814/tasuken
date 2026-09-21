@@ -35,7 +35,21 @@ import {
   type FeedPost,
   type FeedReactionKind,
 } from "../lib/feedPosts";
+import { workspaceApi } from "../../../services/workspaceApi";
 import { uuid } from "../lib/format";
+import {
+  FEED_COPY_EXCERPT_MAX,
+  FEED_MANUAL_COMMENT_MAX,
+  FEED_MANUAL_QUESTION_MAX,
+  FEED_MANUAL_REPLY_MAX,
+  FEED_MANUAL_SOURCE_MAX,
+  buildExternalAiCopyText,
+  feedManualPasteEntity,
+  hasLiveFeedData,
+  manualPasteLabel,
+  manualPasteNoteCandidate,
+} from "../lib/feedPosts";
+import { openSafeMarkdownLink, safeMarkdownLinkUrl } from "../lib/markdown";
 
 /**
  * Feed（SNS型の読む面。`docs/feed-learning-sns-plan-2026-09-21.md`）。
@@ -110,9 +124,36 @@ export function FeedPage({
   const [savedOnly, setSavedOnly] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copyBusy, setCopyBusy] = useState(false);
   const [draftAnswer, setDraftAnswer] = useState("");
   /** 自分の投稿欄の下書き。投稿しても消さず、成功時だけ空にする。 */
   const [compose, setCompose] = useState("");
+  /**
+   * 外部AI往復の下書きは投稿別に保持する。正式返信やMCP待ちへ混ぜず、
+   * localStorageで再起動後も復帰できるようにする（`docs/feed-external-ai-handoff-plan.md` §C）。
+   */
+  const [externalOpen, setExternalOpen] = useState<
+    Readonly<Record<string, "copy" | "paste" | undefined>>
+  >({});
+  const [copyDrafts, setCopyDrafts] = useState<
+    Readonly<Record<string, { question: string; excerpt: string; url: string }>>
+  >({});
+  const [pasteDrafts, setPasteDrafts] = useState<
+    Readonly<
+      Record<
+        string,
+        {
+          answer: string;
+          question: string;
+          source: string;
+          url: string;
+          comment: string;
+          saveId: string;
+        }
+      >
+    >
+  >({});
+  const [pasteEditingId, setPasteEditingId] = useState<Readonly<Record<string, string | null>>>({});
   const rowRefs = useRef(new Map<string, HTMLElement>());
   // 相対時刻は描画中に現在時刻を読まず、初回に固定する。
   const [now] = useState(() => Date.now());
@@ -152,8 +193,6 @@ export function FeedPage({
       }),
     [domain.feed_replies, domain.ai_proposals],
   );
-  const usingFixtures = livePosts.length === 0 && replyPosts.length === 0;
-
   /**
    * 自分の投稿は、Feedへ載せると選んだNote（既存のMemo入力）から作る。
    * 未整理のメモ全件を流さないため、印の付いたNoteだけを読む。
@@ -162,6 +201,11 @@ export function FeedPage({
     () => buildOwnPosts({ notes: domain.notes as unknown[] }),
     [domain.notes],
   );
+  /**
+   * 投稿の出所。実データの投稿・返信・自分の投稿のいずれかがあればfixtureを出さない。
+   * 自分の投稿だけではfixtureから切り替わらない条件を是正する（handoff §2）。
+   */
+  const usingFixtures = !hasLiveFeedData({ livePosts, replyPosts, ownPosts });
 
   /**
    * 読者の状態はEntityとして保存する（投稿の正本ではない）。
@@ -346,6 +390,309 @@ export function FeedPage({
   const updateDraft = useCallback((postId: string, value: string) => {
     setDrafts((current) => ({ ...current, [postId]: value }));
   }, []);
+
+  function externalCopyKey(postId: string): string {
+    return `tasken:feed:external-copy:${postId}`;
+  }
+
+  function externalPasteKey(postId: string): string {
+    return `tasken:feed:external-paste:${postId}`;
+  }
+
+  function defaultExcerpt(post: FeedPost): string {
+    const joined = post.paragraphs.join("\n\n");
+    if (joined.length <= FEED_COPY_EXCERPT_MAX) return joined;
+    return `${joined.slice(0, FEED_COPY_EXCERPT_MAX)}（以下省略）`;
+  }
+
+  // 下書きの復帰。正式返信やMCP待ちへは混ぜない。localStorageが使えなければ画面内stateに留める。
+  useEffect(() => {
+    try {
+      const nextCopy: Record<string, { question: string; excerpt: string; url: string }> = {};
+      const nextPaste: Record<
+        string,
+        {
+          answer: string;
+          question: string;
+          source: string;
+          url: string;
+          comment: string;
+          saveId: string;
+        }
+      > = {};
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (!key) continue;
+        if (key.startsWith("tasken:feed:external-copy:")) {
+          const postId = key.slice("tasken:feed:external-copy:".length);
+          const raw = localStorage.getItem(key);
+          if (raw) nextCopy[postId] = JSON.parse(raw) as (typeof nextCopy)[string];
+        } else if (key.startsWith("tasken:feed:external-paste:")) {
+          const postId = key.slice("tasken:feed:external-paste:".length);
+          const raw = localStorage.getItem(key);
+          if (raw) nextPaste[postId] = JSON.parse(raw) as (typeof nextPaste)[string];
+        }
+      }
+      if (Object.keys(nextCopy).length > 0) setCopyDrafts(nextCopy);
+      if (Object.keys(nextPaste).length > 0) setPasteDrafts(nextPaste);
+    } catch {
+      // 下書きの復帰に失敗しても、今回の入力は画面内で扱う。
+    }
+  }, []);
+
+  const updateCopyDraft = useCallback(
+    (post: FeedPost, patch: Partial<{ question: string; excerpt: string; url: string }>) => {
+      setCopyDrafts((current) => {
+        const base = current[post.id] ?? { question: "", excerpt: defaultExcerpt(post), url: "" };
+        const next = { ...base, ...patch };
+        try {
+          localStorage.setItem(externalCopyKey(post.id), JSON.stringify(next));
+        } catch {
+          // 保存先が使えなくても入力は画面内に残す。
+        }
+        return { ...current, [post.id]: next };
+      });
+    },
+    [],
+  );
+
+  const updatePasteDraft = useCallback(
+    (
+      post: FeedPost,
+      patch: Partial<{
+        answer: string;
+        question: string;
+        source: string;
+        url: string;
+        comment: string;
+      }>,
+    ) => {
+      setPasteDrafts((current) => {
+        const base = current[post.id] ?? {
+          answer: "",
+          question: "",
+          source: "",
+          url: "",
+          comment: "",
+          saveId: uuid(),
+        };
+        const next = { ...base, ...patch };
+        try {
+          localStorage.setItem(externalPasteKey(post.id), JSON.stringify(next));
+        } catch {
+          // 保存先が使えなくても入力は画面内に残す。
+        }
+        return { ...current, [post.id]: next };
+      });
+    },
+    [],
+  );
+
+  const discardExternalDraft = useCallback((post: FeedPost) => {
+    setCopyDrafts((current) => {
+      const next = { ...current };
+      delete next[post.id];
+      return next;
+    });
+    setPasteDrafts((current) => {
+      const next = { ...current };
+      delete next[post.id];
+      return next;
+    });
+    setPasteEditingId((current) => ({ ...current, [post.id]: null }));
+    try {
+      localStorage.removeItem(externalCopyKey(post.id));
+      localStorage.removeItem(externalPasteKey(post.id));
+    } catch {
+      // 削除に失敗しても画面内の下書きは消す。
+    }
+    setNotice("外部AI用の下書きを破棄しました。保存済みの返信は残っています。");
+  }, []);
+
+  const toggleExternal = useCallback((post: FeedPost, panel: "copy" | "paste") => {
+    setExternalOpen((current) => ({
+      ...current,
+      [post.id]: current[post.id] === panel ? undefined : panel,
+    }));
+    setReplyTo((current) => (current === post.id ? current : post.id));
+  }, []);
+
+  /**
+   * 質問と文脈をコピーする。プレビューした内容だけを送り、Taskenからの自動送信はしない。
+   * 成功時だけ案内を出し、失敗時も質問を残す。falseと例外の両方を失敗として扱う。
+   */
+  const copyForExternalAi = useCallback(
+    async (post: FeedPost) => {
+      const draft = copyDrafts[post.id] ?? { question: "", excerpt: defaultExcerpt(post), url: "" };
+      let preview = "";
+      try {
+        preview = buildExternalAiCopyText({
+          question: draft.question,
+          postParagraphs: draft.excerpt ? [draft.excerpt] : post.paragraphs,
+          sourceLabel: authorOf(post).label,
+          referenceUrl: draft.url,
+          excerptTruncated: draft.excerpt.includes("（以下省略）"),
+        });
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : String(error), "warning");
+        return;
+      }
+      if (usingFixtures) {
+        setNotice("この投稿は開発用です。コピー内容は実データの投稿で使えます。");
+        return;
+      }
+      setCopyBusy(true);
+      try {
+        const ok = await workspaceApi.copyText(preview);
+        if (!ok) throw new Error("コピーできませんでした。");
+        setNotice("コピーしました。普段使うAIに貼り付けてください。");
+        setToast("コピーしました。普段使うAIに貼り付けてください。", "success");
+        // 質問は貼り付け側へ引き継げるよう残す。
+        updatePasteDraft(post, {
+          question: draft.question.trim() || pasteDrafts[post.id]?.question || "",
+        });
+      } catch (error) {
+        setToast(
+          `コピーできませんでした。${error instanceof Error ? error.message : String(error)}`,
+          "danger",
+        );
+      } finally {
+        setCopyBusy(false);
+      }
+    },
+    [copyDrafts, pasteDrafts, setToast, updatePasteDraft, usingFixtures],
+  );
+
+  /** 外部AIの回答を元投稿のスレッドへ保存する。明示的な保存後だけ表示する。 */
+  const saveManualPaste = useCallback(
+    async (post: FeedPost) => {
+      if (usingFixtures) {
+        setNotice("この投稿は開発用です。回答は実データの投稿へ残せます。");
+        return;
+      }
+      const draft = pasteDrafts[post.id];
+      if (!draft) {
+        setToast("回答の本文を入力してください。", "warning");
+        return;
+      }
+      // 元投稿の削除時は誤った投稿へ保存しない。入力は回収できる形で残す。
+      const exists = [...livePosts, ...replyPosts, ...ownPosts].some(
+        (entry) => entry.id === post.id,
+      );
+      if (!exists) {
+        setToast("元の投稿が見つかりません。下書きは残しています。", "danger");
+        return;
+      }
+      const editingId = pasteEditingId[post.id] ?? null;
+      const saveId = editingId ?? draft.saveId;
+      let entity;
+      try {
+        entity = feedManualPasteEntity({
+          id: saveId,
+          postId: post.id,
+          body: draft.answer,
+          createdAt: new Date().toISOString(),
+          question: draft.question,
+          externalSource: draft.source,
+          externalUrl: draft.url,
+          comment: draft.comment,
+        });
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : String(error), "warning");
+        return;
+      }
+      setBusy(true);
+      try {
+        await saveEntities(
+          [{ action: "save", type: "feed_reply", entity: entity as never }],
+          editingId ? "貼り付けた回答を訂正しました。" : "外部AIの回答を返信として保存しました。",
+          "main_ui",
+        );
+        // 二重送信を避けるため、回答と訂正対象だけを消し、質問・出所は残す。
+        setPasteDrafts((current) => {
+          const next = {
+            ...current,
+            [post.id]: { ...current[post.id], answer: "", comment: "", saveId: uuid() },
+          };
+          try {
+            localStorage.setItem(externalPasteKey(post.id), JSON.stringify(next[post.id]));
+          } catch {
+            // 保存先が使えなくても画面内は更新する。
+          }
+          return next;
+        });
+        setPasteEditingId((current) => ({ ...current, [post.id]: null }));
+        setNotice(
+          editingId
+            ? "貼り付けた回答を訂正しました。Taskと未解決件数は変わっていません。"
+            : "外部AIの回答を保存しました。Taskと未解決件数は変わっていません。",
+        );
+      } catch (error) {
+        // 同じIDで再試行できるよう入力とsaveIdを残す。
+        setToast(
+          `保存できませんでした。${error instanceof Error ? error.message : String(error)}`,
+          "danger",
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      livePosts,
+      ownPosts,
+      pasteDrafts,
+      pasteEditingId,
+      replyPosts,
+      saveEntities,
+      setToast,
+      usingFixtures,
+    ],
+  );
+
+  /** 保存済みの手動貼付を訂正用に開く。 */
+  const startPasteCorrection = useCallback(
+    (post: FeedPost, reply: FeedPost) => {
+      updatePasteDraft(post, {
+        answer: reply.paragraphs.join("\n\n"),
+        question: reply.manualQuestion ?? "",
+        source: reply.manualSource ?? "",
+        url: reply.manualUrl ?? "",
+        comment: reply.manualComment ?? "",
+      });
+      setPasteEditingId((current) => ({ ...current, [post.id]: reply.replyId ?? null }));
+      setExternalOpen((current) => ({ ...current, [post.id]: "paste" }));
+      setReplyTo(post.id);
+    },
+    [updatePasteDraft],
+  );
+
+  /** 必要な回答・自分の一言だけを既存Note作成画面へ渡す。人が確認して保存する。 */
+  const saveManualPasteAsNote = useCallback(
+    (post: FeedPost, reply: FeedPost) => {
+      try {
+        const candidate = manualPasteNoteCandidate({
+          postId: post.id,
+          question: reply.manualQuestion ?? "",
+          answer: reply.paragraphs.join("\n\n"),
+          externalSource: reply.manualSource ?? "",
+          externalUrl: reply.manualUrl ?? "",
+          comment: reply.manualComment ?? "",
+        });
+        openDrawer({
+          type: "note",
+          mode: "edit",
+          entity: {
+            title: candidate.title,
+            body_markdown: candidate.body_markdown,
+            note_type: "memo",
+          },
+        });
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : String(error), "warning");
+      }
+    },
+    [openDrawer, setToast],
+  );
 
   /**
    * 返信は投稿のIDに紐づけて保存する（第3段階）。
@@ -1115,12 +1462,21 @@ export function FeedPage({
                             {isReply ? (
                               <>
                                 <span className="feed-thread-note">
-                                  {post.author === "self" ? "自分の返信" : "AIの返答"}
+                                  {post.manualOrigin === "manual_paste"
+                                    ? manualPasteLabel({ external_source: post.manualSource })
+                                    : post.author === "self"
+                                      ? "自分の返信"
+                                      : "AIの返答"}
                                 </span>
                                 {post.aiState === "requested" ? (
                                   <span className="feed-thread-state">AIに依頼済み</span>
                                 ) : post.aiState === "answered" ? (
                                   <span className="feed-thread-state">回答あり</span>
+                                ) : null}
+                                {post.manualOrigin === "manual_paste" ? (
+                                  <span className="feed-thread-note">
+                                    利用者提供であり事実確認済みを意味しません
+                                  </span>
                                 ) : null}
                                 {post.replyId && post.author === "self" ? (
                                   <button
@@ -1186,6 +1542,61 @@ export function FeedPage({
                               </>
                             ) : null}
                           </div>
+                          {isReply && post.manualOrigin === "manual_paste" ? (
+                            <div className="feed-manual-detail">
+                              {post.manualQuestion ? (
+                                <p className="feed-post-meta">質問: {post.manualQuestion}</p>
+                              ) : null}
+                              {post.manualComment ? (
+                                <p className="feed-post-meta">自分の一言: {post.manualComment}</p>
+                              ) : null}
+                              {post.manualUrl && safeMarkdownLinkUrl(post.manualUrl) ? (
+                                <div className="feed-detail-actions">
+                                  <Button
+                                    variant="ghost"
+                                    compact
+                                    type="button"
+                                    onClick={() => openSafeMarkdownLink(post.manualUrl ?? "")}
+                                  >
+                                    会話を開く（外部）
+                                  </Button>
+                                  <span className="feed-post-meta">{post.manualUrl}</span>
+                                </div>
+                              ) : post.manualUrl ? (
+                                <p className="feed-post-meta">会話: {post.manualUrl}</p>
+                              ) : null}
+                              {post.replyTo ? (
+                                <div className="feed-detail-actions">
+                                  <Button
+                                    variant="ghost"
+                                    compact
+                                    type="button"
+                                    onClick={() =>
+                                      startPasteCorrection(
+                                        { ...post, id: post.replyTo ?? "" },
+                                        post,
+                                      )
+                                    }
+                                  >
+                                    貼り付けを訂正
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    compact
+                                    type="button"
+                                    onClick={() =>
+                                      saveManualPasteAsNote(
+                                        { ...post, id: post.replyTo ?? "" },
+                                        post,
+                                      )
+                                    }
+                                  >
+                                    回答をNoteに保存
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
                           {replyTo === post.id ? (
                             <form
                               className="feed-reply"
@@ -1206,14 +1617,31 @@ export function FeedPage({
                                 <Button variant="primary" type="submit" disabled={busy}>
                                   返信を残す
                                 </Button>
-                                {/* 投稿と根拠を添えて外部AIへ渡す質問。押した時点でAIは動かない。 */}
+                                {/* 接続済みAIに質問を残すだけ。押した時点ではAIを起動しない。 */}
                                 <Button
                                   variant="secondary"
                                   type="button"
                                   disabled={busy}
+                                  title="接続済みAIへの質問として残します。押した時点ではAIを起動しません。"
                                   onClick={() => void submitReply(post, { askAi: true })}
                                 >
-                                  AIに聞く
+                                  AIに聞く（接続済みAIへ残す）
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  type="button"
+                                  aria-expanded={externalOpen[post.id] === "copy"}
+                                  onClick={() => toggleExternal(post, "copy")}
+                                >
+                                  外部AIに聞く
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  type="button"
+                                  aria-expanded={externalOpen[post.id] === "paste"}
+                                  onClick={() => toggleExternal(post, "paste")}
+                                >
+                                  外部AIの回答を貼り付け
                                 </Button>
                                 <Button
                                   variant="ghost"
@@ -1223,6 +1651,192 @@ export function FeedPage({
                                   閉じる（下書きは残る）
                                 </Button>
                               </div>
+                              <p className="feed-post-meta">
+                                「AIに聞く」は接続済みAIへの質問保存で、押した時点ではAIを起動しません。
+                              </p>
+                              {externalOpen[post.id] === "copy" ? (
+                                <div
+                                  className="feed-external-panel"
+                                  aria-label="外部AIへの質問コピー"
+                                >
+                                  <p className="feed-post-meta">
+                                    質問と選んだ文脈だけをコピーします。Taskenは送信・ブラウザ起動・AI実行をしません。
+                                  </p>
+                                  <label htmlFor={`feed-copy-q-${post.id}`}>質問</label>
+                                  <textarea
+                                    id={`feed-copy-q-${post.id}`}
+                                    value={copyDrafts[post.id]?.question ?? ""}
+                                    onChange={(event) =>
+                                      updateCopyDraft(post, { question: event.target.value })
+                                    }
+                                    rows={2}
+                                    placeholder="外部AIに聞きたいことを書く"
+                                  />
+                                  <label htmlFor={`feed-copy-excerpt-${post.id}`}>
+                                    元投稿の抜粋（編集可、{FEED_COPY_EXCERPT_MAX}文字以内）
+                                  </label>
+                                  <textarea
+                                    id={`feed-copy-excerpt-${post.id}`}
+                                    value={copyDrafts[post.id]?.excerpt ?? defaultExcerpt(post)}
+                                    onChange={(event) =>
+                                      updateCopyDraft(post, { excerpt: event.target.value })
+                                    }
+                                    rows={3}
+                                  />
+                                  <label htmlFor={`feed-copy-url-${post.id}`}>
+                                    引用・資料URL（任意）
+                                  </label>
+                                  <input
+                                    id={`feed-copy-url-${post.id}`}
+                                    type="url"
+                                    inputMode="url"
+                                    value={copyDrafts[post.id]?.url ?? ""}
+                                    onChange={(event) =>
+                                      updateCopyDraft(post, { url: event.target.value })
+                                    }
+                                    placeholder="https://…"
+                                  />
+                                  <p className="feed-post-meta">
+                                    添付Note全文・Task詳細・他のスレッド・ファイルパスは自動で付けません。内部IDをURLのように見せません。
+                                  </p>
+                                  <div className="feed-detail-actions">
+                                    <Button
+                                      variant="secondary"
+                                      type="button"
+                                      disabled={copyBusy}
+                                      onClick={() => void copyForExternalAi(post)}
+                                    >
+                                      {copyBusy ? "コピー中" : "コピーする"}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      type="button"
+                                      onClick={() => discardExternalDraft(post)}
+                                    >
+                                      下書きを破棄
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {externalOpen[post.id] === "paste" ? (
+                                <div
+                                  className="feed-external-panel"
+                                  aria-label="外部AI回答の貼り付け"
+                                >
+                                  <p className="feed-post-meta">
+                                    コピー操作をしていなくても使えます。通常の貼り付けで入力し、クリップボードの自動読取はしません。保存先:
+                                    この投稿のスレッド。
+                                  </p>
+                                  <label htmlFor={`feed-paste-a-${post.id}`}>
+                                    回答本文（{FEED_MANUAL_REPLY_MAX}文字以内）
+                                  </label>
+                                  <textarea
+                                    id={`feed-paste-a-${post.id}`}
+                                    value={pasteDrafts[post.id]?.answer ?? ""}
+                                    onChange={(event) =>
+                                      updatePasteDraft(post, { answer: event.target.value })
+                                    }
+                                    rows={4}
+                                    placeholder="外部AIの回答を貼り付け"
+                                  />
+                                  <p className="feed-post-meta">
+                                    {(pasteDrafts[post.id]?.answer ?? "").length}/
+                                    {FEED_MANUAL_REPLY_MAX}文字
+                                  </p>
+                                  <label htmlFor={`feed-paste-q-${post.id}`}>
+                                    質問（{FEED_MANUAL_QUESTION_MAX}文字以内）
+                                  </label>
+                                  <textarea
+                                    id={`feed-paste-q-${post.id}`}
+                                    value={pasteDrafts[post.id]?.question ?? ""}
+                                    onChange={(event) =>
+                                      updatePasteDraft(post, { question: event.target.value })
+                                    }
+                                    rows={2}
+                                  />
+                                  <label htmlFor={`feed-paste-s-${post.id}`}>
+                                    出所（任意、{FEED_MANUAL_SOURCE_MAX}文字以内。例: M365 Copilot）
+                                  </label>
+                                  <input
+                                    id={`feed-paste-s-${post.id}`}
+                                    value={pasteDrafts[post.id]?.source ?? ""}
+                                    onChange={(event) =>
+                                      updatePasteDraft(post, { source: event.target.value })
+                                    }
+                                    placeholder="未指定なら「外部AI」と表示"
+                                  />
+                                  <label htmlFor={`feed-paste-u-${post.id}`}>会話URL（任意）</label>
+                                  <input
+                                    id={`feed-paste-u-${post.id}`}
+                                    type="url"
+                                    inputMode="url"
+                                    value={pasteDrafts[post.id]?.url ?? ""}
+                                    onChange={(event) =>
+                                      updatePasteDraft(post, { url: event.target.value })
+                                    }
+                                    placeholder="https://…"
+                                  />
+                                  <label htmlFor={`feed-paste-c-${post.id}`}>
+                                    自分の一言（任意、{FEED_MANUAL_COMMENT_MAX}文字以内）
+                                  </label>
+                                  <textarea
+                                    id={`feed-paste-c-${post.id}`}
+                                    value={pasteDrafts[post.id]?.comment ?? ""}
+                                    onChange={(event) =>
+                                      updatePasteDraft(post, { comment: event.target.value })
+                                    }
+                                    rows={2}
+                                    placeholder="自分の解釈・気づき"
+                                  />
+                                  <div className="feed-preview" aria-label="保存前プレビュー">
+                                    <p className="feed-post-meta">保存前プレビュー</p>
+                                    <p className="feed-post-meta">
+                                      {manualPasteLabel({
+                                        external_source: pasteDrafts[post.id]?.source,
+                                      })}
+                                    </p>
+                                    {pasteDrafts[post.id]?.question ? (
+                                      <p className="feed-post-meta">
+                                        質問: {pasteDrafts[post.id]?.question}
+                                      </p>
+                                    ) : null}
+                                    {pasteDrafts[post.id]?.answer ? (
+                                      <p className="feed-post-text">
+                                        {pasteDrafts[post.id]?.answer}
+                                      </p>
+                                    ) : null}
+                                    {pasteDrafts[post.id]?.comment ? (
+                                      <p className="feed-post-meta">
+                                        自分の一言: {pasteDrafts[post.id]?.comment}
+                                      </p>
+                                    ) : null}
+                                    <p className="feed-post-meta">
+                                      回答内容・出所・会話URLは利用者提供であり、事実確認済みを意味しません。
+                                    </p>
+                                  </div>
+                                  <div className="feed-detail-actions">
+                                    <Button
+                                      variant="primary"
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={() => void saveManualPaste(post)}
+                                    >
+                                      {pasteEditingId[post.id]
+                                        ? "訂正を保存"
+                                        : busy
+                                          ? "保存中"
+                                          : "返信として保存"}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      type="button"
+                                      onClick={() => discardExternalDraft(post)}
+                                    >
+                                      下書きを破棄
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : null}
                             </form>
                           ) : null}
                         </div>
