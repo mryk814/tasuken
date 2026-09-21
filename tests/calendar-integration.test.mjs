@@ -70,8 +70,11 @@ test("TodayPage includes the connected calendar section and keeps connection set
   assert.match(source, /today-calendar-section/);
   assert.match(source, /calendarStatus/);
   assert.match(source, /calendarEvents/);
-  assert.match(source, /今日の予定はありません/);
-  assert.match(source, /予定を取得中/);
+  // 表示文言と状態の判定は lib/calendarState.ts が持つ（tests/today-calendar-state.test.mjs で固定）。
+  assert.match(source, /calendarStateMessage/);
+  assert.match(source, /todayCalendarState\(/);
+  assert.match(source, /calendarFetchedLabel\(/);
+  assert.match(source, /再接続/);
   assert.match(source, /if \(!calendarStatus \|\| !calendarStatus\.connected\) return null;/);
   assert.doesNotMatch(source, /Settingsで接続/);
   assert.match(source, /is-past/);

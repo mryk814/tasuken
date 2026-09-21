@@ -1327,6 +1327,12 @@ textarea:hover {
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
 }
+/* 取得できていない状態。0件（「今日の予定はありません」）と見た目も分ける。 */
+.today-calendar-unavailable {
+  padding: var(--space-3) var(--pad-card);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
 .today-calendar-list {
   display: grid;
 }

@@ -32,6 +32,11 @@ import { taskShelfStatus } from "../lib/taskShelves";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { HabitPanel } from "../components/HabitPanel";
 import { MaintenancePanel } from "../components/MaintenancePanel";
+import {
+  calendarFetchedLabel,
+  calendarStateMessage,
+  todayCalendarState,
+} from "../lib/calendarState";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { AgentWorkSummaryPanel } from "../components/AgentWorkSummaryPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
@@ -856,7 +861,7 @@ function CalendarEventMeta({ event }: { event: CalendarEvent }) {
   );
 }
 
-function TodayCalendarSection() {
+function TodayCalendarSection({ onReconnect }: { onReconnect: () => void }) {
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarResult, setCalendarResult] = useState<CalendarEventsResult | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
@@ -898,7 +903,15 @@ function TodayCalendarSection() {
   const allDayEvents = events.filter((e) => e.isAllDay);
   const timedEvents = events.filter((e) => !e.isAllDay);
   const nextEventId = findNextEvent(timedEvents);
-  const hasError = calendarResult?.error && !calendarResult.stale;
+  const state = todayCalendarState({
+    connected: calendarStatus.connected,
+    loading: calendarLoading,
+    result: calendarResult,
+  });
+  const fetchedLabel = calendarFetchedLabel({
+    fetchedAt: calendarResult?.fetchedAt || "",
+    stale: calendarResult?.stale === true,
+  });
   const titleFor = (event: CalendarEvent) =>
     event.sensitivity === "normal" ? event.title : "予定あり";
 
@@ -909,16 +922,7 @@ function TodayCalendarSection() {
           <IconCalendar size={16} /> 今日の予定
         </h2>
         <div className="inline-actions">
-          {calendarResult?.fetchedAt && (
-            <span className="today-calendar-meta">
-              {calendarResult.stale && "前回取得分 "}
-              {new Date(calendarResult.fetchedAt).toLocaleTimeString("ja-JP", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-              更新
-            </span>
-          )}
+          {fetchedLabel && <span className="today-calendar-meta">{fetchedLabel}</span>}
           <Button
             variant="secondary"
             compact
@@ -930,22 +934,31 @@ function TodayCalendarSection() {
           </Button>
         </div>
       </div>
-      {calendarResult?.stale && calendarResult.error && (
+      {state === "stale" && (
         <p className="form-warning">
-          取得に失敗しました。前回の予定を表示しています。{calendarResult.error}
+          更新できません。前回取得した予定を表示しています。{calendarResult?.error || ""}
         </p>
       )}
-      {hasError ? (
+      {state === "reconnect" ? (
         <div className="today-calendar-error">
-          <p>{calendarResult!.error}</p>
+          <p>{calendarResult?.error || "接続をやり直してください。"}</p>
+          <Button variant="secondary" compact onClick={onReconnect}>
+            再接続
+          </Button>
+        </div>
+      ) : state === "error" ? (
+        <div className="today-calendar-error">
+          <p>{calendarResult?.error}</p>
           <Button variant="secondary" compact onClick={fetchEvents}>
             再試行
           </Button>
         </div>
-      ) : calendarLoading && !calendarResult ? (
-        <p className="today-calendar-loading">予定を取得中…</p>
-      ) : events.length === 0 ? (
-        <EmptyState title="今日の予定はありません" />
+      ) : state === "loading" ? (
+        <p className="today-calendar-loading">{calendarStateMessage("loading")}</p>
+      ) : state === "unavailable" ? (
+        <p className="today-calendar-unavailable">{calendarStateMessage("unavailable")}</p>
+      ) : state === "empty" ? (
+        <EmptyState title={calendarStateMessage("empty")} />
       ) : (
         <div className="today-calendar-list">
           {allDayEvents.map((event) => (
@@ -1694,7 +1707,7 @@ export function TodayPage({
       </section>
 
       {/* 接続済みの場合だけ、今日やることの補助情報として候補棚の下に置く。 */}
-      <TodayCalendarSection />
+      <TodayCalendarSection onReconnect={() => navigate("settings/integrations")} />
 
       <div className="today-period-grid">
         {/* 日付範囲の意味で扱いを分ける（#309）。期間に入っただけで毎日督促しない。 */}
