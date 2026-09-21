@@ -19,7 +19,10 @@ npm run smoke:calendar-live
 ```
 
 - 隔離した一時userDataでビルド済みアプリを起動する。**本番プロファイルと実データには触れない。**
-- 同意はブラウザで行う。既定5分待つ（`TASKEN_CALENDAR_CONSENT_TIMEOUT_MS` で変更できる）。
+- 同意はブラウザで行う。アプリ側の待ち時間は**5分**（`OAUTH_TIMEOUT_MS`）。smokeの待ちは
+  `TASKEN_CALENDAR_CONSENT_TIMEOUT_MS` で変更できる。**2分では足りない**ことを実接続で確認したため5分にした。
+- 同意を途中でやめた場合は「認証がタイムアウトしました」と出る。接続は作られないので、そのまま再試行できる。
+- 失敗の種類は標準エラーへ `TASKEN_CALENDAR_OAUTH_FAILED` として出す（tokenやcodeは出さない）。
 - 証跡は `output/playwright/calendar-live` へ出す。
 
 ## 確認する項目
