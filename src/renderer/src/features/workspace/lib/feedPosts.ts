@@ -18,6 +18,8 @@ export interface FeedPostRefs {
   proposalId?: string;
   /** 返信EntityのID（自分の返信を削除するときに使う）。 */
   replyId?: string;
+  /** 自分の投稿が元にしているNote（Feedから外すときに使う）。 */
+  noteId?: string;
   /** 返信をAIへ向けたか、AIが答えたか（第3段階）。 */
   aiState?: "requested" | "answered" | null;
   taskId?: string | null;
@@ -743,6 +745,92 @@ function feedAnswerEntry(proposal: Row): Row | null {
   const answer = Array.isArray(payload.feed_replies) ? payload.feed_replies[0] : null;
   if (!answer || typeof answer !== "object") return null;
   return answer as Row;
+}
+
+/* -------------------------------------------------------------------------
+ * 自分の投稿（SNS型Feed 第3段階）
+ *
+ * 既存のCapture/Memo入力（Note）を再利用し、**Feedへ載せると選んだものだけ**を投稿にする。
+ * 未整理のメモを自動で流さないため、印（`feed_published_at`）が付いたNoteだけを読む。
+ * 外すとNoteはNotesに残したままFeedから消える。
+ * ---------------------------------------------------------------------- */
+
+/** Feedへ載せたことを示すNoteの印。nullで外す。 */
+export const FEED_PUBLISHED_FIELD = "feed_published_at";
+
+/** 自分の投稿のID。NoteのIDから決まるので、載せ直しても同じ投稿になる。 */
+export function ownPostId(noteId: string): string {
+  return `feed-note:${noteId}`;
+}
+
+/** Feedへ載せたNoteを、投稿として読む。 */
+export function buildOwnPosts(input: { notes?: readonly unknown[] }): FeedPost[] {
+  const posts: FeedPost[] = [];
+  for (const entry of input.notes ?? []) {
+    if (!entry || typeof entry !== "object") continue;
+    const note = entry as Row;
+    if (note.deleted_at) continue;
+    const publishedAt = text(note[FEED_PUBLISHED_FIELD]);
+    if (!publishedAt) continue;
+    const body = text(note.body_markdown ?? note.body);
+    if (!body.trim()) continue;
+    const noteId = String(note.id);
+    posts.push({
+      id: ownPostId(noteId),
+      author: "self",
+      kind: "own_note",
+      createdAt: publishedAt,
+      paragraphs: body
+        .split(/\n{2,}/u)
+        .map((paragraph) => paragraph.trim())
+        .filter(Boolean),
+      // メモは添付カードにせず、スレッドの操作から既存のNote面へ開く。
+      attachment: null,
+      replyTo: null,
+      learnable: false,
+      noteId,
+    } as FeedPost);
+  }
+  return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+}
+
+/**
+ * Feedへ載せるNote。既存のMemo入力をそのまま保存先に使う。
+ * 本文が空のときは載せない（投稿として読めないため）。
+ */
+export function feedNoteEntity(input: {
+  id: string;
+  body: string;
+  publishedAt: string;
+  title?: string;
+}): {
+  id: string;
+  title: string;
+  body_markdown: string;
+  note_type: "memo";
+  feed_published_at: string;
+} {
+  const body = input.body.trim();
+  if (!body) throw new Error("投稿する本文を入力してください。");
+  return {
+    id: input.id,
+    title: (input.title || "").trim() || noteTitleFrom(body),
+    body_markdown: body,
+    note_type: "memo",
+    feed_published_at: input.publishedAt,
+  };
+}
+
+/** Noteの見出しは本文の1行目から作る（長い場合は切る）。 */
+export function noteTitleFrom(body: string): string {
+  const firstLine = body.split(/\r?\n/u)[0]?.trim() || "";
+  if (!firstLine) return "メモ";
+  return firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
+}
+
+/** Feedから外す（NoteはNotesに残す）。 */
+export function unpublishNote(note: Row): Row {
+  return { ...note, [FEED_PUBLISHED_FIELD]: null };
 }
 
 /** 人が書く返信のEntity。IDは呼び出し側で採番する。 */

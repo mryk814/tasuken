@@ -15,16 +15,19 @@ import {
   FEED_POSTS,
   FEED_POST_KIND_LABELS,
   authorOf,
+  buildOwnPosts,
   buildPostsFromProposals,
   buildRepliesFromEntities,
   draftNoteEntity,
   draftNoteId,
+  feedNoteEntity,
   feedReactionId,
   feedReplyEntity,
   filterPosts,
   needsMore,
   postsForHome,
   postsForLearning,
+  unpublishNote,
   withReplies,
   type FeedAuthorId,
   type FeedPost,
@@ -103,6 +106,8 @@ export function FeedPage({
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [draftAnswer, setDraftAnswer] = useState("");
+  /** 自分の投稿欄の下書き。投稿しても消さず、成功時だけ空にする。 */
+  const [compose, setCompose] = useState("");
   const rowRefs = useRef(new Map<string, HTMLElement>());
   // 相対時刻は描画中に現在時刻を読まず、初回に固定する。
   const [now] = useState(() => Date.now());
@@ -145,6 +150,15 @@ export function FeedPage({
   const usingFixtures = livePosts.length === 0 && replyPosts.length === 0;
 
   /**
+   * 自分の投稿は、Feedへ載せると選んだNote（既存のMemo入力）から作る。
+   * 未整理のメモ全件を流さないため、印の付いたNoteだけを読む。
+   */
+  const ownPosts = useMemo(
+    () => buildOwnPosts({ notes: domain.notes as unknown[] }),
+    [domain.notes],
+  );
+
+  /**
    * 読者の状態はEntityとして保存する（投稿の正本ではない）。
    * 保存された印は `domain` 側の正規化を通して読む（未保存のworkspaceでは空になる）。
    */
@@ -164,7 +178,7 @@ export function FeedPage({
   }, [domain.feed_reactions]);
 
   const sourcePosts = useMemo(() => {
-    const all = usingFixtures ? FEED_POSTS : [...livePosts, ...replyPosts];
+    const all = usingFixtures ? FEED_POSTS : [...ownPosts, ...livePosts, ...replyPosts];
     const visible = all.filter((post) => !hidden.has(post.id) && !reactions.hidden.has(post.id));
     return {
       arriving: usingFixtures ? visible.filter((post) => ARRIVING_POST_IDS.includes(post.id)) : [],
@@ -172,7 +186,7 @@ export function FeedPage({
         ? visible.filter((post) => !ARRIVING_POST_IDS.includes(post.id))
         : visible,
     };
-  }, [hidden, livePosts, reactions.hidden, replyPosts, usingFixtures]);
+  }, [hidden, livePosts, ownPosts, reactions.hidden, replyPosts, usingFixtures]);
 
   const timeline = useMemo(() => {
     const posts = arrivalsApplied
@@ -382,6 +396,72 @@ export function FeedPage({
     [removeEntity],
   );
 
+  /**
+   * 自分の投稿は既存のMemo入力（Note）として保存する。
+   * Feedへ載せる印を付けたNoteだけが投稿になる（未整理のメモを自動で流さない）。
+   */
+  const publishOwnPost = useCallback(async () => {
+    const body = compose.trim();
+    if (!body) {
+      setToast("投稿する本文を入力してください。", "warning");
+      return;
+    }
+    setBusy(true);
+    try {
+      await saveEntities(
+        [
+          {
+            action: "save",
+            type: "note",
+            entity: feedNoteEntity({ id: uuid(), body, publishedAt: new Date().toISOString() }),
+          },
+        ],
+        "Feedへ投稿しました。",
+        "main_ui",
+      );
+      setCompose("");
+      setNotice("投稿しました。同じメモはNotesからも読めます。");
+    } catch (error) {
+      // 失敗しても入力は消さない。
+      setToast(
+        `投稿できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [compose, saveEntities, setToast]);
+
+  /** Feedから外す。メモ自体はNotesに残る。 */
+  const unpublishOwnPost = useCallback(
+    async (post: FeedPost) => {
+      const note = (
+        domain.notes as unknown as Array<{ id: string } & Record<string, unknown>>
+      ).find((entry) => entry.id === post.noteId);
+      if (!note) {
+        setToast("元のメモが見つかりません。読み直してください。", "danger");
+        return;
+      }
+      setBusy(true);
+      try {
+        await saveEntities(
+          [{ action: "save", type: "note", entity: unpublishNote(note) as never }],
+          "Feedから外しました。",
+          "main_ui",
+        );
+        setNotice("Feedから外しました。メモはNotesに残っています。");
+      } catch (error) {
+        setToast(
+          `Feedから外せませんでした。${error instanceof Error ? error.message : String(error)}`,
+          "danger",
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [domain.notes, saveEntities, setToast],
+  );
+
   /** 記事の草稿が正式Noteになっていれば、そのNoteを返す（IDはProposalから決まる）。 */
   const savedNoteOf = useCallback(
     (post: FeedPost) => {
@@ -446,6 +526,21 @@ export function FeedPage({
       if (note) openDrawer({ type: "note", entity: note as never });
     },
     [openDrawer, savedNoteOf],
+  );
+
+  /** 自分の投稿の元になったメモを、既存のNote面で開く。 */
+  const openOwnNote = useCallback(
+    (post: FeedPost) => {
+      const note = (domain.notes as unknown as Array<Record<string, unknown>>).find(
+        (entry) => entry.id === post.noteId,
+      );
+      if (!note) {
+        setToast("元のメモが見つかりません。読み直してください。", "danger");
+        return;
+      }
+      openDrawer({ type: "note", entity: note as never });
+    },
+    [domain.notes, openDrawer, setToast],
   );
 
   const taskOf = useCallback(
@@ -592,6 +687,32 @@ export function FeedPage({
           <p className="feed-notice-line" role="status">
             {notice}
           </p>
+        ) : null}
+
+        {/* 自分の投稿欄。既存のMemo入力（Note）へ保存し、そのうちFeedへ載せたものだけを読む。 */}
+        {tab !== "needs" && !usingFixtures ? (
+          <form
+            className="feed-compose"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void publishOwnPost();
+            }}
+          >
+            <label htmlFor="feed-compose-body">自分のメモをFeedへ載せる</label>
+            <textarea
+              id="feed-compose-body"
+              value={compose}
+              onChange={(event) => setCompose(event.target.value)}
+              rows={2}
+              placeholder="気づいたことや、あとで読み返したいことを短く"
+            />
+            <div className="feed-detail-actions">
+              <Button variant="primary" type="submit" disabled={busy}>
+                Feedへ投稿
+              </Button>
+              <span className="feed-compose-note">Notesにも同じメモが残ります</span>
+            </div>
+          </form>
         ) : null}
 
         {tab === "needs" ? (
@@ -925,6 +1046,25 @@ export function FeedPage({
                                 >
                                   ブックマーク
                                 </button>
+                                {/* 自分の投稿は既存のNote面で開き、Feedからは外せる（メモは残る）。 */}
+                                {post.noteId ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="feed-reaction"
+                                      onClick={() => openOwnNote(post)}
+                                    >
+                                      Noteで読む
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="feed-reaction"
+                                      onClick={() => void unpublishOwnPost(post)}
+                                    >
+                                      Feedから外す
+                                    </button>
+                                  </>
+                                ) : null}
                               </>
                             ) : null}
                           </div>

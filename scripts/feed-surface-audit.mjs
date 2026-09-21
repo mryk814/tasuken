@@ -45,6 +45,8 @@ const LIVE_FIGURE_LABEL = "図: 再送の流れ";
 const LIVE_REPLY_BODY = "サンプル数が少ないときも同じ見方でよい？";
 /** 実データ投稿へ残すAIへの質問（第3段階）。 */
 const LIVE_QUESTION_BODY = "この条件は25℃の比較にも同じように使えますか。";
+/** 自分の投稿欄から載せるメモ（第3段階）。 */
+const LIVE_OWN_POST_BODY = "条件を先に決めると、測り直しが減る。";
 /** 隔離workspaceへ用意する質問とAIの返答（第3段階）。 */
 const LIVE_SEEDED_QUESTION = "この条件は40℃の比較にも同じように使えますか。";
 const LIVE_SEEDED_ANSWER = "40℃では裾が広がるため、平均ではなく幅だけで比べてください。";
@@ -392,10 +394,11 @@ async function auditLivePost(page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/live-needs.png`, fullPage: true });
 
-  // 5. ブックマークを付ける（保存はEntityとして行われる）。
+  // 5. ブックマークを付ける（保存はEntityとして行われる）。対象は実データの投稿。
   await page.locator(".feed-tabs button", { hasText: "ホーム" }).first().click();
   await page.waitForTimeout(400);
-  const bookmark = page.locator(".feed-reaction", { hasText: "ブックマーク" }).first();
+  const aiPost = page.locator(".feed-posts .feed-post", { hasText: LIVE_ARTICLE_TITLE }).first();
+  const bookmark = aiPost.locator(".feed-reaction", { hasText: "ブックマーク" }).first();
   await bookmark.click();
   await page.waitForTimeout(1200);
   if ((await bookmark.getAttribute("aria-pressed")) !== "true") {
@@ -493,17 +496,60 @@ async function auditLivePost(page) {
     failures.push(`AIへの依頼で対応待ち件数が変わりました（${countAfterAsk}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/live-question.png`, fullPage: true });
+
+  // 10. 自分の投稿欄は既存のMemo入力を再利用し、載せたものだけを読む。
+  const composer = page.locator(".feed-compose textarea");
+  if (!(await composer.count())) {
+    failures.push("自分の投稿欄がありません。");
+    return;
+  }
+  await composer.fill(LIVE_OWN_POST_BODY);
+  await page.locator(".feed-compose button", { hasText: "Feedへ投稿" }).click();
+  await page.waitForTimeout(1500);
+  if (!(await page.locator(".feed-timeline").innerText()).includes(LIVE_OWN_POST_BODY)) {
+    failures.push("自分の投稿がFeedへ出ていません。");
+  }
+  const rootsAfterPost = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+  if (rootsAfterPost !== 2) {
+    failures.push(`自分の投稿で投稿が2件ではありません（${rootsAfterPost}件）。`);
+  }
+  const countAfterPost = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (countAfterPost !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(`自分の投稿で対応待ち件数が変わりました（${countAfterPost}）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/live-own-post.png`, fullPage: true });
+
+  // 外すとFeedから消え、メモはNotesに残る。載せ直すと同じように投稿へ戻る。
+  await page.locator(".feed-reaction", { hasText: "Feedから外す" }).first().click();
+  await page.waitForTimeout(1500);
+  const rootsAfterRemove = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+  if (rootsAfterRemove !== 1) {
+    failures.push(`Feedから外しても投稿が残っています（${rootsAfterRemove}件）。`);
+  }
+  if ((await page.locator(".feed-timeline").innerText()).includes(LIVE_OWN_POST_BODY)) {
+    failures.push("Feedから外した本文が残っています。");
+  }
+  await composer.fill(LIVE_OWN_POST_BODY);
+  await page.locator(".feed-compose button", { hasText: "Feedへ投稿" }).click();
+  await page.waitForTimeout(1500);
+  const rootsReposted = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+  if (rootsReposted !== 2) failures.push(`自分の投稿を載せ直せません（${rootsReposted}件）。`);
 }
 
-/** 起動し直しても、投稿と読者の印、保存したNote、返信とAIへの依頼・返答が残る。 */
+/** 起動し直しても、投稿と読者の印、保存したNote、返信・AIへの依頼と返答、自分の投稿が残る。 */
 async function auditLiveRestart(page) {
   const rootCount = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
-  if (rootCount !== 1) failures.push(`再起動後の投稿が1件ではありません（${rootCount}件）。`);
+  if (rootCount !== 2) failures.push(`再起動後の投稿が2件ではありません（${rootCount}件）。`);
   const thread = page.locator(".feed-posts .feed-post.is-reply");
   const threadCount = await thread.count();
   if (threadCount !== 4) failures.push(`再起動後の返信が4件ではありません（${threadCount}件）。`);
   const timelineText = await page.locator(".feed-timeline").innerText();
-  for (const expected of [LIVE_REPLY_BODY, LIVE_QUESTION_BODY, LIVE_SEEDED_ANSWER]) {
+  for (const expected of [
+    LIVE_REPLY_BODY,
+    LIVE_QUESTION_BODY,
+    LIVE_SEEDED_ANSWER,
+    LIVE_OWN_POST_BODY,
+  ]) {
     if (!timelineText.includes(expected)) {
       failures.push(`再起動後に出ない文言があります（${expected}）。`);
     }
@@ -515,6 +561,7 @@ async function auditLiveRestart(page) {
     failures.push("再起動後にAIの返答が残っていません。");
   }
   const persisted = await page
+    .locator(".feed-posts .feed-post", { hasText: LIVE_ARTICLE_TITLE })
     .locator(".feed-reaction", { hasText: "ブックマーク" })
     .first()
     .getAttribute("aria-pressed");
