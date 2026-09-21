@@ -304,6 +304,9 @@ export interface WorkspaceData {
   /** Habitの最小実験（#454後半）。実施記録は habit_entrys に置く。 */
   habits: BaseRecord[];
   habit_entrys: BaseRecord[];
+  /** Maintenanceの最小実験（#454後半）。実施記録は maintenance_entrys に置く。 */
+  maintenances: BaseRecord[];
+  maintenance_entrys: BaseRecord[];
   /** 読者の状態（ブックマーク・興味・非表示）。投稿の正本ではない。 */
   feed_reactions: BaseRecord[];
   /** 投稿への返信とAIの返答。投稿のIDに紐づける。 */

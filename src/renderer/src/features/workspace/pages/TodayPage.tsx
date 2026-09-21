@@ -31,6 +31,7 @@ import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dail
 import { taskShelfStatus } from "../lib/taskShelves";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { HabitPanel } from "../components/HabitPanel";
+import { MaintenancePanel } from "../components/MaintenancePanel";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { AgentWorkSummaryPanel } from "../components/AgentWorkSummaryPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
@@ -987,6 +988,7 @@ export function TodayPage({
   startFocusSession,
   saveEntities,
   removeEntity,
+  removeEntityQuiet,
   setToast,
 }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
@@ -1585,6 +1587,16 @@ export function TodayPage({
         today={today}
         saveEntities={saveEntities}
         removeEntity={removeEntity}
+        setToast={setToast}
+      />
+
+      {/* #454後半: 手入れの目安。目安が近い項目だけを小さく出す。 */}
+      <MaintenancePanel
+        data={data}
+        today={today}
+        saveEntities={saveEntities}
+        removeEntity={removeEntity}
+        removeEntityQuiet={removeEntityQuiet}
         setToast={setToast}
       />
 

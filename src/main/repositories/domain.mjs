@@ -826,6 +826,59 @@ export function validateEntity(type, input) {
     )
       throw new Error("feed_reply.ai_answered_atが不正です。");
   }
+  if (type === "maintenance") {
+    // 手入れの目安（#454後半）。目安は推奨間隔からの提案で、Taskの締切ではない。
+    if (typeof input.target !== "string" || !input.target.trim() || input.target.length > 200)
+      throw new Error("maintenance.targetは1〜200文字で入力してください。");
+    if (typeof input.action !== "string" || !input.action.trim() || input.action.length > 200)
+      throw new Error("maintenance.actionは1〜200文字で入力してください。");
+    if (
+      input.interval_days != null &&
+      input.interval_days !== "" &&
+      (!Number.isInteger(Number(input.interval_days)) ||
+        Number(input.interval_days) < 1 ||
+        Number(input.interval_days) > 3650)
+    )
+      throw new Error("maintenance.interval_daysは1〜3650で入力してください。");
+    for (const field of ["last_performed_on", "next_due_on", "started_on"]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || !datePattern.test(input[field]))
+      )
+        throw new Error(`maintenance.${field}はYYYY-MM-DDで入力してください。`);
+    }
+    if (
+      input.note != null &&
+      input.note !== "" &&
+      (typeof input.note !== "string" || input.note.length > 1000)
+    )
+      throw new Error("maintenance.noteは1000文字以内で入力してください。");
+    if (input.project_id != null && input.project_id !== "" && typeof input.project_id !== "string")
+      throw new Error("maintenance.project_idが不正です。");
+  }
+  if (type === "maintenance_entry") {
+    if (typeof input.maintenance_id !== "string" || !input.maintenance_id.trim())
+      throw new Error("maintenance_entry.maintenance_idを入力してください。");
+    if (typeof input.performed_on !== "string" || !datePattern.test(input.performed_on))
+      throw new Error("maintenance_entry.performed_onはYYYY-MM-DDで入力してください。");
+    if (typeof input.recorded_at !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input.recorded_at))
+      throw new Error("maintenance_entry.recorded_atが不正です。");
+    for (const field of ["next_due_on", "previous_due_on", "previous_performed_on"]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || !datePattern.test(input[field]))
+      )
+        throw new Error(`maintenance_entry.${field}はYYYY-MM-DDで入力してください。`);
+    }
+    if (
+      input.note != null &&
+      input.note !== "" &&
+      (typeof input.note !== "string" || input.note.length > 1000)
+    )
+      throw new Error("maintenance_entry.noteは1000文字以内で入力してください。");
+  }
   if (type === "artifact") {
     if (!artifactSourceTypes.has(input.source_type))
       throw new Error("artifact.source_typeが不正です。");

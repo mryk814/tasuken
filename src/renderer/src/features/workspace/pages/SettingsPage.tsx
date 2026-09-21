@@ -23,6 +23,7 @@ import { todayIso as todayIsoDate } from "../domain-model/scheduleSemantics";
 import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
 import { HabitPanel } from "../components/HabitPanel";
+import { MaintenancePanel } from "../components/MaintenancePanel";
 import { CaptureOrganizerSettings } from "../components/CaptureOrganizerSettings";
 import {
   DEFAULT_ROOT_SHORTCUT,
@@ -42,6 +43,7 @@ type SettingsSectionId =
   | "general"
   | "appearance"
   | "habits"
+  | "maintenance"
   | "storage"
   | "integrations"
   | "mobile"
@@ -52,6 +54,7 @@ const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; descripti
   { id: "general", label: "General", description: "基本の使い方" },
   { id: "appearance", label: "Appearance", description: "表示と編集" },
   { id: "habits", label: "Habits", description: "続けることの記録" },
+  { id: "maintenance", label: "Maintenance", description: "手入れの目安と履歴" },
   { id: "storage", label: "Storage & Files", description: "保存と同期" },
   { id: "integrations", label: "Integrations", description: "外部サービス" },
   { id: "mobile", label: "Mobile", description: "Android接続" },
@@ -89,6 +92,7 @@ export function SettingsPage({
   snapshotPreview,
   saveEntities,
   removeEntity,
+  removeEntityQuiet,
   setToast,
 }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
@@ -1215,6 +1219,21 @@ export function SettingsPage({
                 today={todayIsoDate()}
                 saveEntities={saveEntities}
                 removeEntity={removeEntity}
+                setToast={setToast}
+                manage
+              />
+            </section>
+            <section className="panel settings-form" hidden={activeSection !== "maintenance"}>
+              {/* #454後半: Maintenanceの最小実験。目安と履歴の管理はここへ置く。 */}
+              <p className="field-help">
+                対象と推奨間隔を決めて、実施した日を記録します。次の目安は提案で、Taskの期限ではありません。
+              </p>
+              <MaintenancePanel
+                data={data}
+                today={todayIsoDate()}
+                saveEntities={saveEntities}
+                removeEntity={removeEntity}
+                removeEntityQuiet={removeEntityQuiet}
                 setToast={setToast}
                 manage
               />

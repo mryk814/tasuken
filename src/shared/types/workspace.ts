@@ -68,6 +68,8 @@ export interface Workspace {
   sketches?: Entity[];
   habits?: Entity[];
   habit_entrys?: Entity[];
+  maintenances?: Entity[];
+  maintenance_entrys?: Entity[];
   feed_reactions?: Entity[];
   feed_replies?: Entity[];
   plan_revisions?: Entity[];

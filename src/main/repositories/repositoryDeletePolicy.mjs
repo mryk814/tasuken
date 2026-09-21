@@ -94,6 +94,14 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
   // 実施記録はHabitの一部として削除し、復元でも一緒に戻す（#454後半）。
   if (type === "habit")
     repository.cascadeWhere("habit_entry", (entry) => entry.habit_id === id, type, id);
+  // 手入れの実施記録も同じ扱いにする（#454後半のMaintenance）。
+  if (type === "maintenance")
+    repository.cascadeWhere(
+      "maintenance_entry",
+      (entry) => entry.maintenance_id === id,
+      type,
+      id,
+    );
   if (type === "capture_entry")
     repository.cascadeWhere(
       "artifact",

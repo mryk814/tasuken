@@ -11,6 +11,7 @@ export const WORKSPACE_ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "knowledge_edges", "change_events", "artifacts", "repository_contexts",
   "working_copies", "agent_sessions", "sketches", "work_receipts",
   "habits", "habit_entrys",
+  "maintenances", "maintenance_entrys",
   "feed_reactions", "feed_replies",
 ];
 

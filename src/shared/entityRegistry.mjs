@@ -47,6 +47,8 @@ const definitions = /** @type {const} */ ([
   { type: "habit_entry", collectionKey: "habit_entrys", domainCollectionKey: "habit_entries", label: "Habit entry", iconKey: "history", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["habit_id", "performed_on", "recorded_at"] },
   { type: "feed_reaction", collectionKey: "feed_reactions", domainCollectionKey: "feed_reactions", label: "Feed reaction", iconKey: "message", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["post_id", "kind", "created_at"] },
   { type: "feed_reply", collectionKey: "feed_replies", domainCollectionKey: "feed_replies", label: "Feed reply", iconKey: "message", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["post_id", "body", "created_at"] },
+  { type: "maintenance", collectionKey: "maintenances", domainCollectionKey: "maintenances", label: "Maintenance", iconKey: "clock", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "target", "action"] },
+  { type: "maintenance_entry", collectionKey: "maintenance_entrys", domainCollectionKey: "maintenance_entries", label: "Maintenance entry", iconKey: "history", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["maintenance_id", "performed_on", "recorded_at"] },
 ]);
 
 /** @typedef {(typeof definitions)[number]["type"]} RegistryEntityType */

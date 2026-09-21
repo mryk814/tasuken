@@ -444,6 +444,9 @@ export interface WorkspaceDomain {
   /** Habitの最小実験（#454後半）。実施記録は habit_entries に置く。 */
   habits: Array<Record<string, unknown> & { id: string }>;
   habit_entries: Array<Record<string, unknown> & { id: string }>;
+  /** Maintenanceの最小実験（#454後半）。実施記録は maintenance_entries に置く。 */
+  maintenances: Array<Record<string, unknown> & { id: string }>;
+  maintenance_entries: Array<Record<string, unknown> & { id: string }>;
   /** 読者の状態（ブックマーク・興味・非表示）。 */
   feed_reactions: Array<Record<string, unknown> & { id: string }>;
   /** 投稿への返信とAIの返答。 */

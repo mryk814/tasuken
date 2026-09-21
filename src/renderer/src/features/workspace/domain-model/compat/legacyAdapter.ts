@@ -445,6 +445,8 @@ function emptyWorkspaceDomain(): WorkspaceDomain {
     sketches: [],
     habits: [],
     habit_entries: [],
+    maintenances: [],
+    maintenance_entries: [],
     feed_reactions: [],
     feed_replies: [],
     knowledge_nodes: [],
@@ -729,6 +731,10 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pSketches = castRecords<Sketch>(data.sketches);
   const pHabits = castRecords<Record<string, unknown> & { id: string }>(data.habits);
   const pHabitEntries = castRecords<Record<string, unknown> & { id: string }>(data.habit_entrys);
+  const pMaintenances = castRecords<Record<string, unknown> & { id: string }>(data.maintenances);
+  const pMaintenanceEntries = castRecords<Record<string, unknown> & { id: string }>(
+    data.maintenance_entrys,
+  );
   const pFeedReactions = castRecords<Record<string, unknown> & { id: string }>(data.feed_reactions);
   const pFeedReplies = castRecords<Record<string, unknown> & { id: string }>(data.feed_replies);
 
@@ -772,6 +778,8 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     sketches: pSketches,
     habits: pHabits,
     habit_entries: pHabitEntries,
+    maintenances: pMaintenances,
+    maintenance_entries: pMaintenanceEntries,
     feed_reactions: pFeedReactions,
     feed_replies: pFeedReplies,
     knowledge_nodes: legacy.knowledge_nodes,
@@ -1092,6 +1100,8 @@ export function projectLegacyWorkspace(
     sketches: domain.sketches as WorkspaceData["sketches"],
     habits: domain.habits as WorkspaceData["habits"],
     habit_entrys: domain.habit_entries as WorkspaceData["habit_entrys"],
+    maintenances: (domain.maintenances || []) as WorkspaceData["maintenances"],
+    maintenance_entrys: (domain.maintenance_entries || []) as WorkspaceData["maintenance_entrys"],
     feed_reactions: domain.feed_reactions as WorkspaceData["feed_reactions"],
     feed_replies: domain.feed_replies as WorkspaceData["feed_replies"],
     repository_contexts: domain.repository_contexts as WorkspaceData["repository_contexts"],
