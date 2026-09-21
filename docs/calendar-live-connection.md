@@ -32,6 +32,10 @@ $env:TASKEN_GOOGLE_CLIENT_ID = "<desktop app client id>"
 npm run smoke:calendar-live
 ```
 
+- **同意画面を開く前にclient種別を確かめる**（`doctor:calendar-client` と同じ判定）。
+  Webアプリ種別のままなら、5分待たずにその場で「デスクトップ アプリ種別で作り直す」案内を出して止まる。
+  ネットワークで判定できないときは警告だけ出して続行する。
+- 環境変数が無いときは**ユーザー環境変数（レジストリ）も見る**。設定直後でシェルが古くても動く。
 - 隔離した一時userDataでビルド済みアプリを起動する。**本プロファイルと実データには触れない。**
 - 同意はブラウザで行う。アプリ側の待ち時間は**5分**（`OAUTH_TIMEOUT_MS`）。smokeの待ちは
   `TASKEN_CALENDAR_CONSENT_TIMEOUT_MS` で変更できる。**2分では足りない**ことを実接続で確認したため5分にした。

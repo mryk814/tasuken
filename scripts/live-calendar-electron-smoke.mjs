@@ -18,13 +18,33 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { resolveClientId, runClientCheck } from "./calendar-client-check.mjs";
+
 const OUT_DIR = process.argv[2] || "output/playwright/calendar-live";
 const CONSENT_TIMEOUT_MS = Number(process.env.TASKEN_CALENDAR_CONSENT_TIMEOUT_MS || 5 * 60_000);
-const clientId = (process.env.TASKEN_GOOGLE_CLIENT_ID || "").trim();
+// 環境変数が無いときはユーザー環境変数（レジストリ）も見る。設定直後のシェルでも動く。
+const clientId = resolveClientId({});
 if (!clientId) {
   throw new Error(
     "TASKEN_GOOGLE_CLIENT_IDが未設定です。Google CloudのOAuth 2.0クライアントID（デスクトップアプリ）を設定してください。",
   );
+}
+// 同意画面を開く前にclient種別を確かめる。Webアプリ種別のまま同意しても必ず失敗するため、
+// 5分待ってから失敗するより、先に作り直しを案内する。
+try {
+  const preflight = await runClientCheck({ clientId });
+  if (preflight.client_kind !== "public_client") {
+    throw new Error(
+      `TASKEN_GOOGLE_CLIENT_ID はデスクトップ アプリ種別ではありません（${preflight.client_kind}）。${preflight.guidance}`,
+    );
+  }
+  console.log(
+    `[OK] preflight — client種別 ${preflight.client_kind}（指紋 ${preflight.client_id_fingerprint}）`,
+  );
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("デスクトップ アプリ種別ではありません")) throw error;
+  console.warn(`[warn] client種別を確認できませんでした（このまま続行します）: ${message}`);
 }
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-calendar-live-"));

@@ -43,6 +43,8 @@
    client ID を `TASKEN_GOOGLE_CLIENT_ID` へ設定する。現在設定されているIDはWebアプリ種別のため
    `npm run doctor:calendar-client` が `confidential_client` を返し、実接続できない。
    作成自体はスマートフォンのブラウザでもでき、PCでは環境変数の設定と `npm run smoke:calendar-live`（同意5分）だけを行う。
+   smokeは**同意画面を開く前にclient種別を確かめ**、Webアプリ種別のままならその場で作り直しを案内して止まる
+   （[calendar-live-connection.md](./calendar-live-connection.md)）。
 2. **#588（N）**: NASへ入り、`deploy/synology/DEPLOYED.md` の read-only 3コマンドの結果を渡す。
 3. **#601（J）**: SM-F966Q に debug APK を入れて、要対応一覧・回答・Fold詳細ペイン・新着通知を目視する。
    データを消す操作の前には改めて確認する。
