@@ -58,6 +58,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -160,9 +161,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         entryRequest.value = resolveEntryRequest(intent)
         val repository = AndroidMobileTaskRepository(applicationContext)
-        val viewModelFactory = TodayViewModelFactory(repository) {
-            TaskenTodayWidget.updateAll(applicationContext)
-        }
+        val viewModelFactory = TodayViewModelFactory(
+            repository,
+            refreshExternalProjection = { TaskenTodayWidget.updateAll(applicationContext) },
+            attentionNotificationStore = AttentionNotificationStore(applicationContext),
+            notifyAttentionArrivals = { rows, serverId ->
+                MobileAttentionNotifications.notifyArrivals(applicationContext, rows, serverId)
+            },
+        )
         setContent {
             TaskenTheme {
                 val request by entryRequest.collectAsState()
@@ -244,11 +250,16 @@ internal fun TodayApp(
     val attentionFetchedAt by todayViewModel.attentionFetchedAt.collectAsState()
     val attentionOnline by todayViewModel.attentionOnline.collectAsState()
     val attentionRefreshing by todayViewModel.attentionRefreshing.collectAsState()
+    val attentionNewArrivals by todayViewModel.attentionNewArrivals.collectAsState()
     val agentReplyState by todayViewModel.agentReplyState.collectAsState()
     val aiReadyState by todayViewModel.aiReadyState.collectAsState()
     val pendingSafeShare by todayViewModel.pendingSafeShare.collectAsState()
     val themes = themeCatalogState.themes
     val context = LocalContext.current
+    val attentionNotificationStore = remember(context) { AttentionNotificationStore(context) }
+    var attentionNotificationsEnabled by remember {
+        mutableStateOf(attentionNotificationStore.isEnabled())
+    }
     var notificationsEnabled by remember(context) {
         mutableStateOf(MobileTaskNotifications.canPost(context))
     }
@@ -424,7 +435,7 @@ internal fun TodayApp(
             context.unregisterReceiver(dateReceiver)
         }
     }
-    LaunchedEffect(entryRequest, uiState, allTasks) {
+    LaunchedEffect(entryRequest, uiState, allTasks, attentionRows, attentionFetchedAt) {
         if (entryRequest.token == 0L || entryRequest.token == handledEntryToken) return@LaunchedEffect
         when (entryRequest) {
             is MobileEntryRequest.Capture -> {
@@ -455,6 +466,25 @@ internal fun TodayApp(
                 paneState.activeSection = AppSection.Today
                 navigator.navigateTo(ListDetailPaneScaffoldRole.List)
                 handledEntryToken = entryRequest.token
+            }
+            is MobileEntryRequest.Attention -> {
+                // 要対応の新着通知から、その判断へ移動する（#601）。
+                val row = attentionRows.firstOrNull { it.attentionId == entryRequest.attentionId }
+                if (row != null) {
+                    paneState.activeSection = AppSection.Ai
+                    paneState.openAttention(row.attentionId)
+                    todayViewModel.clearAttentionNewArrivals()
+                    if (attentionInDetailPane) {
+                        navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, row.attentionId)
+                    } else {
+                        navigator.navigateTo(ListDetailPaneScaffoldRole.List)
+                    }
+                    handledEntryToken = entryRequest.token
+                } else if (attentionFetchedAt != null) {
+                    // 既に解決済みの判断。開けなかったことを黙って飲み込まない。
+                    snackbarHostState.showSnackbar("この判断はもう要対応にありません。")
+                    handledEntryToken = entryRequest.token
+                }
             }
             MobileEntryRequest.None -> Unit
         }
@@ -798,6 +828,18 @@ internal fun TodayApp(
                                 onResetAgentReply = todayViewModel::resetAgentReplyState,
                                 attentionInDetailPane = attentionInDetailPane,
                                 selectedAttentionId = paneState.selectedAttentionId,
+                                attentionNewArrivals = attentionNewArrivals,
+                                attentionNotificationsEnabled = attentionNotificationsEnabled,
+                                onToggleAttentionNotifications = {
+                                    val next = !attentionNotificationsEnabled
+                                    attentionNotificationsEnabled = next
+                                    attentionNotificationStore.setEnabled(next)
+                                    // OS通知を出すには権限が要る。有効にした時点で一度だけ求める。
+                                    if (next && !notificationsEnabled && android.os.Build.VERSION.SDK_INT >= 33) {
+                                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    }
+                                },
+                                onAttentionOpened = todayViewModel::clearAttentionNewArrivals,
                                 onAttentionSelected = { row ->
                                     paneState.openAttention(row.attentionId)
                                     coroutineScope.launch {
@@ -1840,6 +1882,12 @@ internal fun AiInboxListPane(
     attentionInDetailPane: Boolean = false,
     selectedAttentionId: String? = null,
     onAttentionSelected: (AttentionRow) -> Unit = {},
+    /** 新しく現れた判断（#601）。既定はアプリ内で知らせる。 */
+    attentionNewArrivals: List<AttentionRow> = emptyList(),
+    onOpenNewArrival: (AttentionRow) -> Unit = {},
+    attentionNotificationsEnabled: Boolean = false,
+    onToggleAttentionNotifications: (() -> Unit)? = null,
+    onAttentionOpened: () -> Unit = {},
 ) {
     var replyTarget by remember { mutableStateOf<AttentionRow?>(null) }
     var replyBody by remember { mutableStateOf("") }
@@ -1889,6 +1937,20 @@ internal fun AiInboxListPane(
                             online = attentionOnline,
                             refreshing = attentionRefreshing,
                             onRefresh = onRefreshAttention,
+                            newArrivals = attentionNewArrivals,
+                            onOpenNewArrival = { row ->
+                                onResetAgentReply()
+                                onAttentionOpened()
+                                onOpenNewArrival(row)
+                                if (attentionInDetailPane) {
+                                    onAttentionSelected(row)
+                                } else {
+                                    replyTarget = row
+                                    replyBody = ""
+                                }
+                            },
+                            notificationsEnabled = attentionNotificationsEnabled,
+                            onToggleNotifications = onToggleAttentionNotifications,
                         )
                     }
                     items(attention, key = { "attention-${it.attentionId}" }) { row ->
@@ -2056,6 +2118,11 @@ private fun AgentAttentionHeader(
     online: Boolean,
     refreshing: Boolean,
     onRefresh: () -> Unit,
+    /** 新しく現れた判断（#601）。既定のアプリ内表示はここで知らせる。 */
+    newArrivals: List<AttentionRow> = emptyList(),
+    onOpenNewArrival: (AttentionRow) -> Unit = {},
+    notificationsEnabled: Boolean = false,
+    onToggleNotifications: (() -> Unit)? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth().testTag("attention-header")) {
         Row(
@@ -2100,6 +2167,29 @@ private fun AgentAttentionHeader(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
             )
+        }
+        // 新着は短く知らせ、押すとその判断へ移動する。行の本文はここへ写さない。
+        newArrivals.firstOrNull()?.let { first ->
+            TextButton(
+                onClick = { onOpenNewArrival(first) },
+                modifier = Modifier.testTag("attention-new-arrivals"),
+            ) {
+                Text("新しい対応待ち ${newArrivals.size}件")
+            }
+        }
+        onToggleNotifications?.let { toggle ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = notificationsEnabled,
+                    onCheckedChange = { toggle() },
+                    modifier = Modifier.testTag("attention-notifications-toggle"),
+                )
+                Text(
+                    "要対応の新着を通知",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

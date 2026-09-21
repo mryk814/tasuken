@@ -318,6 +318,49 @@ class AgentDeskAttentionUiTest {
         composeRule.onNodeWithTag("attention-detail-back").assertDoesNotExist()
     }
 
+    /**
+     * 新着の知らせ（#601）。既定はアプリ内表示で、押すとその判断へ移動する。
+     * 行の本文全体は出さず、件数だけを短く示す。
+     */
+    @Test
+    fun showsNewArrivalsInAppAndOpensTheFirstOne() {
+        var opened: AttentionRow? = null
+        composeRule.setContent {
+            MaterialTheme {
+                AiInboxListPane(
+                    uiState = cachedState(),
+                    tasks = emptyList(),
+                    themes = emptyList(),
+                    proposals = emptyList(),
+                    paneState = TodayPaneState(),
+                    onRetry = {},
+                    onRetryPairing = {},
+                    onPair = { _, _ -> },
+                    onTaskSelected = {},
+                    attention = listOf(question(), review()),
+                    attentionCounts = MobileAttentionCountsDto(needsYou = 2, working = 0, queued = 0),
+                    attentionOnline = true,
+                    attentionNewArrivals = listOf(review()),
+                    onOpenNewArrival = { opened = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("attention-new-arrivals").assertIsDisplayed()
+        composeRule.onNodeWithText("新しい対応待ち 1件").assertIsDisplayed()
+        composeRule.onNodeWithTag("attention-new-arrivals").performScrollTo().performClick()
+
+        assertEquals(review().attentionId, opened?.attentionId)
+    }
+
+    /** 新着が無いときは知らせを出さない（同じ判断の再送で再通知しない）。 */
+    @Test
+    fun hidesTheNewArrivalNoticeWhenThereIsNothingNew() {
+        pane(attention = listOf(question(), review()))
+
+        composeRule.onNodeWithTag("attention-new-arrivals").assertDoesNotExist()
+    }
+
     private fun question() = AttentionRow(
         attentionId = "task-work:request:1",
         kind = AttentionKind.AnswerRequest,

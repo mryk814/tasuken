@@ -433,6 +433,7 @@ class AndroidMobileTaskRepository(
                 },
                 truncated = current?.truncated == true,
                 fetchedAt = current?.fetchedAt,
+                serverId = serverId ?: "",
             )
         }
 

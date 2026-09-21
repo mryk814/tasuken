@@ -166,6 +166,8 @@ data class MobileAttentionSnapshot(
     val counts: MobileAttentionCountsDto?,
     val truncated: Boolean,
     val fetchedAt: String?,
+    /** どのDesktopの要対応か。新着通知の記録を分ける（#601）。 */
+    val serverId: String = "",
 )
 
 sealed interface MobileAgentReplyResult {
@@ -397,6 +399,10 @@ class TodayViewModel(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val refreshExternalProjection: () -> Unit = {},
     private val today: () -> java.time.LocalDate = java.time.LocalDate::now,
+    /** 要対応の新着通知の設定と記録（#601）。UI側から注入する。 */
+    private val attentionNotificationStore: AttentionNotificationStore? = null,
+    /** OS通知を出す処理。設定が有効なときだけ呼ぶ。 */
+    private val notifyAttentionArrivals: ((List<AttentionRow>, String) -> Unit)? = null,
 ) : ViewModel() {
     val workLogRepository: MobileWorkLogRepository? get() = repository as? MobileWorkLogRepository
     val recallRepository: MobileRecallRepository? get() = repository as? MobileRecallRepository
@@ -459,6 +465,9 @@ class TodayViewModel(
     val attentionOnline: StateFlow<Boolean> = mutableAttentionOnline.asStateFlow()
     private val mutableAttentionRefreshing = MutableStateFlow(false)
     val attentionRefreshing: StateFlow<Boolean> = mutableAttentionRefreshing.asStateFlow()
+    /** 新しく現れた判断（#601）。アプリ内表示に使い、利用者が見たら消す。 */
+    private val mutableAttentionNewArrivals = MutableStateFlow<List<AttentionRow>>(emptyList())
+    val attentionNewArrivals: StateFlow<List<AttentionRow>> = mutableAttentionNewArrivals.asStateFlow()
     private val mutableAgentReplyState = MutableStateFlow<AgentReplyUiState>(AgentReplyUiState.Idle)
     val agentReplyState: StateFlow<AgentReplyUiState> = mutableAgentReplyState.asStateFlow()
     private val mutableTaskDelegationState = MutableStateFlow<TaskDelegationUiState>(TaskDelegationUiState.Idle)
@@ -598,7 +607,44 @@ class TodayViewModel(
             currentCoroutineContext().ensureActive()
             mutableAttentionOnline.value = online
             mutableAttentionRefreshing.value = false
+            if (online) {
+                currentCoroutineContext().ensureActive()
+                recordNewAttentionArrivals()
+            }
         }
+    }
+
+    /**
+     * 新しく現れた判断を拾う（#601）。
+     *
+     * 通知は**新規発生だけ**を候補にし、同じ判断の再送では出さない。
+     * アプリ内表示（新着の件数）は常に出す。OS通知は設定が有効なときだけ出す。
+     */
+    private suspend fun recordNewAttentionArrivals() {
+        val offlineRepository = repository as? MobileOfflineTaskRepository ?: return
+        val snapshot = try {
+            offlineRepository.cachedAttentionSnapshot()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            return
+        }
+        val store = attentionNotificationStore ?: return
+        val serverId = snapshot.serverId.ifBlank { return }
+        val arrivals = AttentionNotificationStore.newArrivals(
+            rows = snapshot.items,
+            knownIds = store.knownIds(serverId),
+        )
+        store.replaceKnownIds(serverId, snapshot.items.map { it.attentionId })
+        if (arrivals.isEmpty()) return
+        mutableAttentionNewArrivals.value = arrivals
+        if (!store.isEnabled()) return
+        notifyAttentionArrivals?.invoke(arrivals, serverId)
+    }
+
+    /** 利用者が新着を見た（または開いた）ときに消す。 */
+    fun clearAttentionNewArrivals() {
+        mutableAttentionNewArrivals.value = emptyList()
     }
 
     fun refreshAttention() {
@@ -1409,6 +1455,8 @@ class TodayViewModel(
 class TodayViewModelFactory(
     private val repository: MobileTaskRepository,
     private val refreshExternalProjection: () -> Unit = {},
+    private val attentionNotificationStore: AttentionNotificationStore? = null,
+    private val notifyAttentionArrivals: ((List<AttentionRow>, String) -> Unit)? = null,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -1416,6 +1464,8 @@ class TodayViewModelFactory(
         return TodayViewModel(
             repository = repository,
             refreshExternalProjection = refreshExternalProjection,
+            attentionNotificationStore = attentionNotificationStore,
+            notifyAttentionArrivals = notifyAttentionArrivals,
         ) as T
     }
 }
@@ -1737,6 +1787,9 @@ interface MobileOfflineTaskRepository {
         kotlinx.coroutines.flow.flowOf(
             MobileAttentionSnapshot(items = emptyList(), counts = null, truncated = false, fetchedAt = null),
         )
+    /** 保存済みの要対応を一度だけ読む。新着の判定に使う（#601）。 */
+    suspend fun cachedAttentionSnapshot(): MobileAttentionSnapshot =
+        observeCachedAttention().first()
     fun observePendingCount(): Flow<Int>
     fun observePendingCaptures(): Flow<List<MobilePendingCapture>> = kotlinx.coroutines.flow.flowOf(emptyList())
     suspend fun retryPendingCapture(commandId: String): Boolean = false
