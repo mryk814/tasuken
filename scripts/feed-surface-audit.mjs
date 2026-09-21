@@ -371,6 +371,60 @@ async function auditFixtures(app, page) {
   if (restoredDraft !== draftText) {
     failures.push(`返信の下書きが復元されません（${restoredDraft}）。`);
   }
+
+  // 10. 暗い表示でも同じ面が読める（値の直書きが残っていれば片方だけ暗くなる）。
+  await page.locator(".feed-reaction", { hasText: "返信" }).first().click();
+  await page.waitForTimeout(200);
+  const viewMenu = page
+    .locator(".titlebar-controls .titlebar-menu-anchor button", { hasText: "表示" })
+    .first();
+  if (!(await viewMenu.count())) {
+    failures.push("表示メニューがありません。");
+    return;
+  }
+  await viewMenu.click();
+  await page.waitForTimeout(200);
+  const darkToggle = page.locator(".titlebar-view-menu button", { hasText: "ダーク表示" }).first();
+  if (!(await darkToggle.count())) {
+    failures.push("暗い表示への切り替えがありません。");
+    return;
+  }
+  await darkToggle.click();
+  await page.waitForTimeout(800);
+  const theme = await page.evaluate(() => document.documentElement.dataset.theme);
+  if (theme !== "dark") failures.push(`暗い表示へ切り替わりません（${theme}）。`);
+  const darkTone = await page.evaluate(() => {
+    const luminance = (value) => {
+      const match = /rgba?\(([^)]+)\)/u.exec(value || "");
+      if (!match) return null;
+      const parts = match[1].split(",").map((part) => Number(part.trim()));
+      if (parts.length > 3 && parts[3] === 0) return null;
+      return (0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2]) / 255;
+    };
+    const text = document.querySelector(".feed-post-text");
+    let surface = null;
+    for (let node = text?.parentElement; node; node = node.parentElement) {
+      surface = luminance(getComputedStyle(node).backgroundColor);
+      if (surface !== null) break;
+    }
+    return { text: text ? luminance(getComputedStyle(text).color) : null, surface };
+  });
+  if (darkTone.text === null || darkTone.text < 0.5) {
+    failures.push(`暗い表示で本文が明るい色になりません（${darkTone.text}）。`);
+  }
+  if (darkTone.surface === null || darkTone.surface > 0.3) {
+    failures.push(`暗い表示で投稿の面が暗くなりません（${darkTone.surface}）。`);
+  }
+  for (const size of [SIZES[0], SIZES[2]]) {
+    await app.evaluate(
+      ({ BrowserWindow }, value) =>
+        BrowserWindow.getAllWindows()[0].setSize(value.width, value.height),
+      size,
+    );
+    await page.waitForTimeout(700);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: `${OUT_DIR}/dark-${size.label}-home.png`, fullPage: true });
+  }
 }
 
 /**
