@@ -53,6 +53,14 @@ test("回答は既存Commandへ渡し、Task完了とは別操作にする（#59
   assert.ok(source.includes("Task完了だけを再試行できます"));
 });
 
+test("採用はTaskの完了と混同しない文言にする（#602 報告だけ採用）", () => {
+  // 最近の結果は、採用しただけの報告を「Taskは継続」として読ませる。
+  assert.ok(source.includes('"受入れ済み／Taskは継続"'));
+  assert.ok(source.includes('"受入れ済み／Task完了"'));
+  assert.ok(source.includes("報告を採用しました。Taskは継続します。"));
+  assert.ok(source.includes("修正を依頼しました。Taskは継続します。"));
+});
+
 test("独自の状態管理を持たず、共通projectionを使う（#599）", () => {
   assert.ok(source.includes("buildAttentionQueue"));
   assert.ok(source.includes("taskWorkEntry"));
