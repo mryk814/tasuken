@@ -1494,6 +1494,8 @@ class TodayPaneState(
     /** 詳細ペインで開いている要対応（Foldの展開幅）。 */
     selectedAttentionId: String? = null,
     attentionReplyBody: String = "",
+    /** 下書きが属する判断。旧い保存状態では選択中の判断から復元する。 */
+    attentionDraftId: String? = selectedAttentionId,
 ) {
     var selectedTaskId by mutableStateOf(selectedTaskId)
     var selectedAttentionId by mutableStateOf(selectedAttentionId)
@@ -1502,6 +1504,11 @@ class TodayPaneState(
      * （正式に保存できたときだけ [clearAttentionReply] で閉じる）。
      */
     var attentionReplyBody by mutableStateOf(attentionReplyBody)
+    /**
+     * いま持っている下書きが属する判断。別の判断を開いたときに混ざらないようにする
+     * （「閉じる」では消さない。正式に保存できたときだけ消す）。
+     */
+    private var attentionDraftId: String? = attentionDraftId
     var listScrollIndex by mutableIntStateOf(listScrollIndex)
         private set
     var listScrollOffset by mutableIntStateOf(listScrollOffset)
@@ -1549,14 +1556,28 @@ class TodayPaneState(
         aiListScrollOffset = offset.coerceAtLeast(0)
     }
 
+    /**
+     * 詳細ペインまたは1列の回答欄で、回答する判断を選ぶ。
+     *
+     * 同じ判断を開き直したときは下書きを残し、**別の判断へ移ったときは下書きを捨てる**。
+     * 質問を取り違えたまま送る事故を防ぐ（下書きは判断ごとに持ち越さない）。
+     */
     fun openAttention(attentionId: String) {
+        if (attentionDraftId != null && attentionDraftId != attentionId) attentionReplyBody = ""
         selectedAttentionId = attentionId
+        attentionDraftId = attentionId
+    }
+
+    /** 回答欄を閉じる。下書きは残す（「閉じる」は破棄ではない）。 */
+    fun closeAttention() {
+        selectedAttentionId = null
     }
 
     /** 正式に保存できたときだけ、回答と選択を閉じる。失敗時は入力を残す。 */
     fun clearAttentionReply() {
         selectedAttentionId = null
         attentionReplyBody = ""
+        attentionDraftId = null
     }
 
     fun openCapture(
@@ -1657,6 +1678,7 @@ class TodayPaneState(
         ),
         selectedAttentionId,
         attentionReplyBody,
+        attentionDraftId,
     )
 
     companion object {
@@ -1718,6 +1740,8 @@ class TodayPaneState(
             taskThemeId = saved.getOrNull(25) as? String,
             selectedAttentionId = saved.getOrNull(32) as? String,
             attentionReplyBody = saved.getOrNull(33) as? String ?: "",
+            // 旧い保存状態には下書きの所属が無い。選択中の判断から復元する。
+            attentionDraftId = saved.getOrNull(34) as? String ?: saved.getOrNull(32) as? String,
         )
     }
 }

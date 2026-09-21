@@ -1889,15 +1889,14 @@ internal fun AiInboxListPane(
     onToggleAttentionNotifications: (() -> Unit)? = null,
     onAttentionOpened: () -> Unit = {},
 ) {
-    var replyTarget by remember { mutableStateOf<AttentionRow?>(null) }
-    var replyBody by remember { mutableStateOf("") }
-    // 正式に保存できたときだけ、入力と選択を閉じる。失敗時は入力を保持する。
-    LaunchedEffect(agentReplyState) {
-        if (agentReplyState is AgentReplyUiState.Applied) {
-            replyTarget = null
-            replyBody = ""
+    // 回答の下書きは1列でも展開幅と同じ保存先（paneState）に置く。
+    // 面を移動しても、画面が作り直されても残り、正式に保存できたときだけ閉じる。
+    val inlineTarget =
+        if (attentionInDetailPane) {
+            null
+        } else {
+            selectedAttentionId?.let { id -> attention.firstOrNull { it.attentionId == id } }
         }
-    }
     Column(modifier = Modifier.fillMaxSize()) {
         onOpenAiSettings?.let { open ->
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
@@ -1942,12 +1941,7 @@ internal fun AiInboxListPane(
                                 onResetAgentReply()
                                 onAttentionOpened()
                                 onOpenNewArrival(row)
-                                if (attentionInDetailPane) {
-                                    onAttentionSelected(row)
-                                } else {
-                                    replyTarget = row
-                                    replyBody = ""
-                                }
+                                onAttentionSelected(row)
                             },
                             notificationsEnabled = attentionNotificationsEnabled,
                             onToggleNotifications = onToggleAttentionNotifications,
@@ -1956,34 +1950,28 @@ internal fun AiInboxListPane(
                     items(attention, key = { "attention-${it.attentionId}" }) { row ->
                         AgentAttentionCard(
                             row = row,
-                            selected = replyTarget?.attentionId == row.attentionId ||
-                                selectedAttentionId == row.attentionId,
+                            selected = selectedAttentionId == row.attentionId,
                             onOpenReply = {
                                 onResetAgentReply()
-                                if (attentionInDetailPane) {
-                                    // 展開幅では詳細ペインへ開く。1列では行の直下に置く。
-                                    onAttentionSelected(row)
-                                } else {
-                                    replyTarget = row
-                                    replyBody = ""
-                                }
+                                // 展開幅では詳細ペインへ、1列では行の直下へ開く。置き場所だけを変える。
+                                onAttentionSelected(row)
                             },
                             onOpenTask = { row.taskId?.let(onTaskSelected) },
                         )
                     }
-                    if (replyTarget != null && !attentionInDetailPane) {
-                        val target = replyTarget!!
+                    if (inlineTarget != null) {
+                        val target = inlineTarget
                         item(key = "attention-reply") {
                             AgentReplyEditor(
                                 row = target,
-                                body = replyBody,
-                                onBodyChange = { replyBody = it.take(10_000) },
+                                body = paneState.attentionReplyBody,
+                                onBodyChange = { paneState.attentionReplyBody = it.take(10_000) },
                                 state = agentReplyState,
                                 online = attentionOnline,
-                                onSend = { onReplyToAgent(target, null, replyBody) },
+                                onSend = { onReplyToAgent(target, null, paneState.attentionReplyBody) },
                                 onCancel = {
-                                    replyTarget = null
-                                    replyBody = ""
+                                    // 「閉じる」は破棄ではない。下書きは残す。
+                                    paneState.closeAttention()
                                     onResetAgentReply()
                                 },
                             )

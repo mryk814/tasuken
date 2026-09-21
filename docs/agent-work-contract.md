@@ -299,8 +299,11 @@ Desktopと同じ導出を、Android用のread modelとして渡す。**Android�
 - 詳細ペインは **上部に見出しと状態、中央に質問、下部に回答欄と主操作** を置く（`AttentionDetailPane`）。
   「一覧へ戻る」は1列のときだけ出す。折り畳んだ幅では詳細ペインが全画面になり、戻ると一覧の
   スクロール位置と選択が残る。
-- 書いた回答は `TodayPaneState.attentionReplyBody` に置き、ペインを移動しても消さない。
+- 書いた回答は **1列でも展開幅でも** `TodayPaneState.attentionReplyBody` に置く。
+  面を離れて戻っても、画面が作り直されても（`rememberSaveable`）下書きは残る。
   **正式に保存できたとき（`Applied`）だけ**選択と入力を閉じる。競合・拒否・未接続では残す。
+- 「閉じる」は破棄ではない。選択を閉じるだけで下書きは残し、同じ判断を開き直すと戻る。
+- **別の判断へ移ると下書きは捨てる**（下書きは判断ごとに持ち越さない）。質問を取り違えたまま送らないため。
 - Desktopが返した一覧から消えた判断は詳細に残さない（選択と入力を閉じる）。
 
 **新着の知らせ（#601）**: 既定はアプリ内表示。OS通知は利用者が有効にしたときだけ出す。
@@ -318,9 +321,11 @@ Desktopと同じ導出を、Android用のread modelとして渡す。**Android�
 実装は `MobileAttentionDto.kt`（契約と射影）、`MobileLocalStore.kt`（`attention_cache` / `attention_state` / `pending_agent_reply`、DB v26）、`MobileGatewayRepository.kt`（取得と回答の再送）、`AttentionNotificationStore.kt`（設定と通知済みの記録）、`MobileAttentionNotifications.kt`（OS通知とdeep link）、`MainActivity.kt`（一覧・詳細ペイン・新着の表示と回答欄）、`TodayViewModel`（`attention` / `attentionNewArrivals` / `agentReplyState`）。
 
 検証は JVM の `MobileAgentReplyContractTest` / `MobileAttentionGoldenTest` / `AttentionNotificationStoreTest` /
-`MobileEntryRequestTest`（deep link）と、エミュレータの `AgentDeskAttentionUiTest`
-（展開幅の詳細ペイン・新着の表示と移動・競合時の入力保持・オフライン・未取得と0件の区別）。
-Foldの目視は `output/android-attention/fold-attention-detail.png`（2076×2152の展開幅）。
+`MobileEntryRequestTest`（deep link）/ `TodayPaneStateTest`（下書きの所属と再生成）と、エミュレータの
+`AgentDeskAttentionUiTest`（展開幅の詳細ペイン・新着の表示と移動・競合時の入力保持・オフライン・
+未取得と0件の区別・面を離れて戻ったときの下書き保持・別の質問へ移ったときの混ざらなさ）。
+Foldの目視は `output/android-attention/fold-attention-detail.png`（2076×2152の展開幅）、
+下書き保持は `output/android-attention/attention-draft-restored.png`。
 
 ## 9. migration と rollback
 
@@ -414,7 +419,7 @@ rtk npm run build:mcp
 | 複数の判断       | `tests/attention-queue.test.mjs`（質問とNote変更案の合計2件。Task紐づきでも別の判断として残り、片方の処理で他方が残る）、`tests/agent-work-state.test.mjs`                                                                                                                                                                              | MCPの書き込み経路が`notes`へ`task_id`を運ばない（読み出しは`request.task_id`に対応） |
 | 同じ報告の重複   | `tests/attention-queue.test.mjs`（reviewとProposalは1件、解決で消える）                                                                                                                                                                                                                                                                 | —                                                                                    |
 | TaskなしProposal | `tests/attention-queue.test.mjs`、`tests/mobile-attention-golden.test.mjs`、`tests/ai-integration-ia.test.mjs`、`npm run audit:agent-desk`（実画面で対応待ち→preview→却下）、Android `MobileAttentionGoldenTest`                                                                                                                        | —                                                                                    |
-| offline返信      | Android `AgentDeskAttentionUiTest`、`MobileAttentionRepositoryTest`（未送信の保持と成功後の消去）                                                                                                                                                                                                                                       | 画面を閉じた後の下書き復元                                                           |
+| offline返信      | Android `AgentDeskAttentionUiTest`（オフライン・競合・面を離れて戻ったときの下書き保持）、`TodayPaneStateTest`（下書きの所属と再生成）、`MobileAttentionRepositoryTest`（未送信の保持と成功後の消去）                                                                                                                                   | —                                                                                    |
 | offline承認      | Android `WorkReceiptDetailUiTest`、`MobileHumanReviewRepositoryTest`                                                                                                                                                                                                                                                                    | —                                                                                    |
 | 端末間競合       | `tests/agent-roundtrip-acceptance.test.mjs`（409 `entity_conflict`、遅い回答は記録を作らない）、Android `AgentDeskAttentionUiTest`                                                                                                                                                                                                      | —                                                                                    |
 
