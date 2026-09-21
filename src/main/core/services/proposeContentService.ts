@@ -24,6 +24,7 @@ import type {
 const MAX_CANONICAL_PROPOSAL_BYTES = 64 * 1024;
 
 const TOOL_BY_KIND = {
+  feed_post: "tasken.propose_feed_post",
   note_create: "tasken.propose_note",
   note_edit: "tasken.propose_note_edit",
   knowledge_create: "tasken.propose_knowledge",
@@ -32,6 +33,7 @@ const TOOL_BY_KIND = {
 } as const;
 
 const PAYLOAD_TYPE_BY_KIND = {
+  feed_post: "feed_posts",
   note_create: "notes",
   note_edit: "notes",
   knowledge_create: "knowledge_nodes",
@@ -111,6 +113,35 @@ function payloadFor(
   payload: Record<string, unknown>;
   target?: Record<string, unknown>;
 } {
+  if (request.kind === "feed_post") {
+    // 読み物の投稿。正式データは変更しない（採用は添えたNote草稿の側で行う）。
+    return {
+      payload: {
+        feed_posts: [
+          {
+            action: "publish",
+            topic: request.topic,
+            body: request.body,
+            ...(request.task_id ? { task_id: request.task_id } : {}),
+            ...(request.theme ? { theme: request.theme } : {}),
+            ...(request.session_id ? { session_id: request.session_id } : {}),
+            ...(request.note_id ? { note_id: request.note_id } : {}),
+            ...(request.article
+              ? {
+                  article: {
+                    title: request.article.title,
+                    body: request.article.body,
+                    note_type: request.article.note_type || "memo",
+                  },
+                }
+              : {}),
+            ...(request.attachment_label ? { attachment_label: request.attachment_label } : {}),
+            evidence: request.evidence || [],
+          },
+        ],
+      },
+    };
+  }
   if (request.kind === "note_create") {
     return {
       payload: {

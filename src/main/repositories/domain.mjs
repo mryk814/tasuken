@@ -78,6 +78,8 @@ const proposalPayloadTypes = new Set([
   "task_work",
   "repository_contexts",
   "agent_sessions",
+  // 読み物の投稿（2026-09-21計画 第2段階）。要対応ではなくFeedが読む。
+  "feed_posts",
 ]);
 const proposalStatuses = new Set([
   "pending",
@@ -110,6 +112,8 @@ const waitingStates = new Set(["waiting", "received", "cancelled"]);
 // Habitの最小実験（#454後半）。記録は手動だけで、Taskを自動生成しない。
 const habitScheduleKinds = new Set(["daily", "weekly"]);
 const habitStates = new Set(["active", "paused"]);
+// 読者の状態。投稿そのものへの判断（採用・却下）とは別に持つ。
+const feedReactionKinds = new Set(["bookmark", "interesting", "hidden"]);
 const datePattern = /^\d{4}-\d{2}-\d{2}$/u;
 const planNodeTypes = new Set(["phase", "milestone", "deliverable"]);
 const planNodeStates = new Set(["planned", "active", "done", "cancelled"]);
@@ -780,6 +784,14 @@ export function validateEntity(type, input) {
       (typeof input.note !== "string" || input.note.length > 1000)
     )
       throw new Error("habit_entry.noteは1000文字以内で入力してください。");
+  }
+  if (type === "feed_reaction") {
+    // 読者の状態（ブックマーク・興味・非表示）。投稿の正本でも判断でもない（SNS型Feedの第2段階）。
+    if (typeof input.post_id !== "string" || !input.post_id.trim() || input.post_id.length > 200)
+      throw new Error("feed_reaction.post_idは1〜200文字で入力してください。");
+    if (!feedReactionKinds.has(input.kind)) throw new Error("feed_reaction.kindが不正です。");
+    if (typeof input.created_at !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input.created_at))
+      throw new Error("feed_reaction.created_atが不正です。");
   }
   if (type === "artifact") {
     if (!artifactSourceTypes.has(input.source_type))

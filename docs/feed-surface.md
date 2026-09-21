@@ -10,7 +10,8 @@ Feedは「対応待ちの一覧」から、**委任した仕事から得られ�
 - 外部6製品の比較（旧計画の根拠）: [feed-six-product-comparison.md](./research/feed-six-product-comparison.md)
 - アプリの性格: [app-charter.md](./app-charter.md)（Feedは「読み物・閲覧」）
 
-実装: `src/renderer/src/features/workspace/pages/FeedPage.tsx`、投稿の型とfixtureは `src/renderer/src/features/workspace/lib/feedPosts.ts`、要対応の射影は `src/renderer/src/features/workspace/lib/feedProjection.ts`、旧・行中心の規則は `src/renderer/src/features/workspace/lib/feedFixtures.ts`、見た目は `src/renderer/src/styles/feed.css`。
+実装: `src/renderer/src/features/workspace/pages/FeedPage.tsx`、投稿の型・実データの写像・開発用fixtureは `src/renderer/src/features/workspace/lib/feedPosts.ts`、要対応の射影は `src/renderer/src/features/workspace/lib/feedProjection.ts`、旧・行中心の規則は `src/renderer/src/features/workspace/lib/feedFixtures.ts`、見た目は `src/renderer/src/styles/feed.css`。
+投稿は外部AIが `tasken.propose_feed_post`（`payload_type: "feed_posts"`）で送り、`src/main/services/aiProposalAcceptanceService.ts` と `src/shared/contracts/task/attentionQueue.ts` が要対応から外す。読者の印は `feed_reaction` Entityとして保存する。
 
 ---
 
@@ -96,17 +97,24 @@ FeedはTaskの一覧でも管理画面でもない。一つひとつの投稿が
 
 ## 5. 操作の意味
 
-| 表示名       | 対象と結果                           | 変えてはいけないもの             |
-| ------------ | ------------------------------------ | -------------------------------- |
-| 返信         | 投稿への短い返信を書く               | 保存契約は第3段階。Taskの状態    |
-| おもしろい   | 自分用の印を付ける                   | Taskの優先度、順位、未解決件数   |
-| ブックマーク | あとで読み返す印を付ける             | Taskの状態、未解決件数           |
-| 記事を読む   | 記事・草稿の本文を読む面を開く       | 開いただけでの採用               |
-| 草稿を読む   | 採用前の記事を全文で読む             | 開いただけでの正式Note化         |
-| 回答する     | 特定の質問へ人間の返答を保存する     | Task本文の全文、別の質問         |
-| 成果を確認   | Task詳細を開く。採用は既存操作で行う | 開いただけでの採用やTask完了     |
-| 今回は見送る | この投稿を今回のFeedから外す         | Task・Note・Proposalの正式な採否 |
-| さらに読む   | 20件単位で続きを読む                 | 仕事の完了表示                   |
+| 表示名       | 対象と結果                                 | 変えてはいけないもの                     |
+| ------------ | ------------------------------------------ | ---------------------------------------- |
+| 返信         | 投稿への短い返信を書く                     | 保存契約は第3段階。Taskの状態            |
+| おもしろい   | 自分用の印を付ける（保存する）             | Taskの優先度、順位、未解決件数           |
+| ブックマーク | あとで読み返す印を付ける（保存する）       | Taskの状態、未解決件数                   |
+| 記事を読む   | 記事・草稿の本文を読む面を開く             | 開いただけでの採用                       |
+| 草稿を読む   | 採用前の記事を全文で読む                   | 開いただけでの正式Note化                 |
+| Noteに保存   | 記事の草稿を既存の採用経路で正式Noteにする | 投稿のID、ブックマーク、未解決件数       |
+| Noteで読む   | 保存済みのNoteを既存のNote面で開く         | 投稿の表示とID                           |
+| 回答する     | 特定の質問へ人間の返答を保存する           | Task本文の全文、別の質問                 |
+| 成果を確認   | Task詳細を開く。採用は既存操作で行う       | 開いただけでの採用やTask完了             |
+| 今回は見送る | この投稿を今回のFeedから外す（保存する）   | Task・Note・Proposalの正式な採否         |
+| さらに読む   | 20件単位で続きを読む                       | 仕事の完了表示                           |
+
+読む操作（返信の下書き・おもしろい・ブックマーク・今回は見送る・記事を開く）は
+**Taskの状態と未解決件数を変えない**。印は投稿の安定ID（`feed-reaction:<投稿ID>:<種類>`）に
+結び付けた `feed_reaction` Entityとして保存し、取り消しはEntityの削除で行う。
+同じ操作を繰り返しても増えない。
 
 ## 6. 並び順と読み進め
 
@@ -127,22 +135,43 @@ FeedはTaskの一覧でも管理画面でもない。一つひとつの投稿が
 
 ## 7. 実装の段階（2026-09-21計画）
 
-| 段階 | 内容                                                                                   | 状態                          |
-| ---- | -------------------------------------------------------------------------------------- | ----------------------------- |
-| 1    | SNSとして読める画面（開発用fixture、レイアウト、記事プレビュー、反応欄、連続閲覧）     | **実装済み（投稿はfixture）** |
-| 2    | 投稿と記事が届く最小の一周（Proposal契約、AI投稿tool、実データ接続、ブックマーク保存） | 未着手                        |
-| 3    | 反応と会話を学びにつなぐ（おもしろい、自分の投稿、質問の引き継ぎ、返信）               | 未着手                        |
-| 4    | 日常利用で文章と流れを調整する                                                         | 未着手                        |
+| 段階 | 内容                                                                                   | 状態                                                                     |
+| ---- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 1    | SNSとして読める画面（開発用fixture、レイアウト、記事プレビュー、反応欄、連続閲覧）     | 実装済み                                                                 |
+| 2    | 投稿と記事が届く最小の一周（Proposal契約、AI投稿tool、実データ接続、Note保存、印の保存） | **実装済み（投稿が無いときだけfixtureを表示）**                          |
+| 3    | 反応と会話を学びにつなぐ（おもしろい、自分の投稿、質問の引き継ぎ、返信）               | 未着手（おもしろいの保存のみ実装済み）                                   |
+| 4    | 日常利用で文章と流れを調整する                                                         | 未着手                                                                   |
 
-第1段階では**投稿の作成と反応の保存を行わない**。押せない操作を置かず、
-「返信を残す」は下書きの保持までとする。
+第2段階でつないだ経路:
+
+1. 外部AIが `tasken.propose_feed_post` で短文と任意の記事草稿を送る（`payload_type: "feed_posts"`）。
+2. Coreが検証し、Main Processが `ai_proposal` へ保存する。再送は同じIDへ畳む。
+3. Feedは届いた投稿をそのまま読む。**読むための事前承認を挟まない。**
+4. 記事の草稿は「Noteに保存」で既存の採用経路（`ApplyAiProposal`）へ渡す。NoteのIDは
+   Proposal IDから決まる（`stableProposalEntityId`）ので、保存の前後で投稿・印・参照は変わらない。
+5. 投稿と読者の印は再起動後も残る。
+
+### 読み物Proposalの保持とExport
+
+- 読み物Proposalは他のProposalと同じ保存境界に置き、**自動削除しない**。将来の掃除を入れる場合も、
+  投稿（`feed-post:<proposalId>`）とそこへ付いた `feed_reaction` を失わせないことを条件にする。
+- 投稿は `pending` の一覧からではなく**出所のIDで追跡する**。採用後も投稿は残り、
+  記事の解決先だけがProposalからNoteへ移る。
+- SnapshotのExport/ImportはEntity種別の一覧（`workspaceEntityTypes`）を回すため、
+  読み物Proposalは `ai_proposals.json`、読者の印は `feed_reactions.json` に含まれる。
+  同じIDで戻るので、ブックマークの対応付けは保たれる。
+- 「今回は見送る」は読者の状態であり、Proposalの却下や元Noteの削除とは別に扱う。
+  投稿元の記録を削除した場合は本文のコピーを残さず、参照先の不在を示す（未実装）。
 
 ## 8. 検証
 
 ```powershell
 rtk npm run build
-rtk npm run audit:feed
+rtk npm run audit:feed            # 開発用fixtureで面の設計を実測
+rtk npm run audit:feed:live       # AIから届いた実データの投稿で一周を実測
 rtk node scripts/run-electron-node.mjs --test tests/feed-posts.test.mjs
+rtk node scripts/run-electron-node.mjs --test tests/feed-post-proposals.test.mjs
+rtk node scripts/run-electron-node.mjs --test tests/mcp-feed-post.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/feed-fixtures.test.mjs tests/feed-live-projection.test.mjs
 ```
 
@@ -153,16 +182,29 @@ rtk node scripts/run-electron-node.mjs --test tests/feed-fixtures.test.mjs tests
 幅ごとの横あふれと縦積み・ブックマークで未解決件数が変わらないことを確認する。
 スクリーンショットは `output/playwright/feed-audit` へ出す。
 
+`audit:feed:live` は同じ隔離workspaceへ**実データの投稿を1件**入れ（`--feed-post`）、
+その投稿だけを読むことを確認する。投稿者・種類・本文16px・添えた草稿の読書面・学びタブ・
+対応待ち3件のまま・ブックマーク・「Noteに保存」でNoteへ変わること・
+**終了して起動し直しても**投稿とブックマークと保存したNoteが残ることを実測する。
+スクリーンショットは `output/playwright/feed-audit-live` へ出す。
+
+`tests/mcp-feed-post.test.mjs` は実SQLite + 実stdio MCPで
+「投稿 → Proposal → Feedの投影 → 要対応は増えない → 再送は増えない → Noteに保存 →
+投稿とブックマークは残る」を通し、読み物のpayloadだけでは正式データを変更できないことも確認する。
+
 ## 9. この単位でまだ確認していないこと
 
-| 未確認           | 内容                                                         |
-| ---------------- | ------------------------------------------------------------ |
-| 投稿の作成       | 自分の投稿欄は第3段階。いまは投稿できない                    |
-| 反応の保存       | おもしろい・ブックマーク・返信は画面内のみ（再起動で消える） |
-| 実データの投稿   | 投稿は開発用fixture。AI投稿toolとProposal契約は第2段階       |
-| 記事とNoteの接続 | 記事本文はfixture。実Note・草稿の解決は第2段階               |
-| 100件以上の履歴  | 連続読込の機構はあるが、大量データでの実測は未実施           |
-| 明暗両モード     | ダークモードでの目視は未実施                                 |
-| 読み上げ         | 出所・本文・反応の順に読めるかは未確認                       |
-| Android          | 狭幅の読書導線をDesktopで固めた後、展開範囲を選ぶ            |
-| 日常利用の評価   | 「SNSらしい」「もう少し読みたい」の判断は利用後に決める      |
+| 未確認                 | 内容                                                                     |
+| ---------------------- | ------------------------------------------------------------------------ |
+| 自分の投稿欄           | 第3段階。いまは自分から投稿できない                                       |
+| 返信の保存             | 返信は下書きの保持まで（再起動で消える）。保存契約は第3段階               |
+| 既存Noteの添付         | payloadの`note_id`は読める参照としてのみ扱い、Noteの読書面へは未接続      |
+| おもしろいの活用       | 印は保存するが、次の題材選びへは渡していない                              |
+| 参照先の削除           | 元のNote・Taskを削除したときの「参照先がありません」表示は未実装          |
+| 訂正と版               | 後日AIが投稿を訂正したときの版の区別は未実装                              |
+| 発信量の調整           | 一日数件という目安は生成側の指示で、上限の表示制御は無い                  |
+| 100件以上の履歴        | 連続読込の機構はあるが、大量データでの実測は未実施                        |
+| 明暗両モード           | ダークモードでの目視は未実施                                              |
+| 読み上げ               | 出所・本文・反応の順に読めるかは未確認                                    |
+| Android                | 狭幅の読書導線をDesktopで固めた後、展開範囲を選ぶ                         |
+| 日常利用の評価         | 「SNSらしい」「もう少し読みたい」の判断は利用後に決める                   |

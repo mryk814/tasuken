@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { PageProps } from "../types";
+import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
+import type { BaseRecord, PageProps } from "../types";
 import { Button, PageHeader } from "../components/common";
 import {
   FEED_PAGE_SIZE,
@@ -14,6 +15,10 @@ import {
   FEED_POSTS,
   FEED_POST_KIND_LABELS,
   authorOf,
+  buildPostsFromProposals,
+  draftNoteEntity,
+  draftNoteId,
+  feedReactionId,
   filterPosts,
   needsMore,
   postsForHome,
@@ -21,16 +26,19 @@ import {
   withReplies,
   type FeedAuthorId,
   type FeedPost,
+  type FeedReactionKind,
 } from "../lib/feedPosts";
 
 /**
- * Feed（SNS型の読む面。`docs/feed-learning-sns-plan-2026-09-21.md` 第1段階）。
+ * Feed（SNS型の読む面。`docs/feed-learning-sns-plan-2026-09-21.md`）。
  *
- * **投稿は開発用fixture**（架空データ）。実データ接続は第2段階で行う。
- * 「対応待ち」タブだけは既存の要対応projection（`buildAttentionQueue`）を正本にした実データで、
+ * AIから届いた投稿（`feed_posts` Proposal）をそのまま読み、投稿が1件も無いときだけ
+ * 開発用fixture（架空データ）を使う。記事の草稿は「Noteに保存」で既存の採用経路へ渡し、
+ * 読む操作とブックマークはTaskや未解決件数を変えない。
+ * 「対応待ち」タブは既存の要対応projection（`buildAttentionQueue`）を正本にした実データで、
  * ここから回答・Task操作は既存Commandへ繋ぐ。
  *
- * 読む面の規則は `docs/feed-surface.md`。第1段階では投稿の作成と反応の保存を行わない。
+ * 読む面の規則は `docs/feed-surface.md`。
  */
 
 type FeedTab = "home" | "learn" | "needs";
@@ -74,7 +82,9 @@ export function FeedPage({
   openDrawer,
   navigate,
   setToast,
+  removeEntity,
 }: PageProps) {
+  // 実データでは保存済みの反応を、fixtureでは画面内の印を使う。
   const [tab, setTab] = useState<FeedTab>("home");
   const [limit, setLimit] = useState(FEED_PAGE_SIZE);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -107,13 +117,50 @@ export function FeedPage({
     [domain.tasks, domain.ai_proposals, data.work_receipts, data.themes, data.schedules, now],
   );
 
+  /**
+   * 投稿の出所。AIから届いた読み物Proposal（`feed_posts`）を読み、
+   * まだ1件も無いときだけ開発用fixtureを使う（第1段階の設計確認用）。
+   */
+  const livePosts = useMemo(
+    () =>
+      buildPostsFromProposals({
+        proposals: domain.ai_proposals as unknown[],
+        themes: data.themes as unknown[],
+        tasks: domain.tasks as unknown[],
+      }),
+    [domain.ai_proposals, domain.tasks, data.themes],
+  );
+  const usingFixtures = livePosts.length === 0;
+
+  /**
+   * 読者の状態はEntityとして保存する（投稿の正本ではない）。
+   * 保存された印は `domain` 側の正規化を通して読む（未保存のworkspaceでは空になる）。
+   */
+  const reactions = useMemo(() => {
+    const bookmark = new Set<string>();
+    const interesting = new Set<string>();
+    const hiddenPosts = new Set<string>();
+    const rows = Array.isArray(domain.feed_reactions) ? domain.feed_reactions : [];
+    for (const row of rows as unknown as Array<Record<string, unknown>>) {
+      const postId = typeof row.post_id === "string" ? row.post_id : "";
+      if (!postId) continue;
+      if (row.kind === "bookmark") bookmark.add(postId);
+      else if (row.kind === "interesting") interesting.add(postId);
+      else if (row.kind === "hidden") hiddenPosts.add(postId);
+    }
+    return { bookmark, interesting, hidden: hiddenPosts };
+  }, [domain.feed_reactions]);
+
   const sourcePosts = useMemo(() => {
-    const visible = FEED_POSTS.filter((post) => !hidden.has(post.id));
+    const all = usingFixtures ? FEED_POSTS : livePosts;
+    const visible = all.filter((post) => !hidden.has(post.id) && !reactions.hidden.has(post.id));
     return {
-      arriving: visible.filter((post) => ARRIVING_POST_IDS.includes(post.id)),
-      settled: visible.filter((post) => !ARRIVING_POST_IDS.includes(post.id)),
+      arriving: usingFixtures ? visible.filter((post) => ARRIVING_POST_IDS.includes(post.id)) : [],
+      settled: usingFixtures
+        ? visible.filter((post) => !ARRIVING_POST_IDS.includes(post.id))
+        : visible,
     };
-  }, [hidden]);
+  }, [hidden, livePosts, reactions.hidden, usingFixtures]);
 
   const timeline = useMemo(() => {
     const posts = arrivalsApplied
@@ -132,9 +179,11 @@ export function FeedPage({
 
   const openNeedsItem = needsRows.find((item) => item.id === openNeedsId) ?? null;
   const openArticle = useMemo(() => {
-    const post = FEED_POSTS.find((entry) => entry.id === openArticleId) ?? null;
+    // 読む面はfixtureと実データの両方を開ける。実データがあればそちらが正本。
+    const pool = usingFixtures ? FEED_POSTS : livePosts;
+    const post = pool.find((entry) => entry.id === openArticleId) ?? null;
     return post?.attachment?.articleBody ? post : null;
-  }, [openArticleId]);
+  }, [livePosts, openArticleId, usingFixtures]);
 
   const focusRow = useCallback((id: string) => {
     rowRefs.current.get(id)?.focus();
@@ -180,24 +229,73 @@ export function FeedPage({
     [],
   );
 
-  /** 読んだり保存したりしても、Taskの状態と未解決件数は変えない。 */
-  const toggleBookmark = useCallback(
-    (post: FeedPost) => {
-      const saved = bookmarks.has(post.id);
-      toggleIn(setBookmarks, post.id);
+  /**
+   * 読者の状態はEntityとして保存し、取り消しは削除で行う（既存の保存境界）。
+   * 開発用fixtureの投稿は保存先を持たないので画面内だけに留める。
+   */
+  const toggleReaction = useCallback(
+    async (post: FeedPost, kind: FeedReactionKind) => {
+      const saved = reactions[kind].has(post.id);
+      if (!usingFixtures) {
+        const id = feedReactionId(post.id, kind);
+        try {
+          if (saved) await removeEntity("feed_reaction", { id });
+          else
+            await saveEntities(
+              [
+                {
+                  action: "save",
+                  type: "feed_reaction",
+                  entity: {
+                    id,
+                    post_id: post.id,
+                    kind,
+                    created_at: new Date().toISOString(),
+                  },
+                },
+              ],
+              kind === "bookmark" ? "ブックマークしました。" : "記録しました。",
+              "main_ui",
+            );
+        } catch (error) {
+          setToast(
+            `保存できませんでした。${error instanceof Error ? error.message : String(error)}`,
+            "danger",
+          );
+          return;
+        }
+      } else if (kind === "bookmark") {
+        toggleIn(setBookmarks, post.id);
+      } else if (kind === "interesting") {
+        toggleIn(setInteresting, post.id);
+      } else {
+        setHidden((current) => new Set(current).add(post.id));
+      }
       setNotice(
-        saved
-          ? "ブックマークを外しました。未解決件数は変わっていません。"
-          : "ブックマークしました。未解決件数は変わっていません。",
+        kind === "hidden"
+          ? "この投稿を今回は見送りました。Taskは変わっていません。"
+          : saved
+            ? "印を外しました。未解決件数は変わっていません。"
+            : "印を付けました。未解決件数は変わっていません。",
       );
     },
-    [bookmarks, toggleIn],
+    [reactions, removeEntity, saveEntities, setToast, toggleIn, usingFixtures],
   );
 
-  const hidePost = useCallback((post: FeedPost) => {
-    setHidden((current) => new Set(current).add(post.id));
-    setNotice("この投稿を今回は見送りました。Taskは変わっていません。");
-  }, []);
+  const toggleBookmark = useCallback(
+    (post: FeedPost) => void toggleReaction(post, "bookmark"),
+    [toggleReaction],
+  );
+
+  const toggleInteresting = useCallback(
+    (post: FeedPost) => void toggleReaction(post, "interesting"),
+    [toggleReaction],
+  );
+
+  const hidePost = useCallback(
+    (post: FeedPost) => void toggleReaction(post, "hidden"),
+    [toggleReaction],
+  );
 
   /** 返信の下書きは投稿IDごとに持つ。閉じても消さない。 */
   const openReply = useCallback((post: FeedPost) => {
@@ -214,6 +312,72 @@ export function FeedPage({
       `${authorOf(post).label}への返信は次の段階で保存します。下書きはこの画面に残ります。`,
     );
   }, []);
+
+  /** 記事の草稿が正式Noteになっていれば、そのNoteを返す（IDはProposalから決まる）。 */
+  const savedNoteOf = useCallback(
+    (post: FeedPost) => {
+      const id = draftNoteId(post);
+      if (!id) return null;
+      return (
+        (domain.notes as unknown as Array<{ id: string }>).find((note) => note.id === id) ?? null
+      );
+    },
+    [domain.notes],
+  );
+
+  /**
+   * 記事の草稿を正式なNoteとして保存する（既存のProposal採用経路）。
+   * 読むだけでは正式データを増やさず、投稿のIDとブックマークも変えない。
+   */
+  const saveDraftAsNote = useCallback(
+    async (post: FeedPost) => {
+      const note = draftNoteEntity(post);
+      const proposalId = post.proposalId;
+      const proposal = proposalId
+        ? (domain.ai_proposals as unknown as BaseRecord[]).find((entry) => entry.id === proposalId)
+        : undefined;
+      if (!note || !proposal) {
+        setToast("記事の草稿が見つかりません。投稿を読み直してください。", "danger");
+        return;
+      }
+      const version = Number(proposal.version || 0);
+      setBusy(true);
+      try {
+        await executeCommand({
+          commandId: `feed-post:${proposalId}:save-note:v${version}`,
+          name: "ApplyAiProposal",
+          payload: {
+            proposal: { ...proposal, status: "accepted" },
+            candidates: [{ type: "note", entity: note }],
+          },
+          actor: { kind: "user" },
+          source: "main_ui",
+          expectedVersions: [{ type: "ai_proposal", id: String(proposalId), version }],
+          issuedAt: String(
+            proposal.received_at || proposal.created_at || proposal.updated_at || "",
+          ),
+        } as CommandEnvelope);
+        setNotice("記事をNoteに保存しました。投稿と読んだ印はそのまま残ります。");
+        setToast("Noteに保存しました。", "success");
+      } catch (error) {
+        setToast(
+          `Noteに保存できませんでした。${error instanceof Error ? error.message : String(error)}`,
+          "danger",
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [domain.ai_proposals, executeCommand, setToast],
+  );
+
+  const openSavedNote = useCallback(
+    (post: FeedPost) => {
+      const note = savedNoteOf(post);
+      if (note) openDrawer({ type: "note", entity: note as never });
+    },
+    [openDrawer, savedNoteOf],
+  );
 
   const taskOf = useCallback(
     (item: FeedItem) => {
@@ -485,6 +649,8 @@ export function FeedPage({
                   const isReply = post.replyTo !== null;
                   const isExpanded = expanded.has(post.id);
                   const collapsible = needsMore(post);
+                  // 記事の草稿は採用前と採用後で状態を書き分ける。
+                  const savedNote = savedNoteOf(post);
                   const body =
                     isExpanded || !collapsible ? post.paragraphs : post.paragraphs.slice(0, 1);
                   return (
@@ -553,10 +719,12 @@ export function FeedPage({
                           {post.attachment ? (
                             <div className={`feed-attachment is-${post.attachment.kind}`}>
                               <span className="feed-attachment-kind">
-                                {attachmentKindLabel(post.attachment.kind)}
+                                {savedNote ? "Note" : attachmentKindLabel(post.attachment.kind)}
                               </span>
                               <h4 className="feed-attachment-title">{post.attachment.title}</h4>
-                              <p className="feed-attachment-intro">{post.attachment.intro}</p>
+                              <p className="feed-attachment-intro">
+                                {savedNote ? "保存済みのNote" : post.attachment.intro}
+                              </p>
                               {post.attachment.figureLabel ? (
                                 <div className="feed-figure">
                                   <span className="feed-figure-label">
@@ -609,6 +777,27 @@ export function FeedPage({
                                       : "Taskを開く"}
                                   </Button>
                                 )}
+                                {/* 草稿は読むだけでは正式データにしない。保存は本人が選ぶ。 */}
+                                {post.draft ? (
+                                  savedNote ? (
+                                    <Button
+                                      variant="ghost"
+                                      compact
+                                      onClick={() => openSavedNote(post)}
+                                    >
+                                      Noteで読む
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      variant="secondary"
+                                      compact
+                                      disabled={busy}
+                                      onClick={() => void saveDraftAsNote(post)}
+                                    >
+                                      Noteに保存
+                                    </Button>
+                                  )
+                                ) : null}
                               </div>
                             </div>
                           ) : null}
@@ -630,15 +819,19 @@ export function FeedPage({
                                 <button
                                   type="button"
                                   className="feed-reaction"
-                                  aria-pressed={interesting.has(post.id)}
-                                  onClick={() => toggleIn(setInteresting, post.id)}
+                                  aria-pressed={
+                                    interesting.has(post.id) || reactions.interesting.has(post.id)
+                                  }
+                                  onClick={() => toggleInteresting(post)}
                                 >
                                   ♡ おもしろい
                                 </button>
                                 <button
                                   type="button"
                                   className="feed-reaction"
-                                  aria-pressed={bookmarks.has(post.id)}
+                                  aria-pressed={
+                                    bookmarks.has(post.id) || reactions.bookmark.has(post.id)
+                                  }
                                   onClick={() => toggleBookmark(post)}
                                 >
                                   ブックマーク

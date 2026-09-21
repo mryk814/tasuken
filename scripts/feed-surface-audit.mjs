@@ -1,16 +1,19 @@
 /**
- * Feed surface の目視・レイアウト監査（SNS型Feed 第1段階）
+ * Feed surface の目視・レイアウト監査（SNS型Feed 第1・2段階）
  *
  * 隔離した一時userDataでビルド済みアプリを起動し、SNS型の読む面を広幅と最小幅で確認する。
  * 「スクリーンショットを撮った」だけで終わらせず、投稿の描画・アバター・本文の大きさ・
  * 記事を開いて戻る操作・focusの戻り先・対応待ち件数（実データ）を実測して判定する。
  *
- * 投稿は開発用fixture（架空データ）。対応待ちタブだけは実データなので、
- * 起動前に隔離workspaceを用意する（`scripts/seed-feed-audit-workspace.mjs`）。
+ *   npm run build && npm run audit:feed           # 開発用fixture（架空データ）で面の設計を確認
+ *   npm run build && npm run audit:feed:live      # AIから届いた実データの投稿を読めるか確認
  *
- *   npm run build && npm run audit:feed
+ * `--live` では隔離workspaceへ実データの投稿を1件入れ、その投稿だけを読む。
+ * 対応待ち（実データ）の件数が読む操作で変わらないこと、ブックマークが**再起動後**も
+ * 残ることを実測する。fixtureは実データが無いときだけの開発用なので、
+ * 投稿があるときの面にはfixtureを混ぜない。
  *
- * 出力先は output/playwright/feed-audit。失敗時は終了コード1。
+ * 出力先は output/playwright/feed-audit（`--live` は feed-audit-live）。失敗時は終了コード1。
  */
 import { _electron as electron } from "playwright";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -18,7 +21,11 @@ import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
-const OUT_DIR = process.argv[2] || "output/playwright/feed-audit";
+const args = process.argv.slice(2);
+const LIVE = args.includes("--live");
+const OUT_DIR =
+  args.find((arg) => !arg.startsWith("--")) ||
+  (LIVE ? "output/playwright/feed-audit-live" : "output/playwright/feed-audit");
 /** 実効幅1680px超で右詳細を常設し、それ以下では重ねる（docs/responsive-layout.md）。 */
 const SIZES = [
   { label: "wide-1536", width: 1536, height: 960 },
@@ -31,6 +38,9 @@ const EXPECTED_UNRESOLVED = 3;
 /** 投稿の本文は読み物として16px以上にする。 */
 const MIN_BODY_FONT_PX = 16;
 const MIN_POSTS = 12;
+/** 実データ投稿（`--feed-post`で用意する1件）の識別情報。 */
+const LIVE_ARTICLE_TITLE = "「もう一度保存」に耐える設計";
+const LIVE_FIGURE_LABEL = "図: 再送の流れ";
 
 function detectLayoutBreakage() {
   const overflowing = [];
@@ -78,7 +88,12 @@ mkdirSync(OUT_DIR, { recursive: true });
 const userDataDir = mkdtempSync(path.join(os.tmpdir(), "tasken-feed-audit-"));
 const seeded = spawnSync(
   process.execPath,
-  ["scripts/run-electron-node.mjs", "scripts/seed-feed-audit-workspace.mjs", userDataDir],
+  [
+    "scripts/run-electron-node.mjs",
+    "scripts/seed-feed-audit-workspace.mjs",
+    userDataDir,
+    ...(LIVE ? ["--feed-post"] : []),
+  ],
   { encoding: "utf8" },
 );
 if (seeded.status !== 0) {
@@ -86,11 +101,12 @@ if (seeded.status !== 0) {
 }
 const failures = [];
 
-const app = await electron.launch({
-  args: [".", "--disable-gpu", "--disable-gpu-compositing", `--user-data-dir=${userDataDir}`],
-  env: { ...process.env, TASKEN_USER_DATA_DIR: userDataDir },
-});
-try {
+/** 検証用userDataでアプリを起動し、表示倍率を固定してから読み込み直す。 */
+async function launchApp() {
+  const app = await electron.launch({
+    args: [".", "--disable-gpu", "--disable-gpu-compositing", `--user-data-dir=${userDataDir}`],
+    env: { ...process.env, TASKEN_USER_DATA_DIR: userDataDir },
+  });
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
   await page.evaluate(
@@ -100,14 +116,20 @@ try {
   await page.reload();
   await page.waitForLoadState("domcontentloaded");
   await page.waitForTimeout(3000);
+  return { app, page };
+}
 
+async function openFeed(page) {
   const navButton = page.locator(".sidebar button", { hasText: "Feed" }).first();
   if (!(await navButton.count())) {
     throw new Error("SidebarにFeedの入口がありません。");
   }
   await navButton.click();
   await page.waitForTimeout(1200);
+}
 
+/** 第1段階の面（開発用fixture）を確認する。 */
+async function auditFixtures(app, page) {
   // 1. ホームは投稿が連続して読める。アバターと出所、本文の大きさを実測する。
   const postCount = await page.locator(".feed-post").count();
   if (postCount < MIN_POSTS) failures.push(`投稿が${MIN_POSTS}件未満です（${postCount}件）。`);
@@ -276,8 +298,177 @@ try {
   if (restoredDraft !== draftText) {
     failures.push(`返信の下書きが復元されません（${restoredDraft}）。`);
   }
+}
+
+/**
+ * 第2段階の面（AIから届いた実データの投稿）を確認する。
+ *
+ * fixtureは実データが無いときだけの開発用なので、投稿があるときは混ざらない。
+ * 読む操作が対応待ち（実データ）の件数を動かさないことも同じ画面で実測する。
+ */
+async function auditLivePost(page) {
+  // 1. 実データの投稿だけを読む。fixtureは混ざらない。
+  const postCount = await page.locator(".feed-post").count();
+  if (postCount !== 1) failures.push(`実データの投稿が1件ではありません（${postCount}件）。`);
+  const timelineText = await page.locator(".feed-timeline").innerText();
+  for (const expected of [
+    "保存をやり直しても、同じノートが増えないようにしました。",
+    "効いたのは再送を止めることではなく、同じ依頼だと判別できることでした。",
+    LIVE_ARTICLE_TITLE,
+    LIVE_FIGURE_LABEL,
+    "高分子材料評価",
+  ]) {
+    if (!timelineText.includes(expected))
+      failures.push(`投稿に出ない文言があります（${expected}）。`);
+  }
+  const author = (await page.locator(".feed-author-name").first().innerText()).trim();
+  if (author !== "Codex") failures.push(`投稿者がCodexではありません（${author}）。`);
+  const kind = (await page.locator(".feed-post-kind").first().innerText()).trim();
+  if (kind !== "気づき") failures.push(`投稿の種類が気づきではありません（${kind}）。`);
+  const bodyFont = await page.evaluate(() => {
+    const element = document.querySelector(".feed-post-text");
+    return element ? parseFloat(getComputedStyle(element).fontSize) : 0;
+  });
+  if (!(bodyFont >= MIN_BODY_FONT_PX)) {
+    failures.push(`本文が${MIN_BODY_FONT_PX}px未満です（${bodyFont}px）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/live-home.png`, fullPage: true });
+
+  // 2. 添えた記事の草稿を、投稿から開いて読める。
+  const readDraft = page.locator(".feed-attachment button", { hasText: "草稿を読む" }).first();
+  if (!(await readDraft.count())) {
+    failures.push("実データの投稿に草稿を読む操作がありません。");
+  } else {
+    await readDraft.click();
+    await page.waitForTimeout(400);
+    if (!(await page.locator(".feed-reader").isVisible()))
+      failures.push("草稿の読書面が開きません。");
+    const readerParagraphs = await page.locator(".feed-reader-text").count();
+    if (readerParagraphs < 2) failures.push(`草稿の本文が短すぎます（${readerParagraphs}段落）。`);
+    await page.screenshot({ path: `${OUT_DIR}/live-reader.png` });
+    await page.locator(".feed-reader button", { hasText: "戻る" }).first().click();
+    await page.waitForTimeout(400);
+    if (await page.locator(".feed-reader").count()) failures.push("草稿を閉じられません。");
+  }
+
+  // 3. 学びタブにも出る（気づきは読む投稿）。
+  await page.locator(".feed-tabs button", { hasText: "学び" }).first().click();
+  await page.waitForTimeout(400);
+  const learnCount = await page.locator(".feed-post").count();
+  if (learnCount !== 1) failures.push(`学びタブに実データの投稿が出ません（${learnCount}件）。`);
+
+  // 4. 読むことは判断ではない。対応待ち（実データ）は3件のまま。
+  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
+  await page.waitForTimeout(600);
+  const unresolvedText = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (unresolvedText !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(
+      `投稿の閲覧で対応待ちが${EXPECTED_UNRESOLVED}件ではなくなりました（${unresolvedText}）。`,
+    );
+  }
+  const needsRows = await page.locator(".feed-needs-row").count();
+  if (needsRows !== EXPECTED_UNRESOLVED) {
+    failures.push(`対応待ちの行数が${EXPECTED_UNRESOLVED}件ではありません（${needsRows}）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/live-needs.png`, fullPage: true });
+
+  // 5. ブックマークを付ける（保存はEntityとして行われる）。
+  await page.locator(".feed-tabs button", { hasText: "ホーム" }).first().click();
+  await page.waitForTimeout(400);
+  const bookmark = page.locator(".feed-reaction", { hasText: "ブックマーク" }).first();
+  await bookmark.click();
+  await page.waitForTimeout(1200);
+  if ((await bookmark.getAttribute("aria-pressed")) !== "true") {
+    failures.push("ブックマークを付けられません。");
+  }
+  const afterBookmark = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (afterBookmark !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(`ブックマークで対応待ち件数が変わりました（${afterBookmark}）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/live-bookmark.png`, fullPage: true });
+
+  // 6. 記事の草稿を「Noteに保存」で正式Noteにする。投稿と読んだ印は変わらない。
+  const saveNote = page.locator(".feed-attachment button", { hasText: "Noteに保存" }).first();
+  if (!(await saveNote.count())) {
+    failures.push("実データの投稿にNoteに保存の操作がありません。");
+    return;
+  }
+  await saveNote.click();
+  await page.waitForTimeout(1500);
+  const openNote = page.locator(".feed-attachment button", { hasText: "Noteで読む" }).first();
+  if (!(await openNote.count())) failures.push("Noteに保存の後、Noteへの導線が出ません。");
+  const postsAfterSave = await page.locator(".feed-post").count();
+  if (postsAfterSave !== 1) failures.push(`Noteに保存で投稿が消えました（${postsAfterSave}件）。`);
+  const countAfterSave = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (countAfterSave !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(`Noteに保存で対応待ち件数が変わりました（${countAfterSave}）。`);
+  }
+  const bookmarkAfterSave = await page
+    .locator(".feed-reaction", { hasText: "ブックマーク" })
+    .first()
+    .getAttribute("aria-pressed");
+  if (bookmarkAfterSave !== "true") failures.push("Noteに保存でブックマークが外れました。");
+  await page.screenshot({ path: `${OUT_DIR}/live-note-saved.png`, fullPage: true });
+
+  // 7. 保存したNoteは既存のNote面から開ける。
+  if (await openNote.count()) {
+    await openNote.click();
+    await page.waitForTimeout(800);
+    if (!(await page.locator(".drawer", { hasText: LIVE_ARTICLE_TITLE }).count())) {
+      failures.push("保存したNoteを開けません。");
+    }
+    await page.screenshot({ path: `${OUT_DIR}/live-note-open.png` });
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(500);
+  }
+}
+
+/** 起動し直しても、投稿と読者の印、保存したNoteが残る。 */
+async function auditLiveRestart(page) {
+  const postCount = await page.locator(".feed-post").count();
+  if (postCount !== 1) failures.push(`再起動後の投稿が1件ではありません（${postCount}件）。`);
+  const persisted = await page
+    .locator(".feed-reaction", { hasText: "ブックマーク" })
+    .first()
+    .getAttribute("aria-pressed");
+  if (persisted !== "true") failures.push("再起動後にブックマークが残っていません。");
+  if (!(await page.locator(".feed-attachment button", { hasText: "Noteで読む" }).count())) {
+    failures.push("再起動後に保存したNoteへの導線が残っていません。");
+  }
+  const persistedCount = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (persistedCount !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(`再起動後の対応待ち件数が違います（${persistedCount}）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/live-restart.png`, fullPage: true });
+}
+
+try {
+  if (LIVE) {
+    // 実データの投稿を読む → 終了 → 起動し直して保存を確認する。
+    let session = await launchApp();
+    try {
+      await openFeed(session.page);
+      await auditLivePost(session.page);
+    } finally {
+      await session.app.close();
+    }
+    session = await launchApp();
+    try {
+      await openFeed(session.page);
+      await auditLiveRestart(session.page);
+    } finally {
+      await session.app.close();
+    }
+  } else {
+    const session = await launchApp();
+    try {
+      await openFeed(session.page);
+      await auditFixtures(session.app, session.page);
+    } finally {
+      await session.app.close();
+    }
+  }
 } finally {
-  await app.close();
   rmSync(userDataDir, { recursive: true, force: true });
 }
 
@@ -287,4 +478,6 @@ if (failures.length) {
   console.error(`スクリーンショット: ${OUT_DIR}`);
   process.exit(1);
 }
-console.log(`Feed監査: OK（SNS面 ${SIZES.length}幅、スクリーンショットは ${OUT_DIR}）`);
+console.log(
+  `Feed監査: OK（${LIVE ? "実データ投稿" : "開発用fixture"}、スクリーンショットは ${OUT_DIR}）`,
+);

@@ -445,6 +445,7 @@ function emptyWorkspaceDomain(): WorkspaceDomain {
     sketches: [],
     habits: [],
     habit_entries: [],
+    feed_reactions: [],
     knowledge_nodes: [],
     references: [],
     task_dependencies: [],
@@ -727,6 +728,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pSketches = castRecords<Sketch>(data.sketches);
   const pHabits = castRecords<Record<string, unknown> & { id: string }>(data.habits);
   const pHabitEntries = castRecords<Record<string, unknown> & { id: string }>(data.habit_entrys);
+  const pFeedReactions = castRecords<Record<string, unknown> & { id: string }>(data.feed_reactions);
 
   const hasPersistedDomain =
     pProjects.length ||
@@ -748,6 +750,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     pSketches.length ||
     pHabits.length ||
     pHabitEntries.length ||
+    pFeedReactions.length ||
     pRepositoryContexts.length;
 
   if (!hasPersistedDomain) return legacy;
@@ -767,6 +770,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     sketches: pSketches,
     habits: pHabits,
     habit_entries: pHabitEntries,
+    feed_reactions: pFeedReactions,
     knowledge_nodes: legacy.knowledge_nodes,
     references: mergeById(pReferences, legacy.references),
     task_dependencies: mergeById(pTaskDeps, legacy.task_dependencies),
@@ -1085,6 +1089,7 @@ export function projectLegacyWorkspace(
     sketches: domain.sketches as WorkspaceData["sketches"],
     habits: domain.habits as WorkspaceData["habits"],
     habit_entrys: domain.habit_entries as WorkspaceData["habit_entrys"],
+    feed_reactions: domain.feed_reactions as WorkspaceData["feed_reactions"],
     repository_contexts: domain.repository_contexts as WorkspaceData["repository_contexts"],
     working_copies: domain.working_copies as WorkspaceData["working_copies"],
     agent_sessions: domain.agent_sessions as WorkspaceData["agent_sessions"],

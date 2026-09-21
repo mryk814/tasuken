@@ -318,8 +318,11 @@ write toolsは以下とする。
 tools: -tasken.propose_task -
   tasken.propose_note -
   tasken.propose_note_edit -
+  tasken.propose_feed_post -
   tasken.propose_knowledge;
 ```
+
+`tasken.propose_feed_post`は読み物の投稿（`payload_type: "feed_posts"`）を作る。投稿は利用者がそのまま読めるため採用を待たず、要対応の判断としては数えない。添えた記事の草稿は別のNote Proposalとして採用を判断する。
 
 ```ts
 type AiProposal = {

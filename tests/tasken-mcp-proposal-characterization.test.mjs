@@ -589,7 +589,7 @@ test("proposal validators enforce public bounds and reject private paths, creden
   }
 });
 
-test("all twelve proposal tools use their authenticated Core command owner", () => {
+test("all thirteen proposal tools use their authenticated Core command owner", () => {
   const source = fs.readFileSync("src/main/mcp/server.mjs", "utf8");
   const names = [
     "tasken.append_work_receipt",
@@ -601,6 +601,7 @@ test("all twelve proposal tools use their authenticated Core command owner", () 
     "tasken.propose_task",
     "tasken.propose_note",
     "tasken.propose_note_edit",
+    "tasken.propose_feed_post",
     "tasken.propose_knowledge",
     "tasken.propose_sketch",
     "tasken.propose_artifact",

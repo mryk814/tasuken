@@ -8,7 +8,7 @@ Desktop Mainが`WorkspaceDatabase`を生成して`TaskenDesktopComposition`へ�
 
 Windowsでdiscoveryのrenameが`EPERM`になった場合だけ、50ms間隔で最大3回試行する。既存discoveryを先に削除せず、回復しない場合は元のエラーで起動を失敗させ、待ち受けserverを閉じる。`node --test tests/tasken-core-discovery.test.mjs`で一過性エラーからの回復、恒久失敗時の既存ファイル保全と一時ファイル・serverの後始末を検証する。
 
-stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 29 toolsとProposal 14 toolsはすべて認証済みCore clientを通る。
+stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 29 toolsとProposal 15 toolsはすべて認証済みCore clientを通る。
 
 ```text
 MCP client
@@ -59,14 +59,17 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 
 写真対応で`get_task_context.related`へ`captures`配列を追加した。`include: ["captures"]`を明示した場合だけ関連Captureの要約と画像manifestを含め、未指定時は空配列を返す。画像本体はmanifestのlocatorが示すPhoto toolから取得する。
 
-### Proposal 14 / 14 Core
+### Proposal 15 / 15 Core
 
 - Task work: `start_task_work`, `append_work_receipt`, `report_task_done`, `report_task_blocked`
 - Agent session: `start_agent_session`, `finish_agent_session`, `submit_agent_session_record`
 - Repository/Task: `propose_repository_context`, `propose_task`
 - Content: `propose_note`, `propose_note_edit`, `propose_knowledge`, `propose_sketch`, `propose_artifact`
+- Reading: `propose_feed_post`
 
 Task work proposalはexpected versionとagent identityを必須にする。public compatibility上caller/idempotencyが省略可能なcontent系toolはMCP境界で安全なdefault/UUIDを補い、Core command自体はstrictに要求する。Note/Artifact bodyは実UTF-8 byte数で64 KiBを上限とし、path、credential URL、scriptable SVG、filename/media mismatchを拒否する。
+
+`propose_feed_post`は読み物の投稿（`payload_type: "feed_posts"`）を作る。投稿は採用を待たずにFeedで読め、要対応の判断としては数えない（`docs/feed-surface.md`）。短い本文は段落の配列とし、詳しい説明がある場合だけ`note_id`または`article`で記事を添える。`article`はNote草稿として保存され、利用者が「Noteに保存」を選んだときに既存の`ApplyAiProposal`経由で正式Noteになる。
 
 ## Native runtime cleanup (#413)
 

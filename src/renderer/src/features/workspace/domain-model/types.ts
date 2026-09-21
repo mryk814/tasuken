@@ -444,6 +444,8 @@ export interface WorkspaceDomain {
   /** Habitの最小実験（#454後半）。実施記録は habit_entries に置く。 */
   habits: Array<Record<string, unknown> & { id: string }>;
   habit_entries: Array<Record<string, unknown> & { id: string }>;
+  /** 読者の状態（ブックマーク・興味・非表示）。 */
+  feed_reactions: Array<Record<string, unknown> & { id: string }>;
   knowledge_nodes: KnowledgeNode[];
   references: Reference[];
   task_dependencies: TaskDependency[];

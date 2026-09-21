@@ -11,6 +11,30 @@
  * - 短文だけで成立する投稿と、Note記事を添えた投稿を混ぜる。
  */
 
+import { stableProposalEntityId } from "../../../../../shared/proposalAcceptance.mjs";
+
+/** 実データの投稿に付く参照。fixtureでは未設定。 */
+export interface FeedPostRefs {
+  proposalId?: string;
+  taskId?: string | null;
+  taskTitle?: string | null;
+  evidence?: string[];
+  /** 添えられた記事の草稿（採用前）。fixtureでは未設定。 */
+  draft?: FeedPostDraft | null;
+}
+
+/**
+ * 投稿に添えられた記事の草稿。送られたままの本文を保ち、
+ * 採用すると既存のNote保存（`ApplyAiProposal`）へ渡す。
+ */
+export interface FeedPostDraft {
+  title: string;
+  /** AIが送ったMarkdown本文。表示用の段落へ崩さず、そのまま保存する。 */
+  markdown: string;
+  noteType: string;
+  themeId: string;
+}
+
 export type FeedAuthorId = "self" | "codex" | "claude" | "tasken" | "external_ai";
 
 /** 投稿者の種別。AI表記を出すかどうかをここで決める。 */
@@ -65,7 +89,7 @@ export interface FeedPostAttachment {
   articleBody?: string[] | null;
 }
 
-export interface FeedPost {
+export interface FeedPost extends FeedPostRefs {
   id: string;
   author: FeedAuthorId;
   kind: FeedPostKind;
@@ -439,4 +463,181 @@ export function filterPosts(
       (!filters.author || post.author === filters.author) &&
       (!filters.themeLabel || post.attachment?.refLabel.includes(filters.themeLabel) === true),
   );
+}
+
+/* -------------------------------------------------------------------------
+ * 実データの投稿（SNS型Feed 第2段階）
+ *
+ * AIは `tasken.propose_feed_post` で読み物Proposal（payload_type: `feed_posts`）を送る。
+ * 投稿は**要対応の判断ではない**ので `buildAttentionQueue` は数えず、Feedだけが読む。
+ * 表示のたびに本文を作り直さず、送られた文章と参照をそのまま使う。
+ * ---------------------------------------------------------------------- */
+
+/** 読者の状態。投稿の安定IDに結び付けて保存する。 */
+export type FeedReactionKind = "bookmark" | "interesting" | "hidden";
+
+/**
+ * 反応のID。同じ投稿・同じ種類では同じIDになるので、連打や再送で増えない。
+ * 取り消しはEntityの削除（既存のUndo境界）で行う。
+ */
+export function feedReactionId(postId: string, kind: FeedReactionKind): string {
+  const id = postId.trim();
+  if (!id || id.length > 200) throw new Error("投稿IDは1〜200文字で指定してください。");
+  return `feed-reaction:${id}:${kind}`;
+}
+
+type Row = { id: string; [key: string]: unknown };
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function paragraphs(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "")
+    : [];
+}
+
+const PROPOSAL_TOPICS: readonly FeedPostKind[] = [
+  "work_report",
+  "insight",
+  "learning",
+  "reference",
+  "question",
+  "own_note",
+];
+
+function topicOf(value: unknown): FeedPostKind {
+  const topic = text(value);
+  return (PROPOSAL_TOPICS as readonly string[]).includes(topic)
+    ? (topic as FeedPostKind)
+    : "own_note";
+}
+
+/** 出所の表示名から投稿者を決める。実在の名前を変えない。 */
+export function authorIdForLabel(label: string): FeedAuthorId {
+  const value = label.toLowerCase();
+  if (value.includes("codex")) return "codex";
+  if (value.includes("claude")) return "claude";
+  if (value.includes("tasken")) return "tasken";
+  if (!value) return "external_ai";
+  return "external_ai";
+}
+
+/**
+ * 読み物Proposalを投稿へ写す。`pending` だけでなく採用済みも読めるようにするため、
+ * 呼び出し側は削除されていないProposalを渡す（出所のIDで追跡する）。
+ */
+export function buildPostsFromProposals(input: {
+  proposals?: readonly unknown[];
+  themes?: readonly unknown[];
+  tasks?: readonly unknown[];
+}): FeedPost[] {
+  const themes = (input.themes ?? []).filter((entry): entry is Row =>
+    Boolean(entry && typeof entry === "object" && "id" in entry),
+  );
+  const themeNames = new Map(themes.map((theme) => [String(theme.id), text(theme.name)]));
+  const tasks = (input.tasks ?? []).filter((entry): entry is Row =>
+    Boolean(entry && typeof entry === "object" && "id" in entry),
+  );
+  const taskTitles = new Map(tasks.map((task) => [String(task.id), text(task.title)]));
+
+  const posts: FeedPost[] = [];
+  for (const entry of input.proposals ?? []) {
+    if (!entry || typeof entry !== "object") continue;
+    const proposal = entry as Row;
+    if (proposal.deleted_at) continue;
+    if (text(proposal.payload_type) !== "feed_posts") continue;
+    const payload = (proposal.payload || {}) as Record<string, unknown>;
+    const published = Array.isArray(payload.feed_posts) ? payload.feed_posts[0] : null;
+    if (!published || typeof published !== "object") continue;
+    const post = published as Record<string, unknown>;
+    const body = paragraphs(post.body);
+    if (body.length === 0) continue;
+
+    const taskId = text(post.task_id) || null;
+    const themeId = text(post.theme);
+    const article = (post.article || null) as Record<string, unknown> | null;
+    const articleBody = article ? paragraphs(String(article.body || "").split(/\n{2,}/u)) : null;
+    const attachment = article
+      ? {
+          kind: "note_draft" as const,
+          title: text(article.title),
+          intro: "記事の草稿（採用前）",
+          figureLabel: text(post.attachment_label) || null,
+          refLabel: themeId ? (themeNames.get(themeId) ?? themeId) : "Tasken",
+          articleBody,
+        }
+      : text(post.note_id)
+        ? {
+            kind: "note" as const,
+            title: text(post.attachment_label) || "Note",
+            intro: "Noteを参照",
+            figureLabel: null,
+            refLabel: themeId ? (themeNames.get(themeId) ?? themeId) : "Tasken",
+            articleBody: null,
+          }
+        : null;
+    const draft: FeedPostDraft | null = article
+      ? {
+          title: text(article.title),
+          markdown: String(article.body || ""),
+          noteType: text(article.note_type) || "memo",
+          themeId,
+        }
+      : null;
+
+    const request = (proposal.request || {}) as Record<string, unknown>;
+    posts.push({
+      id: `feed-post:${String(proposal.id)}`,
+      author: authorIdForLabel(text(proposal.source_app) || text(request.caller)),
+      kind: topicOf(post.topic),
+      createdAt: text(proposal.received_at) || text(proposal.created_at),
+      paragraphs: body,
+      attachment,
+      replyTo: null,
+      learnable: ["insight", "learning", "reference"].includes(topicOf(post.topic)),
+      // 実データの解決に必要な参照。表示は本文と参照だけを使う。
+      proposalId: String(proposal.id),
+      taskId,
+      taskTitle: taskId ? (taskTitles.get(taskId) ?? null) : null,
+      evidence: paragraphs(post.evidence),
+      draft,
+    } as FeedPost);
+  }
+  return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+}
+
+/* -------------------------------------------------------------------------
+ * 記事の草稿をNoteへ保存する（SNS型Feed 第2段階）
+ *
+ * 投稿は読むためのもので、正式データは増やさない。増えるのは
+ * 利用者が「Noteに保存」を選んだときだけで、保存は既存の採用経路
+ * （`ApplyAiProposal`）へ渡す。IDはProposalから決まるので、
+ * 保存の前後で投稿のIDとブックマークは変わらない。
+ * ---------------------------------------------------------------------- */
+
+/** 草稿から作られるNoteのID。採用前でも同じIDに解決できる。 */
+export function draftNoteId(post: FeedPost): string | null {
+  if (!post.proposalId || !post.draft) return null;
+  return stableProposalEntityId(post.proposalId, "note", 0);
+}
+
+/** 既存の採用経路へ渡すNoteの候補。採用前は保存しない。 */
+export function draftNoteEntity(post: FeedPost): {
+  id: string;
+  title: string;
+  body_markdown: string;
+  note_type: string;
+  project_id: string | null;
+} | null {
+  const id = draftNoteId(post);
+  if (!id || !post.draft) return null;
+  return {
+    id,
+    title: post.draft.title || "無題",
+    body_markdown: post.draft.markdown,
+    note_type: post.draft.noteType,
+    project_id: post.draft.themeId || null,
+  };
 }

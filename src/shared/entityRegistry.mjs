@@ -45,6 +45,7 @@ const definitions = /** @type {const} */ ([
   { type: "sketch", collectionKey: "sketches", domainCollectionKey: "sketches", label: "Sketch", iconKey: "pencil", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title"] },
   { type: "habit", collectionKey: "habits", domainCollectionKey: "habits", label: "Habit", iconKey: "clock", projection: "canonical", themePolicy: "optional", themeField: "project_id", legacyThemeFields: ["theme_id"], requiredFields: ["title", "schedule_kind", "state"] },
   { type: "habit_entry", collectionKey: "habit_entrys", domainCollectionKey: "habit_entries", label: "Habit entry", iconKey: "history", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["habit_id", "performed_on", "recorded_at"] },
+  { type: "feed_reaction", collectionKey: "feed_reactions", domainCollectionKey: "feed_reactions", label: "Feed reaction", iconKey: "message", projection: "canonical", themePolicy: "none", themeField: null, requiredFields: ["post_id", "kind", "created_at"] },
 ]);
 
 /** @typedef {(typeof definitions)[number]["type"]} RegistryEntityType */

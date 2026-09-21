@@ -1576,6 +1576,76 @@ export function createTaskenMcpServer(options = {}) {
   );
 
   server.registerTool(
+    "tasken.propose_feed_post",
+    {
+      description:
+        "Share a short finding from the work you did, so the user can read it in Tasken's Feed. The post is reading material: it is shown immediately and is NOT a pending decision, so it never increases the human's attention count. Keep the body to the finding itself (roughly 80-260 characters per paragraph, at most a few paragraphs) and say what was surprising, what failed, or what the user can reuse. Attach an article only when a longer explanation helps: pass `note_id` for an existing Note, or `article` to queue a Note draft that the user can accept separately. Do not restate a Task report as a post, and do not repeat a post you already sent: reuse the same idempotency_key when retrying, and pass recent post ids in `recent_post_ids` when you want to avoid duplicates. Returns a Proposal ID, not a Note ID.",
+      inputSchema: {
+        ...contentProposalBase,
+        topic: z
+          .enum(["work_report", "insight", "learning", "reference", "question", "own_note"])
+          .describe(
+            "work_report: what became possible; insight: a reusable way of seeing; learning: how something works; reference: a source worth reading; question: something you need decided; own_note: a note from the user's own record.",
+          ),
+        body: z
+          .array(z.string().trim().min(1).max(2000))
+          .min(1)
+          .max(20)
+          .describe("Paragraphs of the post. Each paragraph is kept as written."),
+        task_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("Optional Task this came from. The post keeps the reference, not a copy of the Task."),
+        theme: optionalText,
+        session_id: z.string().trim().min(1).max(200).optional(),
+        note_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("Attach an existing Note as the article."),
+        article: z
+          .object({
+            title: z.string().trim().min(1).max(200),
+            body: z.string().min(1).max(200000).describe(NOTE_MARKDOWN_BODY_DESCRIPTION),
+            note_type: z.enum(["memo", "report", "prompt"]).optional(),
+          })
+          .strict()
+          .optional()
+          .describe(
+            "Queue a Note draft and attach it to this post. The draft is readable before acceptance and becomes a Note only when the user accepts it.",
+          ),
+        attachment_label: z
+          .string()
+          .trim()
+          .max(200)
+          .optional()
+          .describe("Caption for a figure or table that helps the post make sense."),
+        evidence: z
+          .array(z.string().trim().min(1).max(1000))
+          .max(20)
+          .optional()
+          .describe("Facts behind the post: source URL, checked date, measurement, or file."),
+        recent_post_ids: z
+          .array(z.string().trim().min(1).max(200))
+          .max(20)
+          .optional()
+          .describe("Posts the user already has, so you can avoid repeating the same finding."),
+        source_app: z.string().trim().min(1).max(120).optional(),
+      },
+      annotations: PROPOSAL_ANNOTATIONS,
+    },
+    withCoreClient((args) => {
+      const { recent_post_ids: _recentPostIds, ...request } = args;
+      return queueContent(request, "feed_post");
+    }),
+  );
+
+  server.registerTool(
     "tasken.propose_note_edit",
     {
       description:

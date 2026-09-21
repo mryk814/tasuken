@@ -300,6 +300,7 @@ export {
   buildAttentionQueue,
   countAttention,
   isPassiveAgentSessionProposal,
+  isReadingMaterialProposal,
   type AttentionItem,
   type AttentionKind,
   type AttentionSourceType,

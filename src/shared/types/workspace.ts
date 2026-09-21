@@ -68,6 +68,7 @@ export interface Workspace {
   sketches?: Entity[];
   habits?: Entity[];
   habit_entrys?: Entity[];
+  feed_reactions?: Entity[];
   plan_revisions?: Entity[];
   [key: string]: Entity[] | WorkspaceMeta | undefined;
 }

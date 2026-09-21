@@ -48,6 +48,7 @@
     "smoke:mcp-package": "node scripts/mcp-package-smoke.mjs",
     "audit:responsive": "node scripts/responsive-audit.mjs",
     "audit:feed": "node scripts/feed-surface-audit.mjs",
+    "audit:feed:live": "node scripts/feed-surface-audit.mjs --live",
     "audit:today-dates": "node scripts/run-electron-node.mjs scripts/today-date-audit.mjs",
     "audit:handoff": "node scripts/run-electron-node.mjs scripts/task-handoff-audit.mjs",
     "audit:agent-desk": "node scripts/run-electron-node.mjs scripts/agent-desk-audit.mjs",

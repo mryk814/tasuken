@@ -5,7 +5,10 @@
  * 起動前に一時userDataへ小さなworkspaceを書く。SQLiteはElectronのABIでビルドされて
  * いるため、この script は `run-electron-node.mjs` 経由で実行する。
  *
- *   node scripts/run-electron-node.mjs scripts/seed-feed-audit-workspace.mjs <userDataDir>
+ *   node scripts/run-electron-node.mjs scripts/seed-feed-audit-workspace.mjs <userDataDir> [--feed-post]
+ *
+ * `--feed-post` を付けると、AIから届いた読み物の投稿（`feed_posts`）を1件足す。
+ * 投稿があるときのFeedはfixtureを使わず、その投稿だけを読む。
  *
  * 正本は docs/feed-surface.md。
  */
@@ -16,6 +19,7 @@ import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.
 
 const userDataDir = process.argv[2];
 if (!userDataDir) throw new Error("userDataDirを指定してください。");
+const withFeedPost = process.argv.includes("--feed-post");
 
 const TODAY = new Date();
 const today = [
@@ -162,6 +166,49 @@ database.save("ai_proposal", {
   payload: { notes: [{ title: "測定手順" }] },
   request: { idempotency_key: "feed-audit-note", source: "mcp" },
 });
+
+// 実データの読み物投稿。Core（`tasken.propose_feed_post`）が書く形と同じpayloadにする。
+if (withFeedPost) {
+  database.save("ai_proposal", {
+    id: "feed-audit-live-post",
+    source: "mcp",
+    source_app: "codex",
+    payload_type: "feed_posts",
+    status: "pending",
+    received_at: at,
+    created_at: at,
+    version: 1,
+    payload: {
+      feed_posts: [
+        {
+          action: "publish",
+          topic: "insight",
+          body: [
+            "保存をやり直しても、同じノートが増えないようにしました。",
+            "効いたのは再送を止めることではなく、同じ依頼だと判別できることでした。",
+          ],
+          task_id: "feed-audit-question",
+          theme: "theme-feed-audit",
+          article: {
+            title: "「もう一度保存」に耐える設計",
+            body: [
+              "保存ボタンを二度押しても、ノートが2つにならないようにしたい。",
+              "結局、依頼そのものに同じだと分かる名前を付けるのが効きました。",
+            ].join("\n\n"),
+            note_type: "memo",
+          },
+          attachment_label: "図: 再送の流れ",
+          evidence: ["実装: src/main/services/applicationCommandService.ts"],
+        },
+      ],
+    },
+    request: {
+      idempotency_key: "feed-audit-live-post",
+      source: "mcp",
+      tool: "tasken.propose_feed_post",
+    },
+  });
+}
 
 database.db.close();
 console.log(`Feed監査のworkspaceを用意しました: ${path.join(userDataDir, "research-desk.sqlite")}`);

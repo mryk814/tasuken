@@ -181,9 +181,11 @@
         "tests/ai-import.test.mjs",
         "tests/feed-fixtures.test.mjs",
         "tests/feed-live-projection.test.mjs",
+        "tests/feed-post-proposals.test.mjs",
         "tests/feed-posts.test.mjs",
         "tests/inbox-ia.test.mjs",
         "tests/knowledge-health.test.mjs",
+        "tests/mcp-feed-post.test.mjs",
         "tests/task-handoff.test.mjs",
         "tests/todo-sort.test.mjs"
       ]
@@ -220,8 +222,10 @@
         "tests/canonical-markdown-workspace.test.mjs",
         "tests/conversation-context-workspace.test.mjs",
         "tests/data-health.test.mjs",
+        "tests/feed-post-proposals.test.mjs",
         "tests/habit-storage.test.mjs",
         "tests/media-capture-sqlite.test.mjs",
+        "tests/mcp-feed-post.test.mjs",
         "tests/repository-context.test.mjs",
         "tests/shared-folder-sync.test.mjs",
         "tests/task-work-receipts.test.mjs",
