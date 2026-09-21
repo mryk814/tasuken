@@ -3,6 +3,7 @@ import type {
   ProposalStatusProposalRecord,
   ProposalStatusReadPort,
   ProposalStatusSnapshot,
+  ProposalStatusSyncState,
   ProposalStatusValue,
 } from "../../core/public.ts";
 
@@ -11,6 +12,8 @@ export interface ProposalStatusWorkspacePersistence {
   readonly deviceId: string;
   get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
   list(type: string, includeDeleted?: boolean): Record<string, unknown>[];
+  getPreference(key: string): unknown;
+  syncPendingCount(): number;
 }
 
 /**
@@ -66,9 +69,10 @@ export class WorkspaceProposalStatusReadAdapter implements ProposalStatusReadPor
       workspaceId: String(this.persistence.workspaceId || ""),
       deviceId: String(this.persistence.deviceId || ""),
     };
+    const sync = this.readSyncState();
     const record = this.persistence.get("ai_proposal", proposalId, true);
     if (!record || record.deleted_at) {
-      return { node, proposal: null, targetEntity: null, createdEntities: [] };
+      return { node, sync, proposal: null, targetEntity: null, createdEntities: [] };
     }
     const request = isRecord(record.request) ? record.request : {};
     const target = isRecord(request.target) ? request.target : null;
@@ -77,6 +81,7 @@ export class WorkspaceProposalStatusReadAdapter implements ProposalStatusReadPor
     const rawStatus = text(record.status);
     return {
       node,
+      sync,
       proposal: {
         id: text(record.id),
         // 未知の値はnullのまま返し、既知の状態へ読み替えない。
@@ -93,6 +98,26 @@ export class WorkspaceProposalStatusReadAdapter implements ProposalStatusReadPor
           ? createdEntity(targetType, this.persistence.get(targetType, targetId, true))
           : null,
       createdEntities: this.findCreatedEntities(proposalId),
+    };
+  }
+
+  /**
+   * このnodeが観測できる同期の状態だけを返す。
+   * 同期errorの本文はローカルパスを含みうるため、成否の真偽値へ畳む。
+   * 相手端末がまだ公開していない変更は観測できないので、「最新」とは表現しない。
+   */
+  private readSyncState(): ProposalStatusSyncState {
+    const enabled = this.persistence.getPreference("sharedSyncEnabled") === true;
+    const lastSyncedAt = text(this.persistence.getPreference("sharedSyncLastAt"));
+    const lastError = text(this.persistence.getPreference("sharedSyncLastError"));
+    return {
+      enabled,
+      lastSyncedAt: lastSyncedAt || null,
+      failed: Boolean(lastError),
+      // 同期が無効なnodeは差分を公開しないため、未公開件数は0として扱う。
+      pendingLocalChanges: enabled
+        ? Math.max(0, Number(this.persistence.syncPendingCount()) || 0)
+        : 0,
     };
   }
 

@@ -414,6 +414,12 @@ test("受領IDからProposalの採否と作成Entityを確認でき、再送を�
     assert.equal(pending.view.canonical_node, "this_node");
     assert.equal(pending.view.delivery_confirmed, false);
     assert.equal(pending.view.device_id, database.deviceId);
+    // 同期を設定していないnodeは、鮮度を主張せず「未有効」とだけ返す。
+    assert.equal(pending.sync.enabled, false);
+    assert.equal(pending.sync.last_synced_at, null);
+    assert.equal(pending.sync.last_sync_failed, false);
+    assert.equal(pending.sync.pending_local_changes, 0);
+    assert.match(pending.sync.note, /差分が無いことは最新を意味しません/u);
 
     // 採用: 作成されたEntityをbacklinkから返す。
     const post = feedPosts(database).find((entry) => entry.proposalId === queued.proposal_id);

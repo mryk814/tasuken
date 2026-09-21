@@ -32,6 +32,7 @@ export type {
   ProposalStatusProposalRecord,
   ProposalStatusReadPort,
   ProposalStatusSnapshot,
+  ProposalStatusSyncState,
   ProposalStatusValue,
 } from "./ports/proposalStatusReadPort.ts";
 export type {

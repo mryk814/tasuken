@@ -57,6 +57,22 @@ export const proposalStatusResponseSchema = z
         note: z.string(),
       })
       .strict(),
+    /**
+     * このnodeが観測できる同期の状態。相手端末の受信や採否は含まない。
+     * 「差分が無い」ことは最新を意味しないため、断定できる表現だけを返す。
+     */
+    sync: z
+      .object({
+        enabled: z.boolean(),
+        /** 最後に同期処理が成功した時刻。未同期・未有効はnull。 */
+        last_synced_at: z.string().nullable(),
+        /** 直近の同期が失敗しているか。error本文はパス等を含みうるため返さない。 */
+        last_sync_failed: z.boolean(),
+        /** このnodeがまだ公開していない差分の数。同期が無効なnodeは0。 */
+        pending_local_changes: z.number().int().min(0),
+        note: z.string(),
+      })
+      .strict(),
   })
   .strict();
 

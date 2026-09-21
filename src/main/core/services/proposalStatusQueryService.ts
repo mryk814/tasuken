@@ -55,6 +55,13 @@ export class ProposalStatusQueryService {
         delivery_confirmed: false,
         note: "この応答はこのnodeが持つ正本の状態です。他の端末への配送と、そちらでの採否は確認していません。",
       },
+      sync: {
+        enabled: snapshot.sync.enabled,
+        last_synced_at: snapshot.sync.lastSyncedAt,
+        last_sync_failed: snapshot.sync.failed,
+        pending_local_changes: snapshot.sync.pendingLocalChanges,
+        note: "このnodeが最後に同期処理へ成功した時刻です。相手端末がまだ公開していない変更は観測できないため、差分が無いことは最新を意味しません。",
+      },
     });
   }
 }

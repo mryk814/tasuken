@@ -330,6 +330,21 @@ test("Headless replicaが受けたProposalはDesktopへ届き、採否はreplica
       await hostSync.syncNow();
       await handle.syncNow();
       assert.equal(host.listSyncConflicts().length, 0, JSON.stringify(host.listSyncConflicts()));
+
+      // replicaは自分の同期状態を答えられる。受信後に未公開差分は残らない。
+      const status = await client.callTool({
+        name: "tasken.get_proposal_status",
+        arguments: { proposal_id: proposalId },
+      });
+      assert.equal(status.isError, undefined, JSON.stringify(status));
+      assert.equal(status.structuredContent.status, "accepted");
+      assert.equal(status.structuredContent.sync.enabled, true);
+      assert.match(String(status.structuredContent.sync.last_synced_at), /^\d{4}-\d{2}-\d{2}T/u);
+      assert.equal(status.structuredContent.sync.pending_local_changes, 0);
+      // replicaの応答はreplica自身の正本であり、Desktopの採否を代弁しない。
+      assert.equal(status.structuredContent.view.canonical_node, "this_node");
+      assert.equal(status.structuredContent.view.delivery_confirmed, false);
+      assert.notEqual(status.structuredContent.view.device_id, host.deviceId);
     } finally {
       await client?.close().catch(() => {});
       client = undefined;
