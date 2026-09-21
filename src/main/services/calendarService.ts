@@ -112,6 +112,23 @@ function oauthErrorCode(body: string): string {
   return matched ? matched[1] : "unknown";
 }
 
+/**
+ * 失敗の種類から、次に何を直せばよいかだけを導く（#273）。
+ *
+ * providerの本文は残さず、既知の言い回しにだけ反応する。実接続で
+ * `client_secret is missing.`（＝Web アプリ種別のクライアント）を観測したため、
+ * 「client IDの種類が違う」ことを診断で見分けられるようにする。
+ */
+function oauthFailureHint(body: string): string {
+  const text = body.toLowerCase();
+  if (text.includes("client_secret")) return "client_type";
+  if (text.includes("redirect_uri")) return "redirect_uri";
+  if (text.includes("invalid_grant") || text.includes("malformed auth code"))
+    return "code_rejected";
+  if (text.includes("invalid_client")) return "client_unknown";
+  return "unknown";
+}
+
 function oauthConfigFor(provider: CalendarProvider): OAuthProviderConfig {
   if (provider === "google") {
     return {
@@ -298,6 +315,7 @@ export class CalendarService {
           provider,
           status: tokenResponse.status,
           oauth_error: oauthErrorCode(body),
+          hint: oauthFailureHint(body),
         })}\n`,
       );
       throw classifyCalendarProviderError(

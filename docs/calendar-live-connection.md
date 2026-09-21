@@ -11,6 +11,20 @@ Calendar連携は adapter・OAuth・IPC・Today/Activityの表示まで実装済
 - クライアントIDは環境変数 `TASKEN_GOOGLE_CLIENT_ID` で渡す。**リポジトリへ書かない。**
 - 接続はブラウザでの本人の同意が必要（Googleの同意画面）。
 
+## 先に種類を確かめる（同意画面を開かない）
+
+client ID が**デスクトップ アプリ**種別かどうかは、token endpointへ**わざと無効なcode**を送ると分かる
+（secretもcodeもtokenも送らない。同意画面は開かない）。
+
+```powershell
+rtk npm run doctor:calendar-client
+```
+
+- デスクトップ アプリ種別なら `client_kind: "public_client"`（終了コード0）。
+- Web アプリ種別なら `client_kind: "confidential_client"`（終了コード1）で、
+  「デスクトップ アプリ種別で作り直す」案内が出る。
+- 出力は `oauth_error` と種類、client IDの短い指紋だけ。**本文やclient IDの全文は残さない。**
+
 ## 実行
 
 ```powershell
@@ -18,11 +32,13 @@ $env:TASKEN_GOOGLE_CLIENT_ID = "<desktop app client id>"
 npm run smoke:calendar-live
 ```
 
-- 隔離した一時userDataでビルド済みアプリを起動する。**本番プロファイルと実データには触れない。**
+- 隔離した一時userDataでビルド済みアプリを起動する。**本プロファイルと実データには触れない。**
 - 同意はブラウザで行う。アプリ側の待ち時間は**5分**（`OAUTH_TIMEOUT_MS`）。smokeの待ちは
   `TASKEN_CALENDAR_CONSENT_TIMEOUT_MS` で変更できる。**2分では足りない**ことを実接続で確認したため5分にした。
 - 同意を途中でやめた場合は「認証がタイムアウトしました」と出る。接続は作られないので、そのまま再試行できる。
 - 失敗の種類は標準エラーへ `TASKEN_CALENDAR_OAUTH_FAILED` として出す（tokenやcodeは出さない）。
+  `hint` が原因の切り分けを示す: `client_type`（クライアント種別）／`redirect_uri`／`code_rejected`／
+  `client_unknown`。
 - 証跡は `output/playwright/calendar-live` へ出す。
 
 ## 確認する項目
@@ -40,13 +56,15 @@ npm run smoke:calendar-live
 
 ## 実接続で見つかったこと
 
-| 日付       | 症状                                                             | 原因と対応                                                                                                                                                                                                                      |
-| ---------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-09-21 | 同意の途中で「認証がタイムアウトしました」                       | アプリの待ち時間が2分で、Googleのアカウント選択と同意には足りなかった。**5分へ延ばした**                                                                                                                                        |
-| 2026-09-21 | token交換が `status 400` / `oauth_error: invalid_request` で失敗 | クライアント種別が**デスクトップ アプリ**でない可能性が高い。デスクトップ種別はPKCEだけで交換できる（この実装は client secret を持たない）。ウェブ アプリケーション種別は client secret を要求するため `invalid_request` になる |
+| 日付       | 症状                                                             | 原因と対応                                                                                                                                                                                                                                                                                                                                                               |
+| ---------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-09-21 | 同意の途中で「認証がタイムアウトしました」                       | アプリの待ち時間が2分で、Googleのアカウント選択と同意には足りなかった。**5分へ延ばした**                                                                                                                                                                                                                                                                                 |
+| 2026-09-21 | token交換が `status 400` / `oauth_error: invalid_request` で失敗 | **原因を確定**: 設定されていたclient IDは**Web アプリケーション種別**だった。`npm run doctor:calendar-client` が同じclient IDで `client_secret is missing.` を再現し、`client_kind: "confidential_client"` と判定する。デスクトップ種別はPKCEだけで交換できる（この実装は client secret を持たない）ため、**「デスクトップ アプリ」種別でclient IDを作り直す**必要がある |
 
-失敗の種類は標準エラーへ `TASKEN_CALENDAR_OAUTH_FAILED {"provider":"google","status":400,"oauth_error":"..."}`
-として出る（providerの本文・token・codeは出さない）。
+失敗の種類は標準エラーへ
+`TASKEN_CALENDAR_OAUTH_FAILED {"provider":"google","status":400,"oauth_error":"...","hint":"..."}`
+として出る（providerの本文・token・codeは出さない）。`hint` は `client_type` / `redirect_uri` /
+`code_rejected` / `client_unknown` / `unknown` のいずれかで、次に直す場所を示す。
 
 ## mockで確認済み（実接続では再確認しない）
 
