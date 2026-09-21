@@ -378,6 +378,65 @@ test("done adoption records once, folds earlier reports and preserves AI timesta
   assert.equal(repo.list("work_receipt").length, 1);
 });
 
+test("採用して完了の後半だけが失敗しても、完了だけを再試行でき、Receiptは二重にならない（#602）", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  const task = repo.get("task", "task-ai");
+  const proposal = saveWorkProposal(repo, task);
+
+  // 前半: 採用。Receiptは1件で、Taskは完了しない。
+  const adoptCommand = envelope(
+    "ApplyTaskWorkProposal",
+    { proposalId: proposal.id, decision: "accept" },
+    `${proposal.id}:accept`,
+    [
+      { type: "task", id: task.id, version: task.version },
+      { type: "ai_proposal", id: proposal.id, version: proposal.version },
+    ],
+  );
+  service.execute(adoptCommand);
+  const acceptedTask = repo.get("task", task.id);
+  assert.equal(repo.list("work_receipt").length, 1);
+  assert.equal(acceptedTask.state, "todo");
+  assert.equal(acceptedTask.work_state, "accepted");
+  assert.equal(acceptedTask.completed_at || null, null);
+
+  // 後半: 古い版で完了しようとすると競合し、Taskは未完了のまま。
+  assert.throws(
+    () =>
+      service.execute(
+        envelope(
+          "AcceptTaskWork",
+          { taskId: task.id, receiptId: proposal.id, completeTask: true },
+          `${proposal.id}:accept:complete`,
+          [{ type: "task", id: task.id, version: task.version }],
+        ),
+      ),
+    /保存対象が更新済み/,
+  );
+  assert.equal(repo.get("task", task.id).state, "todo");
+  assert.equal(repo.list("work_receipt").length, 1);
+
+  // 採用Commandの再実行は同じ結果を返し、Receiptを増やさない。
+  assert.equal(service.execute(adoptCommand).replayed, true);
+  assert.equal(repo.list("work_receipt").length, 1);
+
+  // 完了だけを再試行する。Receiptは1件のまま。
+  const completed = service.execute(
+    envelope(
+      "AcceptTaskWork",
+      { taskId: task.id, receiptId: proposal.id, completeTask: true },
+      `${proposal.id}:accept:complete`,
+      [{ type: "task", id: task.id, version: Number(acceptedTask.version) }],
+    ),
+  );
+  assert.equal(completed.status, "applied");
+  assert.equal(repo.get("task", task.id).state, "done");
+  assert.ok(repo.get("task", task.id).completed_at);
+  assert.equal(repo.list("work_receipt").length, 1);
+});
+
 test("public ReportTaskDone cannot use the proposal-only implicit start context", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);

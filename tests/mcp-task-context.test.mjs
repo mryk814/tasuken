@@ -1221,3 +1221,52 @@ test("get_task_context surfaces human replies with their question and work attem
     context.close();
   }
 });
+
+test("差戻しの理由はagentがget_task_contextで取得できる（#602 差戻し）", () => {
+  const attemptId = "11111111-1111-4111-8111-111111111111";
+  const reviewNote = "検証結果を追記してください。";
+  const context = new ReadOnlyTaskenContext("ignored", {
+    workspace: {
+      themes: [{ id: "theme-1", name: "Theme", state: "active" }],
+      tasks: [
+        {
+          id: "task-1",
+          title: "比較表の作成",
+          state: "doing",
+          project_id: "theme-1",
+          intended_executor: "ai_agent",
+          executor_identity: "Codex",
+          work_state: "ready_for_agent",
+          work_started_at: null,
+          work_reported_at: null,
+          work_review_note: reviewNote,
+          work_attempt_id: attemptId,
+        },
+      ],
+      work_receipts: [
+        {
+          id: "done-1",
+          task_id: "task-1",
+          executor_kind: "ai_agent",
+          executor_label: "Codex",
+          reported_at: "2026-09-20T09:20:00.000Z",
+          summary: "3条件の比較表を作成しました。",
+          runtime_metadata: { report_kind: "done" },
+          work_attempt_id: attemptId,
+        },
+      ],
+    },
+  });
+  try {
+    const result = context.toolGetTaskContext({ task_id: "task-1", max_text_length: 5000 });
+    assert.equal(result.error, undefined);
+    // agentは差戻し理由を読み、同じ作業単位のまま作業をやり直せる。
+    assert.equal(result.assignment.work_review_note, reviewNote);
+    assert.equal(result.assignment.work_state, "ready_for_agent");
+    assert.equal(result.assignment.work_reported_at, null);
+    // 差戻しは未完了。Taskは終わっていない。
+    assert.equal(result.task.state, "doing");
+  } finally {
+    context.close();
+  }
+});

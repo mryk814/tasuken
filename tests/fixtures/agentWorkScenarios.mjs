@@ -157,6 +157,43 @@ export function questionThenProgressScenario() {
   return { task, proposals: [question, progress], receipts: [] };
 }
 
+/** 差戻しの理由。Task詳細とMCPのcontextが同じ値を持つ（#602 差戻し）。 */
+export const REVISION_NOTE = "検証結果を追記してください。";
+
+/**
+ * 差戻し後（受け入れシナリオの「差戻し」）。
+ *
+ * `ReturnTaskWork` は理由を残し、開始時刻と報告時刻を消して開始待ちへ戻す。
+ * 作業単位IDは変わらないので、やり直しの報告は同じ作業単位の current として届く。
+ */
+export function revisionRequestedScenario() {
+  const task = makeTask({
+    work_state: "ready_for_agent",
+    work_started_at: null,
+    work_reported_at: null,
+    work_review_note: REVISION_NOTE,
+    work_attempt_id: WORK_ATTEMPT_A,
+  });
+  const returned = makeProposal(
+    "done-1",
+    {
+      action: "report_done",
+      work_attempt_id: WORK_ATTEMPT_A,
+      executor_label: "Codex",
+      summary: "3条件の比較表を作成しました。",
+      reported_at: "2026-09-20T09:20:00.000Z",
+    },
+    { status: "accepted" },
+  );
+  const receipt = makeReceipt("done-1", {
+    work_attempt_id: WORK_ATTEMPT_A,
+    reported_at: "2026-09-20T09:20:00.000Z",
+    summary: "3条件の比較表を作成しました。",
+    runtime_metadata: { report_kind: "done" },
+  });
+  return { task, proposals: [returned], receipts: [receipt] };
+}
+
 /** 同じ質問の再送。判断としては1件にまとまる。 */
 export function repeatedQuestionScenario() {
   const task = makeTask({

@@ -4,6 +4,7 @@ import test from "node:test";
 import { deriveAgentWorkState } from "../src/shared/contracts/task/public.ts";
 import {
   REQUEST_MEASUREMENT,
+  REVISION_NOTE,
   WORK_ATTEMPT_A,
   WORK_ATTEMPT_B,
   legacyScenario,
@@ -13,6 +14,7 @@ import {
   questionThenProgressScenario,
   reassignedScenario,
   repeatedQuestionScenario,
+  revisionRequestedScenario,
 } from "./fixtures/agentWorkScenarios.mjs";
 
 test("旧Taskは作業単位IDなしでも従来どおり導出できる", () => {
@@ -138,6 +140,34 @@ test("質問の後にprogressが届いても回答待ちは消えない", () => 
     state.reports.map((report) => report.proposalId),
     ["progress-after-question", "question-1"],
   );
+});
+
+test("差戻し後は未完了のままで、新しい成果報告が届くまで成果確認待ちにならない", () => {
+  const { task, proposals, receipts } = revisionRequestedScenario();
+  const returned = deriveAgentWorkState({ task, proposals, receipts });
+  // 理由を残して開始待ちへ戻る。確認待ちは残さない。
+  assert.equal(returned.state, "start_waiting");
+  assert.equal(returned.attention.length, 0);
+  assert.equal(returned.workAttemptId, WORK_ATTEMPT_A);
+  assert.equal(task.state, "doing");
+  assert.equal(task.work_review_note, REVISION_NOTE);
+  // 差戻した成果は履歴として読める（採用済みのまま）。
+  const previous = returned.reports.find((report) => report.action === "report_done");
+  assert.equal(previous.proposalStatus, "accepted");
+
+  // 同じ作業単位でやり直しの成果報告が届くと、成果確認待ちになる。
+  const again = makeProposal("done-2", {
+    action: "report_done",
+    work_attempt_id: WORK_ATTEMPT_A,
+    executor_label: "Codex",
+    summary: "検証結果を追記しました。",
+    reported_at: "2026-09-20T11:00:00.000Z",
+  });
+  const updated = deriveAgentWorkState({ task, proposals: [proposals[0], again], receipts });
+  assert.equal(updated.state, "review_waiting");
+  assert.equal(updated.attention.length, 1);
+  assert.equal(updated.attention[0].kind, "review_report");
+  assert.equal(updated.attention[0].summary, "検証結果を追記しました。");
 });
 
 test("成果報告が届いた作業単位は成果確認待ちになる", () => {
