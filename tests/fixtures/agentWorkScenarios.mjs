@@ -123,6 +123,40 @@ export function outOfOrderScenario() {
   return { task, proposals: [second, first], receipts: [] };
 }
 
+/**
+ * 未解決の質問の後に progress が届いた場合（受け入れシナリオの「質問とprogress」）。
+ *
+ * 進捗は判断ではないので、後から届いても回答待ちは消えない。
+ */
+export function questionThenProgressScenario() {
+  const task = makeTask({
+    work_state: "blocked",
+    work_started_at: "2026-09-20T08:00:00.000Z",
+    work_attempt_id: WORK_ATTEMPT_A,
+  });
+  const question = makeProposal("question-1", {
+    action: "report_blocked",
+    work_attempt_id: WORK_ATTEMPT_A,
+    request_id: REQUEST_MEASUREMENT,
+    executor_label: "Codex",
+    blocker: "測定温度が決まっていません。",
+    needed_input: ["25℃と40℃のどちらで進めますか。"],
+    reported_at: "2026-09-20T09:00:00.000Z",
+  });
+  const progress = makeProposal(
+    "progress-after-question",
+    {
+      action: "append_receipt",
+      work_attempt_id: WORK_ATTEMPT_A,
+      report_sequence: 2,
+      summary: "比較の準備だけ先に進めました。",
+      reported_at: "2026-09-20T09:30:00.000Z",
+    },
+    { received_at: "2026-09-20T09:35:00.000Z" },
+  );
+  return { task, proposals: [question, progress], receipts: [] };
+}
+
 /** 同じ質問の再送。判断としては1件にまとまる。 */
 export function repeatedQuestionScenario() {
   const task = makeTask({

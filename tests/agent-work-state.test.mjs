@@ -10,6 +10,7 @@ import {
   makeProposal,
   makeTask,
   outOfOrderScenario,
+  questionThenProgressScenario,
   reassignedScenario,
   repeatedQuestionScenario,
 } from "./fixtures/agentWorkScenarios.mjs";
@@ -118,6 +119,25 @@ test("同じTaskの独立した判断は件数を分けて数える", () => {
   ]);
   // 回答待ちを先に出す。件数は判断単位で数える。
   assert.equal(state.state, "answer_waiting");
+});
+
+test("質問の後にprogressが届いても回答待ちは消えない", () => {
+  const { task, proposals, receipts } = questionThenProgressScenario();
+  const state = deriveAgentWorkState({ task, proposals, receipts });
+  assert.equal(state.state, "answer_waiting");
+  assert.equal(state.attention.length, 1);
+  assert.equal(state.attention[0].kind, "answer_request");
+  assert.equal(state.attention[0].requestId, REQUEST_MEASUREMENT);
+  // progressは判断ではない。成果確認待ちに読み替えたり、質問を消したりしない。
+  assert.equal(
+    state.attention.some((item) => item.kind === "review_report"),
+    false,
+  );
+  // 報告としては両方読める。並びは report_sequence が先に効く。
+  assert.deepEqual(
+    state.reports.map((report) => report.proposalId),
+    ["progress-after-question", "question-1"],
+  );
 });
 
 test("成果報告が届いた作業単位は成果確認待ちになる", () => {

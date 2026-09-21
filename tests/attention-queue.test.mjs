@@ -13,6 +13,7 @@ import {
   makeProposal,
   makeReceipt,
   makeTask,
+  questionThenProgressScenario,
 } from "./fixtures/agentWorkScenarios.mjs";
 
 /** Taskに紐づかないProposal（Note / Artifact等）。 */
@@ -166,6 +167,56 @@ test("回答済みの質問はqueueから外れる", () => {
   });
   const queue = buildAttentionQueue({ tasks: [task], proposals: [question], receipts: [reply] });
   assert.equal(countAttention(queue), 0);
+});
+
+test("質問と独立したNote変更案は合計2件で、一方を処理しても他方が残る", () => {
+  const task = makeTask({ work_state: "blocked", work_attempt_id: WORK_ATTEMPT_A });
+  const question = questionProposal("question-1");
+  // Noteの変更案は作業とは独立した判断。Taskに紐づかない届き方でも2件目として残す。
+  const note = contentProposal("note-1", "notes");
+  const queue = buildAttentionQueue({ tasks: [task], proposals: [question, note] });
+  assert.equal(countAttention(queue), 2);
+  assert.deepEqual(
+    queue.map((item) => item.kind),
+    ["answer_request", "proposal_pending"],
+  );
+  assert.deepEqual(
+    queue.map((item) => item.taskId),
+    [TASK_ID, null],
+  );
+
+  // 質問へ回答しても、Noteの変更案は消えない。
+  const reply = makeReceipt("reply-1", {
+    executor_kind: "human",
+    executor_label: "自分",
+    receipt_kind: "human_reply",
+    request_id: REQUEST_MEASUREMENT,
+    work_attempt_id: WORK_ATTEMPT_A,
+    summary: "25℃で進めてください。",
+  });
+  const afterAnswer = buildAttentionQueue({
+    tasks: [task],
+    proposals: [question, note],
+    receipts: [reply],
+  });
+  assert.equal(countAttention(afterAnswer), 1);
+  assert.equal(afterAnswer[0].sourceId, "note-1");
+
+  // Noteの変更案を却下しても、質問は消えない。
+  const rejected = contentProposal("note-1", "notes", { status: "rejected" });
+  const afterReject = buildAttentionQueue({ tasks: [task], proposals: [question, rejected] });
+  assert.equal(countAttention(afterReject), 1);
+  assert.equal(afterReject[0].kind, "answer_request");
+  assert.equal(afterReject[0].requestId, REQUEST_MEASUREMENT);
+});
+
+test("未解決の質問の後にprogressが届いても、要対応の質問は残る", () => {
+  const { task, proposals, receipts } = questionThenProgressScenario();
+  const queue = buildAttentionQueue({ tasks: [task], proposals, receipts });
+  assert.equal(countAttention(queue), 1);
+  assert.equal(queue[0].kind, "answer_request");
+  assert.equal(queue[0].requestId, REQUEST_MEASUREMENT);
+  assert.equal(queue[0].taskId, TASK_ID);
 });
 
 test("削除されたsourceは成功扱いせずqueueから消える", () => {
