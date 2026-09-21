@@ -394,6 +394,8 @@ export interface AppUpdateCheckResult {
   error?: string;
 }
 
+export type McpCoreWriteProfile = "full" | "proposals" | "read-only" | "partial" | "unknown";
+
 export interface McpBridgeInfo {
   command: string;
   args: string[];
@@ -404,6 +406,8 @@ export interface McpBridgeInfo {
   coreStatus: "available" | "unavailable" | "unknown";
   coreApiVersion?: string;
   coreCapabilityCount?: number;
+  /** Coreの書き込み公開範囲。Core停止時は unknown。 */
+  coreWriteProfile?: McpCoreWriteProfile;
   coreErrorCode?: string;
   coreErrorMessage?: string;
   coreNextAction?: string;
@@ -418,6 +422,7 @@ export function createMcpBridgeInfo(input: {
   coreStatus?: McpBridgeInfo["coreStatus"];
   coreApiVersion?: string;
   coreCapabilityCount?: number;
+  coreWriteProfile?: McpCoreWriteProfile;
   coreErrorCode?: string;
   coreErrorMessage?: string;
   coreNextAction?: string;
@@ -445,6 +450,7 @@ export function createMcpBridgeInfo(input: {
     ...(input.coreCapabilityCount === undefined
       ? {}
       : { coreCapabilityCount: input.coreCapabilityCount }),
+    ...(input.coreWriteProfile ? { coreWriteProfile: input.coreWriteProfile } : {}),
     ...(input.coreErrorCode ? { coreErrorCode: input.coreErrorCode } : {}),
     ...(input.coreErrorMessage ? { coreErrorMessage: input.coreErrorMessage } : {}),
     ...(input.coreNextAction ? { coreNextAction: input.coreNextAction } : {}),

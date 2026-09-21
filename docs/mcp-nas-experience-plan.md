@@ -155,7 +155,7 @@ Phase 0の同期調査結果を設計ゲートとする。read-only設定の単�
 
 ## Phase 3 — 受領・採否・鮮度を確認できるようにする
 
-状態: 作業1・2を実装済み（2026-09-21）。作業3（Contextの鮮度）と作業4（Settings表示）は未着手。
+状態: 作業1・2を実装済み（2026-09-21）。作業3（受領ID応答への同期鮮度、2026-09-21実装済み）と作業4（Settings MCP Bridgeの書き込み範囲表示、2026-09-21実装済み）。実Synologyへの配置は未実施。
 
 ### 下調べで分かった制約
 
@@ -214,9 +214,11 @@ Phase 0の同期調査結果を設計ゲートとする。read-only設定の単�
 
 - 書き込み: `applyAiProposal`が新規作成のcandidateだけへ`accepted_from_proposal_id`を付ける。既存Entityの更新では上書きしない。
 - 読み出し: `tasken.get_proposal_status`（read-only、Core capability `proposal_status`）を追加。`pending`/`awaiting_review`、採用で生まれたEntity、`resolved_by`（`proposal_target`/`created_backlink`/`none`）、接続中nodeの`workspace_id`・`device_id`を返す。
+- 同期鮮度: 応答の`sync`に`enabled`・`last_synced_at`・`last_sync_failed`・`pending_local_changes`を返す。error本文はローカルパスを含みうるため真偽値へ畳む。同期無効のnodeは件数0とする。「差分が無いことは最新を意味しない」旨を`note`に明記。
+- Settings: MCP Bridgeパネルに「AIの書き込み」行を追加し、Coreのcapabilityから導出した書き込み範囲（full / proposals / read-only / partial / 未確認）を表示。判定は`src/shared/contracts/core/capabilityProfiles.mjs`の共有契約で、`doctor:mcp`と同じ結果を返す。
 - 編集Proposalは`request.target`から、新規作成ProposalはbacklinkからEntityを解決する。未採用・却下ではEntityを返さない。既知でないstatusは`null`のまま返す。
 - `delivery_confirmed`は常に`false`とし、他端末への配送を証拠なく断定しない。
-- 検証: `tests/mcp-feed-post.test.mjs`の「受領IDからProposalの採否と作成Entityを確認でき、再送を促さない」と、`tests/application-command.test.mjs`のbacklink assertion。全suiteで回帰なしを確認する。
+- 検証: `tests/mcp-feed-post.test.mjs`の「受領IDからProposalの採否と作成Entityを確認でき、再送を促さない」と、`tests/application-command.test.mjs`のbacklink assertion、隔離userDataの実ElectronでのSettings表示確認（`artifacts/settings-write-profile/`にスクリーンショット）。全suiteで回帰なしを確認する。
 
 ## Phase 4 — 実環境で最初の一往復を確認する
 

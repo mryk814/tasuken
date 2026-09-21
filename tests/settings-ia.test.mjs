@@ -109,6 +109,16 @@ test("Settings copies the exact typed MCP client config generated for the runtim
   assert.equal(info.transport, "stdio-core");
   assert.equal(info.pendingProposalCount, 2);
   assert.equal(info.coreStatus, "unknown");
+  // 書き込み公開範囲は任意項目。Core稼働後にMainが供給する。
+  assert.equal(info.coreWriteProfile, undefined);
+  const diagnosed = createMcpBridgeInfo({
+    args: ["scripts/mcp-server.mjs"],
+    pendingProposalCount: 1,
+    packaged: false,
+    coreStatus: "available",
+    coreWriteProfile: "proposals",
+  });
+  assert.equal(diagnosed.coreWriteProfile, "proposals");
   let copied = "";
   await copyMcpBridgeConfig(async (text) => {
     copied = text;
@@ -127,6 +137,23 @@ test("Settings copies the exact typed MCP client config generated for the runtim
   );
   assert.match(settings, /label: "設定をコピーできます", tone: "neutral"/);
   assert.match(settings, /mcpInfo\?\.coreStatus === "available"/);
+  assert.match(settings, /mcpInfo\?\.coreWriteProfile/);
+  assert.match(settings, /AIの書き込み/);
+  // 契約が許す4状態すべてに異なる表示がある。Core停止時は未確認に落ちる。
+  for (const [profile, label] of [
+    ["full", "提案と直接開始を受け付ける"],
+    ["proposals", "Text Proposal（Feed投稿・Note案・Task案）のみ受け付ける"],
+    ["read-only", "読み取りのみ（書き込みは公開していない）"],
+    ["partial", "一部だけ公開（上書き可能な構成ではない）"],
+  ]) {
+    assert.match(
+      settings,
+      new RegExp(
+        `coreWriteProfile === "${profile}"[\\s\\S]{0,200}${label.replace(/[()]/g, "\\$&")}`,
+      ),
+      `write profile ${profile} has a distinct label`,
+    );
+  }
   assert.match(settings, /mcpInfo\?\.coreNextAction/);
   assert.match(settings, /状態を再確認/);
   assert.match(settings, /Latest Proposal/);

@@ -14,47 +14,17 @@ import {
   TaskenCoreClientError,
 } from "../src/main/mcp/taskenCoreClient.mjs";
 import {
-  TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
-  TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
-  TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
-  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
-  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  TASKEN_CORE_WRITE_CAPABILITIES,
+  coreWriteProfile,
 } from "../src/shared/contracts/core/public.mjs";
 
 /**
  * 書き込みcapability。配備によって公開範囲が変わるため、読み取りとは別に診断する。
- * `proposals`配備はテキストのFeed投稿・Note案・Task案だけを公開する。
+ * 判定はDesktopのSettingsと同じ共有契約を使う。
  */
-const WRITE_CORE_CAPABILITIES = [
-  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
-  TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
-  TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
-  TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
-  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
-];
-const PROPOSALS_ONLY_CORE_CAPABILITIES = [
-  TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
-  TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
-];
+const WRITE_CORE_CAPABILITIES = TASKEN_CORE_WRITE_CAPABILITIES;
 
-/**
- * Coreが公開している書き込みの範囲。
- * `partial`は既知の配備と一致しない組み合わせで、更新や設定の不一致として扱う。
- */
-export function writeProfile(capabilities) {
-  const present = (capability) => capabilities.includes(capability);
-  const presentWrites = WRITE_CORE_CAPABILITIES.filter(present);
-  const missingWrites = WRITE_CORE_CAPABILITIES.filter((capability) => !present(capability));
-  if (presentWrites.length === 0) return { profile: "read-only", missingWrites };
-  if (missingWrites.length === 0) return { profile: "full", missingWrites };
-  if (
-    presentWrites.length === PROPOSALS_ONLY_CORE_CAPABILITIES.length &&
-    PROPOSALS_ONLY_CORE_CAPABILITIES.every(present)
-  ) {
-    return { profile: "proposals", missingWrites };
-  }
-  return { profile: "partial", missingWrites };
-}
+export const writeProfile = coreWriteProfile;
 
 export async function buildReport(coreClient = new TaskenCoreClient()) {
   try {

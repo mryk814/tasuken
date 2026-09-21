@@ -38,3 +38,5 @@ export {
 } from "./protocol.mjs";
 
 export { taskenCoreErrorGuidance, taskenCorePublicError } from "./errors.mjs";
+
+export { TASKEN_CORE_WRITE_CAPABILITIES, coreWriteProfile } from "./capabilityProfiles.mjs";

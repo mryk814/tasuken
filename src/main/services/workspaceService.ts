@@ -64,6 +64,7 @@ import type {
   ThemeAiPackStatusResult,
 } from "../../shared/ipc/contracts";
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
+import { coreWriteProfile } from "../../shared/contracts/core/public.mjs";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import {
   validateMermaidPptxDiagram,
@@ -4230,6 +4231,8 @@ export class WorkspaceService {
           coreStatus: "available",
           coreApiVersion: inspected.api_version,
           coreCapabilityCount: inspected.capabilities.length,
+          // 書き込み公開範囲は診断と同じ共有契約で導出する（doctor:mcp と一致させる）。
+          coreWriteProfile: coreWriteProfile(inspected.capabilities).profile,
         };
       } catch (error) {
         const record = error && typeof error === "object" ? (error as Record<string, unknown>) : {};
