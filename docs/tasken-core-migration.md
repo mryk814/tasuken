@@ -46,7 +46,7 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 
 ## MCP inventory
 
-### Read 30 / 30 Core
+### Read 31 / 31 Core
 
 - Work selection: `search_items`, `list_open_items`, `list_agent_ready_tasks`, `get_task_assignment`
 - Task detail: `get_task_context`, `get_note`, `get_conversation`, `get_artifact_metadata`, `get_activity_entries`
@@ -56,11 +56,14 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 - Purpose-built Context: `get_work_context`, `get_planning_context`, `get_learning_context`
 - Theme / Knowledge: `get_theme_context`, `get_recent_notes`, `search_knowledge`, `get_knowledge_context`, `get_plan_health`, `get_knowledge_health`
 - Feed: `get_feed_context`
+- Proposal: `get_proposal_status`
 - Cross-cutting: `get_activity`, `get_context_subgraph`, `export_ai_context`
 
 写真対応で`get_task_context.related`へ`captures`配列を追加した。`include: ["captures"]`を明示した場合だけ関連Captureの要約と画像manifestを含め、未指定時は空配列を返す。画像本体はmanifestのlocatorが示すPhoto toolから取得する。
 
 `get_feed_context`はFeedの読み出しである。利用者が「AIに聞く」で残した未回答の質問（元の投稿の抜粋と参照IDつき）と、直近の投稿、明示的な反応（ブックマーク・おもしろい・既知だった）だけを返し、正式データを変更しない。Task・Themeの詳細は既存の読み出しtoolで取得し、そこのAI公開範囲の判定に従う。
+
+`get_proposal_status`は受領IDからProposalの現在地を返す読み出しである。`pending`（人が未判断）かどうかと、採用で生まれたEntityを返すため、AIは同じ内容を再送せずに結果を確認できる。未採用・却下のProposalにはEntityを返さず、既知でない状態は`null`のまま返して確定状態を偽らない。応答は接続中のnodeが持つ正本だけを表し、別端末への配送とそちらでの採否は確認しない（`docs/mcp-nas-experience-plan.md`）。
 
 ### Proposal 16 / 16 Core
 

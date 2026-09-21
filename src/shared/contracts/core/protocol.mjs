@@ -33,6 +33,7 @@ export const TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY = "propose_task_work";
 export const TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY = "propose_agent_session";
 export const TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY = "propose_repository_task";
 export const TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY = "propose_content";
+export const TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY = "proposal_status";
 // These identify the shared Task capability contract across in-process and loopback adapters.
 export const TASKEN_CORE_TASK_QUERY_CAPABILITY = "task.query";
 export const TASKEN_CORE_TASK_COMMAND_CAPABILITY = "task.command";

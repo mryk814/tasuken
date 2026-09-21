@@ -17,6 +17,7 @@ import {
   type ThemeContextWorkspacePersistence,
   type KnowledgeWorkspacePersistence,
   type AgentContextWorkspacePersistence,
+  type ProposalStatusWorkspacePersistence,
   type AiProposalPersistence,
 } from "../infrastructure/sqlite/public.ts";
 import {
@@ -75,7 +76,8 @@ type CorePersistence = AgentReadyTaskWorkspacePersistence &
   KnowledgeWorkspacePersistence &
   AgentContextWorkspacePersistence &
   WorkspaceTaskPersistence &
-  AiProposalPersistence;
+  AiProposalPersistence &
+  ProposalStatusWorkspacePersistence;
 
 function mobileWorkReceipt(receipt: Record<string, unknown>): MobileGatewayWorkReceiptRecord {
   return {
@@ -269,6 +271,7 @@ export class TaskenCoreRuntime {
       getActivity: core.getActivity,
       getContextSubgraph: core.getContextSubgraph,
       getFeedContext: core.getFeedContext,
+      getProposalStatus: core.getProposalStatus,
       exportAiContext: core.exportAiContext,
       ...(allowsProposals
         ? {

@@ -155,7 +155,7 @@ Phase 0の同期調査結果を設計ゲートとする。read-only設定の単�
 
 ## Phase 3 — 受領・採否・鮮度を確認できるようにする
 
-状態: 下調べ完了（2026-09-21）。backlink設計は決定済み、実装は次段階。
+状態: 作業1・2を実装済み（2026-09-21）。作業3（Contextの鮮度）と作業4（Settings表示）は未着手。
 
 ### 下調べで分かった制約
 
@@ -205,10 +205,18 @@ Phase 0の同期調査結果を設計ゲートとする。read-only設定の単�
 
 ### 実装位置の調査結果（2026-09-21）
 
-- **付与は`applicationCommandService.applyAiProposal`の1箇所で足りる。** candidate loopが既に`const before = this.repository.get(type, id, true)`で新規作成と更新を分けているため、`before`が無いときだけ付与すればNote・Task・Sketch・Knowledgeを一律に扱える。経路ごとの個別実装は不要。
-- **Task提案の採用はrenderer経由。** `payload_type: "items"`は`AiProposalAcceptanceService`ではなく`AiProposalPanel.tsx`が`parseAiImportPayload`で候補を作り`ApplyAiProposal`を送る。経路ごとに付与する設計にするとrenderer変更と画面検証が必要になるため、上記のMain 1箇所方式を採る。
-- **`source_type`/`source_id`はActivityへ波及する。** `src/shared/activityEvent.mjs`の`sourceRefsFromEntity`が両フィールドを`source_refs`として拾うため、Note・Taskの変更イベントに`ai_proposal`参照が増える。provenanceとしては妥当だが、Activity・Context Graphの既存期待値とE2Eテストに差分が出る。意図した変更としてテストを更新するか、`ai_source_refs`等の別フィールドにするかを実装時に決める。
+- **付与は`applicationCommandService.applyAiProposal`の1箇所で足りる。** candidate loopが既に`const before = this.repository.get(type, id, true)`で新規作成と更新を分けているため、`before`が無いときだけ付与すればNote・Task・Sketch・Knowledgeを一律に扱える。経路ごとの個別実装は不要。→ この方式で実装した。
+- **Task提案の採用はrenderer経由。** `payload_type: "items"`は`AiProposalAcceptanceService`ではなく`AiProposalPanel.tsx`が`parseAiImportPayload`で候補を作り`ApplyAiProposal`を送る。経路ごとに付与する設計にするとrenderer変更と画面検証が必要になるため、上記のMain 1箇所方式を採った。
+- **`source_type`/`source_id`はActivityへ波及する。** `src/shared/activityEvent.mjs`の`sourceRefsFromEntity`が両フィールドを`source_refs`として拾うため、Note・Taskの変更イベントに`ai_proposal`参照が増える。既存のActivity表示を変えないため、**専用フィールド`accepted_from_proposal_id`を使う**ことにした。`artifact`の既存規約（`source_type`/`source_id`）はそのまま残し、状態照会は両方を辿る。
 - `note`・`task`には`source_type`/`source_id`の検証が無く`requiredFields`にも含まれないため、保存自体は追加のschema変更なしで通る。
+
+### 実装結果（2026-09-21）
+
+- 書き込み: `applyAiProposal`が新規作成のcandidateだけへ`accepted_from_proposal_id`を付ける。既存Entityの更新では上書きしない。
+- 読み出し: `tasken.get_proposal_status`（read-only、Core capability `proposal_status`）を追加。`pending`/`awaiting_review`、採用で生まれたEntity、`resolved_by`（`proposal_target`/`created_backlink`/`none`）、接続中nodeの`workspace_id`・`device_id`を返す。
+- 編集Proposalは`request.target`から、新規作成ProposalはbacklinkからEntityを解決する。未採用・却下ではEntityを返さない。既知でないstatusは`null`のまま返す。
+- `delivery_confirmed`は常に`false`とし、他端末への配送を証拠なく断定しない。
+- 検証: `tests/mcp-feed-post.test.mjs`の「受領IDからProposalの採否と作成Entityを確認でき、再送を促さない」と、`tests/application-command.test.mjs`のbacklink assertion。全suiteで回帰なしを確認する。
 
 ## Phase 4 — 実環境で最初の一往復を確認する
 

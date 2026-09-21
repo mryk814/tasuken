@@ -26,6 +26,14 @@ export {
   restrictRepositoryTaskProposals,
 } from "./services/proposalAccessPolicy.ts";
 export type { CoreProposalAccess } from "./services/proposalAccessPolicy.ts";
+export { ProposalStatusQueryService } from "./services/proposalStatusQueryService.ts";
+export type {
+  ProposalStatusCreatedEntity,
+  ProposalStatusProposalRecord,
+  ProposalStatusReadPort,
+  ProposalStatusSnapshot,
+  ProposalStatusValue,
+} from "./ports/proposalStatusReadPort.ts";
 export type {
   AgentReadyTaskReadPort,
   AgentReadyTaskSourceRecord,

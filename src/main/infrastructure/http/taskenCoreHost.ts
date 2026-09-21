@@ -63,6 +63,8 @@ import type {
   ProposeRepositoryTaskResponse,
   ProposeContentRequest,
   ProposeContentResponse,
+  ProposalStatusRequest,
+  ProposalStatusResponse,
   TaskCommandResponse,
   TaskQueryResponse,
 } from "../../../shared/contracts/task/public.ts";
@@ -95,6 +97,7 @@ import {
   proposeAgentSessionRequestSchema,
   proposeRepositoryTaskRequestSchema,
   proposeContentRequestSchema,
+  proposalStatusRequestSchema,
   taskCommandSchema,
   taskQuerySchema,
 } from "../../../shared/contracts/task/public.ts";
@@ -121,6 +124,7 @@ import {
   TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
   TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
   TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY,
+  TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
@@ -185,6 +189,7 @@ export interface TaskenCoreHostOptions {
   getActivity?: QueryProvider<GetActivityRequest, GetActivityResponse>;
   getContextSubgraph?: QueryProvider<GetContextSubgraphRequest, GetContextSubgraphResponse>;
   getFeedContext?: QueryProvider<GetFeedContextRequest, GetFeedContextResponse>;
+  getProposalStatus?: QueryProvider<ProposalStatusRequest, ProposalStatusResponse>;
   exportAiContext?: QueryProvider<ExportAiContextRequest, ExportAiContextResponse>;
   proposeTaskWork?: QueryProvider<ProposeTaskWorkRequest, ProposeTaskWorkResponse>;
   proposeAgentSession?: QueryProvider<ProposeAgentSessionRequest, ProposeAgentSessionResponse>;
@@ -293,7 +298,10 @@ function parseOperationRequest(url: string, body: unknown): unknown {
                                                             ? getContextSubgraphRequestSchema
                                                             : url === "/v1/queries/get-feed-context"
                                                               ? getFeedContextRequestSchema
-                                                              : exportAiContextRequestSchema;
+                                                              : url ===
+                                                                  "/v1/queries/get-proposal-status"
+                                                                ? proposalStatusRequestSchema
+                                                                : exportAiContextRequestSchema;
   const result = schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
@@ -520,6 +528,7 @@ export class TaskenCoreHost {
       ...(this.options.getActivity ? [TASKEN_CORE_GET_ACTIVITY_CAPABILITY] : []),
       ...(this.options.getContextSubgraph ? [TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY] : []),
       ...(this.options.getFeedContext ? [TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY] : []),
+      ...(this.options.getProposalStatus ? [TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY] : []),
       ...(this.options.exportAiContext ? [TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY] : []),
       ...(this.options.proposeTaskWork ? [TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY] : []),
       ...(this.options.proposeAgentSession ? [TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY] : []),
@@ -618,6 +627,7 @@ export class TaskenCoreHost {
         ...(this.options.getActivity ? ["/v1/queries/get-activity"] : []),
         ...(this.options.getContextSubgraph ? ["/v1/queries/get-context-subgraph"] : []),
         ...(this.options.getFeedContext ? ["/v1/queries/get-feed-context"] : []),
+        ...(this.options.getProposalStatus ? ["/v1/queries/get-proposal-status"] : []),
         ...(this.options.exportAiContext ? ["/v1/queries/export-ai-context"] : []),
       ]);
       const commandPaths = new Set([
@@ -803,6 +813,12 @@ export class TaskenCoreHost {
           );
         } else if (request.url === "/v1/queries/get-feed-context") {
           json(response, 200, this.options.getFeedContext!.execute(body as GetFeedContextRequest));
+        } else if (request.url === "/v1/queries/get-proposal-status") {
+          json(
+            response,
+            200,
+            this.options.getProposalStatus!.execute(body as ProposalStatusRequest),
+          );
         } else if (request.url === "/v1/queries/export-ai-context") {
           json(
             response,

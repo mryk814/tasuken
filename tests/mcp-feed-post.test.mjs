@@ -366,6 +366,11 @@ test("記事の草稿は「Noteに保存」で正式Noteになり、投稿とブ
     assert.equal(saved.title, "不確かさを記録に残す手順");
     assert.equal(saved.body_markdown, DRAFT_BODY, "送られた本文をそのまま保存する");
     assert.equal(saved.project_id, THEME_ID);
+    assert.equal(
+      saved.accepted_from_proposal_id,
+      queued.proposal_id,
+      "採用で作られたEntityは、どのProposalから生まれたかを保持する",
+    );
     assert.equal(database.get("ai_proposal", queued.proposal_id).status, "accepted");
 
     // 採用後も同じIDの投稿として読め、読んだ印も残る。
@@ -379,6 +384,67 @@ test("記事の草稿は「Noteに保存」で正式Noteになり、投稿とブ
       "ブックマークは投稿のIDのまま",
     );
     assert.equal(attentionCount(database), before);
+  });
+});
+
+test("受領IDからProposalの採否と作成Entityを確認でき、再送を促さない", async () => {
+  await withWorkspace(async ({ database, application, client }) => {
+    const queued = await callTool(client, "tasken.propose_feed_post", {
+      idempotency_key: "feed-post-status",
+      caller: "Codex",
+      source_app: "codex",
+      topic: "insight",
+      body: ["状態を確認できるかを試します。"],
+      article: { title: "状態照会の対象", body: DRAFT_BODY, note_type: "memo" },
+    });
+
+    // 未採用: 判断待ちであることだけを返し、Entityは返さない。
+    const pending = await callTool(client, "tasken.get_proposal_status", {
+      proposal_id: queued.proposal_id,
+    });
+    assert.equal(pending.schema, "tasken-proposal-status/v1");
+    assert.equal(pending.found, true);
+    assert.equal(pending.status, "pending");
+    assert.equal(pending.awaiting_review, true);
+    assert.equal(pending.payload_type, "feed_posts");
+    assert.equal(pending.source_app, "codex");
+    assert.deepEqual(pending.created_entities, []);
+    assert.equal(pending.resolved_by, "none");
+    // この応答はこのnodeの正本であり、他端末への配送は確認していない。
+    assert.equal(pending.view.canonical_node, "this_node");
+    assert.equal(pending.view.delivery_confirmed, false);
+    assert.equal(pending.view.device_id, database.deviceId);
+
+    // 採用: 作成されたEntityをbacklinkから返す。
+    const post = feedPosts(database).find((entry) => entry.proposalId === queued.proposal_id);
+    const note = draftNoteEntity(post);
+    const proposal = database.get("ai_proposal", queued.proposal_id);
+    application.execute(
+      acceptEnvelope(
+        proposal,
+        [{ type: "note", entity: note }],
+        `feed-post:${queued.proposal_id}:status:v${proposal.version}`,
+      ),
+    );
+
+    const accepted = await callTool(client, "tasken.get_proposal_status", {
+      proposal_id: queued.proposal_id,
+    });
+    assert.equal(accepted.status, "accepted");
+    assert.equal(accepted.awaiting_review, false);
+    assert.equal(accepted.resolved_by, "created_backlink");
+    assert.deepEqual(accepted.created_entities, [
+      { type: "note", id: note.id, title: "状態照会の対象" },
+    ]);
+
+    // 知らないIDは「無い」と返し、状態を推測しない。
+    const missing = await callTool(client, "tasken.get_proposal_status", {
+      proposal_id: "00000000-0000-4000-8000-000000000000",
+    });
+    assert.equal(missing.found, false);
+    assert.equal(missing.status, null);
+    assert.equal(missing.awaiting_review, false);
+    assert.deepEqual(missing.created_entities, []);
   });
 });
 

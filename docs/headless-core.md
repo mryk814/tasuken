@@ -19,7 +19,7 @@ node core-dist/headless.mjs --user-data-dir=/volume1/tasken --sync-directory=/vo
 - stdoutへ1行ずつ次を出す。token・秘密は出さない。
 
 ```text
-TASKEN_HEADLESS_CORE_READY {"schema_version":1,"origin":"http://127.0.0.1:PORT","discovery_path":"...","database_path":"...","api_version":"1","capability_count":31,"sync_directory":null,"write_mode":"read-only","pid":1234}
+TASKEN_HEADLESS_CORE_READY {"schema_version":1,"origin":"http://127.0.0.1:PORT","discovery_path":"...","database_path":"...","api_version":"1","capability_count":32,"sync_directory":null,"write_mode":"read-only","pid":1234}
 TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 ```
 

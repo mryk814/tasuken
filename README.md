@@ -109,6 +109,8 @@ Themeには、人間が書く比較的安定した`Theme Charter`と、現在の
 
 AI Readyは事前許可であり、自動実行の予約ではありません。外部AIを普段どおり開き、依頼文を貼り付けるかAI Readyの確認を頼みます。TaskenからCLIを直接起動する機能はありません。実stdioと一時DBを通す検証は [AI collaboration E2E](./docs/ai-collaboration-e2e.md) を参照してください。
 
+送ったProposalのその後は`tasken.get_proposal_status`へ受領IDを渡すと確認できます。未採用かどうか、採用でどのEntityができたかを返すため、同じ内容を再送する必要はありません。応答は接続中のnodeが持つ正本だけを表し、別端末への配送とそちらでの採否は確認しません。採用で新しく作られたEntityには、どのProposalから生まれたかを示す`accepted_from_proposal_id`が保存されます。
+
 Windowsインストーラーとportable版を作成:
 
 ```bash

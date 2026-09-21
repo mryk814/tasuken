@@ -369,6 +369,13 @@ export {
   type TaskenUploadImagePlaceholder,
 } from "./contentProposal.ts";
 export {
+  proposalStatusRequestSchema,
+  proposalStatusResponseSchema,
+  proposalStatusValueSchema,
+  type ProposalStatusRequest,
+  type ProposalStatusResponse,
+} from "./proposalStatusQuery.ts";
+export {
   extractTaskenMarkdownFootnoteDefinitions,
   parseTaskenMarkdownBody,
   splitTaskenMarkdownFrontmatter,

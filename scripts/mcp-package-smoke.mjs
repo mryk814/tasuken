@@ -125,8 +125,8 @@ try {
   }
   client = await connectMcp();
   const listed = await client.listTools();
-  if (listed.tools.length !== 43)
-    throw new Error(`Expected 43 packaged MCP tools, found ${listed.tools.length}.`);
+  if (listed.tools.length !== 44)
+    throw new Error(`Expected 44 packaged MCP tools, found ${listed.tools.length}.`);
   for (const name of ["tasken.get_capture_image", "tasken.get_task_image"]) {
     if (!listed.tools.some((tool) => tool.name === name))
       throw new Error(`Packaged MCP photo tool missing: ${name}`);

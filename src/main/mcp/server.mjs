@@ -1131,6 +1131,24 @@ export function createTaskenMcpServer(options = {}) {
   );
 
   server.registerTool(
+    "tasken.get_proposal_status",
+    {
+      description:
+        "Check what happened to a Proposal you already sent, by its Proposal ID, instead of sending it again. Returns the canonical status on the node you are connected to (`pending` means the user has not decided yet), whether it still awaits a human decision, and the entities it produced once accepted. Read-only: it never changes data and never accepts a Proposal for the user. The answer covers only this node; delivery to another device and a decision made there are not confirmed by it, so do not claim the user has seen it elsewhere.",
+      inputSchema: {
+        proposal_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("The Proposal ID returned when you sent the Proposal."),
+      },
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.getProposalStatus(args)),
+  );
+
+  server.registerTool(
     "tasken.export_ai_context",
     {
       description: "Export bounded Tasken context as Markdown or JSON.",
