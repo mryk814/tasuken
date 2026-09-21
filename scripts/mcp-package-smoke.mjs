@@ -117,6 +117,16 @@ async function launchVerification(proposalId, verifyOnly = false) {
   }
 }
 
+/**
+ * 期待するtoolは正本（`src/main/mcp/server.mjs`）の登録から導く。
+ * 固定値にすると、toolを増やしたときにこの検査だけが古くなる（実際に44のまま47とずれていた）。
+ * read/proposalの内訳は `tests/tasken-core-phase0-characterization.test.mjs` が固定する。
+ */
+function registeredToolNames() {
+  const source = fs.readFileSync(new URL("../src/main/mcp/server.mjs", import.meta.url), "utf8");
+  return [...source.matchAll(/server\.registerTool\(\s*"([^"]+)"/g)].map((match) => match[1]);
+}
+
 try {
   const core = await waitForCore();
   for (const capability of TASKEN_MCP_REQUIRED_CORE_CAPABILITIES) {
@@ -125,11 +135,18 @@ try {
   }
   client = await connectMcp();
   const listed = await client.listTools();
-  if (listed.tools.length !== 44)
-    throw new Error(`Expected 44 packaged MCP tools, found ${listed.tools.length}.`);
+  const listedNames = new Set(listed.tools.map((tool) => tool.name));
+  const expectedNames = registeredToolNames();
+  const missing = expectedNames.filter((name) => !listedNames.has(name));
+  const unexpected = [...listedNames].filter((name) => !expectedNames.includes(name));
+  if (missing.length || unexpected.length) {
+    throw new Error(
+      `Packaged MCP tools differ from the registered tools ` +
+        `(missing: ${missing.join(", ") || "none"}; unexpected: ${unexpected.join(", ") || "none"}).`,
+    );
+  }
   for (const name of ["tasken.get_capture_image", "tasken.get_task_image"]) {
-    if (!listed.tools.some((tool) => tool.name === name))
-      throw new Error(`Packaged MCP photo tool missing: ${name}`);
+    if (!listedNames.has(name)) throw new Error(`Packaged MCP photo tool missing: ${name}`);
   }
 
   const read = await client.callTool({
