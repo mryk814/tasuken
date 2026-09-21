@@ -41,6 +41,8 @@ const MIN_POSTS = 12;
 /** 実データ投稿（`--feed-post`で用意する1件）の識別情報。 */
 const LIVE_ARTICLE_TITLE = "「もう一度保存」に耐える設計";
 const LIVE_FIGURE_LABEL = "図: 再送の流れ";
+/** 実データ投稿へ残す返信（第3段階）。 */
+const LIVE_REPLY_BODY = "サンプル数が少ないときも同じ見方でよい？";
 
 function detectLayoutBreakage() {
   const overflowing = [];
@@ -421,12 +423,46 @@ async function auditLivePost(page) {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(500);
   }
+
+  // 8. 返信は保存され、親投稿の直後へ並ぶ。対応待ちは変わらない。
+  const replyTarget = page.locator(".feed-post").first();
+  await replyTarget.locator(".feed-reaction", { hasText: "返信" }).first().click();
+  await page.waitForTimeout(400);
+  await replyTarget.locator(".feed-reply textarea").fill(LIVE_REPLY_BODY);
+  await replyTarget.locator("button", { hasText: "返信を残す" }).click();
+  await page.waitForTimeout(1500);
+  const thread = page.locator(".feed-posts .feed-post.is-reply");
+  const threadCount = await thread.count();
+  if (threadCount !== 1) {
+    failures.push(`返信が1件ではありません（${threadCount}件）。`);
+  } else if (!(await thread.first().innerText()).includes(LIVE_REPLY_BODY)) {
+    failures.push("返信の本文が表示されていません。");
+  }
+  const threadOrder = await page.$$eval(".feed-posts .feed-post", (nodes) =>
+    nodes.map((node) => (node.className.includes("is-reply") ? "reply" : "post")),
+  );
+  if (threadOrder.join(",") !== "post,reply") {
+    failures.push(`返信の位置が親投稿の直後ではありません（${threadOrder.join(",")}）。`);
+  }
+  if (await replyTarget.locator(".feed-reply textarea").count()) {
+    failures.push("返信した後も入力欄が開いたままです。");
+  }
+  const countAfterReply = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (countAfterReply !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(`返信で対応待ち件数が変わりました（${countAfterReply}）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/live-reply.png`, fullPage: true });
 }
 
-/** 起動し直しても、投稿と読者の印、保存したNoteが残る。 */
+/** 起動し直しても、投稿と読者の印、保存したNote、返信が残る。 */
 async function auditLiveRestart(page) {
   const postCount = await page.locator(".feed-post").count();
-  if (postCount !== 1) failures.push(`再起動後の投稿が1件ではありません（${postCount}件）。`);
+  if (postCount !== 2) failures.push(`再起動後の投稿が2件ではありません（${postCount}件）。`);
+  const thread = page.locator(".feed-posts .feed-post.is-reply");
+  if ((await thread.count()) !== 1) failures.push("再起動後に返信が残っていません。");
+  else if (!(await thread.first().innerText()).includes(LIVE_REPLY_BODY)) {
+    failures.push("再起動後に返信の本文が変わっています。");
+  }
   const persisted = await page
     .locator(".feed-reaction", { hasText: "ブックマーク" })
     .first()

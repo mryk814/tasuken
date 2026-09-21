@@ -108,6 +108,13 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
       type,
       id,
     );
+  // 投稿（読み物Proposal）を削除したら、その投稿への返信と読んだ印も一緒に外し、
+  // 復元で一緒に戻す。親の無い返信をFeedへ残さない。
+  if (type === "ai_proposal") {
+    const postId = `feed-post:${id}`;
+    repository.cascadeWhere("feed_reply", (entry) => entry.post_id === postId, type, id);
+    repository.cascadeWhere("feed_reaction", (entry) => entry.post_id === postId, type, id);
+  }
   // Relation assertions are durable history. Deleting either endpoint leaves
   // the assertion dangling so the graph can report a broken_relation instead
   // of silently deleting or reconnecting it.

@@ -446,6 +446,7 @@ function emptyWorkspaceDomain(): WorkspaceDomain {
     habits: [],
     habit_entries: [],
     feed_reactions: [],
+    feed_replies: [],
     knowledge_nodes: [],
     references: [],
     task_dependencies: [],
@@ -729,6 +730,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
   const pHabits = castRecords<Record<string, unknown> & { id: string }>(data.habits);
   const pHabitEntries = castRecords<Record<string, unknown> & { id: string }>(data.habit_entrys);
   const pFeedReactions = castRecords<Record<string, unknown> & { id: string }>(data.feed_reactions);
+  const pFeedReplies = castRecords<Record<string, unknown> & { id: string }>(data.feed_replies);
 
   const hasPersistedDomain =
     pProjects.length ||
@@ -771,6 +773,7 @@ export function buildWorkspaceDomain(data: WorkspaceData): WorkspaceDomain {
     habits: pHabits,
     habit_entries: pHabitEntries,
     feed_reactions: pFeedReactions,
+    feed_replies: pFeedReplies,
     knowledge_nodes: legacy.knowledge_nodes,
     references: mergeById(pReferences, legacy.references),
     task_dependencies: mergeById(pTaskDeps, legacy.task_dependencies),
@@ -1090,6 +1093,7 @@ export function projectLegacyWorkspace(
     habits: domain.habits as WorkspaceData["habits"],
     habit_entrys: domain.habit_entries as WorkspaceData["habit_entrys"],
     feed_reactions: domain.feed_reactions as WorkspaceData["feed_reactions"],
+    feed_replies: domain.feed_replies as WorkspaceData["feed_replies"],
     repository_contexts: domain.repository_contexts as WorkspaceData["repository_contexts"],
     working_copies: domain.working_copies as WorkspaceData["working_copies"],
     agent_sessions: domain.agent_sessions as WorkspaceData["agent_sessions"],

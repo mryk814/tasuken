@@ -10,11 +10,13 @@ export const WORKSPACE_ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "schedules", "references", "task_dependencies", "plan_dependencies",
   "knowledge_edges", "change_events", "artifacts", "repository_contexts",
   "working_copies", "agent_sessions", "sketches", "work_receipts",
-  "feed_reactions",
+  "feed_reactions", "feed_replies",
 ];
 
 export function emptyWorkspaceData(): WorkspaceData {
-  return Object.fromEntries(WORKSPACE_ARRAY_KEYS.map((key) => [key, []])) as unknown as WorkspaceData;
+  return Object.fromEntries(
+    WORKSPACE_ARRAY_KEYS.map((key) => [key, []]),
+  ) as unknown as WorkspaceData;
 }
 
 export function projectWorkspaceData(workspace: Record<string, unknown> | null): WorkspaceData {
@@ -25,6 +27,7 @@ export function projectWorkspaceData(workspace: Record<string, unknown> | null):
     if (Array.isArray(value)) (result[key] as BaseRecord[]) = activeRecords(value as BaseRecord[]);
   }
   result.meta = (workspace.meta as WorkspaceData["meta"]) || undefined;
-  result.canonical_root_status = workspace.canonical_root_status as WorkspaceData["canonical_root_status"];
+  result.canonical_root_status =
+    workspace.canonical_root_status as WorkspaceData["canonical_root_status"];
   return result;
 }

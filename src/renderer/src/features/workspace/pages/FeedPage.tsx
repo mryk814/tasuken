@@ -16,9 +16,11 @@ import {
   FEED_POST_KIND_LABELS,
   authorOf,
   buildPostsFromProposals,
+  buildRepliesFromEntities,
   draftNoteEntity,
   draftNoteId,
   feedReactionId,
+  feedReplyEntity,
   filterPosts,
   needsMore,
   postsForHome,
@@ -28,6 +30,7 @@ import {
   type FeedPost,
   type FeedReactionKind,
 } from "../lib/feedPosts";
+import { uuid } from "../lib/format";
 
 /**
  * Feed（SNS型の読む面。`docs/feed-learning-sns-plan-2026-09-21.md`）。
@@ -130,7 +133,12 @@ export function FeedPage({
       }),
     [domain.ai_proposals, domain.tasks, data.themes],
   );
-  const usingFixtures = livePosts.length === 0;
+  /** 返信は投稿のIDに紐づくEntity。人とAIの会話を同じスレッドへ並べる。 */
+  const replyPosts = useMemo(
+    () => buildRepliesFromEntities({ replies: domain.feed_replies as unknown[] }),
+    [domain.feed_replies],
+  );
+  const usingFixtures = livePosts.length === 0 && replyPosts.length === 0;
 
   /**
    * 読者の状態はEntityとして保存する（投稿の正本ではない）。
@@ -152,7 +160,7 @@ export function FeedPage({
   }, [domain.feed_reactions]);
 
   const sourcePosts = useMemo(() => {
-    const all = usingFixtures ? FEED_POSTS : livePosts;
+    const all = usingFixtures ? FEED_POSTS : [...livePosts, ...replyPosts];
     const visible = all.filter((post) => !hidden.has(post.id) && !reactions.hidden.has(post.id));
     return {
       arriving: usingFixtures ? visible.filter((post) => ARRIVING_POST_IDS.includes(post.id)) : [],
@@ -160,7 +168,7 @@ export function FeedPage({
         ? visible.filter((post) => !ARRIVING_POST_IDS.includes(post.id))
         : visible,
     };
-  }, [hidden, livePosts, reactions.hidden, usingFixtures]);
+  }, [hidden, livePosts, reactions.hidden, replyPosts, usingFixtures]);
 
   const timeline = useMemo(() => {
     const posts = arrivalsApplied
@@ -306,12 +314,63 @@ export function FeedPage({
     setDrafts((current) => ({ ...current, [postId]: value }));
   }, []);
 
-  const submitReply = useCallback((post: FeedPost) => {
-    // 第1段階では保存しない。返信の保存契約は第3段階で追加する。
-    setNotice(
-      `${authorOf(post).label}への返信は次の段階で保存します。下書きはこの画面に残ります。`,
-    );
-  }, []);
+  /**
+   * 返信は投稿のIDに紐づけて保存する（第3段階）。
+   * 開発用fixtureの投稿は保存先を持たないので、下書きの保持までにする。
+   */
+  const submitReply = useCallback(
+    async (post: FeedPost) => {
+      const body = (drafts[post.id] ?? "").trim();
+      if (!body) {
+        setToast("返信の本文を入力してください。", "warning");
+        return;
+      }
+      if (usingFixtures) {
+        setNotice("この投稿は開発用です。返信は実データの投稿へ残せます。");
+        return;
+      }
+      setBusy(true);
+      try {
+        await saveEntities(
+          [
+            {
+              action: "save",
+              type: "feed_reply",
+              entity: feedReplyEntity({
+                id: uuid(),
+                postId: post.id,
+                body,
+                createdAt: new Date().toISOString(),
+              }),
+            },
+          ],
+          "返信を残しました。",
+          "main_ui",
+        );
+        setDrafts((current) => ({ ...current, [post.id]: "" }));
+        setReplyTo(null);
+        setNotice("返信を残しました。Taskと未解決件数は変わっていません。");
+      } catch (error) {
+        // 失敗しても入力は消さない。
+        setToast(
+          `返信を保存できませんでした。${error instanceof Error ? error.message : String(error)}`,
+          "danger",
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [drafts, saveEntities, setToast, usingFixtures],
+  );
+
+  /** 自分の返信はEntityの削除で取り消す（既存の「元に戻す」を使う）。 */
+  const deleteReply = useCallback(
+    (post: FeedPost) => {
+      if (!post.replyId) return;
+      void removeEntity("feed_reply", { id: post.replyId });
+    },
+    [removeEntity],
+  );
 
   /** 記事の草稿が正式Noteになっていれば、そのNoteを返す（IDはProposalから決まる）。 */
   const savedNoteOf = useCallback(
@@ -690,17 +749,19 @@ export function FeedPage({
                               {formatRelative(post.createdAt, now)}
                             </time>
                             <span className="feed-post-kind">
-                              {FEED_POST_KIND_LABELS[post.kind]}
+                              {isReply ? null : FEED_POST_KIND_LABELS[post.kind]}
                             </span>
-                            <button
-                              type="button"
-                              className="feed-post-more"
-                              aria-label="この投稿を今回は見送る"
-                              title="今回は見送る"
-                              onClick={() => hidePost(post)}
-                            >
-                              …
-                            </button>
+                            {isReply ? null : (
+                              <button
+                                type="button"
+                                className="feed-post-more"
+                                aria-label="この投稿を今回は見送る"
+                                title="今回は見送る"
+                                onClick={() => hidePost(post)}
+                              >
+                                …
+                              </button>
+                            )}
                           </div>
                           {body.map((paragraph, index) => (
                             <p key={`${post.id}-${index}`} className="feed-post-text">
@@ -803,7 +864,20 @@ export function FeedPage({
                           ) : null}
                           <div className="feed-reactions">
                             {isReply ? (
-                              <span className="feed-thread-note">返信</span>
+                              <>
+                                <span className="feed-thread-note">
+                                  {post.author === "self" ? "自分の返信" : "AIの返答"}
+                                </span>
+                                {post.replyId && post.author === "self" ? (
+                                  <button
+                                    type="button"
+                                    className="feed-reaction"
+                                    onClick={() => deleteReply(post)}
+                                  >
+                                    削除
+                                  </button>
+                                ) : null}
+                              </>
                             ) : (
                               <button
                                 type="button"
@@ -844,7 +918,7 @@ export function FeedPage({
                               className="feed-reply"
                               onSubmit={(event) => {
                                 event.preventDefault();
-                                submitReply(post);
+                                void submitReply(post);
                               }}
                             >
                               <label htmlFor={`feed-reply-${post.id}`}>返信</label>

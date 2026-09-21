@@ -446,6 +446,8 @@ export interface WorkspaceDomain {
   habit_entries: Array<Record<string, unknown> & { id: string }>;
   /** 読者の状態（ブックマーク・興味・非表示）。 */
   feed_reactions: Array<Record<string, unknown> & { id: string }>;
+  /** 投稿への返信とAIの返答。 */
+  feed_replies: Array<Record<string, unknown> & { id: string }>;
   knowledge_nodes: KnowledgeNode[];
   references: Reference[];
   task_dependencies: TaskDependency[];

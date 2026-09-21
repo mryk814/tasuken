@@ -306,6 +306,8 @@ export interface WorkspaceData {
   habit_entrys: BaseRecord[];
   /** 読者の状態（ブックマーク・興味・非表示）。投稿の正本ではない。 */
   feed_reactions: BaseRecord[];
+  /** 投稿への返信とAIの返答。投稿のIDに紐づける。 */
+  feed_replies: BaseRecord[];
   canonical_root_status?: CanonicalRootStatusMap;
   meta?: WorkspaceMeta;
 }

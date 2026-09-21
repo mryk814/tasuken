@@ -114,6 +114,8 @@ const habitScheduleKinds = new Set(["daily", "weekly"]);
 const habitStates = new Set(["active", "paused"]);
 // 読者の状態。投稿そのものへの判断（採用・却下）とは別に持つ。
 const feedReactionKinds = new Set(["bookmark", "interesting", "hidden"]);
+/** 返信の書き手。人が書いた返信とAIの返答を同じスレッドへ並べる。 */
+const feedReplyAuthorKinds = new Set(["self", "ai"]);
 const datePattern = /^\d{4}-\d{2}-\d{2}$/u;
 const planNodeTypes = new Set(["phase", "milestone", "deliverable"]);
 const planNodeStates = new Set(["planned", "active", "done", "cancelled"]);
@@ -792,6 +794,36 @@ export function validateEntity(type, input) {
     if (!feedReactionKinds.has(input.kind)) throw new Error("feed_reaction.kindが不正です。");
     if (typeof input.created_at !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input.created_at))
       throw new Error("feed_reaction.created_atが不正です。");
+  }
+  if (type === "feed_reply") {
+    // 投稿への返信（SNS型Feedの第3段階）。人とAIの会話は投稿のIDに紐づけて残す。
+    if (typeof input.post_id !== "string" || !input.post_id.trim() || input.post_id.length > 200)
+      throw new Error("feed_reply.post_idは1〜200文字で入力してください。");
+    if (typeof input.body !== "string" || !input.body.trim() || input.body.length > 4000)
+      throw new Error("feed_reply.bodyは1〜4000文字で入力してください。");
+    if (typeof input.created_at !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input.created_at))
+      throw new Error("feed_reply.created_atが不正です。");
+    if (input.author_kind != null && !feedReplyAuthorKinds.has(input.author_kind))
+      throw new Error("feed_reply.author_kindが不正です。");
+    if (input.author_label != null && typeof input.author_label !== "string")
+      throw new Error("feed_reply.author_labelが不正です。");
+    if (
+      input.reply_to != null &&
+      (typeof input.reply_to !== "string" || !input.reply_to.trim() || input.reply_to.length > 200)
+    )
+      throw new Error("feed_reply.reply_toは1〜200文字で入力してください。");
+    if (
+      input.ai_requested_at != null &&
+      (typeof input.ai_requested_at !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}T/u.test(input.ai_requested_at))
+    )
+      throw new Error("feed_reply.ai_requested_atが不正です。");
+    if (
+      input.ai_answered_at != null &&
+      (typeof input.ai_answered_at !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}T/u.test(input.ai_answered_at))
+    )
+      throw new Error("feed_reply.ai_answered_atが不正です。");
   }
   if (type === "artifact") {
     if (!artifactSourceTypes.has(input.source_type))

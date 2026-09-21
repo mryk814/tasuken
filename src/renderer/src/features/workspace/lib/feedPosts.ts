@@ -16,6 +16,8 @@ import { stableProposalEntityId } from "../../../../../shared/proposalAcceptance
 /** 実データの投稿に付く参照。fixtureでは未設定。 */
 export interface FeedPostRefs {
   proposalId?: string;
+  /** 返信EntityのID（自分の返信を削除するときに使う）。 */
+  replyId?: string;
   taskId?: string | null;
   taskTitle?: string | null;
   evidence?: string[];
@@ -431,17 +433,22 @@ export function postsForLearning(posts: readonly FeedPost[] = FEED_POSTS): FeedP
   return postsForHome(posts).filter((post) => post.learnable);
 }
 
-/** 親投稿の直後へ返信を差し込む。返信の返信はさらに後ろへ置く。 */
+/**
+ * 親投稿の直後へ返信を差し込む。
+ *
+ * タイムラインは新しい順だが、**スレッドの中は古い順**に読む（会話の順序）。
+ * 親が見つからない返信は落とさず末尾へ残す。
+ */
 export function withReplies(posts: readonly FeedPost[]): FeedPost[] {
   const roots = posts.filter((post) => !post.replyTo);
   const ordered: FeedPost[] = [];
   for (const root of roots) {
     ordered.push(root);
-    for (const reply of posts.filter((post) => post.replyTo === root.id)) {
-      ordered.push(reply);
-    }
+    const replies = posts
+      .filter((post) => post.replyTo === root.id)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    for (const reply of replies) ordered.push(reply);
   }
-  // 親が見つからない返信は落とさず末尾へ残す。
   for (const post of posts) {
     if (!ordered.includes(post)) ordered.push(post);
   }
@@ -639,5 +646,72 @@ export function draftNoteEntity(post: FeedPost): {
     body_markdown: post.draft.markdown,
     note_type: post.draft.noteType,
     project_id: post.draft.themeId || null,
+  };
+}
+
+/* -------------------------------------------------------------------------
+ * 投稿への返信（SNS型Feed 第3段階）
+ *
+ * 返信は投稿のIDに紐づく独立したEntity（`feed_reply`）で、人が書いた返信と
+ * AIの返答を同じスレッドへ並べる。読んだ印と同じく、Taskや未解決件数は変えない。
+ * ---------------------------------------------------------------------- */
+
+/** 返信EntityのIDから、スレッド内で使う投稿IDを作る。 */
+export function replyPostId(replyId: string): string {
+  return `feed-reply:${replyId}`;
+}
+
+/**
+ * 返信Entityを、投稿と同じ形へ写す。並びは親投稿の直後に入る（`withReplies`）。
+ * 返信そのものへ更に返信はせず、親投稿のIDだけを持つ。
+ */
+export function buildRepliesFromEntities(input: { replies?: readonly unknown[] }): FeedPost[] {
+  const replies: FeedPost[] = [];
+  for (const entry of input.replies ?? []) {
+    if (!entry || typeof entry !== "object") continue;
+    const reply = entry as Row;
+    if (reply.deleted_at) continue;
+    const postId = text(reply.post_id);
+    const body = text(reply.body);
+    if (!postId || !body) continue;
+    const isAi = text(reply.author_kind) === "ai";
+    const label = text(reply.author_label);
+    replies.push({
+      id: replyPostId(String(reply.id)),
+      author: isAi ? authorIdForLabel(label) : "self",
+      kind: "own_note",
+      createdAt: text(reply.created_at),
+      paragraphs: [body],
+      attachment: null,
+      replyTo: postId,
+      learnable: false,
+      replyId: String(reply.id),
+    } as FeedPost);
+  }
+  return replies.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+}
+
+/** 人が書く返信のEntity。IDは呼び出し側で採番する。 */
+export function feedReplyEntity(input: {
+  id: string;
+  postId: string;
+  body: string;
+  createdAt: string;
+}): {
+  id: string;
+  post_id: string;
+  body: string;
+  created_at: string;
+  author_kind: "self";
+} {
+  const body = input.body.trim();
+  if (!body) throw new Error("返信の本文を入力してください。");
+  if (body.length > 4000) throw new Error("返信は4000文字以内で入力してください。");
+  return {
+    id: input.id,
+    post_id: input.postId,
+    body,
+    created_at: input.createdAt,
+    author_kind: "self",
   };
 }
