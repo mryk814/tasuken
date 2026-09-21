@@ -1,8 +1,410 @@
 /*
- * Feed（#604前半）の設計検証用surface。
+ * Feed。SNS型の読む面（`docs/feed-learning-sns-plan-2026-09-21.md` 第1段階）。
  * 規則の正本は docs/feed-surface.md、色・余白・角丸の実値は design-standard/tokens.css。
- * 白い連続面と横罫線で構成し、1行を丸い箱に分けない。
+ * 投稿は白い連続面と細い区切り線で並べ、1件ずつ丸い箱へ入れない。
+ * 旧・行中心のsurface（.feed-layout / .feed-row 系）は対応待ちタブと移行期間のために残す。
  */
+
+.feed-page {
+  --feed-reading-width: 640px;
+  --feed-reader-width: 680px;
+}
+
+.feed-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--feed-reader-width);
+  min-width: 0;
+  margin: 0 auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.feed-timeline {
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.feed-posts,
+.feed-needs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* 投稿の区切りは細い線だけ。カードへ分けない。 */
+.feed-post {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.feed-post:last-child {
+  border-bottom: none;
+}
+
+.feed-post-body {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+}
+
+/* 返信は本文の左へ寄せ、アバター間の細い線でつながりを示す。 */
+.feed-post.is-reply .feed-post-body {
+  margin-left: 22px;
+}
+
+.feed-post.is-reply .feed-post-body::before {
+  content: "";
+  position: absolute;
+  margin-left: -14px;
+  margin-top: -12px;
+  width: 1px;
+  height: 22px;
+  background: var(--color-border-subtle);
+}
+
+.feed-post.is-reply {
+  position: relative;
+  padding-top: var(--space-2);
+}
+
+.feed-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-surface);
+  background: var(--color-text-secondary);
+}
+
+/* 出所の種別を色でも分けるが、AI表記の文字ラベルを必ず併記する。 */
+.feed-avatar-ai {
+  background: var(--color-ai);
+}
+
+.feed-avatar-human {
+  background: var(--color-accent);
+}
+
+.feed-avatar-auto_record {
+  background: var(--color-text-tertiary);
+}
+
+.feed-post-main {
+  min-width: 0;
+}
+
+.feed-post-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.feed-author-name {
+  border: none;
+  background: none;
+  padding: 0;
+  font-weight: 700;
+  font-size: var(--text-base);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.feed-author-name:hover {
+  text-decoration: underline;
+}
+
+.feed-ai-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--action-ai-bd);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 11px;
+  color: var(--action-ai-fg);
+  background: var(--action-ai-bg);
+}
+
+.feed-post-time,
+.feed-post-kind,
+.feed-post-meta {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-post-kind {
+  padding: 1px 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.feed-post-more {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: var(--text-lg);
+  line-height: 1;
+}
+
+/* 本文は読み物として大きめにする（design-guideの読み物向け適用）。 */
+.feed-post-text {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-lg);
+  line-height: 1.75;
+  color: var(--color-text);
+  white-space: pre-wrap;
+}
+
+.feed-more-text {
+  margin-top: var(--space-2);
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--color-accent-strong);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.feed-more-text:hover {
+  text-decoration: underline;
+}
+
+/* 添付（記事・引用・Task・外部資料）。図は必要な投稿だけに置く。 */
+.feed-attachment {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.feed-attachment-kind {
+  display: inline-block;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.feed-attachment-title {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-lg);
+  color: var(--color-text);
+}
+
+.feed-attachment-intro {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.feed-figure {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.feed-figure-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.feed-attachment-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.feed-attachment-ref {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+/* 反応欄は小さく横へ並べる。主要操作は仕事の操作だけに出す。 */
+.feed-reactions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.feed-reaction {
+  border: none;
+  background: none;
+  padding: 2px 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.feed-reaction:hover {
+  color: var(--color-text);
+}
+
+.feed-reaction[aria-pressed="true"] {
+  color: var(--color-accent-strong);
+  font-weight: 600;
+}
+
+.feed-thread-note {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+
+.feed-reply {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.feed-reply label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.feed-reply textarea {
+  width: 100%;
+  min-height: 64px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-base);
+  resize: vertical;
+}
+
+.feed-reply textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.feed-tabs-spacer {
+  flex: 1;
+}
+
+.feed-filter-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+/* 前回の閲覧位置。読んだ所と新着を分ける。 */
+.feed-reading-edge {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--text-sm);
+  color: var(--color-accent-strong);
+  border-bottom: 1px solid var(--color-accent-subtle-bd);
+}
+
+/* 対応待ちタブ。件数の正本は buildAttentionQueue。 */
+.feed-needs-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.feed-needs-row {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.feed-needs-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.feed-needs-title {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-lg);
+  line-height: 1.6;
+}
+
+.feed-answer {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+/* 記事の読書面。狭い画面では全幅へ重ねる。 */
+.feed-reader {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(680px, 100%);
+  overflow-y: auto;
+  padding: var(--space-5, 24px);
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  box-shadow: 0 0 0 100vmax rgb(38 32 30 / 24%);
+  z-index: 20;
+}
+
+.feed-reader-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.feed-reader-title {
+  margin: var(--space-3) 0 0;
+  font-size: 20px;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.feed-reader-intro {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.feed-reader-text {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+  line-height: 1.9;
+  color: var(--color-text);
+}
+
+.feed-reader-ref {
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-reader {
+    transition: none;
+  }
+}
 
 .feed-page {
   --feed-reading-width: 720px;

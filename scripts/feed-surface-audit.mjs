@@ -1,13 +1,12 @@
 /**
- * Feed surface の目視・レイアウト監査（#604前半 / #604後半）
+ * Feed surface の目視・レイアウト監査（SNS型Feed 第1段階）
  *
- * 隔離した一時userDataでビルド済みアプリを起動し、Feedを広幅と最小幅で確認する。
- * 「スクリーンショットを撮った」だけで終わらせず、行の描画・横スクロール・
- * 詳細スロットの出方・focusの戻り先を実測して判定する。
+ * 隔離した一時userDataでビルド済みアプリを起動し、SNS型の読む面を広幅と最小幅で確認する。
+ * 「スクリーンショットを撮った」だけで終わらせず、投稿の描画・アバター・本文の大きさ・
+ * 記事を開いて戻る操作・focusの戻り先・対応待ち件数（実データ）を実測して判定する。
  *
- * #604後半では**実データ**を表示するため、起動前に隔離workspaceを用意する
- * （`scripts/seed-feed-audit-workspace.mjs`）。行がfixtureではなく
- * Desktopと同じ導出から出ていることを、件数と見送りの挙動で確かめる。
+ * 投稿は開発用fixture（架空データ）。対応待ちタブだけは実データなので、
+ * 起動前に隔離workspaceを用意する（`scripts/seed-feed-audit-workspace.mjs`）。
  *
  *   npm run build && npm run audit:feed
  *
@@ -29,6 +28,9 @@ const SIZES = [
 const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
 /** 隔離workspaceに入れる判断の数（質問1・成果確認1・変更案1）。 */
 const EXPECTED_UNRESOLVED = 3;
+/** 投稿の本文は読み物として16px以上にする。 */
+const MIN_BODY_FONT_PX = 16;
+const MIN_POSTS = 12;
 
 function detectLayoutBreakage() {
   const overflowing = [];
@@ -106,17 +108,112 @@ try {
   await navButton.click();
   await page.waitForTimeout(1200);
 
-  const rowCount = await page.locator(".feed-row").count();
-  if (rowCount < 4) failures.push(`行が4件未満です（${rowCount}件）。`);
-  // 実データのAI変更案だけが生成ラベルを持つ。
-  const generatedLabels = await page.locator(".feed-generated").count();
-  if (generatedLabels < 1) failures.push("AI生成の文字ラベルが表示されていません。");
-  // 要対応の件数はDesktopと同じ導出から来る（隔離workspaceの判断3件）。
-  const unresolvedText = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (unresolvedText !== String(EXPECTED_UNRESOLVED)) {
-    failures.push(`要対応の件数が${EXPECTED_UNRESOLVED}件ではありません（${unresolvedText}）。`);
+  // 1. ホームは投稿が連続して読める。アバターと出所、本文の大きさを実測する。
+  const postCount = await page.locator(".feed-post").count();
+  if (postCount < MIN_POSTS) failures.push(`投稿が${MIN_POSTS}件未満です（${postCount}件）。`);
+  const avatars = await page.locator(".feed-avatar").count();
+  if (avatars < postCount)
+    failures.push(`アバターが全投稿にありません（${avatars}/${postCount}）。`);
+  const bodyFont = await page.evaluate(() => {
+    const element = document.querySelector(".feed-post-text");
+    return element ? parseFloat(getComputedStyle(element).fontSize) : 0;
+  });
+  if (!(bodyFont >= MIN_BODY_FONT_PX)) {
+    failures.push(`本文が${MIN_BODY_FONT_PX}px未満です（${bodyFont}px）。`);
+  }
+  // 実装説明を読む面へ出さない。
+  const implementationCopy = await page
+    .locator(".feed-timeline", { hasText: "実データを表示" })
+    .count();
+  if (implementationCopy) failures.push("読む面に実装説明の文言が残っています。");
+  // 反応欄がある。
+  const reactions = await page.locator(".feed-reaction").count();
+  if (reactions < postCount) failures.push(`反応欄が足りません（${reactions}）。`);
+  // 添付（記事・引用・Task）がある。
+  const attachments = await page.locator(".feed-attachment").count();
+  if (attachments < 3) failures.push(`添付が${attachments}件しかありません。`);
+  // 前回の閲覧位置が示されている。
+  if (!(await page.locator(".feed-reading-edge").count())) {
+    failures.push("前回の閲覧位置が表示されていません。");
+  }
+  // 末尾は仕事の完了と混同しない文言にする。
+  const endText = (await page.locator(".feed-end").first().innerText()).trim();
+  if (!endText.includes("ここまでの投稿を表示しました")) {
+    failures.push(`末尾の文言が違います（${endText}）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/home.png`, fullPage: true });
+
+  // 2. 長い投稿はもっと読むで展開し、固定高で切らない。
+  const collapsibleHandle = await page
+    .locator(".feed-post", { has: page.locator(".feed-more-text") })
+    .first()
+    .elementHandle();
+  if (!collapsibleHandle) {
+    failures.push("もっと読むが1件も出ていません。");
+  } else {
+    // 展開するとボタンが消えるため、同じ投稿のelementを掴んだまま段落数を数える。
+    const before = await collapsibleHandle.$$eval(".feed-post-text", (nodes) => nodes.length);
+    await collapsibleHandle.$eval(".feed-more-text", (node) => node.click());
+    await page.waitForTimeout(300);
+    const after = await collapsibleHandle.$$eval(".feed-post-text", (nodes) => nodes.length);
+    if (!(after > before)) failures.push("もっと読むで段落が増えていません。");
+    await page.screenshot({ path: `${OUT_DIR}/expanded.png`, fullPage: true });
   }
 
+  // 3. 記事を開いて戻ると、起点の投稿へfocusが戻る。
+  const readButton = page.locator(".feed-attachment button", { hasText: "記事を読む" }).first();
+  if (!(await readButton.count())) {
+    failures.push("記事を読む操作がありません。");
+  } else {
+    await readButton.click();
+    await page.waitForTimeout(400);
+    const readerVisible = await page.locator(".feed-reader").isVisible();
+    if (!readerVisible) failures.push("記事の読書面が開きません。");
+    const readerParagraphs = await page.locator(".feed-reader-text").count();
+    if (readerParagraphs < 3) failures.push(`記事の本文が短すぎます（${readerParagraphs}段落）。`);
+    await page.screenshot({ path: `${OUT_DIR}/reader.png` });
+    await page.locator(".feed-reader button", { hasText: "戻る" }).first().click();
+    await page.waitForTimeout(500);
+    if (await page.locator(".feed-reader").count()) failures.push("記事を閉じられません。");
+  }
+
+  // 4. 新着は押すまで一覧へ割り込まない。
+  const arrivals = page.locator(".feed-new-arrivals");
+  if (!(await arrivals.count())) {
+    failures.push("新着の保留表示がありません。");
+  } else {
+    const beforeCount = await page.locator(".feed-post").count();
+    await arrivals.click();
+    await page.waitForTimeout(400);
+    const afterCount = await page.locator(".feed-post").count();
+    if (!(afterCount > beforeCount)) {
+      failures.push(`新しい投稿を反映しても件数が増えません（${beforeCount} → ${afterCount}）。`);
+    }
+  }
+
+  // 5. 学びタブは読む投稿へ絞る。
+  await page.locator(".feed-tabs button", { hasText: "学び" }).first().click();
+  await page.waitForTimeout(500);
+  const learnCount = await page.locator(".feed-post").count();
+  if (!(learnCount > 0 && learnCount < postCount + 2)) {
+    failures.push(`学びタブの件数が不自然です（${learnCount}）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/learn.png`, fullPage: true });
+
+  // 6. 対応待ちは実データ（隔離workspaceの判断3件）。
+  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
+  await page.waitForTimeout(600);
+  const unresolvedText = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (unresolvedText !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(`対応待ちの件数が${EXPECTED_UNRESOLVED}件ではありません（${unresolvedText}）。`);
+  }
+  const needsRows = await page.locator(".feed-needs-row").count();
+  if (needsRows !== EXPECTED_UNRESOLVED) {
+    failures.push(`対応待ちの行数が${EXPECTED_UNRESOLVED}件ではありません（${needsRows}）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/needs.png`, fullPage: true });
+
+  // 7. 幅ごとの崩れ。投稿面は1列のまま、横スクロールを出さない。
   for (const size of SIZES) {
     await app.evaluate(
       ({ BrowserWindow }, value) =>
@@ -124,6 +221,8 @@ try {
       size,
     );
     await page.waitForTimeout(700);
+    await page.locator(".feed-tabs button", { hasText: "ホーム" }).first().click();
+    await page.waitForTimeout(300);
     await page.evaluate(() => window.scrollTo(0, 0));
 
     const layout = await page.evaluate(detectLayoutBreakage);
@@ -138,63 +237,27 @@ try {
     if (layout.stacked.length) {
       failures.push(`${size.label}: 縦積み ${layout.stacked.map((item) => item.text).join(" / ")}`);
     }
+    await page.screenshot({ path: `${OUT_DIR}/${size.label}-home.png`, fullPage: true });
 
-    // 未選択時の右側は静かな空間にする。狭幅では常設せず、選んだときだけ重ねる。
-    const twoColumn = await page.evaluate(() => {
-      const layout = document.querySelector(".feed-layout");
-      if (!layout) return false;
-      return getComputedStyle(layout).gridTemplateColumns.trim().split(/\s+/).length > 1;
-    });
-    const emptyVisible = await page.locator(".feed-detail.is-empty").isVisible();
-    if (twoColumn && !emptyVisible) {
-      failures.push(`${size.label}: 広幅で未選択の静かな領域がありません。`);
-    }
-    if (!twoColumn && emptyVisible) {
-      failures.push(`${size.label}: 狭幅で詳細が常設されています。`);
-    }
-    await page.screenshot({ path: `${OUT_DIR}/${size.label}-list.png` });
-
-    // 行を選ぶと詳細が開き、Escapeで閉じて起点へfocusが戻る。
-    const firstRow = page.locator(".feed-row-open").first();
-    await firstRow.click();
+    // 狭幅でも記事を読める。
+    const narrowRead = page.locator(".feed-attachment button", { hasText: "記事を読む" }).first();
+    await narrowRead.click();
     await page.waitForTimeout(400);
-    if (!(await page.locator(".feed-detail:not(.is-empty)").isVisible())) {
-      failures.push(`${size.label}: 行を選んでも詳細が開きません。`);
+    if (!(await page.locator(".feed-reader").isVisible())) {
+      failures.push(`${size.label}: 記事を開けません。`);
     }
-    await page.screenshot({ path: `${OUT_DIR}/${size.label}-detail.png` });
-
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(400);
-    if (await page.locator(".feed-detail:not(.is-empty)").isVisible()) {
-      failures.push(`${size.label}: Escapeで詳細が閉じません。`);
-    }
-    const focusOnRow = await page.evaluate(() =>
-      Boolean(document.activeElement?.classList?.contains("feed-row-open")),
-    );
-    if (!focusOnRow) failures.push(`${size.label}: 閉じた後に起点の行へfocusが戻りません。`);
+    await page.screenshot({ path: `${OUT_DIR}/${size.label}-reader.png` });
+    await page.locator(".feed-reader button", { hasText: "戻る" }).first().click();
+    await page.waitForTimeout(300);
   }
 
-  // 「後で見る」は未解決件数を減らさない。実データの質問行で確かめる。
-  const before = await page.locator(".feed-tabs button", { hasText: "対応待ち" }).innerText();
-  await page
-    .locator(".feed-row", { hasText: "測定温度が決まっていません" })
-    .locator("button", { hasText: "後で見る" })
-    .first()
-    .click();
-  await page.waitForTimeout(400);
-  const after = await page.locator(".feed-tabs button", { hasText: "対応待ち" }).innerText();
-  if (before.replace(/\s+/g, "") !== after.replace(/\s+/g, "")) {
-    failures.push(`後で見るで要対応件数が変わりました（${before} → ${after}）。`);
+  // 8. ブックマークは未解決件数を変えない。
+  await page.locator(".feed-reaction", { hasText: "ブックマーク" }).first().click();
+  await page.waitForTimeout(300);
+  const afterBookmark = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (afterBookmark !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(`ブックマークで対応待ち件数が変わりました（${afterBookmark}）。`);
   }
-  // 行は消えても、未解決の判断は残っている。
-  const stillCounted = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (stillCounted !== String(EXPECTED_UNRESOLVED)) {
-    failures.push(
-      `後で見るの後に要対応件数が${EXPECTED_UNRESOLVED}件ではありません（${stillCounted}）。`,
-    );
-  }
-
-  await page.screenshot({ path: `${OUT_DIR}/after-defer.png`, fullPage: true });
 } finally {
   await app.close();
   rmSync(userDataDir, { recursive: true, force: true });
@@ -206,4 +269,4 @@ if (failures.length) {
   console.error(`スクリーンショット: ${OUT_DIR}`);
   process.exit(1);
 }
-console.log(`Feed監査: OK（${SIZES.length}幅、スクリーンショットは ${OUT_DIR}）`);
+console.log(`Feed監査: OK（SNS面 ${SIZES.length}幅、スクリーンショットは ${OUT_DIR}）`);

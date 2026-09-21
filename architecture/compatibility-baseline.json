@@ -181,6 +181,7 @@
         "tests/ai-import.test.mjs",
         "tests/feed-fixtures.test.mjs",
         "tests/feed-live-projection.test.mjs",
+        "tests/feed-posts.test.mjs",
         "tests/inbox-ia.test.mjs",
         "tests/knowledge-health.test.mjs",
         "tests/task-handoff.test.mjs",
