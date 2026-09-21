@@ -30,6 +30,7 @@ import { addDays, formatDate } from "../lib/format";
 import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
 import { taskShelfStatus } from "../lib/taskShelves";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
+import { HabitPanel } from "../components/HabitPanel";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { AgentWorkSummaryPanel } from "../components/AgentWorkSummaryPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
@@ -985,6 +986,7 @@ export function TodayPage({
   openDailyScratchpad,
   startFocusSession,
   saveEntities,
+  removeEntity,
   setToast,
 }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
@@ -1576,6 +1578,15 @@ export function TodayPage({
           markDueToday={false}
         />
       </section>
+
+      {/* #454後半: 続けることの記録。Habitがある場合だけ現れる（空の設定案内を常設しない）。 */}
+      <HabitPanel
+        data={data}
+        today={today}
+        saveEntities={saveEntities}
+        removeEntity={removeEntity}
+        setToast={setToast}
+      />
 
       {deadlineReviewRows.length > 0 && (
         <section className="panel today-deadline-panel">

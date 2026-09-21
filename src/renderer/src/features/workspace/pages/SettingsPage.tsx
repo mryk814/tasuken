@@ -22,6 +22,7 @@ import { AI_AUDIENCE_LABELS } from "../domain-model/labels";
 import { todayIso as todayIsoDate } from "../domain-model/scheduleSemantics";
 import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
+import { HabitPanel } from "../components/HabitPanel";
 import { CaptureOrganizerSettings } from "../components/CaptureOrganizerSettings";
 import {
   DEFAULT_ROOT_SHORTCUT,
@@ -38,11 +39,19 @@ interface SettingsPageProps extends PageProps {
 }
 
 type SettingsSectionId =
-  "general" | "appearance" | "storage" | "integrations" | "mobile" | "ai-mcp" | "advanced";
+  | "general"
+  | "appearance"
+  | "habits"
+  | "storage"
+  | "integrations"
+  | "mobile"
+  | "ai-mcp"
+  | "advanced";
 
 const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; description: string }> = [
   { id: "general", label: "General", description: "基本の使い方" },
   { id: "appearance", label: "Appearance", description: "表示と編集" },
+  { id: "habits", label: "Habits", description: "続けることの記録" },
   { id: "storage", label: "Storage & Files", description: "保存と同期" },
   { id: "integrations", label: "Integrations", description: "外部サービス" },
   { id: "mobile", label: "Mobile", description: "Android接続" },
@@ -78,6 +87,8 @@ export function SettingsPage({
   allThemes,
   setSnapshotPreview,
   snapshotPreview,
+  saveEntities,
+  removeEntity,
   setToast,
 }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
@@ -1193,6 +1204,20 @@ export function SettingsPage({
                   </div>
                 </div>
               </details>
+            </section>
+            <section className="panel settings-form" hidden={activeSection !== "habits"}>
+              {/* #454後半: Habitの最小実験。ここで追加し、記録はTodayで行う。 */}
+              <p className="field-help">
+                「毎日1回」「週N回」を手動で記録します。Taskは作りません。週の区切りは月曜開始です。
+              </p>
+              <HabitPanel
+                data={data}
+                today={todayIsoDate()}
+                saveEntities={saveEntities}
+                removeEntity={removeEntity}
+                setToast={setToast}
+                manage
+              />
             </section>
             <section className="panel settings-form" hidden={activeSection !== "storage"}>
               {/* 保存先の設定は同期ルート一つに集約し、配下はTaskenが自動生成する（#306）。 */}

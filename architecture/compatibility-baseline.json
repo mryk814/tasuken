@@ -109,6 +109,7 @@
         "src/renderer/src/features/workspace/components/ConversationPreview.tsx",
         "src/renderer/src/features/workspace/components/DailyScratchpadDialog.tsx",
         "src/renderer/src/features/workspace/components/FocusSessionDialog.tsx",
+        "src/renderer/src/features/workspace/components/HabitPanel.tsx",
         "src/renderer/src/features/workspace/components/MarkdownDiffMarkerRail.tsx",
         "src/renderer/src/features/workspace/components/MarkdownEditorPanel.tsx",
         "src/renderer/src/features/workspace/components/MarkdownHeadingIndex.tsx",

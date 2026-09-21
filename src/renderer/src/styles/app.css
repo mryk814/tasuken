@@ -2306,6 +2306,104 @@ textarea:hover {
 .today-update-list {
   display: grid;
 }
+
+/* #454後半: Habitの最小実験。連続日数や達成率を強調する装飾は持たない。 */
+.habit-panel .habit-create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.habit-panel .habit-create label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+.habit-panel .habit-create input,
+.habit-panel .habit-create select {
+  font: inherit;
+  color: var(--color-text-primary);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.habit-panel .habit-note,
+.habit-panel .habit-empty,
+.habit-panel .habit-last,
+.habit-panel .habit-progress {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+.habit-panel .habit-list {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.habit-panel .habit-row {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.habit-panel .habit-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.habit-panel .habit-title {
+  font-weight: var(--weight-medium);
+}
+.habit-panel .habit-schedule,
+.habit-panel .habit-state {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+.habit-panel .habit-state {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-1);
+}
+.habit-panel .habit-progress {
+  color: var(--color-text-secondary);
+}
+.habit-panel .habit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.habit-panel .habit-history {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1) 0 0;
+}
+.habit-panel .habit-history-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  padding: var(--space-1) 0;
+}
+.habit-panel .habit-history-date {
+  font-variant-numeric: tabular-nums;
+}
+.habit-panel .habit-history-sequence {
+  color: var(--color-text-tertiary);
+}
+.habit-panel .habit-history-row input {
+  font: inherit;
+  color: var(--color-text-primary);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
 .today-task-row {
   min-height: 40px;
   display: grid;
