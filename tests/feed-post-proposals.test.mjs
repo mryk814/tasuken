@@ -13,6 +13,7 @@ import {
 import {
   buildPostsFromProposals,
   feedReactionId,
+  postsBookmarked,
 } from "../src/renderer/src/features/workspace/lib/feedPosts.ts";
 
 /**
@@ -138,6 +139,34 @@ test("読者の状態は投稿の安定IDに結び付き、同じ操作で増え
     feedReactionId("feed-post:proposal-1", "interesting"),
   );
   assert.throws(() => feedReactionId("", "bookmark"), /1〜200/u);
+  // 「既知だった」も同じ規則で保存する（#604後半の反応表）。
+  assert.equal(
+    feedReactionId("feed-post:proposal-1", "known"),
+    "feed-reaction:feed-post:proposal-1:known",
+  );
+});
+
+test("保存した投稿だけを、元の並びのまま読み返せる", () => {
+  const posts = buildPostsFromProposals({
+    proposals: [
+      feedProposal(),
+      feedProposal({
+        id: "proposal-feed-2",
+        payload: { feed_posts: [{ action: "publish", topic: "learning", body: ["二つ目。"] }] },
+      }),
+    ],
+  });
+  assert.equal(posts.length, 2);
+  assert.deepEqual(
+    postsBookmarked(posts, new Set([posts[1].id])).map((post) => post.id),
+    [posts[1].id],
+  );
+  // 印が無ければ空。並びは元のタイムラインのまま。
+  assert.deepEqual(postsBookmarked(posts, new Set()), []);
+  assert.deepEqual(
+    postsBookmarked(posts, new Set(posts.map((post) => post.id))).map((post) => post.id),
+    posts.map((post) => post.id),
+  );
 });
 
 test("実データでは読者の状態を保存し、再起動後も残る", async () => {

@@ -25,6 +25,7 @@ import {
   feedReplyEntity,
   filterPosts,
   needsMore,
+  postsBookmarked,
   postsForHome,
   postsForLearning,
   unpublishNote,
@@ -96,6 +97,7 @@ export function FeedPage({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [bookmarks, setBookmarks] = useState<ReadonlySet<string>>(() => new Set());
   const [interesting, setInteresting] = useState<ReadonlySet<string>>(() => new Set());
+  const [known, setKnown] = useState<ReadonlySet<string>>(() => new Set());
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
   const [authorFilter, setAuthorFilter] = useState<FeedAuthorId | null>(null);
   const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({});
@@ -103,6 +105,8 @@ export function FeedPage({
   const [openNeedsId, setOpenNeedsId] = useState<string | null>(null);
   const [openArticleId, setOpenArticleId] = useState<string | null>(null);
   const [arrivalsApplied, setArrivalsApplied] = useState(false);
+  /** 保存した投稿だけを読む（ブックマーク入口）。 */
+  const [savedOnly, setSavedOnly] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [draftAnswer, setDraftAnswer] = useState("");
@@ -166,6 +170,7 @@ export function FeedPage({
     const bookmark = new Set<string>();
     const interesting = new Set<string>();
     const hiddenPosts = new Set<string>();
+    const knownPosts = new Set<string>();
     const rows = Array.isArray(domain.feed_reactions) ? domain.feed_reactions : [];
     for (const row of rows as unknown as Array<Record<string, unknown>>) {
       const postId = typeof row.post_id === "string" ? row.post_id : "";
@@ -173,8 +178,9 @@ export function FeedPage({
       if (row.kind === "bookmark") bookmark.add(postId);
       else if (row.kind === "interesting") interesting.add(postId);
       else if (row.kind === "hidden") hiddenPosts.add(postId);
+      else if (row.kind === "known") knownPosts.add(postId);
     }
-    return { bookmark, interesting, hidden: hiddenPosts };
+    return { bookmark, interesting, hidden: hiddenPosts, known: knownPosts };
   }, [domain.feed_reactions]);
 
   const sourcePosts = useMemo(() => {
@@ -193,8 +199,12 @@ export function FeedPage({
       ? [...sourcePosts.arriving, ...sourcePosts.settled]
       : sourcePosts.settled;
     const base = tab === "learn" ? postsForLearning(posts) : postsForHome(posts);
-    return withReplies(filterPosts(base, { author: authorFilter }));
-  }, [arrivalsApplied, authorFilter, sourcePosts, tab]);
+    const filtered = withReplies(filterPosts(base, { author: authorFilter }));
+    // 「保存済み」は印を付けた投稿を同じ形のまま読む（並びは変えない）。
+    if (!savedOnly) return filtered;
+    const bookmarked = new Set([...bookmarks, ...reactions.bookmark]);
+    return postsBookmarked(filtered, bookmarked);
+  }, [arrivalsApplied, authorFilter, bookmarks, reactions.bookmark, savedOnly, sourcePosts, tab]);
 
   const shownPosts = timeline.slice(0, limit);
   const hasMorePosts = timeline.length > shownPosts.length;
@@ -294,15 +304,19 @@ export function FeedPage({
         toggleIn(setBookmarks, post.id);
       } else if (kind === "interesting") {
         toggleIn(setInteresting, post.id);
+      } else if (kind === "known") {
+        toggleIn(setKnown, post.id);
       } else {
         setHidden((current) => new Set(current).add(post.id));
       }
       setNotice(
         kind === "hidden"
           ? "この投稿を今回は見送りました。Taskは変わっていません。"
-          : saved
-            ? "印を外しました。未解決件数は変わっていません。"
-            : "印を付けました。未解決件数は変わっていません。",
+          : kind === "known"
+            ? "「既知だった」を記録しました。次の題材選びの材料になります。"
+            : saved
+              ? "印を外しました。未解決件数は変わっていません。"
+              : "印を付けました。未解決件数は変わっていません。",
       );
     },
     [reactions, removeEntity, saveEntities, setToast, toggleIn, usingFixtures],
@@ -660,6 +674,16 @@ export function FeedPage({
             </button>
           ))}
           <div className="feed-tabs-spacer" />
+          {tab !== "needs" ? (
+            <button
+              type="button"
+              className="feed-saved-toggle"
+              aria-pressed={savedOnly}
+              onClick={() => setSavedOnly((value) => !value)}
+            >
+              保存済みのみ
+            </button>
+          ) : null}
           {tab !== "needs" && !arrivalsApplied && sourcePosts.arriving.length > 0 ? (
             <button
               type="button"
@@ -678,6 +702,15 @@ export function FeedPage({
           <p className="feed-filter-note">
             {authorOf({ author: authorFilter } as FeedPost).label} の投稿だけを表示しています。
             <Button variant="ghost" compact onClick={() => setAuthorFilter(null)}>
+              絞り込みを解除
+            </Button>
+          </p>
+        ) : null}
+
+        {savedOnly ? (
+          <p className="feed-filter-note">
+            保存した投稿だけを表示しています。
+            <Button variant="ghost" compact onClick={() => setSavedOnly(false)}>
               絞り込みを解除
             </Button>
           </p>
@@ -831,7 +864,11 @@ export function FeedPage({
         ) : (
           <section className="feed-timeline" aria-label={tab === "learn" ? "学び" : "ホーム"}>
             {shownPosts.length === 0 ? (
-              <p className="feed-empty">まだ読める投稿がありません。</p>
+              <p className="feed-empty">
+                {savedOnly
+                  ? "保存した投稿はまだありません。投稿の「ブックマーク」で保存できます。"
+                  : "まだ読める投稿がありません。"}
+              </p>
             ) : (
               <ol className="feed-posts">
                 {shownPosts.map((post) => {
@@ -883,15 +920,43 @@ export function FeedPage({
                               {isReply ? null : FEED_POST_KIND_LABELS[post.kind]}
                             </span>
                             {isReply ? null : (
-                              <button
-                                type="button"
-                                className="feed-post-more"
-                                aria-label="この投稿を今回は見送る"
-                                title="今回は見送る"
-                                onClick={() => hidePost(post)}
-                              >
-                                …
-                              </button>
+                              <span className="feed-post-menu">
+                                {/* 補助操作。読む面には出さず、三点メニューへ置く（計画の反応表）。 */}
+                                <details className="feed-post-more-menu">
+                                  <summary aria-label="この投稿の補助操作" title="補助操作">
+                                    …
+                                  </summary>
+                                  <div className="feed-post-menu-body">
+                                    <button
+                                      type="button"
+                                      className="feed-reaction"
+                                      aria-pressed={
+                                        known.has(post.id) || reactions.known.has(post.id)
+                                      }
+                                      onClick={(event) => {
+                                        event.currentTarget
+                                          .closest("details")
+                                          ?.removeAttribute("open");
+                                        void toggleReaction(post, "known");
+                                      }}
+                                    >
+                                      既知だった
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="feed-reaction"
+                                      onClick={(event) => {
+                                        event.currentTarget
+                                          .closest("details")
+                                          ?.removeAttribute("open");
+                                        hidePost(post);
+                                      }}
+                                    >
+                                      今回は見送る
+                                    </button>
+                                  </div>
+                                </details>
+                              </span>
                             )}
                           </div>
                           {body.map((paragraph, index) => (

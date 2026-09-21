@@ -485,7 +485,7 @@ export function filterPosts(
  * ---------------------------------------------------------------------- */
 
 /** 読者の状態。投稿の安定IDに結び付けて保存する。 */
-export type FeedReactionKind = "bookmark" | "interesting" | "hidden";
+export type FeedReactionKind = "bookmark" | "interesting" | "hidden" | "known";
 
 /**
  * 反応のID。同じ投稿・同じ種類では同じIDになるので、連打や再送で増えない。
@@ -498,6 +498,19 @@ export function feedReactionId(postId: string, kind: FeedReactionKind): string {
 }
 
 type Row = { id: string; [key: string]: unknown };
+
+/**
+ * 保存した投稿だけを読む（ブックマーク入口。2026-09-21計画）。
+ *
+ * 「あとで読み返す」印を付けた投稿を、同じ投稿の形のまま絞り込む。
+ * 並びは元のタイムラインのまま（読み返すときの順序を変えない）。
+ */
+export function postsBookmarked(
+  posts: readonly FeedPost[],
+  bookmarkedIds: ReadonlySet<string>,
+): FeedPost[] {
+  return posts.filter((post) => bookmarkedIds.has(post.id));
+}
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";

@@ -60,7 +60,7 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 
 写真対応で`get_task_context.related`へ`captures`配列を追加した。`include: ["captures"]`を明示した場合だけ関連Captureの要約と画像manifestを含め、未指定時は空配列を返す。画像本体はmanifestのlocatorが示すPhoto toolから取得する。
 
-`get_feed_context`はFeedの読み出しである。利用者が「AIに聞く」で残した未回答の質問（元の投稿の抜粋と参照IDつき）と、直近の投稿、明示的な反応（ブックマーク・おもしろい）だけを返し、正式データを変更しない。Task・Themeの詳細は既存の読み出しtoolで取得し、そこのAI公開範囲の判定に従う。
+`get_feed_context`はFeedの読み出しである。利用者が「AIに聞く」で残した未回答の質問（元の投稿の抜粋と参照IDつき）と、直近の投稿、明示的な反応（ブックマーク・おもしろい・既知だった）だけを返し、正式データを変更しない。Task・Themeの詳細は既存の読み出しtoolで取得し、そこのAI公開範囲の判定に従う。
 
 ### Proposal 16 / 16 Core
 

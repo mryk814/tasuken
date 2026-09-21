@@ -55,6 +55,8 @@ export const getFeedContextResponseSchema = z
       .object({
         bookmarked_post_ids: z.array(z.string()).max(50),
         interesting_post_ids: z.array(z.string()).max(50),
+        /** 「既に知っていた」と本人が伝えた投稿。次の題材選びで避ける材料にする。 */
+        known_post_ids: z.array(z.string()).max(50),
       })
       .strict(),
     limit: z.number().int().min(1).max(50),

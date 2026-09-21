@@ -283,11 +283,75 @@ async function auditFixtures(app, page) {
   }
 
   // 8. ブックマークは未解決件数を変えない。
-  await page.locator(".feed-reaction", { hasText: "ブックマーク" }).first().click();
+  const bookmarkTarget = page.locator(".feed-post").first();
+  const bookmarkedText = (
+    await bookmarkTarget.locator(".feed-post-text").first().innerText()
+  ).trim();
+  await bookmarkTarget.locator(".feed-reaction", { hasText: "ブックマーク" }).first().click();
   await page.waitForTimeout(300);
   const afterBookmark = (await page.locator(".feed-tab-count").first().innerText()).trim();
   if (afterBookmark !== String(EXPECTED_UNRESOLVED)) {
     failures.push(`ブックマークで対応待ち件数が変わりました（${afterBookmark}）。`);
+  }
+
+  // 8b. 保存した投稿だけを読み返せる（ブックマーク入口）。
+  const savedToggle = page.locator(".feed-saved-toggle").first();
+  if (!(await savedToggle.count())) {
+    failures.push("保存済みの入口がありません。");
+  } else {
+    await savedToggle.click();
+    await page.waitForTimeout(400);
+    const savedPosts = await page.locator(".feed-post").count();
+    if (savedPosts !== 1) {
+      failures.push(`保存済みの件数が1件ではありません（${savedPosts}件）。`);
+    } else {
+      const savedText = (
+        await page.locator(".feed-post .feed-post-text").first().innerText()
+      ).trim();
+      if (savedText !== bookmarkedText) {
+        failures.push("保存済みに出ている投稿が、ブックマークした投稿と違います。");
+      }
+    }
+    const savedNotice = await page.locator(".feed-filter-note").first().innerText();
+    if (!savedNotice.includes("保存した投稿だけ")) {
+      failures.push(`保存済みの案内が出ていません（${savedNotice}）。`);
+    }
+    if (
+      (await page.locator(".feed-tab-count").first().innerText()).trim() !==
+      String(EXPECTED_UNRESOLVED)
+    ) {
+      failures.push("保存済みの絞り込みで対応待ち件数が変わりました。");
+    }
+    await page.screenshot({ path: `${OUT_DIR}/saved.png`, fullPage: true });
+    await savedToggle.click();
+    await page.waitForTimeout(300);
+    if (!((await page.locator(".feed-post").count()) > 1)) {
+      failures.push("保存済みの絞り込みを解除できません。");
+    }
+  }
+
+  // 8c. 「既知だった」は補助メニューから記録し、対応待ち件数を変えない。
+  const menu = page.locator(".feed-post-more-menu").first();
+  if (!(await menu.count())) {
+    failures.push("投稿の補助メニューがありません。");
+  } else {
+    await menu.locator("summary").first().click();
+    await page.waitForTimeout(200);
+    const known = menu.locator("button", { hasText: "既知だった" }).first();
+    if (!(await known.count())) {
+      failures.push("補助メニューに「既知だった」がありません。");
+    } else {
+      await known.click();
+      await page.waitForTimeout(400);
+      const afterKnown = (await page.locator(".feed-tab-count").first().innerText()).trim();
+      if (afterKnown !== String(EXPECTED_UNRESOLVED)) {
+        failures.push(`「既知だった」で対応待ち件数が変わりました（${afterKnown}）。`);
+      }
+      const noticeLine = await page.locator(".feed-notice-line").first().innerText();
+      if (!noticeLine.includes("既知だった")) {
+        failures.push(`「既知だった」の案内が出ていません（${noticeLine}）。`);
+      }
+    }
   }
 
   // 9. 返信の下書きは投稿ごとに残り、閉じても消えない。
@@ -574,6 +638,55 @@ async function auditLiveRestart(page) {
     failures.push(`再起動後の対応待ち件数が違います（${persistedCount}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/live-restart.png`, fullPage: true });
+
+  // 実データのブックマークでも「保存済みのみ」で読み返せる（印はEntityとして残っている）。
+  const savedToggle = page.locator(".feed-saved-toggle").first();
+  if (!(await savedToggle.count())) {
+    failures.push("再起動後に保存済みの入口がありません。");
+  } else {
+    await savedToggle.click();
+    await page.waitForTimeout(500);
+    const savedRoots = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+    if (savedRoots !== 1) {
+      failures.push(`保存済みの絞り込みが実データで1件になりません（${savedRoots}件）。`);
+    }
+    if (!(await page.locator(".feed-timeline").innerText()).includes(LIVE_ARTICLE_TITLE)) {
+      failures.push("保存済みに出ている投稿が、ブックマークした投稿と違います。");
+    }
+    await page.screenshot({ path: `${OUT_DIR}/live-saved.png`, fullPage: true });
+    await savedToggle.click();
+    await page.waitForTimeout(300);
+    if ((await page.locator(".feed-posts .feed-post:not(.is-reply)").count()) !== 2) {
+      failures.push("保存済みの絞り込みを解除できません。");
+    }
+  }
+
+  // 補助メニューの「既知だった」も実データの投稿で記録でき、対応待ちは動かさない。
+  const menu = page
+    .locator(".feed-posts .feed-post", { hasText: LIVE_ARTICLE_TITLE })
+    .locator(".feed-post-more-menu")
+    .first();
+  if (!(await menu.count())) {
+    failures.push("実データの投稿に補助メニューがありません。");
+  } else {
+    await menu.locator("summary").first().click();
+    await page.waitForTimeout(200);
+    const known = menu.locator("button", { hasText: "既知だった" }).first();
+    if (!(await known.count())) {
+      failures.push("実データの投稿の補助メニューに「既知だった」がありません。");
+    } else {
+      await known.click();
+      await page.waitForTimeout(1200);
+      const knownNotice = await page.locator(".feed-notice-line").first().innerText();
+      if (!knownNotice.includes("既知だった")) {
+        failures.push(`「既知だった」の案内が出ていません（${knownNotice}）。`);
+      }
+      const countAfterKnown = (await page.locator(".feed-tab-count").first().innerText()).trim();
+      if (countAfterKnown !== String(EXPECTED_UNRESOLVED)) {
+        failures.push(`「既知だった」で対応待ち件数が変わりました（${countAfterKnown}）。`);
+      }
+    }
+  }
 }
 
 try {

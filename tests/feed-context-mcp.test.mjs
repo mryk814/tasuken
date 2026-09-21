@@ -125,6 +125,7 @@ test("未回答の質問だけを、元の投稿の抜粋つきで返す", () =>
         { id: "r1", post_id: POST_ID, kind: "bookmark", created_at: AT },
         { id: "r2", post_id: POST_ID, kind: "interesting", created_at: AT },
         { id: "r3", post_id: POST_ID, kind: "hidden", created_at: AT },
+        { id: "r4", post_id: POST_ID, kind: "known", created_at: AT },
       ],
     }),
   );
@@ -160,6 +161,8 @@ test("未回答の質問だけを、元の投稿の抜粋つきで返す", () =>
   );
   assert.deepEqual(result.reactions.bookmarked_post_ids, [POST_ID]);
   assert.deepEqual(result.reactions.interesting_post_ids, [POST_ID]);
+  // 「既知だった」も次の題材選びの材料として渡す（#604後半）。
+  assert.deepEqual(result.reactions.known_post_ids, [POST_ID]);
   assert.equal(result.result_meta.truncated, false);
 });
 

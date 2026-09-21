@@ -114,7 +114,8 @@ const waitingStates = new Set(["waiting", "received", "cancelled"]);
 const habitScheduleKinds = new Set(["daily", "weekly"]);
 const habitStates = new Set(["active", "paused"]);
 // 読者の状態。投稿そのものへの判断（採用・却下）とは別に持つ。
-const feedReactionKinds = new Set(["bookmark", "interesting", "hidden"]);
+// `known` は「既に知っていた」という自己申告で、次の題材選びの材料にする（#604後半）。
+const feedReactionKinds = new Set(["bookmark", "interesting", "hidden", "known"]);
 /** 返信の書き手。人が書いた返信とAIの返答を同じスレッドへ並べる。 */
 const feedReplyAuthorKinds = new Set(["self", "ai"]);
 const datePattern = /^\d{4}-\d{2}-\d{2}$/u;

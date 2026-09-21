@@ -160,6 +160,8 @@ export class FeedContextQueryService {
 
     const bookmarked: string[] = [];
     const interesting: string[] = [];
+    // 「既知だった」は読者の自己申告で、次の題材選びの材料にする（#604後半）。
+    const known: string[] = [];
     for (const reaction of workspace.feed_reactions || []) {
       if (text(reaction.deleted_at)) continue;
       const postId = text(reaction.post_id);
@@ -168,6 +170,7 @@ export class FeedContextQueryService {
         bookmarked.push(postId);
       else if (text(reaction.kind) === "interesting" && !interesting.includes(postId))
         interesting.push(postId);
+      else if (text(reaction.kind) === "known" && !known.includes(postId)) known.push(postId);
     }
 
     const recentPosts = ordered.slice(0, limit);
@@ -181,6 +184,7 @@ export class FeedContextQueryService {
       reactions: {
         bookmarked_post_ids: bookmarked.slice(0, limit),
         interesting_post_ids: interesting.slice(0, limit),
+        known_post_ids: known.slice(0, limit),
       },
       limit,
       max_chars: maxChars,

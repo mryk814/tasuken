@@ -144,6 +144,57 @@
   border-radius: var(--radius-sm, 4px);
 }
 
+/* 補助操作は三点メニューへ置き、読む面へ出さない（計画の反応表）。 */
+.feed-post-more-menu {
+  margin-left: auto;
+  position: relative;
+}
+
+.feed-post-more-menu > summary {
+  list-style: none;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: var(--text-lg);
+  line-height: 1;
+}
+
+.feed-post-more-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.feed-post-menu-body {
+  position: absolute;
+  right: 0;
+  z-index: 2;
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  min-width: 150px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+
+/* 保存した投稿だけを読む入口。 */
+.feed-saved-toggle {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  padding: 0 var(--space-2);
+  min-height: 28px;
+  cursor: pointer;
+}
+
+.feed-saved-toggle[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 .feed-post-more {
   margin-left: auto;
   border: none;
