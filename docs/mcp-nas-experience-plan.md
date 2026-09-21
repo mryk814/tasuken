@@ -155,11 +155,21 @@ Phase 0の同期調査結果を設計ゲートとする。read-only設定の単�
 
 ## Phase 3 — 受領・採否・鮮度を確認できるようにする
 
+状態: 下調べ完了（2026-09-21）。実装は未着手。
+
+### 下調べで分かった制約
+
+1. **Proposalから採用後のEntityへのbacklinkは、Note・Taskには保存されていない。** `artifact`だけが`source_type: "ai_proposal"` / `source_id: <proposal id>`を持つ。canonical NoteのMarkdown公開経路にはmarker（`tasken-note-ai-command-marker/v1`）があるが、通常のNote採用は対象外。したがって「採用後にどのEntityができたか」を今の永続データからは一意に辿れない。
+   - 対応案A: 状態照会toolを追加し、`status`と`awaiting_review`だけを返す。Entity locatorは返さない（`created_entities: []`と理由を明示）。schema追加なしで今日実装できる。
+   - 対応案B: 採用時に`proposal_id`のbacklinkをEntityへ保存する。Plan自身の条件「永続的に対応を確認できる場合だけ返す」を満たせるが、保存契約の追加と移行の判断が要る。
+2. **Coreは自分のnode identityを持っていない。** `workspaceId` / `deviceId`は`WorkspaceDatabase`にあるが、Coreのread portは`list`しか公開していない。どのnodeが答えたかを返すには、portにidentityを足す必要がある。
+3. **read-only toolの追加は周辺の数値を動かす。** 公開tool数（46）とcapability数（31）を前提にした既存テスト・文書があるため、追加時はそれらを同時に更新する。
+
 ### 作業
 
 1. 受領IDからProposalの状態を読むread-only toolを追加する。
    - 既存statusと対応させ、未取得・拒否・quarantineも曖昧にしない。
-   - 採用後のEntity locatorは、永続的に対応を確認できる場合だけ返す。
+   - 採用後のEntity locatorは、永続的に対応を確認できる場合だけ返す（上の制約1の決定に従う）。
    - Feed表示と正式Note採用を別の意味として返す。
 2. 受領結果と同期状態は別軸にする。証拠なく「Desktopに届いた」と返さない。
 3. Contextに、情報源nodeと観測可能な同期鮮度を添える。
@@ -175,6 +185,10 @@ Phase 0の同期調査結果を設計ゲートとする。read-only設定の単�
 - 採否が別nodeへ未同期の場合、古い状態を現在の確定状態と偽らない。
 - NASで受信済み／Desktop反映未確認／正式採用待ちを区別できる。
 - UI変更時はdesign-guideに従い、隔離userDataで表示・focus・スクロール・失敗状態を確認する。
+
+### 着手前に決めること
+
+- 制約1の対応案A（locatorを返さない）か案B（`proposal_id`のbacklinkを保存する）か。案Bは保存契約の変更になる。
 
 ## Phase 4 — 実環境で最初の一往復を確認する
 
