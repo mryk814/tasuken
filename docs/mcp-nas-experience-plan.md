@@ -155,7 +155,7 @@ Phase 0の同期調査結果を設計ゲートとする。read-only設定の単�
 
 ## Phase 3 — 受領・採否・鮮度を確認できるようにする
 
-状態: 下調べ完了（2026-09-21）。実装は未着手。
+状態: 下調べ完了（2026-09-21）。backlink設計は決定済み、実装は次段階。
 
 ### 下調べで分かった制約
 
@@ -189,6 +189,19 @@ Phase 0の同期調査結果を設計ゲートとする。read-only設定の単�
 ### 着手前に決めること
 
 - 制約1の対応案A（locatorを返さない）か案B（`proposal_id`のbacklinkを保存する）か。案Bは保存契約の変更になる。
+- **決定（2026-09-21）: 案B。** 採用したEntityからProposalへbacklinkを保存し、状態照会で「どのEntityになったか」を返す。
+
+### backlinkの設計（決定）
+
+1. 保存する形は`artifact`の既存規約に合わせ、Entityへ`source_type: "ai_proposal"`・`source_id: <proposal id>`を付ける。新しい意味語彙を増やさない。
+2. **新規作成のときだけ付ける。** 既存値は上書きしない。編集Proposalは対象IDを`proposal.request.target`へ既に保存しているため、backlinkで上書きすると「どのProposalが作ったか」を失う。
+3. 状態照会のEntity解決は次の順で行う。
+   - `proposal.request.target`があればそれを返す（編集・更新Proposal）。
+   - 無ければ`source_type: "ai_proposal"`・`source_id: <proposal id>`を持つEntityを返す（新規作成Proposal）。
+   - どちらも無い場合はlocatorを返さず、理由を示す。
+4. **Proposal削除で作成済みEntityを消さない。** 採用済みの結果は利用者のデータであり、`artifact`のようなcascade対象にしない。削除されたProposalを指すbacklinkは、参照先が無いものとして扱う。
+5. 対象は`proposals`モードで受け付ける`feed_post`（添付Note草稿）・`note_create`・`task`を先行させ、`artifact`は既存規約のまま扱う。
+6. 保存契約の追加なので`docs/engineering-contracts.md`のAI連携節と、Note・Taskの採用経路のテストを同時に更新する。
 
 ## Phase 4 — 実環境で最初の一往復を確認する
 
