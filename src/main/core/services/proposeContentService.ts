@@ -440,10 +440,32 @@ export class ProposeContentService {
       payload_type: payloadType,
       message:
         status === "queued"
-          ? preparedImages?.manifest.length
-            ? "画像付きNote Proposalを受信しました。このTasken DesktopでPreviewして採用してください。"
-            : "TaskenのAI連携にProposalとして送りました。TaskenでPreviewして採用してください。"
-          : "同じidempotency_keyのProposalはすでに受信済みです。",
+          ? queuedMessage(request.kind, preparedImages?.manifest.length ?? 0)
+          : duplicateMessage(payloadType),
     });
   }
+}
+
+/**
+ * 採用が必要なProposalと、そのまま読める読み物を区別して返す。
+ * 読み物（Feed投稿・Feed返信）は人の採用を待たずに表示されるため、
+ * 「Previewして採用してください」と案内すると、存在しない操作を求めることになる。
+ */
+function queuedMessage(kind: ProposeContentRequest["kind"], imageCount: number): string {
+  if (kind === "feed_post") {
+    return "読み物の投稿としてFeedへ届きました。ユーザーは採用を待たずに読めます。";
+  }
+  if (kind === "feed_reply") {
+    return "質問への返信としてスレッドへ届きました。ユーザーは採用を待たずに読めます。";
+  }
+  if (kind === "note_create" && imageCount > 0) {
+    return "画像付きNote Proposalを受信しました。このTasken DesktopでPreviewして採用してください。";
+  }
+  return "TaskenのAI連携にProposalとして送りました。TaskenでPreviewして採用してください。";
+}
+
+function duplicateMessage(payloadType: ContentProposalPayloadType): string {
+  return payloadType === "feed_posts" || payloadType === "feed_replies"
+    ? "同じidempotency_keyの読み物はすでに受信済みです。新しい投稿は増えていません。"
+    : "同じidempotency_keyのProposalはすでに受信済みです。";
 }

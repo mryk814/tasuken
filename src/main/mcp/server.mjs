@@ -74,7 +74,7 @@ const DAILY_REPORT_WRITING_GUIDANCE = [
   "Use short paragraphs and bullets; optional sections such as 今日進んだこと, 判断・未解決事項, 振り返り are a starting point, not fields to fill. Omit unsupported or empty sections and incidental tool statistics or terminology reviews. Keep the title separate (日報 YYYY-MM-DD); do not repeat it as an H1. Use only identifiers or links actually present in the context, without claiming they create Task relations.",
   "End with one or two adaptive questions grounded in a specific incident in this day's evidence, not a generic daily questionnaire. Prefer one useful question; add a second only for a distinct useful perspective. Ask what informed a choice, what would resolve an uncertainty, or what small experiment could test a pattern. Do not assume failure, feelings, or a decision not in the record. If evidence is too thin, say so instead of fabricating a question. Leave a blank > 回答： after each question; never fill human answers.",
   "Respect visibility and truncation. If evidence is partial, briefly state the coverage limit instead of implying a complete day. Prior reports and human answers are not evidence of today's work and must not be overwritten.",
-  "To save, use tasken.propose_note with note_type `report` and report_date from the context. Omit theme unless the user specified a Theme, so the report belongs to 個人業務. The user reviews and accepts the proposal in AI Inbox, then edits the Markdown in Notes. Report the returned Proposal ID as pending, not as a saved Note. Do not complete Tasks or create relations as a side effect.",
+  "To save, use tasken.propose_note with note_type `report` and report_date from the context. Omit theme unless the user specified a Theme, so the report belongs to 個人業務. The user reviews and accepts the proposal in Agent Desk, then edits the Markdown in Notes. Report the returned Proposal ID as pending, not as a saved Note. Do not complete Tasks or create relations as a side effect.",
 ].join("\n\n");
 
 function toolResult(value) {
@@ -157,7 +157,7 @@ export function createTaskenMcpServer(options = {}) {
     {
       instructions: readOnly
         ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed."
-        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Write tools queue a Proposal except tasken.start_task_work, which directly starts an explicitly AI Ready Task. A successful Proposal write returns a Proposal ID, not a Note ID; tell the user to review and accept it in Tasken before it becomes official data. A Note proposal may carry a Theme, not a Task or Reference relation.",
+        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. Every other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content.",
     },
   );
 
@@ -1288,7 +1288,15 @@ export function createTaskenMcpServer(options = {}) {
       source_app: sourceApp(args),
     });
   const contentProposalIdentity = {
-    idempotency_key: z.string().trim().min(1).max(200).optional(),
+    idempotency_key: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        "Reuse the same value when you retry the same request. If you omit it, Tasken generates a new key for every call, so an identical retry becomes a second Proposal instead of being recognized as the same request.",
+      ),
     caller: z.string().trim().min(1).max(200).optional(),
     source_session: z.string().trim().min(1).max(200).optional(),
     source_app: z.string().trim().min(1).max(120).optional(),
@@ -1335,7 +1343,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.start_agent_session",
     {
       description:
-        "Queue an Agent Session start proposal for AI Inbox review. It never creates official data directly.",
+        "Queue an Agent Session start proposal for Agent Desk review. It never creates official data directly.",
       inputSchema: {
         ...agentSessionIdentity,
         started_at: requiredTimestamp,
@@ -1365,7 +1373,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.finish_agent_session",
     {
       description:
-        "Queue an Agent Session outcome proposal for AI Inbox review. Intent and client identity stay immutable.",
+        "Queue an Agent Session outcome proposal for Agent Desk review. Intent and client identity stay immutable.",
       inputSchema: {
         ...agentSessionIdentity,
         agent_session_id: z.string().uuid(),
@@ -1392,7 +1400,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.submit_agent_session_record",
     {
       description:
-        "Queue one complete Agent Session record for AI Inbox review. This is for lifecycle collectors that observed both Intent and terminal Outcome; it never stores raw transcripts or writes official data directly.",
+        "Queue one complete Agent Session record for Agent Desk review. This is for lifecycle collectors that observed both Intent and terminal Outcome; it never stores raw transcripts or writes official data directly.",
       inputSchema: {
         ...agentSessionIdentity,
         started_at: requiredTimestamp,
@@ -1469,7 +1477,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.append_work_receipt",
     {
       description:
-        "Queue an append-only progress or follow-up Work Receipt, including for reviewed or completed Tasks. Human adoption preserves Task completion and its original body. Reuse the same idempotency_key, time and content for retries. Follow-ups use a new idempotency_key and stack onto the same Task in AI Inbox. Include completed_checklist_item_ids for verified checklist work.",
+        "Queue an append-only progress or follow-up Work Receipt, including for reviewed or completed Tasks. Human adoption preserves Task completion and its original body. Reuse the same idempotency_key, time and content for retries. Follow-ups use a new idempotency_key and stack onto the same Task in Agent Desk. Include completed_checklist_item_ids for verified checklist work.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },
@@ -1480,7 +1488,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.report_task_done",
     {
       description:
-        "Queue an AI work report for any visible Task, including reviewed or completed Tasks. Human adoption records the report and optional completed checklist items; only a separate explicit human action completes the Task. If AI Ready work has no start, adoption records its start too. Follow-up reports use a new idempotency_key and stack onto the same Task in AI Inbox.",
+        "Queue an AI work report for any visible Task, including reviewed or completed Tasks. Human adoption records the report and optional completed checklist items; only a separate explicit human action completes the Task. If AI Ready work has no start, adoption records its start too. Follow-up reports use a new idempotency_key and stack onto the same Task in Agent Desk.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },
@@ -1594,7 +1602,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.propose_feed_post",
     {
       description:
-        "Share a short finding from the work you did, so the user can read it in Tasken's Feed. The post is reading material: it is shown immediately and is NOT a pending decision, so it never increases the human's attention count. Keep the body to the finding itself (roughly 80-260 characters per paragraph, at most a few paragraphs) and say what was surprising, what failed, or what the user can reuse. Attach an article only when a longer explanation helps: pass `note_id` for an existing Note, or `article` to queue a Note draft that the user can accept separately. Do not restate a Task report as a post, and do not repeat a post you already sent: reuse the same idempotency_key when retrying, and pass recent post ids in `recent_post_ids` when you want to avoid duplicates. Returns a Proposal ID, not a Note ID.",
+        "Share a short finding from the work you did, so the user can read it in Tasken's Feed. The post is reading material: it appears in Feed as soon as this call succeeds and is NOT a pending decision, so the user does not need to accept it and it never increases the human's attention count. Keep the body to the finding itself (roughly 80-260 characters per paragraph, at most a few paragraphs) and say what was surprising, what failed, or what the user can reuse. Attach an article only when a longer explanation helps: pass `note_id` for an existing Note, or `article` to queue a Note draft that the user can accept separately. Do not restate a Task report as a post, and do not repeat a post you already sent: read tasken.get_feed_context first, and reuse the same idempotency_key when retrying. Returns a Proposal ID, not a Note ID.",
       inputSchema: {
         ...contentProposalBase,
         topic: z
@@ -1651,7 +1659,9 @@ export function createTaskenMcpServer(options = {}) {
           .array(z.string().trim().min(1).max(200))
           .max(20)
           .optional()
-          .describe("Posts the user already has, so you can avoid repeating the same finding."),
+          .describe(
+            "Accepted for compatibility and otherwise ignored: Tasken does not compare them for you. Read tasken.get_feed_context to see posts the user already has, and reuse the same idempotency_key when retrying. This field alone does not prevent a duplicate post.",
+          ),
         source_app: z.string().trim().min(1).max(120).optional(),
       },
       annotations: PROPOSAL_ANNOTATIONS,

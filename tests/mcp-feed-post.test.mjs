@@ -240,6 +240,74 @@ test("同じidempotency_keyへ違う投稿は送れない", async () => {
   });
 });
 
+test("投稿は「採用が必要なProposal」と混同させず、再送の防ぎ方も正しく案内する", async () => {
+  await withWorkspace(async ({ client }) => {
+    // 接続時の説明が、Feedの読み物と採用待ちProposalを分けている。
+    const instructions = String(client.getInstructions() || "");
+    assert.match(instructions, /propose_feed_post/u);
+    assert.match(instructions, /NOT pending decisions/u);
+    assert.match(instructions, /accepting them is not required/u);
+    assert.match(instructions, /queues a Proposal/u);
+    // AIに見える画面名は現行の表示名へ揃える（旧称を使わない）。
+    assert.doesNotMatch(instructions, /AI Inbox/u);
+
+    const tools = await client.listTools();
+    const staleScreenNames = tools.tools.filter((tool) =>
+      /AI Inbox/u.test(String(tool.description || "")),
+    );
+    assert.deepEqual(
+      staleScreenNames.map((tool) => tool.name),
+      [],
+      "tool説明に旧画面名を残さない",
+    );
+    const feedTool = tools.tools.find((tool) => tool.name === "tasken.propose_feed_post");
+    assert.ok(feedTool, "tasken.propose_feed_post が公開されている");
+    assert.match(feedTool.description, /appears in Feed as soon as this call succeeds/u);
+    assert.match(feedTool.description, /does not need to accept it/u);
+    assert.doesNotMatch(feedTool.description, /recent post ids in/u);
+
+    const properties = feedTool.inputSchema.properties;
+    // recent_post_ids へ自動の重複排除を約束させない。
+    assert.match(String(properties.recent_post_ids.description), /does not compare them/u);
+    assert.match(String(properties.recent_post_ids.description), /does not prevent a duplicate/u);
+    // 再送はkeyの再利用で防ぐと説明する。
+    assert.match(String(properties.idempotency_key.description), /Reuse the same value/u);
+    assert.match(String(properties.idempotency_key.description), /generates a new key/u);
+
+    const queued = await callTool(client, "tasken.propose_feed_post", {
+      idempotency_key: "feed-post-message-boundary",
+      caller: "Codex",
+      source_app: "codex",
+      topic: "insight",
+      body: ["応答の文言を確かめます。"],
+    });
+    assert.equal(queued.status, "queued");
+    assert.doesNotMatch(queued.message, /Previewして採用/u, "投稿は採用操作を求めない");
+    assert.match(queued.message, /採用を待たずに読めます/u);
+
+    const retried = await callTool(client, "tasken.propose_feed_post", {
+      idempotency_key: "feed-post-message-boundary",
+      caller: "Codex",
+      source_app: "codex",
+      topic: "insight",
+      body: ["応答の文言を確かめます。"],
+    });
+    assert.equal(retried.status, "duplicate");
+    assert.match(retried.message, /新しい投稿は増えていません/u);
+
+    // 採用が必要なNote提案は、これまでどおりPreviewと採用を案内する。
+    const note = await callTool(client, "tasken.propose_note", {
+      idempotency_key: "note-message-boundary",
+      caller: "Codex",
+      source_app: "codex",
+      title: "応答の文言",
+      body: "採用が必要なことを確かめる。",
+    });
+    assert.equal(note.status, "queued");
+    assert.match(note.message, /Previewして採用してください/u);
+  });
+});
+
 const DRAFT_BODY =
   "保存ボタンを二度押しても増やさない。\n\n依頼に名前を付けると二度目を判別できる。";
 
