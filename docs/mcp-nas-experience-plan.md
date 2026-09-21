@@ -203,6 +203,13 @@ Phase 0の同期調査結果を設計ゲートとする。read-only設定の単�
 5. 対象は`proposals`モードで受け付ける`feed_post`（添付Note草稿）・`note_create`・`task`を先行させ、`artifact`は既存規約のまま扱う。
 6. 保存契約の追加なので`docs/engineering-contracts.md`のAI連携節と、Note・Taskの採用経路のテストを同時に更新する。
 
+### 実装位置の調査結果（2026-09-21）
+
+- **付与は`applicationCommandService.applyAiProposal`の1箇所で足りる。** candidate loopが既に`const before = this.repository.get(type, id, true)`で新規作成と更新を分けているため、`before`が無いときだけ付与すればNote・Task・Sketch・Knowledgeを一律に扱える。経路ごとの個別実装は不要。
+- **Task提案の採用はrenderer経由。** `payload_type: "items"`は`AiProposalAcceptanceService`ではなく`AiProposalPanel.tsx`が`parseAiImportPayload`で候補を作り`ApplyAiProposal`を送る。経路ごとに付与する設計にするとrenderer変更と画面検証が必要になるため、上記のMain 1箇所方式を採る。
+- **`source_type`/`source_id`はActivityへ波及する。** `src/shared/activityEvent.mjs`の`sourceRefsFromEntity`が両フィールドを`source_refs`として拾うため、Note・Taskの変更イベントに`ai_proposal`参照が増える。provenanceとしては妥当だが、Activity・Context Graphの既存期待値とE2Eテストに差分が出る。意図した変更としてテストを更新するか、`ai_source_refs`等の別フィールドにするかを実装時に決める。
+- `note`・`task`には`source_type`/`source_id`の検証が無く`requiredFields`にも含まれないため、保存自体は追加のschema変更なしで通る。
+
 ## Phase 4 — 実環境で最初の一往復を確認する
 
 具体的な対象・送信内容・送信先・操作の承認後に実施する。計画作成やローカル実装の承認を、本番配置・投稿・停止の承認として流用しない。
