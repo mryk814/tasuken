@@ -3276,6 +3276,15 @@ export class ApplicationCommandService {
           );
         assertExpectedVersion(this.repository, command, type, candidateEntity.id, before);
       }
+      // 採用で新しく作られたEntityへ、どのProposalから生まれたかを残す。
+      // 「どのProposalが作ったか」を失わないため、既存Entityの更新では上書きしない。
+      // source_type/source_idはActivityのsource_refsへ波及するため専用fieldを使う。
+      if (!before && type !== "ai_proposal" && !candidateEntity.accepted_from_proposal_id) {
+        candidateEntity = {
+          ...candidateEntity,
+          accepted_from_proposal_id: currentProposal.id,
+        };
+      }
       if (type === "agent_session") {
         if (!before) {
           const isCapturedTerminalRecord = capturedAgentSessionIds.has(candidateEntity.id);
