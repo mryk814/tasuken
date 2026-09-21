@@ -336,10 +336,13 @@ internal fun TodayApp(
         }
     }
     val adaptiveInfo = currentWindowAdaptiveInfo()
+    val windowWidthDp = LocalConfiguration.current.screenWidthDp.dp
     val scaffoldDirective = taskenPaneScaffoldDirective(
         base = calculatePaneScaffoldDirective(adaptiveInfo),
-        windowWidth = LocalConfiguration.current.screenWidthDp.dp,
+        windowWidth = windowWidthDp,
     )
+    // Foldの展開幅では一覧と詳細を並べる（同じ閾値を詳細ペインの使い方にも使う）。
+    val attentionInDetailPane = scaffoldDirective.maxHorizontalPartitions > 1
     val navigator = key(scaffoldDirective) {
         rememberListDetailPaneScaffoldNavigator(
             scaffoldDirective = scaffoldDirective,
@@ -793,6 +796,19 @@ internal fun TodayApp(
                                 onRefreshAttention = todayViewModel::refreshAttention,
                                 onReplyToAgent = todayViewModel::replyToAgent,
                                 onResetAgentReply = todayViewModel::resetAgentReplyState,
+                                attentionInDetailPane = attentionInDetailPane,
+                                selectedAttentionId = paneState.selectedAttentionId,
+                                onAttentionSelected = { row ->
+                                    paneState.openAttention(row.attentionId)
+                                    coroutineScope.launch {
+                                        navigator.navigateTo(
+                                            ListDetailPaneScaffoldRole.Detail,
+                                            row.attentionId,
+                                        )
+                                        focusManager.clearFocus(force = true)
+                                        keyboardController?.hide()
+                                    }
+                                },
                             )
                         }
                         if (paneState.activeSection != AppSection.Ai) {
@@ -841,7 +857,43 @@ internal fun TodayApp(
                     val navigateToList: () -> Unit = {
                         coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
                     }
+                    val selectedAttention = paneState.selectedAttentionId?.let { id ->
+                        attentionRows.firstOrNull { it.attentionId == id }
+                    }
+                    // Desktopが返した一覧から消えた判断は、詳細に残さない。
+                    LaunchedEffect(paneState.selectedAttentionId, attentionRows) {
+                        if (paneState.selectedAttentionId != null && selectedAttention == null) {
+                            paneState.clearAttentionReply()
+                        }
+                    }
+                    // 正式に保存できたときだけ、回答と選択を閉じる。失敗時は入力を残す。
+                    LaunchedEffect(agentReplyState) {
+                        val applied = agentReplyState as? AgentReplyUiState.Applied
+                        if (applied != null && selectedAttention?.attentionId == applied.attentionId) {
+                            paneState.clearAttentionReply()
+                        }
+                    }
                     Column(Modifier.fillMaxSize()) {
+                    if (selectedAttention != null && attentionInDetailPane) {
+                        AttentionDetailPane(
+                            row = selectedAttention,
+                            body = paneState.attentionReplyBody,
+                            onBodyChange = { paneState.attentionReplyBody = it.take(10_000) },
+                            state = agentReplyState,
+                            online = attentionOnline,
+                            onSend = {
+                                todayViewModel.replyToAgent(
+                                    selectedAttention,
+                                    null,
+                                    paneState.attentionReplyBody,
+                                )
+                            },
+                            onOpenTask = selectedAttention.taskId?.let { taskId ->
+                                { paneState.selectedTaskId = taskId }
+                            },
+                            onBack = navigateToList,
+                        )
+                    } else {
                     if (localSearchTaskReturn != null) TextButton(onClick = { localSearchOpen = true; localSearchTaskReturn = null },
                         modifier = Modifier.testTag("local-search-return")) { Text("検索へ戻る") }
                     Box(Modifier.weight(1f)) {
@@ -877,6 +929,7 @@ internal fun TodayApp(
                         onTaskAiReady = todayViewModel::setTaskAiReady,
                         onNavigateBack = if (task != null) navigateToList else null,
                     )
+                    }
                     }
                     }
                 }
@@ -1783,6 +1836,10 @@ internal fun AiInboxListPane(
     onRefreshAttention: () -> Unit = {},
     onReplyToAgent: (AttentionRow, String?, String) -> Unit = { _, _, _ -> },
     onResetAgentReply: () -> Unit = {},
+    /** Foldの展開幅では詳細ペインへ開く（1列では行の直下へ置く）。 */
+    attentionInDetailPane: Boolean = false,
+    selectedAttentionId: String? = null,
+    onAttentionSelected: (AttentionRow) -> Unit = {},
 ) {
     var replyTarget by remember { mutableStateOf<AttentionRow?>(null) }
     var replyBody by remember { mutableStateOf("") }
@@ -1837,16 +1894,23 @@ internal fun AiInboxListPane(
                     items(attention, key = { "attention-${it.attentionId}" }) { row ->
                         AgentAttentionCard(
                             row = row,
-                            selected = replyTarget?.attentionId == row.attentionId,
+                            selected = replyTarget?.attentionId == row.attentionId ||
+                                selectedAttentionId == row.attentionId,
                             onOpenReply = {
-                                replyTarget = row
-                                replyBody = ""
                                 onResetAgentReply()
+                                if (attentionInDetailPane) {
+                                    // 展開幅では詳細ペインへ開く。1列では行の直下に置く。
+                                    onAttentionSelected(row)
+                                } else {
+                                    replyTarget = row
+                                    replyBody = ""
+                                }
                             },
                             onOpenTask = { row.taskId?.let(onTaskSelected) },
                         )
                     }
-                    replyTarget?.let { target ->
+                    if (replyTarget != null && !attentionInDetailPane) {
+                        val target = replyTarget!!
                         item(key = "attention-reply") {
                             AgentReplyEditor(
                                 row = target,
@@ -2132,10 +2196,145 @@ private fun AgentAttentionCard(
 }
 
 /**
- * 質問への短い返答（#601）。下部に回答欄と主操作を置く。
+ * 要対応の詳細（#601）。
  *
- * 送信していない・送信中・保存済みを区別して示す。失敗しても入力を消さない。
+ * Foldの展開幅では一覧の隣（Detailペイン）に置き、1列では一覧からpushして開く。
+ * 上部に見出しと状態、中央に質問と成果、下部に回答欄と主操作を置く。
+ * 表示は Desktop が返した値をそのまま使い、画面側で状態を作り直さない。
  */
+@Composable
+internal fun AttentionDetailPane(
+    row: AttentionRow,
+    body: String,
+    onBodyChange: (String) -> Unit,
+    state: AgentReplyUiState,
+    online: Boolean,
+    onSend: () -> Unit,
+    onOpenTask: (() -> Unit)?,
+    onBack: (() -> Unit)?,
+) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp).testTag("attention-detail"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (onBack != null) {
+            TextButton(onClick = onBack, modifier = Modifier.testTag("attention-detail-back")) {
+                Text("一覧へ戻る")
+            }
+        }
+        Text(attentionKindLabel(row.kind), color = MaterialTheme.colorScheme.primary)
+        row.taskTitle?.let { title ->
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+        Text(
+            row.headline,
+            modifier = Modifier.testTag("attention-detail-headline"),
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(row.questionOrAction, modifier = Modifier.testTag("attention-detail-question"))
+        row.agentLabel?.let { label ->
+            Text("実行者 $label", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+        }
+        Text(
+            "Taskの版 ${row.taskVersion ?: 0}",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+        )
+        if (onOpenTask != null) {
+            TextButton(onClick = onOpenTask, modifier = Modifier.testTag("attention-detail-open-task")) {
+                Text("Taskを開く")
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        AttentionReplyForm(
+            row = row,
+            body = body,
+            onBodyChange = onBodyChange,
+            state = state,
+            online = online,
+            onSend = onSend,
+            onCancel = null,
+            tagPrefix = "attention-detail",
+        )
+    }
+}
+
+@Composable
+private fun AttentionReplyForm(
+    row: AttentionRow,
+    body: String,
+    onBodyChange: (String) -> Unit,
+    state: AgentReplyUiState,
+    online: Boolean,
+    onSend: () -> Unit,
+    onCancel: (() -> Unit)?,
+    tagPrefix: String,
+) {
+    val sending = state is AgentReplyUiState.Replying
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("$tagPrefix-reply-editor"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("回答", fontWeight = FontWeight.Bold)
+        OutlinedTextField(
+            value = body,
+            onValueChange = onBodyChange,
+            modifier = Modifier.fillMaxWidth().testTag("$tagPrefix-reply-text"),
+            label = { Text("回答を入力") },
+            minLines = 2,
+            enabled = !sending,
+        )
+        if (!online) {
+            Text(
+                "Desktopへ接続してから回答してください。",
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 12.sp,
+            )
+        }
+        when (state) {
+            is AgentReplyUiState.Applied -> Text(
+                "回答を送りました。${agentDisplayStateLabel(state.displayState)}",
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.testTag("$tagPrefix-reply-message"),
+            )
+            is AgentReplyUiState.Conflict -> Text(
+                state.message,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("$tagPrefix-reply-message"),
+            )
+            is AgentReplyUiState.Rejected -> Text(
+                state.message,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("$tagPrefix-reply-message"),
+            )
+            is AgentReplyUiState.Unavailable -> Text(
+                state.message,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("$tagPrefix-reply-message"),
+            )
+            else -> Unit
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = onSend,
+                enabled = body.isNotBlank() && !sending && online,
+                modifier = Modifier.testTag("$tagPrefix-reply-send"),
+            ) {
+                Text(if (sending) "送信中" else "回答を送る")
+            }
+            onCancel?.let { cancel ->
+                TextButton(
+                    onClick = cancel,
+                    enabled = !sending,
+                    modifier = Modifier.testTag("$tagPrefix-reply-cancel"),
+                ) {
+                    Text("閉じる")
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun AgentReplyEditor(
     row: AttentionRow,
@@ -2146,67 +2345,26 @@ private fun AgentReplyEditor(
     onSend: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    val sending = state is AgentReplyUiState.Replying
     Card(
-        modifier = Modifier.fillMaxWidth().testTag("attention-reply-editor"),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("回答", fontWeight = FontWeight.Bold)
             Text(row.questionOrAction)
-            OutlinedTextField(
-                value = body,
-                onValueChange = onBodyChange,
-                modifier = Modifier.fillMaxWidth().testTag("attention-reply-text"),
-                label = { Text("回答を入力") },
-                minLines = 2,
-                enabled = !sending,
+            AttentionReplyForm(
+                row = row,
+                body = body,
+                onBodyChange = onBodyChange,
+                state = state,
+                online = online,
+                onSend = onSend,
+                onCancel = onCancel,
+                // 一覧の行の直下は従来の test tag（attention-reply-*）を保つ。
+                tagPrefix = "attention",
             )
-            if (!online) {
-                Text(
-                    "Desktopへ接続してから回答してください。",
-                    color = MaterialTheme.colorScheme.error,
-                    fontSize = 12.sp,
-                )
-            }
-            when (state) {
-                is AgentReplyUiState.Applied -> Text(
-                    "回答を送りました。${agentDisplayStateLabel(state.displayState)}",
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.testTag("attention-reply-message"),
-                )
-                is AgentReplyUiState.Conflict -> Text(
-                    state.message,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.testTag("attention-reply-message"),
-                )
-                is AgentReplyUiState.Rejected -> Text(
-                    state.message,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.testTag("attention-reply-message"),
-                )
-                is AgentReplyUiState.Unavailable -> Text(
-                    state.message,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.testTag("attention-reply-message"),
-                )
-                else -> Unit
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onSend,
-                    enabled = body.isNotBlank() && !sending && online,
-                    modifier = Modifier.testTag("attention-reply-send"),
-                ) {
-                    Text(if (sending) "送信中" else "回答を送る")
-                }
-                TextButton(onClick = onCancel, enabled = !sending, modifier = Modifier.testTag("attention-reply-cancel")) {
-                    Text("閉じる")
-                }
-            }
         }
     }
 }

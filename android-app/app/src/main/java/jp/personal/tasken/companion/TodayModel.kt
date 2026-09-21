@@ -1441,8 +1441,17 @@ class TodayPaneState(
     aiListScrollOffset: Int = 0,
     taskScheduleFilter: TaskScheduleFilter = TaskScheduleFilter.All,
     taskThemeId: String? = null,
+    /** 詳細ペインで開いている要対応（Foldの展開幅）。 */
+    selectedAttentionId: String? = null,
+    attentionReplyBody: String = "",
 ) {
     var selectedTaskId by mutableStateOf(selectedTaskId)
+    var selectedAttentionId by mutableStateOf(selectedAttentionId)
+    /**
+     * 詳細ペインで書いている回答。ペインを移動しても消さない
+     * （正式に保存できたときだけ [clearAttentionReply] で閉じる）。
+     */
+    var attentionReplyBody by mutableStateOf(attentionReplyBody)
     var listScrollIndex by mutableIntStateOf(listScrollIndex)
         private set
     var listScrollOffset by mutableIntStateOf(listScrollOffset)
@@ -1488,6 +1497,16 @@ class TodayPaneState(
     fun recordAiScroll(index: Int, offset: Int) {
         aiListScrollIndex = index.coerceAtLeast(0)
         aiListScrollOffset = offset.coerceAtLeast(0)
+    }
+
+    fun openAttention(attentionId: String) {
+        selectedAttentionId = attentionId
+    }
+
+    /** 正式に保存できたときだけ、回答と選択を閉じる。失敗時は入力を残す。 */
+    fun clearAttentionReply() {
+        selectedAttentionId = null
+        attentionReplyBody = ""
     }
 
     fun openCapture(
@@ -1586,6 +1605,8 @@ class TodayPaneState(
             kotlinx.serialization.builtins.ListSerializer(MobileCaptureOrganization.serializer()),
             captureDraft.additionalOrganizations,
         ),
+        selectedAttentionId,
+        attentionReplyBody,
     )
 
     companion object {
@@ -1645,6 +1666,8 @@ class TodayPaneState(
                 ?.let { runCatching { TaskScheduleFilter.valueOf(it) }.getOrNull() }
                 ?: TaskScheduleFilter.All,
             taskThemeId = saved.getOrNull(25) as? String,
+            selectedAttentionId = saved.getOrNull(32) as? String,
+            attentionReplyBody = saved.getOrNull(33) as? String ?: "",
         )
     }
 }

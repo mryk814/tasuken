@@ -1,6 +1,7 @@
 package jp.personal.tasken.companion
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -218,6 +219,103 @@ class AgentDeskAttentionUiTest {
         composeRule.onNodeWithText("要確認").assertIsDisplayed()
         composeRule.onNodeWithTag("attention-row-unknown-1").assertIsDisplayed()
         composeRule.onNodeWithTag("attention-reply-open-unknown-1").assertDoesNotExist()
+    }
+
+    /**
+     * Foldの展開幅（#601）。一覧の隣の詳細ペインへ開き、回答はそこで書く。
+     * 1列のときの行の直下の回答欄と、同じ意味のまま置き場所だけを変える。
+     */
+    @Test
+    fun expandedWidthOpensTheReplyInTheDetailPane() {
+        var selected: AttentionRow? = null
+        composeRule.setContent {
+            MaterialTheme {
+                AiInboxListPane(
+                    uiState = cachedState(),
+                    tasks = emptyList(),
+                    themes = emptyList(),
+                    proposals = emptyList(),
+                    paneState = TodayPaneState(),
+                    onRetry = {},
+                    onRetryPairing = {},
+                    onPair = { _, _ -> },
+                    onTaskSelected = {},
+                    attention = listOf(question()),
+                    attentionCounts = MobileAttentionCountsDto(needsYou = 1, working = 0, queued = 0),
+                    attentionOnline = true,
+                    attentionInDetailPane = true,
+                    selectedAttentionId = question().attentionId,
+                    onAttentionSelected = { selected = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("attention-reply-open-${question().attentionId}").performScrollTo().performClick()
+
+        assertEquals(question().attentionId, selected?.attentionId)
+        // 一覧の行の直下には回答欄を置かない（詳細ペインが受け持つ）。
+        composeRule.onNodeWithTag("attention-reply-editor").assertDoesNotExist()
+    }
+
+    /** 詳細ペインの内容と送信（#601）。表示は Desktop が返した値をそのまま使う。 */
+    @Test
+    fun detailPaneShowsTheQuestionAndSendsTheReply() {
+        var sent = ""
+        val body = mutableStateOf("")
+        composeRule.setContent {
+            MaterialTheme {
+                AttentionDetailPane(
+                    row = question(),
+                    body = body.value,
+                    onBodyChange = { body.value = it },
+                    state = AgentReplyUiState.Idle,
+                    online = true,
+                    onSend = { sent = "send" },
+                    onOpenTask = {},
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("attention-detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("attention-detail-question").assertIsDisplayed()
+        composeRule.onNodeWithText("25℃と40℃のどちらで進めますか。").assertIsDisplayed()
+        // 本文が空のままでは送らない。
+        composeRule.onNodeWithTag("attention-detail-reply-send").assertIsNotEnabled()
+        composeRule.onNodeWithTag("attention-detail-reply-text").performTextInput("25℃で進めてください。")
+        composeRule.onNodeWithTag("attention-detail-reply-send").performClick()
+
+        assertEquals("send", sent)
+    }
+
+    /** 競合しても、詳細ペインの入力と説明を残す（#601）。 */
+    @Test
+    fun detailPaneKeepsTheInputWhenTheReplyConflicts() {
+        composeRule.setContent {
+            MaterialTheme {
+                AttentionDetailPane(
+                    row = question(),
+                    body = "25℃で進めてください。",
+                    onBodyChange = {},
+                    state = AgentReplyUiState.Conflict(
+                        question().attentionId,
+                        "同じIDが既に存在するか、対象が更新済みです。再読み込みして再試行してください。",
+                    ),
+                    online = false,
+                    onSend = {},
+                    onOpenTask = null,
+                    onBack = null,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("attention-detail-reply-text").assertIsDisplayed()
+        composeRule.onNodeWithText("同じIDが既に存在するか、対象が更新済みです。再読み込みして再試行してください。")
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Desktopへ接続してから回答してください。").assertIsDisplayed()
+        composeRule.onNodeWithTag("attention-detail-reply-send").assertIsNotEnabled()
+        // 一覧へ戻る導線は1列のときだけ出す。
+        composeRule.onNodeWithTag("attention-detail-back").assertDoesNotExist()
     }
 
     private fun question() = AttentionRow(
