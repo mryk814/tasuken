@@ -195,6 +195,36 @@ seed.save("ai_proposal", {
     ],
   },
 });
+// Taskに紐づかない変更案（Note提案）。対応待ちへ出るが、Taskは持たない。
+seed.save("ai_proposal", {
+  id: "desk-note-proposal",
+  source: "mcp",
+  source_app: "codex",
+  payload_type: "notes",
+  status: "pending",
+  received_at: "2026-09-20T09:50:00.000Z",
+  created_at: "2026-09-20T09:50:00.000Z",
+  version: 1,
+  title: "測定手順のNoteを作る案",
+  summary: "測定手順のNoteを作る案",
+  payload: {
+    notes: [
+      {
+        action: "create",
+        title: "測定手順の標準化",
+        body: "温度を決めてから3回測る。\n\n条件は測定前に記録する。",
+        theme: "",
+        note_type: "memo",
+        reason: "再現性のため",
+      },
+    ],
+  },
+  request: {
+    idempotency_key: "desk-note-proposal",
+    source: "mcp",
+    tool: "tasken.propose_note",
+  },
+});
 // 割当が変わると work_state は idle へ正規化される（正常な仕様）。
 // 実運用ではStartTaskWorkが作業中を作るため、fixtureでは2回目の保存で状態を置く。
 for (const [id, workState] of [
@@ -373,6 +403,42 @@ try {
   }
   await page.screenshot({ path: `${OUT_DIR}/agent-desk-after-return.png`, fullPage: true });
 
+  // Taskに紐づかない変更案も、対応待ちから中身を確認して却下できる（#600/#602）。
+  const proposalList = (await page.locator(".agent-desk-list").innerText()).replace(/\s+/g, " ");
+  if (!proposalList.includes("Noteの変更案")) {
+    failures.push("Taskなしの変更案が対応待ちに出ていません。");
+  }
+  await page.locator(".agent-desk-open", { hasText: "Noteの変更案" }).first().click();
+  await page.waitForTimeout(600);
+  const noteDetail = (await page.locator(".agent-desk-detail").innerText()).replace(/\s+/g, " ");
+  if (!noteDetail.includes("この変更案を却下")) {
+    failures.push(`変更案の却下操作がありません: ${noteDetail.slice(0, 160)}`);
+  }
+  // 中身は同じ面の「AIの提案」で確認できる。Taskなしでもpreviewが出る。
+  const proposalPanel = page.locator(".proposal-inbox-panel");
+  if (!(await proposalPanel.count())) {
+    failures.push("同じ面に「AIの提案」の確認がありません。");
+  } else {
+    await proposalPanel.locator(".proposal-row-select").first().click();
+    await page.waitForTimeout(800);
+    const previewText = (await proposalPanel.innerText()).replace(/\s+/g, " ");
+    if (!previewText.includes("測定手順の標準化")) {
+      failures.push("変更案のpreviewが中身を表示していません。");
+    }
+    await page.screenshot({ path: `${OUT_DIR}/agent-desk-note-proposal.png`, fullPage: true });
+  }
+
+  // 対応待ちから却下すると、提案待ちからも消える。
+  await page.locator(".agent-desk-open", { hasText: "Noteの変更案" }).first().click();
+  await page.waitForTimeout(500);
+  await page.locator(".agent-desk-detail .semantic-button-primary").first().click();
+  await page.waitForTimeout(2200);
+  const afterReject = (await page.locator(".agent-desk-list").innerText()).replace(/\s+/g, " ");
+  if (afterReject.includes("Noteの変更案")) {
+    failures.push("却下後も変更案が対応待ちに残っています。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/agent-desk-after-reject.png`, fullPage: true });
+
   // 狭幅でも横スクロールしない。
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 680));
   await page.waitForTimeout(700);
@@ -449,6 +515,14 @@ try {
       }
       if (!receiptsOf("desk-question").some((receipt) => receipt.receipt_kind === "human_reply")) {
         failures.push("回答がReceiptとして残っていません。");
+      }
+      // Taskなしの変更案は却下として決着し、Taskは作らない。
+      const decidedNote = verify.get("ai_proposal", "desk-note-proposal");
+      if (decidedNote.status !== "rejected") {
+        failures.push(`Taskなしの変更案が却下されていません（${decidedNote.status}）。`);
+      }
+      if (verify.list("note").some((note) => note.title === "測定手順の標準化")) {
+        failures.push("却下した変更案からNoteが作られています。");
       }
     } finally {
       verify.db.close();

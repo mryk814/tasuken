@@ -249,6 +249,11 @@ Task詳細の「AIへ任せる」から、**Taskの正本を変えずに**外部
 | 修正を依頼         | 修正内容を残し、対象の作業を差戻す。Taskは継続   | —                                  |
 | この変更案を却下   | Proposalを不採用にする                           | —                                  |
 
+「この変更案を却下」は種別で経路を分ける。Task workは `ApplyTaskWorkProposal`（`decision: "reject"`）、
+中身のある変更案（Note / Knowledge / Sketch / Artifact）は同じ面のPreviewと同じ entry decision を添えて
+`ApplyAiProposal`（`status: "rejected"`）へ渡す。**Taskに紐づかない変更案も Agent Desk から決着でき**、
+却下で正式データは作らない。修正を依頼（差戻し）とは別の操作である。
+
 「Taskも完了する」は**最初から選ばれていない明示オプション**にする。
 採用と完了は二つのCommandなので、前半だけ成功した場合は
 「既に採用済みの場合は、Task完了だけを再試行できます」と示し、**全体を失敗扱いして報告を二重保存しない**。
@@ -408,7 +413,7 @@ rtk npm run build:mcp
 | 質問とprogress   | `tests/agent-work-state.test.mjs`、`tests/attention-queue.test.mjs`（progress後も回答待ちが残る）                                                                                                                                                                                                                                       | —                                                                                    |
 | 複数の判断       | `tests/attention-queue.test.mjs`（質問とNote変更案の合計2件。Task紐づきでも別の判断として残り、片方の処理で他方が残る）、`tests/agent-work-state.test.mjs`                                                                                                                                                                              | MCPの書き込み経路が`notes`へ`task_id`を運ばない（読み出しは`request.task_id`に対応） |
 | 同じ報告の重複   | `tests/attention-queue.test.mjs`（reviewとProposalは1件、解決で消える）                                                                                                                                                                                                                                                                 | —                                                                                    |
-| TaskなしProposal | `tests/attention-queue.test.mjs`、`tests/mobile-attention-golden.test.mjs`、`tests/ai-integration-ia.test.mjs`、Android `MobileAttentionGoldenTest`                                                                                                                                                                                     | TaskなしProposalのpreviewを描画で通す受け入れ                                        |
+| TaskなしProposal | `tests/attention-queue.test.mjs`、`tests/mobile-attention-golden.test.mjs`、`tests/ai-integration-ia.test.mjs`、`npm run audit:agent-desk`（実画面で対応待ち→preview→却下）、Android `MobileAttentionGoldenTest`                                                                                                                        | —                                                                                    |
 | offline返信      | Android `AgentDeskAttentionUiTest`、`MobileAttentionRepositoryTest`（未送信の保持と成功後の消去）                                                                                                                                                                                                                                       | 画面を閉じた後の下書き復元                                                           |
 | offline承認      | Android `WorkReceiptDetailUiTest`、`MobileHumanReviewRepositoryTest`                                                                                                                                                                                                                                                                    | —                                                                                    |
 | 端末間競合       | `tests/agent-roundtrip-acceptance.test.mjs`（409 `entity_conflict`、遅い回答は記録を作らない）、Android `AgentDeskAttentionUiTest`                                                                                                                                                                                                      | —                                                                                    |

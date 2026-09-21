@@ -8,6 +8,7 @@ import {
 } from "../../../../../shared/contracts/task/public.ts";
 import type { PageProps } from "../types";
 import { Button } from "./common";
+import { buildContentProposalDecisions, buildPreview } from "./AiProposalPanel";
 
 /** 異なる層のrow（SQLite row / Rendererの型付きTask / Entity）を同じ形で扱う。 */
 type Row = { id: string; [key: string]: unknown };
@@ -275,27 +276,71 @@ export function AgentDeskPanel({ data, domain, executeCommand, setToast, openDra
     }
   }
 
+  /**
+   * 変更案を却下する。
+   *
+   * Task workは専用Command、中身のある変更案（Note等）は Previewと同じentry decision で
+   * `ApplyAiProposal` へ渡す。Taskに紐づかない変更案もここから決着できる。
+   */
   async function rejectProposal(item: AttentionItem) {
     if (busy) return;
     const proposal = proposals.find((entry) => String(entry.id) === item.sourceId);
     if (!proposal) return;
     setBusy(true);
+    const payloadType = str(proposal.payload_type);
     try {
-      await executeCommand({
-        commandId: `${proposal.id as string}:reject`,
-        name: "ApplyTaskWorkProposal",
-        payload: { proposalId: proposal.id as string, decision: "reject" },
-        actor: { kind: "user" },
-        source: "main_ui",
-        expectedVersions: [
-          {
-            type: "ai_proposal",
-            id: proposal.id as string,
-            version: Number(proposal.version || 0),
+      if (payloadType === "task_work") {
+        await executeCommand({
+          commandId: `${proposal.id as string}:reject`,
+          name: "ApplyTaskWorkProposal",
+          payload: { proposalId: proposal.id as string, decision: "reject" },
+          actor: { kind: "user" },
+          source: "main_ui",
+          expectedVersions: [
+            {
+              type: "ai_proposal",
+              id: proposal.id as string,
+              version: Number(proposal.version || 0),
+            },
+          ],
+          issuedAt: new Date().toISOString(),
+        } as never);
+      } else {
+        const preview = buildPreview(proposal as never, {
+          data,
+          themes: data.themes,
+          items: data.items,
+        });
+        const isContentProposal = ["notes", "knowledge_nodes", "sketches", "artifacts"].includes(
+          payloadType,
+        );
+        await executeCommand({
+          commandId: `${proposal.id as string}:accept:v${Number(proposal.version || 0)}`,
+          name: "ApplyAiProposal",
+          payload: {
+            proposal: { ...proposal, status: "rejected" },
+            ...(isContentProposal
+              ? {
+                  decision: "reject" as const,
+                  decisions: buildContentProposalDecisions(preview, true),
+                }
+              : {}),
+            candidates: [],
           },
-        ],
-        issuedAt: new Date().toISOString(),
-      } as never);
+          actor: { kind: "user" },
+          source: "main_ui",
+          expectedVersions: [
+            {
+              type: "ai_proposal",
+              id: proposal.id as string,
+              version: Number(proposal.version || 0),
+            },
+          ],
+          issuedAt:
+            str(proposal.received_at || proposal.created_at || proposal.updated_at) ||
+            new Date(0).toISOString(),
+        } as never);
+      }
       setToast("この変更案を却下しました。", "success");
       setSelectedId(null);
     } catch (error) {
