@@ -245,6 +245,86 @@ test("Headless replica joins a shared-folder sync and serves read-only MCP reads
   }
 });
 
+test("Headless replicaが受けたProposalはDesktopへ届き、採否はreplicaへ戻る", async (t) => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-headless-write-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const shared = path.join(root, "shared");
+  const hostUserData = path.join(root, "host");
+  const replicaUserData = path.join(root, "replica");
+  fs.mkdirSync(shared, { recursive: true });
+  const host = new WorkspaceDatabase(path.join(hostUserData, "research-desk.sqlite"));
+  const hostSync = new SharedFolderSyncService(
+    host,
+    () => {},
+    path.join(hostUserData, "attachments", "markdown-images"),
+    path.join(hostUserData, "attachments", "capture-images"),
+  );
+  const body = ["NASで受けた投稿がDesktopへ届くかを確かめる。"];
+  let client;
+  let proposalId;
+  try {
+    bootstrapWorkspace(host);
+    await hostSync.configure(shared);
+    const handle = await startTaskenHeadlessCore({
+      userDataPath: replicaUserData,
+      syncDirectory: shared,
+    });
+    try {
+      // replicaのCoreへ書き込む。MCP bridgeのread-only指定を付けない場合の経路。
+      client = await connectMcp(replicaUserData);
+      const queued = await client.callTool({
+        name: "tasken.propose_feed_post",
+        arguments: {
+          idempotency_key: "replica-proposal-roundtrip",
+          caller: "NAS replica test",
+          source_app: "nas-replica",
+          topic: "insight",
+          body,
+        },
+      });
+      assert.equal(queued.isError, undefined, JSON.stringify(queued));
+      proposalId = String(queued.structuredContent.proposal_id);
+      assert.equal(queued.structuredContent.payload_type, "feed_posts");
+      // 受領はreplicaに残り、Desktopへはまだ届いていない。
+      assert.equal(host.get("ai_proposal", proposalId), null);
+
+      await handle.syncNow();
+      await hostSync.syncNow();
+      const received = host.get("ai_proposal", proposalId);
+      assert.ok(received, "DesktopがreplicaのProposalを受け取る");
+      assert.equal(received.status, "pending");
+      assert.equal(received.source, "mcp");
+      assert.deepEqual(received.payload.feed_posts[0].body, body);
+      assert.equal(host.listSyncConflicts().length, 0, JSON.stringify(host.listSyncConflicts()));
+
+      // 人がDesktopで採用すると、その状態が新しい差分としてreplicaへ戻る。
+      host.save("ai_proposal", { ...received, status: "accepted" });
+      await hostSync.syncNow();
+      await handle.syncNow();
+      assert.equal(host.listSyncConflicts().length, 0, JSON.stringify(host.listSyncConflicts()));
+    } finally {
+      await client?.close().catch(() => {});
+      client = undefined;
+      await handle.stop();
+    }
+
+    const replica = new WorkspaceDatabase(path.join(replicaUserData, "research-desk.sqlite"));
+    try {
+      const applied = replica.get("ai_proposal", proposalId);
+      assert.ok(applied, "replicaがProposalを保持している");
+      assert.equal(applied.status, "accepted", "Desktopの採否がreplicaへ戻る");
+      assert.deepEqual(applied.payload.feed_posts[0].body, body);
+      assert.equal(replica.syncPendingCount(), 0, "replicaは受信を再公開しない");
+      assert.equal(replica.listSyncConflicts().length, 0);
+    } finally {
+      replica.db.close();
+    }
+  } finally {
+    hostSync.stop();
+    if (host.db.open) host.db.close();
+  }
+});
+
 test("Headless replica serves synced capture and task images over MCP", async (t) => {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-headless-image-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

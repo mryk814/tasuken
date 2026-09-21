@@ -61,6 +61,27 @@
 
 ## Phase 0 — 現在地と往復経路を固定する
 
+状態: ローカル調査は完了（2026-09-21）。実環境（NAS・ChatGPT）の確認は未実施。
+
+### 調査結果（ローカル）
+
+`workspaceEntityTypes` は `ai_proposal` を含み、Proposalの増減は変更差分として同期へ入る。受信側の `insertImported` は差分を再公開しないため、replicaが受信した内容がそのまま往復で増えることはない。
+
+`tests/tasken-headless-core.test.mjs` の「Headless replicaが受けたProposalはDesktopへ届き、採否はreplicaへ戻る」で次を確認した。
+
+- replicaのCoreへ届いた投稿は、replicaのSQLiteに `pending` として保存される。
+- replicaが公開した差分をDesktop役が取り込み、本文を含む同じProposalを `pending` で保持する。
+- Desktop役が採用へ変えた状態は、新しい差分としてreplicaへ戻る。
+- どちらの端末でも競合は発生せず、replicaは受信内容を再公開しない（`pending=0`）。
+
+つまり**Proposalの配送に新しいtransport・tool・schemaは要らない。** 残りは権限付与と、同じ`idempotency_key`を複数端末へ送った場合の扱いである。
+
+### 分かった制約
+
+- MCP bridgeの `TASKEN_MCP_READ_ONLY=1` を外すと、Headless Coreはreplicaからの書き込みをそのまま受理する。Core側のgateは無い。
+- 同じ `idempotency_key` をDesktopとNASの両方へ送ると、同じProposal IDが両nodeで別revisionとして生まれ、競合になりうる。1つの要求は1つのnodeへ送る運用が必要。
+- 端末ごとの `deviceSequence` は1から連番である必要がある。NAS役の公開は1件目から連番になる。
+
 ### 作業
 
 1. ローカルコードから、投稿・採用・共有フォルダ同期・冪等性記録・Feed表示の経路を整理する。
@@ -112,9 +133,10 @@ Phase 0の同期調査結果を設計ゲートとする。read-only設定の単�
    - 初期対象: テキストFeed投稿、Note作成案、Task作成案。
    - Task直接開始、既存Entity編集、画像・Artifact、採用操作などは今回の受付対象外。
    - Feed返信・Task報告の受付拡大は、初期往復成立後に既存契約を確認して別段階で判断する。
-3. 既存のProposal保存・同期を再利用し、NAS受信からDesktop表示までつなぐ。
+3. 既存のProposal保存・同期を再利用する。Phase 0の実測で配送は成立しているため、新しいtransport・tool・schemaを追加しない。
 4. durable commitの後だけ受信成功を返す。応答喪失後の再送、再起動後の冪等性を保証する。
 5. 接続ごとの権限が必要な場合、自己申告の `caller` を認証・認可に使わない。
+6. 同じ `idempotency_key` を複数nodeへ送らない運用を明記し、二重作成時は競合として安全に止まることを確認する。
 
 ### 完了条件
 
