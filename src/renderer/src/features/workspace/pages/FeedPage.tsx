@@ -543,6 +543,14 @@ export function FeedPage({
     [openDrawer, savedNoteOf],
   );
 
+  /** 既存Noteへの参照を、既存のNote読書面で開く（編集や別ウィンドウも既存導線を使う）。 */
+  const openNoteEntity = useCallback(
+    (note: Record<string, unknown>) => {
+      openDrawer({ type: "note", entity: note as never });
+    },
+    [openDrawer],
+  );
+
   /** 自分の投稿の元になったメモを、既存のNote面で開く。 */
   const openOwnNote = useCallback(
     (post: FeedPost) => {
@@ -879,7 +887,18 @@ export function FeedPage({
                   const collapsible = needsMore(post);
                   // 記事の草稿は採用前と採用後で状態を書き分ける。
                   const savedNote = savedNoteOf(post);
-                  const noteRef = noteReferenceOf(post, savedNote);
+                  /** 既存Noteへの参照。投稿は本文と参照だけを持ち、読むのは既存のNote面。 */
+                  const referencedNote = post.referencedNoteId
+                    ? ((
+                        domain.notes as unknown as Array<{ id: string } & Record<string, unknown>>
+                      ).find((note) => note.id === post.referencedNoteId) ?? null)
+                    : null;
+                  const noteRef =
+                    post.attachment?.kind === "note"
+                      ? referencedNote
+                        ? "saved"
+                        : "missing"
+                      : noteReferenceOf(post, savedNote);
                   const noteMissing = noteRef === "missing";
                   const body =
                     isExpanded || !collapsible ? post.paragraphs : post.paragraphs.slice(0, 1);
@@ -983,21 +1002,27 @@ export function FeedPage({
                               }`}
                             >
                               <span className="feed-attachment-kind">
-                                {savedNote || noteMissing
+                                {savedNote || referencedNote || noteMissing
                                   ? "Note"
                                   : attachmentKindLabel(post.attachment.kind)}
                               </span>
-                              <h4 className="feed-attachment-title">{post.attachment.title}</h4>
+                              <h4 className="feed-attachment-title">
+                                {String(referencedNote?.title || "") || post.attachment.title}
+                              </h4>
                               <p className="feed-attachment-intro">
                                 {savedNote
                                   ? "保存済みのNote"
-                                  : noteMissing
-                                    ? "参照先が削除されています"
-                                    : post.attachment.intro}
+                                  : referencedNote
+                                    ? "参照しているNote"
+                                    : noteMissing
+                                      ? "参照先が削除されています"
+                                      : post.attachment.intro}
                               </p>
                               {noteMissing ? (
                                 <p className="feed-attachment-missing">
-                                  元のNoteを「元に戻す」と、この参照からまた読めます。草稿の本文は残っています。
+                                  {post.draft
+                                    ? "元のNoteを「元に戻す」と、この参照からまた読めます。草稿の本文は残っています。"
+                                    : "元のNoteを「元に戻す」と、この参照からまた読めます。"}
                                 </p>
                               ) : null}
                               {post.attachment.figureLabel ? (
@@ -1021,6 +1046,16 @@ export function FeedPage({
                                       ? "草稿を読む"
                                       : "記事を読む"}
                                   </Button>
+                                ) : post.attachment.kind === "note" ? (
+                                  referencedNote ? (
+                                    <Button
+                                      variant="ghost"
+                                      compact
+                                      onClick={() => openNoteEntity(referencedNote)}
+                                    >
+                                      Noteで読む
+                                    </Button>
+                                  ) : null
                                 ) : (
                                   <Button
                                     variant="ghost"

@@ -29,6 +29,11 @@ export interface FeedPostRefs {
   draft?: FeedPostDraft | null;
   /** 読み物Proposalの状態。`accepted` は草稿が正式Noteになった（採用済み）。 */
   proposalStatus?: string;
+  /**
+   * 既存Noteへの参照（`payload.note_id`）。
+   * 投稿は本文と参照だけを持ち、Noteの読書面は既存の導線へ渡す。
+   */
+  referencedNoteId?: string | null;
 }
 
 /**
@@ -630,6 +635,8 @@ export function buildPostsFromProposals(input: {
       evidence: paragraphs(post.evidence),
       draft,
       proposalStatus: text(proposal.status),
+      // 既存Noteへの参照は、表示のたびにNoteを複製せず、IDのまま読書面へ渡す。
+      referencedNoteId: attachment?.kind === "note" ? text(post.note_id) || null : null,
     } as FeedPost);
   }
   return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));

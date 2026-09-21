@@ -5,11 +5,12 @@
  * 起動前に一時userDataへ小さなworkspaceを書く。SQLiteはElectronのABIでビルドされて
  * いるため、この script は `run-electron-node.mjs` 経由で実行する。
  *
- *   node scripts/run-electron-node.mjs scripts/seed-feed-audit-workspace.mjs <userDataDir> [--feed-post] [--bulk-posts 120]
+ *   node scripts/run-electron-node.mjs scripts/seed-feed-audit-workspace.mjs <userDataDir> [--feed-post] [--bulk-posts 120] [--note-ref]
  *
  * `--feed-post` を付けると、AIから届いた読み物の投稿（`feed_posts`）を1件足す。
  * 投稿があるときのFeedはfixtureを使わず、その投稿だけを読む。
  * `--bulk-posts <件数>` は連続読込の実測用に読み物の投稿を件数分だけ足す（100件以上の履歴）。
+ * `--note-ref` は既存Noteを参照する投稿（`payload.note_id`）を1件足す。
  *
  * 正本は docs/feed-surface.md。
  */
@@ -21,6 +22,7 @@ import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.
 const userDataDir = process.argv[2];
 if (!userDataDir) throw new Error("userDataDirを指定してください。");
 const withFeedPost = process.argv.includes("--feed-post");
+const withNoteRef = process.argv.includes("--note-ref");
 const bulkIndex = process.argv.indexOf("--bulk-posts");
 const bulkCount = bulkIndex >= 0 ? Number(process.argv[bulkIndex + 1] || 0) : 0;
 if (!Number.isInteger(bulkCount) || bulkCount < 0) {
@@ -287,6 +289,48 @@ for (let index = 0; index < bulkCount; index += 1) {
     },
     request: {
       idempotency_key: `feed-audit-bulk-${index}`,
+      source: "mcp",
+      tool: "tasken.propose_feed_post",
+    },
+  });
+}
+
+/**
+ * 既存Noteを参照する投稿（`--note-ref`）。
+ *
+ * 投稿は本文と参照だけを持ち、Noteの中身は複製しない。読むのは既存のNote面。
+ */
+if (withNoteRef) {
+  database.save("note", {
+    id: "feed-audit-note",
+    title: "測定手順の標準化",
+    body_markdown: "温度を決めてから3回測る。\n\n条件は測定前に記録する。",
+    note_type: "memo",
+    project_id: "theme-feed-audit",
+  });
+  database.save("ai_proposal", {
+    id: "feed-audit-note-post",
+    source: "mcp",
+    source_app: "codex",
+    payload_type: "feed_posts",
+    status: "pending",
+    received_at: at,
+    created_at: at,
+    version: 1,
+    payload: {
+      feed_posts: [
+        {
+          action: "publish",
+          topic: "reference",
+          body: ["前に書いた手順を、もう一度読んでから測ることにしました。"],
+          theme: "theme-feed-audit",
+          note_id: "feed-audit-note",
+          attachment_label: "測定手順",
+        },
+      ],
+    },
+    request: {
+      idempotency_key: "feed-audit-note-post",
       source: "mcp",
       tool: "tasken.propose_feed_post",
     },

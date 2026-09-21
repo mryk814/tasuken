@@ -135,6 +135,11 @@ FeedはTaskの一覧でも管理画面でもない。一つひとつの投稿が
 （採用済みのProposalは戻せないため、押しても失敗する操作を残さない）。
 Noteの削除は既存の「元に戻す」で同じIDへ復元でき、そのときこの参照もまた開ける。
 
+**既存Noteへの参照**（`payload.note_id`）は、投稿がNoteの中身を複製せずIDだけを持つ。
+添付は題名をNoteの正本から出し、「参照しているNote」と示して「Noteで読む」で既存のNote読書面
+（編集・別ウィンドウも既存導線）を開く。参照先のNoteを削除したときは、採用したNoteと同じく
+**参照先が削除されています**と示し、開く導線を外す（「元に戻す」で復元すると、同じ参照からまた読める）。
+
 返信は投稿のIDに紐づく `feed_reply` Entityとして保存する（第3段階）。
 人が書いた返信とAIの返答を同じスレッドへ置き、**スレッドの中は古い順**に読む
 （タイムライン全体は新しい順）。返信の削除はEntityの削除で、既存の「元に戻す」から復元できる。
@@ -222,6 +227,7 @@ rtk npm run build
 rtk npm run audit:feed            # 開発用fixtureで面の設計を実測
 rtk npm run audit:feed:live       # AIから届いた実データの投稿で一周を実測
 rtk npm run audit:feed:bulk       # 120件の履歴を20件単位で読み進められるか実測
+rtk npm run audit:feed:note       # 既存Noteへの参照を読書面へつなげられるか実測
 rtk node scripts/run-electron-node.mjs --test tests/feed-posts.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/feed-post-proposals.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/feed-replies.test.mjs
@@ -259,6 +265,13 @@ rtk node scripts/run-electron-node.mjs --test tests/feed-fixtures.test.mjs tests
 最後の投稿が最も古い投稿であること、末尾の文言を確認する。
 スクリーンショットは `output/playwright/feed-audit-bulk` へ出す。
 
+`audit:feed:note` は同じ隔離workspaceへ**既存のNote**と、それを参照する投稿（`payload.note_id`）を入れて（`--note-ref`）、
+投稿がNoteの中身を複製しないことを確かめる。添付の題名がNoteの正本から出ること、
+「参照しているNote」と示すこと、「Noteで読む」が既存のNote読書面（本文が出る）を開くこと、
+Noteを削除すると**参照先が削除されています**と示して開く導線が外れること、
+「元に戻す」と同じ参照からまた読めることを実測する。
+スクリーンショットは `output/playwright/feed-audit-note` へ出す。
+
 `tests/mcp-feed-post.test.mjs` は実SQLite + 実stdio MCPで
 「投稿 → Proposal → Feedの投影 → 要対応は増えない → 再送は増えない → Noteに保存 →
 投稿とブックマークは残る」を通し、読み物のpayloadだけでは正式データを変更できないこと、
@@ -277,6 +290,9 @@ rtk node scripts/run-electron-node.mjs --test tests/feed-fixtures.test.mjs tests
 `tests/feed-own-posts.test.mjs` は自分の投稿欄の境界（印の付いたNoteだけを読む、見出しの作り方、
 空の本文を載せない、外してもメモはNotesに残る、載せ直すと同じ投稿IDへ戻る）を確認する。
 
+`tests/feed-post-proposals.test.mjs` は既存Noteへの参照（`payload.note_id`）を、Noteの中身を複製せず
+IDのまま読書面へ渡せる形（添付はnote、草稿なし）にすることを確認する。
+
 ## 9. この単位でまだ確認していないこと
 
 | 未確認          | 内容                                                                                                     |
@@ -284,7 +300,7 @@ rtk node scripts/run-electron-node.mjs --test tests/feed-fixtures.test.mjs tests
 | 投稿の編集      | 自分の投稿はNotesで編集できる。Feed側での編集・下書き保存は未実装                                        |
 | 既存メモの掲載  | 投稿欄からは新規メモだけ。既存のメモを後からFeedへ載せる導線は未実装                                     |
 | AIの返答の訂正  | 返答は届いたら読める。あとから訂正したときの版の区別は未実装                                             |
-| 既存Noteの添付  | payloadの`note_id`は読める参照としてのみ扱い、Noteの読書面へは未接続                                     |
+| 既存Noteの添付  | `payload.note_id` は題名をNoteの正本から出し、「Noteで読む」で既存のNote読書面へつなぐ（実装済み）       |
 | 印の活用        | 印（おもしろい・既知だった）は保存し、`get_feed_context` でAIへ渡すが、題材選びの調整は利用後に行う      |
 | 参照先の削除    | Noteの削除は「参照先が削除されています」と元に戻すで扱う（実装済み）。Task参照の削除は未実装             |
 | 訂正と版        | 後日AIが投稿を訂正したときの版の区別は未実装                                                             |

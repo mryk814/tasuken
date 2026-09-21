@@ -27,13 +27,16 @@ import path from "node:path";
 const args = process.argv.slice(2);
 const LIVE = args.includes("--live");
 const BULK = args.includes("--bulk");
+const NOTE_REF = args.includes("--note-ref");
 const OUT_DIR =
   args.find((arg) => !arg.startsWith("--")) ||
   (LIVE
     ? "output/playwright/feed-audit-live"
     : BULK
       ? "output/playwright/feed-audit-bulk"
-      : "output/playwright/feed-audit");
+      : NOTE_REF
+        ? "output/playwright/feed-audit-note"
+        : "output/playwright/feed-audit");
 /** 実効幅1680px超で右詳細を常設し、それ以下では重ねる（docs/responsive-layout.md）。 */
 const SIZES = [
   { label: "wide-1536", width: 1536, height: 960 },
@@ -114,6 +117,7 @@ const seeded = spawnSync(
     userDataDir,
     ...(LIVE ? ["--feed-post"] : []),
     ...(BULK ? ["--bulk-posts", String(BULK_POSTS)] : []),
+    ...(NOTE_REF ? ["--note-ref"] : []),
   ],
   { encoding: "utf8" },
 );
@@ -916,6 +920,81 @@ async function auditBulk(page) {
   await page.screenshot({ path: `${OUT_DIR}/bulk-end.png`, fullPage: true });
 }
 
+/**
+ * 既存Noteを参照する投稿を読めることを確認する（`--note-ref`）。
+ *
+ * 投稿はNoteの中身を複製せず、`payload.note_id` の参照だけを持つ。
+ * 「Noteで読む」が既存のNote読書面を開くこと、Noteを消したら参照先の不在を示し、
+ * 元に戻すと同じ参照からまた読めることを実測する。
+ */
+async function auditNoteReference(page) {
+  const post = page.locator(".feed-post").first();
+  if (!(await post.count())) {
+    failures.push("既存Noteを参照する投稿が出ていません。");
+    return;
+  }
+  const attachment = post.locator(".feed-attachment").first();
+  const text = (await attachment.innerText()).replace(/\s+/g, " ");
+  // 題名はNoteの正本から出す。投稿が持つのは参照だけ。
+  if (!text.includes("測定手順の標準化"))
+    failures.push(`参照先Noteの題名が出ていません（${text}）。`);
+  if (!text.includes("参照しているNote"))
+    failures.push("参照しているNoteと分かる表示がありません。");
+  if (text.includes("参照先が削除されています")) {
+    failures.push("Noteがあるのに参照先の不在を示しています。");
+  }
+  const readNote = attachment.locator("button", { hasText: "Noteで読む" }).first();
+  if (!(await readNote.count())) {
+    failures.push("既存Noteを開く導線がありません。");
+    return;
+  }
+  await page.screenshot({ path: `${OUT_DIR}/note-ref.png`, fullPage: true });
+
+  await readNote.click();
+  await page.waitForTimeout(900);
+  const drawer = page.locator(".drawer", { hasText: "測定手順の標準化" }).first();
+  if (!(await drawer.count())) {
+    failures.push("既存のNote読書面を開けません。");
+    return;
+  }
+  if (!(await drawer.innerText()).includes("温度を決めてから3回測る")) {
+    failures.push("Noteの本文が読書面に出ていません。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/note-ref-open.png`, fullPage: true });
+
+  // Noteを消すと参照先の不在を示し、元に戻すと同じ参照からまた読める。
+  await drawer.locator("button", { hasText: "削除する" }).first().click();
+  await page.waitForTimeout(1500);
+  const missing = page.locator(".feed-attachment.is-missing").first();
+  if (!(await missing.count())) {
+    failures.push("Noteを消しても、添付が参照先の不在を示していません。");
+  } else {
+    const missingText = (await missing.innerText()).replace(/\s+/g, " ");
+    if (!missingText.includes("参照先が削除されています")) {
+      failures.push(`参照先がない案内が出ていません（${missingText}）。`);
+    }
+    if (await missing.locator("button", { hasText: "Noteで読む" }).count()) {
+      failures.push("参照先が無いのにNoteを開く導線が残っています。");
+    }
+  }
+  await page.screenshot({ path: `${OUT_DIR}/note-ref-missing.png`, fullPage: true });
+
+  const undo = page.locator(".toast button", { hasText: "元に戻す" }).first();
+  if (!(await undo.count())) {
+    failures.push("Noteの削除を元に戻す導線が出ていません。");
+    return;
+  }
+  await undo.click();
+  await page.waitForTimeout(1800);
+  if (await page.locator(".feed-attachment.is-missing").count()) {
+    failures.push("元に戻しても添付が参照先の不在を示したままです。");
+  }
+  if (!(await post.locator("button", { hasText: "Noteで読む" }).count())) {
+    failures.push("元に戻した後、同じ参照からNoteを開けません。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/note-ref-restored.png`, fullPage: true });
+}
+
 try {
   if (LIVE) {
     // 実データの投稿を読む → 終了 → 起動し直して保存を確認する。
@@ -941,6 +1020,14 @@ try {
     } finally {
       await session.app.close();
     }
+  } else if (NOTE_REF) {
+    const session = await launchApp();
+    try {
+      await openFeed(session.page);
+      await auditNoteReference(session.page);
+    } finally {
+      await session.app.close();
+    }
   } else {
     const session = await launchApp();
     try {
@@ -962,6 +1049,12 @@ if (failures.length) {
 }
 console.log(
   `Feed監査: OK（${
-    LIVE ? "実データ投稿" : BULK ? `連続読込${BULK_POSTS}件` : "開発用fixture"
+    LIVE
+      ? "実データ投稿"
+      : BULK
+        ? `連続読込${BULK_POSTS}件`
+        : NOTE_REF
+          ? "既存Noteの参照"
+          : "開発用fixture"
   }、スクリーンショットは ${OUT_DIR}）`,
 );

@@ -90,6 +90,39 @@ test("読み物Proposalを投稿へ写し、記事の草稿も読める形にす
   assert.deepEqual(post.evidence, ["実装: src/main/services/applicationCommandService.ts"]);
 });
 
+test("既存Noteへの参照は、IDのまま読書面へ渡せる形にする", () => {
+  const proposal = feedProposal({
+    payload: {
+      feed_posts: [
+        {
+          action: "publish",
+          topic: "reference",
+          body: ["前に書いた手順を思い出したので、もう一度読む。"],
+          theme: "theme-materials",
+          note_id: "note-existing-1",
+          attachment_label: "測定手順",
+        },
+      ],
+    },
+  });
+
+  const posts = buildPostsFromProposals({
+    proposals: [proposal],
+    themes: [{ id: "theme-materials", name: "高分子材料評価" }],
+  });
+
+  assert.equal(posts.length, 1);
+  const post = posts[0];
+  // 添付は既存Noteへの参照。草稿ではないので「Noteに保存」は出さない。
+  assert.equal(post.attachment?.kind, "note");
+  assert.equal(post.draft, null);
+  assert.equal(post.attachment?.articleBody, null);
+  assert.equal(post.referencedNoteId, "note-existing-1");
+  assert.equal(post.attachment?.refLabel, "高分子材料評価");
+  // Noteの中身は複製せず、読むのは既存のNote面。
+  assert.equal(post.paragraphs.length, 1);
+});
+
 test("投稿は要対応の件数を増やさない。一般のNote提案は従来どおり判断待ちに残る", () => {
   const feed = feedProposal();
   const note = {
