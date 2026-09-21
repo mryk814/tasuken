@@ -5,10 +5,11 @@
  * 起動前に一時userDataへ小さなworkspaceを書く。SQLiteはElectronのABIでビルドされて
  * いるため、この script は `run-electron-node.mjs` 経由で実行する。
  *
- *   node scripts/run-electron-node.mjs scripts/seed-feed-audit-workspace.mjs <userDataDir> [--feed-post]
+ *   node scripts/run-electron-node.mjs scripts/seed-feed-audit-workspace.mjs <userDataDir> [--feed-post] [--bulk-posts 120]
  *
  * `--feed-post` を付けると、AIから届いた読み物の投稿（`feed_posts`）を1件足す。
  * 投稿があるときのFeedはfixtureを使わず、その投稿だけを読む。
+ * `--bulk-posts <件数>` は連続読込の実測用に読み物の投稿を件数分だけ足す（100件以上の履歴）。
  *
  * 正本は docs/feed-surface.md。
  */
@@ -20,6 +21,11 @@ import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.
 const userDataDir = process.argv[2];
 if (!userDataDir) throw new Error("userDataDirを指定してください。");
 const withFeedPost = process.argv.includes("--feed-post");
+const bulkIndex = process.argv.indexOf("--bulk-posts");
+const bulkCount = bulkIndex >= 0 ? Number(process.argv[bulkIndex + 1] || 0) : 0;
+if (!Number.isInteger(bulkCount) || bulkCount < 0) {
+  throw new Error("--bulk-posts には0以上の整数を指定してください。");
+}
 
 const TODAY = new Date();
 const today = [
@@ -244,6 +250,45 @@ if (withFeedPost) {
       idempotency_key: "feed-audit-live-answer",
       source: "mcp",
       tool: "tasken.answer_feed_question",
+    },
+  });
+}
+
+/**
+ * 連続読込の実測用の投稿（`--bulk-posts`）。
+ *
+ * 100件以上を読むときも20件単位で読み進められること、読んでいる位置が動かないことを
+ * 確かめるために、時刻を1件ずつずらして並び順を固定する。
+ */
+const BULK_TOPICS = ["work_report", "insight", "learning", "reference"];
+for (let index = 0; index < bulkCount; index += 1) {
+  const publishedAt = new Date(Date.parse(at) - index * 60_000).toISOString();
+  database.save("ai_proposal", {
+    id: `feed-audit-bulk-${index}`,
+    source: "mcp",
+    source_app: index % 3 === 0 ? "claude" : "codex",
+    payload_type: "feed_posts",
+    status: "pending",
+    received_at: publishedAt,
+    created_at: publishedAt,
+    version: 1,
+    payload: {
+      feed_posts: [
+        {
+          action: "publish",
+          topic: BULK_TOPICS[index % BULK_TOPICS.length],
+          body: [
+            `連続読込の確認用の投稿 ${index + 1} です。`,
+            "読み進めても、読んでいる位置が動かないことを確かめます。",
+          ],
+          theme: "theme-feed-audit",
+        },
+      ],
+    },
+    request: {
+      idempotency_key: `feed-audit-bulk-${index}`,
+      source: "mcp",
+      tool: "tasken.propose_feed_post",
     },
   });
 }

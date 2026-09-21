@@ -50,6 +50,7 @@
     "audit:responsive": "node scripts/responsive-audit.mjs",
     "audit:feed": "node scripts/feed-surface-audit.mjs",
     "audit:feed:live": "node scripts/feed-surface-audit.mjs --live",
+    "audit:feed:bulk": "node scripts/feed-surface-audit.mjs --bulk",
     "audit:habit": "node scripts/habit-today-audit.mjs",
     "audit:maintenance": "node scripts/maintenance-today-audit.mjs",
     "audit:today-dates": "node scripts/run-electron-node.mjs scripts/today-date-audit.mjs",

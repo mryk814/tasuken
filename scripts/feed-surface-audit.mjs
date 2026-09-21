@@ -7,13 +7,16 @@
  *
  *   npm run build && npm run audit:feed           # 開発用fixture（架空データ）で面の設計を確認
  *   npm run build && npm run audit:feed:live      # AIから届いた実データの投稿を読めるか確認
+ *   npm run build && npm run audit:feed:bulk      # 100件以上の履歴を20件単位で読み進められるか確認
  *
  * `--live` では隔離workspaceへ実データの投稿を1件入れ、その投稿だけを読む。
  * 対応待ち（実データ）の件数が読む操作で変わらないこと、ブックマークが**再起動後**も
  * 残ることを実測する。fixtureは実データが無いときだけの開発用なので、
  * 投稿があるときの面にはfixtureを混ぜない。
+ * `--bulk` では読み物の投稿を120件入れ、連続読込と読んでいる位置の保持を実測する。
  *
- * 出力先は output/playwright/feed-audit（`--live` は feed-audit-live）。失敗時は終了コード1。
+ * 出力先は output/playwright/feed-audit（`--live` は feed-audit-live、`--bulk` は feed-audit-bulk）。
+ * 失敗時は終了コード1。
  */
 import { _electron as electron } from "playwright";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -23,9 +26,14 @@ import path from "node:path";
 
 const args = process.argv.slice(2);
 const LIVE = args.includes("--live");
+const BULK = args.includes("--bulk");
 const OUT_DIR =
   args.find((arg) => !arg.startsWith("--")) ||
-  (LIVE ? "output/playwright/feed-audit-live" : "output/playwright/feed-audit");
+  (LIVE
+    ? "output/playwright/feed-audit-live"
+    : BULK
+      ? "output/playwright/feed-audit-bulk"
+      : "output/playwright/feed-audit");
 /** 実効幅1680px超で右詳細を常設し、それ以下では重ねる（docs/responsive-layout.md）。 */
 const SIZES = [
   { label: "wide-1536", width: 1536, height: 960 },
@@ -50,6 +58,9 @@ const LIVE_OWN_POST_BODY = "条件を先に決めると、測り直しが減る�
 /** 隔離workspaceへ用意する質問とAIの返答（第3段階）。 */
 const LIVE_SEEDED_QUESTION = "この条件は40℃の比較にも同じように使えますか。";
 const LIVE_SEEDED_ANSWER = "40℃では裾が広がるため、平均ではなく幅だけで比べてください。";
+/** 連続読込の実測（`--bulk`）で入れる投稿の件数と、1回の読み込み件数。 */
+const BULK_POSTS = 120;
+const FEED_PAGE_SIZE = 20;
 
 function detectLayoutBreakage() {
   const overflowing = [];
@@ -102,6 +113,7 @@ const seeded = spawnSync(
     "scripts/seed-feed-audit-workspace.mjs",
     userDataDir,
     ...(LIVE ? ["--feed-post"] : []),
+    ...(BULK ? ["--bulk-posts", String(BULK_POSTS)] : []),
   ],
   { encoding: "utf8" },
 );
@@ -791,6 +803,81 @@ async function auditLiveRestart(page) {
   await page.screenshot({ path: `${OUT_DIR}/live-note-restored.png`, fullPage: true });
 }
 
+/**
+ * 100件以上の履歴を連続して読めることを確認する（`--bulk`）。
+ *
+ * 20件単位で読み込み、読んでいる位置（先頭の投稿の文書内の位置）が動かないこと、
+ * 同じ投稿を二度出さないこと、最後まで届いて「さらに読む」が消えることを実測する。
+ */
+async function auditBulk(page) {
+  const initial = await page.locator(".feed-post").count();
+  if (initial !== FEED_PAGE_SIZE) {
+    failures.push(`最初に読める投稿が${FEED_PAGE_SIZE}件ではありません（${initial}件）。`);
+  }
+  const firstText = (await page.locator(".feed-post .feed-post-text").first().innerText()).trim();
+  const firstOffsetBefore = await page.evaluate(
+    () => document.querySelector(".feed-post")?.offsetTop ?? -1,
+  );
+  const more = page.locator(".feed-more");
+  if (!(await more.count())) {
+    failures.push("さらに読むがありません。");
+    return;
+  }
+  const moreLabel = (await more.first().innerText()).trim();
+  if (!moreLabel.includes(`次の${FEED_PAGE_SIZE}件`)) {
+    failures.push(`さらに読むの案内が違います（${moreLabel}）。`);
+  }
+
+  let rounds = 0;
+  while (await page.locator(".feed-more").count()) {
+    if (rounds >= BULK_POSTS / FEED_PAGE_SIZE + 2) {
+      failures.push("さらに読むを押しても読み込みが終わりません。");
+      break;
+    }
+    await page.locator(".feed-more").first().click();
+    await page.waitForTimeout(400);
+    rounds += 1;
+  }
+
+  const total = await page.locator(".feed-post").count();
+  if (total !== BULK_POSTS) {
+    failures.push(`全${BULK_POSTS}件を読み込めません（${total}件）。`);
+  }
+  if (await page.locator(".feed-more").count()) {
+    failures.push("全件を読み込んでも「さらに読む」が残っています。");
+  }
+
+  // 同じ投稿を二度出さない。並びは新しい順のまま。
+  const paragraphs = await page.$$eval(".feed-post", (nodes) =>
+    nodes.map((node) => node.querySelector(".feed-post-text")?.textContent?.trim() || ""),
+  );
+  const unique = new Set(paragraphs);
+  if (unique.size !== paragraphs.length) {
+    failures.push(`同じ投稿が重複して出ています（${paragraphs.length}件中${unique.size}件が別）。`);
+  }
+  if (paragraphs[0] !== firstText) {
+    failures.push("先頭の投稿が読み進めで変わりました。");
+  }
+  if (!paragraphs[paragraphs.length - 1]?.includes(`投稿 ${BULK_POSTS} `)) {
+    failures.push(
+      `最後の投稿が最も古い投稿ではありません（${paragraphs[paragraphs.length - 1]}）。`,
+    );
+  }
+  const firstOffsetAfter = await page.evaluate(
+    () => document.querySelector(".feed-post")?.offsetTop ?? -1,
+  );
+  if (firstOffsetAfter !== firstOffsetBefore) {
+    failures.push(
+      `読み進めで先頭の投稿の位置が動きました（${firstOffsetBefore} → ${firstOffsetAfter}）。`,
+    );
+  }
+  const endText = (await page.locator(".feed-end").first().innerText()).trim();
+  if (!endText.includes("ここまでの投稿を表示しました")) {
+    failures.push(`末尾の文言が違います（${endText}）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/bulk-end.png`, fullPage: true });
+}
+
 try {
   if (LIVE) {
     // 実データの投稿を読む → 終了 → 起動し直して保存を確認する。
@@ -805,6 +892,14 @@ try {
     try {
       await openFeed(session.page);
       await auditLiveRestart(session.page);
+    } finally {
+      await session.app.close();
+    }
+  } else if (BULK) {
+    const session = await launchApp();
+    try {
+      await openFeed(session.page);
+      await auditBulk(session.page);
     } finally {
       await session.app.close();
     }
@@ -828,5 +923,7 @@ if (failures.length) {
   process.exit(1);
 }
 console.log(
-  `Feed監査: OK（${LIVE ? "実データ投稿" : "開発用fixture"}、スクリーンショットは ${OUT_DIR}）`,
+  `Feed監査: OK（${
+    LIVE ? "実データ投稿" : BULK ? `連続読込${BULK_POSTS}件` : "開発用fixture"
+  }、スクリーンショットは ${OUT_DIR}）`,
 );

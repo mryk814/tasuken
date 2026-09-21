@@ -221,6 +221,7 @@ Noteの削除は既存の「元に戻す」で同じIDへ復元でき、その�
 rtk npm run build
 rtk npm run audit:feed            # 開発用fixtureで面の設計を実測
 rtk npm run audit:feed:live       # AIから届いた実データの投稿で一周を実測
+rtk npm run audit:feed:bulk       # 120件の履歴を20件単位で読み進められるか実測
 rtk node scripts/run-electron-node.mjs --test tests/feed-posts.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/feed-post-proposals.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/feed-replies.test.mjs
@@ -249,6 +250,13 @@ rtk node scripts/run-electron-node.mjs --test tests/feed-fixtures.test.mjs tests
 **実データの印でも「保存済みのみ」が効くこと**と**実データの投稿で「既知だった」を記録できること**、
 **採用したNoteを削除すると参照先の不在が出て、「元に戻す」と同じ参照からまた読めること**を
 実測する。スクリーンショットは `output/playwright/feed-audit-live` へ出す。
+
+`audit:feed:bulk` は同じ隔離workspaceへ読み物の投稿を**120件**入れて（`--bulk-posts 120`）、
+100件以上の履歴でも読めることを確かめる。最初は20件だけを読み、**「さらに読む」が次の20件を示す**こと、
+押すたびに20件ずつ増えて最後は「さらに読む」が消えること、同じ投稿を二度出さないこと、
+**先頭の投稿の文書内の位置が読み進めで動かないこと**（読んでいる位置を保つ）、
+最後の投稿が最も古い投稿であること、末尾の文言を確認する。
+スクリーンショットは `output/playwright/feed-audit-bulk` へ出す。
 
 `tests/mcp-feed-post.test.mjs` は実SQLite + 実stdio MCPで
 「投稿 → Proposal → Feedの投影 → 要対応は増えない → 再送は増えない → Noteに保存 →
@@ -280,7 +288,7 @@ rtk node scripts/run-electron-node.mjs --test tests/feed-fixtures.test.mjs tests
 | 参照先の削除    | Noteの削除は「参照先が削除されています」と元に戻すで扱う（実装済み）。Task参照の削除は未実装        |
 | 訂正と版        | 後日AIが投稿を訂正したときの版の区別は未実装                                                        |
 | 発信量の調整    | 一日数件という目安は生成側の指示で、上限の表示制御は無い                                            |
-| 100件以上の履歴 | 連続読込の機構はあるが、大量データでの実測は未実施                                                  |
+| 100件以上の履歴 | 120件で連続読込を実測済み（`audit:feed:bulk`）。もっと多い件数と実利用での速度は未実施              |
 | 明暗両モード    | 暗い表示は開発用fixture面（`dark-*-home.png`）で実測済み。実データの面とAndroidは未実施             |
 | 読み上げ        | 出所・本文・反応の順に読めるかは未確認                                                              |
 | Android         | 狭幅の読書導線をDesktopで固めた後、展開範囲を選ぶ                                                   |
