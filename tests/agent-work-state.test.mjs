@@ -80,6 +80,11 @@ test("report_sequence は到着順と発信時刻より優先して並びを決�
     state.reports.map((report) => report.proposalId),
     ["first", "second"],
   );
+  // currentは最後に読む報告。到着が遅い1番目ではなく、2番目がcurrentになる。
+  assert.equal(state.reports.at(-1).proposalId, "second");
+  // progressは判断ではない。順不同で届いても要対応の行を作らない（端末差になる値が無い）。
+  assert.equal(state.attention.length, 0);
+  assert.equal(state.state, "working");
 });
 
 test("未解決の入力要求は回答待ち1件になり、同じ質問の再送で増えない", () => {

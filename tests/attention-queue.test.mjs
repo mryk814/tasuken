@@ -210,6 +210,36 @@ test("質問と独立したNote変更案は合計2件で、一方を処理して
   assert.equal(afterReject[0].requestId, REQUEST_MEASUREMENT);
 });
 
+test("Note変更案がTaskに紐づいて届いても、質問とは別の判断として残る", () => {
+  const task = makeTask({ work_state: "blocked", work_attempt_id: WORK_ATTEMPT_A });
+  const question = questionProposal("question-1");
+  // 書き込み側がTaskへ紐づけて届けたNote変更案（`request.task_id`）。
+  const note = contentProposal("note-1", "notes", { request: { task_id: TASK_ID } });
+  const queue = buildAttentionQueue({ tasks: [task], proposals: [question, note] });
+  assert.equal(countAttention(queue), 2);
+  const noteRow = queue.find((item) => item.sourceId === "note-1");
+  assert.equal(noteRow.kind, "proposal_pending");
+  assert.equal(noteRow.taskId, TASK_ID);
+  assert.equal(noteRow.taskTitle, "粘度測定の条件を決める");
+  // 質問へ回答しても、同じTaskのNote変更案は残る。
+  const reply = makeReceipt("reply-1", {
+    executor_kind: "human",
+    executor_label: "自分",
+    receipt_kind: "human_reply",
+    request_id: REQUEST_MEASUREMENT,
+    work_attempt_id: WORK_ATTEMPT_A,
+    summary: "25℃で進めてください。",
+  });
+  const afterAnswer = buildAttentionQueue({
+    tasks: [task],
+    proposals: [question, note],
+    receipts: [reply],
+  });
+  assert.equal(countAttention(afterAnswer), 1);
+  assert.equal(afterAnswer[0].sourceId, "note-1");
+  assert.equal(afterAnswer[0].taskId, TASK_ID);
+});
+
 test("未解決の質問の後にprogressが届いても、要対応の質問は残る", () => {
   const { task, proposals, receipts } = questionThenProgressScenario();
   const queue = buildAttentionQueue({ tasks: [task], proposals, receipts });
