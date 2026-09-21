@@ -18,6 +18,8 @@ export interface FeedPostRefs {
   proposalId?: string;
   /** 返信EntityのID（自分の返信を削除するときに使う）。 */
   replyId?: string;
+  /** 返信をAIへ向けたか、AIが答えたか（第3段階）。 */
+  aiState?: "requested" | "answered" | null;
   taskId?: string | null;
   taskTitle?: string | null;
   evidence?: string[];
@@ -664,20 +666,33 @@ export function replyPostId(replyId: string): string {
 /**
  * 返信Entityを、投稿と同じ形へ写す。並びは親投稿の直後に入る（`withReplies`）。
  * 返信そのものへ更に返信はせず、親投稿のIDだけを持つ。
+ *
+ * AIへ向けた質問（`ai_requested_at`）は、AIの返答（`author_kind: "ai"` で
+ * `reply_to` がその質問を指す返信）が届いた時点で「回答あり」になる。
+ * 依頼しただけでAIが動いたように見せない。
  */
 export function buildRepliesFromEntities(input: { replies?: readonly unknown[] }): FeedPost[] {
+  const rows = (input.replies ?? []).filter((entry): entry is Row =>
+    Boolean(entry && typeof entry === "object"),
+  );
+  const answered = new Set(
+    rows
+      .filter((row) => !row.deleted_at && text(row.author_kind) === "ai")
+      .map((row) => text(row.reply_to))
+      .filter(Boolean),
+  );
   const replies: FeedPost[] = [];
-  for (const entry of input.replies ?? []) {
-    if (!entry || typeof entry !== "object") continue;
-    const reply = entry as Row;
+  for (const reply of rows) {
     if (reply.deleted_at) continue;
     const postId = text(reply.post_id);
     const body = text(reply.body);
     if (!postId || !body) continue;
     const isAi = text(reply.author_kind) === "ai";
     const label = text(reply.author_label);
+    const replyId = String(reply.id);
+    const requested = !isAi && text(reply.ai_requested_at) !== "";
     replies.push({
-      id: replyPostId(String(reply.id)),
+      id: replyPostId(replyId),
       author: isAi ? authorIdForLabel(label) : "self",
       kind: "own_note",
       createdAt: text(reply.created_at),
@@ -685,7 +700,8 @@ export function buildRepliesFromEntities(input: { replies?: readonly unknown[] }
       attachment: null,
       replyTo: postId,
       learnable: false,
-      replyId: String(reply.id),
+      replyId,
+      aiState: requested ? (answered.has(replyId) ? "answered" : "requested") : null,
     } as FeedPost);
   }
   return replies.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
@@ -697,12 +713,15 @@ export function feedReplyEntity(input: {
   postId: string;
   body: string;
   createdAt: string;
+  /** 外部AIへ回答を依頼する（`ai_requested_at` を残す）。 */
+  askAi?: boolean;
 }): {
   id: string;
   post_id: string;
   body: string;
   created_at: string;
   author_kind: "self";
+  ai_requested_at?: string;
 } {
   const body = input.body.trim();
   if (!body) throw new Error("返信の本文を入力してください。");
@@ -713,5 +732,6 @@ export function feedReplyEntity(input: {
     body,
     created_at: input.createdAt,
     author_kind: "self",
+    ...(input.askAi ? { ai_requested_at: input.createdAt } : {}),
   };
 }

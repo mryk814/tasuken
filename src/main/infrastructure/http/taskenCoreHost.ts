@@ -39,6 +39,8 @@ import type {
   GetActivityResponse,
   GetContextSubgraphRequest,
   GetContextSubgraphResponse,
+  GetFeedContextRequest,
+  GetFeedContextResponse,
   ExportAiContextRequest,
   ExportAiContextResponse,
   GetTaskAssignmentRequest,
@@ -82,6 +84,7 @@ import {
   getKnowledgeHealthRequestSchema,
   getActivityRequestSchema,
   getContextSubgraphRequestSchema,
+  getFeedContextRequestSchema,
   exportAiContextRequestSchema,
   getTaskContextRequestSchema,
   listAgentReadyTasksRequestSchema,
@@ -117,6 +120,7 @@ import {
   TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
   TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
+  TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
@@ -180,6 +184,7 @@ export interface TaskenCoreHostOptions {
   getKnowledgeHealth?: QueryProvider<GetKnowledgeHealthRequest, GetKnowledgeHealthResponse>;
   getActivity?: QueryProvider<GetActivityRequest, GetActivityResponse>;
   getContextSubgraph?: QueryProvider<GetContextSubgraphRequest, GetContextSubgraphResponse>;
+  getFeedContext?: QueryProvider<GetFeedContextRequest, GetFeedContextResponse>;
   exportAiContext?: QueryProvider<ExportAiContextRequest, ExportAiContextResponse>;
   proposeTaskWork?: QueryProvider<ProposeTaskWorkRequest, ProposeTaskWorkResponse>;
   proposeAgentSession?: QueryProvider<ProposeAgentSessionRequest, ProposeAgentSessionResponse>;
@@ -286,7 +291,9 @@ function parseOperationRequest(url: string, body: unknown): unknown {
                                                           : url ===
                                                               "/v1/queries/get-context-subgraph"
                                                             ? getContextSubgraphRequestSchema
-                                                            : exportAiContextRequestSchema;
+                                                            : url === "/v1/queries/get-feed-context"
+                                                              ? getFeedContextRequestSchema
+                                                              : exportAiContextRequestSchema;
   const result = schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
@@ -502,6 +509,7 @@ export class TaskenCoreHost {
       ...(this.options.getKnowledgeHealth ? [TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY] : []),
       ...(this.options.getActivity ? [TASKEN_CORE_GET_ACTIVITY_CAPABILITY] : []),
       ...(this.options.getContextSubgraph ? [TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY] : []),
+      ...(this.options.getFeedContext ? [TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY] : []),
       ...(this.options.exportAiContext ? [TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY] : []),
       ...(this.options.proposeTaskWork ? [TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY] : []),
       ...(this.options.proposeAgentSession ? [TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY] : []),
@@ -599,6 +607,7 @@ export class TaskenCoreHost {
         ...(this.options.getKnowledgeHealth ? ["/v1/queries/get-knowledge-health"] : []),
         ...(this.options.getActivity ? ["/v1/queries/get-activity"] : []),
         ...(this.options.getContextSubgraph ? ["/v1/queries/get-context-subgraph"] : []),
+        ...(this.options.getFeedContext ? ["/v1/queries/get-feed-context"] : []),
         ...(this.options.exportAiContext ? ["/v1/queries/export-ai-context"] : []),
       ]);
       const commandPaths = new Set([
@@ -782,6 +791,8 @@ export class TaskenCoreHost {
             200,
             this.options.getContextSubgraph!.execute(body as GetContextSubgraphRequest),
           );
+        } else if (request.url === "/v1/queries/get-feed-context") {
+          json(response, 200, this.options.getFeedContext!.execute(body as GetFeedContextRequest));
         } else if (request.url === "/v1/queries/export-ai-context") {
           json(
             response,

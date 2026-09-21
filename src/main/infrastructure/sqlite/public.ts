@@ -4,6 +4,7 @@ import {
   AgentContextExportService,
   AgentWorkspaceQueryService,
   ContentDetailQueryService,
+  FeedContextQueryService,
   ItemQueryService,
   ListAgentReadyTasksService,
   KnowledgeQueryService,
@@ -53,6 +54,10 @@ import {
   WorkspaceAgentContextReadAdapter,
   type AgentContextWorkspacePersistence,
 } from "./workspaceAgentContextReadAdapter.ts";
+import {
+  WorkspaceFeedContextReadAdapter,
+  type FeedContextWorkspacePersistence,
+} from "./workspaceFeedContextReadAdapter.ts";
 
 export { WorkspaceAgentReadyTaskReadAdapter, type AgentReadyTaskWorkspacePersistence };
 export { WorkspaceAgentWorkspaceReadAdapter, type AgentWorkspacePersistence };
@@ -63,6 +68,7 @@ export { WorkspaceActivityEntriesReadAdapter, type ActivityEntriesWorkspacePersi
 export { WorkspaceThemeContextReadAdapter, type ThemeContextWorkspacePersistence };
 export { WorkspaceKnowledgeReadAdapter, type KnowledgeWorkspacePersistence };
 export { WorkspaceAgentContextReadAdapter, type AgentContextWorkspacePersistence };
+export { WorkspaceFeedContextReadAdapter, type FeedContextWorkspacePersistence };
 export { WorkspaceAiProposalWriteAdapter };
 
 export interface AiProposalPersistence {
@@ -87,6 +93,7 @@ export type TaskenCorePersistence = AgentReadyTaskWorkspacePersistence &
   ThemeContextWorkspacePersistence &
   KnowledgeWorkspacePersistence &
   AgentContextWorkspacePersistence &
+  FeedContextWorkspacePersistence &
   AiProposalPersistence;
 
 export function createTaskenCore(
@@ -151,6 +158,9 @@ export function createTaskenCore(
     getKnowledgeHealth: { execute: knowledge.getKnowledgeHealth.bind(knowledge) },
     getActivity: { execute: agentContext.getActivity.bind(agentContext) },
     getContextSubgraph: { execute: agentContext.getContextSubgraph.bind(agentContext) },
+    getFeedContext: new FeedContextQueryService(
+      new WorkspaceFeedContextReadAdapter(persistence),
+    ),
     exportAiContext,
     proposeTaskWork: new ProposeTaskWorkService(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),

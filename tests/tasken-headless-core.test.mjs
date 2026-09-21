@@ -102,7 +102,7 @@ test("Headless Core serves MCP reads without Electron and stops cleanly", async 
 
     client = await connectMcp(userDataPath);
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 44);
+    assert.equal(listed.tools.length, 45);
     const searched = await client.callTool({
       name: "tasken.search_items",
       arguments: { query: "Headless context" },
@@ -167,7 +167,7 @@ test("Headless replica joins a shared-folder sync and serves read-only MCP reads
 
       client = await connectMcp(replicaUserData, { TASKEN_MCP_READ_ONLY: "1" });
       const listed = await client.listTools();
-      assert.ok(listed.tools.length < 44, String(listed.tools.length));
+      assert.ok(listed.tools.length < 45, String(listed.tools.length));
       for (const writeTool of [
         "tasken.start_task_work",
         "tasken.append_work_receipt",

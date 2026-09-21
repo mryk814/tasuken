@@ -20,6 +20,7 @@ import {
   getKnowledgeHealthResponseSchema,
   getActivityResponseSchema,
   getContextSubgraphResponseSchema,
+  getFeedContextResponseSchema,
   exportAiContextResponseSchema,
   proposeTaskWorkResponseSchema,
   proposeAgentSessionResponseSchema,
@@ -50,6 +51,7 @@ import {
   TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
   TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
+  TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
@@ -93,6 +95,7 @@ export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
   TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
   TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
+  TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
@@ -413,6 +416,15 @@ export class TaskenCoreClient {
       TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
       request,
       getContextSubgraphResponseSchema,
+    );
+  }
+
+  async getFeedContext(request = {}) {
+    return this.query(
+      "get-feed-context",
+      TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY,
+      request,
+      getFeedContextResponseSchema,
     );
   }
 

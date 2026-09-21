@@ -43,6 +43,8 @@ const LIVE_ARTICLE_TITLE = "「もう一度保存」に耐える設計";
 const LIVE_FIGURE_LABEL = "図: 再送の流れ";
 /** 実データ投稿へ残す返信（第3段階）。 */
 const LIVE_REPLY_BODY = "サンプル数が少ないときも同じ見方でよい？";
+/** 実データ投稿へ残すAIへの質問（第3段階）。 */
+const LIVE_QUESTION_BODY = "この条件は25℃の比較にも同じように使えますか。";
 
 function detectLayoutBreakage() {
   const overflowing = [];
@@ -452,16 +454,40 @@ async function auditLivePost(page) {
     failures.push(`返信で対応待ち件数が変わりました（${countAfterReply}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/live-reply.png`, fullPage: true });
+
+  // 9. 「AIに聞く」は依頼として残り、押した時点ではAIが動いたように見せない。
+  await replyTarget.locator(".feed-reaction", { hasText: "返信" }).first().click();
+  await page.waitForTimeout(400);
+  await replyTarget.locator(".feed-reply textarea").fill(LIVE_QUESTION_BODY);
+  await replyTarget.locator("button", { hasText: "AIに聞く" }).click();
+  await page.waitForTimeout(1500);
+  const requested = page.locator(".feed-thread-state", { hasText: "AIに依頼済み" });
+  if ((await requested.count()) !== 1) {
+    failures.push(
+      `AIへの依頼が「AIに依頼済み」として出ていません（${await requested.count()}件）。`,
+    );
+  }
+  if (await page.locator(".feed-thread-state", { hasText: "回答あり" }).count()) {
+    failures.push("依頼しただけで回答ありとして表示されています。");
+  }
+  const countAfterAsk = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (countAfterAsk !== String(EXPECTED_UNRESOLVED)) {
+    failures.push(`AIへの依頼で対応待ち件数が変わりました（${countAfterAsk}）。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/live-question.png`, fullPage: true });
 }
 
-/** 起動し直しても、投稿と読者の印、保存したNote、返信が残る。 */
+/** 起動し直しても、投稿と読者の印、保存したNote、返信とAIへの依頼が残る。 */
 async function auditLiveRestart(page) {
   const postCount = await page.locator(".feed-post").count();
-  if (postCount !== 2) failures.push(`再起動後の投稿が2件ではありません（${postCount}件）。`);
+  if (postCount !== 3) failures.push(`再起動後の投稿が3件ではありません（${postCount}件）。`);
   const thread = page.locator(".feed-posts .feed-post.is-reply");
-  if ((await thread.count()) !== 1) failures.push("再起動後に返信が残っていません。");
+  if ((await thread.count()) !== 2) failures.push("再起動後に返信が残っていません。");
   else if (!(await thread.first().innerText()).includes(LIVE_REPLY_BODY)) {
     failures.push("再起動後に返信の本文が変わっています。");
+  }
+  if ((await page.locator(".feed-thread-state", { hasText: "AIに依頼済み" }).count()) !== 1) {
+    failures.push("再起動後にAIへの依頼が残っていません。");
   }
   const persisted = await page
     .locator(".feed-reaction", { hasText: "ブックマーク" })

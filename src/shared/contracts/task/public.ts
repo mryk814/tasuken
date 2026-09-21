@@ -242,6 +242,17 @@ export {
 } from "./activityEntries.ts";
 
 export {
+  feedPostSummarySchema,
+  feedQuestionSchema,
+  getFeedContextRequestSchema,
+  getFeedContextResponseSchema,
+  type FeedPostSummary,
+  type FeedQuestion,
+  type GetFeedContextRequest,
+  type GetFeedContextResponse,
+} from "./feedContext.ts";
+
+export {
   getKnowledgeContextRequestSchema,
   getKnowledgeContextResponseSchema,
   getKnowledgeHealthRequestSchema,

@@ -32,6 +32,7 @@ const readTools = [
   "tasken.get_knowledge_health",
   "tasken.get_activity",
   "tasken.get_context_subgraph",
+  "tasken.get_feed_context",
   "tasken.export_ai_context",
   "tasken.get_debrief_context",
   "tasken.get_work_context",
@@ -121,9 +122,9 @@ test("#413 MCP production graph is Core-only and native-free", () => {
   );
 });
 
-test("#413 all 27 reads and 14 proposals use Core without fallback", () => {
+test("#413 all 28 reads and 14 proposals use Core without fallback", () => {
   const mcpServer = source("src/main/mcp/server.mjs");
-  assert.equal(readTools.length, 27);
+  assert.equal(readTools.length, 28);
   assert.equal(proposalTools.length, 14);
   for (const toolName of readTools) assert.match(toolBlock(mcpServer, toolName), /withCoreClient/);
   for (const toolName of proposalTools) {

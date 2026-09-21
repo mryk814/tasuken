@@ -27,6 +27,7 @@ export const TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY = "get_plan_health";
 export const TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY = "get_knowledge_health";
 export const TASKEN_CORE_GET_ACTIVITY_CAPABILITY = "get_activity";
 export const TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY = "get_context_subgraph";
+export const TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY = "get_feed_context";
 export const TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY = "export_ai_context";
 export const TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY = "propose_task_work";
 export const TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY = "propose_agent_session";

@@ -316,10 +316,11 @@ export function FeedPage({
 
   /**
    * 返信は投稿のIDに紐づけて保存する（第3段階）。
+   * `askAi` を付けると、外部AIが `tasken.get_feed_context` で読む質問として残す。
    * 開発用fixtureの投稿は保存先を持たないので、下書きの保持までにする。
    */
   const submitReply = useCallback(
-    async (post: FeedPost) => {
+    async (post: FeedPost, options: { askAi?: boolean } = {}) => {
       const body = (drafts[post.id] ?? "").trim();
       if (!body) {
         setToast("返信の本文を入力してください。", "warning");
@@ -341,15 +342,20 @@ export function FeedPage({
                 postId: post.id,
                 body,
                 createdAt: new Date().toISOString(),
+                askAi: options.askAi === true,
               }),
             },
           ],
-          "返信を残しました。",
+          options.askAi ? "AIへの質問を残しました。" : "返信を残しました。",
           "main_ui",
         );
         setDrafts((current) => ({ ...current, [post.id]: "" }));
         setReplyTo(null);
-        setNotice("返信を残しました。Taskと未解決件数は変わっていません。");
+        setNotice(
+          options.askAi
+            ? "質問を残しました。外部AIが取得すると「依頼済み」、返答が届くと「回答あり」になります。"
+            : "返信を残しました。Taskと未解決件数は変わっていません。",
+        );
       } catch (error) {
         // 失敗しても入力は消さない。
         setToast(
@@ -868,6 +874,11 @@ export function FeedPage({
                                 <span className="feed-thread-note">
                                   {post.author === "self" ? "自分の返信" : "AIの返答"}
                                 </span>
+                                {post.aiState === "requested" ? (
+                                  <span className="feed-thread-state">AIに依頼済み</span>
+                                ) : post.aiState === "answered" ? (
+                                  <span className="feed-thread-state">回答あり</span>
+                                ) : null}
                                 {post.replyId && post.author === "self" ? (
                                   <button
                                     type="button"
@@ -930,8 +941,17 @@ export function FeedPage({
                                 placeholder="気づいたことを短く残す"
                               />
                               <div className="feed-detail-actions">
-                                <Button variant="primary" type="submit">
+                                <Button variant="primary" type="submit" disabled={busy}>
                                   返信を残す
+                                </Button>
+                                {/* 投稿と根拠を添えて外部AIへ渡す質問。押した時点でAIは動かない。 */}
+                                <Button
+                                  variant="secondary"
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void submitReply(post, { askAi: true })}
+                                >
+                                  AIに聞く
                                 </Button>
                                 <Button
                                   variant="ghost"

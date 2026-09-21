@@ -1116,6 +1116,21 @@ export function createTaskenMcpServer(options = {}) {
   );
 
   server.registerTool(
+    "tasken.get_feed_context",
+    {
+      description:
+        "Return the user's Feed as read-only context: questions the user explicitly asked you to answer (each with the post it came from), the most recent posts so you avoid repeating a topic, and the posts the user bookmarked or marked interesting. Post bodies are excerpts; fetch Task or Theme details with the existing read tools so AI visibility still applies. This never changes canonical data and never counts as a pending decision.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(50).optional(),
+        max_chars: z.number().int().min(1).max(4_000).optional(),
+        include_answered: z.boolean().optional(),
+      },
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.getFeedContext(args)),
+  );
+
+  server.registerTool(
     "tasken.export_ai_context",
     {
       description: "Export bounded Tasken context as Markdown or JSON.",

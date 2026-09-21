@@ -253,6 +253,7 @@ export class TaskenCoreRuntime {
       getKnowledgeHealth: core.getKnowledgeHealth,
       getActivity: core.getActivity,
       getContextSubgraph: core.getContextSubgraph,
+      getFeedContext: core.getFeedContext,
       exportAiContext: core.exportAiContext,
       proposeTaskWork: core.proposeTaskWork,
       proposeAgentSession: core.proposeAgentSession,

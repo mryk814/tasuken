@@ -263,6 +263,15 @@
   color: var(--color-text-tertiary);
 }
 
+/* AIへの依頼は、依頼した時点と返答が届いた時点を区別して示す。 */
+.feed-thread-state {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+}
+
 .feed-reply {
   display: flex;
   flex-direction: column;
