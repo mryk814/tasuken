@@ -83,16 +83,16 @@ export function isPassiveAgentSessionProposal(proposal: Record<string, unknown>)
 }
 
 /**
- * 読み物の投稿（2026-09-21計画の第2段階）。
+ * 読み物の投稿と、その投稿への返答（2026-09-21計画の第2・3段階）。
  *
- * 届いた投稿は**そのまま読める**。読むための事前承認を挟まないので、
+ * 届いた投稿と返答は**そのまま読める**。読むための事前承認を挟まないので、
  * 要対応の判断としては数えない。Task・Themeの参照を持つだけで正本を変更しない。
  * 添えたNote草稿の採用は、その草稿自身のProposalとして別に判断する。
  */
 export function isReadingMaterialProposal(proposal: Record<string, unknown>): boolean {
   return (
     proposal.status === "pending" &&
-    proposal.payload_type === "feed_posts" &&
+    (proposal.payload_type === "feed_posts" || proposal.payload_type === "feed_replies") &&
     proposal.source === "mcp"
   );
 }
@@ -290,6 +290,7 @@ function proposalLabel(proposal: WorkRecord): string {
     repository_contexts: "Repository Contextの提案",
     agent_sessions: "Agent Sessionの記録",
     feed_posts: "読み物の投稿",
+    feed_replies: "読み物への返答",
   };
   return labels[type] || "AIからの提案";
 }

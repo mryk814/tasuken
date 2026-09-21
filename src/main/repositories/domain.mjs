@@ -78,8 +78,9 @@ const proposalPayloadTypes = new Set([
   "task_work",
   "repository_contexts",
   "agent_sessions",
-  // 読み物の投稿（2026-09-21計画 第2段階）。要対応ではなくFeedが読む。
+  // 読み物の投稿と、その投稿への返答（2026-09-21計画 第2・3段階）。要対応ではなくFeedが読む。
   "feed_posts",
+  "feed_replies",
 ]);
 const proposalStatuses = new Set([
   "pending",

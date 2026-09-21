@@ -1613,7 +1613,9 @@ export function createTaskenMcpServer(options = {}) {
           .min(1)
           .max(200)
           .optional()
-          .describe("Optional Task this came from. The post keeps the reference, not a copy of the Task."),
+          .describe(
+            "Optional Task this came from. The post keeps the reference, not a copy of the Task.",
+          ),
         theme: optionalText,
         session_id: z.string().trim().min(1).max(200).optional(),
         note_id: z
@@ -1658,6 +1660,50 @@ export function createTaskenMcpServer(options = {}) {
       const { recent_post_ids: _recentPostIds, ...request } = args;
       return queueContent(request, "feed_post");
     }),
+  );
+
+  server.registerTool(
+    "tasken.answer_feed_question",
+    {
+      description:
+        "Answer a question the user asked in Tasken's Feed. Read the question with `tasken.get_feed_context` first, then answer it here with the question's reply ID (`reply_to`) and its post ID (`post_id`). The answer appears in that post's thread for the user to read; it does not change Task, Note, or any other canonical data, and it is NOT a pending decision. Answer only the question you were given, keep it to what your work actually showed, and reuse the same idempotency_key when retrying. Returns a Proposal ID.",
+      inputSchema: {
+        ...contentProposalBase,
+        post_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("The post the question belongs to, as returned by tasken.get_feed_context."),
+        reply_to: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("The question's reply ID from tasken.get_feed_context."),
+        body: z
+          .string()
+          .trim()
+          .min(1)
+          .max(4_000)
+          .describe("The answer. Plain text; it is shown as one paragraph in the thread."),
+        author_label: z
+          .string()
+          .trim()
+          .min(1)
+          .max(120)
+          .optional()
+          .describe("Your display name in the thread. Defaults to the caller name."),
+        evidence: z
+          .array(z.string().trim().min(1).max(1_000))
+          .max(20)
+          .optional()
+          .describe("Facts behind the answer: source URL, checked date, measurement, or file."),
+        source_app: z.string().trim().min(1).max(120).optional(),
+      },
+      annotations: PROPOSAL_ANNOTATIONS,
+    },
+    withCoreClient((args) => queueContent(args, "feed_reply")),
   );
 
   server.registerTool(

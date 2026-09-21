@@ -25,6 +25,7 @@ const MAX_CANONICAL_PROPOSAL_BYTES = 64 * 1024;
 
 const TOOL_BY_KIND = {
   feed_post: "tasken.propose_feed_post",
+  feed_reply: "tasken.answer_feed_question",
   note_create: "tasken.propose_note",
   note_edit: "tasken.propose_note_edit",
   knowledge_create: "tasken.propose_knowledge",
@@ -34,6 +35,7 @@ const TOOL_BY_KIND = {
 
 const PAYLOAD_TYPE_BY_KIND = {
   feed_post: "feed_posts",
+  feed_reply: "feed_replies",
   note_create: "notes",
   note_edit: "notes",
   knowledge_create: "knowledge_nodes",
@@ -136,6 +138,23 @@ function payloadFor(
                 }
               : {}),
             ...(request.attachment_label ? { attachment_label: request.attachment_label } : {}),
+            evidence: request.evidence || [],
+          },
+        ],
+      },
+    };
+  }
+  if (request.kind === "feed_reply") {
+    // 利用者の質問への返答。質問のスレッドへ並べるだけで、正式データは変更しない。
+    return {
+      payload: {
+        feed_replies: [
+          {
+            action: "answer",
+            post_id: request.post_id,
+            reply_to: request.reply_to,
+            body: request.body,
+            ...(request.author_label ? { author_label: request.author_label } : {}),
             evidence: request.evidence || [],
           },
         ],

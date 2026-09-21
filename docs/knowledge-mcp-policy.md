@@ -319,10 +319,12 @@ tools: -tasken.propose_task -
   tasken.propose_note -
   tasken.propose_note_edit -
   tasken.propose_feed_post -
+  tasken.answer_feed_question -
   tasken.propose_knowledge;
 ```
 
 `tasken.propose_feed_post`は読み物の投稿（`payload_type: "feed_posts"`）を作る。投稿は利用者がそのまま読めるため採用を待たず、要対応の判断としては数えない。添えた記事の草稿は別のNote Proposalとして採用を判断する。
+`tasken.answer_feed_question`は`tasken.get_feed_context`が返した質問への返答（`payload_type: "feed_replies"`）を作る。返答は元の投稿のスレッドへ並び、こちらも要対応の判断としては数えない。
 
 ```ts
 type AiProposal = {

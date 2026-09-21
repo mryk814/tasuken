@@ -664,22 +664,31 @@ export function replyPostId(replyId: string): string {
 }
 
 /**
- * 返信Entityを、投稿と同じ形へ写す。並びは親投稿の直後に入る（`withReplies`）。
- * 返信そのものへ更に返信はせず、親投稿のIDだけを持つ。
+ * 返信Entityと、AIの返答Proposalを、投稿と同じ形へ写す。
+ * 並びは親投稿の直後に入る（`withReplies`）。返信そのものへ更に返信はせず、親投稿のIDだけを持つ。
  *
- * AIへ向けた質問（`ai_requested_at`）は、AIの返答（`author_kind: "ai"` で
- * `reply_to` がその質問を指す返信）が届いた時点で「回答あり」になる。
+ * AIへ向けた質問（`ai_requested_at`）は、AIの返答が届いた時点で「回答あり」になる。
  * 依頼しただけでAIが動いたように見せない。
  */
-export function buildRepliesFromEntities(input: { replies?: readonly unknown[] }): FeedPost[] {
+export function buildRepliesFromEntities(input: {
+  replies?: readonly unknown[];
+  /** AIの返答（`feed_replies` Proposal）。同じスレッドへ並べる。 */
+  proposals?: readonly unknown[];
+}): FeedPost[] {
   const rows = (input.replies ?? []).filter((entry): entry is Row =>
     Boolean(entry && typeof entry === "object"),
   );
+  const answers = (input.proposals ?? [])
+    .filter((entry): entry is Row => Boolean(entry && typeof entry === "object"))
+    .map((proposal) => ({ proposal, entry: feedAnswerEntry(proposal) }))
+    .filter((row): row is { proposal: Row; entry: Row } => row.entry !== null);
   const answered = new Set(
-    rows
-      .filter((row) => !row.deleted_at && text(row.author_kind) === "ai")
-      .map((row) => text(row.reply_to))
-      .filter(Boolean),
+    [
+      ...rows
+        .filter((row) => !row.deleted_at && text(row.author_kind) === "ai")
+        .map((row) => text(row.reply_to)),
+      ...answers.map(({ entry }) => text(entry.reply_to)),
+    ].filter(Boolean),
   );
   const replies: FeedPost[] = [];
   for (const reply of rows) {
@@ -704,7 +713,36 @@ export function buildRepliesFromEntities(input: { replies?: readonly unknown[] }
       aiState: requested ? (answered.has(replyId) ? "answered" : "requested") : null,
     } as FeedPost);
   }
+  for (const { proposal, entry } of answers) {
+    const postId = text(entry.post_id);
+    const body = text(entry.body);
+    if (!postId || !body) continue;
+    const request = (proposal.request || {}) as Record<string, unknown>;
+    replies.push({
+      id: `feed-answer:${String(proposal.id)}`,
+      author: authorIdForLabel(
+        text(entry.author_label) || text(proposal.source_app) || text(request.caller),
+      ),
+      kind: "own_note",
+      createdAt: text(proposal.received_at) || text(proposal.created_at),
+      paragraphs: [body],
+      attachment: null,
+      replyTo: postId,
+      learnable: false,
+      aiState: null,
+    } as FeedPost);
+  }
   return replies.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+}
+
+/** AIの返答Proposalから、返答の本体を取り出す。 */
+function feedAnswerEntry(proposal: Row): Row | null {
+  if (proposal.deleted_at) return null;
+  if (text(proposal.payload_type) !== "feed_replies") return null;
+  const payload = (proposal.payload || {}) as Record<string, unknown>;
+  const answer = Array.isArray(payload.feed_replies) ? payload.feed_replies[0] : null;
+  if (!answer || typeof answer !== "object") return null;
+  return answer as Row;
 }
 
 /** 人が書く返信のEntity。IDは呼び出し側で採番する。 */

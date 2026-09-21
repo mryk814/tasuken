@@ -10,6 +10,14 @@ import { build } from "esbuild";
 
 import { TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY } from "../src/shared/contracts/core/public.mjs";
 import { TaskenCoreClient } from "../src/main/mcp/taskenCoreClient.mjs";
+import { buildAttentionQueue, countAttention } from "../src/shared/contracts/task/public.ts";
+import {
+  buildPostsFromProposals,
+  buildRepliesFromEntities,
+  postsForHome,
+  replyPostId,
+  withReplies,
+} from "../src/renderer/src/features/workspace/lib/feedPosts.ts";
 
 const workspaceRepositoryModule = "../src/main/repositories/" + "workspaceRepository.mjs";
 const { WorkspaceDatabase } = await import(workspaceRepositoryModule);
@@ -260,6 +268,96 @@ test("実SQLite + 実Core + 実stdio MCPで、AIが質問と題材を読める",
       arguments: { limit: 500 },
     });
     assert.equal(invalid.isError, true, JSON.stringify(invalid));
+
+    // 質問へ返答すると、同じスレッドで読める形で届き、質問は回答済みになる。
+    const answered = await client.callTool({
+      name: "tasken.answer_feed_question",
+      arguments: {
+        idempotency_key: "feed-answer-1",
+        caller: "Codex",
+        source_app: "codex",
+        post_id: POST_ID,
+        reply_to: "question-1",
+        body: "3回以下のときは幅だけを見てください。",
+        author_label: "Codex",
+      },
+    });
+    assert.equal(answered.isError, undefined, JSON.stringify(answered));
+    assert.equal(answered.structuredContent.payload_type, "feed_replies");
+    const stored = database.get("ai_proposal", answered.structuredContent.proposal_id);
+    assert.equal(stored.status, "pending");
+    assert.equal(stored.source, "mcp");
+
+    // 返答も要対応の判断ではない。
+    assert.equal(
+      countAttention(
+        buildAttentionQueue({
+          proposals: database.list("ai_proposal", true),
+          tasks: database.list("task", true),
+        }),
+      ),
+      0,
+    );
+
+    // 回答済みは既定の読み出しから外れ、include_answeredで状態が分かる。
+    const afterAnswer = await client.callTool({
+      name: "tasken.get_feed_context",
+      arguments: {},
+    });
+    assert.deepEqual(afterAnswer.structuredContent.questions, []);
+    const withAnswered = await client.callTool({
+      name: "tasken.get_feed_context",
+      arguments: { include_answered: true },
+    });
+    assert.deepEqual(
+      withAnswered.structuredContent.questions.map((question) => [question.id, question.answered]),
+      [["question-1", true]],
+    );
+
+    // Feedの投影は、返答を元の投稿のスレッドへ入れ、質問を「回答あり」にする。
+    const answerId = `feed-answer:${answered.structuredContent.proposal_id}`;
+    const thread = withReplies(
+      postsForHome([
+        ...buildPostsFromProposals({ proposals: database.list("ai_proposal", true) }),
+        ...buildRepliesFromEntities({
+          replies: database.list("feed_reply", true),
+          proposals: database.list("ai_proposal", true),
+        }),
+      ]),
+    );
+    const threadIds = thread.map((post) => post.id);
+    assert.equal(threadIds[0], POST_ID, "親投稿が先頭");
+    assert.deepEqual(
+      [...threadIds.slice(1)].sort(),
+      [answerId, replyPostId("question-1")].sort(),
+      "質問と返答が同じスレッドへ入る",
+    );
+    assert.equal(thread.find((post) => post.id === replyPostId("question-1"))?.aiState, "answered");
+    assert.match(
+      thread.find((post) => post.id === answerId)?.paragraphs[0] || "",
+      /3回以下のときは幅だけ/u,
+    );
+
+    // 同じidempotency_keyの再送は増えない。
+    const retried = await client.callTool({
+      name: "tasken.answer_feed_question",
+      arguments: {
+        idempotency_key: "feed-answer-1",
+        caller: "Codex",
+        source_app: "codex",
+        post_id: POST_ID,
+        reply_to: "question-1",
+        body: "3回以下のときは幅だけを見てください。",
+        author_label: "Codex",
+      },
+    });
+    assert.equal(retried.structuredContent.status, "duplicate");
+    assert.equal(
+      database
+        .list("ai_proposal", true)
+        .filter((proposal) => proposal.payload_type === "feed_replies").length,
+      1,
+    );
   } finally {
     await client.close().catch(() => {});
     await host.stop().catch(() => {});

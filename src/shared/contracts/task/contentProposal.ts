@@ -212,14 +212,7 @@ export const proposeContentRequestSchema = z
          */
         kind: z.literal("feed_post"),
         /** 投稿の種類。表示の見出しと「学び」タブの絞り込みに使う。 */
-        topic: z.enum([
-          "work_report",
-          "insight",
-          "learning",
-          "reference",
-          "question",
-          "own_note",
-        ]),
+        topic: z.enum(["work_report", "insight", "learning", "reference", "question", "own_note"]),
         /** 本文。段落ごとに分けて保持し、表示のたびに作り直さない。 */
         body: z.array(boundedText(2_000)).min(1).max(20),
         /** 任意のTask参照。 */
@@ -242,6 +235,27 @@ export const proposeContentRequestSchema = z
         /** 添付の見出し（図や表の説明）。 */
         attachment_label: optionalText(200),
         /** 根拠。出所URLや確認日など、本文の主張を支える事実。 */
+        evidence: z.array(boundedText(1_000)).max(20).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...requestBase,
+        /**
+         * 利用者の質問への返答（2026-09-21計画の第3段階）。
+         * 質問（`ai_requested_at` 付きの返信）へ紐づけ、同じスレッドで読めるようにする。
+         * 正式データは変更せず、要対応の判断にも数えない。
+         */
+        kind: z.literal("feed_reply"),
+        /** 返答が属する投稿。`get_feed_context` が返した投稿ID。 */
+        post_id: boundedText(200),
+        /** 返答する質問（返信EntityのID）。 */
+        reply_to: boundedText(200),
+        /** 返答の本文。 */
+        body: z.string().min(1).max(4_000),
+        /** 返答したAIの表示名。投稿者の識別に使う。 */
+        author_label: optionalText(120),
+        /** 根拠。出所URLや確認日など。 */
         evidence: z.array(boundedText(1_000)).max(20).optional(),
       })
       .strict(),
@@ -324,6 +338,8 @@ export const contentProposalPayloadTypeSchema = z.enum([
   "artifacts",
   /** 読み物の投稿。要対応の判断ではない（`attentionQueue` が除外する）。 */
   "feed_posts",
+  /** 読み物への返答。同じく要対応の判断ではない。 */
+  "feed_replies",
 ]);
 
 export const proposeContentResponseSchema = z

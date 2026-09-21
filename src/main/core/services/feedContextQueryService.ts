@@ -48,7 +48,9 @@ function excerpt(value: string, maxChars: number): string {
   return body.length > maxChars ? `${body.slice(0, maxChars)}…` : body;
 }
 
-/** 読み物Proposal（`feed_posts`）から、表示に必要な最小の要約を作る。 */
+/**
+ * 読み物Proposal（`feed_posts`）から、表示に必要な最小の要約を作る。
+ */
 function postSummary(
   proposal: FeedContextRecord,
   maxChars: number,
@@ -75,6 +77,16 @@ function postSummary(
       note_id: nullableText(post.note_id),
     },
   };
+}
+
+/** AIの返答Proposal（`feed_replies`）から、返答の本体を取り出す。 */
+function answerEntry(proposal: FeedContextRecord): Record<string, unknown> | null {
+  if (text(proposal.deleted_at)) return null;
+  if (text(proposal.payload_type) !== "feed_replies") return null;
+  const payload = (proposal.payload || {}) as Record<string, unknown>;
+  const answer = Array.isArray(payload.feed_replies) ? payload.feed_replies[0] : null;
+  if (!answer || typeof answer !== "object") return null;
+  return answer as Record<string, unknown>;
 }
 
 /**
@@ -106,12 +118,19 @@ export class FeedContextQueryService {
     }
     ordered.sort((a, b) => b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id));
 
-    // 回答済みの質問は、AIの返答（`author_kind: "ai"` の返信）から判定する。
+    // 回答済みの質問は、AIの返答から判定する。返答は`feed_replies` Proposalとして届き、
+    // 同じworkspaceへ直接保存された`feed_reply`（author_kind: "ai"）も同じ扱いにする。
     const answeredQuestions = new Set<string>();
     for (const reply of workspace.feed_replies || []) {
       if (text(reply.deleted_at)) continue;
       if (text(reply.author_kind) !== "ai") continue;
       const answered = nullableText(reply.reply_to);
+      if (answered) answeredQuestions.add(answered);
+    }
+    for (const proposal of workspace.ai_proposals || []) {
+      const answer = answerEntry(proposal);
+      if (!answer) continue;
+      const answered = nullableText(answer.reply_to);
       if (answered) answeredQuestions.add(answered);
     }
 

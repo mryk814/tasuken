@@ -20,7 +20,7 @@ test("Phase 0: MCP inventory documents every registered read and Proposal tool",
   const proposalTools = registrations.filter((entry) => entry.offset > readOnlyBoundary);
 
   assert.equal(readTools.length, 30);
-  assert.equal(proposalTools.length, 15);
+  assert.equal(proposalTools.length, 16);
   assert.deepEqual(
     readTools.filter((entry) => entry.name.endsWith("_image")).map((entry) => entry.name),
     ["tasken.get_capture_image", "tasken.get_task_image"],

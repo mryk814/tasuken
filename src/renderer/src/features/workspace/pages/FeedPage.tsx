@@ -133,10 +133,14 @@ export function FeedPage({
       }),
     [domain.ai_proposals, domain.tasks, data.themes],
   );
-  /** 返信は投稿のIDに紐づくEntity。人とAIの会話を同じスレッドへ並べる。 */
+  /** 返信は投稿のIDに紐づくEntity、AIの返答はProposalとして届く。同じスレッドへ並べる。 */
   const replyPosts = useMemo(
-    () => buildRepliesFromEntities({ replies: domain.feed_replies as unknown[] }),
-    [domain.feed_replies],
+    () =>
+      buildRepliesFromEntities({
+        replies: domain.feed_replies as unknown[],
+        proposals: domain.ai_proposals as unknown[],
+      }),
+    [domain.feed_replies, domain.ai_proposals],
   );
   const usingFixtures = livePosts.length === 0 && replyPosts.length === 0;
 

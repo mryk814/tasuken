@@ -45,6 +45,9 @@ const LIVE_FIGURE_LABEL = "図: 再送の流れ";
 const LIVE_REPLY_BODY = "サンプル数が少ないときも同じ見方でよい？";
 /** 実データ投稿へ残すAIへの質問（第3段階）。 */
 const LIVE_QUESTION_BODY = "この条件は25℃の比較にも同じように使えますか。";
+/** 隔離workspaceへ用意する質問とAIの返答（第3段階）。 */
+const LIVE_SEEDED_QUESTION = "この条件は40℃の比較にも同じように使えますか。";
+const LIVE_SEEDED_ANSWER = "40℃では裾が広がるため、平均ではなく幅だけで比べてください。";
 
 function detectLayoutBreakage() {
   const overflowing = [];
@@ -311,9 +314,9 @@ async function auditFixtures(app, page) {
  * 読む操作が対応待ち（実データ）の件数を動かさないことも同じ画面で実測する。
  */
 async function auditLivePost(page) {
-  // 1. 実データの投稿だけを読む。fixtureは混ざらない。
-  const postCount = await page.locator(".feed-post").count();
-  if (postCount !== 1) failures.push(`実データの投稿が1件ではありません（${postCount}件）。`);
+  // 1. 実データの投稿だけを読む。fixtureは混ざらない（返信は投稿の下に入る）。
+  const rootCount = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+  if (rootCount !== 1) failures.push(`実データの投稿が1件ではありません（${rootCount}件）。`);
   const timelineText = await page.locator(".feed-timeline").innerText();
   for (const expected of [
     "保存をやり直しても、同じノートが増えないようにしました。",
@@ -321,9 +324,22 @@ async function auditLivePost(page) {
     LIVE_ARTICLE_TITLE,
     LIVE_FIGURE_LABEL,
     "高分子材料評価",
+    LIVE_SEEDED_QUESTION,
+    LIVE_SEEDED_ANSWER,
   ]) {
     if (!timelineText.includes(expected))
       failures.push(`投稿に出ない文言があります（${expected}）。`);
+  }
+  // 質問とAIの返答が同じスレッドで読め、質問は「回答あり」になっている。
+  const seededReplies = page.locator(".feed-posts .feed-post.is-reply");
+  if ((await seededReplies.count()) !== 2) {
+    failures.push(`用意した質問と返答が2件ではありません（${await seededReplies.count()}件）。`);
+  }
+  if ((await page.locator(".feed-thread-state", { hasText: "回答あり" }).count()) !== 1) {
+    failures.push("返答が届いた質問が「回答あり」になっていません。");
+  }
+  if ((await page.locator(".feed-thread-note", { hasText: "AIの返答" }).count()) !== 1) {
+    failures.push("AIの返答がスレッドに出ていません。");
   }
   const author = (await page.locator(".feed-author-name").first().innerText()).trim();
   if (author !== "Codex") failures.push(`投稿者がCodexではありません（${author}）。`);
@@ -355,7 +371,7 @@ async function auditLivePost(page) {
     if (await page.locator(".feed-reader").count()) failures.push("草稿を閉じられません。");
   }
 
-  // 3. 学びタブにも出る（気づきは読む投稿）。
+  // 3. 学びタブにも出る（気づきは読む投稿）。返信と返答では水増ししない。
   await page.locator(".feed-tabs button", { hasText: "学び" }).first().click();
   await page.waitForTimeout(400);
   const learnCount = await page.locator(".feed-post").count();
@@ -401,7 +417,7 @@ async function auditLivePost(page) {
   await page.waitForTimeout(1500);
   const openNote = page.locator(".feed-attachment button", { hasText: "Noteで読む" }).first();
   if (!(await openNote.count())) failures.push("Noteに保存の後、Noteへの導線が出ません。");
-  const postsAfterSave = await page.locator(".feed-post").count();
+  const postsAfterSave = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
   if (postsAfterSave !== 1) failures.push(`Noteに保存で投稿が消えました（${postsAfterSave}件）。`);
   const countAfterSave = (await page.locator(".feed-tab-count").first().innerText()).trim();
   if (countAfterSave !== String(EXPECTED_UNRESOLVED)) {
@@ -435,16 +451,17 @@ async function auditLivePost(page) {
   await page.waitForTimeout(1500);
   const thread = page.locator(".feed-posts .feed-post.is-reply");
   const threadCount = await thread.count();
-  if (threadCount !== 1) {
-    failures.push(`返信が1件ではありません（${threadCount}件）。`);
-  } else if (!(await thread.first().innerText()).includes(LIVE_REPLY_BODY)) {
+  if (threadCount !== 3) {
+    failures.push(`返信が3件ではありません（${threadCount}件）。`);
+  }
+  if (!(await page.locator(".feed-timeline").innerText()).includes(LIVE_REPLY_BODY)) {
     failures.push("返信の本文が表示されていません。");
   }
   const threadOrder = await page.$$eval(".feed-posts .feed-post", (nodes) =>
     nodes.map((node) => (node.className.includes("is-reply") ? "reply" : "post")),
   );
-  if (threadOrder.join(",") !== "post,reply") {
-    failures.push(`返信の位置が親投稿の直後ではありません（${threadOrder.join(",")}）。`);
+  if (threadOrder[0] !== "post" || threadOrder.filter((kind) => kind === "post").length !== 1) {
+    failures.push(`親投稿が先頭にありません（${threadOrder.join(",")}）。`);
   }
   if (await replyTarget.locator(".feed-reply textarea").count()) {
     failures.push("返信した後も入力欄が開いたままです。");
@@ -467,7 +484,8 @@ async function auditLivePost(page) {
       `AIへの依頼が「AIに依頼済み」として出ていません（${await requested.count()}件）。`,
     );
   }
-  if (await page.locator(".feed-thread-state", { hasText: "回答あり" }).count()) {
+  // 回答済みは用意した質問だけ。新しい依頼は未回答のまま。
+  if ((await page.locator(".feed-thread-state", { hasText: "回答あり" }).count()) !== 1) {
     failures.push("依頼しただけで回答ありとして表示されています。");
   }
   const countAfterAsk = (await page.locator(".feed-tab-count").first().innerText()).trim();
@@ -477,17 +495,24 @@ async function auditLivePost(page) {
   await page.screenshot({ path: `${OUT_DIR}/live-question.png`, fullPage: true });
 }
 
-/** 起動し直しても、投稿と読者の印、保存したNote、返信とAIへの依頼が残る。 */
+/** 起動し直しても、投稿と読者の印、保存したNote、返信とAIへの依頼・返答が残る。 */
 async function auditLiveRestart(page) {
-  const postCount = await page.locator(".feed-post").count();
-  if (postCount !== 3) failures.push(`再起動後の投稿が3件ではありません（${postCount}件）。`);
+  const rootCount = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+  if (rootCount !== 1) failures.push(`再起動後の投稿が1件ではありません（${rootCount}件）。`);
   const thread = page.locator(".feed-posts .feed-post.is-reply");
-  if ((await thread.count()) !== 2) failures.push("再起動後に返信が残っていません。");
-  else if (!(await thread.first().innerText()).includes(LIVE_REPLY_BODY)) {
-    failures.push("再起動後に返信の本文が変わっています。");
+  const threadCount = await thread.count();
+  if (threadCount !== 4) failures.push(`再起動後の返信が4件ではありません（${threadCount}件）。`);
+  const timelineText = await page.locator(".feed-timeline").innerText();
+  for (const expected of [LIVE_REPLY_BODY, LIVE_QUESTION_BODY, LIVE_SEEDED_ANSWER]) {
+    if (!timelineText.includes(expected)) {
+      failures.push(`再起動後に出ない文言があります（${expected}）。`);
+    }
   }
   if ((await page.locator(".feed-thread-state", { hasText: "AIに依頼済み" }).count()) !== 1) {
     failures.push("再起動後にAIへの依頼が残っていません。");
+  }
+  if ((await page.locator(".feed-thread-state", { hasText: "回答あり" }).count()) !== 1) {
+    failures.push("再起動後にAIの返答が残っていません。");
   }
   const persisted = await page
     .locator(".feed-reaction", { hasText: "ブックマーク" })

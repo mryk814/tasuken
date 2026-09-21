@@ -107,6 +107,65 @@ function feedPostsOf(proposals) {
   return buildPostsFromProposals({ proposals });
 }
 
+function answerProposal() {
+  return {
+    id: "proposal-feed-answer",
+    source: "mcp",
+    source_app: "codex",
+    payload_type: "feed_replies",
+    status: "pending",
+    received_at: "2026-09-21T10:10:00.000Z",
+    created_at: "2026-09-21T10:10:00.000Z",
+    payload: {
+      feed_replies: [
+        {
+          action: "answer",
+          post_id: POST_ID,
+          reply_to: "question-1",
+          body: "3回以下のときは幅だけを見てください。",
+          author_label: "Codex",
+        },
+      ],
+    },
+    request: { idempotency_key: "feed-answer", source: "mcp", caller: "Codex" },
+  };
+}
+
+test("AIの返答は同じスレッドへ並び、質問が「回答あり」になる", () => {
+  const answeredThread = buildRepliesFromEntities({
+    replies: [reply("question-1", { ai_requested_at: "2026-09-21T10:05:00.000Z" })],
+    proposals: [answerProposal()],
+  });
+  const ordered = withReplies(postsForHome([...feedPostsOf([feedProposal()]), ...answeredThread]));
+  assert.deepEqual(
+    ordered.map((post) => post.id),
+    [POST_ID, replyPostId("question-1"), "feed-answer:proposal-feed-answer"],
+  );
+  assert.equal(ordered[1].aiState, "answered", "返答が届いたら回答あり");
+  assert.equal(ordered[2].author, "codex", "返答の表示名から投稿者を決める");
+  assert.equal(ordered[2].replyTo, POST_ID, "返答は元の投稿のスレッドへ入る");
+  assert.equal(ordered[2].paragraphs[0], "3回以下のときは幅だけを見てください。");
+
+  // 返答が届いていない質問は依頼済みのままにする。
+  const pending = buildRepliesFromEntities({
+    replies: [reply("question-2", { ai_requested_at: "2026-09-21T10:06:00.000Z" })],
+  });
+  assert.equal(pending[0].aiState, "requested");
+
+  // 削除された返答Proposalは読まない。
+  assert.equal(
+    buildRepliesFromEntities({
+      proposals: [{ ...answerProposal(), deleted_at: "2026-09-22T00:00:00.000Z" }],
+    }).length,
+    0,
+  );
+});
+
+test("返答Proposalも要対応の判断としては数えない", () => {
+  const proposals = [feedProposal(), answerProposal()];
+  assert.equal(countAttention(buildAttentionQueue({ proposals })), 0);
+});
+
 test("返信を保存しても要対応は増えない", () => {
   const proposals = [feedProposal()];
   const before = countAttention(buildAttentionQueue({ proposals }));

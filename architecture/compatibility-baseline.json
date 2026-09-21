@@ -179,6 +179,7 @@
         "tests/agent-session-projection.test.mjs",
         "tests/tasken-debrief.test.mjs",
         "tests/ai-import.test.mjs",
+        "tests/feed-context-mcp.test.mjs",
         "tests/feed-fixtures.test.mjs",
         "tests/feed-live-projection.test.mjs",
         "tests/feed-post-proposals.test.mjs",

@@ -28,6 +28,8 @@ const today = [
   String(TODAY.getDate()).padStart(2, "0"),
 ].join("-");
 const at = `${today}T00:00:00.000Z`;
+/** 返答は質問より後の時刻に置く（スレッドは古い順に読む）。 */
+const answerAt = `${today}T00:05:00.000Z`;
 const ATTEMPT = "11111111-1111-4111-8111-111111111111";
 const REQUEST_ID = "33333333-3333-4333-8333-333333333333";
 
@@ -206,6 +208,42 @@ if (withFeedPost) {
       idempotency_key: "feed-audit-live-post",
       source: "mcp",
       tool: "tasken.propose_feed_post",
+    },
+  });
+
+  // 利用者の質問（AIに聞く）と、それへのAIの返答。返答は`feed_replies` Proposalとして届く。
+  database.save("feed_reply", {
+    id: "feed-audit-question-asked",
+    post_id: "feed-post:feed-audit-live-post",
+    body: "この条件は40℃の比較にも同じように使えますか。",
+    created_at: at,
+    author_kind: "self",
+    ai_requested_at: at,
+  });
+  database.save("ai_proposal", {
+    id: "feed-audit-live-answer",
+    source: "mcp",
+    source_app: "codex",
+    payload_type: "feed_replies",
+    status: "pending",
+    received_at: answerAt,
+    created_at: answerAt,
+    version: 1,
+    payload: {
+      feed_replies: [
+        {
+          action: "answer",
+          post_id: "feed-post:feed-audit-live-post",
+          reply_to: "feed-audit-question-asked",
+          body: "40℃では裾が広がるため、平均ではなく幅だけで比べてください。",
+          author_label: "Codex",
+        },
+      ],
+    },
+    request: {
+      idempotency_key: "feed-audit-live-answer",
+      source: "mcp",
+      tool: "tasken.answer_feed_question",
     },
   });
 }

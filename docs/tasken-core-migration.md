@@ -8,7 +8,7 @@ Desktop Mainが`WorkspaceDatabase`を生成して`TaskenDesktopComposition`へ�
 
 Windowsでdiscoveryのrenameが`EPERM`になった場合だけ、50ms間隔で最大3回試行する。既存discoveryを先に削除せず、回復しない場合は元のエラーで起動を失敗させ、待ち受けserverを閉じる。`node --test tests/tasken-core-discovery.test.mjs`で一過性エラーからの回復、恒久失敗時の既存ファイル保全と一時ファイル・serverの後始末を検証する。
 
-stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 30 toolsとProposal 15 toolsはすべて認証済みCore clientを通る。
+stdio MCP bridgeはplain system Nodeで動作し、SQLite、Electron、native addon、filesystem inboxを読み書きしない。read 30 toolsとProposal 16 toolsはすべて認証済みCore clientを通る。
 
 ```text
 MCP client
@@ -62,17 +62,19 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 
 `get_feed_context`はFeedの読み出しである。利用者が「AIに聞く」で残した未回答の質問（元の投稿の抜粋と参照IDつき）と、直近の投稿、明示的な反応（ブックマーク・おもしろい）だけを返し、正式データを変更しない。Task・Themeの詳細は既存の読み出しtoolで取得し、そこのAI公開範囲の判定に従う。
 
-### Proposal 15 / 15 Core
+### Proposal 16 / 16 Core
 
 - Task work: `start_task_work`, `append_work_receipt`, `report_task_done`, `report_task_blocked`
 - Agent session: `start_agent_session`, `finish_agent_session`, `submit_agent_session_record`
 - Repository/Task: `propose_repository_context`, `propose_task`
 - Content: `propose_note`, `propose_note_edit`, `propose_knowledge`, `propose_sketch`, `propose_artifact`
-- Reading: `propose_feed_post`
+- Reading: `propose_feed_post`, `answer_feed_question`
 
 Task work proposalはexpected versionとagent identityを必須にする。public compatibility上caller/idempotencyが省略可能なcontent系toolはMCP境界で安全なdefault/UUIDを補い、Core command自体はstrictに要求する。Note/Artifact bodyは実UTF-8 byte数で64 KiBを上限とし、path、credential URL、scriptable SVG、filename/media mismatchを拒否する。
 
 `propose_feed_post`は読み物の投稿（`payload_type: "feed_posts"`）を作る。投稿は採用を待たずにFeedで読め、要対応の判断としては数えない（`docs/feed-surface.md`）。短い本文は段落の配列とし、詳しい説明がある場合だけ`note_id`または`article`で記事を添える。`article`はNote草稿として保存され、利用者が「Noteに保存」を選んだときに既存の`ApplyAiProposal`経由で正式Noteになる。
+
+`answer_feed_question`は`get_feed_context`が返した質問への返答（`payload_type: "feed_replies"`）を作る。返答は元の投稿のスレッドへ並び、質問は回答済みとして既定の読み出しから外れる。返答も正式データを変更せず、要対応の判断には数えない。
 
 ## Native runtime cleanup (#413)
 
