@@ -21,6 +21,8 @@
 
 ## 継続改善
 
+- MCP・NAS・ChatGPT連携の次の改善は、[体験改善計画](mcp-nas-experience-plan.md)を参照する。AIの軽量投稿、NASの限定受付、受領・採否・鮮度の確認を段階的に進める計画案であり、実装・本番配置の完了記録ではない。
+
 0. UX/IAの導線整理は[`ia-ux-improvement-plan.md`](./ia-ux-improvement-plan.md)の6フェーズ計画に従う。
 1. [`desktop-app-standard.md`](./desktop-app-standard.md)を個人用Electronアプリの既定作法とする。
 2. 互換維持のためfeature単位に残したJSXは、機能変更時にpage/component単位でTypeScript化する。
