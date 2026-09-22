@@ -27,10 +27,12 @@ import {
   buildRepliesFromEntities,
   draftNoteEntity,
   draftNoteId,
+  clearFeedPostFocus,
   feedNoteEntity,
   feedReactionId,
   feedReplyEntity,
   filterPosts,
+  peekFeedPostFocus,
   postsBookmarked,
   postsForHome,
   postsForLearning,
@@ -532,6 +534,29 @@ export function FeedPage({
   const focusRow = useCallback((id: string) => {
     rowRefs.current.get(id)?.focus();
   }, []);
+
+  /**
+   * Noteから「元のFeed投稿を開く」で来たときは、その投稿のスレッドを開いて会話へ戻す。
+   * 投稿がまだ読めないうちは預けたままにし、読めた時点で一度だけ開く。
+   * 返信に着地した場合も、会話の起点になる親投稿を開く。
+   */
+  useEffect(() => {
+    const targetId = peekFeedPostFocus();
+    if (!targetId) return;
+    const target = availablePosts.find((post) => post.id === targetId);
+    if (!target) return;
+    const root = target.replyTo
+      ? availablePosts.find((post) => post.id === target.replyTo)
+      : target;
+    if (!root) return;
+    clearFeedPostFocus();
+    setTab("home");
+    setOpenArticleId(null);
+    setOpenThreadId(root.id);
+    window.requestAnimationFrame(() => {
+      rowRefs.current.get(`post-${root.id}`)?.scrollIntoView({ block: "center" });
+    });
+  }, [availablePosts]);
 
   const openThread = useCallback((post: FeedPost) => {
     setOpenArticleId(null);

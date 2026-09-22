@@ -48,6 +48,8 @@ export function FeedArticleReader({
   const isDraft = Boolean(post.draft);
   const markdown = articleMarkdown(post);
   const headingId = `feed-reader-title-${post.id}`;
+  // 保存前は「AI記事」、保存後は利用者のNoteとして読む。同じ本文でも所有者が違う。
+  const originLabel = savedNote ? "Note保存済み" : isDraft ? "AI記事" : "記事";
 
   return (
     <article className="feed-reader" aria-labelledby={headingId}>
@@ -60,7 +62,7 @@ export function FeedArticleReader({
             {author.initial}
           </span>
           <span>
-            <span className="feed-reader-origin-label">{isDraft ? "AI記事" : "記事"}</span>
+            <span className="feed-reader-origin-label">{originLabel}</span>
             <strong>{author.label}</strong>
           </span>
         </div>

@@ -1207,6 +1207,32 @@
   border-radius: 50%;
 }
 
+/* Notesの見出しで使う小さいアバター。出所の識別はFeedと同じ形と色を使う。 */
+.feed-avatar.is-compact {
+  width: 22px;
+  height: 22px;
+  font-size: var(--text-xs);
+  flex: none;
+}
+
+.note-origin-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.note-origin-text {
+  min-width: 0;
+}
+
+.note-origin-ownership {
+  color: var(--color-text-tertiary);
+}
+
 .feed-bookmark-filters {
   display: flex;
   gap: var(--space-1);

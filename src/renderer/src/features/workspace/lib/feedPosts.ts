@@ -660,7 +660,7 @@ export function buildPostsFromProposals(input: {
 
     const request = (proposal.request || {}) as Record<string, unknown>;
     posts.push({
-      id: `feed-post:${String(proposal.id)}`,
+      id: feedPostIdForProposal(String(proposal.id)),
       author: authorIdForLabel(text(proposal.source_app) || text(request.caller)),
       kind: topicOf(post.topic),
       createdAt: text(proposal.received_at) || text(proposal.created_at),
@@ -1165,4 +1165,83 @@ export function manualPasteNoteCandidate(input: {
     "※ 回答内容・出所・会話URLは利用者提供であり、Taskenによる事実確認済みを意味しません。",
   );
   return { title: titleSource, body_markdown: lines.join("\n") };
+}
+
+/* -------------------------------------------------------------------------
+ * 元投稿への帰り道（フェーズ2）
+ *
+ * Noteから「元のFeed投稿を開く」とき、開きたい投稿だけを別の面へ預ける。
+ * Feedの正本はProposalとEntityのままにするため、ここでは表示状態だけを
+ * localStorageへ置き、FeedPageが読んだら消す。順序に依存しないよう、
+ * 使い切るまで残す（読めなければ次の訪問で開く）。
+ * ---------------------------------------------------------------------- */
+
+export const FEED_POST_FOCUS_KEY = "tasken:feed:focus-post:v1";
+
+/** Proposalから決まる投稿のID。保存の前後で変わらない。 */
+export function feedPostIdForProposal(proposalId: string): string {
+  return `feed-post:${proposalId}`;
+}
+
+/** 次にFeedを開いたときに選んでおく投稿を預ける。 */
+export function requestFeedPostFocus(postId: string): void {
+  try {
+    localStorage.setItem(FEED_POST_FOCUS_KEY, postId);
+  } catch {
+    // 預けられなくても、依頼元の操作は失敗させない。
+  }
+}
+
+/** 預けた投稿を取り出す。無ければnull。 */
+export function peekFeedPostFocus(): string | null {
+  try {
+    const value = localStorage.getItem(FEED_POST_FOCUS_KEY);
+    return value && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 預けた投稿を開き終えたら消す。 */
+export function clearFeedPostFocus(): void {
+  try {
+    localStorage.removeItem(FEED_POST_FOCUS_KEY);
+  } catch {
+    // 消せなくても表示は続けられる。
+  }
+}
+
+/**
+ * NoteがAIの記事から保存されたものかを、`accepted_from_proposal_id` から導く。
+ *
+ * 返り値は三通りある。
+ * - `feed_post`: Feedの記事から保存された。元投稿へ戻れる。
+ * - `unknown`: 作成元のProposalが見つからない（Import後など）。「AIから保存」までを表示する。
+ * - `null`: 作成元はあるがFeedの記事ではない（`tasken.propose_note` など）。表示しない。
+ *
+ * 作成元（書いたAI）と所有（自分のNotesにある）は別の情報として返す。
+ */
+export type NoteFeedOrigin =
+  | { kind: "feed_post"; proposalId: string; postId: string; authorLabel: string | null }
+  | { kind: "unknown"; proposalId: string };
+
+export function noteFeedOrigin(input: {
+  note?: Record<string, unknown> | null;
+  proposals?: readonly unknown[];
+}): NoteFeedOrigin | null {
+  const proposalId = text(input.note?.accepted_from_proposal_id);
+  if (!proposalId) return null;
+  const proposal = (input.proposals ?? []).find(
+    (entry) => entry && typeof entry === "object" && String((entry as Row).id) === proposalId,
+  ) as Row | undefined;
+  if (!proposal) return { kind: "unknown", proposalId };
+  if (text(proposal.payload_type) !== "feed_posts") return null;
+  const request = (proposal.request || {}) as Record<string, unknown>;
+  const label = text(proposal.source_app) || text(request.caller);
+  return {
+    kind: "feed_post",
+    proposalId,
+    postId: feedPostIdForProposal(proposalId),
+    authorLabel: label || null,
+  };
 }

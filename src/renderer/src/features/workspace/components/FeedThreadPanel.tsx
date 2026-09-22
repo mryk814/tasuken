@@ -143,7 +143,7 @@ export function FeedThreadPanel({
         ))}
         {post.attachment?.articleBody?.length || post.attachment?.articleMarkdown ? (
           <Button variant="ghost" compact onClick={() => onOpenArticle(post)}>
-            {post.draft ? "草稿を読む" : "記事を読む"}
+            記事を読む
             <IconArrowRight size={15} stroke={1.8} aria-hidden="true" />
           </Button>
         ) : null}

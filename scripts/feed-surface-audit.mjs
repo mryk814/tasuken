@@ -565,23 +565,24 @@ async function auditLivePost(page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/live-home.png`, fullPage: true });
 
-  // 2. 添えた記事の草稿を、投稿から開いて読める。
-  const readDraft = page.locator(".feed-attachment button", { hasText: "草稿を読む" }).first();
+  // 2. 添えたAI記事を、投稿から開いて読める。
+  const readDraft = page.locator(".feed-attachment button", { hasText: "記事を読む" }).first();
   if (!(await readDraft.count())) {
-    failures.push("実データの投稿に草稿を読む操作がありません。");
+    failures.push("実データの投稿に記事を読む操作がありません。");
   } else {
     await readDraft.click();
     await page.waitForTimeout(400);
     if (!(await page.locator(".feed-reader").isVisible()))
-      failures.push("草稿の読書面が開きません。");
+      failures.push("AI記事の読書面が開きません。");
     const readerParagraphs = await page
       .locator(".feed-reader-markdown .markdown-preview-content p, .feed-reader-text")
       .count();
-    if (readerParagraphs < 2) failures.push(`草稿の本文が短すぎます（${readerParagraphs}段落）。`);
+    if (readerParagraphs < 2)
+      failures.push(`AI記事の本文が短すぎます（${readerParagraphs}段落）。`);
     await page.screenshot({ path: `${OUT_DIR}/live-reader.png` });
     await page.locator(".feed-reader button", { hasText: "戻る" }).first().click();
     await page.waitForTimeout(400);
-    if (await page.locator(".feed-reader").count()) failures.push("草稿を閉じられません。");
+    if (await page.locator(".feed-reader").count()) failures.push("AI記事を閉じられません。");
   }
 
   // 3. 学びタブにも出る（気づきは読む投稿）。返信と返答では水増ししない。
@@ -654,6 +655,63 @@ async function auditLivePost(page) {
     await page.screenshot({ path: `${OUT_DIR}/live-note-open.png` });
     await page.keyboard.press("Escape");
     await page.waitForTimeout(500);
+  }
+
+  // 7b. 保存したAI記事は、Notesから作成元と元投稿を確認でき、元のFeed投稿へ戻れる。
+  const notesNav = page.locator(".sidebar button", { hasText: "Notes" }).first();
+  if (!(await notesNav.count())) {
+    failures.push("SidebarにNotesの入口がありません。");
+  } else {
+    await notesNav.click();
+    await page.waitForTimeout(1200);
+    const savedRow = page.locator(".note-row-main", { hasText: LIVE_ARTICLE_TITLE }).first();
+    if (!(await savedRow.count())) {
+      failures.push("保存したAI記事がNotesの一覧にありません。");
+    } else {
+      await savedRow.click();
+      await page.waitForTimeout(600);
+      const originLine = page.locator(".note-origin-line").first();
+      if (!(await originLine.count())) {
+        failures.push("AIから保存したNoteに作成元の表示がありません。");
+      } else {
+        const originText = (await originLine.innerText()).trim();
+        if (!originText.includes("書いた記事")) {
+          failures.push(`作成元のAIが表示されていません（${originText}）。`);
+        }
+        if (!originText.includes("自分のNotes")) {
+          failures.push(`所有の表示がありません（${originText}）。`);
+        }
+        const openOrigin = originLine.locator("button", { hasText: "元のFeed投稿を開く" }).first();
+        if (!(await openOrigin.count())) {
+          failures.push("元のFeed投稿へ戻る導線がありません。");
+        } else {
+          await page.screenshot({ path: `${OUT_DIR}/live-note-origin.png`, fullPage: true });
+          await openOrigin.click();
+          await page.waitForTimeout(1200);
+          const backThread = page.locator(".feed-thread-panel").first();
+          if (!(await backThread.count())) {
+            failures.push("元のFeed投稿へ戻っても会話が開きません。");
+          } else {
+            // 会話が開いた投稿が記事の投稿かを、起点カードの押下状態で確かめる。
+            const originCard = page.locator(".feed-post", { hasText: LIVE_ARTICLE_TITLE }).first();
+            const threadPressed = await originCard
+              .locator('button[aria-label^="返信"]')
+              .first()
+              .getAttribute("aria-pressed");
+            if (threadPressed !== "true") {
+              failures.push("戻った先が元の投稿ではありません。");
+            }
+            await page.screenshot({ path: `${OUT_DIR}/live-note-back.png`, fullPage: true });
+          }
+          // 次の手順は返信ボタンからスレッドを開く。開いたままだと閉じてしまうので戻しておく。
+          const closeThreadButton = page.locator(".feed-thread-head button").first();
+          if (await closeThreadButton.count()) {
+            await closeThreadButton.click();
+            await page.waitForTimeout(400);
+          }
+        }
+      }
+    }
   }
 
   // 8. 返信は保存され、右スレッドへ追加される。対応待ちは変わらない。
@@ -914,8 +972,8 @@ async function auditLiveRestart(page) {
     if (await missing.locator("button", { hasText: "Noteに保存" }).count()) {
       failures.push("参照先がない添付に「Noteに保存」が残っています。");
     }
-    if (!(await missing.locator("button", { hasText: "草稿を読む" }).count())) {
-      failures.push("参照先がない添付から草稿を読めません。");
+    if (!(await missing.locator("button", { hasText: "記事を読む" }).count())) {
+      failures.push("参照先がない添付からAI記事を読めません。");
     }
   }
   await page.screenshot({ path: `${OUT_DIR}/live-note-missing.png`, fullPage: true });

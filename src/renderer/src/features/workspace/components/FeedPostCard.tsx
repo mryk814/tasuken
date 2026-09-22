@@ -43,6 +43,16 @@ function attachmentKindLabel(kind: string): string {
   return "外部資料";
 }
 
+/**
+ * 添付の見出し。保存前を「AI記事」、保存後を「Note保存済み」として区別する。
+ * 参照先が消えている場合は、Noteがあるかのように見せない。
+ */
+function attachmentLabel(input: { kind: string; saved: boolean; missing: boolean }): string {
+  if (input.saved) return "Note保存済み";
+  if (input.missing) return "Note";
+  return attachmentKindLabel(input.kind);
+}
+
 function PostKindIcon({ kind }: { kind: FeedPostKind }) {
   switch (kind) {
     case "insight":
@@ -202,16 +212,19 @@ export function FeedPostCard({
               className={`feed-attachment is-${article.kind}${noteMissing ? " is-missing" : ""}`}
             >
               <span className="feed-attachment-kind">
-                {savedNote || referencedNote || noteMissing
-                  ? "Note"
-                  : attachmentKindLabel(article.kind)}
+                {attachmentLabel({
+                  kind: article.kind,
+                  saved: Boolean(savedNote),
+                  // 元Noteが消えている場合は、参照先があるように見せない。
+                  missing: noteMissing && !savedNote,
+                })}
               </span>
               <h4 className="feed-attachment-title">
                 {String(referencedNote?.title || "") || article.title}
               </h4>
               <p className="feed-attachment-intro">
                 {savedNote
-                  ? "保存済みのNote"
+                  ? "自分のNotesに保存済み。この投稿と会話はそのまま残ります。"
                   : referencedNote
                     ? "参照しているNote"
                     : noteMissing
@@ -234,7 +247,7 @@ export function FeedPostCard({
                 <span className="feed-attachment-ref">{article.refLabel}</span>
                 {article.articleBody?.length || article.articleMarkdown ? (
                   <Button variant="ghost" compact onClick={() => onOpenArticle(post)}>
-                    {post.draft ? "草稿を読む" : "記事を読む"}
+                    記事を読む
                   </Button>
                 ) : article.kind === "note" ? (
                   referencedNote ? (
