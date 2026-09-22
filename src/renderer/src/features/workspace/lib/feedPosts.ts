@@ -12,6 +12,7 @@
  */
 
 import { stableProposalEntityId } from "../../../../../shared/proposalAcceptance.mjs";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 
 /** 実データの投稿に付く参照。fixtureでは未設定。 */
 export interface FeedPostRefs {
@@ -24,6 +25,8 @@ export interface FeedPostRefs {
   aiState?: "requested" | "answered" | null;
   taskId?: string | null;
   taskTitle?: string | null;
+  /** 投稿が属するTheme（`payload.feed_posts[].theme`）。Theme面はこのIDだけで絞り込む。 */
+  themeId?: string | null;
   evidence?: string[];
   /** 添えられた記事の草稿（採用前）。fixtureでは未設定。 */
   draft?: FeedPostDraft | null;
@@ -739,6 +742,7 @@ export function buildPostsFromProposals(input: {
       proposalId: String(proposal.id),
       taskId,
       taskTitle: taskId ? (taskTitles.get(taskId) ?? null) : null,
+      themeId: themeId || null,
       evidence: paragraphs(post.evidence),
       draft,
       media: feedMediaOf(post),
@@ -947,6 +951,8 @@ export function buildOwnPosts(input: { notes?: readonly unknown[] }): FeedPost[]
       replyTo: null,
       learnable: false,
       noteId,
+      // NoteのThemeはproject_idが正本。Theme面はこのIDだけで自分の投稿を絞り込む。
+      themeId: noteProjectId(note),
     } as FeedPost);
   }
   return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));

@@ -214,6 +214,7 @@
         "scripts/model-smoke.mjs",
         "scripts/seed-materials-informatics-workspace.mjs",
         "scripts/seed-feed-audit-workspace.mjs",
+        "scripts/seed-theme-audit-workspace.mjs",
         "scripts/task-handoff-audit.mjs",
         "scripts/today-date-audit.mjs",
         "scripts/update-materials-informatics-workspace.mjs",

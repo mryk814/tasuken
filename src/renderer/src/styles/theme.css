@@ -1,0 +1,219 @@
+/*
+ * Theme詳細の面（計画フェーズ4: ThemeとNotes）。
+ *
+ * Themeは「概要／タスク／投稿／Notes」の一面ずつを開き、Repository・AI Pack・
+ * Context Previewのような技術設定は概要の「連携と設定」へ畳む。
+ * 投稿とNotesはTheme IDで既存データを絞り込むだけで、FeedやNoteの正本は複製しない。
+ *
+ * 見た目の実値は design-standard/tokens.css を正本にする。
+ * 投稿の面はFeedで読む。ここは数と入口だけを持つ要約なので、本文は基準の大きさに留める。
+ */
+
+/* 面の切り替え。4面で1行を保ち、狭い幅ではこの中だけを横へ送って本文を押し出さない。 */
+.theme-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.theme-tabs button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-base);
+  white-space: nowrap;
+  word-break: keep-all;
+  cursor: pointer;
+}
+
+.theme-tabs button:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.theme-tabs button.is-active {
+  background: var(--color-accent-subtle-bg);
+  color: var(--color-accent-strong);
+  font-weight: var(--weight-medium);
+}
+
+.theme-tabs button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* 面の中は縦に積む。gridの子は既定で縮まないため min-width: 0 を入れる。 */
+.theme-tab-panel {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* 「いま分かっていること」。出典ごとに一件ずつ、押すと元の記録を開く。 */
+.theme-known-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.theme-known-row {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-known-row:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-muted);
+}
+
+.theme-known-row:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.theme-known-row > strong {
+  min-width: 0;
+  font-weight: var(--weight-medium);
+}
+
+.theme-known-row > p {
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.theme-known-source {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+/*
+ * 技術設定の折り畳み。日常の概要より前に並べない。
+ * 閉じたままでも概要が読め、開けば既存の登録・Preview・更新の操作へ届く。
+ */
+.theme-settings {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.theme-settings > summary {
+  padding: var(--space-2) 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.theme-settings > summary:hover {
+  color: var(--color-text);
+}
+
+.theme-settings > summary:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+
+.theme-settings[open] > summary {
+  color: var(--color-text);
+}
+
+/* 投稿。全文と会話はFeedの面で読み、ここはThemeに属する分だけを短く並べる。 */
+.theme-post-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.theme-post {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.theme-post:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.theme-post-main {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.theme-post-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.theme-post-author {
+  color: var(--color-text);
+  font-weight: var(--weight-bold);
+}
+
+.theme-post-time,
+.theme-post-kind,
+.theme-post-replies {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.theme-post-kind {
+  padding: 1px 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.theme-post-text {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-base);
+  line-height: 1.7;
+}
+
+.theme-post-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+/* 狭い幅では操作を本文の下へ送り、投稿の幅を削らない。 */
+@media (max-width: 720px) {
+  .theme-post {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+}

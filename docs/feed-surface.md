@@ -280,7 +280,7 @@ TaskやNoteを開いて戻っても復元する。表示状態は正本データ
 | 1    | ホームAと右スレッド（投稿列・投稿カード・スレッド・記事読書面の分離、ブックマーク面、復元） | 実装済み（`FeedStream` / `FeedPostCard` / `FeedThreadPanel` / `FeedArticleReader`）       |
 | 2    | AI記事からNoteへの一周（Markdown読書面、AI記事とNote保存済みの区別、作成元と元投稿の往復）  | 実装済み（Notesの由来表示と「元のFeed投稿を開く」）                                       |
 | 3    | 画像と外部リンク                                                                            | 実装済み（既存Artifact画像、外部URLカード、Main側の安全な取得、`article.images`の再利用） |
-| 4    | ThemeとNotes                                                                                | 未着手                                                                                    |
+| 4    | ThemeとNotes                                                                                | 実装済み（Themeの四面、Theme IDでの投稿とNoteの投影、Repository／AI Packの折り畳み）      |
 | 5    | TodayとAgent Desk                                                                           | 未着手                                                                                    |
 | 6    | 実利用でホームと学びを決める                                                                | 実利用後（三日以上・二十件以上が目安）                                                    |
 

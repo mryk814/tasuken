@@ -24,6 +24,8 @@ const manualAllowlist = {
   "mcp-server.mjs": "Manual MCP stdio entry point; launched by the mcp package script.",
   "seed-feed-audit-workspace.mjs":
     "Internal isolated-workspace seeder spawned by feed-surface-audit; not a CLI entry point.",
+  "seed-theme-audit-workspace.mjs":
+    "Internal isolated-workspace seeder spawned by theme-surface-audit; not a CLI entry point.",
 };
 
 function scriptFiles(directory) {

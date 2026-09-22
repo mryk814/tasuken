@@ -88,7 +88,10 @@ export type PreferenceValueMap = {
   "chatRefs.collapsedGroups": string[];
   "timeline.preferences": TimelinePreferenceValue;
   "todo.preferences": TodoPreferenceValue;
-  "theme.preferences": { collapsedSections: string[] };
+  "theme.preferences": {
+    collapsedSections: string[];
+    tab: "overview" | "tasks" | "posts" | "notes";
+  };
   "artifacts.preferences": ArtifactsPreferenceValue;
   "sketch.libraryPreferences": SketchLibraryPreferenceValue;
   "sketch.toolPresets": SketchToolPresetsPreferenceValue;

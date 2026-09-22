@@ -4,6 +4,7 @@
 @import "@mdxeditor/editor/style.css";
 @import "./artifacts.css";
 @import "./feed.css";
+@import "./theme.css";
 
 @theme inline {
   --color-app-accent: var(--color-accent);
