@@ -26,6 +26,8 @@ const manualAllowlist = {
     "Internal isolated-workspace seeder spawned by feed-surface-audit; not a CLI entry point.",
   "seed-theme-audit-workspace.mjs":
     "Internal isolated-workspace seeder spawned by theme-surface-audit; not a CLI entry point.",
+  "seed-today-arrivals-audit-workspace.mjs":
+    "Internal isolated-workspace seeder spawned by today-arrivals-audit; not a CLI entry point.",
 };
 
 function scriptFiles(directory) {

@@ -32,6 +32,7 @@ import {
   feedReactionId,
   feedReplyEntity,
   filterPosts,
+  markFeedLastSeen,
   peekFeedPostFocus,
   postsBookmarked,
   postsForHome,
@@ -392,6 +393,17 @@ export function FeedPage({
   const shownPostsRef = useRef<FeedPost[]>([]);
   shownPostsRef.current = shownPosts;
   const hasMorePosts = timeline.length > shownPosts.length;
+
+  /**
+   * 「最後にFeedを見た時刻」を残す。
+   *
+   * Todayの「AIから届いたこと」は、これより後に届いた記事や学びだけを出す。
+   * 正本ではなく表示上の印なので、読めなくても閲覧は続けられる。
+   */
+  useEffect(() => {
+    markFeedLastSeen(Date.now());
+    return () => markFeedLastSeen(Date.now());
+  }, []);
 
   useEffect(() => {
     const next: FeedViewState = {

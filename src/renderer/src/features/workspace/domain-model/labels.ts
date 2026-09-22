@@ -89,6 +89,46 @@ export const TASK_WORK_STATE_LABELS: Record<TaskWorkState, string> = {
   failed: "失敗",
 };
 
+/**
+ * ToDoの行へ出すAI委任の短い状態（計画フェーズ5）。
+ *
+ * `TaskWorkState` の語をそのまま出さないのは、「AIへ渡せる」と「開始待ち」が
+ * どちらも `ready_for_agent` で、`work_attempt_id` の有無だけが違うためである。
+ * 「自分に戻った」は `work_state` に値が無く、`work_review_note` から導く。
+ * 判断の理由は docs/feed-sns-implementation-plan-2026-09-22.md の「実装時の判断」。
+ */
+export const TASK_AI_DELEGATION_LABELS = {
+  ai_ready: "AIへ渡せる",
+  start_waiting: "開始待ち",
+  in_progress: "作業中",
+  review_waiting: "確認待ち",
+  returned_to_me: "自分に戻った",
+} as const;
+
+export type TaskAiDelegationLabel = keyof typeof TASK_AI_DELEGATION_LABELS;
+
+/**
+ * 一行に出す委任状態を決める。当てはまらない行には何も出さない
+ * （証拠が無い行を推測で塗らない）。
+ */
+export function taskAiDelegationLabel(input: {
+  intendedExecutor?: string | null;
+  workState?: string | null;
+  workAttemptId?: string | null;
+  workReviewNote?: string | null;
+}): TaskAiDelegationLabel | null {
+  const workState = input.workState || "";
+  if (workState === "in_progress") return "in_progress";
+  if (workState === "reported_done" || workState === "needs_human_review") return "review_waiting";
+  if (input.intendedExecutor === "ai_agent") {
+    if (workState !== "ready_for_agent") return null;
+    return input.workAttemptId ? "start_waiting" : "ai_ready";
+  }
+  // 差し戻しだけは専用のwork_stateが無い。理由が残っているときだけ示す。
+  if (input.workReviewNote) return "returned_to_me";
+  return null;
+}
+
 export const REPOSITORY_PROVIDER_LABELS: Record<string, string> = {
   github: "GitHub",
   gitlab: "GitLab",
@@ -247,11 +287,12 @@ export const AI_SOURCE_REF_KIND_LABELS: Record<AiSourceRefKind, string> = {
 };
 
 /** 公開範囲がどこから来たか。未設定と明示許可を混同させないための語。 */
-export const AI_VISIBILITY_SOURCE_LABELS: Record<"entity" | "theme" | "workspace_default", string> = {
-  entity: "この項目で設定",
-  theme: "Themeの既定を継承",
-  workspace_default: "全体の既定",
-};
+export const AI_VISIBILITY_SOURCE_LABELS: Record<"entity" | "theme" | "workspace_default", string> =
+  {
+    entity: "この項目で設定",
+    theme: "Themeの既定を継承",
+    workspace_default: "全体の既定",
+  };
 
 /** 未設定であることを示す語。「無い」ではなく「決めていない」と読ませる。 */
 export const AI_UNSET_LABEL = "未設定";

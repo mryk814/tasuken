@@ -1252,6 +1252,35 @@ export function manualPasteNoteCandidate(input: {
 
 export const FEED_POST_FOCUS_KEY = "tasken:feed:focus-post:v1";
 
+/**
+ * 最後にFeedを見た時刻。
+ *
+ * Todayの「AIから届いたこと」が、その後に届いた学びだけを出すために使う。
+ * 正本でもテレメトリでもない表示上の印で、Feedの表示状態と同じlocalStorageへ置く。
+ * 読めないときはnullを返し、呼び出し側は「届いた記事」を出さない。
+ */
+export const FEED_LAST_SEEN_KEY = "tasken:feed:last-seen:v1";
+
+export function markFeedLastSeen(at: number): void {
+  if (!Number.isFinite(at)) return;
+  try {
+    localStorage.setItem(FEED_LAST_SEEN_KEY, String(at));
+  } catch {
+    // 印を残せなくても、Feedの閲覧は続けられる。
+  }
+}
+
+export function readFeedLastSeen(): number | null {
+  try {
+    const raw = localStorage.getItem(FEED_LAST_SEEN_KEY);
+    if (!raw) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Proposalから決まる投稿のID。保存の前後で変わらない。 */
 export function feedPostIdForProposal(proposalId: string): string {
   return `feed-post:${proposalId}`;
