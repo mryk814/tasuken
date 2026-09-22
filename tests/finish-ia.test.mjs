@@ -22,7 +22,11 @@ const pageLoadersSource = readFileSync(
 
 test("toast tone is explicit state instead of message-regex inference", () => {
   assert.match(uiStoreSource, /toastTone/);
-  assert.match(uiStoreSource, /setToast\(message: string, tone\?: ToastTone\): void/);
+  // toneは引数で明示する。undoも同じ呼び出しで渡し、文言からは推測しない（#454）。
+  assert.match(
+    uiStoreSource,
+    /setToast\(message: string, tone\?: ToastTone, undo\?: ToastUndo \| null\): void/,
+  );
   assert.doesNotMatch(workspaceAppSource, /function toastTone/);
   assert.doesNotMatch(workspaceAppSource, /toastTone\(toast/);
 });

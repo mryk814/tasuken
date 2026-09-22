@@ -19,6 +19,7 @@ export const ACTIVITY_EVENT_KINDS = Object.freeze([
   "task_ai_reported",
   "task_ai_accepted",
   "task_ai_returned",
+  "task_ai_reassigned",
   "waiting_received",
   "waiting_updated",
   "plan_node_created",
@@ -362,6 +363,7 @@ function defaultSummary(kind, entity, entityRefValue) {
   if (kind === "task_ai_reported") return `AI reported work: ${title}`;
   if (kind === "task_ai_accepted") return `AI work accepted: ${title}`;
   if (kind === "task_ai_returned") return `AI work returned: ${title}`;
+  if (kind === "task_ai_reassigned") return `AI work reassigned: ${title}`;
   return `${kind}: ${title}`;
 }
 

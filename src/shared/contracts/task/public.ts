@@ -242,6 +242,17 @@ export {
 } from "./activityEntries.ts";
 
 export {
+  feedPostSummarySchema,
+  feedQuestionSchema,
+  getFeedContextRequestSchema,
+  getFeedContextResponseSchema,
+  type FeedPostSummary,
+  type FeedQuestion,
+  type GetFeedContextRequest,
+  type GetFeedContextResponse,
+} from "./feedContext.ts";
+
+export {
   getKnowledgeContextRequestSchema,
   getKnowledgeContextResponseSchema,
   getKnowledgeHealthRequestSchema,
@@ -279,6 +290,40 @@ export {
   type GetContextSubgraphRequest,
   type GetContextSubgraphResponse,
 } from "./agentContextQueries.ts";
+export {
+  agentWorkActionIdSchema,
+  agentWorkAttentionKindSchema,
+  agentWorkDisplayStateSchema,
+  agentWorkOrderKey,
+  deriveAgentWorkState,
+  type AgentWorkActionId,
+  type AgentWorkAttentionItem,
+  type AgentWorkAttentionKind,
+  type AgentWorkDisplayState,
+  type AgentWorkReadModel,
+  type AgentWorkReportView,
+  type AgentWorkSourceRef,
+} from "./agentWork.ts";
+export {
+  attentionKindSchema,
+  attentionSourceTypeSchema,
+  buildAgentDeskSummary,
+  buildAttentionQueue,
+  countAttention,
+  isPassiveAgentSessionProposal,
+  isReadingMaterialProposal,
+  type AttentionItem,
+  type AttentionKind,
+  type AttentionSourceType,
+} from "./attentionQueue.ts";
+export {
+  HANDOFF_DELEGATE_LABELS,
+  describeHandoffContextChange,
+  handoffContextRef,
+  handoffDelegateSchema,
+  isSameHandoffContextRef,
+  type HandoffDelegate,
+} from "./handoff.ts";
 export {
   taskWorkEntry,
   taskWorkReportTime,
@@ -323,6 +368,13 @@ export {
   type ProposeContentResponse,
   type TaskenUploadImagePlaceholder,
 } from "./contentProposal.ts";
+export {
+  proposalStatusRequestSchema,
+  proposalStatusResponseSchema,
+  proposalStatusValueSchema,
+  type ProposalStatusRequest,
+  type ProposalStatusResponse,
+} from "./proposalStatusQuery.ts";
 export {
   extractTaskenMarkdownFootnoteDefinitions,
   parseTaskenMarkdownBody,

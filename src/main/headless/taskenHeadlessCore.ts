@@ -12,7 +12,23 @@ export interface TaskenHeadlessCoreOptions {
   userDataPath?: string;
   databasePath?: string;
   syncDirectory?: string;
+  /**
+   * このnodeが受け付ける書き込みの範囲。既定は`read-only`。
+   * 常時稼働nodeは明示的に`proposals`を選んだ場合だけ、
+   * テキストのFeed投稿・Note案・Task案を受け付ける。
+   */
+  writeMode?: TaskenHeadlessWriteMode;
   env?: NodeJS.ProcessEnv;
+}
+
+export type TaskenHeadlessWriteMode = "read-only" | "proposals";
+
+export function resolveTaskenHeadlessWriteMode(value: unknown): TaskenHeadlessWriteMode {
+  return String(value || "")
+    .trim()
+    .toLowerCase() === "proposals"
+    ? "proposals"
+    : "read-only";
 }
 
 export interface TaskenHeadlessCoreHandle {
@@ -24,6 +40,7 @@ export interface TaskenHeadlessCoreHandle {
   readonly capabilityCount: number;
   readonly pid: number;
   readonly syncDirectory: string | null;
+  readonly writeMode: TaskenHeadlessWriteMode;
   syncNow(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -47,11 +64,15 @@ export class TaskenHeadlessCoreError extends Error {
  * `syncDirectory` を指定すると、既存の共有フォルダ同期へreplicaとして参加し、
  * ホスト端末が公開したapplication-level差分を取り込む。空のnodeだけが参加でき、
  * MCPはread-only deployment（`TASKEN_MCP_READ_ONLY=1`）で動かす前提とする。
+ *
+ * 書き込みは既定で公開しない。`writeMode: "proposals"` を明示した場合だけ、
+ * テキストの読み物投稿・Note案・Task案を受け付け、Core自身が許可範囲を強制する。
  */
 export async function startTaskenHeadlessCore(
   options: TaskenHeadlessCoreOptions = {},
 ): Promise<TaskenHeadlessCoreHandle> {
   const env = options.env || process.env;
+  const writeMode = options.writeMode || resolveTaskenHeadlessWriteMode(env.TASKEN_CORE_WRITE_MODE);
   const userDataPath = path.resolve(options.userDataPath || resolveTaskenUserDataPath({ env }));
   const databasePath = path.resolve(
     options.databasePath ||
@@ -80,6 +101,7 @@ export async function startTaskenHeadlessCore(
       undefined,
       undefined,
       createReadOnlyCaptureImagePort(userDataPath),
+      { proposalAccess: writeMode === "proposals" ? "proposals" : "read-only" },
     );
     if (syncDirectory) {
       syncService = new SharedFolderSyncService(
@@ -124,6 +146,7 @@ export async function startTaskenHeadlessCore(
       capabilityCount: status.capabilities.length,
       pid: process.pid,
       syncDirectory,
+      writeMode,
       async syncNow() {
         if (syncService) await syncService.syncNow();
       },

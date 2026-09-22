@@ -2110,6 +2110,9 @@ test("ApplyAiProposal commits a typed multi-candidate set with proposal status a
   const savedAiNote = { ...repo.get("note", "ai-note") };
   delete savedAiNote.version;
   delete savedAiNote.__type;
+  // 採用で新しく作られたEntityは、どのProposalから生まれたかを保持する。
+  assert.equal(savedAiNote.accepted_from_proposal_id, "proposal-1");
+  delete savedAiNote.accepted_from_proposal_id;
   assert.deepEqual(savedAiNote, {
     id: "ai-note",
     title: "AI note",

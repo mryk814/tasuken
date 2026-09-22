@@ -65,7 +65,7 @@ test("Notes kinds are simplified to Note Resource Report Prompt", () => {
   assert.match(notesPageSource, /recordType === "resource"/);
 });
 
-test("AI Inbox no longer owns document publish or AI context export", () => {
+test("Agent Desk no longer owns document publish or AI context export", () => {
   assert.doesNotMatch(
     importExportPageSource,
     /publishMarkdownTargets|publishPdfTargets|notePublishEnabled/,

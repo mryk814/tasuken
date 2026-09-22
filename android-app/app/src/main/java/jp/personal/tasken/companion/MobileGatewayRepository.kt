@@ -49,6 +49,9 @@ private val MOBILE_PROCESS_INSTANCE_ID = UUID.randomUUID().toString()
 private const val MOBILE_HUMAN_REVIEW_SCOPE = "mobile:human-review"
 private const val MOBILE_CONTEXT_READ_SCOPE = "mobile:context-read"
 
+/** 要対応の取得上限。Desktop側の上限と同じ値を使う。 */
+private const val ATTENTION_PAGE_SIZE = 50
+
 private fun aiReadyPatch(enabled: Boolean) = buildJsonObject { put("aiReady", enabled) }
 
 private val SUPPORTED_MOBILE_SCOPES = setOf(
@@ -69,6 +72,9 @@ data class MobileGatewayConfiguration(
 
 fun MobileGatewayConfiguration.canReviewWorkReceipts(): Boolean =
     paired && MOBILE_HUMAN_REVIEW_SCOPE in scopes
+
+/** agentへの回答もWork Receipt判断と同じ `mobile:human-review` scope を使う（#601）。 */
+fun MobileGatewayConfiguration.canReplyToAgent(): Boolean = canReviewWorkReceipts()
 
 fun MobileGatewayConfiguration.canReadTaskContext(): Boolean =
     paired && MOBILE_CONTEXT_READ_SCOPE in scopes
@@ -395,6 +401,41 @@ class AndroidMobileTaskRepository(
         }
 
     override fun observePendingCount(): Flow<Int> = outbox.observePendingCount()
+
+    /**
+     * 保存済みの要対応（#601）。Desktopが返した並びと意味をそのまま使う。
+     * 件数が `null` の間は「まだ読めていない」であり、0件とは違う。
+     */
+    override fun observeCachedAttention(): Flow<MobileAttentionSnapshot> =
+        combine(
+            dao.observeAttention(),
+            dao.observeAttentionState(),
+            dao.observeSyncState(),
+        ) { items, state, syncState ->
+            val serverId = syncState?.serverId
+            val current = state?.takeIf { it.serverId == serverId }
+            MobileAttentionSnapshot(
+                items = items
+                    .filter { it.serverId == serverId }
+                    .mapNotNull { cached ->
+                        runCatching { cached.toRow() }
+                            .onFailure { error ->
+                                Log.w(MOBILE_GATEWAY_LOG_TAG, "Discarding an invalid cached attention", error)
+                            }
+                            .getOrNull()
+                    },
+                counts = current?.let {
+                    MobileAttentionCountsDto(
+                        needsYou = it.needsYou,
+                        working = it.working,
+                        queued = it.queued,
+                    )
+                },
+                truncated = current?.truncated == true,
+                fetchedAt = current?.fetchedAt,
+                serverId = serverId ?: "",
+            )
+        }
 
     override fun observeConflictCount(): Flow<Int> = outbox.observeConflictCount()
 
@@ -969,6 +1010,208 @@ class AndroidMobileTaskRepository(
             MobileHumanReviewResult.Unavailable(
                 task.id,
                 "Work Receiptを判断できませんでした。DesktopとTailscale接続を確認してください。",
+            )
+        }
+    }
+
+    override suspend fun refreshAttention(): Boolean {
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) return false
+        return refreshAttention(configuration.origin, token)
+    }
+
+    private suspend fun refreshAttention(origin: String, accessToken: String): Boolean {
+        val expectedServerId = dao.syncState()?.serverId ?: return false
+        return try {
+            val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
+            val response = gatewayRequest(
+                origin = origin,
+                path = "/v1/attention?apiVersion=$TASKEN_MOBILE_API_VERSION" +
+                    "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId&limit=$ATTENTION_PAGE_SIZE",
+                method = "GET",
+                body = null,
+                accessToken = accessToken,
+            )
+            if (response.status == 401) {
+                if (isConfirmedGatewayUnauthorized(response, expectedServerId)) {
+                    store.clearTokenIfMatches(accessToken)
+                }
+                return false
+            }
+            require(response.status == 200) { "Attention request failed with HTTP ${response.status}" }
+            val decoded = MobileAttentionContract.decode(response.body)
+            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+            // Desktopの並びをそのまま保存する。Android側で並べ替えない。
+            val items = decoded.data.attention.mapIndexed { position, item ->
+                runCatching { item.toCacheEntity(expectedServerId, position, decoded.meta.generatedAt) }
+                    .onFailure { error ->
+                        Log.w(MOBILE_GATEWAY_LOG_TAG, "Skipping an unreadable attention item", error)
+                    }
+                    .getOrNull()
+            }.filterNotNull()
+            dao.replaceAttention(
+                serverId = expectedServerId,
+                items = items,
+                state = AttentionStateEntity(
+                    serverId = expectedServerId,
+                    needsYou = decoded.data.counts.needsYou,
+                    working = decoded.data.counts.working,
+                    queued = decoded.data.counts.queued,
+                    truncated = decoded.data.truncated,
+                    generatedAt = decoded.meta.generatedAt,
+                    fetchedAt = Instant.now().toString(),
+                ),
+            )
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile attention refresh failed", error)
+            false
+        }
+    }
+
+    /**
+     * agentの質問への短い返答（#601）。
+     *
+     * 送信前にpendingへ保存し、同じcommandIdで再送する。応答を失っても回答は増えない。
+     * 競合（回答済み・Task更新）はローカルのpendingを捨て、要対応を取り直して収束させる。
+     */
+    override suspend fun replyToAgent(item: AttentionRow, choiceId: String?, body: String): MobileAgentReplyResult {
+        val attentionId = item.attentionId
+        val taskId = item.taskId ?: return MobileAgentReplyResult.Unavailable(attentionId, "Taskが同期されていません。")
+        val questionId = item.requestId
+            ?: return MobileAgentReplyResult.Rejected(attentionId, "この質問には回答できません。")
+        val taskVersion = item.taskVersion
+            ?: return MobileAgentReplyResult.Rejected(attentionId, "Taskを同期してから回答してください。")
+        val replyBody = body.trim()
+        if (replyBody.isEmpty()) return MobileAgentReplyResult.Rejected(attentionId, "回答を入力してください。")
+        if (!item.canReply) return MobileAgentReplyResult.Rejected(attentionId, "この判断には回答できません。")
+        val expectedServerId = dao.syncState()?.serverId
+            ?: return MobileAgentReplyResult.Unavailable(attentionId, "Taskを同期してから回答してください。")
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) {
+            return MobileAgentReplyResult.Unavailable(attentionId, "Desktopへ接続してから回答してください。")
+        }
+        if (!configuration.canReplyToAgent()) {
+            return MobileAgentReplyResult.Unavailable(
+                attentionId,
+                "この権限では回答できません。Desktopで新しいコードを発行して再ペアリングしてください。",
+            )
+        }
+        return try {
+            val clientDeviceId = store.deviceId()
+            val commandId = agentReplyCommandId(
+                clientDeviceId = clientDeviceId,
+                serverId = expectedServerId,
+                taskId = taskId,
+                questionId = questionId,
+                expectedTaskVersion = taskVersion,
+                normalizedBody = replyBody,
+                choiceId = choiceId,
+            )
+            val createdEnvelope = MobileAgentReplyEnvelopeDto(
+                apiVersion = TASKEN_MOBILE_API_VERSION,
+                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+                requestId = UUID.randomUUID().toString(),
+                commandId = commandId,
+                idempotencyKey = commandId,
+                clientDeviceId = clientDeviceId,
+                issuedAt = Instant.now().toString(),
+                taskId = taskId,
+                questionId = questionId,
+                body = replyBody,
+                choiceId = choiceId,
+                expectedTaskVersion = taskVersion,
+            )
+            val pending = dao.pendingAgentReplyOrInsert(
+                PendingAgentReplyEntity(
+                    commandId = commandId,
+                    serverId = expectedServerId,
+                    taskId = taskId,
+                    questionId = questionId,
+                    attentionId = attentionId,
+                    envelopeJson = MobileAgentReplyContract.encode(createdEnvelope),
+                    createdAt = Instant.now().toString(),
+                ),
+            )
+            require(
+                pending.serverId == expectedServerId &&
+                    pending.taskId == taskId &&
+                    pending.questionId == questionId &&
+                    pending.attentionId == attentionId
+            ) { "Pending agent reply belongs to another Desktop or question" }
+            val envelope = MobileAgentReplyContract.decodeEnvelope(pending.envelopeJson)
+            require(
+                envelope.commandId == commandId &&
+                    envelope.idempotencyKey == commandId &&
+                    envelope.clientDeviceId == clientDeviceId &&
+                    envelope.taskId == taskId &&
+                    envelope.questionId == questionId &&
+                    envelope.expectedTaskVersion == taskVersion &&
+                    envelope.body == replyBody &&
+                    envelope.choiceId == choiceId
+            ) { "Pending agent reply identity does not match the request" }
+            val response = gatewayRequest(
+                origin = configuration.origin,
+                path = "/v1/agent-replies",
+                method = "POST",
+                body = pending.envelopeJson,
+                accessToken = token,
+            )
+            if (response.status == 401) {
+                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
+                if (confirmed) store.clearTokenIfMatches(token)
+                return MobileAgentReplyResult.Unavailable(
+                    attentionId,
+                    if (confirmed) {
+                        "接続が失効しました。新しいコードで再接続してください。"
+                    } else {
+                        "Desktopへ接続できませんでした。接続を確認して再試行してください。"
+                    },
+                )
+            }
+            if (response.status == 409) {
+                val error = MobileTaskCommandContract.decodeError(response.body)
+                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+                require(error.error.code == "entity_conflict") {
+                    "Unexpected agent reply conflict code: ${error.error.code}"
+                }
+                // 回答済みか、Taskが動いたか。どちらも要対応を取り直せば収束する。
+                dao.deletePendingAgentReply(commandId)
+                runCatching { refreshAttention(configuration.origin, token) }
+                    .onFailure { error -> Log.w(MOBILE_GATEWAY_LOG_TAG, "Attention refresh after conflict failed", error) }
+                MobileAgentReplyResult.Conflict(attentionId, error.error.message)
+            } else if (response.status == 403 || response.status == 400 || response.status == 404) {
+                val error = MobileTaskCommandContract.decodeError(response.body)
+                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+                dao.deletePendingAgentReply(commandId)
+                MobileAgentReplyResult.Rejected(attentionId, error.error.message)
+            } else {
+                require(response.status == 200) { "Agent reply failed with HTTP ${response.status}" }
+                val decoded = MobileAgentReplyContract.decode(response.body)
+                if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+                require(
+                    decoded.data.commandId == commandId &&
+                        decoded.data.taskId == taskId &&
+                        decoded.data.questionId == questionId
+                ) { "Agent reply identity does not match the request" }
+                dao.applyAgentReplySuccess(commandId, expectedServerId, attentionId)
+                runCatching { refreshAttention(configuration.origin, token) }
+                    .onFailure { error -> Log.w(MOBILE_GATEWAY_LOG_TAG, "Attention refresh after reply failed", error) }
+                MobileAgentReplyResult.Applied(attentionId, taskId, decoded.data.displayState)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: MobileOutboxServerMismatchException) {
+            MobileAgentReplyResult.Unavailable(attentionId, "接続先Desktopが変わりました。再接続してください。")
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile agent reply failed", error)
+            MobileAgentReplyResult.Unavailable(
+                attentionId,
+                "回答を送れませんでした。DesktopとTailscale接続を確認してください。",
             )
         }
     }

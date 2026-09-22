@@ -57,6 +57,26 @@ class MobileEntryRequestTest {
         )
     }
 
+    /** 要対応の新着通知からの移動（#601）。判断IDはそのまま渡す。 */
+    @Test
+    fun resolves_attention_notification_link() {
+        assertEquals(
+            MobileEntryRequest.Attention(5, MobileEntrySource.DeepLink, "task-work:request:1"),
+            MobileEntryRequestResolver.resolve(
+                Intent.ACTION_VIEW,
+                "tasken://attention/task-work%3Arequest%3A1",
+                null,
+                null,
+                5,
+            ),
+        )
+        // 判断IDが無いリンクは開かない。
+        assertEquals(
+            MobileEntryRequest.None,
+            MobileEntryRequestResolver.resolve(Intent.ACTION_VIEW, "tasken://attention", null, null, 6),
+        )
+    }
+
     @Test
     fun resolves_nonempty_plain_text_share_without_mutating_input() {
         val shared = "https://example.com/read-later\n共有メモ"

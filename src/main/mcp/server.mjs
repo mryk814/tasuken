@@ -74,7 +74,7 @@ const DAILY_REPORT_WRITING_GUIDANCE = [
   "Use short paragraphs and bullets; optional sections such as 今日進んだこと, 判断・未解決事項, 振り返り are a starting point, not fields to fill. Omit unsupported or empty sections and incidental tool statistics or terminology reviews. Keep the title separate (日報 YYYY-MM-DD); do not repeat it as an H1. Use only identifiers or links actually present in the context, without claiming they create Task relations.",
   "End with one or two adaptive questions grounded in a specific incident in this day's evidence, not a generic daily questionnaire. Prefer one useful question; add a second only for a distinct useful perspective. Ask what informed a choice, what would resolve an uncertainty, or what small experiment could test a pattern. Do not assume failure, feelings, or a decision not in the record. If evidence is too thin, say so instead of fabricating a question. Leave a blank > 回答： after each question; never fill human answers.",
   "Respect visibility and truncation. If evidence is partial, briefly state the coverage limit instead of implying a complete day. Prior reports and human answers are not evidence of today's work and must not be overwritten.",
-  "To save, use tasken.propose_note with note_type `report` and report_date from the context. Omit theme unless the user specified a Theme, so the report belongs to 個人業務. The user reviews and accepts the proposal in AI Inbox, then edits the Markdown in Notes. Report the returned Proposal ID as pending, not as a saved Note. Do not complete Tasks or create relations as a side effect.",
+  "To save, use tasken.propose_note with note_type `report` and report_date from the context. Omit theme unless the user specified a Theme, so the report belongs to 個人業務. The user reviews and accepts the proposal in Agent Desk, then edits the Markdown in Notes. Report the returned Proposal ID as pending, not as a saved Note. Do not complete Tasks or create relations as a side effect.",
 ].join("\n\n");
 
 function toolResult(value) {
@@ -157,7 +157,7 @@ export function createTaskenMcpServer(options = {}) {
     {
       instructions: readOnly
         ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed."
-        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Write tools queue a Proposal except tasken.start_task_work, which directly starts an explicitly AI Ready Task. A successful Proposal write returns a Proposal ID, not a Note ID; tell the user to review and accept it in Tasken before it becomes official data. A Note proposal may carry a Theme, not a Task or Reference relation.",
+        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. Every other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content.",
     },
   );
 
@@ -342,7 +342,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.get_task_context",
     {
       description:
-        "Return bounded, AI-visible Task context by raw task_id or canonical task_locator: assignment, Theme, RepositoryContext match, explicit/provenance-related summaries, Activity, and Work Receipts. Summary items contain stable locators instead of full bodies.",
+        "Return bounded, AI-visible Task context by raw task_id or canonical task_locator: assignment, Theme, RepositoryContext match, explicit/provenance-related summaries, Activity, and Work Receipts. Summary items contain stable locators instead of full bodies. Receipts with receipt_kind 'human_reply' are the human answers to your questions; match them by request_id to the question you sent, and honor work_attempt_id so a late report does not revive a finished attempt.",
       inputSchema: {
         task_id: z
           .string()
@@ -1116,6 +1116,39 @@ export function createTaskenMcpServer(options = {}) {
   );
 
   server.registerTool(
+    "tasken.get_feed_context",
+    {
+      description:
+        "Return the user's Feed as read-only context: questions the user explicitly asked you to answer (each with the post it came from), the most recent posts so you avoid repeating a topic, and the posts the user bookmarked or marked interesting. Post bodies are excerpts; fetch Task or Theme details with the existing read tools so AI visibility still applies. This never changes canonical data and never counts as a pending decision.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(50).optional(),
+        max_chars: z.number().int().min(1).max(4_000).optional(),
+        include_answered: z.boolean().optional(),
+      },
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.getFeedContext(args)),
+  );
+
+  server.registerTool(
+    "tasken.get_proposal_status",
+    {
+      description:
+        "Check what happened to a Proposal you already sent, by its Proposal ID, instead of sending it again. Returns the canonical status on the node you are connected to (`pending` means the user has not decided yet), whether it still awaits a human decision, and the entities it produced once accepted. Read-only: it never changes data and never accepts a Proposal for the user. The answer covers only this node; delivery to another device and a decision made there are not confirmed by it, so do not claim the user has seen it elsewhere.",
+      inputSchema: {
+        proposal_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("The Proposal ID returned when you sent the Proposal."),
+      },
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.getProposalStatus(args)),
+  );
+
+  server.registerTool(
     "tasken.export_ai_context",
     {
       description: "Export bounded Tasken context as Markdown or JSON.",
@@ -1207,6 +1240,23 @@ export function createTaskenMcpServer(options = {}) {
     source_session: z.string().trim().min(1).max(200).optional(),
     repository_context: taskWorkRepositoryContextSchema,
     source_app: z.string().trim().min(1).max(120).optional(),
+    work_attempt_id: z
+      .string()
+      .trim()
+      .uuid()
+      .optional()
+      .describe(
+        "UUID identifying this one delegation of the Task. Generate a new one when you explicitly start over; reuse it for every report of the same attempt. Reports without it stay readable as history but cannot settle the current state after re-delegation.",
+      ),
+    report_sequence: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(100000)
+      .optional()
+      .describe(
+        "Order of this report within the same work_attempt_id. Use it so late deliveries do not decide the current state by sender clock alone.",
+      ),
   };
   const queueTaskWork = (args, action) =>
     coreClient.proposeTaskWork({
@@ -1231,6 +1281,7 @@ export function createTaskenMcpServer(options = {}) {
         executor_identity: args.caller,
         started_at: args.started_at,
         ...(args.source_session ? { source_session: args.source_session } : {}),
+        ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
       },
     });
   const requiredTimestamp = z
@@ -1255,7 +1306,15 @@ export function createTaskenMcpServer(options = {}) {
       source_app: sourceApp(args),
     });
   const contentProposalIdentity = {
-    idempotency_key: z.string().trim().min(1).max(200).optional(),
+    idempotency_key: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        "Reuse the same value when you retry the same request. If you omit it, Tasken generates a new key for every call, so an identical retry becomes a second Proposal instead of being recognized as the same request.",
+      ),
     caller: z.string().trim().min(1).max(200).optional(),
     source_session: z.string().trim().min(1).max(200).optional(),
     source_app: z.string().trim().min(1).max(120).optional(),
@@ -1302,7 +1361,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.start_agent_session",
     {
       description:
-        "Queue an Agent Session start proposal for AI Inbox review. It never creates official data directly.",
+        "Queue an Agent Session start proposal for Agent Desk review. It never creates official data directly.",
       inputSchema: {
         ...agentSessionIdentity,
         started_at: requiredTimestamp,
@@ -1332,7 +1391,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.finish_agent_session",
     {
       description:
-        "Queue an Agent Session outcome proposal for AI Inbox review. Intent and client identity stay immutable.",
+        "Queue an Agent Session outcome proposal for Agent Desk review. Intent and client identity stay immutable.",
       inputSchema: {
         ...agentSessionIdentity,
         agent_session_id: z.string().uuid(),
@@ -1359,7 +1418,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.submit_agent_session_record",
     {
       description:
-        "Queue one complete Agent Session record for AI Inbox review. This is for lifecycle collectors that observed both Intent and terminal Outcome; it never stores raw transcripts or writes official data directly.",
+        "Queue one complete Agent Session record for Agent Desk review. This is for lifecycle collectors that observed both Intent and terminal Outcome; it never stores raw transcripts or writes official data directly.",
       inputSchema: {
         ...agentSessionIdentity,
         started_at: requiredTimestamp,
@@ -1436,7 +1495,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.append_work_receipt",
     {
       description:
-        "Queue an append-only progress or follow-up Work Receipt, including for reviewed or completed Tasks. Human adoption preserves Task completion and its original body. Reuse the same idempotency_key, time and content for retries. Follow-ups use a new idempotency_key and stack onto the same Task in AI Inbox. Include completed_checklist_item_ids for verified checklist work.",
+        "Queue an append-only progress or follow-up Work Receipt, including for reviewed or completed Tasks. Human adoption preserves Task completion and its original body. Reuse the same idempotency_key, time and content for retries. Follow-ups use a new idempotency_key and stack onto the same Task in Agent Desk. Include completed_checklist_item_ids for verified checklist work.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },
@@ -1447,7 +1506,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.report_task_done",
     {
       description:
-        "Queue an AI work report for any visible Task, including reviewed or completed Tasks. Human adoption records the report and optional completed checklist items; only a separate explicit human action completes the Task. If AI Ready work has no start, adoption records its start too. Follow-up reports use a new idempotency_key and stack onto the same Task in AI Inbox.",
+        "Queue an AI work report for any visible Task, including reviewed or completed Tasks. Human adoption records the report and optional completed checklist items; only a separate explicit human action completes the Task. If AI Ready work has no start, adoption records its start too. Follow-up reports use a new idempotency_key and stack onto the same Task in Agent Desk.",
       inputSchema: receiptProposalSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },
@@ -1464,6 +1523,14 @@ export function createTaskenMcpServer(options = {}) {
         executor_kind: z.enum(["self", "human", "ai_agent", "external", "unknown"]).optional(),
         executor_label: z.string().trim().min(1).max(200),
         blocker: z.string().trim().min(1).max(10000),
+        request_id: z
+          .string()
+          .trim()
+          .uuid()
+          .optional()
+          .describe(
+            "UUID for the single question the human must answer. Keep it stable when re-sending the same question; use a new one for a different question.",
+          ),
         attempted_work: workItemList,
         completed_checklist_item_ids: receiptProposalSchema.completed_checklist_item_ids,
         needed_input: workItemList,
@@ -1547,6 +1614,124 @@ export function createTaskenMcpServer(options = {}) {
       annotations: PROPOSAL_ANNOTATIONS,
     },
     withCoreClient((args) => queueContent(args, "note_create")),
+  );
+
+  server.registerTool(
+    "tasken.propose_feed_post",
+    {
+      description:
+        "Share a short finding from the work you did, so the user can read it in Tasken's Feed. The post is reading material: it appears in Feed as soon as this call succeeds and is NOT a pending decision, so the user does not need to accept it and it never increases the human's attention count. Keep the body to the finding itself (roughly 80-260 characters per paragraph, at most a few paragraphs) and say what was surprising, what failed, or what the user can reuse. Attach an article only when a longer explanation helps: pass `note_id` for an existing Note, or `article` to queue a Note draft that the user can accept separately. Do not restate a Task report as a post, and do not repeat a post you already sent: read tasken.get_feed_context first, and reuse the same idempotency_key when retrying. Returns a Proposal ID, not a Note ID.",
+      inputSchema: {
+        ...contentProposalBase,
+        topic: z
+          .enum(["work_report", "insight", "learning", "reference", "question", "own_note"])
+          .describe(
+            "work_report: what became possible; insight: a reusable way of seeing; learning: how something works; reference: a source worth reading; question: something you need decided; own_note: a note from the user's own record.",
+          ),
+        body: z
+          .array(z.string().trim().min(1).max(2000))
+          .min(1)
+          .max(20)
+          .describe("Paragraphs of the post. Each paragraph is kept as written."),
+        task_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe(
+            "Optional Task this came from. The post keeps the reference, not a copy of the Task.",
+          ),
+        theme: optionalText,
+        session_id: z.string().trim().min(1).max(200).optional(),
+        note_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("Attach an existing Note as the article."),
+        article: z
+          .object({
+            title: z.string().trim().min(1).max(200),
+            body: z.string().min(1).max(200000).describe(NOTE_MARKDOWN_BODY_DESCRIPTION),
+            note_type: z.enum(["memo", "report", "prompt"]).optional(),
+          })
+          .strict()
+          .optional()
+          .describe(
+            "Queue a Note draft and attach it to this post. The draft is readable before acceptance and becomes a Note only when the user accepts it.",
+          ),
+        attachment_label: z
+          .string()
+          .trim()
+          .max(200)
+          .optional()
+          .describe("Caption for a figure or table that helps the post make sense."),
+        evidence: z
+          .array(z.string().trim().min(1).max(1000))
+          .max(20)
+          .optional()
+          .describe("Facts behind the post: source URL, checked date, measurement, or file."),
+        recent_post_ids: z
+          .array(z.string().trim().min(1).max(200))
+          .max(20)
+          .optional()
+          .describe(
+            "Accepted for compatibility and otherwise ignored: Tasken does not compare them for you. Read tasken.get_feed_context to see posts the user already has, and reuse the same idempotency_key when retrying. This field alone does not prevent a duplicate post.",
+          ),
+        source_app: z.string().trim().min(1).max(120).optional(),
+      },
+      annotations: PROPOSAL_ANNOTATIONS,
+    },
+    withCoreClient((args) => {
+      const { recent_post_ids: _recentPostIds, ...request } = args;
+      return queueContent(request, "feed_post");
+    }),
+  );
+
+  server.registerTool(
+    "tasken.answer_feed_question",
+    {
+      description:
+        "Answer a question the user asked in Tasken's Feed. Read the question with `tasken.get_feed_context` first, then answer it here with the question's reply ID (`reply_to`) and its post ID (`post_id`). The answer appears in that post's thread for the user to read; it does not change Task, Note, or any other canonical data, and it is NOT a pending decision. Answer only the question you were given, keep it to what your work actually showed, and reuse the same idempotency_key when retrying. Returns a Proposal ID.",
+      inputSchema: {
+        ...contentProposalBase,
+        post_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("The post the question belongs to, as returned by tasken.get_feed_context."),
+        reply_to: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("The question's reply ID from tasken.get_feed_context."),
+        body: z
+          .string()
+          .trim()
+          .min(1)
+          .max(4_000)
+          .describe("The answer. Plain text; it is shown as one paragraph in the thread."),
+        author_label: z
+          .string()
+          .trim()
+          .min(1)
+          .max(120)
+          .optional()
+          .describe("Your display name in the thread. Defaults to the caller name."),
+        evidence: z
+          .array(z.string().trim().min(1).max(1_000))
+          .max(20)
+          .optional()
+          .describe("Facts behind the answer: source URL, checked date, measurement, or file."),
+        source_app: z.string().trim().min(1).max(120).optional(),
+      },
+      annotations: PROPOSAL_ANNOTATIONS,
+    },
+    withCoreClient((args) => queueContent(args, "feed_reply")),
   );
 
   server.registerTool(

@@ -5,6 +5,7 @@ export { TaskContextQueryService } from "./services/taskContextQueryService.ts";
 export { ItemQueryService } from "./services/itemQueryService.ts";
 export { ContentDetailQueryService } from "./services/contentDetailQueryService.ts";
 export { ActivityEntriesQueryService } from "./services/activityEntriesQueryService.ts";
+export { FeedContextQueryService } from "./services/feedContextQueryService.ts";
 export { ThemeContextQueryService } from "./services/themeContextQueryService.ts";
 export { KnowledgeQueryService } from "./services/knowledgeQueryService.ts";
 export { AgentContextQueryService } from "./services/agentContextQueryService.ts";
@@ -19,6 +20,21 @@ export {
   ProposeRepositoryTaskService,
 } from "./services/proposeRepositoryTaskService.ts";
 export { ProposeContentError, ProposeContentService } from "./services/proposeContentService.ts";
+export {
+  CoreWriteNotAllowedError,
+  restrictContentProposals,
+  restrictRepositoryTaskProposals,
+} from "./services/proposalAccessPolicy.ts";
+export type { CoreProposalAccess } from "./services/proposalAccessPolicy.ts";
+export { ProposalStatusQueryService } from "./services/proposalStatusQueryService.ts";
+export type {
+  ProposalStatusCreatedEntity,
+  ProposalStatusProposalRecord,
+  ProposalStatusReadPort,
+  ProposalStatusSnapshot,
+  ProposalStatusSyncState,
+  ProposalStatusValue,
+} from "./ports/proposalStatusReadPort.ts";
 export type {
   AgentReadyTaskReadPort,
   AgentReadyTaskSourceRecord,
@@ -51,6 +67,12 @@ export type {
   ThemeContextRecord,
   ThemeContextWorkspace,
 } from "./ports/themeContextReadPort.ts";
+export type {
+  FeedContextReadPort,
+  FeedContextRecord,
+  FeedContextSnapshot,
+  FeedContextWorkspace,
+} from "./ports/feedContextReadPort.ts";
 export type {
   KnowledgeReadEntityType,
   KnowledgeReadPort,

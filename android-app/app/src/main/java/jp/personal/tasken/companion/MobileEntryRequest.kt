@@ -34,6 +34,13 @@ sealed interface MobileEntryRequest {
         val taskId: String,
     ) : MobileEntryRequest
 
+    /** 要対応の新着通知から、その判断へ移動する（#601）。 */
+    data class Attention(
+        override val token: Long,
+        val source: MobileEntrySource,
+        val attentionId: String,
+    ) : MobileEntryRequest
+
     data object None : MobileEntryRequest {
         override val token: Long = 0
     }
@@ -75,6 +82,11 @@ object MobileEntryRequestResolver {
         }
         return when {
             uri.host == "today" && uri.path.trim('/') == "" -> MobileEntryRequest.Today(token, source)
+            uri.host == "attention" -> {
+                val attentionId = uri.path.trim('/').takeIf(String::isNotBlank)
+                if (attentionId == null) MobileEntryRequest.None
+                else MobileEntryRequest.Attention(token, source, attentionId)
+            }
             uri.host == "capture" && uri.path.trim('/') == "new" -> MobileEntryRequest.Capture(
                 token = token,
                 source = source,

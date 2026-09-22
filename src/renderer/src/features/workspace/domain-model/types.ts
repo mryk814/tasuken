@@ -181,6 +181,13 @@ export interface Task extends AiMetadata {
   work_started_at?: string | null;
   work_reported_at?: string | null;
   work_review_note?: string | null;
+  /** 現在参照している作業単位（Taskへの一回の委任）のID。 */
+  work_attempt_id?: string | null;
+  /** AIへ任せたときの依頼内容（#598）。Task本文は変えない。 */
+  handoff_expected_result?: string | null;
+  handoff_instruction?: string | null;
+  handoff_context_ref?: string | null;
+  handoff_requested_at?: string | null;
   priority: "normal" | "high";
   /** ユーザーが今日やると選んだ日。Scheduleの期限とは別に保持する。 */
   today_date?: string | null;
@@ -434,6 +441,16 @@ export interface WorkspaceDomain {
   notes: Note[];
   resources: Resource[];
   sketches: Sketch[];
+  /** Habitの最小実験（#454後半）。実施記録は habit_entries に置く。 */
+  habits: Array<Record<string, unknown> & { id: string }>;
+  habit_entries: Array<Record<string, unknown> & { id: string }>;
+  /** Maintenanceの最小実験（#454後半）。実施記録は maintenance_entries に置く。 */
+  maintenances: Array<Record<string, unknown> & { id: string }>;
+  maintenance_entries: Array<Record<string, unknown> & { id: string }>;
+  /** 読者の状態（ブックマーク・興味・非表示）。 */
+  feed_reactions: Array<Record<string, unknown> & { id: string }>;
+  /** 投稿への返信とAIの返答。 */
+  feed_replies: Array<Record<string, unknown> & { id: string }>;
   knowledge_nodes: KnowledgeNode[];
   references: Reference[];
   task_dependencies: TaskDependency[];

@@ -52,7 +52,7 @@ flowchart LR
     ACTIVITY[Activity Event Index]
     CONTEXT[AI Context Preview / Pack]
     MCP[MCP / Coding Agent]
-    PROPOSAL[AI Inbox / Proposal Review]
+    PROPOSAL[Agent Desk / Proposal Review]
     GRAPH[Provenance / Context Graph]
   end
 
@@ -70,22 +70,23 @@ flowchart LR
 
 ## 2. Surface Map
 
-| Surface   | 一言で言うと                      | 主に扱う正本             | 種別                  | 現在の位置づけ            |
-| --------- | --------------------------------- | ------------------------ | --------------------- | ------------------------- |
-| Today     | 今日実行する                      | Task / Schedule          | Projection / Hub      | Core daily                |
-| ToDo      | 未完了・予定なしを整理する        | Task / Schedule          | Projection            | Core daily                |
-| Waiting   | 外部待ちを確認する                | Waiting                  | Entity view           | Supporting / usage review |
-| Inbox     | まだ意味を決めていない入力        | CaptureEntry / Memo      | Intake hub            | Core daily, simplify      |
-| Timeline  | 中長期計画をTheme横断で見る       | Task / Schedule          | Projection            | Supporting                |
-| Notes     | Markdown文書を作る・読む          | Note / Resource          | Workbench             | Core daily                |
-| Sketch    | 手描き・図を作る                  | Sketch                   | Authoring tool        | Core secondary            |
-| Chat Refs | 外部AI会話を保管・参照する        | Resource / Conversation  | Source library        | Supporting, growing       |
-| Artifacts | 実ファイル・Media・Web成果物      | Artifact                 | Output library        | Core, growing             |
-| Theme     | 一つのThemeの現在地               | Theme + related entities | Projection / Context  | Core                      |
-| Themes    | Theme横断の一覧                   | Theme                    | Portfolio view        | Supporting                |
-| AI Inbox  | AIからの変更案を確認する          | AiProposal               | Review boundary       | Supporting / Experimental |
-| Knowledge | Relation・既存Knowledgeを診断する | Relation / KnowledgeNode | Research / Diagnostic | Experimental              |
-| Settings  | 保存・接続・AI・表示を設定する    | Preferences / Profiles   | Tool                  | Supporting                |
+| Surface    | 一言で言うと                      | 主に扱う正本                    | 種別                  | 現在の位置づけ                                |
+| ---------- | --------------------------------- | ------------------------------- | --------------------- | --------------------------------------------- |
+| Today      | 今日実行する                      | Task / Schedule                 | Projection / Hub      | Core daily                                    |
+| ToDo       | 未完了・予定なしを整理する        | Task / Schedule                 | Projection            | Core daily                                    |
+| Waiting    | 外部待ちを確認する                | Waiting                         | Entity view           | Supporting / usage review                     |
+| Inbox      | まだ意味を決めていない入力        | CaptureEntry / Memo             | Intake hub            | Core daily, simplify                          |
+| Timeline   | 中長期計画をTheme横断で見る       | Task / Schedule                 | Projection            | Supporting                                    |
+| Notes      | Markdown文書を作る・読む          | Note / Resource                 | Workbench             | Core daily                                    |
+| Sketch     | 手描き・図を作る                  | Sketch                          | Authoring tool        | Core secondary                                |
+| Chat Refs  | 外部AI会話を保管・参照する        | Resource / Conversation         | Source library        | Supporting, growing                           |
+| Artifacts  | 実ファイル・Media・Web成果物      | Artifact                        | Output library        | Core, growing                                 |
+| Theme      | 一つのThemeの現在地               | Theme + related entities        | Projection / Context  | Core                                          |
+| Themes     | Theme横断の一覧                   | Theme                           | Portfolio view        | Supporting                                    |
+| Agent Desk | 任せた仕事の進みと待ちを確認する  | AiProposal / WorkReceipt / Task | Review + Queue        | Core daily（#600で統合。route IDは `ai-io`）  |
+| Feed       | 変化と判断を流し読みする          | 既存canonicalからのprojection   | Attention projection  | 試作中 / Experimental（#604。架空データのみ） |
+| Knowledge  | Relation・既存Knowledgeを診断する | Relation / KnowledgeNode        | Research / Diagnostic | Experimental                                  |
+| Settings   | 保存・接続・AI・表示を設定する    | Preferences / Profiles          | Tool                  | Supporting                                    |
 
 ### Satellite surfaces
 
@@ -209,16 +210,20 @@ URL、本文、ファイル、会話ログを一つの曖昧な「関連資料�
 ### AI cluster
 
 ```text
-AI Inbox / MCP / Agent Session / AI Pack / Context Preview
+Agent Desk / Agent Desk / Feed / MCP / Agent Session / AI Pack / Context Preview
 ```
 
-- AI Inbox: 書き込み案の人間確認
+- Agent Desk: 書き込み案の人間確認（今後の表示名は Agent Desk）
+- Agent Desk: 任せた仕事の進みと待ちの確認。要対応件数のbadgeはここへ集約する
+- Feed: 変化と判断を流し読みする任意入口。既定画面にはせず、独立した正本DBを作らない
 - MCP: 外部AgentへのContext提供と安全なProposal受領
 - Agent Session: 外部AgentのIntent・Outcome・Work Receipt・残作業
 - AI Pack: OneDrive向けProjection
 - Context Preview: 渡す内容の確認
 
 同じAI機能ではなく、AI境界の異なる段階。
+
+**用語・canonical/projectionの分離・状態導出・route統合方針の正本は [agent-collaboration.md](./agent-collaboration.md)（#594）。** この節と同書が食い違う場合は agent-collaboration.md を優先する。
 
 ### History / provenance cluster
 
@@ -248,7 +253,7 @@ core:
   Today, ToDo, Inbox, Notes, Theme, Artifacts
 
 supporting:
-  Waiting, Timeline, Themes, Sketch, Chat Refs, Settings, AI Inbox
+  Waiting, Timeline, Themes, Sketch, Chat Refs, Settings, Agent Desk
 
 experimental:
   Voice Capture, Screen Recording, Web Artifact, Source Anchor, Agent連携再設計
@@ -301,7 +306,7 @@ UI component単位ではなく、利用者にとって意味のあるcapability�
 | Notes                   | core       |     today |  184 |           3 | healthy                     |
 | Waiting                 | supporting |   64 days |    2 |           1 | review                      |
 | Knowledge manual create | dormant?   |     never |    7 |           2 | UI may be unnecessary       |
-| AI Inbox                | supporting |   21 days |    4 |           1 | occasional, keep contextual |
+| Agent Desk              | supporting |   21 days |    4 |           1 | occasional, keep contextual |
 
 利用回数だけで自動削除・降格しない。判断材料として使う。
 
@@ -325,7 +330,7 @@ UI component単位ではなく、利用者にとって意味のあるcapability�
 1. Waitingは独立画面を維持するか、Today / Taskの状態へ寄せるか
 2. Timelineは中長期計画だけに絞れているか
 3. Knowledge画面は診断面として十分か、通常ナビから下げるか
-4. AI Inboxは独立画面か、Proposalがある時だけ現れるContextual入口か
+4. Agent Deskは独立画面か、Proposalがある時だけ現れるContextual入口か
 5. Resource / Chat Ref / Artifactの違いが利用者に伝わるか
 6. Activity / Work Receipt / Revisionを一つの来歴面で辿れるか
 7. Experimental Media / Web / Pointingが通常UIを圧迫していないか

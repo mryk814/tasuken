@@ -247,6 +247,8 @@ export const startTaskWorkCommandSchema = z
         executor_identity: z.string().trim().min(1).max(200),
         started_at: isoTimestampSchema,
         source_session: z.string().trim().min(1).max(200).optional(),
+        // 作業単位ID（#595）。再委任しても同じTaskの中で報告を区別する。
+        work_attempt_id: z.string().uuid().optional(),
       })
       .strict(),
   })

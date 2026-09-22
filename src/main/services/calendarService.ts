@@ -29,7 +29,12 @@ const MICROSOFT_SCOPES = "openid profile email offline_access Calendars.ReadBasi
 const GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_SCOPES = "openid email profile https://www.googleapis.com/auth/calendar.readonly";
-const OAUTH_TIMEOUT_MS = 120_000;
+/**
+ * ブラウザでのサインインと同意を待つ時間（#273）。
+ * Googleのアカウント選択と同意画面を人間が終えるには2分では足りない（実接続で確認）。
+ * 画面側は「接続中…」を出したまま待ち、タイムアウト時は再試行を促す。
+ */
+const OAUTH_TIMEOUT_MS = 300_000;
 
 interface StoredCalendarConfig {
   provider: CalendarProvider;
@@ -96,6 +101,32 @@ function buildDisconnectedStatus(): CalendarConnectionStatus {
 
 function isCalendarProvider(value: unknown): value is CalendarProvider {
   return typeof value === "string" && (CALENDAR_PROVIDERS as readonly string[]).includes(value);
+}
+
+/**
+ * token取得の失敗理由（OAuthのerrorコード）だけを取り出す。
+ * providerの本文やtokenは残さない。診断ログ専用（#273）。
+ */
+function oauthErrorCode(body: string): string {
+  const matched = /"error"\s*:\s*"([a-z_]{3,40})"/u.exec(body);
+  return matched ? matched[1] : "unknown";
+}
+
+/**
+ * 失敗の種類から、次に何を直せばよいかだけを導く（#273）。
+ *
+ * providerの本文は残さず、既知の言い回しにだけ反応する。実接続で
+ * `client_secret is missing.`（＝Web アプリ種別のクライアント）を観測したため、
+ * 「client IDの種類が違う」ことを診断で見分けられるようにする。
+ */
+function oauthFailureHint(body: string): string {
+  const text = body.toLowerCase();
+  if (text.includes("client_secret")) return "client_type";
+  if (text.includes("redirect_uri")) return "redirect_uri";
+  if (text.includes("invalid_grant") || text.includes("malformed auth code"))
+    return "code_rejected";
+  if (text.includes("invalid_client")) return "client_unknown";
+  return "unknown";
 }
 
 function oauthConfigFor(provider: CalendarProvider): OAuthProviderConfig {
@@ -276,6 +307,17 @@ export class CalendarService {
     });
     if (!tokenResponse.ok) {
       const body = await tokenResponse.text().catch(() => "");
+      // 端末の画面には実装用語を出さず、失敗の種類だけを診断用に標準エラーへ残す（#273）。
+      // providerの本文・token・codeは出さない。
+      process.stderr.write(
+        `TASKEN_CALENDAR_OAUTH_FAILED ${JSON.stringify({
+          schema_version: 1,
+          provider,
+          status: tokenResponse.status,
+          oauth_error: oauthErrorCode(body),
+          hint: oauthFailureHint(body),
+        })}\n`,
+      );
       throw classifyCalendarProviderError(
         tokenResponse.status,
         body,

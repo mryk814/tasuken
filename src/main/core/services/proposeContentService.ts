@@ -24,6 +24,8 @@ import type {
 const MAX_CANONICAL_PROPOSAL_BYTES = 64 * 1024;
 
 const TOOL_BY_KIND = {
+  feed_post: "tasken.propose_feed_post",
+  feed_reply: "tasken.answer_feed_question",
   note_create: "tasken.propose_note",
   note_edit: "tasken.propose_note_edit",
   knowledge_create: "tasken.propose_knowledge",
@@ -32,6 +34,8 @@ const TOOL_BY_KIND = {
 } as const;
 
 const PAYLOAD_TYPE_BY_KIND = {
+  feed_post: "feed_posts",
+  feed_reply: "feed_replies",
   note_create: "notes",
   note_edit: "notes",
   knowledge_create: "knowledge_nodes",
@@ -111,6 +115,52 @@ function payloadFor(
   payload: Record<string, unknown>;
   target?: Record<string, unknown>;
 } {
+  if (request.kind === "feed_post") {
+    // 読み物の投稿。正式データは変更しない（採用は添えたNote草稿の側で行う）。
+    return {
+      payload: {
+        feed_posts: [
+          {
+            action: "publish",
+            topic: request.topic,
+            body: request.body,
+            ...(request.task_id ? { task_id: request.task_id } : {}),
+            ...(request.theme ? { theme: request.theme } : {}),
+            ...(request.session_id ? { session_id: request.session_id } : {}),
+            ...(request.note_id ? { note_id: request.note_id } : {}),
+            ...(request.article
+              ? {
+                  article: {
+                    title: request.article.title,
+                    body: request.article.body,
+                    note_type: request.article.note_type || "memo",
+                  },
+                }
+              : {}),
+            ...(request.attachment_label ? { attachment_label: request.attachment_label } : {}),
+            evidence: request.evidence || [],
+          },
+        ],
+      },
+    };
+  }
+  if (request.kind === "feed_reply") {
+    // 利用者の質問への返答。質問のスレッドへ並べるだけで、正式データは変更しない。
+    return {
+      payload: {
+        feed_replies: [
+          {
+            action: "answer",
+            post_id: request.post_id,
+            reply_to: request.reply_to,
+            body: request.body,
+            ...(request.author_label ? { author_label: request.author_label } : {}),
+            evidence: request.evidence || [],
+          },
+        ],
+      },
+    };
+  }
   if (request.kind === "note_create") {
     return {
       payload: {
@@ -390,10 +440,32 @@ export class ProposeContentService {
       payload_type: payloadType,
       message:
         status === "queued"
-          ? preparedImages?.manifest.length
-            ? "画像付きNote Proposalを受信しました。このTasken DesktopでPreviewして採用してください。"
-            : "TaskenのAI連携にProposalとして送りました。TaskenでPreviewして採用してください。"
-          : "同じidempotency_keyのProposalはすでに受信済みです。",
+          ? queuedMessage(request.kind, preparedImages?.manifest.length ?? 0)
+          : duplicateMessage(payloadType),
     });
   }
+}
+
+/**
+ * 採用が必要なProposalと、そのまま読める読み物を区別して返す。
+ * 読み物（Feed投稿・Feed返信）は人の採用を待たずに表示されるため、
+ * 「Previewして採用してください」と案内すると、存在しない操作を求めることになる。
+ */
+function queuedMessage(kind: ProposeContentRequest["kind"], imageCount: number): string {
+  if (kind === "feed_post") {
+    return "読み物の投稿としてFeedへ届きました。ユーザーは採用を待たずに読めます。";
+  }
+  if (kind === "feed_reply") {
+    return "質問への返信としてスレッドへ届きました。ユーザーは採用を待たずに読めます。";
+  }
+  if (kind === "note_create" && imageCount > 0) {
+    return "画像付きNote Proposalを受信しました。このTasken DesktopでPreviewして採用してください。";
+  }
+  return "TaskenのAI連携にProposalとして送りました。TaskenでPreviewして採用してください。";
+}
+
+function duplicateMessage(payloadType: ContentProposalPayloadType): string {
+  return payloadType === "feed_posts" || payloadType === "feed_replies"
+    ? "同じidempotency_keyの読み物はすでに受信済みです。新しい投稿は増えていません。"
+    : "同じidempotency_keyのProposalはすでに受信済みです。";
 }

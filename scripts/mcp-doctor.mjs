@@ -13,13 +13,33 @@ import {
   TaskenCoreClient,
   TaskenCoreClientError,
 } from "../src/main/mcp/taskenCoreClient.mjs";
+import {
+  TASKEN_CORE_WRITE_CAPABILITIES,
+  coreWriteProfile,
+} from "../src/shared/contracts/core/public.mjs";
+
+/**
+ * 書き込みcapability。配備によって公開範囲が変わるため、読み取りとは別に診断する。
+ * 判定はDesktopのSettingsと同じ共有契約を使う。
+ */
+const WRITE_CORE_CAPABILITIES = TASKEN_CORE_WRITE_CAPABILITIES;
+
+export const writeProfile = coreWriteProfile;
 
 export async function buildReport(coreClient = new TaskenCoreClient()) {
   try {
     const status = await coreClient.inspect();
-    const missing = TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter(
+    const writeCapabilities = new Set(WRITE_CORE_CAPABILITIES);
+    const readCapabilities = TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter(
+      (capability) => !writeCapabilities.has(capability),
+    );
+    const missingRead = readCapabilities.filter(
       (capability) => !status.capabilities.includes(capability),
     );
+    const { profile, missingWrites } = writeProfile(status.capabilities);
+    // 既知の配備（read-only / proposals）は書き込みが無くても正常。
+    // 既知でない組み合わせだけを不足として報告する。
+    const missing = profile === "partial" ? [...missingRead, ...missingWrites] : [...missingRead];
     const checks = [
       {
         status: "ok",
@@ -31,18 +51,32 @@ export async function buildReport(coreClient = new TaskenCoreClient()) {
         code: "MCP_CORE_VERSION_MATCH",
         message: `Tasken Core API ${status.api_version} に接続しました。`,
       },
-      missing.length === 0
+      missing.length > 0
         ? {
-            status: "ok",
-            code: "MCP_CORE_CAPABILITIES_READY",
-            message: `MCPに必要な ${TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.length} capabilitiesを確認しました。`,
-          }
-        : {
             status: "error",
             code: "MCP_CORE_CAPABILITIES_MISSING",
             message: `MCPに必要な capabilitiesが ${missing.length} 件不足しています。`,
             missing_capabilities: missing,
-          },
+          }
+        : profile === "read-only"
+          ? {
+              status: "ok",
+              code: "MCP_CORE_WRITE_DISABLED",
+              message:
+                "このCoreは書き込みを公開していません。読み取り専用の配備として診断しました。",
+            }
+          : profile === "proposals"
+            ? {
+                status: "ok",
+                code: "MCP_CORE_WRITE_PROPOSALS_ONLY",
+                message:
+                  "このCoreはテキストのFeed投稿・Note案・Task案だけを受け付けます。直接開始と作業報告は公開していません。",
+              }
+            : {
+                status: "ok",
+                code: "MCP_CORE_CAPABILITIES_READY",
+                message: `MCPに必要な ${TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.length} capabilitiesを確認しました。`,
+              },
     ];
     return {
       schema_version: 2,
@@ -50,7 +84,11 @@ export async function buildReport(coreClient = new TaskenCoreClient()) {
       ok: missing.length === 0,
       status: missing.length === 0 ? "ready" : "blocked",
       checks,
-      core: { api_version: status.api_version, capability_count: status.capabilities.length },
+      core: {
+        api_version: status.api_version,
+        capability_count: status.capabilities.length,
+        write_profile: profile,
+      },
     };
   } catch (error) {
     const publicError =

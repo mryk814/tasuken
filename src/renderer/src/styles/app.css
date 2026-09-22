@@ -3,6 +3,7 @@
 @import "katex/dist/katex.min.css";
 @import "@mdxeditor/editor/style.css";
 @import "./artifacts.css";
+@import "./feed.css";
 
 @theme inline {
   --color-app-accent: var(--color-accent);
@@ -1326,6 +1327,12 @@ textarea:hover {
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
 }
+/* 取得できていない状態。0件（「今日の予定はありません」）と見た目も分ける。 */
+.today-calendar-unavailable {
+  padding: var(--space-3) var(--pad-card);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
 .today-calendar-list {
   display: grid;
 }
@@ -2304,6 +2311,183 @@ textarea:hover {
 .today-task-list,
 .today-update-list {
   display: grid;
+}
+
+/* #454後半: Maintenanceの最小実験。目安は提案で、遅れを赤い違反表示にしない。 */
+.maintenance-panel .maintenance-create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.maintenance-panel .maintenance-create label,
+.maintenance-panel .maintenance-actions label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+.maintenance-panel input {
+  font: inherit;
+  color: var(--color-text-primary);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.maintenance-panel .maintenance-note,
+.maintenance-panel .maintenance-empty,
+.maintenance-panel .maintenance-meta {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+.maintenance-panel .maintenance-list,
+.maintenance-panel .maintenance-history {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.maintenance-panel .maintenance-row {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.maintenance-panel .maintenance-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.maintenance-panel .maintenance-title {
+  font-weight: var(--weight-medium);
+}
+.maintenance-panel .maintenance-due {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-1);
+}
+.maintenance-panel .maintenance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-end;
+}
+.maintenance-panel .maintenance-history-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  padding: var(--space-1) 0;
+}
+.maintenance-panel .maintenance-history-date {
+  font-variant-numeric: tabular-nums;
+}
+.maintenance-panel .maintenance-history-note {
+  color: var(--color-text-secondary);
+}
+
+/* #454後半: Habitの最小実験。連続日数や達成率を強調する装飾は持たない。 */
+.habit-panel .habit-create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.habit-panel .habit-create label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+.habit-panel .habit-create input,
+.habit-panel .habit-create select {
+  font: inherit;
+  color: var(--color-text-primary);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.habit-panel .habit-note,
+.habit-panel .habit-empty,
+.habit-panel .habit-last,
+.habit-panel .habit-progress {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+.habit-panel .habit-list {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.habit-panel .habit-row {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.habit-panel .habit-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.habit-panel .habit-title {
+  font-weight: var(--weight-medium);
+}
+.habit-panel .habit-schedule,
+.habit-panel .habit-state {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+.habit-panel .habit-state {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-1);
+}
+.habit-panel .habit-progress {
+  color: var(--color-text-secondary);
+}
+.habit-panel .habit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.habit-panel .habit-history {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1) 0 0;
+}
+.habit-panel .habit-history-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  padding: var(--space-1) 0;
+}
+.habit-panel .habit-history-date {
+  font-variant-numeric: tabular-nums;
+}
+.habit-panel .habit-history-sequence {
+  color: var(--color-text-tertiary);
+}
+.habit-panel .habit-history-row input {
+  font: inherit;
+  color: var(--color-text-primary);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 .today-task-row {
   min-height: 40px;
@@ -16504,5 +16688,435 @@ kbd {
   .theme-intent-card + .theme-intent-card {
     border-top: 1px solid var(--color-border-subtle);
     border-left: 0;
+  }
+}
+
+/* --- Today: 期限の確認と「扱う日を変更」（#454） --- */
+.today-deadline-panel .today-deadline-count {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.today-deadline-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.today-deadline-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  padding: 10px 0;
+  border-top: 1px solid var(--color-border-subtle);
+  min-width: 0;
+}
+
+.today-deadline-row:first-child {
+  border-top: 0;
+}
+
+.today-deadline-open {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-base);
+  text-align: left;
+  word-break: keep-all;
+  cursor: pointer;
+}
+
+.today-deadline-open:hover {
+  color: var(--color-accent-strong);
+}
+
+.today-deadline-open:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+
+.today-deadline-meta {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.today-date-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+}
+
+.today-date-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.today-date-pick input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-base);
+}
+
+/* --- Task詳細: AIへ任せる（Handoff #598） --- */
+.task-handoff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.task-handoff .section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.task-handoff .section-heading h4 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+
+.task-handoff-state {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  color: var(--color-status-idle-fg);
+  background: var(--color-status-idle-bg);
+  border: 1px solid var(--color-status-idle-bd);
+}
+
+.task-handoff-state.is-working {
+  color: var(--color-status-active-fg);
+  background: var(--color-status-active-bg);
+  border-color: var(--color-status-active-bd);
+}
+
+.task-handoff-fields {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.task-handoff-fields label {
+  display: grid;
+  gap: 4px;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  min-width: 0;
+}
+
+.task-handoff-fields select,
+.task-handoff-fields textarea {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-base);
+  resize: vertical;
+}
+
+.task-handoff-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.task-handoff-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.task-handoff-preview p {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.task-handoff-preview-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.task-handoff-preview-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.task-handoff-preview-list em {
+  font-style: normal;
+  color: var(--color-text-tertiary);
+}
+
+.task-handoff-warning {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-warning-strong);
+}
+
+.task-handoff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.task-handoff-note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+/* --- Agent Desk（#599） --- */
+.agent-desk-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.agent-desk-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.agent-desk-section .section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.agent-desk-section .section-heading h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.agent-desk-count {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.agent-desk-empty {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.agent-desk-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-desk-row {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.agent-desk-row:first-child {
+  border-top: 0;
+}
+
+.agent-desk-row.is-selected {
+  background: var(--color-surface-subtle);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.agent-desk-open {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 10px var(--space-3);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.agent-desk-open:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.agent-desk-headline {
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+  word-break: keep-all;
+}
+
+.agent-desk-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  min-width: 0;
+}
+
+.agent-desk-actor {
+  color: var(--color-text);
+}
+
+.agent-desk-path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-desk-kind {
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  border: 1px solid var(--color-border);
+}
+
+.agent-desk-kind.is-answer_request {
+  color: var(--color-status-blocked-fg);
+  background: var(--color-status-blocked-bg);
+  border-color: var(--color-status-blocked-bd);
+}
+
+.agent-desk-kind.is-decision_request {
+  color: var(--color-status-blocked-fg);
+  background: var(--color-status-blocked-bg);
+  border-color: var(--color-status-blocked-bd);
+}
+
+.agent-desk-kind.is-review_report {
+  color: var(--color-status-review-fg);
+  background: var(--color-status-review-bg);
+  border-color: var(--color-status-review-bd);
+}
+
+.agent-desk-kind.is-proposal_pending {
+  color: var(--action-ai-fg);
+  background: var(--action-ai-bg);
+  border-color: var(--action-ai-bd);
+}
+
+.agent-desk-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  min-width: 0;
+}
+
+.agent-desk-detail h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: var(--lh-tight);
+}
+
+.agent-desk-summary,
+.agent-desk-note {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+}
+
+.agent-desk-note {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.agent-desk-rows-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.agent-desk-rows-detail dt {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.agent-desk-rows-detail dd {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+}
+
+.agent-desk-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.agent-desk-choices label,
+.agent-desk-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+}
+
+.agent-desk-return {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.agent-desk-return label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.agent-desk-return textarea {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--text-base);
+  resize: vertical;
+}
+
+.agent-desk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+@container page (min-width: 1180px) {
+  .agent-desk-layout {
+    grid-template-columns: minmax(0, 1fr) 380px;
+  }
+
+  .agent-desk-detail {
+    position: sticky;
+    top: var(--space-4);
   }
 }

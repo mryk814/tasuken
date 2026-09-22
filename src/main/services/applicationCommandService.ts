@@ -8,6 +8,7 @@ import {
   referenceTargetEntityTypes,
 } from "../../shared/entityRegistry.mjs";
 import { normalizeAgentSession } from "../../shared/agentSession.mjs";
+import { taskWorkEntry } from "../../shared/contracts/task/public.ts";
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeRepositoryContext } from "../../shared/repositoryContext.mjs";
@@ -120,6 +121,44 @@ function mcpTaskWorkProposal(
   )
     ? proposal
     : null;
+}
+
+/**
+ * 採用前の成果報告（pending の Task Work Proposal）を、そのTaskの報告として解決する。
+ *
+ * 採用前の報告にはWork Receiptが無いため、差戻しの対象はProposalそのものになる（#602 差戻し）。
+ * 形が違うpayloadでは例外を投げず、対象なしとして扱う。
+ */
+function pendingTaskReport(
+  repository: Repository,
+  proposalId: string,
+  taskId: string,
+): { proposal: Entity; executorLabel: string; executorKind: string } | null {
+  const proposal = repository.get("ai_proposal", proposalId);
+  if (!proposal || String(proposal.status) !== "pending") return null;
+  if (String(proposal.payload_type) !== "task_work") return null;
+  let payload: unknown = proposal.payload;
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      return null;
+    }
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const entries = (payload as { task_work?: unknown }).task_work;
+  const first = Array.isArray(entries) ? entries[0] : null;
+  if (!first || typeof first !== "object" || Array.isArray(first)) return null;
+  const entry = first as Record<string, unknown>;
+  if (String(entry.task_id) !== taskId) return null;
+  if (!["append_receipt", "report_done", "report_blocked"].includes(String(entry.action))) {
+    return null;
+  }
+  return {
+    proposal,
+    executorLabel: typeof entry.executor_label === "string" ? entry.executor_label : "",
+    executorKind: typeof entry.executor_kind === "string" ? entry.executor_kind : "",
+  };
 }
 
 function mcpProposalAudit(proposal: Entity | null): Record<string, unknown> {
@@ -354,6 +393,44 @@ function assertHumanReviewActor(command: CommandEnvelope, action: string): void 
       `${action}は人間UIからのみ実行できます。`,
     );
   }
+}
+
+/** 質問IDから回答ReceiptのIDを決定的に導出する。同じ質問へ二度目は書けない（#597）。 */
+function agentReplyReceiptId(requestId: string): string {
+  const hash = createHash("sha256").update(`tasken\0agent-reply\0${requestId}`).digest("hex");
+  const uuidHex = `${hash.slice(0, 12)}5${hash.slice(13, 16)}8${hash.slice(17, 32)}`;
+  return `${uuidHex.slice(0, 8)}-${uuidHex.slice(8, 12)}-${uuidHex.slice(12, 16)}-${uuidHex.slice(16, 20)}-${uuidHex.slice(20, 32)}`;
+}
+
+/**
+ * 保存時に質問が現在も有効かを確かめる（#597）。
+ * 採用済みの停止報告Receiptか、未採用の停止報告Proposalのどちらかに同じ質問IDがあり、
+ * 現在の作業単位のものであれば有効とする。作業単位IDを持たない旧データは従来どおり扱う。
+ */
+function findAgentQuestion(
+  repository: Repository,
+  taskId: string,
+  requestId: string,
+  attemptId: string | null,
+): { attemptId: string | null } | null {
+  const matchesAttempt = (value: unknown): boolean => {
+    const id = typeof value === "string" && value ? value : null;
+    return attemptId === null || id === null || id === attemptId;
+  };
+  const resolvedAttempt = (value: unknown): string | null =>
+    typeof value === "string" && value ? value : attemptId;
+  for (const receipt of repository.list("work_receipt")) {
+    if (receipt.task_id !== taskId || receipt.request_id !== requestId) continue;
+    if (!matchesAttempt(receipt.work_attempt_id)) continue;
+    return { attemptId: resolvedAttempt(receipt.work_attempt_id) };
+  }
+  for (const proposal of repository.list("ai_proposal")) {
+    const entry = taskWorkEntry(proposal);
+    if (!entry || entry.task_id !== taskId || entry.request_id !== requestId) continue;
+    if (!matchesAttempt(entry.work_attempt_id)) continue;
+    return { attemptId: resolvedAttempt(entry.work_attempt_id) };
+  }
+  return null;
 }
 
 function expectedVersionFor(
@@ -1239,6 +1316,8 @@ export class ApplicationCommandService {
     if (command.name === "AcceptTaskWork")
       return this.acceptTaskWork(command, taskWorkContext?.exactReceiptId);
     if (command.name === "ReturnTaskWork") return this.returnTaskWork(command);
+    if (command.name === "ReassignTaskWork") return this.reassignTaskWork(command);
+    if (command.name === "ReplyToAgentRequest") return this.replyToAgentRequest(command);
     throw new ApplicationCommandError(
       "INVALID_ENVELOPE",
       `Command handlerが登録されていません: ${command.name}`,
@@ -1683,6 +1762,7 @@ export class ApplicationCommandService {
       executorIdentity?: string | null;
       startedAt?: string | null;
       sourceSession?: string | null;
+      workAttemptId?: string | null;
     };
     const taskId = asTaskId(payload);
     const current = this.repository.get("task", taskId);
@@ -1768,6 +1848,9 @@ export class ApplicationCommandService {
           : payload.startedAt || assignedTask.work_started_at || now(),
       work_reported_at: null,
       work_review_note: null,
+      // A new explicit start with an attempt id begins a new unit of delegated work. Reports that
+      // still carry the previous id stay readable as history and cannot settle the current state.
+      ...(payload.workAttemptId ? { work_attempt_id: payload.workAttemptId } : {}),
       ...(payload.executorIdentity !== undefined
         ? { executor_identity: payload.executorIdentity || null }
         : {}),
@@ -1878,7 +1961,7 @@ export class ApplicationCommandService {
       if (!report || !expectedVersionFor(command, "ai_proposal", id)) {
         throw new ApplicationCommandError(
           "CONFLICT",
-          "集約対象の報告が変わりました。AI Inboxを更新して確認してください。",
+          "集約対象の報告が変わりました。Agent Deskを更新して確認してください。",
         );
       }
       assertExpectedVersion(this.repository, command, "ai_proposal", id, report);
@@ -1938,6 +2021,15 @@ export class ApplicationCommandService {
           source_session: proposal.id,
           repository_context: safeTaskWorkRepositoryContext(entry.repository_context),
           runtime_metadata: safeTaskWorkRuntimeMetadata(entry.runtime_metadata),
+          ...(typeof entry.work_attempt_id === "string" && entry.work_attempt_id
+            ? { work_attempt_id: entry.work_attempt_id }
+            : {}),
+          ...(typeof entry.request_id === "string" && entry.request_id
+            ? { request_id: entry.request_id }
+            : {}),
+          ...(typeof entry.report_sequence === "number"
+            ? { report_sequence: entry.report_sequence }
+            : {}),
         },
       };
     } else {
@@ -2111,6 +2203,15 @@ export class ApplicationCommandService {
       ...(repositoryContext ? { repository_context: repositoryContext } : {}),
       ...(provenance.sourceSession ? { source_session: provenance.sourceSession } : {}),
       ...(runtimeMetadata ? { runtime_metadata: runtimeMetadata } : {}),
+      ...(typeof payload.receipt.work_attempt_id === "string" && payload.receipt.work_attempt_id
+        ? { work_attempt_id: payload.receipt.work_attempt_id }
+        : {}),
+      ...(typeof payload.receipt.request_id === "string" && payload.receipt.request_id
+        ? { request_id: payload.receipt.request_id }
+        : {}),
+      ...(typeof payload.receipt.report_sequence === "number"
+        ? { report_sequence: payload.receipt.report_sequence }
+        : {}),
       provenance: provenance.metadata,
       source: provenance.source,
     };
@@ -2380,21 +2481,34 @@ export class ApplicationCommandService {
         "INVALID_PAYLOAD",
         "差戻し理由を1〜2000文字で入力してください。",
       );
-    const receipt = latestWorkReceipt(this.repository, taskId);
-    if (!receipt)
-      throw new ApplicationCommandError("NOT_FOUND", "差戻し対象のWork Receiptがありません。", {
+    // 差戻しの対象は人が見ている報告そのもの。採用前のProposalと、採用済みのWork Receiptの両方を受け付ける。
+    const pending = payload.receiptId
+      ? pendingTaskReport(this.repository, String(payload.receiptId), taskId)
+      : null;
+    const latest = latestWorkReceipt(this.repository, taskId);
+    const receipt = pending
+      ? null
+      : payload.receiptId
+        ? (() => {
+            const found = this.repository.get("work_receipt", String(payload.receiptId));
+            return found && String(found.task_id) === taskId ? found : null;
+          })()
+        : latest;
+    if (!pending && !receipt) {
+      if (latest && payload.receiptId && latest.id !== payload.receiptId) {
+        throw new ApplicationCommandError(
+          "CONFLICT",
+          "Work Receiptが更新されています。最新の内容を確認し直してください。",
+          {
+            id: taskId,
+            expected_receipt_id: payload.receiptId,
+            current_receipt_id: latest.id,
+          },
+        );
+      }
+      throw new ApplicationCommandError("NOT_FOUND", "差戻し対象の報告がありません。", {
         id: taskId,
       });
-    if (payload.receiptId && receipt.id !== payload.receiptId) {
-      throw new ApplicationCommandError(
-        "CONFLICT",
-        "Work Receiptが更新されています。最新の内容を確認し直してください。",
-        {
-          id: taskId,
-          expected_receipt_id: payload.receiptId,
-          current_receipt_id: receipt.id,
-        },
-      );
     }
     const nextTask: Entity = {
       ...current,
@@ -2406,22 +2520,141 @@ export class ApplicationCommandService {
     taskDefinition.parseUpdate(nextTask);
     assertThemeExists(this.repository, nextTask);
     const eventKind =
-      current.intended_executor === "ai_agent" || receipt.executor_kind === "ai_agent"
+      current.intended_executor === "ai_agent" ||
+      (pending
+        ? pending.executorKind === "ai_agent"
+        : String(receipt?.executor_kind) === "ai_agent")
         ? "task_ai_returned"
         : "task_work_recorded";
     const event = annotateEvent(
       command,
-      commandEvent(command, "task", taskId, "updated", current, nextTask, eventKind, {
-        type: "work_receipt",
-        id: receipt.id,
-      }),
+      commandEvent(
+        command,
+        "task",
+        taskId,
+        "updated",
+        current,
+        nextTask,
+        eventKind,
+        pending
+          ? { type: "ai_proposal", id: String(pending.proposal.id) }
+          : { type: "work_receipt", id: String(receipt?.id) },
+      ),
     );
     event.metadata = {
       ...((event.metadata as Record<string, unknown>) || {}),
       include_in_activity: true,
       work_action: "returned",
       review_note: reviewNote,
-      executor_label: workExecutorLabel(nextTask, receipt),
+      executor_label: pending
+        ? pending.executorLabel || workExecutorLabel(nextTask)
+        : workExecutorLabel(nextTask, receipt as Entity),
+    };
+    const returned = persistReceipt(
+      this.repository,
+      command,
+      [
+        { action: "save", type: "task", entity: nextTask },
+        { action: "save", type: "change_event", entity: event },
+      ],
+      [event.id],
+      ["task"],
+    );
+    if (!pending) return returned;
+    // 採用前の報告は同じ判断が要対応へ残らないよう決着させる。理由はTask側に残る。
+    const decision = this.applyAiProposal({
+      ...command,
+      commandId: `${command.commandId}:return`,
+      expectedVersions: [
+        {
+          type: "ai_proposal",
+          id: String(pending.proposal.id),
+          version: Number(pending.proposal.version || 0),
+        },
+      ],
+      payload: {
+        proposal: {
+          ...pending.proposal,
+          status: "rejected",
+          quarantine_reason: `差戻し:${reviewNote}`,
+        },
+        candidates: [],
+      },
+    });
+    return mergeCommandReceipts(this.repository, command, [returned, decision]);
+  }
+
+  /**
+   * 委任を解除して、新しい作業単位で任せ直す（#602の再割当）。
+   *
+   * 実行中の相手を止める保証はないため、「AIを停止」とは扱わない。作業単位IDを新しくするので、
+   * 前の相手の遅い報告は履歴として読め、現在の判断を復活させない。
+   * 確認中（reported_done / needs_human_review）は先に採用か差戻しを求める。
+   */
+  private reassignTaskWork(command: CommandEnvelope): CommandReceipt {
+    assertHumanReviewActor(command, "ReassignTaskWork");
+    const payload = command.payload as {
+      taskId: string;
+      executorIdentity: string;
+      reason?: string | null;
+    };
+    const taskId = asTaskId(payload);
+    const current = this.repository.get("task", taskId);
+    if (!current)
+      throw new ApplicationCommandError("NOT_FOUND", "再委任するTaskがありません。", {
+        id: taskId,
+      });
+    if (!expectedVersionFor(command, "task", taskId))
+      throw new ApplicationCommandError(
+        "CONFLICT",
+        "ReassignTaskWorkにはexpected versionが必要です。",
+        { type: "task", id: taskId },
+      );
+    assertExpectedVersion(this.repository, command, "task", taskId, current);
+    if (["done", "cancelled"].includes(String(current.state)))
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        "完了・中止したTaskへは任せ直せません。",
+        { id: taskId, state: current.state },
+      );
+    const currentState = currentWorkState(current);
+    if (currentState === "reported_done" || currentState === "needs_human_review")
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        "確認待ちの委任は、先に採用か差戻しを行ってください。",
+        { id: taskId, work_state: currentState },
+      );
+    const executorIdentity = payload.executorIdentity.trim();
+    const previousAttemptId =
+      typeof current.work_attempt_id === "string" && current.work_attempt_id
+        ? current.work_attempt_id
+        : null;
+    const workAttemptId = randomUUID();
+    const nextTask: Entity = {
+      ...current,
+      intended_executor: "ai_agent",
+      executor_identity: executorIdentity,
+      work_state: "ready_for_agent",
+      work_attempt_id: workAttemptId,
+      work_started_at: null,
+      work_reported_at: null,
+      work_review_note: null,
+    };
+    taskDefinition.parseUpdate(nextTask);
+    assertThemeExists(this.repository, nextTask);
+    const reason = typeof payload.reason === "string" ? payload.reason.trim() : "";
+    const event = annotateEvent(
+      command,
+      commandEvent(command, "task", taskId, "updated", current, nextTask, "task_ai_reassigned"),
+    );
+    event.metadata = {
+      ...((event.metadata as Record<string, unknown>) || {}),
+      include_in_activity: true,
+      work_action: "reassigned",
+      executor_label: executorIdentity,
+      work_attempt_id: workAttemptId,
+      ...(previousAttemptId ? { previous_work_attempt_id: previousAttemptId } : {}),
+      ...(reason ? { reason } : {}),
     };
     return persistReceipt(
       this.repository,
@@ -2432,6 +2665,119 @@ export class ApplicationCommandService {
       ],
       [event.id],
       ["task"],
+    );
+  }
+
+  /**
+   * 人間がagentの質問へ答える（#597）。
+   *
+   * 回答は質問IDへ紐づくappend-onlyのWork Receiptとして保存し、**Taskの状態は変えない**。
+   * 再開を観測するまでは「回答済み／再開待ち」であり、作業中へは戻さない。
+   * 同じ質問への二度目の回答は、決定的なReceipt IDで検出して競合として返す。
+   */
+  private replyToAgentRequest(command: CommandEnvelope): CommandReceipt {
+    assertHumanReviewActor(command, "ReplyToAgentRequest");
+    const payload = command.payload as {
+      taskId: string;
+      requestId: string;
+      body: string;
+      choiceId?: string | null;
+      note?: string | null;
+      repliedAt?: string | null;
+    };
+    const taskId = asTaskId(payload);
+    const current = this.repository.get("task", taskId);
+    if (!current)
+      throw new ApplicationCommandError("NOT_FOUND", "回答対象のTaskがありません。", {
+        id: taskId,
+      });
+    if (!expectedVersionFor(command, "task", taskId))
+      throw new ApplicationCommandError(
+        "CONFLICT",
+        "ReplyToAgentRequestにはexpected versionが必要です。",
+        { type: "task", id: taskId },
+      );
+    assertExpectedVersion(this.repository, command, "task", taskId, current);
+
+    const body = payload.body.trim();
+    const receiptId = agentReplyReceiptId(payload.requestId);
+    const existingReply = this.repository.get("work_receipt", receiptId);
+    if (existingReply) {
+      // 応答を失った再送は同じ結果を返し、Entityを増やさない。
+      if (
+        existingReply.summary === body &&
+        (existingReply.reply_choice_id || null) === (payload.choiceId || null)
+      ) {
+        return persistNoChange(this.repository, command, taskId, current);
+      }
+      throw new ApplicationCommandError(
+        "CONFLICT",
+        "この質問はすでに回答済みです。画面を再読み込みしてから確認してください。",
+        {
+          id: taskId,
+          request_id: payload.requestId,
+          receipt_id: receiptId,
+          conflictReason: "already_answered",
+        },
+      );
+    }
+
+    const attemptId =
+      typeof current.work_attempt_id === "string" && current.work_attempt_id
+        ? current.work_attempt_id
+        : null;
+    const question = findAgentQuestion(this.repository, taskId, payload.requestId, attemptId);
+    if (!question)
+      throw new ApplicationCommandError(
+        "INVALID_TRANSITION",
+        "この質問は現在有効ではありません。最新の内容を確認してください。",
+        { id: taskId, request_id: payload.requestId },
+      );
+
+    const repliedAt = payload.repliedAt || now();
+    const reply: Entity = {
+      id: receiptId,
+      task_id: taskId,
+      executor_kind: "human",
+      executor_label: "自分",
+      reported_at: repliedAt,
+      summary: body,
+      completed_items: [],
+      changed_or_created_items: [],
+      verification: [],
+      remaining_work: [],
+      request_id: payload.requestId,
+      receipt_kind: "human_reply",
+      ...(payload.choiceId ? { reply_choice_id: payload.choiceId } : {}),
+      ...(payload.note ? { reply_note: payload.note } : {}),
+      ...(question.attemptId ? { work_attempt_id: question.attemptId } : {}),
+      // どこから答えたかは来歴として残す。mobileからの回答をデスクトップ扱いにしない。
+      provenance: { reported_via: command.source, request_id: payload.requestId },
+      source: "manual",
+    };
+    workReceiptDefinition.parseCreate(reply);
+
+    // 回答はTaskを変えない。来歴は回答Receipt自身に残す。
+    const event = annotateEvent(
+      command,
+      commandEvent(command, "work_receipt", receiptId, "created", null, reply, "task_work_replied"),
+    );
+    event.occurred_at = repliedAt;
+    event.metadata = {
+      ...((event.metadata as Record<string, unknown>) || {}),
+      include_in_activity: true,
+      work_action: "replied",
+      request_id: payload.requestId,
+    };
+    return persistReceipt(
+      this.repository,
+      command,
+      [
+        { action: "save", type: "work_receipt", entity: reply },
+        { action: "save", type: "change_event", entity: event },
+      ],
+      [event.id],
+      ["work_receipt"],
     );
   }
 
@@ -2929,6 +3275,15 @@ export class ApplicationCommandService {
             { type, id: candidateEntity.id },
           );
         assertExpectedVersion(this.repository, command, type, candidateEntity.id, before);
+      }
+      // 採用で新しく作られたEntityへ、どのProposalから生まれたかを残す。
+      // 「どのProposalが作ったか」を失わないため、既存Entityの更新では上書きしない。
+      // source_type/source_idはActivityのsource_refsへ波及するため専用fieldを使う。
+      if (!before && type !== "ai_proposal" && !candidateEntity.accepted_from_proposal_id) {
+        candidateEntity = {
+          ...candidateEntity,
+          accepted_from_proposal_id: currentProposal.id,
+        };
       }
       if (type === "agent_session") {
         if (!before) {

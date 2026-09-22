@@ -33,7 +33,7 @@ const proposalArguments = {
   caller: "Electron live Proposal smoke",
   source_app: "electron-live-smoke",
   title,
-  description: "起動中AI Inboxへreloadなしで反映し、採用後にTaskへ収束する",
+  description: "起動中Agent Deskへreloadなしで反映し、採用後にTaskへ収束する",
 };
 
 let electronApp;
@@ -143,7 +143,7 @@ function workReceiptArguments({ taskId, expectedVersion, idempotencyKey, summary
     executor_kind: "ai_agent",
     executor_label: "Electron live smoke",
     summary,
-    completed_items: ["AI InboxのTask Work Proposalを確認"],
+    completed_items: ["Agent DeskのTask Work Proposalを確認"],
     changed_or_created_items: ["Work Receipt"],
     verification: ["実Electronとstdio MCPの縦断確認"],
     remaining_work: [],
@@ -186,7 +186,7 @@ try {
   assert.equal(String(core.api_version), "1");
   mcpClient = await connectMcp();
 
-  await openNavigation(page, "AI Inbox");
+  await openNavigation(page, "Agent Desk");
   await waitForPendingCount(page, 0);
   const routeBeforeProposal = await page.evaluate(() => location.hash);
 
@@ -231,7 +231,7 @@ try {
   assert.match(diagnosticsText, /Pending Proposal\n1件/);
   assert.doesNotMatch(diagnosticsText, /API key|AI Provider|OpenAI/);
 
-  await openNavigation(page, "AI Inbox");
+  await openNavigation(page, "Agent Desk");
   await page.locator(".proposal-row-select").first().click();
   assert.match(await page.locator(".proposal-inline-preview").innerText(), new RegExp(title));
   await page.getByRole("button", { name: "採用", exact: true }).click();
@@ -281,7 +281,7 @@ try {
   staleWorkArguments.completed_checklist_item_ids = ["stale-checklist-item"];
   const staleWork = await callMcp("tasken.append_work_receipt", staleWorkArguments);
   assert.equal(staleWork.status, "queued");
-  await openNavigation(page, "AI Inbox");
+  await openNavigation(page, "Agent Desk");
   await waitForPendingCount(page, 1);
   await page.locator(".proposal-row-select").first().waitFor();
   await page.locator(".proposal-row-select").first().click();
@@ -370,7 +370,7 @@ try {
     }),
   );
   assert.equal(followUp.status, "queued");
-  await openNavigation(page, "AI Inbox");
+  await openNavigation(page, "Agent Desk");
   await waitForPendingCount(page, 1);
   await page.locator(".proposal-row-select").first().click();
   await page

@@ -1275,6 +1275,11 @@ export class WorkspaceDatabase {
       requireV2("task", entity.parent_task_id, "parent_task_id");
     }
     if (type === "work_receipt") requireV2("task", entity.task_id, "task_id");
+    // 実施記録はHabitの一部。Habitの無い記録を保存しない（#454後半）。
+    if (type === "habit_entry") requireV2("habit", entity.habit_id, "habit_id");
+    // 手入れの実施記録も同じ扱いにする（#454後半のMaintenance）。
+    if (type === "maintenance_entry")
+      requireV2("maintenance", entity.maintenance_id, "maintenance_id");
     if (type === "waiting") {
       requireV2("task", entity.task_id, "task_id");
     }

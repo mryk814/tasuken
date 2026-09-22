@@ -952,7 +952,7 @@ export function AiProposalPanel(props: PageProps) {
         className={`panel proposal-inbox-panel${selected && preview ? " has-selection" : ""}`}
       >
         <div className="section-heading">
-          <h2>AIの提案</h2>
+          <h2>提案の確認</h2>
           <div className="proposal-inbox-actions">
             <span className="proposal-pending-count">
               {proposalGroups.filter((group) => group.actionable).length}件の確認待ち
@@ -971,7 +971,9 @@ export function AiProposalPanel(props: PageProps) {
           <div className="empty-state proposal-empty-state">
             <IconShieldCheck size={22} aria-hidden="true" />
             <strong>未処理のProposalはありません</strong>
-            <span>外部AIから届いた提案はここで確認します。</span>
+            <span>
+              Taskに紐づかないNote・Artifact等の提案も、外部AIから届いた提案もここで確認します。
+            </span>
           </div>
         )}
         <div className="proposal-list" aria-label="AIからの提案一覧">

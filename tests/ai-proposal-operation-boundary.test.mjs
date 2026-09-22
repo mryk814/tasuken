@@ -41,7 +41,7 @@ test("Task Proposal keeps generated change_event outside ApplyAiProposal candida
         {
           kind: "task",
           title: "MCP live Proposalを確認する",
-          description: "起動中AI Inboxから採用する",
+          description: "起動中Agent Deskから採用する",
           status: "todo",
         },
       ],

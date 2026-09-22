@@ -18,7 +18,7 @@ rg -n --glob '*.html' --glob '*.css' ':[[:space:]]*#[0-9A-Fa-f]{3,8}' src/render
 | AI回答を受け取る         | `ContextPackDialog.tsx` / `Button variant="ai"` | AI依頼。適切                                           |
 | AI向けContext            | `ThemePage.tsx`                                 | AIへ渡す。適切                                         |
 | assistant message        | `ConversationPreview.tsx`                       | AI生成結果。適切                                       |
-| AI Inbox route           | `routes.ts` の `ROUTE_DEFINITIONS.ai-io`        | Proposalを確認する画面。AI action iconとは分離して適切 |
+| Agent Desk route         | `routes.ts` の `ROUTE_DEFINITIONS.ai-io`        | Proposalを確認する画面。AI action iconとは分離して適切 |
 | Knowledge node `insight` | Knowledgeの既存データ表示                       | Knowledge種別。AI iconではない                         |
 | Sketch「手描き認識」     | `SketchPage.tsx` の `IconShape`                 | 通常の図形認識。Sparklesを除去済み                     |
 
@@ -64,7 +64,7 @@ Today mini、Quick Capture、Memo stickyのstandalone windowも `electron.vite.c
 
 ## Legacy class audit
 
-主要surfaceのheader action、AI InboxのProposal review、Knowledgeの追加、Notesの作成・保存、Timeline/Today/Waitingの状態変更は typed `Button` / `ActionButton` に置換する。残る `primary-button` / `secondary-button` / `danger-button` は、次のような専門ダイアログ・表内の低頻度補助操作・standalone windowの既存導線に限定する。
+主要surfaceのheader action、Agent DeskのProposal review、Knowledgeの追加、Notesの作成・保存、Timeline/Today/Waitingの状態変更は typed `Button` / `ActionButton` に置換する。残る `primary-button` / `secondary-button` / `danger-button` は、次のような専門ダイアログ・表内の低頻度補助操作・standalone windowの既存導線に限定する。
 
 - `AiProposalPanel` / `MarkdownDiffMarkerRail`: 外部Agentから届いた差分Proposalの確認・採用操作
 - `SettingsPage` の backup/sync/import-export: 各panel内の補助操作。panelの主操作はtyped Buttonへ移行済み

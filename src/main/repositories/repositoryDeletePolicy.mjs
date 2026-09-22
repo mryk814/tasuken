@@ -1,64 +1,143 @@
-import { entityTypes, legacyThemeFieldsForEntityType, themeFieldForEntityType } from "../../shared/entityRegistry.mjs";
+import {
+  entityTypes,
+  legacyThemeFieldsForEntityType,
+  themeFieldForEntityType,
+} from "../../shared/entityRegistry.mjs";
 
 const themeReferenceTargets = entityTypes
-  .filter((entityType) => entityType !== "theme" && entityType !== "project" && entityType !== "status_update")
-  .flatMap((entityType) => [themeFieldForEntityType(entityType), ...legacyThemeFieldsForEntityType(entityType)]
-    .filter(Boolean)
-    .map((field) => [entityType, field]));
+  .filter(
+    (entityType) =>
+      entityType !== "theme" && entityType !== "project" && entityType !== "status_update",
+  )
+  .flatMap((entityType) =>
+    [themeFieldForEntityType(entityType), ...legacyThemeFieldsForEntityType(entityType)]
+      .filter(Boolean)
+      .map((field) => [entityType, field]),
+  );
 
 export function applyRepositoryDeletePolicy(repository, type, id) {
   if (type === "repository_context") {
     // Context deletion is logical, but live Theme/Task links must not dangle.
     // The repository stores a reversible, explicit detach marker.
     repository.nullifyRepositoryContextReferences(id);
-    repository.cascadeWhere("working_copy", (entry) => entry.repository_context_id === id, type, id);
+    repository.cascadeWhere(
+      "working_copy",
+      (entry) => entry.repository_context_id === id,
+      type,
+      id,
+    );
   }
 
   if (type === "theme") {
-    repository.cascadeWhere("artifact", (entry) => entry.source_type === "theme" && entry.source_id === id, type, id);
+    repository.cascadeWhere(
+      "artifact",
+      (entry) => entry.source_type === "theme" && entry.source_id === id,
+      type,
+      id,
+    );
     repository.nullifyReferences(type, themeReferenceTargets, id);
     repository.cascadeWhere("status_update", (entry) => entry.theme_id === id, type, id);
   }
 
   if (type === "item") {
-    repository.nullifyReferences(type, [
-      ["item", "parent_item_id"],
-      ["note", "item_id"],
-      ["link", "item_id"],
-      ["knowledge_node", "source_item_id"],
-      ["log_entry", "item_id"],
-    ], id);
+    repository.nullifyReferences(
+      type,
+      [
+        ["item", "parent_item_id"],
+        ["note", "item_id"],
+        ["link", "item_id"],
+        ["knowledge_node", "source_item_id"],
+        ["log_entry", "item_id"],
+      ],
+      id,
+    );
   }
 
   if (type === "note") {
-    repository.nullifyReferences(type, [
-      ["link", "note_id"],
-      ["knowledge_node", "source_note_id"],
-      ["log_entry", "related_note_id"],
-      ["artifact", "origin_note_id"],
-    ], id);
-    repository.cascadeWhere("artifact", (entry) => (entry.source_type === "note" || entry.source_type === "report") && entry.source_id === id, type, id);
+    repository.nullifyReferences(
+      type,
+      [
+        ["link", "note_id"],
+        ["knowledge_node", "source_note_id"],
+        ["log_entry", "related_note_id"],
+        ["artifact", "origin_note_id"],
+      ],
+      id,
+    );
+    repository.cascadeWhere(
+      "artifact",
+      (entry) =>
+        (entry.source_type === "note" || entry.source_type === "report") && entry.source_id === id,
+      type,
+      id,
+    );
   }
 
-  if (type === "link") repository.nullifyReferences(type, [["knowledge_node", "source_link_id"]], id);
+  if (type === "link")
+    repository.nullifyReferences(type, [["knowledge_node", "source_link_id"]], id);
   if (type === "task") {
-    repository.cascadeWhere("artifact", (entry) => entry.source_type === "task" && entry.source_id === id, type, id);
+    repository.cascadeWhere(
+      "artifact",
+      (entry) => entry.source_type === "task" && entry.source_id === id,
+      type,
+      id,
+    );
     repository.cascadeWhere("work_receipt", (entry) => entry.task_id === id, type, id);
   }
-  if (type === "resource") repository.cascadeWhere("artifact", (entry) => entry.source_type === "chat_ref" && entry.source_id === id, type, id);
-  if (type === "capture_entry") repository.cascadeWhere("artifact", (entry) => entry.source_type === "capture_entry" && entry.source_id === id, type, id);
-  if (type === "ai_proposal") repository.cascadeWhere("artifact", (entry) => entry.source_type === "ai_proposal" && entry.source_id === id, type, id);
+  if (type === "resource")
+    repository.cascadeWhere(
+      "artifact",
+      (entry) => entry.source_type === "chat_ref" && entry.source_id === id,
+      type,
+      id,
+    );
+  // 実施記録はHabitの一部として削除し、復元でも一緒に戻す（#454後半）。
+  if (type === "habit")
+    repository.cascadeWhere("habit_entry", (entry) => entry.habit_id === id, type, id);
+  // 手入れの実施記録も同じ扱いにする（#454後半のMaintenance）。
+  if (type === "maintenance")
+    repository.cascadeWhere(
+      "maintenance_entry",
+      (entry) => entry.maintenance_id === id,
+      type,
+      id,
+    );
+  if (type === "capture_entry")
+    repository.cascadeWhere(
+      "artifact",
+      (entry) => entry.source_type === "capture_entry" && entry.source_id === id,
+      type,
+      id,
+    );
+  if (type === "ai_proposal")
+    repository.cascadeWhere(
+      "artifact",
+      (entry) => entry.source_type === "ai_proposal" && entry.source_id === id,
+      type,
+      id,
+    );
+  // 投稿（読み物Proposal）を削除したら、その投稿への返信と読んだ印も一緒に外し、
+  // 復元で一緒に戻す。親の無い返信をFeedへ残さない。
+  if (type === "ai_proposal") {
+    const postId = `feed-post:${id}`;
+    repository.cascadeWhere("feed_reply", (entry) => entry.post_id === postId, type, id);
+    repository.cascadeWhere("feed_reaction", (entry) => entry.post_id === postId, type, id);
+  }
   // Relation assertions are durable history. Deleting either endpoint leaves
   // the assertion dangling so the graph can report a broken_relation instead
   // of silently deleting or reconnecting it.
 
   if (type === "source_record") {
-    repository.nullifyReferences(type, [
-      ["item", "source_record_id"],
-      ["note", "source_record_id"],
-      ["link", "source_record_id"],
-      ["log_entry", "source_record_id"],
-    ], id);
+    repository.nullifyReferences(
+      type,
+      [
+        ["item", "source_record_id"],
+        ["note", "source_record_id"],
+        ["link", "source_record_id"],
+        ["log_entry", "source_record_id"],
+      ],
+      id,
+    );
   }
 
   if (type === "field_definition") {
@@ -77,8 +156,9 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
   if (["theme", "item", "note", "link", "source_record", "knowledge_node"].includes(type)) {
     repository.cascadeWhere(
       "entity_source",
-      (entry) => (entry.entity_type === type && entry.entity_id === id)
-        || (type === "source_record" && entry.source_record_id === id),
+      (entry) =>
+        (entry.entity_type === type && entry.entity_id === id) ||
+        (type === "source_record" && entry.source_record_id === id),
       type,
       id,
     );

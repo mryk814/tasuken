@@ -41,6 +41,11 @@ const CORE_ERROR_GUIDANCE = Object.freeze({
     retryable: false,
     next_action: "Proposalを64KiB未満の小さな単位に分割して再送してください。",
   },
+  WRITE_NOT_ALLOWED: {
+    retryable: false,
+    next_action:
+      "この接続先では許可されていない書き込みです。テキストのFeed投稿・Note案・Task案だけを送り、それ以外は利用者へ依頼してください。",
+  },
   UNAUTHORIZED: { retryable: false, next_action: RESTART_ACTION },
   INVALID_DISCOVERY: { retryable: false, next_action: RESTART_ACTION },
   DISCOVERY_OWNER_MISMATCH: { retryable: false, next_action: RESTART_ACTION },

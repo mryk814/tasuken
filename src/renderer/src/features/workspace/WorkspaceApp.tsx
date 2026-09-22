@@ -194,6 +194,7 @@ export function WorkspaceApp() {
   const [notesEditorSelectionId, setNotesEditorSelectionId] = useState<string | null>(null);
   const toast = useUiStore((state) => state.toast);
   const toastToneValue = useUiStore((state) => state.toastTone);
+  const toastUndo = useUiStore((state) => state.toastUndo);
   const setToast = useUiStore((state) => state.setToast);
   const themeMode = useUiStore((state) => state.themeMode);
   const setThemeMode = useUiStore((state) => state.setThemeMode);
@@ -487,7 +488,9 @@ export function WorkspaceApp() {
 
   useEffect(() => {
     if (!toast) return undefined;
-    const timer = setTimeout(() => setToast(""), lastDeleted.current ? 4500 : 3200);
+    // 取り消せる操作は、押す時間を確保するため長めに残す。
+    const undoable = Boolean(lastDeleted.current) || Boolean(useUiStore.getState().toastUndo);
+    const timer = setTimeout(() => setToast(""), undoable ? 4500 : 3200);
     return () => clearTimeout(timer);
   }, [toast, setToast]);
 
@@ -2516,7 +2519,19 @@ export function WorkspaceApp() {
                 {toastIcon(toastToneValue)}
               </span>
               <span className="toast-message">{toast}</span>
-              {lastDeleted.current && <button onClick={undoDelete}>元に戻す</button>}
+              {toastUndo ? (
+                <button
+                  onClick={() => {
+                    const undo = useUiStore.getState().toastUndo;
+                    setToast("");
+                    void undo?.run();
+                  }}
+                >
+                  {toastUndo.label}
+                </button>
+              ) : (
+                lastDeleted.current && <button onClick={undoDelete}>元に戻す</button>
+              )}
               <button onClick={() => setToast("")}>閉じる</button>
             </div>
           )}

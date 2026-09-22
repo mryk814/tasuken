@@ -23,6 +23,8 @@ export const applicationCommandNames = [
   "ReportTaskBlocked",
   "AcceptTaskWork",
   "ReturnTaskWork",
+  "ReassignTaskWork",
+  "ReplyToAgentRequest",
   "CommitAudioCapture",
   "CommitVideoArtifact",
   "CommitTrimmedVideoArtifact",
@@ -178,6 +180,7 @@ export interface ApplyAiProposalCommandPayload {
 const MAX_AI_PROPOSAL_DECISIONS = 100;
 const MAX_AI_PROPOSAL_ACCEPTED_HUNKS = 32_768;
 const MAX_AI_PROPOSAL_HUNK_INDEX = 32_767;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface ApplyTaskWorkProposalCommandPayload {
   proposalId: string;
@@ -191,6 +194,11 @@ export interface StartTaskWorkCommandPayload {
   executorIdentity?: string | null;
   startedAt?: string | null;
   sourceSession?: string | null;
+  /**
+   * 今回の委任を識別する作業単位ID（UUID）。指定するとTaskの現在参照を更新し、
+   * 以降の報告はこのIDを持つものだけが current とみなされる。省略時は従来の挙動を保つ。
+   */
+  workAttemptId?: string | null;
 }
 
 export interface AppendWorkReceiptCommandPayload {
@@ -203,6 +211,23 @@ export interface TaskWorkReviewCommandPayload {
   receiptId?: string | null;
   reviewNote?: string | null;
   completeTask?: boolean;
+}
+
+/**
+ * 人間がagentの質問へ答える（#597）。
+ * 回答は質問IDと作業単位IDへ紐づき、同じ質問へ二度目は書けない。
+ */
+export interface ReplyToAgentRequestCommandPayload {
+  taskId: string;
+  /** 回答対象の質問ID。`report_blocked` の `request_id`。 */
+  requestId: string;
+  /** 回答本文。選択肢を選んでも自由記述を許す。 */
+  body: string;
+  /** 選択肢を選んだ場合のID。 */
+  choiceId?: string | null;
+  /** `body` に添える補足。 */
+  note?: string | null;
+  repliedAt?: string | null;
 }
 
 export interface CommitAudioCaptureCommandPayload {
@@ -234,6 +259,7 @@ export type ApplicationCommandPayload =
   | StartTaskWorkCommandPayload
   | AppendWorkReceiptCommandPayload
   | TaskWorkReviewCommandPayload
+  | ReplyToAgentRequestCommandPayload
   | CommitAudioCaptureCommandPayload
   | CommitVideoArtifactCommandPayload
   | CommitTrimmedVideoArtifactCommandPayload;
@@ -489,6 +515,37 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
       "AcceptTaskWorkのcompleteTaskが不正です。",
     );
   }
+  if (
+    name === "StartTaskWork" &&
+    value.payload.workAttemptId !== undefined &&
+    value.payload.workAttemptId !== null &&
+    (typeof value.payload.workAttemptId !== "string" ||
+      !UUID_PATTERN.test(value.payload.workAttemptId))
+  ) {
+    throw new ApplicationCommandError(
+      "INVALID_PAYLOAD",
+      "StartTaskWorkのworkAttemptIdはUUIDで指定してください。",
+    );
+  }
+  if (
+    name === "ReplyToAgentRequest" &&
+    (typeof value.payload.requestId !== "string" ||
+      !UUID_PATTERN.test(value.payload.requestId) ||
+      typeof value.payload.body !== "string" ||
+      !value.payload.body.trim() ||
+      value.payload.body.length > 10_000 ||
+      (value.payload.choiceId !== undefined &&
+        value.payload.choiceId !== null &&
+        (typeof value.payload.choiceId !== "string" || value.payload.choiceId.length > 200)) ||
+      (value.payload.note !== undefined &&
+        value.payload.note !== null &&
+        (typeof value.payload.note !== "string" || value.payload.note.length > 2_000)))
+  ) {
+    throw new ApplicationCommandError(
+      "INVALID_PAYLOAD",
+      "ReplyToAgentRequestのrequestIdまたはbodyが不正です。",
+    );
+  }
   if (["AppendWorkReceipt", "ReportTaskDone", "ReportTaskBlocked"].includes(name)) {
     if (
       !isRecord(value.payload.receipt) ||
@@ -515,6 +572,22 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     typeof value.payload.reviewNote !== "string"
   ) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", "ReturnTaskWorkのreviewNoteが不正です。");
+  }
+  if (
+    name === "ReassignTaskWork" &&
+    (typeof value.payload.taskId !== "string" ||
+      !value.payload.taskId.trim() ||
+      typeof value.payload.executorIdentity !== "string" ||
+      !value.payload.executorIdentity.trim() ||
+      value.payload.executorIdentity.length > 200 ||
+      (value.payload.reason !== undefined &&
+        value.payload.reason !== null &&
+        (typeof value.payload.reason !== "string" || value.payload.reason.length > 2_000)))
+  ) {
+    throw new ApplicationCommandError(
+      "INVALID_PAYLOAD",
+      "ReassignTaskWorkのtaskIdまたはexecutorIdentityが不正です。",
+    );
   }
   if (name === "CompleteTaskWithLearning") {
     const required = ["task", "note"];

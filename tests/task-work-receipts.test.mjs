@@ -378,6 +378,135 @@ test("done adoption records once, folds earlier reports and preserves AI timesta
   assert.equal(repo.list("work_receipt").length, 1);
 });
 
+test("採用して完了の後半だけが失敗しても、完了だけを再試行でき、Receiptは二重にならない（#602）", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  const task = repo.get("task", "task-ai");
+  const proposal = saveWorkProposal(repo, task);
+
+  // 前半: 採用。Receiptは1件で、Taskは完了しない。
+  const adoptCommand = envelope(
+    "ApplyTaskWorkProposal",
+    { proposalId: proposal.id, decision: "accept" },
+    `${proposal.id}:accept`,
+    [
+      { type: "task", id: task.id, version: task.version },
+      { type: "ai_proposal", id: proposal.id, version: proposal.version },
+    ],
+  );
+  service.execute(adoptCommand);
+  const acceptedTask = repo.get("task", task.id);
+  assert.equal(repo.list("work_receipt").length, 1);
+  assert.equal(acceptedTask.state, "todo");
+  assert.equal(acceptedTask.work_state, "accepted");
+  assert.equal(acceptedTask.completed_at || null, null);
+
+  // 後半: 古い版で完了しようとすると競合し、Taskは未完了のまま。
+  assert.throws(
+    () =>
+      service.execute(
+        envelope(
+          "AcceptTaskWork",
+          { taskId: task.id, receiptId: proposal.id, completeTask: true },
+          `${proposal.id}:accept:complete`,
+          [{ type: "task", id: task.id, version: task.version }],
+        ),
+      ),
+    /保存対象が更新済み/,
+  );
+  assert.equal(repo.get("task", task.id).state, "todo");
+  assert.equal(repo.list("work_receipt").length, 1);
+
+  // 採用Commandの再実行は同じ結果を返し、Receiptを増やさない。
+  assert.equal(service.execute(adoptCommand).replayed, true);
+  assert.equal(repo.list("work_receipt").length, 1);
+
+  // 完了だけを再試行する。Receiptは1件のまま。
+  const completed = service.execute(
+    envelope(
+      "AcceptTaskWork",
+      { taskId: task.id, receiptId: proposal.id, completeTask: true },
+      `${proposal.id}:accept:complete`,
+      [{ type: "task", id: task.id, version: Number(acceptedTask.version) }],
+    ),
+  );
+  assert.equal(completed.status, "applied");
+  assert.equal(repo.get("task", task.id).state, "done");
+  assert.ok(repo.get("task", task.id).completed_at);
+  assert.equal(repo.list("work_receipt").length, 1);
+});
+
+test("採用前の成果報告も差戻せて、理由が残り要対応から外れる（#602 差戻し）", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  const task = repo.get("task", "task-ai");
+  const proposal = saveWorkProposal(repo, task, {
+    executor_kind: "ai_agent",
+    executor_label: "Codex",
+  });
+  // 報告が届いた状態（確認待ち）。採用前なのでWork Receiptはまだ無い。
+  const reviewTask = repo.save("task", {
+    ...repo.get("task", task.id),
+    work_state: "needs_human_review",
+    work_reported_at: "2026-09-08T03:00:00.000Z",
+  });
+  assert.equal(repo.list("work_receipt").length, 0);
+  assert.equal(repo.get("ai_proposal", proposal.id).status, "pending");
+
+  const returned = service.execute(
+    envelope(
+      "ReturnTaskWork",
+      { taskId: task.id, receiptId: proposal.id, reviewNote: "検証の条件を明記してください。" },
+      "return-pending-report",
+      [{ type: "task", id: task.id, version: reviewTask.version }],
+    ),
+  );
+  assert.equal(returned.status, "applied");
+  const next = repo.get("task", task.id);
+  assert.equal(next.state, "todo");
+  assert.equal(next.work_state, "ready_for_agent");
+  assert.equal(next.work_review_note, "検証の条件を明記してください。");
+  assert.equal(next.work_reported_at ?? null, null);
+  // 採用していないのでReceiptは作らない。報告は判断として決着する。
+  assert.equal(repo.list("work_receipt").length, 0);
+  const decided = repo.get("ai_proposal", proposal.id);
+  assert.equal(decided.status, "rejected");
+  assert.equal(decided.quarantine_reason, "差戻し:検証の条件を明記してください。");
+  const event = repo
+    .list("change_event")
+    .find((entry) => entry.metadata?.work_action === "returned");
+  assert.ok(event);
+  assert.equal(event.metadata.review_note, "検証の条件を明記してください。");
+  assert.equal(event.metadata.executor_label, "Codex");
+});
+
+test("報告が無いTaskは差戻せない", () => {
+  const repo = repository();
+  const service = new ApplicationCommandService(repo);
+  createAiTask(service);
+  const task = repo.save("task", {
+    ...repo.get("task", "task-ai"),
+    work_state: "needs_human_review",
+    work_attempt_id: "11111111-1111-4111-8111-111111111111",
+    work_reported_at: "2026-09-08T03:00:00.000Z",
+  });
+  assert.throws(
+    () =>
+      service.execute(
+        envelope(
+          "ReturnTaskWork",
+          { taskId: task.id, reviewNote: "やり直してください。" },
+          "return-without-report",
+          [{ type: "task", id: task.id, version: task.version }],
+        ),
+      ),
+    /差戻し対象の報告がありません/,
+  );
+  assert.equal(repo.get("task", task.id).work_review_note ?? null, null);
+});
+
 test("public ReportTaskDone cannot use the proposal-only implicit start context", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);
@@ -873,6 +1002,83 @@ test("SQLite repository enforces AI completion, append-only receipts, and task r
     assert.equal(restoredReceipt?.cascade_deleted_by, undefined);
   } finally {
     database.db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("作業単位IDと質問IDはSQLiteへ保存され、開き直しても残る（#595）", async () => {
+  const directory = await mkdtemp(path.join(process.cwd(), ".tasken-work-receipt-"));
+  const file = path.join(directory, "workspace.sqlite");
+  const attemptId = "22222222-2222-4222-8222-222222222222";
+  const requestId = "33333333-3333-4333-8333-333333333333";
+  let reopened = null;
+  try {
+    const database = new WorkspaceDatabase(file);
+    database.loadWorkspace();
+    const task = database.save("task", {
+      id: "sqlite-attempt-task",
+      title: "作業単位の保存",
+      state: "doing",
+      project_id: "theme-personal-default",
+      intended_executor: "ai_agent",
+      requester: "self",
+      work_state: "in_progress",
+      work_attempt_id: attemptId,
+    });
+    assert.equal(task.work_attempt_id, attemptId);
+    database.save("work_receipt", {
+      id: "sqlite-attempt-receipt",
+      task_id: "sqlite-attempt-task",
+      executor_kind: "ai_agent",
+      executor_label: "Codex",
+      reported_at: "2026-09-20T09:00:00.000Z",
+      summary: "質問つきの停止報告",
+      completed_items: [],
+      changed_or_created_items: [],
+      work_attempt_id: attemptId,
+      request_id: requestId,
+      report_sequence: 2,
+      source: "ai",
+    });
+
+    // 開き直して、任意fieldが往復することを確認する。
+    database.db.close();
+    reopened = new WorkspaceDatabase(file);
+    const workspace = reopened.loadWorkspace();
+    const savedTask = workspace.tasks.find((item) => item.id === "sqlite-attempt-task");
+    const savedReceipt = workspace.work_receipts.find(
+      (item) => item.id === "sqlite-attempt-receipt",
+    );
+    assert.equal(savedTask.work_attempt_id, attemptId);
+    assert.equal(savedReceipt.work_attempt_id, attemptId);
+    assert.equal(savedReceipt.request_id, requestId);
+    assert.equal(savedReceipt.report_sequence, 2);
+
+    assert.throws(
+      () => reopened.save("task", { ...savedTask, work_attempt_id: "not-a-uuid" }),
+      /work_attempt_idが不正です/,
+    );
+    // Work Receiptはappend-onlyなので、不正値の検証は新規Receiptで確認する。
+    assert.throws(
+      () =>
+        reopened.save("work_receipt", {
+          ...savedReceipt,
+          id: "sqlite-attempt-receipt-bad-request",
+          request_id: "not-a-uuid",
+        }),
+      /request_idが不正です/,
+    );
+    assert.throws(
+      () =>
+        reopened.save("work_receipt", {
+          ...savedReceipt,
+          id: "sqlite-attempt-receipt-bad-sequence",
+          report_sequence: -1,
+        }),
+      /report_sequenceが不正です/,
+    );
+  } finally {
+    reopened?.db.close();
     await rm(directory, { recursive: true, force: true });
   }
 });

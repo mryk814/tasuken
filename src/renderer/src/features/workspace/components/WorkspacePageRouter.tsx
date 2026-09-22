@@ -39,6 +39,7 @@ const ImportExportPage = lazyNamedPage<PageProps>(
   "ImportExportPage",
 );
 const DebriefPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("debrief"), "DebriefPage");
+const FeedPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("feed"), "FeedPage");
 const InboxPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("inbox"), "InboxPage");
 const KnowledgePage = lazyNamedPage<PageProps>(
   () => loadWorkspacePage("knowledge"),
@@ -84,6 +85,9 @@ export function WorkspacePageRouter({
   switch (route) {
     case "inbox":
       page = <InboxPage {...common} />;
+      break;
+    case "feed":
+      page = <FeedPage {...common} />;
       break;
     case "studio":
       page = <StudioPage {...common} />;

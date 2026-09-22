@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
+import { normalizeRoute, resolveRouteId } from "../src/renderer/src/pages/routes.ts";
+
 const routesSource = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
 const workspaceAppSource = readFileSync(
   "src/renderer/src/features/workspace/WorkspaceApp.tsx",
@@ -20,7 +22,7 @@ const stylesSource = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
 test("AI proposals use the existing AI route beside Inbox with an action count", () => {
   assert.doesNotMatch(routesSource, /\["proposal-inbox", "AI提案の確認"\]/);
-  assert.match(routesSource, /id: "ai-io",\s*label: "AI Inbox"/);
+  assert.match(routesSource, /id: "ai-io",\s*label: "Agent Desk"/);
   assert.match(routesSource, /id: "inbox"[\s\S]*group: "cross", order: 1/);
   assert.match(routesSource, /id: "ai-io"[\s\S]*group: "cross", order: 2/);
   assert.match(routesSource, /id: "debrief"[\s\S]*group: "cross", order: 3/);
@@ -37,12 +39,12 @@ test("AI proposals use the existing AI route beside Inbox with an action count",
   );
 });
 
-test("AI Inbox contains only the safe proposal review surface", () => {
+test("Agent Desk contains only the safe proposal review surface", () => {
   assert.match(importExportPageSource, /PageHeader route="ai-io"/);
   assert.match(importExportPageSource, /ai-inbox-page/);
   assert.match(importExportPageSource, /AiProposalPanel/);
   assert.match(aiProposalPanelSource, /export function AiProposalPanel/);
-  assert.match(aiProposalPanelSource, /AIの提案/);
+  assert.match(aiProposalPanelSource, /<h2>提案の確認<\/h2>/);
   assert.match(aiProposalPanelSource, /処理履歴/);
   assert.match(aiProposalPanelSource, /proposalTargetLabel/);
   assert.match(aiProposalPanelSource, /quarantine/);
@@ -69,7 +71,7 @@ test("AI Inbox contains only the safe proposal review surface", () => {
   );
 });
 
-test("AI Inbox can resync explicitly and quietly recovers when the window regains focus", () => {
+test("Agent Desk can resync explicitly and quietly recovers when the window regains focus", () => {
   assert.match(aiProposalPanelSource, /useWorkspaceStore\(\(state\) => state\.refresh\)/);
   assert.match(aiProposalPanelSource, /window\.addEventListener\("focus", resyncOnFocus\)/);
   assert.match(aiProposalPanelSource, /onClick=\{\(\) => void refreshProposals\(true\)\}/);
@@ -142,7 +144,7 @@ test("1050x800でもProposal一覧と選択previewを同じviewportへ収める"
   assert.equal(Math.min(800 * 0.42, 360), 336);
 });
 
-test("AI Inbox offers adopt-and-complete only for completable Task work reports", () => {
+test("Agent Desk offers adopt-and-complete only for completable Task work reports", () => {
   assert.match(
     aiProposalPanelSource,
     /ActionButton\s+action="aiProposalAcceptAndComplete"[\s\S]*?void acceptProposal\(selected, \{ completeTask: true \}\)/,
@@ -185,4 +187,19 @@ test("Proposal rows lead with a content-specific headline", () => {
   );
   assert.match(aiProposalPanelSource, /選択すると、本文と採用範囲を確認できます。/);
   assert.doesNotMatch(aiProposalPanelSource, /選択すると、下で本文と採用範囲を確認できます。/);
+});
+
+test("Agent Deskは旧deep linkと選択状態を壊さない（#600）", () => {
+  // 表示名を変えてもroute IDは保持する。保存済みのroute・hash・通知の遷移先を壊さない。
+  assert.equal(resolveRouteId("ai-io"), "ai-io");
+  assert.equal(resolveRouteId("proposal-inbox"), "ai-io");
+  assert.equal(normalizeRoute("proposal-inbox"), "ai-io");
+  assert.equal(normalizeRoute("ai-io"), "ai-io");
+  // 旧称を表示名として復活させない。
+  assert.doesNotMatch(routesSource, /label: "AI Inbox"/);
+  assert.doesNotMatch(routesSource, /label: "AI IO"/);
+  // TaskなしProposalと履歴は同じ面から到達できる。
+  assert.match(importExportPageSource, /<AiProposalPanel/);
+  assert.match(aiProposalPanelSource, /<h2>提案の確認<\/h2>/);
+  assert.match(aiProposalPanelSource, /処理履歴/);
 });

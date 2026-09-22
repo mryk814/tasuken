@@ -5,15 +5,18 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import {
+  resolveTaskenHeadlessWriteMode,
   startTaskenHeadlessCore,
   TaskenHeadlessCoreError,
   type TaskenHeadlessCoreHandle,
+  type TaskenHeadlessWriteMode,
 } from "./taskenHeadlessCore.ts";
 
 export interface TaskenHeadlessCoreArgs {
   userDataPath?: string;
   databasePath?: string;
   syncDirectory?: string;
+  writeMode: TaskenHeadlessWriteMode;
   help: boolean;
 }
 
@@ -27,7 +30,7 @@ export class TaskenHeadlessCoreUsageError extends Error {
 const HELP = `Tasken CoreをGUIなしで起動します。
 
 Usage:
-  node core-dist/headless.mjs [--user-data-dir=<path>] [--db-path=<path>] [--sync-directory=<path>]
+  node core-dist/headless.mjs [--user-data-dir=<path>] [--db-path=<path>] [--sync-directory=<path>] [--write-mode=<mode>]
 
 Options:
   --user-data-dir    CoreのuserData（discovery fileの保存先）。省略時はTASKEN_USER_DATA_DIR、
@@ -35,6 +38,9 @@ Options:
   --db-path          SQLite本体のパス。省略時はTASKEN_DB_PATH、または<userData>/research-desk.sqlite。
   --sync-directory   既存の共有フォルダ同期へreplicaとして参加する。省略時はTASKEN_SYNC_DIRECTORY。
                      参加できるのは空のnodeだけ。MCPはTASKEN_MCP_READ_ONLY=1で動かす。
+  --write-mode       受け付ける書き込みの範囲。read-only（既定）またはproposals。
+                     省略時はTASKEN_CORE_WRITE_MODE。proposalsではテキストのFeed投稿・
+                     Note案・Task案だけを受け付け、Core自身が許可範囲を強制する。
   -h, --help         このhelpを表示する。
 
 起動するとstdoutへTASKEN_HEADLESS_CORE_READY、SIGINT/SIGTERMの正常終了時に
@@ -50,16 +56,26 @@ export function parseTaskenHeadlessCoreArgs(
       "user-data-dir": { type: "string" },
       "db-path": { type: "string" },
       "sync-directory": { type: "string" },
+      "write-mode": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: false,
   });
-  if (values.help) return { help: true };
+  if (values.help) return { help: true, writeMode: "read-only" };
   const userDataPath = values["user-data-dir"];
   const databasePath = values["db-path"];
   const syncDirectoryOption = values["sync-directory"];
   const syncDirectory =
     syncDirectoryOption === undefined ? env.TASKEN_SYNC_DIRECTORY : syncDirectoryOption;
+  const writeModeOption = values["write-mode"];
+  const writeMode = resolveTaskenHeadlessWriteMode(
+    writeModeOption === undefined ? env.TASKEN_CORE_WRITE_MODE : writeModeOption,
+  );
+  if (writeModeOption !== undefined && writeMode !== writeModeOption.trim().toLowerCase()) {
+    throw new TaskenHeadlessCoreUsageError(
+      "--write-modeにはread-onlyまたはproposalsを指定してください。",
+    );
+  }
   if (userDataPath !== undefined && !userDataPath.trim()) {
     throw new TaskenHeadlessCoreUsageError("--user-data-dirへ空のpathは指定できません。");
   }
@@ -71,6 +87,7 @@ export function parseTaskenHeadlessCoreArgs(
   }
   return {
     help: false,
+    writeMode,
     ...(userDataPath ? { userDataPath: path.resolve(userDataPath) } : {}),
     ...(databasePath ? { databasePath: path.resolve(databasePath) } : {}),
     ...(syncDirectory ? { syncDirectory: path.resolve(syncDirectory) } : {}),
@@ -110,6 +127,7 @@ async function run(): Promise<void> {
       ...(args.userDataPath ? { userDataPath: args.userDataPath } : {}),
       ...(args.databasePath ? { databasePath: args.databasePath } : {}),
       ...(args.syncDirectory ? { syncDirectory: args.syncDirectory } : {}),
+      writeMode: args.writeMode,
     });
   } catch (error) {
     const code = error instanceof TaskenHeadlessCoreError ? error.code : "CORE_START_FAILED";
@@ -131,6 +149,7 @@ async function run(): Promise<void> {
       api_version: handle.apiVersion,
       capability_count: handle.capabilityCount,
       sync_directory: handle.syncDirectory,
+      write_mode: handle.writeMode,
       pid: handle.pid,
     })}\n`,
   );

@@ -109,7 +109,7 @@ class MobilePhotoUpgradeTest {
                         arrayOf("old-$kind-command", "old-$kind-command", "old-$kind-request", at, "Create$kind", raw, at, "old-${kind.lowercase()}"))
                 }
             }
-            migrations.runMigrationsAndValidate(databaseName, 25, true, MIGRATION_23_24, MIGRATION_24_25).close()
+            migrations.runMigrationsAndValidate(databaseName, 26, true, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26).close()
             fun open() = Room.databaseBuilder(context, MobileLocalDatabase::class.java, databaseName).build()
             database = open()
             var dao = database.mobileDao()

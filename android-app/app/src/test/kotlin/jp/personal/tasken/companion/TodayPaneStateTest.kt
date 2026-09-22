@@ -214,4 +214,61 @@ class TodayPaneStateTest {
         assertEquals("text/plain", restored.captureDraft.share?.mimeType)
         assertEquals("共有本文", restored.captureDraft.text)
     }
+
+    @Test
+    fun attentionReplyDraftSurvivesRecreationWithItsQuestion() {
+        val before = TodayPaneState()
+        before.openAttention("attention-a")
+        before.attentionReplyBody = "25℃で進めてください。"
+
+        val restored = TodayPaneState.restore(before.save())
+
+        assertEquals("attention-a", restored.selectedAttentionId)
+        assertEquals("25℃で進めてください。", restored.attentionReplyBody)
+    }
+
+    @Test
+    fun reopeningTheSameQuestionKeepsTheDraftAndAnotherQuestionDropsIt() {
+        val state = TodayPaneState()
+        state.openAttention("attention-a")
+        state.attentionReplyBody = "25℃で進めてください。"
+
+        // 同じ判断を開き直しても下書きは残る。
+        state.openAttention("attention-a")
+        assertEquals("25℃で進めてください。", state.attentionReplyBody)
+
+        // 別の判断へ移ると混ざらない（取り違えたまま送らない）。
+        state.openAttention("attention-b")
+        assertEquals("", state.attentionReplyBody)
+        assertEquals("attention-b", state.selectedAttentionId)
+    }
+
+    @Test
+    fun closingTheReplyKeepsTheDraftAndOnlyAnAppliedReplyClearsIt() {
+        val state = TodayPaneState()
+        state.openAttention("attention-a")
+        state.attentionReplyBody = "25℃で進めてください。"
+
+        // 「閉じる」は破棄ではない。
+        state.closeAttention()
+        assertEquals(null, state.selectedAttentionId)
+        assertEquals("25℃で進めてください。", state.attentionReplyBody)
+
+        // 開き直すと下書きが戻る。
+        state.openAttention("attention-a")
+        assertEquals("25℃で進めてください。", state.attentionReplyBody)
+
+        // 正式に保存できたときだけ、選択と入力を閉じる。
+        state.clearAttentionReply()
+        assertEquals(null, state.selectedAttentionId)
+        assertEquals("", state.attentionReplyBody)
+    }
+
+    @Test
+    fun oldSavedStateWithoutAttentionFieldsStartsClosed() {
+        val restored = TodayPaneState.restore(TodayPaneState().save().take(32))
+
+        assertEquals(null, restored.selectedAttentionId)
+        assertEquals("", restored.attentionReplyBody)
+    }
 }

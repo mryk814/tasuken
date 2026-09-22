@@ -20,6 +20,7 @@ export type CanonicalRouteId =
   | "todo"
   | "waiting"
   | "inbox"
+  | "feed"
   | "timeline"
   | "knowledge"
   | "notes"
@@ -117,13 +118,25 @@ export const ROUTE_DEFINITIONS = {
   },
   "ai-io": {
     id: "ai-io",
-    label: "AI Inbox",
-    description: "外部AIから届いたProposalを確認し、採用する内容だけをTaskenへ反映します。",
+    label: "Agent Desk",
+    description:
+      "任せた仕事の進みと待ちを確認し、回答・成果確認・変更案の採否を行います。外部AIから届いたProposalもここで確認します。",
     icon: IconSparkles,
     semanticRole: "tool",
     availability: "always",
     navigation: { group: "cross", order: 2 },
+    // 旧名のdeep linkを壊さない。表示名は変わってもroute IDは保持する（#600）。
     aliases: [{ id: "proposal-inbox", parent: "ai-io" }],
+  },
+  feed: {
+    id: "feed",
+    label: "Feed",
+    description:
+      "前回から何が変わり、今どこに反応するかを読みます。設計検証中の試作で、架空のデータを表示します。",
+    icon: IconTimeline,
+    semanticRole: "context",
+    availability: "always",
+    navigation: { group: "cross", order: 0 },
   },
   debrief: {
     id: "debrief",

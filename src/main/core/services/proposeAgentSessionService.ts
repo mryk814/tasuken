@@ -205,7 +205,7 @@ export class ProposeAgentSessionService {
       payload_type: "agent_sessions",
       message:
         status === "queued"
-          ? "Agent Session を提案として送りました。Tasuken の AI Inbox で確認してください。"
+          ? "Agent Session を提案として送りました。Tasken の Agent Desk で確認してください。"
           : "同じ idempotency_key の Agent Session Proposal は受信済みです。",
     });
   }

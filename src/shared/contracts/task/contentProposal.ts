@@ -205,6 +205,63 @@ export const proposeContentRequestSchema = z
     z
       .object({
         ...requestBase,
+        /**
+         * 読む面への投稿（2026-09-21計画の第2段階）。
+         * 本文は読み物として保持し、正式データ（Note/Task）は変更しない。
+         * 記事を正式Noteにするときは、添えたNote草稿の採用を別途行う。
+         */
+        kind: z.literal("feed_post"),
+        /** 投稿の種類。表示の見出しと「学び」タブの絞り込みに使う。 */
+        topic: z.enum(["work_report", "insight", "learning", "reference", "question", "own_note"]),
+        /** 本文。段落ごとに分けて保持し、表示のたびに作り直さない。 */
+        body: z.array(boundedText(2_000)).min(1).max(20),
+        /** 任意のTask参照。 */
+        task_id: boundedText(200).optional(),
+        /** 任意のTheme参照（表示名またはID）。 */
+        theme: optionalText(500),
+        /** 任意のAgent Session参照。 */
+        session_id: boundedText(200).optional(),
+        /** 任意の記事。既存Noteを指すか、同じ送信でNote草稿を作る。 */
+        note_id: boundedText(200).optional(),
+        article: z
+          .object({
+            title: boundedText(200),
+            body: z.string().min(1).max(200_000),
+            /** 記事の種類。既定は読み物としてのNote。 */
+            note_type: z.enum(["memo", "report", "prompt"]).optional(),
+          })
+          .strict()
+          .optional(),
+        /** 添付の見出し（図や表の説明）。 */
+        attachment_label: optionalText(200),
+        /** 根拠。出所URLや確認日など、本文の主張を支える事実。 */
+        evidence: z.array(boundedText(1_000)).max(20).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...requestBase,
+        /**
+         * 利用者の質問への返答（2026-09-21計画の第3段階）。
+         * 質問（`ai_requested_at` 付きの返信）へ紐づけ、同じスレッドで読めるようにする。
+         * 正式データは変更せず、要対応の判断にも数えない。
+         */
+        kind: z.literal("feed_reply"),
+        /** 返答が属する投稿。`get_feed_context` が返した投稿ID。 */
+        post_id: boundedText(200),
+        /** 返答する質問（返信EntityのID）。 */
+        reply_to: boundedText(200),
+        /** 返答の本文。 */
+        body: z.string().min(1).max(4_000),
+        /** 返答したAIの表示名。投稿者の識別に使う。 */
+        author_label: optionalText(120),
+        /** 根拠。出所URLや確認日など。 */
+        evidence: z.array(boundedText(1_000)).max(20).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...requestBase,
         kind: z.literal("note_create"),
         title: boundedText(200),
         body: z.string().min(1).max(200_000),
@@ -279,6 +336,10 @@ export const contentProposalPayloadTypeSchema = z.enum([
   "knowledge_nodes",
   "sketches",
   "artifacts",
+  /** 読み物の投稿。要対応の判断ではない（`attentionQueue` が除外する）。 */
+  "feed_posts",
+  /** 読み物への返答。同じく要対応の判断ではない。 */
+  "feed_replies",
 ]);
 
 export const proposeContentResponseSchema = z

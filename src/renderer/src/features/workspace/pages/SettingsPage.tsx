@@ -19,8 +19,11 @@ import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types
 import { AI_AUDIENCES, DEFAULT_AI_VISIBILITY } from "../../../../../shared/aiMetadata.mjs";
 import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import { AI_AUDIENCE_LABELS } from "../domain-model/labels";
+import { todayIso as todayIsoDate } from "../domain-model/scheduleSemantics";
 import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
+import { HabitPanel } from "../components/HabitPanel";
+import { MaintenancePanel } from "../components/MaintenancePanel";
 import { CaptureOrganizerSettings } from "../components/CaptureOrganizerSettings";
 import {
   DEFAULT_ROOT_SHORTCUT,
@@ -37,11 +40,21 @@ interface SettingsPageProps extends PageProps {
 }
 
 type SettingsSectionId =
-  "general" | "appearance" | "storage" | "integrations" | "mobile" | "ai-mcp" | "advanced";
+  | "general"
+  | "appearance"
+  | "habits"
+  | "maintenance"
+  | "storage"
+  | "integrations"
+  | "mobile"
+  | "ai-mcp"
+  | "advanced";
 
 const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; description: string }> = [
   { id: "general", label: "General", description: "基本の使い方" },
   { id: "appearance", label: "Appearance", description: "表示と編集" },
+  { id: "habits", label: "Habits", description: "続けることの記録" },
+  { id: "maintenance", label: "Maintenance", description: "手入れの目安と履歴" },
   { id: "storage", label: "Storage & Files", description: "保存と同期" },
   { id: "integrations", label: "Integrations", description: "外部サービス" },
   { id: "mobile", label: "Mobile", description: "Android接続" },
@@ -77,6 +90,9 @@ export function SettingsPage({
   allThemes,
   setSnapshotPreview,
   snapshotPreview,
+  saveEntities,
+  removeEntity,
+  removeEntityQuiet,
   setToast,
 }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
@@ -89,6 +105,7 @@ export function SettingsPage({
   const [mcpBusy, setMcpBusy] = useState(false);
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarBusy, setCalendarBusy] = useState(false);
+  const [calendarRefreshNote, setCalendarRefreshNote] = useState<string | null>(null);
   // AI公開範囲のworkspace既定（#294）。Theme・項目が未設定のときだけ使う。
   const [aiVisibilityDefault, setAiVisibilityDefault] = useState<AiAudience[]>([
     ...DEFAULT_AI_VISIBILITY,
@@ -623,6 +640,36 @@ export function SettingsPage({
     }
   }
 
+  /**
+   * 接続中のカレンダーを取り直す（#273）。今日の予定を読み、最終取得を更新する。
+   * 失敗しても接続は切らず、原因をこの領域へ残す（期限切れと未設定を混同しない）。
+   */
+  async function refreshCalendar() {
+    if (calendarBusy) return;
+    setCalendarBusy(true);
+    setCalendarRefreshNote(null);
+    try {
+      const result = await workspaceApi.calendarEvents(todayIsoDate());
+      const status = await workspaceApi.calendarStatus().catch(() => calendarStatus);
+      if (status) setCalendarStatus(status);
+      if (result.error && !result.stale) {
+        setCalendarRefreshNote(`更新できませんでした。${result.error}`);
+      } else if (result.stale) {
+        setCalendarRefreshNote(
+          `前回取得分を表示しています。${result.error ? ` ${result.error}` : ""}`,
+        );
+      } else {
+        setCalendarRefreshNote(`予定を${result.events.length}件取得しました。`);
+      }
+    } catch (error) {
+      setCalendarRefreshNote(
+        `更新できませんでした。${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setCalendarBusy(false);
+    }
+  }
+
   async function disconnectCalendar() {
     const provider = calendarStatus?.provider;
     if (!provider) return;
@@ -630,6 +677,7 @@ export function SettingsPage({
     try {
       const status = await workspaceApi.calendarDisconnect({ provider });
       setCalendarStatus(status);
+      setCalendarRefreshNote(null);
       setToast("カレンダーの接続を解除しました。", "info");
     } catch (error) {
       setToast(
@@ -1161,6 +1209,35 @@ export function SettingsPage({
                 </div>
               </details>
             </section>
+            <section className="panel settings-form" hidden={activeSection !== "habits"}>
+              {/* #454後半: Habitの最小実験。ここで追加し、記録はTodayで行う。 */}
+              <p className="field-help">
+                「毎日1回」「週N回」を手動で記録します。Taskは作りません。週の区切りは月曜開始です。
+              </p>
+              <HabitPanel
+                data={data}
+                today={todayIsoDate()}
+                saveEntities={saveEntities}
+                removeEntity={removeEntity}
+                setToast={setToast}
+                manage
+              />
+            </section>
+            <section className="panel settings-form" hidden={activeSection !== "maintenance"}>
+              {/* #454後半: Maintenanceの最小実験。目安と履歴の管理はここへ置く。 */}
+              <p className="field-help">
+                対象と推奨間隔を決めて、実施した日を記録します。次の目安は提案で、Taskの期限ではありません。
+              </p>
+              <MaintenancePanel
+                data={data}
+                today={todayIsoDate()}
+                saveEntities={saveEntities}
+                removeEntity={removeEntity}
+                removeEntityQuiet={removeEntityQuiet}
+                setToast={setToast}
+                manage
+              />
+            </section>
             <section className="panel settings-form" hidden={activeSection !== "storage"}>
               {/* 保存先の設定は同期ルート一つに集約し、配下はTaskenが自動生成する（#306）。 */}
               <h2>同期ストレージ</h2>
@@ -1336,6 +1413,20 @@ export function SettingsPage({
                         : "未確認"}
                   </dd>
                 </div>
+                <div>
+                  <dt>AIの書き込み</dt>
+                  <dd>
+                    {mcpInfo?.coreWriteProfile === "full"
+                      ? "提案と直接開始を受け付ける"
+                      : mcpInfo?.coreWriteProfile === "proposals"
+                        ? "Text Proposal（Feed投稿・Note案・Task案）のみ受け付ける"
+                        : mcpInfo?.coreWriteProfile === "read-only"
+                          ? "読み取りのみ（書き込みは公開していない）"
+                          : mcpInfo?.coreWriteProfile === "partial"
+                            ? "一部だけ公開（上書き可能な構成ではない）"
+                            : "未確認"}
+                  </dd>
+                </div>
                 {mcpInfo?.coreApiVersion && (
                   <div>
                     <dt>API / Capabilities</dt>
@@ -1439,6 +1530,16 @@ export function SettingsPage({
                       </dd>
                     </div>
                   </dl>
+                  <div className="settings-action-row">
+                    <Button variant="secondary" disabled={calendarBusy} onClick={refreshCalendar}>
+                      {calendarBusy ? "更新中…" : "更新"}
+                    </Button>
+                  </div>
+                  {calendarRefreshNote ? (
+                    <p className="field-help" role="status">
+                      {calendarRefreshNote}
+                    </p>
+                  ) : null}
                   <div className="settings-danger-zone">
                     <h3>Danger Zone</h3>
                     <Button variant="danger" disabled={calendarBusy} onClick={disconnectCalendar}>

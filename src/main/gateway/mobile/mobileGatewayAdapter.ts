@@ -44,6 +44,10 @@ import {
   mobileTaskWorkReviewRequestSchema,
   mobileTaskWorkReviewResponseSchema,
   mobileTaskWorkProposalsRequestSchema,
+  mobileAgentReplyRequestSchema,
+  mobileAgentReplyResponseSchema,
+  mobileAttentionRequestSchema,
+  mobileAttentionResponseSchema,
   mobileTaskWorkProposalsResponseSchema,
   mobileThemeCatalogItemSchema,
   mobileThemesRequestSchema,
@@ -79,6 +83,8 @@ import {
   TASK_CONTRACT_SCHEMA_VERSION,
   selectLatestWorkReceipt,
   taskReadModelSchema,
+  type AgentWorkDisplayState,
+  type AttentionItem,
   type TaskCommandResponse,
   type TaskError,
   type TaskQueryResponse,
@@ -90,6 +96,7 @@ import {
   projectTaskContextPreview,
 } from "./taskContextPreview.ts";
 import { createCaptureOrganizerFromEnvironment } from "./captureOrganizer.ts";
+import { projectAttentionQueue } from "./attentionProjection.ts";
 const REQUIRED_CORE_CAPABILITIES = [
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
@@ -194,6 +201,44 @@ export type MobileGatewayCaptureCommandResult =
       >;
     };
 
+/**
+ * Agent Deskの要対応read model（#601）。
+ * Desktopと同じ導出結果を返す。Androidはここで得た意味を表示するだけ。
+ *
+ * mobile向けの射影（項目の形・上限・truncated）はadapterが行う。CoreはDesktopと同じ
+ * `AttentionItem` と件数だけを返し、同じ意味を二重に持たない。
+ */
+export interface MobileGatewayAttentionRead {
+  items: readonly AttentionItem[];
+  /** 回答や採用の競合検出に使うTask版。Taskに紐づかないProposalでは参照されない。 */
+  taskVersions: ReadonlyMap<string, number>;
+  /** 開始を観測した作業中の数。要対応には数えない。 */
+  working: number;
+  /** 委任済みで開始未観測の数。 */
+  queued: number;
+}
+
+/**
+ * agentの質問への短い返答の結果（#601）。
+ *
+ * 回答はTaskを変えない。`displayState` はDesktopと同じ導出結果をそのまま返し、
+ * mobile側で「対応待ちに残るか」を再判定させない。
+ */
+export type MobileGatewayAgentReplyResult =
+  | {
+      ok: true;
+      commandId: string;
+      status: "applied" | "no_change";
+      taskId: string;
+      taskVersion: number;
+      questionId: string;
+      displayState: AgentWorkDisplayState;
+    }
+  | {
+      ok: false;
+      code: "not_found" | "entity_conflict" | "idempotency_conflict" | "validation_failed";
+    };
+
 export interface MobileGatewayCorePort {
   getThemeContext?(
     input: MobileThemeContextRequest,
@@ -223,6 +268,19 @@ export interface MobileGatewayCorePort {
   listTaskWorkProposals():
     | Promise<readonly MobileGatewayTaskWorkProposalRecord[]>
     | readonly MobileGatewayTaskWorkProposalRecord[];
+  /** Agent Deskの要対応（#601）。未構成のCoreでは未定義でよく、その場合は取得できないと返す。 */
+  readAttention?(): Promise<MobileGatewayAttentionRead> | MobileGatewayAttentionRead;
+  /** 人間の返答（#601）。質問IDはattentionのrequestIdをそのまま渡す。 */
+  replyToAgentRequest?(input: {
+    commandId: string;
+    taskId: string;
+    questionId: string;
+    body: string;
+    choiceId: string | null;
+    expectedTaskVersion: number;
+    actorId: string;
+    issuedAt: string;
+  }): Promise<MobileGatewayAgentReplyResult> | MobileGatewayAgentReplyResult;
   getTaskWorkProposal(
     id: string,
   ):
@@ -873,6 +931,7 @@ export class MobileGatewayAdapter {
         TASKEN_MOBILE_ENDPOINTS.commands,
         TASKEN_MOBILE_ENDPOINTS.proposalDecisions,
         TASKEN_MOBILE_ENDPOINTS.workReviews,
+        TASKEN_MOBILE_ENDPOINTS.agentReplies,
         TASKEN_MOBILE_ENDPOINTS.taskDelegations,
         TASKEN_MOBILE_ENDPOINTS.captureOrganization,
         TASKEN_MOBILE_ENDPOINTS.workLogOrganization,
@@ -1030,6 +1089,7 @@ export class MobileGatewayAdapter {
           TASKEN_MOBILE_ENDPOINTS.workReceipt,
           TASKEN_MOBILE_ENDPOINTS.workLogs,
           TASKEN_MOBILE_ENDPOINTS.proposals,
+          TASKEN_MOBILE_ENDPOINTS.attention,
           TASKEN_MOBILE_ENDPOINTS.bootstrap,
           TASKEN_MOBILE_ENDPOINTS.sync,
         ].includes(request.path as never) &&
@@ -1073,6 +1133,11 @@ export class MobileGatewayAdapter {
         !request.principal.scopes.includes("mobile:human-review")
       )
         return this.error(meta, "forbidden");
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.agentReplies &&
+        !request.principal.scopes.includes("mobile:human-review")
+      )
+        return this.error(meta, "forbidden");
 
       const today =
         request.path === TASKEN_MOBILE_ENDPOINTS.today ? this.parseTodayQuery(request.query) : null;
@@ -1106,6 +1171,14 @@ export class MobileGatewayAdapter {
         request.path === TASKEN_MOBILE_ENDPOINTS.workReviews
           ? mobileTaskWorkReviewRequestSchema.safeParse(request.body)
           : null;
+      const attention =
+        request.path === TASKEN_MOBILE_ENDPOINTS.attention
+          ? this.parseAttentionQuery(request.query)
+          : null;
+      const agentReply =
+        request.path === TASKEN_MOBILE_ENDPOINTS.agentReplies
+          ? mobileAgentReplyRequestSchema.safeParse(request.body)
+          : null;
       const bootstrap =
         request.path === TASKEN_MOBILE_ENDPOINTS.bootstrap
           ? this.parseBootstrapQuery(request.query)
@@ -1123,6 +1196,13 @@ export class MobileGatewayAdapter {
       if (request.path === TASKEN_MOBILE_ENDPOINTS.workReceipt && !workReceipt)
         return this.error(meta, "validation_failed");
       if (request.path === TASKEN_MOBILE_ENDPOINTS.proposals && !proposals)
+        return this.error(meta, "validation_failed");
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.attention && !attention)
+        return this.error(meta, "validation_failed");
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.agentReplies &&
+        (!agentReply?.success || agentReply.data.clientDeviceId !== request.principal.deviceId)
+      )
         return this.error(meta, "validation_failed");
       if (
         request.path === TASKEN_MOBILE_ENDPOINTS.proposalDecisions &&
@@ -1147,6 +1227,7 @@ export class MobileGatewayAdapter {
       }
       if (proposalDecision?.success) diagnosticId = proposalDecision.data.requestId;
       if (workReview?.success) diagnosticId = workReview.data.requestId;
+      if (agentReply?.success) diagnosticId = agentReply.data.requestId;
       if (contextPreview) diagnosticId = contextPreview.requestId;
       if (delegationRequest?.success) diagnosticId = delegationRequest.data.requestId;
       if (
@@ -1159,6 +1240,7 @@ export class MobileGatewayAdapter {
           TASKEN_MOBILE_ENDPOINTS.themes,
           TASKEN_MOBILE_ENDPOINTS.workReceipt,
           TASKEN_MOBILE_ENDPOINTS.proposals,
+          TASKEN_MOBILE_ENDPOINTS.attention,
           TASKEN_MOBILE_ENDPOINTS.bootstrap,
           TASKEN_MOBILE_ENDPOINTS.sync,
           TASKEN_MOBILE_ENDPOINTS.taskContextPreview,
@@ -1440,6 +1522,22 @@ export class MobileGatewayAdapter {
           }),
         );
       }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.attention) {
+        if (!this.options.core.readAttention) return this.error(meta, "capability_unavailable");
+        const read = await this.options.core.readAttention();
+        // Desktopと同じ導出を、mobileの上限と形へ射影する。件数は判断単位のまま。
+        const projected = projectAttentionQueue({
+          items: read.items,
+          taskVersions: read.taskVersions,
+          working: read.working,
+          queued: read.queued,
+          limit: attention!.limit,
+        });
+        meta = this.meta(projected.truncated);
+        return this.success(
+          mobileAttentionResponseSchema.parse({ ok: true, meta, data: projected }),
+        );
+      }
       if (request.path === TASKEN_MOBILE_ENDPOINTS.proposals) {
         const records = [...(await this.options.core.listTaskWorkProposals())].sort(
           (left, right) =>
@@ -1600,6 +1698,38 @@ export class MobileGatewayAdapter {
               action: review.action,
               receiptId: review.receiptId,
               task: projectTask(result.value.task, true, receipts),
+            },
+          }),
+        );
+      }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.agentReplies) {
+        const reply = agentReply?.success ? agentReply.data : null;
+        if (!reply) return this.error(meta, "validation_failed");
+        if (!this.options.core.replyToAgentRequest)
+          return this.error(meta, "capability_unavailable");
+        const result = await this.options.core.replyToAgentRequest({
+          commandId: reply.commandId,
+          taskId: reply.taskId,
+          questionId: reply.questionId,
+          body: reply.body,
+          choiceId: reply.choiceId ?? null,
+          expectedTaskVersion: reply.expectedTaskVersion,
+          actorId: request.principal.deviceId,
+          issuedAt: reply.issuedAt,
+        });
+        // 競合はどの質問へ答えたかを取り違えないための再読み込み要求。成功として返さない。
+        if (!result.ok) return this.error(meta, result.code);
+        return this.success(
+          mobileAgentReplyResponseSchema.parse({
+            ok: true,
+            meta,
+            data: {
+              commandId: result.commandId,
+              commandStatus: result.status,
+              taskId: result.taskId,
+              taskVersion: result.taskVersion,
+              questionId: result.questionId,
+              displayState: result.displayState,
             },
           }),
         );
@@ -1973,6 +2103,23 @@ export class MobileGatewayAdapter {
     )
       return null;
     const parsed = mobileTaskWorkProposalsRequestSchema.safeParse({
+      apiVersion: Number(values.apiVersion),
+      schemaVersion: Number(values.schemaVersion),
+      requestId: values.requestId,
+      ...(values.limit === undefined ? {} : { limit: Number(values.limit) }),
+    });
+    return parsed.success ? parsed.data : null;
+  }
+
+  private parseAttentionQuery(query: MobileGatewayRequest["query"]) {
+    const values = query || {};
+    if (
+      Object.keys(values).some(
+        (key) => !["apiVersion", "schemaVersion", "requestId", "limit"].includes(key),
+      )
+    )
+      return null;
+    const parsed = mobileAttentionRequestSchema.safeParse({
       apiVersion: Number(values.apiVersion),
       schemaVersion: Number(values.schemaVersion),
       requestId: values.requestId,

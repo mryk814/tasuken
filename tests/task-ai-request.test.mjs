@@ -34,7 +34,7 @@ test("新規AI Readyの正式保存後に共通依頼文をコピーする", asy
     "最新のTask version",
     "tasken.report_task_done",
     "tasken.report_task_blocked",
-    "人がAI Inboxで採用",
+    "人がAgent Deskで採用",
   ]) {
     assert.ok(copied[0].includes(text), text);
   }

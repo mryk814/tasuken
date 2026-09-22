@@ -78,6 +78,9 @@ const proposalPayloadTypes = new Set([
   "task_work",
   "repository_contexts",
   "agent_sessions",
+  // 読み物の投稿と、その投稿への返答（2026-09-21計画 第2・3段階）。要対応ではなくFeedが読む。
+  "feed_posts",
+  "feed_replies",
 ]);
 const proposalStatuses = new Set([
   "pending",
@@ -92,6 +95,8 @@ const taskStates = new Set(["todo", "doing", "waiting", "review", "done", "cance
 const taskRequesters = new Set(["self", "human", "ai_agent", "external", "unknown"]);
 const taskIntendedExecutors = new Set(["self", "human", "ai_agent", "unassigned"]);
 const taskExecutorKinds = new Set(["self", "human", "ai_agent", "external", "unknown"]);
+/** Work Receiptの種別。省略時は従来のAI報告として読む（#597）。 */
+const workReceiptKinds = new Set(["ai_report", "human_reply"]);
 const taskWorkStates = new Set([
   "not_delegated",
   "ready_for_agent",
@@ -105,6 +110,17 @@ const taskWorkStates = new Set([
 const taskRepeatFrequencies = new Set(["daily", "weekly", "monthly"]);
 const taskRepeatNextFromValues = new Set(["scheduled", "completed"]);
 const waitingStates = new Set(["waiting", "received", "cancelled"]);
+// Habitの最小実験（#454後半）。記録は手動だけで、Taskを自動生成しない。
+const habitScheduleKinds = new Set(["daily", "weekly"]);
+const habitStates = new Set(["active", "paused"]);
+// 読者の状態。投稿そのものへの判断（採用・却下）とは別に持つ。
+// `known` は「既に知っていた」という自己申告で、次の題材選びの材料にする（#604後半）。
+const feedReactionKinds = new Set(["bookmark", "interesting", "hidden", "known"]);
+/** 返信の書き手。人が書いた返信とAIの返答を同じスレッドへ並べる。 */
+const feedReplyAuthorKinds = new Set(["self", "ai"]);
+/** 手動貼付の由来。既存返信はそのまま読めるよう任意フィールドにする。 */
+const feedReplyOrigins = new Set(["manual_paste"]);
+const datePattern = /^\d{4}-\d{2}-\d{2}$/u;
 const planNodeTypes = new Set(["phase", "milestone", "deliverable"]);
 const planNodeStates = new Set(["planned", "active", "done", "cancelled"]);
 const scheduleOwnerTypes = new Set(["task", "waiting", "plan_node"]);
@@ -117,6 +133,8 @@ const scheduleRangeSemantics = new Set(["once_within_window", "ongoing"]);
 // Themeの種別（#282）。personal_default は常設の既定Themeで、削除・アーカイブ・改名できない。
 // 表示名の文字列比較で特別扱いせず、この値と安定IDで識別する。
 const themeSystemKinds = new Set(["personal_default"]);
+/** 作業単位ID・質問IDは等値比較に使うため、形式を保存時に固定する。 */
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const entityRefTypes = new Set([
   "project",
   "capture_entry",
@@ -515,6 +533,30 @@ export function validateEntity(type, input) {
     }
     if (input.work_review_note != null && input.work_review_note.length > 2000)
       throw new Error("task.work_review_noteは2000文字以内で入力してください。");
+    if (
+      input.work_attempt_id != null &&
+      input.work_attempt_id !== "" &&
+      (typeof input.work_attempt_id !== "string" || !uuidPattern.test(input.work_attempt_id))
+    )
+      throw new Error("task.work_attempt_idが不正です。");
+    for (const [field, limit] of [
+      ["handoff_expected_result", 2000],
+      ["handoff_instruction", 4000],
+      ["handoff_context_ref", 2000],
+    ]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || input[field].length > limit)
+      )
+        throw new Error(`task.${field}は${limit}文字以内で入力してください。`);
+    }
+    if (
+      input.handoff_requested_at != null &&
+      input.handoff_requested_at !== "" &&
+      Number.isNaN(new Date(input.handoff_requested_at).getTime())
+    )
+      throw new Error("task.handoff_requested_atが不正です。");
   }
   if (type === "work_receipt") {
     if (typeof input.task_id !== "string" || !input.task_id.trim())
@@ -568,6 +610,39 @@ export function validateEntity(type, input) {
       throw new Error("work_receipt.source_sessionは200文字以内で入力してください。");
     if (input.provenance != null && !isPlainObject(input.provenance))
       throw new Error("work_receipt.provenanceが不正です。");
+    for (const field of ["work_attempt_id", "request_id"]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || !uuidPattern.test(input[field]))
+      )
+        throw new Error(`work_receipt.${field}が不正です。`);
+    }
+    if (
+      input.report_sequence != null &&
+      (!Number.isInteger(input.report_sequence) ||
+        input.report_sequence < 0 ||
+        input.report_sequence > 100000)
+    )
+      throw new Error("work_receipt.report_sequenceが不正です。");
+    if (
+      input.receipt_kind != null &&
+      input.receipt_kind !== "" &&
+      !workReceiptKinds.has(input.receipt_kind)
+    )
+      throw new Error("work_receipt.receipt_kindが不正です。");
+    if (
+      input.reply_choice_id != null &&
+      input.reply_choice_id !== "" &&
+      (typeof input.reply_choice_id !== "string" || input.reply_choice_id.length > 200)
+    )
+      throw new Error("work_receipt.reply_choice_idは200文字以内で入力してください。");
+    if (
+      input.reply_note != null &&
+      input.reply_note !== "" &&
+      (typeof input.reply_note !== "string" || input.reply_note.length > 2000)
+    )
+      throw new Error("work_receipt.reply_noteは2000文字以内で入力してください。");
   }
   if (type === "waiting" && !waitingStates.has(input.state))
     throw new Error("waiting.stateが不正です。");
@@ -651,6 +726,197 @@ export function validateEntity(type, input) {
     if (input.origin_capture_id != null && typeof input.origin_capture_id !== "string") {
       throw new Error("sketch.origin_capture_idが不正です。");
     }
+  }
+  if (type === "habit") {
+    // Habitの最小実験（#454後半）。手動記録だけを扱い、日付ごとのTaskを自動生成しない。
+    if (typeof input.title !== "string" || !input.title.trim() || input.title.length > 200)
+      throw new Error("habit.titleは1〜200文字で入力してください。");
+    if (!habitScheduleKinds.has(input.schedule_kind))
+      throw new Error("habit.schedule_kindが不正です。");
+    if (!habitStates.has(input.state)) throw new Error("habit.stateが不正です。");
+    if (input.schedule_kind === "weekly") {
+      if (
+        !Number.isInteger(input.weekly_target) ||
+        input.weekly_target < 1 ||
+        input.weekly_target > 7
+      )
+        throw new Error("habit.weekly_targetは1〜7で入力してください。");
+    } else if (input.weekly_target != null && input.weekly_target !== "") {
+      throw new Error("毎日のHabitにweekly_targetは指定できません。");
+    }
+    if (input.project_id != null && input.project_id !== "" && typeof input.project_id !== "string")
+      throw new Error("habit.project_idが不正です。");
+    for (const field of ["started_on", "last_performed_on"]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || !datePattern.test(input[field]))
+      )
+        throw new Error(`habit.${field}はYYYY-MM-DDで入力してください。`);
+    }
+    for (const field of ["paused_at", "resumed_at"]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input[field]))
+      )
+        throw new Error(`habit.${field}が不正です。`);
+    }
+    if (
+      input.note != null &&
+      input.note !== "" &&
+      (typeof input.note !== "string" || input.note.length > 1000)
+    )
+      throw new Error("habit.noteは1000文字以内で入力してください。");
+  }
+  if (type === "habit_entry") {
+    if (typeof input.habit_id !== "string" || !input.habit_id.trim())
+      throw new Error("habit_entry.habit_idを入力してください。");
+    if (typeof input.performed_on !== "string" || !datePattern.test(input.performed_on))
+      throw new Error("habit_entry.performed_onはYYYY-MM-DDで入力してください。");
+    if (!Number.isInteger(input.sequence) || input.sequence < 1 || input.sequence > 50)
+      throw new Error("habit_entry.sequenceは1〜50で入力してください。");
+    if (typeof input.recorded_at !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input.recorded_at))
+      throw new Error("habit_entry.recorded_atが不正です。");
+    if (
+      input.corrected_at != null &&
+      input.corrected_at !== "" &&
+      (typeof input.corrected_at !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input.corrected_at))
+    )
+      throw new Error("habit_entry.corrected_atが不正です。");
+    if (
+      input.note != null &&
+      input.note !== "" &&
+      (typeof input.note !== "string" || input.note.length > 1000)
+    )
+      throw new Error("habit_entry.noteは1000文字以内で入力してください。");
+  }
+  if (type === "feed_reaction") {
+    // 読者の状態（ブックマーク・興味・非表示）。投稿の正本でも判断でもない（SNS型Feedの第2段階）。
+    if (typeof input.post_id !== "string" || !input.post_id.trim() || input.post_id.length > 200)
+      throw new Error("feed_reaction.post_idは1〜200文字で入力してください。");
+    if (!feedReactionKinds.has(input.kind)) throw new Error("feed_reaction.kindが不正です。");
+    if (typeof input.created_at !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input.created_at))
+      throw new Error("feed_reaction.created_atが不正です。");
+  }
+  if (type === "feed_reply") {
+    // 投稿への返信（SNS型Feedの第3段階）。人とAIの会話は投稿のIDに紐づけて残す。
+    // 外部AIクリップボード往復の手動貼付は任意メタデータで由来を表す。本文埋め込みでは判定しない。
+    if (typeof input.post_id !== "string" || !input.post_id.trim() || input.post_id.length > 200)
+      throw new Error("feed_reply.post_idは1〜200文字で入力してください。");
+    if (typeof input.body !== "string" || !input.body.trim() || input.body.length > 4000)
+      throw new Error("feed_reply.bodyは1〜4000文字で入力してください。");
+    if (typeof input.created_at !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input.created_at))
+      throw new Error("feed_reply.created_atが不正です。");
+    if (input.author_kind != null && !feedReplyAuthorKinds.has(input.author_kind))
+      throw new Error("feed_reply.author_kindが不正です。");
+    if (input.author_label != null && typeof input.author_label !== "string")
+      throw new Error("feed_reply.author_labelが不正です。");
+    if (
+      input.reply_to != null &&
+      (typeof input.reply_to !== "string" || !input.reply_to.trim() || input.reply_to.length > 200)
+    )
+      throw new Error("feed_reply.reply_toは1〜200文字で入力してください。");
+    if (
+      input.ai_requested_at != null &&
+      (typeof input.ai_requested_at !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}T/u.test(input.ai_requested_at))
+    )
+      throw new Error("feed_reply.ai_requested_atが不正です。");
+    if (
+      input.ai_answered_at != null &&
+      (typeof input.ai_answered_at !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}T/u.test(input.ai_answered_at))
+    )
+      throw new Error("feed_reply.ai_answered_atが不正です。");
+    if (input.origin != null && !feedReplyOrigins.has(input.origin))
+      throw new Error("feed_reply.originが不正です。");
+    if (
+      input.question != null &&
+      (typeof input.question !== "string" || !input.question.trim() || input.question.length > 2000)
+    )
+      throw new Error("feed_reply.questionは1〜2000文字で入力してください。");
+    if (
+      input.external_source != null &&
+      (typeof input.external_source !== "string" ||
+        !input.external_source.trim() ||
+        input.external_source.length > 100)
+    )
+      throw new Error("feed_reply.external_sourceは1〜100文字で入力してください。");
+    if (input.external_source != null && input.origin !== "manual_paste")
+      throw new Error("feed_reply.external_sourceは手動貼付だけに付けられます。");
+    if (
+      input.external_url != null &&
+      (typeof input.external_url !== "string" ||
+        !input.external_url.trim() ||
+        input.external_url.length > 2000 ||
+        !/^(https:|http:|mailto:)/u.test(input.external_url.trim()))
+    )
+      throw new Error("feed_reply.external_urlはhttps / http / mailtoで入力してください。");
+    if (input.external_url != null && input.origin !== "manual_paste")
+      throw new Error("feed_reply.external_urlは手動貼付だけに付けられます。");
+    if (
+      input.comment != null &&
+      (typeof input.comment !== "string" || !input.comment.trim() || input.comment.length > 1000)
+    )
+      throw new Error("feed_reply.commentは1〜1000文字で入力してください。");
+    if (input.comment != null && input.origin !== "manual_paste")
+      throw new Error("feed_reply.commentは手動貼付だけに付けられます。");
+    if (input.question != null && input.origin !== "manual_paste")
+      throw new Error("feed_reply.questionは手動貼付だけに付けられます。");
+  }
+  if (type === "maintenance") {
+    // 手入れの目安（#454後半）。目安は推奨間隔からの提案で、Taskの締切ではない。
+    if (typeof input.target !== "string" || !input.target.trim() || input.target.length > 200)
+      throw new Error("maintenance.targetは1〜200文字で入力してください。");
+    if (typeof input.action !== "string" || !input.action.trim() || input.action.length > 200)
+      throw new Error("maintenance.actionは1〜200文字で入力してください。");
+    if (
+      input.interval_days != null &&
+      input.interval_days !== "" &&
+      (!Number.isInteger(Number(input.interval_days)) ||
+        Number(input.interval_days) < 1 ||
+        Number(input.interval_days) > 3650)
+    )
+      throw new Error("maintenance.interval_daysは1〜3650で入力してください。");
+    for (const field of ["last_performed_on", "next_due_on", "started_on"]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || !datePattern.test(input[field]))
+      )
+        throw new Error(`maintenance.${field}はYYYY-MM-DDで入力してください。`);
+    }
+    if (
+      input.note != null &&
+      input.note !== "" &&
+      (typeof input.note !== "string" || input.note.length > 1000)
+    )
+      throw new Error("maintenance.noteは1000文字以内で入力してください。");
+    if (input.project_id != null && input.project_id !== "" && typeof input.project_id !== "string")
+      throw new Error("maintenance.project_idが不正です。");
+  }
+  if (type === "maintenance_entry") {
+    if (typeof input.maintenance_id !== "string" || !input.maintenance_id.trim())
+      throw new Error("maintenance_entry.maintenance_idを入力してください。");
+    if (typeof input.performed_on !== "string" || !datePattern.test(input.performed_on))
+      throw new Error("maintenance_entry.performed_onはYYYY-MM-DDで入力してください。");
+    if (typeof input.recorded_at !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(input.recorded_at))
+      throw new Error("maintenance_entry.recorded_atが不正です。");
+    for (const field of ["next_due_on", "previous_due_on", "previous_performed_on"]) {
+      if (
+        input[field] != null &&
+        input[field] !== "" &&
+        (typeof input[field] !== "string" || !datePattern.test(input[field]))
+      )
+        throw new Error(`maintenance_entry.${field}はYYYY-MM-DDで入力してください。`);
+    }
+    if (
+      input.note != null &&
+      input.note !== "" &&
+      (typeof input.note !== "string" || input.note.length > 1000)
+    )
+      throw new Error("maintenance_entry.noteは1000文字以内で入力してください。");
   }
   if (type === "artifact") {
     if (!artifactSourceTypes.has(input.source_type))

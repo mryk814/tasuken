@@ -1,0 +1,341 @@
+/**
+ * Feed監査（#604後半）の隔離workspaceを用意する。
+ *
+ * `scripts/feed-surface-audit.mjs` は実データを表示するFeedを確認するため、
+ * 起動前に一時userDataへ小さなworkspaceを書く。SQLiteはElectronのABIでビルドされて
+ * いるため、この script は `run-electron-node.mjs` 経由で実行する。
+ *
+ *   node scripts/run-electron-node.mjs scripts/seed-feed-audit-workspace.mjs <userDataDir> [--feed-post] [--bulk-posts 120] [--note-ref]
+ *
+ * `--feed-post` を付けると、AIから届いた読み物の投稿（`feed_posts`）を1件足す。
+ * 投稿があるときのFeedはfixtureを使わず、その投稿だけを読む。
+ * `--bulk-posts <件数>` は連続読込の実測用に読み物の投稿を件数分だけ足す（100件以上の履歴）。
+ * `--note-ref` は既存Noteを参照する投稿（`payload.note_id`）を1件足す。
+ *
+ * 正本は docs/feed-surface.md。
+ */
+import { mkdirSync } from "node:fs";
+import path from "node:path";
+
+import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
+
+const userDataDir = process.argv[2];
+if (!userDataDir) throw new Error("userDataDirを指定してください。");
+const withFeedPost = process.argv.includes("--feed-post");
+const withNoteRef = process.argv.includes("--note-ref");
+const bulkIndex = process.argv.indexOf("--bulk-posts");
+const bulkCount = bulkIndex >= 0 ? Number(process.argv[bulkIndex + 1] || 0) : 0;
+if (!Number.isInteger(bulkCount) || bulkCount < 0) {
+  throw new Error("--bulk-posts には0以上の整数を指定してください。");
+}
+
+const TODAY = new Date();
+const today = [
+  TODAY.getFullYear(),
+  String(TODAY.getMonth() + 1).padStart(2, "0"),
+  String(TODAY.getDate()).padStart(2, "0"),
+].join("-");
+const at = `${today}T00:00:00.000Z`;
+/** 返答は質問より後の時刻に置く（スレッドは古い順に読む）。 */
+const answerAt = `${today}T00:05:00.000Z`;
+const ATTEMPT = "11111111-1111-4111-8111-111111111111";
+const REQUEST_ID = "33333333-3333-4333-8333-333333333333";
+
+mkdirSync(userDataDir, { recursive: true });
+const database = new WorkspaceDatabase(path.join(userDataDir, "research-desk.sqlite"));
+database.loadWorkspace();
+
+database.save("theme", { id: "theme-feed-audit", name: "高分子材料評価" });
+
+// 今日扱うTask。締切はScheduleが持つ。
+database.save("task", {
+  id: "feed-audit-today",
+  title: "引張試験の結果を比較する",
+  state: "todo",
+  priority: "normal",
+  project_id: "theme-feed-audit",
+  today_date: today,
+  checklist_items: [
+    { id: "audit-check-1", title: "条件を確認", done: false, sort_order: 0 },
+    { id: "audit-check-2", title: "数値を比較", done: false, sort_order: 1 },
+  ],
+});
+database.save("schedule", {
+  id: "feed-audit-today-schedule",
+  owner_type: "task",
+  owner_id: "feed-audit-today",
+  date_kind: "deadline",
+  start_date: null,
+  end_date: `${TODAY.getFullYear()}-09-25`,
+  confidence: "fixed",
+  granularity: "day",
+  range_semantics: "once_within_window",
+});
+
+// 回答待ちの質問。回答に必要な request_id と作業単位を持つ。
+database.save("task", {
+  id: "feed-audit-question",
+  title: "粘度測定の条件を決める",
+  state: "todo",
+  priority: "normal",
+  project_id: "theme-feed-audit",
+  requester: "self",
+  intended_executor: "ai_agent",
+  executor_identity: "Codex",
+  work_state: "blocked",
+  work_attempt_id: ATTEMPT,
+});
+database.save("ai_proposal", {
+  id: "feed-audit-question-proposal",
+  source: "mcp",
+  source_app: "codex",
+  payload_type: "task_work",
+  status: "pending",
+  received_at: at,
+  created_at: at,
+  version: 1,
+  payload: {
+    task_work: [
+      {
+        action: "report_blocked",
+        task_id: "feed-audit-question",
+        expected_version: 1,
+        caller: "Codex",
+        executor_kind: "ai_agent",
+        executor_label: "Codex",
+        blocker: "測定温度が決まっていません。",
+        summary: "測定温度が決まっていません。",
+        needed_input: ["測定温度を選んでください"],
+        reported_at: at,
+        work_attempt_id: ATTEMPT,
+        request_id: REQUEST_ID,
+        runtime_metadata: { report_kind: "blocked" },
+      },
+    ],
+  },
+  request: { idempotency_key: "feed-audit-question", source: "mcp" },
+});
+
+// 成果確認。
+database.save("task", {
+  id: "feed-audit-review",
+  title: "比較表の作成",
+  state: "todo",
+  priority: "normal",
+  project_id: "theme-feed-audit",
+  requester: "self",
+  intended_executor: "ai_agent",
+  executor_identity: "Codex",
+  work_state: "needs_human_review",
+  work_attempt_id: ATTEMPT,
+});
+database.save("ai_proposal", {
+  id: "feed-audit-review-proposal",
+  source: "mcp",
+  source_app: "codex",
+  payload_type: "task_work",
+  status: "pending",
+  received_at: at,
+  created_at: at,
+  version: 1,
+  payload: {
+    task_work: [
+      {
+        action: "report_done",
+        task_id: "feed-audit-review",
+        expected_version: 1,
+        caller: "Codex",
+        executor_kind: "ai_agent",
+        executor_label: "Codex",
+        summary: "3条件の比較表を作成しました。",
+        completed_items: ["25℃の比較表"],
+        changed_or_created_items: [],
+        verification: ["数値の再計算"],
+        remaining_work: [],
+        reported_at: at,
+        work_attempt_id: ATTEMPT,
+        runtime_metadata: { report_kind: "done" },
+      },
+    ],
+  },
+  request: { idempotency_key: "feed-audit-review", source: "mcp" },
+});
+
+// Taskに紐づかないAI変更案（Note提案）。
+database.save("ai_proposal", {
+  id: "feed-audit-note-proposal",
+  source: "mcp",
+  source_app: "codex",
+  payload_type: "notes",
+  status: "pending",
+  received_at: at,
+  created_at: at,
+  version: 1,
+  title: "測定手順のNoteを作る案",
+  summary: "測定手順のNoteを作る案",
+  payload: { notes: [{ title: "測定手順" }] },
+  request: { idempotency_key: "feed-audit-note", source: "mcp" },
+});
+
+// 実データの読み物投稿。Core（`tasken.propose_feed_post`）が書く形と同じpayloadにする。
+if (withFeedPost) {
+  database.save("ai_proposal", {
+    id: "feed-audit-live-post",
+    source: "mcp",
+    source_app: "codex",
+    payload_type: "feed_posts",
+    status: "pending",
+    received_at: at,
+    created_at: at,
+    version: 1,
+    payload: {
+      feed_posts: [
+        {
+          action: "publish",
+          topic: "insight",
+          body: [
+            "保存をやり直しても、同じノートが増えないようにしました。",
+            "効いたのは再送を止めることではなく、同じ依頼だと判別できることでした。",
+          ],
+          task_id: "feed-audit-question",
+          theme: "theme-feed-audit",
+          article: {
+            title: "「もう一度保存」に耐える設計",
+            body: [
+              "保存ボタンを二度押しても、ノートが2つにならないようにしたい。",
+              "結局、依頼そのものに同じだと分かる名前を付けるのが効きました。",
+            ].join("\n\n"),
+            note_type: "memo",
+          },
+          attachment_label: "図: 再送の流れ",
+          evidence: ["実装: src/main/services/applicationCommandService.ts"],
+        },
+      ],
+    },
+    request: {
+      idempotency_key: "feed-audit-live-post",
+      source: "mcp",
+      tool: "tasken.propose_feed_post",
+    },
+  });
+
+  // 利用者の質問（AIに聞く）と、それへのAIの返答。返答は`feed_replies` Proposalとして届く。
+  database.save("feed_reply", {
+    id: "feed-audit-question-asked",
+    post_id: "feed-post:feed-audit-live-post",
+    body: "この条件は40℃の比較にも同じように使えますか。",
+    created_at: at,
+    author_kind: "self",
+    ai_requested_at: at,
+  });
+  database.save("ai_proposal", {
+    id: "feed-audit-live-answer",
+    source: "mcp",
+    source_app: "codex",
+    payload_type: "feed_replies",
+    status: "pending",
+    received_at: answerAt,
+    created_at: answerAt,
+    version: 1,
+    payload: {
+      feed_replies: [
+        {
+          action: "answer",
+          post_id: "feed-post:feed-audit-live-post",
+          reply_to: "feed-audit-question-asked",
+          body: "40℃では裾が広がるため、平均ではなく幅だけで比べてください。",
+          author_label: "Codex",
+        },
+      ],
+    },
+    request: {
+      idempotency_key: "feed-audit-live-answer",
+      source: "mcp",
+      tool: "tasken.answer_feed_question",
+    },
+  });
+}
+
+/**
+ * 連続読込の実測用の投稿（`--bulk-posts`）。
+ *
+ * 100件以上を読むときも20件単位で読み進められること、読んでいる位置が動かないことを
+ * 確かめるために、時刻を1件ずつずらして並び順を固定する。
+ */
+const BULK_TOPICS = ["work_report", "insight", "learning", "reference"];
+for (let index = 0; index < bulkCount; index += 1) {
+  const publishedAt = new Date(Date.parse(at) - index * 60_000).toISOString();
+  database.save("ai_proposal", {
+    id: `feed-audit-bulk-${index}`,
+    source: "mcp",
+    source_app: index % 3 === 0 ? "claude" : "codex",
+    payload_type: "feed_posts",
+    status: "pending",
+    received_at: publishedAt,
+    created_at: publishedAt,
+    version: 1,
+    payload: {
+      feed_posts: [
+        {
+          action: "publish",
+          topic: BULK_TOPICS[index % BULK_TOPICS.length],
+          body: [
+            `連続読込の確認用の投稿 ${index + 1} です。`,
+            "読み進めても、読んでいる位置が動かないことを確かめます。",
+          ],
+          theme: "theme-feed-audit",
+        },
+      ],
+    },
+    request: {
+      idempotency_key: `feed-audit-bulk-${index}`,
+      source: "mcp",
+      tool: "tasken.propose_feed_post",
+    },
+  });
+}
+
+/**
+ * 既存Noteを参照する投稿（`--note-ref`）。
+ *
+ * 投稿は本文と参照だけを持ち、Noteの中身は複製しない。読むのは既存のNote面。
+ */
+if (withNoteRef) {
+  database.save("note", {
+    id: "feed-audit-note",
+    title: "測定手順の標準化",
+    body_markdown: "温度を決めてから3回測る。\n\n条件は測定前に記録する。",
+    note_type: "memo",
+    project_id: "theme-feed-audit",
+  });
+  database.save("ai_proposal", {
+    id: "feed-audit-note-post",
+    source: "mcp",
+    source_app: "codex",
+    payload_type: "feed_posts",
+    status: "pending",
+    received_at: at,
+    created_at: at,
+    version: 1,
+    payload: {
+      feed_posts: [
+        {
+          action: "publish",
+          topic: "reference",
+          body: ["前に書いた手順を、もう一度読んでから測ることにしました。"],
+          theme: "theme-feed-audit",
+          note_id: "feed-audit-note",
+          attachment_label: "測定手順",
+        },
+      ],
+    },
+    request: {
+      idempotency_key: "feed-audit-note-post",
+      source: "mcp",
+      tool: "tasken.propose_feed_post",
+    },
+  });
+}
+
+database.db.close();
+console.log(`Feed監査のworkspaceを用意しました: ${path.join(userDataDir, "research-desk.sqlite")}`);

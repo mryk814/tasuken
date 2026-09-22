@@ -70,8 +70,11 @@ test("TodayPage includes the connected calendar section and keeps connection set
   assert.match(source, /today-calendar-section/);
   assert.match(source, /calendarStatus/);
   assert.match(source, /calendarEvents/);
-  assert.match(source, /今日の予定はありません/);
-  assert.match(source, /予定を取得中/);
+  // 表示文言と状態の判定は lib/calendarState.ts が持つ（tests/today-calendar-state.test.mjs で固定）。
+  assert.match(source, /calendarStateMessage/);
+  assert.match(source, /todayCalendarState\(/);
+  assert.match(source, /calendarFetchedLabel\(/);
+  assert.match(source, /再接続/);
   assert.match(source, /if \(!calendarStatus \|\| !calendarStatus\.connected\) return null;/);
   assert.doesNotMatch(source, /Settingsで接続/);
   assert.match(source, /is-past/);
@@ -101,6 +104,15 @@ test("SettingsPage includes calendar connection panel", () => {
   assert.match(source, /接続を解除/);
   assert.match(source, /calendarConnect/);
   assert.match(source, /calendarDisconnect/);
+  // 接続領域は「接続」「接続中のアカウント」「最終取得」「更新」「接続解除」で完結する（#273）。
+  assert.match(source, /最終取得/);
+  assert.match(source, /onClick=\{refreshCalendar\}/);
+  assert.match(source, /更新中…/);
+  assert.match(source, /予定を\$\{result\.events\.length\}件取得しました。/);
+  // 期限切れと未設定を混同しない。失敗しても接続は切らない。
+  assert.match(source, /更新できませんでした。/);
+  assert.match(source, /前回取得分を表示しています。/);
+  assert.doesNotMatch(source, /calendarDisconnect[\s\S]{0,200}refreshCalendar\(\)/);
 });
 
 test("Activity calendar overlay maps connected events and drops invalid ones", () => {

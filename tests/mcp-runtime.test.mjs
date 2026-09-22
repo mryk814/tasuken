@@ -123,6 +123,54 @@ test("doctor keeps JSON protocol stdout clean and sends human diagnostics only t
   assert.match(humanErrors.join(""), /MCP environment: READY/);
 });
 
+test("doctor accepts a read-only or proposals deployment as ready", async () => {
+  const { TASKEN_CORE_TASK_COMMAND_CAPABILITY } =
+    await import("../src/shared/contracts/core/public.mjs");
+  const readCapabilities = TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter(
+    (capability) => capability !== TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  ).filter(
+    (capability) =>
+      ![
+        "propose_task_work",
+        "propose_agent_session",
+        "propose_repository_task",
+        "propose_content",
+      ].includes(capability),
+  );
+
+  // 常時稼働nodeの既定: 読み取りだけを公開しても正常。
+  const readOnly = await buildReport({
+    inspect: async () => ({ status: "ok", api_version: "1", capabilities: readCapabilities }),
+  });
+  assert.equal(readOnly.ok, true);
+  assert.equal(readOnly.core.write_profile, "read-only");
+  assert.equal(readOnly.checks.at(-1).code, "MCP_CORE_WRITE_DISABLED");
+
+  // 提案受付だけを公開する配備も正常。直接開始は公開しない。
+  const proposals = await buildReport({
+    inspect: async () => ({
+      status: "ok",
+      api_version: "1",
+      capabilities: [...readCapabilities, "propose_repository_task", "propose_content"],
+    }),
+  });
+  assert.equal(proposals.ok, true);
+  assert.equal(proposals.core.write_profile, "proposals");
+  assert.equal(proposals.checks.at(-1).code, "MCP_CORE_WRITE_PROPOSALS_ONLY");
+
+  // 既知の配備と一致しない組み合わせは、これまでどおり不足として報告する。
+  const partial = await buildReport({
+    inspect: async () => ({
+      status: "ok",
+      api_version: "1",
+      capabilities: [...readCapabilities, "propose_content"],
+    }),
+  });
+  assert.equal(partial.ok, false);
+  assert.equal(partial.core.write_profile, "partial");
+  assert.equal(partial.checks.at(-1).code, "MCP_CORE_CAPABILITIES_MISSING");
+});
+
 test("doctor requires the Task command capability used by direct start", async () => {
   const { TASKEN_CORE_TASK_COMMAND_CAPABILITY } =
     await import("../src/shared/contracts/core/public.mjs");

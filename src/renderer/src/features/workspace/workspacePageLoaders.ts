@@ -1,5 +1,6 @@
 const pageLoaders: Record<string, () => Promise<unknown>> = {
   inbox: () => import("./pages/InboxPage"),
+  feed: () => import("./pages/FeedPage"),
   "chat-refs": () => import("./pages/ChatRefsPage"),
   artifacts: () => import("./pages/ArtifactsPage"),
   theme: () => import("./pages/ThemePage"),
@@ -30,6 +31,7 @@ export function preloadWorkspacePagesWhenIdle(): () => void {
     "todo",
     "notes",
     "inbox",
+    "feed",
     "debrief",
     "timeline",
     "knowledge",

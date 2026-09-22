@@ -16,6 +16,31 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
     @Test
+    fun migrationTwentyFiveToTwentySixKeepsPendingWorkAndAddsEmptyAttentionCache() {
+        helper.createDatabase(DatabaseName, 25).apply {
+            execSQL("INSERT INTO pending_human_review VALUES ('review','server','task','保持する判断','2026-09-20T00:00:00Z')")
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt) VALUES ('command','key','request','device','2026-09-20T00:00:00Z','UpdateTask','保持する入力','server','pending',0,'2026-09-20T00:00:00Z')")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 26, true, MIGRATION_25_26).use { db ->
+            db.query("SELECT envelopeJson FROM pending_human_review").use { cursor ->
+                assertTrue(cursor.moveToFirst()); assertEquals("保持する判断", cursor.getString(0))
+            }
+            db.query("SELECT envelopeJson,state FROM outbox_command").use { cursor ->
+                assertTrue(cursor.moveToFirst()); assertEquals("保持する入力", cursor.getString(0)); assertEquals("pending", cursor.getString(1))
+            }
+            // 要対応は取得できたときにだけ入る。移行直後は「まだ読めていない」を表す空の状態。
+            db.query("SELECT COUNT(*) FROM attention_cache").use { cursor -> assertTrue(cursor.moveToFirst()); assertEquals(0, cursor.getInt(0)) }
+            db.query("SELECT COUNT(*) FROM attention_state").use { cursor -> assertTrue(cursor.moveToFirst()); assertEquals(0, cursor.getInt(0)) }
+            db.query("SELECT COUNT(*) FROM pending_agent_reply").use { cursor -> assertTrue(cursor.moveToFirst()); assertEquals(0, cursor.getInt(0)) }
+            db.execSQL("INSERT INTO attention_cache (attentionId,serverId,position,kind,taskId,taskTitle,taskVersion,headline,summary,questionOrAction,agentLabel,requestId,canReply,payloadJson,fetchedAt) VALUES ('task-work:request:1','server',0,'answer_request','task','粘度測定の条件を決める',12,'測定温度が決まっていません。','測定温度が決まっていません。','測定温度が決まっていません。','Codex','33333333-3333-4333-8333-333333333333',1,'{}','2026-09-20T00:00:00Z')")
+            db.query("SELECT taskId,canReply FROM attention_cache").use { cursor ->
+                assertTrue(cursor.moveToFirst()); assertEquals("task", cursor.getString(0)); assertEquals(1, cursor.getInt(1))
+            }
+        }
+    }
+
+    @Test
     fun migrationTwentyFourToTwentyFiveKeepsOriginalAndPendingCommand() {
         helper.createDatabase(DatabaseName, 24).apply {
             execSQL("INSERT INTO work_log_cache(id,serverId,serverVersion,body,performedDate,enteredAt,taskMissing,deleted,creationEnvelopeJson) VALUES ('source','server',1,'原因は温度が怪しい。','2026-09-06','2026-09-06T00:00:00Z',0,0,'元のenvelope')")

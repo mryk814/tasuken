@@ -7,7 +7,7 @@ import test from "node:test";
 
 import { build } from "esbuild";
 
-import { createSnapshot } from "../src/main/services/snapshotService.mjs";
+import { createSnapshot, readSnapshot } from "../src/main/services/snapshotService.mjs";
 import { validateEntity } from "../src/main/repositories/domain.mjs";
 import {
   WorkspaceDatabase,
@@ -241,6 +241,34 @@ test("workspace entity types and snapshots exclude person records", () => {
   });
   assert.equal(zip.getEntry("people.json"), null);
   assert.ok(zip.getEntry("items.json"));
+});
+
+test("snapshot round-trips feed manual-paste replies with question, source, and comment", () => {
+  // 外部AIクリップボード往復の手動貼付は `feed_reply` の任意メタデータで保つ。
+  assert.equal(workspaceEntityTypes.includes("feed_reply"), true);
+  const manual = {
+    id: "reply-manual-snapshot",
+    post_id: "feed-post:proposal-external",
+    body: "3回以下のときは幅だけを見てください。",
+    created_at: "2026-09-21T10:00:00.000Z",
+    author_kind: "self",
+    origin: "manual_paste",
+    question: "サンプル数が少ないときも同じ見方でよい？",
+    external_source: "M365 Copilot",
+    external_url: "https://example.com/chat/1",
+    comment: "次も同じ表で見たい。",
+  };
+  validateEntity("feed_reply", { ...manual });
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-feed-manual-snapshot-"));
+  try {
+    const filePath = path.join(directory, "workspace.zip");
+    createSnapshot({ feed_replies: [manual], meta: {} }).writeZip(filePath);
+    const { workspace } = readSnapshot(filePath);
+    assert.equal(workspace.feed_replies.length, 1);
+    assert.deepEqual(workspace.feed_replies[0], manual);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("activity log export directory preference round-trips", () => {

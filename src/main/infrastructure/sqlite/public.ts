@@ -4,6 +4,7 @@ import {
   AgentContextExportService,
   AgentWorkspaceQueryService,
   ContentDetailQueryService,
+  FeedContextQueryService,
   ItemQueryService,
   ListAgentReadyTasksService,
   KnowledgeQueryService,
@@ -11,12 +12,17 @@ import {
   ProposeAgentSessionService,
   ProposeRepositoryTaskService,
   ProposeContentService,
+  ProposalStatusQueryService,
   TaskContextQueryService,
   ThemeContextQueryService,
   type NoteProposalImagePort,
   type CaptureImagePort,
 } from "../../core/public.ts";
 import { WorkspaceAiProposalWriteAdapter } from "./workspaceAiProposalWriteAdapter.ts";
+import {
+  WorkspaceProposalStatusReadAdapter,
+  type ProposalStatusWorkspacePersistence,
+} from "./workspaceProposalStatusReadAdapter.ts";
 import {
   WorkspaceAgentReadyTaskReadAdapter,
   type AgentReadyTaskWorkspacePersistence,
@@ -53,6 +59,10 @@ import {
   WorkspaceAgentContextReadAdapter,
   type AgentContextWorkspacePersistence,
 } from "./workspaceAgentContextReadAdapter.ts";
+import {
+  WorkspaceFeedContextReadAdapter,
+  type FeedContextWorkspacePersistence,
+} from "./workspaceFeedContextReadAdapter.ts";
 
 export { WorkspaceAgentReadyTaskReadAdapter, type AgentReadyTaskWorkspacePersistence };
 export { WorkspaceAgentWorkspaceReadAdapter, type AgentWorkspacePersistence };
@@ -63,7 +73,9 @@ export { WorkspaceActivityEntriesReadAdapter, type ActivityEntriesWorkspacePersi
 export { WorkspaceThemeContextReadAdapter, type ThemeContextWorkspacePersistence };
 export { WorkspaceKnowledgeReadAdapter, type KnowledgeWorkspacePersistence };
 export { WorkspaceAgentContextReadAdapter, type AgentContextWorkspacePersistence };
+export { WorkspaceFeedContextReadAdapter, type FeedContextWorkspacePersistence };
 export { WorkspaceAiProposalWriteAdapter };
+export { WorkspaceProposalStatusReadAdapter, type ProposalStatusWorkspacePersistence };
 
 export interface AiProposalPersistence {
   runTransaction<T>(
@@ -87,7 +99,9 @@ export type TaskenCorePersistence = AgentReadyTaskWorkspacePersistence &
   ThemeContextWorkspacePersistence &
   KnowledgeWorkspacePersistence &
   AgentContextWorkspacePersistence &
-  AiProposalPersistence;
+  FeedContextWorkspacePersistence &
+  AiProposalPersistence &
+  ProposalStatusWorkspacePersistence;
 
 export function createTaskenCore(
   persistence: TaskenCorePersistence,
@@ -151,6 +165,10 @@ export function createTaskenCore(
     getKnowledgeHealth: { execute: knowledge.getKnowledgeHealth.bind(knowledge) },
     getActivity: { execute: agentContext.getActivity.bind(agentContext) },
     getContextSubgraph: { execute: agentContext.getContextSubgraph.bind(agentContext) },
+    getFeedContext: new FeedContextQueryService(new WorkspaceFeedContextReadAdapter(persistence)),
+    getProposalStatus: new ProposalStatusQueryService(
+      new WorkspaceProposalStatusReadAdapter(persistence),
+    ),
     exportAiContext,
     proposeTaskWork: new ProposeTaskWorkService(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),

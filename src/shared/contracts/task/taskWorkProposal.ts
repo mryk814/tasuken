@@ -60,6 +60,11 @@ export const taskWorkExternalReferenceSchema = z
   .strict();
 
 const workItemListSchema = z.array(boundedText(1000)).max(100).optional();
+/**
+ * Taskへの一回の委任を識別するID（docs/agent-collaboration.md の「作業単位」）。
+ * 省略可能。IDなしの報告は履歴として読めるが、再割当後の current 状態を確定する証拠にはしない。
+ */
+const workAttemptIdSchema = z.string().trim().uuid();
 const requestBase = {
   task_id: boundedText(200),
   expected_version: z.number().int().nonnegative(),
@@ -67,6 +72,8 @@ const requestBase = {
   caller: boundedText(200),
   actor: taskWorkProposalActorSchema,
   source: z.literal("mcp"),
+  work_attempt_id: workAttemptIdSchema.optional(),
+  report_sequence: z.number().int().nonnegative().max(100_000).optional(),
   source_session: boundedText(200).optional(),
   source_app: boundedText(120).optional(),
   repository_context: taskWorkRepositoryContextSchema.optional(),
@@ -106,6 +113,8 @@ export const proposeTaskWorkRequestSchema = z.discriminatedUnion("action", [
       executor_kind: z.enum(["self", "human", "ai_agent", "external", "unknown"]).optional(),
       executor_label: boundedText(200),
       blocker: boundedText(10_000),
+      /** 人間が回答すべき一回の質問を識別するID。再送しても変えない。 */
+      request_id: z.string().trim().uuid().optional(),
       attempted_work: workItemListSchema,
       completed_checklist_item_ids: z.array(boundedText(200)).max(100).optional(),
       needed_input: workItemListSchema,
@@ -141,7 +150,7 @@ export function taskWorkEntry(proposal: WorkRecord): Record<string, unknown> | n
       ? entries[0]
       : null;
   } catch {
-    return null; // Invalid legacy payloads remain individually reviewable in AI Inbox.
+    return null; // Invalid legacy payloads remain individually reviewable in Agent Desk.
   }
 }
 

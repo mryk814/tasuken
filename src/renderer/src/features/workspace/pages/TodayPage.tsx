@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconCalendar,
   IconCalendarCheck,
@@ -30,6 +30,13 @@ import { addDays, formatDate } from "../lib/format";
 import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
 import { taskShelfStatus } from "../lib/taskShelves";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
+import { HabitPanel } from "../components/HabitPanel";
+import { MaintenancePanel } from "../components/MaintenancePanel";
+import {
+  calendarFetchedLabel,
+  calendarStateMessage,
+  todayCalendarState,
+} from "../lib/calendarState";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { AgentWorkSummaryPanel } from "../components/AgentWorkSummaryPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
@@ -228,7 +235,7 @@ function TodayRows({
   onToggleComplete,
   onToggleToday,
   onToggleAiReady,
-  onPostpone,
+  onChangeTodayDate,
   onOpenDetail,
   onStartFocus,
   onToggleChecklistItem,
@@ -244,7 +251,7 @@ function TodayRows({
   onToggleComplete: (row: TodayRow) => void;
   onToggleToday: (row: TodayRow) => void;
   onToggleAiReady: (row: TodayRow) => void;
-  onPostpone: (row: TodayRow, days: number) => void;
+  onChangeTodayDate: (row: TodayRow, target: string | null) => void;
   onOpenDetail: (row: TodayRow) => void;
   onStartFocus?: (row: TodayRow) => void;
   onToggleChecklistItem: (row: TodayRow, itemId: string) => void;
@@ -252,6 +259,12 @@ function TodayRows({
   onAdd?: () => void;
   markDueToday?: boolean;
 }) {
+  const [dateMenu, setDateMenu] = useState<{
+    row: TodayRow;
+    current: string | null;
+    x: number;
+    y: number;
+  } | null>(null);
   if (!rows.length)
     return (
       <EmptyState title={empty} action={onAdd ? "タスクを追加" : undefined} onAction={onAdd} />
@@ -382,23 +395,135 @@ function TodayRows({
                   <IconClock size={15} />
                 </button>
               )}
-              {hasSchedule(row) && (
+              {task && !done && (
                 <button
-                  className="postpone-button"
+                  className="postpone-button today-date-button"
                   onClick={(event) => {
                     event.stopPropagation();
-                    onPostpone(row, 1);
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setDateMenu({
+                      row,
+                      current: task.today_date ?? null,
+                      x: rect.left,
+                      y: rect.bottom + 4,
+                    });
                   }}
-                  title="+1日"
-                  aria-label={`${row.title}を1日延期`}
+                  title="扱う日を変更"
+                  aria-label={`${row.title}の扱う日を変更`}
+                  aria-haspopup="menu"
+                  type="button"
                 >
-                  +1d
+                  扱う日
                 </button>
               )}
             </span>
           </div>
         );
       })}
+      {dateMenu && (
+        <TodayDateMenu
+          today={today}
+          current={dateMenu.current}
+          x={dateMenu.x}
+          y={dateMenu.y}
+          onPick={(target) => {
+            const { row } = dateMenu;
+            setDateMenu(null);
+            void onChangeTodayDate(row, target);
+          }}
+          onClose={() => setDateMenu(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 「扱う日を変更」のメニュー（#454）。
+ * `today_date` だけを変える。締切を動かす操作はここに置かず、Task詳細の予定編集へ分ける。
+ */
+function TodayDateMenu({
+  today,
+  current,
+  x,
+  y,
+  onPick,
+  onClose,
+}: {
+  today: string;
+  current: string | null;
+  x: number;
+  y: number;
+  onPick: (target: string | null) => void;
+  onClose: () => void;
+}) {
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState(current ?? today);
+  const nextWeek = addDays(today, 7) || today;
+
+  useEffect(() => {
+    const close = () => onClose();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  const left = Math.max(8, Math.min(x, window.innerWidth - 300));
+  const top = Math.max(8, Math.min(y, window.innerHeight - 300));
+
+  return (
+    <div
+      className="context-menu today-date-menu"
+      style={{ left, top }}
+      role="menu"
+      aria-label="扱う日を変更"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button role="menuitem" type="button" onClick={() => onPick(today)}>
+        今日
+      </button>
+      <button role="menuitem" type="button" onClick={() => onPick(addDays(today, 1))}>
+        明日
+      </button>
+      <button role="menuitem" type="button" onClick={() => onPick(nextWeek)}>
+        来週（{formatDate(nextWeek)}）
+      </button>
+      {picking ? (
+        <div className="today-date-pick">
+          <input
+            type="date"
+            value={picked}
+            aria-label="扱う日"
+            onChange={(event) => setPicked(event.target.value)}
+          />
+          <Button
+            variant="primary"
+            compact
+            onClick={() => {
+              if (picked) onPick(picked);
+            }}
+          >
+            決める
+          </Button>
+        </div>
+      ) : (
+        <button role="menuitem" type="button" onClick={() => setPicking(true)}>
+          日付を選ぶ
+        </button>
+      )}
+      {current ? (
+        <button role="menuitem" type="button" onClick={() => onPick(null)}>
+          今日の選択を外す
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -736,7 +861,7 @@ function CalendarEventMeta({ event }: { event: CalendarEvent }) {
   );
 }
 
-function TodayCalendarSection() {
+function TodayCalendarSection({ onReconnect }: { onReconnect: () => void }) {
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarResult, setCalendarResult] = useState<CalendarEventsResult | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
@@ -778,7 +903,16 @@ function TodayCalendarSection() {
   const allDayEvents = events.filter((e) => e.isAllDay);
   const timedEvents = events.filter((e) => !e.isAllDay);
   const nextEventId = findNextEvent(timedEvents);
-  const hasError = calendarResult?.error && !calendarResult.stale;
+  const state = todayCalendarState({
+    connected: calendarStatus.connected,
+    loading: calendarLoading,
+    result: calendarResult,
+  });
+  const fetchedLabel = calendarFetchedLabel({
+    fetchedAt: calendarResult?.fetchedAt || "",
+    stale: calendarResult?.stale === true,
+    timeZone: calendarResult?.timeZone,
+  });
   const titleFor = (event: CalendarEvent) =>
     event.sensitivity === "normal" ? event.title : "予定あり";
 
@@ -789,16 +923,7 @@ function TodayCalendarSection() {
           <IconCalendar size={16} /> 今日の予定
         </h2>
         <div className="inline-actions">
-          {calendarResult?.fetchedAt && (
-            <span className="today-calendar-meta">
-              {calendarResult.stale && "前回取得分 "}
-              {new Date(calendarResult.fetchedAt).toLocaleTimeString("ja-JP", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-              更新
-            </span>
-          )}
+          {fetchedLabel && <span className="today-calendar-meta">{fetchedLabel}</span>}
           <Button
             variant="secondary"
             compact
@@ -810,22 +935,31 @@ function TodayCalendarSection() {
           </Button>
         </div>
       </div>
-      {calendarResult?.stale && calendarResult.error && (
+      {state === "stale" && (
         <p className="form-warning">
-          取得に失敗しました。前回の予定を表示しています。{calendarResult.error}
+          更新できません。前回取得した予定を表示しています。{calendarResult?.error || ""}
         </p>
       )}
-      {hasError ? (
+      {state === "reconnect" ? (
         <div className="today-calendar-error">
-          <p>{calendarResult!.error}</p>
+          <p>{calendarResult?.error || "接続をやり直してください。"}</p>
+          <Button variant="secondary" compact onClick={onReconnect}>
+            再接続
+          </Button>
+        </div>
+      ) : state === "error" ? (
+        <div className="today-calendar-error">
+          <p>{calendarResult?.error}</p>
           <Button variant="secondary" compact onClick={fetchEvents}>
             再試行
           </Button>
         </div>
-      ) : calendarLoading && !calendarResult ? (
-        <p className="today-calendar-loading">予定を取得中…</p>
-      ) : events.length === 0 ? (
-        <EmptyState title="今日の予定はありません" />
+      ) : state === "loading" ? (
+        <p className="today-calendar-loading">{calendarStateMessage("loading")}</p>
+      ) : state === "unavailable" ? (
+        <p className="today-calendar-unavailable">{calendarStateMessage("unavailable")}</p>
+      ) : state === "empty" ? (
+        <EmptyState title={calendarStateMessage("empty")} />
       ) : (
         <div className="today-calendar-list">
           {allDayEvents.map((event) => (
@@ -867,16 +1001,36 @@ export function TodayPage({
   openDailyScratchpad,
   startFocusSession,
   saveEntities,
+  removeEntity,
+  removeEntityQuiet,
   setToast,
 }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [showWorkLog, setShowWorkLog] = useState(false);
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
+  // トーストの「元に戻す」は保存後に走るため、常に最新の保存関数を参照する。
+  const saveEntitiesRef = useRef(saveEntities);
+  useEffect(() => {
+    saveEntitiesRef.current = saveEntities;
+  }, [saveEntities]);
   const today = todayIso();
   const soon = addDays(today, 14);
   const schedules = schedulesByOwner(v2);
-  const todayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
+  /**
+   * 締切が今日以前で、今日扱うと明示していないTask（#454）。
+   * 未来へ回したものは実行一覧から外すが、存在は「期限の確認」に残す。
+   * `buildTodayView` は期限超過を含まないため、全Task行から導出する。
+   */
+  const isDeadlineReviewRow = (row: TodayRow): boolean => {
+    if (row.v2?.type !== "task") return false;
+    if (row.status === "done" || row.status === "cancelled") return false;
+    if (row.v2.task.today_date === today) return false;
+    const end = row.v2.schedule?.end_date ?? null;
+    return end !== null && end !== "" && end <= today;
+  };
+  const allTodayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
+  const todayRows = allTodayRows.filter((row) => !isDeadlineReviewRow(row));
   const periodRows = buildOngoingPeriodTaskView(v2, today);
   const executionWindowRows = buildExecutionWindowTaskView(v2, today);
   const dailyTaskRows: DailyPlanningRow[] = v2.tasks.map((task) => ({
@@ -885,6 +1039,12 @@ export function TodayPage({
   }));
   const dailyCandidates = buildDailyPlanningCandidates(dailyTaskRows, today);
   const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));
+  const deadlineReviewRows = taskRows.filter(isDeadlineReviewRow).sort(compareRows);
+  // 同じTaskを「期限の確認」と候補棚に丸ごと二重表示しない（#454）。
+  const deadlineReviewIds = new Set(deadlineReviewRows.map((row) => row.id));
+  const shelfOverdueRows = dailyCandidates.overdue.filter(
+    (row) => !deadlineReviewIds.has(row.task.id),
+  );
   const waitingRows = v2.waitings.map((waiting) =>
     waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)),
   );
@@ -970,16 +1130,45 @@ export function TodayPage({
 
   const focusItem: TodayRow | null = overdue[0] || todayRows[0] || null;
 
-  async function handlePostpone(row: TodayRow, days: number) {
-    if (!row.v2 || row.v2.type === "capture") return;
-    const schedule = row.v2.schedule;
-    if (!schedule) return;
-    const next: Schedule = {
-      ...schedule,
-      start_date: schedule.start_date ? addDays(schedule.start_date, days) || null : null,
-      end_date: schedule.end_date ? addDays(schedule.end_date, days) || null : null,
-    };
-    await saveEntities(buildSaveScheduleOperations(next), `${days}日延期しました。`);
+  /**
+   * 「扱う日を変更」（#454）。
+   * `today_date` だけを変え、Scheduleの締切と実施期間は動かさない。
+   * 期限が関係する場合だけ、締切が変わっていないことを短く添える。
+   */
+  async function handleChangeTodayDate(row: TodayRow, target: string | null) {
+    if (row.v2?.type !== "task") return;
+    const task = row.v2.task;
+    const previous = task.today_date ?? null;
+    if (previous === target) return;
+    const deadline = row.v2.schedule?.end_date ?? null;
+    const headline =
+      target === null
+        ? "今日の選択を外しました。"
+        : target === today
+          ? "今日扱います。"
+          : `${formatDate(target)}に扱います。`;
+    const deadlineNote =
+      deadline && deadline !== target ? ` 締切は${formatDate(deadline)}のままです。` : "";
+    const message = `${headline}${deadlineNote}`;
+    await saveEntities(
+      buildSaveTaskOperations({ ...task, today_date: target }),
+      message,
+      "today_window",
+    );
+    setToast(message, "success", {
+      label: "元に戻す",
+      run: async () => {
+        /*
+         * 取り消しは保存後に押される。保存前の saveEntities は古い版を持つため、
+         * 常に最新のものを参照する（古い版で書くと版競合で失敗する）。
+         */
+        await saveEntitiesRef.current(
+          buildSaveTaskOperations({ ...task, today_date: previous }),
+          "扱う日を元に戻しました。",
+          "today_window",
+        );
+      },
+    });
   }
 
   async function handleToggleToday(row: TodayRow) {
@@ -1269,7 +1458,7 @@ export function TodayPage({
     onToggleComplete: handleToggleComplete,
     onToggleToday: handleToggleToday,
     onToggleAiReady: handleToggleAiReady,
-    onPostpone: handlePostpone,
+    onChangeTodayDate: handleChangeTodayDate,
     onOpenDetail: handleOpenDetail,
     onStartFocus: (row: TodayRow) => {
       if (row.v2?.type === "task") startFocusSession(row.v2.task.id);
@@ -1377,10 +1566,10 @@ export function TodayPage({
                 compact
                 onClick={(e) => {
                   e.stopPropagation();
-                  handlePostpone(focusItem, 1);
+                  handleChangeTodayDate(focusItem, addDays(today, 1));
                 }}
               >
-                +1日
+                明日へ
               </Button>
             )}
             <IconChevronRight size={18} className="focus-hero-arrow" />
@@ -1406,6 +1595,68 @@ export function TodayPage({
         />
       </section>
 
+      {/* #454後半: 続けることの記録。Habitがある場合だけ現れる（空の設定案内を常設しない）。 */}
+      <HabitPanel
+        data={data}
+        today={today}
+        saveEntities={saveEntities}
+        removeEntity={removeEntity}
+        setToast={setToast}
+      />
+
+      {/* #454後半: 手入れの目安。目安が近い項目だけを小さく出す。 */}
+      <MaintenancePanel
+        data={data}
+        today={today}
+        saveEntities={saveEntities}
+        removeEntity={removeEntity}
+        removeEntityQuiet={removeEntityQuiet}
+        setToast={setToast}
+      />
+
+      {deadlineReviewRows.length > 0 && (
+        <section className="panel today-deadline-panel">
+          <div className="section-heading">
+            <h2>期限の確認</h2>
+            <span className="today-deadline-count">{deadlineReviewRows.length}</span>
+          </div>
+          {/*
+            締切が今日以前で、今日扱うと明示していないTaskをここへ残す（#454）。
+            実行一覧から外しても存在を隠さない。締切そのものは変更しない。
+          */}
+          <ul className="today-deadline-list">
+            {deadlineReviewRows.map((row) => {
+              const plannedDate =
+                row.v2?.type === "task" && row.v2.task.today_date
+                  ? formatDate(row.v2.task.today_date)
+                  : "";
+              return (
+                <li className="today-deadline-row" key={row.id}>
+                  <button
+                    className="today-deadline-open"
+                    type="button"
+                    onClick={() => handleOpenDetail(row)}
+                  >
+                    {row.title}
+                  </button>
+                  <span className="today-deadline-meta">
+                    締切 {formatDate(row.date)}
+                    {plannedDate ? `／${plannedDate}扱う` : ""}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    compact
+                    onClick={() => void handleChangeTodayDate(row, addDays(today, 1))}
+                  >
+                    明日扱う
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       <section className="panel task-shelf-panel">
         <div className="section-heading">
           <h2>今日の候補棚</h2>
@@ -1417,10 +1668,10 @@ export function TodayPage({
           <section className="task-shelf-lane">
             <div className="shelf-lane-heading">
               <h3>期限切れ</h3>
-              <span>{dailyCandidates.overdue.length}件</span>
+              <span>{shelfOverdueRows.length}件</span>
             </div>
             <CandidateTaskRows
-              rows={dailyCandidates.overdue.slice(0, 4)}
+              rows={shelfOverdueRows.slice(0, 4)}
               themes={themes}
               today={today}
               onOpenDetail={handleOpenCandidateTask}
@@ -1457,7 +1708,7 @@ export function TodayPage({
       </section>
 
       {/* 接続済みの場合だけ、今日やることの補助情報として候補棚の下に置く。 */}
-      <TodayCalendarSection />
+      <TodayCalendarSection onReconnect={() => navigate("settings/integrations")} />
 
       <div className="today-period-grid">
         {/* 日付範囲の意味で扱いを分ける（#309）。期間に入っただけで毎日督促しない。 */}

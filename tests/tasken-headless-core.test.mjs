@@ -40,6 +40,15 @@ const { startTaskenHeadlessCore, TaskenHeadlessCoreError } = await bundleEntry(
   "src/main/headless/taskenHeadlessCore.ts",
   "taskenHeadlessCore.mjs",
 );
+
+/** Headless Coreが既定で公開しない書き込みcapability。 */
+const WRITE_CORE_CAPABILITIES = [
+  "task.command",
+  "propose_task_work",
+  "propose_agent_session",
+  "propose_repository_task",
+  "propose_content",
+];
 const { parseTaskenHeadlessCoreArgs } = await bundleEntry(
   "src/main/headless/main.ts",
   "headlessMain.mjs",
@@ -93,16 +102,27 @@ test("Headless Core serves MCP reads without Electron and stops cleanly", async 
   let client;
   try {
     assert.match(handle.origin, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.equal(handle.writeMode, "read-only", "既定では書き込みを公開しない");
     assert.equal(fs.existsSync(handle.discoveryPath), true);
     const inspected = await new TaskenCoreClient({ userDataPath }).inspect();
     assert.equal(inspected.status, "ok");
-    for (const capability of TASKEN_MCP_REQUIRED_CORE_CAPABILITIES) {
+    const readCapabilities = TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter(
+      (capability) => !WRITE_CORE_CAPABILITIES.includes(capability),
+    );
+    for (const capability of readCapabilities) {
       assert.ok(inspected.capabilities.includes(capability), capability);
+    }
+    for (const capability of WRITE_CORE_CAPABILITIES) {
+      assert.equal(
+        inspected.capabilities.includes(capability),
+        false,
+        `既定のHeadless Coreは${capability}を公開しない`,
+      );
     }
 
     client = await connectMcp(userDataPath);
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 43);
+    assert.equal(listed.tools.length, 47);
     const searched = await client.callTool({
       name: "tasken.search_items",
       arguments: { query: "Headless context" },
@@ -167,13 +187,15 @@ test("Headless replica joins a shared-folder sync and serves read-only MCP reads
 
       client = await connectMcp(replicaUserData, { TASKEN_MCP_READ_ONLY: "1" });
       const listed = await client.listTools();
-      assert.ok(listed.tools.length < 43, String(listed.tools.length));
+      assert.ok(listed.tools.length < 47, String(listed.tools.length));
       for (const writeTool of [
         "tasken.start_task_work",
         "tasken.append_work_receipt",
         "tasken.report_task_done",
         "tasken.report_task_blocked",
         "tasken.propose_note",
+        "tasken.propose_feed_post",
+        "tasken.answer_feed_question",
       ]) {
         assert.equal(
           listed.tools.some((tool) => tool.name === writeTool),
@@ -242,6 +264,248 @@ test("Headless replica joins a shared-folder sync and serves read-only MCP reads
     if (host.db.open) host.db.close();
   }
 });
+
+test("Headless replicaが受けたProposalはDesktopへ届き、採否はreplicaへ戻る", async (t) => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-headless-write-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const shared = path.join(root, "shared");
+  const hostUserData = path.join(root, "host");
+  const replicaUserData = path.join(root, "replica");
+  fs.mkdirSync(shared, { recursive: true });
+  const host = new WorkspaceDatabase(path.join(hostUserData, "research-desk.sqlite"));
+  const hostSync = new SharedFolderSyncService(
+    host,
+    () => {},
+    path.join(hostUserData, "attachments", "markdown-images"),
+    path.join(hostUserData, "attachments", "capture-images"),
+  );
+  const body = ["NASで受けた投稿がDesktopへ届くかを確かめる。"];
+  let client;
+  let proposalId;
+  try {
+    bootstrapWorkspace(host);
+    await hostSync.configure(shared);
+    const handle = await startTaskenHeadlessCore({
+      userDataPath: replicaUserData,
+      syncDirectory: shared,
+      writeMode: "proposals",
+    });
+    try {
+      // replicaのCoreへ書き込む。MCP bridgeのread-only指定を付けない場合の経路。
+      client = await connectMcp(replicaUserData);
+      const inspected = await new TaskenCoreClient({ userDataPath: replicaUserData }).inspect();
+      for (const capability of ["propose_content", "propose_repository_task"]) {
+        assert.ok(inspected.capabilities.includes(capability), capability);
+      }
+      for (const capability of ["task.command", "propose_task_work", "propose_agent_session"]) {
+        assert.equal(inspected.capabilities.includes(capability), false, capability);
+      }
+      const queued = await client.callTool({
+        name: "tasken.propose_feed_post",
+        arguments: {
+          idempotency_key: "replica-proposal-roundtrip",
+          caller: "NAS replica test",
+          source_app: "nas-replica",
+          topic: "insight",
+          body,
+        },
+      });
+      assert.equal(queued.isError, undefined, JSON.stringify(queued));
+      proposalId = String(queued.structuredContent.proposal_id);
+      assert.equal(queued.structuredContent.payload_type, "feed_posts");
+      // 受領はreplicaに残り、Desktopへはまだ届いていない。
+      assert.equal(host.get("ai_proposal", proposalId), null);
+
+      await handle.syncNow();
+      await hostSync.syncNow();
+      const received = host.get("ai_proposal", proposalId);
+      assert.ok(received, "DesktopがreplicaのProposalを受け取る");
+      assert.equal(received.status, "pending");
+      assert.equal(received.source, "mcp");
+      assert.deepEqual(received.payload.feed_posts[0].body, body);
+      assert.equal(host.listSyncConflicts().length, 0, JSON.stringify(host.listSyncConflicts()));
+
+      // 人がDesktopで採用すると、その状態が新しい差分としてreplicaへ戻る。
+      host.save("ai_proposal", { ...received, status: "accepted" });
+      await hostSync.syncNow();
+      await handle.syncNow();
+      assert.equal(host.listSyncConflicts().length, 0, JSON.stringify(host.listSyncConflicts()));
+
+      // replicaは自分の同期状態を答えられる。受信後に未公開差分は残らない。
+      const status = await client.callTool({
+        name: "tasken.get_proposal_status",
+        arguments: { proposal_id: proposalId },
+      });
+      assert.equal(status.isError, undefined, JSON.stringify(status));
+      assert.equal(status.structuredContent.status, "accepted");
+      assert.equal(status.structuredContent.sync.enabled, true);
+      assert.match(String(status.structuredContent.sync.last_synced_at), /^\d{4}-\d{2}-\d{2}T/u);
+      assert.equal(status.structuredContent.sync.pending_local_changes, 0);
+      // replicaの応答はreplica自身の正本であり、Desktopの採否を代弁しない。
+      assert.equal(status.structuredContent.view.canonical_node, "this_node");
+      assert.equal(status.structuredContent.view.delivery_confirmed, false);
+      assert.notEqual(status.structuredContent.view.device_id, host.deviceId);
+    } finally {
+      await client?.close().catch(() => {});
+      client = undefined;
+      await handle.stop();
+    }
+
+    const replica = new WorkspaceDatabase(path.join(replicaUserData, "research-desk.sqlite"));
+    try {
+      const applied = replica.get("ai_proposal", proposalId);
+      assert.ok(applied, "replicaがProposalを保持している");
+      assert.equal(applied.status, "accepted", "Desktopの採否がreplicaへ戻る");
+      assert.deepEqual(applied.payload.feed_posts[0].body, body);
+      assert.equal(replica.syncPendingCount(), 0, "replicaは受信を再公開しない");
+      assert.equal(replica.listSyncConflicts().length, 0);
+    } finally {
+      replica.db.close();
+    }
+  } finally {
+    hostSync.stop();
+    if (host.db.open) host.db.close();
+  }
+});
+
+test("proposalsモードのHeadless Coreは許可した種類だけを受け付ける", async (t) => {
+  const userDataPath = temporaryUserData();
+  t.after(() => fs.rmSync(userDataPath, { recursive: true, force: true }));
+  seedWorkspace(userDataPath);
+  const handle = await startTaskenHeadlessCore({ userDataPath, writeMode: "proposals" });
+  let client;
+  try {
+    client = await connectMcp(userDataPath);
+
+    // 許可: テキストの読み物投稿・Note案・Task案。
+    for (const [name, args] of [
+      [
+        "tasken.propose_feed_post",
+        {
+          idempotency_key: "restricted-feed",
+          caller: "gate test",
+          source_app: "gate-test",
+          topic: "insight",
+          body: ["許可された投稿。"],
+        },
+      ],
+      [
+        "tasken.propose_note",
+        {
+          idempotency_key: "restricted-note",
+          caller: "gate test",
+          source_app: "gate-test",
+          title: "許可されたNote案",
+          body: "本文。",
+        },
+      ],
+      [
+        "tasken.propose_task",
+        {
+          idempotency_key: "restricted-task",
+          caller: "gate test",
+          source_app: "gate-test",
+          title: "許可されたTask案",
+        },
+      ],
+    ]) {
+      const allowed = await client.callTool({ name, arguments: args });
+      assert.equal(allowed.isError, undefined, `${name}: ${JSON.stringify(allowed)}`);
+    }
+
+    // 拒否: 許可範囲外の種類はCore自身がWRITE_NOT_ALLOWEDで止める。
+    for (const [name, args] of [
+      [
+        "tasken.propose_note_edit",
+        {
+          idempotency_key: "restricted-edit",
+          caller: "gate test",
+          note_id: "note-existing",
+          base_version: 1,
+          title: "編集案",
+          body: "本文。",
+          reason: "確認",
+        },
+      ],
+      [
+        "tasken.answer_feed_question",
+        {
+          idempotency_key: "restricted-reply",
+          caller: "gate test",
+          post_id: "post-1",
+          reply_to: "reply-1",
+          body: "返信。",
+        },
+      ],
+      [
+        "tasken.propose_repository_context",
+        {
+          idempotency_key: "restricted-repo",
+          caller: "gate test",
+          label: "repository",
+        },
+      ],
+      [
+        "tasken.propose_note",
+        {
+          idempotency_key: "restricted-image",
+          caller: "gate test",
+          title: "画像付きNote案",
+          body: "![alt](tasken-upload://shot)",
+          images: [
+            {
+              reference_id: "shot",
+              file_name: "shot.png",
+              media_type: "image/png",
+              data_base64: "aGVsbG8=",
+            },
+          ],
+        },
+      ],
+    ]) {
+      const refused = await client.callTool({ name, arguments: args });
+      assert.equal(refused.isError, true, `${name}は拒否される`);
+      assert.equal(
+        refused.structuredContent.error.code,
+        "WRITE_NOT_ALLOWED",
+        `${name}: ${JSON.stringify(refused.structuredContent)}`,
+      );
+      assert.match(String(refused.structuredContent.error.next_action), /許可されていない/u);
+    }
+
+    // 拒否: 直接書き込みはcapabilityごと公開しない。
+    const unavailable = await client.callTool({
+      name: "tasken.start_task_work",
+      arguments: {
+        idempotency_key: "restricted-start",
+        caller: "gate test",
+        task_id: "task-headless",
+        expected_version: 1,
+        started_at: "2026-09-21T00:00:00.000Z",
+      },
+    });
+    assert.equal(unavailable.isError, true);
+    assert.equal(unavailable.structuredContent.error.code, "CAPABILITY_UNAVAILABLE");
+  } finally {
+    await client?.close().catch(() => {});
+    await stopAndInspect(handle, userDataPath, (database) => {
+      // 拒否された要求はProposalもTask変更も残さない。
+      assert.equal(database.list("ai_proposal").length, 3);
+      assert.equal(database.list("work_receipt").length, 0);
+      assert.notEqual(database.get("task", "task-headless")?.work_state, "in_progress");
+    });
+  }
+});
+
+async function stopAndInspect(handle, userDataPath, inspect) {
+  await handle.stop();
+  const database = new WorkspaceDatabase(path.join(userDataPath, "research-desk.sqlite"));
+  try {
+    inspect(database);
+  } finally {
+    database.db.close();
+  }
+}
 
 test("Headless replica serves synced capture and task images over MCP", async (t) => {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-headless-image-"));
@@ -350,7 +614,7 @@ test("Headless replica serves synced capture and task images over MCP", async (t
 });
 
 test("Headless Core CLI requires valid explicit arguments", () => {
-  assert.deepEqual(parseTaskenHeadlessCoreArgs([]), { help: false });
+  assert.deepEqual(parseTaskenHeadlessCoreArgs([]), { help: false, writeMode: "read-only" });
   assert.equal(parseTaskenHeadlessCoreArgs(["--help"]).help, true);
   const parsed = parseTaskenHeadlessCoreArgs([
     "--user-data-dir=relative-user-data",
@@ -364,6 +628,18 @@ test("Headless Core CLI requires valid explicit arguments", () => {
     parseTaskenHeadlessCoreArgs([], { TASKEN_SYNC_DIRECTORY: "env-sync" }).syncDirectory,
     path.resolve("env-sync"),
   );
+  // 書き込みは既定で公開せず、明示された場合だけ提案受付になる。
+  assert.equal(parseTaskenHeadlessCoreArgs(["--write-mode=proposals"]).writeMode, "proposals");
+  assert.equal(
+    parseTaskenHeadlessCoreArgs([], { TASKEN_CORE_WRITE_MODE: "proposals" }).writeMode,
+    "proposals",
+  );
+  assert.equal(parseTaskenHeadlessCoreArgs(["--write-mode=read-only"]).writeMode, "read-only");
+  assert.equal(
+    parseTaskenHeadlessCoreArgs([], { TASKEN_CORE_WRITE_MODE: "unknown" }).writeMode,
+    "read-only",
+  );
+  assert.throws(() => parseTaskenHeadlessCoreArgs(["--write-mode=write"]));
   assert.throws(() => parseTaskenHeadlessCoreArgs(["--user-data-dir="]));
   assert.throws(() => parseTaskenHeadlessCoreArgs(["--sync-directory="]));
   assert.throws(() => parseTaskenHeadlessCoreArgs(["--unknown"]));

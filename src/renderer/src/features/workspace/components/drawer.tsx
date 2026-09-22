@@ -121,6 +121,7 @@ import {
 } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildTaskAiRequest } from "../lib/taskAiRequest";
+import { TaskHandoffPanel } from "./TaskHandoffPanel";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type {
   CaptureEntry,
@@ -1650,6 +1651,15 @@ function EditDrawer({
             workspaceDefault={workspaceAiVisibilityDefault}
           />
         </form>
+        {taskForWorkSection && saveEntities && (
+          <TaskHandoffPanel
+            key={`handoff:${taskForWorkSection.id}:${taskForWorkSection.work_state || taskForWorkSection.intended_executor || "not_delegated"}`}
+            task={taskForWorkSection}
+            saveEntities={saveEntities}
+            executeCommand={_executeCommand}
+            setToast={setToast}
+          />
+        )}
         {taskForWorkSection && (
           <TaskWorkSection
             key={`${taskForWorkSection.id}:${taskForWorkSection.work_state || taskForWorkSection.intended_executor || "not_delegated"}`}

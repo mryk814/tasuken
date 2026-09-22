@@ -148,7 +148,7 @@ test("daily report request limits AI to proposal and leaves answers for human re
   assert.match(request, /raw logは再収集しない/);
   assert.match(request, /tasken\.propose_note/);
   assert.match(request, /note_type: "report", report_date: "2026-08-31"/);
-  assert.match(request, /AI Inbox/);
+  assert.match(request, /Agent Desk/);
   assert.match(request, /NotesのMarkdownへ追記/);
   assert.doesNotMatch(request, /tasken\.(?:create|save|update)_note/);
 });
