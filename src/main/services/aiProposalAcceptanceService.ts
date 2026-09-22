@@ -493,6 +493,43 @@ export class AiProposalAcceptanceService {
     }
   }
 
+  /**
+   * 読み物の投稿（`feed_posts`）に添えた記事の画像を、採用の直前に確かめる。
+   *
+   * 読み物の採用は候補の組み立てが別経路のため、Note Proposalの検証
+   * （`verifyProposalMarkdownImages`）を通らない。Feedの記事本文と採用後のNote本文は
+   * 同じ `tasken-attachment://` を指すので、欠けた画像は保存前に見つけて止める。
+   * 画像を引き継ぐのはNoteの候補を採用するときだけなので、それ以外は何もしない。
+   */
+  private verifyReadingMaterialNoteImages(
+    payload: {
+      candidates?: ProposalCandidate[];
+    },
+    currentProposal: Entity | null,
+  ): void {
+    if (text(currentProposal?.payload_type) !== "feed_posts") return;
+    const canonicalPayload =
+      currentProposal?.payload &&
+      typeof currentProposal.payload === "object" &&
+      !Array.isArray(currentProposal.payload)
+        ? (currentProposal.payload as Record<string, unknown>)
+        : {};
+    if (!Object.hasOwn(canonicalPayload, "note_images")) return;
+    const acceptsNote = (payload.candidates ?? []).some(
+      (candidate) => candidate && candidate.type === "note",
+    );
+    if (!acceptsNote) return;
+    if (!this.artifacts.verifyProposalMarkdownImages) {
+      throw new Error(
+        "Note Proposal画像の検証経路を初期化できませんでした。Taskenを起動し直してください。",
+      );
+    }
+    this.artifacts.verifyProposalMarkdownImages(
+      text(currentProposal?.id),
+      canonicalPayload.note_images,
+    );
+  }
+
   execute(input: CommandEnvelope): CommandReceipt {
     if (input.name !== "ApplyAiProposal") return this.commands.execute(input);
     const parsedInput = parseCommandEnvelope(input);
@@ -507,8 +544,10 @@ export class AiProposalAcceptanceService {
     const proposalId = text(payload.proposal?.id);
     const currentProposal = proposalId ? this.repository.get("ai_proposal", proposalId) : null;
     const currentType = text(currentProposal?.payload_type);
-    if (!contentTypes.has(hintedType) && !contentTypes.has(currentType))
+    if (!contentTypes.has(hintedType) && !contentTypes.has(currentType)) {
+      this.verifyReadingMaterialNoteImages(payload, currentProposal);
       return this.commands.execute(input);
+    }
     if (
       !payload.proposal ||
       !Array.isArray(payload.candidates) ||

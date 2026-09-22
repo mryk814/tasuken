@@ -28,6 +28,7 @@ const args = process.argv.slice(2);
 const LIVE = args.includes("--live");
 const BULK = args.includes("--bulk");
 const NOTE_REF = args.includes("--note-ref");
+const MEDIA = args.includes("--media");
 const OUT_DIR =
   args.find((arg) => !arg.startsWith("--")) ||
   (LIVE
@@ -36,7 +37,9 @@ const OUT_DIR =
       ? "output/playwright/feed-audit-bulk"
       : NOTE_REF
         ? "output/playwright/feed-audit-note"
-        : "output/playwright/feed-audit");
+        : MEDIA
+          ? "output/playwright/feed-audit-media"
+          : "output/playwright/feed-audit");
 /** 実効幅1680px超で右詳細を常設し、それ以下では重ねる（docs/responsive-layout.md）。 */
 const SIZES = [
   { label: "wide-1536", width: 1536, height: 960 },
@@ -121,6 +124,7 @@ const seeded = spawnSync(
     "scripts/seed-feed-audit-workspace.mjs",
     userDataDir,
     ...(LIVE ? ["--feed-post"] : []),
+    ...(MEDIA ? ["--feed-media"] : []),
     ...(BULK ? ["--bulk-posts", String(BULK_POSTS)] : []),
     ...(NOTE_REF ? ["--note-ref"] : []),
   ],
@@ -1071,6 +1075,141 @@ async function auditBulk(page) {
 }
 
 /**
+ * 画像と外部リンクを添えた投稿（`--media`、計画フェーズ3）。
+ *
+ * ネットワークを使わずに再現できる四状態を実測する。
+ * 画像あり・画像なし・リンク（取得失敗＝オフライン）・壊れた参照。
+ * サムネイルが付く状態の取得そのものは `tests/feed-link-preview.test.mjs` で確かめる。
+ */
+async function auditMedia(page) {
+  const posts = page.locator(".feed-posts .feed-post");
+  const count = await posts.count();
+  if (count !== 3) {
+    failures.push(`メディア検証の投稿が3件ではありません（${count}件）。`);
+    return;
+  }
+  // 並び順に依存せず、本文の手がかりから投稿を特定する。
+  const imagePost = page
+    .locator(".feed-post", { hasText: "引張試験の比較図を1枚にまとめました。" })
+    .first();
+  const linkPost = page
+    .locator(".feed-post", { hasText: "公開されている資料を1本読みました。" })
+    .first();
+  const brokenPost = page
+    .locator(".feed-post", { hasText: "古い実験ノートの図を参照しようとした" })
+    .first();
+
+  // 1. 画像あり: 実在するArtifactを参照し、imgとして描画される。
+  if (!(await imagePost.count())) {
+    failures.push("画像を添えた投稿が見つかりません。");
+  } else {
+    const imageMedia = imagePost.locator(".feed-media-image").first();
+    if (!(await imageMedia.count())) {
+      failures.push("画像を添えた投稿に画像の入口がありません。");
+    } else {
+      if (!(await imageMedia.locator(".feed-media-role").innerText()).includes("実測")) {
+        failures.push("画像の役割（実測・作業成果）が表示されていません。");
+      }
+      const image = imageMedia.locator("img.feed-media-image-body").first();
+      if (!(await image.count())) {
+        failures.push("画像ありの投稿にimgがありません。");
+      } else {
+        const src = await image.getAttribute("src");
+        if (!src?.startsWith("tasken-media://artifact/")) {
+          failures.push(`画像の参照先が既存media経路ではありません（${src}）。`);
+        }
+        if (!(await image.getAttribute("alt"))) {
+          failures.push("画像に代替テキストがありません。");
+        }
+        // 読み込みに失敗していないこと（壊れた参照の代替表示が出ていないこと）。
+        await page.waitForTimeout(800);
+        if (await imageMedia.locator(".feed-media-broken").count()) {
+          failures.push("実在するArtifactの画像を表示できません。");
+        }
+        const naturalWidth = await image.evaluate((node) => node.naturalWidth || 0);
+        if (!(naturalWidth > 0)) failures.push("画像の実体を読み込めませんでした。");
+        // 切り抜きで情報を落とさない。
+        const fit = await image.evaluate((node) => getComputedStyle(node).objectFit);
+        if (fit !== "contain") failures.push(`画像の収め方がcontainではありません（${fit}）。`);
+      }
+      if (!(await imageMedia.locator(".feed-media-caption").count())) {
+        failures.push("画像のキャプションが表示されていません。");
+      }
+    }
+  }
+
+  // 2. リンク: 取得できなくてもURL・ホスト名・投稿者の一言で読める。
+  if (!(await linkPost.count())) {
+    failures.push("外部リンクを添えた投稿が見つかりません。");
+  } else {
+    const linkMedia = linkPost.locator(".feed-media-link").first();
+    if (!(await linkMedia.count())) {
+      failures.push("外部リンクを添えた投稿にリンクカードがありません。");
+    } else {
+      await page.waitForTimeout(1200);
+      const linkText = await linkMedia.innerText();
+      if (!linkText.includes("example.invalid")) {
+        failures.push(`リンクのホスト名が出ていません（${linkText}）。`);
+      }
+      if (!linkText.includes("https://example.invalid/measurement-variance")) {
+        failures.push("リンクのURLが出ていません。");
+      }
+      if (!linkText.includes("少ない標本数でも判断できる条件がまとまっています。")) {
+        failures.push("投稿者の一言が出ていません。");
+      }
+      if (!linkText.includes("ばらつきの見方（外部資料）")) {
+        failures.push("投稿者が付けた題名が出ていません。");
+      }
+      if ((await linkMedia.locator("button", { hasText: "開く" }).count()) === 0) {
+        failures.push("リンクを開く操作がありません。");
+      }
+      // 長いURL・題名で横へはみ出さない。
+      const overflow = await linkMedia.evaluate((node) => node.scrollWidth - node.clientWidth);
+      if (overflow > 1) failures.push(`リンクカードが横へはみ出しています（${overflow}px）。`);
+      // 取得に失敗しても、他の投稿が読めている（波及しない）。
+      if (!(await imagePost.locator("img.feed-media-image-body").count())) {
+        failures.push("リンクの取得失敗が他の投稿へ波及しています。");
+      }
+      await linkMedia.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: `${OUT_DIR}/media-link.png` });
+    }
+  }
+
+  // 3. 壊れた参照: 投稿全体を失敗させず、一行の代替表示へ落とす。
+  if (!(await brokenPost.count())) {
+    failures.push("壊れた参照の投稿が見つかりません。");
+  } else {
+    const broken = brokenPost.locator(".feed-media-broken").first();
+    if (!(await broken.count())) {
+      failures.push("存在しないArtifactの参照に代替表示が出ていません。");
+    } else {
+      const text = await broken.innerText();
+      if (!text.includes("画像を表示できません")) {
+        failures.push(`壊れた参照の案内が不明確です（${text}）。`);
+      }
+      // 画像が読めなくても、投稿の本文はそのまま読める。
+      const postText = await brokenPost.innerText();
+      if (
+        !postText.includes("図そのものより、どの条件で測ったかの記録が先に要ると分かりました。")
+      ) {
+        failures.push("壊れた参照の投稿でも本文が読めていません。");
+      }
+      await brokenPost.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: `${OUT_DIR}/media-broken.png` });
+    }
+  }
+
+  // 4. 画像がない投稿が同じ一覧に混ざっても、投稿面のリズムが崩れない。
+  const sheet = page.locator(".feed-main").first();
+  const sheetOverflow = await sheet.evaluate((node) => node.scrollWidth - node.clientWidth);
+  if (sheetOverflow > 1) failures.push(`投稿面が横へはみ出しています（${sheetOverflow}px）。`);
+
+  await page.screenshot({ path: `${OUT_DIR}/media-home.png`, fullPage: true });
+}
+
+/**
  * 既存Noteを参照する投稿を読めることを確認する（`--note-ref`）。
  *
  * 投稿はNoteの中身を複製せず、`payload.note_id` の参照だけを持つ。
@@ -1178,6 +1317,14 @@ try {
     } finally {
       await session.app.close();
     }
+  } else if (MEDIA) {
+    const session = await launchApp();
+    try {
+      await openFeed(session.page);
+      await auditMedia(session.page);
+    } finally {
+      await session.app.close();
+    }
   } else {
     const session = await launchApp();
     try {
@@ -1205,6 +1352,8 @@ console.log(
         ? `連続読込${BULK_POSTS}件`
         : NOTE_REF
           ? "既存Noteの参照"
-          : "開発用fixture"
+          : MEDIA
+            ? "画像と外部リンクの四状態"
+            : "開発用fixture"
   }、スクリーンショットは ${OUT_DIR}）`,
 );

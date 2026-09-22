@@ -201,6 +201,9 @@ export const workspaceApi = {
   readWebArtifactPreview(artifactId: string) {
     return desktopApi().artifacts.readWebPreview(artifactId);
   },
+  feedLinkPreview(url: string) {
+    return desktopApi().feedLinkPreview.fetchPreview({ url });
+  },
   prepareAudioCapture(themeId?: string | null) {
     return desktopApi().mediaCapture.prepareAudio({ themeId });
   },

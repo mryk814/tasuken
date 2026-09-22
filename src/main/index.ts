@@ -52,6 +52,7 @@ import { createSnapshot, readSnapshot } from "./services/snapshotService.mjs";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import { MediaCaptureService } from "./services/mediaCaptureService";
+import { FeedLinkPreviewService } from "./services/feedLinkPreviewService";
 import { ScreenRecordingService } from "./services/screenRecordingService";
 import { commandNotificationPayloads } from "./rendererMediaProjection";
 import { configureMainLog, logMain } from "./log";
@@ -2727,6 +2728,9 @@ async function startDesktopApp(): Promise<void> {
     path.join(app.getPath("userData"), "attachments", "markdown-images"),
     path.join(app.getPath("userData"), "attachments", "capture-images"),
   );
+  // Feedの外部リンクPreview。派生キャッシュなので正本DBには触れず、
+  // サムネイルだけを他の添付と同じ userData/attachments 配下へ置く。
+  const feedLinkPreview = new FeedLinkPreviewService(app.getPath("userData"));
   registerIpc(
     workspaceRepository,
     workspaceService,
@@ -2740,6 +2744,7 @@ async function startDesktopApp(): Promise<void> {
     mediaCapture,
     batchTranscriptionRepository,
     screenRecording,
+    feedLinkPreview,
     (types) => {
       notifyMainWindowRefresh();
       notifyTodayMiniRefresh(types);

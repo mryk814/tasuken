@@ -135,6 +135,36 @@ export interface FeedPostAttachment {
   articleMarkdown?: string | null;
 }
 
+/**
+ * 投稿に添える一つの入口（計画フェーズ3）。
+ *
+ * 画像は既存Artifactを参照するだけで、投稿のたびに複製しない。外部URLは
+ * 投稿者が付けた一言を正本とし、題名・説明・サムネイルは取得できた派生とする。
+ */
+export type FeedMedia =
+  | {
+      kind: "artifact";
+      artifactId: string;
+      role: FeedMediaRole;
+      altText: string;
+      caption: string | null;
+    }
+  | {
+      kind: "external_link";
+      url: string;
+      comment: string | null;
+      label: string | null;
+    };
+
+/** 画像の役割。実測と説明図を同じ見た目で断定的に扱わないために区別する。 */
+export type FeedMediaRole = "result" | "source" | "explanation";
+
+export const FEED_MEDIA_ROLE_LABELS: Record<FeedMediaRole, string> = {
+  result: "実測・作業成果",
+  source: "参考元",
+  explanation: "説明図",
+};
+
 export interface FeedPost extends FeedPostRefs {
   id: string;
   author: FeedAuthorId;
@@ -143,6 +173,8 @@ export interface FeedPost extends FeedPostRefs {
   /** 本文。段落ごとに分け、自然な改行を保つ。 */
   paragraphs: string[];
   attachment: FeedPostAttachment | null;
+  /** 添える一つの入口。無い投稿は弱く見せない（画像は必須条件ではない）。 */
+  media?: FeedMedia | null;
   /** 返信は親投稿のIDを持つ。並びは親の直後へ入れる。 */
   replyTo: string | null;
   /** 「学び」タブへ出すか。作業報告そのものは出さない。 */
@@ -595,6 +627,41 @@ export function authorIdForLabel(label: string): FeedAuthorId {
 }
 
 /**
+ * 投稿の任意項目 `media` を読む。
+ *
+ * 解釈できない値は捨てて本文だけを読ませる（投稿全体を失敗させない）。
+ * 役割が読めない画像は「実測」と断定せず説明図として扱う。
+ */
+export function feedMediaOf(post: Record<string, unknown>): FeedMedia | null {
+  const media = post.media;
+  if (!media || typeof media !== "object" || Array.isArray(media)) return null;
+  const row = media as Record<string, unknown>;
+  if (row.kind === "artifact") {
+    const artifactId = text(row.artifact_id);
+    if (!artifactId) return null;
+    const role = text(row.role);
+    return {
+      kind: "artifact",
+      artifactId,
+      role: role === "result" || role === "source" ? role : "explanation",
+      altText: text(row.alt_text),
+      caption: text(row.caption) || null,
+    };
+  }
+  if (row.kind === "external_link") {
+    const url = text(row.url);
+    if (!url) return null;
+    return {
+      kind: "external_link",
+      url,
+      comment: text(row.comment) || null,
+      label: text(row.label) || null,
+    };
+  }
+  return null;
+}
+
+/**
  * 読み物Proposalを投稿へ写す。`pending` だけでなく採用済みも読めるようにするため、
  * 呼び出し側は削除されていないProposalを渡す（出所のIDで追跡する）。
  */
@@ -674,6 +741,7 @@ export function buildPostsFromProposals(input: {
       taskTitle: taskId ? (taskTitles.get(taskId) ?? null) : null,
       evidence: paragraphs(post.evidence),
       draft,
+      media: feedMediaOf(post),
       proposalStatus: text(proposal.status),
       // 既存Noteへの参照は、表示のたびにNoteを複製せず、IDのまま読書面へ渡す。
       referencedNoteId: attachment?.kind === "note" ? text(post.note_id) || null : null,

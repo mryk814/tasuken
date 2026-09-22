@@ -1170,6 +1170,113 @@
   color: var(--color-text-secondary);
 }
 
+/* 添える入口（画像・外部リンク）。画像が無い投稿と同じ高さのリズムを保つ。 */
+.feed-media {
+  margin: var(--space-2) 0 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface-subtle, transparent);
+  overflow: hidden;
+}
+
+.feed-media-role {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm, 4px);
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+.feed-media-image {
+  padding: var(--space-2);
+}
+
+.feed-media-image-body {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  margin-top: var(--space-2);
+  border-radius: var(--radius-sm, 4px);
+  /* 切り抜きで重要情報を落とさない。全体を収めて見せる。 */
+  object-fit: contain;
+  background: var(--color-surface-subtle, transparent);
+}
+
+.feed-media-broken {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.feed-media-caption {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  /* 長い題名・キャプションで横へはみ出さない。 */
+  overflow-wrap: anywhere;
+}
+
+.feed-media-link {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-2);
+}
+
+.feed-media-link-thumb {
+  flex: none;
+  width: 96px;
+  height: 72px;
+  border-radius: var(--radius-sm, 4px);
+  object-fit: cover;
+  background: var(--color-surface-subtle, transparent);
+}
+
+.feed-media-link-main {
+  min-width: 0;
+}
+
+.feed-media-link-title {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-md, 15px);
+  font-weight: 600;
+  /* 長い題名は折り返し、横スクロールを出さない。 */
+  overflow-wrap: anywhere;
+}
+
+.feed-media-link-description,
+.feed-media-link-comment {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.feed-media-link-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.feed-media-link-source {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+.feed-media-link-url {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  /* 長いURLを折り返し、カードからはみ出させない。 */
+  overflow-wrap: anywhere;
+}
+
 .feed-avatar-codex {
   background: var(--color-chart-2);
   border-radius: 10px 50% 50% 50%;

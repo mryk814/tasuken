@@ -72,6 +72,7 @@ FeedはTaskの一覧でも管理画面でもない。一つひとつの投稿が
 | 文章の長さ | 短い投稿は80〜260字を目安。長い投稿は**もっと読む**で展開し、固定高で切らない                                      |
 | 添付       | 記事はタイトルと短い導入、Taskは題名と現在の状態、引用は元の著者と抜粋、外部は出典と確認日                         |
 | 図         | 理解の助けになる投稿だけに置く。毎回飾らない。見出しで内容を説明する                                               |
+| 入口       | 画像は既存Artifactを参照し、外部リンクはURLだけでも完成させる。投稿一件の主画像は一枚まで（§4.5）                  |
 | 反応欄     | 返信・おもしろい・ブックマークを**既定のアイコン**で小さく横に並べ、補助操作は三点メニューへ置く                   |
 | 仕事の操作 | 「回答する」「成果を確認」は必要な投稿だけに出す。常時表示は合計4個以内                                            |
 | タブ       | 面上部に固定し、選択タブを下線と文字の濃さで示す                                                                   |
@@ -95,6 +96,48 @@ FeedはTaskの一覧でも管理画面でもない。一つひとつの投稿が
 おもしろさは口調では作れない。「予想と違った結果」「一見遠い技術が役立ったこと」
 「失敗した方法と切り替えた理由」「次の仕事でも使える見方」を優先する。
 毎回同じ見出しの報告書にせず、気づきの一文・少し長い説明・図付きの記事を混ぜる。
+
+### 4.5 画像と外部URL（フェーズ3）
+
+投稿一件に添える入口は**一つ**とする。主画像は一枚までとし、複数の図が必要な説明は記事へまとめる。
+画像は投稿の必須条件ではない。画像なしの短文も完成形とし、画像がない投稿を弱く見せない。
+
+| 経路             | 主な用途                             | 実装                                                                            |
+| ---------------- | ------------------------------------ | ------------------------------------------------------------------------------- |
+| 既存Artifact     | 実験図、画面、作業成果、既存の説明図 | 投稿が `artifact_id` を参照し、検証済みの `tasken-media://artifact/<id>` で描く |
+| 外部URL          | 参考記事、公式資料、論文             | URLカードを出し、取得できたOpen Graph画像を派生サムネイルにする                 |
+| AIが作った説明図 | 概念比較、処理の流れ、記事の導入     | 記事の `article.images` として受け取り、既存の添付画像経路で保存する            |
+
+- 画像には **実測・作業成果／参考元／説明図** の役割、短いキャプション、代替テキストを持たせる。
+  役割が読めない画像は「実測」と断定せず説明図として扱う。
+- 実測図とAIの説明図を同じ見た目で断定的に扱わない。根拠のない装飾画像、
+  実在しない測定結果のグラフは投稿させない。
+- 参照先のArtifactが無い・画像として読めない場合は、投稿全体を失敗させず
+  **画像を表示できません**の一行へ落とす。本文はそのまま読める。
+- 画像は切り抜かず全体を収めて見せる（`object-fit: contain`）。長い題名・URL・キャプションで
+  横へはみ出さない。
+- 画像生成を毎回行う仕組みは導入しない。画像生成できないAIも、本文・既存Artifact・
+  外部URLだけで同じFeedへ投稿できる。
+
+外部リンクカードは**URLだけでも完成状態**として表示する。メタデータ取得に失敗した場合は、
+投稿者が付けた題名、ホスト名、URL、投稿者の一言へ安全にフォールバックする。
+取得は、そのカードが画面に見えたときに一度だけ行い、結果は**正本ではない派生キャッシュ**として
+扱う（オフラインでも投稿本文は読める）。
+
+外部ページの取得はRendererから行わない。Main側の専用サービスだけが扱い、次を守る。
+
+- 公開HTTP(S)だけを許可し、資格情報付きURLとtoken類のqueryを拒否する。
+- 名前解決したアドレスを毎回検査し、loopback・private・link-local・CGNAT・multicastを拒否する。
+  転送は自動追従せず手動で追い、**転送先でも同じ検査**を行う（3回まで）。
+- 資格情報・Cookie・Refererを送らない。時間・HTMLサイズ・画像サイズ・MIMEを制限する。
+- スクリプトを実行しない。画像は宣言されたcontent-typeを信用せず、実バイトのmagic numberで判定する。
+- 取得結果はDB・Workspace・Exportへ書かない。消えても再取得できる。
+
+記事へ埋め込む画像（`article.images`）は、`tasken.propose_note` と同じ
+`tasken-upload://` プレースホルダー、同じ検証（形式・寸法・合計サイズ）、
+同じ添付保存先を使う。保存前の記事と、利用者が「Noteに保存」した後のNoteは
+**同じ画像ファイルを指す**（本文の `tasken-attachment://` は変わらない）。
+採用の直前には画像の実在を確かめ、欠けていれば保存を止める。
 
 ## 5. 操作の意味
 
@@ -232,14 +275,14 @@ TaskやNoteを開いて戻っても復元する。表示状態は正本データ
 
 2026-09-22のSNS統合計画（`docs/feed-sns-implementation-plan-2026-09-22.md`）の段階:
 
-| 段階 | 内容                                                                                        | 状態                                                                                |
-| ---- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 1    | ホームAと右スレッド（投稿列・投稿カード・スレッド・記事読書面の分離、ブックマーク面、復元） | 実装済み（`FeedStream` / `FeedPostCard` / `FeedThreadPanel` / `FeedArticleReader`） |
-| 2    | AI記事からNoteへの一周（Markdown読書面、AI記事とNote保存済みの区別、作成元と元投稿の往復）  | 実装済み（Notesの由来表示と「元のFeed投稿を開く」）                                 |
-| 3    | 画像と外部リンク                                                                            | 未着手                                                                              |
-| 4    | ThemeとNotes                                                                                | 未着手                                                                              |
-| 5    | TodayとAgent Desk                                                                           | 未着手                                                                              |
-| 6    | 実利用でホームと学びを決める                                                                | 実利用後（三日以上・二十件以上が目安）                                              |
+| 段階 | 内容                                                                                        | 状態                                                                                      |
+| ---- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 1    | ホームAと右スレッド（投稿列・投稿カード・スレッド・記事読書面の分離、ブックマーク面、復元） | 実装済み（`FeedStream` / `FeedPostCard` / `FeedThreadPanel` / `FeedArticleReader`）       |
+| 2    | AI記事からNoteへの一周（Markdown読書面、AI記事とNote保存済みの区別、作成元と元投稿の往復）  | 実装済み（Notesの由来表示と「元のFeed投稿を開く」）                                       |
+| 3    | 画像と外部リンク                                                                            | 実装済み（既存Artifact画像、外部URLカード、Main側の安全な取得、`article.images`の再利用） |
+| 4    | ThemeとNotes                                                                                | 未着手                                                                                    |
+| 5    | TodayとAgent Desk                                                                           | 未着手                                                                                    |
+| 6    | 実利用でホームと学びを決める                                                                | 実利用後（三日以上・二十件以上が目安）                                                    |
 
 第2段階でつないだ経路:
 
@@ -286,6 +329,7 @@ rtk npm run audit:feed            # 開発用fixtureで面の設計を実測
 rtk npm run audit:feed:live       # AIから届いた実データの投稿で一周を実測（外部AI往復の架空回答つき）
 rtk npm run audit:feed:bulk       # 120件の履歴を20件単位で読み進められるか実測
 rtk npm run audit:feed:note       # 既存Noteへの参照を読書面へつなげられるか実測
+rtk npm run audit:feed:media      # 画像と外部リンクの四状態（画像あり・なし・取得失敗・壊れた参照）を実測
 rtk node scripts/run-electron-node.mjs --test tests/feed-posts.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/feed-post-proposals.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/feed-replies.test.mjs
@@ -293,6 +337,7 @@ rtk node scripts/run-electron-node.mjs --test tests/feed-own-posts.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/mcp-feed-post.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/feed-context-mcp.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/feed-fixtures.test.mjs tests/feed-live-projection.test.mjs
+rtk node scripts/run-electron-node.mjs --test tests/feed-link-preview.test.mjs
 ```
 
 `audit:feed` は隔離した一時userDataへ実データ相当のworkspaceを用意し
@@ -330,6 +375,29 @@ rtk node scripts/run-electron-node.mjs --test tests/feed-fixtures.test.mjs tests
 Noteを削除すると**参照先が削除されています**と示して開く導線が外れること、
 「元に戻す」と同じ参照からまた読めることを実測する。
 スクリーンショットは `output/playwright/feed-audit-note` へ出す。
+
+`audit:feed:media` は同じ隔離workspaceへ画像Artifactと、画像・外部リンク・壊れた参照を
+添えた投稿を入れて（`--feed-media`）、ネットワークを使わずに再現できる四状態を実測する。
+画像ありの投稿が `tasken-media://artifact/<id>` で実体を読み込み、役割（実測・作業成果）・
+代替テキスト・キャプションを出し、切り抜かず（`object-fit: contain`）に収めること、
+外部リンクのカードがホスト名・URL・投稿者の一言・投稿者が付けた題名を出し、
+取得に失敗しても他の投稿へ波及せず横へはみ出さないこと、存在しないArtifactの参照が
+**画像を表示できません**の一行へ落ちて本文は読めることを確かめる。
+スクリーンショットは `output/playwright/feed-audit-media` へ出す。
+
+サムネイルが**付く**状態（リンク画像あり）はネットワークを要するため実画面では実測しない。
+`tests/feed-link-preview.test.mjs` が注入した fetch と resolver で、
+公開HTTP(S)だけを許可すること、literal IPと名前解決後のprivate・loopback・link-local・
+CGNAT・multicastを拒否すること、転送先でも同じ検査をして3回で打ち切ること、
+時間・HTMLサイズ・画像サイズの上限、magic numberによる画像判定、og:* の抽出と
+title/descriptionへのフォールバック、成功60分・失敗5分のキャッシュ（cache hitで再取得しない）、
+Cookie/Authorization/Refererを送らないことを確かめる。
+
+`tests/tasken-core-mcp-content-proposal.test.mjs` は実SQLite + 実stdio MCPで、
+読み物の投稿に添えた記事の画像が Note Proposal と同じ検証・保存経路を通り、
+`article.body` が `tasken-attachment://` へ書き換わって `note_images` に manifest が載り、
+`media` がそのままpayloadへ入り、画像の実体とbase64が正本へ残らないことを確認する。
+記事の画像を伴う送信は `idempotency_key` を要し、公開HTTP(S)以外と資格情報付きのURLは拒否する。
 
 `tests/mcp-feed-post.test.mjs` は実SQLite + 実stdio MCPで
 「投稿 → Proposal → Feedの投影 → 要対応は増えない → 再送は増えない → Noteに保存 →
@@ -372,5 +440,7 @@ IDのまま読書面へ渡せる形（添付はnote、草稿なし）にする�
 | 明暗両モード    | 暗い表示は開発用fixture面（`dark-*-home.png`）で実測済み。実データの面とAndroidは未実施                  |
 | 読み上げ        | DOM順が 出所→本文→添付→反応 で、一覧に自動読み上げの領域が無いことは実測済み。実際の読み上げ確認は未実施 |
 | 中幅のスレッド  | 中幅で右から重ねる挙動は幅ごとのスクリーンショットで確認する（広幅・最小幅のみ実測）                     |
+| リンク画像あり  | サムネイルが付く状態は注入fetchの単体テストのみ。実ネットワークでの取得は未実施                          |
+| 画像の実測表示  | 画像Artifactの描画は隔離workspaceの1枚で実測。大きな画像・多数の投稿での速度は未実施                     |
 | Android         | 狭幅の読書導線をDesktopで固めた後、展開範囲を選ぶ                                                        |
 | 日常利用の評価  | 「SNSらしい」「もう少し読みたい」の判断は利用後に決める                                                  |

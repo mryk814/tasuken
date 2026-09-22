@@ -31,7 +31,12 @@ import {
   MICROPHONE_RECORDING_MIME_TYPES,
   SCREEN_RECORDING_MIME_TYPES,
 } from "../../shared/mediaCapture";
-import { audioMimeTypeOf, mediaExtensionOf, videoMimeTypeOf } from "../../shared/mediaArtifact.mjs";
+import {
+  audioMimeTypeOf,
+  imageMimeTypeOf,
+  mediaExtensionOf,
+  videoMimeTypeOf,
+} from "../../shared/mediaArtifact.mjs";
 import type { MediaAvailability } from "../../shared/mediaArtifact.mjs";
 import { resolveUniqueArtifactFileName, safeArtifactFileName } from "./artifactStorage.mjs";
 import type { Entity } from "../../shared/types/workspace";
@@ -2360,20 +2365,43 @@ export class MediaCaptureService {
     }
   }
 
+  /**
+   * Artifactを検証済みbytesへ解く。
+   *
+   * audio / video は既存の再生境界、image はFeedへ載せるラスタ画像の経路。
+   * どちらも拡張子とMIMEが一致するものだけを返し、SVGは対象にしない。
+   */
   resolveArtifactMedia(artifactIdValue: unknown): MediaFileResolution {
     if (typeof artifactIdValue !== "string" || !SESSION_ID_PATTERN.test(artifactIdValue))
       return { availability: "missing" };
     const artifact = this.options.repository.get("artifact", artifactIdValue);
-    if (!artifact || (artifact.media_kind !== "audio" && artifact.media_kind !== "video"))
-      return { availability: "missing" };
+    if (!artifact) return { availability: "missing" };
+    const mediaKind = String(artifact.media_kind || "");
+    if (mediaKind !== "audio" && mediaKind !== "video" && mediaKind !== "image") {
+      // media_kindを持たないArtifactは、画像として読める形式のときだけ画像経路へ回す。
+      return this.resolveArtifactImageIfSupported(artifactIdValue, artifact);
+    }
     const expectedMime =
-      artifact.media_kind === "video"
+      mediaKind === "video"
         ? videoMimeTypeOf(String(artifact.filename || ""))
-        : audioMimeTypeOf(String(artifact.filename || ""));
+        : mediaKind === "audio"
+          ? audioMimeTypeOf(String(artifact.filename || ""))
+          : imageMimeTypeOf(String(artifact.filename || ""));
     if (!expectedMime || String(artifact.mime_type || "") !== expectedMime) {
       return { availability: "unsupported_codec" };
     }
     return this.resolveArtifactBytes(artifactIdValue, artifact);
+  }
+
+  /** 画像形式として登録されたArtifactだけを、同じ検証経路で描画対象にする。 */
+  private resolveArtifactImageIfSupported(
+    artifactId: string,
+    artifact: Entity,
+  ): MediaFileResolution {
+    const expectedMime = imageMimeTypeOf(String(artifact.filename || ""));
+    if (!expectedMime) return { availability: "missing" };
+    if (String(artifact.mime_type || "") !== expectedMime) return { availability: "missing" };
+    return this.resolveArtifactBytes(artifactId, artifact);
   }
 
   private resolveArtifactBytes(artifactId: string, artifact: Entity): MediaFileResolution {
@@ -2403,6 +2431,8 @@ export class MediaCaptureService {
       this.verificationCache,
       `artifact:${artifactId}`,
     );
+    // 動画は元ファイルの差し替えをinodeまで見て検出する。画像と音声はDBの
+    // content_hashとサイズの照合で足りるため、既存の音声と同じ扱いに留める。
     if (
       resolution.availability === "available" &&
       artifact.media_kind === "video" &&

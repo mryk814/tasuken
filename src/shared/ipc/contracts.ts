@@ -157,6 +157,7 @@ export const IPC = {
   markdownImageSave: "markdown-image:save",
   artifactFilesImport: "artifact:files-import",
   artifactWebPreview: "artifact:web-preview",
+  feedLinkPreview: "feed:link-preview",
   audioCapturePrepare: "audio-capture:prepare",
   audioCaptureListPrepared: "audio-capture:list-prepared",
   audioCaptureCommit: "audio-capture:commit",
@@ -714,6 +715,23 @@ export type WebArtifactPreviewResult =
   | { ok: true; url: string; mimeType: "text/html"; executionPolicy: WebArtifactExecutionPolicy }
   | { ok: false; error: string };
 
+/** Feedの外部リンクPreview。Mainが取得した派生キャッシュで、正本データではない。 */
+export interface FeedLinkPreviewRequest {
+  url: string;
+}
+
+/** 画像は`attachments/link-previews`配下のファイル名だけを返し、OS pathは渡さない。 */
+export interface FeedLinkPreview {
+  url: string;
+  title: string;
+  description: string;
+  siteName: string;
+  imageFileName: string | null;
+}
+
+export type FeedLinkPreviewResult =
+  { ok: true; preview: FeedLinkPreview } | { ok: false; reason: string };
+
 export interface ResearchDeskApi {
   openTaskCapture(): Promise<void>;
   captureOrganizer: {
@@ -817,6 +835,9 @@ export interface ResearchDeskApi {
   };
   artifacts: {
     readWebPreview(artifactId: string): Promise<WebArtifactPreviewResult>;
+  };
+  feedLinkPreview: {
+    fetchPreview(request: FeedLinkPreviewRequest): Promise<FeedLinkPreviewResult>;
   };
   mediaCapture: {
     prepareAudio(request: AudioCapturePrepareRequest): Promise<AudioCapturePrepareResult>;

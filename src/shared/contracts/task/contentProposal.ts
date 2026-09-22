@@ -168,6 +168,77 @@ export const noteProposalImageSchema = z
   })
   .strict();
 
+/**
+ * 外部リンクのURL。
+ *
+ * 公開HTTP(S)だけを扱い、credential付きURLとtoken類のqueryは保存しない
+ * （`src/shared/externalReference.mjs` と同じ規則）。取得の可否はここでは
+ * 判定せず、Main側の取得サービスが解決後のアドレスを見て拒否する。
+ */
+const feedExternalLinkUrl = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2_000)
+  .refine((value) => {
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+      if (parsed.username || parsed.password) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }, "外部リンクはhttp / httpsの公開URLを指定してください。")
+  .refine((value) => {
+    try {
+      for (const [key] of new URL(value).searchParams) {
+        if (
+          /(?:token|secret|password|passwd|credential|authorization|cookie|private[_-]?key|api[_-]?key)/i.test(
+            key,
+          )
+        )
+          return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }, "外部リンクのqueryにcredential/tokenを含めることはできません。");
+
+/**
+ * 投稿に添える一つの入口（計画フェーズ3）。
+ *
+ * 画像は毎回生成せず、既存Artifactを参照する。外部URLは投稿者が付けた一言だけを
+ * 正本とし、題名・説明・サムネイルは取得できたときだけ派生として重ねる。
+ */
+export const feedPostArtifactMediaSchema = z
+  .object({
+    kind: z.literal("artifact"),
+    artifact_id: boundedText(200),
+    /** 画像の役割。実測・作業成果、参考元、説明図を区別する。 */
+    role: z.enum(["result", "source", "explanation"]),
+    alt_text: boundedText(500),
+    caption: optionalText(500),
+  })
+  .strict();
+
+export const feedPostExternalLinkMediaSchema = z
+  .object({
+    kind: z.literal("external_link"),
+    url: feedExternalLinkUrl,
+    /** 投稿者の一言。取得できなかったときの説明を兼ねる。 */
+    comment: optionalText(500),
+    /** 投稿者が付けた題名。取得結果より優先する。 */
+    label: optionalText(200),
+  })
+  .strict();
+
+export const feedPostMediaSchema = z.discriminatedUnion("kind", [
+  feedPostArtifactMediaSchema,
+  feedPostExternalLinkMediaSchema,
+]);
+
 export const contentProposalActorSchema = z
   .object({
     kind: z.literal("ai_agent"),
@@ -229,9 +300,19 @@ export const proposeContentRequestSchema = z
             body: z.string().min(1).max(200_000),
             /** 記事の種類。既定は読み物としてのNote。 */
             note_type: z.enum(["memo", "report", "prompt"]).optional(),
+            /**
+             * 記事に埋め込む画像。`tasken-upload://` のプレースホルダーを本文へ書き、
+             * 対応する画像をここへ入れる（`tasken.propose_note` と同じ形式）。
+             */
+            images: z.array(noteProposalImageSchema).min(1).max(8).optional(),
           })
           .strict()
           .optional(),
+        /**
+         * 投稿に添える一つの入口。画像（既存Artifact）か外部リンクのどちらか。
+         * 投稿一件に付く主画像は一枚までとし、複数の図は記事へまとめる。
+         */
+        media: feedPostMediaSchema.optional(),
         /** 添付の見出し（図や表の説明）。 */
         attachment_label: optionalText(200),
         /** 根拠。出所URLや確認日など、本文の主張を支える事実。 */

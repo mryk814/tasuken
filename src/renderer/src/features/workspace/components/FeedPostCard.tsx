@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 
 import { Button } from "./common";
+import { FeedMediaBlock } from "./FeedMediaBlock";
 import {
   FEED_POST_KIND_LABELS,
   authorOf,
@@ -278,6 +279,9 @@ export function FeedPostCard({
                 ) : null}
               </div>
             </div>
+          ) : null}
+          {post.media ? (
+            <FeedMediaBlock media={post.media} figureLabel={article?.figureLabel ?? null} />
           ) : null}
           <div className="feed-reactions">
             <button

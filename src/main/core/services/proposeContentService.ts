@@ -132,15 +132,18 @@ function payloadFor(
               ? {
                   article: {
                     title: request.article.title,
-                    body: request.article.body,
+                    body: preparedImages?.body ?? request.article.body,
                     note_type: request.article.note_type || "memo",
                   },
                 }
               : {}),
             ...(request.attachment_label ? { attachment_label: request.attachment_label } : {}),
+            ...(request.media ? { media: request.media } : {}),
             evidence: request.evidence || [],
           },
         ],
+        // 記事の画像はNote Proposalと同じ検証・保存経路へ載せる。採用時に同じ画像を引き継ぐ。
+        ...(preparedImages ? { note_images: preparedImages.manifest } : {}),
       },
     };
   }
@@ -332,7 +335,16 @@ export class ProposeContentService {
     const preparedImages =
       request.kind === "note_create"
         ? prepareNoteImages(this.noteProposalImagePort, id, request.body, request.images)
-        : undefined;
+        : request.kind === "feed_post" && request.article?.images
+          ? // 記事の画像もNote Proposalと同じ準備・検証を行う。プレースホルダーの
+            // 書き換え先は記事本文で、保存前のFeedと採用後のNoteが同じ画像を指す。
+            prepareNoteImages(
+              this.noteProposalImagePort,
+              id,
+              request.article.body,
+              request.article.images,
+            )
+          : undefined;
     const { payload, target } = payloadFor(request, preparedImages);
     const proposalRequestBase = {
       tool: TOOL_BY_KIND[request.kind],

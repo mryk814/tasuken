@@ -885,3 +885,118 @@ test("content proposal client requires its named capability and rejects additive
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+/**
+ * 読み物の投稿に添える入口（計画フェーズ3）。
+ *
+ * 実SQLite + 実stdio MCPで、記事の画像が Note Proposal と同じ検証・保存経路を通り、
+ * media がそのままpayloadへ載ることを確かめる。取得は派生キャッシュであり、
+ * 投稿の正本には URL と役割だけを置く。
+ */
+test("propose_feed_post carries an article image and one media entry through stdio/Core", async () => {
+  const root = fixtureRoot();
+  const dbPath = path.join(root, "workspace.sqlite3");
+  const imageBytes = validPng(3);
+  const validImageHashes = new Set([createHash("sha256").update(imageBytes).digest("hex")]);
+  const decodeFixtureImage = (bytes, mimeType) =>
+    mimeType === "image/png" &&
+    validImageHashes.has(createHash("sha256").update(bytes).digest("hex"))
+      ? { width: 256, height: 256 }
+      : null;
+  const media = {
+    kind: "artifact",
+    artifact_id: "44444444-4444-4444-8444-444444444444",
+    role: "result",
+    alt_text: "条件ごとの比較図",
+    caption: "同じ軸に3条件を重ねた実測図",
+  };
+  const args = {
+    ...baseArgs("feed-post-with-media-1"),
+    topic: "work_report",
+    body: ["比較図を1枚にまとめました。", "条件ごとにばらつきの出方が違います。"],
+    article: {
+      title: "比較図の読み方",
+      body: "比較の前提です。\n\n![比較図](tasken-upload://figure)",
+      note_type: "memo",
+      images: [
+        {
+          reference_id: "figure",
+          file_name: "figure.png",
+          media_type: "image/png",
+          data_base64: imageBytes.toString("base64"),
+        },
+      ],
+    },
+    media,
+  };
+  const database = new WorkspaceDatabase(dbPath);
+  const host = new TaskenCoreHost({
+    userDataPath: root,
+    ...createTaskenCore(database, {
+      noteProposalImagePort: createNoteProposalImagePort(root, decodeFixtureImage),
+    }),
+  });
+  await host.start();
+  const client = await connectMcp(root);
+  try {
+    const listed = await client.listTools();
+    const feedTool = listed.tools.find((tool) => tool.name === "tasken.propose_feed_post");
+    assert.ok(feedTool?.inputSchema.properties.media, "media が公開されている");
+    assert.ok(feedTool?.inputSchema.properties.article, "article が公開されている");
+
+    // 画像を伴う読み物は、再送で同じ画像を指せるよう idempotency_key を要求する。
+    const { idempotency_key: _key, ...withoutKey } = args;
+    const missingKey = await client.callTool({
+      name: "tasken.propose_feed_post",
+      arguments: withoutKey,
+    });
+    assert.equal(missingKey.isError, true);
+    assert.match(missingKey.structuredContent.error.message, /idempotency_key/);
+
+    // 公開HTTP(S)以外・資格情報付きのURLは、Coreの検証で拒否する。
+    for (const url of [
+      "javascript:alert(1)",
+      "http://user:pass@example.com/article",
+      "file:///C:/secret.txt",
+    ]) {
+      const rejected = await client.callTool({
+        name: "tasken.propose_feed_post",
+        arguments: {
+          ...baseArgs(`feed-post-bad-link-${url.length}`),
+          topic: "reference",
+          body: ["外部資料を読みました。"],
+          media: { kind: "external_link", url },
+        },
+      });
+      assert.equal(rejected.isError, true, url);
+      assert.equal(rejected.structuredContent.error.code, "VALIDATION_FAILED", url);
+    }
+
+    const queued = await callProposal(client, "tasken.propose_feed_post", args);
+    const stored = database.get("ai_proposal", queued.proposal_id);
+    assert.equal(queued.status, "queued");
+    const published = stored.payload.feed_posts[0];
+    // 記事の画像は同じ添付URLへ書き換わり、保存前のFeedから読める。
+    assert.match(published.article.body, /tasken-attachment:\/\/local\//);
+    assert.doesNotMatch(published.article.body, /tasken-upload:\/\//);
+    assert.equal(stored.payload.note_images[0].reference_id, "figure");
+    assert.equal(stored.payload.note_images[0].mime_type, "image/png");
+    assert.equal(stored.payload.note_images[0].size, imageBytes.length);
+    assert.deepEqual(published.media, media);
+    // 画像の実体とbase64は正本へ残さない。
+    assert.equal(JSON.stringify(stored).includes(args.article.images[0].data_base64), false);
+    assert.equal(JSON.stringify(stored).includes("data_base64"), false);
+    const storedImagePath = path.join(
+      root,
+      "attachments",
+      "markdown-images",
+      stored.payload.note_images[0].file_name,
+    );
+    assert.equal(fs.existsSync(storedImagePath), true);
+  } finally {
+    await client.close();
+    await host.stop();
+    database.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
