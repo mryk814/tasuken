@@ -55,7 +55,18 @@ export interface FeedPostDraft {
   themeId: string;
 }
 
-export type FeedAuthorId = "self" | "codex" | "claude" | "tasken" | "external_ai";
+export type FeedAuthorId =
+  | "self"
+  | "codex"
+  | "claude"
+  | "github_copilot"
+  | "cursor"
+  | "gemini"
+  | "deepseek"
+  | "antigravity"
+  | "opencode"
+  | "tasken"
+  | "external_ai";
 
 /** 投稿者の種別。AI表記を出すかどうかをここで決める。 */
 export type FeedAuthorKind = "human" | "ai" | "auto_record";
@@ -68,12 +79,25 @@ export interface FeedAuthor {
   initial: string;
 }
 
+/**
+ * 投稿者アバターの頭文字。
+ *
+ * サービスロゴの公式アセットは同梱していないため、ロゴを模した図は作らず
+ * 頭文字と色で識別する（`docs/feed-usage-feedback-2026-09-22.md` §3）。
+ * 同じ頭文字が並ぶと読めなくなるので、一文字では衝突する投稿者だけ二文字にする。
+ */
 export const FEED_AUTHORS: Record<FeedAuthorId, FeedAuthor> = {
   self: { id: "self", label: "自分", kind: "human", initial: "自" },
-  codex: { id: "codex", label: "Codex", kind: "ai", initial: "C" },
-  claude: { id: "claude", label: "Claude", kind: "ai", initial: "C" },
+  codex: { id: "codex", label: "Codex", kind: "ai", initial: "Cx" },
+  claude: { id: "claude", label: "Claude Code", kind: "ai", initial: "Cl" },
+  github_copilot: { id: "github_copilot", label: "GitHub Copilot", kind: "ai", initial: "Gh" },
+  cursor: { id: "cursor", label: "Cursor", kind: "ai", initial: "Cu" },
+  gemini: { id: "gemini", label: "Gemini", kind: "ai", initial: "Ge" },
+  deepseek: { id: "deepseek", label: "DeepSeek", kind: "ai", initial: "Ds" },
+  antigravity: { id: "antigravity", label: "Antigravity", kind: "ai", initial: "Ag" },
+  opencode: { id: "opencode", label: "OpenCode", kind: "ai", initial: "Oc" },
   tasken: { id: "tasken", label: "Tasken", kind: "auto_record", initial: "T" },
-  external_ai: { id: "external_ai", label: "外部AI", kind: "ai", initial: "A" },
+  external_ai: { id: "external_ai", label: "外部AI", kind: "ai", initial: "外" },
 };
 
 /**
@@ -107,6 +131,8 @@ export interface FeedPostAttachment {
    * 第2段階で実データのNote本文へ置き換える。
    */
   articleBody?: string[] | null;
+  /** 記事のMarkdown正本。読書面では既存のMarkdownPreviewへ渡す。 */
+  articleMarkdown?: string | null;
 }
 
 export interface FeedPost extends FeedPostRefs {
@@ -557,6 +583,12 @@ export function authorIdForLabel(label: string): FeedAuthorId {
   const value = label.toLowerCase();
   if (value.includes("codex")) return "codex";
   if (value.includes("claude")) return "claude";
+  if (value.includes("copilot") || value.includes("github copilot")) return "github_copilot";
+  if (value.includes("cursor")) return "cursor";
+  if (value.includes("gemini")) return "gemini";
+  if (value.includes("deepseek")) return "deepseek";
+  if (value.includes("antigravity")) return "antigravity";
+  if (value.includes("opencode") || value.includes("open code")) return "opencode";
   if (value.includes("tasken")) return "tasken";
   if (!value) return "external_ai";
   return "external_ai";
@@ -605,6 +637,7 @@ export function buildPostsFromProposals(input: {
           figureLabel: text(post.attachment_label) || null,
           refLabel: themeId ? (themeNames.get(themeId) ?? themeId) : "Tasken",
           articleBody,
+          articleMarkdown: String(article.body || ""),
         }
       : text(post.note_id)
         ? {

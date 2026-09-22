@@ -358,6 +358,23 @@ button:active {
 .app-shell.is-sidebar-collapsed {
   grid-template-columns: 64px minmax(0, 1fr) clamp(390px, 30vw, 460px);
 }
+
+/* Feedは内部に会話スロットを持つため、全体Context Paneを重ねない。 */
+.app-shell.is-feed-route {
+  grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr);
+}
+
+.app-shell.is-sidebar-collapsed.is-feed-route {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.app-shell.is-feed-route.has-drawer {
+  grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr) clamp(390px, 30vw, 460px);
+}
+
+.app-shell.is-sidebar-collapsed.is-feed-route.has-drawer {
+  grid-template-columns: 64px minmax(0, 1fr) clamp(390px, 30vw, 460px);
+}
 .sidebar {
   position: sticky;
   top: 0;
@@ -12411,6 +12428,15 @@ kbd {
     inset: 0 0 0 auto;
     width: min(390px, 100vw);
     box-shadow: var(--shadow-lg);
+  }
+}
+
+@media (max-width: 1680px) {
+  .app-shell.is-feed-route.has-drawer {
+    grid-template-columns: var(--sidebar-width, 200px) minmax(0, 1fr);
+  }
+  .app-shell.is-sidebar-collapsed.is-feed-route.has-drawer {
+    grid-template-columns: 64px minmax(0, 1fr);
   }
 }
 

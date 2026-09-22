@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import type { BaseRecord, PageProps } from "../types";
 import { Button, PageHeader } from "../components/common";
+import { FeedArticleReader } from "../components/FeedArticleReader";
+import { FeedStream } from "../components/FeedStream";
+import {
+  FeedThreadPanel,
+  type FeedPasteDraft,
+  type FeedThreadDraft,
+} from "../components/FeedThreadPanel";
 import {
   FEED_PAGE_SIZE,
   buildFeedProjection,
@@ -12,8 +19,8 @@ import {
 import { buildLiveFeed } from "../lib/feedProjection";
 import { buildSaveTaskOperations } from "../domain-model/persistence";
 import {
+  FEED_AUTHORS,
   FEED_POSTS,
-  FEED_POST_KIND_LABELS,
   authorOf,
   buildOwnPosts,
   buildPostsFromProposals,
@@ -24,13 +31,10 @@ import {
   feedReactionId,
   feedReplyEntity,
   filterPosts,
-  needsMore,
-  noteReferenceOf,
   postsBookmarked,
   postsForHome,
   postsForLearning,
   unpublishNote,
-  withReplies,
   type FeedAuthorId,
   type FeedPost,
   type FeedReactionKind,
@@ -39,17 +43,11 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { uuid } from "../lib/format";
 import {
   FEED_COPY_EXCERPT_MAX,
-  FEED_MANUAL_COMMENT_MAX,
-  FEED_MANUAL_QUESTION_MAX,
-  FEED_MANUAL_REPLY_MAX,
-  FEED_MANUAL_SOURCE_MAX,
   buildExternalAiCopyText,
   feedManualPasteEntity,
   hasLiveFeedData,
-  manualPasteLabel,
   manualPasteNoteCandidate,
 } from "../lib/feedPosts";
-import { openSafeMarkdownLink, safeMarkdownLinkUrl } from "../lib/markdown";
 
 /**
  * Feed（SNS型の読む面。`docs/feed-learning-sns-plan-2026-09-21.md`）。
@@ -63,38 +61,86 @@ import { openSafeMarkdownLink, safeMarkdownLinkUrl } from "../lib/markdown";
  * 読む面の規則は `docs/feed-surface.md`。
  */
 
-type FeedTab = "home" | "learn" | "needs";
+type FeedTab = "home" | "learn" | "bookmarks" | "needs";
+type FeedBookmarkFilter = "bookmark" | "interesting" | "known";
 
 const TABS: ReadonlyArray<{ id: FeedTab; label: string }> = [
   { id: "home", label: "ホーム" },
   { id: "learn", label: "学び" },
+  { id: "bookmarks", label: "ブックマーク" },
   { id: "needs", label: "対応待ち" },
 ];
 
+const FEED_VIEW_STATE_KEY = "tasken:feed:view:v1";
+
+interface FeedViewState {
+  tab: FeedTab;
+  bookmarkFilter: FeedBookmarkFilter;
+  limit: number;
+  expanded: string[];
+  authorFilter: FeedAuthorId | null;
+  drafts: Record<string, string>;
+  compose: string;
+  threadPostId: string | null;
+  articlePostId: string | null;
+  anchorPostId: string | null;
+  anchorOffset: number;
+  scrollTop: number;
+}
+
+function isFeedTab(value: unknown): value is FeedTab {
+  return value === "home" || value === "learn" || value === "bookmarks" || value === "needs";
+}
+
+function isBookmarkFilter(value: unknown): value is FeedBookmarkFilter {
+  return value === "bookmark" || value === "interesting" || value === "known";
+}
+
+function isFeedAuthorId(value: unknown): value is FeedAuthorId {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(FEED_AUTHORS, value);
+}
+
+function normalizeFeedDrafts(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([postId, draft]) => postId.length > 0 && typeof draft === "string",
+    ),
+  );
+}
+
+function optionalFeedId(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function normalizeFeedLimit(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < FEED_PAGE_SIZE) {
+    return FEED_PAGE_SIZE;
+  }
+  return Math.min(500, Math.ceil(value / FEED_PAGE_SIZE) * FEED_PAGE_SIZE);
+}
+
+function readFeedViewState(): Partial<FeedViewState> {
+  try {
+    const raw = localStorage.getItem(FEED_VIEW_STATE_KEY);
+    if (!raw) return {};
+    const value = JSON.parse(raw) as Partial<FeedViewState>;
+    return value && typeof value === "object" ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeFeedViewState(state: FeedViewState): void {
+  try {
+    localStorage.setItem(FEED_VIEW_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // 表示状態を保存できなくても、現在の操作は画面内で継続する。
+  }
+}
+
 /** 開発用: 閲覧中に届いたことにして、押すまで一覧へ割り込ませない。 */
 const ARRIVING_POST_IDS = ["post-solvent-switch", "post-draft-note-uncertainty"];
-/** 開発用: 前回の閲覧位置の区切り。fixtureでは3件目の直前を前回の終端とする。 */
-const PREVIOUS_READING_EDGE_ID = "post-sample-size-reply";
-
-function formatRelative(value: string, now: number): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const minutes = Math.round((now - date.getTime()) / 60_000);
-  if (minutes < 1) return "たった今";
-  if (minutes < 60) return `${minutes}分前`;
-  if (minutes < 60 * 24) return `${Math.floor(minutes / 60)}時間前`;
-  const days = Math.floor(minutes / (60 * 24));
-  if (days < 7) return `${days}日前`;
-  return `${date.getMonth() + 1}月${date.getDate()}日`;
-}
-
-function attachmentKindLabel(kind: string): string {
-  if (kind === "note") return "Note";
-  if (kind === "note_draft") return "記事の草稿";
-  if (kind === "quote") return "引用";
-  if (kind === "task") return "Task";
-  return "外部資料";
-}
 
 export function FeedPage({
   data,
@@ -106,28 +152,49 @@ export function FeedPage({
   setToast,
   removeEntity,
 }: PageProps) {
+  const [storedView] = useState<Partial<FeedViewState>>(() => readFeedViewState());
   // 実データでは保存済みの反応を、fixtureでは画面内の印を使う。
-  const [tab, setTab] = useState<FeedTab>("home");
-  const [limit, setLimit] = useState(FEED_PAGE_SIZE);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const [tab, setTab] = useState<FeedTab>(() =>
+    isFeedTab(storedView.tab) ? storedView.tab : "home",
+  );
+  const [bookmarkFilter, setBookmarkFilter] = useState<FeedBookmarkFilter>(() =>
+    isBookmarkFilter(storedView.bookmarkFilter) ? storedView.bookmarkFilter : "bookmark",
+  );
+  const [limit, setLimit] = useState(() => normalizeFeedLimit(storedView.limit));
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(
+    () =>
+      new Set(
+        Array.isArray(storedView.expanded)
+          ? storedView.expanded.filter((value): value is string => typeof value === "string")
+          : [],
+      ),
+  );
   const [bookmarks, setBookmarks] = useState<ReadonlySet<string>>(() => new Set());
   const [interesting, setInteresting] = useState<ReadonlySet<string>>(() => new Set());
   const [known, setKnown] = useState<ReadonlySet<string>>(() => new Set());
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
-  const [authorFilter, setAuthorFilter] = useState<FeedAuthorId | null>(null);
-  const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({});
-  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [authorFilter, setAuthorFilter] = useState<FeedAuthorId | null>(() =>
+    isFeedAuthorId(storedView.authorFilter) ? storedView.authorFilter : null,
+  );
+  const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>(() =>
+    normalizeFeedDrafts(storedView.drafts),
+  );
+  const [openThreadId, setOpenThreadId] = useState<string | null>(() =>
+    optionalFeedId(storedView.threadPostId),
+  );
   const [openNeedsId, setOpenNeedsId] = useState<string | null>(null);
-  const [openArticleId, setOpenArticleId] = useState<string | null>(null);
+  const [openArticleId, setOpenArticleId] = useState<string | null>(() =>
+    optionalFeedId(storedView.articlePostId),
+  );
   const [arrivalsApplied, setArrivalsApplied] = useState(false);
-  /** 保存した投稿だけを読む（ブックマーク入口）。 */
-  const [savedOnly, setSavedOnly] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copyBusy, setCopyBusy] = useState(false);
   const [draftAnswer, setDraftAnswer] = useState("");
   /** 自分の投稿欄の下書き。投稿しても消さず、成功時だけ空にする。 */
-  const [compose, setCompose] = useState("");
+  const [compose, setCompose] = useState(() =>
+    typeof storedView.compose === "string" ? storedView.compose : "",
+  );
   /**
    * 外部AI往復の下書きは投稿別に保持する。正式返信やMCP待ちへ混ぜず、
    * localStorageで再起動後も復帰できるようにする（`docs/feed-external-ai-handoff-plan.md` §C）。
@@ -154,7 +221,44 @@ export function FeedPage({
     >
   >({});
   const [pasteEditingId, setPasteEditingId] = useState<Readonly<Record<string, string | null>>>({});
+  const pageRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<string, HTMLElement>());
+  const scrollTopRef = useRef(
+    typeof storedView.scrollTop === "number" && Number.isFinite(storedView.scrollTop)
+      ? Math.max(0, storedView.scrollTop)
+      : 0,
+  );
+  const anchorPostIdRef = useRef(optionalFeedId(storedView.anchorPostId));
+  const anchorOffsetRef = useRef(
+    typeof storedView.anchorOffset === "number" && Number.isFinite(storedView.anchorOffset)
+      ? storedView.anchorOffset
+      : 0,
+  );
+  const restoredScrollRef = useRef(false);
+  const viewStateRef = useRef<FeedViewState>({
+    tab: isFeedTab(storedView.tab) ? storedView.tab : "home",
+    bookmarkFilter: isBookmarkFilter(storedView.bookmarkFilter)
+      ? storedView.bookmarkFilter
+      : "bookmark",
+    limit: normalizeFeedLimit(storedView.limit),
+    expanded: Array.isArray(storedView.expanded)
+      ? storedView.expanded.filter((value): value is string => typeof value === "string")
+      : [],
+    authorFilter: isFeedAuthorId(storedView.authorFilter) ? storedView.authorFilter : null,
+    drafts: normalizeFeedDrafts(storedView.drafts),
+    compose: typeof storedView.compose === "string" ? storedView.compose : "",
+    threadPostId: optionalFeedId(storedView.threadPostId),
+    articlePostId: optionalFeedId(storedView.articlePostId),
+    anchorPostId: optionalFeedId(storedView.anchorPostId),
+    anchorOffset:
+      typeof storedView.anchorOffset === "number" && Number.isFinite(storedView.anchorOffset)
+        ? storedView.anchorOffset
+        : 0,
+    scrollTop:
+      typeof storedView.scrollTop === "number" && Number.isFinite(storedView.scrollTop)
+        ? Math.max(0, storedView.scrollTop)
+        : 0,
+  });
   // 相対時刻は描画中に現在時刻を読まず、初回に固定する。
   const [now] = useState(() => Date.now());
 
@@ -228,6 +332,23 @@ export function FeedPage({
     return { bookmark, interesting, hidden: hiddenPosts, known: knownPosts };
   }, [domain.feed_reactions]);
 
+  /**
+   * 表示に使う印は、保存済みの反応と開発用fixtureの画面内の印を合わせたもの。
+   * 実データでは保存済みだけが残り、fixtureでは画面内だけに留まる。
+   */
+  const shownBookmarks = useMemo(
+    () => new Set([...bookmarks, ...reactions.bookmark]),
+    [bookmarks, reactions.bookmark],
+  );
+  const shownInteresting = useMemo(
+    () => new Set([...interesting, ...reactions.interesting]),
+    [interesting, reactions.interesting],
+  );
+  const shownKnown = useMemo(
+    () => new Set([...known, ...reactions.known]),
+    [known, reactions.known],
+  );
+
   const sourcePosts = useMemo(() => {
     const all = usingFixtures ? FEED_POSTS : [...ownPosts, ...livePosts, ...replyPosts];
     const visible = all.filter((post) => !hidden.has(post.id) && !reactions.hidden.has(post.id));
@@ -244,30 +365,192 @@ export function FeedPage({
       ? [...sourcePosts.arriving, ...sourcePosts.settled]
       : sourcePosts.settled;
     const base = tab === "learn" ? postsForLearning(posts) : postsForHome(posts);
-    const filtered = withReplies(filterPosts(base, { author: authorFilter }));
-    // 「保存済み」は印を付けた投稿を同じ形のまま読む（並びは変えない）。
-    if (!savedOnly) return filtered;
-    const bookmarked = new Set([...bookmarks, ...reactions.bookmark]);
-    return postsBookmarked(filtered, bookmarked);
-  }, [arrivalsApplied, authorFilter, bookmarks, reactions.bookmark, savedOnly, sourcePosts, tab]);
+    // 返信はホームの投稿列へ差し込まず、選んだ投稿のスレッドで読む。
+    const filtered = filterPosts(base, { author: authorFilter }).filter((post) => !post.replyTo);
+    if (tab !== "bookmarks") return filtered;
+    const selected =
+      bookmarkFilter === "bookmark"
+        ? shownBookmarks
+        : bookmarkFilter === "interesting"
+          ? shownInteresting
+          : shownKnown;
+    return postsBookmarked(filtered, selected);
+  }, [
+    arrivalsApplied,
+    authorFilter,
+    bookmarkFilter,
+    shownBookmarks,
+    shownInteresting,
+    shownKnown,
+    sourcePosts,
+    tab,
+  ]);
 
   const shownPosts = timeline.slice(0, limit);
+  const shownPostsRef = useRef<FeedPost[]>([]);
+  shownPostsRef.current = shownPosts;
   const hasMorePosts = timeline.length > shownPosts.length;
+
+  useEffect(() => {
+    const next: FeedViewState = {
+      tab,
+      bookmarkFilter,
+      limit,
+      expanded: [...expanded],
+      authorFilter,
+      drafts: { ...drafts },
+      compose,
+      threadPostId: openThreadId,
+      articlePostId: openArticleId,
+      anchorPostId: anchorPostIdRef.current,
+      anchorOffset: anchorOffsetRef.current,
+      scrollTop: scrollTopRef.current,
+    };
+    viewStateRef.current = next;
+    writeFeedViewState(next);
+  }, [
+    authorFilter,
+    bookmarkFilter,
+    compose,
+    drafts,
+    expanded,
+    limit,
+    openArticleId,
+    openThreadId,
+    tab,
+  ]);
+
+  const captureScrollAnchor = useCallback(() => {
+    const root = pageRef.current;
+    const container = root?.closest<HTMLElement>(".main-area");
+    if (!container) return;
+    scrollTopRef.current = container.scrollTop;
+    const containerTop = container.getBoundingClientRect().top;
+    const anchor = shownPostsRef.current
+      .map((post) => ({ post, node: rowRefs.current.get(`post-${post.id}`) }))
+      .find(({ node }) => {
+        if (!node) return false;
+        const rect = node.getBoundingClientRect();
+        return rect.bottom >= containerTop + 8;
+      });
+    if (anchor?.node) {
+      anchorPostIdRef.current = anchor.post.id;
+      anchorOffsetRef.current = anchor.node.getBoundingClientRect().top - containerTop;
+    }
+    const next = {
+      ...viewStateRef.current,
+      anchorPostId: anchorPostIdRef.current,
+      anchorOffset: anchorOffsetRef.current,
+      scrollTop: scrollTopRef.current,
+    };
+    viewStateRef.current = next;
+    writeFeedViewState(next);
+  }, []);
+
+  useLayoutEffect(() => {
+    const root = pageRef.current;
+    const container = root?.closest<HTMLElement>(".main-area");
+    if (!container) return;
+    const onScroll = () => {
+      scrollTopRef.current = container.scrollTop;
+    };
+    container.addEventListener("scroll", onScroll, { passive: true });
+    let restoreFrame = 0;
+    let restoreAttempts = 0;
+    const restore = () => {
+      if (restoredScrollRef.current) return;
+      const anchorId = anchorPostIdRef.current;
+      const anchorNode = anchorId ? rowRefs.current.get(`post-${anchorId}`) : null;
+      if (
+        anchorId &&
+        !anchorNode &&
+        container.scrollHeight <= container.clientHeight &&
+        restoreAttempts < 8
+      ) {
+        restoreAttempts += 1;
+        restoreFrame = window.requestAnimationFrame(restore);
+        return;
+      }
+      const desired = anchorNode
+        ? (() => {
+            const containerTop = container.getBoundingClientRect().top;
+            const currentTop = anchorNode.getBoundingClientRect().top - containerTop;
+            return container.scrollTop + currentTop - anchorOffsetRef.current;
+          })()
+        : scrollTopRef.current;
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      container.scrollTop = Math.min(maxScrollTop, Math.max(0, desired));
+      scrollTopRef.current = container.scrollTop;
+      restoredScrollRef.current = true;
+    };
+    restoreFrame = window.requestAnimationFrame(restore);
+    window.addEventListener("beforeunload", captureScrollAnchor);
+    return () => {
+      window.cancelAnimationFrame(restoreFrame);
+      window.removeEventListener("beforeunload", captureScrollAnchor);
+      container.removeEventListener("scroll", onScroll);
+      captureScrollAnchor();
+    };
+  }, [captureScrollAnchor]);
+
   const needsRows = useMemo(() => {
     if (tab !== "needs") return [] as FeedItem[];
     return selectNeedsYou(buildFeedProjection(live.items).items);
   }, [live.items, tab]);
 
   const openNeedsItem = needsRows.find((item) => item.id === openNeedsId) ?? null;
-  const openArticle = useMemo(() => {
-    // 読む面はfixtureと実データの両方を開ける。実データがあればそちらが正本。
-    const pool = usingFixtures ? FEED_POSTS : livePosts;
-    const post = pool.find((entry) => entry.id === openArticleId) ?? null;
-    return post?.attachment?.articleBody ? post : null;
-  }, [livePosts, openArticleId, usingFixtures]);
+  const availablePosts = useMemo(
+    () => [...sourcePosts.arriving, ...sourcePosts.settled],
+    [sourcePosts],
+  );
+  const rootPosts = useMemo(() => availablePosts.filter((post) => !post.replyTo), [availablePosts]);
+  const openThreadPost = rootPosts.find((post) => post.id === openThreadId) ?? null;
+  const threadReplies = useMemo(
+    () =>
+      openThreadId
+        ? replyPosts
+            .filter((reply) => reply.replyTo === openThreadId)
+            .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+        : [],
+    [openThreadId, replyPosts],
+  );
+  const openArticlePost = useMemo(() => {
+    const post = availablePosts.find((entry) => entry.id === openArticleId) ?? null;
+    return post?.attachment?.articleBody?.length || post?.attachment?.articleMarkdown ? post : null;
+  }, [availablePosts, openArticleId]);
+
+  useEffect(() => {
+    if (availablePosts.length === 0) return;
+    if (openThreadId && !rootPosts.some((post) => post.id === openThreadId)) {
+      setOpenThreadId(null);
+    }
+    if (openArticleId && !openArticlePost) {
+      setOpenArticleId(null);
+    }
+  }, [availablePosts.length, openArticleId, openArticlePost, openThreadId, rootPosts]);
 
   const focusRow = useCallback((id: string) => {
     rowRefs.current.get(id)?.focus();
+  }, []);
+
+  const openThread = useCallback((post: FeedPost) => {
+    setOpenArticleId(null);
+    setOpenThreadId((current) => (current === post.id ? null : post.id));
+  }, []);
+
+  const closeThread = useCallback(() => {
+    const originId = openThreadId;
+    setOpenThreadId(null);
+    if (originId) window.requestAnimationFrame(() => focusRow(`post-${originId}`));
+  }, [focusRow, openThreadId]);
+
+  const closeFeedContext = useCallback(() => {
+    setOpenArticleId(null);
+    setOpenThreadId(null);
+  }, []);
+
+  const openArticle = useCallback((post: FeedPost) => {
+    setOpenArticleId(post.id);
   }, []);
 
   /** 記事を閉じたら、開いた投稿へfocusを戻す。 */
@@ -278,16 +561,16 @@ export function FeedPage({
   }, [focusRow, openArticleId]);
 
   useEffect(() => {
-    if (!openArticleId) return;
+    if (!openArticleId && !openThreadId) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        closeArticle();
-      }
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      if (openArticleId) closeArticle();
+      else closeThread();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeArticle, openArticleId]);
+  }, [closeArticle, closeThread, openArticleId, openThreadId]);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpanded((current) => {
@@ -367,26 +650,12 @@ export function FeedPage({
     [reactions, removeEntity, saveEntities, setToast, toggleIn, usingFixtures],
   );
 
-  const toggleBookmark = useCallback(
-    (post: FeedPost) => void toggleReaction(post, "bookmark"),
-    [toggleReaction],
-  );
-
-  const toggleInteresting = useCallback(
-    (post: FeedPost) => void toggleReaction(post, "interesting"),
-    [toggleReaction],
-  );
-
   const hidePost = useCallback(
     (post: FeedPost) => void toggleReaction(post, "hidden"),
     [toggleReaction],
   );
 
   /** 返信の下書きは投稿IDごとに持つ。閉じても消さない。 */
-  const openReply = useCallback((post: FeedPost) => {
-    setReplyTo((current) => (current === post.id ? null : post.id));
-  }, []);
-
   const updateDraft = useCallback((postId: string, value: string) => {
     setDrafts((current) => ({ ...current, [postId]: value }));
   }, []);
@@ -514,7 +783,6 @@ export function FeedPage({
       ...current,
       [post.id]: current[post.id] === panel ? undefined : panel,
     }));
-    setReplyTo((current) => (current === post.id ? current : post.id));
   }, []);
 
   /**
@@ -661,7 +929,6 @@ export function FeedPage({
       });
       setPasteEditingId((current) => ({ ...current, [post.id]: reply.replyId ?? null }));
       setExternalOpen((current) => ({ ...current, [post.id]: "paste" }));
-      setReplyTo(post.id);
     },
     [updatePasteDraft],
   );
@@ -678,6 +945,7 @@ export function FeedPage({
           externalUrl: reply.manualUrl ?? "",
           comment: reply.manualComment ?? "",
         });
+        closeFeedContext();
         openDrawer({
           type: "note",
           mode: "edit",
@@ -691,7 +959,7 @@ export function FeedPage({
         setToast(error instanceof Error ? error.message : String(error), "warning");
       }
     },
-    [openDrawer, setToast],
+    [closeFeedContext, openDrawer, setToast],
   );
 
   /**
@@ -730,7 +998,6 @@ export function FeedPage({
           "main_ui",
         );
         setDrafts((current) => ({ ...current, [post.id]: "" }));
-        setReplyTo(null);
         setNotice(
           options.askAi
             ? "質問を残しました。外部AIが取得すると「依頼済み」、返答が届くと「回答あり」になります。"
@@ -885,17 +1152,21 @@ export function FeedPage({
   const openSavedNote = useCallback(
     (post: FeedPost) => {
       const note = savedNoteOf(post);
-      if (note) openDrawer({ type: "note", entity: note as never });
+      if (note) {
+        closeFeedContext();
+        openDrawer({ type: "note", entity: note as never });
+      }
     },
-    [openDrawer, savedNoteOf],
+    [closeFeedContext, openDrawer, savedNoteOf],
   );
 
   /** 既存Noteへの参照を、既存のNote読書面で開く（編集や別ウィンドウも既存導線を使う）。 */
   const openNoteEntity = useCallback(
     (note: Record<string, unknown>) => {
+      closeFeedContext();
       openDrawer({ type: "note", entity: note as never });
     },
-    [openDrawer],
+    [closeFeedContext, openDrawer],
   );
 
   /** 自分の投稿の元になったメモを、既存のNote面で開く。 */
@@ -908,9 +1179,10 @@ export function FeedPage({
         setToast("元のメモが見つかりません。読み直してください。", "danger");
         return;
       }
+      closeFeedContext();
       openDrawer({ type: "note", entity: note as never });
     },
-    [domain.notes, openDrawer, setToast],
+    [closeFeedContext, domain.notes, openDrawer, setToast],
   );
 
   const taskOf = useCallback(
@@ -929,12 +1201,40 @@ export function FeedPage({
     (item: FeedItem) => {
       const task = taskOf(item);
       if (task) {
+        closeFeedContext();
         openDrawer({ type: "task", entity: task as never, commandSource: "main_ui" });
         return;
       }
+      closeFeedContext();
       navigate("ai-io");
     },
-    [navigate, openDrawer, taskOf],
+    [closeFeedContext, navigate, openDrawer, taskOf],
+  );
+
+  /** 投稿に添えられたTask参照を開く。Taskが見つからなければ既存のAI連携面へ送る。 */
+  const openPostTask = useCallback(
+    (post: FeedPost) => {
+      openTaskDrawer({
+        id: post.id,
+        taskId: null,
+        kind: "today_task",
+        group: "today_change",
+        actor: "self",
+        receivedAt: post.createdAt,
+        dueAt: null,
+        headline: post.attachment?.title ?? "Task",
+        summary: post.attachment?.intro ?? "",
+        state: "info",
+        stateLabel: "Task",
+        generated: null,
+        reasonShown: "",
+        pathLabel: post.attachment?.refLabel ?? "",
+        sourceLabel: null,
+        actions: [],
+        detail: { title: post.attachment?.title ?? "Task", rows: [] },
+      });
+    },
+    [openTaskDrawer],
   );
 
   const submitAnswer = useCallback(
@@ -1008,880 +1308,326 @@ export function FeedPage({
     <div className="page feed-page">
       <PageHeader route="feed" />
 
-      <div className="feed-shell">
-        <header className="feed-tabs" role="tablist" aria-label="Feedの切り替え">
-          {TABS.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === entry.id}
-              className={tab === entry.id ? "is-active" : undefined}
-              onClick={() => {
-                setTab(entry.id);
-                setOpenNeedsId(null);
-                setOpenArticleId(null);
-              }}
-            >
-              {entry.label}
-              {entry.id === "needs" && live.unresolved > 0 ? (
-                <span className="feed-tab-count">{live.unresolved}</span>
-              ) : null}
-            </button>
-          ))}
-          <div className="feed-tabs-spacer" />
-          {tab !== "needs" ? (
-            <button
-              type="button"
-              className="feed-saved-toggle"
-              aria-pressed={savedOnly}
-              onClick={() => setSavedOnly((value) => !value)}
-            >
-              保存済みのみ
-            </button>
-          ) : null}
-          {tab !== "needs" && !arrivalsApplied && sourcePosts.arriving.length > 0 ? (
-            <button
-              type="button"
-              className="feed-new-arrivals"
-              onClick={() => {
-                setArrivalsApplied(true);
-                setNotice(null);
-              }}
-            >
-              新しい投稿 {sourcePosts.arriving.length}件
-            </button>
-          ) : null}
-        </header>
+      <div ref={pageRef} className={`feed-shell feed-layout${openThreadPost ? " has-thread" : ""}`}>
+        <section className="feed-main">
+          <header className="feed-tabs" role="tablist" aria-label="Feedの切り替え">
+            {TABS.map((entry) => {
+              const tabId = `feed-tab-${entry.id}`;
+              const panelId = `feed-panel-${entry.id}`;
+              return (
+                <button
+                  key={entry.id}
+                  id={tabId}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === entry.id}
+                  aria-controls={panelId}
+                  className={tab === entry.id ? "is-active" : undefined}
+                  onClick={() => {
+                    setTab(entry.id);
+                    setOpenNeedsId(null);
+                    setOpenArticleId(null);
+                    setOpenThreadId(null);
+                  }}
+                >
+                  {entry.label}
+                  {entry.id === "needs" && live.unresolved > 0 ? (
+                    <span className="feed-tab-count">{live.unresolved}</span>
+                  ) : null}
+                </button>
+              );
+            })}
+            <div className="feed-tabs-spacer" />
+            {tab !== "needs" && !arrivalsApplied && sourcePosts.arriving.length > 0 ? (
+              <button
+                type="button"
+                className="feed-new-arrivals"
+                onClick={() => {
+                  setArrivalsApplied(true);
+                  setNotice(null);
+                }}
+              >
+                新しい投稿 {sourcePosts.arriving.length}件
+              </button>
+            ) : null}
+          </header>
 
-        {authorFilter ? (
-          <p className="feed-filter-note">
-            {authorOf({ author: authorFilter } as FeedPost).label} の投稿だけを表示しています。
-            <Button variant="ghost" compact onClick={() => setAuthorFilter(null)}>
-              絞り込みを解除
-            </Button>
-          </p>
-        ) : null}
-
-        {savedOnly ? (
-          <p className="feed-filter-note">
-            保存した投稿だけを表示しています。
-            <Button variant="ghost" compact onClick={() => setSavedOnly(false)}>
-              絞り込みを解除
-            </Button>
-          </p>
-        ) : null}
-
-        {notice ? (
-          <p className="feed-notice-line" role="status">
-            {notice}
-          </p>
-        ) : null}
-
-        {/* 自分の投稿欄。既存のMemo入力（Note）へ保存し、そのうちFeedへ載せたものだけを読む。 */}
-        {tab !== "needs" && !usingFixtures ? (
-          <form
-            className="feed-compose"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void publishOwnPost();
-            }}
-          >
-            <label htmlFor="feed-compose-body">自分のメモをFeedへ載せる</label>
-            <textarea
-              id="feed-compose-body"
-              value={compose}
-              onChange={(event) => setCompose(event.target.value)}
-              rows={2}
-              placeholder="気づいたことや、あとで読み返したいことを短く"
-            />
-            <div className="feed-detail-actions">
-              <Button variant="primary" type="submit" disabled={busy}>
-                Feedへ投稿
+          {authorFilter ? (
+            <p className="feed-filter-note">
+              {authorOf({ author: authorFilter } as FeedPost).label} の投稿だけを表示しています。
+              <Button variant="ghost" compact onClick={() => setAuthorFilter(null)}>
+                絞り込みを解除
               </Button>
-              <span className="feed-compose-note">Notesにも同じメモが残ります</span>
-            </div>
-          </form>
-        ) : null}
+            </p>
+          ) : null}
 
-        {tab === "needs" ? (
-          <section className="feed-timeline" aria-label="対応待ち">
-            {needsRows.length === 0 ? (
-              <p className="feed-empty">
-                いま対応する更新はありません。読み物はホームと学びにあります。
-              </p>
-            ) : (
-              <ul className="feed-needs-list">
-                {needsRows.map((item) => (
-                  <li key={item.id} className="feed-needs-row">
-                    <div className="feed-needs-head">
-                      <span className="feed-author-name">{item.actorLabel ?? "Tasken"}</span>
-                      <span className={`feed-state feed-state-${item.state}`}>
-                        {item.stateLabel}
-                      </span>
-                    </div>
-                    <h3 className="feed-needs-title">
-                      <button
-                        type="button"
-                        className="feed-row-open"
-                        aria-expanded={item.id === openNeedsId}
-                        onClick={() => {
-                          setOpenNeedsId(item.id === openNeedsId ? null : item.id);
-                          setDraftAnswer("");
-                        }}
-                        ref={(node) => {
-                          if (node) rowRefs.current.set(`needs-${item.id}`, node);
-                          else rowRefs.current.delete(`needs-${item.id}`);
-                        }}
-                      >
-                        {item.headline}
-                      </button>
-                    </h3>
-                    <p className="feed-post-text">{item.summary}</p>
-                    <p className="feed-post-meta">{item.pathLabel}</p>
-                    <div className="feed-reactions">
-                      {item.actions.slice(0, 2).map((action) => (
-                        <Button
-                          key={action.id}
-                          variant="ghost"
-                          compact
+          {tab === "bookmarks" ? (
+            <div className="feed-bookmark-filters" role="group" aria-label="ブックマークの種類">
+              {(
+                [
+                  ["bookmark", "保存済み", "ブックマーク"],
+                  ["interesting", "おもしろい", "おもしろい印"],
+                  ["known", "既知だった", "既知だった印"],
+                ] as const
+              ).map(([id, label, ariaLabel]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={bookmarkFilter === id ? "is-active" : undefined}
+                  aria-pressed={bookmarkFilter === id}
+                  aria-label={ariaLabel}
+                  onClick={() => setBookmarkFilter(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {notice ? (
+            <p className="feed-notice-line" role="status">
+              {notice}
+            </p>
+          ) : null}
+
+          {/* 自分の投稿欄。既存のMemo入力（Note）へ保存し、そのうちFeedへ載せたものだけを読む。 */}
+          {tab !== "needs" && !usingFixtures ? (
+            <form
+              className="feed-compose"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void publishOwnPost();
+              }}
+            >
+              <label htmlFor="feed-compose-body">自分のメモをFeedへ載せる</label>
+              <textarea
+                id="feed-compose-body"
+                value={compose}
+                onChange={(event) => setCompose(event.target.value)}
+                rows={2}
+                placeholder="気づいたことや、あとで読み返したいことを短く"
+              />
+              <div className="feed-detail-actions">
+                <Button variant="primary" type="submit" disabled={busy}>
+                  Feedへ投稿
+                </Button>
+                <span className="feed-compose-note">Notesにも同じメモが残ります</span>
+              </div>
+            </form>
+          ) : null}
+
+          {tab === "needs" ? (
+            <section
+              id="feed-panel-needs"
+              role="tabpanel"
+              aria-labelledby="feed-tab-needs"
+              className="feed-timeline"
+              aria-label="対応待ち"
+            >
+              {needsRows.length === 0 ? (
+                <p className="feed-empty">
+                  いま対応する更新はありません。読み物はホームと学びにあります。
+                </p>
+              ) : (
+                <ul className="feed-needs-list">
+                  {needsRows.map((item) => (
+                    <li key={item.id} className="feed-needs-row">
+                      <div className="feed-needs-head">
+                        <span className="feed-author-name">{item.actorLabel ?? "Tasken"}</span>
+                        <span className={`feed-state feed-state-${item.state}`}>
+                          {item.stateLabel}
+                        </span>
+                      </div>
+                      <h3 className="feed-needs-title">
+                        <button
+                          type="button"
+                          className="feed-row-open"
+                          aria-expanded={item.id === openNeedsId}
                           onClick={() => {
-                            if (action.id === "open_task" || action.id === "review_report") {
-                              openTaskDrawer(item);
-                              return;
-                            }
-                            setOpenNeedsId(item.id);
+                            setOpenNeedsId(item.id === openNeedsId ? null : item.id);
                             setDraftAnswer("");
                           }}
+                          ref={(node) => {
+                            if (node) rowRefs.current.set(`needs-${item.id}`, node);
+                            else rowRefs.current.delete(`needs-${item.id}`);
+                          }}
                         >
-                          {action.label}
-                        </Button>
-                      ))}
-                    </div>
-                    {openNeedsItem?.id === item.id ? (
-                      <div className="feed-answer">
-                        <p className="feed-post-meta">表示理由: {item.reasonShown}</p>
-                        <dl className="feed-detail-rows">
-                          {item.detail.rows.map((row) => (
-                            <div key={row.label}>
-                              <dt>{row.label}</dt>
-                              <dd>{row.value}</dd>
-                            </div>
-                          ))}
-                        </dl>
-                        {item.requestId ? (
-                          <form
-                            className="feed-reply"
-                            onSubmit={(event) => {
-                              event.preventDefault();
-                              void submitAnswer(item);
+                          {item.headline}
+                        </button>
+                      </h3>
+                      <p className="feed-post-text">{item.summary}</p>
+                      <p className="feed-post-meta">{item.pathLabel}</p>
+                      <div className="feed-reactions">
+                        {item.actions.slice(0, 2).map((action) => (
+                          <Button
+                            key={action.id}
+                            variant="ghost"
+                            compact
+                            onClick={() => {
+                              if (action.id === "open_task" || action.id === "review_report") {
+                                openTaskDrawer(item);
+                                return;
+                              }
+                              setOpenNeedsId(item.id);
+                              setDraftAnswer("");
                             }}
                           >
-                            <label htmlFor="feed-answer-body">回答</label>
-                            <textarea
-                              id="feed-answer-body"
-                              value={draftAnswer}
-                              onChange={(event) => setDraftAnswer(event.target.value)}
-                              rows={3}
-                              disabled={busy}
-                            />
-                            <div className="feed-detail-actions">
-                              <Button variant="primary" type="submit" disabled={busy}>
-                                {busy ? "送信中" : "回答を送る"}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                type="button"
-                                disabled={busy}
-                                onClick={() => void changeTodayDate(item, null)}
-                              >
-                                今日の選択を外す
-                              </Button>
-                            </div>
-                          </form>
-                        ) : (
-                          <div className="feed-detail-actions">
-                            <Button
-                              variant="secondary"
-                              compact
-                              onClick={() => openTaskDrawer(item)}
-                            >
-                              Taskを開く
-                            </Button>
-                          </div>
-                        )}
+                            {action.label}
+                          </Button>
+                        ))}
                       </div>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        ) : (
-          <section className="feed-timeline" aria-label={tab === "learn" ? "学び" : "ホーム"}>
-            {shownPosts.length === 0 ? (
-              <p className="feed-empty">
-                {savedOnly
-                  ? "保存した投稿はまだありません。投稿の「ブックマーク」で保存できます。"
-                  : "まだ読める投稿がありません。"}
-              </p>
-            ) : (
-              <ol className="feed-posts">
-                {shownPosts.map((post) => {
-                  const author = authorOf(post);
-                  const isReply = post.replyTo !== null;
-                  const isExpanded = expanded.has(post.id);
-                  const collapsible = needsMore(post);
-                  // 記事の草稿は採用前と採用後で状態を書き分ける。
-                  const savedNote = savedNoteOf(post);
-                  /** 既存Noteへの参照。投稿は本文と参照だけを持ち、読むのは既存のNote面。 */
-                  const referencedNote = post.referencedNoteId
-                    ? ((
-                        domain.notes as unknown as Array<{ id: string } & Record<string, unknown>>
-                      ).find((note) => note.id === post.referencedNoteId) ?? null)
-                    : null;
-                  const noteRef =
-                    post.attachment?.kind === "note"
-                      ? referencedNote
-                        ? "saved"
-                        : "missing"
-                      : noteReferenceOf(post, savedNote);
-                  const noteMissing = noteRef === "missing";
-                  const body =
-                    isExpanded || !collapsible ? post.paragraphs : post.paragraphs.slice(0, 1);
-                  return (
-                    <li
-                      key={post.id}
-                      className={`feed-post${isReply ? " is-reply" : ""}`}
-                      ref={(node) => {
-                        if (node) rowRefs.current.set(`post-${post.id}`, node);
-                        else rowRefs.current.delete(`post-${post.id}`);
-                      }}
-                    >
-                      {post.id === PREVIOUS_READING_EDGE_ID ? (
-                        <p className="feed-reading-edge">前回の閲覧位置</p>
-                      ) : null}
-                      <article className="feed-post-body">
-                        <span
-                          className={`feed-avatar feed-avatar-${author.kind}`}
-                          aria-hidden="true"
-                        >
-                          {author.initial}
-                        </span>
-                        <div className="feed-post-main">
-                          <div className="feed-post-head">
-                            <button
-                              type="button"
-                              className="feed-author-name"
-                              onClick={() =>
-                                setAuthorFilter(authorFilter === post.author ? null : post.author)
-                              }
-                            >
-                              {author.label}
-                            </button>
-                            {author.kind === "ai" ? (
-                              <span className="feed-ai-badge">AI</span>
-                            ) : null}
-                            <time className="feed-post-time" dateTime={post.createdAt}>
-                              {formatRelative(post.createdAt, now)}
-                            </time>
-                            <span className="feed-post-kind">
-                              {isReply ? null : FEED_POST_KIND_LABELS[post.kind]}
-                            </span>
-                            {isReply ? null : (
-                              <span className="feed-post-menu">
-                                {/* 補助操作。読む面には出さず、三点メニューへ置く（計画の反応表）。 */}
-                                <details className="feed-post-more-menu">
-                                  <summary aria-label="この投稿の補助操作" title="補助操作">
-                                    …
-                                  </summary>
-                                  <div className="feed-post-menu-body">
-                                    <button
-                                      type="button"
-                                      className="feed-reaction"
-                                      aria-pressed={
-                                        known.has(post.id) || reactions.known.has(post.id)
-                                      }
-                                      onClick={(event) => {
-                                        event.currentTarget
-                                          .closest("details")
-                                          ?.removeAttribute("open");
-                                        void toggleReaction(post, "known");
-                                      }}
-                                    >
-                                      既知だった
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="feed-reaction"
-                                      onClick={(event) => {
-                                        event.currentTarget
-                                          .closest("details")
-                                          ?.removeAttribute("open");
-                                        hidePost(post);
-                                      }}
-                                    >
-                                      今回は見送る
-                                    </button>
-                                  </div>
-                                </details>
-                              </span>
-                            )}
-                          </div>
-                          {body.map((paragraph, index) => (
-                            <p key={`${post.id}-${index}`} className="feed-post-text">
-                              {paragraph}
-                            </p>
-                          ))}
-                          {collapsible && !isExpanded ? (
-                            <button
-                              type="button"
-                              className="feed-more-text"
-                              onClick={() => toggleExpanded(post.id)}
-                            >
-                              もっと読む
-                            </button>
-                          ) : null}
-                          {post.attachment ? (
-                            <div
-                              className={`feed-attachment is-${post.attachment.kind}${
-                                noteMissing ? " is-missing" : ""
-                              }`}
-                            >
-                              <span className="feed-attachment-kind">
-                                {savedNote || referencedNote || noteMissing
-                                  ? "Note"
-                                  : attachmentKindLabel(post.attachment.kind)}
-                              </span>
-                              <h4 className="feed-attachment-title">
-                                {String(referencedNote?.title || "") || post.attachment.title}
-                              </h4>
-                              <p className="feed-attachment-intro">
-                                {savedNote
-                                  ? "保存済みのNote"
-                                  : referencedNote
-                                    ? "参照しているNote"
-                                    : noteMissing
-                                      ? "参照先が削除されています"
-                                      : post.attachment.intro}
-                              </p>
-                              {noteMissing ? (
-                                <p className="feed-attachment-missing">
-                                  {post.draft
-                                    ? "元のNoteを「元に戻す」と、この参照からまた読めます。草稿の本文は残っています。"
-                                    : "元のNoteを「元に戻す」と、この参照からまた読めます。"}
-                                </p>
-                              ) : null}
-                              {post.attachment.figureLabel ? (
-                                <div className="feed-figure">
-                                  <span className="feed-figure-label">
-                                    {post.attachment.figureLabel}
-                                  </span>
-                                </div>
-                              ) : null}
-                              <div className="feed-attachment-foot">
-                                <span className="feed-attachment-ref">
-                                  {post.attachment.refLabel}
-                                </span>
-                                {post.attachment.articleBody ? (
-                                  <Button
-                                    variant="ghost"
-                                    compact
-                                    onClick={() => setOpenArticleId(post.id)}
-                                  >
-                                    {post.attachment.kind === "note_draft"
-                                      ? "草稿を読む"
-                                      : "記事を読む"}
-                                  </Button>
-                                ) : post.attachment.kind === "note" ? (
-                                  referencedNote ? (
-                                    <Button
-                                      variant="ghost"
-                                      compact
-                                      onClick={() => openNoteEntity(referencedNote)}
-                                    >
-                                      Noteで読む
-                                    </Button>
-                                  ) : null
-                                ) : (
-                                  <Button
-                                    variant="ghost"
-                                    compact
-                                    onClick={() =>
-                                      openTaskDrawer({
-                                        id: post.id,
-                                        taskId: null,
-                                        kind: "today_task",
-                                        group: "today_change",
-                                        actor: "self",
-                                        receivedAt: post.createdAt,
-                                        dueAt: null,
-                                        headline: post.attachment!.title,
-                                        summary: post.attachment!.intro,
-                                        state: "info",
-                                        stateLabel: "Task",
-                                        generated: null,
-                                        reasonShown: "",
-                                        pathLabel: post.attachment!.refLabel,
-                                        sourceLabel: null,
-                                        actions: [],
-                                        detail: { title: post.attachment!.title, rows: [] },
-                                      })
-                                    }
-                                  >
-                                    {post.attachment.kind === "external"
-                                      ? "原典を開く"
-                                      : "Taskを開く"}
-                                  </Button>
-                                )}
-                                {/* 草稿は読むだけでは正式データにしない。保存は本人が選ぶ。 */}
-                                {post.draft ? (
-                                  savedNote ? (
-                                    <Button
-                                      variant="ghost"
-                                      compact
-                                      onClick={() => openSavedNote(post)}
-                                    >
-                                      Noteで読む
-                                    </Button>
-                                  ) : noteMissing ? null : (
-                                    <Button
-                                      variant="secondary"
-                                      compact
-                                      disabled={busy}
-                                      onClick={() => void saveDraftAsNote(post)}
-                                    >
-                                      Noteに保存
-                                    </Button>
-                                  )
-                                ) : null}
+                      {openNeedsItem?.id === item.id ? (
+                        <div className="feed-answer">
+                          <p className="feed-post-meta">表示理由: {item.reasonShown}</p>
+                          <dl className="feed-detail-rows">
+                            {item.detail.rows.map((row) => (
+                              <div key={row.label}>
+                                <dt>{row.label}</dt>
+                                <dd>{row.value}</dd>
                               </div>
-                            </div>
-                          ) : null}
-                          <div className="feed-reactions">
-                            {isReply ? (
-                              <>
-                                <span className="feed-thread-note">
-                                  {post.manualOrigin === "manual_paste"
-                                    ? manualPasteLabel({ external_source: post.manualSource })
-                                    : post.author === "self"
-                                      ? "自分の返信"
-                                      : "AIの返答"}
-                                </span>
-                                {post.aiState === "requested" ? (
-                                  <span className="feed-thread-state">AIに依頼済み</span>
-                                ) : post.aiState === "answered" ? (
-                                  <span className="feed-thread-state">回答あり</span>
-                                ) : null}
-                                {post.manualOrigin === "manual_paste" ? (
-                                  <span className="feed-thread-note">
-                                    利用者提供であり事実確認済みを意味しません
-                                  </span>
-                                ) : null}
-                                {post.replyId && post.author === "self" ? (
-                                  <button
-                                    type="button"
-                                    className="feed-reaction"
-                                    onClick={() => deleteReply(post)}
-                                  >
-                                    削除
-                                  </button>
-                                ) : null}
-                              </>
-                            ) : (
-                              <button
-                                type="button"
-                                className="feed-reaction"
-                                aria-pressed={replyTo === post.id}
-                                onClick={() => openReply(post)}
-                              >
-                                返信
-                              </button>
-                            )}
-                            {!isReply ? (
-                              <>
-                                <button
-                                  type="button"
-                                  className="feed-reaction"
-                                  aria-pressed={
-                                    interesting.has(post.id) || reactions.interesting.has(post.id)
-                                  }
-                                  onClick={() => toggleInteresting(post)}
-                                >
-                                  ♡ おもしろい
-                                </button>
-                                <button
-                                  type="button"
-                                  className="feed-reaction"
-                                  aria-pressed={
-                                    bookmarks.has(post.id) || reactions.bookmark.has(post.id)
-                                  }
-                                  onClick={() => toggleBookmark(post)}
-                                >
-                                  ブックマーク
-                                </button>
-                                {/* 自分の投稿は既存のNote面で開き、Feedからは外せる（メモは残る）。 */}
-                                {post.noteId ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      className="feed-reaction"
-                                      onClick={() => openOwnNote(post)}
-                                    >
-                                      Noteで読む
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="feed-reaction"
-                                      onClick={() => void unpublishOwnPost(post)}
-                                    >
-                                      Feedから外す
-                                    </button>
-                                  </>
-                                ) : null}
-                              </>
-                            ) : null}
-                          </div>
-                          {isReply && post.manualOrigin === "manual_paste" ? (
-                            <div className="feed-manual-detail">
-                              {post.manualQuestion ? (
-                                <p className="feed-post-meta">質問: {post.manualQuestion}</p>
-                              ) : null}
-                              {post.manualComment ? (
-                                <p className="feed-post-meta">自分の一言: {post.manualComment}</p>
-                              ) : null}
-                              {post.manualUrl && safeMarkdownLinkUrl(post.manualUrl) ? (
-                                <div className="feed-detail-actions">
-                                  <Button
-                                    variant="ghost"
-                                    compact
-                                    type="button"
-                                    onClick={() => openSafeMarkdownLink(post.manualUrl ?? "")}
-                                  >
-                                    会話を開く（外部）
-                                  </Button>
-                                  <span className="feed-post-meta">{post.manualUrl}</span>
-                                </div>
-                              ) : post.manualUrl ? (
-                                <p className="feed-post-meta">会話: {post.manualUrl}</p>
-                              ) : null}
-                              {post.replyTo ? (
-                                <div className="feed-detail-actions">
-                                  <Button
-                                    variant="ghost"
-                                    compact
-                                    type="button"
-                                    onClick={() =>
-                                      startPasteCorrection(
-                                        { ...post, id: post.replyTo ?? "" },
-                                        post,
-                                      )
-                                    }
-                                  >
-                                    貼り付けを訂正
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    compact
-                                    type="button"
-                                    onClick={() =>
-                                      saveManualPasteAsNote(
-                                        { ...post, id: post.replyTo ?? "" },
-                                        post,
-                                      )
-                                    }
-                                  >
-                                    回答をNoteに保存
-                                  </Button>
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : null}
-                          {replyTo === post.id ? (
+                            ))}
+                          </dl>
+                          {item.requestId ? (
                             <form
                               className="feed-reply"
                               onSubmit={(event) => {
                                 event.preventDefault();
-                                void submitReply(post);
+                                void submitAnswer(item);
                               }}
                             >
-                              <label htmlFor={`feed-reply-${post.id}`}>返信</label>
+                              <label htmlFor="feed-answer-body">回答</label>
                               <textarea
-                                id={`feed-reply-${post.id}`}
-                                value={drafts[post.id] ?? ""}
-                                onChange={(event) => updateDraft(post.id, event.target.value)}
-                                rows={2}
-                                placeholder="気づいたことを短く残す"
+                                id="feed-answer-body"
+                                value={draftAnswer}
+                                onChange={(event) => setDraftAnswer(event.target.value)}
+                                rows={3}
+                                disabled={busy}
                               />
                               <div className="feed-detail-actions">
                                 <Button variant="primary" type="submit" disabled={busy}>
-                                  返信を残す
+                                  {busy ? "送信中" : "回答を送る"}
                                 </Button>
-                                {/* 接続済みAIに質問を残すだけ。押した時点ではAIを起動しない。 */}
                                 <Button
-                                  variant="secondary"
+                                  variant="ghost"
                                   type="button"
                                   disabled={busy}
-                                  title="接続済みAIへの質問として残します。押した時点ではAIを起動しません。"
-                                  onClick={() => void submitReply(post, { askAi: true })}
+                                  onClick={() => void changeTodayDate(item, null)}
                                 >
-                                  AIに聞く（接続済みAIへ残す）
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  type="button"
-                                  aria-expanded={externalOpen[post.id] === "copy"}
-                                  onClick={() => toggleExternal(post, "copy")}
-                                >
-                                  外部AIに聞く
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  type="button"
-                                  aria-expanded={externalOpen[post.id] === "paste"}
-                                  onClick={() => toggleExternal(post, "paste")}
-                                >
-                                  外部AIの回答を貼り付け
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  type="button"
-                                  onClick={() => setReplyTo(null)}
-                                >
-                                  閉じる（下書きは残る）
+                                  今日の選択を外す
                                 </Button>
                               </div>
-                              <p className="feed-post-meta">
-                                「AIに聞く」は接続済みAIへの質問保存で、押した時点ではAIを起動しません。
-                              </p>
-                              {externalOpen[post.id] === "copy" ? (
-                                <div
-                                  className="feed-external-panel"
-                                  aria-label="外部AIへの質問コピー"
-                                >
-                                  <p className="feed-post-meta">
-                                    質問と選んだ文脈だけをコピーします。Taskenは送信・ブラウザ起動・AI実行をしません。
-                                  </p>
-                                  <label htmlFor={`feed-copy-q-${post.id}`}>質問</label>
-                                  <textarea
-                                    id={`feed-copy-q-${post.id}`}
-                                    value={copyDrafts[post.id]?.question ?? ""}
-                                    onChange={(event) =>
-                                      updateCopyDraft(post, { question: event.target.value })
-                                    }
-                                    rows={2}
-                                    placeholder="外部AIに聞きたいことを書く"
-                                  />
-                                  <label htmlFor={`feed-copy-excerpt-${post.id}`}>
-                                    元投稿の抜粋（編集可、{FEED_COPY_EXCERPT_MAX}文字以内）
-                                  </label>
-                                  <textarea
-                                    id={`feed-copy-excerpt-${post.id}`}
-                                    value={copyDrafts[post.id]?.excerpt ?? defaultExcerpt(post)}
-                                    onChange={(event) =>
-                                      updateCopyDraft(post, { excerpt: event.target.value })
-                                    }
-                                    rows={3}
-                                  />
-                                  <label htmlFor={`feed-copy-url-${post.id}`}>
-                                    引用・資料URL（任意）
-                                  </label>
-                                  <input
-                                    id={`feed-copy-url-${post.id}`}
-                                    type="url"
-                                    inputMode="url"
-                                    value={copyDrafts[post.id]?.url ?? ""}
-                                    onChange={(event) =>
-                                      updateCopyDraft(post, { url: event.target.value })
-                                    }
-                                    placeholder="https://…"
-                                  />
-                                  <p className="feed-post-meta">
-                                    添付Note全文・Task詳細・他のスレッド・ファイルパスは自動で付けません。内部IDをURLのように見せません。
-                                  </p>
-                                  <div className="feed-detail-actions">
-                                    <Button
-                                      variant="secondary"
-                                      type="button"
-                                      disabled={copyBusy}
-                                      onClick={() => void copyForExternalAi(post)}
-                                    >
-                                      {copyBusy ? "コピー中" : "コピーする"}
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      type="button"
-                                      onClick={() => discardExternalDraft(post)}
-                                    >
-                                      下書きを破棄
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : null}
-                              {externalOpen[post.id] === "paste" ? (
-                                <div
-                                  className="feed-external-panel"
-                                  aria-label="外部AI回答の貼り付け"
-                                >
-                                  <p className="feed-post-meta">
-                                    コピー操作をしていなくても使えます。通常の貼り付けで入力し、クリップボードの自動読取はしません。保存先:
-                                    この投稿のスレッド。
-                                  </p>
-                                  <label htmlFor={`feed-paste-a-${post.id}`}>
-                                    回答本文（{FEED_MANUAL_REPLY_MAX}文字以内）
-                                  </label>
-                                  <textarea
-                                    id={`feed-paste-a-${post.id}`}
-                                    value={pasteDrafts[post.id]?.answer ?? ""}
-                                    onChange={(event) =>
-                                      updatePasteDraft(post, { answer: event.target.value })
-                                    }
-                                    rows={4}
-                                    placeholder="外部AIの回答を貼り付け"
-                                  />
-                                  <p className="feed-post-meta">
-                                    {(pasteDrafts[post.id]?.answer ?? "").length}/
-                                    {FEED_MANUAL_REPLY_MAX}文字
-                                  </p>
-                                  <label htmlFor={`feed-paste-q-${post.id}`}>
-                                    質問（{FEED_MANUAL_QUESTION_MAX}文字以内）
-                                  </label>
-                                  <textarea
-                                    id={`feed-paste-q-${post.id}`}
-                                    value={pasteDrafts[post.id]?.question ?? ""}
-                                    onChange={(event) =>
-                                      updatePasteDraft(post, { question: event.target.value })
-                                    }
-                                    rows={2}
-                                  />
-                                  <label htmlFor={`feed-paste-s-${post.id}`}>
-                                    出所（任意、{FEED_MANUAL_SOURCE_MAX}文字以内。例: M365 Copilot）
-                                  </label>
-                                  <input
-                                    id={`feed-paste-s-${post.id}`}
-                                    value={pasteDrafts[post.id]?.source ?? ""}
-                                    onChange={(event) =>
-                                      updatePasteDraft(post, { source: event.target.value })
-                                    }
-                                    placeholder="未指定なら「外部AI」と表示"
-                                  />
-                                  <label htmlFor={`feed-paste-u-${post.id}`}>会話URL（任意）</label>
-                                  <input
-                                    id={`feed-paste-u-${post.id}`}
-                                    type="url"
-                                    inputMode="url"
-                                    value={pasteDrafts[post.id]?.url ?? ""}
-                                    onChange={(event) =>
-                                      updatePasteDraft(post, { url: event.target.value })
-                                    }
-                                    placeholder="https://…"
-                                  />
-                                  <label htmlFor={`feed-paste-c-${post.id}`}>
-                                    自分の一言（任意、{FEED_MANUAL_COMMENT_MAX}文字以内）
-                                  </label>
-                                  <textarea
-                                    id={`feed-paste-c-${post.id}`}
-                                    value={pasteDrafts[post.id]?.comment ?? ""}
-                                    onChange={(event) =>
-                                      updatePasteDraft(post, { comment: event.target.value })
-                                    }
-                                    rows={2}
-                                    placeholder="自分の解釈・気づき"
-                                  />
-                                  <div className="feed-preview" aria-label="保存前プレビュー">
-                                    <p className="feed-post-meta">保存前プレビュー</p>
-                                    <p className="feed-post-meta">
-                                      {manualPasteLabel({
-                                        external_source: pasteDrafts[post.id]?.source,
-                                      })}
-                                    </p>
-                                    {pasteDrafts[post.id]?.question ? (
-                                      <p className="feed-post-meta">
-                                        質問: {pasteDrafts[post.id]?.question}
-                                      </p>
-                                    ) : null}
-                                    {pasteDrafts[post.id]?.answer ? (
-                                      <p className="feed-post-text">
-                                        {pasteDrafts[post.id]?.answer}
-                                      </p>
-                                    ) : null}
-                                    {pasteDrafts[post.id]?.comment ? (
-                                      <p className="feed-post-meta">
-                                        自分の一言: {pasteDrafts[post.id]?.comment}
-                                      </p>
-                                    ) : null}
-                                    <p className="feed-post-meta">
-                                      回答内容・出所・会話URLは利用者提供であり、事実確認済みを意味しません。
-                                    </p>
-                                  </div>
-                                  <div className="feed-detail-actions">
-                                    <Button
-                                      variant="primary"
-                                      type="button"
-                                      disabled={busy}
-                                      onClick={() => void saveManualPaste(post)}
-                                    >
-                                      {pasteEditingId[post.id]
-                                        ? "訂正を保存"
-                                        : busy
-                                          ? "保存中"
-                                          : "返信として保存"}
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      type="button"
-                                      onClick={() => discardExternalDraft(post)}
-                                    >
-                                      下書きを破棄
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : null}
                             </form>
-                          ) : null}
+                          ) : (
+                            <div className="feed-detail-actions">
+                              <Button
+                                variant="secondary"
+                                compact
+                                onClick={() => openTaskDrawer(item)}
+                              >
+                                Taskを開く
+                              </Button>
+                            </div>
+                          )}
                         </div>
-                      </article>
+                      ) : null}
                     </li>
-                  );
-                })}
-              </ol>
-            )}
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : (
+            <section
+              id={`feed-panel-${tab}`}
+              role="tabpanel"
+              aria-labelledby={`feed-tab-${tab}`}
+              className="feed-timeline"
+              aria-label={
+                tab === "learn" ? "学び" : tab === "bookmarks" ? "ブックマーク" : "ホーム"
+              }
+            >
+              <FeedStream
+                posts={shownPosts}
+                replyPosts={replyPosts}
+                notes={domain.notes}
+                now={now}
+                authorFilter={authorFilter}
+                expanded={expanded}
+                openThreadId={openThreadId}
+                busy={busy}
+                bookmarks={shownBookmarks}
+                interesting={shownInteresting}
+                known={shownKnown}
+                hasMore={hasMorePosts}
+                emptyLabel={
+                  tab === "bookmarks"
+                    ? bookmarkFilter === "bookmark"
+                      ? "保存した投稿はまだありません。投稿のブックマークで保存できます。"
+                      : bookmarkFilter === "interesting"
+                        ? "「おもしろい」を付けた投稿はまだありません。"
+                        : "「既知だった」を付けた投稿はまだありません。"
+                    : "まだ読める投稿がありません。"
+                }
+                onToggleExpanded={toggleExpanded}
+                onAuthorFilter={setAuthorFilter}
+                onOpenThread={openThread}
+                onOpenArticle={openArticle}
+                onToggleReaction={(target, kind) => void toggleReaction(target, kind)}
+                onHide={hidePost}
+                onOpenNote={openNoteEntity}
+                onOpenTask={openPostTask}
+                onSaveDraft={(target) => void saveDraftAsNote(target)}
+                onOpenSavedNote={openSavedNote}
+                onOpenOwnNote={openOwnNote}
+                onUnpublish={(target) => void unpublishOwnPost(target)}
+                onMore={() => setLimit((value) => value + FEED_PAGE_SIZE)}
+                registerRow={(postId, node) => {
+                  if (node) rowRefs.current.set(`post-${postId}`, node);
+                  else rowRefs.current.delete(`post-${postId}`);
+                }}
+              />
+            </section>
+          )}
 
-            {hasMorePosts ? (
-              <Button
-                variant="secondary"
-                className="feed-more"
-                onClick={() => setLimit((value) => value + FEED_PAGE_SIZE)}
-              >
-                さらに読む（次の{FEED_PAGE_SIZE}件）
-              </Button>
-            ) : null}
+          {openArticlePost ? (
+            <FeedArticleReader
+              post={openArticlePost}
+              savedNote={savedNoteOf(openArticlePost)}
+              busy={busy}
+              onClose={closeArticle}
+              onOpenThread={openThread}
+              onSaveDraft={(post) => void saveDraftAsNote(post)}
+              onOpenSavedNote={openSavedNote}
+            />
+          ) : null}
+        </section>
 
-            <p className="feed-end">ここまでの投稿を表示しました</p>
-          </section>
-        )}
+        {openThreadPost ? (
+          <FeedThreadPanel
+            post={openThreadPost}
+            replies={threadReplies}
+            draft={drafts[openThreadPost.id] ?? ""}
+            copyDraft={copyDrafts[openThreadPost.id] as FeedThreadDraft | undefined}
+            pasteDraft={pasteDrafts[openThreadPost.id] as FeedPasteDraft | undefined}
+            pasteEditingId={pasteEditingId[openThreadPost.id] ?? null}
+            externalOpen={externalOpen[openThreadPost.id]}
+            busy={busy}
+            copyBusy={copyBusy}
+            onClose={closeThread}
+            onOpenArticle={openArticle}
+            onDraftChange={updateDraft}
+            onSubmitReply={(post, options) => void submitReply(post, options)}
+            onDeleteReply={(reply) => void deleteReply(reply)}
+            onToggleExternal={toggleExternal}
+            onUpdateCopyDraft={updateCopyDraft}
+            onCopyForExternalAi={(post) => void copyForExternalAi(post)}
+            onUpdatePasteDraft={updatePasteDraft}
+            onSaveManualPaste={(post) => void saveManualPaste(post)}
+            onDiscardExternalDraft={discardExternalDraft}
+            onStartPasteCorrection={startPasteCorrection}
+            onSaveManualPasteAsNote={(post, reply) => void saveManualPasteAsNote(post, reply)}
+          />
+        ) : null}
       </div>
-
-      {openArticle ? (
-        <aside className="feed-reader" aria-label="記事">
-          <div className="feed-reader-head">
-            <span className="feed-attachment-kind">
-              {attachmentKindLabel(openArticle.attachment!.kind)}
-            </span>
-            <Button variant="ghost" compact onClick={closeArticle}>
-              戻る
-            </Button>
-          </div>
-          <h2 className="feed-reader-title">{openArticle.attachment!.title}</h2>
-          <p className="feed-reader-intro">{openArticle.attachment!.intro}</p>
-          {(openArticle.attachment!.articleBody ?? []).map((paragraph, index) => (
-            <p key={`article-${index}`} className="feed-reader-text">
-              {paragraph}
-            </p>
-          ))}
-          <p className="feed-reader-ref">{openArticle.attachment!.refLabel}</p>
-        </aside>
-      ) : null}
     </div>
   );
 }
