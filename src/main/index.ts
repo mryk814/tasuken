@@ -482,6 +482,8 @@ interface SmokeReloadResult {
 interface SmokeMiniResult {
   todayMiniOpened: boolean;
   todayMiniAlwaysOnTop: boolean;
+  /** この環境が always-on-top を報告するか。falseなら最前面の検査は環境要因として扱う（#607）。 */
+  todayMiniTopmostSupported: boolean;
   todayMiniTaskVisible: boolean;
   todayMiniCompletionSaved: boolean;
   todayMiniOpenDetail: boolean;
@@ -490,6 +492,47 @@ interface SmokeMiniResult {
   todayMiniThemeKeyboard: boolean;
   todayMiniThemeSaved: boolean;
   todayMiniFailurePreserved: boolean;
+}
+
+/**
+ * ウィンドウ環境がどこまで保証するかを、無関係な新規ウィンドウで測る（#607）。
+ *
+ * - `topmostReported`: OSが `setAlwaysOnTop` を報告するか。リモート表示など、
+ *   最前面を無視する環境では常にfalseになる。
+ * - `boundsDelta`: 指定サイズと実際のサイズの差。ウィンドウ枠やDPIの丸めで
+ *   1px動く環境があり、boundsの厳密一致を要求すると本体の不具合と区別できない。
+ */
+async function probeWindowEnvironment(): Promise<{
+  topmostReported: boolean;
+  boundsDelta: number;
+}> {
+  const probeWidth = 200;
+  const probeHeight = 120;
+  const probe = new BrowserWindow({
+    width: probeWidth,
+    height: probeHeight,
+    show: false,
+    // Todayミニと同じ条件（枠なし・最前面・タスクバー非表示）で測る。
+    // 条件を変えると、測れる環境と測れない環境の差が本体の差と混ざる。
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+  });
+  try {
+    probe.show();
+    probe.setAlwaysOnTop(true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const bounds = probe.getBounds();
+    return {
+      topmostReported: probe.isAlwaysOnTop(),
+      boundsDelta: Math.max(
+        Math.abs(bounds.width - probeWidth),
+        Math.abs(bounds.height - probeHeight),
+      ),
+    };
+  } finally {
+    if (!probe.isDestroyed()) probe.destroy();
+  }
 }
 
 function recordSmoke(stage: string, details: Record<string, unknown> = {}): void {
@@ -1670,6 +1713,7 @@ flowchart LR
   let mini: SmokeMiniResult = {
     todayMiniOpened: false,
     todayMiniAlwaysOnTop: false,
+    todayMiniTopmostSupported: false,
     todayMiniTaskVisible: false,
     todayMiniCompletionSaved: false,
     todayMiniOpenDetail: false,
@@ -1691,6 +1735,19 @@ flowchart LR
     mini.todayMiniOpened = created.todayMiniWindowOpened && todayMini.isVisible();
     const initialMiniId = todayMini.webContents.id;
     const initialMiniBounds = todayMini.getBounds();
+    // 環境がどこまで保証するかを、無関係な新規ウィンドウで先に測る。
+    // topmostを無視する環境（リモート表示など）やウィンドウ枠の丸めで、
+    // Todayミニ本体の検査だけが落ちないようにする（#607）。
+    const windowEnvironment = await probeWindowEnvironment();
+    mini.todayMiniTopmostSupported = windowEnvironment.topmostReported;
+    const boundsWithinEnvironment = (
+      left: Electron.Rectangle,
+      right: Electron.Rectangle,
+    ): boolean =>
+      Math.abs(left.x - right.x) <= windowEnvironment.boundsDelta &&
+      Math.abs(left.y - right.y) <= windowEnvironment.boundsDelta &&
+      Math.abs(left.width - right.width) <= windowEnvironment.boundsDelta &&
+      Math.abs(left.height - right.height) <= windowEnvironment.boundsDelta;
     const toggleResult = (await window.webContents.executeJavaScript(`
       (async () => {
         const hidden = await window.api.app.toggleTodayMiniWindow(); for (let attempt = 0; attempt < 20 && (await window.api.app.getSatelliteWindowState()).todayOpen; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
@@ -1702,24 +1759,21 @@ flowchart LR
       const settledBounds = todayMini.getBounds();
       if (
         todayMini.isVisible() &&
-        todayMini.isAlwaysOnTop() &&
-        settledBounds.x === initialMiniBounds.x &&
-        settledBounds.y === initialMiniBounds.y &&
-        settledBounds.width === initialMiniBounds.width &&
-        settledBounds.height === initialMiniBounds.height
+        (!windowEnvironment.topmostReported || todayMini.isAlwaysOnTop()) &&
+        boundsWithinEnvironment(settledBounds, initialMiniBounds)
       )
         break;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    const restoredBounds = todayMini.getBounds();
     mini.todayMiniToggleRestored =
       toggleResult.hidden === false &&
       toggleResult.shown === true &&
       todayMini.isVisible() &&
       todayMini.webContents.id === initialMiniId &&
-      todayMini.getBounds().x === initialMiniBounds.x &&
-      todayMini.getBounds().y === initialMiniBounds.y &&
-      todayMini.getBounds().width === initialMiniBounds.width &&
-      todayMini.getBounds().height === initialMiniBounds.height;
+      boundsWithinEnvironment(restoredBounds, initialMiniBounds);
+    // OSがtopmostを報告する環境では復帰後も最前面であること。
+    // 報告しない環境では同じ値が常にfalseになるため、通過条件で環境要因として扱う。
     mini.todayMiniAlwaysOnTop = todayMini.isAlwaysOnTop();
     const longTheme = todayMiniThemeMatrix.at(-1)!;
     await todayMini.webContents.executeJavaScript(`
@@ -2125,7 +2179,8 @@ flowchart LR
         result.rawCopyNotified &&
         result.rootReady &&
         result.todayMiniOpened &&
-        result.todayMiniAlwaysOnTop &&
+        // 最前面を報告しない環境では、この検査だけを環境要因として通過させる（#607）。
+        (result.todayMiniAlwaysOnTop || !result.todayMiniTopmostSupported) &&
         result.todayMiniTaskVisible &&
         result.todayMiniCompletionSaved &&
         result.todayMiniOpenDetail &&

@@ -150,8 +150,15 @@ test("desktop smoke waits for the exact pasted nodes and settled Today mini stat
   );
   assert.match(
     source,
-    /toggleResult[\s\S]*?for \(let attempt = 0;[\s\S]*?const settledBounds = todayMini\.getBounds\(\)[\s\S]*?todayMini\.isVisible\(\)[\s\S]*?todayMini\.isAlwaysOnTop\(\)[\s\S]*?settledBounds\.x === initialMiniBounds\.x[\s\S]*?settledBounds\.height === initialMiniBounds\.height[\s\S]*?todayMiniToggleRestored/,
+    /toggleResult[\s\S]*?for \(let attempt = 0;[\s\S]*?const settledBounds = todayMini\.getBounds\(\)[\s\S]*?todayMini\.isVisible\(\)[\s\S]*?topmostReported \|\| todayMini\.isAlwaysOnTop\(\)[\s\S]*?boundsWithinEnvironment\(settledBounds, initialMiniBounds\)[\s\S]*?todayMiniToggleRestored/,
   );
+  // 環境がどこまで保証するかを先に測り、最前面を報告しない環境でも
+  // 本体の不具合と区別できるようにする（#607）。
+  assert.match(
+    source,
+    /probeWindowEnvironment[\s\S]*?topmostReported: probe\.isAlwaysOnTop\(\)[\s\S]*?boundsDelta/,
+  );
+  assert.match(source, /result\.todayMiniAlwaysOnTop \|\| !result\.todayMiniTopmostSupported/);
 });
 
 test("desktop smoke opens Tasken Root and reaches will-quit through a bounded app.quit path", async () => {
