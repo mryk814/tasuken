@@ -118,15 +118,16 @@ export function ArtifactsPage({
   }, [data, prefs, query, recentRank]);
 
   const hasAny = (data.artifacts || []).length > 0;
-  function openFeedPost(postId: string) {
-    navigate("feed");
-    requestFeedPostFocus(postId);
-  }
   const filterActive =
     prefs.themeId !== "all" ||
     prefs.sourceType !== "all" ||
     prefs.typeFilter !== "all" ||
     Boolean(query.trim());
+
+  function openFeedPost(postId: string) {
+    navigate("feed");
+    requestFeedPostFocus(postId);
+  }
 
   function copyList() {
     const header = "ファイル名\t種類\tTheme\t元Entity\t作成日\tパス";
