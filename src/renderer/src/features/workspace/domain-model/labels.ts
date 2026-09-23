@@ -207,6 +207,7 @@ export const ARTIFACT_SOURCE_TYPE_LABELS: Record<string, string> = {
   theme: "Theme",
   capture_entry: "Inbox",
   ai_proposal: "AI Proposal",
+  feed_post: "Feed投稿",
 };
 
 export const ARTIFACT_GENERATED_BY_LABELS: Record<string, string> = {
@@ -308,6 +309,7 @@ export const ENTITY_REF_TYPE_LABELS: Record<EntityRefType, string> = {
   waiting: "待ち",
   plan_node: "計画ノード",
   note: "メモ",
+  feed_post: "Feed投稿",
   resource: "リソース",
   knowledge_node: "Knowledge",
   sketch: "Sketch",

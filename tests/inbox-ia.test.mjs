@@ -117,14 +117,19 @@ test("Inbox itemの既定の行き先はTaskで、他種別はmenuへ畳む（#3
   assert.match(inboxPageSource, /captureArtifacts\(row\.entry\.id\)/);
 });
 
-test("未整理の付箋メモは通常のMemoとしてFeedへ載せられる", () => {
-  // 本文コピーと同じ並びでNote化し、整理先はNoteのまま残す。未整理の全件は流さない。
-  assert.match(inboxPageSource, /function postMicroMemoToFeed\(memo: CaptureEntry\)/);
-  assert.match(inboxPageSource, /captureFeedNote\(\s*\{/);
-  assert.match(inboxPageSource, /buildSaveNoteOperations\(note\)/);
-  assert.match(inboxPageSource, /triaged_to_type: "note"/);
-  assert.match(inboxPageSource, /navigate\("feed"\)/);
-  assert.match(inboxPageSource, /aria-label="付箋メモをFeedへ載せる"/);
+test("未整理のInbox記録はFeed専用の投稿として整理できる", () => {
+  // 未整理の全件は流さず、選んだ行き先とショートカットだけFeed専用へ渡す。Notesには残さない。
+  assert.match(inboxPageSource, /"feed", "Feed"/);
+  assert.match(inboxPageSource, /organize\(row, "feed"\)/);
+  assert.match(inboxPageSource, /captureFeedPost\(\s*\{/);
+  assert.match(inboxPageSource, /buildSaveFeedPostOperations\(post\)/);
+  assert.match(
+    inboxPageSource,
+    /buildTriageCaptureEntryOperations\(row\.entry,\s*\{\s*type:\s*"feed_post",\s*id:\s*postId\s*\}\)/,
+  );
+  assert.match(inboxPageSource, /rememberOrganized\("feed", postId, title, post\)/);
+  assert.match(inboxPageSource, /aria-keyshortcuts="Alt\+P"/);
+  assert.match(inboxPageSource, /event\.key\.toLowerCase\(\) !== "p"/);
 });
 
 test("ToDoは表から追加を撤去し、作成しただけで今日へ入れない（#317）", async () => {

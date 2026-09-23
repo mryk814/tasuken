@@ -1,9 +1,10 @@
 /**
  * Inbox→Feedの実動監査。
  *
- * 隔離した一時userDataへ未整理の付箋メモを1件だけ入れ、実際のクリック操作で
- * Feedへ載せられることを確かめる。保存されたNoteと元の付箋の整理結果は、
- * アプリを閉じてから同じSQLiteを開き直して検証する。
+ * 隔離した一時userDataへ未整理のInbox記録を2件だけ入れ、行のショートカットと
+ * Alt+Pの両方でFeed専用の投稿へ載せられることを確かめる。保存された投稿と
+ * 元の記録の整理結果は、アプリを閉じてから同じSQLiteを開き直して検証する。
+ * 自分の投稿がNotesに残らないことも確かめる。
  *
  *   npm run build && npm run audit:inbox-feed
  *
@@ -22,10 +23,17 @@ delete process.env.ELECTRON_RUN_AS_NODE;
 
 const OUT_DIR = "output/playwright/inbox-feed";
 const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
-const CAPTURE_ID = "inbox-feed-audit-memo";
 const SOURCE_ID = "inbox-feed-audit-source";
-const MEMO_TITLE = "乾燥の気づき";
-const MEMO_TEXT = "同じ条件でも乾燥時間が違うと結果が変わる。";
+const FIRST_ROW = {
+  captureId: "inbox-feed-audit-row",
+  title: "乾燥の気づき",
+  text: "同じ条件でも乾燥時間が違うと結果が変わる。",
+};
+const SECOND_ROW = {
+  captureId: "inbox-feed-audit-shortcut",
+  title: "標本の気づき",
+  text: "3回以下なら幅だけを見る。",
+};
 
 mkdirSync(OUT_DIR, { recursive: true });
 const userDataDir = mkdtempSync(path.join(os.tmpdir(), "tasken-inbox-feed-audit-"));
@@ -59,7 +67,7 @@ async function launchApp() {
   return { app, page };
 }
 
-async function openInboxMicroLane(page) {
+async function openInboxUntriagedLane(page) {
   await page.locator(".sidebar button", { hasText: "Inbox" }).first().click();
   await page.waitForFunction(
     (label) =>
@@ -67,7 +75,7 @@ async function openInboxMicroLane(page) {
       label,
     "Inbox",
   );
-  await page.locator(".inbox-tabs button", { hasText: "付箋メモ" }).first().click();
+  await page.locator(".inbox-tabs button", { hasText: "未整理" }).first().click();
   await page.waitForTimeout(500);
 }
 
@@ -81,29 +89,81 @@ async function waitForActiveRoute(page, label) {
   await page.waitForTimeout(300);
 }
 
+function inboxCard(page, row) {
+  return page.locator(".inbox-card", { hasText: row.text }).first();
+}
+
+async function assertFeedPost(page, row, screenshot) {
+  await page.locator(".toast", { hasText: "に投稿しました" }).first().waitFor();
+  await waitForActiveRoute(page, "Feed");
+  const posted = page.locator(".feed-post", { hasText: row.text }).first();
+  if ((await posted.count()) !== 1) {
+    failures.push(`投稿した記録「${row.title}」がFeedの投稿列にありません。`);
+    return;
+  }
+  await page.screenshot({ path: `${OUT_DIR}/${screenshot}` });
+}
+
+async function assertInboxCleared(page, row) {
+  await openInboxUntriagedLane(page);
+  if ((await inboxCard(page, row).count()) !== 0) {
+    failures.push(`投稿した記録「${row.title}」が未整理Inboxに残っています。`);
+  }
+}
+
 /** 画面の操作を最後まで通せたか。途中で失敗したときは保存状態を判定しない。 */
 try {
   const { app, page } = await launchApp();
   try {
-    await openInboxMicroLane(page);
-    const memo = page.locator(".micro-memo-card", { hasText: MEMO_TEXT }).first();
-    if ((await memo.count()) !== 1) {
-      failures.push("監査用の付箋メモが1件だけ表示されていません。");
+    // 行のショートカットで、そのままの題名・説明・ThemeをFeedへ渡す。
+    await openInboxUntriagedLane(page);
+    if ((await inboxCard(page, FIRST_ROW).count()) !== 1) {
+      failures.push("監査用の未整理記録が1件だけ表示されていません。");
     } else {
-      await page.screenshot({ path: `${OUT_DIR}/micro-before.png` });
-      await memo.locator('button[aria-label="付箋メモをFeedへ載せる"]').click();
-      await page.locator(".toast", { hasText: "Feedへ投稿しました" }).first().waitFor();
-      await waitForActiveRoute(page, "Feed");
-      const posted = page.locator(".feed-post", { hasText: MEMO_TEXT }).first();
-      if ((await posted.count()) !== 1) {
-        failures.push("投稿した付箋メモがFeedの投稿列にありません。");
-      }
-      await page.screenshot({ path: `${OUT_DIR}/posted.png` });
+      await page.screenshot({ path: `${OUT_DIR}/row-before.png` });
+      await inboxCard(page, FIRST_ROW).locator('button[title$="Feedへ載せる"]').click();
+      await assertFeedPost(page, FIRST_ROW, "posted-button.png");
+      await assertInboxCleared(page, FIRST_ROW);
+    }
 
-      await openInboxMicroLane(page);
-      if ((await page.locator(".micro-memo-card", { hasText: MEMO_TEXT }).count()) !== 0) {
-        failures.push("投稿した付箋メモがInboxの付箋一覧に残っています。");
-      }
+    // Alt+Pで選択中をFeedへ渡す。入力欄にフォーカスがあるときは発火しない。
+    await openInboxUntriagedLane(page);
+    if ((await inboxCard(page, SECOND_ROW).count()) !== 1) {
+      failures.push("ショートカット用の未整理記録が1件だけ表示されていません。");
+    } else {
+      await inboxCard(page, SECOND_ROW)
+        .locator(`input[aria-label="${SECOND_ROW.title}を選択"]`)
+        .check();
+      await page.evaluate(() => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      });
+      await page.keyboard.press("Alt+p");
+      await assertFeedPost(page, SECOND_ROW, "posted-shortcut.png");
+
+      // 投稿列で編集・削除・元に戻すが回る。Notesは経由しない。
+      const secondCard = page.locator(".feed-post", { hasText: SECOND_ROW.text }).first();
+      await secondCard.locator('button:has-text("編集")').click();
+      const editor = secondCard.locator(".feed-own-post-editor textarea").first();
+      await editor.fill(`${SECOND_ROW.title}\n${SECOND_ROW.text}（追記）`);
+      await secondCard.locator('.feed-own-post-editor button:has-text("保存")').click();
+      await page
+        .locator(".feed-post", { hasText: `${SECOND_ROW.text}（追記）` })
+        .first()
+        .waitFor();
+      await page.screenshot({ path: `${OUT_DIR}/edited.png` });
+      await secondCard.locator('button:has-text("削除")').click();
+      await page.waitForFunction(
+        (text) =>
+          [...document.querySelectorAll(".feed-post")].every(
+            (entry) => !entry.textContent?.includes(text),
+          ),
+        SECOND_ROW.text,
+      );
+      await page.locator(".toast button", { hasText: "元に戻す" }).first().click();
+      await page.locator(".feed-post", { hasText: SECOND_ROW.text }).first().waitFor();
+      await page.screenshot({ path: `${OUT_DIR}/restored.png` });
+
+      await assertInboxCleared(page, SECOND_ROW);
     }
   } finally {
     await app.close();
@@ -113,27 +173,42 @@ try {
     const verify = new WorkspaceDatabase(databasePath);
     try {
       verify.loadWorkspace();
-      const postedNote = verify
+      for (const row of [FIRST_ROW, SECOND_ROW]) {
+        const posted = verify
+          .list("feed_post")
+          .find(
+            (entry) =>
+              entry.title === row.title && String(entry.body_markdown || "").includes(row.text),
+          );
+        if (!posted) {
+          failures.push(`保存された投稿「${row.title}」が見つかりません。`);
+          continue;
+        }
+        if (!posted.published_at) {
+          failures.push(`保存された投稿「${row.title}」に公開時刻がありません。`);
+        }
+        if (posted.source_record_id !== SOURCE_ID) {
+          failures.push(`保存された投稿「${row.title}」に出所の記録IDが残っていません。`);
+        }
+        const converted = verify.get("capture_entry", row.captureId);
+        if (converted.state !== "triaged") {
+          failures.push(
+            `元の記録「${row.title}」が整理済みになっていません（${converted.state}）。`,
+          );
+        }
+        if (converted.triaged_to_type !== "feed_post" || converted.triaged_to_id !== posted.id) {
+          failures.push(`元の記録「${row.title}」に投稿への整理先が残っていません。`);
+        }
+      }
+      const leaked = verify
         .list("note")
-        .find(
-          (note) =>
-            note.title === MEMO_TITLE && String(note.body_markdown || "").includes(MEMO_TEXT),
+        .filter((note) =>
+          [FIRST_ROW.text, SECOND_ROW.text].some((body) =>
+            String(note.body_markdown || "").includes(body),
+          ),
         );
-      if (!postedNote) {
-        failures.push("保存されたNoteが見つかりません。");
-      } else {
-        if (!postedNote.feed_published_at) failures.push("保存されたNoteにFeedの印がありません。");
-        if (postedNote.note_type !== "memo") failures.push("付箋の保存先がMemoになっていません。");
-        if (postedNote.source_record_id !== SOURCE_ID) {
-          failures.push("保存されたNoteに出所の記録IDが残っていません。");
-        }
-        const converted = verify.get("capture_entry", CAPTURE_ID);
-        if (converted.state !== "archived") {
-          failures.push(`元の付箋が片付いていません（${converted.state}）。`);
-        }
-        if (converted.triaged_to_type !== "note" || converted.triaged_to_id !== postedNote.id) {
-          failures.push("元の付箋にNoteへの整理先が残っていません。");
-        }
+      if (leaked.length > 0) {
+        failures.push("自分の投稿がNotesに残っています。");
       }
     } finally {
       verify.db.close();

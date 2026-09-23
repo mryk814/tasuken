@@ -28,7 +28,8 @@ import {
   draftNoteEntity,
   draftNoteId,
   clearFeedPostFocus,
-  feedNoteEntity,
+  feedPostEntity,
+  updateFeedOwnPost,
   feedReactionId,
   feedReplyEntity,
   filterPosts,
@@ -37,7 +38,6 @@ import {
   postsBookmarked,
   postsForHome,
   postsForLearning,
-  unpublishNote,
   type FeedAuthorId,
   type FeedPost,
   type FeedReactionKind,
@@ -198,6 +198,9 @@ export function FeedPage({
   const [compose, setCompose] = useState(() =>
     typeof storedView.compose === "string" ? storedView.compose : "",
   );
+  /** 自分の投稿の編集中の投稿IDと下書き。保存に失敗しても入力は残す。 */
+  const [editingOwnPostId, setEditingOwnPostId] = useState<string | null>(null);
+  const [editingOwnPostBody, setEditingOwnPostBody] = useState("");
   /**
    * 外部AI往復の下書きは投稿別に保持する。正式返信やMCP待ちへ混ぜず、
    * localStorageで再起動後も復帰できるようにする（`docs/feed-external-ai-handoff-plan.md` §C）。
@@ -301,12 +304,12 @@ export function FeedPage({
     [domain.feed_replies, domain.ai_proposals],
   );
   /**
-   * 自分の投稿は、Feedへ載せると選んだNote（既存のMemo入力）から作る。
-   * 未整理のメモ全件を流さないため、印の付いたNoteだけを読む。
+   * 自分の投稿はFeed専用の正本（`feed_post`）から作る。Notesには残さない。
+   * 未整理のメモ全件を流さないため、Feed専用に保存したものだけを読む。
    */
   const ownPosts = useMemo(
-    () => buildOwnPosts({ notes: domain.notes as unknown[] }),
-    [domain.notes],
+    () => buildOwnPosts({ feedPosts: domain.feed_posts as unknown[] }),
+    [domain.feed_posts],
   );
   /**
    * 投稿の出所。実データの投稿・返信・自分の投稿のいずれかがあればfixtureを出さない。
@@ -1063,8 +1066,7 @@ export function FeedPage({
   );
 
   /**
-   * 自分の投稿は既存のMemo入力（Note）として保存する。
-   * Feedへ載せる印を付けたNoteだけが投稿になる（未整理のメモを自動で流さない）。
+   * 自分の投稿はFeed専用の正本（`feed_post`）として保存する。Notesには残さない。
    */
   const publishOwnPost = useCallback(async () => {
     const body = compose.trim();
@@ -1078,15 +1080,15 @@ export function FeedPage({
         [
           {
             action: "save",
-            type: "note",
-            entity: feedNoteEntity({ id: uuid(), body, publishedAt: new Date().toISOString() }),
+            type: "feed_post",
+            entity: feedPostEntity({ id: uuid(), body, publishedAt: new Date().toISOString() }),
           },
         ],
         "Feedへ投稿しました。",
         "main_ui",
       );
       setCompose("");
-      setNotice("投稿しました。同じメモはNotesからも読めます。");
+      setNotice("投稿しました。自分の投稿はFeedだけに残ります。");
     } catch (error) {
       // 失敗しても入力は消さない。
       setToast(
@@ -1098,34 +1100,85 @@ export function FeedPage({
     }
   }, [compose, saveEntities, setToast]);
 
-  /** Feedから外す。メモ自体はNotesに残る。 */
-  const unpublishOwnPost = useCallback(
+  /** 自分の投稿をFeed専用の正本から削除する。既存の「元に戻す」で復元できる。 */
+  const deleteOwnPost = useCallback(
+    (post: FeedPost) => {
+      const stored = (domain.feed_posts as unknown as Array<{ id: string }>).find(
+        (entry) => entry.id === post.id,
+      );
+      if (!stored) {
+        setToast("投稿が見つかりません。読み直してください。", "danger");
+        return;
+      }
+      if (editingOwnPostId === post.id) {
+        setEditingOwnPostId(null);
+        setEditingOwnPostBody("");
+      }
+      void removeEntity("feed_post", stored);
+    },
+    [domain.feed_posts, editingOwnPostId, removeEntity, setToast],
+  );
+
+  /** 自分の投稿の本文を同じIDで直す。公開時刻・Theme・出所は変えない。 */
+  const startOwnPostEdit = useCallback(
+    (post: FeedPost) => {
+      const stored = (domain.feed_posts as unknown as Array<{ id: string }>).find(
+        (entry) => entry.id === post.id,
+      );
+      if (!stored) {
+        setToast("投稿が見つかりません。読み直してください。", "danger");
+        return;
+      }
+      setEditingOwnPostId(post.id);
+      setEditingOwnPostBody(post.paragraphs.join("\n\n"));
+    },
+    [domain.feed_posts, setToast],
+  );
+
+  const cancelOwnPostEdit = useCallback(() => {
+    setEditingOwnPostId(null);
+    setEditingOwnPostBody("");
+  }, []);
+
+  const saveOwnPostEdit = useCallback(
     async (post: FeedPost) => {
-      const note = (
-        domain.notes as unknown as Array<{ id: string } & Record<string, unknown>>
-      ).find((entry) => entry.id === post.noteId);
-      if (!note) {
-        setToast("元のメモが見つかりません。読み直してください。", "danger");
+      const stored = domain.feed_posts.find((entry) => entry.id === post.id);
+      if (!stored) {
+        setToast("投稿が見つかりません。読み直してください。", "danger");
+        return;
+      }
+      const body = editingOwnPostBody.trim();
+      if (!body) {
+        setToast("投稿する本文を入力してください。", "warning");
         return;
       }
       setBusy(true);
       try {
+        const updated = updateFeedOwnPost(body);
         await saveEntities(
-          [{ action: "save", type: "note", entity: unpublishNote(note) as never }],
-          "Feedから外しました。",
+          [
+            {
+              action: "save",
+              type: "feed_post",
+              entity: { ...stored, ...updated } as never,
+            },
+          ],
+          "投稿を更新しました。",
           "main_ui",
         );
-        setNotice("Feedから外しました。メモはNotesに残っています。");
+        setEditingOwnPostId(null);
+        setEditingOwnPostBody("");
       } catch (error) {
+        // 失敗しても編集中の入力は消さない。
         setToast(
-          `Feedから外せませんでした。${error instanceof Error ? error.message : String(error)}`,
+          `投稿を更新できませんでした。${error instanceof Error ? error.message : String(error)}`,
           "danger",
         );
       } finally {
         setBusy(false);
       }
     },
-    [domain.notes, saveEntities, setToast],
+    [domain.feed_posts, editingOwnPostBody, saveEntities, setToast],
   );
 
   /** 記事の草稿が正式Noteになっていれば、そのNoteを返す（IDはProposalから決まる）。 */
@@ -1204,22 +1257,6 @@ export function FeedPage({
       openDrawer({ type: "note", entity: note as never });
     },
     [closeFeedContext, openDrawer],
-  );
-
-  /** 自分の投稿の元になったメモを、既存のNote面で開く。 */
-  const openOwnNote = useCallback(
-    (post: FeedPost) => {
-      const note = (domain.notes as unknown as Array<Record<string, unknown>>).find(
-        (entry) => entry.id === post.noteId,
-      );
-      if (!note) {
-        setToast("元のメモが見つかりません。読み直してください。", "danger");
-        return;
-      }
-      closeFeedContext();
-      openDrawer({ type: "note", entity: note as never });
-    },
-    [closeFeedContext, domain.notes, openDrawer, setToast],
   );
 
   const taskOf = useCallback(
@@ -1427,7 +1464,7 @@ export function FeedPage({
             </p>
           ) : null}
 
-          {/* 自分の投稿欄。既存のMemo入力（Note）へ保存し、そのうちFeedへ載せたものだけを読む。 */}
+          {/* 自分の投稿欄。Feed専用の投稿へ保存し、Notesには残さない。 */}
           {tab !== "needs" && !usingFixtures ? (
             <form
               className="feed-compose"
@@ -1436,7 +1473,7 @@ export function FeedPage({
                 void publishOwnPost();
               }}
             >
-              <label htmlFor="feed-compose-body">自分のメモをFeedへ載せる</label>
+              <label htmlFor="feed-compose-body">自分の投稿をFeedへ載せる</label>
               <textarea
                 id="feed-compose-body"
                 value={compose}
@@ -1448,7 +1485,7 @@ export function FeedPage({
                 <Button variant="primary" type="submit" disabled={busy}>
                   Feedへ投稿
                 </Button>
-                <span className="feed-compose-note">Notesにも同じメモが残ります</span>
+                <span className="feed-compose-note">Notesには残りません</span>
               </div>
             </form>
           ) : null}
@@ -1614,8 +1651,13 @@ export function FeedPage({
                 onOpenTask={openPostTask}
                 onSaveDraft={(target) => void saveDraftAsNote(target)}
                 onOpenSavedNote={openSavedNote}
-                onOpenOwnNote={openOwnNote}
-                onUnpublish={(target) => void unpublishOwnPost(target)}
+                editingOwnPostId={editingOwnPostId}
+                editingOwnPostBody={editingOwnPostBody}
+                onStartOwnPostEdit={startOwnPostEdit}
+                onChangeOwnPostEdit={setEditingOwnPostBody}
+                onCancelOwnPostEdit={cancelOwnPostEdit}
+                onSaveOwnPostEdit={(target) => void saveOwnPostEdit(target)}
+                onDeleteOwnPost={deleteOwnPost}
                 onMore={() => setLimit((value) => value + FEED_PAGE_SIZE)}
                 registerRow={(postId, node) => {
                   if (node) rowRefs.current.set(`post-${postId}`, node);

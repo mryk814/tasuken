@@ -340,7 +340,7 @@
   padding: 0 var(--space-1);
 }
 
-/* 自分の投稿欄。既存のMemo入力をFeedから使う。 */
+/* 自分の投稿欄。Feed専用の投稿をFeedから使う。 */
 .feed-compose {
   display: flex;
   flex-direction: column;
@@ -401,6 +401,40 @@
 }
 
 .feed-reply textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* 自分の投稿の本文編集。投稿列の中で完結させ、Noteへ渡さない。 */
+.feed-own-post-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.feed-own-post-editor label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.feed-own-post-editor textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  resize: vertical;
+}
+
+.feed-own-post-editor textarea:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }

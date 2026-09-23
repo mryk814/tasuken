@@ -72,6 +72,7 @@ export interface Workspace {
   maintenance_entrys?: Entity[];
   feed_reactions?: Entity[];
   feed_replies?: Entity[];
+  feed_posts?: Entity[];
   plan_revisions?: Entity[];
   [key: string]: Entity[] | WorkspaceMeta | undefined;
 }
@@ -86,8 +87,7 @@ export interface SaveOptions {
 
 /** #333/#336: 文書保存は対象ownerと取得時revisionを必ず伴う。 */
 export type DocumentOwner =
-  | { recordType: "note"; entityId: string }
-  | { recordType: "resource"; entityId: string };
+  { recordType: "note"; entityId: string } | { recordType: "resource"; entityId: string };
 
 export interface DocumentSaveSnapshot {
   owner: Extract<DocumentOwner, { recordType: "note" }>;

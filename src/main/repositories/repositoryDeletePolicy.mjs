@@ -96,12 +96,7 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
     repository.cascadeWhere("habit_entry", (entry) => entry.habit_id === id, type, id);
   // 手入れの実施記録も同じ扱いにする（#454後半のMaintenance）。
   if (type === "maintenance")
-    repository.cascadeWhere(
-      "maintenance_entry",
-      (entry) => entry.maintenance_id === id,
-      type,
-      id,
-    );
+    repository.cascadeWhere("maintenance_entry", (entry) => entry.maintenance_id === id, type, id);
   if (type === "capture_entry")
     repository.cascadeWhere(
       "artifact",
@@ -123,6 +118,18 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
     repository.cascadeWhere("feed_reply", (entry) => entry.post_id === postId, type, id);
     repository.cascadeWhere("feed_reaction", (entry) => entry.post_id === postId, type, id);
   }
+  // 自分の投稿（Feed専用）を削除したら、その投稿への返信と読んだ印も一緒に外し、
+  // 復元で一緒に戻す。親の無い返信をFeedへ残さない。
+  if (type === "feed_post") {
+    repository.cascadeWhere("feed_reply", (entry) => entry.post_id === id, type, id);
+    repository.cascadeWhere("feed_reaction", (entry) => entry.post_id === id, type, id);
+    repository.cascadeWhere(
+      "artifact",
+      (entry) => entry.source_type === "feed_post" && entry.source_id === id,
+      type,
+      id,
+    );
+  }
   // Relation assertions are durable history. Deleting either endpoint leaves
   // the assertion dangling so the graph can report a broken_relation instead
   // of silently deleting or reconnecting it.
@@ -133,6 +140,7 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
       [
         ["item", "source_record_id"],
         ["note", "source_record_id"],
+        ["feed_post", "source_record_id"],
         ["link", "source_record_id"],
         ["log_entry", "source_record_id"],
       ],
@@ -153,7 +161,9 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
     );
   }
 
-  if (["theme", "item", "note", "link", "source_record", "knowledge_node"].includes(type)) {
+  if (
+    ["theme", "item", "note", "feed_post", "link", "source_record", "knowledge_node"].includes(type)
+  ) {
     repository.cascadeWhere(
       "entity_source",
       (entry) =>

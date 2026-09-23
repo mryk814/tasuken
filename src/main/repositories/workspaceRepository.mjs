@@ -17,6 +17,7 @@ import {
 import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../shared/aiMetadata.mjs";
 import { DATA_HEALTH_STATE_SCHEMA, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
+import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
 import {
   isPersonalDefaultTheme,
   isThemeDeletable,
@@ -45,7 +46,7 @@ import {
 } from "../../shared/relationAssertion.mjs";
 import { TASKEN_MOBILE_SCOPES } from "../../shared/contracts/mobile/public.mjs";
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const MOBILE_DEVICE_SCOPES = Object.freeze(Object.values(TASKEN_MOBILE_SCOPES));
 
 const now = () => new Date().toISOString();
@@ -371,6 +372,16 @@ export class WorkspaceDatabase {
             );
           }
           this.db.exec("DROP TABLE IF EXISTS transcription_operations");
+        },
+      },
+      {
+        version: 7,
+        up: () => {
+          // 自分の投稿はFeed専用の正本へ移す。投稿IDは移行前の投稿IDと同じにし、
+          // 反応・返信・会話の対応を保つ。元のNoteは論理削除で残す。
+          // save系はthis.deviceIdを使うため、移行前に既存値（なければ新規）を確定する。
+          this.deviceId = this.ensureMeta("device_id", uuid());
+          migratePublishedFeedNotes(this);
         },
       },
     ];

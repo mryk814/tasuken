@@ -1,7 +1,7 @@
 /**
  * Inbox→Feed監査の隔離workspaceを用意する。
  *
- * `scripts/inbox-feed-post-audit.mjs` から起動され、未整理の付箋メモを1件だけ
+ * `scripts/inbox-feed-post-audit.mjs` から起動され、未整理のInbox記録を2件だけ
  * 入れる。本文と題名は監査用の一意な文面にし、他のfixtureと混ざらないようにする。
  *
  *   node scripts/run-electron-node.mjs scripts/seed-inbox-feed-audit-workspace.mjs <userDataDir>
@@ -17,15 +17,25 @@ const database = new WorkspaceDatabase(path.join(userDataDir, "research-desk.sql
 database.loadWorkspace();
 database.save("source_record", {
   id: "inbox-feed-audit-source",
-  source_title: "Inboxの付箋メモ",
+  source_title: "Inboxの未整理記録",
 });
 database.save("capture_entry", {
-  id: "inbox-feed-audit-memo",
+  id: "inbox-feed-audit-row",
   title: "乾燥の気づき",
   text: "同じ条件でも乾燥時間が違うと結果が変わる。",
-  kind: "micro_memo",
+  kind: "inbox",
   content_type: "text",
   captured_at: "2026-09-23T09:00:00.000Z",
+  state: "untriaged",
+  source_record_id: "inbox-feed-audit-source",
+});
+database.save("capture_entry", {
+  id: "inbox-feed-audit-shortcut",
+  title: "標本の気づき",
+  text: "3回以下なら幅だけを見る。",
+  kind: "inbox",
+  content_type: "text",
+  captured_at: "2026-09-23T09:05:00.000Z",
   state: "untriaged",
   source_record_id: "inbox-feed-audit-source",
 });

@@ -96,6 +96,7 @@ test("artifactはworkspaceエンティティとして登録されている", () 
     theme: "theme",
     capture_entry: "capture_entry",
     ai_proposal: "ai_proposal",
+    feed_post: "feed_post",
   });
 });
 

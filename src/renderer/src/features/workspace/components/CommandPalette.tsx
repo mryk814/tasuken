@@ -13,6 +13,7 @@ export type CommandPaletteCategory =
   | "Notes / Documents"
   | "Waiting / Inbox"
   | "Knowledge / Chat"
+  | "Feed"
   | "Themes"
   | "Resources / Artifacts";
 

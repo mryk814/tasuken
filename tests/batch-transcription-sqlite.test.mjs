@@ -126,7 +126,7 @@ test("schema v6 terminates unfinished embedded-provider work and drops its opera
   assert.equal(
     migrated.db.prepare("SELECT value FROM workspace_meta WHERE key = 'schema_version'").get()
       .value,
-    "6",
+    "7",
   );
   assert.equal(
     migrated.db

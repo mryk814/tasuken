@@ -1,4 +1,14 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import {
   IconDotsVertical,
   IconExternalLink,
@@ -32,7 +42,11 @@ import {
   resolveArtifactStorageMode as resolveStorageModeShared,
 } from "../../../../../shared/artifactLinks.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
-import type { VideoArtifactSourceType, VideoImportPrepared, VideoStorageMode } from "../../../../../shared/mediaCapture";
+import type {
+  VideoArtifactSourceType,
+  VideoImportPrepared,
+  VideoStorageMode,
+} from "../../../../../shared/mediaCapture";
 import { videoOwnerThemeIsSaved } from "../videoArtifactView";
 import { LineagePanel } from "./LineagePanel";
 import {
@@ -77,7 +91,11 @@ const AUDIO_TYPES = new Set(["mp3", "mpeg", "mpga", "wav", "ogg", "opus", "m4a"]
 const VIDEO_TYPES = new Set(["mp4", "m4v", "mov", "webm"]);
 
 function isDedicatedMediaFileName(name: string): boolean {
-  const extension = name.trim().toLowerCase().match(/\.([^.\\/]+)$/)?.[1] || "";
+  const extension =
+    name
+      .trim()
+      .toLowerCase()
+      .match(/\.([^.\\/]+)$/)?.[1] || "";
   return AUDIO_TYPES.has(extension) || VIDEO_TYPES.has(extension);
 }
 
@@ -85,7 +103,8 @@ function isVideoArtifactSourceType(value: ArtifactSourceType): value is VideoArt
   return value === "task" || value === "note" || value === "report" || value === "capture_entry";
 }
 
-export type ArtifactOpenMode = "external" | "image" | "markdown" | "audio" | "video" | "web" | "file";
+export type ArtifactOpenMode =
+  "external" | "image" | "markdown" | "audio" | "video" | "web" | "file";
 
 type ArtifactCategoryInput = string | Pick<Artifact, "file_type" | "media_kind"> | undefined;
 
@@ -97,28 +116,39 @@ export function artifactFileCategory(input?: ArtifactCategoryInput): ArtifactOpe
   if (IMAGE_TYPES.has(type)) return "image";
   if (MARKDOWN_TYPES.has(type)) return "markdown";
   if (AUDIO_TYPES.has(type)) return "audio";
-  if (SPREADSHEET_TYPES.has(type) || PDF_TYPES.has(type) || PRESENTATION_TYPES.has(type)) return "external";
+  if (SPREADSHEET_TYPES.has(type) || PDF_TYPES.has(type) || PRESENTATION_TYPES.has(type))
+    return "external";
   return "file";
 }
 
 export function artifactOpenLabel(input?: ArtifactCategoryInput): string {
   const mode = artifactFileCategory(input);
   if (mode === "external") return "外部で開く";
-  if (mode === "web" && typeof input === "object" && isHttpUrl(artifactOpenTarget(input))) return "外部で開く";
-  if (mode === "image" || mode === "markdown" || mode === "audio" || mode === "video" || mode === "web") return "プレビュー";
+  if (mode === "web" && typeof input === "object" && isHttpUrl(artifactOpenTarget(input)))
+    return "外部で開く";
+  if (
+    mode === "image" ||
+    mode === "markdown" ||
+    mode === "audio" ||
+    mode === "video" ||
+    mode === "web"
+  )
+    return "プレビュー";
   return "開く";
 }
 
 export function artifactOpenHint(input?: ArtifactCategoryInput): string {
   const mode = artifactFileCategory(input);
-  if (mode === "external") return "Excel / PDF / PowerPoint などは関連付けられた外部アプリで開きます。";
+  if (mode === "external")
+    return "Excel / PDF / PowerPoint などは関連付けられた外部アプリで開きます。";
   if (mode === "image") return "画像をアプリ内ビューアで大きく表示します。";
   if (mode === "markdown") return "Markdownをアプリ内ビューアで表示します。";
   if (mode === "audio") return "音声をアプリ内プレイヤーで再生します。";
   if (mode === "video") return "動画をアプリ内プレイヤーで再生します。";
-  if (mode === "web") return isHttpUrl(typeof input === "object" ? artifactOpenTarget(input) : "")
-    ? "外部ブラウザでHTMLを開きます。URLの内容はTasken内で実行しません。"
-    : "HTMLを隔離Previewで表示します。Taskenデータ・OSファイル・ネットワークにはアクセスしません。";
+  if (mode === "web")
+    return isHttpUrl(typeof input === "object" ? artifactOpenTarget(input) : "")
+      ? "外部ブラウザでHTMLを開きます。URLの内容はTasken内で実行しません。"
+      : "HTMLを隔離Previewで表示します。Taskenデータ・OSファイル・ネットワークにはアクセスしません。";
   return "関連付けられたアプリで開きます。";
 }
 
@@ -135,7 +165,17 @@ export function artifactTypeBadge(fileType?: string): string {
   return type.slice(0, 8);
 }
 
-export function ArtifactFileIcon({ fileType, mediaKind, mimeType, filename }: { fileType?: string; mediaKind?: Artifact["media_kind"]; mimeType?: string; filename?: string }) {
+export function ArtifactFileIcon({
+  fileType,
+  mediaKind,
+  mimeType,
+  filename,
+}: {
+  fileType?: string;
+  mediaKind?: Artifact["media_kind"];
+  mimeType?: string;
+  filename?: string;
+}) {
   const type = (fileType || "").toLowerCase();
   const size = 18;
   if (SPREADSHEET_TYPES.has(type)) return <IconFileSpreadsheet size={size} />;
@@ -143,9 +183,11 @@ export function ArtifactFileIcon({ fileType, mediaKind, mimeType, filename }: { 
   if (PDF_TYPES.has(type)) return <IconFileTypePdf size={size} />;
   if (MARKDOWN_TYPES.has(type)) return <IconMarkdown size={size} />;
   if (PRESENTATION_TYPES.has(type)) return <IconPresentation size={size} />;
-  if (mediaKind === "audio" || (!mediaKind && AUDIO_TYPES.has(type))) return <IconVolume size={size} />;
+  if (mediaKind === "audio" || (!mediaKind && AUDIO_TYPES.has(type)))
+    return <IconVolume size={size} />;
   if (mediaKind === "video") return <IconVideo size={size} />;
-  if (isWebArtifact({ file_type: type, mime_type: mimeType, filename })) return <IconWorld size={size} />;
+  if (isWebArtifact({ file_type: type, mime_type: mimeType, filename }))
+    return <IconWorld size={size} />;
   if (ARCHIVE_TYPES.has(type)) return <IconFileZip size={size} />;
   if (TEXT_TYPES.has(type)) return <IconFileText size={size} />;
   return <IconFile size={size} />;
@@ -159,7 +201,9 @@ export function formatArtifactFileSize(bytes?: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function readVideoMetadata(mediaUrl: string): Promise<{ durationMs: number; widthPx: number; heightPx: number }> {
+function readVideoMetadata(
+  mediaUrl: string,
+): Promise<{ durationMs: number; widthPx: number; heightPx: number }> {
   return new Promise((resolve, reject) => {
     const video = document.createElement("video");
     const cleanup = () => {
@@ -204,8 +248,12 @@ export function resolveArtifactSourceLabel(artifact: Artifact, data: WorkspaceDa
     return note ? String(note.title || "メモ") : ARTIFACT_SOURCE_TYPE_LABELS[sourceType];
   }
   if (sourceType === "chat_ref") {
-    const resource = [...(data.resources || []), ...(data.links || [])].find((entry) => entry.id === sourceId);
-    return resource ? String(resource.title || resource.url || "Chat参照") : ARTIFACT_SOURCE_TYPE_LABELS.chat_ref;
+    const resource = [...(data.resources || []), ...(data.links || [])].find(
+      (entry) => entry.id === sourceId,
+    );
+    return resource
+      ? String(resource.title || resource.url || "Chat参照")
+      : ARTIFACT_SOURCE_TYPE_LABELS.chat_ref;
   }
   if (sourceType === "theme") {
     const theme = (data.themes || []).find((entry) => entry.id === sourceId);
@@ -213,19 +261,35 @@ export function resolveArtifactSourceLabel(artifact: Artifact, data: WorkspaceDa
   }
   if (sourceType === "capture_entry") {
     const capture = (data.capture_entrys || []).find((entry) => entry.id === sourceId);
-    return capture ? String(capture.title || capture.text || "Inbox") : ARTIFACT_SOURCE_TYPE_LABELS.capture_entry;
+    return capture
+      ? String(capture.title || capture.text || "Inbox")
+      : ARTIFACT_SOURCE_TYPE_LABELS.capture_entry;
+  }
+  if (sourceType === "feed_post") {
+    const post = (data.feed_posts || []).find((entry) => entry.id === sourceId);
+    return post ? String(post.title || "Feed投稿") : ARTIFACT_SOURCE_TYPE_LABELS.feed_post;
   }
   return ARTIFACT_SOURCE_TYPE_LABELS[sourceType] || sourceType;
 }
 
-export function openArtifactSource(artifact: Artifact, data: WorkspaceData, openDrawer: OpenDrawer): boolean {
+export function openArtifactSource(
+  artifact: Artifact,
+  data: WorkspaceData,
+  openDrawer: OpenDrawer,
+  openFeedPost?: (postId: string) => void,
+): boolean {
   const sourceType = artifact.source_type;
   const sourceId = artifact.source_id;
   if (sourceType === "task") {
     const task = (data.tasks || []).find((entry) => entry.id === sourceId);
     if (!task) return false;
-    const schedule = (data.schedules || []).find((entry) => entry.owner_type === "task" && entry.owner_id === sourceId);
-    openDrawer({ type: "task", entity: { ...task, _schedule: schedule } as Record<string, unknown> });
+    const schedule = (data.schedules || []).find(
+      (entry) => entry.owner_type === "task" && entry.owner_id === sourceId,
+    );
+    openDrawer({
+      type: "task",
+      entity: { ...task, _schedule: schedule } as Record<string, unknown>,
+    });
     return true;
   }
   if (sourceType === "note" || sourceType === "report") {
@@ -235,7 +299,9 @@ export function openArtifactSource(artifact: Artifact, data: WorkspaceData, open
     return true;
   }
   if (sourceType === "chat_ref") {
-    const resource = [...(data.resources || []), ...(data.links || [])].find((entry) => entry.id === sourceId);
+    const resource = [...(data.resources || []), ...(data.links || [])].find(
+      (entry) => entry.id === sourceId,
+    );
     if (!resource) return false;
     openDrawer({ type: "resource", entity: resource });
     return true;
@@ -252,10 +318,20 @@ export function openArtifactSource(artifact: Artifact, data: WorkspaceData, open
     openDrawer({ type: "capture_entry", entity: capture });
     return true;
   }
+  if (sourceType === "feed_post") {
+    const post = (data.feed_posts || []).find((entry) => entry.id === sourceId);
+    if (!post || !openFeedPost) return false;
+    openFeedPost(post.id);
+    return true;
+  }
   return false;
 }
 
-export function openArtifactOriginNote(artifact: Artifact, data: WorkspaceData, openDrawer: OpenDrawer): boolean {
+export function openArtifactOriginNote(
+  artifact: Artifact,
+  data: WorkspaceData,
+  openDrawer: OpenDrawer,
+): boolean {
   if (!artifact.origin_note_id) return false;
   const note = (data.notes || []).find((entry) => entry.id === artifact.origin_note_id);
   if (!note) return false;
@@ -269,7 +345,11 @@ export function themeNameOf(artifact: Artifact, data: WorkspaceData): string {
 }
 
 /** 2行目メタ。空・未設定は出さない。 */
-export function artifactCardMetaParts(artifact: Artifact, data?: WorkspaceData, options?: { includeSource?: boolean }): string[] {
+export function artifactCardMetaParts(
+  artifact: Artifact,
+  data?: WorkspaceData,
+  options?: { includeSource?: boolean },
+): string[] {
   const parts: string[] = [];
   const size = formatArtifactFileSize(artifact.file_size);
   if (size) parts.push(size);
@@ -298,7 +378,10 @@ export async function showArtifactInFolder(
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
 ): Promise<void> {
   if (!artifactCanShowInFolder(artifact)) {
-    setToast("この Artifact ではフォルダを開けません。URL の場合はパス/URLをコピーしてください。", "info");
+    setToast(
+      "この Artifact ではフォルダを開けません。URL の場合はパス/URLをコピーしてください。",
+      "info",
+    );
     return;
   }
   const result = await workspaceApi.showItemInFolder(artifactFolderPath(artifact));
@@ -352,28 +435,38 @@ export async function checkArtifactLink(
   const checkedAt = new Date().toISOString();
   if (isHttpUrl(target)) {
     // URL は権限・ネットワーク依存のため自動到達確認しない。
-    await saveEntities([{
-      action: "save",
-      type: "artifact",
-      entity: {
-        ...artifact,
-        link_status: "unknown" as ArtifactLinkStatus,
-        last_checked_at: checkedAt,
-      },
-    }], "URLの到達確認は未対応のため、状態を未確認にしました。");
+    await saveEntities(
+      [
+        {
+          action: "save",
+          type: "artifact",
+          entity: {
+            ...artifact,
+            link_status: "unknown" as ArtifactLinkStatus,
+            last_checked_at: checkedAt,
+          },
+        },
+      ],
+      "URLの到達確認は未対応のため、状態を未確認にしました。",
+    );
     return;
   }
   const result = await workspaceApi.pathExists(target);
   const status: ArtifactLinkStatus = result.exists ? "ok" : "broken";
-  await saveEntities([{
-    action: "save",
-    type: "artifact",
-    entity: {
-      ...artifact,
-      link_status: status,
-      last_checked_at: checkedAt,
-    },
-  }], result.exists ? "参照先に到達できました。" : "参照先が見つかりませんでした（リンク切れ）。");
+  await saveEntities(
+    [
+      {
+        action: "save",
+        type: "artifact",
+        entity: {
+          ...artifact,
+          link_status: status,
+          last_checked_at: checkedAt,
+        },
+      },
+    ],
+    result.exists ? "参照先に到達できました。" : "参照先が見つかりませんでした（リンク切れ）。",
+  );
 }
 
 export async function promoteArtifactToManaged(
@@ -383,7 +476,10 @@ export async function promoteArtifactToManaged(
   onNeedsDirectory?: () => void,
 ): Promise<void> {
   if (!artifactCanPromoteToManaged(artifact)) {
-    setToast("URLリンクは自動コピーできません。ファイルを入手してから管理に追加してください。", "info");
+    setToast(
+      "URLリンクは自動コピーできません。ファイルを入手してから管理に追加してください。",
+      "info",
+    );
     return;
   }
   const target = String(artifact.target || "").trim();
@@ -402,34 +498,46 @@ export async function promoteArtifactToManaged(
       setToast("コピー結果を取得できませんでした。", "danger");
       return;
     }
-    await saveEntities([{
-      action: "save",
-      type: "artifact",
-      entity: {
-        ...artifact,
-        storage_mode: "managed",
-        stored_path: file.storedPath,
-        original_path: target,
-        copied_at: file.copiedAt || new Date().toISOString(),
-        filename: file.filename,
-        file_type: file.fileType,
-        mime_type: file.mimeType,
-        file_size: file.fileSize,
-        link_type: null,
-        target: null,
-        link_status: null,
-        last_checked_at: null,
-      },
-    }], "Tasken管理フォルダへコピーしました。");
+    await saveEntities(
+      [
+        {
+          action: "save",
+          type: "artifact",
+          entity: {
+            ...artifact,
+            storage_mode: "managed",
+            stored_path: file.storedPath,
+            original_path: target,
+            copied_at: file.copiedAt || new Date().toISOString(),
+            filename: file.filename,
+            file_type: file.fileType,
+            mime_type: file.mimeType,
+            file_size: file.fileSize,
+            link_type: null,
+            target: null,
+            link_status: null,
+            last_checked_at: null,
+          },
+        },
+      ],
+      "Tasken管理フォルダへコピーしました。",
+    );
   } catch (error) {
-    setToast(`Tasken管理へコピーできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    setToast(
+      `Tasken管理へコピーできませんでした。${error instanceof Error ? error.message : String(error)}`,
+      "danger",
+    );
   }
 }
 
 export function isPathLikeArtifactLink(artifact: Artifact): boolean {
-  const currentType = (artifact.link_type || inferArtifactLinkType(String(artifact.target || ""))) as ArtifactLinkType;
-  return currentType === "local_path" || currentType === "shared_path"
-    || (currentType === "onedrive" && !isHttpUrl(String(artifact.target || "")));
+  const currentType = (artifact.link_type ||
+    inferArtifactLinkType(String(artifact.target || ""))) as ArtifactLinkType;
+  return (
+    currentType === "local_path" ||
+    currentType === "shared_path" ||
+    (currentType === "onedrive" && !isHttpUrl(String(artifact.target || "")))
+  );
 }
 
 export async function applyLinkedArtifactTarget(
@@ -452,23 +560,31 @@ export async function applyLinkedArtifactTarget(
   const linkType = inferArtifactLinkType(target) as ArtifactLinkType;
   const fileType = artifactFileTypeFromName(nextName);
   try {
-    await saveEntities([{
-      action: "save",
-      type: "artifact",
-      entity: {
-        ...artifact,
-        target,
-        link_type: linkType,
-        filename: nextName,
-        title: nextName.replace(/\.[^.]+$/, "") || artifact.title,
-        file_type: fileType,
-        link_status: "unknown",
-        last_checked_at: null,
-      },
-    }], "Artifactを更新しました。");
+    await saveEntities(
+      [
+        {
+          action: "save",
+          type: "artifact",
+          entity: {
+            ...artifact,
+            target,
+            link_type: linkType,
+            filename: nextName,
+            title: nextName.replace(/\.[^.]+$/, "") || artifact.title,
+            file_type: fileType,
+            link_status: "unknown",
+            last_checked_at: null,
+          },
+        },
+      ],
+      "Artifactを更新しました。",
+    );
     return true;
   } catch (error) {
-    setToast(`参照先を変更できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    setToast(
+      `参照先を変更できませんでした。${error instanceof Error ? error.message : String(error)}`,
+      "danger",
+    );
     return false;
   }
 }
@@ -493,9 +609,14 @@ export async function retargetLinkedArtifact(
     if (picked.canceled || !picked.files?.length) return;
     const nextTarget = picked.files[0].path;
     const nextName = picked.files[0].name || displayNameFromTarget(nextTarget, artifact.filename);
-    await applyLinkedArtifactTarget(artifact, nextTarget, saveEntities, setToast, { displayName: nextName });
+    await applyLinkedArtifactTarget(artifact, nextTarget, saveEntities, setToast, {
+      displayName: nextName,
+    });
   } catch (error) {
-    setToast(`参照先を変更できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+    setToast(
+      `参照先を変更できませんでした。${error instanceof Error ? error.message : String(error)}`,
+      "danger",
+    );
   }
 }
 
@@ -516,6 +637,7 @@ export function ArtifactCard({
   data,
   openDrawer,
   openContentViewer,
+  openFeedPost,
   removeEntity,
   saveEntities,
   setToast,
@@ -528,6 +650,7 @@ export function ArtifactCard({
   data?: WorkspaceData;
   openDrawer?: OpenDrawer;
   openContentViewer?: OpenContentViewer;
+  openFeedPost?: (postId: string) => void;
   removeEntity: RemoveEntity;
   saveEntities?: SaveEntities;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
@@ -546,7 +669,8 @@ export function ArtifactCard({
   const mode = resolveArtifactStorageMode(artifact);
   const pathTitle = artifactOpenTarget(artifact) || artifact.filename;
   const linkStatus = artifact.link_status;
-  const showLinkStatus = mode === "linked" && linkStatus && linkStatus !== "unknown" && linkStatus !== "ok";
+  const showLinkStatus =
+    mode === "linked" && linkStatus && linkStatus !== "unknown" && linkStatus !== "ok";
 
   useEffect(() => {
     if (urlEdit == null) return;
@@ -566,21 +690,25 @@ export function ArtifactCard({
   if (artifactCanShowInFolder(artifact)) {
     menuItems.push({
       label: "フォルダを開く",
-      onSelect: () => { void showArtifactInFolder(artifact, setToast); },
+      onSelect: () => {
+        void showArtifactInFolder(artifact, setToast);
+      },
     });
   }
   const copyTarget = artifactCopyTarget(artifact);
   if (copyTarget) {
     menuItems.push({
       label: isHttpUrl(copyTarget) ? "URLをコピー" : "パスをコピー",
-      onSelect: () => { void copyArtifactPath(artifact, setToast); },
+      onSelect: () => {
+        void copyArtifactPath(artifact, setToast);
+      },
     });
   }
   if (showSource && openDrawer && data) {
     menuItems.push({
       label: "元の場所へ",
       onSelect: () => {
-        if (!openArtifactSource(artifact, data, openDrawer)) {
+        if (!openArtifactSource(artifact, data, openDrawer, openFeedPost)) {
           setToast("元の場所が見つかりませんでした。削除済みの可能性があります。", "warning");
         }
       },
@@ -599,7 +727,9 @@ export function ArtifactCard({
   if (mode === "linked" && saveEntities) {
     menuItems.push({
       label: "リンクを確認",
-      onSelect: () => { void checkArtifactLink(artifact, saveEntities, setToast); },
+      onSelect: () => {
+        void checkArtifactLink(artifact, saveEntities, setToast);
+      },
     });
     menuItems.push({
       label: "参照先を変更",
@@ -624,7 +754,9 @@ export function ArtifactCard({
     if (artifactCanPromoteToManaged(artifact)) {
       menuItems.push({
         label: "Tasken管理へコピー",
-        onSelect: () => { void promoteArtifactToManaged(artifact, saveEntities, setToast, onNeedsDirectory); },
+        onSelect: () => {
+          void promoteArtifactToManaged(artifact, saveEntities, setToast, onNeedsDirectory);
+        },
       });
     }
   }
@@ -642,21 +774,40 @@ export function ArtifactCard({
       setToast("http または https のURLを指定してください。", "warning");
       return;
     }
-    const ok = await applyLinkedArtifactTarget(artifact, next, saveEntities, setToast, { displayName: nameEdit.trim() });
+    const ok = await applyLinkedArtifactTarget(artifact, next, saveEntities, setToast, {
+      displayName: nameEdit.trim(),
+    });
     if (ok) setUrlEdit(null);
   }
 
   return (
     <li className={`artifact-card ${mode === "linked" ? "is-linked" : "is-managed"}`}>
       <span className="artifact-card-icon" aria-hidden="true">
-        {isWebArtifact(artifact) ? <IconWorld size={18} /> : mode === "linked" ? <IconLink size={18} /> : <ArtifactFileIcon fileType={artifact.file_type} mediaKind={artifact.media_kind} mimeType={artifact.mime_type} filename={artifact.filename} />}
+        {isWebArtifact(artifact) ? (
+          <IconWorld size={18} />
+        ) : mode === "linked" ? (
+          <IconLink size={18} />
+        ) : (
+          <ArtifactFileIcon
+            fileType={artifact.file_type}
+            mediaKind={artifact.media_kind}
+            mimeType={artifact.mime_type}
+            filename={artifact.filename}
+          />
+        )}
       </span>
       <div className="artifact-card-main">
         <div className="artifact-card-title-row">
-          <strong className="artifact-card-title" title={pathTitle}>{artifact.filename}</strong>
+          <strong className="artifact-card-title" title={pathTitle}>
+            {artifact.filename}
+          </strong>
           <span className="artifact-card-badges">
-            <span className="artifact-badge artifact-badge-type">{artifactTypeBadge(artifact.file_type)}</span>
-            <span className={`artifact-badge artifact-badge-storage ${mode === "linked" ? "is-linked" : ""}`}>
+            <span className="artifact-badge artifact-badge-type">
+              {artifactTypeBadge(artifact.file_type)}
+            </span>
+            <span
+              className={`artifact-badge artifact-badge-storage ${mode === "linked" ? "is-linked" : ""}`}
+            >
               {artifactStorageModeLabel(artifact)}
             </span>
             {showLinkStatus && (
@@ -670,7 +821,12 @@ export function ArtifactCard({
           <small className="artifact-card-meta">{metaParts.join(" · ")}</small>
         )}
         {urlEdit != null && (
-          <form className="artifact-url-form artifact-url-form-inline" onSubmit={(event) => { void submitUrlEdit(event); }}>
+          <form
+            className="artifact-url-form artifact-url-form-inline"
+            onSubmit={(event) => {
+              void submitUrlEdit(event);
+            }}
+          >
             <label className="artifact-edit-field">
               <span>参照先</span>
               <input
@@ -704,8 +860,12 @@ export function ArtifactCard({
                 }}
               />
             </label>
-            <button type="submit" className="primary-button compact" disabled={!urlEdit.trim()}>更新</button>
-            <button type="button" className="text-button compact" onClick={() => setUrlEdit(null)}>取消</button>
+            <button type="submit" className="primary-button compact" disabled={!urlEdit.trim()}>
+              更新
+            </button>
+            <button type="button" className="text-button compact" onClick={() => setUrlEdit(null)}>
+              取消
+            </button>
           </form>
         )}
       </div>
@@ -724,7 +884,8 @@ export function ArtifactCard({
             void openArtifactFile(artifact, setToast).then(() => onOpened?.());
           }}
         >
-          <IconExternalLink size={14} />{artifactOpenLabel(artifact)}
+          <IconExternalLink size={14} />
+          {artifactOpenLabel(artifact)}
         </button>
         <button
           type="button"
@@ -748,17 +909,11 @@ export function ArtifactCard({
         </div>
       )}
       {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          items={menuItems}
-          onClose={() => setMenu(null)}
-        />
+        <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
       )}
     </li>
   );
 }
-
 
 export function ArtifactSection({
   sourceType,
@@ -768,6 +923,7 @@ export function ArtifactSection({
   data,
   openDrawer,
   openContentViewer,
+  openFeedPost,
   saveEntities,
   removeEntity,
   setToast,
@@ -782,6 +938,7 @@ export function ArtifactSection({
   data?: WorkspaceData;
   openDrawer?: OpenDrawer;
   openContentViewer?: OpenContentViewer;
+  openFeedPost?: (postId: string) => void;
   saveEntities: SaveEntities;
   removeEntity: RemoveEntity;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
@@ -804,16 +961,19 @@ export function ArtifactSection({
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const sectionRef = useRef<HTMLElement | null>(null);
   const attached = artifacts
-    .filter((entry) => (
-      (entry.source_type === sourceType && entry.source_id === sourceId)
-      || Boolean(originNoteId && entry.origin_note_id === originNoteId)
-      // Theme Overviewでは「このThemeで作ったもの」を出す（#321）。
-      // 直接添付したものだけでなく、Theme配下のNote / Taskから生まれたものも含める。
-      || Boolean(includeThemeArtifacts && themeId && entry.theme_id === themeId)
-    ))
-    .sort((a, b) => (
-      String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || ""))
-    ));
+    .filter(
+      (entry) =>
+        (entry.source_type === sourceType && entry.source_id === sourceId) ||
+        Boolean(originNoteId && entry.origin_note_id === originNoteId) ||
+        // Theme Overviewでは「このThemeで作ったもの」を出す（#321）。
+        // 直接添付したものだけでなく、Theme配下のNote / Taskから生まれたものも含める。
+        Boolean(includeThemeArtifacts && themeId && entry.theme_id === themeId),
+    )
+    .sort((a, b) =>
+      String(b.updated_at || b.created_at || "").localeCompare(
+        String(a.updated_at || a.created_at || ""),
+      ),
+    );
 
   useEffect(() => {
     if (urlFormOpen) urlInputRef.current?.focus();
@@ -824,23 +984,33 @@ export function ArtifactSection({
     if (!isVideoArtifactSourceType(sourceType)) {
       setVideoLoading(false);
       setPreparedVideos([]);
-      return () => { active = false; };
+      return () => {
+        active = false;
+      };
     }
     setVideoLoading(true);
-    workspaceApi.listPreparedVideoImports()
+    workspaceApi
+      .listPreparedVideoImports()
       .then((entries) => {
         if (!active) return;
-        setPreparedVideos(entries.filter((entry) => (
-          entry.recoveryReason === "manifest_invalid"
-          || (entry.sourceType === sourceType && entry.sourceId === sourceId)
-        )));
+        setPreparedVideos(
+          entries.filter(
+            (entry) =>
+              entry.recoveryReason === "manifest_invalid" ||
+              (entry.sourceType === sourceType && entry.sourceId === sourceId),
+          ),
+        );
         setVideoError("");
       })
       .catch((error) => {
         if (active) setVideoError(error instanceof Error ? error.message : String(error));
       })
-      .finally(() => { if (active) setVideoLoading(false); });
-    return () => { active = false; };
+      .finally(() => {
+        if (active) setVideoLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [sourceId, sourceType]);
 
   function effectiveThemeId(): string | null {
@@ -857,13 +1027,19 @@ export function ArtifactSection({
       setNeedsDirectory(false);
       setToast(`Artifact保存先を設定しました。${result.path}`, "success");
     } catch (error) {
-      setToast(`保存先を設定できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `保存先を設定できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     }
   }
 
   async function importManagedFromPaths(requestFiles: Array<{ path: string; name: string }>) {
     if (!requestFiles.length) {
-      setToast("ファイルの場所を取得できませんでした。エクスプローラーからファイルを選んでください。", "danger");
+      setToast(
+        "ファイルの場所を取得できませんでした。エクスプローラーからファイルを選んでください。",
+        "danger",
+      );
       return;
     }
     setImporting(true);
@@ -879,10 +1055,18 @@ export function ArtifactSection({
         setToast("Artifact保存先が未設定です。「保存先を選ぶ」から設定してください。", "info");
         return;
       }
-      const operations = buildManagedArtifactOperations(result.files, sourceType, sourceId, parentThemeId);
+      const operations = buildManagedArtifactOperations(
+        result.files,
+        sourceType,
+        sourceId,
+        parentThemeId,
+      );
       await saveEntities(operations, `${operations.length}件の Artifact を添付しました。`);
     } catch (error) {
-      setToast(`Artifact を添付できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `Artifact を添付できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     } finally {
       setImporting(false);
     }
@@ -890,16 +1074,27 @@ export function ArtifactSection({
 
   async function importLinkedFromPaths(requestFiles: Array<{ path: string; name: string }>) {
     if (!requestFiles.length) {
-      setToast("ファイルの場所を取得できませんでした。エクスプローラーからファイルを選んでください。", "danger");
+      setToast(
+        "ファイルの場所を取得できませんでした。エクスプローラーからファイルを選んでください。",
+        "danger",
+      );
       return;
     }
     setImporting(true);
     try {
       const parentThemeId = effectiveThemeId();
-      const operations = buildLinkedArtifactOperationsFromPaths(requestFiles, sourceType, sourceId, parentThemeId);
+      const operations = buildLinkedArtifactOperationsFromPaths(
+        requestFiles,
+        sourceType,
+        sourceId,
+        parentThemeId,
+      );
       await saveEntities(operations, `${operations.length}件の参照をリンクしました。`);
     } catch (error) {
-      setToast(`リンクを追加できませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `リンクを追加できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     } finally {
       setImporting(false);
     }
@@ -908,7 +1103,10 @@ export function ArtifactSection({
   async function importFiles(files: File[]) {
     const mediaFiles = files.filter((file) => isDedicatedMediaFileName(file.name));
     if (mediaFiles.length) {
-      setToast("音声・動画は専用の取り込み操作を使ってください。動画は「Video」から添付できます。", "warning");
+      setToast(
+        "音声・動画は専用の取り込み操作を使ってください。動画は「Video」から添付できます。",
+        "warning",
+      );
     }
     const requestFiles = files
       .filter((file) => !isDedicatedMediaFileName(file.name))
@@ -924,7 +1122,10 @@ export function ArtifactSection({
       if (result.canceled || !result.files?.length) return;
       await importManagedFromPaths(result.files);
     } catch (error) {
-      setToast(`Artifact を選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `Artifact を選べませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     }
   }
 
@@ -934,7 +1135,10 @@ export function ArtifactSection({
       if (result.canceled || !result.files?.length) return;
       await importLinkedFromPaths(result.files);
     } catch (error) {
-      setToast(`参照リンクを選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `参照リンクを選べませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     }
   }
 
@@ -942,15 +1146,18 @@ export function ArtifactSection({
     setVideoBusySessionId(prepared.sessionId);
     setVideoError("");
     try {
-      const metadata = prepared.status === "ready"
-        ? await readVideoMetadata(prepared.mediaUrl)
-        : {
-            durationMs: prepared.durationMs || 0,
-            widthPx: prepared.widthPx || 0,
-            heightPx: prepared.heightPx || 0,
-          };
+      const metadata =
+        prepared.status === "ready"
+          ? await readVideoMetadata(prepared.mediaUrl)
+          : {
+              durationMs: prepared.durationMs || 0,
+              widthPx: prepared.widthPx || 0,
+              heightPx: prepared.heightPx || 0,
+            };
       await workspaceApi.commitVideoImport({ sessionId: prepared.sessionId, ...metadata });
-      setPreparedVideos((current) => current.filter((entry) => entry.sessionId !== prepared.sessionId));
+      setPreparedVideos((current) =>
+        current.filter((entry) => entry.sessionId !== prepared.sessionId),
+      );
       setToast(`動画「${prepared.filename}」を添付しました。`, "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -977,7 +1184,10 @@ export function ArtifactSection({
         sourceId,
       });
       if (result.canceled) return;
-      setPreparedVideos((current) => [result, ...current.filter((entry) => entry.sessionId !== result.sessionId)]);
+      setPreparedVideos((current) => [
+        result,
+        ...current.filter((entry) => entry.sessionId !== result.sessionId),
+      ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setVideoError(message);
@@ -989,7 +1199,9 @@ export function ArtifactSection({
     setVideoBusySessionId(prepared.sessionId);
     try {
       await workspaceApi.cancelVideoImport(prepared.sessionId);
-      setPreparedVideos((current) => current.filter((entry) => entry.sessionId !== prepared.sessionId));
+      setPreparedVideos((current) =>
+        current.filter((entry) => entry.sessionId !== prepared.sessionId),
+      );
       setToast("保存待ち動画を破棄しました。", "info");
     } catch (error) {
       setVideoError(error instanceof Error ? error.message : String(error));
@@ -1011,7 +1223,9 @@ export function ArtifactSection({
     setImporting(true);
     try {
       const parentThemeId = effectiveThemeId();
-      const operations = unique.map((url) => buildLinkedArtifactOperationFromUrl(url, sourceType, sourceId, parentThemeId));
+      const operations = unique.map((url) =>
+        buildLinkedArtifactOperationFromUrl(url, sourceType, sourceId, parentThemeId),
+      );
       await saveEntities(
         operations,
         unique.length === 1 ? "URLをリンクしました。" : `${unique.length}件のURLをリンクしました。`,
@@ -1019,7 +1233,10 @@ export function ArtifactSection({
       setUrlDraft("");
       setUrlFormOpen(false);
     } catch (error) {
-      setToast(`URLをリンクできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `URLをリンクできませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     } finally {
       setImporting(false);
     }
@@ -1064,17 +1281,31 @@ export function ArtifactSection({
     const urls = extractHttpUrls(text);
     if (!urls.length) return;
     // 入力欄にフォーカス中は通常の貼り付けに任せる。
-    if (event.currentTarget instanceof HTMLInputElement && event.currentTarget === urlInputRef.current) {
+    if (
+      event.currentTarget instanceof HTMLInputElement &&
+      event.currentTarget === urlInputRef.current
+    ) {
       return;
     }
     event.preventDefault();
     void linkUrls(urls);
   }
 
-  const videoState = videoLoading ? "loading" : videoError ? "error" : preparedVideos.length > 0 || attached.some((entry) => entry.media_kind === "video") ? "success" : "empty";
+  const videoState = videoLoading
+    ? "loading"
+    : videoError
+      ? "error"
+      : preparedVideos.length > 0 || attached.some((entry) => entry.media_kind === "video")
+        ? "success"
+        : "empty";
 
   return (
-    <section className="artifact-section" ref={sectionRef} data-video-state={isVideoArtifactSourceType(sourceType) ? videoState : undefined} aria-busy={isVideoArtifactSourceType(sourceType) && videoLoading || undefined}>
+    <section
+      className="artifact-section"
+      ref={sectionRef}
+      data-video-state={isVideoArtifactSourceType(sourceType) ? videoState : undefined}
+      aria-busy={(isVideoArtifactSourceType(sourceType) && videoLoading) || undefined}
+    >
       <div className="section-heading artifact-section-heading">
         <h3>
           Artifacts
@@ -1090,11 +1321,24 @@ export function ArtifactSection({
             title="ファイルをコピーして追加"
             aria-label="Artifactを追加"
           >
-            <IconPlus size={14} />Artifact
+            <IconPlus size={14} />
+            Artifact
           </button>
-          {isVideoArtifactSourceType(sourceType) && <button type="button" className="secondary-button compact" disabled={videoLoading || importing || Boolean(videoBusySessionId)} aria-label={videoLoading ? "保存待ち動画を確認中…" : "動画を添付"} onClick={() => { void pickVideo("managed"); }} title="動画をTasken管理へコピーして添付">
-            <IconVideo size={14} />Video
-          </button>}
+          {isVideoArtifactSourceType(sourceType) && (
+            <button
+              type="button"
+              className="secondary-button compact"
+              disabled={videoLoading || importing || Boolean(videoBusySessionId)}
+              aria-label={videoLoading ? "保存待ち動画を確認中…" : "動画を添付"}
+              onClick={() => {
+                void pickVideo("managed");
+              }}
+              title="動画をTasken管理へコピーして添付"
+            >
+              <IconVideo size={14} />
+              Video
+            </button>
+          )}
           <button
             type="button"
             className="secondary-button compact"
@@ -1103,7 +1347,8 @@ export function ArtifactSection({
             title="URLをリンク"
             aria-label="URLをリンク"
           >
-            <IconLink size={14} />URL
+            <IconLink size={14} />
+            URL
           </button>
           {sourceType === "chat_ref" && data && (
             <button
@@ -1114,14 +1359,20 @@ export function ArtifactSection({
               title="Noteの最近の書き出しから追加"
               aria-label="NoteからArtifactを追加"
             >
-              <IconFileText size={14} />Noteから
+              <IconFileText size={14} />
+              Noteから
             </button>
           )}
         </div>
       </div>
 
       {urlFormOpen && (
-        <form className="artifact-url-form" onSubmit={(event) => { void submitUrlForm(event); }}>
+        <form
+          className="artifact-url-form"
+          onSubmit={(event) => {
+            void submitUrlForm(event);
+          }}
+        >
           <input
             ref={urlInputRef}
             type="url"
@@ -1146,7 +1397,11 @@ export function ArtifactSection({
               }
             }}
           />
-          <button type="submit" className="primary-button compact" disabled={importing || !urlDraft.trim()}>
+          <button
+            type="submit"
+            className="primary-button compact"
+            disabled={importing || !urlDraft.trim()}
+          >
             追加
           </button>
           <button
@@ -1165,31 +1420,107 @@ export function ArtifactSection({
       {needsDirectory && (
         <div className="artifact-directory-prompt">
           <span>Artifact保存先が未設定のため、まだファイルをコピーできません。</span>
-          <button type="button" className="primary-button compact" onClick={chooseDirectory}>保存先を選ぶ</button>
+          <button type="button" className="primary-button compact" onClick={chooseDirectory}>
+            保存先を選ぶ
+          </button>
         </div>
       )}
-      {isVideoArtifactSourceType(sourceType) && (videoError || preparedVideos.length > 0) && <div className="artifact-video-import-state" aria-live="polite">
-        {videoError ? <div className="artifact-video-list-error" role="alert"><span>保存待ち動画を確認できませんでした。</span><button type="button" className="text-button compact" disabled={videoLoading} onClick={() => {
-          setVideoLoading(true);
-          workspaceApi.listPreparedVideoImports().then((entries) => {
-            setPreparedVideos(entries.filter((entry) => entry.recoveryReason === "manifest_invalid" || (entry.sourceType === sourceType && entry.sourceId === sourceId)));
-            setVideoError("");
-          }).catch((error) => setVideoError(error instanceof Error ? error.message : String(error))).finally(() => setVideoLoading(false));
-        }}>一覧を再試行</button></div> : (
-          <div className="artifact-video-recovery" aria-label="保存待ち動画">
-            {preparedVideos.map((prepared) => {
-              const busy = videoBusySessionId === prepared.sessionId;
-              return <div key={prepared.sessionId} className="artifact-video-recovery-row">
-                <span><strong>{prepared.filename}</strong>{prepared.storageMode ? ` · ${prepared.storageMode === "managed" ? "Tasken管理" : "参照"}` : ""} · {formatArtifactFileSize(prepared.fileSize)}</span>
-                {prepared.status === "ready" && prepared.mediaUrl && <video controls preload="metadata" src={prepared.mediaUrl} aria-label={`${prepared.filename}の保存前プレビュー`} />}
-                {prepared.canCommit && <button type="button" className="primary-button compact" disabled={busy} onClick={() => { void commitPreparedVideo(prepared); }}>添付する</button>}
-                {prepared.canRetry && <button type="button" className="secondary-button compact" disabled={busy} onClick={() => { void commitPreparedVideo(prepared); }}>再試行</button>}
-                {prepared.canDiscard && <button type="button" className="text-button compact" disabled={busy} onClick={() => { void discardPreparedVideo(prepared); }}>破棄</button>}
-              </div>;
-            })}
-          </div>
-        )}
-      </div>}
+      {isVideoArtifactSourceType(sourceType) && (videoError || preparedVideos.length > 0) && (
+        <div className="artifact-video-import-state" aria-live="polite">
+          {videoError ? (
+            <div className="artifact-video-list-error" role="alert">
+              <span>保存待ち動画を確認できませんでした。</span>
+              <button
+                type="button"
+                className="text-button compact"
+                disabled={videoLoading}
+                onClick={() => {
+                  setVideoLoading(true);
+                  workspaceApi
+                    .listPreparedVideoImports()
+                    .then((entries) => {
+                      setPreparedVideos(
+                        entries.filter(
+                          (entry) =>
+                            entry.recoveryReason === "manifest_invalid" ||
+                            (entry.sourceType === sourceType && entry.sourceId === sourceId),
+                        ),
+                      );
+                      setVideoError("");
+                    })
+                    .catch((error) =>
+                      setVideoError(error instanceof Error ? error.message : String(error)),
+                    )
+                    .finally(() => setVideoLoading(false));
+                }}
+              >
+                一覧を再試行
+              </button>
+            </div>
+          ) : (
+            <div className="artifact-video-recovery" aria-label="保存待ち動画">
+              {preparedVideos.map((prepared) => {
+                const busy = videoBusySessionId === prepared.sessionId;
+                return (
+                  <div key={prepared.sessionId} className="artifact-video-recovery-row">
+                    <span>
+                      <strong>{prepared.filename}</strong>
+                      {prepared.storageMode
+                        ? ` · ${prepared.storageMode === "managed" ? "Tasken管理" : "参照"}`
+                        : ""}{" "}
+                      · {formatArtifactFileSize(prepared.fileSize)}
+                    </span>
+                    {prepared.status === "ready" && prepared.mediaUrl && (
+                      <video
+                        controls
+                        preload="metadata"
+                        src={prepared.mediaUrl}
+                        aria-label={`${prepared.filename}の保存前プレビュー`}
+                      />
+                    )}
+                    {prepared.canCommit && (
+                      <button
+                        type="button"
+                        className="primary-button compact"
+                        disabled={busy}
+                        onClick={() => {
+                          void commitPreparedVideo(prepared);
+                        }}
+                      >
+                        添付する
+                      </button>
+                    )}
+                    {prepared.canRetry && (
+                      <button
+                        type="button"
+                        className="secondary-button compact"
+                        disabled={busy}
+                        onClick={() => {
+                          void commitPreparedVideo(prepared);
+                        }}
+                      >
+                        再試行
+                      </button>
+                    )}
+                    {prepared.canDiscard && (
+                      <button
+                        type="button"
+                        className="text-button compact"
+                        disabled={busy}
+                        onClick={() => {
+                          void discardPreparedVideo(prepared);
+                        }}
+                      >
+                        破棄
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
       {attached.length > 0 && (
         <ul className="artifact-list">
           {attached.map((artifact) => (
@@ -1199,6 +1530,7 @@ export function ArtifactSection({
               data={data}
               openDrawer={openDrawer}
               openContentViewer={openContentViewer}
+              openFeedPost={openFeedPost}
               removeEntity={removeEntity}
               saveEntities={saveEntities}
               setToast={setToast}
@@ -1233,9 +1565,19 @@ export function ArtifactSection({
         >
           参照のみ
         </button>
-        {isVideoArtifactSourceType(sourceType) && <button type="button" className="text-button compact" disabled={videoLoading || importing || Boolean(videoBusySessionId)} onClick={() => { void pickVideo("linked"); }} title="動画をコピーせず、場所だけ参照する">
-          動画を参照
-        </button>}
+        {isVideoArtifactSourceType(sourceType) && (
+          <button
+            type="button"
+            className="text-button compact"
+            disabled={videoLoading || importing || Boolean(videoBusySessionId)}
+            onClick={() => {
+              void pickVideo("linked");
+            }}
+            title="動画をコピーせず、場所だけ参照する"
+          >
+            動画を参照
+          </button>
+        )}
       </div>
       {noteExportPickerOpen && data && (
         <ChatRefArtifactLinkDialog

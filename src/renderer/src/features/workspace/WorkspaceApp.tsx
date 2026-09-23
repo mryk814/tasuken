@@ -27,6 +27,7 @@ import { todayIso } from "../../utils/dataFormat.js";
 import { usePreference } from "../../utils/usePreference";
 import { noteProjectId } from "../../../../shared/themeRef.mjs";
 import { createTaskClient, planTaskEdit, projectTaskDraft } from "../task/public";
+import { requestFeedPostFocus } from "./lib/feedPosts";
 import {
   type BaseRecord,
   type ContentViewerTarget,
@@ -2056,6 +2057,16 @@ export function WorkspaceApp() {
       setActiveThemeId(recalledTheme.id);
       location.hash = target.route;
       setRoute(target.route);
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>(".main-area")?.focus({ preventScroll: true }),
+      );
+      return;
+    }
+    if (target.kind === "feed") {
+      setDrawer(null);
+      location.hash = target.route;
+      setRoute(target.route);
+      requestFeedPostFocus(target.entityId);
       requestAnimationFrame(() =>
         document.querySelector<HTMLElement>(".main-area")?.focus({ preventScroll: true }),
       );

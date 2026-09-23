@@ -614,6 +614,10 @@ export function ShortcutDialog({ close }: { close: () => void }) {
           </dt>
           <dd>入力中に全体検索を開く</dd>
           <dt>
+            <kbd>Alt</kbd>+<kbd>P</kbd>
+          </dt>
+          <dd>選択したInbox記録をFeedへ投稿</dd>
+          <dt>
             <kbd>Alt</kbd>+<kbd>F</kbd>
           </dt>
           <dd>実行中のFocus Sessionを開く</dd>

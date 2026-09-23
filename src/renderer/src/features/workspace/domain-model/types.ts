@@ -286,6 +286,21 @@ export interface Note extends AiMetadata {
   properties_json?: Record<string, unknown>;
 }
 
+/** 自分自身のFeed投稿。Notesには保存しない。 */
+export interface FeedOwnPost extends AiMetadata {
+  id: string;
+  title: string;
+  body_markdown: string;
+  project_id?: string | null;
+  source_record_id?: string | null;
+  published_at: string;
+  origin_note_id?: string | null;
+  migrated_from_note_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
+}
+
 export interface Resource extends AiMetadata {
   id: string;
   title: string;
@@ -347,6 +362,7 @@ export type EntityRefType =
   | "waiting"
   | "plan_node"
   | "note"
+  | "feed_post"
   | "resource"
   | "knowledge_node"
   | "sketch"
@@ -451,6 +467,8 @@ export interface WorkspaceDomain {
   feed_reactions: Array<Record<string, unknown> & { id: string }>;
   /** 投稿への返信とAIの返答。 */
   feed_replies: Array<Record<string, unknown> & { id: string }>;
+  /** 自分自身のFeed投稿。Notesには保存しない。 */
+  feed_posts: FeedOwnPost[];
   knowledge_nodes: KnowledgeNode[];
   references: Reference[];
   task_dependencies: TaskDependency[];
