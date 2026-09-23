@@ -127,6 +127,7 @@ feature state   ページ内だけで完結する一時入力やフィルター
 - API成功後にStoreを更新し、失敗時は入力と既存データを残す。
 - 派生値はselectorまたは純粋関数で計算する。
 - フォーム入力をすべてStoreへ入れない。閉じたら捨ててよい状態はcomponent stateでよい。
+- 画面の前後履歴はroute単位・セッション内のみで保持し、DBやPreferenceへ保存しない。
 - StoreからDOM操作、dialog表示、React component生成をしない。
 
 ## 6. Tailwindとデザイントークン

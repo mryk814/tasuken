@@ -18,6 +18,7 @@ import {
   IconPlus,
   IconRestore,
   IconSearch,
+  IconSend,
   IconTrash,
   IconVideo,
   IconVolume,
@@ -39,12 +40,14 @@ import {
   buildSaveScheduleOperations,
   buildSaveResourceOperations,
   buildSaveNoteOperations,
+  buildSaveFeedPostOperations,
   buildSaveCaptureEntryOperations,
   buildTriageCaptureEntryOperations,
   buildChangeEventOperation,
 } from "../domain-model/persistence";
 import type {
   CaptureEntry,
+  FeedOwnPost,
   Note as DomainNote,
   Resource,
   Schedule,
@@ -68,6 +71,7 @@ import {
 } from "../../../../../shared/memoPresentation";
 import { useUiStore } from "../../../stores/uiStore";
 import { createSketchDraft } from "../lib/sketch";
+import { captureFeedPost } from "../lib/feedPosts";
 import { buildLinkedArtifactOperationsFromPaths } from "../lib/artifactEntities";
 import { formatArtifactFileSize } from "../components/artifacts";
 import {
@@ -77,13 +81,14 @@ import {
   quickCaptureTitle,
 } from "../../../../../shared/quickCapture.mjs";
 
-type InboxKind = "task" | "memo" | "document" | "link" | "waiting" | "idea" | "artifact";
+type InboxKind = "task" | "memo" | "document" | "feed" | "link" | "waiting" | "idea" | "artifact";
 
 /** 内部コードを画面へ出さないための対応表。 */
 const INBOX_KIND_LABELS: Record<InboxKind, string> = {
   task: "タスク",
   memo: "メモ",
   document: "Markdown",
+  feed: "Feed",
   link: "リンク",
   waiting: "待ち",
   idea: "アイデア",
@@ -94,6 +99,7 @@ const INBOX_KIND_OPTIONS: Array<[InboxKind, string]> = [
   ["task", "タスク"],
   ["memo", "メモ"],
   ["document", "Markdown"],
+  ["feed", "Feed"],
   ["link", "リンク"],
   ["waiting", "待ち"],
   ["idea", "アイデア"],
@@ -170,11 +176,12 @@ function CapturedArtifactButton({
 }
 
 type OrganizedTargetType = "task" | "waiting" | "note" | "resource";
-type OrganizedEntity = Task | Waiting | DomainNote | Resource;
+type OrganizedDestination = OrganizedTargetType | "feed";
+type OrganizedEntity = Task | Waiting | DomainNote | FeedOwnPost | Resource;
 
 interface OrganizedResult {
   id: string;
-  targetType: OrganizedTargetType;
+  targetType: OrganizedDestination;
   targetId: string;
   title: string;
   label: string;
@@ -201,17 +208,19 @@ function draftFromEntry(entry: CaptureEntry): InboxDraft {
   };
 }
 
-function routeForTarget(type: OrganizedTargetType): string {
+function routeForTarget(type: OrganizedDestination): string {
   if (type === "task") return "todo";
   if (type === "waiting") return "waiting";
   if (type === "note") return "notes";
+  if (type === "feed") return "feed";
   return "chat-refs";
 }
 
-function labelForTarget(type: OrganizedTargetType): string {
+function labelForTarget(type: OrganizedDestination): string {
   if (type === "task") return "タスク";
   if (type === "waiting") return "待ち";
   if (type === "note") return "メモ";
+  if (type === "feed") return "Feed";
   return "リンク";
 }
 
@@ -223,6 +232,10 @@ function copyTextForTarget(result: OrganizedResult): string {
   if (result.targetType === "note") {
     const note = result.entity as DomainNote;
     return [`# ${note.title}`, note.body_markdown || ""].filter(Boolean).join("\n\n");
+  }
+  if (result.targetType === "feed") {
+    const post = result.entity as FeedOwnPost;
+    return [`# ${post.title}`, post.body_markdown || ""].filter(Boolean).join("\n\n");
   }
   const description = "description" in result.entity ? result.entity.description : "";
   return [result.title, description].filter(Boolean).join("\n");
@@ -434,7 +447,7 @@ export function InboxPage({
   }
 
   function rememberOrganized(
-    targetType: OrganizedTargetType,
+    targetType: OrganizedDestination,
     targetId: string,
     title: string,
     entity: OrganizedEntity,
@@ -457,6 +470,11 @@ export function InboxPage({
   }
 
   function openOrganized(result: OrganizedResult) {
+    if (result.targetType === "feed") {
+      // Feed掲載は投稿列が正本の読み面。Noteドロワーを経由しない。
+      navigate("feed");
+      return;
+    }
     const entity =
       result.targetType === "task" || result.targetType === "waiting"
         ? { ...result.entity, _schedule: result.schedule }
@@ -574,27 +592,28 @@ export function InboxPage({
     );
   }
 
-  async function organize(row: InboxRow) {
-    const draft = drafts[row.entry.id] || draftFromEntry(row.entry);
+  async function organize(row: InboxRow, outputOverride?: InboxKind): Promise<boolean> {
+    const storedDraft = drafts[row.entry.id] || draftFromEntry(row.entry);
+    const draft = outputOverride ? { ...storedDraft, output: outputOverride } : storedDraft;
     const title = draft.title.trim();
     if (!title) {
       setToast("タイトルを入力してください。入力内容は保持されています。");
-      return;
+      return false;
     }
     if (draft.output === "link" && !draft.link_url.trim()) {
       setToast("リンクに整理するにはURLを入力してください。入力内容は保持されています。");
-      return;
+      return false;
     }
     if (draft.output === "waiting" && !draft.waiting_for.trim()) {
       setToast("相手を入力してください。入力内容は保持されています。");
-      return;
+      return false;
     }
     if (draft.output === "artifact" && captureArtifacts(row.entry.id).length === 0) {
       setToast(
         "Artifactに整理するには、先にファイルを記録してください。入力内容は保持されています。",
         "warning",
       );
-      return;
+      return false;
     }
     const themeId = draft.theme_id || null;
     const sourceRecordId = row.entry.source_record_id || null;
@@ -684,6 +703,26 @@ export function InboxPage({
         const label = draft.output === "document" ? "Markdown文書" : "メモ";
         await saveEntities(ops, `${label}「${title}」に整理しました。`);
         rememberOrganized("note", noteId, title, note);
+      } else if (draft.output === "feed") {
+        // つぶやきはFeed専用の正本として保存し、Notesには残さない。
+        const postId = uuid();
+        const post = captureFeedPost(
+          {
+            id: postId,
+            title,
+            text: draft.description,
+            projectId: themeId,
+            sourceRecordId: sourceRecordId,
+          },
+          new Date().toISOString(),
+        );
+        const ops: SaveOperation[] = [
+          ...buildSaveFeedPostOperations(post),
+          ...retargetArtifactOperations(row.entry.id, "feed_post", postId, themeId),
+          ...buildTriageCaptureEntryOperations(row.entry, { type: "feed_post", id: postId }),
+        ];
+        await saveEntities(ops, `Feed「${title}」に投稿しました。`);
+        rememberOrganized("feed", postId, title, post);
       } else if (draft.output === "link") {
         const resourceId = uuid();
         const inferredLinkType = inferChatServiceFromUrl(draft.link_url);
@@ -732,8 +771,10 @@ export function InboxPage({
         setFeedback(`${attachedArtifacts.length}件のArtifactとして整理しました。`);
       }
       setSelected((current) => current.filter((id) => id !== row.entry.id));
+      return true;
     } catch {
       // saveEntity側のtoastを使い、draftは消さない。
+      return false;
     } finally {
       setOrganizing((current) => {
         const next = { ...current };
@@ -948,12 +989,69 @@ export function InboxPage({
     }
   }
 
-  async function organizeSelected() {
+  async function organizeSelected(outputOverride?: InboxKind): Promise<boolean> {
+    let completed = false;
     for (const id of selected) {
       const row = inboxRows.find((entry) => entry.entry.id === id);
-      if (row) await organize(row);
+      if (row) completed = (await organize(row, outputOverride)) || completed;
     }
+    return completed;
   }
+
+  /**
+   * 未整理の記録をつぶやきとしてFeedへ載せる。
+   *
+   * 選択中の下書きはそのまま使い、出力だけFeedへ切り替える。通常整理と違って
+   * 読み面がFeedなので、1件以上保存できたときだけFeedへ移動する。
+   */
+  async function postSelectedToFeed() {
+    const rows = selected
+      .map((id) => inboxRows.find((entry) => entry.entry.id === id))
+      .filter((row): row is InboxRow => Boolean(row));
+    if (rows.length === 0) {
+      setToast("Feedへ載せる記録を選択してください。", "info");
+      return;
+    }
+    let posted = false;
+    for (const row of rows) {
+      posted = (await organize(row, "feed")) || posted;
+    }
+    if (posted) navigate("feed");
+  }
+
+  async function postInboxRowToFeed(row: InboxRow) {
+    if (await organize(row, "feed")) navigate("feed");
+  }
+
+  /**
+   * Inbox内のショートカット。Alt+Pで選択中をFeedへ載せる。
+   *
+   * Inbox面が開いている間だけdocumentで待ち、文字入力欄・ドロワー・メニューが
+   * 開いているときは誤作動させない。チェックボックス直後の操作も拾えるよう、
+   * text入力系だけを除外する。選択が無いときは何も保存せず案内だけ出す。
+   */
+  useEffect(() => {
+    if (lane !== "untriaged") return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.defaultPrevented) return;
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== "p") return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          "textarea, select, [contenteditable='true'], input:not([type='checkbox']):not([type='radio']), .drawer, .command-palette-backdrop, .shortcut-overlay, .context-menu",
+        )
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void postSelectedToFeed();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+    // postSelectedToFeed は選択・下書きを読むため、購読し直して最新のclosureを使う。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lane, selected, inboxRows, drafts]);
 
   return (
     <div className="page inbox-page">
@@ -1049,6 +1147,7 @@ export function InboxPage({
               <option value="task">タスク</option>
               <option value="memo">メモ</option>
               <option value="document">Markdown</option>
+              <option value="feed">Feed</option>
               <option value="link">リンク</option>
               <option value="waiting">待ち</option>
               <option value="idea">アイデア</option>
@@ -1096,7 +1195,16 @@ export function InboxPage({
           <Button variant="secondary" compact onClick={() => bulkPatch({ priority: "high" })}>
             優先
           </Button>
-          <Button variant="primary" compact onClick={organizeSelected}>
+          <Button
+            variant="secondary"
+            compact
+            onClick={() => void postSelectedToFeed()}
+            title="選択した記録をFeedへ載せる（Alt+P）"
+            aria-keyshortcuts="Alt+P"
+          >
+            Feedへ載せる
+          </Button>
+          <Button variant="primary" compact onClick={() => void organizeSelected()}>
             一括整理
           </Button>
         </section>
@@ -1435,6 +1543,16 @@ export function InboxPage({
                         >
                           {isOrganizing ? "整理中..." : "整理する"}
                         </ActionButton>
+                        <Button
+                          variant="secondary"
+                          compact
+                          disabled={isOrganizing}
+                          onClick={() => void postInboxRowToFeed(row)}
+                          title="この記録をFeedへ載せる"
+                        >
+                          <IconSend size={15} />
+                          Feedへ載せる
+                        </Button>
                       </div>
                     </div>
                   </div>

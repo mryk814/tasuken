@@ -210,7 +210,7 @@ export interface KnowledgeNode extends BaseRecord {
 }
 
 export type ArtifactSourceType =
-  "chat_ref" | "task" | "note" | "report" | "theme" | "capture_entry" | "ai_proposal";
+  "chat_ref" | "task" | "note" | "report" | "theme" | "capture_entry" | "ai_proposal" | "feed_post";
 export type ArtifactGeneratedBy = "chatgpt" | "claude" | "copilot" | "gemini" | "openai" | "manual";
 
 export type ArtifactStorageMode = "managed" | "linked";
@@ -311,6 +311,8 @@ export interface WorkspaceData {
   feed_reactions: BaseRecord[];
   /** 投稿への返信とAIの返答。投稿のIDに紐づける。 */
   feed_replies: BaseRecord[];
+  /** 自分自身のFeed投稿。Notesには保存しない。 */
+  feed_posts: BaseRecord[];
   canonical_root_status?: CanonicalRootStatusMap;
   meta?: WorkspaceMeta;
 }

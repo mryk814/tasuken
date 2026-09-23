@@ -1,11 +1,14 @@
 import {
   IconBook2,
   IconBookmark,
+  IconBookmarkFilled,
   IconBulb,
   IconChartDots3,
   IconHeart,
+  IconHeartFilled,
   IconLink,
   IconMessageCircle,
+  IconMessageCircleFilled,
   IconMessageCircleQuestion,
   IconNotes,
   IconDots,
@@ -96,8 +99,13 @@ export interface FeedPostCardProps {
   onOpenTask(post: FeedPost): void;
   onSaveDraft(post: FeedPost): void;
   onOpenSavedNote(post: FeedPost): void;
-  onOpenOwnNote(post: FeedPost): void;
-  onUnpublish(post: FeedPost): void;
+  editingOwnPost: boolean;
+  editingOwnPostBody: string;
+  onStartOwnPostEdit(post: FeedPost): void;
+  onChangeOwnPostEdit(body: string): void;
+  onCancelOwnPostEdit(): void;
+  onSaveOwnPostEdit(post: FeedPost): void;
+  onDeleteOwnPost(post: FeedPost): void;
   rowRef?: (node: HTMLLIElement | null) => void;
 }
 
@@ -126,8 +134,13 @@ export function FeedPostCard({
   onOpenTask,
   onSaveDraft,
   onOpenSavedNote,
-  onOpenOwnNote,
-  onUnpublish,
+  editingOwnPost,
+  editingOwnPostBody,
+  onStartOwnPostEdit,
+  onChangeOwnPostEdit,
+  onCancelOwnPostEdit,
+  onSaveOwnPostEdit,
+  onDeleteOwnPost,
   rowRef,
 }: FeedPostCardProps) {
   const author = authorOf(post);
@@ -292,7 +305,11 @@ export function FeedPostCard({
               title={`返信${replyCount > 0 ? ` ${replyCount}件` : ""}`}
               onClick={() => onOpenThread(post)}
             >
-              <IconMessageCircle size={16} stroke={1.8} aria-hidden="true" />
+              {threadOpen ? (
+                <IconMessageCircleFilled size={16} aria-hidden="true" />
+              ) : (
+                <IconMessageCircle size={16} stroke={1.8} aria-hidden="true" />
+              )}
               {replyCount > 0 ? <span className="feed-reaction-count">{replyCount}</span> : null}
             </button>
             <button
@@ -303,7 +320,11 @@ export function FeedPostCard({
               title="おもしろい"
               onClick={() => onToggleReaction(post, "interesting")}
             >
-              <IconHeart size={16} stroke={1.8} aria-hidden="true" />
+              {interestingActive ? (
+                <IconHeartFilled size={16} aria-hidden="true" />
+              ) : (
+                <IconHeart size={16} stroke={1.8} aria-hidden="true" />
+              )}
             </button>
             <button
               type="button"
@@ -313,19 +334,57 @@ export function FeedPostCard({
               title="ブックマーク"
               onClick={() => onToggleReaction(post, "bookmark")}
             >
-              <IconBookmark size={16} stroke={1.8} aria-hidden="true" />
+              {bookmarkActive ? (
+                <IconBookmarkFilled size={16} aria-hidden="true" />
+              ) : (
+                <IconBookmark size={16} stroke={1.8} aria-hidden="true" />
+              )}
             </button>
-            {post.noteId ? (
+            {post.kind === "own_note" ? (
               <>
-                <button type="button" className="feed-reaction" onClick={() => onOpenOwnNote(post)}>
-                  Noteで読む
+                <button
+                  type="button"
+                  className="feed-reaction"
+                  disabled={editingOwnPost}
+                  onClick={() => onStartOwnPostEdit(post)}
+                >
+                  編集
                 </button>
-                <button type="button" className="feed-reaction" onClick={() => onUnpublish(post)}>
-                  Feedから外す
+                <button
+                  type="button"
+                  className="feed-reaction"
+                  onClick={() => onDeleteOwnPost(post)}
+                >
+                  削除
                 </button>
               </>
             ) : null}
           </div>
+          {post.kind === "own_note" && editingOwnPost ? (
+            <form
+              className="feed-own-post-editor"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onSaveOwnPostEdit(post);
+              }}
+            >
+              <label htmlFor={`feed-own-post-edit-${post.id}`}>投稿を編集</label>
+              <textarea
+                id={`feed-own-post-edit-${post.id}`}
+                value={editingOwnPostBody}
+                onChange={(event) => onChangeOwnPostEdit(event.target.value)}
+                rows={4}
+              />
+              <div className="feed-detail-actions">
+                <Button variant="primary" type="submit" disabled={busy}>
+                  保存
+                </Button>
+                <Button variant="ghost" type="button" disabled={busy} onClick={onCancelOwnPostEdit}>
+                  やめる
+                </Button>
+              </div>
+            </form>
+          ) : null}
           {latestReply ? (
             <button
               type="button"

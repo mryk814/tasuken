@@ -3,14 +3,11 @@ import { useMemo, useState } from "react";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { usePreference } from "../../../utils/usePreference";
 import { defaultViewPreference } from "../../../../../shared/viewPreferenceRegistry.mjs";
-import {
-  ArtifactCard,
-  resolveArtifactSourceLabel,
-  themeNameOf,
-} from "../components/artifacts";
+import { ArtifactCard, resolveArtifactSourceLabel, themeNameOf } from "../components/artifacts";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { ARTIFACT_SOURCE_TYPE_LABELS } from "../domain-model/labels";
 import { readRecentArtifactIds } from "../lib/artifactRecent";
+import { requestFeedPostFocus } from "../lib/feedPosts";
 import type { ArtifactSourceType, PageProps } from "../types";
 
 type SortOrder = "newest" | "oldest" | "recent_opened" | "name";
@@ -23,7 +20,9 @@ interface ArtifactsPrefs {
   sortOrder: SortOrder;
 }
 
-const DEFAULT_PREFS: ArtifactsPrefs = defaultViewPreference("artifacts.preferences") as ArtifactsPrefs;
+const DEFAULT_PREFS: ArtifactsPrefs = defaultViewPreference(
+  "artifacts.preferences",
+) as ArtifactsPrefs;
 
 const TYPE_FILTER_LABELS: Record<TypeFilter, string> = {
   all: "すべて",
@@ -43,7 +42,24 @@ function matchesTypeFilter(artifact: { file_type?: string }, filter: TypeFilter)
   if (filter === "pdf") return type === "pdf";
   if (filter === "markdown") return ["md", "markdown"].includes(type);
   if (filter === "presentation") return ["pptx", "ppt"].includes(type);
-  return !["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "xlsx", "xls", "csv", "tsv", "pdf", "md", "markdown", "pptx", "ppt"].includes(type);
+  return ![
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "webp",
+    "bmp",
+    "svg",
+    "xlsx",
+    "xls",
+    "csv",
+    "tsv",
+    "pdf",
+    "md",
+    "markdown",
+    "pptx",
+    "ppt",
+  ].includes(type);
 }
 
 export function ArtifactsPage({
@@ -54,11 +70,13 @@ export function ArtifactsPage({
   removeEntity,
   saveEntities,
   setToast,
+  navigate,
 }: PageProps) {
   const [query, setQuery] = useState("");
   const [recentTick, setRecentTick] = useState(0);
   const [prefs, setPrefs] = usePreference("artifacts.preferences");
-  const updatePrefs = (patch: Partial<ArtifactsPrefs>) => setPrefs((current) => ({ ...current, ...patch }));
+  const updatePrefs = (patch: Partial<ArtifactsPrefs>) =>
+    setPrefs((current) => ({ ...current, ...patch }));
   const recentIds = useMemo(() => readRecentArtifactIds(), [data.artifacts, recentTick]);
   const recentRank = useMemo(() => new Map(recentIds.map((id, index) => [id, index])), [recentIds]);
 
@@ -66,7 +84,8 @@ export function ArtifactsPage({
     const q = query.trim().toLowerCase();
     return (data.artifacts || [])
       .filter((artifact) => {
-        if (prefs.themeId !== "all" && String(artifact.theme_id || "") !== prefs.themeId) return false;
+        if (prefs.themeId !== "all" && String(artifact.theme_id || "") !== prefs.themeId)
+          return false;
         if (prefs.sourceType !== "all" && artifact.source_type !== prefs.sourceType) return false;
         if (!matchesTypeFilter(artifact, prefs.typeFilter)) return false;
         if (!q) return true;
@@ -77,7 +96,9 @@ export function ArtifactsPage({
           resolveArtifactSourceLabel(artifact, data),
           themeNameOf(artifact, data),
           artifact.file_type,
-        ].join(" ").toLowerCase();
+        ]
+          .join(" ")
+          .toLowerCase();
         return haystack.includes(q);
       })
       .sort((a, b) => {
@@ -97,33 +118,60 @@ export function ArtifactsPage({
   }, [data, prefs, query, recentRank]);
 
   const hasAny = (data.artifacts || []).length > 0;
-  const filterActive = prefs.themeId !== "all" || prefs.sourceType !== "all" || prefs.typeFilter !== "all" || Boolean(query.trim());
+  const filterActive =
+    prefs.themeId !== "all" ||
+    prefs.sourceType !== "all" ||
+    prefs.typeFilter !== "all" ||
+    Boolean(query.trim());
+
+  function openFeedPost(postId: string) {
+    navigate("feed");
+    requestFeedPostFocus(postId);
+  }
 
   function copyList() {
     const header = "ファイル名\t種類\tTheme\t元Entity\t作成日\tパス";
-    const rows = artifacts.map((artifact) => [
-      artifact.filename,
-      artifact.file_type || "",
-      themeNameOf(artifact, data),
-      `${ARTIFACT_SOURCE_TYPE_LABELS[artifact.source_type] || artifact.source_type}:${resolveArtifactSourceLabel(artifact, data)}`,
-      artifact.created_at ? new Date(artifact.created_at).toLocaleDateString("ja-JP") : "",
-      artifact.stored_path,
-    ].join("\t"));
-    workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("Artifact 一覧をコピーしました。", "success"));
+    const rows = artifacts.map((artifact) =>
+      [
+        artifact.filename,
+        artifact.file_type || "",
+        themeNameOf(artifact, data),
+        `${ARTIFACT_SOURCE_TYPE_LABELS[artifact.source_type] || artifact.source_type}:${resolveArtifactSourceLabel(artifact, data)}`,
+        artifact.created_at ? new Date(artifact.created_at).toLocaleDateString("ja-JP") : "",
+        artifact.stored_path,
+      ].join("\t"),
+    );
+    workspaceApi
+      .copyText([header, ...rows].join("\n"))
+      .then(() => setToast("Artifact 一覧をコピーしました。", "success"));
   }
 
   return (
     <div className="page artifacts-page">
       <PageHeader route="artifacts">
-        <Button variant="secondary" onClick={copyList} disabled={!artifacts.length}>一覧をコピー</Button>
+        <Button variant="secondary" onClick={copyList} disabled={!artifacts.length}>
+          一覧をコピー
+        </Button>
       </PageHeader>
 
       <section className="panel artifact-role-panel" aria-label="役割の整理">
         <div className="artifact-role-grid">
-          <div><strong>Notes</strong><span>自分で書く本文</span></div>
-          <div><strong>Resources</strong><span>URL / 外部参照</span></div>
-          <div><strong>Chat Refs</strong><span>会話の入口</span></div>
-          <div><strong>Artifacts</strong><span>実ファイル</span></div>
+          <div>
+            <strong>Notes</strong>
+            <span>自分で書く本文</span>
+          </div>
+          <div>
+            <strong>Resources</strong>
+            <span>URL / 外部参照</span>
+          </div>
+          <div>
+            <strong>Chat Refs</strong>
+            <span>会話の入口</span>
+          </div>
+          <div>
+            <strong>Artifacts</strong>
+            <span>実ファイル</span>
+          </div>
         </div>
       </section>
 
@@ -145,12 +193,16 @@ export function ArtifactsPage({
         />
         <select
           value={prefs.sourceType}
-          onChange={(event) => updatePrefs({ sourceType: event.target.value as ArtifactsPrefs["sourceType"] })}
+          onChange={(event) =>
+            updatePrefs({ sourceType: event.target.value as ArtifactsPrefs["sourceType"] })
+          }
           aria-label="元Entityで絞り込み"
         >
           <option value="all">元: すべて</option>
           {Object.entries(ARTIFACT_SOURCE_TYPE_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
+            <option key={value} value={value}>
+              {label}
+            </option>
           ))}
         </select>
         <select
@@ -159,7 +211,9 @@ export function ArtifactsPage({
           aria-label="種類で絞り込み"
         >
           {Object.entries(TYPE_FILTER_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
+            <option key={value} value={value}>
+              {label}
+            </option>
           ))}
         </select>
         <select
@@ -202,6 +256,7 @@ export function ArtifactsPage({
               data={data}
               openDrawer={openDrawer}
               openContentViewer={openContentViewer}
+              openFeedPost={openFeedPost}
               removeEntity={removeEntity}
               saveEntities={saveEntities}
               setToast={setToast}
@@ -215,7 +270,8 @@ export function ArtifactsPage({
 
       {hasAny && (
         <p className="field-help artifact-page-help">
-          追加は Chat Refs・Task・Note・Theme の詳細から「Artifact を追加」またはドラッグで行います。保存先は Settings の Artifact 保存先です。
+          追加は Chat Refs・Task・Note・Theme の詳細から「Artifact
+          を追加」またはドラッグで行います。保存先は Settings の Artifact 保存先です。
         </p>
       )}
     </div>

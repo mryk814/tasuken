@@ -40,8 +40,13 @@ export interface FeedStreamProps {
   onOpenTask(post: FeedPost): void;
   onSaveDraft(post: FeedPost): void;
   onOpenSavedNote(post: FeedPost): void;
-  onOpenOwnNote(post: FeedPost): void;
-  onUnpublish(post: FeedPost): void;
+  editingOwnPostId: string | null;
+  editingOwnPostBody: string;
+  onStartOwnPostEdit(post: FeedPost): void;
+  onChangeOwnPostEdit(body: string): void;
+  onCancelOwnPostEdit(): void;
+  onSaveOwnPostEdit(post: FeedPost): void;
+  onDeleteOwnPost(post: FeedPost): void;
   onMore(): void;
   registerRow(postId: string, node: HTMLLIElement | null): void;
 }
@@ -70,8 +75,13 @@ export function FeedStream({
   onOpenTask,
   onSaveDraft,
   onOpenSavedNote,
-  onOpenOwnNote,
-  onUnpublish,
+  editingOwnPostId,
+  editingOwnPostBody,
+  onStartOwnPostEdit,
+  onChangeOwnPostEdit,
+  onCancelOwnPostEdit,
+  onSaveOwnPostEdit,
+  onDeleteOwnPost,
   onMore,
   registerRow,
 }: FeedStreamProps) {
@@ -129,8 +139,13 @@ export function FeedStream({
                 onOpenTask={onOpenTask}
                 onSaveDraft={onSaveDraft}
                 onOpenSavedNote={onOpenSavedNote}
-                onOpenOwnNote={onOpenOwnNote}
-                onUnpublish={onUnpublish}
+                editingOwnPost={editingOwnPostId === post.id}
+                editingOwnPostBody={editingOwnPostBody}
+                onStartOwnPostEdit={onStartOwnPostEdit}
+                onChangeOwnPostEdit={onChangeOwnPostEdit}
+                onCancelOwnPostEdit={onCancelOwnPostEdit}
+                onSaveOwnPostEdit={onSaveOwnPostEdit}
+                onDeleteOwnPost={onDeleteOwnPost}
                 rowRef={(node) => registerRow(post.id, node)}
               />
             );

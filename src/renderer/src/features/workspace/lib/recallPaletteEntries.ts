@@ -17,12 +17,20 @@ export type RecallPaletteCategory =
   | "Notes / Documents"
   | "Waiting / Inbox"
   | "Knowledge / Chat"
+  | "Feed"
   | "Themes"
   | "Resources / Artifacts";
 
 export type RecallPaletteTarget =
-  | { kind: "drawer"; route: CanonicalRouteId; entityType: DrawerEntityType; entityId: string; mode?: "edit" | "view" }
+  | {
+      kind: "drawer";
+      route: CanonicalRouteId;
+      entityType: DrawerEntityType;
+      entityId: string;
+      mode?: "edit" | "view";
+    }
   | { kind: "theme"; route: "theme"; entityId: string }
+  | { kind: "feed"; route: "feed"; entityId: string }
   | { kind: "artifact"; route: "artifacts"; entityId: string };
 
 export interface RecallPaletteDescriptor {
@@ -45,7 +53,10 @@ function compactText(value: unknown, maxLength = 96): string {
 }
 
 function context(parts: unknown[]): string {
-  return parts.map((part) => compactText(part)).filter(Boolean).join(" · ");
+  return parts
+    .map((part) => compactText(part))
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export function buildRecallPaletteEntries({
@@ -66,9 +77,20 @@ export function buildRecallPaletteEntries({
       id: `task:${task.id}`,
       label: text(task.title) || "無題のTask",
       keywords: ["task", "タスク", themeName(task.project_id), TASK_STATE_LABELS[task.state]],
-      searchText: [task.description, task.completion_note, ...(task.checklist_items || []).map((item) => item.title)].map(text).join(" "),
+      searchText: [
+        task.description,
+        task.completion_note,
+        ...(task.checklist_items || []).map((item) => item.title),
+      ]
+        .map(text)
+        .join(" "),
       category: "Tasks",
-      context: context(["Task", themeName(task.project_id), TASK_STATE_LABELS[task.state], description]),
+      context: context([
+        "Task",
+        themeName(task.project_id),
+        TASK_STATE_LABELS[task.state],
+        description,
+      ]),
       target: { kind: "drawer", route: "todo", entityType: "task", entityId: task.id },
     };
   });
@@ -89,21 +111,56 @@ export function buildRecallPaletteEntries({
   const planNodes: RecallPaletteDescriptor[] = domain.plan_nodes.map((planNode) => ({
     id: `plan:${planNode.id}`,
     label: text(planNode.title) || "無題のPlan",
-    keywords: ["plan", "計画", "milestone", "マイルストーン", themeName(planNode.project_id), text(planNode.type), text(planNode.state)],
+    keywords: [
+      "plan",
+      "計画",
+      "milestone",
+      "マイルストーン",
+      themeName(planNode.project_id),
+      text(planNode.type),
+      text(planNode.state),
+    ],
     searchText: text(planNode.description),
     category: "Plans / Milestones",
-    context: context([planNode.type === "milestone" ? "Milestone" : "Plan", themeName(planNode.project_id), compactText(planNode.description)]),
-    target: { kind: "drawer", route: "timeline", entityType: "plan_node", entityId: planNode.id, mode: "edit" },
+    context: context([
+      planNode.type === "milestone" ? "Milestone" : "Plan",
+      themeName(planNode.project_id),
+      compactText(planNode.description),
+    ]),
+    target: {
+      kind: "drawer",
+      route: "timeline",
+      entityType: "plan_node",
+      entityId: planNode.id,
+      mode: "edit",
+    },
   }));
 
   const waitings: RecallPaletteDescriptor[] = domain.waitings.map((waiting) => ({
     id: `waiting:${waiting.id}`,
     label: text(waiting.title) || "無題のWaiting",
-    keywords: ["waiting", "待ち", themeName(waiting.project_id), WAITING_STATE_LABELS[waiting.state]],
+    keywords: [
+      "waiting",
+      "待ち",
+      themeName(waiting.project_id),
+      WAITING_STATE_LABELS[waiting.state],
+    ],
     searchText: [waiting.description, waiting.waiting_for, waiting.next_action].map(text).join(" "),
     category: "Waiting / Inbox",
-    context: context(["Waiting", themeName(waiting.project_id), `相手: ${waiting.waiting_for}`, WAITING_STATE_LABELS[waiting.state], compactText(waiting.next_action || waiting.description)]),
-    target: { kind: "drawer", route: "waiting", entityType: "waiting", entityId: waiting.id, mode: "edit" },
+    context: context([
+      "Waiting",
+      themeName(waiting.project_id),
+      `相手: ${waiting.waiting_for}`,
+      WAITING_STATE_LABELS[waiting.state],
+      compactText(waiting.next_action || waiting.description),
+    ]),
+    target: {
+      kind: "drawer",
+      route: "waiting",
+      entityType: "waiting",
+      entityId: waiting.id,
+      mode: "edit",
+    },
   }));
 
   const captures: RecallPaletteDescriptor[] = domain.capture_entries.map((capture) => {
@@ -111,11 +168,29 @@ export function buildRecallPaletteEntries({
     return {
       id: `capture:${capture.id}`,
       label: compactText(capture.title || capture.text, 72) || "無題の記録",
-      keywords: ["capture", "inbox", "記録", captureLabel, themeName(capture.project_id), CAPTURE_ENTRY_STATE_LABELS[capture.state]],
+      keywords: [
+        "capture",
+        "inbox",
+        "記録",
+        captureLabel,
+        themeName(capture.project_id),
+        CAPTURE_ENTRY_STATE_LABELS[capture.state],
+      ],
       searchText: [capture.text, capture.url].map(text).join(" "),
       category: "Waiting / Inbox",
-      context: context([captureLabel, themeName(capture.project_id), CAPTURE_ENTRY_STATE_LABELS[capture.state], compactText(capture.text)]),
-      target: { kind: "drawer", route: "inbox", entityType: "capture_entry", entityId: capture.id, mode: "edit" },
+      context: context([
+        captureLabel,
+        themeName(capture.project_id),
+        CAPTURE_ENTRY_STATE_LABELS[capture.state],
+        compactText(capture.text),
+      ]),
+      target: {
+        kind: "drawer",
+        route: "inbox",
+        entityType: "capture_entry",
+        entityId: capture.id,
+        mode: "edit",
+      },
     };
   });
 
@@ -128,7 +203,13 @@ export function buildRecallPaletteEntries({
       searchText: text(node.body),
       category: "Knowledge / Chat",
       context: context([nodeLabel, themeName(node.project_id), compactText(node.body)]),
-      target: { kind: "drawer", route: "knowledge", entityType: "knowledge_node", entityId: node.id, mode: "view" },
+      target: {
+        kind: "drawer",
+        route: "knowledge",
+        entityType: "knowledge_node",
+        entityId: node.id,
+        mode: "view",
+      },
     };
   });
 
@@ -138,12 +219,32 @@ export function buildRecallPaletteEntries({
     return {
       id: `${chat ? "chat" : "resource"}:${resource.id}`,
       label: text(resource.title) || (chat ? "無題のChat Ref" : "無題のResource"),
-      keywords: [chat ? "chat" : "resource", chat ? "チャット" : "資料", service, themeName(resource.project_id), text(resource.chat_group), text(resource.url)],
-      searchText: [resource.description, resource.body_markdown, resource.url, resource.chat_group].map(text).join(" "),
+      keywords: [
+        chat ? "chat" : "resource",
+        chat ? "チャット" : "資料",
+        service,
+        themeName(resource.project_id),
+        text(resource.chat_group),
+        text(resource.url),
+      ],
+      searchText: [resource.description, resource.body_markdown, resource.url, resource.chat_group]
+        .map(text)
+        .join(" "),
       category: chat ? "Knowledge / Chat" : "Resources / Artifacts",
-      context: context([chat ? `Chat Ref · ${service}` : "Resource", themeName(resource.project_id), resource.chat_group, compactText(resource.body_markdown || resource.description || resource.url)]),
+      context: context([
+        chat ? `Chat Ref · ${service}` : "Resource",
+        themeName(resource.project_id),
+        resource.chat_group,
+        compactText(resource.body_markdown || resource.description || resource.url),
+      ]),
       target: chat
-        ? { kind: "drawer", route: "chat-refs", entityType: "resource", entityId: resource.id, mode: "edit" }
+        ? {
+            kind: "drawer",
+            route: "chat-refs",
+            entityType: "resource",
+            entityId: resource.id,
+            mode: "edit",
+          }
         : { kind: "drawer", route: "notes", entityType: "resource", entityId: resource.id },
     };
   });
@@ -151,11 +252,40 @@ export function buildRecallPaletteEntries({
   const artifacts: RecallPaletteDescriptor[] = (data.artifacts || []).map((artifact) => ({
     id: `artifact:${artifact.id}`,
     label: text(artifact.title || artifact.filename) || "Artifact",
-    keywords: ["artifact", "成果物", "ファイル", themeName(artifact.theme_id), text(artifact.media_kind || artifact.file_type)],
-    searchText: [artifact.filename, artifact.stored_path, artifact.original_path, artifact.target, artifact.description].map(text).join(" "),
+    keywords: [
+      "artifact",
+      "成果物",
+      "ファイル",
+      themeName(artifact.theme_id),
+      text(artifact.media_kind || artifact.file_type),
+    ],
+    searchText: [
+      artifact.filename,
+      artifact.stored_path,
+      artifact.original_path,
+      artifact.target,
+      artifact.description,
+    ]
+      .map(text)
+      .join(" "),
     category: "Resources / Artifacts",
-    context: context(["Artifact", themeName(artifact.theme_id), artifact.media_kind || artifact.file_type || "File", compactText(artifact.description)]),
+    context: context([
+      "Artifact",
+      themeName(artifact.theme_id),
+      artifact.media_kind || artifact.file_type || "File",
+      compactText(artifact.description),
+    ]),
     target: { kind: "artifact", route: "artifacts", entityId: artifact.id },
+  }));
+
+  const feedPosts: RecallPaletteDescriptor[] = (domain.feed_posts || []).map((post) => ({
+    id: `feed-post:${post.id}`,
+    label: text(post.title) || "無題の投稿",
+    keywords: ["feed", "投稿", "つぶやき", themeName(post.project_id)],
+    searchText: text(post.body_markdown),
+    category: "Feed",
+    context: context(["自分の投稿", themeName(post.project_id), compactText(post.body_markdown)]),
+    target: { kind: "feed", route: "feed", entityId: post.id },
   }));
 
   const themeEntries: RecallPaletteDescriptor[] = themes.map((theme) => ({
@@ -176,6 +306,7 @@ export function buildRecallPaletteEntries({
     ...captures,
     ...knowledge,
     ...resources,
+    ...feedPosts,
     ...artifacts,
     ...themeEntries,
   ];

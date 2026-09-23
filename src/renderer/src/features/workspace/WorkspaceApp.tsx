@@ -14,12 +14,20 @@ import {
 import { workspaceApi } from "../../services/workspaceApi";
 import { actionDefinition, TOAST_ACTIONS } from "../../pages/semanticActions";
 import { normalizeRoute, routeLabel } from "../../pages/routes";
+import {
+  emptyRouteHistory,
+  recordRouteVisit,
+  travelRouteHistory,
+  type RouteHistorySnapshot,
+  type RouteTravelDirection,
+} from "../../pages/routeHistory";
 import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
 import { usePreference } from "../../utils/usePreference";
 import { noteProjectId } from "../../../../shared/themeRef.mjs";
 import { createTaskClient, planTaskEdit, projectTaskDraft } from "../task/public";
+import { requestFeedPostFocus } from "./lib/feedPosts";
 import {
   type BaseRecord,
   type ContentViewerTarget,
@@ -187,6 +195,12 @@ export function WorkspaceApp() {
   const storedRoute = useUiStore((state) => normalizeRoute(state.route));
   const route = detachedNoteId ? "notes" : storedRoute;
   const setRoute = useUiStore((state) => state.setRoute);
+  /**
+   * アプリ内の前画面・次画面。route単位の移動だけを履歴に残す。
+   * 詳細な選択やドロワー状態は各画面の既存の保持に任せる。
+   */
+  const [routeHistory, setRouteHistory] = useState<RouteHistorySnapshot>(() => emptyRouteHistory());
+  const suppressRouteRecordRef = useRef<string | null>(null);
   const activeThemeId = useUiStore((state) => state.activeThemeId);
   const setActiveThemeId = useUiStore((state) => state.setActiveThemeId);
   const [drawer, setDrawer] = useState<DrawerConfig | null>(null);
@@ -419,6 +433,19 @@ export function WorkspaceApp() {
     addEventListener("hashchange", onHash);
     return () => removeEventListener("hashchange", onHash);
   }, [setRoute]);
+
+  useEffect(() => {
+    return useUiStore.subscribe((state, previousState) => {
+      const previous = normalizeRoute(previousState.route);
+      const next = normalizeRoute(state.route);
+      if (!previous || !next || previous === next) return;
+      if (suppressRouteRecordRef.current === next) {
+        suppressRouteRecordRef.current = null;
+        return;
+      }
+      setRouteHistory((history) => recordRouteVisit(history, previous, next));
+    });
+  }, []);
 
   useEffect(() => {
     const openPalette = (event: KeyboardEvent) => {
@@ -888,6 +915,26 @@ export function WorkspaceApp() {
       location.hash = normalized;
       setRoute(normalized);
     })();
+  }
+
+  /**
+   * 前画面・次画面の移動。未保存の編集が残れば移動せず、履歴も変えない。
+   * 通常の遷移購読が同じ移動を二重に記録しないよう、移動先を到達済みとして残す。
+   */
+  async function travelRoute(direction: RouteTravelDirection) {
+    const from = normalizeRoute(route);
+    const travel = travelRouteHistory(routeHistory, from, direction);
+    if (!travel.target) return;
+    const normalized = normalizeRoute(travel.target);
+    if (normalized === from) return;
+    if (!(await saveDirtyDrawerForm())) return;
+    drawerGeneration.current += 1;
+    setDrawer(null);
+    setNotesEditorSelectionId(null);
+    suppressRouteRecordRef.current = normalized;
+    setRouteHistory(travel.history);
+    location.hash = normalized;
+    setRoute(normalized);
   }
 
   function openNoteForEditing(noteId: string) {
@@ -2015,6 +2062,16 @@ export function WorkspaceApp() {
       );
       return;
     }
+    if (target.kind === "feed") {
+      setDrawer(null);
+      location.hash = target.route;
+      setRoute(target.route);
+      requestFeedPostFocus(target.entityId);
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>(".main-area")?.focus({ preventScroll: true }),
+      );
+      return;
+    }
     if (target.kind === "artifact") {
       setDrawer(null);
       location.hash = target.route;
@@ -2321,6 +2378,20 @@ export function WorkspaceApp() {
     toggleTodayWindow,
   };
 
+  const backTarget = routeHistory.back.at(-1) ?? null;
+  const forwardTarget = routeHistory.forward[0] ?? null;
+  const routeNavigation =
+    loadState === "success" && !detachedNoteId
+      ? {
+          canGoBack: backTarget !== null,
+          canGoForward: forwardTarget !== null,
+          backLabel: backTarget ? routeLabel(backTarget) : "",
+          forwardLabel: forwardTarget ? routeLabel(forwardTarget) : "",
+          onGoBack: () => void travelRoute("back"),
+          onGoForward: () => void travelRoute("forward"),
+        }
+      : undefined;
+
   const titleBar = (
     <AppTitleBar
       launcher={titleBarLauncher}
@@ -2334,6 +2405,7 @@ export function WorkspaceApp() {
       openShortcuts={() => setShowShortcuts(true)}
       openCommandPalette={() => setShowCommandPalette(true)}
       openSettings={() => navigate("settings")}
+      routeNavigation={routeNavigation}
     />
   );
   const frameStyle = { "--app-content-zoom": zoomFactor } as CSSProperties;

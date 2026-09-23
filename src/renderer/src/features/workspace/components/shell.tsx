@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { buildAttentionQueue, countAttention } from "../../../../../shared/contracts/task/public";
 import {
+  IconArrowLeft,
+  IconArrowRight,
   IconChevronDown,
   IconCalendarCheck,
   IconKeyboard,
@@ -46,6 +48,18 @@ interface AppTitleBarProps {
   launcher?: TitleBarLauncherData;
   /** 切り離しウィンドウ（#290）。Sidebarが無いので開閉トグルを出さない（#329）。 */
   detached?: boolean;
+  /**
+   * アプリ内の前画面・次画面。route単位の移動だけを扱い、ドロワー内や
+   * 入力中の選択状態の復元は各画面の既存の保持に任せる。
+   */
+  routeNavigation?: {
+    canGoBack: boolean;
+    canGoForward: boolean;
+    backLabel: string;
+    forwardLabel: string;
+    onGoBack: () => void;
+    onGoForward: () => void;
+  };
 }
 
 export interface TitleBarLauncherData {
@@ -99,6 +113,7 @@ export function AppTitleBar({
   openCommandPalette,
   launcher,
   detached = false,
+  routeNavigation,
 }: AppTitleBarProps) {
   const [openMenu, setOpenMenu] = useState<"view" | "help" | null>(null);
   const controlsRef = useRef<HTMLDivElement | null>(null);
@@ -141,6 +156,46 @@ export function AppTitleBar({
             <IconLayoutSidebarLeftCollapse size={17} aria-hidden="true" />
           )}
         </button>
+      )}
+      {routeNavigation && !detached && (
+        <div className="titlebar-history" role="group" aria-label="画面移動">
+          <button
+            className="titlebar-sidebar-toggle"
+            type="button"
+            aria-label={
+              routeNavigation.canGoBack
+                ? `前の画面に戻る（${routeNavigation.backLabel}）`
+                : "前の画面に戻る"
+            }
+            title={
+              routeNavigation.canGoBack
+                ? `前の画面に戻る（${routeNavigation.backLabel}）`
+                : "前の画面に戻る"
+            }
+            disabled={!routeNavigation.canGoBack}
+            onClick={routeNavigation.onGoBack}
+          >
+            <IconArrowLeft size={17} aria-hidden="true" />
+          </button>
+          <button
+            className="titlebar-sidebar-toggle"
+            type="button"
+            aria-label={
+              routeNavigation.canGoForward
+                ? `次の画面に進む（${routeNavigation.forwardLabel}）`
+                : "次の画面に進む"
+            }
+            title={
+              routeNavigation.canGoForward
+                ? `次の画面に進む（${routeNavigation.forwardLabel}）`
+                : "次の画面に進む"
+            }
+            disabled={!routeNavigation.canGoForward}
+            onClick={routeNavigation.onGoForward}
+          >
+            <IconArrowRight size={17} aria-hidden="true" />
+          </button>
+        </div>
       )}
       <div className="titlebar-brand" aria-label="Tasken">
         <img src={taskenIconUrl} alt="" aria-hidden="true" />
@@ -558,6 +613,10 @@ export function ShortcutDialog({ close }: { close: () => void }) {
             <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>
           </dt>
           <dd>入力中に全体検索を開く</dd>
+          <dt>
+            <kbd>Alt</kbd>+<kbd>P</kbd>
+          </dt>
+          <dd>選択したInbox記録をFeedへ投稿</dd>
           <dt>
             <kbd>Alt</kbd>+<kbd>F</kbd>
           </dt>

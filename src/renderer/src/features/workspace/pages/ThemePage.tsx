@@ -23,6 +23,7 @@ import { formatDate, str } from "../lib/format";
 import {
   FEED_POST_KIND_LABELS,
   authorOf,
+  buildOwnPosts,
   buildPostsFromProposals,
   buildRepliesFromEntities,
   requestFeedPostFocus,
@@ -406,7 +407,8 @@ export function ThemePage({
     .slice(0, KNOWLEDGE_PREVIEW_LIMIT);
 
   /*
-   * Themeに紐づくFeed投稿は、Feedと同じ投影から読む（正本はProposalと返信Entityのまま）。
+   * Themeに紐づくFeed投稿は、Feedと同じ投影から読む（正本はProposalと返信Entity、
+   * 自分の投稿はFeed専用Entityのまま）。
    * 会話の全文と記事本文はFeedの面が持つので、ここでは数と入口だけを置く。
    * 早期returnより後ではHookを増やせないため、投影は表示のたびに組み立てる。
    */
@@ -417,6 +419,7 @@ export function ThemePage({
       tasks: v2.tasks,
     }),
     ...buildRepliesFromEntities({ replies: v2.feed_replies, proposals: v2.ai_proposals }),
+    ...buildOwnPosts({ feedPosts: v2.feed_posts }),
   ];
   /** 返信自身はThemeを持たない。親投稿のThemeで数える。 */
   const themeFeedPosts = feedProjection.filter(

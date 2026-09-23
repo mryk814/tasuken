@@ -142,6 +142,7 @@ const entityRefTypes = new Set([
   "waiting",
   "plan_node",
   "note",
+  "feed_post",
   "resource",
   "knowledge_node",
   "sketch",
@@ -186,6 +187,7 @@ const repositoryContextRecordFields = new Set([
 // （chat_refはresource、reportはnoteとして保存されている）。
 export const artifactSourceEntityTypes = {
   chat_ref: "resource",
+  feed_post: "feed_post",
   task: "task",
   note: "note",
   report: "note",

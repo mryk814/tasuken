@@ -12,6 +12,7 @@
  */
 
 import { stableProposalEntityId } from "../../../../../shared/proposalAcceptance.mjs";
+import { feedPostTitleFromBody } from "../../../../../shared/feedPost.mjs";
 import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 
 /** 実データの投稿に付く参照。fixtureでは未設定。 */
@@ -19,8 +20,6 @@ export interface FeedPostRefs {
   proposalId?: string;
   /** 返信EntityのID（自分の返信を削除するときに使う）。 */
   replyId?: string;
-  /** 自分の投稿が元にしているNote（Feedから外すときに使う）。 */
-  noteId?: string;
   /** 返信をAIへ向けたか、AIが答えたか（第3段階）。 */
   aiState?: "requested" | "answered" | null;
   taskId?: string | null;
@@ -912,33 +911,25 @@ function feedAnswerEntry(proposal: Row): Row | null {
 /* -------------------------------------------------------------------------
  * 自分の投稿（SNS型Feed 第3段階）
  *
- * 既存のCapture/Memo入力（Note）を再利用し、**Feedへ載せると選んだものだけ**を投稿にする。
- * 未整理のメモを自動で流さないため、印（`feed_published_at`）が付いたNoteだけを読む。
- * 外すとNoteはNotesに残したままFeedから消える。
+ * 自分の投稿はFeed専用の正本（`feed_post`）に保存し、Notesには残さない。
+ * Feedへ載せると選んだものだけを投稿にする。未整理のメモを自動で流さない。
+ * 既存のFeed印付きNoteは起動時移行でFeed専用へ移し、投稿IDと会話の対応を保つ。
  * ---------------------------------------------------------------------- */
 
-/** Feedへ載せたことを示すNoteの印。nullで外す。 */
-export const FEED_PUBLISHED_FIELD = "feed_published_at";
-
-/** 自分の投稿のID。NoteのIDから決まるので、載せ直しても同じ投稿になる。 */
-export function ownPostId(noteId: string): string {
-  return `feed-note:${noteId}`;
-}
-
-/** Feedへ載せたNoteを、投稿として読む。 */
-export function buildOwnPosts(input: { notes?: readonly unknown[] }): FeedPost[] {
+/** Feed専用の投稿を読む。 */
+export function buildOwnPosts(input: { feedPosts?: readonly unknown[] }): FeedPost[] {
   const posts: FeedPost[] = [];
-  for (const entry of input.notes ?? []) {
+  for (const entry of input.feedPosts ?? []) {
     if (!entry || typeof entry !== "object") continue;
-    const note = entry as Row;
-    if (note.deleted_at) continue;
-    const publishedAt = text(note[FEED_PUBLISHED_FIELD]);
+    const post = entry as Row;
+    if (post.deleted_at) continue;
+    const publishedAt = text(post.published_at);
     if (!publishedAt) continue;
-    const body = text(note.body_markdown ?? note.body);
+    const body = text(post.body_markdown ?? post.body);
     if (!body.trim()) continue;
-    const noteId = String(note.id);
+    const postId = String(post.id);
     posts.push({
-      id: ownPostId(noteId),
+      id: postId,
       author: "self",
       kind: "own_note",
       createdAt: publishedAt,
@@ -946,55 +937,109 @@ export function buildOwnPosts(input: { notes?: readonly unknown[] }): FeedPost[]
         .split(/\n{2,}/u)
         .map((paragraph) => paragraph.trim())
         .filter(Boolean),
-      // メモは添付カードにせず、スレッドの操作から既存のNote面へ開く。
+      // つぶやきは添付カードにせず、投稿の操作から編集・削除する。
       attachment: null,
       replyTo: null,
       learnable: false,
-      noteId,
-      // NoteのThemeはproject_idが正本。Theme面はこのIDだけで自分の投稿を絞り込む。
-      themeId: noteProjectId(note),
+      // Feed専用投稿のThemeはproject_idが正本。Theme面はこのIDだけで自分の投稿を絞り込む。
+      themeId: noteProjectId(post),
     } as FeedPost);
   }
   return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
 }
 
 /**
- * Feedへ載せるNote。既存のMemo入力をそのまま保存先に使う。
+ * Feed専用の投稿。Notesには保存しない。
  * 本文が空のときは載せない（投稿として読めないため）。
  */
-export function feedNoteEntity(input: {
+export function feedPostEntity(input: {
   id: string;
   body: string;
   publishedAt: string;
-  title?: string;
+  title?: string | null;
+  projectId?: string | null;
+  sourceRecordId?: string | null;
+  originNoteId?: string | null;
 }): {
   id: string;
   title: string;
   body_markdown: string;
-  note_type: "memo";
-  feed_published_at: string;
+  project_id: string | null;
+  source_record_id: string | null;
+  published_at: string;
+  origin_note_id: string | null;
 } {
   const body = input.body.trim();
   if (!body) throw new Error("投稿する本文を入力してください。");
   return {
     id: input.id,
-    title: (input.title || "").trim() || noteTitleFrom(body),
+    title: (input.title || "").trim() || feedPostTitleFromBody(body),
     body_markdown: body,
-    note_type: "memo",
-    feed_published_at: input.publishedAt,
+    project_id: input.projectId?.trim() ? input.projectId : null,
+    source_record_id: input.sourceRecordId?.trim() ? input.sourceRecordId : null,
+    published_at: input.publishedAt,
+    origin_note_id: input.originNoteId?.trim() ? input.originNoteId : null,
   };
 }
 
-/** Noteの見出しは本文の1行目から作る（長い場合は切る）。 */
+export interface CaptureFeedPostSource {
+  id: string;
+  title?: string | null | undefined;
+  text?: string | null | undefined;
+  projectId?: string | null | undefined;
+  sourceRecordId?: string | null | undefined;
+}
+
+/**
+ * Inboxの記録をFeed専用の投稿にする。
+ *
+ * 本文はコピーと同じ題名＋本文の並びにする。本文が空の記録は投稿として
+ * 読めないため、保存せず呼び出し側で案内する。元の記録IDは保存し、Feedだけを
+ * 増やさないように呼び出し側で元の記録を整理する。
+ */
+export function captureFeedPost(
+  source: CaptureFeedPostSource,
+  publishedAt: string,
+): {
+  id: string;
+  title: string;
+  body_markdown: string;
+  project_id: string | null;
+  source_record_id: string | null;
+  published_at: string;
+  origin_note_id: string | null;
+} {
+  const body = [source.title, source.text]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n");
+  return feedPostEntity({
+    id: source.id,
+    title: source.title ?? "",
+    body,
+    publishedAt,
+    projectId: source.projectId,
+    sourceRecordId: source.sourceRecordId,
+  });
+}
+
+/** Note候補の見出しは本文の1行目から作る（長い場合は切る）。 */
 export function noteTitleFrom(body: string): string {
   const firstLine = body.split(/\r?\n/u)[0]?.trim() || "";
   if (!firstLine) return "メモ";
   return firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
 }
 
-/** Feedから外す（NoteはNotesに残す）。 */
-export function unpublishNote(note: Row): Row {
-  return { ...note, [FEED_PUBLISHED_FIELD]: null };
+/** Feed専用投稿の本文を同じIDで直す。公開時刻と出所は変えない。 */
+export function updateFeedOwnPost(body: string): {
+  title: string;
+  body_markdown: string;
+} {
+  const trimmed = body.trim();
+  if (!trimmed) throw new Error("投稿する本文を入力してください。");
+  return {
+    title: feedPostTitleFromBody(trimmed),
+    body_markdown: trimmed,
+  };
 }
 
 /** 人が書く返信のEntity。IDは呼び出し側で採番する。 */

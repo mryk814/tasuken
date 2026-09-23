@@ -235,6 +235,14 @@ button:active {
   margin-left: var(--space-2);
   -webkit-app-region: no-drag;
 }
+/* 前画面・次画面はタイトルバー左側の二連ボタンにまとめる。 */
+.titlebar-history {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: var(--space-2);
+  -webkit-app-region: no-drag;
+}
 .titlebar-launcher button {
   position: relative;
   display: inline-grid;
