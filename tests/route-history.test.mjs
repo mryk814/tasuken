@@ -91,7 +91,8 @@ test("タイトルバーは履歴の行き先つき前後ボタンを出し、�
   // 既存の保存・ドロワー処理を通してから移動する。遷移監視の重複記録も防ぐ。
   assert.match(workspaceAppSource, /recordRouteVisit\(/);
   assert.match(workspaceAppSource, /travelRouteHistory\(/);
-  assert.match(workspaceAppSource, /visitedRouteRef\.current = normalized;/);
+  assert.match(workspaceAppSource, /suppressRouteRecordRef\.current = normalized;/);
+  assert.match(workspaceAppSource, /setRouteHistory\(travel\.history\)/);
   assert.match(workspaceAppSource, /if \(!\(await saveDirtyDrawerForm\(\)\)\) return;/);
   assert.match(workspaceAppSource, /routeNavigation=\{routeNavigation\}/);
 });

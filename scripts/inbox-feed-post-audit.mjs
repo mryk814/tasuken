@@ -82,8 +82,6 @@ async function waitForActiveRoute(page, label) {
 }
 
 /** 画面の操作を最後まで通せたか。途中で失敗したときは保存状態を判定しない。 */
-let reachedEnd = false;
-
 try {
   const { app, page } = await launchApp();
   try {
@@ -107,12 +105,11 @@ try {
         failures.push("投稿した付箋メモがInboxの付箋一覧に残っています。");
       }
     }
-    reachedEnd = failures.length === 0;
   } finally {
     await app.close();
   }
 
-  if (reachedEnd) {
+  if (failures.length === 0) {
     const verify = new WorkspaceDatabase(databasePath);
     try {
       verify.loadWorkspace();

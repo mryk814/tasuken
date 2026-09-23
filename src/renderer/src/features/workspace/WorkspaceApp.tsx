@@ -18,6 +18,7 @@ import {
   emptyRouteHistory,
   recordRouteVisit,
   travelRouteHistory,
+  type RouteHistorySnapshot,
   type RouteTravelDirection,
 } from "../../pages/routeHistory";
 import { useUiStore, type ToastTone } from "../../stores/uiStore";
@@ -197,9 +198,8 @@ export function WorkspaceApp() {
    * アプリ内の前画面・次画面。route単位の移動だけを履歴に残す。
    * 詳細な選択やドロワー状態は各画面の既存の保持に任せる。
    */
-  const routeHistoryRef = useRef(emptyRouteHistory());
-  const visitedRouteRef = useRef<string | null>(null);
-  const [, setRouteHistoryVersion] = useState(0);
+  const [routeHistory, setRouteHistory] = useState<RouteHistorySnapshot>(() => emptyRouteHistory());
+  const suppressRouteRecordRef = useRef<string | null>(null);
   const activeThemeId = useUiStore((state) => state.activeThemeId);
   const setActiveThemeId = useUiStore((state) => state.setActiveThemeId);
   const [drawer, setDrawer] = useState<DrawerConfig | null>(null);
@@ -434,21 +434,17 @@ export function WorkspaceApp() {
   }, [setRoute]);
 
   useEffect(() => {
-    const normalized = normalizeRoute(route);
-    if (visitedRouteRef.current === null) {
-      visitedRouteRef.current = normalized;
-      return;
-    }
-    if (normalized === visitedRouteRef.current) return;
-    routeHistoryRef.current = recordRouteVisit(
-      routeHistoryRef.current,
-      visitedRouteRef.current,
-      normalized,
-    );
-    visitedRouteRef.current = normalized;
-    // 履歴の有無だけをボタンへ伝える。route自体の変化が再描画を担う。
-    setRouteHistoryVersion((version) => version + 1);
-  }, [route]);
+    return useUiStore.subscribe((state, previousState) => {
+      const previous = normalizeRoute(previousState.route);
+      const next = normalizeRoute(state.route);
+      if (!previous || !next || previous === next) return;
+      if (suppressRouteRecordRef.current === next) {
+        suppressRouteRecordRef.current = null;
+        return;
+      }
+      setRouteHistory((history) => recordRouteVisit(history, previous, next));
+    });
+  }, []);
 
   useEffect(() => {
     const openPalette = (event: KeyboardEvent) => {
@@ -921,12 +917,12 @@ export function WorkspaceApp() {
   }
 
   /**
-   * 前画面・次画面の移動。履歴スタックを先に更新してから移動する。
-   * 通常の遷移監視が同じ移動を二重に記録しないよう、移動先を到達済みとして残す。
+   * 前画面・次画面の移動。未保存の編集が残れば移動せず、履歴も変えない。
+   * 通常の遷移購読が同じ移動を二重に記録しないよう、移動先を到達済みとして残す。
    */
   async function travelRoute(direction: RouteTravelDirection) {
-    const from = normalizeRoute(visitedRouteRef.current ?? route);
-    const travel = travelRouteHistory(routeHistoryRef.current, from, direction);
+    const from = normalizeRoute(route);
+    const travel = travelRouteHistory(routeHistory, from, direction);
     if (!travel.target) return;
     const normalized = normalizeRoute(travel.target);
     if (normalized === from) return;
@@ -934,11 +930,10 @@ export function WorkspaceApp() {
     drawerGeneration.current += 1;
     setDrawer(null);
     setNotesEditorSelectionId(null);
-    routeHistoryRef.current = travel.history;
-    visitedRouteRef.current = normalized;
+    suppressRouteRecordRef.current = normalized;
+    setRouteHistory(travel.history);
     location.hash = normalized;
     setRoute(normalized);
-    setRouteHistoryVersion((version) => version + 1);
   }
 
   function openNoteForEditing(noteId: string) {
@@ -2372,8 +2367,8 @@ export function WorkspaceApp() {
     toggleTodayWindow,
   };
 
-  const backTarget = routeHistoryRef.current.back.at(-1) ?? null;
-  const forwardTarget = routeHistoryRef.current.forward[0] ?? null;
+  const backTarget = routeHistory.back.at(-1) ?? null;
+  const forwardTarget = routeHistory.forward[0] ?? null;
   const routeNavigation =
     loadState === "success" && !detachedNoteId
       ? {
