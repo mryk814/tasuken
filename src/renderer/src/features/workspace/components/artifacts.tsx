@@ -1291,13 +1291,7 @@ export function ArtifactSection({
     void linkUrls(urls);
   }
 
-  const videoState = videoLoading
-    ? "loading"
-    : videoError
-      ? "error"
-      : preparedVideos.length > 0 || attached.some((entry) => entry.media_kind === "video")
-        ? "success"
-        : "empty";
+  const videoState = videoLoading ? "loading" : videoError ? "error" : preparedVideos.length > 0 || attached.some((entry) => entry.media_kind === "video") ? "success" : "empty";
 
   return (
     <section
@@ -1321,8 +1315,7 @@ export function ArtifactSection({
             title="ファイルをコピーして追加"
             aria-label="Artifactを追加"
           >
-            <IconPlus size={14} />
-            Artifact
+            <IconPlus size={14} />Artifact
           </button>
           {isVideoArtifactSourceType(sourceType) && (
             <button
@@ -1347,8 +1340,7 @@ export function ArtifactSection({
             title="URLをリンク"
             aria-label="URLをリンク"
           >
-            <IconLink size={14} />
-            URL
+            <IconLink size={14} />URL
           </button>
           {sourceType === "chat_ref" && data && (
             <button
@@ -1453,9 +1445,7 @@ export function ArtifactSection({
                     )
                     .finally(() => setVideoLoading(false));
                 }}
-              >
-                一覧を再試行
-              </button>
+              >一覧を再試行</button>
             </div>
           ) : (
             <div className="artifact-video-recovery" aria-label="保存待ち動画">
@@ -1486,9 +1476,7 @@ export function ArtifactSection({
                         onClick={() => {
                           void commitPreparedVideo(prepared);
                         }}
-                      >
-                        添付する
-                      </button>
+                      >添付する</button>
                     )}
                     {prepared.canRetry && (
                       <button
@@ -1510,9 +1498,7 @@ export function ArtifactSection({
                         onClick={() => {
                           void discardPreparedVideo(prepared);
                         }}
-                      >
-                        破棄
-                      </button>
+                      >破棄</button>
                     )}
                   </div>
                 );
