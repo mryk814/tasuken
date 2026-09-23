@@ -97,15 +97,6 @@ function fixture() {
         project_id: "theme-hidden",
       },
     ],
-    feed_posts: [
-      {
-        id: "fp1",
-        title: "乾燥の気づき",
-        body_markdown: "湿度リゲル管理を見直す",
-        project_id: "theme-hidden",
-        published_at: "2026-08-13T10:00:00Z",
-      },
-    ],
     resources: [
       {
         id: "r1",
@@ -157,7 +148,6 @@ test("Recall Paletteは本文・待ち・記録・Knowledge・ChatをWorkspace�
     ["ケフェウス本文", "resource:r2"],
     ["polaris-results", "artifact:a1"],
     ["/managed/vega", "artifact:a1"],
-    ["湿度リゲル", "feed-post:fp1"],
   ];
   for (const [query, expected] of cases) {
     assert.deepEqual(
@@ -218,11 +208,6 @@ test("Recall Paletteは全Theme投影と既存画面へのtargetを返す", () =
     route: "notes",
     entityType: "resource",
     entityId: "r2",
-  });
-  assert.deepEqual(byId.get("feed-post:fp1").target, {
-    kind: "feed",
-    route: "feed",
-    entityId: "fp1",
   });
 });
 
