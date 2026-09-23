@@ -23,7 +23,8 @@ export function resolveAttachmentPath(userDataPath: string, fileName: string): s
   const attachments = path.resolve(userDataPath, "attachments");
   // Keep existing URLs and command fingerprints stable. Older photo manifests
   // use the same local URL form as Markdown images.
-  for (const directory of ["markdown-images", "capture-images"]) {
+  // link-previews はFeedの外部リンクPreviewのサムネイル（内容hash名で保存）。
+  for (const directory of ["markdown-images", "capture-images", "link-previews"]) {
     const root = path.join(attachments, directory);
     const target = path.join(root, fileName);
     if (!fs.existsSync(target)) continue;

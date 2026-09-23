@@ -14,23 +14,42 @@ function sectionHeadings(source) {
   return [...source.matchAll(/<h2>([^<]+)<\/h2>/g)].map((match) => match[1]);
 }
 
-test("Theme詳細はReport→Task→Note→Artifactの順で状況を出す（#321）", () => {
+test("Theme詳細は四面に分かれ、面ごとに読む順で状況を出す（#321、計画フェーズ4）", () => {
   const headings = sectionHeadings(themePage);
-  const order = ["報告書・重要文書", "未完了", "完了・やったこと", "最近のNote"];
-  const indexes = order.map((heading) => headings.indexOf(heading));
+
+  // 面は 概要 → タスク → 投稿 → Notes の順に並べる。
+  const tabOrder = ["概要", "タスク", "投稿", "Notes"];
+  const tabIndexes = tabOrder.map((label) => themePage.indexOf(`label: "${label}"`));
   assert.ok(
-    indexes.every((index) => index >= 0),
-    `見出しが揃っている: ${headings.join(",")}`,
+    tabIndexes.every((index) => index >= 0),
+    `四面のタブが揃っている: ${tabOrder.join(",")}`,
   );
   assert.deepEqual(
-    [...indexes].sort((a, b) => a - b),
-    indexes,
-    "上から Report → Task → Note の順にする",
+    [...tabIndexes].sort((a, b) => a - b),
+    tabIndexes,
+    "概要 → タスク → 投稿 → Notes の順にする",
   );
 
-  // 現在地・マイルストーン・セクションは補助として後ろへ回す。
-  assert.ok(headings.indexOf("現在地") > headings.indexOf("最近のNote"));
-  assert.ok(headings.indexOf("タスクセクション") > headings.indexOf("最近のNote"));
+  // 概要面の見出しが最初に来る。
+  const overview = ["いま分かっていること", "現在地", "次の仕事", "近いマイルストーン"];
+  for (const heading of overview) {
+    assert.ok(headings.indexOf(heading) >= 0, `概要の見出しが揃っている: ${headings.join(",")}`);
+  }
+  assert.ok(headings.indexOf("現在地") < headings.indexOf("未完了"), "概要をタスクより先に読む");
+
+  // タスク面は 未完了 → 完了 → セクション。Notes面は 報告書 → Note。
+  const taskIndexes = ["未完了", "完了・やったこと", "タスクセクション"].map((heading) =>
+    headings.indexOf(heading),
+  );
+  assert.deepEqual(
+    [...taskIndexes].sort((a, b) => a - b),
+    taskIndexes,
+    "タスク面は 未完了 → 完了 → セクション の順にする",
+  );
+  assert.ok(
+    headings.indexOf("報告書・重要文書") < headings.indexOf("最近のNote"),
+    "Notes面は報告書をNoteより先に読む",
+  );
 
   // 読み取りの薄いmetric cardを主動線へ置かない。
   assert.doesNotMatch(themePage, /<Metric label="未完了"/);
@@ -48,7 +67,7 @@ test("Taskは未完了と完了を横並びにし、完了時刻を出す（#321
   );
   assert.match(
     themePage,
-    /<time dateTime=\{str\(task\.completed_at \|\| task\.updated_at \|\| task\.created_at\)\}>/,
+    /<time\s+dateTime=\{str\(task\.completed_at \|\| task\.updated_at \|\| task\.created_at\)\}/,
   );
   assert.match(themePage, /function completedLabel\(task: Task\)/);
   // 完了は見えるが未完了より主張を弱める。

@@ -2398,7 +2398,7 @@ export function WorkspaceApp() {
       <div className="app-content-viewport">
         {/* 切り離しウィンドウはSidebarとContext Paneを出さず、文書編集へ集中させる（#290）。 */}
         <div
-          className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""} ${route === "sketch-editor" ? "is-canvas-route" : ""} ${detachedNoteId ? "is-detached-window" : ""}`}
+          className={`app-shell ${drawer ? "has-drawer" : ""} ${sidebarCollapsed ? "is-sidebar-collapsed" : ""} ${route === "sketch-editor" ? "is-canvas-route" : ""} ${route === "feed" ? "is-feed-route" : ""} ${detachedNoteId ? "is-detached-window" : ""}`}
           ref={appShellRef}
           style={{ "--sidebar-width": `${effectiveSidebarWidth}px` } as CSSProperties}
         >
@@ -2486,7 +2486,7 @@ export function WorkspaceApp() {
                 navigate={navigate}
               />
             </Suspense>
-          ) : route !== "sketch-editor" && !detachedNoteId ? (
+          ) : route !== "sketch-editor" && route !== "feed" && !detachedNoteId ? (
             <ContextPane
               data={data}
               domain={domain}

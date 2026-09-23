@@ -59,7 +59,7 @@ const SKETCH_TOOL_PRESETS_DEFAULT = {
   text: { color: "#211e1d", width: 24 },
 };
 
-const THEME_DEFAULT = { collapsedSections: [] };
+const THEME_DEFAULT = { collapsedSections: [], tab: "overview" };
 
 function plain(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -350,7 +350,11 @@ const definitions = [
     schemaVersion: 1,
     defaultValue: THEME_DEFAULT,
     legacyKeys: [],
-    normalize: (value) => ({ collapsedSections: stringArray(plain(value).collapsedSections) }),
+    // 面は名前で保存する。読めない値は概要へ戻し、Themeを開けない状態を作らない。
+    normalize: (value) => ({
+      collapsedSections: stringArray(plain(value).collapsedSections),
+      tab: oneOf(plain(value).tab, ["overview", "tasks", "posts", "notes"], THEME_DEFAULT.tab),
+    }),
   },
   {
     id: "artifacts.preferences",

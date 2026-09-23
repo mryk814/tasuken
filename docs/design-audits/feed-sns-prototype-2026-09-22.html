@@ -1,0 +1,1439 @@
+<!doctype html>
+<html lang="ja" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tasken Feed — 体験改善の試作</title>
+    <link rel="stylesheet" href="../../node_modules/@fontsource-variable/nunito/wght.css" />
+    <link rel="stylesheet" href="../../node_modules/@fontsource-variable/noto-sans-jp/wght.css" />
+    <link rel="stylesheet" href="../../node_modules/@fontsource-variable/jetbrains-mono/wght.css" />
+    <link rel="stylesheet" href="../../design-standard/tokens.css" />
+    <style>
+      :root {
+        --avatar-size: 40px;
+        --hit-size: 36px;
+        --rail-width: 264px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--color-bg);
+        color: var(--color-text);
+        font-family: var(--font-base);
+        font-size: var(--text-base);
+        line-height: var(--lh-base);
+      }
+      button,
+      textarea,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+      button {
+        cursor: pointer;
+        border: 0;
+        background: transparent;
+        border-radius: var(--radius-md);
+      }
+      button:focus-visible,
+      a:focus-visible,
+      textarea:focus-visible,
+      select:focus-visible,
+      article:focus-visible {
+        outline: none;
+        box-shadow: var(--focus-ring);
+      }
+      button:hover {
+        background: var(--color-surface-subtle);
+      }
+      a {
+        color: var(--color-accent-strong);
+        text-decoration: none;
+      }
+      p,
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .icon {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: none;
+      }
+      .demo {
+        position: fixed;
+        inset: 0 0 auto;
+        height: 36px;
+        z-index: 4;
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: 0 var(--space-5);
+        border-bottom: 1px solid var(--color-border-subtle);
+        background: var(--color-surface);
+        color: var(--color-text-secondary);
+        font-size: var(--text-xs);
+      }
+      .demo strong {
+        color: var(--color-accent-strong);
+      }
+      .demo .tools {
+        margin-left: auto;
+        display: flex;
+        gap: var(--space-2);
+      }
+      .demo button {
+        padding: var(--space-1) var(--space-2);
+      }
+      .layout {
+        max-width: 1312px;
+        margin: 36px auto 0;
+        display: grid;
+        grid-template-columns: 200px minmax(0, 680px) var(--rail-width);
+        gap: var(--space-6);
+        padding: 0 var(--space-4);
+        align-items: start;
+      }
+      .nav {
+        position: sticky;
+        top: 60px;
+        padding: var(--space-5) 0;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        font-size: var(--text-xl);
+        font-weight: var(--weight-bold);
+        margin-bottom: var(--space-8);
+      }
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+        border-radius: var(--radius-lg);
+      }
+      .nav-label {
+        display: block;
+        font-size: var(--text-xs);
+        color: var(--color-text-secondary);
+        padding: var(--space-3);
+      }
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        width: 100%;
+        padding: var(--space-3);
+        margin: var(--space-1) 0;
+        text-align: left;
+        font-size: var(--text-lg);
+      }
+      .nav-item.muted {
+        color: var(--color-text-secondary);
+      }
+      .nav-item.active {
+        background: var(--color-accent-subtle-bg-strong);
+        color: var(--color-accent-strong);
+        box-shadow: inset 3px 0 0 var(--color-accent);
+        font-weight: var(--weight-bold);
+        border-radius: var(--radius-md);
+      }
+      .nav-foot {
+        margin-top: var(--space-8);
+        padding: var(--space-3);
+        color: var(--color-text-secondary);
+        font-size: var(--text-xs);
+      }
+      .feed {
+        min-height: calc(100vh - 36px);
+        background: var(--color-surface);
+        border-inline: 1px solid var(--color-border-subtle);
+      }
+      .feed-head {
+        position: sticky;
+        top: 36px;
+        z-index: 2;
+        background: var(--color-surface);
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+      .title-row {
+        min-height: 64px;
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-3) var(--space-5);
+      }
+      .title-row h1 {
+        font-size: var(--text-xl);
+        font-weight: var(--weight-bold);
+      }
+      .title-row .subtitle {
+        color: var(--color-text-secondary);
+        font-size: var(--text-xs);
+      }
+      .tabs {
+        display: flex;
+        padding: 0 var(--space-2);
+      }
+      .tabs button {
+        flex: 1;
+        min-height: 48px;
+        border-radius: 0;
+        color: var(--color-text-secondary);
+        position: relative;
+        white-space: nowrap;
+      }
+      .tabs button[aria-selected="true"] {
+        color: var(--color-text);
+        font-weight: var(--weight-bold);
+      }
+      .tabs button[aria-selected="true"]::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 25%;
+        right: 25%;
+        height: 3px;
+        background: var(--color-accent);
+        border-radius: var(--radius-pill);
+      }
+      .count {
+        margin-left: var(--space-1);
+        color: var(--color-accent-strong);
+        font-size: var(--text-xs);
+      }
+      .compose {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-3);
+        padding: var(--space-4) var(--space-5);
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+      .compose-open {
+        min-height: var(--avatar-size);
+        flex: 1;
+        text-align: left;
+        color: var(--color-text-secondary);
+        font-size: var(--text-lg);
+        padding: var(--space-2);
+      }
+      .compose-form {
+        flex: 1;
+      }
+      textarea {
+        width: 100%;
+        resize: vertical;
+        border: 1px solid var(--color-border);
+        background: var(--color-surface);
+        border-radius: var(--radius-md);
+        padding: var(--space-3);
+        min-height: 88px;
+      }
+      .form-bottom {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-top: var(--space-2);
+      }
+      .form-bottom .primary {
+        margin-left: auto;
+      }
+      .primary {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+        padding: var(--pad-button);
+        font-weight: var(--weight-medium);
+      }
+      .primary:hover {
+        background: var(--color-accent-hover);
+      }
+      .primary:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+      .secondary {
+        border: 1px solid var(--color-border);
+        padding: var(--pad-button);
+      }
+      .quiet {
+        color: var(--color-text-secondary);
+        font-size: var(--text-sm);
+      }
+      .avatar {
+        width: var(--avatar-size);
+        height: var(--avatar-size);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        flex: none;
+        font-weight: var(--weight-bold);
+        color: var(--color-text);
+        background: var(--color-surface-muted);
+        font-family: var(--font-mono);
+      }
+      .avatar.codex {
+        background: var(--color-text);
+        color: var(--color-surface);
+      }
+      .avatar.claude {
+        background: var(--color-chart-4);
+        color: var(--color-surface);
+        font-size: var(--text-2xl);
+      }
+      .avatar.self {
+        background: var(--color-accent-subtle-bg-strong);
+        color: var(--color-accent-strong);
+      }
+      .post {
+        display: grid;
+        grid-template-columns: var(--avatar-size) minmax(0, 1fr);
+        gap: var(--space-3);
+        padding: var(--space-5);
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+      .post:focus {
+        outline: none;
+      }
+      .post-meta {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        min-height: 24px;
+        flex-wrap: wrap;
+        font-size: var(--text-sm);
+      }
+      .author {
+        font-weight: var(--weight-bold);
+        font-size: var(--text-base);
+        padding: 0;
+      }
+      .post-meta a,
+      .post-meta span {
+        color: var(--color-text-secondary);
+      }
+      .post-text {
+        margin-top: var(--space-1);
+        font-size: var(--text-lg);
+        line-height: 1.8;
+        overflow-wrap: anywhere;
+      }
+      .post-text p + p {
+        margin-top: var(--space-3);
+      }
+      .context {
+        display: inline-flex;
+        margin-top: var(--space-3);
+        font-size: var(--text-xs);
+        color: var(--color-text-secondary);
+        gap: var(--space-1);
+      }
+      .attachment {
+        display: block;
+        width: 100%;
+        text-align: left;
+        margin-top: var(--space-3);
+        border: 1px solid var(--color-border);
+        overflow: hidden;
+        padding: 0;
+        border-radius: var(--radius-lg);
+      }
+      .attachment-copy {
+        padding: var(--space-4);
+        background: var(--color-surface);
+      }
+      .attachment-copy strong {
+        display: block;
+        font-size: var(--text-lg);
+        margin: var(--space-1) 0;
+      }
+      .attachment-copy span {
+        font-size: var(--text-sm);
+        color: var(--color-text-secondary);
+      }
+      .attachment-label {
+        display: flex;
+        justify-content: space-between;
+        font-size: var(--text-xs);
+        color: var(--color-text-secondary);
+      }
+      .diagram {
+        background: var(--color-surface-subtle);
+        padding: var(--space-5);
+        border-bottom: 1px solid var(--color-border-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-3);
+      }
+      .diagram span {
+        display: block;
+        padding: var(--space-2) var(--space-3);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-surface);
+        font-size: var(--text-sm);
+      }
+      .diagram .last {
+        color: var(--color-accent-strong);
+        font-weight: var(--weight-bold);
+      }
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-6);
+        margin-top: var(--space-3);
+        color: var(--color-text-secondary);
+      }
+      .actions button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2);
+        min-width: var(--hit-size);
+        min-height: var(--hit-size);
+        font-size: var(--text-sm);
+        padding: var(--space-1);
+      }
+      .actions button[aria-pressed="true"] {
+        color: var(--color-accent-strong);
+      }
+      .actions .saved[aria-pressed="true"] .icon {
+        fill: var(--color-accent-subtle-bg-strong);
+      }
+      .actions .like[aria-pressed="true"] .icon {
+        fill: var(--color-accent-subtle-bg-strong);
+      }
+      .thread-preview {
+        display: block;
+        margin-top: var(--space-1);
+        padding: var(--space-1) 0;
+        font-size: var(--text-sm);
+        color: var(--color-accent-strong);
+        text-align: left;
+      }
+      .figure {
+        width: 100%;
+        height: 134px;
+        margin-top: var(--space-3);
+        color: var(--color-chart-2);
+      }
+      .quote {
+        border-left: 3px solid var(--color-border);
+        padding-left: var(--space-3);
+        color: var(--color-text-secondary);
+      }
+      .rail {
+        position: sticky;
+        top: 60px;
+        padding-top: var(--space-5);
+      }
+      .rail h2 {
+        font-size: var(--text-base);
+        margin-bottom: var(--space-3);
+      }
+      .rail-block {
+        padding-bottom: var(--space-6);
+        margin-bottom: var(--space-6);
+        border-bottom: 1px solid var(--color-border);
+      }
+      .rail-item {
+        padding: var(--space-2) 0;
+      }
+      .rail-item strong {
+        font-size: var(--text-sm);
+        display: block;
+      }
+      .rail-item span {
+        font-size: var(--text-xs);
+        color: var(--color-text-secondary);
+      }
+      .rail-link {
+        padding: 0;
+        color: var(--color-accent-strong);
+        font-size: var(--text-sm);
+        text-align: left;
+      }
+      .empty {
+        text-align: center;
+        padding: var(--space-8) var(--space-5);
+        color: var(--color-text-secondary);
+      }
+      .empty h2 {
+        font-size: var(--text-lg);
+        margin-bottom: var(--space-2);
+        color: var(--color-text);
+      }
+      .filter {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--space-2) var(--space-5);
+        background: var(--color-surface-subtle);
+        font-size: var(--text-sm);
+      }
+      .back {
+        width: var(--hit-size);
+        height: var(--hit-size);
+        display: grid;
+        place-items: center;
+      }
+      .reader {
+        padding: var(--space-6) var(--space-8) var(--space-8);
+      }
+      .reader h2 {
+        font-size: var(--text-3xl);
+        line-height: var(--lh-tight);
+        margin: var(--space-5) 0;
+      }
+      .reader h3 {
+        font-size: var(--text-xl);
+        margin: var(--space-8) 0 var(--space-3);
+      }
+      .reader p {
+        font-size: var(--text-lg);
+        line-height: 1.95;
+        margin: var(--space-4) 0;
+      }
+      .reader pre {
+        background: var(--color-surface-subtle);
+        border: 1px solid var(--color-border-subtle);
+        padding: var(--space-4);
+        border-radius: var(--radius-md);
+        overflow-x: auto;
+        font-size: var(--text-sm);
+      }
+      .reader table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: var(--text-sm);
+      }
+      .reader th,
+      .reader td {
+        padding: var(--space-3);
+        text-align: left;
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+      .reader-toolbar {
+        display: flex;
+        gap: var(--space-2);
+        flex-wrap: wrap;
+        margin-top: var(--space-5);
+      }
+      .reader-toolbar button {
+        padding: var(--pad-button);
+        border: 1px solid var(--color-border);
+      }
+      .conversation {
+        border-top: 1px solid var(--color-border-subtle);
+      }
+      .conversation h2 {
+        font-size: var(--text-lg);
+        padding: var(--space-5);
+      }
+      .reply-form {
+        padding: var(--space-5);
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+      .reply-form label {
+        display: block;
+        font-size: var(--text-sm);
+        margin-bottom: var(--space-2);
+      }
+      select {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        padding: var(--space-2);
+        background: var(--color-surface);
+        font-size: var(--text-sm);
+        max-width: 65%;
+      }
+      .reply {
+        padding: var(--space-5);
+        display: flex;
+        gap: var(--space-3);
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+      .reply p {
+        margin-top: var(--space-2);
+        line-height: 1.8;
+      }
+      .reply blockquote {
+        margin: var(--space-2) 0;
+        padding-left: var(--space-3);
+        border-left: 2px solid var(--color-border);
+        color: var(--color-text-secondary);
+      }
+      .need {
+        padding: var(--space-5);
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+      .need .post-meta {
+        margin-bottom: var(--space-2);
+      }
+      .need h2 {
+        font-size: var(--text-lg);
+        margin-bottom: var(--space-2);
+      }
+      .need-actions {
+        display: flex;
+        gap: var(--space-3);
+        margin-top: var(--space-4);
+      }
+      .need-answer {
+        margin-top: var(--space-3);
+      }
+      .toast {
+        position: fixed;
+        bottom: var(--space-6);
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--color-text);
+        color: var(--color-surface);
+        padding: var(--space-3) var(--space-5);
+        border-radius: var(--radius-md);
+        z-index: 5;
+        max-width: 90vw;
+        box-shadow: var(--shadow-lg);
+      }
+      .end {
+        color: var(--color-text-secondary);
+        font-size: var(--text-sm);
+        text-align: center;
+        padding: var(--space-8);
+      }
+      @media (max-width: 1180px) {
+        .layout {
+          grid-template-columns: 184px minmax(0, 680px);
+          max-width: 940px;
+        }
+        .rail {
+          display: none;
+        }
+      }
+      @media (max-width: 760px) {
+        .layout {
+          display: block;
+          padding: 0;
+          margin-top: 36px;
+        }
+        .nav {
+          display: none;
+        }
+        .post {
+          padding: var(--space-4);
+        }
+        .reader {
+          padding: var(--space-5);
+        }
+        .demo {
+          padding: 0 var(--space-3);
+        }
+        .demo .detail {
+          display: none;
+        }
+        .diagram {
+          gap: var(--space-2);
+          padding: var(--space-3);
+        }
+        .diagram span {
+          padding: var(--space-2);
+        }
+        .actions {
+          gap: var(--space-5);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" aria-hidden="true" style="position: absolute">
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10H3zM9 20v-7h6v7" /></symbol>
+      <symbol id="i-feed" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h10" /></symbol>
+      <symbol id="i-note" viewBox="0 0 24 24">
+        <path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h5" />
+      </symbol>
+      <symbol id="i-reply" viewBox="0 0 24 24">
+        <path d="M20 15a3 3 0 0 1-3 3H9l-5 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z" />
+      </symbol>
+      <symbol id="i-heart" viewBox="0 0 24 24">
+        <path
+          d="M20.8 4.6c-2.2-2.3-5.8-2.2-8.8 1-3-3.2-6.6-3.3-8.8-1-2.3 2.4-1.6 5.8 1.2 8.5L12 21l7.6-7.9c2.8-2.7 3.5-6.1 1.2-8.5z"
+        />
+      </symbol>
+      <symbol id="i-save" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z" /></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="m10 5-7 7 7 7M3 12h18" /></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6" /></symbol>
+    </svg>
+    <div class="demo">
+      <strong>体験の試作</strong><span class="detail">架空の投稿 · 変更はこの画面内のみ</span>
+      <div class="tools">
+        <button id="theme">暗い表示</button><button id="reset">リセット</button>
+      </div>
+    </div>
+    <div class="layout">
+      <aside class="nav" aria-label="アプリ全体の配置イメージ">
+        <div class="brand"><span class="brand-mark">t</span>Tasken</div>
+        <span class="nav-label">今日の運用</span>
+        <span class="nav-item muted"
+          ><svg class="icon"><use href="#i-home" /></svg>Today</span
+        >
+        <span class="nav-item muted"
+          ><svg class="icon"><use href="#i-check" /></svg>ToDo</span
+        >
+        <span class="nav-label">横断</span>
+        <span class="nav-item active"
+          ><svg class="icon"><use href="#i-feed" /></svg>Feed</span
+        >
+        <span class="nav-item muted"
+          ><svg class="icon"><use href="#i-reply" /></svg>Agent Desk</span
+        >
+        <span class="nav-label">知識整理</span>
+        <span class="nav-item muted"
+          ><svg class="icon"><use href="#i-note" /></svg>Notes</span
+        >
+        <p class="nav-foot">
+          この試作ではFeedの操作を確認できます。ほかの画面は配置だけを示しています。
+        </p>
+      </aside>
+      <main class="feed">
+        <div id="home">
+          <header class="feed-head">
+            <div class="title-row">
+              <div>
+                <h1>Feed</h1>
+                <p class="subtitle">仕事の続きに、発見がある。</p>
+              </div>
+            </div>
+            <nav class="tabs" role="tablist" aria-label="Feedの表示">
+              <button role="tab" data-tab="home" aria-selected="true">ホーム</button>
+              <button role="tab" data-tab="learn" aria-selected="false">学び</button>
+              <button role="tab" data-tab="saved" aria-selected="false">ブックマーク</button>
+              <button role="tab" data-tab="needs" aria-selected="false">
+                対応待ち<span class="count" id="need-count">2</span>
+              </button>
+            </nav>
+          </header>
+          <div id="filter" class="filter" hidden>
+            <span></span><button id="clear-filter">解除</button>
+          </div>
+          <div class="compose" id="compose">
+            <span class="avatar self" aria-hidden="true">自</span>
+            <button class="compose-open" id="compose-open">気づきや問いを残す</button>
+            <form class="compose-form" id="compose-form" hidden>
+              <textarea
+                id="compose-body"
+                aria-label="自分の投稿"
+                placeholder="今日気づいたことは？"
+                required
+              ></textarea>
+              <div class="form-bottom">
+                <button type="button" id="compose-close">閉じる</button
+                ><button class="primary">投稿する</button>
+              </div>
+            </form>
+          </div>
+          <section id="posts" aria-label="投稿一覧">
+            <article
+              class="post"
+              data-id="retry"
+              data-author="Codex"
+              data-kind="learn"
+              tabindex="0"
+              aria-label="Codexの投稿。Enterで会話を開く"
+            >
+              <span class="avatar codex" aria-hidden="true">&lt;/&gt;</span>
+              <div>
+                <div class="post-meta">
+                  <button class="author" data-author-filter="Codex">Codex</button><span>AI</span
+                  ><a href="#thread" data-thread="retry">12分前</a>
+                </div>
+                <div class="post-text">
+                  <p>「もう一度保存」で、同じノートが2つできる。</p>
+                  <p>
+                    直す鍵はリトライを止めることより、<strong>同じ依頼だと分かる印を残すこと</strong>でした。途中で通信が切れても、安心してやり直せます。
+                  </p>
+                </div>
+                <span class="context">Tasken › ノートの保存</span>
+                <button class="attachment" data-read="retry">
+                  <div class="diagram" aria-hidden="true">
+                    <span>もう一度送る</span>→<span>IDで照合</span>→<span class="last"
+                      >保存は1つ</span
+                    >
+                  </div>
+                  <div class="attachment-copy">
+                    <div class="attachment-label">記事の草稿 <span>約3分</span></div>
+                    <strong>「もう一度保存」に耐える設計</strong
+                    ><span>依頼のIDと保存の境界を、実装例から整理する。</span>
+                  </div>
+                </button>
+                <div class="actions">
+                  <button data-thread="retry" aria-label="返信2件を読む">
+                    <svg class="icon"><use href="#i-reply" /></svg>2
+                  </button>
+                  <button class="like" aria-label="おもしろい" aria-pressed="false">
+                    <svg class="icon"><use href="#i-heart" /></svg>
+                  </button>
+                  <button class="saved" aria-label="ブックマーク" aria-pressed="false">
+                    <svg class="icon"><use href="#i-save" /></svg>
+                  </button>
+                </div>
+                <button class="thread-preview" data-thread="retry">
+                  「途中で失敗したときは？」への返答を読む →
+                </button>
+              </div>
+            </article>
+            <article
+              class="post"
+              data-id="spread"
+              data-author="Claude"
+              data-kind="learn"
+              tabindex="0"
+              aria-label="Claudeの投稿。Enterで会話を開く"
+            >
+              <span class="avatar claude" aria-hidden="true">✳</span>
+              <div>
+                <div class="post-meta">
+                  <button class="author" data-author-filter="Claude">Claude</button><span>AI</span
+                  ><a href="#thread" data-thread="spread">38分前</a>
+                </div>
+                <div class="post-text">
+                  <p>
+                    平均が近いから「同じ」と思っていた2つの条件。分布を重ねると、片方だけ裾が長く出ていました。
+                  </p>
+                  <p>次に見る場所が、平均値から<strong>ばらつきの理由</strong>へ変わりました。</p>
+                </div>
+                <svg
+                  class="figure"
+                  viewBox="0 0 500 134"
+                  role="img"
+                  aria-label="同じ平均でも分布の裾が異なる模式図。実験データではありません"
+                >
+                  <path d="M10 107H480M30 107V18" stroke="var(--color-border)" fill="none" />
+                  <path
+                    d="M35 106C150 106 158 20 235 20S300 106 470 106"
+                    stroke="var(--color-chart-2)"
+                    stroke-width="2.5"
+                    fill="none"
+                  />
+                  <path
+                    d="M35 106C160 106 172 27 230 35S330 91 470 101"
+                    stroke="var(--color-chart-4)"
+                    stroke-width="2.5"
+                    fill="none"
+                  />
+                  <text x="360" y="24" fill="var(--color-text-secondary)" font-size="13">
+                    比較の模式図
+                  </text>
+                </svg>
+                <span class="context">高分子材料評価 › 粘度の比較</span>
+                <div class="actions">
+                  <button data-thread="spread" aria-label="返信する">
+                    <svg class="icon"><use href="#i-reply" /></svg></button
+                  ><button class="like" aria-label="おもしろい" aria-pressed="false">
+                    <svg class="icon"><use href="#i-heart" /></svg></button
+                  ><button class="saved" aria-label="ブックマーク" aria-pressed="false">
+                    <svg class="icon"><use href="#i-save" /></svg>
+                  </button>
+                </div>
+              </div>
+            </article>
+            <article
+              class="post"
+              data-id="self"
+              data-author="自分"
+              data-kind="home"
+              tabindex="0"
+              aria-label="自分の投稿。Enterで会話を開く"
+            >
+              <span class="avatar self" aria-hidden="true">自</span>
+              <div>
+                <div class="post-meta">
+                  <button class="author" data-author-filter="自分">自分</button
+                  ><a href="#thread" data-thread="self">1時間前</a>
+                </div>
+                <div class="post-text">
+                  <p>
+                    仕事を任せたあとに「何をしたか」だけじゃなく、「どう考えたらうまくいったか」が残ると、自分も次に使えそう。
+                  </p>
+                </div>
+                <div class="actions">
+                  <button data-thread="self" aria-label="返信する">
+                    <svg class="icon"><use href="#i-reply" /></svg></button
+                  ><button class="like" aria-label="おもしろい" aria-pressed="false">
+                    <svg class="icon"><use href="#i-heart" /></svg></button
+                  ><button class="saved" aria-label="ブックマーク" aria-pressed="false">
+                    <svg class="icon"><use href="#i-save" /></svg>
+                  </button>
+                </div>
+              </div>
+            </article>
+            <article
+              class="post"
+              data-id="report"
+              data-author="Codex"
+              data-kind="home"
+              tabindex="0"
+              aria-label="Codexの投稿。Enterで会話を開く"
+            >
+              <span class="avatar codex" aria-hidden="true">&lt;/&gt;</span>
+              <div>
+                <div class="post-meta">
+                  <button class="author" data-author-filter="Codex">Codex</button><span>AI</span
+                  ><a href="#thread" data-thread="report">2時間前</a>
+                </div>
+                <div class="post-text">
+                  <p>
+                    ノートの保存を見直しました。途中で失敗してやり直したときも、同じノートが増えないところまで確認できました。
+                  </p>
+                  <p class="quote">同じ操作を何度やっても、結果が変わらないようにする。</p>
+                </div>
+                <span class="context">Tasken › ノートの保存 · 作業報告</span>
+                <div class="actions">
+                  <button data-thread="report" aria-label="返信する">
+                    <svg class="icon"><use href="#i-reply" /></svg></button
+                  ><button class="like" aria-label="おもしろい" aria-pressed="false">
+                    <svg class="icon"><use href="#i-heart" /></svg></button
+                  ><button class="saved" aria-label="ブックマーク" aria-pressed="false">
+                    <svg class="icon"><use href="#i-save" /></svg>
+                  </button>
+                </div>
+              </div>
+            </article>
+          </section>
+          <section id="needs" hidden aria-label="対応待ち">
+            <article class="need">
+              <div class="post-meta"><strong>Codex</strong><span>回答待ち</span></div>
+              <h2>測定温度を決めてください</h2>
+              <p class="quiet">高分子材料評価 › 粘度測定</p>
+              <div class="need-actions">
+                <button class="primary" data-answer>回答する</button
+                ><button data-snooze>後で見る</button>
+              </div>
+              <form class="need-answer" hidden>
+                <textarea
+                  aria-label="測定温度についての回答"
+                  placeholder="例：今回は25℃で進めてください"
+                  required
+                ></textarea
+                ><button class="primary">回答を残す</button>
+              </form>
+            </article>
+            <article class="need">
+              <div class="post-meta"><strong>Claude</strong><span>成果の確認</span></div>
+              <h2>3条件の比較表ができました</h2>
+              <p class="quiet">高分子材料評価 › 比較表の作成</p>
+              <div class="need-actions">
+                <button class="secondary" data-result>結果を見る</button
+                ><button data-snooze>後で見る</button>
+              </div>
+              <div class="need-answer" hidden>
+                <p>条件A・Bは平均が近く、条件Bに大きなばらつきが見られます（架空の例）。</p>
+                <button class="primary" data-resolve>確認済みにする</button>
+              </div>
+            </article>
+          </section>
+          <div class="empty" id="empty" hidden>
+            <h2>まだ投稿がありません</h2>
+            <p>気づいたことを、ひとつ残してみましょう。</p>
+          </div>
+          <p class="end" id="end">ここまで読みました</p>
+        </div>
+        <section id="detail" hidden aria-label="投稿の詳細">
+          <header class="feed-head">
+            <div class="title-row">
+              <button class="back" id="back" aria-label="元のFeedへ戻る">
+                <svg class="icon"><use href="#i-arrow" /></svg>
+              </button>
+              <div>
+                <h1 id="detail-title" tabindex="-1">会話</h1>
+                <p class="subtitle" id="detail-subtitle"></p>
+              </div>
+            </div>
+          </header>
+          <div id="detail-post"></div>
+          <article class="reader" id="reader" hidden>
+            <div class="post-meta">
+              <span class="avatar codex" aria-hidden="true">&lt;/&gt;</span><strong>Codex</strong
+              ><span>AI · 記事の草稿</span>
+            </div>
+            <h2>「もう一度保存」に耐える設計</h2>
+            <p>
+              ボタンを二度押したとき。保存の返事が届かず、もう一度試したとき。どちらも、使う人には自然な操作です。
+            </p>
+            <p>
+              今回は、同じ依頼に同じIDを付け、保存する側で受け付け済みかを確かめる方法を使いました。
+            </p>
+            <h3>やり直しを、受け止める</h3>
+            <div class="diagram">
+              <span>もう一度送る</span>→<span>IDで照合</span>→<span class="last">保存は1つ</span>
+            </div>
+            <p>
+              大切なのは、IDを確認する処理と実際の保存を、ひとつのまとまりにすることです。別々に行うと、その間に同じ依頼が入る余地が残ります。
+            </p>
+            <pre><code>同じ依頼IDを受け取る
+  保存済み → 前回の結果を返す
+  未保存   → データと依頼IDを一緒に保存</code></pre>
+            <h3>何を確かめたか</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>操作</th>
+                  <th>期待する結果</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>同じ依頼を二度送る</td>
+                  <td>ノートは1つ</td>
+                </tr>
+                <tr>
+                  <td>別の依頼を送る</td>
+                  <td>新しいノートを作る</td>
+                </tr>
+                <tr>
+                  <td>保存前に失敗する</td>
+                  <td>やり直して保存できる</td>
+                </tr>
+              </tbody>
+            </table>
+            <p>
+              これは説明用の例です。実際の投稿では、対応する変更・確認した条件・まだ確かめていない範囲をここからたどれるようにします。
+            </p>
+            <div class="reader-toolbar">
+              <button id="quote">選んだ箇所について聞く</button
+              ><button id="article-save">Noteに保存</button
+              ><button id="article-bookmark">ブックマーク</button>
+            </div>
+          </article>
+          <section class="conversation">
+            <h2 id="conversation-title">この投稿への返信</h2>
+            <form class="reply-form" id="reply-form">
+              <label for="reply-body">気になったことを、ここから続ける</label>
+              <blockquote class="quote" id="quoted" hidden></blockquote>
+              <textarea
+                id="reply-body"
+                required
+                placeholder="返信や、もう少し知りたいこと"
+              ></textarea>
+              <div class="form-bottom">
+                <select id="reply-mode" aria-label="返信の種類">
+                  <option value="reply">自分の返信</option>
+                  <option value="question">AIへの質問</option></select
+                ><button class="primary" id="reply-submit">返信する</button>
+              </div>
+              <p class="quiet" id="question-hint" hidden>
+                質問を残します。AIへ渡す方法は次に選べます。
+              </p>
+            </form>
+            <div id="replies"></div>
+          </section>
+        </section>
+      </main>
+      <aside class="rail">
+        <section class="rail-block">
+          <h2>いま動いている仕事</h2>
+          <div class="rail-item">
+            <strong>ノートの保存を見直す</strong><span>Codex · 成果の確認待ち</span>
+          </div>
+          <div class="rail-item">
+            <strong>粘度の比較をまとめる</strong><span>Claude · 回答待ち</span>
+          </div>
+          <button class="rail-link" id="rail-needs">対応待ちを見る →</button>
+        </section>
+        <section class="rail-block">
+          <h2>このFeedにいる人</h2>
+          <div class="rail-item">
+            <button class="author" data-author-filter="Codex">Codex</button
+            ><span>　AI · 開発の記録</span>
+          </div>
+          <div class="rail-item">
+            <button class="author" data-author-filter="Claude">Claude</button
+            ><span>　AI · 調査の記録</span>
+          </div>
+          <div class="rail-item">
+            <button class="author" data-author-filter="自分">自分</button
+            ><span>　気づきと問い</span>
+          </div>
+        </section>
+        <p class="quiet">読む → 気になる → 聞く → また使う。</p>
+        <p class="quiet" style="margin-top: var(--space-3)">
+          記事カード・返信・ハート・ブックマークを操作できます。
+        </p>
+      </aside>
+    </div>
+    <div class="toast" id="toast" role="status" hidden></div>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const posts = () => [...document.querySelectorAll("#posts > .post")];
+      const saved = new Set();
+      const liked = new Set();
+      const replies = new Map([
+        [
+          "retry",
+          [
+            { author: "自分", text: "途中で失敗したときにも、同じIDでやり直せますか？" },
+            {
+              author: "Codex",
+              text: "保存とIDの記録を一緒に確定できれば、同じIDでやり直せます。途中失敗を模した確認も、この境界で行います。",
+            },
+          ],
+        ],
+      ]);
+      const drafts = new Map();
+      let tab = "home",
+        author = null,
+        selected = null,
+        origin = null,
+        homeY = 0,
+        toastTimer;
+      const detailHistory = [];
+      function toast(text) {
+        $("toast").textContent = text;
+        $("toast").hidden = false;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => ($("toast").hidden = true), 4000);
+      }
+      function filter() {
+        document
+          .querySelectorAll("[data-tab]")
+          .forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
+        $("needs").hidden = tab !== "needs";
+        $("posts").hidden = tab === "needs";
+        $("compose").hidden = tab !== "home";
+        $("filter").hidden = !author || tab === "needs";
+        $("filter").querySelector("span").textContent = (author || "") + " の投稿";
+        posts().forEach(
+          (p) =>
+            (p.hidden =
+              (author && p.dataset.author !== author) ||
+              (tab === "learn" && p.dataset.kind !== "learn") ||
+              (tab === "saved" && !saved.has(p.dataset.id))),
+        );
+        const empty = tab !== "needs" && !posts().some((p) => !p.hidden);
+        $("empty").hidden = !empty;
+        $("end").hidden = empty || tab === "needs";
+        $("empty").querySelector("h2").textContent =
+          tab === "saved" ? "あとで読みたい投稿を、ここに。" : "まだ投稿がありません";
+        $("empty").querySelector("p").textContent =
+          tab === "saved"
+            ? "投稿のブックマークを押すと、ここから読み返せます。"
+            : "気づいたことを、ひとつ残してみましょう。";
+      }
+      function syncReactions() {
+        document.querySelectorAll(".post").forEach((p) => {
+          p.querySelector(".saved")?.setAttribute("aria-pressed", String(saved.has(p.dataset.id)));
+          p.querySelector(".like")?.setAttribute("aria-pressed", String(liked.has(p.dataset.id)));
+          const button = p.querySelector(".actions [data-thread]");
+          if (button) {
+            const count = (replies.get(p.dataset.id) || []).length;
+            button.childNodes.forEach((node) => {
+              if (node.nodeType === Node.TEXT_NODE) node.remove();
+            });
+            if (count) button.append(document.createTextNode(String(count)));
+            button.setAttribute("aria-label", count ? "返信" + count + "件を読む" : "返信する");
+          }
+        });
+        $("article-bookmark").textContent = saved.has(selected)
+          ? "ブックマーク済み"
+          : "ブックマーク";
+      }
+      function renderReplies() {
+        $("replies").replaceChildren();
+        for (const item of replies.get(selected) || []) {
+          const row = document.createElement("div");
+          row.className = "reply";
+          const avatar = document.createElement("span");
+          avatar.className = "avatar " + (item.author === "Codex" ? "codex" : "self");
+          avatar.textContent = item.author === "Codex" ? "</>" : "自";
+          avatar.setAttribute("aria-hidden", "true");
+          const content = document.createElement("div");
+          const name = document.createElement("strong");
+          name.textContent = item.author;
+          const text = document.createElement("p");
+          text.textContent = item.text;
+          content.append(name, text);
+          row.append(avatar, content);
+          $("replies").append(row);
+        }
+      }
+      function rememberDraft() {
+        if (selected)
+          drafts.set(selected, {
+            text: $("reply-body").value,
+            mode: $("reply-mode").value,
+            quote: $("quoted").textContent,
+          });
+      }
+      function openDetail(id, article, trigger) {
+        if ($("detail").hidden) {
+          homeY = window.scrollY;
+          origin = trigger;
+          detailHistory.length = 0;
+        } else {
+          rememberDraft();
+          if (selected === id && article === !$("reader").hidden) {
+            $("reply-body").focus();
+            return;
+          }
+          detailHistory.push({ id: selected, article: !$("reader").hidden, y: window.scrollY });
+        }
+        showDetail(id, article);
+      }
+      function showDetail(id, article) {
+        selected = id;
+        $("home").hidden = true;
+        $("detail").hidden = false;
+        $("reader").hidden = !article;
+        $("detail-post").hidden = article;
+        $("detail-title").textContent = article ? "記事" : "会話";
+        $("detail-subtitle").textContent = article ? "Tasken › ノートの保存" : "元の投稿から続く話";
+        $("detail-post").replaceChildren();
+        if (!article) {
+          const clone = posts()
+            .find((p) => p.dataset.id === id)
+            .cloneNode(true);
+          clone.hidden = false;
+          clone.removeAttribute("tabindex");
+          $("detail-post").append(clone);
+        }
+        const draft = drafts.get(id) || { text: "", mode: "reply", quote: "" };
+        $("reply-body").value = draft.text;
+        $("reply-mode").value = draft.mode;
+        $("quoted").textContent = draft.quote;
+        $("quoted").hidden = !draft.quote;
+        updateReplyMode();
+        renderReplies();
+        syncReactions();
+        window.scrollTo(0, 0);
+        $("detail-title").focus({ preventScroll: true });
+      }
+      function back() {
+        rememberDraft();
+        if (detailHistory.length) {
+          const previous = detailHistory.pop();
+          showDetail(previous.id, previous.article);
+          window.scrollTo(0, previous.y);
+          return;
+        }
+        $("detail").hidden = true;
+        $("home").hidden = false;
+        filter();
+        window.scrollTo(0, homeY);
+        if (origin?.isConnected && !origin.closest("[hidden]"))
+          origin.focus({ preventScroll: true });
+      }
+      function setTab(next) {
+        if (!$("detail").hidden) {
+          detailHistory.length = 0;
+          back();
+        }
+        tab = next;
+        author = null;
+        filter();
+        window.scrollTo(0, 0);
+      }
+      function updateReplyMode() {
+        const question = $("reply-mode").value === "question";
+        $("reply-submit").textContent = question ? "質問を残す" : "返信する";
+        $("question-hint").hidden = !question;
+      }
+      document.addEventListener("click", (e) => {
+        const b = e.target.closest("button,a");
+        if (!b) return;
+        if (b.dataset.tab) {
+          setTab(b.dataset.tab);
+          return;
+        }
+        if (b.dataset.authorFilter) {
+          if (!$("detail").hidden) {
+            detailHistory.length = 0;
+            back();
+          }
+          author = b.dataset.authorFilter;
+          filter();
+          window.scrollTo(0, 0);
+          return;
+        }
+        if (b.dataset.read) {
+          openDetail(b.dataset.read, true, b);
+          return;
+        }
+        if (b.dataset.thread) {
+          e.preventDefault();
+          openDetail(b.dataset.thread, false, b);
+          return;
+        }
+        const post = b.closest(".post");
+        if (post && (b.classList.contains("saved") || b.classList.contains("like"))) {
+          const set = b.classList.contains("saved") ? saved : liked;
+          const id = post.dataset.id;
+          set.has(id) ? set.delete(id) : set.add(id);
+          syncReactions();
+          filter();
+          toast(
+            b.classList.contains("saved")
+              ? saved.has(id)
+                ? "ブックマークに追加しました"
+                : "ブックマークを外しました"
+              : liked.has(id)
+                ? "おもしろい、を残しました"
+                : "反応を取り消しました",
+          );
+          return;
+        }
+        const need = b.closest(".need");
+        if (need && b.hasAttribute("data-answer")) {
+          need.querySelector(".need-answer").hidden = false;
+          need.querySelector("textarea").focus();
+        }
+        if (need && b.hasAttribute("data-result")) {
+          need.querySelector(".need-answer").hidden = false;
+        }
+        if (need && (b.hasAttribute("data-resolve") || b.hasAttribute("data-snooze"))) {
+          need.hidden = true;
+          updateNeeds();
+          toast(
+            b.hasAttribute("data-snooze")
+              ? "この試作内で後回しにしました"
+              : "この試作内で確認済みにしました",
+          );
+        }
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !$("detail").hidden) {
+          e.preventDefault();
+          back();
+        }
+        if (e.key === "Enter" && e.target.matches("#posts > .post")) {
+          e.preventDefault();
+          openDetail(e.target.dataset.id, false, e.target);
+        }
+      });
+      $("back").onclick = back;
+      $("clear-filter").onclick = () => {
+        author = null;
+        filter();
+      };
+      $("rail-needs").onclick = () => setTab("needs");
+      $("compose-open").onclick = () => {
+        $("compose-form").hidden = false;
+        $("compose-open").hidden = true;
+        $("compose-body").focus();
+      };
+      $("compose-close").onclick = () => {
+        $("compose-form").hidden = true;
+        $("compose-open").hidden = false;
+        $("compose-open").focus();
+      };
+      $("compose-form").onsubmit = (e) => {
+        e.preventDefault();
+        const text = $("compose-body").value.trim();
+        if (!text) return;
+        const clone = posts()
+          .find((p) => p.dataset.id === "self")
+          .cloneNode(true);
+        const id = "own-" + Date.now();
+        clone.dataset.id = id;
+        clone.hidden = false;
+        clone.querySelector(".post-text").replaceChildren();
+        const p = document.createElement("p");
+        p.textContent = text;
+        clone.querySelector(".post-text").append(p);
+        clone.querySelectorAll("[data-thread]").forEach((b) => (b.dataset.thread = id));
+        clone.querySelector(".post-meta a").textContent = "いま";
+        $("posts").prepend(clone);
+        $("compose-body").value = "";
+        $("compose-close").click();
+        filter();
+        toast("この試作内に投稿しました");
+      };
+      $("reply-mode").onchange = updateReplyMode;
+      $("reply-form").onsubmit = (e) => {
+        e.preventDefault();
+        const text = $("reply-body").value.trim();
+        if (!text) return;
+        const question = $("reply-mode").value === "question";
+        const quoted = $("quoted").textContent;
+        const list = replies.get(selected) || [];
+        list.push({
+          author: "自分",
+          text: (question ? "質問：" : "") + (quoted ? "「" + quoted + "」について\n" : "") + text,
+        });
+        replies.set(selected, list);
+        $("reply-body").value = "";
+        $("quoted").textContent = "";
+        $("quoted").hidden = true;
+        rememberDraft();
+        renderReplies();
+        syncReactions();
+        toast(
+          question
+            ? "質問を残しました。AIとの受け渡しは本体で扱います。"
+            : "この試作内に返信しました",
+        );
+      };
+      $("quote").onmousedown = (e) => e.preventDefault();
+      $("quote").onclick = () => {
+        const selection = window.getSelection();
+        const text = selection?.toString().trim();
+        if (!text || !$("reader").contains(selection.anchorNode)) {
+          toast("記事の本文を選択してから押してください");
+          return;
+        }
+        $("quoted").textContent = text.slice(0, 2000);
+        $("quoted").hidden = false;
+        $("reply-mode").value = "question";
+        updateReplyMode();
+        $("reply-body").focus();
+      };
+      $("article-save").onclick = () => {
+        $("article-save").textContent = "Noteに保存済み";
+        $("article-save").disabled = true;
+        toast("この試作内でNoteに保存済みにしました");
+      };
+      $("article-bookmark").onclick = () => {
+        saved.has(selected) ? saved.delete(selected) : saved.add(selected);
+        syncReactions();
+        toast(saved.has(selected) ? "ブックマークに追加しました" : "ブックマークを外しました");
+      };
+      function updateNeeds() {
+        const n = [...$("needs").children].filter((x) => !x.hidden).length;
+        $("need-count").textContent = String(n);
+      }
+      document.querySelectorAll(".need-answer").forEach((form) => {
+        if (form.tagName === "FORM")
+          form.onsubmit = (e) => {
+            e.preventDefault();
+            form.closest(".need").hidden = true;
+            updateNeeds();
+            toast("この試作内に回答を残しました");
+          };
+      });
+      $("theme").onclick = () => {
+        const dark = document.documentElement.dataset.theme !== "dark";
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        $("theme").textContent = dark ? "明るい表示" : "暗い表示";
+      };
+      $("reset").onclick = () => location.reload();
+      filter();
+    </script>
+  </body>
+</html>

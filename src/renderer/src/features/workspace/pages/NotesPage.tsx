@@ -62,6 +62,12 @@ import {
 } from "../lib/domain";
 import { str } from "../lib/format";
 import {
+  FEED_AUTHORS,
+  authorIdForLabel,
+  noteFeedOrigin,
+  requestFeedPostFocus,
+} from "../lib/feedPosts";
+import {
   buildMarkdownDiffHunks,
   buildMarkdownDiffMarkers,
   diffMarkdownLines,
@@ -557,6 +563,30 @@ export function NotesPage({
   const effectiveBody = previewMode === "preview" ? selectedBody : draftBody;
   const selectedUrl = selected ? str(selected.url || selected.source_url) : "";
   const selectedProperties = selected ? noteProperties(selected) : {};
+  /**
+   * AIの記事から保存されたNoteは、作成元と所有を分けて示す。
+   * 本文を邪魔しないよう、見出しの下の一行に収める（計画フェーズ2・Notes）。
+   */
+  const selectedFeedOrigin = useMemo(
+    () =>
+      selected
+        ? noteFeedOrigin({
+            note: selected as unknown as Record<string, unknown>,
+            proposals: domain.ai_proposals as unknown[],
+          })
+        : null,
+    [domain.ai_proposals, selected],
+  );
+  const selectedOriginAuthor =
+    selectedFeedOrigin?.kind === "feed_post" && selectedFeedOrigin.authorLabel
+      ? FEED_AUTHORS[authorIdForLabel(selectedFeedOrigin.authorLabel)]
+      : null;
+  /** 元のFeed投稿を開く。Feed側は預けた投稿IDを読んで、その投稿の会話を開く。 */
+  const openOriginFeedPost = useCallback(() => {
+    if (selectedFeedOrigin?.kind !== "feed_post") return;
+    requestFeedPostFocus(selectedFeedOrigin.postId);
+    navigate("feed");
+  }, [navigate, selectedFeedOrigin]);
   const headingNumberOptions = useMemo(
     () => headingNumberOptionsFromProperties(selectedProperties),
     [selectedProperties],
@@ -2645,6 +2675,35 @@ export function NotesPage({
                       )}
                     </div>
                   )}
+                  {selectedFeedOrigin ? (
+                    <div className="note-origin-line">
+                      <span
+                        className={
+                          selectedOriginAuthor
+                            ? `feed-avatar feed-avatar-${selectedOriginAuthor.kind} feed-avatar-${selectedOriginAuthor.id} is-compact`
+                            : "feed-avatar feed-avatar-ai is-compact"
+                        }
+                        aria-hidden="true"
+                      >
+                        {selectedOriginAuthor?.initial ?? "AI"}
+                      </span>
+                      <span className="note-origin-text">
+                        {selectedOriginAuthor
+                          ? `${selectedOriginAuthor.label} が書いた記事`
+                          : "AIから保存"}
+                        <span className="note-origin-ownership">
+                          {selected.created_at
+                            ? ` · ${noteDateLabel(selected.created_at)} に自分のNotesへ`
+                            : " · 自分のNotesに保存済み"}
+                        </span>
+                      </span>
+                      {selectedFeedOrigin.kind === "feed_post" ? (
+                        <Button variant="ghost" compact onClick={openOriginFeedPost}>
+                          元のFeed投稿を開く
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {selectedUrl && (
                     <a
                       className="note-preview-url"

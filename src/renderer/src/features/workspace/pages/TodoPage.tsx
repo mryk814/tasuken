@@ -27,7 +27,11 @@ import {
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { ChecklistProgressBadge, InlineTaskChecklist } from "../../task/public";
-import { TASK_STATE_LABELS } from "../domain-model/labels";
+import {
+  TASK_AI_DELEGATION_LABELS,
+  TASK_STATE_LABELS,
+  taskAiDelegationLabel,
+} from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
 import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
@@ -130,6 +134,7 @@ export function TodoPage({
   domain,
   themes,
   route,
+  navigate,
   openDrawer,
   saveEntities,
   setToast,
@@ -456,6 +461,18 @@ export function TodoPage({
     const urgency =
       !done && due ? (due < today ? "overdue" : due === today ? "due-today" : null) : null;
     const reminder = reminderTimeLabel(task.reminder_at, today);
+    /**
+     * AI委任の短い状態（計画フェーズ5）。
+     *
+     * 新しい担当者モデルや列は作らず、既存の `intended_executor` / `work_state` /
+     * `work_attempt_id` / `work_review_note` だけで決める。当てはまらない行には出さない。
+     */
+    const aiDelegation = taskAiDelegationLabel({
+      intendedExecutor: task.intended_executor,
+      workState,
+      workAttemptId: task.work_attempt_id,
+      workReviewNote: task.work_review_note,
+    });
     return (
       <div
         className={`table-row is-clickable-row${urgency ? ` is-${urgency}` : ""}`}
@@ -554,6 +571,33 @@ export function TodoPage({
               onToggle={(itemId) => toggleChecklistItem(task, itemId)}
               onAdd={() => openChecklistEditor(task, schedule)}
             />
+            {aiDelegation ? (
+              <span className="todo-ai-state">
+                <button
+                  type="button"
+                  className={`todo-ai-state-chip is-${aiDelegation}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openTaskDetail(task, schedule);
+                  }}
+                >
+                  {TASK_AI_DELEGATION_LABELS[aiDelegation]}
+                </button>
+                {/* 確認待ちは成果の採用をAgent Deskで行う。ToDo内で完結させない。 */}
+                {aiDelegation === "review_waiting" ? (
+                  <button
+                    type="button"
+                    className="text-button compact"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      navigate("ai-io");
+                    }}
+                  >
+                    Agent Desk
+                  </button>
+                ) : null}
+              </span>
+            ) : null}
           </div>
           {!done && (
             <button

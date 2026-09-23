@@ -107,6 +107,9 @@ const api: ResearchDeskApi = {
   artifacts: {
     readWebPreview: (artifactId) => ipcRenderer.invoke(IPC.artifactWebPreview, artifactId),
   },
+  feedLinkPreview: {
+    fetchPreview: (request) => ipcRenderer.invoke(IPC.feedLinkPreview, request),
+  },
   mediaCapture: {
     prepareAudio: (request) => ipcRenderer.invoke(IPC.audioCapturePrepare, request),
     listPreparedAudio: () => ipcRenderer.invoke(IPC.audioCaptureListPrepared),

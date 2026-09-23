@@ -8,8 +8,12 @@ import {
   FEED_POST_KIND_LABELS,
   FEED_SHORT_POST_MAX,
   authorOf,
+  buildPostsFromProposals,
+  feedMediaOf,
+  feedPostIdForProposal,
   filterPosts,
   needsMore,
+  noteFeedOrigin,
   postBodyLength,
   postsForHome,
   postsForLearning,
@@ -151,4 +155,119 @@ test("投稿者とThemeで絞り込める", () => {
   assert.ok(byTheme.every((post) => post.attachment?.refLabel.includes("高分子材料評価") === true));
 
   assert.equal(filterPosts(postsForHome(), {}).length, FEED_POSTS.length);
+});
+
+/**
+ * AIの記事から保存されたNoteの由来（計画フェーズ2）。
+ * 作成元（書いたAI）と所有（自分のNotes）を混同せず、元投稿へ戻れることを固定する。
+ */
+function feedProposal(overrides = {}) {
+  return {
+    id: "proposal-article",
+    payload_type: "feed_posts",
+    source_app: "claude",
+    status: "accepted",
+    received_at: "2026-09-22T00:00:00.000Z",
+    payload: {
+      feed_posts: [
+        {
+          body: ["保存をやり直しても、同じNoteが増えないようにする。"],
+          topic: "insight",
+          article: {
+            title: "「もう一度保存」に耐える設計",
+            body: "本文の段落。",
+            note_type: "memo",
+          },
+        },
+      ],
+    },
+    ...overrides,
+  };
+}
+
+test("AI記事から保存したNoteは、作成元と元投稿をProposalから導ける", () => {
+  const proposal = feedProposal();
+  const posts = buildPostsFromProposals({ proposals: [proposal] });
+  assert.equal(posts.length, 1);
+  // 投稿IDはProposalから決まるので、保存の前後で同じIDへ戻れる。
+  assert.equal(posts[0].id, feedPostIdForProposal("proposal-article"));
+
+  const origin = noteFeedOrigin({
+    note: { id: "note-1", accepted_from_proposal_id: "proposal-article" },
+    proposals: [proposal],
+  });
+  assert.equal(origin?.kind, "feed_post");
+  assert.equal(origin.postId, posts[0].id);
+  assert.equal(origin.authorLabel, "claude");
+});
+
+test("作成元が見つからないNoteは「AIから保存」に留め、Feedの記事でなければ由来を出さない", () => {
+  // Import後など、元Proposalが無い場合。元投稿へは戻せない。
+  const unknown = noteFeedOrigin({
+    note: { id: "note-1", accepted_from_proposal_id: "proposal-missing" },
+    proposals: [feedProposal()],
+  });
+  assert.equal(unknown?.kind, "unknown");
+  assert.equal("postId" in unknown, false);
+
+  // Feedの記事ではないProposal（propose_noteなど）は、Feedの由来として表示しない。
+  const notFeed = noteFeedOrigin({
+    note: { id: "note-2", accepted_from_proposal_id: "proposal-note" },
+    proposals: [feedProposal({ id: "proposal-note", payload_type: "note_draft" })],
+  });
+  assert.equal(notFeed, null);
+
+  // 人の手で作ったNoteは、そもそも由来を持たない。
+  assert.equal(noteFeedOrigin({ note: { id: "note-3" }, proposals: [] }), null);
+});
+
+/**
+ * 投稿に添える入口（計画フェーズ3）。
+ * 解釈できない値で投稿全体を失敗させず、役割が読めない画像は実測と断定しない。
+ */
+test("投稿のmediaを読み、解釈できない値は捨てて本文だけを読ませる", () => {
+  assert.deepEqual(
+    feedMediaOf({
+      media: {
+        kind: "artifact",
+        artifact_id: "44444444-4444-4444-8444-444444444444",
+        role: "result",
+        alt_text: "比較図",
+        caption: "3条件を重ねた",
+      },
+    }),
+    {
+      kind: "artifact",
+      artifactId: "44444444-4444-4444-8444-444444444444",
+      role: "result",
+      altText: "比較図",
+      caption: "3条件を重ねた",
+    },
+  );
+  assert.deepEqual(
+    feedMediaOf({
+      media: {
+        kind: "external_link",
+        url: "https://example.invalid/measurement-variance",
+        comment: "少ない標本数の見方",
+      },
+    }),
+    {
+      kind: "external_link",
+      url: "https://example.invalid/measurement-variance",
+      comment: "少ない標本数の見方",
+      label: null,
+    },
+  );
+  // 役割が読めない画像を「実測」と断定しない。
+  assert.equal(
+    feedMediaOf({ media: { kind: "artifact", artifact_id: "a", role: "unknown" } })?.role,
+    "explanation",
+  );
+  // 参照先が無い・解釈できない値は、本文だけを読ませる。
+  assert.equal(feedMediaOf({ media: { kind: "artifact" } }), null);
+  assert.equal(feedMediaOf({ media: { kind: "external_link" } }), null);
+  assert.equal(feedMediaOf({ media: { kind: "unknown" } }), null);
+  assert.equal(feedMediaOf({ media: "図" }), null);
+  assert.equal(feedMediaOf({}), null);
 });

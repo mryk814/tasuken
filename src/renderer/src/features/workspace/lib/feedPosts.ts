@@ -12,6 +12,7 @@
  */
 
 import { stableProposalEntityId } from "../../../../../shared/proposalAcceptance.mjs";
+import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 
 /** 実データの投稿に付く参照。fixtureでは未設定。 */
 export interface FeedPostRefs {
@@ -24,6 +25,8 @@ export interface FeedPostRefs {
   aiState?: "requested" | "answered" | null;
   taskId?: string | null;
   taskTitle?: string | null;
+  /** 投稿が属するTheme（`payload.feed_posts[].theme`）。Theme面はこのIDだけで絞り込む。 */
+  themeId?: string | null;
   evidence?: string[];
   /** 添えられた記事の草稿（採用前）。fixtureでは未設定。 */
   draft?: FeedPostDraft | null;
@@ -55,7 +58,18 @@ export interface FeedPostDraft {
   themeId: string;
 }
 
-export type FeedAuthorId = "self" | "codex" | "claude" | "tasken" | "external_ai";
+export type FeedAuthorId =
+  | "self"
+  | "codex"
+  | "claude"
+  | "github_copilot"
+  | "cursor"
+  | "gemini"
+  | "deepseek"
+  | "antigravity"
+  | "opencode"
+  | "tasken"
+  | "external_ai";
 
 /** 投稿者の種別。AI表記を出すかどうかをここで決める。 */
 export type FeedAuthorKind = "human" | "ai" | "auto_record";
@@ -68,12 +82,25 @@ export interface FeedAuthor {
   initial: string;
 }
 
+/**
+ * 投稿者アバターの頭文字。
+ *
+ * サービスロゴの公式アセットは同梱していないため、ロゴを模した図は作らず
+ * 頭文字と色で識別する（`docs/feed-usage-feedback-2026-09-22.md` §3）。
+ * 同じ頭文字が並ぶと読めなくなるので、一文字では衝突する投稿者だけ二文字にする。
+ */
 export const FEED_AUTHORS: Record<FeedAuthorId, FeedAuthor> = {
   self: { id: "self", label: "自分", kind: "human", initial: "自" },
-  codex: { id: "codex", label: "Codex", kind: "ai", initial: "C" },
-  claude: { id: "claude", label: "Claude", kind: "ai", initial: "C" },
+  codex: { id: "codex", label: "Codex", kind: "ai", initial: "Cx" },
+  claude: { id: "claude", label: "Claude Code", kind: "ai", initial: "Cl" },
+  github_copilot: { id: "github_copilot", label: "GitHub Copilot", kind: "ai", initial: "Gh" },
+  cursor: { id: "cursor", label: "Cursor", kind: "ai", initial: "Cu" },
+  gemini: { id: "gemini", label: "Gemini", kind: "ai", initial: "Ge" },
+  deepseek: { id: "deepseek", label: "DeepSeek", kind: "ai", initial: "Ds" },
+  antigravity: { id: "antigravity", label: "Antigravity", kind: "ai", initial: "Ag" },
+  opencode: { id: "opencode", label: "OpenCode", kind: "ai", initial: "Oc" },
   tasken: { id: "tasken", label: "Tasken", kind: "auto_record", initial: "T" },
-  external_ai: { id: "external_ai", label: "外部AI", kind: "ai", initial: "A" },
+  external_ai: { id: "external_ai", label: "外部AI", kind: "ai", initial: "外" },
 };
 
 /**
@@ -107,7 +134,39 @@ export interface FeedPostAttachment {
    * 第2段階で実データのNote本文へ置き換える。
    */
   articleBody?: string[] | null;
+  /** 記事のMarkdown正本。読書面では既存のMarkdownPreviewへ渡す。 */
+  articleMarkdown?: string | null;
 }
+
+/**
+ * 投稿に添える一つの入口（計画フェーズ3）。
+ *
+ * 画像は既存Artifactを参照するだけで、投稿のたびに複製しない。外部URLは
+ * 投稿者が付けた一言を正本とし、題名・説明・サムネイルは取得できた派生とする。
+ */
+export type FeedMedia =
+  | {
+      kind: "artifact";
+      artifactId: string;
+      role: FeedMediaRole;
+      altText: string;
+      caption: string | null;
+    }
+  | {
+      kind: "external_link";
+      url: string;
+      comment: string | null;
+      label: string | null;
+    };
+
+/** 画像の役割。実測と説明図を同じ見た目で断定的に扱わないために区別する。 */
+export type FeedMediaRole = "result" | "source" | "explanation";
+
+export const FEED_MEDIA_ROLE_LABELS: Record<FeedMediaRole, string> = {
+  result: "実測・作業成果",
+  source: "参考元",
+  explanation: "説明図",
+};
 
 export interface FeedPost extends FeedPostRefs {
   id: string;
@@ -117,6 +176,8 @@ export interface FeedPost extends FeedPostRefs {
   /** 本文。段落ごとに分け、自然な改行を保つ。 */
   paragraphs: string[];
   attachment: FeedPostAttachment | null;
+  /** 添える一つの入口。無い投稿は弱く見せない（画像は必須条件ではない）。 */
+  media?: FeedMedia | null;
   /** 返信は親投稿のIDを持つ。並びは親の直後へ入れる。 */
   replyTo: string | null;
   /** 「学び」タブへ出すか。作業報告そのものは出さない。 */
@@ -557,9 +618,50 @@ export function authorIdForLabel(label: string): FeedAuthorId {
   const value = label.toLowerCase();
   if (value.includes("codex")) return "codex";
   if (value.includes("claude")) return "claude";
+  if (value.includes("copilot") || value.includes("github copilot")) return "github_copilot";
+  if (value.includes("cursor")) return "cursor";
+  if (value.includes("gemini")) return "gemini";
+  if (value.includes("deepseek")) return "deepseek";
+  if (value.includes("antigravity")) return "antigravity";
+  if (value.includes("opencode") || value.includes("open code")) return "opencode";
   if (value.includes("tasken")) return "tasken";
   if (!value) return "external_ai";
   return "external_ai";
+}
+
+/**
+ * 投稿の任意項目 `media` を読む。
+ *
+ * 解釈できない値は捨てて本文だけを読ませる（投稿全体を失敗させない）。
+ * 役割が読めない画像は「実測」と断定せず説明図として扱う。
+ */
+export function feedMediaOf(post: Record<string, unknown>): FeedMedia | null {
+  const media = post.media;
+  if (!media || typeof media !== "object" || Array.isArray(media)) return null;
+  const row = media as Record<string, unknown>;
+  if (row.kind === "artifact") {
+    const artifactId = text(row.artifact_id);
+    if (!artifactId) return null;
+    const role = text(row.role);
+    return {
+      kind: "artifact",
+      artifactId,
+      role: role === "result" || role === "source" ? role : "explanation",
+      altText: text(row.alt_text),
+      caption: text(row.caption) || null,
+    };
+  }
+  if (row.kind === "external_link") {
+    const url = text(row.url);
+    if (!url) return null;
+    return {
+      kind: "external_link",
+      url,
+      comment: text(row.comment) || null,
+      label: text(row.label) || null,
+    };
+  }
+  return null;
 }
 
 /**
@@ -605,6 +707,7 @@ export function buildPostsFromProposals(input: {
           figureLabel: text(post.attachment_label) || null,
           refLabel: themeId ? (themeNames.get(themeId) ?? themeId) : "Tasken",
           articleBody,
+          articleMarkdown: String(article.body || ""),
         }
       : text(post.note_id)
         ? {
@@ -627,7 +730,7 @@ export function buildPostsFromProposals(input: {
 
     const request = (proposal.request || {}) as Record<string, unknown>;
     posts.push({
-      id: `feed-post:${String(proposal.id)}`,
+      id: feedPostIdForProposal(String(proposal.id)),
       author: authorIdForLabel(text(proposal.source_app) || text(request.caller)),
       kind: topicOf(post.topic),
       createdAt: text(proposal.received_at) || text(proposal.created_at),
@@ -639,8 +742,10 @@ export function buildPostsFromProposals(input: {
       proposalId: String(proposal.id),
       taskId,
       taskTitle: taskId ? (taskTitles.get(taskId) ?? null) : null,
+      themeId: themeId || null,
       evidence: paragraphs(post.evidence),
       draft,
+      media: feedMediaOf(post),
       proposalStatus: text(proposal.status),
       // 既存Noteへの参照は、表示のたびにNoteを複製せず、IDのまま読書面へ渡す。
       referencedNoteId: attachment?.kind === "note" ? text(post.note_id) || null : null,
@@ -846,6 +951,8 @@ export function buildOwnPosts(input: { notes?: readonly unknown[] }): FeedPost[]
       replyTo: null,
       learnable: false,
       noteId,
+      // NoteのThemeはproject_idが正本。Theme面はこのIDだけで自分の投稿を絞り込む。
+      themeId: noteProjectId(note),
     } as FeedPost);
   }
   return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
@@ -1132,4 +1239,112 @@ export function manualPasteNoteCandidate(input: {
     "※ 回答内容・出所・会話URLは利用者提供であり、Taskenによる事実確認済みを意味しません。",
   );
   return { title: titleSource, body_markdown: lines.join("\n") };
+}
+
+/* -------------------------------------------------------------------------
+ * 元投稿への帰り道（フェーズ2）
+ *
+ * Noteから「元のFeed投稿を開く」とき、開きたい投稿だけを別の面へ預ける。
+ * Feedの正本はProposalとEntityのままにするため、ここでは表示状態だけを
+ * localStorageへ置き、FeedPageが読んだら消す。順序に依存しないよう、
+ * 使い切るまで残す（読めなければ次の訪問で開く）。
+ * ---------------------------------------------------------------------- */
+
+export const FEED_POST_FOCUS_KEY = "tasken:feed:focus-post:v1";
+
+/**
+ * 最後にFeedを見た時刻。
+ *
+ * Todayの「AIから届いたこと」が、その後に届いた学びだけを出すために使う。
+ * 正本でもテレメトリでもない表示上の印で、Feedの表示状態と同じlocalStorageへ置く。
+ * 読めないときはnullを返し、呼び出し側は「届いた記事」を出さない。
+ */
+export const FEED_LAST_SEEN_KEY = "tasken:feed:last-seen:v1";
+
+export function markFeedLastSeen(at: number): void {
+  if (!Number.isFinite(at)) return;
+  try {
+    localStorage.setItem(FEED_LAST_SEEN_KEY, String(at));
+  } catch {
+    // 印を残せなくても、Feedの閲覧は続けられる。
+  }
+}
+
+export function readFeedLastSeen(): number | null {
+  try {
+    const raw = localStorage.getItem(FEED_LAST_SEEN_KEY);
+    if (!raw) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Proposalから決まる投稿のID。保存の前後で変わらない。 */
+export function feedPostIdForProposal(proposalId: string): string {
+  return `feed-post:${proposalId}`;
+}
+
+/** 次にFeedを開いたときに選んでおく投稿を預ける。 */
+export function requestFeedPostFocus(postId: string): void {
+  try {
+    localStorage.setItem(FEED_POST_FOCUS_KEY, postId);
+  } catch {
+    // 預けられなくても、依頼元の操作は失敗させない。
+  }
+}
+
+/** 預けた投稿を取り出す。無ければnull。 */
+export function peekFeedPostFocus(): string | null {
+  try {
+    const value = localStorage.getItem(FEED_POST_FOCUS_KEY);
+    return value && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 預けた投稿を開き終えたら消す。 */
+export function clearFeedPostFocus(): void {
+  try {
+    localStorage.removeItem(FEED_POST_FOCUS_KEY);
+  } catch {
+    // 消せなくても表示は続けられる。
+  }
+}
+
+/**
+ * NoteがAIの記事から保存されたものかを、`accepted_from_proposal_id` から導く。
+ *
+ * 返り値は三通りある。
+ * - `feed_post`: Feedの記事から保存された。元投稿へ戻れる。
+ * - `unknown`: 作成元のProposalが見つからない（Import後など）。「AIから保存」までを表示する。
+ * - `null`: 作成元はあるがFeedの記事ではない（`tasken.propose_note` など）。表示しない。
+ *
+ * 作成元（書いたAI）と所有（自分のNotesにある）は別の情報として返す。
+ */
+export type NoteFeedOrigin =
+  | { kind: "feed_post"; proposalId: string; postId: string; authorLabel: string | null }
+  | { kind: "unknown"; proposalId: string };
+
+export function noteFeedOrigin(input: {
+  note?: Record<string, unknown> | null;
+  proposals?: readonly unknown[];
+}): NoteFeedOrigin | null {
+  const proposalId = text(input.note?.accepted_from_proposal_id);
+  if (!proposalId) return null;
+  const proposal = (input.proposals ?? []).find(
+    (entry) => entry && typeof entry === "object" && String((entry as Row).id) === proposalId,
+  ) as Row | undefined;
+  if (!proposal) return { kind: "unknown", proposalId };
+  if (text(proposal.payload_type) !== "feed_posts") return null;
+  const request = (proposal.request || {}) as Record<string, unknown>;
+  const label = text(proposal.source_app) || text(request.caller);
+  return {
+    kind: "feed_post",
+    proposalId,
+    postId: feedPostIdForProposal(proposalId),
+    authorLabel: label || null,
+  };
 }

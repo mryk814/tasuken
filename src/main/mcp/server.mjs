@@ -1334,15 +1334,20 @@ export function createTaskenMcpServer(options = {}) {
     repository_context: taskWorkRepositoryContextSchema,
   };
   const queueContent = (args, kind) => {
-    if (
-      kind === "note_create" &&
-      Array.isArray(args.images) &&
-      args.images.length > 0 &&
-      !args.idempotency_key
-    ) {
+    // 画像はProposal IDから決まる保存先へ先に置く。再試行で同じ画像を指せるよう、
+    // 画像を伴う送信はNote・読み物投稿のどちらもidempotency_keyを必須にする。
+    const imageCount =
+      kind === "note_create"
+        ? Array.isArray(args.images)
+          ? args.images.length
+          : 0
+        : kind === "feed_post" && Array.isArray(args.article?.images)
+          ? args.article.images.length
+          : 0;
+    if (imageCount > 0 && !args.idempotency_key) {
       throw new TaskenCoreClientError(
         "VALIDATION_FAILED",
-        "画像付きNote Proposalにはidempotency_keyが必要です。再試行でも同じ値を指定してください。",
+        "画像付きのProposalにはidempotency_keyが必要です。再試行でも同じ値を指定してください。",
       );
     }
     return coreClient.proposeContent({
@@ -1656,11 +1661,57 @@ export function createTaskenMcpServer(options = {}) {
             title: z.string().trim().min(1).max(200),
             body: z.string().min(1).max(200000).describe(NOTE_MARKDOWN_BODY_DESCRIPTION),
             note_type: z.enum(["memo", "report", "prompt"]).optional(),
+            images: noteProposalImages,
           })
           .strict()
           .optional()
           .describe(
-            "Queue a Note draft and attach it to this post. The draft is readable before acceptance and becomes a Note only when the user accepts it.",
+            "Queue a Note draft and attach it to this post. The draft is readable before acceptance and becomes a Note only when the user accepts it. Images follow the same rule as tasken.propose_note: write ![alt](tasken-upload://reference-id) in the body and send the matching base64 bytes here.",
+          ),
+        media: z
+          .discriminatedUnion("kind", [
+            z
+              .object({
+                kind: z.literal("artifact"),
+                artifact_id: z
+                  .string()
+                  .trim()
+                  .min(1)
+                  .max(200)
+                  .describe("An existing Artifact ID shown as the post's one image."),
+                role: z
+                  .enum(["result", "source", "explanation"])
+                  .describe(
+                    "result: your own measurement or work output; source: a figure taken from the cited source; explanation: a diagram drawn to explain the idea. Never present an explanation as a measurement.",
+                  ),
+                alt_text: z.string().trim().min(1).max(500),
+                caption: z.string().trim().max(500).optional(),
+              })
+              .strict(),
+            z
+              .object({
+                kind: z.literal("external_link"),
+                url: z
+                  .string()
+                  .trim()
+                  .min(1)
+                  .max(2000)
+                  .describe(
+                    "Public http/https URL of an article, paper, or official page you actually read. Tasken fetches a title and thumbnail separately; do not send credentials or token query parameters.",
+                  ),
+                comment: z
+                  .string()
+                  .trim()
+                  .max(500)
+                  .optional()
+                  .describe("One line on why this source matters for the current Theme."),
+                label: z.string().trim().max(200).optional(),
+              })
+              .strict(),
+          ])
+          .optional()
+          .describe(
+            "Optional single attachment for the post: an existing Artifact image, or an external link. A post with no media is fine; add media only when it helps the reader judge or understand. Do not invent charts or measurements you did not actually produce.",
           ),
         attachment_label: z
           .string()

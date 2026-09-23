@@ -9,6 +9,14 @@ import {
 import type { PageProps } from "../types";
 import { Button } from "./common";
 import { buildContentProposalDecisions, buildPreview } from "./AiProposalPanel";
+import { buildAgentActivity, type AgentActivity } from "../lib/agentActivity";
+import {
+  authorIdForLabel,
+  authorOf,
+  FEED_AUTHORS,
+  FEED_POST_KIND_LABELS,
+  requestFeedPostFocus,
+} from "../lib/feedPosts";
 
 /** 異なる層のrow（SQLite row / Rendererの型付きTask / Entity）を同じ形で扱う。 */
 type Row = { id: string; [key: string]: unknown };
@@ -39,13 +47,37 @@ function formatAt(value: string | null): string {
 }
 
 /**
+ * AIの入口へ出す短い件数。
+ *
+ * `対応待ち` は判断の数、`作業中` はTaskの数で意味が違うため、数を並べるだけで
+ * 同じ種類の合計に見せない。0件の行は出さない。
+ */
+function agentEntryCounts(entry: AgentActivity): string[] {
+  const counts: string[] = [];
+  const working = entry.work.filter((row) => row.state === "working").length;
+  const startWaiting = entry.work.filter((row) => row.state === "start_waiting").length;
+  if (entry.waiting.length) counts.push(`対応待ち ${entry.waiting.length}`);
+  if (working) counts.push(`作業中 ${working}`);
+  if (startWaiting) counts.push(`開始待ち ${startWaiting}`);
+  if (!counts.length) counts.push(`投稿 ${entry.posts.length}`);
+  return counts;
+}
+
+/**
  * Agent Desk（#599）。任せた仕事の進みと待ちを4つの見出しで一覧し、
  * 質問への回答と成果の確認をこの画面で一往復させる。
  *
  * 正本は既存のTask / Proposal / Work Receipt。この画面は導出したread modelを表示し、
  * 操作は既存のApplication Commandへ渡す。**独自の状態管理を持たない。**
  */
-export function AgentDeskPanel({ data, domain, executeCommand, setToast, openDrawer }: PageProps) {
+export function AgentDeskPanel({
+  data,
+  domain,
+  executeCommand,
+  setToast,
+  openDrawer,
+  navigate,
+}: PageProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [replyChoice, setReplyChoice] = useState("");
   const [replyNote, setReplyNote] = useState("");
@@ -53,6 +85,11 @@ export function AgentDeskPanel({ data, domain, executeCommand, setToast, openDra
   const [reviewNote, setReviewNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  /**
+   * 選んだAI。`null` は「すべてのAI」。
+   * これは画面の絞り込みだけで、AIの在席や正本を新しく保存しない。
+   */
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   const tasks = domain.tasks as unknown as Row[];
   const proposals = domain.ai_proposals as unknown as Row[];
@@ -62,6 +99,25 @@ export function AgentDeskPanel({ data, domain, executeCommand, setToast, openDra
     () => buildAttentionQueue({ tasks, proposals, receipts, themes: data.themes as unknown[] }),
     // domain/dataは保存のたびに差し替わる。内容が同じ間は再計算しない。
     [tasks, proposals, receipts, data.themes],
+  );
+
+  /** 実際に活動があるAIだけの入口（計画フェーズ5）。既存データからの派生に留める。 */
+  const agents = useMemo(
+    () =>
+      buildAgentActivity({
+        tasks,
+        proposals,
+        receipts,
+        themes: data.themes,
+        feedReplies: data.feed_replies,
+      }),
+    [tasks, proposals, receipts, data.themes, data.feed_replies],
+  );
+
+  /** 表示名の比較はFeedと同じ正規化を通す。表記ゆれで同じAIを二つにしない。 */
+  const matchesAgent = useCallback(
+    (label: string | null) => !selectedAgent || authorIdForLabel(label || "AI") === selectedAgent,
+    [selectedAgent],
   );
 
   const workStates = useMemo(() => {
@@ -86,8 +142,17 @@ export function AgentDeskPanel({ data, domain, executeCommand, setToast, openDra
     return rows;
   }, [tasks, proposals, receipts]);
 
-  const working = workStates.filter((entry) => entry.row.state === "working");
-  const startWaiting = workStates.filter((entry) => entry.row.state === "start_waiting");
+  const shownAttention = useMemo(
+    () => attention.filter((item) => matchesAgent(item.agentLabel)),
+    [attention, matchesAgent],
+  );
+  const shownWorkStates = useMemo(
+    () => workStates.filter((entry) => matchesAgent(entry.row.executorLabel)),
+    [workStates, matchesAgent],
+  );
+  const selectedAgentEntry = agents.find((entry) => entry.authorId === selectedAgent) || null;
+  const working = shownWorkStates.filter((entry) => entry.row.state === "working");
+  const startWaiting = shownWorkStates.filter((entry) => entry.row.state === "start_waiting");
   const recently = useMemo(
     () =>
       workStates
@@ -108,6 +173,12 @@ export function AgentDeskPanel({ data, domain, executeCommand, setToast, openDra
         .sort((a, b) => (b.at || "").localeCompare(a.at || ""))
         .slice(0, 8),
     [workStates],
+  );
+
+  const shownRecently = useMemo(
+    () =>
+      selectedAgent ? recently.filter((entry) => matchesAgent(entry.executorLabel)) : recently,
+    [recently, matchesAgent, selectedAgent],
   );
 
   const selected = attention.find((item) => item.attentionId === selectedId) || null;
@@ -141,6 +212,21 @@ export function AgentDeskPanel({ data, domain, executeCommand, setToast, openDra
     setCompleteTask(false);
     setReviewNote("");
   }, []);
+
+  /**
+   * AIの最近の投稿をFeedで開く。
+   *
+   * 右の詳細面は同時に開かない（Feedのスレッドと重ねない規則）。画面を移るので
+   * 選択を先に外し、開きたい投稿だけをFeedへ預ける。
+   */
+  const openPost = useCallback(
+    (postId: string) => {
+      setSelectedId(null);
+      requestFeedPostFocus(postId);
+      navigate("feed");
+    },
+    [navigate],
+  );
 
   async function sendReply(item: AttentionItem) {
     if (busy || !item.taskId) return;
@@ -357,16 +443,83 @@ export function AgentDeskPanel({ data, domain, executeCommand, setToast, openDra
     <div className="agent-desk">
       <div className="agent-desk-layout">
         <div className="agent-desk-list">
+          {/*
+            AIごとの入口（計画フェーズ5）。実際に活動があるAIだけを並べ、
+            選ぶと下の4つの一覧をそのAIへ絞る。在席や稼働は推測しない。
+          */}
+          <section className="panel agent-desk-section">
+            <div className="section-heading">
+              <h2>活動のあるAI</h2>
+              {selectedAgent ? (
+                <button
+                  type="button"
+                  className="text-button compact"
+                  onClick={() => setSelectedAgent(null)}
+                >
+                  すべてのAI
+                </button>
+              ) : (
+                <span className="agent-desk-count">{agents.length}</span>
+              )}
+            </div>
+            {agents.length === 0 ? (
+              <p className="agent-desk-empty">活動のあるAIはまだありません。</p>
+            ) : (
+              <ul className="agent-desk-rows">
+                {agents.map((entry) => {
+                  const author = FEED_AUTHORS[entry.authorId];
+                  const counts = agentEntryCounts(entry);
+                  return (
+                    <li
+                      key={entry.authorId}
+                      className={
+                        entry.authorId === selectedAgent
+                          ? "agent-desk-row is-selected"
+                          : "agent-desk-row"
+                      }
+                    >
+                      <button
+                        type="button"
+                        className="agent-desk-open agent-desk-ai-open"
+                        aria-pressed={entry.authorId === selectedAgent}
+                        onClick={() =>
+                          setSelectedAgent((current) =>
+                            current === entry.authorId ? null : entry.authorId,
+                          )
+                        }
+                      >
+                        <span
+                          className={`feed-avatar feed-avatar-${author.kind} feed-avatar-${author.id}`}
+                          aria-label={author.label}
+                        >
+                          {author.initial}
+                        </span>
+                        <span className="agent-desk-ai-text">
+                          <span className="agent-desk-headline">{entry.label}</span>
+                          <span className="agent-desk-meta">
+                            {counts.map((count) => (
+                              <span key={count}>{count}</span>
+                            ))}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
           <section className="panel agent-desk-section">
             <div className="section-heading">
               <h2>対応待ち</h2>
-              <span className="agent-desk-count">{attention.length}</span>
+              <span className="agent-desk-count">{shownAttention.length}</span>
             </div>
-            {attention.length === 0 ? (
+            {shownAttention.length === 0 ? (
               <p className="agent-desk-empty">対応待ちはありません。</p>
             ) : (
               <ul className="agent-desk-rows">
-                {attention.map((item) => (
+                {shownAttention.map((item) => (
                   <li
                     key={item.attentionId}
                     className={
@@ -469,15 +622,15 @@ export function AgentDeskPanel({ data, domain, executeCommand, setToast, openDra
                 onClick={() => setHistoryOpen((value) => !value)}
                 aria-expanded={historyOpen}
               >
-                {historyOpen ? "畳む" : `${recently.length}件`}
+                {historyOpen ? "畳む" : `${shownRecently.length}件`}
               </button>
             </div>
             {historyOpen ? (
-              recently.length === 0 ? (
+              shownRecently.length === 0 ? (
                 <p className="agent-desk-empty">まだ結果はありません。</p>
               ) : (
                 <ul className="agent-desk-rows">
-                  {recently.map((entry, index) => (
+                  {shownRecently.map((entry, index) => (
                     <li key={`${entry.taskId}:${entry.at}:${index}`} className="agent-desk-row">
                       <button
                         type="button"
@@ -499,6 +652,53 @@ export function AgentDeskPanel({ data, domain, executeCommand, setToast, openDra
               )
             ) : null}
           </section>
+
+          {/*
+            選んだAIの最近のFeed投稿。投稿そのものはFeedの正本を読むだけで複製せず、
+            選ぶとFeedのスレッドへ渡す。AIを選んでいないときは出さない。
+          */}
+          {selectedAgentEntry ? (
+            <section className="panel agent-desk-section">
+              <div className="section-heading">
+                <h2>最近の投稿</h2>
+                <span className="agent-desk-count">{selectedAgentEntry.posts.length}</span>
+              </div>
+              {selectedAgentEntry.posts.length === 0 ? (
+                <p className="agent-desk-empty">まだ投稿はありません。</p>
+              ) : (
+                <ul className="agent-desk-rows">
+                  {selectedAgentEntry.posts.map((post) => {
+                    const author = authorOf(post);
+                    return (
+                      <li key={post.id} className="agent-desk-row">
+                        <button
+                          type="button"
+                          className="agent-desk-open agent-desk-ai-open"
+                          onClick={() => openPost(post.id)}
+                        >
+                          <span
+                            className={`feed-avatar feed-avatar-${author.kind} feed-avatar-${author.id}`}
+                            aria-label={author.label}
+                          >
+                            {author.initial}
+                          </span>
+                          <span className="agent-desk-ai-text">
+                            <span className="agent-desk-headline">
+                              {post.paragraphs[0] || post.attachment?.title || "投稿"}
+                            </span>
+                            <span className="agent-desk-meta">
+                              <span>{FEED_POST_KIND_LABELS[post.kind]}</span>
+                              <span>{formatAt(post.createdAt)}</span>
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+          ) : null}
         </div>
 
         <aside className="agent-desk-detail" aria-label="選択中の項目">

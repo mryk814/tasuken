@@ -24,6 +24,22 @@ export const VIDEO_MEDIA_TYPES = Object.freeze({
   webm: "video/webm",
 });
 
+/**
+ * Feed投稿へ画像として描画できる形式。
+ *
+ * SVGはscriptを持てるため、アプリ内へ画像として描画する対象に含めない
+ * （`tasken-attachment` の添付も同じ理由でラスタだけを扱う）。
+ * 拡張子とMIMEの対応をここだけで固定し、未検証形式は受理しない。
+ */
+export const IMAGE_MEDIA_TYPES = Object.freeze({
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+});
+
 export const AUDIO_CAPTURE_METHODS = Object.freeze([
   "audio_import",
   "microphone",
@@ -31,15 +47,9 @@ export const AUDIO_CAPTURE_METHODS = Object.freeze([
   "transcript_import",
 ]);
 
-export const VIDEO_CAPTURE_METHODS = Object.freeze([
-  "screen_recording",
-]);
+export const VIDEO_CAPTURE_METHODS = Object.freeze(["screen_recording"]);
 
-export const AUDIO_MEDIA_STATUSES = Object.freeze([
-  "preparing",
-  "ready",
-  "failed",
-]);
+export const AUDIO_MEDIA_STATUSES = Object.freeze(["preparing", "ready", "failed"]);
 
 export const TRANSCRIPTION_STATUSES = Object.freeze([
   "not_requested",
@@ -89,7 +99,9 @@ export const MEDIA_AVAILABILITY_LABELS = Object.freeze({
 });
 
 export function mediaExtensionOf(fileName) {
-  const match = String(fileName || "").trim().match(/\.([^.]+)$/);
+  const match = String(fileName || "")
+    .trim()
+    .match(/\.([^.]+)$/);
   return match ? match[1].toLowerCase() : "";
 }
 
@@ -109,6 +121,14 @@ export function isSupportedVideoFileName(fileName) {
   return Boolean(videoMimeTypeOf(fileName));
 }
 
+export function imageMimeTypeOf(fileName) {
+  return IMAGE_MEDIA_TYPES[mediaExtensionOf(fileName)] || null;
+}
+
+export function isSupportedImageFileName(fileName) {
+  return Boolean(imageMimeTypeOf(fileName));
+}
+
 function requireFiniteNonNegativeInteger(value, field, maximum = Number.MAX_SAFE_INTEGER) {
   const numeric = Number(value);
   if (!Number.isSafeInteger(numeric) || numeric < 0 || numeric > maximum) {
@@ -122,14 +142,19 @@ export function validateAudioArtifactMetadata(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("audio Artifactのmetadataが不正です。");
   }
-  if (input.media_kind !== "audio") throw new Error("artifact.media_kindはaudioである必要があります。");
+  if (input.media_kind !== "audio")
+    throw new Error("artifact.media_kindはaudioである必要があります。");
   const expectedMime = audioMimeTypeOf(input.filename);
-  if (!expectedMime) throw new Error("対応していない音声形式です。MP3、WAV、WebM、Ogg/Opus、M4A/MP4を選択してください。");
+  if (!expectedMime)
+    throw new Error(
+      "対応していない音声形式です。MP3、WAV、WebM、Ogg/Opus、M4A/MP4を選択してください。",
+    );
   if (input.mime_type !== expectedMime) {
     throw new Error(`artifact.mime_typeが拡張子と一致しません（expected: ${expectedMime}）。`);
   }
   requireFiniteNonNegativeInteger(input.file_size, "artifact.file_size");
-  if (input.duration_ms != null) requireFiniteNonNegativeInteger(input.duration_ms, "artifact.duration_ms");
+  if (input.duration_ms != null)
+    requireFiniteNonNegativeInteger(input.duration_ms, "artifact.duration_ms");
   if (typeof input.content_hash !== "string" || !/^sha256:[a-f0-9]{64}$/.test(input.content_hash)) {
     throw new Error("artifact.content_hashはsha256形式で指定してください。");
   }
@@ -147,20 +172,27 @@ export function validateVideoArtifactMetadata(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("video Artifactのmetadataが不正です。");
   }
-  if (input.media_kind !== "video") throw new Error("artifact.media_kindはvideoである必要があります。");
+  if (input.media_kind !== "video")
+    throw new Error("artifact.media_kindはvideoである必要があります。");
   if (input.capture_method != null && !VIDEO_CAPTURE_METHODS.includes(input.capture_method)) {
     throw new Error("video Artifactのcapture_methodが不正です。");
   }
   const expectedMime = videoMimeTypeOf(input.filename);
-  if (!expectedMime) throw new Error("対応していない動画形式です。MP4、M4V、MOV、WebMを選択してください。");
+  if (!expectedMime)
+    throw new Error("対応していない動画形式です。MP4、M4V、MOV、WebMを選択してください。");
   if (input.mime_type !== expectedMime) {
     throw new Error(`artifact.mime_typeが拡張子と一致しません（expected: ${expectedMime}）。`);
   }
   requireFiniteNonNegativeInteger(input.file_size, "artifact.file_size", 1024 * 1024 * 1024 * 1024);
-  requireFiniteNonNegativeInteger(input.duration_ms, "artifact.duration_ms", 7 * 24 * 60 * 60 * 1000);
+  requireFiniteNonNegativeInteger(
+    input.duration_ms,
+    "artifact.duration_ms",
+    7 * 24 * 60 * 60 * 1000,
+  );
   const width = requireFiniteNonNegativeInteger(input.width_px, "artifact.width_px", 16384);
   const height = requireFiniteNonNegativeInteger(input.height_px, "artifact.height_px", 16384);
-  if (width === 0 || height === 0) throw new Error("artifactの動画dimensionsは1px以上で指定してください。");
+  if (width === 0 || height === 0)
+    throw new Error("artifactの動画dimensionsは1px以上で指定してください。");
   if (typeof input.content_hash !== "string" || !/^sha256:[a-f0-9]{64}$/.test(input.content_hash)) {
     throw new Error("artifact.content_hashはsha256形式で指定してください。");
   }
@@ -178,11 +210,16 @@ export function validateAudioCaptureEntry(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("Voice Captureの形式が不正です。");
   }
-  if (input.content_type !== "audio") throw new Error("Voice Captureのcontent_typeはaudioである必要があります。");
-  if (input.kind !== "voice_memo") throw new Error("Voice Captureのkindはvoice_memoである必要があります。");
-  if (!AUDIO_CAPTURE_METHODS.includes(input.capture_method)) throw new Error("Voice Captureのcapture_methodが不正です。");
-  if (!AUDIO_MEDIA_STATUSES.includes(input.media_status)) throw new Error("Voice Captureのmedia_statusが不正です。");
-  if (!TRANSCRIPTION_STATUSES.includes(input.transcription_status)) throw new Error("Voice Captureのtranscription_statusが不正です。");
+  if (input.content_type !== "audio")
+    throw new Error("Voice Captureのcontent_typeはaudioである必要があります。");
+  if (input.kind !== "voice_memo")
+    throw new Error("Voice Captureのkindはvoice_memoである必要があります。");
+  if (!AUDIO_CAPTURE_METHODS.includes(input.capture_method))
+    throw new Error("Voice Captureのcapture_methodが不正です。");
+  if (!AUDIO_MEDIA_STATUSES.includes(input.media_status))
+    throw new Error("Voice Captureのmedia_statusが不正です。");
+  if (!TRANSCRIPTION_STATUSES.includes(input.transcription_status))
+    throw new Error("Voice Captureのtranscription_statusが不正です。");
   return input;
 }
 

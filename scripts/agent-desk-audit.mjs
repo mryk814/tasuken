@@ -3,6 +3,7 @@
  *
  * 一時userDataへ「回答待ち」「成果確認」「作業中」「開始待ち」「最近の結果」を仕込んでから
  * アプリを起動し、4つの見出しと確認詳細が設計どおりに出ることを実測する。
+ * 計画フェーズ5では、活動のあるAIだけの入口と、AIごとの絞り込みも確かめる。
  *
  *   npm run build && npm run audit:agent-desk
  */
@@ -71,6 +72,19 @@ seed.save("task", {
   executor_identity: "外部AI",
   work_state: "ready_for_agent",
   handoff_requested_at: "2026-09-20T08:30:00.000Z",
+});
+// 別のAIの作業中一件。AIごとの入口で絞り込んだときに、他のAIが混ざらないことを見る。
+seed.save("task", {
+  id: "desk-other-ai",
+  title: "粒度分布の図を作る",
+  state: "doing",
+  project_id: theme,
+  priority: "normal",
+  intended_executor: "ai_agent",
+  executor_identity: "Claude Code",
+  work_state: "in_progress",
+  work_attempt_id: ATTEMPT,
+  work_started_at: "2026-09-20T08:10:00.000Z",
 });
 seed.save("ai_proposal", {
   id: "desk-review-proposal",
@@ -231,6 +245,7 @@ for (const [id, workState] of [
   ["desk-review", "needs_human_review"],
   ["desk-question", "blocked"],
   ["desk-working", "in_progress"],
+  ["desk-other-ai", "in_progress"],
   ["desk-complete", "needs_human_review"],
   ["desk-return", "needs_human_review"],
 ]) {
@@ -267,6 +282,67 @@ try {
     if (!headings.includes(heading)) failures.push(`見出し「${heading}」がありません。`);
   }
   const listText = (await page.locator(".agent-desk-list").innerText()).replace(/\s+/g, " ");
+
+  /**
+   * AIごとの入口（計画フェーズ5）。
+   *
+   * 活動があるAIだけが並ぶこと、選ぶと4つの一覧がそのAIだけになること、
+   * 解除で元へ戻ることを確かめる。在席や稼働は推測表示しない。
+   */
+  const aiRows = page.locator(".agent-desk-ai-open");
+  const aiCount = await aiRows.count();
+  if (aiCount !== 3) {
+    failures.push(`活動のあるAIが3件ではありません（${aiCount}件）。`);
+  }
+  const aiListText = (await aiRows.allInnerTexts()).join(" / ").replace(/\s+/g, " ");
+  for (const label of ["Codex", "Claude Code", "外部AI"]) {
+    if (!aiListText.includes(label)) failures.push(`AIの入口に ${label} がありません。`);
+  }
+  // Codexの入口だけの件数を見る（"Claude Code" をCodexとして拾わない）。
+  const codexEntry = aiRows.filter({ hasText: /Cx\s*Codex/u }).first();
+  const codexEntryText = (await codexEntry.innerText()).replace(/\s+/g, " ");
+  if (!codexEntryText.includes("対応待ち 5")) {
+    failures.push(`AIの入口にCodexの対応待ち件数が出ていません: ${codexEntryText}`);
+  }
+  if (aiListText.includes("オンライン") || aiListText.includes("アイドル")) {
+    failures.push("AIの入口に観測していない在席状態が混ざっています。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/agent-desk-ai-entry.png`, fullPage: true });
+
+  const codexRow = aiRows.filter({ hasText: /Cx\s*Codex/u }).first();
+  await codexRow.click();
+  await page.waitForTimeout(500);
+  const codexFiltered = (await page.locator(".agent-desk-list").innerText()).replace(/\s+/g, " ");
+  if (codexFiltered.includes("粒度分布の図を作る")) {
+    failures.push("AIで絞り込んだのに、Claude Codeの仕事が残っています。");
+  }
+  if (codexFiltered.includes("粘度データの整理")) {
+    failures.push("AIで絞り込んだのに、外部AIの開始待ちが残っています。");
+  }
+  if (codexFiltered.includes("劣化試験の計画")) {
+    failures.push("AIで絞り込んだのに、外部AIの作業中が残っています。");
+  }
+  // Codex自身の対応待ちは残る。「すべてのAI」へ戻す操作も同時に出る。
+  if (!codexFiltered.includes("3条件の比較表を作成しました。")) {
+    failures.push("AIで絞り込むと、そのAI自身の対応待ちまで消えています。");
+  }
+  if (!codexFiltered.includes("すべてのAI")) {
+    failures.push("AIの絞り込みを解除する操作がありません。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/agent-desk-ai-filtered.png`, fullPage: true });
+  // 同じAIをもう一度選ぶと「すべてのAI」へ戻る。
+  await aiRows
+    .filter({ hasText: /Cx\s*Codex/u })
+    .first()
+    .click();
+  await page.waitForTimeout(500);
+  const unfiltered = (await page.locator(".agent-desk-list").innerText()).replace(/\s+/g, " ");
+  if (!unfiltered.includes("粒度分布の図を作る")) {
+    failures.push("AIの絞り込みを解除しても、Claude Codeの仕事が戻りません。");
+  }
+  if (!unfiltered.includes("粘度データの整理")) {
+    failures.push("AIの絞り込みを解除しても、外部AIの開始待ちが戻りません。");
+  }
 
   // 対応待ち: 質問と成果確認が判断単位で並ぶ。
   if (!listText.includes("測定温度が決まっていません。"))

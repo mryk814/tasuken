@@ -28,6 +28,7 @@ const args = process.argv.slice(2);
 const LIVE = args.includes("--live");
 const BULK = args.includes("--bulk");
 const NOTE_REF = args.includes("--note-ref");
+const MEDIA = args.includes("--media");
 const OUT_DIR =
   args.find((arg) => !arg.startsWith("--")) ||
   (LIVE
@@ -36,7 +37,9 @@ const OUT_DIR =
       ? "output/playwright/feed-audit-bulk"
       : NOTE_REF
         ? "output/playwright/feed-audit-note"
-        : "output/playwright/feed-audit");
+        : MEDIA
+          ? "output/playwright/feed-audit-media"
+          : "output/playwright/feed-audit");
 /** 実効幅1680px超で右詳細を常設し、それ以下では重ねる（docs/responsive-layout.md）。 */
 const SIZES = [
   { label: "wide-1536", width: 1536, height: 960 },
@@ -121,6 +124,7 @@ const seeded = spawnSync(
     "scripts/seed-feed-audit-workspace.mjs",
     userDataDir,
     ...(LIVE ? ["--feed-post"] : []),
+    ...(MEDIA ? ["--feed-media"] : []),
     ...(BULK ? ["--bulk-posts", String(BULK_POSTS)] : []),
     ...(NOTE_REF ? ["--note-ref"] : []),
   ],
@@ -184,9 +188,9 @@ async function auditFixtures(app, page) {
   // 添付（記事・引用・Task）がある。
   const attachments = await page.locator(".feed-attachment").count();
   if (attachments < 3) failures.push(`添付が${attachments}件しかありません。`);
-  // 前回の閲覧位置が示されている。
-  if (!(await page.locator(".feed-reading-edge").count())) {
-    failures.push("前回の閲覧位置が表示されていません。");
+  // 投稿IDをアンカーにした閲覧位置復元の対象がある。
+  if (!(await page.locator(".feed-timeline .feed-post").count())) {
+    failures.push("閲覧位置を復元できる投稿アンカーがありません。");
   }
   // 末尾は仕事の完了と混同しない文言にする。
   const endText = (await page.locator(".feed-end").first().innerText()).trim();
@@ -221,7 +225,9 @@ async function auditFixtures(app, page) {
     await page.waitForTimeout(400);
     const readerVisible = await page.locator(".feed-reader").isVisible();
     if (!readerVisible) failures.push("記事の読書面が開きません。");
-    const readerParagraphs = await page.locator(".feed-reader-text").count();
+    const readerParagraphs = await page
+      .locator(".feed-reader-markdown .markdown-preview-content p, .feed-reader-text")
+      .count();
     if (readerParagraphs < 3) failures.push(`記事の本文が短すぎます（${readerParagraphs}段落）。`);
     await page.screenshot({ path: `${OUT_DIR}/reader.png` });
     await page.locator(".feed-reader button", { hasText: "戻る" }).first().click();
@@ -308,20 +314,24 @@ async function auditFixtures(app, page) {
   const bookmarkedText = (
     await bookmarkTarget.locator(".feed-post-text").first().innerText()
   ).trim();
-  await bookmarkTarget.locator(".feed-reaction", { hasText: "ブックマーク" }).first().click();
+  await bookmarkTarget.locator('button[aria-label^="ブックマーク"]').first().click();
   await page.waitForTimeout(300);
   const afterBookmark = (await page.locator(".feed-tab-count").first().innerText()).trim();
   if (afterBookmark !== String(EXPECTED_UNRESOLVED)) {
     failures.push(`ブックマークで対応待ち件数が変わりました（${afterBookmark}）。`);
   }
 
-  // 8b. 保存した投稿だけを読み返せる（ブックマーク入口）。
-  const savedToggle = page.locator(".feed-saved-toggle").first();
-  if (!(await savedToggle.count())) {
-    failures.push("保存済みの入口がありません。");
+  // 8b. ブックマーク面で保存した投稿だけを読み返せる。
+  const bookmarksTab = page.locator(".feed-tabs button", { hasText: "ブックマーク" }).first();
+  if (!(await bookmarksTab.count())) {
+    failures.push("ブックマークの入口がありません。");
   } else {
-    await savedToggle.click();
+    await bookmarksTab.click();
     await page.waitForTimeout(400);
+    const savedFilter = page
+      .locator('.feed-bookmark-filters button[aria-label="ブックマーク"]')
+      .first();
+    if (!(await savedFilter.count())) failures.push("ブックマークの絞り込みがありません。");
     const savedPosts = await page.locator(".feed-post").count();
     if (savedPosts !== 1) {
       failures.push(`保存済みの件数が1件ではありません（${savedPosts}件）。`);
@@ -333,10 +343,6 @@ async function auditFixtures(app, page) {
         failures.push("保存済みに出ている投稿が、ブックマークした投稿と違います。");
       }
     }
-    const savedNotice = await page.locator(".feed-filter-note").first().innerText();
-    if (!savedNotice.includes("保存した投稿だけ")) {
-      failures.push(`保存済みの案内が出ていません（${savedNotice}）。`);
-    }
     if (
       (await page.locator(".feed-tab-count").first().innerText()).trim() !==
       String(EXPECTED_UNRESOLVED)
@@ -344,10 +350,10 @@ async function auditFixtures(app, page) {
       failures.push("保存済みの絞り込みで対応待ち件数が変わりました。");
     }
     await page.screenshot({ path: `${OUT_DIR}/saved.png`, fullPage: true });
-    await savedToggle.click();
+    await page.locator(".feed-tabs button", { hasText: "ホーム" }).first().click();
     await page.waitForTimeout(300);
     if (!((await page.locator(".feed-post").count()) > 1)) {
-      failures.push("保存済みの絞り込みを解除できません。");
+      failures.push("ブックマーク面からホームへ戻れません。");
     }
   }
 
@@ -375,26 +381,46 @@ async function auditFixtures(app, page) {
     }
   }
 
-  // 9. 返信の下書きは投稿ごとに残り、閉じても消えない。
+  // 9. 返信の下書きは投稿ごとに残り、スレッドを閉じても消えない。
   const replyTarget = page.locator(".feed-post").first();
-  await replyTarget.locator(".feed-reaction", { hasText: "返信" }).first().click();
+  await replyTarget.locator('button[aria-label^="返信"]').first().click();
   await page.waitForTimeout(300);
   const draftText = "サンプル数を増やして同じ見方で比べたい";
-  await replyTarget.locator(".feed-reply textarea").fill(draftText);
-  await replyTarget.locator("button", { hasText: "閉じる（下書きは残る）" }).first().click();
+  const threadDraft = page.locator(".feed-thread-panel .feed-reply textarea").first();
+  await threadDraft.fill(draftText);
+  await page.locator(".feed-thread-panel .feed-thread-head button").first().click();
   await page.waitForTimeout(300);
-  if (await replyTarget.locator(".feed-reply textarea").count()) {
-    failures.push("返信の下書き欄を閉じられません。");
+  if (await page.locator(".feed-thread-panel").count()) {
+    failures.push("会話パネルを閉じられません。");
   }
-  await replyTarget.locator(".feed-reaction", { hasText: "返信" }).first().click();
+  await replyTarget.locator('button[aria-label^="返信"]').first().click();
   await page.waitForTimeout(300);
-  const restoredDraft = await replyTarget.locator(".feed-reply textarea").inputValue();
+  const restoredDraft = await page.locator(".feed-thread-panel .feed-reply textarea").inputValue();
   if (restoredDraft !== draftText) {
     failures.push(`返信の下書きが復元されません（${restoredDraft}）。`);
   }
 
-  // 10. 暗い表示でも同じ面が読める（値の直書きが残っていれば片方だけ暗くなる）。
-  await page.locator(".feed-reaction", { hasText: "返信" }).first().click();
+  // 10. Feedを離れて戻っても、選択スレッド・返信下書き・表示位置の状態を戻せる。
+  const notesNav = page.locator(".sidebar button", { hasText: "Notes" }).first();
+  if (!(await notesNav.count())) {
+    failures.push("FeedからNotesへ移動する導線がありません。");
+  } else {
+    await notesNav.click();
+    await page.waitForTimeout(900);
+    await openFeed(page);
+    const restoredPanel = page.locator(".feed-thread-panel").first();
+    if (!(await restoredPanel.count())) {
+      failures.push("Feedへ戻っても選択中の会話が復元されません。");
+    } else {
+      const routeDraft = await restoredPanel.locator(".feed-reply textarea").inputValue();
+      if (routeDraft !== draftText) {
+        failures.push(`Feedへ戻った後に返信下書きが復元されません（${routeDraft}）。`);
+      }
+      await restoredPanel.locator(".feed-thread-head button").first().click();
+    }
+  }
+
+  // 11. 暗い表示でも同じ面が読める（値の直書きが残っていれば片方だけ暗くなる）。
   await page.waitForTimeout(200);
   const viewMenu = page
     .locator(".titlebar-controls .titlebar-menu-anchor button", { hasText: "表示" })
@@ -493,8 +519,8 @@ async function auditFixtures(app, page) {
  * 読む操作が対応待ち（実データ）の件数を動かさないことも同じ画面で実測する。
  */
 async function auditLivePost(page) {
-  // 1. 実データの投稿だけを読む。fixtureは混ざらない（返信は投稿の下に入る）。
-  const rootCount = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+  // 1. 実データの投稿だけを読む。返信は選んだ投稿の右スレッドで読む。
+  const rootCount = await page.locator(".feed-posts .feed-post").count();
   if (rootCount !== 1) failures.push(`実データの投稿が1件ではありません（${rootCount}件）。`);
   const timelineText = await page.locator(".feed-timeline").innerText();
   for (const expected of [
@@ -503,26 +529,36 @@ async function auditLivePost(page) {
     LIVE_ARTICLE_TITLE,
     LIVE_FIGURE_LABEL,
     "高分子材料評価",
-    LIVE_SEEDED_QUESTION,
-    LIVE_SEEDED_ANSWER,
   ]) {
     if (!timelineText.includes(expected))
       failures.push(`投稿に出ない文言があります（${expected}）。`);
   }
-  // 質問とAIの返答が同じスレッドで読め、質問は「回答あり」になっている。
-  const seededReplies = page.locator(".feed-posts .feed-post.is-reply");
+  const liveRoot = page.locator(".feed-posts .feed-post").first();
+  await liveRoot.locator('button[aria-label^="返信"]').first().click();
+  await page.waitForTimeout(400);
+  const liveThread = page.locator(".feed-thread-panel").first();
+  const liveThreadText = await liveThread.innerText();
+  for (const expected of [LIVE_SEEDED_QUESTION, LIVE_SEEDED_ANSWER]) {
+    if (!liveThreadText.includes(expected))
+      failures.push(`スレッドに出ない文言があります（${expected}）。`);
+  }
+  const seededReplies = liveThread.locator(".feed-thread-posts .feed-post");
   if ((await seededReplies.count()) !== 2) {
     failures.push(`用意した質問と返答が2件ではありません（${await seededReplies.count()}件）。`);
   }
-  if ((await page.locator(".feed-thread-state", { hasText: "回答あり" }).count()) !== 1) {
+  if ((await liveThread.locator(".feed-thread-state", { hasText: "回答あり" }).count()) !== 1) {
     failures.push("返答が届いた質問が「回答あり」になっていません。");
   }
-  if ((await page.locator(".feed-thread-note", { hasText: "AIの返答" }).count()) !== 1) {
+  if ((await liveThread.locator(".feed-thread-note", { hasText: "AIの返答" }).count()) !== 1) {
     failures.push("AIの返答がスレッドに出ていません。");
   }
+  await liveThread.locator(".feed-thread-head button").first().click();
+  await page.waitForTimeout(300);
   const author = (await page.locator(".feed-author-name").first().innerText()).trim();
   if (author !== "Codex") failures.push(`投稿者がCodexではありません（${author}）。`);
-  const kind = (await page.locator(".feed-post-kind").first().innerText()).trim();
+  const kind =
+    (await page.locator(".feed-post-kind").first().getAttribute("aria-label")) ||
+    (await page.locator(".feed-post-kind").first().innerText()).trim();
   if (kind !== "気づき") failures.push(`投稿の種類が気づきではありません（${kind}）。`);
   const bodyFont = await page.evaluate(() => {
     const element = document.querySelector(".feed-post-text");
@@ -533,21 +569,24 @@ async function auditLivePost(page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/live-home.png`, fullPage: true });
 
-  // 2. 添えた記事の草稿を、投稿から開いて読める。
-  const readDraft = page.locator(".feed-attachment button", { hasText: "草稿を読む" }).first();
+  // 2. 添えたAI記事を、投稿から開いて読める。
+  const readDraft = page.locator(".feed-attachment button", { hasText: "記事を読む" }).first();
   if (!(await readDraft.count())) {
-    failures.push("実データの投稿に草稿を読む操作がありません。");
+    failures.push("実データの投稿に記事を読む操作がありません。");
   } else {
     await readDraft.click();
     await page.waitForTimeout(400);
     if (!(await page.locator(".feed-reader").isVisible()))
-      failures.push("草稿の読書面が開きません。");
-    const readerParagraphs = await page.locator(".feed-reader-text").count();
-    if (readerParagraphs < 2) failures.push(`草稿の本文が短すぎます（${readerParagraphs}段落）。`);
+      failures.push("AI記事の読書面が開きません。");
+    const readerParagraphs = await page
+      .locator(".feed-reader-markdown .markdown-preview-content p, .feed-reader-text")
+      .count();
+    if (readerParagraphs < 2)
+      failures.push(`AI記事の本文が短すぎます（${readerParagraphs}段落）。`);
     await page.screenshot({ path: `${OUT_DIR}/live-reader.png` });
     await page.locator(".feed-reader button", { hasText: "戻る" }).first().click();
     await page.waitForTimeout(400);
-    if (await page.locator(".feed-reader").count()) failures.push("草稿を閉じられません。");
+    if (await page.locator(".feed-reader").count()) failures.push("AI記事を閉じられません。");
   }
 
   // 3. 学びタブにも出る（気づきは読む投稿）。返信と返答では水増ししない。
@@ -575,7 +614,7 @@ async function auditLivePost(page) {
   await page.locator(".feed-tabs button", { hasText: "ホーム" }).first().click();
   await page.waitForTimeout(400);
   const aiPost = page.locator(".feed-posts .feed-post", { hasText: LIVE_ARTICLE_TITLE }).first();
-  const bookmark = aiPost.locator(".feed-reaction", { hasText: "ブックマーク" }).first();
+  const bookmark = aiPost.locator('button[aria-label^="ブックマーク"]').first();
   await bookmark.click();
   await page.waitForTimeout(1200);
   if ((await bookmark.getAttribute("aria-pressed")) !== "true") {
@@ -597,14 +636,14 @@ async function auditLivePost(page) {
   await page.waitForTimeout(1500);
   const openNote = page.locator(".feed-attachment button", { hasText: "Noteで読む" }).first();
   if (!(await openNote.count())) failures.push("Noteに保存の後、Noteへの導線が出ません。");
-  const postsAfterSave = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+  const postsAfterSave = await page.locator(".feed-posts .feed-post").count();
   if (postsAfterSave !== 1) failures.push(`Noteに保存で投稿が消えました（${postsAfterSave}件）。`);
   const countAfterSave = (await page.locator(".feed-tab-count").first().innerText()).trim();
   if (countAfterSave !== String(EXPECTED_UNRESOLVED)) {
     failures.push(`Noteに保存で対応待ち件数が変わりました（${countAfterSave}）。`);
   }
   const bookmarkAfterSave = await page
-    .locator(".feed-reaction", { hasText: "ブックマーク" })
+    .locator('button[aria-label^="ブックマーク"]')
     .first()
     .getAttribute("aria-pressed");
   if (bookmarkAfterSave !== "true") failures.push("Noteに保存でブックマークが外れました。");
@@ -622,29 +661,81 @@ async function auditLivePost(page) {
     await page.waitForTimeout(500);
   }
 
-  // 8. 返信は保存され、親投稿の直後へ並ぶ。対応待ちは変わらない。
+  // 7b. 保存したAI記事は、Notesから作成元と元投稿を確認でき、元のFeed投稿へ戻れる。
+  const notesNav = page.locator(".sidebar button", { hasText: "Notes" }).first();
+  if (!(await notesNav.count())) {
+    failures.push("SidebarにNotesの入口がありません。");
+  } else {
+    await notesNav.click();
+    await page.waitForTimeout(1200);
+    const savedRow = page.locator(".note-row-main", { hasText: LIVE_ARTICLE_TITLE }).first();
+    if (!(await savedRow.count())) {
+      failures.push("保存したAI記事がNotesの一覧にありません。");
+    } else {
+      await savedRow.click();
+      await page.waitForTimeout(600);
+      const originLine = page.locator(".note-origin-line").first();
+      if (!(await originLine.count())) {
+        failures.push("AIから保存したNoteに作成元の表示がありません。");
+      } else {
+        const originText = (await originLine.innerText()).trim();
+        if (!originText.includes("書いた記事")) {
+          failures.push(`作成元のAIが表示されていません（${originText}）。`);
+        }
+        if (!originText.includes("自分のNotes")) {
+          failures.push(`所有の表示がありません（${originText}）。`);
+        }
+        const openOrigin = originLine.locator("button", { hasText: "元のFeed投稿を開く" }).first();
+        if (!(await openOrigin.count())) {
+          failures.push("元のFeed投稿へ戻る導線がありません。");
+        } else {
+          await page.screenshot({ path: `${OUT_DIR}/live-note-origin.png`, fullPage: true });
+          await openOrigin.click();
+          await page.waitForTimeout(1200);
+          const backThread = page.locator(".feed-thread-panel").first();
+          if (!(await backThread.count())) {
+            failures.push("元のFeed投稿へ戻っても会話が開きません。");
+          } else {
+            // 会話が開いた投稿が記事の投稿かを、起点カードの押下状態で確かめる。
+            const originCard = page.locator(".feed-post", { hasText: LIVE_ARTICLE_TITLE }).first();
+            const threadPressed = await originCard
+              .locator('button[aria-label^="返信"]')
+              .first()
+              .getAttribute("aria-pressed");
+            if (threadPressed !== "true") {
+              failures.push("戻った先が元の投稿ではありません。");
+            }
+            await page.screenshot({ path: `${OUT_DIR}/live-note-back.png`, fullPage: true });
+          }
+          // 次の手順は返信ボタンからスレッドを開く。開いたままだと閉じてしまうので戻しておく。
+          const closeThreadButton = page.locator(".feed-thread-head button").first();
+          if (await closeThreadButton.count()) {
+            await closeThreadButton.click();
+            await page.waitForTimeout(400);
+          }
+        }
+      }
+    }
+  }
+
+  // 8. 返信は保存され、右スレッドへ追加される。対応待ちは変わらない。
   const replyTarget = page.locator(".feed-post").first();
-  await replyTarget.locator(".feed-reaction", { hasText: "返信" }).first().click();
+  await replyTarget.locator('button[aria-label^="返信"]').first().click();
   await page.waitForTimeout(400);
-  await replyTarget.locator(".feed-reply textarea").fill(LIVE_REPLY_BODY);
-  await replyTarget.locator("button", { hasText: "返信を残す" }).click();
+  const threadPanel = page.locator(".feed-thread-panel").first();
+  await threadPanel.locator(".feed-reply textarea").fill(LIVE_REPLY_BODY);
+  await threadPanel.getByRole("button", { name: "返信を残す", exact: true }).click();
   await page.waitForTimeout(1500);
-  const thread = page.locator(".feed-posts .feed-post.is-reply");
+  const thread = threadPanel.locator(".feed-thread-posts .feed-post");
   const threadCount = await thread.count();
   if (threadCount !== 3) {
     failures.push(`返信が3件ではありません（${threadCount}件）。`);
   }
-  if (!(await page.locator(".feed-timeline").innerText()).includes(LIVE_REPLY_BODY)) {
+  if (!(await threadPanel.innerText()).includes(LIVE_REPLY_BODY)) {
     failures.push("返信の本文が表示されていません。");
   }
-  const threadOrder = await page.$$eval(".feed-posts .feed-post", (nodes) =>
-    nodes.map((node) => (node.className.includes("is-reply") ? "reply" : "post")),
-  );
-  if (threadOrder[0] !== "post" || threadOrder.filter((kind) => kind === "post").length !== 1) {
-    failures.push(`親投稿が先頭にありません（${threadOrder.join(",")}）。`);
-  }
-  if (await replyTarget.locator(".feed-reply textarea").count()) {
-    failures.push("返信した後も入力欄が開いたままです。");
+  if (await threadPanel.locator(".feed-reply textarea").inputValue()) {
+    failures.push("返信保存後に入力欄が空になっていません。");
   }
   const countAfterReply = (await page.locator(".feed-tab-count").first().innerText()).trim();
   if (countAfterReply !== String(EXPECTED_UNRESOLVED)) {
@@ -653,20 +744,17 @@ async function auditLivePost(page) {
   await page.screenshot({ path: `${OUT_DIR}/live-reply.png`, fullPage: true });
 
   // 9. 「AIに聞く」は依頼として残り、押した時点ではAIが動いたように見せない。
-  // 外部AI往復の「外部AIに聞く」と区別するため、接続済みAI側は完全一致で押す。
-  await replyTarget.locator(".feed-reaction", { hasText: "返信" }).first().click();
-  await page.waitForTimeout(400);
-  await replyTarget.locator(".feed-reply textarea").fill(LIVE_QUESTION_BODY);
-  await replyTarget.getByRole("button", { name: "AIに聞く（接続済みAIへ残す）" }).click();
+  await threadPanel.locator(".feed-reply textarea").fill(LIVE_QUESTION_BODY);
+  await threadPanel.getByRole("button", { name: "AIに聞く", exact: true }).click();
   await page.waitForTimeout(1500);
-  const requested = page.locator(".feed-thread-state", { hasText: "AIに依頼済み" });
+  const requested = threadPanel.locator(".feed-thread-state", { hasText: "AIに依頼済み" });
   if ((await requested.count()) !== 1) {
     failures.push(
       `AIへの依頼が「AIに依頼済み」として出ていません（${await requested.count()}件）。`,
     );
   }
   // 回答済みは用意した質問だけ。新しい依頼は未回答のまま。
-  if ((await page.locator(".feed-thread-state", { hasText: "回答あり" }).count()) !== 1) {
+  if ((await threadPanel.locator(".feed-thread-state", { hasText: "回答あり" }).count()) !== 1) {
     failures.push("依頼しただけで回答ありとして表示されています。");
   }
   const countAfterAsk = (await page.locator(".feed-tab-count").first().innerText()).trim();
@@ -674,6 +762,8 @@ async function auditLivePost(page) {
     failures.push(`AIへの依頼で対応待ち件数が変わりました（${countAfterAsk}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/live-question.png`, fullPage: true });
+  await threadPanel.locator(".feed-thread-head button").first().click();
+  await page.waitForTimeout(300);
 
   // 10. 自分の投稿欄は既存のMemo入力を再利用し、載せたものだけを読む。
   const composer = page.locator(".feed-compose textarea");
@@ -687,7 +777,7 @@ async function auditLivePost(page) {
   if (!(await page.locator(".feed-timeline").innerText()).includes(LIVE_OWN_POST_BODY)) {
     failures.push("自分の投稿がFeedへ出ていません。");
   }
-  const rootsAfterPost = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+  const rootsAfterPost = await page.locator(".feed-posts .feed-post").count();
   if (rootsAfterPost !== 2) {
     failures.push(`自分の投稿で投稿が2件ではありません（${rootsAfterPost}件）。`);
   }
@@ -700,7 +790,7 @@ async function auditLivePost(page) {
   // 外すとFeedから消え、メモはNotesに残る。載せ直すと同じように投稿へ戻る。
   await page.locator(".feed-reaction", { hasText: "Feedから外す" }).first().click();
   await page.waitForTimeout(1500);
-  const rootsAfterRemove = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+  const rootsAfterRemove = await page.locator(".feed-posts .feed-post").count();
   if (rootsAfterRemove !== 1) {
     failures.push(`Feedから外しても投稿が残っています（${rootsAfterRemove}件）。`);
   }
@@ -710,18 +800,19 @@ async function auditLivePost(page) {
   await composer.fill(LIVE_OWN_POST_BODY);
   await page.locator(".feed-compose button", { hasText: "Feedへ投稿" }).click();
   await page.waitForTimeout(1500);
-  const rootsReposted = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+  const rootsReposted = await page.locator(".feed-posts .feed-post").count();
   if (rootsReposted !== 2) failures.push(`自分の投稿を載せ直せません（${rootsReposted}件）。`);
 
   // 11. 外部AIクリップボード往復は架空回答で一周できる（外部送信なし）。
-  const externalTarget = page.locator(".feed-post").first();
-  await externalTarget.locator(".feed-reaction", { hasText: "返信" }).first().click();
+  const externalTarget = page.locator(".feed-post", { hasText: LIVE_ARTICLE_TITLE }).first();
+  await externalTarget.locator('button[aria-label^="返信"]').first().click();
   await page.waitForTimeout(400);
-  await externalTarget.getByRole("button", { name: "外部AIに聞く" }).click();
+  const externalThread = page.locator(".feed-thread-panel").first();
+  await externalThread.getByRole("button", { name: "外部AIに聞く", exact: true }).click();
   await page.waitForTimeout(400);
-  const copyQuestion = externalTarget.locator('[id^="feed-copy-q-"]');
+  const copyQuestion = externalThread.locator('[id^="feed-copy-q-"]');
   await copyQuestion.fill(LIVE_MANUAL_QUESTION);
-  await externalTarget.getByRole("button", { name: "コピーする" }).click();
+  await externalThread.getByRole("button", { name: "コピーする", exact: true }).click();
   await page.waitForTimeout(1200);
   // コピー成否にかかわらず質問は残る。成功時は普段のAIへの案内が出る。
   if ((await copyQuestion.inputValue()) !== LIVE_MANUAL_QUESTION) {
@@ -729,25 +820,25 @@ async function auditLivePost(page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/live-external-copy.png`, fullPage: true });
 
-  await externalTarget.getByRole("button", { name: "外部AIの回答を貼り付け" }).click();
+  await externalThread.getByRole("button", { name: "回答を貼り付け", exact: true }).click();
   await page.waitForTimeout(400);
-  await externalTarget.locator('[id^="feed-paste-a-"]').fill(LIVE_MANUAL_ANSWER);
-  await externalTarget.locator('[id^="feed-paste-q-"]').fill(LIVE_MANUAL_QUESTION);
-  await externalTarget.locator('[id^="feed-paste-s-"]').fill(LIVE_MANUAL_SOURCE);
-  await externalTarget.locator('[id^="feed-paste-c-"]').fill(LIVE_MANUAL_COMMENT);
+  await externalThread.locator('[id^="feed-paste-a-"]').fill(LIVE_MANUAL_ANSWER);
+  await externalThread.locator('[id^="feed-paste-q-"]').fill(LIVE_MANUAL_QUESTION);
+  await externalThread.locator('[id^="feed-paste-s-"]').fill(LIVE_MANUAL_SOURCE);
+  await externalThread.locator('[id^="feed-paste-c-"]').fill(LIVE_MANUAL_COMMENT);
   // 保存前プレビューで出所の区別が出る。
-  if (!(await externalTarget.locator(".feed-preview").innerText()).includes("自分が貼り付け")) {
+  if (!(await externalThread.locator(".feed-preview").innerText()).includes("自分が貼り付け")) {
     failures.push("貼り付けのプレビューに出所の区別が出ていません。");
   }
-  await externalTarget.getByRole("button", { name: "返信として保存" }).click();
+  await externalThread.getByRole("button", { name: "返信として保存", exact: true }).click();
   await page.waitForTimeout(1500);
-  const timelineAfterPaste = await page.locator(".feed-timeline").innerText();
+  const threadAfterPaste = await externalThread.innerText();
   for (const expected of [LIVE_MANUAL_ANSWER, LIVE_MANUAL_QUESTION, LIVE_MANUAL_COMMENT]) {
-    if (!timelineAfterPaste.includes(expected)) {
+    if (!threadAfterPaste.includes(expected)) {
       failures.push(`貼り付けた回答が表示されていません（${expected}）。`);
     }
   }
-  if (!timelineAfterPaste.includes(`自分が貼り付け · ${LIVE_MANUAL_SOURCE}`)) {
+  if (!threadAfterPaste.includes(`自分が貼り付け · ${LIVE_MANUAL_SOURCE}`)) {
     failures.push("手動貼付と自動受信の区別が表示されていません。");
   }
   const countAfterPaste = (await page.locator(".feed-tab-count").first().innerText()).trim();
@@ -755,43 +846,52 @@ async function auditLivePost(page) {
     failures.push(`貼り付けで対応待ち件数が変わりました（${countAfterPaste}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/live-external-paste.png`, fullPage: true });
+  await externalThread.locator(".feed-thread-head button").first().click();
 }
 
 /** 起動し直しても、投稿と読者の印、保存したNote、返信・AIへの依頼と返答、自分の投稿が残る。 */
 async function auditLiveRestart(page) {
-  const rootCount = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+  const rootCount = await page.locator(".feed-posts .feed-post").count();
   if (rootCount !== 2) failures.push(`再起動後の投稿が2件ではありません（${rootCount}件）。`);
-  const thread = page.locator(".feed-posts .feed-post.is-reply");
+  const restartTarget = page.locator(".feed-post", { hasText: LIVE_ARTICLE_TITLE }).first();
+  if (!(await page.locator(".feed-thread-panel").count())) {
+    await restartTarget.locator('button[aria-label^="返信"]').first().click();
+    await page.waitForTimeout(400);
+  }
+  const threadPanel = page.locator(".feed-thread-panel").first();
+  const thread = threadPanel.locator(".feed-thread-posts .feed-post");
   const threadCount = await thread.count();
   if (threadCount !== 5) failures.push(`再起動後の返信が5件ではありません（${threadCount}件）。`);
-  const timelineText = await page.locator(".feed-timeline").innerText();
+  const threadText = await threadPanel.innerText();
   for (const expected of [
     LIVE_REPLY_BODY,
     LIVE_QUESTION_BODY,
     LIVE_SEEDED_ANSWER,
-    LIVE_OWN_POST_BODY,
     LIVE_MANUAL_ANSWER,
     LIVE_MANUAL_QUESTION,
+    LIVE_MANUAL_COMMENT,
   ]) {
-    if (!timelineText.includes(expected)) {
+    if (!threadText.includes(expected)) {
       failures.push(`再起動後に出ない文言があります（${expected}）。`);
     }
   }
-  if (!timelineText.includes(`自分が貼り付け · ${LIVE_MANUAL_SOURCE}`)) {
+  if (!threadText.includes(`自分が貼り付け · ${LIVE_MANUAL_SOURCE}`)) {
     failures.push("再起動後に手動貼付の区別が残っていません。");
   }
-  if ((await page.locator(".feed-thread-state", { hasText: "AIに依頼済み" }).count()) !== 1) {
+  if (
+    (await threadPanel.locator(".feed-thread-state", { hasText: "AIに依頼済み" }).count()) !== 1
+  ) {
     failures.push("再起動後にAIへの依頼が残っていません。");
   }
-  if ((await page.locator(".feed-thread-state", { hasText: "回答あり" }).count()) !== 1) {
+  if ((await threadPanel.locator(".feed-thread-state", { hasText: "回答あり" }).count()) !== 1) {
     failures.push("再起動後にAIの返答が残っていません。");
   }
-  const persisted = await page
-    .locator(".feed-posts .feed-post", { hasText: LIVE_ARTICLE_TITLE })
-    .locator(".feed-reaction", { hasText: "ブックマーク" })
+  const persisted = await restartTarget
+    .locator('button[aria-label^="ブックマーク"]')
     .first()
     .getAttribute("aria-pressed");
   if (persisted !== "true") failures.push("再起動後にブックマークが残っていません。");
+  await threadPanel.locator(".feed-thread-head button").first().click();
   if (!(await page.locator(".feed-attachment button", { hasText: "Noteで読む" }).count())) {
     failures.push("再起動後に保存したNoteへの導線が残っていません。");
   }
@@ -802,13 +902,13 @@ async function auditLiveRestart(page) {
   await page.screenshot({ path: `${OUT_DIR}/live-restart.png`, fullPage: true });
 
   // 実データのブックマークでも「保存済みのみ」で読み返せる（印はEntityとして残っている）。
-  const savedToggle = page.locator(".feed-saved-toggle").first();
-  if (!(await savedToggle.count())) {
-    failures.push("再起動後に保存済みの入口がありません。");
+  const bookmarksTab = page.locator(".feed-tabs button", { hasText: "ブックマーク" }).first();
+  if (!(await bookmarksTab.count())) {
+    failures.push("再起動後にブックマークの入口がありません。");
   } else {
-    await savedToggle.click();
+    await bookmarksTab.click();
     await page.waitForTimeout(500);
-    const savedRoots = await page.locator(".feed-posts .feed-post:not(.is-reply)").count();
+    const savedRoots = await page.locator(".feed-posts .feed-post").count();
     if (savedRoots !== 1) {
       failures.push(`保存済みの絞り込みが実データで1件になりません（${savedRoots}件）。`);
     }
@@ -816,9 +916,9 @@ async function auditLiveRestart(page) {
       failures.push("保存済みに出ている投稿が、ブックマークした投稿と違います。");
     }
     await page.screenshot({ path: `${OUT_DIR}/live-saved.png`, fullPage: true });
-    await savedToggle.click();
+    await page.locator(".feed-tabs button", { hasText: "ホーム" }).first().click();
     await page.waitForTimeout(300);
-    if ((await page.locator(".feed-posts .feed-post:not(.is-reply)").count()) !== 2) {
+    if ((await page.locator(".feed-posts .feed-post").count()) !== 2) {
       failures.push("保存済みの絞り込みを解除できません。");
     }
   }
@@ -876,8 +976,8 @@ async function auditLiveRestart(page) {
     if (await missing.locator("button", { hasText: "Noteに保存" }).count()) {
       failures.push("参照先がない添付に「Noteに保存」が残っています。");
     }
-    if (!(await missing.locator("button", { hasText: "草稿を読む" }).count())) {
-      failures.push("参照先がない添付から草稿を読めません。");
+    if (!(await missing.locator("button", { hasText: "記事を読む" }).count())) {
+      failures.push("参照先がない添付からAI記事を読めません。");
     }
   }
   await page.screenshot({ path: `${OUT_DIR}/live-note-missing.png`, fullPage: true });
@@ -972,6 +1072,141 @@ async function auditBulk(page) {
     failures.push(`末尾の文言が違います（${endText}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/bulk-end.png`, fullPage: true });
+}
+
+/**
+ * 画像と外部リンクを添えた投稿（`--media`、計画フェーズ3）。
+ *
+ * ネットワークを使わずに再現できる四状態を実測する。
+ * 画像あり・画像なし・リンク（取得失敗＝オフライン）・壊れた参照。
+ * サムネイルが付く状態の取得そのものは `tests/feed-link-preview.test.mjs` で確かめる。
+ */
+async function auditMedia(page) {
+  const posts = page.locator(".feed-posts .feed-post");
+  const count = await posts.count();
+  if (count !== 3) {
+    failures.push(`メディア検証の投稿が3件ではありません（${count}件）。`);
+    return;
+  }
+  // 並び順に依存せず、本文の手がかりから投稿を特定する。
+  const imagePost = page
+    .locator(".feed-post", { hasText: "引張試験の比較図を1枚にまとめました。" })
+    .first();
+  const linkPost = page
+    .locator(".feed-post", { hasText: "公開されている資料を1本読みました。" })
+    .first();
+  const brokenPost = page
+    .locator(".feed-post", { hasText: "古い実験ノートの図を参照しようとした" })
+    .first();
+
+  // 1. 画像あり: 実在するArtifactを参照し、imgとして描画される。
+  if (!(await imagePost.count())) {
+    failures.push("画像を添えた投稿が見つかりません。");
+  } else {
+    const imageMedia = imagePost.locator(".feed-media-image").first();
+    if (!(await imageMedia.count())) {
+      failures.push("画像を添えた投稿に画像の入口がありません。");
+    } else {
+      if (!(await imageMedia.locator(".feed-media-role").innerText()).includes("実測")) {
+        failures.push("画像の役割（実測・作業成果）が表示されていません。");
+      }
+      const image = imageMedia.locator("img.feed-media-image-body").first();
+      if (!(await image.count())) {
+        failures.push("画像ありの投稿にimgがありません。");
+      } else {
+        const src = await image.getAttribute("src");
+        if (!src?.startsWith("tasken-media://artifact/")) {
+          failures.push(`画像の参照先が既存media経路ではありません（${src}）。`);
+        }
+        if (!(await image.getAttribute("alt"))) {
+          failures.push("画像に代替テキストがありません。");
+        }
+        // 読み込みに失敗していないこと（壊れた参照の代替表示が出ていないこと）。
+        await page.waitForTimeout(800);
+        if (await imageMedia.locator(".feed-media-broken").count()) {
+          failures.push("実在するArtifactの画像を表示できません。");
+        }
+        const naturalWidth = await image.evaluate((node) => node.naturalWidth || 0);
+        if (!(naturalWidth > 0)) failures.push("画像の実体を読み込めませんでした。");
+        // 切り抜きで情報を落とさない。
+        const fit = await image.evaluate((node) => getComputedStyle(node).objectFit);
+        if (fit !== "contain") failures.push(`画像の収め方がcontainではありません（${fit}）。`);
+      }
+      if (!(await imageMedia.locator(".feed-media-caption").count())) {
+        failures.push("画像のキャプションが表示されていません。");
+      }
+    }
+  }
+
+  // 2. リンク: 取得できなくてもURL・ホスト名・投稿者の一言で読める。
+  if (!(await linkPost.count())) {
+    failures.push("外部リンクを添えた投稿が見つかりません。");
+  } else {
+    const linkMedia = linkPost.locator(".feed-media-link").first();
+    if (!(await linkMedia.count())) {
+      failures.push("外部リンクを添えた投稿にリンクカードがありません。");
+    } else {
+      await page.waitForTimeout(1200);
+      const linkText = await linkMedia.innerText();
+      if (!linkText.includes("example.invalid")) {
+        failures.push(`リンクのホスト名が出ていません（${linkText}）。`);
+      }
+      if (!linkText.includes("https://example.invalid/measurement-variance")) {
+        failures.push("リンクのURLが出ていません。");
+      }
+      if (!linkText.includes("少ない標本数でも判断できる条件がまとまっています。")) {
+        failures.push("投稿者の一言が出ていません。");
+      }
+      if (!linkText.includes("ばらつきの見方（外部資料）")) {
+        failures.push("投稿者が付けた題名が出ていません。");
+      }
+      if ((await linkMedia.locator("button", { hasText: "開く" }).count()) === 0) {
+        failures.push("リンクを開く操作がありません。");
+      }
+      // 長いURL・題名で横へはみ出さない。
+      const overflow = await linkMedia.evaluate((node) => node.scrollWidth - node.clientWidth);
+      if (overflow > 1) failures.push(`リンクカードが横へはみ出しています（${overflow}px）。`);
+      // 取得に失敗しても、他の投稿が読めている（波及しない）。
+      if (!(await imagePost.locator("img.feed-media-image-body").count())) {
+        failures.push("リンクの取得失敗が他の投稿へ波及しています。");
+      }
+      await linkMedia.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: `${OUT_DIR}/media-link.png` });
+    }
+  }
+
+  // 3. 壊れた参照: 投稿全体を失敗させず、一行の代替表示へ落とす。
+  if (!(await brokenPost.count())) {
+    failures.push("壊れた参照の投稿が見つかりません。");
+  } else {
+    const broken = brokenPost.locator(".feed-media-broken").first();
+    if (!(await broken.count())) {
+      failures.push("存在しないArtifactの参照に代替表示が出ていません。");
+    } else {
+      const text = await broken.innerText();
+      if (!text.includes("画像を表示できません")) {
+        failures.push(`壊れた参照の案内が不明確です（${text}）。`);
+      }
+      // 画像が読めなくても、投稿の本文はそのまま読める。
+      const postText = await brokenPost.innerText();
+      if (
+        !postText.includes("図そのものより、どの条件で測ったかの記録が先に要ると分かりました。")
+      ) {
+        failures.push("壊れた参照の投稿でも本文が読めていません。");
+      }
+      await brokenPost.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: `${OUT_DIR}/media-broken.png` });
+    }
+  }
+
+  // 4. 画像がない投稿が同じ一覧に混ざっても、投稿面のリズムが崩れない。
+  const sheet = page.locator(".feed-main").first();
+  const sheetOverflow = await sheet.evaluate((node) => node.scrollWidth - node.clientWidth);
+  if (sheetOverflow > 1) failures.push(`投稿面が横へはみ出しています（${sheetOverflow}px）。`);
+
+  await page.screenshot({ path: `${OUT_DIR}/media-home.png`, fullPage: true });
 }
 
 /**
@@ -1082,6 +1317,14 @@ try {
     } finally {
       await session.app.close();
     }
+  } else if (MEDIA) {
+    const session = await launchApp();
+    try {
+      await openFeed(session.page);
+      await auditMedia(session.page);
+    } finally {
+      await session.app.close();
+    }
   } else {
     const session = await launchApp();
     try {
@@ -1109,6 +1352,8 @@ console.log(
         ? `連続読込${BULK_POSTS}件`
         : NOTE_REF
           ? "既存Noteの参照"
-          : "開発用fixture"
+          : MEDIA
+            ? "画像と外部リンクの四状態"
+            : "開発用fixture"
   }、スクリーンショットは ${OUT_DIR}）`,
 );

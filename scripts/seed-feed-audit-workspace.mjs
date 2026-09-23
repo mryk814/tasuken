@@ -11,11 +11,15 @@
  * 投稿があるときのFeedはfixtureを使わず、その投稿だけを読む。
  * `--bulk-posts <件数>` は連続読込の実測用に読み物の投稿を件数分だけ足す（100件以上の履歴）。
  * `--note-ref` は既存Noteを参照する投稿（`payload.note_id`）を1件足す。
+ * `--feed-media` は画像と外部リンクを添えた投稿を足す（フェーズ3の六状態のうち、
+ * ネットワークを使わずに確かめられる四状態）。
  *
  * 正本は docs/feed-surface.md。
  */
-import { mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { deflateSync } from "node:zlib";
 
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
@@ -23,6 +27,7 @@ const userDataDir = process.argv[2];
 if (!userDataDir) throw new Error("userDataDirを指定してください。");
 const withFeedPost = process.argv.includes("--feed-post");
 const withNoteRef = process.argv.includes("--note-ref");
+const withFeedMedia = process.argv.includes("--feed-media");
 const bulkIndex = process.argv.indexOf("--bulk-posts");
 const bulkCount = bulkIndex >= 0 ? Number(process.argv[bulkIndex + 1] || 0) : 0;
 if (!Number.isInteger(bulkCount) || bulkCount < 0) {
@@ -40,6 +45,8 @@ const at = `${today}T00:00:00.000Z`;
 const answerAt = `${today}T00:05:00.000Z`;
 const ATTEMPT = "11111111-1111-4111-8111-111111111111";
 const REQUEST_ID = "33333333-3333-4333-8333-333333333333";
+/** 画像を添えた投稿（`--feed-media`）が参照する、実在する画像Artifact。 */
+const AUDIT_IMAGE_ARTIFACT_ID = "44444444-4444-4444-8444-444444444444";
 
 mkdirSync(userDataDir, { recursive: true });
 const database = new WorkspaceDatabase(path.join(userDataDir, "research-desk.sqlite"));
@@ -254,6 +261,170 @@ if (withFeedPost) {
       tool: "tasken.answer_feed_question",
     },
   });
+}
+
+/**
+ * 監査用の小さなPNGを組み立てる。
+ *
+ * 外部アセットに依存せず、同じ画素から同じバイト列を作る（content_hashを固定できる）。
+ */
+function auditPng(width, height, [red, green, blue]) {
+  const raw = Buffer.alloc((width * 3 + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * (width * 3 + 1);
+    raw[rowStart] = 0;
+    for (let x = 0; x < width; x += 1) {
+      const offset = rowStart + 1 + x * 3;
+      raw[offset] = red;
+      raw[offset + 1] = green;
+      raw[offset + 2] = blue;
+    }
+  }
+  const chunk = (type, data) => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(body) >>> 0);
+    return Buffer.concat([length, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1)
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
+
+function crc32(buffer) {
+  let value = 0xffffffff;
+  for (const byte of buffer) value = CRC_TABLE[(value ^ byte) & 0xff] ^ (value >>> 8);
+  return (value ^ 0xffffffff) >>> 0;
+}
+
+/**
+ * 画像と外部リンクを添えた投稿（`--feed-media`）。
+ *
+ * 確かめる状態のうち、ネットワークを使わずに再現できるものだけを置く。
+ * - 画像あり: 実在する画像Artifactを参照する
+ * - 画像なし: 添付なしの投稿（この節では扱わず、既存の実データ投稿が担う）
+ * - リンク画像なし・オフライン: 解決しないホスト（`.invalid`）の外部リンク
+ * - 壊れた参照: 実在しないArtifactを参照する
+ * リンク画像ありの取得そのものは `tests/feed-link-preview.test.mjs` で確かめる。
+ */
+if (withFeedMedia) {
+  const artifactDirectory = path.join(userDataDir, "feed-audit-media");
+  mkdirSync(artifactDirectory, { recursive: true });
+  const figurePath = path.join(artifactDirectory, "feed-audit-figure.png");
+  const figureBytes = auditPng(48, 32, [138, 47, 59]);
+  writeFileSync(figurePath, figureBytes);
+  database.save("artifact", {
+    id: AUDIT_IMAGE_ARTIFACT_ID,
+    title: "引張試験の比較図",
+    source_type: "theme",
+    source_id: "theme-feed-audit",
+    theme_id: "theme-feed-audit",
+    filename: "feed-audit-figure.png",
+    file_type: "png",
+    mime_type: "image/png",
+    file_size: figureBytes.length,
+    content_hash: `sha256:${createHash("sha256").update(figureBytes).digest("hex")}`,
+    storage_mode: "linked",
+    target: figurePath,
+    link_type: "local_path",
+    link_status: "ok",
+  });
+
+  const mediaPosts = [
+    {
+      id: "feed-audit-media-image",
+      topic: "work_report",
+      body: [
+        "引張試験の比較図を1枚にまとめました。",
+        "条件を変えた3本を同じ軸へ置くと、ばらつきの出方が条件ごとに違うと分かります。",
+      ],
+      media: {
+        kind: "artifact",
+        artifact_id: AUDIT_IMAGE_ARTIFACT_ID,
+        role: "result",
+        alt_text: "条件ごとの引張試験の比較図",
+        caption: "同じ軸に3条件を重ねた実測図",
+      },
+    },
+    {
+      id: "feed-audit-media-link",
+      topic: "reference",
+      body: [
+        "ばらつきの扱いについて、公開されている資料を1本読みました。",
+        "標本数が少ないときの見方を、条件を揃えて説明しています。",
+      ],
+      media: {
+        kind: "external_link",
+        url: "https://example.invalid/measurement-variance",
+        comment: "少ない標本数でも判断できる条件がまとまっています。",
+        label: "ばらつきの見方（外部資料）",
+      },
+    },
+    {
+      id: "feed-audit-media-broken",
+      topic: "insight",
+      body: [
+        "古い実験ノートの図を参照しようとしたところ、参照先が見つかりませんでした。",
+        "図そのものより、どの条件で測ったかの記録が先に要ると分かりました。",
+      ],
+      media: {
+        kind: "artifact",
+        artifact_id: "99999999-9999-4999-8999-999999999999",
+        role: "explanation",
+        alt_text: "参照先が見つからない説明図",
+      },
+    },
+  ];
+  for (const entry of mediaPosts) {
+    database.save("ai_proposal", {
+      id: entry.id,
+      source: "mcp",
+      source_app: "codex",
+      payload_type: "feed_posts",
+      status: "pending",
+      received_at: at,
+      created_at: at,
+      version: 1,
+      payload: {
+        feed_posts: [
+          {
+            action: "publish",
+            topic: entry.topic,
+            body: entry.body,
+            theme: "theme-feed-audit",
+            media: entry.media,
+            evidence: [],
+          },
+        ],
+      },
+      request: {
+        idempotency_key: entry.id,
+        source: "mcp",
+        tool: "tasken.propose_feed_post",
+      },
+    });
+  }
 }
 
 /**

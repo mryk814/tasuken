@@ -4,6 +4,7 @@
 @import "@mdxeditor/editor/style.css";
 @import "./artifacts.css";
 @import "./feed.css";
+@import "./theme.css";
 
 @theme inline {
   --color-app-accent: var(--color-accent);
@@ -356,6 +357,23 @@ button:active {
   background: var(--color-bg);
 }
 .app-shell.is-sidebar-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr) clamp(390px, 30vw, 460px);
+}
+
+/* Feedは内部に会話スロットを持つため、全体Context Paneを重ねない。 */
+.app-shell.is-feed-route {
+  grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr);
+}
+
+.app-shell.is-sidebar-collapsed.is-feed-route {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.app-shell.is-feed-route.has-drawer {
+  grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr) clamp(390px, 30vw, 460px);
+}
+
+.app-shell.is-sidebar-collapsed.is-feed-route.has-drawer {
   grid-template-columns: 64px minmax(0, 1fr) clamp(390px, 30vw, 460px);
 }
 .sidebar {
@@ -12414,6 +12432,15 @@ kbd {
   }
 }
 
+@media (max-width: 1680px) {
+  .app-shell.is-feed-route.has-drawer {
+    grid-template-columns: var(--sidebar-width, 200px) minmax(0, 1fr);
+  }
+  .app-shell.is-sidebar-collapsed.is-feed-route.has-drawer {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 1400px) {
   .document-publish-panel {
     grid-template-columns: 1fr;
@@ -17110,6 +17137,25 @@ kbd {
   gap: var(--space-2);
 }
 
+/* AIごとの入口（計画フェーズ5）。Feedと同じアバターを並べ、絞り込みだけを行う。 */
+.agent-desk-ai-open {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.agent-desk-ai-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* 選んだAIの最近の投稿。Feedのカードを複製せず、題名と種別だけを一行で読む。 */
+.agent-desk-ai-text .agent-desk-headline {
+  overflow-wrap: anywhere;
+}
+
 @container page (min-width: 1180px) {
   .agent-desk-layout {
     grid-template-columns: minmax(0, 1fr) 380px;
@@ -17119,4 +17165,135 @@ kbd {
     position: sticky;
     top: var(--space-4);
   }
+}
+
+/* --- Today「AIから届いたこと」（計画フェーズ5） --- */
+.today-arrivals-panel {
+  margin-bottom: var(--space-2);
+  overflow: hidden;
+}
+
+.today-arrivals-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.today-arrivals-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--pad-card);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.today-arrivals-row:first-child {
+  border-top: 0;
+}
+
+.today-arrivals-open {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.today-arrivals-open:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.today-arrivals-title {
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+  overflow-wrap: anywhere;
+}
+
+.today-arrivals-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  min-width: 0;
+}
+
+.today-arrivals-actor {
+  color: var(--color-text);
+}
+
+/* 一覧では36pxのFeedアバターは大きい。Feedの頭文字と色を保ったまま縮める。 */
+.today-arrivals-row .feed-avatar {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  font-size: var(--text-xs);
+}
+
+/* --- ToDoのAI委任状態（計画フェーズ5） --- */
+.todo-ai-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.todo-ai-state-chip {
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.todo-ai-state-chip:hover {
+  background: var(--color-surface-subtle);
+}
+
+.todo-ai-state-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* 色は補助。どの状態かは常に文言（ラベル）で読ませる。 */
+.todo-ai-state-chip.is-ai_ready {
+  color: var(--action-ai-fg);
+  border-color: var(--action-ai-bd);
+}
+
+/* 開始待ちは既定の色のまま。「AIへ渡せる」との違いは文言で示す。 */
+.todo-ai-state-chip.is-start_waiting {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+.todo-ai-state-chip.is-in_progress {
+  color: var(--action-ai-fg);
+  background: var(--action-ai-bg);
+  border-color: var(--action-ai-bd);
+}
+
+.todo-ai-state-chip.is-review_waiting {
+  color: var(--color-status-review-fg);
+  background: var(--color-status-review-bg);
+  border-color: var(--color-status-review-bd);
+}
+
+.todo-ai-state-chip.is-returned_to_me {
+  color: var(--color-status-blocked-fg);
+  background: var(--color-status-blocked-bg);
+  border-color: var(--color-status-blocked-bd);
 }

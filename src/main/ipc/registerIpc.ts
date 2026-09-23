@@ -9,6 +9,7 @@ import type { CalendarService } from "../services/calendarService";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
 import { AiProposalAcceptanceService } from "../services/aiProposalAcceptanceService";
 import type { MediaCaptureService } from "../services/mediaCaptureService";
+import type { FeedLinkPreviewService } from "../services/feedLinkPreviewService";
 import { parseBatchTranscriptionArtifactRequest } from "../../shared/batchTranscriptionIpc";
 import type { ScreenRecordingService } from "../services/screenRecordingService";
 import {
@@ -211,6 +212,7 @@ export function registerIpc(
   mediaCapture: MediaCaptureService,
   batchTranscription: TranscriptionHistoryReader,
   screenRecording: ScreenRecordingService,
+  feedLinkPreview: FeedLinkPreviewService,
   notifyEntitiesChanged: (types: EntityType[]) => void = () => {},
   notifyCommandApplied: (
     receipt: CommandReceipt | CommandReceipt[],
@@ -372,6 +374,12 @@ export function registerIpc(
   ipcMain.handle(IPC.artifactWebPreview, (_event, artifactId) =>
     service.getWebArtifactPreview(requireId(artifactId)),
   );
+  // Preview取得は失敗しても例外を投げず { ok: false, reason } を返す。
+  // 外部サイトの都合でFeedのrenderが壊れないよう、ここでは投げ直さない。
+  ipcMain.handle(IPC.feedLinkPreview, (_event, request) => {
+    const url = request && typeof request === "object" ? (request as { url?: unknown }).url : null;
+    return feedLinkPreview.fetchPreview(url);
+  });
   ipcMain.handle(IPC.audioCapturePrepare, async (event, request) => {
     try {
       const themeId = requireAudioCaptureThemeId(repository, request);
