@@ -985,6 +985,51 @@ export function feedNoteEntity(input: {
   };
 }
 
+export interface CaptureFeedNoteSource {
+  id: string;
+  title?: string | null | undefined;
+  text?: string | null | undefined;
+  projectId?: string | null | undefined;
+  sourceRecordId?: string | null | undefined;
+}
+
+/**
+ * Inboxの付箋メモをFeedへ載せるNoteにする。
+ *
+ * 本文は付箋のコピーと同じ題名＋本文の並びにする。本文が空のメモは投稿として
+ * 読めないため、保存せず呼び出し側で案内する。元の記録IDは保存し、Feedだけを
+ * 増やさないように呼び出し側で元の付箋を整理する。
+ */
+export function captureFeedNote(
+  source: CaptureFeedNoteSource,
+  publishedAt: string,
+): {
+  id: string;
+  title: string;
+  body_markdown: string;
+  note_type: "memo";
+  content_format: "markdown";
+  project_id: string | null;
+  source_record_id: string | null;
+  feed_published_at: string;
+} {
+  const body = [source.title, source.text]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n");
+  const base = feedNoteEntity({
+    id: source.id,
+    title: source.title ?? "",
+    body,
+    publishedAt,
+  });
+  return {
+    ...base,
+    content_format: "markdown",
+    project_id: source.projectId?.trim() ? source.projectId : null,
+    source_record_id: source.sourceRecordId?.trim() ? source.sourceRecordId : null,
+  };
+}
+
 /** Noteの見出しは本文の1行目から作る（長い場合は切る）。 */
 export function noteTitleFrom(body: string): string {
   const firstLine = body.split(/\r?\n/u)[0]?.trim() || "";

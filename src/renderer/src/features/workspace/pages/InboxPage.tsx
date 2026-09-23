@@ -18,6 +18,7 @@ import {
   IconPlus,
   IconRestore,
   IconSearch,
+  IconSend,
   IconTrash,
   IconVideo,
   IconVolume,
@@ -68,6 +69,7 @@ import {
 } from "../../../../../shared/memoPresentation";
 import { useUiStore } from "../../../stores/uiStore";
 import { createSketchDraft } from "../lib/sketch";
+import { captureFeedNote } from "../lib/feedPosts";
 import { buildLinkedArtifactOperationsFromPaths } from "../lib/artifactEntities";
 import { formatArtifactFileSize } from "../components/artifacts";
 import {
@@ -489,6 +491,65 @@ export function InboxPage({
           `コピーできませんでした。${error instanceof Error ? error.message : String(error)}`,
         ),
       );
+  }
+
+  /**
+   * 付箋メモをつぶやきとしてFeedへ流す。
+   *
+   * Noteは通常のMemoとして保存し、Feedへ載せる印だけを付ける。
+   * 元の付箋はアーカイブしつつ整理先を残すので、Inboxに残らず出所も失わない。
+   */
+  async function postMicroMemoToFeed(memo: CaptureEntry) {
+    const noteId = uuid();
+    let note: DomainNote;
+    try {
+      note = captureFeedNote(
+        {
+          id: noteId,
+          title: memo.title,
+          text: memo.text,
+          projectId: memo.project_id,
+          sourceRecordId: memo.source_record_id,
+        },
+        new Date().toISOString(),
+      ) as DomainNote;
+    } catch (error) {
+      // 本文が無ければ保存せず、入力も消さない。
+      setToast(
+        error instanceof Error ? error.message : "投稿する本文を入力してください。",
+        "warning",
+      );
+      return;
+    }
+    const converted: CaptureEntry = {
+      ...memo,
+      state: "archived",
+      triaged_to_type: "note",
+      triaged_to_id: noteId,
+    };
+    try {
+      await saveEntities(
+        [
+          ...buildSaveNoteOperations(note),
+          ...retargetArtifactOperations(memo.id, "note", noteId, note.project_id ?? null),
+          {
+            action: "save",
+            type: "capture_entry",
+            entity: converted as unknown as SaveOperation["entity"],
+          },
+          buildChangeEventOperation("capture_entry", memo.id, "updated", {}, memo, converted),
+        ],
+        `「${note.title}」をFeedへ投稿しました。`,
+        "main_ui",
+      );
+      navigate("feed");
+    } catch (error) {
+      // 失敗しても元の付箋は残す。
+      setToast(
+        `Feedへ投稿できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    }
   }
 
   function copyAllMicroMemos() {
@@ -1555,6 +1616,7 @@ export function InboxPage({
                 const targeted = stickyTargetIds.includes(memo.id);
                 const color = memoStickyColorOf(memo as unknown as Entity);
                 const expanded = expandedStickyIds.includes(memo.id);
+                const feedBody = [memo.title, memo.text].filter(Boolean).join("\n").trim();
                 return (
                   <article
                     className={`micro-memo-card ${targeted ? "is-targeted" : ""}`}
@@ -1618,6 +1680,18 @@ export function InboxPage({
                       >
                         <IconCopy size={15} />
                       </button>
+                      {memo.state === "untriaged" && (
+                        <button
+                          className="row-action-button"
+                          onClick={() => void postMicroMemoToFeed(memo)}
+                          aria-label="付箋メモをFeedへ載せる"
+                          title="Feedへ載せる"
+                          type="button"
+                          disabled={!feedBody}
+                        >
+                          <IconSend size={15} />
+                        </button>
+                      )}
                       <button
                         className="row-action-button"
                         onClick={() =>

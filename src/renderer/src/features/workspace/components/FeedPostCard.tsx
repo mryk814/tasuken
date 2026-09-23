@@ -1,11 +1,14 @@
 import {
   IconBook2,
   IconBookmark,
+  IconBookmarkFilled,
   IconBulb,
   IconChartDots3,
   IconHeart,
+  IconHeartFilled,
   IconLink,
   IconMessageCircle,
+  IconMessageCircleFilled,
   IconMessageCircleQuestion,
   IconNotes,
   IconDots,
@@ -292,7 +295,11 @@ export function FeedPostCard({
               title={`返信${replyCount > 0 ? ` ${replyCount}件` : ""}`}
               onClick={() => onOpenThread(post)}
             >
-              <IconMessageCircle size={16} stroke={1.8} aria-hidden="true" />
+              {threadOpen ? (
+                <IconMessageCircleFilled size={16} aria-hidden="true" />
+              ) : (
+                <IconMessageCircle size={16} stroke={1.8} aria-hidden="true" />
+              )}
               {replyCount > 0 ? <span className="feed-reaction-count">{replyCount}</span> : null}
             </button>
             <button
@@ -303,7 +310,11 @@ export function FeedPostCard({
               title="おもしろい"
               onClick={() => onToggleReaction(post, "interesting")}
             >
-              <IconHeart size={16} stroke={1.8} aria-hidden="true" />
+              {interestingActive ? (
+                <IconHeartFilled size={16} aria-hidden="true" />
+              ) : (
+                <IconHeart size={16} stroke={1.8} aria-hidden="true" />
+              )}
             </button>
             <button
               type="button"
@@ -313,7 +324,11 @@ export function FeedPostCard({
               title="ブックマーク"
               onClick={() => onToggleReaction(post, "bookmark")}
             >
-              <IconBookmark size={16} stroke={1.8} aria-hidden="true" />
+              {bookmarkActive ? (
+                <IconBookmarkFilled size={16} aria-hidden="true" />
+              ) : (
+                <IconBookmark size={16} stroke={1.8} aria-hidden="true" />
+              )}
             </button>
             {post.noteId ? (
               <>

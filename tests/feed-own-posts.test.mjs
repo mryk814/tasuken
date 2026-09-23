@@ -9,6 +9,7 @@ import { buildAttentionQueue, countAttention } from "../src/shared/contracts/tas
 import {
   FEED_PUBLISHED_FIELD,
   buildOwnPosts,
+  captureFeedNote,
   feedNoteEntity,
   noteTitleFrom,
   ownPostId,
@@ -124,4 +125,34 @@ test("自分の投稿は要対応の判断を増やさない", () => {
   assert.equal(buildOwnPosts({ notes }).length, 1);
   // 投稿はProposalでも判断でもない。要対応の入力に入らないことを固定する。
   assert.equal(countAttention(buildAttentionQueue({ proposals: [], tasks: [] })), 0);
+});
+
+test("付箋メモは題名・本文・Theme・出所を保ったままFeedへ載せられる", () => {
+  const entity = captureFeedNote(
+    {
+      id: "note-from-micro",
+      title: "乾燥の気づき",
+      text: "同じ条件でも時間が違うと結果が変わる。",
+      projectId: "theme-materials",
+      sourceRecordId: "capture-micro",
+    },
+    AT,
+  );
+  assert.equal(entity.project_id, "theme-materials");
+  assert.equal(entity.source_record_id, "capture-micro");
+  assert.equal(entity.body_markdown, "乾燥の気づき\n同じ条件でも時間が違うと結果が変わる。");
+  assert.equal(buildOwnPosts({ notes: [entity] }).length, 1);
+
+  assert.throws(
+    () =>
+      captureFeedNote(
+        {
+          id: "note-empty",
+          title: "  ",
+          text: "  ",
+        },
+        AT,
+      ),
+    /本文/u,
+  );
 });

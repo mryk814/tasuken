@@ -213,9 +213,11 @@
     "workspace-repository": {
       "consumerPaths": [
         "scripts/agent-desk-audit.mjs",
+        "scripts/inbox-feed-post-audit.mjs",
         "scripts/model-smoke.mjs",
         "scripts/seed-materials-informatics-workspace.mjs",
         "scripts/seed-feed-audit-workspace.mjs",
+        "scripts/seed-inbox-feed-audit-workspace.mjs",
         "scripts/seed-theme-audit-workspace.mjs",
         "scripts/seed-today-arrivals-audit-workspace.mjs",
         "scripts/task-handoff-audit.mjs",

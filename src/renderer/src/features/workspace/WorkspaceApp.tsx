@@ -14,6 +14,12 @@ import {
 import { workspaceApi } from "../../services/workspaceApi";
 import { actionDefinition, TOAST_ACTIONS } from "../../pages/semanticActions";
 import { normalizeRoute, routeLabel } from "../../pages/routes";
+import {
+  emptyRouteHistory,
+  recordRouteVisit,
+  travelRouteHistory,
+  type RouteTravelDirection,
+} from "../../pages/routeHistory";
 import { useUiStore, type ToastTone } from "../../stores/uiStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { todayIso } from "../../utils/dataFormat.js";
@@ -187,6 +193,13 @@ export function WorkspaceApp() {
   const storedRoute = useUiStore((state) => normalizeRoute(state.route));
   const route = detachedNoteId ? "notes" : storedRoute;
   const setRoute = useUiStore((state) => state.setRoute);
+  /**
+   * アプリ内の前画面・次画面。route単位の移動だけを履歴に残す。
+   * 詳細な選択やドロワー状態は各画面の既存の保持に任せる。
+   */
+  const routeHistoryRef = useRef(emptyRouteHistory());
+  const visitedRouteRef = useRef<string | null>(null);
+  const [, setRouteHistoryVersion] = useState(0);
   const activeThemeId = useUiStore((state) => state.activeThemeId);
   const setActiveThemeId = useUiStore((state) => state.setActiveThemeId);
   const [drawer, setDrawer] = useState<DrawerConfig | null>(null);
@@ -419,6 +432,23 @@ export function WorkspaceApp() {
     addEventListener("hashchange", onHash);
     return () => removeEventListener("hashchange", onHash);
   }, [setRoute]);
+
+  useEffect(() => {
+    const normalized = normalizeRoute(route);
+    if (visitedRouteRef.current === null) {
+      visitedRouteRef.current = normalized;
+      return;
+    }
+    if (normalized === visitedRouteRef.current) return;
+    routeHistoryRef.current = recordRouteVisit(
+      routeHistoryRef.current,
+      visitedRouteRef.current,
+      normalized,
+    );
+    visitedRouteRef.current = normalized;
+    // 履歴の有無だけをボタンへ伝える。route自体の変化が再描画を担う。
+    setRouteHistoryVersion((version) => version + 1);
+  }, [route]);
 
   useEffect(() => {
     const openPalette = (event: KeyboardEvent) => {
@@ -888,6 +918,27 @@ export function WorkspaceApp() {
       location.hash = normalized;
       setRoute(normalized);
     })();
+  }
+
+  /**
+   * 前画面・次画面の移動。履歴スタックを先に更新してから移動する。
+   * 通常の遷移監視が同じ移動を二重に記録しないよう、移動先を到達済みとして残す。
+   */
+  async function travelRoute(direction: RouteTravelDirection) {
+    const from = normalizeRoute(visitedRouteRef.current ?? route);
+    const travel = travelRouteHistory(routeHistoryRef.current, from, direction);
+    if (!travel.target) return;
+    const normalized = normalizeRoute(travel.target);
+    if (normalized === from) return;
+    if (!(await saveDirtyDrawerForm())) return;
+    drawerGeneration.current += 1;
+    setDrawer(null);
+    setNotesEditorSelectionId(null);
+    routeHistoryRef.current = travel.history;
+    visitedRouteRef.current = normalized;
+    location.hash = normalized;
+    setRoute(normalized);
+    setRouteHistoryVersion((version) => version + 1);
   }
 
   function openNoteForEditing(noteId: string) {
@@ -2321,6 +2372,20 @@ export function WorkspaceApp() {
     toggleTodayWindow,
   };
 
+  const backTarget = routeHistoryRef.current.back.at(-1) ?? null;
+  const forwardTarget = routeHistoryRef.current.forward[0] ?? null;
+  const routeNavigation =
+    loadState === "success" && !detachedNoteId
+      ? {
+          canGoBack: backTarget !== null,
+          canGoForward: forwardTarget !== null,
+          backLabel: backTarget ? routeLabel(backTarget) : "",
+          forwardLabel: forwardTarget ? routeLabel(forwardTarget) : "",
+          onGoBack: () => void travelRoute("back"),
+          onGoForward: () => void travelRoute("forward"),
+        }
+      : undefined;
+
   const titleBar = (
     <AppTitleBar
       launcher={titleBarLauncher}
@@ -2334,6 +2399,7 @@ export function WorkspaceApp() {
       openShortcuts={() => setShowShortcuts(true)}
       openCommandPalette={() => setShowCommandPalette(true)}
       openSettings={() => navigate("settings")}
+      routeNavigation={routeNavigation}
     />
   );
   const frameStyle = { "--app-content-zoom": zoomFactor } as CSSProperties;

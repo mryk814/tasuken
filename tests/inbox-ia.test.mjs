@@ -117,6 +117,16 @@ test("Inbox itemの既定の行き先はTaskで、他種別はmenuへ畳む（#3
   assert.match(inboxPageSource, /captureArtifacts\(row\.entry\.id\)/);
 });
 
+test("未整理の付箋メモは通常のMemoとしてFeedへ載せられる", () => {
+  // 本文コピーと同じ並びでNote化し、整理先はNoteのまま残す。未整理の全件は流さない。
+  assert.match(inboxPageSource, /function postMicroMemoToFeed\(memo: CaptureEntry\)/);
+  assert.match(inboxPageSource, /captureFeedNote\(\s*\{/);
+  assert.match(inboxPageSource, /buildSaveNoteOperations\(note\)/);
+  assert.match(inboxPageSource, /triaged_to_type: "note"/);
+  assert.match(inboxPageSource, /navigate\("feed"\)/);
+  assert.match(inboxPageSource, /aria-label="付箋メモをFeedへ載せる"/);
+});
+
 test("ToDoは表から追加を撤去し、作成しただけで今日へ入れない（#317）", async () => {
   const todoPageSource = readFileSync(
     "src/renderer/src/features/workspace/pages/TodoPage.tsx",
