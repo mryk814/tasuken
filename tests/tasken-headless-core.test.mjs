@@ -122,7 +122,7 @@ test("Headless Core serves MCP reads without Electron and stops cleanly", async 
 
     client = await connectMcp(userDataPath);
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 47);
+    assert.equal(listed.tools.length, 21);
     const searched = await client.callTool({
       name: "tasken.search_items",
       arguments: { query: "Headless context" },
@@ -187,7 +187,7 @@ test("Headless replica joins a shared-folder sync and serves read-only MCP reads
 
       client = await connectMcp(replicaUserData, { TASKEN_MCP_READ_ONLY: "1" });
       const listed = await client.listTools();
-      assert.ok(listed.tools.length < 47, String(listed.tools.length));
+      assert.ok(listed.tools.length < 21, String(listed.tools.length));
       for (const writeTool of [
         "tasken.start_task_work",
         "tasken.append_work_receipt",
@@ -377,7 +377,7 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
   try {
     client = await connectMcp(userDataPath);
 
-    // 許可: テキストの読み物投稿・Note案・Task案。
+    // 許可: テキストの読み物投稿・Note案。
     for (const [name, args] of [
       [
         "tasken.propose_feed_post",
@@ -397,15 +397,6 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
           source_app: "gate-test",
           title: "許可されたNote案",
           body: "本文。",
-        },
-      ],
-      [
-        "tasken.propose_task",
-        {
-          idempotency_key: "restricted-task",
-          caller: "gate test",
-          source_app: "gate-test",
-          title: "許可されたTask案",
         },
       ],
     ]) {
@@ -435,14 +426,6 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
           post_id: "post-1",
           reply_to: "reply-1",
           body: "返信。",
-        },
-      ],
-      [
-        "tasken.propose_repository_context",
-        {
-          idempotency_key: "restricted-repo",
-          caller: "gate test",
-          label: "repository",
         },
       ],
       [
@@ -490,7 +473,7 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
     await client?.close().catch(() => {});
     await stopAndInspect(handle, userDataPath, (database) => {
       // 拒否された要求はProposalもTask変更も残さない。
-      assert.equal(database.list("ai_proposal").length, 3);
+      assert.equal(database.list("ai_proposal").length, 2);
       assert.equal(database.list("work_receipt").length, 0);
       assert.notEqual(database.get("task", "task-headless")?.work_state, "in_progress");
     });
@@ -507,7 +490,7 @@ async function stopAndInspect(handle, userDataPath, inspect) {
   }
 }
 
-test("Headless replica serves synced capture and task images over MCP", async (t) => {
+test("Headless replica serves synced capture and task images over Core HTTP (MCP photo tools removed)", async (t) => {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-headless-image-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const shared = path.join(root, "shared");
@@ -533,7 +516,6 @@ test("Headless replica serves synced capture and task images over MCP", async (t
     sha256: createHash("sha256").update(bytes).digest("hex"),
     url: `tasken-attachment://local/${fileName}/photo.jpg`,
   };
-  let client;
   try {
     fs.writeFileSync(path.join(hostPhotos, fileName), bytes);
     host.save("theme", { id: "theme-image", name: "Image Theme", code: "IM" });
@@ -565,25 +547,19 @@ test("Headless replica serves synced capture and task images over MCP", async (t
       syncDirectory: shared,
     });
     try {
-      client = await connectMcp(replicaUserData, { TASKEN_MCP_READ_ONLY: "1" });
-      const capture = await client.callTool({
-        name: "tasken.get_capture_image",
-        arguments: { capture_id: "capture-image", file_name: fileName },
+      const coreClient = new TaskenCoreClient({ userDataPath: replicaUserData });
+      const capture = await coreClient.getCaptureImage({
+        capture_id: "capture-image",
+        file_name: fileName,
       });
-      assert.equal(capture.isError, undefined, JSON.stringify(capture));
-      assert.equal(capture.structuredContent.sha256, manifest.sha256);
-      const captureBlock = capture.content.find((block) => block.type === "image");
-      assert.ok(captureBlock, "capture image content block");
-      assert.equal(captureBlock.data, bytes.toString("base64"));
-      const task = await client.callTool({
-        name: "tasken.get_task_image",
-        arguments: { task_id: "task-image", file_name: fileName },
+      assert.equal(capture.image.sha256, manifest.sha256);
+      assert.equal(Buffer.from(capture.image.data_base64, "base64").equals(bytes), true);
+      const task = await coreClient.getTaskImage({
+        task_id: "task-image",
+        file_name: fileName,
       });
-      assert.equal(task.isError, undefined, JSON.stringify(task));
-      assert.equal(task.structuredContent.sha256, manifest.sha256);
+      assert.equal(task.image.sha256, manifest.sha256);
     } finally {
-      await client?.close().catch(() => {});
-      client = undefined;
       await handle.stop();
     }
 
@@ -596,15 +572,13 @@ test("Headless replica serves synced capture and task images over MCP", async (t
       syncDirectory: shared,
     });
     try {
-      client = await connectMcp(replicaUserData, { TASKEN_MCP_READ_ONLY: "1" });
-      const tampered = await client.callTool({
-        name: "tasken.get_capture_image",
-        arguments: { capture_id: "capture-image", file_name: fileName },
+      const coreClient = new TaskenCoreClient({ userDataPath: replicaUserData });
+      const tampered = await coreClient.getCaptureImage({
+        capture_id: "capture-image",
+        file_name: fileName,
       });
-      assert.equal(tampered.isError, true);
+      assert.equal(tampered.error?.code, "not_found");
     } finally {
-      await client?.close().catch(() => {});
-      client = undefined;
       await restarted.stop();
     }
   } finally {

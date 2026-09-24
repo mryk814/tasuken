@@ -62,10 +62,10 @@ test("actual MCP proposal emits one post-commit Desktop delta and duplicate retr
     caller: "Live sync fixture",
     source_app: "live-sync-test",
     title: "MCP live Proposal",
-    description: "Appear without reload",
+    body: "Appear without reload",
   };
   try {
-    const queued = await client.callTool({ name: "tasken.propose_task", arguments: args });
+    const queued = await client.callTool({ name: "tasken.propose_note", arguments: args });
     assert.equal(queued.isError, undefined);
     assert.equal(queued.structuredContent.status, "queued");
     assert.equal(delivered.length, 1);
@@ -73,20 +73,16 @@ test("actual MCP proposal emits one post-commit Desktop delta and duplicate retr
     assert.equal(delivered[0].version, 1);
     assert.equal(database.get("ai_proposal", delivered[0].id).status, "pending");
 
-    const duplicate = await client.callTool({ name: "tasken.propose_task", arguments: args });
+    const duplicate = await client.callTool({ name: "tasken.propose_note", arguments: args });
     assert.equal(duplicate.structuredContent.status, "duplicate");
     assert.equal(delivered.length, 1);
 
     const conflict = await client.callTool({
-      name: "tasken.propose_task",
+      name: "tasken.propose_note",
       arguments: { ...args, title: "Changed payload" },
     });
     assert.equal(conflict.isError, true);
     assert.equal(conflict.structuredContent.error.code, "IDEMPOTENCY_CONFLICT");
-    assert.equal(
-      conflict.structuredContent.error.next_action,
-      "内容を変える場合は新しいidempotency_keyを使用してください。追報告は新しいkeyで送ると同じTaskに積まれます。",
-    );
     assert.equal(delivered.length, 1);
   } finally {
     await client.close();

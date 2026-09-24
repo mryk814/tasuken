@@ -40,8 +40,8 @@ test("Knowledge diagnostics preserve existing storage while Context Graph stays 
   assert.doesNotMatch(knowledge, /Context Graph|#332の共有projection/);
   assert.doesNotMatch(knowledge, /saveEntity|saveEntities|uuid\(|Knowledgeを追加|Knowledge化/);
   assert.match(graph, /projectContextGraph/);
-  assert.match(mcp, /coreClient\.getContextSubgraph/);
-  assert.match(mcp, /coreClient\.getKnowledgeHealth/);
+  assert.doesNotMatch(mcp, /coreClient\.getContextSubgraph/);
+  assert.doesNotMatch(mcp, /coreClient\.getKnowledgeHealth/);
   assert.match(workspaceData, /knowledge_nodes: KnowledgeNode\[\]/);
   assert.match(workspaceData, /knowledge_edges: BaseRecord\[\]/);
 });
