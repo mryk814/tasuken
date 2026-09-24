@@ -391,15 +391,14 @@ export function WorkspaceApp() {
         return;
       }
       if (change?.type && change.entity) {
+        // 単体差分は適用だけで全体再読込はしない。付箋autosave等のたびに
+        // workspace:load全量が走ると操作がもっさりする。
         applyExternalSave(change.type, change.entity);
-        void refreshWorkspace().catch((error) =>
-          setToast(`更新を反映できませんでした。${errorMessage(error)}`, "danger"),
-        );
         return;
       }
       void refreshWorkspace();
     });
-  }, [applyExternalSave, applyExternalSaves, refreshWorkspace, setToast]);
+  }, [applyExternalSave, applyExternalSaves, refreshWorkspace]);
 
   useEffect(() => {
     if (detachedNoteId) return undefined;
