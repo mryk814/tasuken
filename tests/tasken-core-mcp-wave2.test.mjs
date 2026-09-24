@@ -186,19 +186,11 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
         git_root: "/private/tasuken",
         cwd: "/private/tasuken/packages/core",
       }],
-      ["tasken.find_tasks_for_repository", "toolFindTasksForRepository", "findTasksForRepository", {
-        remote_url: "https://github.com/mryk814/tasuken",
-        git_root: "/private/tasuken",
-        cwd: "/private/tasuken/packages/core",
-      }],
       ["tasken.get_task_assignment", "toolGetTaskAssignment", "getTaskAssignment", {
         task_id: "task-visible",
         limit: 1,
       }],
       ["tasken.resolve_repository_context", "toolResolveRepositoryContext", "resolveRepositoryContext", {
-        remote_url: "https://github.com/private/archived",
-      }],
-      ["tasken.find_tasks_for_repository", "toolFindTasksForRepository", "findTasksForRepository", {
         remote_url: "https://github.com/private/archived",
       }],
       ["tasken.get_task_assignment", "toolGetTaskAssignment", "getTaskAssignment", {
@@ -258,7 +250,6 @@ test("migrated Wave 2 tools fail closed without constructing the legacy DB conte
   };
   for (const [name, args] of [
     ["tasken.resolve_repository_context", {}],
-    ["tasken.find_tasks_for_repository", {}],
     ["tasken.get_task_assignment", { task_id: "task-visible" }],
   ]) {
     const result = await callMcp(coreClient, name, args);

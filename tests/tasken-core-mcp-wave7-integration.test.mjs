@@ -5,12 +5,10 @@ import path from "node:path";
 import test from "node:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { build } from "esbuild";
 
 import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
-import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 
 const workspaceRepositoryModule = "../src/main/repositories/" + "workspaceRepository.mjs";
@@ -200,27 +198,7 @@ function legacyFields(value) {
   return legacy;
 }
 
-async function mcpCall(coreClient, name, args) {
-  const server = createTaskenMcpServer({
-    coreClient,
-    readOnly: true,
-    readContextProvider: () => {
-      throw new Error("READ_ONLY_CONTEXT_FALLBACK_SENTINEL");
-    },
-  });
-  const client = new Client({ name: "wave7-integration", version: "1.0.0" });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  await server.connect(serverTransport);
-  await client.connect(clientTransport);
-  try {
-    return await client.callTool({ name, arguments: args });
-  } finally {
-    await client.close();
-    await server.close();
-  }
-}
-
-test("Wave 7 safe legacy fields are exact across Core, HTTP, and MCP", async () => {
+test("Wave 7 safe legacy fields are exact across Core and HTTP (MCP exposure removed)", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave7-integration-"));
   fs.chmodSync(root, 0o700);
   const workspace = fixture();
@@ -249,7 +227,6 @@ test("Wave 7 safe legacy fields are exact across Core, HTTP, and MCP", async () 
       const expected = legacy[legacyMethod](request);
       const inProcess = core[method].execute(request);
       const overHttp = await client[method](request);
-      const overMcp = await mcpCall(client, tool, request);
       const comparable = legacyFields(inProcess);
       if (!("ai_audience" in expected)) delete comparable.ai_audience;
       assert.deepEqual(
@@ -258,8 +235,6 @@ test("Wave 7 safe legacy fields are exact across Core, HTTP, and MCP", async () 
         `${tool} legacy transport fields`,
       );
       assert.deepEqual(overHttp, inProcess, `${tool} HTTP`);
-      assert.deepEqual(overMcp.structuredContent, inProcess, `${tool} MCP`);
-      assert.equal(overMcp.isError, undefined);
       assert.equal(inProcess.read_only, true);
       assert.equal(inProcess.next_tools.length > 0, true);
     }
@@ -416,7 +391,7 @@ test("Wave 7 dense graph and health arrays are deterministically capped after vi
   );
 });
 
-test("Wave 7 equal-timestamp caps use stable id subsets across Core, HTTP, and MCP", async () => {
+test("Wave 7 equal-timestamp caps use stable id subsets across Core and HTTP", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave7-stable-order-"));
   fs.chmodSync(root, 0o700);
   const workspace = equalTimestampCapFixture();
@@ -447,11 +422,6 @@ test("Wave 7 equal-timestamp caps use stable id subsets across Core, HTTP, and M
     for (const [tool, request, method] of requests) {
       const inProcess = core[method].execute(request);
       assert.deepEqual(await client[method](request), inProcess, `${tool} HTTP stable order`);
-      assert.deepEqual(
-        (await mcpCall(client, tool, request)).structuredContent,
-        inProcess,
-        `${tool} MCP stable order`,
-      );
       results[method] = inProcess;
     }
 
@@ -560,38 +530,6 @@ test("Wave 7 named capabilities fail before fetch and malformed responses fail c
   }
 });
 
-test("Wave 7 MCP registrations reject the same nonempty and maximum inputs as shared contracts", async () => {
-  let calls = 0;
-  const rejectIfCalled = async () => {
-    calls += 1;
-    return {};
-  };
-  const coreClient = {
-    getRecentNotes: rejectIfCalled,
-    searchKnowledge: rejectIfCalled,
-    getKnowledgeContext: rejectIfCalled,
-    getPlanHealth: rejectIfCalled,
-    getKnowledgeHealth: rejectIfCalled,
-  };
-  const cases = [
-    ["tasken.get_recent_notes", { theme_id: "" }],
-    ["tasken.get_recent_notes", { theme_id: "x".repeat(201) }],
-    ["tasken.search_knowledge", { query: "" }],
-    ["tasken.search_knowledge", { query: "x".repeat(1_001) }],
-    ["tasken.search_knowledge", { node_types: [""] }],
-    ["tasken.search_knowledge", { node_types: Array.from({ length: 9 }, () => "claim") }],
-    ["tasken.get_knowledge_context", { theme_id: "" }],
-    ["tasken.get_plan_health", { theme_id: "x".repeat(201) }],
-    ["tasken.get_knowledge_health", { theme_id: "" }],
-  ];
-  for (const [name, args] of cases) {
-    const result = await mcpCall(coreClient, name, args);
-    assert.equal(result.isError, true, `${name} ${JSON.stringify(args)}`);
-    assert.match(result.content[0].text, /invalid|argument/i, `${name} ${JSON.stringify(args)}`);
-  }
-  assert.equal(calls, 0);
-});
-
 test("actual stdio MCP reads Wave 7/8 from Core-owned SQLite without writes or native fallback", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave7-stdio-"));
   fs.chmodSync(root, 0o700);
@@ -628,33 +566,12 @@ test("actual stdio MCP reads Wave 7/8 from Core-owned SQLite without writes or n
     });
     client = new Client({ name: "wave7-actual-stdio", version: "1.0.0" });
     await client.connect(transport);
-    for (const [name, args, field] of [
-      ["tasken.get_recent_notes", {}, "notes"],
-      ["tasken.search_knowledge", { query: "visible" }, "knowledge_nodes"],
-      ["tasken.get_knowledge_context", { theme_id: "theme-public" }, "knowledge_edges"],
-      ["tasken.get_plan_health", {}, "open_count"],
-      ["tasken.get_knowledge_health", {}, "issues"],
-      ["tasken.get_activity", {}, "events"],
-      ["tasken.get_context_subgraph", { entity_type: "task", entity_id: "task-visible" }, "nodes"],
-      ["tasken.export_ai_context", { format: "json" }, "items"],
-    ]) {
+    for (const [name, args, field] of [["tasken.get_activity", {}, "events"]]) {
       const result = await client.callTool({ name, arguments: args });
       assert.equal(result.isError, undefined, JSON.stringify(result));
       assert.notEqual(result.structuredContent[field], undefined);
       assert.equal(result.structuredContent.read_only, true);
     }
-    const context = await client.callTool({
-      name: "tasken.get_knowledge_context",
-      arguments: { theme_id: "theme-public" },
-    });
-    assert.deepEqual(
-      context.structuredContent.knowledge_edges.map((edge) => edge.id),
-      ["edge-public"],
-    );
-    assert.doesNotMatch(
-      JSON.stringify(context.structuredContent),
-      /edge-hidden|knowledge-hidden|PRIVATE_/,
-    );
     assert.equal(fs.existsSync(path.join(root, "must-not-be-opened.sqlite3")), false);
     assert.equal(
       database.db.prepare("SELECT COUNT(*) AS count FROM workspace_meta").get().count,
@@ -681,15 +598,15 @@ test("actual stdio MCP reads Wave 7/8 from Core-owned SQLite without writes or n
   }
 });
 
-test("Wave 7 MCP registrations contain no legacy read-context fallback", () => {
+test("Wave 7 removed tools stay unregistered in the MCP server", () => {
   const source = fs.readFileSync(new URL("../src/main/mcp/server.mjs", import.meta.url), "utf8");
-  for (const method of [
-    "toolGetRecentNotes",
-    "toolSearchKnowledge",
-    "toolGetKnowledgeContext",
-    "toolGetPlanHealth",
-    "toolGetKnowledgeHealth",
+  for (const name of [
+    "tasken.get_recent_notes",
+    "tasken.search_knowledge",
+    "tasken.get_knowledge_context",
+    "tasken.get_plan_health",
+    "tasken.get_knowledge_health",
   ]) {
-    assert.equal(source.includes(`context.${method}`), false, method);
+    assert.equal(source.includes(`"${name}"`), false, name);
   }
 });

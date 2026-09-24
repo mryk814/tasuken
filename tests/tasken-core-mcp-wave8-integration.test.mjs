@@ -283,19 +283,22 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
         "exportAiContext",
       ],
     ];
+    const mcpExposed = new Set(["tasken.get_activity"]);
     for (const [tool, request, method] of cases) {
       const inProcess = core[method].execute(request);
       const overHttp = await client[method](request);
-      const overMcp = (await mcpCall(client, tool, request)).structuredContent;
+      const overMcp = mcpExposed.has(tool)
+        ? (await mcpCall(client, tool, request)).structuredContent
+        : null;
       if (method === "exportAiContext") {
         assert.match(overHttp.generated_at, /^20\d\d-/);
-        assert.match(overMcp.generated_at, /^20\d\d-/);
+        if (overMcp) assert.match(overMcp.generated_at, /^20\d\d-/);
         delete inProcess.generated_at;
         delete overHttp.generated_at;
-        delete overMcp.generated_at;
+        if (overMcp) delete overMcp.generated_at;
       }
       if (method === "getActivity" || method === "getActivityEntries") {
-        for (const response of [inProcess, overHttp, overMcp]) {
+        for (const response of overMcp ? [inProcess, overHttp, overMcp] : [inProcess, overHttp]) {
           assert.ok(Number.isFinite(Date.parse(response.page.generated_at)));
           if (response.activity && typeof response.activity === "object") {
             assert.deepEqual(response.activity.page, response.page);
@@ -305,7 +308,7 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
         }
       }
       if (method === "getContextSubgraph") {
-        for (const response of [inProcess, overHttp, overMcp]) {
+        for (const response of [inProcess, overHttp]) {
           assert.equal(
             response.edges.some((edge) => edge.assertion_id === "ref-hidden-public-endpoints"),
             false,
@@ -314,15 +317,12 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
         }
       }
       assert.deepEqual(overHttp, inProcess, `${tool} HTTP`);
-      assert.deepEqual(overMcp, inProcess, `${tool} MCP`);
+      if (overMcp) assert.deepEqual(overMcp, inProcess, `${tool} MCP`);
       assert.equal(inProcess.read_only, true);
       assert.equal(inProcess.result_meta.contract_version, 1);
     }
     const markdown = core.exportAiContext.execute({ format: "markdown" });
     assert.equal(typeof markdown, "string");
-    const mcpMarkdown = await mcpCall(client, "tasken.export_ai_context", { format: "markdown" });
-    assert.equal(mcpMarkdown.content[0].text, markdown);
-    assert.equal(mcpMarkdown.structuredContent, undefined);
 
     const legacy = new ReadOnlyTaskenContext("wave8-health-parity.sqlite", {
       audience: "coding_agent",
@@ -333,8 +333,6 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
       const legacyJson = legacy.toolExportAiContext({ format: "json" });
       const coreJson = core.exportAiContext.execute({ format: "json" });
       const httpJson = await client.exportAiContext({ format: "json" });
-      const mcpJson = (await mcpCall(client, "tasken.export_ai_context", { format: "json" }))
-        .structuredContent;
       const healthKeys = [
         "claims_without_evidence",
         "contradicted_claims",
@@ -352,7 +350,7 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
         "waiting_items",
       ];
       assert.deepEqual(Object.keys(legacyJson.health).sort(), healthKeys);
-      for (const response of [coreJson, httpJson, mcpJson]) {
+      for (const response of [coreJson, httpJson]) {
         assert.deepEqual(Object.keys(response.health).sort(), healthKeys);
         assert.deepEqual(response.health, legacyJson.health);
         for (const transportKey of [
@@ -371,10 +369,7 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
       const legacyMarkdown = legacy.toolExportAiContext({ format: "markdown" });
       const coreMarkdown = core.exportAiContext.execute({ format: "markdown" });
       const httpMarkdown = await client.exportAiContext({ format: "markdown" });
-      const mcpHealthMarkdown = (
-        await mcpCall(client, "tasken.export_ai_context", { format: "markdown" })
-      ).content[0].text;
-      for (const response of [coreMarkdown, httpMarkdown, mcpHealthMarkdown]) {
+      for (const response of [coreMarkdown, httpMarkdown]) {
         assert.equal(healthMarkdown(response), healthMarkdown(legacyMarkdown));
       }
     } finally {

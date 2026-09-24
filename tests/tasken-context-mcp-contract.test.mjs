@@ -149,18 +149,21 @@ async function withMcp(coreClient, callback) {
   }
 }
 
-const contextTools = [
+const removedContextTools = [
   "tasken.get_work_context",
   "tasken.get_planning_context",
   "tasken.get_learning_context",
   "tasken.get_debrief_context",
 ];
 
-test("context views are listed as bounded read-only MCP tools", async () => {
+test("removed composite views are no longer listed; Theme/Activity stay bounded and read-only", async () => {
   await withMcp(fakeCoreClient(), async (client) => {
     const listed = await client.listTools();
     const tools = new Map(listed.tools.map((tool) => [tool.name, tool]));
-    for (const name of contextTools) {
+    for (const name of removedContextTools) {
+      assert.equal(tools.has(name), false, `${name} must stay removed`);
+    }
+    for (const name of ["tasken.get_theme_context", "tasken.get_activity"]) {
       const tool = tools.get(name);
       assert.ok(tool, `${name} is listed`);
       assert.equal(tool.annotations?.readOnlyHint, true, `${name} is read-only`);
@@ -253,99 +256,25 @@ test("Theme intent ResourceTemplate is listed and reads a bounded human intent p
   });
 });
 
-test("Daily report and learning-column prompts are listed and keep user-owned boundaries", async () => {
+test("Daily report prompt is listed and keeps user-owned boundaries", async () => {
   await withMcp(fakeCoreClient(), async (client) => {
     const listed = await client.listPrompts();
     const prompts = new Map(listed.prompts.map((prompt) => [prompt.name, prompt]));
     assert.ok(prompts.has("daily-report"));
     assert.equal(prompts.has("debrief"), false);
-    assert.ok(prompts.has("learning-column"));
+    assert.equal(prompts.has("learning-column"), false);
     assert.equal(prompts.get("daily-report").title, "Tasken日報");
     assert.equal(prompts.get("daily-report").arguments, undefined);
-    assert.equal(prompts.get("learning-column").arguments[0].name, "theme_id");
 
     const debrief = await client.getPrompt({ name: "daily-report" });
     const debriefText = debrief.messages[0].content.text;
-    assert.match(debriefText, /tasken\.get_debrief_context with date=\d{4}-\d{2}-\d{2}/);
+    assert.match(debriefText, /tasken\.get_activity with date=\d{4}-\d{2}-\d{2}/);
     assert.match(debriefText, /one or two adaptive questions/);
     assert.match(debriefText, /daily report draft/);
     assert.match(debriefText, /report_date/);
-    assert.match(debriefText, /include_recent_debriefs=false, and no repository filter/);
-    const context = await client.callTool({
-      name: "tasken.get_debrief_context",
-      arguments: { date: "2026-08-31", include_recent_debriefs: false },
-    });
-    const guidance = context.structuredContent.writing_guidance;
-    assert.ok(debriefText.includes(guidance));
-    assert.match(guidance, /Group related work by Theme or Task/);
-    assert.match(guidance, /Separate observed facts, agent-reported results, and inference/);
-    assert.match(guidance, /never fill human answers/);
-    assert.match(guidance, /Prior reports and human answers.*must not be overwritten/);
     const tools = await client.listTools();
     const noteSchema = tools.tools.find((tool) => tool.name === "tasken.propose_note").inputSchema;
-    const themeArgument = guidance.match(/Omit (\w+) unless the user specified a Theme/)[1];
-    assert.ok(Object.hasOwn(noteSchema.properties, themeArgument));
-    assert.equal(themeArgument, "theme");
-    const learning = await client.getPrompt({
-      name: "learning-column",
-      arguments: { theme_id: theme.id },
-    });
-    const learningText = learning.messages[0].content.text;
-    assert.match(learningText, /theme_id=theme-context/);
-    assert.match(learningText, /select at most one/);
-    assert.match(learningText, /no pitch is genuinely interesting/);
-  });
-});
-
-test("work context returns a bounded projection with Theme intent and optional Task", async () => {
-  const core = fakeCoreClient();
-  await withMcp(core, async (client) => {
-    const result = await client.callTool({
-      name: "tasken.get_work_context",
-      arguments: { theme_id: theme.id, task_id: "task-context", include_sessions: false },
-    });
-    assert.equal(result.isError, undefined);
-    const projection = result.structuredContent;
-    assert.deepEqual(projection.canonical_intent, {
-      theme_id: theme.id,
-      name: theme.name,
-      charter,
-      current_state: currentState,
-    });
-    assert.equal(projection.current_task.id, "task-context");
-    assert.equal(projection.related_work.length, 6);
-    assert.deepEqual(projection.recent_sessions, []);
-    assert.equal(projection.schema, "tasken-context-view/v1");
-    assert.match(projection.view_id, /^[0-9a-f-]{36}$/);
-    assert.match(projection.generated_at, /^\d{4}-\d{2}-\d{2}T/);
-    assert.match(projection.content_hash, /^[0-9a-f]{64}$/);
-    assert.deepEqual(projection.budget, { token_budget: 4_000 });
-    assert.deepEqual(projection.source_versions, [
-      {
-        kind: "theme",
-        id: theme.id,
-        version: null,
-        updated_at: theme.updated_at,
-      },
-    ]);
-    assert.equal(projection.read_only, true);
-    assert.equal("My decision" in projection, false);
-    const themeCall = core.calls.find(([name]) => name === "getThemeContext");
-    assert.deepEqual(themeCall[1], {
-      theme_id: theme.id,
-      limit: 20,
-      max_chars: 4_000,
-      max_hops: 1,
-      max_nodes: 40,
-      max_edges: 60,
-      token_budget: 4_000,
-    });
-    const taskCall = core.calls.find(([name]) => name === "getTaskContext");
-    assert.deepEqual(taskCall[1], {
-      task_id: "task-context",
-      max_items_per_type: 8,
-      max_text_length: 20_000,
-    });
+    assert.ok(Object.hasOwn(noteSchema.properties, "theme"));
   });
 });
 
@@ -356,155 +285,17 @@ test("daily-report prompt uses the runtime local date at the UTC/JST day boundar
   try {
     await withMcp(fakeCoreClient(), async (client) => {
       const prompt = await client.getPrompt({ name: "daily-report" });
-      assert.match(prompt.messages[0].content.text, /with date=2026-08-31,/);
-      const context = await client.callTool({
-        name: "tasken.get_debrief_context",
-        arguments: { date: "2026-08-26", include_recent_debriefs: false },
+      assert.match(prompt.messages[0].content.text, /with date=2026-08-31/);
+      const activity = await client.callTool({
+        name: "tasken.get_activity",
+        arguments: { date: "2026-08-26" },
       });
-      // The Core owns date selection; the MCP adapter must preserve its selected sessions.
-      assert.equal(context.structuredContent.sessions.length, 1);
-      assert.equal(context.structuredContent.sessions[0].id, "session-daily-0");
+      // The Core owns date selection; the MCP adapter must preserve its entries.
+      assert.equal(activity.structuredContent.entries.length, 4);
     });
   } finally {
     t.mock.timers.reset();
     if (previousTimeZone === undefined) delete process.env.TZ;
     else process.env.TZ = previousTimeZone;
   }
-});
-
-test("planning and learning contexts preserve charter/state and bound their evidence", async () => {
-  const core = fakeCoreClient();
-  await withMcp(core, async (client) => {
-    const planning = await client.callTool({
-      name: "tasken.get_planning_context",
-      arguments: { theme_id: theme.id },
-    });
-    assert.equal(planning.isError, undefined);
-    assert.deepEqual(planning.structuredContent.canonical_intent.charter, charter);
-    assert.deepEqual(planning.structuredContent.canonical_intent.current_state, currentState);
-    assert.equal(planning.structuredContent.open_work.length, 6);
-    assert.equal(planning.structuredContent.read_only, true);
-
-    const learning = await client.callTool({
-      name: "tasken.get_learning_context",
-      arguments: { theme_id: theme.id },
-    });
-    assert.equal(learning.isError, undefined);
-    assert.deepEqual(learning.structuredContent.canonical_intent.charter, charter);
-    assert.deepEqual(learning.structuredContent.canonical_intent.current_state, currentState);
-    assert.equal(learning.structuredContent.recent_activity.length, 4);
-    assert.equal(learning.structuredContent.prior_material.length, 1);
-    assert.equal(learning.structuredContent.editorial_contract.select_at_most, 1);
-    assert.equal(learning.structuredContent.editorial_contract.may_skip, true);
-    assert.equal(learning.structuredContent.read_only, true);
-
-    const activityCall = core.calls.find(([name]) => name === "getActivity");
-    assert.deepEqual(activityCall[1], { theme_id: theme.id, limit: 50 });
-    const notesCall = core.calls.find(([name]) => name === "getRecentNotes");
-    assert.deepEqual(notesCall[1], { theme_id: theme.id, limit: 30, max_chars: 5_000 });
-  });
-});
-
-test("repository-to-theme ambiguity is explicit and does not guess for context views", async () => {
-  for (const name of [
-    "tasken.get_work_context",
-    "tasken.get_planning_context",
-    "tasken.get_learning_context",
-  ]) {
-    const core = fakeCoreClient({ ambiguous: true });
-    await withMcp(core, async (client) => {
-      const result = await client.callTool({
-        name,
-        arguments: { repository_slug: "mryk814/tasuken" },
-      });
-      assert.equal(result.isError, undefined);
-      assert.deepEqual(result.structuredContent.error, {
-        code: "ambiguous_theme",
-        message: "Repositoryに複数のThemeがあります。theme_idを指定してください。",
-        candidates: [
-          { id: theme.id, name: theme.name },
-          { id: "theme-other", name: "Another theme" },
-        ],
-      });
-      assert.equal(
-        result.structuredContent.view,
-        name.slice("tasken.get_".length, -"_context".length),
-      );
-      assert.equal(result.structuredContent.read_only, true);
-      assert.equal(core.calls.filter(([method]) => method === "getThemeContext").length, 0);
-    });
-  }
-});
-
-test("debrief context includes bounded daily Activity and leaves report adoption to the user", async () => {
-  const core = fakeCoreClient();
-  await withMcp(core, async (client) => {
-    const result = await client.callTool({
-      name: "tasken.get_debrief_context",
-      arguments: {
-        repository_slug: "mryk814/tasuken",
-        date: "2026-08-26",
-        include_recent_debriefs: false,
-      },
-    });
-    assert.equal(result.isError, undefined);
-    const projection = result.structuredContent;
-    assert.equal(projection.date, "2026-08-26");
-    assert.deepEqual(projection.repository_context, repository);
-    assert.deepEqual(projection.theme_intent, [
-      { id: theme.id, name: theme.name, charter, current_state: currentState },
-    ]);
-    assert.equal(projection.sessions.length, 5);
-    assert.deepEqual(projection.prior_debriefs, []);
-    assert.equal(projection.evidence_strength, "agent_reported");
-    assert.equal(projection.read_only, true);
-    assert.equal(
-      projection.sessions.some((session) => session.id === "session-codex-0"),
-      true,
-    );
-    assert.deepEqual(projection.daily_activity.events, [
-      { id: "activity-day-1", local_date: "2026-08-26", summary: "Observed day activity" },
-    ]);
-    assert.deepEqual(
-      core.calls.filter(([method]) => method === "getActivityEntries").map(([, args]) => args),
-      [{ date: "2026-08-26", limit: 100 }],
-    );
-    assert.deepEqual(
-      core.calls
-        .filter(([method]) => method === "getAgentSessionContext")
-        .map(([, args]) => ({
-          client_kind: args.client_kind,
-          date: args.date,
-          limit: args.limit,
-        })),
-      [
-        { client_kind: "codex", date: "2026-08-26", limit: 50 },
-        { client_kind: "claude_code", date: "2026-08-26", limit: 50 },
-        { client_kind: "cursor", date: "2026-08-26", limit: 50 },
-        { client_kind: "github_copilot", date: "2026-08-26", limit: 50 },
-        { client_kind: "other", date: "2026-08-26", limit: 50 },
-      ],
-    );
-    assert.equal("human_fields" in projection, false);
-    assert.equal(
-      core.calls.some(([method]) => method === "getRecentNotes"),
-      false,
-    );
-  });
-});
-
-test("debrief context keeps the multi-client session projection bounded", async () => {
-  const core = fakeCoreClient({ sessionsPerClient: 20 });
-  await withMcp(core, async (client) => {
-    const result = await client.callTool({
-      name: "tasken.get_debrief_context",
-      arguments: {
-        repository_slug: "mryk814/tasuken",
-        date: "2026-08-26",
-        include_recent_debriefs: false,
-      },
-    });
-    assert.equal(result.isError, undefined);
-    assert.ok(result.structuredContent.sessions.length <= 50);
-  });
 });

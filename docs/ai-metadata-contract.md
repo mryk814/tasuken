@@ -82,7 +82,7 @@ storage_root_id? relative_path?
 
 - MCPの既定audienceは `coding_agent`。全一覧tool（items / notes / knowledge / theme context / health）が同じ判定を通る。
 - 件数制限（limit）は**公開範囲の判定後**に適用する。除外分でlimitを消費させない。
-- `tasken.export_ai_context` は `audience` 引数で公開先を切り替える。OneDrive AI Pack（#295）は `m365` を指定する。
+- `export_ai_context`（Core/HTTP。MCP非公開）は `audience` 引数で公開先を切り替える。OneDrive AI Pack（#295）は `m365` を指定する。
 - 出力には `ai_audience` と `excluded_count` / `excluded_reasons` が必ず付く。「全部渡した」ように見せない。
 - Markdown出力では `stale` / `superseded` / `ai_generated` 等を項目の横へ短く添える。
 

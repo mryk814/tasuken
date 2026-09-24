@@ -250,16 +250,6 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
     const cases = [
       [
-        "tasken.find_themes_for_repository",
-        {
-          remote_url: "https://github.com/acme/wave6",
-          git_root: "C:\\Users\\private\\wave6",
-          workspace_folder: "C:\\Users\\private\\wave6",
-        },
-        "findThemesForRepository",
-        "toolFindThemesForRepository",
-      ],
-      [
         "tasken.get_repository_context",
         { repository_context_id: "repository-wave6" },
         "getRepositoryContext",
@@ -546,7 +536,6 @@ test("Wave 6 capabilities fail before fetch and malformed responses fail closed"
 test("Wave 6 MCP registrations contain no legacy/native fallback", () => {
   const source = fs.readFileSync("src/main/mcp/server.mjs", "utf8");
   for (const [tool, method] of [
-    ["tasken.find_themes_for_repository", "findThemesForRepository"],
     ["tasken.get_repository_context", "getRepositoryContext"],
     ["tasken.get_theme_context", "getThemeContext"],
   ]) {
@@ -603,11 +592,6 @@ test("actual stdio MCP reads all Wave 6 tools from the Core SQLite owner without
     client = new Client({ name: "wave6-actual-stdio", version: "1.0.0" });
     await client.connect(transport);
     for (const [name, args, field] of [
-      [
-        "tasken.find_themes_for_repository",
-        { remote_url: "https://github.com/acme/wave6" },
-        "themes",
-      ],
       [
         "tasken.get_repository_context",
         { repository_context_id: "repository-wave6" },

@@ -205,7 +205,7 @@ async function mcpCall(coreClient, name, args) {
   }
 }
 
-test("Wave 5 detail/activity are exact across legacy fields, Core, HTTP, and MCP with additive guidance", async () => {
+test("Wave 5 detail/activity are exact across legacy fields, Core, and HTTP (MCP keeps notes only)", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave5-integration-"));
   fs.chmodSync(root, 0o700);
   const workspace = fixture();
@@ -239,13 +239,18 @@ test("Wave 5 detail/activity are exact across legacy fields, Core, HTTP, and MCP
         "toolGetActivityEntries",
       ],
     ];
+    const mcpExposed = new Set(["tasken.get_note"]);
     for (const [tool, request, method, legacyMethod] of cases) {
       const expected = legacy[legacyMethod](request);
       const inProcess = core[method].execute(request);
       const overHttp = await client[method](request);
-      const overMcp = await mcpCall(client, tool, request);
+      const overMcp = mcpExposed.has(tool)
+        ? await mcpCall(client, tool, request)
+        : null;
       if (method === "getActivityEntries") {
-        for (const response of [inProcess, overHttp, overMcp.structuredContent]) {
+        for (const response of overMcp
+          ? [inProcess, overHttp, overMcp.structuredContent]
+          : [inProcess, overHttp]) {
           assert.ok(Number.isFinite(Date.parse(response.page.generated_at)));
           assert.equal(response.page.status, "ok");
           assert.equal(response.page.returned_count, 100);
@@ -258,8 +263,10 @@ test("Wave 5 detail/activity are exact across legacy fields, Core, HTTP, and MCP
       }
       assert.deepEqual(legacyFields(inProcess), expected, `${tool} Core legacy fields`);
       assert.deepEqual(overHttp, inProcess, `${tool} HTTP`);
-      assert.deepEqual(overMcp.structuredContent, inProcess, `${tool} MCP`);
-      assert.equal(overMcp.isError, undefined);
+      if (overMcp) {
+        assert.deepEqual(overMcp.structuredContent, inProcess, `${tool} MCP`);
+        assert.equal(overMcp.isError, undefined);
+      }
       assert.equal(inProcess.next_tools.length > 0, true);
     }
     const activity = await client.getActivityEntries({ task_id: "task-wave5", limit: 100 });
@@ -358,7 +365,7 @@ test("Wave 5 named capabilities fail before fetch and strict responses fail clos
   }
 });
 
-test("actual stdio MCP reads all Wave 5 tools from a running Core host and injected SQLite owner", async () => {
+test("actual stdio MCP reads kept Wave 5 tools from a running Core host and injected SQLite owner", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-wave5-stdio-"));
   fs.chmodSync(root, 0o700);
   const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
@@ -403,9 +410,6 @@ test("actual stdio MCP reads all Wave 5 tools from a running Core host and injec
     await client.connect(transport);
     const calls = [
       ["tasken.get_note", { note_id: "note-wave5" }, "note"],
-      ["tasken.get_conversation", { conversation_id: "conversation-wave5" }, "conversation"],
-      ["tasken.get_artifact_metadata", { artifact_id: "artifact-wave5" }, "artifact"],
-      ["tasken.get_activity_entries", { task_id: "task-wave5", limit: 100 }, "events"],
     ];
     for (const [name, args, field] of calls) {
       const result = await client.callTool({ name, arguments: args });
@@ -444,18 +448,18 @@ test("actual stdio MCP reads all Wave 5 tools from a running Core host and injec
   }
 });
 
-test("Wave 5 MCP registrations have no legacy/native fallback", () => {
+test("Wave 5 MCP registrations keep notes only with no legacy/native fallback", () => {
   const source = fs.readFileSync("src/main/mcp/server.mjs", "utf8");
   const start = source.search(/server\.registerTool\(\s*"tasken\.get_note"/);
   const end = source.search(/server\.registerTool\(\s*"tasken\.resolve_repository_context"/);
   const registrations = source.slice(start, end);
-  for (const method of [
-    "getNote",
-    "getConversation",
-    "getArtifactMetadata",
-    "getActivityEntries",
+  assert.match(registrations, /coreClient\.getNote/);
+  for (const name of [
+    "tasken.get_conversation",
+    "tasken.get_artifact_metadata",
+    "tasken.get_activity_entries",
   ]) {
-    assert.match(registrations, new RegExp(`coreClient\\.${method}`));
+    assert.equal(source.includes(`"${name}"`), false, `${name} must stay unregistered`);
   }
   assert.doesNotMatch(
     registrations,
@@ -519,20 +523,6 @@ test("Capture image query is exact across Core, HTTP, and MCP image content", as
     const overHttp = await client.getCaptureImage(args);
     assert.deepEqual(overHttp, inProcess);
 
-    const overMcp = await mcpCall(client, "tasken.get_capture_image", args);
-    assert.equal(overMcp.isError, undefined);
-    assert.equal(overMcp.content[0].type, "text");
-    assert.equal(overMcp.content[1].type, "image");
-    assert.equal(overMcp.content[1].mimeType, "image/png");
-    assert.equal(Buffer.from(overMcp.content[1].data, "base64").equals(bytes), true);
-    assert.doesNotMatch(JSON.stringify(overMcp.structuredContent), /data_base64/);
-
-    const missing = await mcpCall(client, "tasken.get_capture_image", {
-      capture_id: "capture-wave5",
-      file_name: "other.png",
-    });
-    assert.equal(missing.isError, true);
-
     workspace.tasks.push({
       id: "task-wave5-photo",
       title: "買い物リスト",
@@ -558,20 +548,6 @@ test("Capture image query is exact across Core, HTTP, and MCP image content", as
     assert.equal(taskInProcess.image?.mime_type, "image/png");
     const taskOverHttp = await client.getTaskImage(taskArgs);
     assert.deepEqual(taskOverHttp, taskInProcess);
-
-    const taskOverMcp = await mcpCall(client, "tasken.get_task_image", taskArgs);
-    assert.equal(taskOverMcp.isError, undefined);
-    assert.equal(taskOverMcp.content[0].type, "text");
-    assert.equal(taskOverMcp.content[1].type, "image");
-    assert.equal(taskOverMcp.content[1].mimeType, "image/png");
-    assert.equal(Buffer.from(taskOverMcp.content[1].data, "base64").equals(bytes), true);
-    assert.doesNotMatch(JSON.stringify(taskOverMcp.structuredContent), /data_base64/);
-
-    const taskMissing = await mcpCall(client, "tasken.get_task_image", {
-      task_id: "task-wave5-photo",
-      file_name: "other.png",
-    });
-    assert.equal(taskMissing.isError, true);
   } finally {
     try {
       await host?.stop();

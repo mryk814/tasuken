@@ -16,53 +16,29 @@ const readTools = [
   "tasken.get_task_assignment",
   "tasken.get_task_context",
   "tasken.get_note",
-  "tasken.get_conversation",
-  "tasken.get_artifact_metadata",
-  "tasken.get_activity_entries",
   "tasken.resolve_repository_context",
-  "tasken.find_themes_for_repository",
-  "tasken.find_tasks_for_repository",
   "tasken.get_repository_context",
   "tasken.get_theme_context",
   "tasken.get_agent_session_context",
-  "tasken.get_recent_notes",
-  "tasken.search_knowledge",
-  "tasken.get_knowledge_context",
-  "tasken.get_plan_health",
-  "tasken.get_knowledge_health",
   "tasken.get_activity",
-  "tasken.get_context_subgraph",
   "tasken.get_feed_context",
   "tasken.get_proposal_status",
-  "tasken.export_ai_context",
-  "tasken.get_debrief_context",
-  "tasken.get_work_context",
-  "tasken.get_planning_context",
-  "tasken.get_learning_context",
 ];
 const proposalTools = [
   "tasken.append_work_receipt",
   "tasken.report_task_done",
   "tasken.report_task_blocked",
-  "tasken.start_agent_session",
-  "tasken.finish_agent_session",
-  "tasken.submit_agent_session_record",
-  "tasken.propose_repository_context",
-  "tasken.propose_task",
   "tasken.propose_note",
   "tasken.propose_note_edit",
   "tasken.propose_feed_post",
   "tasken.answer_feed_question",
-  "tasken.propose_knowledge",
-  "tasken.propose_sketch",
-  "tasken.propose_artifact",
 ];
 
 /**
- * 画像toolは `withCoreClient` ではなく `imageToolHandler` 経由でCoreへ渡す。
- * 一覧を分けているのは、Core経由であることの示し方が違うため。
+ * 画像toolは削除済み（#MCP slimmingで21 toolsへ）。一覧を空に保つのは、
+ * 画像系の登録が復活したときに検査で検出するため。
  */
-const imageTools = ["tasken.get_capture_image", "tasken.get_task_image"];
+const imageTools = [];
 /**
  * Proposalを作らず直接書き込む唯一の例外（人がAI ReadyにしたTaskの開始）。
  * 注釈が `PROPOSAL_ANNOTATIONS` ではないので、proposal群とは分けて検査する。

@@ -123,13 +123,12 @@ Taskを任せるほどではない発見や文章も、既存の入口へその�
 | -------------------------------- | -------------------------- | -------------------------- |
 | 気づき・比較・参考情報・短い学び | `tasken.propose_feed_post` | 読むだけ。採用は不要       |
 | 残しておきたいまとまった文章     | `tasken.propose_note`      | 必要ならプレビューして採用 |
-| 次にやること                     | `tasken.propose_task`      | 確認して採用               |
 
 Feedへの投稿は届いた時点でFeedに表示され、**採用操作は要りません。** 正式Note・Taskになるのは人が採用したときだけです。どちらなのかは各呼び出しの`message`と`payload_type`で区別できます。
 
 AIへ渡す依頼文の例:
 
-> Tasken MCPを使えます。会話や作業の中で、あとで役に立つ発見・予想と違った結果・使えそうな見方・未解決の問いが出たら、`tasken.propose_feed_post`で短く残してください。ThemeやTaskが決まっていなければ省略してかまいません。毎回の要約や、すでに送った内容の繰り返しは不要です。まとまった文章として残したいときだけ`tasken.propose_note`、次にやることを登録したいときは`tasken.propose_task`を使ってください。正式なTask・Noteは提案までにして、採用はしません。
+> Tasken MCPを使えます。会話や作業の中で、あとで役に立つ発見・予想と違った結果・使えそうな見方・未解決の問いが出たら、`tasken.propose_feed_post`で短く残してください。ThemeやTaskが決まっていなければ省略してかまいません。毎回の要約や、すでに送った内容の繰り返しは不要です。まとまった文章として残したいときだけ`tasken.propose_note`を使ってください。正式なNoteは提案までにして、採用はしません。次にやることの登録はTaskenのToDo画面で行います。
 
 再送する可能性があるときは、`idempotency_key`を自分で決めて同じ内容で使い回します。省略すると呼び出しごとに新しいkeyになるため、同じ依頼の再送が別の投稿として増えます。`recent_post_ids`は互換のために受け取るだけで、Tasken側では重複判定に使いません。重複を避けるときは`tasken.get_feed_context`で最近の投稿を確認してください。
 
@@ -140,7 +139,6 @@ ChatGPTのWeb版は、MCPコネクタの対応状況がアカウントとワー�
 | 目的                     | 入口                                                  | 返り先                     |
 | ------------------------ | ----------------------------------------------------- | -------------------------- |
 | 日報                     | MCP Prompt `daily-report`、Debriefの依頼文            | Note Proposal → Agent Desk |
-| 学びのコラム             | MCP Prompt `learning-column`                          | 提案内容を確認して採用     |
 | 選んだ資料を任意AIへ渡す | [Context Pack](context-pack.md)                       | 通常Noteとして回答を保存   |
 | M365へThemeを渡す        | [Theme AI Pack](theme-ai-pack.md)                     | OneDrive上の読み取り投影   |
 | 選択会話を公開する       | [Conversation AI Context](conversation-ai-context.md) | 明示公開したMarkdown       |

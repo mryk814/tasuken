@@ -1,11 +1,10 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v4";
 
 import { localDate } from "../../shared/activityProjection.mjs";
-import { entityTypes } from "../../shared/entityRegistry.mjs";
 import { parseCanonicalTaskId, parseTaskLocator } from "../../shared/contracts/mobile/public.mjs";
 import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
@@ -31,9 +30,6 @@ const DIRECT_WRITE_ANNOTATIONS = {
 const MCP_STDIO_MAX_BUFFER_BYTES = 35 * 1024 * 1024;
 const optionalText = z.string().trim().optional();
 const optionalLimit = z.number().int().positive().max(100).optional();
-const optionalWave7ThemeId = z.string().trim().min(1).max(200).optional();
-const optionalWave7Query = z.string().trim().min(1).max(1000).optional();
-const optionalWave7NodeTypes = z.array(z.string().trim().min(1).max(100)).max(8).optional();
 const noteProposalImages = z
   .array(
     z
@@ -83,38 +79,6 @@ function toolResult(value) {
       { type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) },
     ],
     structuredContent: typeof value === "string" ? undefined : value,
-  };
-}
-
-function createContextView(view, tokenBudget, payload, sourceTheme = null) {
-  const generatedAt = new Date().toISOString();
-  const sourceVersions = sourceTheme
-    ? [
-        {
-          kind: "theme",
-          id: sourceTheme.id,
-          version: sourceTheme.version ?? null,
-          updated_at: sourceTheme.updated_at ?? null,
-        },
-      ]
-    : [];
-  const hashInput = JSON.stringify({
-    view,
-    token_budget: tokenBudget,
-    source_versions: sourceVersions,
-    payload,
-  });
-
-  return {
-    schema: "tasken-context-view/v1",
-    view_id: randomUUID(),
-    view,
-    generated_at: generatedAt,
-    content_hash: createHash("sha256").update(hashInput).digest("hex"),
-    budget: { token_budget: tokenBudget },
-    source_versions: sourceVersions,
-    ...payload,
-    read_only: true,
   };
 }
 
@@ -225,7 +189,7 @@ export function createTaskenMcpServer(options = {}) {
             content: {
               type: "text",
               text: [
-                `Use tasken.get_debrief_context with date=${reportDate}, include_recent_debriefs=false, and no repository filter.`,
+                `Use tasken.get_activity with date=${reportDate} for the day's Activity. Add related Agent Sessions with tasken.get_agent_session_context only when the Activity points to session work.`,
                 DAILY_REPORT_WRITING_GUIDANCE,
               ].join("\n"),
             },
@@ -233,35 +197,6 @@ export function createTaskenMcpServer(options = {}) {
         ],
       };
     },
-  );
-
-  server.registerPrompt(
-    "learning-column",
-    {
-      title: "Tasken Learning Column",
-      description:
-        "Find one technically interesting story grounded in the user's actual recent work.",
-      argsSchema: {
-        theme_id: z.string().trim().min(1).max(200),
-      },
-    },
-    ({ theme_id: themeId }) => ({
-      description: "Pitch or write a personal technical column from Tasken evidence.",
-      messages: [
-        {
-          role: "user",
-          content: {
-            type: "text",
-            text: [
-              `Use tasken.get_learning_context with theme_id=${themeId}.`,
-              "First discover zero to three pitches, then select at most one.",
-              "Prefer an actual incident, a surprising technical question, a wider connection, and a return to the user's own work.",
-              "Avoid generic tutorials and previously covered material. If no pitch is genuinely interesting, recommend no column today.",
-            ].join("\n"),
-          },
-        },
-      ],
-    }),
   );
 
   server.registerTool(
@@ -416,139 +351,6 @@ export function createTaskenMcpServer(options = {}) {
     withCoreClient((args) => coreClient.getNote(args)),
   );
 
-  server.registerTool(
-    "tasken.get_conversation",
-    {
-      description:
-        "Read one AI-visible Chat Ref conversation by stable ID with a text limit. URL credentials, query, and fragment are removed; next_tools identifies safe follow-up reads and proposals.",
-      inputSchema: {
-        conversation_id: z.string().trim().min(1).max(200),
-        max_text_length: boundedTextLength,
-        include_archived: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.getConversation(args)),
-  );
-
-  server.registerTool(
-    "tasken.get_artifact_metadata",
-    {
-      description:
-        "Read safe Artifact metadata by stable ID. External file content and private filesystem paths are never returned; origin Note guidance is included when available.",
-      inputSchema: {
-        artifact_id: z.string().trim().min(1).max(200),
-        include_archived: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.getArtifactMetadata(args)),
-  );
-
-  const imageToolResult = (result, owner) => {
-    if (!result || typeof result !== "object" || !("image" in result)) {
-      const value = {
-        error: { code: "not_found", message: `${owner.label}画像が見つかりません。` },
-      };
-      return {
-        content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
-        structuredContent: value,
-        isError: true,
-      };
-    }
-    const image = result.image;
-    const meta = {
-      [owner.idField]: image[owner.idField],
-      file_name: image.file_name,
-      mime_type: image.mime_type,
-      size: image.size,
-      sha256: image.sha256,
-      url: image.url,
-      read_only: true,
-    };
-    return {
-      content: [
-        { type: "text", text: JSON.stringify(meta, null, 2) },
-        { type: "image", data: image.data_base64, mimeType: image.mime_type },
-      ],
-      structuredContent: meta,
-    };
-  };
-
-  const imageToolHandler = (owner, query) => async (args) => {
-    let result;
-    try {
-      result = await query(args);
-    } catch (error) {
-      if (!(error instanceof TaskenCoreClientError)) throw error;
-      const value = { error: error.toPublicError() };
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(value, null, 2),
-          },
-        ],
-        structuredContent: value,
-        isError: true,
-      };
-    }
-    return imageToolResult(result, owner);
-  };
-
-  server.registerTool(
-    "tasken.get_capture_image",
-    {
-      description:
-        "Read one photo attached to a Mobile Capture as an image for LLM context. Returns the managed image bytes alongside its manifest; use capture image manifests from Task context to discover file names.",
-      inputSchema: {
-        capture_id: z.string().trim().min(1).max(200),
-        file_name: z.string().trim().min(1).max(180),
-        include_archived: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    imageToolHandler({ label: "Capture", idField: "capture_id" }, (args) =>
-      coreClient.getCaptureImage(args),
-    ),
-  );
-
-  server.registerTool(
-    "tasken.get_task_image",
-    {
-      description:
-        "Read one photo attached to a Task as an image for LLM context. Returns the managed image bytes alongside its manifest; use task image manifests from Task context to discover file names.",
-      inputSchema: {
-        task_id: z.string().trim().min(1).max(200),
-        file_name: z.string().trim().min(1).max(180),
-        include_archived: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    imageToolHandler({ label: "Task", idField: "task_id" }, (args) =>
-      coreClient.getTaskImage(args),
-    ),
-  );
-
-  server.registerTool(
-    "tasken.get_activity_entries",
-    {
-      description:
-        "Read bounded AI-visible Activity entries for one Task by stable ID. Follow next_tools to refresh assignment/context or queue reviewed work reports.",
-      inputSchema: {
-        task_id: z.string().trim().min(1).max(200),
-        profile: z.enum(["default", "recall"]).optional(),
-        cursor: z.string().max(200).optional(),
-        timezone: z.string().trim().max(100).optional(),
-        event_kinds: z.array(z.string().trim().min(1).max(100)).max(20).optional(),
-        limit: optionalLimit,
-        include_archived: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.getActivityEntries(args)),
-  );
-
   const repositoryLookupSchema = {
     repository_context_id: optionalText,
     repository_id: optionalText,
@@ -561,55 +363,6 @@ export function createTaskenMcpServer(options = {}) {
     workspace_folder: optionalText,
     include_archived: z.boolean().optional(),
   };
-  const contextLookupSchema = {
-    ...repositoryLookupSchema,
-    theme_id: z.string().trim().min(1).max(200).optional(),
-  };
-  const resolveContextTheme = async (args) => {
-    if (args.theme_id) return { themeId: args.theme_id, repositoryMatch: null, error: null };
-    const { theme_id: _themeId, ...workspace } = args;
-    const match = await coreClient.findThemesForRepository(workspace);
-    if (match.themes?.length === 1) {
-      return { themeId: match.themes[0].id, repositoryMatch: match, error: null };
-    }
-    return {
-      themeId: null,
-      repositoryMatch: match,
-      error: {
-        code: match.themes?.length ? "ambiguous_theme" : "theme_not_found",
-        message: match.themes?.length
-          ? "Repositoryに複数のThemeがあります。theme_idを指定してください。"
-          : "Repositoryに関連するAI-visible Themeが見つかりません。",
-        candidates: (match.themes || []).map((theme) => ({ id: theme.id, name: theme.name })),
-      },
-    };
-  };
-  const sessionContextForWorkspace = async (workspace, sourceSession) => {
-    const clientKinds = ["codex", "claude_code", "cursor", "github_copilot", "other"];
-    const contexts = await Promise.all(
-      clientKinds.map((clientKind) =>
-        coreClient.getAgentSessionContext({
-          ...workspace,
-          client_kind: clientKind,
-          source_session: sourceSession,
-          limit: 20,
-        }),
-      ),
-    );
-    return {
-      repository_context:
-        contexts.find((context) => context.repository_context)?.repository_context || null,
-      sessions: [
-        ...new Map(
-          contexts
-            .flatMap((context) => context.sessions || [])
-            .map((session) => [session.id, session]),
-        ).values(),
-      ]
-        .sort((left, right) => String(right.started_at).localeCompare(String(left.started_at)))
-        .slice(0, 20),
-    };
-  };
   server.registerTool(
     "tasken.resolve_repository_context",
     {
@@ -619,27 +372,6 @@ export function createTaskenMcpServer(options = {}) {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     withCoreClient((args) => coreClient.resolveRepositoryContext(args)),
-  );
-
-  server.registerTool(
-    "tasken.find_themes_for_repository",
-    {
-      description: "Find AI-visible Themes associated with a current repository workspace.",
-      inputSchema: repositoryLookupSchema,
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.findThemesForRepository(args)),
-  );
-
-  server.registerTool(
-    "tasken.find_tasks_for_repository",
-    {
-      description:
-        "Find AI-visible Tasks associated with a current repository workspace, respecting Task subdirectories.",
-      inputSchema: repositoryLookupSchema,
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.findTasksForRepository(args)),
   );
 
   server.registerTool(
@@ -674,312 +406,6 @@ export function createTaskenMcpServer(options = {}) {
   );
 
   server.registerTool(
-    "tasken.get_debrief_context",
-    {
-      description:
-        "Return bounded daily Activity plus related Agent Session evidence and prior human-written Tasken Debriefs. Use it to prepare a factual daily report without inventing human answers.",
-      inputSchema: {
-        ...repositoryLookupSchema,
-        date: z
-          .string()
-          .regex(/^\d{4}-\d{2}-\d{2}$/)
-          .optional(),
-        include_recent_debriefs: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient(async (args) => {
-      const { date, include_recent_debriefs: includeRecentDebriefs = true, ...workspace } = args;
-      const sourceSession = `tasken-debrief:${date || randomUUID()}`;
-      const hasRepositoryLookup = [
-        workspace.repository_context_id,
-        workspace.repository_id,
-        workspace.provider,
-        workspace.remote_url,
-        workspace.remote_urls,
-        workspace.repository_slug,
-        workspace.git_root,
-        workspace.cwd,
-        workspace.workspace_folder,
-      ].some((value) => (Array.isArray(value) ? value.length > 0 : Boolean(value)));
-      const contexts =
-        date && !hasRepositoryLookup
-          ? [
-              await coreClient.getAgentSessionContext({
-                date,
-                source_session: sourceSession,
-                limit: 50,
-              }),
-            ]
-          : await Promise.all(
-              ["codex", "claude_code", "cursor", "github_copilot", "other"].map((clientKind) =>
-                coreClient.getAgentSessionContext({
-                  ...workspace,
-                  date,
-                  client_kind: clientKind,
-                  source_session: sourceSession,
-                  limit: 50,
-                }),
-              ),
-            );
-      const sessions = [
-        ...new Map(
-          contexts
-            .flatMap((context) => context.sessions || [])
-            .map((session) => [session.id, session]),
-        ).values(),
-      ]
-        .sort((left, right) => String(left.started_at).localeCompare(String(right.started_at)))
-        .slice(0, 50);
-      const noteContext = includeRecentDebriefs
-        ? await coreClient.getRecentNotes({ limit: 50, max_chars: 8_000, include_raw_body: true })
-        : null;
-      const dailyActivity = date ? await coreClient.getActivityEntries({ date, limit: 100 }) : null;
-      const debriefs = (noteContext?.notes || [])
-        .filter((note) => String(note.title || "").startsWith("Tasken Debrief"))
-        .slice(0, 14);
-      const repository =
-        contexts.find((context) => context.repository_context)?.repository_context || null;
-      const themes = [
-        ...new Map(
-          contexts.flatMap((context) => context.themes || []).map((theme) => [theme.id, theme]),
-        ).values(),
-      ];
-      return {
-        date: date || null,
-        repository_context: repository,
-        theme_intent: themes.map((theme) => ({
-          id: theme.id,
-          name: theme.name,
-          charter: theme.charter,
-          current_state: theme.current_state,
-        })),
-        sessions,
-        task_work: [
-          ...new Map(
-            contexts.flatMap((context) => context.task_work || []).map((work) => [work.id, work]),
-          ).values(),
-        ].slice(0, 50),
-        daily_activity: dailyActivity,
-        prior_debriefs: debriefs,
-        writing_guidance: DAILY_REPORT_WRITING_GUIDANCE,
-        evidence_strength: "agent_reported",
-        read_only: true,
-        limitations: [
-          "Daily Activity is read-only and filtered by the existing AI visibility policy.",
-          "Repository lookups return only related canonical sessions; a date-only lookup returns AI-visible canonical sessions for that day.",
-          "Raw transcripts, hidden reasoning, tool-call streams, and private paths are excluded.",
-        ],
-      };
-    }),
-  );
-
-  server.registerTool(
-    "tasken.get_work_context",
-    {
-      description:
-        "Return a bounded implementation context: Theme intent, optional current Task, related open work, repository, and recent Agent Sessions. This is a read-only projection, not a workspace dump.",
-      inputSchema: {
-        ...contextLookupSchema,
-        task_id: z.string().trim().min(1).max(200).optional(),
-        include_sessions: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient(async (args) => {
-      const { task_id: taskId, include_sessions: includeSessions = true, ...lookup } = args;
-      const resolved = await resolveContextTheme(lookup);
-      if (resolved.error) return { view: "work", error: resolved.error, read_only: true };
-      const themeContext = await coreClient.getThemeContext({
-        theme_id: resolved.themeId,
-        limit: 20,
-        max_chars: 4_000,
-        max_hops: 1,
-        max_nodes: 40,
-        max_edges: 60,
-        token_budget: 4_000,
-      });
-      const taskContext = taskId
-        ? await coreClient.getTaskContext({
-            task_id: taskId,
-            max_items_per_type: 8,
-            max_text_length: 20_000,
-          })
-        : null;
-      const { theme_id: _themeId, ...workspace } = lookup;
-      const sessions =
-        includeSessions && Object.values(workspace).some(Boolean)
-          ? await sessionContextForWorkspace(workspace, `tasken-work-context:${randomUUID()}`)
-          : { repository_context: null, sessions: [] };
-      const theme =
-        themeContext.themes?.find((candidate) => candidate.id === resolved.themeId) ||
-        themeContext.themes?.[0] ||
-        null;
-      return createContextView(
-        "work",
-        4_000,
-        {
-          purpose: "Start or continue implementation without losing the Theme's intent.",
-          canonical_intent: theme
-            ? {
-                theme_id: theme.id,
-                name: theme.name,
-                charter: theme.charter,
-                current_state: theme.current_state,
-              }
-            : null,
-          current_task: taskContext?.task || null,
-          task_context: taskContext,
-          related_work: (themeContext.open_items || []).slice(0, 20),
-          repository_context: sessions.repository_context,
-          recent_sessions: sessions.sessions,
-          context_selection: themeContext.context_selection || null,
-          limitations: [
-            "Raw transcripts, hidden reasoning, tool-call streams, credentials, and private paths are excluded.",
-            "Only AI-visible records within the bounded relation query are included.",
-          ],
-        },
-        theme,
-      );
-    }),
-  );
-
-  server.registerTool(
-    "tasken.get_planning_context",
-    {
-      description:
-        "Return a bounded planning view of one Theme: Charter, current State, open work, recent human records, knowledge, and health.",
-      inputSchema: contextLookupSchema,
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient(async (args) => {
-      const resolved = await resolveContextTheme(args);
-      if (resolved.error) return { view: "planning", error: resolved.error, read_only: true };
-      const context = await coreClient.getThemeContext({
-        theme_id: resolved.themeId,
-        limit: 40,
-        max_chars: 6_000,
-        max_hops: 2,
-        max_nodes: 80,
-        max_edges: 120,
-        token_budget: 8_000,
-      });
-      const theme =
-        context.themes?.find((candidate) => candidate.id === resolved.themeId) ||
-        context.themes?.[0] ||
-        null;
-      return createContextView(
-        "planning",
-        8_000,
-        {
-          purpose: "Choose direction and next work while preserving unresolved questions.",
-          canonical_intent: theme
-            ? {
-                theme_id: theme.id,
-                name: theme.name,
-                charter: theme.charter,
-                current_state: theme.current_state,
-              }
-            : null,
-          open_work: context.open_items || [],
-          recent_human_records: context.recent_notes || [],
-          knowledge: context.knowledge || { knowledge_nodes: [], knowledge_edges: [] },
-          health: context.health || null,
-          context_selection: context.context_selection || null,
-        },
-        theme,
-      );
-    }),
-  );
-
-  server.registerTool(
-    "tasken.get_learning_context",
-    {
-      description:
-        "Return a bounded editorial context for a personal technical column: Theme learning interests, current questions, recent activity, sessions, and prior possible article material. Good days may yield no pitch.",
-      inputSchema: contextLookupSchema,
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient(async (args) => {
-      const resolved = await resolveContextTheme(args);
-      if (resolved.error) return { view: "learning", error: resolved.error, read_only: true };
-      const context = await coreClient.getThemeContext({
-        theme_id: resolved.themeId,
-        limit: 30,
-        max_chars: 5_000,
-        max_hops: 2,
-        max_nodes: 70,
-        max_edges: 100,
-        token_budget: 7_000,
-      });
-      const activity = await coreClient.getActivity({ theme_id: resolved.themeId, limit: 50 });
-      const recentNotes = await coreClient.getRecentNotes({
-        theme_id: resolved.themeId,
-        limit: 30,
-        max_chars: 5_000,
-      });
-      const { theme_id: _themeId, ...workspace } = args;
-      const sessions = Object.values(workspace).some(Boolean)
-        ? await sessionContextForWorkspace(workspace, `tasken-learning-context:${randomUUID()}`)
-        : { repository_context: null, sessions: [] };
-      const theme =
-        context.themes?.find((candidate) => candidate.id === resolved.themeId) ||
-        context.themes?.[0] ||
-        null;
-      const activityPayload =
-        activity.activity && typeof activity.activity === "object" ? activity.activity : activity;
-      const recentActivity = Array.isArray(activityPayload.entries)
-        ? activityPayload.entries.slice(0, 50)
-        : [];
-      return createContextView(
-        "learning",
-        7_000,
-        {
-          purpose: "Find one technically interesting story grounded in the user's actual work.",
-          canonical_intent: theme
-            ? {
-                theme_id: theme.id,
-                name: theme.name,
-                charter: theme.charter,
-                current_state: theme.current_state,
-              }
-            : null,
-          recent_activity: recentActivity,
-          recent_sessions: sessions.sessions,
-          prior_material: (recentNotes.notes || []).slice(0, 30),
-          context_selection: context.context_selection || null,
-          editorial_contract: {
-            pitch_count: "zero_to_three",
-            select_at_most: 1,
-            may_skip: true,
-            criteria: [
-              "personal_relevance",
-              "surprise",
-              "generalizability",
-              "learning_gap",
-              "technical_depth",
-              "story_quality",
-              "freshness",
-            ],
-            shape: [
-              "actual_event",
-              "interesting_question",
-              "technical_principle",
-              "wider_connection",
-              "return_to_own_work",
-            ],
-          },
-          limitations: [
-            "This view supplies editorial evidence; it does not mark anything as learned.",
-            "No article should be generated when the evidence does not support an interesting pitch.",
-          ],
-        },
-        theme,
-      );
-    }),
-  );
-
-  server.registerTool(
     "tasken.get_theme_context",
     {
       description: "Return themes, open work, recent notes, knowledge, and health.",
@@ -997,77 +423,6 @@ export function createTaskenMcpServer(options = {}) {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     withCoreClient((args) => coreClient.getThemeContext(args)),
-  );
-
-  server.registerTool(
-    "tasken.get_recent_notes",
-    {
-      description: "Return recent notes. Full Markdown requires include_raw_body=true.",
-      inputSchema: {
-        theme_id: optionalWave7ThemeId,
-        limit: optionalLimit,
-        max_chars: z.number().int().positive().max(8000).optional(),
-        include_raw_body: z.boolean().optional(),
-        include_archived: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.getRecentNotes(args)),
-  );
-
-  server.registerTool(
-    "tasken.search_knowledge",
-    {
-      description: "Search Tasken Knowledge nodes.",
-      inputSchema: {
-        query: optionalWave7Query,
-        theme_id: optionalWave7ThemeId,
-        node_types: optionalWave7NodeTypes,
-        limit: optionalLimit,
-        max_chars: z.number().int().positive().max(8000).optional(),
-        include_archived: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.searchKnowledge(args)),
-  );
-
-  server.registerTool(
-    "tasken.get_knowledge_context",
-    {
-      description: "Return Knowledge nodes, relations, and optionally source entities.",
-      inputSchema: {
-        theme_id: optionalWave7ThemeId,
-        include_relations: z.boolean().optional(),
-        include_sources: z.boolean().optional(),
-        include_raw_body: z.boolean().optional(),
-        limit: optionalLimit,
-        max_chars: z.number().int().positive().max(8000).optional(),
-        include_archived: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.getKnowledgeContext(args)),
-  );
-
-  server.registerTool(
-    "tasken.get_plan_health",
-    {
-      description: "Return open, overdue, waiting, and unscheduled work health.",
-      inputSchema: { theme_id: optionalWave7ThemeId },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.getPlanHealth(args)),
-  );
-
-  server.registerTool(
-    "tasken.get_knowledge_health",
-    {
-      description: "Return unresolved questions and other Knowledge health issues.",
-      inputSchema: { theme_id: optionalWave7ThemeId },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.getKnowledgeHealth(args)),
   );
 
   server.registerTool(
@@ -1093,26 +448,6 @@ export function createTaskenMcpServer(options = {}) {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     withCoreClient((args) => coreClient.getActivity(args)),
-  );
-
-  server.registerTool(
-    "tasken.get_context_subgraph",
-    {
-      description:
-        "Return a bounded, read-only Context/Provenance subgraph for one typed entity. Suggested relations are excluded by default and never become facts.",
-      inputSchema: {
-        entity_type: z.enum(entityTypes),
-        entity_id: z.string().trim().min(1).max(200),
-        max_hops: z.number().int().positive().max(2).optional(),
-        max_nodes: z.number().int().positive().max(100).optional(),
-        max_edges: z.number().int().positive().max(200).optional(),
-        token_budget: z.number().int().positive().max(12000).optional(),
-        include_suggested: z.boolean().optional(),
-        include_archived: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.getContextSubgraph(args)),
   );
 
   server.registerTool(
@@ -1146,29 +481,6 @@ export function createTaskenMcpServer(options = {}) {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     withCoreClient((args) => coreClient.getProposalStatus(args)),
-  );
-
-  server.registerTool(
-    "tasken.export_ai_context",
-    {
-      description: "Export bounded Tasken context as Markdown or JSON.",
-      inputSchema: {
-        scope: z
-          .enum(["active_theme", "selected_theme", "recent", "open_items", "knowledge"])
-          .optional(),
-        theme_id: z.string().trim().max(200).optional(),
-        max_items: optionalLimit,
-        max_notes: optionalLimit,
-        max_knowledge_nodes: optionalLimit,
-        max_chars: z.number().int().positive().max(8000).optional(),
-        format: z.enum(["markdown", "json"]).optional(),
-        include_raw_body: z.boolean().optional(),
-        // 既定はcoding_agent。M365向けPackを作るときだけ明示的に切り替える（#294）。
-        audience: z.enum(["m365", "coding_agent", "external_ai"]).optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.exportAiContext(args)),
   );
 
   if (readOnly) return server;
@@ -1290,21 +602,6 @@ export function createTaskenMcpServer(options = {}) {
     .min(1)
     .max(100)
     .refine((value) => !Number.isNaN(Date.parse(value)), "ISO 8601 timestamp が必要です。");
-  const agentSessionIdentity = {
-    idempotency_key: z.string().trim().min(1).max(200),
-    caller: z.string().trim().min(1).max(200),
-    source_session: z.string().trim().min(1).max(500),
-    source_app: z.string().trim().min(1).max(120).optional(),
-  };
-  const agentSessionList = z.array(z.string().trim().min(1).max(1000)).max(100).optional();
-  const queueAgentSession = (args, action) =>
-    coreClient.proposeAgentSession({
-      ...args,
-      action,
-      actor: { kind: "ai_agent" },
-      source: "mcp",
-      source_app: sourceApp(args),
-    });
   const contentProposalIdentity = {
     idempotency_key: z
       .string()
@@ -1319,16 +616,6 @@ export function createTaskenMcpServer(options = {}) {
     source_session: z.string().trim().min(1).max(200).optional(),
     source_app: z.string().trim().min(1).max(120).optional(),
   };
-  const queueRepositoryTask = (args, kind) =>
-    coreClient.proposeRepositoryTask({
-      ...args,
-      kind,
-      actor: { kind: "ai_agent" },
-      source: "mcp",
-      source_app: sourceApp(args),
-      idempotency_key: args.idempotency_key || randomUUID(),
-      caller: args.caller || "MCP client",
-    });
   const contentProposalBase = {
     ...contentProposalIdentity,
     repository_context: taskWorkRepositoryContextSchema,
@@ -1361,105 +648,6 @@ export function createTaskenMcpServer(options = {}) {
       source_app: sourceApp(args),
     });
   };
-
-  server.registerTool(
-    "tasken.start_agent_session",
-    {
-      description:
-        "Queue an Agent Session start proposal for Agent Desk review. It never creates official data directly.",
-      inputSchema: {
-        ...agentSessionIdentity,
-        started_at: requiredTimestamp,
-        client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]),
-        client_label: z.string().trim().max(200).optional(),
-        agent_label: z.string().trim().max(200).optional(),
-        provider_label: z.string().trim().max(200).optional(),
-        model_label: z.string().trim().max(200).optional(),
-        intent: z
-          .object({
-            summary: z.string().trim().min(1).max(4000),
-            requested_outcome: z.string().trim().max(4000).optional(),
-            boundary: z.string().trim().max(4000).optional(),
-          })
-          .strict(),
-        theme_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
-        task_ids: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
-        repository_context_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
-        working_copy_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
-      },
-      annotations: PROPOSAL_ANNOTATIONS,
-    },
-    withCoreClient((args) => queueAgentSession(args, "start")),
-  );
-
-  server.registerTool(
-    "tasken.finish_agent_session",
-    {
-      description:
-        "Queue an Agent Session outcome proposal for Agent Desk review. Intent and client identity stay immutable.",
-      inputSchema: {
-        ...agentSessionIdentity,
-        agent_session_id: z.string().uuid(),
-        expected_version: z.number().int().positive(),
-        ended_at: requiredTimestamp,
-        status: z.enum(["completed", "blocked", "abandoned"]),
-        outcome: z
-          .object({
-            summary: z.string().trim().min(1).max(8000),
-            decisions: agentSessionList,
-            changed_items: agentSessionList,
-            verification: agentSessionList,
-            remaining_work: agentSessionList,
-            next_suggested_action: z.string().trim().max(4000).optional(),
-          })
-          .strict(),
-      },
-      annotations: PROPOSAL_ANNOTATIONS,
-    },
-    withCoreClient((args) => queueAgentSession(args, "finish")),
-  );
-
-  server.registerTool(
-    "tasken.submit_agent_session_record",
-    {
-      description:
-        "Queue one complete Agent Session record for Agent Desk review. This is for lifecycle collectors that observed both Intent and terminal Outcome; it never stores raw transcripts or writes official data directly.",
-      inputSchema: {
-        ...agentSessionIdentity,
-        started_at: requiredTimestamp,
-        ended_at: requiredTimestamp,
-        status: z.enum(["completed", "blocked", "abandoned"]),
-        client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]),
-        client_label: z.string().trim().max(200).optional(),
-        agent_label: z.string().trim().max(200).optional(),
-        provider_label: z.string().trim().max(200).optional(),
-        model_label: z.string().trim().max(200).optional(),
-        intent: z
-          .object({
-            summary: z.string().trim().min(1).max(4000),
-            requested_outcome: z.string().trim().max(4000).optional(),
-            boundary: z.string().trim().max(4000).optional(),
-          })
-          .strict(),
-        outcome: z
-          .object({
-            summary: z.string().trim().min(1).max(8000),
-            decisions: agentSessionList,
-            changed_items: agentSessionList,
-            verification: agentSessionList,
-            remaining_work: agentSessionList,
-            next_suggested_action: z.string().trim().max(4000).optional(),
-          })
-          .strict(),
-        theme_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
-        task_ids: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
-        repository_context_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
-        working_copy_ids: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
-      },
-      annotations: PROPOSAL_ANNOTATIONS,
-    },
-    withCoreClient((args) => queueAgentSession(args, "capture")),
-  );
 
   server.registerTool(
     "tasken.start_task_work",
@@ -1548,50 +736,6 @@ export function createTaskenMcpServer(options = {}) {
       annotations: PROPOSAL_ANNOTATIONS,
     },
     withCoreClient((args) => queueTaskWork(args, "report_blocked")),
-  );
-
-  server.registerTool(
-    "tasken.propose_repository_context",
-    {
-      description:
-        "Queue a RepositoryContext proposal for user review. This never writes a context directly and never stores credentials.",
-      inputSchema: {
-        ...contentProposalIdentity,
-        label: z.string().trim().min(1).max(200),
-        provider: z
-          .enum(["github", "gitlab", "azure_devops", "local", "generic_git", "unknown"])
-          .optional(),
-        remote_url: optionalText,
-        local_path: optionalText,
-        web_url: optionalText,
-        repository_slug: optionalText,
-        subdirectory: optionalText,
-        default_branch: optionalText,
-        reason: z.string().max(2000).optional(),
-      },
-      annotations: PROPOSAL_ANNOTATIONS,
-    },
-    withCoreClient((args) => queueRepositoryTask(args, "repository_context")),
-  );
-
-  server.registerTool(
-    "tasken.propose_task",
-    {
-      description:
-        "Queue a new Task proposal. This does not create the Task until the user accepts it in Tasken.",
-      inputSchema: {
-        ...contentProposalIdentity,
-        title: z.string().trim().min(1).max(200),
-        description: z.string().max(20000).optional(),
-        theme: optionalText,
-        priority: z.enum(["normal", "high"]).optional(),
-        planned_start: optionalText,
-        planned_end: optionalText,
-        reason: z.string().max(2000).optional(),
-      },
-      annotations: PROPOSAL_ANNOTATIONS,
-    },
-    withCoreClient((args) => queueRepositoryTask(args, "task")),
   );
 
   server.registerTool(
@@ -1802,63 +946,6 @@ export function createTaskenMcpServer(options = {}) {
       annotations: PROPOSAL_ANNOTATIONS,
     },
     withCoreClient((args) => queueContent(args, "note_edit")),
-  );
-
-  server.registerTool(
-    "tasken.propose_knowledge",
-    {
-      description: "Queue a Knowledge proposal for review in Tasken.",
-      inputSchema: {
-        ...contentProposalBase,
-        title: z.string().trim().min(1).max(200),
-        body: z.string().max(20000).optional(),
-        node_type: z.enum(["question", "claim", "evidence", "decision", "insight"]).optional(),
-        theme: optionalText,
-        confidence: z.enum(["low", "medium", "high"]).optional(),
-        reason: z.string().max(2000).optional(),
-        source_app: z.string().trim().min(1).max(120).optional(),
-      },
-      annotations: PROPOSAL_ANNOTATIONS,
-    },
-    withCoreClient((args) => queueContent(args, "knowledge_create")),
-  );
-
-  server.registerTool(
-    "tasken.propose_sketch",
-    {
-      description:
-        "Queue a safe inline SVG as a Sketch proposal. Tasken only saves it after user preview and acceptance.",
-      inputSchema: {
-        ...contentProposalBase,
-        title: z.string().trim().min(1).max(200),
-        svg: z.string().min(1).max(500000),
-        theme: optionalText,
-        reason: z.string().max(2000).optional(),
-        source_app: z.string().trim().min(1).max(120).optional(),
-      },
-      annotations: PROPOSAL_ANNOTATIONS,
-    },
-    withCoreClient((args) => queueContent(args, "sketch_create")),
-  );
-
-  server.registerTool(
-    "tasken.propose_artifact",
-    {
-      description:
-        "Queue an inline SVG, Markdown, text, or JSON Artifact. Paths and external URLs are not accepted.",
-      inputSchema: {
-        ...contentProposalBase,
-        title: z.string().trim().min(1).max(200),
-        file_name: z.string().trim().min(1).max(180),
-        media_type: z.enum(["image/svg+xml", "text/markdown", "text/plain", "application/json"]),
-        content: z.string().min(1).max(1000000),
-        theme: optionalText,
-        reason: z.string().max(2000).optional(),
-        source_app: z.string().trim().min(1).max(120).optional(),
-      },
-      annotations: PROPOSAL_ANNOTATIONS,
-    },
-    withCoreClient((args) => queueContent(args, "artifact_create")),
   );
 
   return server;

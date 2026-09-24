@@ -134,7 +134,7 @@ test("canonical MCP launcher fails closed for migrated reads without Core and ex
     const tools = await client.listTools();
     const names = new Set(tools.tools.map((tool) => tool.name));
     assert.ok(names.has("tasken.search_items"));
-    assert.ok(names.has("tasken.propose_task"));
+    assert.ok(names.has("tasken.propose_note"));
     assert.ok(names.has("tasken.propose_note_edit"));
 
     const search = await client.callTool({
@@ -146,12 +146,12 @@ test("canonical MCP launcher fails closed for migrated reads without Core and ex
     assert.doesNotMatch(JSON.stringify(search.content), /Canonical launcher fixture/);
 
     const result = await client.callTool({
-      name: "tasken.propose_task",
+      name: "tasken.propose_note",
       arguments: {
         idempotency_key: "canonical-launcher-proposal-1",
         caller: "node-test",
         title: "MCP経由の確認",
-        description: "正式保存前のProposal",
+        body: "正式保存前のProposal",
         source_app: "node-test",
       },
     });

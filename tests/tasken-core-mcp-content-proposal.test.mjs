@@ -147,7 +147,7 @@ function command(name, payload, commandId, expectedVersions) {
   };
 }
 
-test("five content tools persist exact canonical proposals over actual stdio/Core and survive restart", async () => {
+test("two content tools persist exact canonical proposals over actual stdio/Core and survive restart", async () => {
   const root = fixtureRoot();
   const dbPath = path.join(root, "workspace.sqlite3");
   let database = new WorkspaceDatabase(dbPath);
@@ -195,46 +195,12 @@ test("five content tools persist exact canonical proposals over actual stdio/Cor
           reason: "Correction",
         },
       ],
-      [
-        "tasken.propose_knowledge",
-        {
-          ...baseArgs("knowledge-1"),
-          title: "Claim",
-          body: "Evidence-backed",
-          node_type: "claim",
-          theme: "Theme",
-          confidence: "high",
-          reason: "Capture",
-        },
-      ],
-      [
-        "tasken.propose_sketch",
-        {
-          ...baseArgs("sketch-1"),
-          title: "Diagram",
-          svg: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>',
-          theme: "Theme",
-          reason: "Explain",
-        },
-      ],
-      [
-        "tasken.propose_artifact",
-        {
-          ...baseArgs("artifact-1"),
-          title: "Result",
-          file_name: "result.json",
-          media_type: "application/json",
-          content: '{"ok":true}',
-          theme: "Theme",
-          reason: "Attach",
-        },
-      ],
     ];
     const results = [];
     for (const [name, args] of calls) results.push(await callProposal(client, name, args));
     assert.deepEqual(
       results.map((entry) => entry.payload_type),
-      ["notes", "notes", "knowledge_nodes", "sketches", "artifacts"],
+      ["notes", "notes"],
     );
     assert.equal(fs.existsSync(path.join(root, "legacy-inbox-must-not-exist")), false);
 
@@ -279,25 +245,6 @@ test("five content tools persist exact canonical proposals over actual stdio/Cor
       type: "note",
       id: "note-existing",
       base_version: 1,
-    });
-    assert.deepEqual(proposals[2].payload.knowledge_nodes[0], {
-      action: "create",
-      title: "Claim",
-      body: "Evidence-backed",
-      node_type: "claim",
-      theme: "Theme",
-      confidence: "high",
-      reason: "Capture",
-    });
-    assert.equal(proposals[3].payload.sketches[0].svg.includes("<rect"), true);
-    assert.deepEqual(proposals[4].payload.artifacts[0], {
-      action: "create",
-      title: "Result",
-      file_name: "result.json",
-      media_type: "application/json",
-      content: '{"ok":true}',
-      theme: "Theme",
-      reason: "Attach",
     });
     for (const proposal of proposals) {
       assert.equal(proposal.source, "mcp");
@@ -429,41 +376,6 @@ test("five content tools persist exact canonical proposals over actual stdio/Cor
           ...database.get("note", "note-existing"),
           title: "Edited",
           body_markdown: "Replacement",
-        },
-      },
-      {
-        type: "knowledge_node",
-        entity: {
-          id: "accepted-knowledge",
-          node_type: "claim",
-          title: "Claim",
-          body_markdown: "Evidence-backed",
-        },
-      },
-      {
-        type: "sketch",
-        entity: {
-          id: "accepted-sketch",
-          title: "Diagram",
-          svg: proposals[3].payload.sketches[0].svg,
-          project_id: "",
-          document: {
-            schema_version: 1,
-            mode: "page",
-            pages: [{ id: "page-1", width: 1200, height: 800, objects: [] }],
-          },
-        },
-      },
-      {
-        type: "artifact",
-        entity: {
-          id: "accepted-artifact",
-          title: "Result",
-          filename: "result.json",
-          source_type: "ai_proposal",
-          source_id: proposals[4].id,
-          storage_mode: "managed",
-          stored_path: "Artifacts/result.json",
         },
       },
     ];
