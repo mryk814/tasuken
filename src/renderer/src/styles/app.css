@@ -6885,6 +6885,9 @@ textarea:hover {
   animation: spin var(--duration-base) linear infinite;
 }
 @keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
   to {
     transform: rotate(360deg);
   }
@@ -9655,7 +9658,19 @@ kbd {
   opacity: 1;
 }
 .priority-flag-button.is-working svg {
+  display: block;
+  transform-origin: 50% 50%;
+  transform-box: fill-box;
   animation: spin calc(var(--duration-base) * 5) linear infinite;
+}
+/* AI作業中の回転は装飾ではなく「作業中」という状態そのものの表示のため、
+   reduced-motion時も等速回転を維持する（design-guide §6eの状態可視性を優先。
+   小面積の等速回転のみで、点滅や振幅の大きな動きは使わない）。 */
+@media (prefers-reduced-motion: reduce) {
+  .priority-flag-button.is-working svg {
+    animation-duration: calc(var(--duration-base) * 5) !important;
+    animation-iteration-count: infinite !important;
+  }
 }
 .theme-inline {
   display: inline-flex;
