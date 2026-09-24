@@ -445,7 +445,8 @@ export function AgentDeskPanel({
         <div className="agent-desk-list">
           {/*
             AIごとの入口（計画フェーズ5）。実際に活動があるAIだけを並べ、
-            選ぶと下の4つの一覧をそのAIへ絞る。在席や稼働は推測しない。
+            選ぶと下の一覧をそのAIへ絞る。在席や稼働は推測しない。
+            変更案の確認・採否はFeedの「対応待ち」タブの「提案の確認」で行う。
           */}
           <section className="panel agent-desk-section">
             <div className="section-heading">
@@ -709,7 +710,7 @@ export function AgentDeskPanel({
               <h3>{selected.headline}</h3>
               <p className="agent-desk-summary">{selected.questionOrAction}</p>
               <p className="agent-desk-note">
-                Proposalの中身は下の「AIの提案」から確認して採用・却下できます。
+                Proposalの中身はFeedの「対応待ち」タブの「提案の確認」で採用・却下できます。
               </p>
               <div className="agent-desk-actions">
                 <Button
@@ -718,6 +719,9 @@ export function AgentDeskPanel({
                   disabled={busy}
                 >
                   この変更案を却下
+                </Button>
+                <Button variant="secondary" onClick={() => navigate("feed")} disabled={busy}>
+                  Feedで確認する
                 </Button>
                 <Button
                   variant="secondary"

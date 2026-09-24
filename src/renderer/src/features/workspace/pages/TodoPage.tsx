@@ -583,17 +583,17 @@ export function TodoPage({
                 >
                   {TASK_AI_DELEGATION_LABELS[aiDelegation]}
                 </button>
-                {/* 確認待ちは成果の採用をAgent Deskで行う。ToDo内で完結させない。 */}
+                {/* 確認待ちは成果の採用をFeedの「対応待ち」で行う。ToDo内で完結させない。 */}
                 {aiDelegation === "review_waiting" ? (
                   <button
                     type="button"
                     className="text-button compact"
                     onClick={(event) => {
                       event.stopPropagation();
-                      navigate("ai-io");
+                      navigate("feed");
                     }}
                   >
-                    Agent Desk
+                    Feedで確認
                   </button>
                 ) : null}
               </span>

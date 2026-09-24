@@ -16,7 +16,7 @@ Issue #498 の Phase 0 で確定した、repository・作業環境・AI session 
 | 保存・更新・関連付け等の細粒度な事実                               | `ChangeEvent` / Activity | 既存 event identity と origin                                                        | session summary や日報本文                         |
 | commit、branch、PR/MR、pipeline、file 等の証拠                     | external reference       | provider-neutral kind と安全な locator                                               | provider API の raw response、credential           |
 | その日のAI作業を確認するための事実集約                             | Evidence recap           | Session / Packet / Receipt / Activity / referenceから都度生成                        | 人間の判断・内省                                   |
-| 一日の記録から日報草稿を作り、後から回答を追記する導線             | Tasken Debrief           | ActivityとSessionを確認し、Agent Deskで採用したReport NoteをNotesで編集する          | AIによる人の回答・完了の捏造                       |
+| 一日の記録から日報草稿を作り、後から回答を追記する導線             | Tasken Debrief           | ActivityとSessionを確認し、Feedの「対応待ち」で採用したReport NoteをNotesで編集する  | AIによる人の回答・完了の捏造                       |
 
 ## Naming decision
 
@@ -127,7 +127,7 @@ Evidence recapは`AgentSession`、Session Packet、`Reference`、`WorkReceipt`�
 - Theme詳細の`Recent AI work`は同じprojectionをThemeで絞り込む。
 - 各SessionはIntent → Outcome → 残りを一続きに表示し、関連Task、Work Receipt、Activity、commit・PR/MR等のexternal referenceへ展開できる。
 - `Tasken Debrief`はActivityを最上部に表示し、その下でAI作業をカードとして確認する。カードはhoverまたはfocusでIntent、Outcome、残り、記録された確認をpreviewする。
-- AIは当日の根拠に沿う可変の問いと空の回答欄を含むReport草稿をproposalとして送る。人はAgent Deskで採用した後、NotesのMarkdownを編集して回答する。
+- AIは当日の根拠に沿う可変の問いと空の回答欄を含むReport草稿をproposalとして送る。人はFeedの「対応待ち」で採用した後、NotesのMarkdownを編集して回答する。
 - `tasken.propose_note`はReport Proposalを作るだけで、採用前にNoteを保存せず、TaskやReferenceを作らない。採用後は`properties_json.daily_report.date`で対象日を識別する。
 - WorkingCopyとのrelationは公開可能なRepositoryContextへ投影し、local pathを表示しない。
 

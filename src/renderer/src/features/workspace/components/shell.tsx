@@ -454,7 +454,7 @@ export function Sidebar({
     today: todayCount,
     todo: overdueTasks,
     inbox,
-    "ai-io": proposalCount,
+    feed: proposalCount,
     debrief: debriefCount,
   };
   const renderNavButton = (id: string) => {

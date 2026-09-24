@@ -490,7 +490,11 @@ try {
   if (!noteDetail.includes("この変更案を却下")) {
     failures.push(`変更案の却下操作がありません: ${noteDetail.slice(0, 160)}`);
   }
-  // 中身は同じ面の「AIの提案」で確認できる。Taskなしでもpreviewが出る。
+  // 中身はFeedの「対応待ち」タブの「提案の確認」で見られる。Taskなしでもpreviewが出る。
+  await page.locator(".sidebar button", { hasText: "Feed" }).first().click();
+  await page.waitForTimeout(800);
+  await page.locator("#feed-tab-needs").click();
+  await page.waitForTimeout(800);
   const proposalPanel = page.locator(".proposal-inbox-panel");
   if (!(await proposalPanel.count())) {
     failures.push("同じ面に「AIの提案」の確認がありません。");
@@ -505,6 +509,8 @@ try {
   }
 
   // 対応待ちから却下すると、提案待ちからも消える。
+  await page.locator(".sidebar button", { hasText: "Agent Desk" }).first().click();
+  await page.waitForTimeout(800);
   await page.locator(".agent-desk-open", { hasText: "Noteの変更案" }).first().click();
   await page.waitForTimeout(500);
   await page.locator(".agent-desk-detail .semantic-button-primary").first().click();

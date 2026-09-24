@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import type { BaseRecord, PageProps } from "../types";
 import { Button, PageHeader } from "../components/common";
+import { AiProposalPanel } from "../components/AiProposalPanel";
 import { FeedArticleReader } from "../components/FeedArticleReader";
 import { FeedStream } from "../components/FeedStream";
 import {
@@ -59,7 +60,8 @@ import {
  * 開発用fixture（架空データ）を使う。記事の草稿は「Noteに保存」で既存の採用経路へ渡し、
  * 読む操作とブックマークはTaskや未解決件数を変えない。
  * 「対応待ち」タブは既存の要対応projection（`buildAttentionQueue`）を正本にした実データで、
- * ここから回答・Task操作は既存Commandへ繋ぐ。
+ * ここから回答・Task操作は既存Commandへ繋ぐ。変更案の確認・採否は同じタブ内の
+ * 「提案の確認」（`AiProposalPanel`）で行い、`ai-io` へ移動せずに完結させる。
  *
  * 読む面の規則は `docs/feed-surface.md`。
  */
@@ -145,16 +147,17 @@ function writeFeedViewState(state: FeedViewState): void {
 /** 開発用: 閲覧中に届いたことにして、押すまで一覧へ割り込ませない。 */
 const ARRIVING_POST_IDS = ["post-solvent-switch", "post-draft-note-uncertainty"];
 
-export function FeedPage({
-  data,
-  domain,
-  executeCommand,
-  saveEntities,
-  openDrawer,
-  navigate,
-  setToast,
-  removeEntity,
-}: PageProps) {
+export function FeedPage(props: PageProps) {
+  const {
+    data,
+    domain,
+    executeCommand,
+    saveEntities,
+    openDrawer,
+    navigate,
+    setToast,
+    removeEntity,
+  } = props;
   const [storedView] = useState<Partial<FeedViewState>>(() => readFeedViewState());
   // 実データでは保存済みの反応を、fixtureでは画面内の印を使う。
   const [tab, setTab] = useState<FeedTab>(() =>
@@ -512,7 +515,10 @@ export function FeedPage({
 
   const needsRows = useMemo(() => {
     if (tab !== "needs") return [] as FeedItem[];
-    return selectNeedsYou(buildFeedProjection(live.items).items);
+    // 変更案は同じタブ内の「提案の確認」パネルで扱う。一覧との二重表示にしない。
+    return selectNeedsYou(buildFeedProjection(live.items).items).filter(
+      (item) => item.kind !== "proposal_pending",
+    );
   }, [live.items, tab]);
 
   const openNeedsItem = needsRows.find((item) => item.id === openNeedsId) ?? null;
@@ -1279,8 +1285,9 @@ export function FeedPage({
         openDrawer({ type: "task", entity: task as never, commandSource: "main_ui" });
         return;
       }
+      // Taskに紐づかない判断の確認はFeedの「対応待ち」で行う。面を移動しない。
       closeFeedContext();
-      navigate("ai-io");
+      navigate("feed");
     },
     [closeFeedContext, navigate, openDrawer, taskOf],
   );
@@ -1608,6 +1615,11 @@ export function FeedPage({
                   ))}
                 </ul>
               )}
+              {/*
+                変更案の確認・採否はこのタブで完結させる（`ai-io` への移動は不要）。
+                対応待ち一覧の `proposal_pending` 行は上で外しており、ここが唯一の入口。
+              */}
+              <AiProposalPanel {...props} />
             </section>
           ) : (
             <section
