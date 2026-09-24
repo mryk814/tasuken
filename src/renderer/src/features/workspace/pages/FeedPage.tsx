@@ -596,6 +596,8 @@ export function FeedPage(props: PageProps) {
   }, []);
 
   const openArticle = useCallback((post: FeedPost) => {
+    // 右の補助領域は1スロット（design-guide §21）。記事とスレッドは重ねない。
+    setOpenThreadId(null);
     setOpenArticleId(post.id);
   }, []);
 
