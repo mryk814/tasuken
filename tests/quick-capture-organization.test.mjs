@@ -145,6 +145,22 @@ test("Desktop plain Inbox stays a raw Capture and a dateless organized Task stay
   assert.equal(f.commands[0].payload.task.today_date, null);
 });
 
+test("Desktop Quick Capture posts directly to Feed without touching Inbox or Notes", () => {
+  const f = fixture();
+  const saved = f.call("save", "  乾燥の気づき\n同じ条件でも結果が変わる。  ", "feed", "research");
+  assert.equal(f.commands.length, 0);
+  assert.equal(f.saves.length, 1);
+  assert.equal(f.saves[0][0], "feed_post");
+  const entity = f.saves[0][1];
+  assert.equal(entity.title, "乾燥の気づき");
+  assert.equal(entity.body_markdown, "乾燥の気づき\n同じ条件でも結果が変わる。");
+  assert.equal(entity.project_id, "research");
+  assert.ok(entity.published_at);
+  assert.equal(f.saves[0][2]?.source, "quick-capture");
+  assert.equal(saved.id, "capture");
+  assert.throws(() => f.call("save", "   ", "feed"));
+});
+
 test("Desktop confirmed planned time keeps execution time separate from the deadline and accepts duration alone", () => {
   const f = fixture();
   f.call(

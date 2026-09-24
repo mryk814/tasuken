@@ -359,7 +359,7 @@ export function createQuickCaptureController(
       (
         event,
         text: string,
-        mode: QuickCaptureMode | "saved-capture" = "inbox",
+        mode: QuickCaptureMode | "feed" | "saved-capture" = "inbox",
         themeId?: string,
         selectedRangeSemantics?: "once_within_window" | "ongoing",
         organization?: unknown,
@@ -379,6 +379,32 @@ export function createQuickCaptureController(
         }
         const trimmed = (text || "").trim();
         if (!trimmed) throw new Error("入力が空です。");
+        if (mode === "feed") {
+          // Quick CaptureのInbox窓からFeedへ直接投稿する。Inboxの整理（captureFeedPost相当）を
+          // 経由せず、Feed専用の正本だけを作る。Notes・capture_entryは増やさない。
+          if (event.sender !== captureWindow?.webContents)
+            throw new Error("この画面からは投稿できません。");
+          const title = quickCaptureTitle(trimmed);
+          if (!title) throw new Error("投稿する本文を入力してください。");
+          const now = new Date().toISOString();
+          const saved = options.repository.save(
+            "feed_post",
+            {
+              id: randomUUID(),
+              title,
+              body_markdown: trimmed,
+              project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
+              source_record_id: null,
+              published_at: now,
+              origin_note_id: null,
+            },
+            { source: "quick-capture" },
+          );
+          options.notifyWorkspaceChanged({
+            entities: [{ type: "feed_post", entity: saved as Entity }],
+          });
+          return saved;
+        }
         if (mode === "today-task" || mode === "done-task") {
           const taskId = randomUUID();
           const today = localDateString();

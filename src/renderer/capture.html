@@ -273,6 +273,7 @@
       <div class="capture-actions">
         <button id="saved-source-return" class="secondary" type="button" hidden>元Captureへ戻る</button>
         <button id="organize" class="secondary" type="button" hidden>AIで整理</button>
+        <button id="feed-submit" class="secondary" type="button" title="入力とThemeをそのままFeedへ投稿（Inboxを経由しない）">Feedへ投稿</button>
         <button id="submit" type="button">記録する</button>
       </div>
     </div>
@@ -280,6 +281,7 @@
     <script>
       const input = document.getElementById("input");
       const submitButton = document.getElementById("submit");
+      const feedButton = document.getElementById("feed-submit");
       const feedback = document.getElementById("feedback");
       const title = document.getElementById("title");
       const modePill = document.getElementById("mode-pill");
@@ -336,6 +338,9 @@
           hint.textContent = count ? "案ごとに内容を確認 / Ctrl+Enter でまとめて追加 / Escで閉じる" : "候補0件 / 原文は保持 / Escで閉じる";
         }
         submitButton.disabled = organizing || saving || Boolean(organization && count === 0);
+        const canPostToFeed = mode === "inbox" && !organization && submission === null;
+        feedButton.hidden = !canPostToFeed;
+        feedButton.disabled = organizing || saving || locked || !canPostToFeed;
         if (mode === "saved-capture") {
           input.readOnly = !organization;
           submitButton.disabled ||= !organization;
@@ -672,7 +677,52 @@
         }
       }
 
+      async function submitFeed(continueCapturing = false) {
+        if (mode !== "inbox" || organizing || saving || organization || submission) return;
+        const text = input.value.trim();
+        if (!text) return;
+        saving = true;
+        updateOrganizationControls();
+        try {
+          const themeId = themeSelect.value;
+          await window.captureApi.save(text, "feed", themeId);
+          lastThemeId = themeId;
+          localStorage.setItem("tasken:quick-capture:last-theme-id", themeId);
+          input.value = "";
+          captureAnchor = null;
+          clearOrganization();
+          externalResult.value = "";
+          externalInput.open = false;
+          feedback.classList.remove("error");
+          feedback.textContent = "Feedへ投稿しました";
+          feedback.style.display = "";
+          feedback.style.animation = "none";
+          feedback.offsetHeight;
+          feedback.style.animation = "";
+          feedbackTimeout = setTimeout(() => {
+            feedback.style.display = "none";
+            if (continueCapturing) {
+              input.focus();
+            } else {
+              window.captureApi.hide();
+            }
+          }, 600);
+        } catch (error) {
+          // 失敗しても入力は消さない。
+          const reason = String(error?.message || "").replace(/^Error: /, "").replace(/^.*Error invoking remote method '[^']*': Error: /, "");
+          feedback.textContent = reason
+            ? `${reason} 入力は残っています。`
+            : "投稿できませんでした。入力は残っています。メイン画面を開いて状態を確認してください。";
+          feedback.classList.add("error");
+          feedback.style.display = "";
+        } finally {
+          saving = false;
+          updateOrganizationControls();
+        }
+      }
+
       submitButton.addEventListener("click", () => submit(false));
+      feedButton.addEventListener("click", (event) => submitFeed(event.shiftKey));
       document.getElementById("close").addEventListener("click", () => { stopOrganizing(); window.captureApi.hide(); });
       input.addEventListener("input", () => {
         if (!organization) {
