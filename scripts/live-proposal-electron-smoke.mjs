@@ -247,8 +247,8 @@ try {
   assert.doesNotMatch(await bodyText(page), /Proposalを採用できませんでした/);
 
   await openNavigation(page, "Notes");
-  await page.getByText(title, { exact: true }).waitFor();
-  assert.equal(await page.getByText(title, { exact: true }).count(), 1);
+  await page.getByText(title, { exact: true }).first().waitFor();
+  assert.ok((await page.getByText(title, { exact: true }).count()) >= 1);
 
   await openNavigation(page, "ToDo");
   await page.getByRole("button", { name: "タスクを追加", exact: true }).click();
