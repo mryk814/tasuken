@@ -39,11 +39,11 @@ package版ではsystem Nodeが`resources/mcp/server.mjs`を起動する。Tasken
 
 ## Acceptance evidence
 
-1. read 23 / proposal 14 registrationsが`withCoreClient`のみを使う。
+1. read 13 / proposal 7 / direct-write 1 registrationsが`withCoreClient`のみを使う（2026-09 slimmingで21 toolsへ。画像tool・目的別Context・Knowledge・Agent Session・一部propose系をMCP非公開化し、Coreは温存）。
 2. Core停止時はtyped `CORE_UNAVAILABLE`となりDB/inboxへfallbackしない。
 3. doctorがdiscovery/auth/health/version/live capabilitiesを照合し、secret/pathを出さない。
 4. source/bundle scanにnative/Electron/inbox symbolがない。
-5. packaged Windows Desktop Coreへsystem Node MCPが接続し、33 tools、read、Proposalを実行する。
+5. packaged Windows Desktop Coreへsystem Node MCPが接続し、21 tools、read、Proposalを実行する。
 6. Settingsのactual client configが`node <server.mjs>`でありInbox UIがない。
 
 `TASKEN_MCP_NATIVE_CLEANUP_ENFORCE=1`でbundle sentinelを有効にする場合は、先に`npm run build:mcp`を実行する。

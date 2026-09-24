@@ -39,7 +39,7 @@ Taskenが日報本文を自動保存したり、人の回答を補ったりは�
 2. その下にAI作業カードを並べ、blockedまたは残作業があるカードを先に置く。
 3. カードはhoverまたはkeyboard focusで、Intent、Outcome、残り、記録された確認をpreviewする。
 4. 利用者は「Tasken日報」をAI clientで実行するか、補助のコピー操作で同じ依頼文を渡す。
-5. AIは`tasken.get_debrief_context`へ対象日を渡し、boundedな当日ActivityとAIへ公開可能なSessionを読む。日報ではRepositoryで絞らない。
+5. AIは`tasken.get_activity`へ対象日を渡し、boundedな当日Activityを読む。Sessionの作業が含まれる場合は`tasken.get_agent_session_context`で関連Sessionを読む。日報ではRepositoryで絞らない。
 6. AIは事実に基づく草稿と、その日の内容に応じた問いを作り、`tasken.propose_note`でReportをpending Proposalとして送る。
 7. 利用者はAgent Deskで本文を確認して採用する。
 8. 採用後のReport NoteをDebriefまたはNotesから開き、Markdownの回答欄を人が編集して保存する。
@@ -83,7 +83,7 @@ Agent Sessionがない作業も対象にし、Task IDと作業開始時刻で同
 Proposalの受信時刻・人の採用時刻・Taskの正式完了時刻は別の事実として保持し、作業期間へ代入しない。
 採用前は「採用待ち」と明示し、採用後も同じ作業期間と表示IDを維持する。
 旧Receiptで終了・継続を確定できない場合は、元の記録を保持し、無期限の作業中として期間表示しない。
-`get_debrief_context`の`task_work`は既存のAI公開範囲と本文のサニタイズを通し、作業ごとの報告を返す。
+Task作業の報告は既存のAI公開範囲と本文のサニタイズを通し、作業ごとに返す。
 
 Agent Deskでは同じTaskの報告を時系列にまとめる。
 完了報告の「採用」は、選択した報告を正式保存し、プレビューに表示した同じproducer・session・Task versionの過去報告を一緒に履歴化する。Task完了は人が別途判断し、完了後の追加報告でも完了状態を保持する。
@@ -91,9 +91,9 @@ Agent Deskでは同じTaskの報告を時系列にまとめる。
 集約対象のversionも採用時に確認し、途中で変わっていれば全体を適用せず再確認する。
 通常のAI依頼では完了報告を一度だけ送り、途中報告は長期作業で必要な場合に限る。
 
-`daily-report`はローカル当日を指定してread-onlyの`tasken.get_debrief_context(date)`を使う。
-別の日は画面の依頼文、または`get_debrief_context`の`date`で指定する。
-日報の書き方はMCP側の一つの`writing_guidance`をPromptとContextで共有し、どちらの入口でも取得時に渡す。
+`daily-report`はローカル当日を指定してread-onlyの`tasken.get_activity(date)`を使う。
+別の日は画面の依頼文、または`get_activity`の`date`で指定する。
+日報の書き方は`src/main/mcp/server.mjs`の`DAILY_REPORT_WRITING_GUIDANCE`をPromptで共有する。
 
 このContextはboundedな当日ActivityとAIへ公開可能なSessionを返し、private pathやraw transcriptを含めない。
 

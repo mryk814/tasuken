@@ -519,20 +519,6 @@ test("Capture image query is exact across Core, HTTP, and MCP image content", as
     const overHttp = await client.getCaptureImage(args);
     assert.deepEqual(overHttp, inProcess);
 
-    const overMcp = await mcpCall(client, "tasken.get_capture_image", args);
-    assert.equal(overMcp.isError, undefined);
-    assert.equal(overMcp.content[0].type, "text");
-    assert.equal(overMcp.content[1].type, "image");
-    assert.equal(overMcp.content[1].mimeType, "image/png");
-    assert.equal(Buffer.from(overMcp.content[1].data, "base64").equals(bytes), true);
-    assert.doesNotMatch(JSON.stringify(overMcp.structuredContent), /data_base64/);
-
-    const missing = await mcpCall(client, "tasken.get_capture_image", {
-      capture_id: "capture-wave5",
-      file_name: "other.png",
-    });
-    assert.equal(missing.isError, true);
-
     workspace.tasks.push({
       id: "task-wave5-photo",
       title: "買い物リスト",
@@ -558,20 +544,6 @@ test("Capture image query is exact across Core, HTTP, and MCP image content", as
     assert.equal(taskInProcess.image?.mime_type, "image/png");
     const taskOverHttp = await client.getTaskImage(taskArgs);
     assert.deepEqual(taskOverHttp, taskInProcess);
-
-    const taskOverMcp = await mcpCall(client, "tasken.get_task_image", taskArgs);
-    assert.equal(taskOverMcp.isError, undefined);
-    assert.equal(taskOverMcp.content[0].type, "text");
-    assert.equal(taskOverMcp.content[1].type, "image");
-    assert.equal(taskOverMcp.content[1].mimeType, "image/png");
-    assert.equal(Buffer.from(taskOverMcp.content[1].data, "base64").equals(bytes), true);
-    assert.doesNotMatch(JSON.stringify(taskOverMcp.structuredContent), /data_base64/);
-
-    const taskMissing = await mcpCall(client, "tasken.get_task_image", {
-      task_id: "task-wave5-photo",
-      file_name: "other.png",
-    });
-    assert.equal(taskMissing.isError, true);
   } finally {
     try {
       await host?.stop();

@@ -589,23 +589,16 @@ test("proposal validators enforce public bounds and reject private paths, creden
   }
 });
 
-test("all fourteen proposal tools use their authenticated Core command owner", () => {
+test("all seven proposal tools use their authenticated Core command owner", () => {
   const source = fs.readFileSync("src/main/mcp/server.mjs", "utf8");
   const names = [
     "tasken.append_work_receipt",
     "tasken.report_task_done",
     "tasken.report_task_blocked",
-    "tasken.start_agent_session",
-    "tasken.finish_agent_session",
-    "tasken.propose_repository_context",
-    "tasken.propose_task",
     "tasken.propose_note",
     "tasken.propose_note_edit",
     "tasken.propose_feed_post",
     "tasken.answer_feed_question",
-    "tasken.propose_knowledge",
-    "tasken.propose_sketch",
-    "tasken.propose_artifact",
   ];
   for (const [index, name] of names.entries()) {
     const marker = new RegExp(`server\\.registerTool\\(\\s*"${name.replaceAll(".", "\\.")}"`, "g");
@@ -615,22 +608,11 @@ test("all fourteen proposal tools use their authenticated Core command owner", (
     const next = source.indexOf("server.registerTool(", start + registrations[0][0].length);
     const block = source.slice(start, next === -1 ? source.length : next);
     assert.match(block, /annotations: PROPOSAL_ANNOTATIONS/);
-    assert.match(
-      block,
-      index < 3
-        ? /queueTaskWork/
-        : index < 5
-          ? /queueAgentSession/
-          : index < 7
-            ? /queueRepositoryTask/
-            : /queueContent/,
-    );
+    assert.match(block, index < 3 ? /queueTaskWork/ : /queueContent/);
     assert.match(block, /withCoreClient/);
     assert.doesNotMatch(block, /queueMcpProposal/);
   }
   assert.match(source, /coreClient\.proposeTaskWork/);
-  assert.match(source, /coreClient\.proposeAgentSession/);
-  assert.match(source, /coreClient\.proposeRepositoryTask/);
   assert.match(source, /coreClient\.proposeContent/);
   assert.match(source, /expected_version: z\.number\(\)\.int\(\)\.nonnegative\(\)/);
   assert.match(source, /idempotency_key: z\.string\(\)\.trim\(\)\.min\(1\)\.max\(200\)/);
@@ -643,8 +625,6 @@ test("all fourteen proposal tools use their authenticated Core command owner", (
     /externalReferenceList = z\.array\(externalReferenceInput\)\.max\(100\)\.optional\(\)/,
   );
   assert.match(source, /body: z\.string\(\)\.min\(1\)\.max\(200000\)/);
-  assert.match(source, /svg: z\.string\(\)\.min\(1\)\.max\(500000\)/);
-  assert.match(source, /content: z\.string\(\)\.min\(1\)\.max\(1000000\)/);
   assert.match(source, /base_version: z\.number\(\)\.int\(\)\.positive\(\)/);
 });
 

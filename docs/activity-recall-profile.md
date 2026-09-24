@@ -60,8 +60,8 @@ Core の ActivityEntries は既存どおり自身の result_meta を返す。
 `tests/activity-recall-profile.test.mjs` で既定不変、入力・計画・AI段階、Capture の安定 ID / 重複排除、
 原本不変、2,000文字の索引上限、空結果、visibility、非公開参照、Schedule owner、
 件数上限と Core の日付/Task consumer・runtime schema を検証する。
-`tests/tasken-core-mcp-wave8-integration.test.mjs` では recall を Core → HTTP → MCP に通し、
-get_activity / get_activity_entries の同一結果と read_only を確認する。
+`tests/tasken-core-mcp-wave8-integration.test.mjs` では recall を Core → HTTP に通し、
+get_activity の MCP 到達と read_only を確認する（`get_activity_entries` はCore温存・MCP非公開）。
 
 `activityRecall.mjs` は Activity が所有する pure-domain の選択・分類ポリシーで、
 既存 shared-runtime の `activityProjection.mjs` だけから呼ぶ。Transport DTO は既存の

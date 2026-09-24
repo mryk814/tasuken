@@ -143,7 +143,7 @@ test("daily report request limits AI to proposal and leaves answers for human re
 
   assert.match(request, /daily-report/);
   assert.doesNotMatch(request, /debrief prompt/);
-  assert.match(request, /tasken\.get_debrief_context/);
+  assert.match(request, /tasken\.get_activity/);
   assert.match(request, /date: "2026-08-31"/);
   assert.match(request, /raw logは再収集しない/);
   assert.match(request, /tasken\.propose_note/);

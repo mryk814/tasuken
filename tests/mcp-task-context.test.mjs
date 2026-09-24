@@ -587,9 +587,6 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
       "tasken.append_work_receipt",
       "tasken.report_task_done",
       "tasken.report_task_blocked",
-      "tasken.start_agent_session",
-      "tasken.finish_agent_session",
-      "tasken.submit_agent_session_record",
     ]) {
       assert.equal(names.has(name), true);
     }
@@ -708,7 +705,7 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
   }
 });
 
-test("Agent Session MCP tools only queue reviewable start and finish proposals", async () => {
+test("Agent Session proposals queue reviewable records at Core level without MCP exposure", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-agent-session-mcp-"));
   fs.chmodSync(root, 0o700);
   const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
@@ -872,6 +869,14 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
   const client = new Client({ name: "tasken-agent-session-test", version: "1.0.0" });
   try {
     await client.connect(transport);
+    const names = new Set((await client.listTools()).tools.map((tool) => tool.name));
+    for (const name of [
+      "tasken.start_agent_session",
+      "tasken.finish_agent_session",
+      "tasken.submit_agent_session_record",
+    ]) {
+      assert.equal(names.has(name), false, `${name} must stay unexposed over MCP`);
+    }
     const startArgs = {
       idempotency_key: "agent-session-start-1",
       caller: "Codex",
@@ -889,19 +894,20 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
       repository_context_ids: ["repo-session"],
       working_copy_ids: ["working-copy-session"],
     };
-    const started = await client.callTool({
-      name: "tasken.start_agent_session",
-      arguments: startArgs,
+    const started = await core.proposeAgentSession.execute({
+      ...startArgs,
+      action: "start",
+      actor: { kind: "ai_agent" },
+      source: "mcp",
     });
-    assert.equal(started.isError, undefined, JSON.stringify(started));
-    assert.equal(started.structuredContent.status, "queued");
-    const sessionId = started.structuredContent.agent_session_id;
+    assert.equal(started.status, "queued");
+    const sessionId = started.agent_session_id;
     assert.equal(
       database.get("agent_session", sessionId),
       null,
       "MCP must not create official session data",
     );
-    const startProposal = database.get("ai_proposal", started.structuredContent.proposal_id);
+    const startProposal = database.get("ai_proposal", started.proposal_id);
     assert.equal(startProposal.payload_type, "agent_sessions");
     assert.equal(startProposal.request.source_session, "codex-thread-498");
     assert.equal(
@@ -918,11 +924,13 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
     for (const reference of startProposal.payload.agent_sessions[0].references) {
       database.save("reference", reference);
     }
-    const duplicate = await client.callTool({
-      name: "tasken.start_agent_session",
-      arguments: startArgs,
+    const duplicate = await core.proposeAgentSession.execute({
+      ...startArgs,
+      action: "start",
+      actor: { kind: "ai_agent" },
+      source: "mcp",
     });
-    assert.equal(duplicate.structuredContent.status, "duplicate");
+    assert.equal(duplicate.status, "duplicate");
 
     const contextRequest = {
       remote_url: "git@github.com:mryk814/tasuken.git",
@@ -960,43 +968,43 @@ test("Agent Session MCP tools only queue reviewable start and finish proposals",
         remaining_work: ["rendered QA"],
       },
     };
-    const finished = await client.callTool({
-      name: "tasken.finish_agent_session",
-      arguments: finishArgs,
+    const finished = await core.proposeAgentSession.execute({
+      ...finishArgs,
+      action: "finish",
+      actor: { kind: "ai_agent" },
+      source: "mcp",
     });
-    assert.equal(finished.isError, undefined, JSON.stringify(finished));
-    assert.equal(finished.structuredContent.status, "queued");
+    assert.equal(finished.status, "queued");
     assert.equal(
       database.get("agent_session", sessionId).status,
       "active",
       "finish must also wait for human review",
     );
-    const finishProposal = database.get("ai_proposal", finished.structuredContent.proposal_id);
+    const finishProposal = database.get("ai_proposal", finished.proposal_id);
     const proposedSession = finishProposal.payload.agent_sessions[0].session;
     assert.equal(proposedSession.status, "completed");
     assert.equal(proposedSession.intent.summary, "Implement Issue #498");
     assert.equal(proposedSession.outcome.summary, "Phase 3 proposal flow implemented");
 
-    const captured = await client.callTool({
-      name: "tasken.submit_agent_session_record",
-      arguments: {
-        idempotency_key: "agent-session-capture-1",
-        caller: "Codex lifecycle hook",
-        source_session: "codex-thread-collected",
-        source_app: "tasken-session-hook:codex",
-        started_at: "2026-08-25T12:00:00.000Z",
-        ended_at: "2026-08-25T13:00:00.000Z",
-        status: "completed",
-        client_kind: "codex",
-        intent: { summary: "Collect this session without a start approval dependency" },
-        outcome: { summary: "Queued one complete session record" },
-        repository_context_ids: ["repo-session"],
-      },
+    const captured = await core.proposeAgentSession.execute({
+      idempotency_key: "agent-session-capture-1",
+      caller: "Codex lifecycle hook",
+      source_session: "codex-thread-collected",
+      source_app: "tasken-session-hook:codex",
+      actor: { kind: "ai_agent" },
+      source: "mcp",
+      action: "capture",
+      started_at: "2026-08-25T12:00:00.000Z",
+      ended_at: "2026-08-25T13:00:00.000Z",
+      status: "completed",
+      client_kind: "codex",
+      intent: { summary: "Collect this session without a start approval dependency" },
+      outcome: { summary: "Queued one complete session record" },
+      repository_context_ids: ["repo-session"],
     });
-    assert.equal(captured.isError, undefined, JSON.stringify(captured));
-    assert.equal(captured.structuredContent.status, "queued");
-    assert.equal(database.get("agent_session", captured.structuredContent.agent_session_id), null);
-    const captureProposal = database.get("ai_proposal", captured.structuredContent.proposal_id);
+    assert.equal(captured.status, "queued");
+    assert.equal(database.get("agent_session", captured.agent_session_id), null);
+    const captureProposal = database.get("ai_proposal", captured.proposal_id);
     assert.equal(captureProposal.payload.agent_sessions[0].action, "capture");
     assert.equal(captureProposal.payload.agent_sessions[0].session.status, "completed");
     assert.equal(

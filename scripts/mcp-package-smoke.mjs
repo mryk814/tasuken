@@ -145,10 +145,6 @@ try {
         `(missing: ${missing.join(", ") || "none"}; unexpected: ${unexpected.join(", ") || "none"}).`,
     );
   }
-  for (const name of ["tasken.get_capture_image", "tasken.get_task_image"]) {
-    if (!listedNames.has(name)) throw new Error(`Packaged MCP photo tool missing: ${name}`);
-  }
-
   const read = await client.callTool({
     name: "tasken.list_open_items",
     arguments: { theme_id: "theme-mcp-package-smoke", limit: 10 },

@@ -141,7 +141,7 @@ Session、Memory、Trace、Stateは統合しない。
 1. 既存Theme、Task、Status Update、Session Packet、旧Debrief資料、Report Note、Snapshot、Import / Exportを読み続ける。
 2. Themeの概要`description`と日付付きStatus UpdateをCharter / Stateへ黙って移行しない。
 3. 空のCharter / Stateを入力必須にせず、既存Themeをそのまま保存・表示できる。
-4. MCPの既存`get_task_context`、`get_theme_context`、`get_debrief_context`のread-only・visibility・bounded契約を弱めない。
+4. MCPの既存`get_task_context`、`get_theme_context`のread-only・visibility・bounded契約を弱めない（目的別Viewと`get_debrief_context`は2026-09 slimmingで廃止し、`get_theme_context`へ一本化した）。
 5. Context ViewはTaskやThemeの状態を変更せず、AI報告から完了・判断・学習済みを推定保存しない。
 6. Rendererは汎用DBやfilesystemへ直接アクセスせず、既存の保存境界とCore queryを使う。
 

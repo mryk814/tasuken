@@ -223,7 +223,7 @@ test("Repository/Task proposal client requires its named capability and rejects 
   }
 });
 
-test("actual MCP stdio queues both tools through Core and never falls back to filesystem inbox", async () => {
+test("actual MCP stdio hides removed tools and queues kept proposals without filesystem inbox", async () => {
   const userDataPath = root("tasken-repository-task-stdio");
   const inboxPath = path.join(userDataPath, "must-not-exist");
   const database = new WorkspaceDatabase(path.join(userDataPath, "workspace.sqlite3"));
@@ -239,87 +239,33 @@ test("actual MCP stdio queues both tools through Core and never falls back to fi
   try {
     await client.connect(transport);
     const tools = await client.listTools();
+    const names = new Set(tools.tools.map((tool) => tool.name));
     for (const name of ["tasken.propose_repository_context", "tasken.propose_task"]) {
-      const schema = tools.tools.find((tool) => tool.name === name)?.inputSchema;
-      assert.ok(schema);
-      assert.equal(schema.required?.includes("idempotency_key") || false, false);
-      assert.equal(schema.required?.includes("caller") || false, false);
+      assert.equal(names.has(name), false, `${name} must stay unexposed over MCP`);
     }
-    const repository = await client.callTool({
-      name: "tasken.propose_repository_context",
+    const note = await client.callTool({
+      name: "tasken.propose_note",
       arguments: {
-        idempotency_key: "stdio-repository-1",
-        caller: "Codex",
-        source_session: "stdio-session",
-        label: "Tasuken",
-        remote_url: "https://github.com/mryk814/tasuken.git",
-      },
-    });
-    assert.equal(repository.isError, undefined);
-    assert.equal(repository.structuredContent.payload_type, "repository_contexts");
-    const task = await client.callTool({
-      name: "tasken.propose_task",
-      arguments: {
-        idempotency_key: "stdio-task-1",
+        idempotency_key: "stdio-note-1",
         caller: "Codex",
         source_session: "stdio-session",
         title: "Core-only proposal",
+        body: "Kept proposal path without filesystem inbox.",
       },
     });
-    assert.equal(task.isError, undefined);
-    assert.equal(task.structuredContent.payload_type, "items");
-    assert.equal(database.list("ai_proposal").length, 2);
-    const legacyRepository = await client.callTool({
-      name: "tasken.propose_repository_context",
-      arguments: {
-        label: "Legacy repository",
-        remote_url: "https://github.com/mryk814/tasuken.git",
-      },
-    });
-    assert.equal(legacyRepository.isError, undefined);
-    const legacyTaskFirst = await client.callTool({
-      name: "tasken.propose_task",
-      arguments: { title: "Legacy task" },
-    });
-    const legacyTaskSecond = await client.callTool({
-      name: "tasken.propose_task",
-      arguments: { title: "Legacy task" },
-    });
-    assert.equal(legacyTaskFirst.isError, undefined);
-    assert.equal(legacyTaskSecond.isError, undefined);
-    assert.notEqual(legacyTaskFirst.structuredContent.proposal_id, legacyTaskSecond.structuredContent.proposal_id);
-    for (const response of [legacyRepository, legacyTaskFirst, legacyTaskSecond]) {
-      const publicResult = JSON.stringify(response.structuredContent);
-      assert.equal(publicResult.includes("caller"), false);
-      assert.equal(publicResult.includes("inbox_path"), false);
-      assert.equal(publicResult.includes(userDataPath), false);
-    }
-    const optionalIdentityFirst = await client.callTool({
-      name: "tasken.propose_task",
-      arguments: { idempotency_key: "stdio-default-caller-1", title: "Default caller retry" },
-    });
-    const optionalIdentityRetry = await client.callTool({
-      name: "tasken.propose_task",
-      arguments: { idempotency_key: "stdio-default-caller-1", title: "Default caller retry" },
-    });
-    assert.equal(optionalIdentityFirst.structuredContent.status, "queued");
-    assert.equal(optionalIdentityRetry.structuredContent.status, "duplicate");
-    assert.equal(optionalIdentityRetry.structuredContent.proposal_id, optionalIdentityFirst.structuredContent.proposal_id);
-    const proposals = database.list("ai_proposal");
-    assert.equal(proposals.length, 6);
-    const defaultedProposals = proposals.filter((proposal) => [
-      legacyRepository.structuredContent.proposal_id,
-      legacyTaskFirst.structuredContent.proposal_id,
-      legacyTaskSecond.structuredContent.proposal_id,
-      optionalIdentityFirst.structuredContent.proposal_id,
-    ].includes(proposal.id));
-    assert.equal(defaultedProposals.every((proposal) => proposal.request.caller === "MCP client"), true);
-    assert.equal(defaultedProposals.some((proposal) => JSON.stringify(proposal).includes(userDataPath)), false);
+    assert.equal(note.isError, undefined);
+    assert.equal(note.structuredContent.status, "queued");
+    assert.equal(database.list("ai_proposal").length, 1);
     assert.equal(fs.existsSync(inboxPath), false);
     await host.stop();
     const unavailable = await client.callTool({
-      name: "tasken.propose_task",
-      arguments: { idempotency_key: "stdio-task-2", caller: "Codex", title: "No fallback" },
+      name: "tasken.propose_note",
+      arguments: {
+        idempotency_key: "stdio-note-2",
+        caller: "Codex",
+        title: "No fallback",
+        body: "Core is stopped.",
+      },
     });
     assert.equal(unavailable.isError, true);
     assert.equal(unavailable.structuredContent.error.code, "CORE_UNAVAILABLE");

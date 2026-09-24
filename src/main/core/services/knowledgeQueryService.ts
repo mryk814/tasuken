@@ -53,12 +53,12 @@ const KNOWLEDGE_NEXT_TOOLS = [
     description: "Theme単位の作業・Note・Knowledgeをまとめて読む。",
   },
   {
-    tool: "tasken.get_context_subgraph",
-    description: "対象Entityのbounded relation graphを読む。",
+    tool: "tasken.get_note",
+    description: "出典Noteの本文をstable IDで再取得する。",
   },
   {
-    tool: "tasken.propose_knowledge",
-    description: "追記が必要なら利用者レビュー用Knowledge案をqueueする。",
+    tool: "tasken.propose_note",
+    description: "追記が必要なら利用者レビュー用Note案をqueueする。",
   },
 ];
 const NOTE_NEXT_TOOLS = [
@@ -70,8 +70,8 @@ const HEALTH_NEXT_TOOLS = [
   { tool: "tasken.list_open_items", description: "公開対象のopen workを確認する。" },
   { tool: "tasken.get_theme_context", description: "対象Themeのbounded contextを読む。" },
   {
-    tool: "tasken.propose_task_update",
-    description: "修正が必要なら利用者レビュー用Task更新案をqueueする。",
+    tool: "tasken.get_task_context",
+    description: "対象Taskのbounded contextを読む。",
   },
 ];
 

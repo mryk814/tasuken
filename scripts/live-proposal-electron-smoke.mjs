@@ -33,7 +33,7 @@ const proposalArguments = {
   caller: "Electron live Proposal smoke",
   source_app: "electron-live-smoke",
   title,
-  description: "起動中Agent Deskへreloadなしで反映し、採用後にTaskへ収束する",
+  body: "起動中Agent Deskへreloadなしで反映し、採用後にNotesへ収束する",
 };
 
 let electronApp;
@@ -199,7 +199,7 @@ try {
   const routeBeforeProposal = await page.evaluate(() => location.hash);
 
   const queued = await mcpClient.callTool({
-    name: "tasken.propose_task",
+    name: "tasken.propose_note",
     arguments: proposalArguments,
   });
   assert.equal(queued.isError, undefined);
@@ -210,7 +210,7 @@ try {
   assert.equal(await page.evaluate(() => location.hash), routeBeforeProposal);
 
   const duplicate = await mcpClient.callTool({
-    name: "tasken.propose_task",
+    name: "tasken.propose_note",
     arguments: proposalArguments,
   });
   assert.equal(duplicate.structuredContent?.status, "duplicate");
@@ -218,7 +218,7 @@ try {
   await waitForPendingCount(page, 1);
 
   const conflict = await mcpClient.callTool({
-    name: "tasken.propose_task",
+    name: "tasken.propose_note",
     arguments: { ...proposalArguments, title: "同じkeyで異なる内容" },
   });
   assert.equal(conflict.isError, true);
@@ -246,9 +246,15 @@ try {
   await waitForPendingCount(page, 0);
   assert.doesNotMatch(await bodyText(page), /Proposalを採用できませんでした/);
 
-  await openNavigation(page, "ToDo");
+  await openNavigation(page, "Notes");
   await page.getByText(title, { exact: true }).waitFor();
   assert.equal(await page.getByText(title, { exact: true }).count(), 1);
+
+  await openNavigation(page, "ToDo");
+  await page.getByRole("button", { name: "タスクを追加", exact: true }).click();
+  await page.getByPlaceholder("タスク名").fill(title);
+  await page.getByRole("button", { name: "追加", exact: true }).click();
+  await page.getByText(title, { exact: true }).first().waitFor();
 
   const taskSearch = await callMcp("tasken.search_items", { query: title, limit: 10 });
   const taskItem = taskSearch.items?.find(
@@ -404,7 +410,7 @@ try {
   );
 
   const rejected = await mcpClient.callTool({
-    name: "tasken.propose_task",
+    name: "tasken.propose_note",
     arguments: {
       ...proposalArguments,
       idempotency_key: "electron-live-proposal-reject-v1",
@@ -420,7 +426,7 @@ try {
     .click();
   await waitForPendingCount(page, 0);
 
-  await openNavigation(page, "ToDo");
+  await openNavigation(page, "Notes");
   assert.equal(await page.getByText(rejectedTitle, { exact: true }).count(), 0);
 
   await mcpClient.close();
@@ -434,7 +440,8 @@ try {
       liveWithoutReload: true,
       duplicateSuppressed: true,
       conflictGuidance: true,
-      acceptedTaskVisible: true,
+      acceptedNoteVisible: true,
+      taskCreatedViaUi: true,
       taskMarkedAiReady: true,
       taskWorkImplicitlyStarted: true,
       taskWorkAdoptedWithoutCompletion: true,
@@ -443,7 +450,7 @@ try {
       staleTaskWorkGuidance: true,
       staleTaskWorkRecovered: true,
       taskWorkAppliedOnce: true,
-      rejectedTaskAbsent: true,
+      rejectedNoteAbsent: true,
       embeddedProviderSurfaceAbsent: true,
     }),
   );
