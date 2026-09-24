@@ -251,7 +251,7 @@ try {
   assert.ok((await page.getByText(title, { exact: true }).count()) >= 1);
 
   await openNavigation(page, "ToDo");
-  await page.getByRole("button", { name: "タスクを追加", exact: true }).click();
+  await page.getByRole("button", { name: "タスクを追加", exact: true }).first().click();
   await page.getByPlaceholder("タスク名").fill(title);
   await page.getByRole("button", { name: "追加", exact: true }).click();
   await page.getByText(title, { exact: true }).first().waitFor();
