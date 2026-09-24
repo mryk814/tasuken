@@ -1473,8 +1473,8 @@ export function FeedPage(props: PageProps) {
             </p>
           ) : null}
 
-          {/* 自分の投稿欄。Feed専用の投稿へ保存し、Notesには残さない。 */}
-          {tab !== "needs" && !usingFixtures ? (
+          {/* 自分の投稿欄。Feed専用の投稿へ保存し、Notesには残さない。実データ0件のfixture表示中も出す。初投稿で実データ表示へ切り替わる。 */}
+          {tab !== "needs" ? (
             <form
               className="feed-compose"
               onSubmit={(event) => {
