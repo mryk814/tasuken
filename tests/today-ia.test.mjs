@@ -58,8 +58,8 @@ test("扱う日のメニューは5つの選択肢とUndoを持つ（#454）", ()
   assert.match(todayPageSource, /label: "元に戻す"/);
 });
 
-test("Todayは期限の確認を持ち、実行一覧と候補棚に丸ごと重複させない（#454）", () => {
-  assert.match(todayPageSource, /<h2>期限の確認<\/h2>/);
+test("Todayは期限の確認セクションを持たず、候補棚の4件へ集約する（#454）", () => {
+  assert.doesNotMatch(todayPageSource, /<h2>期限の確認<\/h2>/);
   assert.match(todayPageSource, /isDeadlineReviewRow/);
   assert.match(todayPageSource, /shelfOverdueRows/);
   assert.doesNotMatch(todayPageSource, /rows=\{dailyCandidates\.overdue\.slice/);

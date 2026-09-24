@@ -6,11 +6,11 @@
  * 次を実測する。
  *
  * 1. ToDoの5つの状態が正しい行にだけ出る（当てはまらない行には出ない）
- * 2. Todayの「AIから届いたこと」が最大3件で、届いた順に並ぶ
- * 3. 読む操作がFeedのスレッドへ行く
- * 4. 最後にFeedを見たあとの学びが、Feedを見た後は出ない
- * 5. 届いた情報が無いときはセクションごと消える
- * 6. 状態chipがTask詳細を開く
+ * 2. Todayに「AIから届いたこと」のセクションが出ない（AIの対応はFeedに集約）
+ * 3. 状態chipがTask詳細を開く
+ * 4. ToDoの確認待ちの「Feedで確認」がFeedへ移動する
+ * 5. Feedの「対応待ち」タブに要対応の一覧と「提案の確認」が出る
+ * 6. 届いた情報が無いときもTodayにAIの見出しが出ない
  *
  *   npm run build && npm run audit:today-arrivals
  *
@@ -101,18 +101,18 @@ async function runMainPhase() {
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(3500);
 
-    // --- まだFeedを見ていないときは、届いた学びを出さない ---
-    // 最後に見た時刻の印が無い状態では、届いた記事の判定そのものを行わない。
+    // --- TodayにAIの到着セクションを出さない ---
+    // 最後に見た時刻の印が無い状態でも、ある状態でも、TodayはAIの対応を出さない。
     await seedMarkers(page, "");
     await page.reload();
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(3500);
-    const beforeFeed = (await page.locator(".today-arrivals-row").allInnerTexts()).map(squeeze);
-    if (beforeFeed.some((text) => text.includes("同じ条件で測り直すと"))) {
-      failures.push("Feedをまだ見ていないのに、届いた学びが出ています。");
+    if (await page.locator(".today-arrivals-panel").count()) {
+      failures.push("Todayに「AIから届いたこと」のセクションが出ています。");
     }
-    if (beforeFeed.length !== 2) {
-      failures.push(`Feed閲覧前のTodayの到着が2件ではありません（${beforeFeed.length}件）。`);
+    const todayBody = squeeze(await page.locator(".page.today-page").innerText());
+    if (todayBody.includes("AIから届いたこと")) {
+      failures.push("Todayに「AIから届いたこと」の見出しが残っています。");
     }
     await page.screenshot({ path: `${OUT_DIR}/today-arrivals-before-feed.png`, fullPage: true });
 
@@ -166,129 +166,48 @@ async function runMainPhase() {
       }
       await page.screenshot({ path: `${OUT_DIR}/todo-ai-chip-detail.png`, fullPage: true });
       await page.locator(".drawer-header button", { hasText: "閉じる" }).first().click();
-      // 閉じ終わるまで待つ。開いたまま次へ進むと、読む操作の行き先を測り違える。
+      // 閉じ終わるまで待つ。開いたまま次へ進むと、行き先の判定を測り違える。
       await page.waitForFunction(() => document.querySelectorAll(".drawer").length === 0, null, {
         timeout: 5000,
       });
     }
 
-    // --- Feedを見る（最後に見た時刻の印が更新される） ---
+    // --- ToDoの確認待ちは「Feedで確認」でFeedへ行く ---
+    const reviewChipRow = chipRows("確認待ち").first();
+    const feedButton = reviewChipRow.locator(".text-button", { hasText: "Feedで確認" });
+    if (!(await feedButton.count())) {
+      failures.push("確認待ちの行に「Feedで確認」がありません。");
+    } else {
+      await feedButton.click();
+      await page.waitForTimeout(1500);
+      if (!(await page.locator(".page.feed-page").count())) {
+        failures.push("「Feedで確認」がFeedへ移動していません。");
+      }
+      await page.screenshot({ path: `${OUT_DIR}/today-arrival-handling.png`, fullPage: true });
+    }
+
+    // --- Feedの「対応待ち」タブに要対応の一覧と「提案の確認」が出る ---
     await nav(page, "Feed").click();
     await page.waitForTimeout(2500);
     if (!(await page.locator(".page.feed-page").count())) {
       throw new Error("Feedが表示されていません。");
     }
-
-    // --- Todayの「AIから届いたこと」: 最大3件を、届いた順に出す ---
-    await nav(page, "Today").click();
-    await page.waitForTimeout(1500);
-    const arrivals = page.locator(".today-arrivals-row");
-    const rowCount = await arrivals.count();
-    if (rowCount !== 3) {
-      failures.push(`Todayの到着が3件ではありません（${rowCount}件）。`);
+    await page.locator("#feed-tab-needs").click();
+    await page.waitForTimeout(1200);
+    if (!(await page.locator("#feed-panel-needs").count())) {
+      failures.push("Feedの「対応待ち」タブが開きません。");
     }
-    const arrivalTexts = (await arrivals.allInnerTexts()).map(squeeze);
-    const expectedArrivals = [
-      ["測定温度が決まっていません。", "回答待ち", "Codex"],
-      ["再集計の結果をまとめました。", "成果確認", "Codex"],
-      ["同じ条件で測り直すと", "学び", "Claude Code"],
-    ];
-    if (arrivalTexts.length === 3) {
-      const plain = arrivalTexts.map((text) =>
-        text.replace(/[0-9]+月[0-9]+日 [0-9]{2}:[0-9]{2}/u, ""),
-      );
-      for (const [index, [title, state, actor]] of expectedArrivals.entries()) {
-        const text = plain[index];
-        for (const expected of [title, state, actor]) {
-          if (!text.includes(expected)) {
-            failures.push(`Todayの到着${index + 1}件目に「${expected}」がありません: ${text}`);
-          }
-        }
-      }
+    const needsText = squeeze(await page.locator("#feed-panel-needs").innerText());
+    if (!needsText.includes("回答待ち")) {
+      failures.push(`対応待ちに回答待ちが出ていません: ${needsText.slice(0, 160)}`);
+    }
+    if (needsText.includes("変更案") && !needsText.includes("提案の確認")) {
+      failures.push("変更案の一覧行と提案パネルが二重に出ています。");
+    }
+    if (!(await page.locator("#feed-panel-needs .proposal-inbox-panel").count())) {
+      failures.push("対応待ちに「提案の確認」が出ていません。");
     }
     await page.screenshot({ path: `${OUT_DIR}/today-arrivals.png`, fullPage: true });
-
-    // --- 読む操作はFeedへ行く（回答待ちの一件） ---
-    await arrivals.first().locator(".today-arrivals-open").click();
-    await page.waitForTimeout(2500);
-    const afterReading = await page.evaluate(() => ({
-      feed: document.querySelectorAll(".page.feed-page").length,
-      today: document.querySelectorAll(".page.today-page").length,
-      drawers: document.querySelectorAll(".drawer").length,
-    }));
-    if (!afterReading.feed) {
-      failures.push("到着の「読む」がFeedへ移動していません。");
-    }
-    if (afterReading.drawers) {
-      failures.push("到着の「読む」がTask詳細を開いています。");
-    }
-    await page.screenshot({ path: `${OUT_DIR}/today-arrival-reading.png`, fullPage: true });
-
-    // --- 学びの一件はFeedのスレッドで開く ---
-    await nav(page, "Today").click();
-    await page.waitForTimeout(1200);
-    const articleRow = page.locator(".today-arrivals-row", { hasText: "同じ条件で測り直すと" });
-    if (await articleRow.count()) {
-      await articleRow.locator(".today-arrivals-open").first().click();
-      await page.waitForTimeout(2500);
-      const thread = squeeze(await page.locator(".feed-thread-panel").innerText());
-      if (!thread.includes("同じ条件で測り直すと")) {
-        failures.push(`学びの「読む」がFeedのスレッドを開いていません: ${thread.slice(0, 160)}`);
-      }
-      await page.screenshot({ path: `${OUT_DIR}/today-arrival-thread.png`, fullPage: true });
-    } else {
-      failures.push("Todayに学びの到着がありません。");
-    }
-
-    // --- 成果確認はTask詳細を開く（採用するかどうかをその場で決める） ---
-    await nav(page, "Today").click();
-    await page.waitForTimeout(1200);
-    const reviewRow = page.locator(".today-arrivals-row", { hasText: "成果確認" });
-    if (await reviewRow.count()) {
-      await reviewRow.locator(".today-arrivals-open").first().click();
-      await page.waitForTimeout(1200);
-      const reviewTitle = page
-        .locator('.drawer form.drawer-form[data-entity-type="task"] input[name="title"]')
-        .first();
-      if (!(await reviewTitle.count())) {
-        failures.push("成果確認の「読む」がTask詳細を開いていません。");
-      } else if ((await reviewTitle.inputValue()) !== "再集計の結果をまとめる") {
-        failures.push(`成果確認が開いたTaskが違います: ${await reviewTitle.inputValue()}`);
-      }
-      await page.screenshot({ path: `${OUT_DIR}/today-arrival-review.png`, fullPage: true });
-      await page.locator(".drawer-header button", { hasText: "閉じる" }).first().click();
-      await page.waitForFunction(() => document.querySelectorAll(".drawer").length === 0, null, {
-        timeout: 5000,
-      });
-    } else {
-      failures.push("Todayに成果確認の到着がありません。");
-    }
-
-    // --- 処理する操作はAgent Deskへ行く ---
-    const beforeHandle = await page.locator(".today-arrivals-row").count();
-    if (beforeHandle) {
-      await page
-        .locator(".today-arrivals-row .text-button", { hasText: "Agent Desk" })
-        .first()
-        .click();
-      await page.waitForTimeout(1500);
-      if (!(await page.locator(".agent-desk").count())) {
-        failures.push("到着の「Agent Desk」がAgent Deskへ移動していません。");
-      }
-      await page.screenshot({ path: `${OUT_DIR}/today-arrival-handling.png`, fullPage: true });
-    }
-
-    // --- 判断待ちは、Feedを見ただけでは減らない ---
-    await nav(page, "Today").click();
-    await page.waitForTimeout(1200);
-    const afterFeed = (await page.locator(".today-arrivals-row").allInnerTexts()).map(squeeze);
-    if (!afterFeed[0]?.includes("測定温度が決まっていません。")) {
-      failures.push("Feedを見ただけで回答待ちがTodayから消えています。");
-    }
-    if (!afterFeed.some((text) => text.includes("再集計の結果をまとめました。"))) {
-      failures.push("Feedを見ただけで成果確認がTodayから消えています。");
-    }
-    await page.screenshot({ path: `${OUT_DIR}/today-after-feed.png`, fullPage: true });
 
     // --- 狭幅でも横あふれしない ---
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 680));
@@ -370,9 +289,9 @@ try {
 }
 
 if (failures.length) {
-  console.error(`Today到着監査で${failures.length}件の問題を検出しました。`);
+  console.error(`Today AI非表示・ToDo委任監査で${failures.length}件の問題を検出しました。`);
   for (const failure of failures) console.error(`  NG ${failure}`);
   console.error(`スクリーンショット: ${OUT_DIR}`);
   process.exit(1);
 }
-console.log(`Today到着監査: OK（スクリーンショットは ${OUT_DIR}）`);
+console.log(`Today AI非表示・ToDo委任監査: OK（スクリーンショットは ${OUT_DIR}）`);

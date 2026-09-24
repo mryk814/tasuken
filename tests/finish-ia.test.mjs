@@ -59,7 +59,7 @@ test("sidebar count badges are limited to action-driving counts", () => {
   assert.doesNotMatch(shellSource, /dueWaitings/);
   assert.doesNotMatch(shellSource, /knowledgeHealthIssueCount/);
   assert.doesNotMatch(shellSource, /knowledge:\s*knowledgeHealthIssueCount/);
-  assert.match(shellSource, /"ai-io": proposalCount/);
+  assert.match(shellSource, /feed: proposalCount/);
 });
 
 test("shortcut dialog lists capture window and tray-oriented entries", () => {

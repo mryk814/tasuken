@@ -2745,8 +2745,9 @@ async function startDesktopApp(): Promise<void> {
     batchTranscriptionRepository,
     screenRecording,
     feedLinkPreview,
-    (types) => {
-      notifyMainWindowRefresh();
+    (types, change) => {
+      // 差分があればそのまま配り、全体再読込は受け側の判断に残す。
+      notifyMainWindowRefresh(change);
       notifyTodayMiniRefresh(types);
     },
     notifyCommandApplied,

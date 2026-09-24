@@ -19,6 +19,10 @@ const importExportPageSource = readFileSync(
   "src/renderer/src/features/workspace/pages/ImportExportPage.tsx",
   "utf8",
 );
+const feedPageSource = readFileSync(
+  "src/renderer/src/features/workspace/pages/FeedPage.tsx",
+  "utf8",
+);
 const chatRefsPageSource = readFileSync(
   "src/renderer/src/features/workspace/pages/ChatRefsPage.tsx",
   "utf8",
@@ -74,7 +78,9 @@ test("Agent Desk no longer owns document publish or AI context export", () => {
     importExportPageSource,
     /buildExportData|buildAiImportPrompt|buildAiOrganizePrompt/,
   );
-  assert.match(importExportPageSource, /AiProposalPanel/);
+  // 提案の確認はFeedの「対応待ち」タブに集約し、ai-ioには置かない。
+  assert.doesNotMatch(importExportPageSource, /AiProposalPanel/);
+  assert.match(feedPageSource, /<AiProposalPanel/);
   assert.match(notesPageSource, /showDocumentPublish/);
   assert.match(notesPageSource, /exportSelectedMarkdown/);
   // Resource / Prompt は出力しない。Note と Report だけ一括出力。

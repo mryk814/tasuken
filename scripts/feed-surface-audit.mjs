@@ -47,8 +47,9 @@ const SIZES = [
   { label: "min-980", width: 980, height: 680 },
 ];
 const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
-/** 隔離workspaceに入れる判断の数（質問1・成果確認1・変更案1）。 */
+/** 隔離workspaceに入れる判断の数（質問1・成果確認1・変更案1）。変更案は一覧行ではなく「提案の確認」パネルに出る。 */
 const EXPECTED_UNRESOLVED = 3;
+const EXPECTED_NEEDS_ROWS = 2;
 /** 投稿の本文は読み物として16px以上にする。 */
 const MIN_BODY_FONT_PX = 16;
 const MIN_POSTS = 12;
@@ -258,7 +259,7 @@ async function auditFixtures(app, page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/learn.png`, fullPage: true });
 
-  // 6. 対応待ちは実データ（隔離workspaceの判断3件）。
+  // 6. 対応待ちは実データ（隔離workspaceの判断3件）。変更案は一覧行ではなく「提案の確認」に出る。
   await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
   await page.waitForTimeout(600);
   const unresolvedText = (await page.locator(".feed-tab-count").first().innerText()).trim();
@@ -266,8 +267,12 @@ async function auditFixtures(app, page) {
     failures.push(`対応待ちの件数が${EXPECTED_UNRESOLVED}件ではありません（${unresolvedText}）。`);
   }
   const needsRows = await page.locator(".feed-needs-row").count();
-  if (needsRows !== EXPECTED_UNRESOLVED) {
-    failures.push(`対応待ちの行数が${EXPECTED_UNRESOLVED}件ではありません（${needsRows}）。`);
+  if (needsRows !== EXPECTED_NEEDS_ROWS) {
+    failures.push(`対応待ちの行数が${EXPECTED_NEEDS_ROWS}件ではありません（${needsRows}）。`);
+  }
+  const proposalPanelText = await page.locator(".proposal-inbox-panel").first().innerText();
+  if (!proposalPanelText.includes("測定手順のNoteを作る案")) {
+    failures.push("対応待ちの「提案の確認」に変更案が出ていません。");
   }
   await page.screenshot({ path: `${OUT_DIR}/needs.png`, fullPage: true });
 
@@ -605,8 +610,12 @@ async function auditLivePost(page) {
     );
   }
   const needsRows = await page.locator(".feed-needs-row").count();
-  if (needsRows !== EXPECTED_UNRESOLVED) {
-    failures.push(`対応待ちの行数が${EXPECTED_UNRESOLVED}件ではありません（${needsRows}）。`);
+  if (needsRows !== EXPECTED_NEEDS_ROWS) {
+    failures.push(`対応待ちの行数が${EXPECTED_NEEDS_ROWS}件ではありません（${needsRows}）。`);
+  }
+  const liveProposalPanelText = await page.locator(".proposal-inbox-panel").first().innerText();
+  if (!liveProposalPanelText.includes("測定手順のNoteを作る案")) {
+    failures.push("対応待ちの「提案の確認」に変更案が出ていません。");
   }
   await page.screenshot({ path: `${OUT_DIR}/live-needs.png`, fullPage: true });
 
@@ -787,15 +796,19 @@ async function auditLivePost(page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/live-own-post.png`, fullPage: true });
 
-  // 外すとFeedから消え、メモはNotesに残る。載せ直すと同じように投稿へ戻る。
-  await page.locator(".feed-reaction", { hasText: "Feedから外す" }).first().click();
+  // 削除するとFeedから消える。載せ直すと新しい投稿として戻る。
+  await page
+    .locator(".feed-post", { hasText: LIVE_OWN_POST_BODY })
+    .first()
+    .locator(".feed-reaction", { hasText: "削除" })
+    .click();
   await page.waitForTimeout(1500);
   const rootsAfterRemove = await page.locator(".feed-posts .feed-post").count();
   if (rootsAfterRemove !== 1) {
-    failures.push(`Feedから外しても投稿が残っています（${rootsAfterRemove}件）。`);
+    failures.push(`削除しても投稿が残っています（${rootsAfterRemove}件）。`);
   }
   if ((await page.locator(".feed-timeline").innerText()).includes(LIVE_OWN_POST_BODY)) {
-    failures.push("Feedから外した本文が残っています。");
+    failures.push("削除した本文が残っています。");
   }
   await composer.fill(LIVE_OWN_POST_BODY);
   await page.locator(".feed-compose button", { hasText: "Feedへ投稿" }).click();

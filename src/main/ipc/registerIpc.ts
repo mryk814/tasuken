@@ -48,6 +48,7 @@ import type {
   AutomaticSnapshotBackupConfig,
   ViewPreferenceEnvelope,
   ViewPreferenceChange,
+  WorkspaceChangePayload,
 } from "../../shared/ipc/contracts";
 
 interface WorkspaceRepository {
@@ -213,7 +214,7 @@ export function registerIpc(
   batchTranscription: TranscriptionHistoryReader,
   screenRecording: ScreenRecordingService,
   feedLinkPreview: FeedLinkPreviewService,
-  notifyEntitiesChanged: (types: EntityType[]) => void = () => {},
+  notifyEntitiesChanged: (types: EntityType[], change?: WorkspaceChangePayload) => void = () => {},
   notifyCommandApplied: (
     receipt: CommandReceipt | CommandReceipt[],
     senderId: number,
@@ -650,10 +651,19 @@ export function registerIpc(
       normalizedEntity as Entity,
       normalizeIpcSaveOptions(options),
     );
-    notifyEntitiesChanged([entityType]);
-    return saved && typeof saved === "object"
-      ? projectEntityForRenderer(entityType, saved as Entity)
-      : saved;
+    const projected =
+      saved && typeof saved === "object"
+        ? projectEntityForRenderer(entityType, saved as Entity)
+        : saved;
+    // 保存した1件だけを配る。受け側は差分適用で済ませ、workspace:load全量の再読込はしない。
+    if (projected && typeof projected === "object" && !Array.isArray(projected)) {
+      notifyEntitiesChanged([entityType], {
+        entities: [{ type: entityType, entity: projected as Entity }],
+      });
+    } else {
+      notifyEntitiesChanged([entityType]);
+    }
+    return projected;
   });
   ipcMain.handle(IPC.workLogRecord, (_event, command) => {
     const receipt = service.recordWorkLog(command);
@@ -686,16 +696,25 @@ export function registerIpc(
           : operation,
       ),
     );
-    notifyEntitiesChanged(types);
-    return Array.isArray(saved)
+    const changes: Array<{ type: EntityType; entity: Entity }> = [];
+    const projected = Array.isArray(saved)
       ? saved.map((entity, index) => {
           const operation = operations[index] as Record<string, unknown> | undefined;
           const type = operation ? requireEntityType(operation.type) : null;
-          return type && entity && typeof entity === "object"
-            ? projectEntityForRenderer(type, entity as Entity)
-            : entity;
+          const next =
+            type && entity && typeof entity === "object"
+              ? projectEntityForRenderer(type, entity as Entity)
+              : entity;
+          if (type && next && typeof next === "object" && !Array.isArray(next)) {
+            changes.push({ type, entity: next as Entity });
+          }
+          return next;
         })
       : saved;
+    // 保存分だけを配る。受け側は差分適用で済ませ、workspace:load全量の再読込はしない。
+    if (changes.length) notifyEntitiesChanged(types, { entities: changes });
+    else notifyEntitiesChanged(types);
+    return projected;
   });
   ipcMain.handle(IPC.entityRemove, (_event, type, id) => {
     const entityType = requireEntityType(type);

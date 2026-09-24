@@ -120,7 +120,7 @@ export const ROUTE_DEFINITIONS = {
     id: "ai-io",
     label: "Agent Desk",
     description:
-      "任せた仕事の進みと待ちを確認し、回答・成果確認・変更案の採否を行います。外部AIから届いたProposalもここで確認します。",
+      "任せた仕事の進み具合（対応待ち・作業中・開始待ち・最近の結果）を確認します。変更案の採否はFeedの「対応待ち」で行います。",
     icon: IconSparkles,
     semanticRole: "tool",
     availability: "always",

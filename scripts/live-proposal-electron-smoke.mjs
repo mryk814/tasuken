@@ -77,6 +77,14 @@ async function openNavigation(page, label) {
   await page.getByText(label, { exact: true }).first().click();
 }
 
+async function openProposalConfirmation(page) {
+  // 提案の確認はFeedの「対応待ち」タブへ集約した（ai-ioは作業状況のみ）。
+  // 同じAiProposalPanelが載るため、行選択・プレビュー・採否の選択子はそのまま使える。
+  await openNavigation(page, "Feed");
+  await page.locator("#feed-tab-needs").click();
+  await page.locator(".proposal-inbox-panel").waitFor();
+}
+
 async function waitForPendingCount(page, expected) {
   await page.waitForFunction(
     (count) =>
@@ -186,7 +194,7 @@ try {
   assert.equal(String(core.api_version), "1");
   mcpClient = await connectMcp();
 
-  await openNavigation(page, "Agent Desk");
+  await openProposalConfirmation(page);
   await waitForPendingCount(page, 0);
   const routeBeforeProposal = await page.evaluate(() => location.hash);
 
@@ -231,7 +239,7 @@ try {
   assert.match(diagnosticsText, /Pending Proposal\n1件/);
   assert.doesNotMatch(diagnosticsText, /API key|AI Provider|OpenAI/);
 
-  await openNavigation(page, "Agent Desk");
+  await openProposalConfirmation(page);
   await page.locator(".proposal-row-select").first().click();
   assert.match(await page.locator(".proposal-inline-preview").innerText(), new RegExp(title));
   await page.getByRole("button", { name: "採用", exact: true }).click();
@@ -281,7 +289,7 @@ try {
   staleWorkArguments.completed_checklist_item_ids = ["stale-checklist-item"];
   const staleWork = await callMcp("tasken.append_work_receipt", staleWorkArguments);
   assert.equal(staleWork.status, "queued");
-  await openNavigation(page, "Agent Desk");
+  await openProposalConfirmation(page);
   await waitForPendingCount(page, 1);
   await page.locator(".proposal-row-select").first().waitFor();
   await page.locator(".proposal-row-select").first().click();
@@ -370,7 +378,7 @@ try {
     }),
   );
   assert.equal(followUp.status, "queued");
-  await openNavigation(page, "Agent Desk");
+  await openProposalConfirmation(page);
   await waitForPendingCount(page, 1);
   await page.locator(".proposal-row-select").first().click();
   await page

@@ -13,6 +13,10 @@ const importExportPageSource = readFileSync(
   "src/renderer/src/features/workspace/pages/ImportExportPage.tsx",
   "utf8",
 );
+const feedPageSource = readFileSync(
+  "src/renderer/src/features/workspace/pages/FeedPage.tsx",
+  "utf8",
+);
 const aiProposalPanelSource = readFileSync(
   "src/renderer/src/features/workspace/components/AiProposalPanel.tsx",
   "utf8",
@@ -39,10 +43,12 @@ test("AI proposals use the existing AI route beside Inbox with an action count",
   );
 });
 
-test("Agent Desk contains only the safe proposal review surface", () => {
+test("Feed hosts the safe proposal review surface", () => {
   assert.match(importExportPageSource, /PageHeader route="ai-io"/);
   assert.match(importExportPageSource, /ai-inbox-page/);
-  assert.match(importExportPageSource, /AiProposalPanel/);
+  assert.match(importExportPageSource, /AgentDeskPanel/);
+  assert.doesNotMatch(importExportPageSource, /AiProposalPanel/);
+  assert.match(feedPageSource, /<AiProposalPanel/);
   assert.match(aiProposalPanelSource, /export function AiProposalPanel/);
   assert.match(aiProposalPanelSource, /<h2>提案の確認<\/h2>/);
   assert.match(aiProposalPanelSource, /処理履歴/);
@@ -198,8 +204,8 @@ test("Agent Deskは旧deep linkと選択状態を壊さない（#600）", () => 
   // 旧称を表示名として復活させない。
   assert.doesNotMatch(routesSource, /label: "AI Inbox"/);
   assert.doesNotMatch(routesSource, /label: "AI IO"/);
-  // TaskなしProposalと履歴は同じ面から到達できる。
-  assert.match(importExportPageSource, /<AiProposalPanel/);
+  // TaskなしProposalと履歴はFeedの「対応待ち」タブから到達できる。
+  assert.match(feedPageSource, /<AiProposalPanel/);
   assert.match(aiProposalPanelSource, /<h2>提案の確認<\/h2>/);
   assert.match(aiProposalPanelSource, /処理履歴/);
 });

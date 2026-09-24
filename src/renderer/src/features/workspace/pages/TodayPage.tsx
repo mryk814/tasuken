@@ -13,12 +13,12 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 
-import { AI_ICON } from "../../../pages/semanticIcons";
 import type {
   CalendarConnectionStatus,
   CalendarEvent,
   CalendarEventsResult,
 } from "../../../../../shared/calendar";
+import { AI_ICON } from "../../../pages/semanticIcons";
 import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
@@ -29,21 +29,7 @@ import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
 import { taskShelfStatus } from "../lib/taskShelves";
-import { buildAgentActivity } from "../lib/agentActivity";
-import {
-  authorIdForLabel,
-  authorOf,
-  FEED_AUTHORS,
-  FEED_POST_KIND_LABELS,
-  readFeedLastSeen,
-  requestFeedPostFocus,
-  type FeedAuthorId,
-  type FeedPost,
-} from "../lib/feedPosts";
-import {
-  buildAttentionQueue,
-  type AttentionItem,
-} from "../../../../../shared/contracts/task/public.ts";
+
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { HabitPanel } from "../components/HabitPanel";
 import { MaintenancePanel } from "../components/MaintenancePanel";
@@ -53,7 +39,6 @@ import {
   todayCalendarState,
 } from "../lib/calendarState";
 import { InlineAddPanel } from "../components/InlineAddPanel";
-import { AgentWorkSummaryPanel } from "../components/AgentWorkSummaryPanel";
 import { ToolbarMenu } from "../components/ToolbarMenu";
 import { WorkLogDialog } from "../components/WorkLogDialog";
 import { ChecklistProgressBadge, InlineTaskChecklist } from "../../task/public";
@@ -243,151 +228,6 @@ function reminderMeta(row: TodayRow, today: string): string {
 }
 
 /** 「AIから届いたこと」の一件。既存の出所から投影した値だけで作る。 */
-type TodayArrival = {
-  id: string;
-  authorId: FeedAuthorId;
-  label: string;
-  title: string;
-  at: string | null;
-  state: string;
-  /** 読む操作の行き先。 */
-  reading: "feed" | "task";
-  postId: string | null;
-  taskId: string | null;
-  /** 処理する操作（Agent Desk）を出すか。読むだけの学びでは出さない。 */
-  handling: boolean;
-};
-
-/** 届いた時刻。分からなくても空欄にせず、その旨を短く出す。 */
-function arrivalTimeLabel(value: string | null): string {
-  if (!value) return "時刻不明";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "時刻不明";
-  return `${date.getMonth() + 1}月${date.getDate()}日 ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
-/**
- * Todayの「AIから届いたこと」を最大三件へ絞る（計画フェーズ5）。
- *
- * 出すのは既存の投影だけで、新しいInbox Entityや既読の印は作らない。
- * (a) 回答・判断を待っているもの、(b) 確認待ちの成果、(c) 最後にFeedを見てから
- * 届いた学び、の順に採る。件数を埋めるための代用は出さない。
- */
-function buildTodayArrivals(input: {
-  attention: AttentionItem[];
-  posts: readonly FeedPost[];
-  lastSeen: number | null;
-}): TodayArrival[] {
-  const arrivals: TodayArrival[] = [];
-  const seen = new Set<string>();
-  const push = (arrival: TodayArrival) => {
-    if (seen.has(arrival.id) || arrivals.length >= 3) return;
-    seen.add(arrival.id);
-    arrivals.push(arrival);
-  };
-
-  for (const kind of ["answer_request", "decision_request", "review_report"] as const) {
-    for (const item of input.attention) {
-      if (item.kind !== kind) continue;
-      const label = item.agentLabel || "AI";
-      push({
-        id: `attention:${item.attentionId}`,
-        authorId: authorIdForLabel(label),
-        label,
-        title: item.headline || item.summary,
-        at: item.createdAt,
-        state:
-          item.kind === "answer_request"
-            ? "回答待ち"
-            : item.kind === "decision_request"
-              ? "判断待ち"
-              : "成果確認",
-        // 成果確認はTaskを開いて採用する。回答と判断はAgent Deskが正しい面。
-        reading: item.taskId && item.kind === "review_report" ? "task" : "feed",
-        postId: null,
-        taskId: item.taskId,
-        handling: true,
-      });
-    }
-  }
-
-  // 最後に見た時刻が分からないときは、届いた記事を出さない（推測しない）。
-  if (input.lastSeen === null) return arrivals;
-  for (const post of input.posts) {
-    if (post.kind !== "learning" && post.kind !== "insight") continue;
-    const at = Date.parse(post.createdAt);
-    if (!Number.isFinite(at) || at <= input.lastSeen) continue;
-    push({
-      id: `post:${post.id}`,
-      authorId: post.author,
-      label: authorOf(post).label,
-      title: post.paragraphs[0] || post.attachment?.title || "学びが届きました",
-      at: post.createdAt,
-      state: FEED_POST_KIND_LABELS[post.kind],
-      reading: "feed",
-      postId: post.id,
-      taskId: null,
-      handling: false,
-    });
-  }
-
-  return arrivals;
-}
-
-/**
- * AIから届いたこと（計画フェーズ5）。
- *
- * 読む操作だけを主操作にし、処理はAgent Deskへ渡す（Todayで往復を完結させない）。
- * 出す項目が無いときは、見出しも空の案内も残さずセクションごと消す。
- */
-function TodayArrivals({
-  arrivals,
-  onRead,
-  onHandle,
-}: {
-  arrivals: TodayArrival[];
-  onRead: (arrival: TodayArrival) => void;
-  onHandle: () => void;
-}) {
-  if (!arrivals.length) return null;
-  return (
-    <section className="panel today-arrivals-panel">
-      <div className="section-heading">
-        <h2>AIから届いたこと</h2>
-        <span>{arrivals.length}件</span>
-      </div>
-      <ul className="today-arrivals-list">
-        {arrivals.map((arrival) => {
-          const author = FEED_AUTHORS[arrival.authorId];
-          return (
-            <li className="today-arrivals-row" key={arrival.id}>
-              <span
-                className={`feed-avatar feed-avatar-${author.kind} feed-avatar-${author.id}`}
-                aria-label={author.label}
-              >
-                {author.initial}
-              </span>
-              <button type="button" className="today-arrivals-open" onClick={() => onRead(arrival)}>
-                <span className="today-arrivals-title">{arrival.title}</span>
-                <span className="today-arrivals-meta">
-                  <span className="today-arrivals-actor">{arrival.label}</span>
-                  <span>{arrival.state}</span>
-                  <span>{arrivalTimeLabel(arrival.at)}</span>
-                </span>
-              </button>
-              {arrival.handling ? (
-                <button type="button" className="text-button compact" onClick={onHandle}>
-                  Agent Desk
-                </button>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
-
 function TodayRows({
   rows,
   themes,
@@ -1180,7 +1020,6 @@ export function TodayPage({
   const schedules = schedulesByOwner(v2);
   /**
    * 締切が今日以前で、今日扱うと明示していないTask（#454）。
-   * 未来へ回したものは実行一覧から外すが、存在は「期限の確認」に残す。
    * `buildTodayView` は期限超過を含まないため、全Task行から導出する。
    */
   const isDeadlineReviewRow = (row: TodayRow): boolean => {
@@ -1200,12 +1039,7 @@ export function TodayPage({
   }));
   const dailyCandidates = buildDailyPlanningCandidates(dailyTaskRows, today);
   const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));
-  const deadlineReviewRows = taskRows.filter(isDeadlineReviewRow).sort(compareRows);
-  // 同じTaskを「期限の確認」と候補棚に丸ごと二重表示しない（#454）。
-  const deadlineReviewIds = new Set(deadlineReviewRows.map((row) => row.id));
-  const shelfOverdueRows = dailyCandidates.overdue.filter(
-    (row) => !deadlineReviewIds.has(row.task.id),
-  );
+  const shelfOverdueRows = dailyCandidates.overdue;
   const waitingRows = v2.waitings.map((waiting) =>
     waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)),
   );
@@ -1237,58 +1071,6 @@ export function TodayPage({
 
   const overdueWaitingCount = openWaitings.filter((row) => row.date && row.date < today).length;
 
-  /**
-   * AIから届いたこと（計画フェーズ5）。
-   *
-   * TodayはAIの新しい正本を持たない。要対応の投影、読み物の投影、
-   * 最後にFeedを見た時刻という既存の三つだけから導出する。
-   */
-  const agentActivity = buildAgentActivity({
-    tasks: v2.tasks,
-    proposals: data.ai_proposals,
-    receipts: data.work_receipts,
-    themes: data.themes,
-    feedReplies: data.feed_replies,
-  });
-  const arrivals = buildTodayArrivals({
-    attention: buildAttentionQueue({
-      tasks: v2.tasks,
-      proposals: data.ai_proposals,
-      receipts: data.work_receipts,
-      themes: data.themes,
-    }),
-    posts: agentActivity.flatMap((activity) => activity.posts),
-    lastSeen: readFeedLastSeen(),
-  });
-
-  /**
-   * 読む操作。
-   *
-   * 読み物はFeedのスレッドへ預けて移動する。回答・判断はFeedの要対応面へ、
-   * 成果確認だけはTask詳細を開き、採用するかどうかをその場で決められるようにする。
-   */
-  function handleOpenArrival(arrival: TodayArrival) {
-    if (arrival.reading === "feed") {
-      if (arrival.postId) requestFeedPostFocus(arrival.postId);
-      navigate("feed");
-      return;
-    }
-    const task = arrival.taskId
-      ? v2.tasks.find((entry) => String(entry.id) === arrival.taskId)
-      : undefined;
-    if (!task) {
-      navigate("feed");
-      return;
-    }
-    openDrawer({
-      type: "task",
-      mode: "edit",
-      entity: {
-        ...task,
-        _schedule: schedules.get(`task:${task.id}`),
-      } as Record<string, unknown>,
-    });
-  }
   async function handleToggleComplete(row: TodayRow) {
     if (row.v2?.type === "task") {
       const nextState = row.v2.task.state === "done" ? "todo" : "done";
@@ -1809,12 +1591,6 @@ export function TodayPage({
         />
       </section>
 
-      <TodayArrivals
-        arrivals={arrivals}
-        onRead={handleOpenArrival}
-        onHandle={() => navigate("ai-io")}
-      />
-
       {/* #454後半: 続けることの記録。Habitがある場合だけ現れる（空の設定案内を常設しない）。 */}
       <HabitPanel
         data={data}
@@ -1833,49 +1609,6 @@ export function TodayPage({
         removeEntityQuiet={removeEntityQuiet}
         setToast={setToast}
       />
-
-      {deadlineReviewRows.length > 0 && (
-        <section className="panel today-deadline-panel">
-          <div className="section-heading">
-            <h2>期限の確認</h2>
-            <span className="today-deadline-count">{deadlineReviewRows.length}</span>
-          </div>
-          {/*
-            締切が今日以前で、今日扱うと明示していないTaskをここへ残す（#454）。
-            実行一覧から外しても存在を隠さない。締切そのものは変更しない。
-          */}
-          <ul className="today-deadline-list">
-            {deadlineReviewRows.map((row) => {
-              const plannedDate =
-                row.v2?.type === "task" && row.v2.task.today_date
-                  ? formatDate(row.v2.task.today_date)
-                  : "";
-              return (
-                <li className="today-deadline-row" key={row.id}>
-                  <button
-                    className="today-deadline-open"
-                    type="button"
-                    onClick={() => handleOpenDetail(row)}
-                  >
-                    {row.title}
-                  </button>
-                  <span className="today-deadline-meta">
-                    締切 {formatDate(row.date)}
-                    {plannedDate ? `／${plannedDate}扱う` : ""}
-                  </span>
-                  <Button
-                    variant="secondary"
-                    compact
-                    onClick={() => void handleChangeTodayDate(row, addDays(today, 1))}
-                  >
-                    明日扱う
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
 
       <section className="panel task-shelf-panel">
         <div className="section-heading">
@@ -2009,19 +1742,6 @@ export function TodayPage({
           />
         </section>
       </div>
-
-      <AgentWorkSummaryPanel
-        domain={v2}
-        date={today}
-        includeUnresolved
-        title="AI work"
-        openDrawer={openDrawer}
-        saveEntities={saveEntities}
-        onOpenTheme={(themeId) => {
-          setActiveThemeId(themeId);
-          navigate("theme");
-        }}
-      />
     </div>
   );
 }
