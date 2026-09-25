@@ -53,6 +53,7 @@
     "audit:feed:bulk": "node scripts/feed-surface-audit.mjs --bulk",
     "audit:feed:note": "node scripts/feed-surface-audit.mjs --note-ref",
     "audit:feed:media": "node scripts/feed-surface-audit.mjs --media",
+    "audit:feed:empty": "node scripts/feed-surface-audit.mjs --empty",
     "audit:theme": "node scripts/theme-surface-audit.mjs",
     "audit:navigation": "node scripts/navigation-history-audit.mjs",
     "audit:inbox-feed": "node scripts/run-electron-node.mjs scripts/inbox-feed-post-audit.mjs",

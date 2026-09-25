@@ -371,6 +371,7 @@ rtk npm run audit:feed:live       # AIから届いた実データの投稿で一
 rtk npm run audit:feed:bulk       # 120件の履歴を20件単位で読み進められるか実測
 rtk npm run audit:feed:note       # 既存Noteへの参照を読書面へつなげられるか実測
 rtk npm run audit:feed:media      # 画像と外部リンクの四状態（画像あり・なし・取得失敗・壊れた参照）を実測
+rtk npm run audit:feed:empty      # 何も無いworkspaceのゼロ状態（0件の面と次の行動）を実測
 rtk npm run audit:theme           # Themeの四面、Theme IDでの投影、面の復元を実測
 rtk npm run audit:inbox-feed      # 未整理の付箋メモを通常のMemoとしてFeedへ載せ、出所と整理結果を実測
 rtk npm run audit:today-arrivals  # TodayのAI非表示とToDoの委任状態、Feed「対応待ち」の配置を実測
@@ -396,11 +397,20 @@ rtk node scripts/run-electron-node.mjs --test tests/feed-link-preview.test.mjs
 **投稿の中のDOM順が 出所→時刻→本文→添付→反応 で、一覧に自動で読み上げる領域が無いこと**に加え、
 **右レールが広い幅（1536）で出て、対応キューとAI活動を読み、変更案の行から「提案の確認」の
 選択へ入れること**、**狭い幅（1280）ではレールを畳むこと**、
+**会話（Thread）を開くとレールを譲り、読み面とスレッドの2列になること**、
 **「成果を確認」が報告の確認（成果→確認できたこと→未確認事項→Taskenへ反映する内容）を開き、
 「報告を採用」で対応待ちが1件減り、Taskは完了しないこと**、**Taskに紐づかない変更案を
 「提案の確認」から却下でき、対応待ちがもう1件減ること**を確認する。
 スクリーンショットは `output/playwright/feed-audit` へ出す（暗い表示は `dark-*-home.png`、
-右レールは `rail-1536.png`、報告の確認は `review-open.png` / `review-accepted.png`）。
+右レールは `rail-1536.png`、会話との排他は `rail-thread-1536.png`、
+報告の確認は `review-open.png` / `review-accepted.png`）。
+
+`audit:feed:empty` は**正本を何も用意しない**workspaceで起動し、ゼロ状態を実測する。
+投稿が無いときは開発用fixtureを読めて投稿欄も出ること、対応待ちが0件のときは
+「いま対応する更新はありません」と次の行動（ホームを読む）だけを出し、「提案の確認」と一覧行を出さないこと、
+右レールは0件のセクションの枠を出さず空状態と「タスクを見る」を示すこと、
+その導線で実際にホームへ移れることを確かめる。
+スクリーンショットは `output/playwright/feed-audit-empty` へ出す。
 
 `audit:feed:live` は同じ隔離workspaceへ**実データの投稿を1件**と、質問＋AIの返答を入れて（`--feed-post`）、
 実データの投稿だけを読むことを確認する。投稿者・種類・本文16px・添えたAI記事の読書面・学びタブ・
@@ -514,6 +524,7 @@ IDのまま読書面へ渡せる形（添付はnote、草稿なし）にする�
 | AIから届いたこと | Todayには出さない。対応はFeedの「対応待ち」（一覧＋提案の確認）に集約する。実データで三日以上使ったときの妥当性は未確認 |
 | 委任状態の語     | 「自分に戻った」は `work_review_note` が残る差戻しだけで判定する。引継ぎの解除は未委譲と区別できないため出さない        |
 | 右レールの実測幅 | 1536（併置）と1280（畳む）の2点のみ実測。中間の幅と表示倍率の組み合わせは未実施                                         |
+| ゼロ状態の実測   | 対応待ち・右レールの0件は `audit:feed:empty` で実測。テーマ・投稿者の絞り込みで0件になったときの各面は未実測            |
 | レールの重複表示 | 同じ判断が対応キューと「対応待ち」の両方に出る。実データで多件になったときの見え方は利用後に評価する                    |
 | 報告の投稿の粒度 | `work_receipt` をそのまま投稿にする。同じTaskの連続した進捗報告が並んだときの読み味は利用後に評価する                   |
 | Android          | 狭幅の読書導線をDesktopで固めた後、展開範囲を選ぶ                                                                       |
