@@ -27,7 +27,7 @@ import { todayIso } from "../../utils/dataFormat.js";
 import { usePreference } from "../../utils/usePreference";
 import { noteProjectId } from "../../../../shared/themeRef.mjs";
 import { createTaskClient, planTaskEdit, projectTaskDraft } from "../task/public";
-import { requestFeedPostFocus } from "./lib/feedPosts";
+import { requestFeedPostFocus, requestFeedTab } from "./lib/feedPosts";
 import {
   type BaseRecord,
   type ContentViewerTarget,
@@ -427,7 +427,11 @@ export function WorkspaceApp() {
   }, [detachedNoteId]);
 
   useEffect(() => {
-    const onHash = () => setRoute(normalizeRoute(location.hash.slice(1) || "today"));
+    const onHash = () => {
+      const raw = location.hash.slice(1) || "today";
+      if (raw === "ai-io" || raw === "proposal-inbox") requestFeedTab("needs");
+      setRoute(normalizeRoute(raw));
+    };
     onHash();
     addEventListener("hashchange", onHash);
     return () => removeEventListener("hashchange", onHash);
@@ -910,6 +914,8 @@ export function WorkspaceApp() {
       drawerGeneration.current += 1;
       setDrawer(null);
       setNotesEditorSelectionId(null);
+      // Agent Desk（ai-io）はFeedへ集約済み。旧URLからは対応待ちタブを開く。
+      if (next === "ai-io" || next === "proposal-inbox") requestFeedTab("needs");
       const normalized = normalizeRoute(next);
       location.hash = normalized;
       setRoute(normalized);
@@ -1110,6 +1116,7 @@ export function WorkspaceApp() {
         setInboxLane("micro");
       }),
       window.api?.app?.onNavigate?.((next) => {
+        if (next === "ai-io" || next === "proposal-inbox") requestFeedTab("needs");
         const normalized = normalizeRoute(next);
         location.hash = normalized;
         setRoute(normalized);

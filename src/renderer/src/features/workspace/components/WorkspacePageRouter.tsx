@@ -34,10 +34,6 @@ const ArtifactsPage = lazyNamedPage<PageProps>(
   "ArtifactsPage",
 );
 const ChatRefsPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("chat-refs"), "ChatRefsPage");
-const ImportExportPage = lazyNamedPage<PageProps>(
-  () => loadWorkspacePage("ai-io"),
-  "ImportExportPage",
-);
 const DebriefPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("debrief"), "DebriefPage");
 const FeedPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("feed"), "FeedPage");
 const InboxPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("inbox"), "InboxPage");
@@ -124,9 +120,6 @@ export function WorkspacePageRouter({
       break;
     case "waiting":
       page = <WaitingPage {...common} />;
-      break;
-    case "ai-io":
-      page = <ImportExportPage {...common} />;
       break;
     case "debrief":
       page = <DebriefPage {...common} />;

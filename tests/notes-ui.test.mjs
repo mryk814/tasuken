@@ -535,7 +535,6 @@ test("page headers move purpose copy into an info popover instead of a permanent
   const boilerplate = [
     "ArtifactsPage",
     "ChatRefsPage",
-    "ImportExportPage",
     "InboxPage",
     "KnowledgePage",
     "NotesPage",
@@ -576,11 +575,7 @@ test("navigation, page headings and command palette share one canonical label", 
 
   // 説明語をページ名へ混ぜない。
   for (const forbidden of ["Inbox整理", "チャット参照", "AI連携"]) {
-    for (const file of [
-      "pages/InboxPage.tsx",
-      "pages/ChatRefsPage.tsx",
-      "pages/ImportExportPage.tsx",
-    ]) {
+    for (const file of ["pages/InboxPage.tsx", "pages/ChatRefsPage.tsx"]) {
       const source = readFileSync(`src/renderer/src/features/workspace/${file}`, "utf8");
       const header = source.slice(
         source.indexOf("<PageHeader"),

@@ -753,6 +753,81 @@ export function buildPostsFromProposals(input: {
   return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
 }
 
+/**
+ * AIの作業報告（work_receipt）をhomeストリームの投稿へ写す（Agent Desk集約）。
+ *
+ * 報告は「読むもの」として流れ、Task操作は添付のTaskから行う。
+ * 人の返答（`human_reply`）はAIの投稿にしないため対象外。
+ * 未採用の判断（要対応）は対応待ちの正本と二重に数えないよう、この変換では扱わない。
+ */
+export function buildPostsFromWorkReceipts(input: {
+  receipts?: readonly unknown[];
+  themes?: readonly unknown[];
+  tasks?: readonly unknown[];
+}): FeedPost[] {
+  const themes = (input.themes ?? []).filter((entry): entry is Row =>
+    Boolean(entry && typeof entry === "object" && "id" in entry),
+  );
+  const themeNames = new Map(themes.map((theme) => [String(theme.id), text(theme.name)]));
+  const tasks = (input.tasks ?? []).filter((entry): entry is Row =>
+    Boolean(entry && typeof entry === "object" && "id" in entry),
+  );
+  const taskById = new Map(tasks.map((task) => [String(task.id), task]));
+
+  const posts: FeedPost[] = [];
+  for (const entry of input.receipts ?? []) {
+    if (!entry || typeof entry !== "object") continue;
+    const receipt = entry as Row;
+    if (receipt.deleted_at) continue;
+    // 人の返答はAIの報告ではない。旧データは runtime_metadata 側で判別する。
+    const metadata = (receipt.runtime_metadata || {}) as Record<string, unknown>;
+    const isHumanReply =
+      text(receipt.receipt_kind) === "human_reply" || text(metadata.report_kind) === "human_reply";
+    if (isHumanReply) continue;
+
+    const body = paragraphs(
+      Array.isArray(receipt.completed_items) && receipt.completed_items.length
+        ? receipt.completed_items
+        : String(receipt.summary || "").split(/\n{2,}/u),
+    );
+    const summary = text(receipt.summary);
+    if (!summary && body.length === 0) continue;
+    const paragraphsOut = body.length > 0 ? body : [summary];
+
+    const taskId = text(receipt.task_id) || null;
+    const task = taskId ? taskById.get(taskId) : null;
+    const themeId = task ? text(task.project_id) : "";
+    const taskTitle = task ? text(task.title) : null;
+    const executor = text(receipt.executor_label) || "AI";
+
+    posts.push({
+      id: `feed-post:receipt:${String(receipt.id)}`,
+      author: authorIdForLabel(executor),
+      kind: "work_report",
+      createdAt: text(receipt.reported_at) || text(receipt.created_at),
+      paragraphs: paragraphsOut,
+      attachment: task
+        ? {
+            kind: "task" as const,
+            title: taskTitle || String(task.id),
+            intro: text(task.state) || "Task",
+            figureLabel: null,
+            refLabel: themeId ? (themeNames.get(themeId) ?? themeId) : "Tasken",
+            articleBody: null,
+          }
+        : null,
+      replyTo: null,
+      // 作業報告そのものは「学び」タブへ出さない（FeedPost.learnable の規則）。
+      learnable: false,
+      taskId,
+      taskTitle,
+      themeId: themeId || null,
+      evidence: paragraphs(receipt.verification),
+    } as FeedPost);
+  }
+  return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+}
+
 /* -------------------------------------------------------------------------
  * 記事の草稿をNoteへ保存する（SNS型Feed 第2段階）
  *
@@ -1356,6 +1431,29 @@ export function clearFeedPostFocus(): void {
     localStorage.removeItem(FEED_POST_FOCUS_KEY);
   } catch {
     // 消せなくても表示は続けられる。
+  }
+}
+
+/**
+ * Feedのタブを開き直すよう預ける（Agent Desk集約後の `ai-io` リダイレクト用）。
+ * 既存の表示状態を保ったまま、次のFeed表示で指定タブを開く。
+ * Feed表示中にも反映できるよう、同じ内容をイベントでも知らせる。
+ */
+export function requestFeedTab(tab: "home" | "learn" | "bookmarks" | "needs"): void {
+  try {
+    const raw = localStorage.getItem("tasken:feed:view:v1");
+    const state = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    localStorage.setItem(
+      "tasken:feed:view:v1",
+      JSON.stringify({ ...(state && typeof state === "object" ? state : {}), tab }),
+    );
+  } catch {
+    // 預けられなくても、依頼元の操作は失敗させない。
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tasken:feed:open-tab", { detail: tab }));
+  } catch {
+    // 通知できなくても表示は続けられる。
   }
 }
 

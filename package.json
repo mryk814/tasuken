@@ -1,6 +1,6 @@
 {
   "name": "tasken",
-  "version": "0.1.68",
+  "version": "0.1.69",
   "description": "研究開発職向けの長期スケジュール・タスク・メモ管理デスクトップアプリ",
   "author": "ootan",
   "private": true,
@@ -53,6 +53,7 @@
     "audit:feed:bulk": "node scripts/feed-surface-audit.mjs --bulk",
     "audit:feed:note": "node scripts/feed-surface-audit.mjs --note-ref",
     "audit:feed:media": "node scripts/feed-surface-audit.mjs --media",
+    "audit:feed:empty": "node scripts/feed-surface-audit.mjs --empty",
     "audit:theme": "node scripts/theme-surface-audit.mjs",
     "audit:navigation": "node scripts/navigation-history-audit.mjs",
     "audit:inbox-feed": "node scripts/run-electron-node.mjs scripts/inbox-feed-post-audit.mjs",
@@ -60,7 +61,6 @@
     "audit:maintenance": "node scripts/maintenance-today-audit.mjs",
     "audit:today-dates": "node scripts/run-electron-node.mjs scripts/today-date-audit.mjs",
     "audit:handoff": "node scripts/run-electron-node.mjs scripts/task-handoff-audit.mjs",
-    "audit:agent-desk": "node scripts/run-electron-node.mjs scripts/agent-desk-audit.mjs",
     "audit:today-arrivals": "node scripts/run-electron-node.mjs scripts/today-arrivals-audit.mjs",
     "audit:materials-demo": "node scripts/audit-materials-demo.mjs",
     "audit:note-window": "node scripts/note-window-audit.mjs",

@@ -15,10 +15,6 @@ const notesPageSource = readFileSync(
   "src/renderer/src/features/workspace/pages/NotesPage.tsx",
   "utf8",
 );
-const importExportPageSource = readFileSync(
-  "src/renderer/src/features/workspace/pages/ImportExportPage.tsx",
-  "utf8",
-);
 const feedPageSource = readFileSync(
   "src/renderer/src/features/workspace/pages/FeedPage.tsx",
   "utf8",
@@ -70,16 +66,14 @@ test("Notes kinds are simplified to Note Resource Report Prompt", () => {
 });
 
 test("Agent Desk no longer owns document publish or AI context export", () => {
+  // Agent Desk（ImportExportPage）はFeedへ集約して削除した。文書発行とAI出力はNotesが持つ。
+  assert.equal(existsSync("src/renderer/src/features/workspace/pages/ImportExportPage.tsx"), false);
   assert.doesNotMatch(
-    importExportPageSource,
+    feedPageSource,
     /publishMarkdownTargets|publishPdfTargets|notePublishEnabled/,
   );
-  assert.doesNotMatch(
-    importExportPageSource,
-    /buildExportData|buildAiImportPrompt|buildAiOrganizePrompt/,
-  );
-  // 提案の確認はFeedの「対応待ち」タブに集約し、ai-ioには置かない。
-  assert.doesNotMatch(importExportPageSource, /AiProposalPanel/);
+  assert.doesNotMatch(feedPageSource, /buildExportData|buildAiImportPrompt|buildAiOrganizePrompt/);
+  // 提案の確認はFeedの「対応待ち」タブに集約する。
   assert.match(feedPageSource, /<AiProposalPanel/);
   assert.match(notesPageSource, /showDocumentPublish/);
   assert.match(notesPageSource, /exportSelectedMarkdown/);

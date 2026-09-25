@@ -494,6 +494,28 @@
   background: var(--color-surface-subtle);
 }
 
+/* 報告の採用・差し戻し（Agent Desk集約）。採用と完了は別のCommandなので選べる形にする。 */
+.feed-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.feed-review-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+/* 右レールのAI活動。1AIぶんをまとまりとして縦に積む。 */
+.feed-rail-agent {
+  display: grid;
+  gap: var(--space-1);
+}
+
 /* 記事の読書面。狭い画面では全幅へ重ねる。 */
 .feed-reader {
   position: fixed;
@@ -551,6 +573,7 @@
 .feed-page {
   --feed-reading-width: 720px;
   --feed-detail-width: 380px;
+  --feed-rail-width: 300px;
 }
 
 .feed-layout {
@@ -659,7 +682,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.feed-empty,
 .feed-end {
   margin: 0;
   padding: var(--space-3) var(--space-4);
@@ -1060,6 +1082,44 @@
 .feed-shell.feed-layout:not(.has-thread) .feed-main {
   max-width: var(--feed-reading-width);
   margin-inline: auto;
+}
+
+/*
+ * 右レール（対応キュー・AI活動の補助面）。Thread（会話スロット）を開いた間は
+ * 右側補助は1スロットなので譲り、非表示にする（design-guide §21）。
+ * 併置するのは実効幅に余裕があるときだけ（docs/responsive-layout.md）。
+ */
+.feed-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  position: sticky;
+  top: var(--space-4);
+  max-height: calc(100vh - 112px);
+  overflow-y: auto;
+}
+
+@container page (min-width: 1180px) {
+  .feed-shell.feed-layout:not(.has-thread) {
+    grid-template-columns: minmax(0, var(--feed-reading-width)) minmax(
+        280px,
+        var(--feed-rail-width)
+      );
+    max-width: calc(var(--feed-reading-width) + var(--feed-rail-width) + var(--space-4));
+    margin-inline: auto;
+  }
+
+  .feed-shell.feed-layout:not(.has-thread) .feed-main {
+    max-width: none;
+    margin-inline: 0;
+  }
+}
+
+@container page (max-width: 1179px) {
+  .feed-rail {
+    display: none;
+  }
 }
 
 .feed-thread-panel {

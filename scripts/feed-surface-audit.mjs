@@ -29,6 +29,8 @@ const LIVE = args.includes("--live");
 const BULK = args.includes("--bulk");
 const NOTE_REF = args.includes("--note-ref");
 const MEDIA = args.includes("--media");
+/** 何も無いworkspaceでゼロ状態（0件の面と次の行動）を実測する。 */
+const EMPTY = args.includes("--empty");
 const OUT_DIR =
   args.find((arg) => !arg.startsWith("--")) ||
   (LIVE
@@ -39,7 +41,9 @@ const OUT_DIR =
         ? "output/playwright/feed-audit-note"
         : MEDIA
           ? "output/playwright/feed-audit-media"
-          : "output/playwright/feed-audit");
+          : EMPTY
+            ? "output/playwright/feed-audit-empty"
+            : "output/playwright/feed-audit");
 /** 実効幅1680px超で右詳細を常設し、それ以下では重ねる（docs/responsive-layout.md）。 */
 const SIZES = [
   { label: "wide-1536", width: 1536, height: 960 },
@@ -118,21 +122,26 @@ function detectLayoutBreakage() {
 
 mkdirSync(OUT_DIR, { recursive: true });
 const userDataDir = mkdtempSync(path.join(os.tmpdir(), "tasken-feed-audit-"));
-const seeded = spawnSync(
-  process.execPath,
-  [
-    "scripts/run-electron-node.mjs",
-    "scripts/seed-feed-audit-workspace.mjs",
-    userDataDir,
-    ...(LIVE ? ["--feed-post"] : []),
-    ...(MEDIA ? ["--feed-media"] : []),
-    ...(BULK ? ["--bulk-posts", String(BULK_POSTS)] : []),
-    ...(NOTE_REF ? ["--note-ref"] : []),
-  ],
-  { encoding: "utf8" },
-);
-if (seeded.status !== 0) {
-  throw new Error(`Feed監査のworkspaceを用意できませんでした: ${seeded.stderr || seeded.stdout}`);
+// `--empty` は正本を一切用意しない。アプリが作る空のworkspaceでゼロ状態を実測する。
+if (EMPTY) {
+  mkdirSync(userDataDir, { recursive: true });
+} else {
+  const seeded = spawnSync(
+    process.execPath,
+    [
+      "scripts/run-electron-node.mjs",
+      "scripts/seed-feed-audit-workspace.mjs",
+      userDataDir,
+      ...(LIVE ? ["--feed-post"] : []),
+      ...(MEDIA ? ["--feed-media"] : []),
+      ...(BULK ? ["--bulk-posts", String(BULK_POSTS)] : []),
+      ...(NOTE_REF ? ["--note-ref"] : []),
+    ],
+    { encoding: "utf8" },
+  );
+  if (seeded.status !== 0) {
+    throw new Error(`Feed監査のworkspaceを用意できませんでした: ${seeded.stderr || seeded.stdout}`);
+  }
 }
 const failures = [];
 
@@ -275,6 +284,87 @@ async function auditFixtures(app, page) {
     failures.push("対応待ちの「提案の確認」に変更案が出ていません。");
   }
   await page.screenshot({ path: `${OUT_DIR}/needs.png`, fullPage: true });
+
+  /*
+   * 6b. 右レール（Agent Desk集約）。
+   * 判断とAIの動きを面移動なしで見られること、変更案が「提案の確認」の選択へ入ること、
+   * 読み面を圧迫する幅では畳まれることを実測する（design-guide §21の1スロット）。
+   */
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1536, 960));
+  await page.waitForTimeout(700);
+  const rail = page.locator(".feed-rail");
+  if (!(await rail.isVisible())) {
+    failures.push("広い幅（1536）でFeedの右レールが出ていません。");
+  } else {
+    const railText = (await rail.innerText()).replace(/\s+/g, " ");
+    if (!railText.includes("対応キュー")) failures.push("右レールに「対応キュー」がありません。");
+    if (!railText.includes("AI活動")) failures.push("右レールに「AI活動」がありません。");
+    const railProposal = rail.locator(".context-row", { hasText: "Noteの変更案" }).first();
+    if (!(await railProposal.count())) {
+      failures.push("右レールの対応キューに変更案が出ていません。");
+    } else {
+      await railProposal.click();
+      await page.waitForTimeout(500);
+      const openedInPanel = await page
+        .locator('.proposal-inbox-panel .proposal-row-select[aria-pressed="true"]')
+        .count();
+      if (!openedInPanel) {
+        failures.push("右レールから変更案を開いても、「提案の確認」で選択されません。");
+      }
+    }
+    await page.screenshot({ path: `${OUT_DIR}/rail-1536.png`, fullPage: true });
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 800));
+  await page.waitForTimeout(700);
+  if (await page.locator(".feed-rail").isVisible()) {
+    failures.push("狭い幅（1280）でFeedの右レールが残っています（読み面を圧迫します）。");
+  }
+
+  /*
+   * 6c. 右側の補助領域は1スロット（design-guide §21）。
+   * 会話（Thread）を開いたらレールを譲り、読み面とスレッドの2列に戻る。
+   */
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1536, 960));
+  await page.waitForTimeout(700);
+  await page.locator(".feed-tabs button", { hasText: "ホーム" }).first().click();
+  await page.waitForTimeout(500);
+  const threadSource = page.locator(".feed-post").first();
+  const threadButton = threadSource.locator('button[aria-label^="返信"]').first();
+  if (!(await threadButton.count())) {
+    failures.push("会話を開く返信操作が投稿にありません。");
+  } else {
+    await threadButton.click();
+    await page.waitForTimeout(600);
+    if (!(await page.locator(".feed-thread-panel").isVisible())) {
+      failures.push("返信を押しても会話（右スレッド）が開きません。");
+    }
+    if (await page.locator(".feed-rail").isVisible()) {
+      failures.push("会話を開いても右レールが残っています（右側の補助領域が2枚重なっています）。");
+    }
+    const threadLayout = await page.evaluate(() => {
+      const main = document.querySelector(".feed-main");
+      const thread = document.querySelector(".feed-thread-panel");
+      return {
+        main: main ? Math.round(main.getBoundingClientRect().width) : 0,
+        thread: thread ? Math.round(thread.getBoundingClientRect().width) : 0,
+        scrolls: document.documentElement.scrollWidth > window.innerWidth + 1,
+      };
+    });
+    if (threadLayout.scrolls) {
+      failures.push("会話を開いたときに画面全体へ横スクロールが出ています。");
+    }
+    if (threadLayout.main < 320 || threadLayout.thread < 320) {
+      failures.push(
+        `会話を開いたときの列幅が足りません（読み面${threadLayout.main} / スレッド${threadLayout.thread}）。`,
+      );
+    }
+    await page.screenshot({ path: `${OUT_DIR}/rail-thread-1536.png`, fullPage: true });
+    await page.locator(".feed-thread-panel button", { hasText: "閉じる" }).first().click();
+    await page.waitForTimeout(500);
+    if (!(await page.locator(".feed-rail").isVisible())) {
+      failures.push("会話を閉じても右レールが戻りません。");
+    }
+  }
 
   // 7. 幅ごとの崩れ。投稿面は1列のまま、横スクロールを出さない。
   for (const size of SIZES) {
@@ -515,6 +605,79 @@ async function auditFixtures(app, page) {
       failures.push(`投稿の一覧に自動で読み上げる領域が${readOrder.liveRegions}件あります。`);
     }
   }
+
+  /*
+   * 12. 成果確認は報告の確認（採用・差戻し）へ入る（#599。#602の文言もここで読む）。
+   * Agent DeskからFeedへ移した操作なので、実画面の一往復を確かめる。
+   */
+  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
+  await page.waitForTimeout(600);
+  const reviewRow = page
+    .locator(".feed-needs-row", { hasText: "3条件の比較表を作成しました。" })
+    .first();
+  if (!(await reviewRow.count())) {
+    failures.push("成果確認の行が対応待ちにありません。");
+    return;
+  }
+  await reviewRow.locator("button", { hasText: "成果を確認" }).first().click();
+  await page.waitForTimeout(500);
+  const review = reviewRow.locator(".feed-review");
+  if (!(await review.count())) {
+    failures.push("「成果を確認」で報告の確認が開きません。");
+    return;
+  }
+  const reviewLabels = await review.locator("dt").allInnerTexts();
+  const expectedLabels = ["成果", "確認できたこと", "未確認事項", "Taskenへ反映する内容"];
+  if (reviewLabels.join(",") !== expectedLabels.join(",")) {
+    failures.push(`報告の確認の読み順が違います（${reviewLabels.join(",")}）。`);
+  }
+  const reviewText = (await review.innerText()).replace(/\s+/g, " ");
+  for (const label of ["報告を採用", "Taskも完了する", "修正を依頼"]) {
+    if (!reviewText.includes(label)) failures.push(`報告の確認に「${label}」がありません。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/review-open.png`, fullPage: true });
+
+  // 13. 報告だけを採用する。Taskは完了させない（採用と完了は別のCommand）。
+  await review.locator("button", { hasText: "報告を採用" }).first().click();
+  await page.waitForTimeout(2000);
+  const acceptToast = (await page.locator(".toast").first().innerText()).replace(/\s+/g, " ");
+  if (!acceptToast.includes("報告を採用しました")) {
+    failures.push(`報告を採用した結果が読めません（${acceptToast}）。`);
+  }
+  const afterAccept = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (afterAccept !== String(EXPECTED_UNRESOLVED - 1)) {
+    failures.push(
+      `報告を採用しても対応待ちが${EXPECTED_UNRESOLVED - 1}件になりません（${afterAccept}）。`,
+    );
+  }
+  await page.screenshot({ path: `${OUT_DIR}/review-accepted.png`, fullPage: true });
+
+  // 14. Taskに紐づかない変更案も、同じ面から決着できる（却下）。正式データは作らない。
+  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
+  await page.waitForTimeout(500);
+  const noteProposalRow = page
+    .locator(".proposal-inbox-panel .proposal-row-select", { hasText: "測定手順のNoteを作る案" })
+    .first();
+  if (!(await noteProposalRow.count())) {
+    failures.push("Taskに紐づかない変更案が「提案の確認」にありません。");
+    return;
+  }
+  await noteProposalRow.click();
+  await page.waitForTimeout(500);
+  const rejectButton = page.locator(".proposal-inline-preview button", { hasText: "拒否" }).first();
+  if (!(await rejectButton.count())) {
+    failures.push("変更案を却下する操作が「提案の確認」にありません。");
+    return;
+  }
+  await rejectButton.click();
+  await page.waitForTimeout(2000);
+  const afterReject = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (afterReject !== String(EXPECTED_UNRESOLVED - 2)) {
+    failures.push(
+      `変更案を却下しても対応待ちが${EXPECTED_UNRESOLVED - 2}件になりません（${afterReject}）。`,
+    );
+  }
+  await page.screenshot({ path: `${OUT_DIR}/proposal-rejected.png`, fullPage: true });
 }
 
 /**
@@ -1229,6 +1392,83 @@ async function auditMedia(page) {
  * 「Noteで読む」が既存のNote読書面を開くこと、Noteを消したら参照先の不在を示し、
  * 元に戻すと同じ参照からまた読めることを実測する。
  */
+/**
+ * 何も無いworkspaceのゼロ状態（design-guide §5）。
+ *
+ * 0件のセクションは枠を出さず、空の面には次の行動を1つ置く。
+ * 投稿が無いときだけ開発用fixtureを出す既存の規則はそのまま実測する。
+ */
+async function auditEmpty(app, page) {
+  // 1. 投稿が無いときは開発用fixtureを読み、投稿欄はそのまま出す。
+  await page.locator(".feed-tabs button", { hasText: "ホーム" }).first().click();
+  await page.waitForTimeout(500);
+  if (!(await page.locator(".feed-post").count())) {
+    failures.push("投稿が無いworkspaceでFeedが読めません（開発用fixtureが出ていません）。");
+  }
+  if (!(await page.locator("#feed-compose-body").count())) {
+    failures.push("投稿が無いworkspaceで自分の投稿欄が出ていません。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/empty-home.png`, fullPage: true });
+
+  // 2. 対応待ちは0件。空の面には次の行動を1つ置き、「提案の確認」は出さない。
+  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
+  await page.waitForTimeout(600);
+  const needsPanel = page.locator("#feed-panel-needs");
+  if (!(await needsPanel.count())) {
+    failures.push("対応待ちの面が出ていません。");
+    return;
+  }
+  const needsEmpty = needsPanel.locator(".empty-state").first();
+  if (!(await needsEmpty.count())) {
+    failures.push("対応待ちが0件のときの空状態が出ていません。");
+  } else {
+    const emptyText = (await needsEmpty.innerText()).replace(/\s+/g, " ");
+    if (!emptyText.includes("いま対応する更新はありません")) {
+      failures.push(`空状態の見出しが違います（${emptyText}）。`);
+    }
+    if (!(await needsEmpty.locator("button", { hasText: "ホームを読む" }).count())) {
+      failures.push("対応待ちが0件の空状態に、次の行動（ホームを読む）がありません。");
+    }
+  }
+  if (await page.locator(".proposal-inbox-panel").count()) {
+    failures.push("確認する提案が無いのに「提案の確認」が出ています。");
+  }
+  if (await page.locator(".feed-needs-row").count()) {
+    failures.push("対応待ちが0件なのに一覧行が出ています。");
+  }
+
+  // 3. 右レールも0件のセクションを出さず、空なら次の行動を1つ示す。
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1536, 960));
+  await page.waitForTimeout(700);
+  const rail = page.locator(".feed-rail");
+  if (!(await rail.isVisible())) {
+    failures.push("何も無いworkspaceでも、広い幅では右レールを出す（空状態を示す）。");
+  } else {
+    for (const heading of ["対応キュー", "AI活動", "今見るもの", "再発見"]) {
+      if (await rail.locator("h2", { hasText: heading }).count()) {
+        failures.push(`0件のセクション「${heading}」の枠が出ています。`);
+      }
+    }
+    const railEmpty = rail.locator(".empty-state").first();
+    if (!(await railEmpty.count())) {
+      failures.push("右レールに何も無いときの空状態が出ていません。");
+    } else if (!(await railEmpty.locator("button", { hasText: "タスクを見る" }).count())) {
+      failures.push("右レールの空状態に、次の行動（タスクを見る）がありません。");
+    }
+  }
+  await page.screenshot({ path: `${OUT_DIR}/empty-needs-rail.png`, fullPage: true });
+
+  // 4. 空状態の導線が実際に移動する。
+  const homeAction = needsEmpty.locator("button", { hasText: "ホームを読む" }).first();
+  if (await homeAction.count()) {
+    await homeAction.click();
+    await page.waitForTimeout(500);
+    if ((await page.locator("#feed-tab-home").getAttribute("aria-selected")) !== "true") {
+      failures.push("空状態の「ホームを読む」でホームへ移動しません。");
+    }
+  }
+}
+
 async function auditNoteReference(page) {
   const post = page.locator(".feed-post").first();
   if (!(await post.count())) {
@@ -1338,6 +1578,14 @@ try {
     } finally {
       await session.app.close();
     }
+  } else if (EMPTY) {
+    const session = await launchApp();
+    try {
+      await openFeed(session.page);
+      await auditEmpty(session.app, session.page);
+    } finally {
+      await session.app.close();
+    }
   } else {
     const session = await launchApp();
     try {
@@ -1367,6 +1615,8 @@ console.log(
           ? "既存Noteの参照"
           : MEDIA
             ? "画像と外部リンクの四状態"
-            : "開発用fixture"
+            : EMPTY
+              ? "何も無いworkspaceのゼロ状態"
+              : "開発用fixture"
   }、スクリーンショットは ${OUT_DIR}）`,
 );
