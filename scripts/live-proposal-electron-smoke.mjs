@@ -78,11 +78,11 @@ async function openNavigation(page, label) {
 }
 
 async function openProposalConfirmation(page) {
-  // 提案の確認はFeedの「対応待ち」タブへ集約した（ai-ioは作業状況のみ）。
-  // 同じAiProposalPanelが載るため、行選択・プレビュー・採否の選択子はそのまま使える。
+  // 提案の確認はFeedの「対応待ち」タブへ集約した（Agent Deskの独立画面は廃止）。
+  // 提案が1件も無いときは面ごと出さないので、タブの面を待ってから件数を読む（design-guide §5）。
   await openNavigation(page, "Feed");
   await page.locator("#feed-tab-needs").click();
-  await page.locator(".proposal-inbox-panel").waitFor();
+  await page.locator("#feed-panel-needs").waitFor();
 }
 
 async function waitForPendingCount(page, expected) {
@@ -195,7 +195,8 @@ try {
   mcpClient = await connectMcp();
 
   await openProposalConfirmation(page);
-  await waitForPendingCount(page, 0);
+  // 提案が届く前は「提案の確認」を出さない。件数の基準は到着後に読む。
+  assert.equal(await page.locator(".proposal-inbox-panel").count(), 0);
   const routeBeforeProposal = await page.evaluate(() => location.hash);
 
   const queued = await mcpClient.callTool({
