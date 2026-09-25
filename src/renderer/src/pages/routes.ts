@@ -277,7 +277,11 @@ function routeIdsForGroup(group: RouteGroup): string[] {
     .map((definition) => definition.id);
 }
 
-export const crossNavigation = routeIdsForGroup("cross");
+/**
+ * Agent DeskはFeedの「対応待ち」へ集約した。route定義（aliasの`proposal-inbox`を含む）は
+ * 旧URLを受けるために残し、サイドバーには出さない。要対応件数のbadgeはFeedへ一本化する。
+ */
+export const crossNavigation = routeIdsForGroup("cross").filter((id) => id !== "ai-io");
 export const toolNavigation = routeIdsForGroup("tools");
 export const todayHubTabs = routeIdsForGroup("today").filter((id) => id !== "waiting");
 export const knowledgeHubTabs = routeIdsForGroup("knowledge");
@@ -290,6 +294,8 @@ export function resolveRouteId(id: string): CanonicalRouteId | undefined {
 /** URL・保存済みrouteを、実在する子画面を潰さずに正規化する。 */
 export function normalizeRoute(route: string): string {
   if (/^settings(?:[/?].*)?$/.test(route)) return "settings";
+  // Agent DeskはFeedへ集約した。旧URL（ai-io / proposal-inbox）は対応待ちタブへ送る。
+  if (route === "ai-io" || route === "proposal-inbox") return "feed";
   return routeRedirects[route] || route;
 }
 

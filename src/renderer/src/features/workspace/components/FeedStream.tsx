@@ -1,4 +1,4 @@
-import { Button } from "./common";
+import { Button, EmptyState } from "./common";
 import { FeedPostCard } from "./FeedPostCard";
 import { FEED_PAGE_SIZE } from "../lib/feedFixtures";
 import {
@@ -29,7 +29,9 @@ export interface FeedStreamProps {
   interesting: ReadonlySet<string>;
   known: ReadonlySet<string>;
   hasMore: boolean;
-  emptyLabel: string;
+  /** 投稿が無いときの見出しと、次にできること（design-guide §5）。 */
+  emptyTitle: string;
+  emptyAction?: { label: string; onClick(): void };
   onToggleExpanded(postId: string): void;
   onAuthorFilter(author: FeedAuthorId | null): void;
   onOpenThread(post: FeedPost): void;
@@ -64,7 +66,8 @@ export function FeedStream({
   interesting,
   known,
   hasMore,
-  emptyLabel,
+  emptyTitle,
+  emptyAction,
   onToggleExpanded,
   onAuthorFilter,
   onOpenThread,
@@ -90,7 +93,11 @@ export function FeedStream({
   return (
     <>
       {posts.length === 0 ? (
-        <p className="feed-empty">{emptyLabel}</p>
+        <EmptyState
+          title={emptyTitle}
+          action={emptyAction?.label}
+          onAction={emptyAction?.onClick}
+        />
       ) : (
         <ol className="feed-posts">
           {posts.map((post) => {

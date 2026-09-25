@@ -2,15 +2,11 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
-import { normalizeRoute, resolveRouteId } from "../src/renderer/src/pages/routes.ts";
+import { normalizeRoute } from "../src/renderer/src/pages/routes.ts";
 
 const routesSource = readFileSync("src/renderer/src/pages/routes.ts", "utf8");
 const workspaceAppSource = readFileSync(
   "src/renderer/src/features/workspace/WorkspaceApp.tsx",
-  "utf8",
-);
-const importExportPageSource = readFileSync(
-  "src/renderer/src/features/workspace/pages/ImportExportPage.tsx",
   "utf8",
 );
 const feedPageSource = readFileSync(
@@ -44,14 +40,16 @@ test("AI proposals use the existing AI route beside Inbox with an action count",
 });
 
 test("Feed hosts the safe proposal review surface", () => {
-  assert.match(importExportPageSource, /PageHeader route="ai-io"/);
-  assert.match(importExportPageSource, /ai-inbox-page/);
-  assert.match(importExportPageSource, /AgentDeskPanel/);
-  assert.doesNotMatch(importExportPageSource, /AiProposalPanel/);
+  // Agent Desk（ImportExportPage / AgentDeskPanel）はFeedへ集約して削除した。
+  assert.equal(existsSync("src/renderer/src/features/workspace/pages/ImportExportPage.tsx"), false);
+  assert.equal(
+    existsSync("src/renderer/src/features/workspace/components/AgentDeskPanel.tsx"),
+    false,
+  );
   assert.match(feedPageSource, /<AiProposalPanel/);
   assert.match(aiProposalPanelSource, /export function AiProposalPanel/);
   assert.match(aiProposalPanelSource, /<h2>提案の確認<\/h2>/);
-  assert.match(aiProposalPanelSource, /処理履歴/);
+  assert.match(aiProposalPanelSource, /履歴/);
   assert.match(aiProposalPanelSource, /proposalTargetLabel/);
   assert.match(aiProposalPanelSource, /quarantine/);
   assert.match(aiProposalPanelSource, /className="proposal-row-select"/);
@@ -71,10 +69,6 @@ test("Feed hosts the safe proposal review surface", () => {
   assert.match(aiProposalPanelSource, /<MarkdownPreview/);
   assert.match(aiProposalPanelSource, /previewHtml\(str\(candidate\.entry\.body\), "markdown"\)/);
   assert.doesNotMatch(aiProposalPanelSource, /danger-button/);
-  assert.doesNotMatch(
-    importExportPageSource,
-    /buildAiImportPrompt|buildAiOrganizePrompt|buildExportData/,
-  );
 });
 
 test("Agent Desk can resync explicitly and quietly recovers when the window regains focus", () => {
@@ -195,17 +189,15 @@ test("Proposal rows lead with a content-specific headline", () => {
   assert.doesNotMatch(aiProposalPanelSource, /選択すると、下で本文と採用範囲を確認できます。/);
 });
 
-test("Agent Deskは旧deep linkと選択状態を壊さない（#600）", () => {
-  // 表示名を変えてもroute IDは保持する。保存済みのroute・hash・通知の遷移先を壊さない。
-  assert.equal(resolveRouteId("ai-io"), "ai-io");
-  assert.equal(resolveRouteId("proposal-inbox"), "ai-io");
-  assert.equal(normalizeRoute("proposal-inbox"), "ai-io");
-  assert.equal(normalizeRoute("ai-io"), "ai-io");
+test("Agent Deskの旧deep linkはFeedの対応待ちへ着地する（#600 集約）", () => {
+  // 旧URLは消えない。Feedへ集約し、対応待ちタブを開く（ai-io / proposal-inbox）。
+  assert.equal(normalizeRoute("proposal-inbox"), "feed");
+  assert.equal(normalizeRoute("ai-io"), "feed");
   // 旧称を表示名として復活させない。
   assert.doesNotMatch(routesSource, /label: "AI Inbox"/);
   assert.doesNotMatch(routesSource, /label: "AI IO"/);
   // TaskなしProposalと履歴はFeedの「対応待ち」タブから到達できる。
   assert.match(feedPageSource, /<AiProposalPanel/);
   assert.match(aiProposalPanelSource, /<h2>提案の確認<\/h2>/);
-  assert.match(aiProposalPanelSource, /処理履歴/);
+  assert.match(aiProposalPanelSource, /履歴/);
 });

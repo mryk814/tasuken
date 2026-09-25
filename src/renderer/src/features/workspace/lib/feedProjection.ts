@@ -162,6 +162,7 @@ function attentionRow(
     reasonShown: shape.reasonShown,
     pathLabel: pathLabel(item.themeName ?? themeName, item.taskTitle),
     sourceLabel: null,
+    sourceId: item.sourceId,
     actions: shape.actions,
     detail: {
       title: item.headline || item.summary,

@@ -47,7 +47,7 @@ test("workspace keeps Today immediate and loads the other pages outside the star
 test("sidebar navigation closes the drawer and clears the selected note before changing pages", () => {
   assert.match(
     workspaceAppSource,
-    /if \(!\(await saveDirtyDrawerForm\(\)\)\) return;\s+drawerGeneration\.current \+= 1;\s+setDrawer\(null\);\s+setNotesEditorSelectionId\(null\);\s+const normalized = normalizeRoute\(next\);/,
+    /if \(!\(await saveDirtyDrawerForm\(\)\)\) return;\s+drawerGeneration\.current \+= 1;\s+setDrawer\(null\);\s+setNotesEditorSelectionId\(null\);\s+(?:\/\/[^\n]*\n\s*)?if \(next === "ai-io" \|\| next === "proposal-inbox"\) requestFeedTab\("needs"\);\s+const normalized = normalizeRoute\(next\);/,
   );
 });
 

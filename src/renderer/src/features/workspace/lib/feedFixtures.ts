@@ -89,6 +89,8 @@ export interface FeedItem {
   pathLabel: string;
   /** 原文・記録への参照。AI要約には必須。 */
   sourceLabel: string | null;
+  /** 報告・提案の元Entity ID。報告の採用/差し戻し操作に使う（実データのみ）。 */
+  sourceId?: string | null;
   actions: FeedAction[];
   /** 詳細で確認するもの。 */
   detail: { title: string; rows: Array<{ label: string; value: string }> };

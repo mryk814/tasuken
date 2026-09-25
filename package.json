@@ -60,7 +60,6 @@
     "audit:maintenance": "node scripts/maintenance-today-audit.mjs",
     "audit:today-dates": "node scripts/run-electron-node.mjs scripts/today-date-audit.mjs",
     "audit:handoff": "node scripts/run-electron-node.mjs scripts/task-handoff-audit.mjs",
-    "audit:agent-desk": "node scripts/run-electron-node.mjs scripts/agent-desk-audit.mjs",
     "audit:today-arrivals": "node scripts/run-electron-node.mjs scripts/today-arrivals-audit.mjs",
     "audit:materials-demo": "node scripts/audit-materials-demo.mjs",
     "audit:note-window": "node scripts/note-window-audit.mjs",

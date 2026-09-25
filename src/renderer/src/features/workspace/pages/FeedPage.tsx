@@ -2,9 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import type { BaseRecord, PageProps } from "../types";
-import { Button, PageHeader } from "../components/common";
+import { Button, EmptyState, PageHeader } from "../components/common";
 import { AiProposalPanel } from "../components/AiProposalPanel";
 import { FeedArticleReader } from "../components/FeedArticleReader";
+import { FeedContextRail } from "../components/FeedContextRail";
 import { FeedStream } from "../components/FeedStream";
 import {
   FeedThreadPanel,
@@ -18,6 +19,7 @@ import {
   type FeedItem,
 } from "../lib/feedFixtures";
 import { buildLiveFeed } from "../lib/feedProjection";
+import { taskWorkEntry } from "../../../../../shared/contracts/task/public";
 import { buildSaveTaskOperations } from "../domain-model/persistence";
 import {
   FEED_AUTHORS,
@@ -25,6 +27,7 @@ import {
   authorOf,
   buildOwnPosts,
   buildPostsFromProposals,
+  buildPostsFromWorkReceipts,
   buildRepliesFromEntities,
   draftNoteEntity,
   draftNoteId,
@@ -118,6 +121,13 @@ function optionalFeedId(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+/** 配列フィールドを表示用の1行へまとめる。無ければ空文字（呼び出し側で「—」を出す）。 */
+function listJoined(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "")
+    : [];
+}
+
 function normalizeFeedLimit(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < FEED_PAGE_SIZE) {
     return FEED_PAGE_SIZE;
@@ -151,6 +161,7 @@ export function FeedPage(props: PageProps) {
   const {
     data,
     domain,
+    activeTheme,
     executeCommand,
     saveEntities,
     openDrawer,
@@ -189,6 +200,13 @@ export function FeedPage(props: PageProps) {
     optionalFeedId(storedView.threadPostId),
   );
   const [openNeedsId, setOpenNeedsId] = useState<string | null>(null);
+  /**
+   * 右レールの対応キューから開いた変更案。`提案の確認` の選択状態へ渡す。
+   * 対応待ちの一覧行は変更案を持たないため、IDと開いた回数を別に持つ（Agent Desk集約）。
+   */
+  const [proposalFocus, setProposalFocus] = useState<{ proposalId: string; nonce: number } | null>(
+    null,
+  );
   const [openArticleId, setOpenArticleId] = useState<string | null>(() =>
     optionalFeedId(storedView.articlePostId),
   );
@@ -197,6 +215,10 @@ export function FeedPage(props: PageProps) {
   const [busy, setBusy] = useState(false);
   const [copyBusy, setCopyBusy] = useState(false);
   const [draftAnswer, setDraftAnswer] = useState("");
+  /** 報告の差し戻しメモ。失敗しても入力を消さない（design-guide §5）。 */
+  const [draftReviewNote, setDraftReviewNote] = useState("");
+  /** Task完了は選ばれていない明示オプション（#599）。既定の主操作は「報告を採用」。 */
+  const [completeTask, setCompleteTask] = useState(false);
   /** 自分の投稿欄の下書き。投稿しても消さず、成功時だけ空にする。 */
   const [compose, setCompose] = useState(() =>
     typeof storedView.compose === "string" ? storedView.compose : "",
@@ -289,13 +311,20 @@ export function FeedPage(props: PageProps) {
    * まだ1件も無いときだけ開発用fixtureを使う（第1段階の設計確認用）。
    */
   const livePosts = useMemo(
-    () =>
-      buildPostsFromProposals({
+    () => [
+      ...buildPostsFromProposals({
         proposals: domain.ai_proposals as unknown[],
         themes: data.themes as unknown[],
         tasks: domain.tasks as unknown[],
       }),
-    [domain.ai_proposals, domain.tasks, data.themes],
+      // AIの作業報告も投稿として流す（Agent Desk集約。`docs/feed-surface.md`）。
+      ...buildPostsFromWorkReceipts({
+        receipts: data.work_receipts as unknown[],
+        themes: data.themes as unknown[],
+        tasks: domain.tasks as unknown[],
+      }),
+    ],
+    [domain.ai_proposals, domain.tasks, data.themes, data.work_receipts],
   );
   /** 返信は投稿のIDに紐づくEntity、AIの返答はProposalとして届く。同じスレッドへ並べる。 */
   const replyPosts = useMemo(
@@ -521,7 +550,34 @@ export function FeedPage(props: PageProps) {
     );
   }, [live.items, tab]);
 
+  /**
+   * 右レールの対応キュー。タブを問わず未処理の判断だけを並べる。
+   * 変更案も含む（レールは入口の目印で、採否そのものは提案の確認で行う）。
+   */
+  const railAttention = useMemo(
+    () => selectNeedsYou(buildFeedProjection(live.items).items).slice(0, 8),
+    [live.items],
+  );
+
+  const openAttentionFromRail = useCallback((item: FeedItem) => {
+    setTab("needs");
+    setDraftAnswer("");
+    // 変更案は対応待ちの一覧行を持たない。「提案の確認」でその1件を開く。
+    if (item.kind === "proposal_pending") {
+      const proposalId = item.sourceId ?? "";
+      setProposalFocus((current) => ({ proposalId, nonce: (current?.nonce ?? 0) + 1 }));
+      setOpenNeedsId(null);
+      return;
+    }
+    setOpenNeedsId(item.id);
+  }, []);
+
   const openNeedsItem = needsRows.find((item) => item.id === openNeedsId) ?? null;
+  /** 読める投稿が無いときの「記録する」。投稿欄は同じ面にあるので、そこへfocusを移す。 */
+  const focusCompose = useCallback(() => {
+    const node = document.getElementById("feed-compose-body");
+    if (node instanceof HTMLTextAreaElement) node.focus();
+  }, []);
   const availablePosts = useMemo(
     () => [...sourcePosts.arriving, ...sourcePosts.settled],
     [sourcePosts],
@@ -578,6 +634,21 @@ export function FeedPage(props: PageProps) {
       rowRefs.current.get(`post-${root.id}`)?.scrollIntoView({ block: "center" });
     });
   }, [availablePosts]);
+
+  /** Agent Desk集約後の `ai-io` リダイレクト。表示中に届いてもタブを切り替える。 */
+  useEffect(() => {
+    const onOpenTab = (event: Event) => {
+      const tab = (event as CustomEvent<string>).detail;
+      if (isFeedTab(tab)) {
+        setTab(tab);
+        setOpenNeedsId(null);
+        setOpenArticleId(null);
+        setOpenThreadId(null);
+      }
+    };
+    window.addEventListener("tasken:feed:open-tab", onOpenTab);
+    return () => window.removeEventListener("tasken:feed:open-tab", onOpenTab);
+  }, []);
 
   const openThread = useCallback((post: FeedPost) => {
     setOpenArticleId(null);
@@ -1279,6 +1350,33 @@ export function FeedPage(props: PageProps) {
     [domain.tasks],
   );
 
+  /**
+   * 成果確認の詳細（#599の読み順）。
+   * 報告はProposal経由とReceipt単体の両方がありうるので、両方から確認事項を引く。
+   */
+  const reviewDetailOf = useCallback(
+    (
+      sourceId: string | null | undefined,
+    ): { verification: string; remainingWork: string; completedItems: string } => {
+      if (!sourceId) return { verification: "", remainingWork: "", completedItems: "" };
+      const receipt = (data.work_receipts as Array<Record<string, unknown>>).find(
+        (entry) => String(entry.id) === sourceId,
+      );
+      const proposal = (domain.ai_proposals as Array<Record<string, unknown>>).find(
+        (entry) => String(entry.id) === sourceId,
+      );
+      const entry =
+        receipt ||
+        (proposal ? taskWorkEntry(proposal as { id: string } & Record<string, unknown>) : null);
+      return {
+        verification: listJoined(entry?.verification).join("／"),
+        remainingWork: listJoined(entry?.remaining_work).join("／"),
+        completedItems: listJoined(entry?.completed_checklist_item_ids).join("／"),
+      };
+    },
+    [data.work_receipts, domain.ai_proposals],
+  );
+
   const openTaskDrawer = useCallback(
     (item: FeedItem) => {
       const task = taskOf(item);
@@ -1356,6 +1454,110 @@ export function FeedPage(props: PageProps) {
       }
     },
     [draftAnswer, executeCommand, setToast, taskOf],
+  );
+
+  /**
+   * 報告の採用（Agent Desk集約）。`ApplyTaskWorkProposal` で提案を採用し、
+   * Task完了まで進める場合は続けて `AcceptTaskWork` を送る。Command経路は既存のまま。
+   */
+  const acceptReport = useCallback(
+    async (item: FeedItem, withCompletion: boolean) => {
+      if (busy || !item.taskId || !item.sourceId) return;
+      const task = taskOf(item) as { id: string; version?: number } | null;
+      if (!task) return;
+      // Proposal側の版も渡す。Task Work Proposalはexpected versionが無いと採用できない（#599）。
+      const proposal = (domain.ai_proposals as Array<Record<string, unknown>>).find(
+        (entry) => String(entry.id) === item.sourceId,
+      );
+      if (!proposal) return;
+      setBusy(true);
+      try {
+        const receipt = (await executeCommand({
+          commandId: `${item.sourceId}:accept`,
+          name: "ApplyTaskWorkProposal",
+          payload: { proposalId: item.sourceId, decision: "accept" },
+          actor: { kind: "user" },
+          source: "main_ui",
+          expectedVersions: [
+            { type: "task", id: item.taskId, version: Number(task.version ?? 0) },
+            { type: "ai_proposal", id: item.sourceId, version: Number(proposal.version ?? 0) },
+          ],
+          issuedAt: new Date().toISOString(),
+        } as never)) as {
+          changes?: Array<{ type?: string; entity?: { id?: string; version?: number } }>;
+        } | null;
+        if (!withCompletion) {
+          setToast("報告を採用しました。Taskは継続します。", "success");
+          setOpenNeedsId(null);
+          return;
+        }
+        // 採用でTaskの版が進む。完了は採用後に返った版で送る（前半だけ成功した場合を壊さない）。
+        const accepted = receipt?.changes?.find(
+          (entry) => entry.type === "task" && entry.entity?.id === item.taskId,
+        );
+        const nextVersion = Number(accepted?.entity?.version || task.version || 0);
+        await executeCommand({
+          commandId: `${item.sourceId}:accept:complete`,
+          name: "AcceptTaskWork",
+          payload: {
+            taskId: item.taskId,
+            receiptId: item.sourceId,
+            completeTask: true,
+          },
+          actor: { kind: "user" },
+          source: "main_ui",
+          expectedVersions: [{ type: "task", id: item.taskId, version: nextVersion }],
+          issuedAt: new Date().toISOString(),
+        } as never);
+        setToast("報告を採用し、Taskを完了しました。", "success");
+        setOpenNeedsId(null);
+      } catch (error) {
+        setToast(
+          `報告を採用できませんでした。${error instanceof Error ? error.message : String(error)} 既に採用済みの場合は、Task完了だけを再試行できます。`,
+          "danger",
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, domain.ai_proposals, executeCommand, setToast, taskOf],
+  );
+
+  /** 報告の差し戻し。修正してほしい点を `ReturnTaskWork` で返す。 */
+  const returnReport = useCallback(
+    async (item: FeedItem) => {
+      const note = draftReviewNote.trim();
+      if (!note) {
+        setToast("修正してほしい点を入力してください。", "warning");
+        return;
+      }
+      if (busy || !item.taskId || !item.sourceId) return;
+      const task = taskOf(item) as { id: string; version?: number } | null;
+      if (!task) return;
+      setBusy(true);
+      try {
+        await executeCommand({
+          commandId: `${item.sourceId}:return`,
+          name: "ReturnTaskWork",
+          payload: { taskId: item.taskId, receiptId: item.sourceId, reviewNote: note },
+          actor: { kind: "user" },
+          source: "main_ui",
+          expectedVersions: [{ type: "task", id: item.taskId, version: Number(task.version ?? 0) }],
+          issuedAt: new Date().toISOString(),
+        } as never);
+        setToast("修正を依頼しました。Taskは継続します。", "success");
+        setDraftReviewNote("");
+        setOpenNeedsId(null);
+      } catch (error) {
+        setToast(
+          `修正を依頼できませんでした。${error instanceof Error ? error.message : String(error)}`,
+          "danger",
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, draftReviewNote, executeCommand, setToast, taskOf],
   );
 
   const changeTodayDate = useCallback(
@@ -1508,9 +1710,11 @@ export function FeedPage(props: PageProps) {
               aria-label="対応待ち"
             >
               {needsRows.length === 0 ? (
-                <p className="feed-empty">
-                  いま対応する更新はありません。読み物はホームと学びにあります。
-                </p>
+                <EmptyState
+                  title="いま対応する更新はありません"
+                  action="ホームを読む"
+                  onAction={() => setTab("home")}
+                />
               ) : (
                 <ul className="feed-needs-list">
                   {needsRows.map((item) => (
@@ -1547,7 +1751,9 @@ export function FeedPage(props: PageProps) {
                             variant="ghost"
                             compact
                             onClick={() => {
-                              if (action.id === "open_task" || action.id === "review_report") {
+                              // Taskを開く操作だけがドロワーへ進む。「成果を確認」は
+                              // この場で報告の確認（採用・差戻し）を開く（#599の読み順）。
+                              if (action.id === "open_task") {
                                 openTaskDrawer(item);
                                 return;
                               }
@@ -1600,6 +1806,81 @@ export function FeedPage(props: PageProps) {
                                 </Button>
                               </div>
                             </form>
+                          ) : item.kind === "review_ready" ? (
+                            <div className="feed-review">
+                              {/* 読み順は #599 の契約どおり。生成文で順序を変えない。 */}
+                              <dl className="feed-detail-rows">
+                                <div>
+                                  <dt>成果</dt>
+                                  <dd>{item.summary}</dd>
+                                </div>
+                                <div>
+                                  <dt>確認できたこと</dt>
+                                  <dd>{reviewDetailOf(item.sourceId).verification || "—"}</dd>
+                                </div>
+                                <div>
+                                  <dt>未確認事項</dt>
+                                  <dd>{reviewDetailOf(item.sourceId).remainingWork || "—"}</dd>
+                                </div>
+                                <div>
+                                  <dt>Taskenへ反映する内容</dt>
+                                  <dd>
+                                    {reviewDetailOf(item.sourceId).completedItems ||
+                                      "チェック項目の変更はありません"}
+                                  </dd>
+                                </div>
+                              </dl>
+                              {/* 既定の主操作は「報告を採用」。Task完了は選ばれていない明示オプション（#599）。 */}
+                              <label className="feed-review-check">
+                                <input
+                                  type="checkbox"
+                                  checked={completeTask}
+                                  onChange={(event) => setCompleteTask(event.target.checked)}
+                                />
+                                Taskも完了する
+                              </label>
+                              <div className="feed-detail-actions">
+                                <Button
+                                  variant="primary"
+                                  disabled={busy}
+                                  onClick={() => void acceptReport(item, completeTask)}
+                                >
+                                  {busy
+                                    ? "処理中"
+                                    : completeTask
+                                      ? "採用してTaskを完了"
+                                      : "報告を採用"}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  disabled={busy}
+                                  onClick={() => openTaskDrawer(item)}
+                                >
+                                  Taskを開く
+                                </Button>
+                              </div>
+                              <form
+                                className="feed-reply"
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void returnReport(item);
+                                }}
+                              >
+                                <label htmlFor="feed-review-note">修正してほしい点</label>
+                                <textarea
+                                  id="feed-review-note"
+                                  value={draftReviewNote}
+                                  onChange={(event) => setDraftReviewNote(event.target.value)}
+                                  rows={2}
+                                  disabled={busy}
+                                />
+                                <div className="feed-detail-actions">
+                                  <Button variant="secondary" type="submit" disabled={busy}>
+                                    {busy ? "送信中" : "修正を依頼"}
+                                  </Button>
+                                </div>
+                              </form>
+                            </div>
                           ) : (
                             <div className="feed-detail-actions">
                               <Button
@@ -1621,7 +1902,7 @@ export function FeedPage(props: PageProps) {
                 変更案の確認・採否はこのタブで完結させる（`ai-io` への移動は不要）。
                 対応待ち一覧の `proposal_pending` 行は上で外しており、ここが唯一の入口。
               */}
-              <AiProposalPanel {...props} />
+              <AiProposalPanel {...props} focusRequest={proposalFocus} />
             </section>
           ) : (
             <section
@@ -1646,14 +1927,21 @@ export function FeedPage(props: PageProps) {
                 interesting={shownInteresting}
                 known={shownKnown}
                 hasMore={hasMorePosts}
-                emptyLabel={
+                emptyTitle={
                   tab === "bookmarks"
                     ? bookmarkFilter === "bookmark"
-                      ? "保存した投稿はまだありません。投稿のブックマークで保存できます。"
+                      ? "保存した投稿はまだありません"
                       : bookmarkFilter === "interesting"
-                        ? "「おもしろい」を付けた投稿はまだありません。"
-                        : "「既知だった」を付けた投稿はまだありません。"
-                    : "まだ読める投稿がありません。"
+                        ? "「おもしろい」を付けた投稿はまだありません"
+                        : "「既知だった」を付けた投稿はまだありません"
+                    : tab === "learn"
+                      ? "学びの投稿はまだありません"
+                      : "まだ読める投稿がありません"
+                }
+                emptyAction={
+                  tab === "home"
+                    ? { label: "記録する", onClick: focusCompose }
+                    : { label: "ホームを読む", onClick: () => setTab("home") }
                 }
                 onToggleExpanded={toggleExpanded}
                 onAuthorFilter={setAuthorFilter}
@@ -1693,6 +1981,20 @@ export function FeedPage(props: PageProps) {
             />
           ) : null}
         </section>
+
+        {/* 右レール。Thread（会話スロット）を開いている間は非表示（右側補助は1スロット、design-guide §21）。 */}
+        {!openThreadPost ? (
+          <FeedContextRail
+            data={data}
+            domain={domain}
+            activeTheme={activeTheme}
+            attention={railAttention}
+            openDrawer={openDrawer}
+            navigate={navigate}
+            onOpenAttention={openAttentionFromRail}
+            onFilterAuthor={(authorId) => setAuthorFilter(authorId as FeedAuthorId | null)}
+          />
+        ) : null}
 
         {openThreadPost ? (
           <FeedThreadPanel

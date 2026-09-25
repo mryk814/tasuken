@@ -276,6 +276,41 @@ async function auditFixtures(app, page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/needs.png`, fullPage: true });
 
+  /*
+   * 6b. 右レール（Agent Desk集約）。
+   * 判断とAIの動きを面移動なしで見られること、変更案が「提案の確認」の選択へ入ること、
+   * 読み面を圧迫する幅では畳まれることを実測する（design-guide §21の1スロット）。
+   */
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1536, 960));
+  await page.waitForTimeout(700);
+  const rail = page.locator(".feed-rail");
+  if (!(await rail.isVisible())) {
+    failures.push("広い幅（1536）でFeedの右レールが出ていません。");
+  } else {
+    const railText = (await rail.innerText()).replace(/\s+/g, " ");
+    if (!railText.includes("対応キュー")) failures.push("右レールに「対応キュー」がありません。");
+    if (!railText.includes("AI活動")) failures.push("右レールに「AI活動」がありません。");
+    const railProposal = rail.locator(".context-row", { hasText: "Noteの変更案" }).first();
+    if (!(await railProposal.count())) {
+      failures.push("右レールの対応キューに変更案が出ていません。");
+    } else {
+      await railProposal.click();
+      await page.waitForTimeout(500);
+      const openedInPanel = await page
+        .locator('.proposal-inbox-panel .proposal-row-select[aria-pressed="true"]')
+        .count();
+      if (!openedInPanel) {
+        failures.push("右レールから変更案を開いても、「提案の確認」で選択されません。");
+      }
+    }
+    await page.screenshot({ path: `${OUT_DIR}/rail-1536.png`, fullPage: true });
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 800));
+  await page.waitForTimeout(700);
+  if (await page.locator(".feed-rail").isVisible()) {
+    failures.push("狭い幅（1280）でFeedの右レールが残っています（読み面を圧迫します）。");
+  }
+
   // 7. 幅ごとの崩れ。投稿面は1列のまま、横スクロールを出さない。
   for (const size of SIZES) {
     await app.evaluate(
@@ -515,6 +550,79 @@ async function auditFixtures(app, page) {
       failures.push(`投稿の一覧に自動で読み上げる領域が${readOrder.liveRegions}件あります。`);
     }
   }
+
+  /*
+   * 12. 成果確認は報告の確認（採用・差戻し）へ入る（#599。#602の文言もここで読む）。
+   * Agent DeskからFeedへ移した操作なので、実画面の一往復を確かめる。
+   */
+  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
+  await page.waitForTimeout(600);
+  const reviewRow = page
+    .locator(".feed-needs-row", { hasText: "3条件の比較表を作成しました。" })
+    .first();
+  if (!(await reviewRow.count())) {
+    failures.push("成果確認の行が対応待ちにありません。");
+    return;
+  }
+  await reviewRow.locator("button", { hasText: "成果を確認" }).first().click();
+  await page.waitForTimeout(500);
+  const review = reviewRow.locator(".feed-review");
+  if (!(await review.count())) {
+    failures.push("「成果を確認」で報告の確認が開きません。");
+    return;
+  }
+  const reviewLabels = await review.locator("dt").allInnerTexts();
+  const expectedLabels = ["成果", "確認できたこと", "未確認事項", "Taskenへ反映する内容"];
+  if (reviewLabels.join(",") !== expectedLabels.join(",")) {
+    failures.push(`報告の確認の読み順が違います（${reviewLabels.join(",")}）。`);
+  }
+  const reviewText = (await review.innerText()).replace(/\s+/g, " ");
+  for (const label of ["報告を採用", "Taskも完了する", "修正を依頼"]) {
+    if (!reviewText.includes(label)) failures.push(`報告の確認に「${label}」がありません。`);
+  }
+  await page.screenshot({ path: `${OUT_DIR}/review-open.png`, fullPage: true });
+
+  // 13. 報告だけを採用する。Taskは完了させない（採用と完了は別のCommand）。
+  await review.locator("button", { hasText: "報告を採用" }).first().click();
+  await page.waitForTimeout(2000);
+  const acceptToast = (await page.locator(".toast").first().innerText()).replace(/\s+/g, " ");
+  if (!acceptToast.includes("報告を採用しました")) {
+    failures.push(`報告を採用した結果が読めません（${acceptToast}）。`);
+  }
+  const afterAccept = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (afterAccept !== String(EXPECTED_UNRESOLVED - 1)) {
+    failures.push(
+      `報告を採用しても対応待ちが${EXPECTED_UNRESOLVED - 1}件になりません（${afterAccept}）。`,
+    );
+  }
+  await page.screenshot({ path: `${OUT_DIR}/review-accepted.png`, fullPage: true });
+
+  // 14. Taskに紐づかない変更案も、同じ面から決着できる（却下）。正式データは作らない。
+  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
+  await page.waitForTimeout(500);
+  const noteProposalRow = page
+    .locator(".proposal-inbox-panel .proposal-row-select", { hasText: "測定手順のNoteを作る案" })
+    .first();
+  if (!(await noteProposalRow.count())) {
+    failures.push("Taskに紐づかない変更案が「提案の確認」にありません。");
+    return;
+  }
+  await noteProposalRow.click();
+  await page.waitForTimeout(500);
+  const rejectButton = page.locator(".proposal-inline-preview button", { hasText: "拒否" }).first();
+  if (!(await rejectButton.count())) {
+    failures.push("変更案を却下する操作が「提案の確認」にありません。");
+    return;
+  }
+  await rejectButton.click();
+  await page.waitForTimeout(2000);
+  const afterReject = (await page.locator(".feed-tab-count").first().innerText()).trim();
+  if (afterReject !== String(EXPECTED_UNRESOLVED - 2)) {
+    failures.push(
+      `変更案を却下しても対応待ちが${EXPECTED_UNRESOLVED - 2}件になりません（${afterReject}）。`,
+    );
+  }
+  await page.screenshot({ path: `${OUT_DIR}/proposal-rejected.png`, fullPage: true });
 }
 
 /**

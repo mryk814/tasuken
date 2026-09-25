@@ -56,7 +56,9 @@ test("Sketch editor remains a real child route while legacy aliases redirect", (
   assert.equal(routing.normalizeRoute("sketch-editor"), "sketch-editor");
   assert.equal(routing.resolveRouteId("sketch-editor"), "sketch");
   assert.equal(routing.normalizeRoute("prompts"), "notes");
-  assert.equal(routing.normalizeRoute("proposal-inbox"), "ai-io");
+  // Agent DeskはFeedへ集約した。旧aliasはFeedの対応待ちへ着地する。
+  assert.equal(routing.normalizeRoute("proposal-inbox"), "feed");
+  assert.equal(routing.normalizeRoute("ai-io"), "feed");
   assert.equal(routing.normalizeRoute("settings/ai"), "settings");
 });
 

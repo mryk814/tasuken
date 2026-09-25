@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconAlertTriangle,
   IconArchive,
@@ -564,8 +564,17 @@ export function buildCandidateOperations(
   return operations.filter((operation) => operation.type !== "change_event");
 }
 
-export function AiProposalPanel(props: PageProps) {
-  const { data, domain, themes, items, saveEntities, executeCommand, setToast } = props;
+interface AiProposalPanelProps extends PageProps {
+  /**
+   * 右レールの対応キューから開いた変更案。`nonce` が進むたびに1件だけ選択状態へ反映する。
+   * 同じ変更案をもう一度開き直せるよう、IDではなく`nonce`の消費で判定する。
+   */
+  focusRequest?: { proposalId: string; nonce: number } | null;
+}
+
+export function AiProposalPanel(props: AiProposalPanelProps) {
+  const { data, domain, themes, items, saveEntities, executeCommand, setToast, focusRequest } =
+    props;
   const [selectedId, setSelectedId] = useState("");
   const [preview, setPreview] = useState<ProposalPreview | null>(null);
   const [quarantineReason, setQuarantineReason] = useState("");
@@ -609,6 +618,27 @@ export function AiProposalPanel(props: PageProps) {
     selectedWorkTask &&
     !["done", "cancelled"].includes(str((selectedWorkTask as unknown as BaseRecord).state)),
   );
+
+  /**
+   * 右レールの対応キューから変更案を開いたとき、その1件を選択して内容を出す（Agent Desk集約）。
+   * 消費した`nonce`は覚えておき、利用者が別の提案を選び直したあとに勝手に戻さない。
+   */
+  const consumedFocusRef = useRef(0);
+  useEffect(() => {
+    if (!focusRequest || consumedFocusRef.current === focusRequest.nonce) return;
+    const proposal = (data.ai_proposals || []).find(
+      (entry) => entry.id === focusRequest.proposalId,
+    );
+    if (!proposal) return;
+    consumedFocusRef.current = focusRequest.nonce;
+    try {
+      setSelectedId(proposal.id);
+      setPreview(buildPreview(proposal, { data, themes, items }));
+    } catch {
+      // 解析できない提案は選択だけに留め、面全体を失敗させない。
+      setPreview(null);
+    }
+  }, [focusRequest, data, themes, items]);
 
   const refreshProposals = useCallback(
     async (showFeedback: boolean) => {
@@ -946,6 +976,12 @@ export function AiProposalPanel(props: PageProps) {
     }
   }
 
+  /**
+   * 確認するものも履歴も無いときは面ごと出さない（design-guide §5）。
+   * 件数は右レールの対応キューが示し、外部からの到着はstoreとfocus復帰で拾う。
+   */
+  if (!proposals.length && !history.length && !passiveSessionProposals.length) return null;
+
   return (
     <div className="ai-proposal-panel">
       <section
@@ -967,15 +1003,6 @@ export function AiProposalPanel(props: PageProps) {
             </Button>
           </div>
         </div>
-        {!proposals.length && (
-          <div className="empty-state proposal-empty-state">
-            <IconShieldCheck size={22} aria-hidden="true" />
-            <strong>未処理のProposalはありません</strong>
-            <span>
-              Taskに紐づかないNote・Artifact等の提案も、外部AIから届いた提案もここで確認します。
-            </span>
-          </div>
-        )}
         <div className="proposal-list" aria-label="AIからの提案一覧">
           {proposals.map((proposal) => {
             const work = taskWorkEntry(proposal);
@@ -1046,42 +1073,14 @@ export function AiProposalPanel(props: PageProps) {
             );
           })}
         </div>
-        {passiveSessionProposals.length > 0 && (
-          <details className="panel proposal-history session-observation-history">
-            <summary>
-              <span>
-                <IconHistory size={16} aria-hidden="true" />
-                Session observations
-              </span>
-              <strong>{passiveSessionProposals.length}件</strong>
-            </summary>
-            <p className="proposal-preview-context">
-              hookが集めた作業記録です。通知対象にはせず、Tasken
-              Debriefの保存時にまとめて確認・正式化します。
-            </p>
-            <div className="proposal-history-list">
-              {passiveSessionProposals.map((proposal) => (
-                <div className="proposal-history-row" key={proposal.id}>
-                  <div>
-                    <strong>{proposalTargetLabel(proposal)}</strong>
-                    <small>
-                      {proposalSourceLabel(proposal)} / {formatProposalDate(proposal)}
-                    </small>
-                  </div>
-                  <span className="proposal-status proposal-status-pending">Debrief待ち</span>
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
-        {history.length > 0 && (
+        {(history.length > 0 || passiveSessionProposals.length > 0) && (
           <details className="panel proposal-history">
             <summary>
               <span>
                 <IconHistory size={16} aria-hidden="true" />
-                処理履歴
+                履歴
               </span>
-              <strong>{history.length}件</strong>
+              <strong>{history.length + passiveSessionProposals.length}件</strong>
             </summary>
             <div className="proposal-history-list">
               {history.map((proposal) => (
@@ -1106,6 +1105,23 @@ export function AiProposalPanel(props: PageProps) {
                   </span>
                   {str(proposal.quarantine_reason) && <p>{str(proposal.quarantine_reason)}</p>}
                 </button>
+              ))}
+              {passiveSessionProposals.length > 0 && (
+                <p className="proposal-preview-context">
+                  Session observations {passiveSessionProposals.length}
+                  件（hookが集めた作業記録。Tasken Debriefの保存時にまとめて確認・正式化します）
+                </p>
+              )}
+              {passiveSessionProposals.map((proposal) => (
+                <div className="proposal-history-row" key={proposal.id}>
+                  <div>
+                    <strong>{proposalTargetLabel(proposal)}</strong>
+                    <small>
+                      {proposalSourceLabel(proposal)} / {formatProposalDate(proposal)}
+                    </small>
+                  </div>
+                  <span className="proposal-status proposal-status-pending">Debrief待ち</span>
+                </div>
               ))}
             </div>
           </details>

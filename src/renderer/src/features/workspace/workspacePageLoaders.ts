@@ -13,7 +13,6 @@ const pageLoaders: Record<string, () => Promise<unknown>> = {
   "sketch-editor": () => import("./pages/SketchPage"),
   knowledge: () => import("./pages/KnowledgePage"),
   waiting: () => import("./pages/WaitingPage"),
-  "ai-io": () => import("./pages/ImportExportPage"),
   debrief: () => import("./pages/DebriefPage"),
   settings: () => import("./pages/SettingsPage"),
 };
@@ -40,7 +39,6 @@ export function preloadWorkspacePagesWhenIdle(): () => void {
     "studio",
     "chat-refs",
     "artifacts",
-    "ai-io",
     "settings",
   ];
   let cancelled = false;
