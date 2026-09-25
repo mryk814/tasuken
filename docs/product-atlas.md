@@ -70,23 +70,23 @@ flowchart LR
 
 ## 2. Surface Map
 
-| Surface    | 一言で言うと                      | 主に扱う正本                    | 種別                  | 現在の位置づけ                                |
-| ---------- | --------------------------------- | ------------------------------- | --------------------- | --------------------------------------------- |
-| Today      | 今日実行する                      | Task / Schedule                 | Projection / Hub      | Core daily                                    |
-| ToDo       | 未完了・予定なしを整理する        | Task / Schedule                 | Projection            | Core daily                                    |
-| Waiting    | 外部待ちを確認する                | Waiting                         | Entity view           | Supporting / usage review                     |
-| Inbox      | まだ意味を決めていない入力        | CaptureEntry / Memo             | Intake hub            | Core daily, simplify                          |
-| Timeline   | 中長期計画をTheme横断で見る       | Task / Schedule                 | Projection            | Supporting                                    |
-| Notes      | Markdown文書を作る・読む          | Note / Resource                 | Workbench             | Core daily                                    |
-| Sketch     | 手描き・図を作る                  | Sketch                          | Authoring tool        | Core secondary                                |
-| Chat Refs  | 外部AI会話を保管・参照する        | Resource / Conversation         | Source library        | Supporting, growing                           |
-| Artifacts  | 実ファイル・Media・Web成果物      | Artifact                        | Output library        | Core, growing                                 |
-| Theme      | 一つのThemeの現在地               | Theme + related entities        | Projection / Context  | Core                                          |
-| Themes     | Theme横断の一覧                   | Theme                           | Portfolio view        | Supporting                                    |
-| Agent Desk | 任せた仕事の進みと待ちを確認する  | AiProposal / WorkReceipt / Task | Review + Queue        | Core daily（#600で統合。route IDは `ai-io`）  |
-| Feed       | 変化と判断を流し読みする          | 既存canonicalからのprojection   | Attention projection  | 試作中 / Experimental（#604。架空データのみ） |
-| Knowledge  | Relation・既存Knowledgeを診断する | Relation / KnowledgeNode        | Research / Diagnostic | Experimental                                  |
-| Settings   | 保存・接続・AI・表示を設定する    | Preferences / Profiles          | Tool                  | Supporting                                    |
+| Surface    | 一言で言うと                      | 主に扱う正本                    | 種別                  | 現在の位置づけ                                                             |
+| ---------- | --------------------------------- | ------------------------------- | --------------------- | -------------------------------------------------------------------------- |
+| Today      | 今日実行する                      | Task / Schedule                 | Projection / Hub      | Core daily                                                                 |
+| ToDo       | 未完了・予定なしを整理する        | Task / Schedule                 | Projection            | Core daily                                                                 |
+| Waiting    | 外部待ちを確認する                | Waiting                         | Entity view           | Supporting / usage review                                                  |
+| Inbox      | まだ意味を決めていない入力        | CaptureEntry / Memo             | Intake hub            | Core daily, simplify                                                       |
+| Timeline   | 中長期計画をTheme横断で見る       | Task / Schedule                 | Projection            | Supporting                                                                 |
+| Notes      | Markdown文書を作る・読む          | Note / Resource                 | Workbench             | Core daily                                                                 |
+| Sketch     | 手描き・図を作る                  | Sketch                          | Authoring tool        | Core secondary                                                             |
+| Chat Refs  | 外部AI会話を保管・参照する        | Resource / Conversation         | Source library        | Supporting, growing                                                        |
+| Artifacts  | 実ファイル・Media・Web成果物      | Artifact                        | Output library        | Core, growing                                                              |
+| Theme      | 一つのThemeの現在地               | Theme + related entities        | Projection / Context  | Core                                                                       |
+| Themes     | Theme横断の一覧                   | Theme                           | Portfolio view        | Supporting                                                                 |
+| Agent Desk | 任せた仕事の進みと待ちを確認する  | AiProposal / WorkReceipt / Task | Review + Queue        | Feedへ集約（2026-09-26）。独立画面は無く、route ID `ai-io` は旧URLの受け皿 |
+| Feed       | 変化と判断を流し読みする          | 既存canonicalからのprojection   | Attention projection  | 試作中 / Experimental（#604。右レールと「対応待ち」を持つ）                |
+| Knowledge  | Relation・既存Knowledgeを診断する | Relation / KnowledgeNode        | Research / Diagnostic | Experimental                                                               |
+| Settings   | 保存・接続・AI・表示を設定する    | Preferences / Profiles          | Tool                  | Supporting                                                                 |
 
 ### Satellite surfaces
 

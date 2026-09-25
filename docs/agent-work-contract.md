@@ -218,25 +218,33 @@ Task詳細の「AIへ任せる」から、**Taskの正本を変えずに**外部
 - **agentがContextを取得したかは観測していない。** 取得済みとは表示しない。
 - 委任の解除は「委任を解除」と表示し、外部プロセスの停止は保証しない。
 
-## 8. Agent Desk（#599）
+## 8. Agent Desk（#599。2026-09-26にFeedへ集約）
 
-`ai-io` の面の先頭に、任せた仕事の進みと待ちを**4つの見出し**で一覧する。
-4列Kanbanにはしない。対応待ちを先頭に置く。
+Agent Desk は独立した画面を持たない。Feedの**右レール**（対応キュー・AI活動・今見るもの・再発見）と
+**「対応待ち」タブ**が面を担う。レールは入口の目印で、判断の正本は `buildAttentionQueue` のまま
+（`docs/feed-surface.md` §6.6）。
+
+`ai-io` の先頭に4つの見出しを置く形はやめ、**縦に積むセクション**として読ませる。
+4列Kanbanにはしない。対応待ち（対応キュー）を先頭に置く。
 
 ```text
-対応待ち 2
-  測定温度が決まっていません。   Codex  粘度測定の条件を決める   [回答待ち]
-  3条件の比較表を作成しました。  Codex  比較表の作成            [成果確認]
-作業中 0
-開始待ち 1
-  粘度データの整理               外部AI  開始は未確認
-最近の結果 0件
+対応キュー            まとめて見る
+  測定温度が決まっていません。  回答待ち / Codex
+  3条件の比較表を作成しました。 成果確認 / Codex
+AI活動                絞り込み
+  Codex  対応待ち 2 / 作業中 0 / 開始待ち 0 / 投稿 3
+    粘度データの整理  開始は未確認
+今見るもの            今日へ
+再発見                日替わり
 ```
 
-- 一覧は `buildAttentionQueue` と `deriveAgentWorkState` の**導出結果を表示するだけ**。
+- レールは `buildAttentionQueue` と `deriveAgentWorkState` の**導出結果を表示するだけ**。
   画面側に状態の正本を持たない（選択と入力だけを持つ）。
+- 中身のあるセクションだけを出し、0件のセクションは枠を出さない（design-guide §5）。
 - 「作業中」は稼働監視ではない。**経過時間だけで成功・停止・失敗へ変えない。** 報告が無ければ「報告はまだありません」。
 - 「開始待ち」は **「開始は未確認」** と表示する。agentがContextを取得したかは観測していないので「取得済み」とは書かない。
+- 人の返答（`receipt_kind: "human_reply"`）はAIの投稿にしない。作業報告（`work_receipt`）は
+  homeストリームへ **作業報告の投稿**としても流し、読む面と決める面を分ける。
 
 ### 確認詳細の読み順
 
@@ -251,7 +259,7 @@ Task詳細の「AIへ任せる」から、**Taskの正本を変えずに**外部
 
 「この変更案を却下」は種別で経路を分ける。Task workは `ApplyTaskWorkProposal`（`decision: "reject"`）、
 中身のある変更案（Note / Knowledge / Sketch / Artifact）は同じ面のPreviewと同じ entry decision を添えて
-`ApplyAiProposal`（`status: "rejected"`）へ渡す。**Taskに紐づかない変更案も Agent Desk から決着でき**、
+`ApplyAiProposal`（`status: "rejected"`）へ渡す。**Taskに紐づかない変更案も Feedの「提案の確認」から決着でき**、
 却下で正式データは作らない。修正を依頼（差戻し）とは別の操作である。
 
 「Taskも完了する」は**最初から選ばれていない明示オプション**にする。
@@ -343,22 +351,23 @@ Foldの目視は `output/android-attention/fold-attention-detail.png`（2076×21
 
 ## 10. 実装を置く境界
 
-| 境界                                                    | 責務                                                                    |
-| ------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `src/shared/contracts/task/agentWork.ts`                | 表示状態、要対応item、操作ID、導出、並び順                              |
-| `src/shared/contracts/task/attentionQueue.ts`           | 未解決判断の集約、件数、重複排除、並び（#596 / #601）                   |
-| `src/shared/contracts/task/handoff.ts`                  | Handoffの委任先、Context参照版、差分の説明（#598）                      |
-| `src/renderer/.../components/AgentDeskPanel.tsx`        | 4見出しの一覧と確認詳細。表示とCommand接続だけを持つ（#599）            |
-| `src/shared/contracts/task/taskWorkProposal.ts`         | 報告の入力契約（新fieldの受理と検証）                                   |
-| `src/shared/applicationCommand.ts`                      | `StartTaskWork.workAttemptId` と `ReplyToAgentRequest` の検証           |
-| `src/main/services/applicationCommandService.ts`        | Taskの現在参照の更新、Receiptへの引き継ぎ、質問の有効性確認、人の返答   |
-| `src/main/repositories/domain.mjs`                      | 保存時の形式検証（UUID・範囲・`receipt_kind`）                          |
-| `src/main/mcp/server.mjs`                               | agent向けの入力schema                                                   |
-| `src/main/gateway/mobile/attentionProjection.ts`        | 要対応のmobile向け射影（上限・truncated・件数）（#601）                 |
-| `src/main/composition/taskenCoreRuntime.ts`             | 要対応の読み出しと回答の受理（`readAttention` / `replyToAgentRequest`） |
-| Android `MobileAttentionDto.kt` / `MobileLocalStore.kt` | 要対応の契約・キャッシュ・回答の保留（#601）                            |
-| Android `MainActivity.kt` / `TodayViewModel`            | 要対応の一覧と回答欄。表示と入力だけを持つ（#601）                      |
-| Desktop UI / Android                                    | read modelを表示するだけ。**独自の状態導出を増やさない**                |
+| 境界                                                    | 責務                                                                                              |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `src/shared/contracts/task/agentWork.ts`                | 表示状態、要対応item、操作ID、導出、並び順                                                        |
+| `src/shared/contracts/task/attentionQueue.ts`           | 未解決判断の集約、件数、重複排除、並び（#596 / #601）                                             |
+| `src/shared/contracts/task/handoff.ts`                  | Handoffの委任先、Context参照版、差分の説明（#598）                                                |
+| `src/renderer/.../components/FeedContextRail.tsx`       | 右レールの一覧（対応キュー・AI活動・今見るもの・再発見）。表示だけを持つ（#599 / 2026-09-26集約） |
+| `src/renderer/.../pages/FeedPage.tsx`                   | 「対応待ち」の行と報告の確認。Command接続を持つ（#599）                                           |
+| `src/shared/contracts/task/taskWorkProposal.ts`         | 報告の入力契約（新fieldの受理と検証）                                                             |
+| `src/shared/applicationCommand.ts`                      | `StartTaskWork.workAttemptId` と `ReplyToAgentRequest` の検証                                     |
+| `src/main/services/applicationCommandService.ts`        | Taskの現在参照の更新、Receiptへの引き継ぎ、質問の有効性確認、人の返答                             |
+| `src/main/repositories/domain.mjs`                      | 保存時の形式検証（UUID・範囲・`receipt_kind`）                                                    |
+| `src/main/mcp/server.mjs`                               | agent向けの入力schema                                                                             |
+| `src/main/gateway/mobile/attentionProjection.ts`        | 要対応のmobile向け射影（上限・truncated・件数）（#601）                                           |
+| `src/main/composition/taskenCoreRuntime.ts`             | 要対応の読み出しと回答の受理（`readAttention` / `replyToAgentRequest`）                           |
+| Android `MobileAttentionDto.kt` / `MobileLocalStore.kt` | 要対応の契約・キャッシュ・回答の保留（#601）                                                      |
+| Android `MainActivity.kt` / `TodayViewModel`            | 要対応の一覧と回答欄。表示と入力だけを持つ（#601）                                                |
+| Desktop UI / Android                                    | read modelを表示するだけ。**独自の状態導出を増やさない**                                          |
 
 ### 要対応queue（#596）
 
@@ -389,7 +398,7 @@ rtk node scripts/run-electron-node.mjs --test tests/attention-queue.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/task-handoff.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/agent-desk.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/mobile-attention-golden.test.mjs tests/mobile-agent-attention.test.mjs
-rtk npm run build && rtk npm run audit:handoff && rtk npm run audit:agent-desk
+rtk npm run build && rtk npm run audit:handoff && rtk npm run audit:feed
 rtk node scripts/run-electron-node.mjs --test tests/task-work-receipts.test.mjs tests/task-work-history.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/mcp-task-context.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/ai-collaboration-e2e.test.mjs
@@ -406,22 +415,22 @@ rtk npm run build:mcp
 どのテストが実測しているかを対応させる。記載したテストは `tests/` と
 `android-app/app/src/{test,androidTest}` に実在し、`npm run ci` の対象に入っている。
 
-| 場面             | 証跡（実測）                                                                                                                                                                                                                                                                                                                            | 残っている境界                                                                       |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| 基本の一往復     | `tests/agent-roundtrip-acceptance.test.mjs`（実SQLite＋実stdio MCP＋実mobile gateway。採用では`state==="todo"`のまま、明示完了で`done`）                                                                                                                                                                                                | 実クライアント（Codex等）からの接続                                                  |
-| 報告だけ採用     | `tests/task-work-receipts.test.mjs`、`tests/agent-work-state.test.mjs`（`accepted_continuing`）、`tests/agent-desk.test.mjs`（文言）、`npm run audit:agent-desk`（実画面で採用→Taskは継続）                                                                                                                                             | —                                                                                    |
-| 採用して完了     | `tests/task-work-receipts.test.mjs`（採用→古い版での完了は競合→完了だけ再試行。Receiptは1件のまま）、`npm run audit:agent-desk`（「Taskも完了する」→実画面で完了し、保存状態も確認）                                                                                                                                                    | —                                                                                    |
-| 差戻し           | `tests/task-work-receipts.test.mjs`（**採用前の報告も差戻せる**。理由が残り、Proposalは差戻しとして決着）、`tests/mobile-gateway-phase4a.test.mjs`（Androidの経路）、`tests/mcp-task-context.test.mjs`（理由をagentが取得）、`tests/agent-work-state.test.mjs`、`npm run audit:agent-desk`（実画面）、Android `WorkReceiptDetailUiTest` | —                                                                                    |
-| 再割当           | `tests/agent-work-state.test.mjs`（遅い報告は`past_attempt_report`）、`tests/agent-work-attempt.test.mjs`（`ReassignTaskWork`で新しい作業単位になり、確認待ちは先に採用か差戻し）、`tests/agent-reply.test.mjs`、`npm run audit:handoff`（実画面）                                                                                      | 実行中に解除した相手のagent側の扱い                                                  |
-| 再送             | `tests/mcp-task-context.test.mjs`、`tests/agent-reply.test.mjs`（`no_change`）、`tests/mobile-gateway-agent-delegation.test.mjs`                                                                                                                                                                                                        | 4経路を1本のテストでは通していない                                                   |
-| 順不同           | `tests/agent-work-state.test.mjs`（`report_sequence`が到着順と発信時刻より優先。progressは要対応の行を作らない）                                                                                                                                                                                                                        | 端末差が出る値は無い（順序は共有の`agentWorkOrderKey`が決める）                      |
-| 質問とprogress   | `tests/agent-work-state.test.mjs`、`tests/attention-queue.test.mjs`（progress後も回答待ちが残る）                                                                                                                                                                                                                                       | —                                                                                    |
-| 複数の判断       | `tests/attention-queue.test.mjs`（質問とNote変更案の合計2件。Task紐づきでも別の判断として残り、片方の処理で他方が残る）、`tests/agent-work-state.test.mjs`                                                                                                                                                                              | MCPの書き込み経路が`notes`へ`task_id`を運ばない（読み出しは`request.task_id`に対応） |
-| 同じ報告の重複   | `tests/attention-queue.test.mjs`（reviewとProposalは1件、解決で消える）                                                                                                                                                                                                                                                                 | —                                                                                    |
-| TaskなしProposal | `tests/attention-queue.test.mjs`、`tests/mobile-attention-golden.test.mjs`、`tests/ai-integration-ia.test.mjs`、`npm run audit:agent-desk`（実画面で対応待ち→preview→却下）、Android `MobileAttentionGoldenTest`                                                                                                                        | —                                                                                    |
-| offline返信      | Android `AgentDeskAttentionUiTest`（オフライン・競合・面を離れて戻ったときの下書き保持）、`TodayPaneStateTest`（下書きの所属と再生成）、`MobileAttentionRepositoryTest`（未送信の保持と成功後の消去）                                                                                                                                   | —                                                                                    |
-| offline承認      | Android `WorkReceiptDetailUiTest`、`MobileHumanReviewRepositoryTest`                                                                                                                                                                                                                                                                    | —                                                                                    |
-| 端末間競合       | `tests/agent-roundtrip-acceptance.test.mjs`（409 `entity_conflict`、遅い回答は記録を作らない）、Android `AgentDeskAttentionUiTest`                                                                                                                                                                                                      | —                                                                                    |
+| 場面             | 証跡（実測）                                                                                                                                                                                                                                                                                                                                   | 残っている境界                                                                       |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 基本の一往復     | `tests/agent-roundtrip-acceptance.test.mjs`（実SQLite＋実stdio MCP＋実mobile gateway。採用では`state==="todo"`のまま、明示完了で`done`）                                                                                                                                                                                                       | 実クライアント（Codex等）からの接続                                                  |
+| 報告だけ採用     | `tests/task-work-receipts.test.mjs`、`tests/agent-work-state.test.mjs`（`accepted_continuing`）、`tests/agent-desk.test.mjs`（文言）、`npm run audit:feed`（実画面で報告を採用→Taskは継続）                                                                                                                                                    | —                                                                                    |
+| 採用して完了     | `tests/task-work-receipts.test.mjs`（採用→古い版での完了は競合→完了だけ再試行。Receiptは1件のまま）、`tests/agent-desk.test.mjs`（採用と完了が別Commandであること）                                                                                                                                                                            | —                                                                                    |
+| 差戻し           | `tests/task-work-receipts.test.mjs`（**採用前の報告も差戻せる**。理由が残り、Proposalは差戻しとして決着）、`tests/mobile-gateway-phase4a.test.mjs`（Androidの経路）、`tests/mcp-task-context.test.mjs`（理由をagentが取得）、`tests/agent-work-state.test.mjs`、`tests/agent-desk.test.mjs`（差戻しの文言）、Android `WorkReceiptDetailUiTest` | —                                                                                    |
+| 再割当           | `tests/agent-work-state.test.mjs`（遅い報告は`past_attempt_report`）、`tests/agent-work-attempt.test.mjs`（`ReassignTaskWork`で新しい作業単位になり、確認待ちは先に採用か差戻し）、`tests/agent-reply.test.mjs`、`npm run audit:handoff`（実画面）                                                                                             | 実行中に解除した相手のagent側の扱い                                                  |
+| 再送             | `tests/mcp-task-context.test.mjs`、`tests/agent-reply.test.mjs`（`no_change`）、`tests/mobile-gateway-agent-delegation.test.mjs`                                                                                                                                                                                                               | 4経路を1本のテストでは通していない                                                   |
+| 順不同           | `tests/agent-work-state.test.mjs`（`report_sequence`が到着順と発信時刻より優先。progressは要対応の行を作らない）                                                                                                                                                                                                                               | 端末差が出る値は無い（順序は共有の`agentWorkOrderKey`が決める）                      |
+| 質問とprogress   | `tests/agent-work-state.test.mjs`、`tests/attention-queue.test.mjs`（progress後も回答待ちが残る）                                                                                                                                                                                                                                              | —                                                                                    |
+| 複数の判断       | `tests/attention-queue.test.mjs`（質問とNote変更案の合計2件。Task紐づきでも別の判断として残り、片方の処理で他方が残る）、`tests/agent-work-state.test.mjs`                                                                                                                                                                                     | MCPの書き込み経路が`notes`へ`task_id`を運ばない（読み出しは`request.task_id`に対応） |
+| 同じ報告の重複   | `tests/attention-queue.test.mjs`（reviewとProposalは1件、解決で消える）                                                                                                                                                                                                                                                                        | —                                                                                    |
+| TaskなしProposal | `tests/attention-queue.test.mjs`、`tests/mobile-attention-golden.test.mjs`、`tests/ai-integration-ia.test.mjs`、`npm run audit:feed`（実画面で対応待ち→変更案を開いて却下）、Android `MobileAttentionGoldenTest`                                                                                                                               | —                                                                                    |
+| offline返信      | Android `AgentDeskAttentionUiTest`（オフライン・競合・面を離れて戻ったときの下書き保持）、`TodayPaneStateTest`（下書きの所属と再生成）、`MobileAttentionRepositoryTest`（未送信の保持と成功後の消去）                                                                                                                                          | —                                                                                    |
+| offline承認      | Android `WorkReceiptDetailUiTest`、`MobileHumanReviewRepositoryTest`                                                                                                                                                                                                                                                                           | —                                                                                    |
+| 端末間競合       | `tests/agent-roundtrip-acceptance.test.mjs`（409 `entity_conflict`、遅い回答は記録を作らない）、Android `AgentDeskAttentionUiTest`                                                                                                                                                                                                             | —                                                                                    |
 
 ## 12. この単位で確認していないこと
 

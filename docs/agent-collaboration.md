@@ -41,30 +41,31 @@ Issue #594 の成果物。Agent Desk（#593 Epic、#595–#602）と Feed（#604
 | Agent Session projection                                | `src/renderer/.../agentSessionProjection.ts`        | `presentation: "attention" \| "content" \| "record"`                                                                                                 |
 | Today selector                                          | `src/shared/todayTasks.mjs`                         | bucket `today \| overdue \| due \| ongoing \| execution_window`                                                                                      |
 
-projection の利用箇所は、nav badge（`shell.tsx`）、Agent Desk（`AgentDeskPanel.tsx` / `AiProposalPanel.tsx`）、Activity（`ActivityLogPanel.tsx`）、Debrief（`taskenDebrief.ts`）、MCP（`agentWorkspaceQueryService.ts`）。**要対応を返す共通 read model はまだ無い。**
+projection の利用箇所は、nav badge（`shell.tsx`）、Feedの右レールと「対応待ち」（`FeedContextRail.tsx` / `FeedPage.tsx` / `AiProposalPanel.tsx`）、Activity（`ActivityLogPanel.tsx`）、Debrief（`taskenDebrief.ts`）、MCP（`agentWorkspaceQueryService.ts`）。**要対応を返す共通 read model はまだ無い。**
 
 ### 1.3 route / surface
 
 `src/renderer/src/pages/routes.ts` の `ROUTE_DEFINITIONS` が名称・アイコン・ナビゲーションの正本。
 
-| 表示名     | route ID   | 実体                                             | 現在の位置づけ                                             |
-| ---------- | ---------- | ------------------------------------------------ | ---------------------------------------------------------- |
-| Today      | `today`    | `TodayPage.tsx`                                  | Core daily                                                 |
-| ToDo       | `todo`     | `TodoPage.tsx`（alias `todo-done`）              | Core daily                                                 |
-| Waiting    | `waiting`  | `WaitingPage.tsx`                                | Sidebar非表示、Todayから                                   |
-| Inbox      | `inbox`    | `InboxPage.tsx`（alias `micro-memos`）           | Core daily                                                 |
-| Agent Desk | `ai-io`    | `ImportExportPage.tsx`（alias `proposal-inbox`） | Core daily（作業状況のみ。提案の確認はFeedの「対応待ち」） |
-| Timeline   | `timeline` | `TimelinePage.tsx`                               | Supporting                                                 |
-| Debrief    | `debrief`  | `DebriefPage.tsx`                                | Supporting                                                 |
-| Settings   | `settings` | `SettingsPage.tsx`                               | Tool                                                       |
+| 表示名     | route ID   | 実体                                                   | 現在の位置づけ                                |
+| ---------- | ---------- | ------------------------------------------------------ | --------------------------------------------- |
+| Today      | `today`    | `TodayPage.tsx`                                        | Core daily                                    |
+| ToDo       | `todo`     | `TodoPage.tsx`（alias `todo-done`）                    | Core daily                                    |
+| Waiting    | `waiting`  | `WaitingPage.tsx`                                      | Sidebar非表示、Todayから                      |
+| Inbox      | `inbox`    | `InboxPage.tsx`（alias `micro-memos`）                 | Core daily                                    |
+| Agent Desk | `ai-io`    | Feedの「対応待ち」＋右レール（alias `proposal-inbox`） | **ナビ項目なし。旧URLの受け皿としてのみ残す** |
+| Timeline   | `timeline` | `TimelinePage.tsx`                                     | Supporting                                    |
+| Debrief    | `debrief`  | `DebriefPage.tsx`                                      | Supporting                                    |
+| Settings   | `settings` | `SettingsPage.tsx`                                     | Tool                                          |
 
 注意すべき現行の事実：
 
 - 表示名は `Agent Desk`（#600で統合）。`AI IO` / `AI Inbox` は過去の呼称。
+- 2026-09-26に独立画面（`ImportExportPage.tsx` / `AgentDeskPanel.tsx`）を廃止し、Feedへ集約した。`ai-io` のroute定義はaliasの受け皿として残し、`normalizeRoute` が `feed` を返し、`WorkspaceApp` が対応待ちタブを開く（`docs/feed-surface.md` §6.6）。
 - `proposal-inbox` は alias であり独立routeではない。**架空の `/ai-inbox` を移行元として実装しない。**
 - **experimental / hidden / feature-flag の機構は存在しない。** `RouteDefinition` の gate は `availability: "always" | "requires-active-theme"` だけで、`routeAvailability()` に呼び出し元も無い。
 - `activity` というrouteは**存在しない**。Activityは `ActivityLogPanel` であり独立画面ではない。
-- `ai-io` への通知ナビゲーションは無い。到着はstoreへpushされ、routeは変わらない。
+- 旧 `ai-io` への通知ナビゲーションは無い。到着はstoreへpushされ、routeは変わらない（`ai-io` を宛先にした通知もFeedへ着地する）。
 
 ---
 
@@ -165,30 +166,30 @@ Tasken が採らない差分：
 
 ### 5.1 決定した用語
 
-| 語                           | 種別                   | 意味                                                                                                                                                 | 実装上の対応                                         |
-| ---------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| **Agent Desk**               | 表示名（採用）         | 任せた仕事の進み具合を確認する画面。見出しは「対応待ち」「作業中」「開始待ち」「最近の結果」。変更案の採否はFeedの「対応待ち」の「提案の確認」で行う | route ID は初回 `ai-io` を保持する（§6.4）           |
-| **Feed**                     | 表示名（experimental） | 前回から何が変わり、今どこに反応するかを読む任意入口。既定画面にはしない                                                                             | 新規route。起動時の既定routeを変更しない             |
-| **Today**                    | 表示名（既存）         | 今日、自分が何を実行するかを選ぶ場所                                                                                                                 | route `today` を変更しない                           |
-| **Task**                     | canonical              | 仕事の唯一の正本。ownerは常に利用者                                                                                                                  | `Task` entity                                        |
-| **起案者 / Requester**       | canonical              | Taskを起案した主体。人間の責任主体とは同一視しない                                                                                                   | `Task.requester`                                     |
-| **委任先 / Delegate**        | canonical              | 現在このTaskの作業を任せている相手                                                                                                                   | `Task.intended_executor` ＋ `Task.executor_identity` |
-| **実行者 / Executor**        | canonical              | 実際に作業し報告した相手                                                                                                                             | `work_receipt.executor_kind` / `executor_label`      |
-| **作業単位 / work attempt**  | 新規（#595で固定）     | Taskへの**一回の委任**を識別する単位。再委任・明示的な再依頼で更新する                                                                               | 新規ID。§6.2                                         |
-| **質問 / request**           | 新規（#597で固定）     | agentから人間へ届いた、一回の回答または判断の要求。再送でIDを変えない                                                                                | 新規ID。§6.2                                         |
-| **要対応 / attention**       | projection             | 未解決の質問・レビュー・Proposalから導出した判断待ち。正本のentityではない                                                                           | 共通read model。§6.3                                 |
-| **対応待ち**                 | 表示名                 | 要対応のうち、人間の操作が必要なもの                                                                                                                 | —                                                    |
-| **成果確認**                 | 表示名                 | agentの報告を人が確認する状態                                                                                                                        | `work_state: needs_human_review` 相当のprojection    |
-| **受入れ / 採用**            | 操作名                 | 報告を正式Receiptとして保存すること。Taskは完了しない                                                                                                | `AcceptTaskWork`（`complete_task: false`）           |
-| **採用してTaskを完了**       | 操作名                 | 採用範囲を保存し、人が明示したTask完了を実行する                                                                                                     | `AcceptTaskWork`（`complete_task: true`）            |
-| **委任を解除**               | 操作名                 | 実行中の相手への委任を終えること。外部プロセスの停止は保証しない                                                                                     | `ReassignTaskWork`（#602）                           |
-| **新しい作業単位で任せ直す** | 操作名                 | 委任を解除し、別の相手へ新しい作業単位IDで任せ直す。前の相手の遅い報告は履歴になる                                                                   | `ReassignTaskWork`（#602）                           |
-| **後で見る**                 | 操作名                 | この質問や報告の再表示日時を選ぶ。Taskの日程は変えない                                                                                               | `AttentionDisposition`（§6.2）                       |
-| **扱う日を変更**             | 操作名                 | Taskの `today_date` を変える。締切（Scheduleの終了日）は変えない                                                                                     | `today_date` のみ更新                                |
-| **締切を変更**               | 操作名                 | Scheduleの終了日を変える                                                                                                                             | `Schedule.end_date`                                  |
-| **自分**                     | 表示上の主体           | 単一利用者workspaceの前提。多人数owner管理を増やさない                                                                                               | 新fieldを作らない                                    |
-| **AI Ready**                 | 既存                   | `intended_executor=ai_agent` かつ `work_state=ready_for_agent`。事前許可                                                                             | 変更しない                                           |
-| **Agent Session**            | 既存                   | 外部AI clientと利用者が一続きに行った作業のprovenance。作業単位とは別概念                                                                            | `AgentSession` entity                                |
+| 語                           | 種別                   | 意味                                                                                                                                             | 実装上の対応                                                          |
+| ---------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| **Agent Desk**               | 表示名（採用）         | 任せた仕事の進み具合を確認する面。見出しは「対応キュー」「AI活動」で、判断はFeedの「対応待ち」で行う。**2026-09-26にFeedへ集約し独立画面は無い** | route ID `ai-io` は旧URLの受け皿（`normalizeRoute` は `feed` を返す） |
+| **Feed**                     | 表示名（experimental） | 前回から何が変わり、今どこに反応するかを読む任意入口。既定画面にはしない                                                                         | 新規route。起動時の既定routeを変更しない                              |
+| **Today**                    | 表示名（既存）         | 今日、自分が何を実行するかを選ぶ場所                                                                                                             | route `today` を変更しない                                            |
+| **Task**                     | canonical              | 仕事の唯一の正本。ownerは常に利用者                                                                                                              | `Task` entity                                                         |
+| **起案者 / Requester**       | canonical              | Taskを起案した主体。人間の責任主体とは同一視しない                                                                                               | `Task.requester`                                                      |
+| **委任先 / Delegate**        | canonical              | 現在このTaskの作業を任せている相手                                                                                                               | `Task.intended_executor` ＋ `Task.executor_identity`                  |
+| **実行者 / Executor**        | canonical              | 実際に作業し報告した相手                                                                                                                         | `work_receipt.executor_kind` / `executor_label`                       |
+| **作業単位 / work attempt**  | 新規（#595で固定）     | Taskへの**一回の委任**を識別する単位。再委任・明示的な再依頼で更新する                                                                           | 新規ID。§6.2                                                          |
+| **質問 / request**           | 新規（#597で固定）     | agentから人間へ届いた、一回の回答または判断の要求。再送でIDを変えない                                                                            | 新規ID。§6.2                                                          |
+| **要対応 / attention**       | projection             | 未解決の質問・レビュー・Proposalから導出した判断待ち。正本のentityではない                                                                       | 共通read model。§6.3                                                  |
+| **対応待ち**                 | 表示名                 | 要対応のうち、人間の操作が必要なもの                                                                                                             | —                                                                     |
+| **成果確認**                 | 表示名                 | agentの報告を人が確認する状態                                                                                                                    | `work_state: needs_human_review` 相当のprojection                     |
+| **受入れ / 採用**            | 操作名                 | 報告を正式Receiptとして保存すること。Taskは完了しない                                                                                            | `AcceptTaskWork`（`complete_task: false`）                            |
+| **採用してTaskを完了**       | 操作名                 | 採用範囲を保存し、人が明示したTask完了を実行する                                                                                                 | `AcceptTaskWork`（`complete_task: true`）                             |
+| **委任を解除**               | 操作名                 | 実行中の相手への委任を終えること。外部プロセスの停止は保証しない                                                                                 | `ReassignTaskWork`（#602）                                            |
+| **新しい作業単位で任せ直す** | 操作名                 | 委任を解除し、別の相手へ新しい作業単位IDで任せ直す。前の相手の遅い報告は履歴になる                                                               | `ReassignTaskWork`（#602）                                            |
+| **後で見る**                 | 操作名                 | この質問や報告の再表示日時を選ぶ。Taskの日程は変えない                                                                                           | `AttentionDisposition`（§6.2）                                        |
+| **扱う日を変更**             | 操作名                 | Taskの `today_date` を変える。締切（Scheduleの終了日）は変えない                                                                                 | `today_date` のみ更新                                                 |
+| **締切を変更**               | 操作名                 | Scheduleの終了日を変える                                                                                                                         | `Schedule.end_date`                                                   |
+| **自分**                     | 表示上の主体           | 単一利用者workspaceの前提。多人数owner管理を増やさない                                                                                           | 新fieldを作らない                                                     |
+| **AI Ready**                 | 既存                   | `intended_executor=ai_agent` かつ `work_state=ready_for_agent`。事前許可                                                                         | 変更しない                                                            |
+| **Agent Session**            | 既存                   | 外部AI clientと利用者が一続きに行った作業のprovenance。作業単位とは別概念                                                                        | `AgentSession` entity                                                 |
 
 **「作業単位」と「Agent Session」は別物。** 一つのSessionが複数Taskを扱いうるし、一つのTaskに複数の作業単位が生じうる。両者を同じIDで扱わない。
 
@@ -278,7 +279,7 @@ Taskの `version` は通常編集でも変わるため、作業単位IDの代用
 
 KotlinからTypeScriptを直接参照する前提にしない。状態導出はMainに置き、Androidはその結果をキャッシュする。
 
-**route IDの扱い（#600）**: Agent Desk は初回 `ai-io` のroute IDと表示・内容を段階的に統合する。`agent-desk` という新IDが必要になった場合のみ、`ai-io` と `proposal-inbox` のalias、選択Proposal ID、保存タブ、通知からの遷移を**同じ変更で**移す。要対応件数のbadgeはAgent Deskへ集約し、Feedと二重に付けない。
+**route IDの扱い（#600 / 2026-09-26の集約）**: Agent Desk は初回 `ai-io` のroute IDを保持しつつ、面そのものはFeedへ集約した。`ai-io` と `proposal-inbox` は `normalizeRoute` で `feed` へ送り、Feedの「対応待ち」タブを開く。要対応件数のbadgeは**Feedだけ**に付ける（旧Agent Deskとは二重に付けない）。`agent-desk` という新IDは作らない。
 
 ---
 
@@ -318,11 +319,11 @@ KotlinからTypeScriptを直接参照する前提にしない。状態導出はM
 
 「特に決めること」への回答：
 
-| 問い                                                                                        | 決定                                                                                                |
-| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `Agent Desk` を正式名称にするか                                                             | **する。** 表示名は `Agent Desk`、内部route IDは初回 `ai-io` を保持                                 |
-| `Agent Run / Session / Delegation` のどれをUI/domain用語にするか                            | **`作業単位（work attempt）`。** `Agent Session` は既存の別概念として維持し、`Agent Run` は使わない |
-| `Owner / Assignee / Requester / Delegate / Executor` の意味                                 | §5.1。Ownerは新概念を作らず「自分」、Assigneeは使わない                                             |
-| `Needs You` をUI名称にするか                                                                | **しない。** 表示は「対応待ち」                                                                     |
-| queued / working / blocked / review-ready / doneをcanonical stateにするかprojectionにするか | **projection。** 既存 `work_state` を維持し、新enumを保存しない                                     |
-| AI IO / AI Inbox / Agent Deskの最終責務                                                     | **Agent Deskへ一本化。** `AI Inbox` の表示名と `ai-io` route IDは統合時に同時に扱う                 |
+| 問い                                                                                        | 決定                                                                                                                         |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `Agent Desk` を正式名称にするか                                                             | **する。** 表示名は `Agent Desk`、内部route IDは初回 `ai-io` を保持                                                          |
+| `Agent Run / Session / Delegation` のどれをUI/domain用語にするか                            | **`作業単位（work attempt）`。** `Agent Session` は既存の別概念として維持し、`Agent Run` は使わない                          |
+| `Owner / Assignee / Requester / Delegate / Executor` の意味                                 | §5.1。Ownerは新概念を作らず「自分」、Assigneeは使わない                                                                      |
+| `Needs You` をUI名称にするか                                                                | **しない。** 表示は「対応待ち」                                                                                              |
+| queued / working / blocked / review-ready / doneをcanonical stateにするかprojectionにするか | **projection。** 既存 `work_state` を維持し、新enumを保存しない                                                              |
+| AI IO / AI Inbox / Agent Deskの最終責務                                                     | **Feedへ一本化（2026-09-26）。** `AI Inbox` の表示名は使わず、`ai-io` / `proposal-inbox` は旧URLの受け皿として `feed` へ送る |
