@@ -51,9 +51,13 @@ const SIZES = [
   { label: "min-980", width: 980, height: 680 },
 ];
 const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
-/** 隔離workspaceに入れる判断の数（質問1・成果確認1・変更案1）。変更案は一覧行ではなく「提案の確認」パネルに出る。 */
+/**
+ * 隔離workspaceに入れる判断の数（質問1・成果確認1・変更案1）。
+ * 変更案も対応待ちの一覧行に出る（詳細ペインで採否を決める）。
+ */
 const EXPECTED_UNRESOLVED = 3;
-const EXPECTED_NEEDS_ROWS = 2;
+/** 一覧の行数。判断3件＋確認待ち1件（進捗追記）。確認待ちは要対応の件数へ数えない。 */
+const EXPECTED_NEEDS_ROWS = 4;
 /** 投稿の本文は読み物として16px以上にする。 */
 const MIN_BODY_FONT_PX = 16;
 const MIN_POSTS = 12;
@@ -268,7 +272,7 @@ async function auditFixtures(app, page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/learn.png`, fullPage: true });
 
-  // 6. 対応待ちは実データ（隔離workspaceの判断3件）。変更案は一覧行ではなく「提案の確認」に出る。
+  // 6. 対応待ちは実データ。判断（質問・成果確認・変更案）と確認待ち（進捗追記）を1本の一覧に出す。
   await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
   await page.waitForTimeout(600);
   const unresolvedText = (await page.locator(".feed-tab-count").first().innerText()).trim();
@@ -279,15 +283,30 @@ async function auditFixtures(app, page) {
   if (needsRows !== EXPECTED_NEEDS_ROWS) {
     failures.push(`対応待ちの行数が${EXPECTED_NEEDS_ROWS}件ではありません（${needsRows}）。`);
   }
-  const proposalPanelText = await page.locator(".proposal-inbox-panel").first().innerText();
-  if (!proposalPanelText.includes("測定手順のNoteを作る案")) {
-    failures.push("対応待ちの「提案の確認」に変更案が出ていません。");
+  // 変更案も同じ一覧に出る。同じ報告を2面に出さないので、旧「提案の確認」の一覧は無い。
+  const needsText = (await page.locator(".feed-needs-list").first().innerText()).replace(
+    /\s+/g,
+    " ",
+  );
+  if (!needsText.includes("測定手順のNoteを作る案")) {
+    failures.push("対応待ちの一覧に変更案が出ていません。");
+  }
+  // 確認待ちは判断と分けて1つの見出しで示す。
+  const confirmationSections = await page.locator(".feed-needs-section").count();
+  if (confirmationSections !== 1) {
+    failures.push(`確認待ちの見出しが1つではありません（${confirmationSections}）。`);
+  }
+  if (!needsText.includes("比較表の下書きまで進みました。")) {
+    failures.push("確認待ちに進捗の追記が出ていません。");
+  }
+  if (await page.locator(".proposal-inbox-panel .proposal-list").count()) {
+    failures.push("「提案の履歴」に判断の一覧が残っています（同じ報告が2面に出ます）。");
   }
   await page.screenshot({ path: `${OUT_DIR}/needs.png`, fullPage: true });
 
   /*
    * 6b. 右レール（Agent Desk集約）。
-   * 判断とAIの動きを面移動なしで見られること、変更案が「提案の確認」の選択へ入ること、
+   * 判断とAIの動きを面移動なしで見られること、変更案が対応待ちの選択へ入ること、
    * 読み面を圧迫する幅では畳まれることを実測する（design-guide §21の1スロット）。
    */
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1536, 960));
@@ -306,10 +325,13 @@ async function auditFixtures(app, page) {
       await railProposal.click();
       await page.waitForTimeout(500);
       const openedInPanel = await page
-        .locator('.proposal-inbox-panel .proposal-row-select[aria-pressed="true"]')
+        .locator('.feed-needs-panel .feed-needs-select[aria-pressed="true"]')
         .count();
       if (!openedInPanel) {
-        failures.push("右レールから変更案を開いても、「提案の確認」で選択されません。");
+        failures.push("右レールから変更案を開いても、対応待ちの一覧で選択されません。");
+      }
+      if (!(await page.locator(".feed-needs-detail .proposal-inline-preview").count())) {
+        failures.push("右レールから開いた変更案の詳細が出ていません。");
       }
     }
     await page.screenshot({ path: `${OUT_DIR}/rail-1536.png`, fullPage: true });
@@ -619,11 +641,11 @@ async function auditFixtures(app, page) {
     failures.push("成果確認の行が対応待ちにありません。");
     return;
   }
-  await reviewRow.locator("button", { hasText: "成果を確認" }).first().click();
+  await reviewRow.locator(".feed-needs-select").first().click();
   await page.waitForTimeout(500);
-  const review = reviewRow.locator(".feed-review");
+  const review = page.locator(".feed-needs-detail .feed-review");
   if (!(await review.count())) {
-    failures.push("「成果を確認」で報告の確認が開きません。");
+    failures.push("成果確認の行を選んでも、報告の確認が詳細に出ません。");
     return;
   }
   const reviewLabels = await review.locator("dt").allInnerTexts();
@@ -652,21 +674,23 @@ async function auditFixtures(app, page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/review-accepted.png`, fullPage: true });
 
-  // 14. Taskに紐づかない変更案も、同じ面から決着できる（却下）。正式データは作らない。
+  // 14. Taskに紐づかない変更案も、同じ一覧から決着できる（却下）。正式データは作らない。
   await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
   await page.waitForTimeout(500);
   const noteProposalRow = page
-    .locator(".proposal-inbox-panel .proposal-row-select", { hasText: "測定手順のNoteを作る案" })
+    .locator(".feed-needs-row", { hasText: "測定手順のNoteを作る案" })
     .first();
   if (!(await noteProposalRow.count())) {
-    failures.push("Taskに紐づかない変更案が「提案の確認」にありません。");
+    failures.push("Taskに紐づかない変更案が対応待ちの一覧にありません。");
     return;
   }
-  await noteProposalRow.click();
+  await noteProposalRow.locator(".feed-needs-select").first().click();
   await page.waitForTimeout(500);
-  const rejectButton = page.locator(".proposal-inline-preview button", { hasText: "拒否" }).first();
+  const rejectButton = page
+    .locator(".feed-needs-detail .proposal-inline-preview button", { hasText: "拒否" })
+    .first();
   if (!(await rejectButton.count())) {
-    failures.push("変更案を却下する操作が「提案の確認」にありません。");
+    failures.push("変更案を却下する操作が対応待ちの詳細にありません。");
     return;
   }
   await rejectButton.click();
@@ -776,9 +800,12 @@ async function auditLivePost(page) {
   if (needsRows !== EXPECTED_NEEDS_ROWS) {
     failures.push(`対応待ちの行数が${EXPECTED_NEEDS_ROWS}件ではありません（${needsRows}）。`);
   }
-  const liveProposalPanelText = await page.locator(".proposal-inbox-panel").first().innerText();
-  if (!liveProposalPanelText.includes("測定手順のNoteを作る案")) {
-    failures.push("対応待ちの「提案の確認」に変更案が出ていません。");
+  const liveNeedsText = (await page.locator(".feed-needs-list").first().innerText()).replace(
+    /\s+/g,
+    " ",
+  );
+  if (!liveNeedsText.includes("測定手順のNoteを作る案")) {
+    failures.push("対応待ちの一覧に変更案が出ていません。");
   }
   await page.screenshot({ path: `${OUT_DIR}/live-needs.png`, fullPage: true });
 
@@ -1410,7 +1437,7 @@ async function auditEmpty(app, page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/empty-home.png`, fullPage: true });
 
-  // 2. 対応待ちは0件。空の面には次の行動を1つ置き、「提案の確認」は出さない。
+  // 2. 対応待ちは0件。空の面には次の行動を1つ置き、履歴の面は出さない。
   await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
   await page.waitForTimeout(600);
   const needsPanel = page.locator("#feed-panel-needs");
@@ -1431,10 +1458,10 @@ async function auditEmpty(app, page) {
     }
   }
   if (await page.locator(".proposal-inbox-panel").count()) {
-    failures.push("確認する提案が無いのに「提案の確認」が出ています。");
+    failures.push("履歴が無いのに「提案の履歴」が出ています。");
   }
-  if (await page.locator(".feed-needs-row").count()) {
-    failures.push("対応待ちが0件なのに一覧行が出ています。");
+  if (await page.locator(".feed-needs-panel").count()) {
+    failures.push("対応待ちが0件なのに一覧の面が出ています。");
   }
 
   // 3. 右レールも0件のセクションを出さず、空なら次の行動を1つ示す。

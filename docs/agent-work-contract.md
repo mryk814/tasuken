@@ -85,6 +85,8 @@ Issue #595 の成果物。`docs/agent-collaboration.md`（#594）が決めた用
 - 要対応は**未解決の判断単位**で数える。同じTaskの独立した質問とレビューは2件。
 - 同じ `request_id` の再送は、受信時刻が変わっても1件にまとめる。
 - 同じTaskでも**作業単位が違えば別の報告**として並び、currentの判断には数えない。
+- 判断を作らない報告（進捗の追記、回答済みの停止報告）は**確認待ち**として別に導出し、
+  要対応の件数へは数えない（§8）。同じProposalは確認待ちでも1件1回だけ並べる。
 
 ### 順序
 
@@ -240,6 +242,12 @@ AI活動                絞り込み
 
 - レールは `buildAttentionQueue` と `deriveAgentWorkState` の**導出結果を表示するだけ**。
   画面側に状態の正本を持たない（選択と入力だけを持つ）。
+- **判断と変更案の一覧は「対応待ち」タブだけが持つ。** 一覧の1行は種別ごとに1回で、
+  同じProposal / Receiptを別の面（旧「提案の確認」の一覧）へ二度出さない。
+  詳細は選んだ1件だけを出し、種別ごとの読み順と操作をそこで完結させる。
+- 判断ではない報告は**確認待ち**として同じ一覧の後ろへ置く（`buildConfirmationQueue`）。
+  進捗の追記（`append_receipt`）と、回答済みだが採用が未決着の停止報告がここへ来る。
+  **要対応の件数（badge / Androidの要対応）には数えない。**
 - 中身のあるセクションだけを出し、0件のセクションは枠を出さない（design-guide §5）。
 - 「作業中」は稼働監視ではない。**経過時間だけで成功・停止・失敗へ変えない。** 報告が無ければ「報告はまだありません」。
 - 「開始待ち」は **「開始は未確認」** と表示する。agentがContextを取得したかは観測していないので「取得済み」とは書かない。
@@ -395,6 +403,8 @@ rtk node scripts/run-electron-node.mjs --test tests/agent-work-state.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/agent-work-attempt.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/agent-reply.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/attention-queue.test.mjs
+rtk node scripts/run-electron-node.mjs --test tests/feed-live-projection.test.mjs
+rtk node scripts/run-electron-node.mjs --test tests/ai-integration-ia.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/task-handoff.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/agent-desk.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/mobile-attention-golden.test.mjs tests/mobile-agent-attention.test.mjs
@@ -444,7 +454,8 @@ Task作成 → Handoff → MCP開始 → 質問 → Android回答 → MCP再取�
 | 回答のUI                | Agent DeskとAndroidのAI面から回答できる。**Task詳細からの回答導線は未接続**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 回答のMCP越しの受け渡し | 実stdio MCP → Desktop Core → Android回答 → MCP再取得までを通した（`tests/agent-roundtrip-acceptance.test.mjs`）。**実クライアント（Codex等）からの接続は未検証**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 再割当のUI操作          | 委任の解除と「新しい作業単位で任せ直す」はTask詳細から行える（`ReassignTaskWork`。#602。`npm run audit:handoff` で実画面、`tests/agent-work-attempt.test.mjs` で境界）。**実行中に解除した相手のagent側の扱いは未検証**                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| 表示                    | Agent DeskはTask詳細と同じ詳細コンポーネントをまだ共有していない（#600で統合する）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| 表示                    | Agent DeskはTask詳細と同じ詳細コンポーネントをまだ共有していない（#600で統合する）。対応待ちの一覧＋詳細はFeed内で完結する（`docs/feed-surface.md` §6.6）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 確認待ちの実運用        | 進捗追記・回答済みを「確認待ち」として同じ一覧へ出す（`buildConfirmationQueue`。`tests/attention-queue.test.mjs` / `tests/feed-live-projection.test.mjs`）。**多くの件数が溜まったときの見え方と、未採用のまま放置されたときの扱いは未検証**（利用後に評価する）                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | HandoffのCancel         | 委任の解除はTaskを `not_delegated` へ戻すだけ。実行中に解除した場合のagent側の扱いは未検証                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | Android                 | Gatewayの `/v1/attention` / `/v1/agent-replies`、Core側の読み出し、AndroidのRoomキャッシュ（`attention_cache` / `attention_state` / `pending_agent_reply`）と回答の再送まで実装済み（#601。`tests/mobile-agent-attention.test.mjs` / `MobileAttentionRepositoryTest` / `MobileAgentReplyContractTest`）。要対応の一覧・回答欄、Foldの詳細ペイン、新着の知らせ（アプリ内表示と任意のOS通知・deep link）は `AgentDeskAttentionUiTest` / `AttentionNotificationStoreTest` / `MobileEntryRequestTest` で確認済み（展開幅の目視は `output/android-attention/fold-attention-detail.png`）。**Android実機（SM-F966Q）での目視と、通知の実配信（Desktopから新規判断が届いたときの実端末表示）は未検証** |
 | Export往復の実走        | Snapshot形式は変更していないため未検証。ただしEntity単位の往復は `tests/agent-work-attempt.test.mjs` で確認している                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |

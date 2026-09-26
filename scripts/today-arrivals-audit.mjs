@@ -186,7 +186,7 @@ async function runMainPhase() {
       await page.screenshot({ path: `${OUT_DIR}/today-arrival-handling.png`, fullPage: true });
     }
 
-    // --- Feedの「対応待ち」タブに要対応の一覧と「提案の確認」が出る ---
+    // --- Feedの「対応待ち」タブに要対応の一覧が出る（判断の採否も同じ面で行う） ---
     await nav(page, "Feed").click();
     await page.waitForTimeout(2500);
     if (!(await page.locator(".page.feed-page").count())) {
@@ -201,11 +201,14 @@ async function runMainPhase() {
     if (!needsText.includes("回答待ち")) {
       failures.push(`対応待ちに回答待ちが出ていません: ${needsText.slice(0, 160)}`);
     }
-    if (needsText.includes("変更案") && !needsText.includes("提案の確認")) {
-      failures.push("変更案の一覧行と提案パネルが二重に出ています。");
+    // 判断・変更案・確認待ちは同じ1本の一覧に出る。別の面へ分けない。
+    if (!(await page.locator("#feed-panel-needs .feed-needs-panel").count())) {
+      failures.push("対応待ちの一覧（判断と確認待ち）が出ていません。");
     }
-    if (!(await page.locator("#feed-panel-needs .proposal-inbox-panel").count())) {
-      failures.push("対応待ちに「提案の確認」が出ていません。");
+    if (
+      (await page.locator("#feed-panel-needs .proposal-inbox-panel .proposal-list").count()) > 0
+    ) {
+      failures.push("判断の一覧が「提案の履歴」にも出ています（同じ報告の二重表示）。");
     }
     await page.screenshot({ path: `${OUT_DIR}/today-arrivals.png`, fullPage: true });
 
