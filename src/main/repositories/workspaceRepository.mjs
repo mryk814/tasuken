@@ -2493,7 +2493,10 @@ export class WorkspaceDatabase {
       const local = this.get(row.entity_type, row.entity_id, true);
       const chosen = choice === "incoming" ? packet.entity : local;
       if (!chosen) throw new Error("競合を解決するデータがありません。");
-      if (choice === "incoming") this.insertImported(row.entity_type, chosen, "sync", local);
+      if (choice === "incoming")
+        this.insertImported(row.entity_type, chosen, "sync", local, {
+          allowReceiptRevision: row.entity_type === "work_receipt",
+        });
       const parents = [row.local_revision_id, row.incoming_revision_id].filter(Boolean);
       const resolution = this.enqueueSyncEntity(
         row.entity_type,
