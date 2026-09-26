@@ -208,16 +208,17 @@ try {
     failures.push("Todayの予定欄に更新操作がありません。");
   }
 
-  // 5. Activityの時間軸に同じ予定が出る（終日は専用行、Taskのcheckboxは付けない）。
-  await openNavigation(page, "Activity");
+  // 5. Debriefの時間軸に同じ予定が出る（終日は専用行、Taskのcheckboxは付けない）。
+  // ActivityLogPanelはDebrief面が持つ（旧「Activity」表記は現行のlabelへ追従・#273）。
+  await openNavigation(page, "Debrief");
   await page.locator(".activity-calendar").first().waitFor({ timeout: 20_000 });
   await page.waitForTimeout(1_200);
   const activityEvents = await page.locator(".activity-calendar-event.is-calendar").count();
   const activityError = await page
     .locator(".activity-calendar", { hasText: "予定を取得できません" })
     .count();
-  if (activityError) failures.push("Activityで予定の取得エラーが出ています。");
-  record("Activityの時間軸", `予定行 ${activityEvents}件`);
+  if (activityError) failures.push("Debriefの時間軸で予定の取得エラーが出ています。");
+  record("Debriefの時間軸", `予定行 ${activityEvents}件`);
   await page.screenshot({ path: `${OUT_DIR}/04-activity.png`, fullPage: true });
 
   // 6. 切断はローカルで完結し、Todayから予定欄が消える。

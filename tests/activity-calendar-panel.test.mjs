@@ -56,6 +56,18 @@ test("AI sessions remain AI work and empty days keep the calendar grid", () => {
   assert.match(panelSource, /hasSelectedDateActivity && hasActiveFilter/);
 });
 
+test("calendar-only days draw the event timeline instead of the empty grid", () => {
+  // TaskenのActivityが0件でも、カレンダーの予定があれば時刻軸へ描く（#273）。
+  // 空の時刻軸だけが出ると、接続済みでも予定が消えたように見える。
+  assert.match(
+    panelSource,
+    /const hasTimelineItems = hasStructuredActivity \|\| calendarEvents\.length > 0;/,
+  );
+  assert.match(panelSource, /\{expanded &&\s*\(hasTimelineItems \? \(/);
+  assert.doesNotMatch(panelSource, /\{expanded &&\s*\(hasStructuredActivity \? \(/);
+  assert.match(panelSource, /const count = hasTimelineItems/);
+});
+
 test("short events expose their exact time anchor independently from the content card", () => {
   assert.match(panelSource, /burstEvent\.anchor_top - row\.top/);
   assert.match(panelSource, /row\.anchor_offset/);

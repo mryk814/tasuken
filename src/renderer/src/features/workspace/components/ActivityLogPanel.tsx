@@ -620,10 +620,15 @@ export function ActivityLogPanel({
   const expandedBurstEvents =
     expandedTimelineItem?.item_type === "burst" ? expandedTimelineItem.events : [];
   const expandedEventActor = expandedEvent ? actorLabel(expandedEvent) : null;
+  /**
+   * 時刻軸を出すかどうか。カレンダーの予定だけがある日（TaskenのActivityが0件）でも、
+   * 予定は時刻軸へ描く（#273）。予定を見ないと空の時刻軸だけが出て、予定が消えて見える。
+   */
   const hasStructuredActivity = allEvents.length > 0 || agentSessions.length > 0;
+  const hasTimelineItems = hasStructuredActivity || calendarEvents.length > 0;
   const hasSelectedDateActivity = datedEvents.length > 0 || sessionContexts.length > 0;
   const hasActiveFilter = themeFilter !== "all" || Boolean(typeFilter);
-  const count = hasStructuredActivity
+  const count = hasTimelineItems
     ? timeline.length
     : groups.reduce((sum, group) => sum + group.rows.length, 0);
   const activityLogContent = buildActivityPublication(
@@ -824,7 +829,7 @@ export function ActivityLogPanel({
                 }}
                 aria-label="Activity対象日"
               />
-              {hasStructuredActivity && (
+              {hasTimelineItems && (
                 <>
                   <ThemePickerSelect
                     themes={themes}
@@ -880,7 +885,7 @@ export function ActivityLogPanel({
         </div>
       </div>
       {expanded &&
-        (hasStructuredActivity ? (
+        (hasTimelineItems ? (
           calendarTimeline.length ? (
             <div className={`activity-calendar-layout${expandedTimelineItem ? " has-detail" : ""}`}>
               <div
