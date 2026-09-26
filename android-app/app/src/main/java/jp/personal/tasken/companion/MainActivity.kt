@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -74,6 +75,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -103,6 +107,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -119,9 +125,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -149,8 +158,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 
@@ -361,6 +372,8 @@ internal fun TodayApp(
     }
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val hapticFeedback = LocalHapticFeedback.current
+    var completionFeedback by remember { mutableStateOf<TaskCompletionFeedback?>(null) }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var handledEntryToken by rememberSaveable { mutableLongStateOf(0L) }
@@ -368,6 +381,15 @@ internal fun TodayApp(
 
     DisposableEffect(speechRecognizer) {
         onDispose { speechRecognizer.destroy() }
+    }
+
+    LaunchedEffect(todayViewModel) {
+        todayViewModel.taskCompletionFeedback.collectLatest { feedback ->
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+            completionFeedback = feedback
+            delay(180)
+            if (completionFeedback?.eventId == feedback.eventId) completionFeedback = null
+        }
     }
 
     LaunchedEffect(paneState, captureDraftStore) {
@@ -752,10 +774,26 @@ internal fun TodayApp(
                         coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
                     },
                     icon = {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_tabler_sparkles),
-                            contentDescription = null,
-                        )
+                        // あなたの対応を待つ数。Desktopのbadgeと同じ意味で、新着だけの時は点で知らせる。
+                        val needsYou = attentionCounts?.needsYou ?: 0
+                        BadgedBox(
+                            badge = {
+                                when {
+                                    needsYou > 0 -> Badge(Modifier.testTag("ai-tab-badge")) {
+                                        Text(if (needsYou > 99) "99+" else needsYou.toString())
+                                    }
+                                    attentionNewArrivals.isNotEmpty() -> Badge(Modifier.testTag("ai-tab-badge"))
+                                }
+                            },
+                            modifier = Modifier.semantics {
+                                if (needsYou > 0) contentDescription = "対応待ち${needsYou}件"
+                            },
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_tabler_sparkles),
+                                contentDescription = null,
+                            )
+                        }
                     },
                     label = { Text("AI") },
                 )
@@ -790,6 +828,7 @@ internal fun TodayApp(
                                 onTaskStateAction = todayViewModel::toggleTaskState,
                                 onChecklistUpdate = todayViewModel::updateTaskChecklist,
                                 onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
+                                completionFeedback = completionFeedback,
                             )
                             AppSection.Tasks -> TasksListPane(
                                 uiState = uiState,
@@ -805,6 +844,7 @@ internal fun TodayApp(
                                 onChecklistUpdate = todayViewModel::updateTaskChecklist,
                                 onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                                 onLocalSearch = if (todayViewModel.localSearchRepository != null) ({ localSearchOpen = true }) else null,
+                                completionFeedback = completionFeedback,
                             )
                             AppSection.Ai -> AiInboxListPane(
                                 uiState = uiState,
@@ -970,6 +1010,9 @@ internal fun TodayApp(
                         onHumanReview = todayViewModel::reviewTaskWork,
                         onTaskAiReady = todayViewModel::setTaskAiReady,
                         onNavigateBack = if (task != null) navigateToList else null,
+                        completionFeedbackEventId = completionFeedback
+                            ?.takeIf { it.taskId == task?.id }
+                            ?.eventId,
                     )
                     }
                     }
@@ -1610,6 +1653,7 @@ private fun speechStatusText(state: ShortSpeechUiState): String = when (state) {
     is ShortSpeechUiState.Error -> state.message
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun TodayListPane(
     uiState: TodayUiState,
@@ -1624,6 +1668,7 @@ internal fun TodayListPane(
     onTaskStateAction: (MobileTask) -> Unit,
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit,
     onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
+    completionFeedback: TaskCompletionFeedback? = null,
 ) {
     val tasks = when (uiState) {
         is TodayUiState.Success -> uiState.tasks
@@ -1639,35 +1684,20 @@ internal fun TodayListPane(
             else -> ""
         }
         Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            TodayProgressHeader(
+                tasks = tasks,
+                cached = cached,
+                refreshing = refreshing,
+                generatedAt = generatedAt,
+                onRetry = onRetry,
+                onRetryPairing = onRetryPairing,
+                collapsed = tasks.isNotEmpty() && (paneState.listScrollIndex > 0 || paneState.listScrollOffset > 0),
+            )
+            PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = if (cached?.recovery == TodayUiState.CachedRecovery.RePair) onRetryPairing else onRetry,
+                modifier = Modifier.weight(1f).testTag("today-pull-refresh"),
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        when {
-                            refreshing -> "PCへの接続を確認中"
-                            cached != null -> "PCへの接続を再確認してください"
-                            else -> "保存済みの今日のTask"
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1,
-                    )
-                    Text(
-                        generatedAt.takeIf { it.isNotBlank() }?.let { "最終同期: ${formatLocalTimestamp(it)}" } ?: "最終同期: 未確認",
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                    )
-                }
-                TextButton(
-                    onClick = if (cached?.recovery == TodayUiState.CachedRecovery.RePair) onRetryPairing else onRetry,
-                    enabled = !refreshing,
-                ) {
-                    Text(if (cached?.recovery == TodayUiState.CachedRecovery.RePair) "再接続" else "再読み込み")
-                }
-            }
-            Box(modifier = Modifier.weight(1f)) {
                 if (tasks.isEmpty()) {
                     CenteredState { Text("今日のTaskはありません") }
                 } else {
@@ -1680,6 +1710,7 @@ internal fun TodayListPane(
                         onTaskStateAction = onTaskStateAction,
                         onChecklistUpdate = onChecklistUpdate,
                         onTodayDateUpdate = onTodayDateUpdate,
+                        completionFeedback = completionFeedback,
                     )
                 }
             }
@@ -1702,6 +1733,7 @@ private fun CachedTaskBanner(
     state: TodayUiState.Cached,
     onRetry: () -> Unit,
     onRetryPairing: () -> Unit,
+    refreshing: Boolean = false,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1713,15 +1745,31 @@ private fun CachedTaskBanner(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(
-                state.message,
+            Column(
                 modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-            )
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text("端末に保存済み", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                Text(state.message, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    state.generatedAt.takeIf { it.isNotBlank() }
+                        ?.let { "最終同期 ${formatLocalTimestamp(it)}" }
+                        ?: "同期実績なし",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             TextButton(
                 onClick = if (state.recovery == TodayUiState.CachedRecovery.RePair) onRetryPairing else onRetry,
+                enabled = !refreshing,
             ) {
-                Text(if (state.recovery == TodayUiState.CachedRecovery.RePair) "接続をやり直す" else "再読み込み")
+                Text(
+                    when {
+                        refreshing -> "確認中"
+                        state.recovery == TodayUiState.CachedRecovery.RePair -> "再接続"
+                        else -> "再読み込み"
+                    },
+                )
             }
         }
     }
@@ -1788,6 +1836,7 @@ internal fun TasksListPane(
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
     onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
     onLocalSearch: (() -> Unit)? = null,
+    completionFeedback: TaskCompletionFeedback? = null,
 ) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
@@ -1850,6 +1899,7 @@ internal fun TasksListPane(
                         onTaskStateAction = onTaskStateAction,
                         onChecklistUpdate = onChecklistUpdate,
                         onTodayDateUpdate = onTodayDateUpdate,
+                        completionFeedback = completionFeedback,
                     )
                 }
             }
@@ -2531,6 +2581,7 @@ internal fun TodayTaskList(
     onTaskStateAction: (MobileTask) -> Unit,
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
     onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
+    completionFeedback: TaskCompletionFeedback? = null,
 ) {
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = if (allTasksMode) paneState.taskListScrollIndex else paneState.listScrollIndex,
@@ -2548,7 +2599,7 @@ internal fun TodayTaskList(
         contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(tasks, key = { it.id }) { task ->
+        itemsIndexed(tasks, key = { _, task -> task.id }) { index, task ->
             val requiresWorkReceipt = task.workState in setOf("needs_human_review", "reported_done", "blocked")
             val stateActionEnabled = (!task.pending || task.canChangePendingState) &&
                 task.conflict == null && actionState !is TaskActionUiState.Saving &&
@@ -2562,6 +2613,22 @@ internal fun TodayTaskList(
                 task.state == "done" -> "${task.title}を未完了に戻す"
                 else -> "${task.title}を完了"
             }
+            val scheduleEditable = onTodayDateUpdate != null && task.state !in setOf("done", "cancelled") &&
+                (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) &&
+                task.conflict == null && actionState !is TaskActionUiState.Saving
+            val today = LocalDate.now()
+            val rescheduleTarget = when {
+                !scheduleEditable -> null
+                allTasksMode && task.todayDate != today.toString() -> today
+                else -> today.plusDays(1)
+            }
+            SwipeTaskActions(
+                completeLabel = if (!stateActionEnabled) null else if (task.state == "done") "未完了に戻す" else "完了",
+                onComplete = { onTaskStateAction(task) },
+                rescheduleLabel = rescheduleTarget?.let { if (it == today) "今日やる" else "明日へ" },
+                onReschedule = { rescheduleTarget?.let { onTodayDateUpdate?.invoke(task, it) } },
+                modifier = Modifier.animateItem().testTag("task-swipe-${task.id}"),
+            ) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2592,7 +2659,21 @@ internal fun TodayTaskList(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        Text(task.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        val doneAlpha by animateFloatAsState(
+                            if (task.state == "done") 0.55f else 1f,
+                            label = "task-done-alpha",
+                        )
+                        Text(
+                            task.title,
+                            modifier = Modifier.graphicsLayer { alpha = doneAlpha },
+                            style = if (!allTasksMode && index == 0) {
+                                MaterialTheme.typography.titleMedium
+                            } else {
+                                MaterialTheme.typography.bodyMedium
+                            },
+                            fontWeight = FontWeight.SemiBold,
+                            textDecoration = if (task.state == "done") TextDecoration.LineThrough else null,
+                        )
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -2667,6 +2748,9 @@ internal fun TodayTaskList(
                         modifier = Modifier
                             .testTag("task-state-action-${task.id}")
                             .semantics { contentDescription = stateActionDescription },
+                        feedbackEventId = completionFeedback
+                            ?.takeIf { it.taskId == task.id }
+                            ?.eventId,
                     )
                 }
                 if (task.checklistItems.isNotEmpty()) {
@@ -2701,6 +2785,7 @@ internal fun TodayTaskList(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -2755,11 +2840,13 @@ internal fun TodayDetailPane(
     onTaskAiReady: (MobileTask, Boolean) -> Unit = { _, _ -> },
     onNavigateBack: (() -> Unit)? = null,
     displayZoneId: ZoneId = ZoneId.systemDefault(),
+    completionFeedbackEventId: Long? = null,
 ) {
     if (task == null) {
         CenteredState { Text("Taskを選んでください") }
         return
     }
+    val completionFeedbackScale = rememberTaskCompletionFeedbackScale(completionFeedbackEventId)
     var titleDraft by rememberSaveable(task.id) { mutableStateOf(task.title) }
     var titleBase by rememberSaveable(task.id) { mutableStateOf(task.title) }
     var titleEditing by rememberSaveable(task.id) { mutableStateOf(false) }
@@ -3198,7 +3285,13 @@ internal fun TodayDetailPane(
                     enabled = (!task.pending || task.canChangePendingState) &&
                         task.conflict == null && actionState !is TaskActionUiState.Saving &&
                         task.workState !in setOf("needs_human_review", "reported_done", "blocked"),
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("task-primary-action"),
+                    modifier = Modifier
+                        .graphicsLayer {
+                            scaleX = completionFeedbackScale
+                            scaleY = completionFeedbackScale
+                        }
+                        .heightIn(min = 48.dp)
+                        .testTag("task-primary-action"),
                 ) {
                     Text(when {
                         actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"

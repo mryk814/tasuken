@@ -14,8 +14,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -24,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.Serializable
 
 data class MobileTask(
@@ -394,6 +398,8 @@ sealed interface TaskActionUiState {
     data class Error(val taskId: String, val message: String) : TaskActionUiState
 }
 
+internal data class TaskCompletionFeedback(val taskId: String, val eventId: Long)
+
 class TodayViewModel(
     private val repository: MobileTaskRepository = DisconnectedMobileTaskRepository(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -425,6 +431,9 @@ class TodayViewModel(
     val pendingCaptures: StateFlow<List<MobilePendingCapture>> = mutablePendingCaptures.asStateFlow()
     private val mutableTaskActionState = MutableStateFlow<TaskActionUiState>(TaskActionUiState.Idle)
     val taskActionState: StateFlow<TaskActionUiState> = mutableTaskActionState.asStateFlow()
+    private val mutableTaskCompletionFeedback = MutableSharedFlow<TaskCompletionFeedback>(extraBufferCapacity = 8)
+    internal val taskCompletionFeedback: SharedFlow<TaskCompletionFeedback> = mutableTaskCompletionFeedback.asSharedFlow()
+    private val taskCompletionFeedbackSequence = AtomicLong()
     private val mutablePendingCount = MutableStateFlow<Int?>(null)
     val pendingCount: StateFlow<Int?> = mutablePendingCount.asStateFlow()
     private val mutableConflictCount = MutableStateFlow<Int?>(null)
@@ -1388,12 +1397,18 @@ class TodayViewModel(
         }
         mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
         mutableTaskActionState.value = try {
+            val completing = task.state != "done"
             val result = withContext(ioDispatcher) {
-                if (task.state == "done") {
-                    offlineRepository.enqueueReopenTask(task.id)
-                } else {
+                if (completing) {
                     offlineRepository.enqueueCompleteTask(task.id)
+                } else {
+                    offlineRepository.enqueueReopenTask(task.id)
                 }
+            }
+            if (completing) {
+                mutableTaskCompletionFeedback.tryEmit(
+                    TaskCompletionFeedback(task.id, taskCompletionFeedbackSequence.incrementAndGet()),
+                )
             }
             TaskActionUiState.Queued(task.id, result.requiresSync)
         } catch (error: Exception) {

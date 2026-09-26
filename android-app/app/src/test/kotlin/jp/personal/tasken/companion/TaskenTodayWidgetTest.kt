@@ -85,6 +85,20 @@ class TaskenTodayWidgetTest {
     }
 
     @Test
+    fun title_counts_down_today_tasks_and_celebrates_when_all_are_done() {
+        val snapshot = TaskenWidgetSnapshot(
+            tasks = emptyList(),
+            pendingCount = 0,
+            conflictCount = 0,
+            lastSuccessfulSyncAt = null,
+        )
+
+        assertEquals("Today", TaskenTodayWidget.progressTitle(snapshot))
+        assertEquals("あと3件", TaskenTodayWidget.progressTitle(snapshot.copy(todayDoneCount = 2, todayTotalCount = 5)))
+        assertEquals("ぜんぶ完了！", TaskenTodayWidget.progressTitle(snapshot.copy(todayDoneCount = 5, todayTotalCount = 5)))
+    }
+
+    @Test
     fun status_prioritizes_conflict_then_pending_then_sync_state() {
         fun snapshot(pending: Int = 0, conflict: Int = 0, syncedAt: String? = null) = TaskenWidgetSnapshot(
             tasks = emptyList(),

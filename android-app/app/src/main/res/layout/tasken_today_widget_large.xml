@@ -72,6 +72,18 @@
             android:tint="@color/tasken_widget_primary" />
     </LinearLayout>
 
+    <ProgressBar
+        android:id="@+id/widget_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="6dp"
+        android:layout_marginBottom="6dp"
+        android:contentDescription="今日のTaskの進み具合"
+        android:max="1"
+        android:progress="0"
+        android:progressDrawable="@drawable/tasken_widget_progress"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/widget_empty"
         android:layout_width="match_parent"

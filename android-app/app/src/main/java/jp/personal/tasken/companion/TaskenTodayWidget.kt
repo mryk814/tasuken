@@ -38,6 +38,9 @@ data class TaskenWidgetSnapshot(
     val conflictCount: Int,
     val lastSuccessfulSyncAt: String?,
     val totalTaskCount: Int = tasks.size,
+    /** 今日の予定に入ったTaskのうち完了した数と、取り消しを除いた総数。 */
+    val todayDoneCount: Int = 0,
+    val todayTotalCount: Int = 0,
 )
 
 internal enum class TaskenWidgetMode(val taskLimit: Int) {
@@ -223,8 +226,10 @@ class TaskenTodayWidget : AppWidgetProvider() {
         private suspend fun loadSnapshot(context: Context, today: String = LocalDate.now().toString()): TaskenWidgetSnapshot {
             val dao = MobileLocalDatabase.open(context).mobileDao()
             val themesById = dao.themes().associate { it.id to it }
+            val allTasks = dao.tasks()
+            val todayTasks = allTasks.filter { it.todayDate == today && it.state != "cancelled" }
             // ウィジェットは未完了の作業だけを出す。完了/取消はタスクリストの「完了」フィルタで確認する。
-            val openTasks = dao.tasks().filter { it.state != "done" && it.state != "cancelled" }
+            val openTasks = allTasks.filter { it.state != "done" && it.state != "cancelled" }
             val ordered = orderWidgetTasks(
                 openTasks.map {
                     val theme = it.themeId?.let(themesById::get)
@@ -248,6 +253,8 @@ class TaskenTodayWidget : AppWidgetProvider() {
             return TaskenWidgetSnapshot(
                 tasks = ordered,
                 totalTaskCount = ordered.size,
+                todayDoneCount = todayTasks.count { it.state == "done" },
+                todayTotalCount = todayTasks.size,
                 pendingCount = dao.pendingCount(),
                 conflictCount = dao.conflictCount(),
                 lastSuccessfulSyncAt = dao.syncState()?.lastSuccessfulSyncAt,
@@ -342,6 +349,9 @@ class TaskenTodayWidget : AppWidgetProvider() {
             setOnClickPendingIntent(R.id.widget_open_today, openAppIntent(context, widgetId, "tasken://today?source=widget"))
             bindAddAction(context, widgetId)
             bindVoiceAction(context, widgetId)
+            setTextViewText(R.id.widget_open_today, progressTitle(snapshot))
+            setViewVisibility(R.id.widget_progress, if (snapshot.todayTotalCount > 0) View.VISIBLE else View.GONE)
+            setProgressBar(R.id.widget_progress, snapshot.todayTotalCount.coerceAtLeast(1), snapshot.todayDoneCount, false)
             setTextViewText(R.id.widget_status, statusText(snapshot))
             setOnClickPendingIntent(R.id.widget_status, openAppIntent(context, widgetId + 30_000, "tasken://today?source=widget"))
             if (hasLayoutElement(layoutId, "widget_count")) {
@@ -455,6 +465,13 @@ class TaskenTodayWidget : AppWidgetProvider() {
 
         internal fun taskCountText(snapshot: TaskenWidgetSnapshot): String =
             snapshot.totalTaskCount.takeIf { it > 0 }?.let { "${it}件" }.orEmpty()
+
+        /** 見出し。今日の予定があれば残り件数、全部終えたらそれを伝える。 */
+        internal fun progressTitle(snapshot: TaskenWidgetSnapshot): String = when {
+            snapshot.todayTotalCount == 0 -> "Today"
+            snapshot.todayDoneCount >= snapshot.todayTotalCount -> "ぜんぶ完了！"
+            else -> "あと${snapshot.todayTotalCount - snapshot.todayDoneCount}件"
+        }
 
         internal fun statusText(snapshot: TaskenWidgetSnapshot): String = when {
             snapshot.conflictCount > 0 -> "競合 ${snapshot.conflictCount}件"

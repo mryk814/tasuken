@@ -145,7 +145,7 @@ class TaskListContextUiTest {
 
         composeRule.onNodeWithText("未完了").assertIsDisplayed()
         composeRule.onNodeWithText("保存済みTaskを表示中です。Desktopへ再接続してください。").assertIsDisplayed()
-        composeRule.onNodeWithText("接続をやり直す").assertIsDisplayed()
+        composeRule.onNodeWithText("再接続").assertIsDisplayed()
         composeRule.onNodeWithText("未着手 Task").assertIsDisplayed()
         composeRule.onNodeWithText("進行中 Task").assertIsDisplayed()
         composeRule.onNodeWithText("待機中 Task").assertIsDisplayed()
