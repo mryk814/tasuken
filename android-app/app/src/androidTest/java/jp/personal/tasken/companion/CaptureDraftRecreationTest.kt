@@ -26,6 +26,6 @@ class CaptureDraftRecreationTest {
         composeRule.activityRule.scenario.recreate()
 
         composeRule.onNodeWithTag("capture-text-input").assertTextContains("rotationdraft")
-        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("capture-submit-close").assertIsDisplayed()
     }
 }

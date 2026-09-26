@@ -1334,9 +1334,10 @@ internal fun CaptureTaskSheet(
         }
         val sheetEnabled = state !is CaptureUiState.Saving && !speechBusy
         val body: @Composable () -> Unit = {
-            Text("Taskを追加", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Taskを追加", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             if (draft.organization == null) {
-                OutlinedTextField(
+                // 枠のない入力欄。キーボードで狭くなる画面では、文字そのものを主役にする。
+                androidx.compose.material3.TextField(
                     value = draft.text,
                     onValueChange = onDraftChanged,
                     label = { Text("Task名") },
@@ -1360,6 +1361,16 @@ internal fun CaptureTaskSheet(
                     keyboardActions = KeyboardActions(onDone = {
                         if (canSubmit) submit(CaptureCompletionBehavior.Close)
                     }),
+                    textStyle = MaterialTheme.typography.bodyLarge,
+                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                        focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        errorContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester)
@@ -1395,62 +1406,6 @@ internal fun CaptureTaskSheet(
                             .testTag("capture-speech-status").verticalScroll(speechStatusScroll),
                     )
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            keyboardController?.hide()
-                            if (speechBusy) onStopVoice() else onStartVoice()
-                        },
-                        enabled = state !is CaptureUiState.Saving && speechState !is ShortSpeechUiState.Processing,
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("capture-voice-action"),
-                    ) {
-                        Icon(painterResource(R.drawable.ic_tabler_microphone), contentDescription = null)
-                        Text(
-                            when {
-                                speechState is ShortSpeechUiState.Processing -> "文字にしています…"
-                                speechBusy -> "音声を確定"
-                                draft.text.isNotBlank() -> "話し直す"
-                                else -> "音声で入力"
-                            },
-                            modifier = Modifier.padding(start = 8.dp),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    CapturePhotoButton(
-                        photoCount = draft.photos.size,
-                        enabled = sheetEnabled,
-                        onTakePhoto = onTakePhoto,
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                    )
-                    if (onOrganize != null) {
-                        IconButton(
-                            onClick = {
-                                keyboardController?.hide()
-                                if (organizeBusy) {
-                                    organizeRequest++
-                                    organizeJob?.cancel()
-                                    organizeJob = null
-                                    organizeBusy = false
-                                } else {
-                                    startOrganize()
-                                }
-                            },
-                            enabled = sheetEnabled && (draft.originalText ?: draft.text).isNotBlank(),
-                            modifier = Modifier.size(48.dp).testTag("capture-organize"),
-                        ) {
-                            if (organizeBusy) {
-                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(painterResource(R.drawable.ic_tabler_sparkles), contentDescription = "AIで整理")
-                            }
-                        }
-                    }
-                }
                 CapturePhotoStrip(
                     photos = draft.photos,
                     enabled = sheetEnabled,
@@ -1479,25 +1434,73 @@ internal fun CaptureTaskSheet(
                 Text(state.message, color = MaterialTheme.colorScheme.error)
             }
         }
+        // キーボードのすぐ上に固定する道具と確定。親指の届く1段に集める。
         val submitRow: @Composable () -> Unit = {
             Row(
-                modifier = Modifier.fillMaxWidth().testTag("capture-submit-row"),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("capture-submit-row"),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (draft.organization == null) {
+                    VoiceToolButton(
+                        speechState = speechState,
+                        hasText = draft.text.isNotBlank(),
+                        enabled = state !is CaptureUiState.Saving && speechState !is ShortSpeechUiState.Processing,
+                        onClick = {
+                            keyboardController?.hide()
+                            if (speechBusy) onStopVoice() else onStartVoice()
+                        },
+                        modifier = Modifier.testTag("capture-voice-action"),
+                    )
+                    CapturePhotoButton(
+                        photoCount = draft.photos.size,
+                        enabled = sheetEnabled,
+                        onTakePhoto = onTakePhoto,
+                    )
+                    if (onOrganize != null) {
+                        IconButton(
+                            onClick = {
+                                keyboardController?.hide()
+                                if (organizeBusy) {
+                                    organizeRequest++
+                                    organizeJob?.cancel()
+                                    organizeJob = null
+                                    organizeBusy = false
+                                } else {
+                                    startOrganize()
+                                }
+                            },
+                            enabled = sheetEnabled && (draft.originalText ?: draft.text).isNotBlank(),
+                            modifier = Modifier.size(48.dp).testTag("capture-organize"),
+                        ) {
+                            if (organizeBusy) {
+                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(painterResource(R.drawable.ic_tabler_sparkles), contentDescription = "AIで整理")
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.weight(1f))
                 TextButton(
                     onClick = { submit(CaptureCompletionBehavior.Continue) },
                     enabled = canSubmit,
                     modifier = Modifier.testTag("capture-submit-continue"),
                 ) {
-                    Text("追加して次へ")
+                    Text("追加して次へ", maxLines = 1)
                 }
                 Button(
                     onClick = { submit(CaptureCompletionBehavior.Close) },
                     enabled = canSubmit,
-                    modifier = Modifier.testTag("capture-submit-close"),
+                    contentPadding = PaddingValues(start = 14.dp, end = 16.dp),
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("capture-submit-close"),
                 ) {
-                    Text(if (state is CaptureUiState.Saving) "保存中" else "追加する")
+                    Icon(painterResource(R.drawable.ic_tabler_send), contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(
+                        if (state is CaptureUiState.Saving) "保存中" else "追加",
+                        modifier = Modifier.padding(start = 6.dp),
+                        maxLines = 1,
+                    )
                 }
             }
         }
@@ -1510,17 +1513,24 @@ internal fun CaptureTaskSheet(
             )
         }
         if (draft.organization == null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("capture-sheet-content")
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                body()
-                submitRow()
-                bottomInset()
+            // 本文は縮められる領域、道具と確定は常にキーボードの直上。
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth()
+                        .testTag("capture-sheet-content")
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    body()
+                }
+                androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                    submitRow()
+                    bottomInset()
+                }
             }
         } else {
             // 整理案の編集中は確定操作を常に押せるよう下部に固定する。
@@ -1581,11 +1591,6 @@ internal fun CaptureThemePicker(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            "Theme",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         LazyRow(
             state = themeListState,
             modifier = Modifier

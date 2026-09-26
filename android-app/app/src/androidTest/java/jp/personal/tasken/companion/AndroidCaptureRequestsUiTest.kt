@@ -63,7 +63,7 @@ class AndroidCaptureRequestsUiTest {
                     onSubmit = {}, onStartVoice = {}, onStopVoice = { stopped = true }, onDismiss = {})
             }
         }
-        composeRule.onNodeWithTag("capture-voice-action").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("capture-voice-action").assertIsDisplayed()
         val before = composeRule.onNodeWithTag("capture-voice-action").getBoundsInRoot()
         val status = composeRule.onNodeWithTag("capture-speech-status").getBoundsInRoot()
         assertTrue(status.bottom <= before.top)
@@ -73,10 +73,11 @@ class AndroidCaptureRequestsUiTest {
             composeRule.onNodeWithTag("capture-photo-action").getBoundsInRoot().top.value.toDouble(),
             1.0,
         )
-        composeRule.onNodeWithTag("capture-submit-row").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("capture-submit-row").assertIsDisplayed()
         val photo = composeRule.onNodeWithTag("capture-photo-action").getBoundsInRoot()
         val submit = composeRule.onNodeWithTag("capture-submit-row").getBoundsInRoot()
-        assertTrue(photo.bottom <= submit.top)
+        // 音声・写真・確定はキーボード直上の同じ1段にある。
+        assertTrue(submit.top <= photo.top && photo.bottom <= submit.bottom)
         screenshot("01-listening")
         for ((name, state) in listOf(
             "02-partial-short" to ShortSpeechUiState.Partial(MobileSpeechRecognitionMode.OnDevice, "明日の会議で"),

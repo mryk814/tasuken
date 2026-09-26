@@ -168,8 +168,8 @@ class CaptureThemePickerUiTest {
             }
         }
 
-        composeRule.onNodeWithTag("capture-submit-continue").performScrollTo().performClick()
-        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-submit-continue").performClick()
+        composeRule.onNodeWithTag("capture-submit-close").performClick()
 
         composeRule.runOnIdle {
             assertEquals(
@@ -206,7 +206,7 @@ class CaptureThemePickerUiTest {
             }
         }
 
-        composeRule.onNodeWithTag("capture-bottom-inset-spacer").performScrollTo()
+        composeRule.onNodeWithTag("capture-bottom-inset-spacer")
         val actionBounds = composeRule.onNodeWithTag("capture-submit-row")
             .fetchSemanticsNode().boundsInRoot
         val insetNode = composeRule.onNodeWithTag("capture-bottom-inset-spacer")
@@ -250,7 +250,7 @@ class CaptureThemePickerUiTest {
         // 種類の切り替えUIは持たず、500文字を超える入力だけがメモとして保存される。
         composeRule.onNodeWithTag("capture-kind-capture").assertDoesNotExist()
         composeRule.onNodeWithTag("capture-text-input").performTextReplacement("短いタスク")
-        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-submit-close").performClick()
         composeRule.runOnIdle { assertEquals(MobileCaptureKind.Task, submitted?.kind) }
     }
 

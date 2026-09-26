@@ -35,18 +35,22 @@ internal fun CapturePhotoButton(
     onTakePhoto: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    OutlinedButton(
+    // 入力欄の下の道具の1つ。枚数は撮った時だけ小さく示す。
+    androidx.compose.material3.IconButton(
         onClick = onTakePhoto,
         enabled = enabled && photoCount < CAPTURE_PHOTO_MAX_COUNT,
-        modifier = modifier.testTag("capture-photo-action"),
+        modifier = modifier.size(48.dp).testTag("capture-photo-action"),
     ) {
-        Icon(painterResource(R.drawable.ic_tabler_camera), contentDescription = null)
-        Text(
-            "写真（${photoCount}/${CAPTURE_PHOTO_MAX_COUNT}）",
-            modifier = Modifier.padding(start = 8.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        androidx.compose.material3.BadgedBox(
+            badge = {
+                if (photoCount > 0) androidx.compose.material3.Badge { Text("$photoCount") }
+            },
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_tabler_camera),
+                contentDescription = "写真を撮る（${photoCount}/${CAPTURE_PHOTO_MAX_COUNT}枚）",
+            )
+        }
     }
 }
 

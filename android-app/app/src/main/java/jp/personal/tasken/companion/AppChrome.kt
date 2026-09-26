@@ -3,6 +3,7 @@ package jp.personal.tasken.companion
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -165,5 +166,60 @@ internal fun InlineThemeLabel(theme: MobileTheme, modifier: Modifier = Modifier)
             maxLines = 1,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         )
+    }
+}
+
+/**
+ * 入力欄の下の音声ボタン。聞いている間だけ輪が脈打ち、音を拾っていることを示す。
+ * 押すたびの意味（始める／確定する）は読み上げにも同じ言葉で伝える。
+ */
+@Composable
+internal fun VoiceToolButton(
+    speechState: ShortSpeechUiState,
+    hasText: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val listening = speechState is ShortSpeechUiState.Listening || speechState is ShortSpeechUiState.Partial
+    val label = when {
+        speechState is ShortSpeechUiState.Processing -> "文字にしています…"
+        listening -> "音声を確定"
+        hasText -> "話し直す"
+        else -> "音声で入力"
+    }
+    val primary = MaterialTheme.colorScheme.primary
+    Box(contentAlignment = Alignment.Center, modifier = modifier.size(48.dp)) {
+        if (listening) {
+            val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "voice-pulse")
+            val t by pulse.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                    androidx.compose.animation.core.tween<Float>(1100, easing = androidx.compose.animation.core.LinearOutSlowInEasing),
+                ),
+                label = "voice-pulse-t",
+            )
+            androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
+                drawCircle(primary.copy(alpha = 0.35f * (1f - t)), radius = size.minDimension / 2 * (0.6f + 0.5f * t))
+            }
+        }
+        androidx.compose.material3.FilledIconToggleButton(
+            checked = listening,
+            onCheckedChange = { onClick() },
+            enabled = enabled,
+            modifier = Modifier.size(40.dp).semantics { contentDescription = label },
+            colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
+                containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                checkedContainerColor = primary,
+                checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+            ),
+        ) {
+            Icon(
+                painterResource(if (listening) R.drawable.ic_tabler_player_stop else R.drawable.ic_tabler_microphone),
+                contentDescription = null,
+            )
+        }
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -69,8 +70,9 @@ internal fun rememberTaskCompletionFeedbackScale(eventId: Long?): Float {
             scale.animateTo(1f, tween(durationMillis = 120))
         } else {
             scale.snapTo(1f)
-            scale.animateTo(1.1f, tween(durationMillis = 120))
-            scale.animateTo(1f, tween(durationMillis = 180))
+            // 一度だけ弾ませ、バネで静止させる。
+            scale.animateTo(1.22f, tween(durationMillis = 90))
+            scale.animateTo(1f, spring(dampingRatio = 0.32f, stiffness = 420f))
         }
     }
     return scale.value
