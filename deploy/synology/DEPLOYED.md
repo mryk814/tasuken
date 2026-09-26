@@ -134,8 +134,14 @@ read-onlyだった実機NASを、Proposal（Coreの受付範囲はテキスト�
   - Desktop（インストール版`Tasken.exe`、userData `%APPDATA%\tasken`）: 同時刻にcursor `9aab88aa-…: 1`を適用（`shared_sync_last_at 21:07:24Z`、`shared_sync_last_error`空、conflicts 0）。DesktopのDBに同じProposalが`pending`/`feed_posts`で存在し、pendingのfeed_postは1件。
   - DesktopのDBコピーにFeedの投影（`buildPostsFromProposals`）を実行すると、投稿は全1件で`feed-post:84bd84aa-…`（`author: external_ai`、`kind: insight`、本文「ChatGPT Connectorからの書き込みテストです。」、`proposalStatus: pending`、`learnable: true`）。実際の画面表示は利用者の目視で確認する。
   - これで**ChatGPT → Connector → tunnel → NAS Core → 共有フォルダ → Desktop**の書き込み往復が実データで成立したことを確認した（DesktopのFeed表示は利用者の目視で確認する）。
+- 実測（ChatGPT実クライアントからのTask作業報告、2026-09-27 06:08 JST = 2026-09-26T21:08:49Z）:
+  - ChatGPTが`tasken.append_work_receipt`を実在Task「自分用枕をつくりたいぜ」(`8fa3f995-…` v3)へ送信（`idempotency_key=chatgpt-connector-workreceipt-test-20260927-0546`、`caller=ChatGPT`、`expected_version 3`、本文「…実作業の完了を示すものではなく、Connector経由の書き込み確認のみを目的としています。」）。
+  - NAS replica: `ai_proposal d035272c-e805-5d4a-8019-aab6556cee7c`（`source_app: ChatGPT` / `payload_type: task_work` / `action: append_receipt` / `status: pending`）を`21:08:49.155Z`に受理。5秒後の`21:08:54Z`に`devices/9aab88aa-…/000000000002-f54532f3-….json`として公開。
+  - Desktop: `21:09:23.777Z`にcursor `9aab88aa-…: 2`を適用（`ai_proposal`は133件、conflicts 0、`shared_sync_last_error`空）。
+  - DesktopのDBコピーで採用（`ApplyTaskWorkProposal`）を試すと成功する。Proposalは`accepted`、Work Receiptが1件作成され、Taskは`state: todo`のまま`work_state: in_progress`（採用はTask完了ではない）。したがって利用者がFeedの「対応待ち」で採用を押せばWork Receiptになる。
+  - これで読み取り・Feed投稿・Task作業報告の3つが実クライアントで往復し、正式データへの反映は人の採用だけであることを確認した。
 - 未確認（更新）:
-  - Task作業報告（`report_task_done`等）の実クライアント往復と、DesktopのAgent Desk（Feed）での採用。canonical Themeを持たないTaskでは採用が拒否される既知の制約がある（本ファイルのローカル検証と手順書を参照）。
+  - 利用者の画面操作による採用（コピー環境では成功を確認済み）と、`report_task_done`・`report_task_blocked`の実クライアント送信。canonical Themeを持たないTaskでは採用が拒否される既知の制約がある（本ファイルのローカル検証と手順書を参照）。
   - 1つの`idempotency_key`をDesktopとNASの両方へ送らない運用は未変更。
 
 ## ローカル検証（NASではない）
