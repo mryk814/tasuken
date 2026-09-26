@@ -53,6 +53,11 @@ const { parseTaskenHeadlessCoreArgs } = await bundleEntry(
   "src/main/headless/main.ts",
   "headlessMain.mjs",
 );
+/** Desktop役の採用経路。replicaが作ったProposalを人が採用する側を再現する。 */
+const { ApplicationCommandService } = await bundleEntry(
+  "src/main/services/applicationCommandService.ts",
+  "applicationCommandService.mjs",
+);
 
 function temporaryUserData() {
   return fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-headless-core-test-"));
@@ -67,7 +72,8 @@ function bootstrapWorkspace(database) {
         title: "Headless context read",
         description: "Read through the headless Core over loopback MCP.",
         state: "todo",
-        theme_id: "theme-headless",
+        // Desktopが保存する形に合わせてcanonicalなTheme IDを持たせる（採用時の検証を通す）。
+        project_id: "theme-headless",
       },
     ],
   });
@@ -361,6 +367,130 @@ test("Headless replicaが受けたProposalはDesktopへ届き、採否はreplica
       assert.ok(applied, "replicaがProposalを保持している");
       assert.equal(applied.status, "accepted", "Desktopの採否がreplicaへ戻る");
       assert.deepEqual(applied.payload.feed_posts[0].body, body);
+      assert.equal(replica.syncPendingCount(), 0, "replicaは受信を再公開しない");
+      assert.equal(replica.listSyncConflicts().length, 0);
+    } finally {
+      replica.db.close();
+    }
+  } finally {
+    hostSync.stop();
+    if (host.db.open) host.db.close();
+  }
+});
+
+test("replicaが受けたTask作業報告はDesktopの採用でWork Receiptになり、採否がreplicaへ戻る", async (t) => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-headless-taskwork-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const shared = path.join(root, "shared");
+  const hostUserData = path.join(root, "host");
+  const replicaUserData = path.join(root, "replica");
+  fs.mkdirSync(shared, { recursive: true });
+  const host = new WorkspaceDatabase(path.join(hostUserData, "research-desk.sqlite"));
+  const hostSync = new SharedFolderSyncService(
+    host,
+    () => {},
+    path.join(hostUserData, "attachments", "markdown-images"),
+    path.join(hostUserData, "attachments", "capture-images"),
+  );
+  const application = new ApplicationCommandService(host);
+  let client;
+  let proposalId;
+  try {
+    bootstrapWorkspace(host);
+    await hostSync.configure(shared);
+    const handle = await startTaskenHeadlessCore({
+      userDataPath: replicaUserData,
+      syncDirectory: shared,
+      writeMode: "proposals",
+    });
+    try {
+      client = await connectMcp(replicaUserData);
+      // replicaが同期したTaskの版を使う。直接開始は公開されないため、報告だけを送る。
+      const context = await client.callTool({
+        name: "tasken.get_task_context",
+        arguments: { task_id: "task-headless" },
+      });
+      assert.equal(context.isError, undefined, JSON.stringify(context));
+      const task = context.structuredContent.task;
+      assert.equal(task.id, "task-headless");
+
+      const queued = await client.callTool({
+        name: "tasken.report_task_done",
+        arguments: {
+          idempotency_key: "replica-task-work",
+          caller: "ChatGPT",
+          source_app: "chatgpt",
+          task_id: task.id,
+          expected_version: task.version,
+          executor_kind: "ai_agent",
+          executor_label: "ChatGPT",
+          summary: "NASで受けた作業報告。",
+          completed_items: ["作業報告の往復確認"],
+          changed_or_created_items: [],
+          verification: [],
+          remaining_work: [],
+          reported_at: "2026-09-27T00:00:00.000Z",
+        },
+      });
+      assert.equal(queued.isError, undefined, JSON.stringify(queued));
+      proposalId = String(queued.structuredContent.proposal_id);
+      assert.equal(queued.structuredContent.payload_type, "task_work");
+      // 受領はreplicaに残り、Desktopへはまだ届いていない。採用前のTaskは変わらない。
+      assert.equal(host.get("ai_proposal", proposalId), null);
+      assert.equal(host.get("task", "task-headless").work_state || "", "");
+
+      await handle.syncNow();
+      await hostSync.syncNow();
+      const received = host.get("ai_proposal", proposalId);
+      assert.ok(received, "Desktopがreplicaの作業報告を受け取る");
+      assert.equal(received.payload_type, "task_work");
+      assert.equal(received.status, "pending");
+      assert.equal(host.list("work_receipt").length, 0, "採用までWork Receiptは作られない");
+
+      // 人がDesktopで採用すると、報告がWork Receiptになり、採否がreplicaへ戻る。
+      application.execute({
+        commandId: `${proposalId}:accept`,
+        name: "ApplyTaskWorkProposal",
+        payload: { proposalId, decision: "accept" },
+        actor: { kind: "user", id: "desktop-test" },
+        source: "main_ui",
+        issuedAt: "2026-09-27T00:00:00.000Z",
+        expectedVersions: [
+          { type: "ai_proposal", id: proposalId, version: received.version },
+          {
+            type: "task",
+            id: "task-headless",
+            version: host.get("task", "task-headless").version,
+          },
+        ],
+      });
+      const receipt = host.get("work_receipt", proposalId);
+      assert.ok(receipt, JSON.stringify(host.list("work_receipt")));
+      assert.equal(receipt.summary, "NASで受けた作業報告。");
+      assert.equal(receipt.provenance.reported_via, "mcp");
+      assert.equal(host.get("ai_proposal", proposalId).status, "accepted");
+      assert.equal(host.get("task", "task-headless").state, "todo", "報告の採用はTask完了ではない");
+
+      await hostSync.syncNow();
+      await handle.syncNow();
+      assert.equal(host.listSyncConflicts().length, 0, JSON.stringify(host.listSyncConflicts()));
+      const status = await client.callTool({
+        name: "tasken.get_proposal_status",
+        arguments: { proposal_id: proposalId },
+      });
+      assert.equal(status.isError, undefined, JSON.stringify(status));
+      assert.equal(status.structuredContent.status, "accepted");
+      assert.equal(status.structuredContent.view.canonical_node, "this_node");
+      assert.equal(status.structuredContent.view.delivery_confirmed, false);
+    } finally {
+      await client?.close().catch(() => {});
+      client = undefined;
+      await handle.stop();
+    }
+
+    const replica = new WorkspaceDatabase(path.join(replicaUserData, "research-desk.sqlite"));
+    try {
+      assert.equal(replica.get("ai_proposal", proposalId).status, "accepted");
       assert.equal(replica.syncPendingCount(), 0, "replicaは受信を再公開しない");
       assert.equal(replica.listSyncConflicts().length, 0);
     } finally {
