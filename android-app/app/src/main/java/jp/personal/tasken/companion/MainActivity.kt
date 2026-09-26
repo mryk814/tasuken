@@ -122,6 +122,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.luminance
@@ -680,10 +681,14 @@ internal fun TodayApp(
                 },
                 actions = {
                     if (todayViewModel.recallRepository != null && paneState.activeSection == AppSection.Today) {
-                        TextButton(onClick = { recallOpen = true }, modifier = Modifier.testTag("open-recall")) { Text("今日の記録") }
+                        IconButton(onClick = { recallOpen = true }, modifier = Modifier.testTag("open-recall")) {
+                            Icon(painterResource(R.drawable.ic_tabler_notebook), contentDescription = "今日の記録")
+                        }
                     }
                     if (todayViewModel.workLogRepository != null) {
-                        TextButton(onClick = { workLogTaskId = null; workLogRecordId = null; workLogOpen = true }, modifier = Modifier.testTag("open-work-log")) { Text("記録") }
+                        IconButton(onClick = { workLogTaskId = null; workLogRecordId = null; workLogOpen = true }, modifier = Modifier.testTag("open-work-log")) {
+                            Icon(painterResource(R.drawable.ic_tabler_pencil), contentDescription = "作業を記録")
+                        }
                     }
                     if (pendingCaptures.isNotEmpty()) {
                         TextButton(
@@ -758,7 +763,7 @@ internal fun TodayApp(
                 NavigationBarItem(
                     selected = paneState.activeSection == AppSection.Today,
                     onClick = {
-                        paneState.activeSection = AppSection.Today
+                        paneState.selectSection(AppSection.Today)
                         coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
                     },
                     icon = {
@@ -772,7 +777,7 @@ internal fun TodayApp(
                 NavigationBarItem(
                     selected = paneState.activeSection == AppSection.Tasks,
                     onClick = {
-                        paneState.activeSection = AppSection.Tasks
+                        paneState.selectSection(AppSection.Tasks)
                         coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
                     },
                     icon = {
@@ -786,7 +791,7 @@ internal fun TodayApp(
                 NavigationBarItem(
                     selected = paneState.activeSection == AppSection.Ai,
                     onClick = {
-                        paneState.activeSection = AppSection.Ai
+                        paneState.selectSection(AppSection.Ai)
                         coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
                     },
                     icon = {
@@ -831,7 +836,11 @@ internal fun TodayApp(
                                 keyboardController?.hide()
                             }
                         }
-                        when (paneState.activeSection) {
+                        androidx.compose.animation.AnimatedContent(
+                            targetState = paneState.activeSection,
+                            transitionSpec = { sectionTransition(initialState, targetState) },
+                            label = "app-section",
+                        ) { section -> when (section) {
                             AppSection.Today -> TodayListPane(
                                 uiState = uiState,
                                 refreshing = refreshing,
@@ -910,37 +919,29 @@ internal fun TodayApp(
                                     }
                                 },
                             )
-                        }
-                        if (paneState.activeSection != AppSection.Ai) {
-                            FlowRow(
-                                modifier = Modifier.align(Alignment.BottomEnd).fillMaxWidth().padding(16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                FloatingActionButton(
-                                    onClick = {
-                                        paneState.openCapture(
-                                            source = MobileCaptureSource.AndroidApp,
-                                            requestInputFocus = true,
-                                            replaceDraft = false,
-                                        )
-                                        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
-                                    },
-                                    modifier = Modifier
-                                        .testTag("open-capture-action"),
-                                ) {
-                                    Icon(painterResource(R.drawable.ic_tabler_plus), contentDescription = "追加")
-                                }
-                                FloatingActionButton(
-                                    onClick = {
-                                        paneState.openVoiceCapture()
-                                        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
-                                    },
-                                    modifier = Modifier.heightIn(min = 56.dp).testTag("open-voice-capture-action"),
-                                ) {
-                                    Icon(painterResource(R.drawable.ic_tabler_microphone), contentDescription = "話して追加")
-                                }
-                            }
+                        }}
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = paneState.activeSection != AppSection.Ai,
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                            enter = androidx.compose.animation.scaleIn(
+                                androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 500f),
+                            ) + androidx.compose.animation.fadeIn(),
+                            exit = androidx.compose.animation.scaleOut() + androidx.compose.animation.fadeOut(),
+                        ) {
+                            ComposeFab(
+                                onWrite = {
+                                    paneState.openCapture(
+                                        source = MobileCaptureSource.AndroidApp,
+                                        requestInputFocus = true,
+                                        replaceDraft = false,
+                                    )
+                                    speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+                                },
+                                onSpeak = {
+                                    paneState.openVoiceCapture()
+                                    speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+                                },
+                            )
                         }
                     }
                 }
@@ -1997,6 +1998,7 @@ internal fun AiInboxListPane(
                     snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
                         .collect { (index, offset) -> paneState.recordAiScroll(index, offset) }
                 }
+                ScrollToTopEffect(paneState.scrollToTopRequest, AppSection.Ai, listState)
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().testTag("ai-inbox-list"),
                     state = listState,
@@ -2614,11 +2616,12 @@ internal fun TodayTaskList(
                 if (allTasksMode) paneState.recordTaskScroll(index, offset) else paneState.recordScroll(index, offset)
             }
     }
+    ScrollToTopEffect(paneState.scrollToTopRequest, if (allTasksMode) AppSection.Tasks else AppSection.Today, listState)
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag(if (allTasksMode) "all-task-list" else "today-task-list"),
         state = listState,
         contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         itemsIndexed(tasks, key = { _, task -> task.id }) { index, task ->
             val requiresWorkReceipt = task.workState in setOf("needs_human_review", "reported_done", "blocked")
@@ -2650,29 +2653,25 @@ internal fun TodayTaskList(
                 onReschedule = { rescheduleTarget?.let { onTodayDateUpdate?.invoke(task, it) } },
                 modifier = Modifier.animateItem().testTag("task-swipe-${task.id}"),
             ) {
-            Card(
+            val rowInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            val selected = task.id == paneState.selectedTaskId
+            val rowShape = segmentShape(index, tasks.size)
+            Surface(
+                shape = rowShape,
+                color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                border = if (selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .pressScale(rowInteraction, pressed = 0.985f)
+                    .clip(rowShape)
                     .semantics { role = Role.Button }
-                    .clickable { onTaskSelected(task.id) },
-                colors = CardDefaults.cardColors(
-                    containerColor = if (task.id == paneState.selectedTaskId) {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surface
+                    .clickable(interactionSource = rowInteraction, indication = androidx.compose.material3.ripple()) {
+                        onTaskSelected(task.id)
                     },
-                ),
-                border = BorderStroke(
-                    1.dp,
-                    if (task.id == paneState.selectedTaskId) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.outline
-                    },
-                ),
             ) {
+              Column {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -2776,7 +2775,7 @@ internal fun TodayTaskList(
                 }
                 if (task.checklistItems.isNotEmpty()) {
                     FlowRow(
-                        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         task.checklistItems.sortedBy { it.sortOrder }.take(3).forEach { item ->
@@ -2806,6 +2805,7 @@ internal fun TodayTaskList(
                         }
                     }
                 }
+              }
             }
             }
         }
@@ -2815,7 +2815,7 @@ internal fun TodayTaskList(
 @Composable
 private fun TaskThemeLabel(themeId: String?, themes: List<MobileTheme>) {
     val theme = themes.firstOrNull { it.id == themeId } ?: return
-    ColoredThemeLabel(theme)
+    InlineThemeLabel(theme)
 }
 
 @Composable

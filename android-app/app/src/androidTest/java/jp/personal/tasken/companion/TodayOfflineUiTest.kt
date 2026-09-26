@@ -2,6 +2,7 @@ package jp.personal.tasken.companion
 
 import android.graphics.Bitmap
 import android.os.SystemClock
+import androidx.compose.ui.test.assert
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Surface
@@ -130,7 +131,9 @@ class TodayOfflineUiTest {
         composeRule.onNodeWithText("今日のTask").assertIsDisplayed()
         composeRule.onNodeWithText(task(0).title).assertIsDisplayed()
         composeRule.onNodeWithTag("open-capture-action").assertIsDisplayed()
-        composeRule.onNodeWithTag("open-voice-capture-action").assertIsDisplayed()
+        // 追加の入口は1つ。長押しで話して追加できる。
+        composeRule.onNodeWithTag("open-capture-action")
+            .assert(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsActions.OnLongClick))
         composeRule.onNodeWithText("ToDo").assertIsDisplayed()
         composeRule.onNodeWithText("AI").assertIsDisplayed()
         capture("08-today-shell")

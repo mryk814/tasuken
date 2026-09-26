@@ -45,7 +45,7 @@ class AndroidCaptureRequestsUiTest {
         composeRule.runOnIdle { model.updateTaskTitle(task, "変更後の名前") }
         composeRule.waitUntil { composeRule.onAllNodesWithText("この環境ではTaskを編集できません。").fetchSemanticsNodes().isNotEmpty() }
         val message = composeRule.onNodeWithText("この環境ではTaskを編集できません。").getBoundsInRoot()
-        val action = composeRule.onNodeWithTag("open-voice-capture-action").getBoundsInRoot()
+        val action = composeRule.onNodeWithTag("open-capture-action").getBoundsInRoot()
         assertTrue(message.bottom < action.top)
         assertEquals(before, composeRule.onNodeWithText(task.title).getBoundsInRoot())
         screenshot("09-top-notification")

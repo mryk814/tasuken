@@ -1547,6 +1547,18 @@ class TodayPaneState(
         private set
     var aiListScrollOffset by mutableIntStateOf(aiListScrollOffset)
         private set
+    /** 表示中のタブをもう一度押したときの「先頭へ戻る」依頼。保存しない。 */
+    var scrollToTopRequest by mutableStateOf<ScrollToTopRequest?>(null)
+        private set
+
+    /** タブを押す。表示中のタブなら先頭へ戻す。 */
+    fun selectSection(section: AppSection) {
+        if (activeSection == section) {
+            scrollToTopRequest = ScrollToTopRequest(section, System.nanoTime())
+        } else {
+            activeSection = section
+        }
+    }
 
     fun recordScroll(index: Int, offset: Int) {
         listScrollIndex = index.coerceAtLeast(0)
