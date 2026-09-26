@@ -61,6 +61,48 @@ SSHの鍵が無いためコンテナ側は依然として未確認。共有か�
 **コンテナが今も動いているかは、この共有からは分からない**（replicaのSQLiteは `tasken-data` volume の中）。
 `docker ps` の3行だけでも記録できれば、N1の残りは埋まる。
 
+### 2026-09-26 replicaの同期停止を特定して再配置（#588 N1 / N2）
+
+9月12日の配置以降、**replicaが1件も差分を取り込んでいなかった**ことを実測して直した。
+
+- 観測（rootで実行）: `tasken-headless` は `Up 2 weeks (healthy)` / `restarts=0`、`tasken-tunnel` も healthy。
+  `docker logs` は起動時の `TASKEN_HEADLESS_CORE_READY` 1行のみ。
+- 一方、replicaの `/data`（`deploy/synology/state`）は `research-desk.sqlite` / `-wal` / `tasken-core.json` が
+  **すべて2026-09-12のまま**。`tasken-core.json` の `started_at` も `2026-09-12T01:53:13Z`。
+- replica DBを読んだ結果（NAS上のコピーを読むだけで、外へは出していない）:
+
+  | 項目                     | 値                                                                       |
+  | ------------------------ | ------------------------------------------------------------------------ |
+  | `shared_sync_last_at`    | 2026-09-12T01:09:54Z                                                     |
+  | `shared_sync_last_error` | `Work Receiptはappend-onlyです。既存Receiptを取り込みで更新できません。` |
+  | `sync_device_cursors`    | `14efbb12-…: 196`（2026-09-12T01:10:04Z から不動）                       |
+  | `sync_conflicts`         | 0                                                                        |
+
+- 原因: 受信差分 `devices/14efbb12-…/` は **1〜3280が連番で欠落なし**。同じWork Receipt
+  `f352cb33-…` が2回公開されており（seq191 = version 1、seq **197** = version 2 の後継Revision）、
+  `workspaceRepository.insertImported` のappend-onlyガードが**同一IDのReceiptを内容に関係なく例外**にしていた。
+  `receiveChanges` の例外は `SharedFolderSyncService.start()` の `void this.syncNow().catch(() => {})` に飲まれ、
+  ログにもhealthにも出ないため、**健康なまま2週間止まっているように見えていた**。
+- 修正（branch `fix/588-sync-receipt-revision`）:
+  - 同期取り込みでは、親Revisionが現在のheadと一致する後継Revisionを適用する。内容が実質同じ再公開は書き換えずheadだけ進める。
+  - 競合解決で`incoming`を選んだReceiptも同じ扱いにする。
+  - 定期同期の失敗を**内容が変わったときだけ1回**ログへ出す（`[tasken-sync] ...`）。
+- 再配置: imageを再作成（`--provenance=false --sbom=false`）→ SMB共有 `_deploy` 経由で搬入 →
+  `sudo bash /volume1/tasken/_deploy/nas-install.sh`。旧配備物は `.prev-2026-09-12.tar` として残置。
+  - `core.autocrlf=true` のため `git archive` がCRLFを書き出し、`bash nas-install.sh` が `set: pipefail` で失敗。
+    `git -c core.autocrlf=false -c core.eol=lf archive` で作り直して解消。`scp` は `Connection closed` で拒否される。
+- 再配置後の実測:
+  - Core: `started_at 2026-09-26T09:02:50Z` / `origin http://127.0.0.1:39555` / `pid 7` / capability 30（`task.command` なし = read-only）
+  - `shared_sync_last_error` 空 / cursor `14efbb12-…: 3283` / `sync_conflicts` 0 / `shared_sync_last_at 2026-09-26T09:03:40Z`
+  - Entity: task 148（09-12は19）、work_receipt 66、ai_proposal 130、note 23、change_event 886。
+    taskの最新 `updated_at` は `2026-09-26T08:53Z`、work_receiptは `2026-09-26T08:31:09Z`（同日のQA journeyの報告まで）
+  - read-only MCP（`nas-read-check.mjs` one-off）: `TOOL_COUNT 13` / `HAS_WRITE false` / `IS_ERROR false` /
+    `ITEMS` に当日のQAタスク `f1f029dd-…` を含む（＝NAS単体で最新のContextを返せる）
+    - 09-12の記録にある `TOOL_COUNT 29` は旧版の値。現行版のread-only公開ツールは13（書き込み8はゲートの後ろ）
+  - `tasken-tunnel`: `Up (healthy)`、`tunnel_id tunnel_6aa4aa138f10819198458b82e82c079e` 据え置き、metadata取得成功
+    - ChatGPT側の一覧にtunnelが出るかは未確認（OpenAI側の既知問題。09-12の保留理由が解消したかは画面での再確認が要る）
+- 未確認: Desktop停止中の読み取り（N3）、`backup.sh` の実機実行、Desktop停止・NAS再起動・transport再接続の一連
+
 ## ローカル検証（NASではない）
 
 ### 2026-09-12 Linux amd64コンテナ（Docker Desktop）
