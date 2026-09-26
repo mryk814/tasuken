@@ -377,6 +377,9 @@ test("Calendar service connects Google with the Google OAuth endpoints", async (
           options.body,
           /scope=openid\+email\+profile\+https%3A%2F%2Fwww\.googleapis\.com%2Fauth%2Fcalendar\.readonly/,
         );
+        // Googleは「デスクトップ アプリ」種別でもsecretを要求する。設定時はtoken交換で送る（#273）。
+        assert.match(options.body, /(?:^|&)client_id=google-client(?:&|$)/);
+        assert.match(options.body, /(?:^|&)client_secret=google-secret(?:&|$)/);
         return response({
           access_token: "google-token",
           refresh_token: "google-refresh",
@@ -399,6 +402,7 @@ test("Calendar service connects Google with the Google OAuth endpoints", async (
       },
       {
         googleClientId: "google-client",
+        googleClientSecret: "google-secret",
         timeZone: "Asia/Tokyo",
         adapters: { google: { provider: "google", listEvents: async () => googleEvents } },
       },
@@ -412,6 +416,42 @@ test("Calendar service connects Google with the Google OAuth endpoints", async (
 
     const configText = readFileSync(path.join(userDataPath, "calendar-provider.json"), "utf8");
     assert.doesNotMatch(configText, /google-token|google-refresh/);
+  } finally {
+    rmSync(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test("Calendar service keeps Microsoft on PKCE only even when a client secret is set", async () => {
+  const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-calendar-ms-secret-"));
+  try {
+    const service = new calendarService.CalendarService(
+      userDataPath,
+      fakeSafeStorage(),
+      async (_url, options = {}) => {
+        // MicrosoftはPKCEだけで通るため、secretが設定されていても送らない（#273）。
+        assert.match(options.body, /(?:^|&)client_id=ms-client(?:&|$)/);
+        assert.doesNotMatch(options.body, /client_secret/);
+        return response({
+          access_token: "ms-token",
+          expires_in: 3600,
+          id_token: idTokenFor("ms@example.com"),
+        });
+      },
+      async (authorizeUrl) => {
+        const authorize = new URL(authorizeUrl);
+        const callback = new URL(authorize.searchParams.get("redirect_uri"));
+        callback.searchParams.set("state", authorize.searchParams.get("state"));
+        callback.searchParams.set("code", "ms-code");
+        await fetch(callback);
+      },
+      {
+        clientId: "ms-client",
+        clientSecret: "ms-secret",
+        timeZone: "Asia/Tokyo",
+      },
+    );
+    const status = await service.connect({ provider: "microsoft" });
+    assert.equal(status.connected, true);
   } finally {
     rmSync(userDataPath, { recursive: true, force: true });
   }

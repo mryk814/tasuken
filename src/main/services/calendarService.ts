@@ -66,6 +66,13 @@ interface OAuthProviderConfig {
   tokenUrl: string;
   scopes: string;
   extraAuthorizeParams?: Record<string, string>;
+  /**
+   * token交換でclient secretを送るか（#273）。
+   * Googleのtoken endpointは「デスクトップ アプリ」種別でもsecretを要求し、無いと
+   * `client_secret is missing.` で拒否する。一方Microsoftのこの実装はPKCEだけで通るため、
+   * secretはGoogleにだけ・設定されているときだけ送る。
+   */
+  useClientSecret?: boolean;
 }
 
 export interface SafeStorageAdapter {
@@ -78,7 +85,9 @@ export interface CalendarServiceOptions {
   adapter?: CalendarAdapter;
   adapters?: Partial<Record<CalendarProvider, CalendarAdapter>>;
   clientId?: string;
+  clientSecret?: string;
   googleClientId?: string;
+  googleClientSecret?: string;
   timeZone?: string;
 }
 
@@ -115,17 +124,20 @@ function oauthErrorCode(body: string): string {
 /**
  * 失敗の種類から、次に何を直せばよいかだけを導く（#273）。
  *
- * providerの本文は残さず、既知の言い回しにだけ反応する。実接続で
- * `client_secret is missing.`（＝Web アプリ種別のクライアント）を観測したため、
- * 「client IDの種類が違う」ことを診断で見分けられるようにする。
+ * providerの本文は残さず、既知の言い回しにだけ反応する。実測した対応は次のとおり。
+ *
+ * - `client_secret is missing.` → Googleは「デスクトップ アプリ」種別でもsecretを要求する。
+ *   `TASKEN_GOOGLE_CLIENT_SECRET` を設定する（`useClientSecret` で送る）。
+ * - `invalid_client` / `unauthorized_client` → secretの値違い、またはclient IDが別project。
  */
 function oauthFailureHint(body: string): string {
   const text = body.toLowerCase();
-  if (text.includes("client_secret")) return "client_type";
+  if (text.includes("client_secret")) return "client_secret";
   if (text.includes("redirect_uri")) return "redirect_uri";
   if (text.includes("invalid_grant") || text.includes("malformed auth code"))
     return "code_rejected";
-  if (text.includes("invalid_client")) return "client_unknown";
+  if (text.includes("invalid_client") || text.includes("unauthorized_client"))
+    return "client_unknown";
   return "unknown";
 }
 
@@ -136,6 +148,7 @@ function oauthConfigFor(provider: CalendarProvider): OAuthProviderConfig {
       tokenUrl: GOOGLE_TOKEN_URL,
       scopes: GOOGLE_SCOPES,
       extraAuthorizeParams: { access_type: "offline", prompt: "consent" },
+      useClientSecret: true,
     };
   }
   return {
@@ -150,6 +163,7 @@ export class CalendarService {
   private readonly cachePath: string;
   private readonly adapters: Record<CalendarProvider, CalendarAdapter>;
   private readonly clientIds: Record<CalendarProvider, string>;
+  private readonly clientSecrets: Record<CalendarProvider, string>;
   private readonly timeZone: string;
   private cached: CalendarCacheEntry | null = null;
   private pendingConnect: Promise<CalendarConnectionStatus> | null = null;
@@ -171,6 +185,13 @@ export class CalendarService {
     this.clientIds = {
       microsoft: options.clientId?.trim() || process.env.TASKEN_MICROSOFT_CLIENT_ID?.trim() || "",
       google: options.googleClientId?.trim() || process.env.TASKEN_GOOGLE_CLIENT_ID?.trim() || "",
+    };
+    // secretはGoogleだけが要求する（#273）。環境変数か呼び出し元から受け取り、値はどこにも記録しない。
+    this.clientSecrets = {
+      microsoft:
+        options.clientSecret?.trim() || process.env.TASKEN_MICROSOFT_CLIENT_SECRET?.trim() || "",
+      google:
+        options.googleClientSecret?.trim() || process.env.TASKEN_GOOGLE_CLIENT_SECRET?.trim() || "",
     };
     this.timeZone = options.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   }
@@ -282,6 +303,22 @@ export class CalendarService {
     }
   }
 
+  /**
+   * token交換・refreshで送るclient認証のパラメータ（#273）。
+   *
+   * Googleの「デスクトップ アプリ」clientは、PKCEを使っていてもsecretが無いと
+   * `client_secret is missing.` で拒否される。secretが設定されているときだけ送る。
+   */
+  private tokenAuthParams(
+    provider: CalendarProvider,
+    oauth: OAuthProviderConfig,
+  ): Record<string, string> {
+    const params: Record<string, string> = { client_id: this.clientIds[provider] };
+    const secret = this.clientSecrets[provider];
+    if (oauth.useClientSecret && secret) params.client_secret = secret;
+    return params;
+  }
+
   private async performOAuthFlow(provider: CalendarProvider): Promise<CalendarConnectionStatus> {
     const oauth = oauthConfigFor(provider);
     const codeVerifier = base64url(randomBytes(32));
@@ -297,7 +334,7 @@ export class CalendarService {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        client_id: this.clientIds[provider],
+        ...this.tokenAuthParams(provider, oauth),
         scope: oauth.scopes,
         code,
         redirect_uri: redirectUri,
@@ -488,7 +525,7 @@ export class CalendarService {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        client_id: this.clientIds[config.provider],
+        ...this.tokenAuthParams(config.provider, oauth),
         refresh_token: refreshToken,
         grant_type: "refresh_token",
       }).toString(),

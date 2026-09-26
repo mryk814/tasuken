@@ -11,17 +11,19 @@ import {
 /**
  * Google OAuthクライアントの種類判定（#273のM単位）。
  *
- * 実接続で観測した `client_secret is missing.` を「Web アプリ種別」として見分け、
- * 同意画面を開く前に直すべき点を伝える。秘密情報は扱わない（本文も残さない）。
+ * 実測（2026-09-26）: Googleは「デスクトップ アプリ」種別でもtoken交換にsecretを要求し、
+ * secret無しだと `client_secret is missing.` を返す。この文言は「Web アプリ種別だから」では
+ * なく「secretを送っていないから」を意味するため、種別の判定には使わない。
+ * 秘密情報は扱わない（本文も残さない）。
  */
-test("client_secretを要求されたらWebアプリ種別として扱う", () => {
+test("secretが無いと言われても種別はデスクトップのまま扱い、secret設定を案内する", () => {
   const result = classifyClientCheck({
     status: 400,
     body: '{ "error": "invalid_request", "error_description": "client_secret is missing." }',
   });
-  assert.equal(result.kind, "confidential_client");
+  assert.equal(result.kind, "public_client");
   assert.equal(result.oauthError, "invalid_request");
-  assert.match(result.guidance, /デスクトップ アプリ/u);
+  assert.match(result.guidance, /TASKEN_GOOGLE_CLIENT_SECRET/u);
 });
 
 test("無効なcodeが拒否されたらデスクトップ アプリ種別として扱う", () => {
@@ -85,7 +87,7 @@ test("実際の判定はtoken endpointの応答だけで決まる（fetchを差�
       );
     },
   });
-  assert.equal(report.client_kind, "confidential_client");
+  assert.equal(report.client_kind, "public_client");
   assert.equal(report.status, 400);
   assert.equal(report.client_id_fingerprint.length, 8);
   assert.equal(report.endpoint, "https://oauth2.googleapis.com/token");

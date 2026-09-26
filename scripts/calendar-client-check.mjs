@@ -25,28 +25,34 @@ const ENV_NAME = "TASKEN_GOOGLE_CLIENT_ID";
 /**
  * token endpointの応答から、クライアントの種類を判定する（純関数）。
  *
- * - `client_secret is missing.` → Web アプリ種別（confidential client）。Taskenでは使えない。
- * - `invalid_grant`（Malformed auth code） → デスクトップ アプリ種別（public client）。期待どおり。
+ * 実測（#273・2026-09-26）: Googleは「デスクトップ アプリ」種別でもtoken交換で
+ * `client_secret is missing.` を返す。公式ドキュメントは`client_secret`をOptionalと
+ * 書いているが、secret無しの交換は拒否される。したがってこの文言だけでは
+ * Web アプリ種別とデスクトップ種別を区別できない。
+ *
+ * - 生のtoken endpoint応答が `invalid_grant`（Malformed auth code） → public client。
+ *   デスクトップ種別でもsecret有りならこちらになる。
+ * - `client_secret is missing.` → secretが無い。デスクトップ種別ならsecretを設定すれば通る。
  * - `invalid_client`（not found） → client IDが存在しない、または種類が不明。
  */
 export function classifyClientCheck({ status, body }) {
   const text = String(body || "");
   const lower = text.toLowerCase();
   const oauthError = /"error"\s*:\s*"([a-z_]{3,40})"/u.exec(text)?.[1] || "unknown";
-  if (lower.includes("client_secret")) {
-    return {
-      kind: "confidential_client",
-      oauthError,
-      guidance:
-        "この client ID は Web アプリケーション種別です。Google Cloud で「デスクトップ アプリ」種別の OAuth クライアントを作り直し、その client ID を設定してください。",
-    };
-  }
   if (lower.includes("invalid_client") || lower.includes("not found")) {
     return {
       kind: "unknown_client",
       oauthError,
       guidance:
         "この client ID は Google に登録されていません。値のコピー漏れを確認し、Google Cloud の「クライアント ID」をそのまま設定してください。",
+    };
+  }
+  if (lower.includes("client_secret")) {
+    return {
+      kind: "public_client",
+      oauthError,
+      guidance:
+        "client種別は問題ありません。Googleは「デスクトップ アプリ」種別でもtoken交換にclient secretを要求します（secret無しのPKCEは拒否）。Google Cloudの同じクライアントの「クライアント シークレット」を TASKEN_GOOGLE_CLIENT_SECRET へ設定してください。",
     };
   }
   if (oauthError === "invalid_grant" || lower.includes("malformed auth code")) {
