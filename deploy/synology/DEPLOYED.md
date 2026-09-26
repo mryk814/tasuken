@@ -118,13 +118,16 @@ read-onlyだった実機NASを、Proposal（Coreの受付範囲はテキスト�
   - `tasken-headless` Started 0.9s、`tasken-tunnel` Started 0.2s。tunnelは`tunnel metadata fetched`（name `Tasken MCP - Synology`、tunnel_id `tunnel_6aa4aa138f10819198458b82e82c079e`据え置き）の後に`Tasken MCP Bridge is running on stdio.`
   - 事前確認として、同じimageを一時volumeで起動し`--write-mode=proposals`がcapability 31（`propose_task_work`あり・`task.command`なし）、既定がcapability 28のread-onlyになることをPC側で確認している。
   - 同じimageでMCP bridgeのtool一覧も実測した。`TASKEN_MCP_READ_ONLY=0`で21 tools（read 13 + write 8）、既定で13 tools。write 8件のうちCoreが受け付けるのは`propose_feed_post`・`propose_note`・`append_work_receipt`・`report_task_done`・`report_task_blocked`の5件で、`propose_note_edit`と`answer_feed_question`は`WRITE_NOT_ALLOWED`、`start_task_work`は`CAPABILITY_UNAVAILABLE`。Task**案**を作るtoolはMCP bridgeに登録されていない。
+  - 同じimage（ID `sha256:72be6775…`）を一時volumeで`--write-mode=proposals`で起動し、実際にwrite toolを呼んで確かめた（2026-09-27、NASではない隔離環境）。`propose_note`・`propose_feed_post`・`report_task_done`はProposal IDを返して`pending`で保存され、`propose_note_edit`・`answer_feed_question`は`WRITE_NOT_ALLOWED`、`start_task_work`は`CAPABILITY_UNAVAILABLE`（案内文は「この接続先は直接開始を公開していません」）。保存されたProposalは許可された3件だけで、拒否された3件は1件も作られていない（fail closed）。
 - 実測（PC側からの読み取り）:
   - `deploy/synology/.env`: `TASKEN_CORE_WRITE_MODE=proposals`・`TASKEN_MCP_READ_ONLY=0`・`CONTROL_PLANE_TUNNEL_ID`を保持。`nas-install.sh`の再生成後も消えていない（2026-09-26までの版は書き込み設定を書かず、再配置で既定へ戻っていた）。
   - `state/tasken-core.json`: capability 31。`propose_content`・`propose_repository_task`・`propose_task_work`あり、`task.command`・`propose_agent_session`なし（＝proposals配備）。
   - replica DB（`/data`をコピーしてread-onlyで読む。外へは出していない）: `workspace_id 047c7258-…`（ホストと一致）、`shared_sync_last_error`空、`shared_sync_last_at 2026-09-26T20:36:03Z`、cursor `14efbb12-…: 3297`、`sync_conflicts` 0、`sync_outbox` 0。entity（`deleted_at IS NULL`）は task 99 / ai_proposal 131 / work_receipt 54 / note 10 / change_event 889、pending proposal 44（うち`task_work` 80件は累計）。
   - 同じworkspaceの`sync/devices/9aab88aa-…`は**空**。このdevice idはNAS replica自身のもので、read-only運用では公開する差分が無かったため。2026-09-20の記録にある「もう一方の端末」という解釈はこれに訂正する（過去の記録はそのまま残す）。
+- 実測（NAS上、one-offコンテナ + `nas-read-check.mjs`、2026-09-27）:
+  - `-e TASKEN_MCP_READ_ONLY=0`で`TOOL_COUNT 21`・`MCP_READ_ONLY false`・`HAS_WRITE true`、`WRITE_TOOLS`は8件すべて、`READ_TOOLS`は13件。`search_items`は`IS_ERROR false`で実Task IDを5件返した（`8fa3f995-…`ほか）。
+  - 稼働中Coreと同じnetwork名前空間・同じ`tasken-headless:local`で実行しているため、tunnelのMCP bridgeが見せている範囲と一致する。`tasken-tunnel`の環境変数を`docker inspect`で読む確認は未実施だが、この tool一覧が実挙動として同じ境界を示している。
 - 未確認（この時点）:
-  - `tasken-tunnel`の環境変数を`docker inspect`で直接読む確認（`.env`の値とコンテナ再作成の事実までは確認済み）。
   - ChatGPT側のconnectorが新しいtool一覧を取得すること、実クライアントからのFeed投稿・Task作業報告の往復、Desktopでの採用。
   - 1つの`idempotency_key`をDesktopとNASの両方へ送らない運用は未変更。
 
