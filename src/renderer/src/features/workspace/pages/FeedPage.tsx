@@ -19,7 +19,10 @@ import {
   type FeedItem,
 } from "../lib/feedFixtures";
 import { buildLiveFeed } from "../lib/feedProjection";
-import { taskWorkEntry } from "../../../../../shared/contracts/task/public";
+import {
+  taskWorkEntry,
+  taskWorkReportsCoveredBy,
+} from "../../../../../shared/contracts/task/public";
 import { buildSaveTaskOperations } from "../domain-model/persistence";
 import {
   FEED_AUTHORS,
@@ -1523,6 +1526,69 @@ export function FeedPage(props: PageProps) {
     [busy, domain.ai_proposals, executeCommand, setToast, taskOf],
   );
 
+  /**
+   * 確認待ち（進捗追記・回答済み）の採用/却下。
+   *
+   * 判断ではないので要対応の件数は動かないが、人が採用して初めて正式なReceiptになる。
+   * Commandは「提案の確認」と同じ `ApplyTaskWorkProposal` を通す。
+   */
+  const decideWorkConfirmation = useCallback(
+    async (item: FeedItem, decision: "accept" | "reject") => {
+      if (busy || !item.sourceId) return;
+      const proposal = (domain.ai_proposals as Array<Record<string, unknown>>).find(
+        (entry) => String(entry.id) === item.sourceId,
+      );
+      if (!proposal) {
+        setToast("報告を確認できません。画面を再読み込みしてください。", "danger");
+        return;
+      }
+      const task = taskOf(item) as { id: string; version?: number } | null;
+      const covered = taskWorkReportsCoveredBy(
+        proposal as { id: string } & Record<string, unknown>,
+        domain.ai_proposals as Array<{ id: string } & Record<string, unknown>>,
+      );
+      setBusy(true);
+      try {
+        await executeCommand({
+          commandId: `${item.sourceId}:${decision}`,
+          name: "ApplyTaskWorkProposal",
+          payload: {
+            proposalId: item.sourceId,
+            decision,
+            ...(decision === "accept"
+              ? { coveredProposalIds: covered.map((report) => report.id) }
+              : {}),
+          },
+          actor: { kind: "user" },
+          source: "main_ui",
+          expectedVersions: [
+            ...(task ? [{ type: "task", id: task.id, version: Number(task.version ?? 0) }] : []),
+            ...covered.map((report) => ({
+              type: "ai_proposal" as const,
+              id: report.id,
+              version: Number(report.version ?? 0),
+            })),
+            { type: "ai_proposal", id: item.sourceId, version: Number(proposal.version ?? 0) },
+          ],
+          issuedAt: new Date().toISOString(),
+        } as never);
+        setToast(
+          decision === "accept" ? "報告を採用しました。" : "報告を却下しました。",
+          "success",
+        );
+        setOpenNeedsId(null);
+      } catch (error) {
+        setToast(
+          `${decision === "accept" ? "採用" : "却下"}できませんでした。${error instanceof Error ? error.message : String(error)}`,
+          "danger",
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, domain.ai_proposals, executeCommand, setToast, taskOf],
+  );
+
   /** 報告の差し戻し。修正してほしい点を `ReturnTaskWork` で返す。 */
   const returnReport = useCallback(
     async (item: FeedItem) => {
@@ -1880,6 +1946,55 @@ export function FeedPage(props: PageProps) {
                                   </Button>
                                 </div>
                               </form>
+                            </div>
+                          ) : item.kind === "progress_report" || item.kind === "answered_report" ? (
+                            <div className="feed-review">
+                              {/*
+                                確認待ちは判断ではない。読み順は「報告 → 検証 → 残作業」で、
+                                採用/却下だけが残っていることを文言でも示す。
+                              */}
+                              <p className="feed-post-meta">
+                                {item.kind === "progress_report"
+                                  ? "進捗の追記です。採用も却下もまだ決まっていません。"
+                                  : "回答済みです。報告の採用はまだ決まっていません。"}
+                              </p>
+                              <dl className="feed-detail-rows">
+                                <div>
+                                  <dt>報告</dt>
+                                  <dd>{item.summary}</dd>
+                                </div>
+                                <div>
+                                  <dt>検証</dt>
+                                  <dd>{reviewDetailOf(item.sourceId).verification || "—"}</dd>
+                                </div>
+                                <div>
+                                  <dt>残作業</dt>
+                                  <dd>{reviewDetailOf(item.sourceId).remainingWork || "—"}</dd>
+                                </div>
+                              </dl>
+                              <div className="feed-detail-actions">
+                                <Button
+                                  variant="primary"
+                                  disabled={busy}
+                                  onClick={() => void decideWorkConfirmation(item, "accept")}
+                                >
+                                  採用
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  disabled={busy}
+                                  onClick={() => void decideWorkConfirmation(item, "reject")}
+                                >
+                                  却下
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  disabled={busy}
+                                  onClick={() => openTaskDrawer(item)}
+                                >
+                                  Taskを開く
+                                </Button>
+                              </div>
                             </div>
                           ) : (
                             <div className="feed-detail-actions">
