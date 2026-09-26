@@ -145,6 +145,15 @@ read-onlyだった実機NASを、Proposal（Coreの受付範囲はテキスト�
   - `devices/9aab88aa-…/000000000002-….json`: `entityType=ai_proposal` / `payload_type=task_work` / `request.tool=tasken.report_task_done` / `action=report_done` / `task_id=8fa3f995-…` / `status=pending`。
 - これで「replicaが受けた書き込みが共有フォルダへ公開され、Desktopが取り込める差分になる」ところまで実データで確認できた。Desktop側の取り込みと人の採用は実クライアントの往復で確認する。
 
+### 2026-09-27 NASデータのコピーで採用まで隔離検証（実データのTask形状）
+
+同じコピー環境で、Desktopと同じ`ApplicationCommandService`（`ApplyTaskWorkProposal`）による採用まで通した。本番には触れていない。
+
+- canonical Theme（`project_id: theme-personal-default`）を持つ実在Task `8fa3f995-…` v3 への報告: **採用成功**。Proposalは`accepted`、Work Receiptが1件作成され、Taskは`state: todo`のまま・`work_state: accepted`（採用は完了ではない）。
+- canonical Themeを持たないTask `a3000000-…-0001`（`state: done`）への報告: **採用失敗**。`ApplicationCommandError` / `INVALID_PAYLOAD` / 「Taskのcanonical Theme IDがありません。」。
+  - 実データでは生存Task 99件のうち**16件**が`project_id`も`theme_id`も持たない（すべて2026-08-25以前に更新された`done`/`cancelled`）。`taskPolicy.assertTaskThemeExists`が`project_id`を要求するためで、**この変更で入った挙動ではなく、Desktopのエージェント報告でも同じ**。TaskenでそのTaskを開いて保存し直すと`normalizeTaskForSave`がcanonicalなThemeを付ける。
+  - ChatGPTがこの16件へ報告した場合、Proposal自体は受理されるが、Desktopの採用時にこのエラーになる。切り分けは手順書のトラブルシューティングに追記した。
+
 ### 2026-09-12 Linux amd64コンテナ（Docker Desktop）
 
 - Image: `tasken-headless:local`（Node 24.20 / Debian bookworm / amd64）。source commit未固定の作業用build。
