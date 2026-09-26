@@ -61,16 +61,17 @@ export class SharedFolderSyncService {
     this.waitingFor = null;
     this.waitingImage = null;
     this.healStats = { republished: 0 };
+    this.lastReportedError = null;
   }
 
   start() {
     if (this.timer) return;
     if (this.repository.getPreference("sharedSyncEnabled")) {
-      void this.syncNow().catch(() => {});
+      void this.syncNow().catch((error) => this.reportSyncError(error));
     }
     this.timer = setInterval(() => {
       if (this.repository.getPreference("sharedSyncEnabled")) {
-        void this.syncNow().catch(() => {});
+        void this.syncNow().catch((error) => this.reportSyncError(error));
       }
     }, SYNC_INTERVAL_MS);
   }
@@ -78,6 +79,17 @@ export class SharedFolderSyncService {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  /**
+   * 定期同期の失敗を1回だけ出す。10秒ごとの再試行でログを溢れさせず、
+   * 黙って止まったまま気づけない状態（#588の実機NAS）を作らない。
+   */
+  reportSyncError(error) {
+    const message = syncErrorMessage(error);
+    if (message === this.lastReportedError) return;
+    this.lastReportedError = message;
+    console.error(`[tasken-sync] ${message}`);
   }
 
   manifestPath(directory) {
@@ -209,6 +221,7 @@ export class SharedFolderSyncService {
       const timestamp = new Date().toISOString();
       this.repository.setPreference("sharedSyncLastAt", timestamp);
       this.repository.setPreference("sharedSyncLastError", "");
+      this.lastReportedError = null;
       this.state = this.repository.syncConflictCount() ? "conflict" : "idle";
       return this.status();
     } catch (error) {

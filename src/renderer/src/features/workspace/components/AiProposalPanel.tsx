@@ -1,12 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  IconAlertTriangle,
-  IconArchive,
-  IconHistory,
-  IconPencil,
-  IconRefresh,
-  IconShieldCheck,
-} from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+import { IconArchive, IconHistory, IconPencil, IconShieldCheck } from "@tabler/icons-react";
 
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
@@ -36,7 +29,6 @@ import {
 } from "../../../../../shared/repositoryContextProposal.ts";
 import { ActionButton, Button } from "./common";
 import { MarkdownPreview } from "./MarkdownPreview";
-import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import {
   taskWorkEntry,
   taskWorkInboxGroups,
@@ -277,6 +269,21 @@ export function buildPreview(
       : candidate;
   });
   return preview;
+}
+
+/**
+ * 提案を解析する。解析できない提案で面全体を失敗させない（nullを返す）。
+ * 一覧の選択が変わったときと、workspaceを読み直したときに呼ぶ。
+ */
+function parseProposalPreview(
+  proposal: BaseRecord,
+  context: Pick<PageProps, "data" | "themes" | "items">,
+): ProposalPreview | null {
+  try {
+    return buildPreview(proposal, context);
+  } catch {
+    return null;
+  }
 }
 
 function noteDiffHunks(candidate: ProposalCandidate) {
@@ -564,22 +571,17 @@ export function buildCandidateOperations(
   return operations.filter((operation) => operation.type !== "change_event");
 }
 
-interface AiProposalPanelProps extends PageProps {
-  /**
-   * 右レールの対応キューから開いた変更案。`nonce` が進むたびに1件だけ選択状態へ反映する。
-   * 同じ変更案をもう一度開き直せるよう、IDではなく`nonce`の消費で判定する。
-   */
-  focusRequest?: { proposalId: string; nonce: number } | null;
-}
+/** 履歴と観測だけを出す面。選択はFeedの「対応待ち」が持つため、ここに固有のpropsは無い。 */
+type AiProposalPanelProps = PageProps;
 
+/**
+ * 決着済みの変更案と、hookが集めたAgent Sessionの観測だけを出す。
+ *
+ * **判断と変更案の一覧はここに無い。** 同じ報告を2面に出さないため、採否と再読込は
+ * Feedの「対応待ち」が1面で扱う（`docs/feed-surface.md` §6.6）。
+ */
 export function AiProposalPanel(props: AiProposalPanelProps) {
-  const { data, domain, themes, items, saveEntities, executeCommand, setToast, focusRequest } =
-    props;
-  const [selectedId, setSelectedId] = useState("");
-  const [preview, setPreview] = useState<ProposalPreview | null>(null);
-  const [quarantineReason, setQuarantineReason] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
-  const refreshWorkspace = useWorkspaceStore((state) => state.refresh);
+  const { data, domain } = props;
   const passiveSessionProposals = useMemo(
     () => (data.ai_proposals || []).filter((proposal) => isPassiveAgentSessionProposal(proposal)),
     [data.ai_proposals],
@@ -591,9 +593,6 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
       ),
     [data.ai_proposals],
   );
-  const proposals = proposalGroups
-    .filter((group) => group.reports.some((item) => item.status === "pending"))
-    .map((group) => group.latest);
   const history = useMemo(
     () =>
       proposalGroups
@@ -602,147 +601,177 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
         .sort((a, b) => proposalTimestamp(b).localeCompare(proposalTimestamp(a))),
     [proposalGroups],
   );
-  const selected = (data.ai_proposals || []).find((proposal) => proposal.id === selectedId) || null;
-  const selectedWork = selected ? taskWorkEntry(selected) : null;
-  const selectedGroup = proposalGroups.find((group) =>
-    group.reports.some((item) => item.id === selectedId),
+
+  /** 履歴も観測も無いときは面ごと出さない（design-guide §5）。 */
+  if (!history.length && !passiveSessionProposals.length) return null;
+
+  return (
+    <div className="ai-proposal-panel">
+      <section className="panel proposal-inbox-panel">
+        <div className="section-heading">
+          <h2>提案の履歴</h2>
+        </div>
+        <details className="panel proposal-history" open>
+          <summary>
+            <span>
+              <IconHistory size={16} aria-hidden="true" />
+              履歴
+            </span>
+            <strong>{history.length + passiveSessionProposals.length}件</strong>
+          </summary>
+          <div className="proposal-history-list">
+            {history.map((proposal) => (
+              <div className="proposal-history-row" key={proposal.id}>
+                <div>
+                  <strong>
+                    {domain.tasks.find((task) => task.id === taskWorkEntry(proposal)?.task_id)
+                      ?.title || proposalTypeLabel(proposal)}
+                  </strong>
+                  <small>
+                    {proposalSourceLabel(proposal)} / {proposalTargetLabel(proposal)} /{" "}
+                    {formatProposalDate(proposal)}
+                  </small>
+                </div>
+                <span className={`proposal-status proposal-status-${str(proposal.status)}`}>
+                  {proposalStatusLabel(proposal)}
+                </span>
+                {str(proposal.quarantine_reason) && <p>{str(proposal.quarantine_reason)}</p>}
+              </div>
+            ))}
+            {passiveSessionProposals.length > 0 && (
+              <p className="proposal-preview-context">
+                Session observations {passiveSessionProposals.length}
+                件（hookが集めた作業記録。Tasken Debriefの保存時にまとめて確認・正式化します）
+              </p>
+            )}
+            {passiveSessionProposals.map((proposal) => (
+              <div className="proposal-history-row" key={proposal.id}>
+                <div>
+                  <strong>{proposalTargetLabel(proposal)}</strong>
+                  <small>
+                    {proposalSourceLabel(proposal)} / {formatProposalDate(proposal)}
+                  </small>
+                </div>
+                <span className="proposal-status proposal-status-pending">Debrief待ち</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      </section>
+    </div>
   );
-  const coveredReports = selected
-    ? taskWorkReportsCoveredBy(selected, data.ai_proposals || [])
-    : [];
-  const selectedWorkTaskId = selected ? str(taskWorkEntry(selected)?.task_id) : "";
-  const selectedWorkTask = selectedWorkTaskId
-    ? domain.tasks.find((entry) => entry.id === selectedWorkTaskId)
+}
+
+interface ProposalDetailProps extends PageProps {
+  /** 詳細に出す1件。一覧の選択が決める。 */
+  proposal: BaseRecord;
+  /** 採否が決まったあと。次の選択は呼び出し側が決める。 */
+  onDecided?: (proposalId: string) => void;
+}
+
+/**
+ * 判断・変更案・確認待ちの1件を確認して採否を決める面（`docs/feed-surface.md` §6.6）。
+ *
+ * **一覧を持たない。** 選択はFeedの「対応待ち」が持ち、ここは選ばれた1件だけを出す。
+ * 読み順と操作は種類ごとの契約に従い、Taskの完了は最初から選ばれていない明示オプションにする（#599）。
+ */
+export function ProposalDetail(props: ProposalDetailProps) {
+  const {
+    proposal,
+    data,
+    domain,
+    themes,
+    items,
+    saveEntities,
+    executeCommand,
+    setToast,
+    onDecided,
+  } = props;
+  const [quarantineReason, setQuarantineReason] = useState("");
+  /** 同じ作業の過去報告を見ている間だけ対象を差し替える。採否はこの1件へ効く。 */
+  const [overrideId, setOverrideId] = useState("");
+  const proposals = useMemo(() => (data.ai_proposals || []) as BaseRecord[], [data.ai_proposals]);
+  const active = proposals.find((entry) => entry.id === overrideId) || proposal;
+  // 初回描画から内容を出す。解析できない提案だけプレビュー無しになる。
+  const [preview, setPreview] = useState<ProposalPreview | null>(() =>
+    parseProposalPreview(active, { data, themes, items }),
+  );
+  const activeWork = taskWorkEntry(active);
+  const activeGroup = useMemo(
+    () =>
+      taskWorkInboxGroups(proposals).find((group) =>
+        group.reports.some((report) => report.id === active.id),
+      ),
+    [proposals, active.id],
+  );
+  const coveredReports = taskWorkReportsCoveredBy(active, proposals);
+  const activeWorkTaskId = str(taskWorkEntry(active)?.task_id);
+  const activeWorkTask = activeWorkTaskId
+    ? domain.tasks.find((entry) => entry.id === activeWorkTaskId)
     : null;
-  const canCompleteSelectedWork = Boolean(
-    selectedWorkTask &&
-    !["done", "cancelled"].includes(str((selectedWorkTask as unknown as BaseRecord).state)),
+  const canCompleteActiveWork = Boolean(
+    activeWorkTask &&
+    !["done", "cancelled"].includes(str((activeWorkTask as unknown as BaseRecord).state)),
   );
 
   /**
-   * 右レールの対応キューから変更案を開いたとき、その1件を選択して内容を出す（Agent Desk集約）。
-   * 消費した`nonce`は覚えておき、利用者が別の提案を選び直したあとに勝手に戻さない。
+   * 対象が変わったら解析し直す。解析できない提案で面全体を失敗させない。
+   * 一覧側の選択が変われば `proposal` が変わり、ここが追随する。
    */
-  const consumedFocusRef = useRef(0);
   useEffect(() => {
-    if (!focusRequest || consumedFocusRef.current === focusRequest.nonce) return;
-    const proposal = (data.ai_proposals || []).find(
-      (entry) => entry.id === focusRequest.proposalId,
-    );
-    if (!proposal) return;
-    consumedFocusRef.current = focusRequest.nonce;
-    try {
-      setSelectedId(proposal.id);
-      setPreview(buildPreview(proposal, { data, themes, items }));
-    } catch {
-      // 解析できない提案は選択だけに留め、面全体を失敗させない。
-      setPreview(null);
-    }
-  }, [focusRequest, data, themes, items]);
+    setPreview(parseProposalPreview(active, { data, themes, items }));
+  }, [active, data, themes, items]);
 
-  const refreshProposals = useCallback(
-    async (showFeedback: boolean) => {
-      setRefreshing(true);
-      try {
-        await refreshWorkspace();
-        if (showFeedback) setToast("Proposalを更新しました。", "success");
-      } catch (error) {
-        if (showFeedback) {
-          setToast(
-            `Proposalを更新できませんでした。${error instanceof Error ? error.message : String(error)}`,
-            "danger",
-          );
-        }
-        // Focus復帰時は一時的な読込失敗を通知で連発せず、明示更新時だけ案内する。
-      } finally {
-        setRefreshing(false);
-      }
-    },
-    [refreshWorkspace, setToast],
-  );
-
-  useEffect(() => {
-    const resyncOnFocus = () => void refreshProposals(false);
-    window.addEventListener("focus", resyncOnFocus);
-    return () => window.removeEventListener("focus", resyncOnFocus);
-  }, [refreshProposals]);
-
-  function previewProposal(proposal: BaseRecord) {
-    try {
-      setSelectedId(proposal.id);
-      setPreview(buildPreview(proposal, { data, themes, items }));
-    } catch (error) {
-      setToast(
-        `Proposalを解析できませんでした。${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+  /** 決着したら対象を戻し、次の選択は呼び出し側へ任せる。 */
+  function afterDecision(proposalId: string) {
+    setOverrideId("");
+    onDecided?.(proposalId);
   }
 
-  function nextPendingProposal(currentId: string) {
-    const index = proposals.findIndex((proposal) => proposal.id === currentId);
-    if (index >= 0) return proposals[index + 1] || proposals[index - 1] || null;
-    return proposals.find((proposal) => proposal.id !== currentId) || null;
-  }
-
-  function advanceAfterDecision(currentId: string) {
-    const next = nextPendingProposal(currentId);
-    if (!next) {
-      setSelectedId("");
-      setPreview(null);
-      return;
-    }
-    setSelectedId(next.id);
-    try {
-      setPreview(buildPreview(next, { data, themes, items }));
-    } catch {
-      setPreview(null);
-    }
-  }
-
-  async function rejectProposal(proposal: BaseRecord) {
-    if (str(proposal.payload_type) === "task_work") {
+  async function rejectProposal() {
+    if (str(active.payload_type) === "task_work") {
       await executeCommand({
-        commandId: `${proposal.id}:reject`,
+        commandId: `${active.id}:reject`,
         name: "ApplyTaskWorkProposal",
-        payload: { proposalId: proposal.id, decision: "reject" },
+        payload: { proposalId: active.id, decision: "reject" },
         actor: { kind: "user" },
         source: "main_ui",
         expectedVersions: [
-          { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
+          { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
         ],
         issuedAt: new Date().toISOString(),
       } as CommandEnvelope);
       setToast("Work proposalを却下しました。", "success");
-      advanceAfterDecision(proposal.id);
+      afterDecision(active.id);
       return;
     }
     try {
-      const rejectedPreview = buildPreview(proposal, { data, themes, items });
+      const rejectedPreview = buildPreview(active, { data, themes, items });
       const isContentProposal = ["notes", "knowledge_nodes", "sketches", "artifacts"].includes(
-        str(proposal.payload_type),
+        str(active.payload_type),
       );
       const decisions = isContentProposal
         ? buildContentProposalDecisions(rejectedPreview, true)
         : undefined;
       await executeCommand({
-        commandId: `${proposal.id}:accept:v${Number(proposal.version || 0)}`,
+        commandId: `${active.id}:accept:v${Number(active.version || 0)}`,
         name: "ApplyAiProposal",
         payload: {
-          proposal: { ...proposal, status: "rejected" },
+          proposal: { ...active, status: "rejected" },
           ...(isContentProposal ? { decision: "reject" as const, decisions } : {}),
           candidates: [],
         },
         actor: { kind: "user" },
         source: "main_ui",
         expectedVersions: [
-          { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
+          { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
         ],
         issuedAt:
-          str(proposal.received_at || proposal.created_at || proposal.updated_at) ||
+          str(active.received_at || active.created_at || active.updated_at) ||
           new Date(0).toISOString(),
       } as CommandEnvelope);
       setToast("Proposalを却下しました。", "success");
-      advanceAfterDecision(proposal.id);
+      afterDecision(active.id);
     } catch (error) {
       setToast(
         `Proposalを却下できませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -750,7 +779,7 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
     }
   }
 
-  async function quarantineProposal(proposal: BaseRecord) {
+  async function quarantineProposal() {
     const reason = quarantineReason.trim();
     if (!reason) {
       setToast("隔離理由を入力してください。", "warning");
@@ -761,25 +790,22 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
         {
           action: "save",
           type: "ai_proposal",
-          entity: { ...proposal, status: "quarantined", quarantine_reason: reason },
+          entity: { ...active, status: "quarantined", quarantine_reason: reason },
         },
       ],
       "Proposalを隔離しました。",
     );
     setQuarantineReason("");
-    advanceAfterDecision(proposal.id);
+    afterDecision(active.id);
   }
 
-  async function acceptProposal(proposal: BaseRecord, options: { completeTask?: boolean } = {}) {
-    if (!preview) {
-      previewProposal(proposal);
-      return;
-    }
-    if (str(proposal.payload_type) === "task_work") {
+  async function acceptProposal(options: { completeTask?: boolean } = {}) {
+    if (!preview) return;
+    if (str(active.payload_type) === "task_work") {
       try {
         const candidate = preview.candidates.find((entry) => entry.action !== "ignore");
         if (!candidate) {
-          await rejectProposal(proposal);
+          await rejectProposal();
           return;
         }
         if (preview.candidates.filter((entry) => entry.action !== "ignore").length !== 1)
@@ -804,10 +830,10 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
           throw new Error(taskWorkStaleGuidance(proposalExpectedVersion, currentVersion));
         const expectedVersions = [{ type: taskEntityType, id: task.id, version: currentVersion }];
         const acceptReceipt = await executeCommand({
-          commandId: `${proposal.id}:accept`,
+          commandId: `${active.id}:accept`,
           name: "ApplyTaskWorkProposal",
           payload: {
-            proposalId: proposal.id,
+            proposalId: active.id,
             decision: "accept",
             coveredProposalIds: coveredReports.map((report) => report.id),
           },
@@ -820,7 +846,7 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
               id: report.id,
               version: Number(report.version || 0),
             })),
-            { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
+            { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
           ],
           issuedAt: new Date().toISOString(),
         } as CommandEnvelope);
@@ -842,9 +868,9 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
           )
             throw new Error("対象Taskは既に完了またはキャンセルされています。");
           await executeCommand({
-            commandId: `${proposal.id}:accept:complete`,
+            commandId: `${active.id}:accept:complete`,
             name: "AcceptTaskWork",
-            payload: { taskId: task.id, receiptId: proposal.id, completeTask: true },
+            payload: { taskId: task.id, receiptId: active.id, completeTask: true },
             actor: { kind: "user" },
             source: "main_ui",
             expectedVersions: [{ type: taskEntityType, id: task.id, version: completedVersion }],
@@ -854,7 +880,7 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
         } else {
           setToast("作業報告を採用しました。", "success");
         }
-        advanceAfterDecision(proposal.id);
+        afterDecision(active.id);
       } catch (error) {
         setToast(
           `Work proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -884,7 +910,7 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
         });
       const accepted = preview.candidates.filter((candidate) => candidate.action !== "ignore");
       const isContentProposal = ["notes", "knowledge_nodes", "sketches", "artifacts"].includes(
-        str(proposal.payload_type),
+        str(active.payload_type),
       );
       const decisions = isContentProposal ? buildContentProposalDecisions(preview) : undefined;
       const rawOperations = buildCandidateOperations(
@@ -902,10 +928,10 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
         return acceptedDecisions[acceptedCursor - 1].entryIndex;
       });
       const operations =
-        str(proposal.payload_type) === "agent_sessions"
+        str(active.payload_type) === "agent_sessions"
           ? rawOperations
           : stabilizeProposalOperations(
-              proposal.id,
+              active.id,
               rawOperations,
               isContentProposal ? operationIndexes : undefined,
             );
@@ -916,10 +942,10 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
           action: "save",
           type: "artifact",
           entity: {
-            id: stableProposalEntityId(proposal.id, "artifact", entryIndex),
+            id: stableProposalEntityId(active.id, "artifact", entryIndex),
             title: normalized.title,
             source_type: "ai_proposal",
-            source_id: proposal.id,
+            source_id: active.id,
             theme_id: candidate.theme?.id || null,
             description: str(candidate.entry.reason),
             generated_by: null,
@@ -943,17 +969,17 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
         entity: operation.entity,
       }));
       await executeCommand({
-        commandId: `${proposal.id}:accept:v${Number(proposal.version || 0)}`,
+        commandId: `${active.id}:accept:v${Number(active.version || 0)}`,
         name: "ApplyAiProposal",
         payload: {
-          proposal: { ...proposal, status },
+          proposal: { ...active, status },
           ...(isContentProposal ? { decision: contentDecision, decisions } : {}),
           candidates,
         },
         actor: { kind: "user" },
         source: "main_ui",
         expectedVersions: [
-          { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
+          { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
           ...candidates.flatMap(({ type, entity }) =>
             Number.isInteger(entity.version)
               ? [{ type, id: entity.id, version: Number(entity.version) }]
@@ -961,14 +987,14 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
           ),
         ],
         issuedAt:
-          str(proposal.received_at || proposal.created_at || proposal.updated_at) ||
+          str(active.received_at || active.created_at || active.updated_at) ||
           new Date(0).toISOString(),
       } as CommandEnvelope);
       setToast(
         status === "rejected" ? "Proposalを却下しました。" : "Proposalを採用しました。",
         "success",
       );
-      advanceAfterDecision(proposal.id);
+      afterDecision(active.id);
     } catch (error) {
       setToast(
         `Proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -976,446 +1002,292 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
     }
   }
 
-  /**
-   * 確認するものも履歴も無いときは面ごと出さない（design-guide §5）。
-   * 件数は右レールの対応キューが示し、外部からの到着はstoreとfocus復帰で拾う。
-   */
-  if (!proposals.length && !history.length && !passiveSessionProposals.length) return null;
+  if (!preview) {
+    return (
+      <div className="proposal-inline-preview">
+        <div className="section-heading">
+          <h3>内容を確認</h3>
+        </div>
+        <p className="proposal-preview-context">
+          この提案は解析できませんでした。Taskを開いて内容を確認してください。
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="ai-proposal-panel">
-      <section
-        className={`panel proposal-inbox-panel${selected && preview ? " has-selection" : ""}`}
-      >
-        <div className="section-heading">
-          <h2>提案の確認</h2>
-          <div className="proposal-inbox-actions">
-            <span className="proposal-pending-count">
-              {proposalGroups.filter((group) => group.actionable).length}件の確認待ち
-            </span>
-            <Button
-              variant="secondary"
-              disabled={refreshing}
-              onClick={() => void refreshProposals(true)}
+    <div className="proposal-inline-preview" key={active.id}>
+      <div className="section-heading">
+        <h3>{activeWork ? "作業報告を確認" : "内容を確認"}</h3>
+        <span>
+          {preview.candidates.length}件 / {proposalSourceLabel(active)}
+        </span>
+      </div>
+      {!activeWork && (
+        <p className="proposal-preview-context">
+          Target: {proposalTargetLabel(active)} · {proposalDiffLabel(active)}
+        </p>
+      )}
+      {activeWork && (
+        <p className="proposal-preview-context">
+          <strong>{activeWorkTask?.title || "Task"}</strong>
+          <span aria-hidden="true"> · </span>
+          {taskWorkActionLabel(activeWork)}
+          <span aria-hidden="true"> · </span>
+          {formatDisplayDateTime(taskWorkReportTime(active))}
+        </p>
+      )}
+      {activeWork && activeGroup && (
+        <details aria-label="同じTaskの作業履歴" className="proposal-task-history">
+          <summary>作業の経過を見る（{activeGroup.reports.length}件）</summary>
+          <ol>
+            {activeGroup.reports.map((report) => {
+              const reportEntry = taskWorkEntry(report) || {};
+              const summarized = str(report.quarantine_reason).startsWith("完了報告に集約:");
+              return (
+                <li key={report.id}>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    aria-current={report.id === active.id ? "true" : undefined}
+                    onClick={() => setOverrideId(report.id)}
+                  >
+                    <time dateTime={taskWorkReportTime(report)}>
+                      {formatDisplayDateTime(taskWorkReportTime(report))}
+                    </time>
+                    <span className="proposal-work-action">{taskWorkActionLabel(reportEntry)}</span>
+                    <span className={`proposal-status proposal-status-${str(report.status)}`}>
+                      {summarized ? "完了報告に集約" : proposalStatusLabel(report)}
+                    </span>
+                  </button>
+                  <p>{str(reportEntry.summary)}</p>
+                </li>
+              );
+            })}
+          </ol>
+          {coveredReports.length > 0 && (
+            <p>
+              採用すると、同じ作業の過去報告{coveredReports.length}
+              件をこの完了報告に集約して履歴に残します。
+            </p>
+          )}
+        </details>
+      )}
+      {preview.payloadIssues.length > 0 && (
+        <p className="alert-note warning">注意: {preview.payloadIssues.join(" / ")}</p>
+      )}
+      {preview.candidates.map((candidate, index) => (
+        <div
+          className={`import-candidate${candidate.type === "task_work" ? " is-work-report" : ""}${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`}
+          key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}
+        >
+          <div>
+            {candidate.type !== "task_work" && (
+              <>
+                <strong>{candidateTitle(candidate)}</strong>
+                <small>
+                  {candidateMeta(candidate)}
+                  {candidate.duplicate
+                    ? ` / 既存候補: ${str(candidate.duplicate.title || candidate.duplicate.label)}`
+                    : ""}
+                </small>
+              </>
+            )}
+            {candidate.issues.length > 0 && (
+              <p className="field-help">確認: {candidate.issues.join(" / ")}</p>
+            )}
+            {candidate.type === "agent_session" && (
+              <div className="proposal-agent-session-details">
+                <span>
+                  <b>Outcome</b>
+                  {nestedSummary(candidate.entry, "outcome") || "未記録"}
+                </span>
+                <span>
+                  <b>Status</b>
+                  {str(candidate.entry.status)} · {str(candidate.entry.client_kind)}
+                  {str(candidate.entry.model_label) ? ` / ${str(candidate.entry.model_label)}` : ""}
+                </span>
+              </div>
+            )}
+            {candidate.type === "task_work" && (
+              <>
+                <div className="proposal-work-head">
+                  <span className="proposal-work-action">
+                    {taskWorkActionLabel(candidate.entry)}
+                  </span>
+                  {str(candidate.entry.reported_at) && (
+                    <time dateTime={str(candidate.entry.reported_at)}>
+                      {formatDisplayDateTime(candidate.entry.reported_at)}
+                    </time>
+                  )}
+                </div>
+                <dl className="proposal-work-details">
+                  <dt>結果</dt>
+                  <dd>{str(candidate.entry.summary)}</dd>
+                  {Array.isArray(candidate.entry.completed_checklist_item_ids) &&
+                    candidate.entry.completed_checklist_item_ids.length > 0 && (
+                      <>
+                        <dt>チェックを反映</dt>
+                        <dd>
+                          {candidate.entry.completed_checklist_item_ids
+                            .map(
+                              (id) =>
+                                domain.tasks
+                                  .find((task) => task.id === candidate.entry.task_id)
+                                  ?.checklist_items?.find((item) => item.id === id)?.title ||
+                                `見つからない項目 (${String(id)})`,
+                            )
+                            .join(" / ")}
+                        </dd>
+                      </>
+                    )}
+                  <dt>検証</dt>
+                  <dd>
+                    {Array.isArray(candidate.entry.verification)
+                      ? candidate.entry.verification.join(" / ") || "記録なし"
+                      : "記録なし"}
+                  </dd>
+                  <dt>残作業</dt>
+                  <dd>
+                    {Array.isArray(candidate.entry.remaining_work)
+                      ? candidate.entry.remaining_work.join(" / ") || "なし"
+                      : "記録なし"}
+                  </dd>
+                </dl>
+              </>
+            )}
+          </div>
+          {candidate.type !== "task_work" && (
+            <select
+              value={candidate.action}
+              onChange={(event) =>
+                setPreview((current) =>
+                  current
+                    ? {
+                        ...current,
+                        candidates: current.candidates.map((entry, itemIndex) =>
+                          itemIndex === index ? { ...entry, action: event.target.value } : entry,
+                        ),
+                      }
+                    : current,
+                )
+              }
             >
-              <IconRefresh size={15} aria-hidden="true" />
-              {refreshing ? "更新中" : "更新"}
+              <option value="create">採用する</option>
+              {candidate.duplicate && <option value="merge">既存を更新</option>}
+              <option value="ignore">今回採用しない</option>
+            </select>
+          )}
+          {candidate.type === "note" && candidate.action === "create" && (
+            <details
+              className="proposal-note-preview"
+              open={str(candidate.entry.body).length <= 1200}
+            >
+              <summary>本文を確認</summary>
+              <MarkdownPreview
+                className="proposal-note-markdown markdown-preview"
+                html={previewHtml(str(candidate.entry.body), "markdown")}
+              />
+            </details>
+          )}
+          {(candidate.type === "sketch" ||
+            (candidate.type === "artifact" &&
+              str(candidate.entry.media_type) === "image/svg+xml")) && (
+            <img
+              className="proposal-svg-preview"
+              src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(validateSafeSvg(candidate.type === "sketch" ? candidate.entry.svg : candidate.entry.content))}`}
+              alt={`${str(candidate.entry.title) || "SVG"} Preview`}
+            />
+          )}
+          {candidate.type === "artifact" && str(candidate.entry.media_type) !== "image/svg+xml" && (
+            <pre className="proposal-artifact-preview">
+              {str(candidate.entry.content).slice(0, 4000)}
+            </pre>
+          )}
+          {noteDiffHunks(candidate).length > 0 && (
+            <div className="proposal-note-diff" aria-label="Note変更差分">
+              {noteDiffHunks(candidate).map((hunk, hunkIndex) => (
+                <label className="proposal-diff-hunk" key={`${index}-${hunkIndex}`}>
+                  <span>
+                    <input
+                      type="checkbox"
+                      checked={(candidate.acceptedHunks || []).includes(hunkIndex)}
+                      onChange={(event) =>
+                        setPreview((current) =>
+                          current
+                            ? {
+                                ...current,
+                                candidates: current.candidates.map((entry, itemIndex) =>
+                                  itemIndex === index
+                                    ? {
+                                        ...entry,
+                                        acceptedHunks: event.target.checked
+                                          ? [...(entry.acceptedHunks || []), hunkIndex].sort(
+                                              (a, b) => a - b,
+                                            )
+                                          : (entry.acceptedHunks || []).filter(
+                                              (value) => value !== hunkIndex,
+                                            ),
+                                      }
+                                    : entry,
+                                ),
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                    この変更を採用
+                  </span>
+                  <pre>
+                    {hunk.lines
+                      .map(
+                        (line) =>
+                          `${line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "} ${line.text}`,
+                      )
+                      .join("\n")}
+                  </pre>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+      {active.status === "pending" && (
+        <div className="form-actions">
+          <ActionButton action="actionReject" onClick={() => void rejectProposal()}>
+            拒否
+          </ActionButton>
+          <ActionButton action="aiProposalAccept" onClick={() => void acceptProposal()}>
+            採用
+          </ActionButton>
+          {activeWork && canCompleteActiveWork && (
+            <ActionButton
+              action="aiProposalAcceptAndComplete"
+              onClick={() => void acceptProposal({ completeTask: true })}
+            >
+              完了
+            </ActionButton>
+          )}
+        </div>
+      )}
+      {active.status === "pending" && (
+        <details className="proposal-quarantine">
+          <summary>隔離する</summary>
+          <div className="proposal-quarantine-form">
+            <label>
+              <span>隔離理由</span>
+              <input
+                value={quarantineReason}
+                onChange={(event) => setQuarantineReason(event.target.value)}
+                placeholder="例: 対象Themeを確認してから扱う"
+              />
+            </label>
+            <Button variant="secondary" compact onClick={() => void quarantineProposal()}>
+              隔離を保存
             </Button>
           </div>
-        </div>
-        <div className="proposal-list" aria-label="AIからの提案一覧">
-          {proposals.map((proposal) => {
-            const work = taskWorkEntry(proposal);
-            const group = proposalGroups.find((entry) => entry.latest.id === proposal.id);
-            return (
-              <div
-                aria-pressed={selected?.id === proposal.id}
-                className="proposal-row-select"
-                key={proposal.id}
-                onClick={() => previewProposal(proposal)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    previewProposal(proposal);
-                  }
-                }}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="proposal-row-main">
-                  <div className="proposal-row-heading">
-                    <strong className="proposal-row-title">
-                      {domain.tasks.find((task) => task.id === taskWorkEntry(proposal)?.task_id)
-                        ?.title || proposalHeadline(proposal)}
-                    </strong>
-                    {!work && <ProposalRisk proposal={proposal} />}
-                  </div>
-                  {work ? (
-                    <div className="proposal-row-meta">
-                      <span className="proposal-row-kind">{taskWorkActionLabel(work)}</span>
-                      <span className="proposal-row-count">
-                        {group?.reports.length || 1}件の履歴
-                      </span>
-                      <span className="proposal-row-source">{proposalSourceLabel(proposal)}</span>
-                      <time className="proposal-row-time" dateTime={taskWorkReportTime(proposal)}>
-                        {formatDisplayDateTime(taskWorkReportTime(proposal))}
-                      </time>
-                    </div>
-                  ) : (
-                    <>
-                      <span className="proposal-row-kind">{proposalTypeLabel(proposal)}</span>
-                      <dl className="proposal-meta-list">
-                        <div>
-                          <dt>Source</dt>
-                          <dd>{proposalSourceLabel(proposal)}</dd>
-                        </div>
-                        <div>
-                          <dt>Target</dt>
-                          <dd>{proposalTargetLabel(proposal)}</dd>
-                        </div>
-                        <div>
-                          <dt>Diff</dt>
-                          <dd>{proposalDiffLabel(proposal)}</dd>
-                        </div>
-                        <div>
-                          <dt>受信</dt>
-                          <dd>{formatProposalDate(proposal)}</dd>
-                        </div>
-                      </dl>
-                      <p className="proposal-validation-hint">
-                        <IconAlertTriangle size={14} aria-hidden="true" />
-                        選択すると、本文と採用範囲を確認できます。
-                      </p>
-                    </>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {(history.length > 0 || passiveSessionProposals.length > 0) && (
-          <details className="panel proposal-history">
-            <summary>
-              <span>
-                <IconHistory size={16} aria-hidden="true" />
-                履歴
-              </span>
-              <strong>{history.length + passiveSessionProposals.length}件</strong>
-            </summary>
-            <div className="proposal-history-list">
-              {history.map((proposal) => (
-                <button
-                  type="button"
-                  className="proposal-history-row"
-                  key={proposal.id}
-                  onClick={() => previewProposal(proposal)}
-                >
-                  <div>
-                    <strong>
-                      {domain.tasks.find((task) => task.id === taskWorkEntry(proposal)?.task_id)
-                        ?.title || proposalTypeLabel(proposal)}
-                    </strong>
-                    <small>
-                      {proposalSourceLabel(proposal)} / {proposalTargetLabel(proposal)} /{" "}
-                      {formatProposalDate(proposal)}
-                    </small>
-                  </div>
-                  <span className={`proposal-status proposal-status-${str(proposal.status)}`}>
-                    {proposalStatusLabel(proposal)}
-                  </span>
-                  {str(proposal.quarantine_reason) && <p>{str(proposal.quarantine_reason)}</p>}
-                </button>
-              ))}
-              {passiveSessionProposals.length > 0 && (
-                <p className="proposal-preview-context">
-                  Session observations {passiveSessionProposals.length}
-                  件（hookが集めた作業記録。Tasken Debriefの保存時にまとめて確認・正式化します）
-                </p>
-              )}
-              {passiveSessionProposals.map((proposal) => (
-                <div className="proposal-history-row" key={proposal.id}>
-                  <div>
-                    <strong>{proposalTargetLabel(proposal)}</strong>
-                    <small>
-                      {proposalSourceLabel(proposal)} / {formatProposalDate(proposal)}
-                    </small>
-                  </div>
-                  <span className="proposal-status proposal-status-pending">Debrief待ち</span>
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
-        {selected && preview && (
-          <div className="proposal-inline-preview" key={selected.id}>
-            <div className="section-heading">
-              <h3>{selectedWork ? "作業報告を確認" : "内容を確認"}</h3>
-              <span>
-                {preview.candidates.length}件 / {proposalSourceLabel(selected)}
-              </span>
-            </div>
-            {!selectedWork && (
-              <p className="proposal-preview-context">
-                Target: {proposalTargetLabel(selected)} · {proposalDiffLabel(selected)}
-              </p>
-            )}
-            {selectedWork && (
-              <p className="proposal-preview-context">
-                <strong>{selectedWorkTask?.title || "Task"}</strong>
-                <span aria-hidden="true"> · </span>
-                {taskWorkActionLabel(selectedWork)}
-                <span aria-hidden="true"> · </span>
-                {formatDisplayDateTime(taskWorkReportTime(selected))}
-              </p>
-            )}
-            {selectedWork && selectedGroup && (
-              <details aria-label="同じTaskの作業履歴" className="proposal-task-history">
-                <summary>作業の経過を見る（{selectedGroup.reports.length}件）</summary>
-                <ol>
-                  {selectedGroup.reports.map((report) => {
-                    const reportEntry = taskWorkEntry(report) || {};
-                    const summarized = str(report.quarantine_reason).startsWith("完了報告に集約:");
-                    return (
-                      <li key={report.id}>
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          aria-current={report.id === selected.id ? "true" : undefined}
-                          onClick={() => previewProposal(report)}
-                        >
-                          <time dateTime={taskWorkReportTime(report)}>
-                            {formatDisplayDateTime(taskWorkReportTime(report))}
-                          </time>
-                          <span className="proposal-work-action">
-                            {taskWorkActionLabel(reportEntry)}
-                          </span>
-                          <span className={`proposal-status proposal-status-${str(report.status)}`}>
-                            {summarized ? "完了報告に集約" : proposalStatusLabel(report)}
-                          </span>
-                        </button>
-                        <p>{str(reportEntry.summary)}</p>
-                      </li>
-                    );
-                  })}
-                </ol>
-                {coveredReports.length > 0 && (
-                  <p>
-                    採用すると、同じ作業の過去報告{coveredReports.length}
-                    件をこの完了報告に集約して履歴に残します。
-                  </p>
-                )}
-              </details>
-            )}
-            {preview.payloadIssues.length > 0 && (
-              <p className="alert-note warning">注意: {preview.payloadIssues.join(" / ")}</p>
-            )}
-            {preview.candidates.map((candidate, index) => (
-              <div
-                className={`import-candidate${candidate.type === "task_work" ? " is-work-report" : ""}${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`}
-                key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}
-              >
-                <div>
-                  {candidate.type !== "task_work" && (
-                    <>
-                      <strong>{candidateTitle(candidate)}</strong>
-                      <small>
-                        {candidateMeta(candidate)}
-                        {candidate.duplicate
-                          ? ` / 既存候補: ${str(candidate.duplicate.title || candidate.duplicate.label)}`
-                          : ""}
-                      </small>
-                    </>
-                  )}
-                  {candidate.issues.length > 0 && (
-                    <p className="field-help">確認: {candidate.issues.join(" / ")}</p>
-                  )}
-                  {candidate.type === "agent_session" && (
-                    <div className="proposal-agent-session-details">
-                      <span>
-                        <b>Outcome</b>
-                        {nestedSummary(candidate.entry, "outcome") || "未記録"}
-                      </span>
-                      <span>
-                        <b>Status</b>
-                        {str(candidate.entry.status)} · {str(candidate.entry.client_kind)}
-                        {str(candidate.entry.model_label)
-                          ? ` / ${str(candidate.entry.model_label)}`
-                          : ""}
-                      </span>
-                    </div>
-                  )}
-                  {candidate.type === "task_work" && (
-                    <>
-                      <div className="proposal-work-head">
-                        <span className="proposal-work-action">
-                          {taskWorkActionLabel(candidate.entry)}
-                        </span>
-                        {str(candidate.entry.reported_at) && (
-                          <time dateTime={str(candidate.entry.reported_at)}>
-                            {formatDisplayDateTime(candidate.entry.reported_at)}
-                          </time>
-                        )}
-                      </div>
-                      <dl className="proposal-work-details">
-                        <dt>結果</dt>
-                        <dd>{str(candidate.entry.summary)}</dd>
-                        {Array.isArray(candidate.entry.completed_checklist_item_ids) &&
-                          candidate.entry.completed_checklist_item_ids.length > 0 && (
-                            <>
-                              <dt>チェックを反映</dt>
-                              <dd>
-                                {candidate.entry.completed_checklist_item_ids
-                                  .map(
-                                    (id) =>
-                                      domain.tasks
-                                        .find((task) => task.id === candidate.entry.task_id)
-                                        ?.checklist_items?.find((item) => item.id === id)?.title ||
-                                      `見つからない項目 (${String(id)})`,
-                                  )
-                                  .join(" / ")}
-                              </dd>
-                            </>
-                          )}
-                        <dt>検証</dt>
-                        <dd>
-                          {Array.isArray(candidate.entry.verification)
-                            ? candidate.entry.verification.join(" / ") || "記録なし"
-                            : "記録なし"}
-                        </dd>
-                        <dt>残作業</dt>
-                        <dd>
-                          {Array.isArray(candidate.entry.remaining_work)
-                            ? candidate.entry.remaining_work.join(" / ") || "なし"
-                            : "記録なし"}
-                        </dd>
-                      </dl>
-                    </>
-                  )}
-                </div>
-                {candidate.type !== "task_work" && (
-                  <select
-                    value={candidate.action}
-                    onChange={(event) =>
-                      setPreview((current) =>
-                        current
-                          ? {
-                              ...current,
-                              candidates: current.candidates.map((entry, itemIndex) =>
-                                itemIndex === index
-                                  ? { ...entry, action: event.target.value }
-                                  : entry,
-                              ),
-                            }
-                          : current,
-                      )
-                    }
-                  >
-                    <option value="create">採用する</option>
-                    {candidate.duplicate && <option value="merge">既存を更新</option>}
-                    <option value="ignore">今回採用しない</option>
-                  </select>
-                )}
-                {candidate.type === "note" && candidate.action === "create" && (
-                  <details
-                    className="proposal-note-preview"
-                    open={str(candidate.entry.body).length <= 1200}
-                  >
-                    <summary>本文を確認</summary>
-                    <MarkdownPreview
-                      className="proposal-note-markdown markdown-preview"
-                      html={previewHtml(str(candidate.entry.body), "markdown")}
-                    />
-                  </details>
-                )}
-                {(candidate.type === "sketch" ||
-                  (candidate.type === "artifact" &&
-                    str(candidate.entry.media_type) === "image/svg+xml")) && (
-                  <img
-                    className="proposal-svg-preview"
-                    src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(validateSafeSvg(candidate.type === "sketch" ? candidate.entry.svg : candidate.entry.content))}`}
-                    alt={`${str(candidate.entry.title) || "SVG"} Preview`}
-                  />
-                )}
-                {candidate.type === "artifact" &&
-                  str(candidate.entry.media_type) !== "image/svg+xml" && (
-                    <pre className="proposal-artifact-preview">
-                      {str(candidate.entry.content).slice(0, 4000)}
-                    </pre>
-                  )}
-                {noteDiffHunks(candidate).length > 0 && (
-                  <div className="proposal-note-diff" aria-label="Note変更差分">
-                    {noteDiffHunks(candidate).map((hunk, hunkIndex) => (
-                      <label className="proposal-diff-hunk" key={`${index}-${hunkIndex}`}>
-                        <span>
-                          <input
-                            type="checkbox"
-                            checked={(candidate.acceptedHunks || []).includes(hunkIndex)}
-                            onChange={(event) =>
-                              setPreview((current) =>
-                                current
-                                  ? {
-                                      ...current,
-                                      candidates: current.candidates.map((entry, itemIndex) =>
-                                        itemIndex === index
-                                          ? {
-                                              ...entry,
-                                              acceptedHunks: event.target.checked
-                                                ? [...(entry.acceptedHunks || []), hunkIndex].sort(
-                                                    (a, b) => a - b,
-                                                  )
-                                                : (entry.acceptedHunks || []).filter(
-                                                    (value) => value !== hunkIndex,
-                                                  ),
-                                            }
-                                          : entry,
-                                      ),
-                                    }
-                                  : current,
-                              )
-                            }
-                          />
-                          この変更を採用
-                        </span>
-                        <pre>
-                          {hunk.lines
-                            .map(
-                              (line) =>
-                                `${line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "} ${line.text}`,
-                            )
-                            .join("\n")}
-                        </pre>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-            {selected.status === "pending" && (
-              <div className="form-actions">
-                <ActionButton action="actionReject" onClick={() => void rejectProposal(selected)}>
-                  拒否
-                </ActionButton>
-                <ActionButton
-                  action="aiProposalAccept"
-                  onClick={() => void acceptProposal(selected)}
-                >
-                  採用
-                </ActionButton>
-                {selectedWork && canCompleteSelectedWork && (
-                  <ActionButton
-                    action="aiProposalAcceptAndComplete"
-                    onClick={() => void acceptProposal(selected, { completeTask: true })}
-                  >
-                    完了
-                  </ActionButton>
-                )}
-              </div>
-            )}
-            {selected.status === "pending" && (
-              <details className="proposal-quarantine">
-                <summary>隔離する</summary>
-                <div className="proposal-quarantine-form">
-                  <label>
-                    <span>隔離理由</span>
-                    <input
-                      value={quarantineReason}
-                      onChange={(event) => setQuarantineReason(event.target.value)}
-                      placeholder="例: 対象Themeを確認してから扱う"
-                    />
-                  </label>
-                  <Button
-                    variant="secondary"
-                    compact
-                    onClick={() => void quarantineProposal(selected)}
-                  >
-                    隔離を保存
-                  </Button>
-                </div>
-              </details>
-            )}
-          </div>
-        )}
-      </section>
+        </details>
+      )}
     </div>
   );
 }
@@ -1457,7 +1329,8 @@ function proposalEntryHeadline(entry: Record<string, unknown>): string {
   );
 }
 
-function proposalHeadline(proposal: BaseRecord): string {
+/** 変更案の見出し。行とプレビューの両方で同じ文言を使う（種別ラベルだけに寄せない）。 */
+export function proposalHeadline(proposal: BaseRecord): string {
   const direct = str(proposal.summary) || str(proposal.title) || str(proposal.label);
   if (direct) return direct;
   const headlines = [
@@ -1551,7 +1424,7 @@ function proposalRisk(proposal: BaseRecord): "update" | "file" | "create" {
   return "create";
 }
 
-function ProposalRisk({ proposal }: { proposal: BaseRecord }) {
+export function ProposalRisk({ proposal }: { proposal: BaseRecord }) {
   const risk = proposalRisk(proposal);
   const Icon = risk === "update" ? IconPencil : risk === "file" ? IconArchive : IconShieldCheck;
   const label = risk === "update" ? "既存更新" : risk === "file" ? "ファイル確認" : "新規追加";

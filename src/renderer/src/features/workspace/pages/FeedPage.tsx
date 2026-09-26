@@ -1,9 +1,22 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import type { BaseRecord, PageProps } from "../types";
 import { Button, EmptyState, PageHeader } from "../components/common";
-import { AiProposalPanel } from "../components/AiProposalPanel";
+import {
+  AiProposalPanel,
+  ProposalDetail,
+  ProposalRisk,
+  proposalHeadline,
+} from "../components/AiProposalPanel";
 import { FeedArticleReader } from "../components/FeedArticleReader";
 import { FeedContextRail } from "../components/FeedContextRail";
 import { FeedStream } from "../components/FeedStream";
@@ -47,6 +60,7 @@ import {
   type FeedReactionKind,
 } from "../lib/feedPosts";
 import { workspaceApi } from "../../../services/workspaceApi";
+import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { uuid } from "../lib/format";
 import {
   FEED_COPY_EXCERPT_MAX,
@@ -157,6 +171,38 @@ function writeFeedViewState(state: FeedViewState): void {
 /** 開発用: 閲覧中に届いたことにして、押すまで一覧へ割り込ませない。 */
 const ARRIVING_POST_IDS = ["post-solvent-switch", "post-draft-note-uncertainty"];
 
+/**
+ * 受信時刻の表示。一覧の行では秒まで要らない。
+ * 値が壊れているときに現在時刻を出さない（空にする）。
+ */
+function feedTimeLabel(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
+}
+
+/** 詳細ペインの見出し。種類ごとに、そこで何をするかを書く。 */
+function needsDetailHeading(item: FeedItem): string {
+  if (item.requestId) return item.stateLabel === "判断待ち" ? "判断する" : "回答する";
+  if (item.kind === "review_ready") return "成果を確認";
+  return "対応する";
+}
+
+/**
+ * 詳細を提案の面（`ProposalDetail`）で描く行か。
+ *
+ * 成果確認は #599 の読み順を持つ独自の面で出すので、ここには含めない。
+ * 判断（回答待ち・成果確認）は判断の面、変更案と確認待ちは提案の面で扱う。
+ */
+function usesProposalDetail(item: FeedItem): boolean {
+  return (
+    item.kind === "proposal_pending" ||
+    item.kind === "progress_report" ||
+    item.kind === "answered_report"
+  );
+}
+
 export function FeedPage(props: PageProps) {
   const {
     data,
@@ -199,14 +245,10 @@ export function FeedPage(props: PageProps) {
   const [openThreadId, setOpenThreadId] = useState<string | null>(() =>
     optionalFeedId(storedView.threadPostId),
   );
-  const [openNeedsId, setOpenNeedsId] = useState<string | null>(null);
-  /**
-   * 右レールの対応キューから開いた変更案。`提案の確認` の選択状態へ渡す。
-   * 対応待ちの一覧行は変更案を持たないため、IDと開いた回数を別に持つ（Agent Desk集約）。
-   */
-  const [proposalFocus, setProposalFocus] = useState<{ proposalId: string; nonce: number } | null>(
-    null,
-  );
+  /** 対応待ちの選択。判断・変更案・確認待ちを同じ1つの選択で扱う。 */
+  const [selectedNeedsId, setSelectedNeedsId] = useState<string | null>(null);
+  const [refreshingNeeds, setRefreshingNeeds] = useState(false);
+  const refreshWorkspace = useWorkspaceStore((state) => state.refresh);
   const [openArticleId, setOpenArticleId] = useState<string | null>(() =>
     optionalFeedId(storedView.articlePostId),
   );
@@ -544,15 +586,13 @@ export function FeedPage(props: PageProps) {
 
   const needsRows = useMemo(() => {
     if (tab !== "needs") return [] as FeedItem[];
-    // 変更案は同じタブ内の「提案の確認」パネルで扱う。一覧との二重表示にしない。
-    return selectNeedsYou(buildFeedProjection(live.items).items).filter(
-      (item) => item.kind !== "proposal_pending",
-    );
+    // 判断・変更案・確認待ちを1本の一覧にする。同じ報告を2つの面に出さない。
+    return selectNeedsYou(buildFeedProjection(live.items).items);
   }, [live.items, tab]);
 
   /**
    * 右レールの対応キュー。タブを問わず未処理の判断だけを並べる。
-   * 変更案も含む（レールは入口の目印で、採否そのものは提案の確認で行う）。
+   * 変更案も含む（レールは入口の目印で、採否そのものは対応待ちの詳細で行う）。
    */
   const railAttention = useMemo(
     () => selectNeedsYou(buildFeedProjection(live.items).items).slice(0, 8),
@@ -562,17 +602,41 @@ export function FeedPage(props: PageProps) {
   const openAttentionFromRail = useCallback((item: FeedItem) => {
     setTab("needs");
     setDraftAnswer("");
-    // 変更案は対応待ちの一覧行を持たない。「提案の確認」でその1件を開く。
-    if (item.kind === "proposal_pending") {
-      const proposalId = item.sourceId ?? "";
-      setProposalFocus((current) => ({ proposalId, nonce: (current?.nonce ?? 0) + 1 }));
-      setOpenNeedsId(null);
-      return;
-    }
-    setOpenNeedsId(item.id);
+    // 種別を問わず同じ一覧の行を選ぶ。詳細の読み順は行の種類が決める。
+    setSelectedNeedsId(item.id);
   }, []);
 
-  const openNeedsItem = needsRows.find((item) => item.id === openNeedsId) ?? null;
+  /**
+   * 対応待ちの再読込。一覧を持つ面が更新の入口を持つ（旧「提案の確認」から移した）。
+   * Focus復帰では通知を連発せず、明示操作のときだけ結果を知らせる。
+   */
+  const refreshNeeds = useCallback(
+    async (showFeedback: boolean) => {
+      setRefreshingNeeds(true);
+      try {
+        await refreshWorkspace();
+        if (showFeedback) setToast("対応待ちを更新しました。", "success");
+      } catch (error) {
+        if (showFeedback) {
+          setToast(
+            `Proposalを更新できませんでした。${error instanceof Error ? error.message : String(error)}`,
+            "danger",
+          );
+        }
+      } finally {
+        setRefreshingNeeds(false);
+      }
+    },
+    [refreshWorkspace, setToast],
+  );
+
+  useEffect(() => {
+    const resyncOnFocus = () => void refreshNeeds(false);
+    window.addEventListener("focus", resyncOnFocus);
+    return () => window.removeEventListener("focus", resyncOnFocus);
+  }, [refreshNeeds]);
+
+  const selectedNeedsItem = needsRows.find((item) => item.id === selectedNeedsId) ?? null;
   /** 読める投稿が無いときの「記録する」。投稿欄は同じ面にあるので、そこへfocusを移す。 */
   const focusCompose = useCallback(() => {
     const node = document.getElementById("feed-compose-body");
@@ -641,7 +705,7 @@ export function FeedPage(props: PageProps) {
       const tab = (event as CustomEvent<string>).detail;
       if (isFeedTab(tab)) {
         setTab(tab);
-        setOpenNeedsId(null);
+        setSelectedNeedsId(null);
         setOpenArticleId(null);
         setOpenThreadId(null);
       }
@@ -1488,7 +1552,7 @@ export function FeedPage(props: PageProps) {
         } | null;
         if (!withCompletion) {
           setToast("報告を採用しました。Taskは継続します。", "success");
-          setOpenNeedsId(null);
+          setSelectedNeedsId(null);
           return;
         }
         // 採用でTaskの版が進む。完了は採用後に返った版で送る（前半だけ成功した場合を壊さない）。
@@ -1510,7 +1574,7 @@ export function FeedPage(props: PageProps) {
           issuedAt: new Date().toISOString(),
         } as never);
         setToast("報告を採用し、Taskを完了しました。", "success");
-        setOpenNeedsId(null);
+        setSelectedNeedsId(null);
       } catch (error) {
         setToast(
           `報告を採用できませんでした。${error instanceof Error ? error.message : String(error)} 既に採用済みの場合は、Task完了だけを再試行できます。`,
@@ -1521,6 +1585,22 @@ export function FeedPage(props: PageProps) {
       }
     },
     [busy, domain.ai_proposals, executeCommand, setToast, taskOf],
+  );
+
+  /**
+   * 一覧の行から詳細へ渡す提案。作業報告・変更案は同じ `ai_proposals` を引く。
+   * 見つからない場合は詳細の代わりに再読み込みを案内する（成功扱いにしない）。
+   */
+  const proposalOf = useCallback(
+    (item: FeedItem): BaseRecord | null => {
+      if (!item.sourceId) return null;
+      return (
+        (domain.ai_proposals as BaseRecord[]).find(
+          (proposal) => String(proposal.id) === item.sourceId,
+        ) ?? null
+      );
+    },
+    [domain.ai_proposals],
   );
 
   /** 報告の差し戻し。修正してほしい点を `ReturnTaskWork` で返す。 */
@@ -1547,7 +1627,7 @@ export function FeedPage(props: PageProps) {
         } as never);
         setToast("修正を依頼しました。Taskは継続します。", "success");
         setDraftReviewNote("");
-        setOpenNeedsId(null);
+        setSelectedNeedsId(null);
       } catch (error) {
         setToast(
           `修正を依頼できませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -1610,7 +1690,7 @@ export function FeedPage(props: PageProps) {
                   className={tab === entry.id ? "is-active" : undefined}
                   onClick={() => {
                     setTab(entry.id);
-                    setOpenNeedsId(null);
+                    setSelectedNeedsId(null);
                     setOpenArticleId(null);
                     setOpenThreadId(null);
                   }}
@@ -1716,193 +1796,234 @@ export function FeedPage(props: PageProps) {
                   onAction={() => setTab("home")}
                 />
               ) : (
-                <ul className="feed-needs-list">
-                  {needsRows.map((item) => (
-                    <li key={item.id} className="feed-needs-row">
-                      <div className="feed-needs-head">
-                        <span className="feed-author-name">{item.actorLabel ?? "Tasken"}</span>
-                        <span className={`feed-state feed-state-${item.state}`}>
-                          {item.stateLabel}
-                        </span>
-                      </div>
-                      <h3 className="feed-needs-title">
-                        <button
-                          type="button"
-                          className="feed-row-open"
-                          aria-expanded={item.id === openNeedsId}
-                          onClick={() => {
-                            setOpenNeedsId(item.id === openNeedsId ? null : item.id);
-                            setDraftAnswer("");
-                          }}
-                          ref={(node) => {
-                            if (node) rowRefs.current.set(`needs-${item.id}`, node);
-                            else rowRefs.current.delete(`needs-${item.id}`);
-                          }}
-                        >
-                          {item.headline}
-                        </button>
-                      </h3>
-                      <p className="feed-post-text">{item.summary}</p>
-                      <p className="feed-post-meta">{item.pathLabel}</p>
-                      <div className="feed-reactions">
-                        {item.actions.slice(0, 2).map((action) => (
-                          <Button
-                            key={action.id}
-                            variant="ghost"
-                            compact
-                            onClick={() => {
-                              // Taskを開く操作だけがドロワーへ進む。「成果を確認」は
-                              // この場で報告の確認（採用・差戻し）を開く（#599の読み順）。
-                              if (action.id === "open_task") {
-                                openTaskDrawer(item);
-                                return;
-                              }
-                              setOpenNeedsId(item.id);
-                              setDraftAnswer("");
-                            }}
-                          >
-                            {action.label}
-                          </Button>
-                        ))}
-                      </div>
-                      {openNeedsItem?.id === item.id ? (
-                        <div className="feed-answer">
-                          <p className="feed-post-meta">表示理由: {item.reasonShown}</p>
-                          <dl className="feed-detail-rows">
-                            {item.detail.rows.map((row) => (
-                              <div key={row.label}>
-                                <dt>{row.label}</dt>
-                                <dd>{row.value}</dd>
-                              </div>
-                            ))}
-                          </dl>
-                          {item.requestId ? (
-                            <form
-                              className="feed-reply"
-                              onSubmit={(event) => {
-                                event.preventDefault();
-                                void submitAnswer(item);
+                /* 判断・変更案・確認待ちを1本の一覧にし、選んだ1件だけを詳細で決着させる。 */
+                <div className={`feed-needs-panel${selectedNeedsItem ? " has-selection" : ""}`}>
+                  <div className="feed-needs-heading">
+                    <h2>対応待ち</h2>
+                    <div className="proposal-inbox-actions">
+                      <span className="proposal-pending-count">{needsRows.length}件</span>
+                      <Button
+                        variant="secondary"
+                        disabled={refreshingNeeds}
+                        onClick={() => void refreshNeeds(true)}
+                      >
+                        {refreshingNeeds ? "更新中" : "更新"}
+                      </Button>
+                    </div>
+                  </div>
+                  <ul className="feed-needs-list">
+                    {needsRows.map((item, index) => {
+                      const proposal = proposalOf(item);
+                      // 変更案は種別ラベルではなく中身の見出しを先頭に出す（旧「提案の確認」の行と同じ）。
+                      const title =
+                        item.kind === "proposal_pending" && proposal
+                          ? proposalHeadline(proposal)
+                          : item.headline;
+                      return (
+                        <Fragment key={item.id}>
+                          {/* 判断と確認待ちの境目を1か所だけ示す（Androidの「確認待ち」と同じ意味）。 */}
+                          {item.group === "confirmation" &&
+                          needsRows[index - 1]?.group !== "confirmation" ? (
+                            <li className="feed-needs-section" role="presentation">
+                              <h3>確認待ち</h3>
+                            </li>
+                          ) : null}
+                          <li className="feed-needs-row">
+                            <button
+                              type="button"
+                              className="feed-needs-select"
+                              aria-pressed={item.id === selectedNeedsId}
+                              onClick={() => {
+                                setSelectedNeedsId(item.id === selectedNeedsId ? null : item.id);
+                                setDraftAnswer("");
+                              }}
+                              ref={(node) => {
+                                if (node) rowRefs.current.set(`needs-${item.id}`, node);
+                                else rowRefs.current.delete(`needs-${item.id}`);
                               }}
                             >
-                              <label htmlFor="feed-answer-body">回答</label>
-                              <textarea
-                                id="feed-answer-body"
-                                value={draftAnswer}
-                                onChange={(event) => setDraftAnswer(event.target.value)}
-                                rows={3}
-                                disabled={busy}
-                              />
-                              <div className="feed-detail-actions">
-                                <Button variant="primary" type="submit" disabled={busy}>
-                                  {busy ? "送信中" : "回答を送る"}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => void changeTodayDate(item, null)}
-                                >
-                                  今日の選択を外す
-                                </Button>
-                              </div>
-                            </form>
-                          ) : item.kind === "review_ready" ? (
-                            <div className="feed-review">
-                              {/* 読み順は #599 の契約どおり。生成文で順序を変えない。 */}
-                              <dl className="feed-detail-rows">
-                                <div>
-                                  <dt>成果</dt>
-                                  <dd>{item.summary}</dd>
-                                </div>
-                                <div>
-                                  <dt>確認できたこと</dt>
-                                  <dd>{reviewDetailOf(item.sourceId).verification || "—"}</dd>
-                                </div>
-                                <div>
-                                  <dt>未確認事項</dt>
-                                  <dd>{reviewDetailOf(item.sourceId).remainingWork || "—"}</dd>
-                                </div>
-                                <div>
-                                  <dt>Taskenへ反映する内容</dt>
-                                  <dd>
-                                    {reviewDetailOf(item.sourceId).completedItems ||
-                                      "チェック項目の変更はありません"}
-                                  </dd>
-                                </div>
-                              </dl>
-                              {/* 既定の主操作は「報告を採用」。Task完了は選ばれていない明示オプション（#599）。 */}
-                              <label className="feed-review-check">
-                                <input
-                                  type="checkbox"
-                                  checked={completeTask}
-                                  onChange={(event) => setCompleteTask(event.target.checked)}
-                                />
-                                Taskも完了する
-                              </label>
-                              <div className="feed-detail-actions">
-                                <Button
-                                  variant="primary"
-                                  disabled={busy}
-                                  onClick={() => void acceptReport(item, completeTask)}
-                                >
-                                  {busy
-                                    ? "処理中"
-                                    : completeTask
-                                      ? "採用してTaskを完了"
-                                      : "報告を採用"}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  disabled={busy}
-                                  onClick={() => openTaskDrawer(item)}
-                                >
-                                  Taskを開く
-                                </Button>
-                              </div>
-                              <form
-                                className="feed-reply"
-                                onSubmit={(event) => {
-                                  event.preventDefault();
-                                  void returnReport(item);
-                                }}
-                              >
-                                <label htmlFor="feed-review-note">修正してほしい点</label>
-                                <textarea
-                                  id="feed-review-note"
-                                  value={draftReviewNote}
-                                  onChange={(event) => setDraftReviewNote(event.target.value)}
-                                  rows={2}
-                                  disabled={busy}
-                                />
-                                <div className="feed-detail-actions">
-                                  <Button variant="secondary" type="submit" disabled={busy}>
-                                    {busy ? "送信中" : "修正を依頼"}
-                                  </Button>
-                                </div>
-                              </form>
+                              <span className="feed-needs-head">
+                                <span className={`feed-state feed-state-${item.state}`}>
+                                  {item.stateLabel}
+                                </span>
+                                <span className="feed-author-name">
+                                  {item.actorLabel ?? "Tasken"}
+                                </span>
+                                {item.kind === "proposal_pending" && proposal ? (
+                                  <ProposalRisk proposal={proposal} />
+                                ) : null}
+                                {item.receivedAt ? (
+                                  <time className="feed-needs-time" dateTime={item.receivedAt}>
+                                    {feedTimeLabel(item.receivedAt)}
+                                  </time>
+                                ) : null}
+                              </span>
+                              <strong className="feed-needs-title">{title}</strong>
+                              {/* 見出しと中身の要旨が違うときだけ、要旨も行に出す。 */}
+                              {item.summary && item.summary !== title ? (
+                                <span className="feed-needs-summary">{item.summary}</span>
+                              ) : null}
+                              <span className="feed-post-meta">{item.pathLabel}</span>
+                            </button>
+                          </li>
+                        </Fragment>
+                      );
+                    })}
+                  </ul>
+                  {selectedNeedsItem ? (
+                    <div className="feed-needs-detail" aria-label="選んだ対応待ち">
+                      {usesProposalDetail(selectedNeedsItem) &&
+                      proposalOf(selectedNeedsItem) ? null : (
+                        <div className="section-heading">
+                          <h3>{needsDetailHeading(selectedNeedsItem)}</h3>
+                          <span className={`feed-state feed-state-${selectedNeedsItem.state}`}>
+                            {selectedNeedsItem.stateLabel}
+                          </span>
+                        </div>
+                      )}
+                      <p className="feed-post-meta">表示理由: {selectedNeedsItem.reasonShown}</p>
+                      <dl className="feed-detail-rows">
+                        {selectedNeedsItem.detail.rows.map((row) => (
+                          <div key={row.label}>
+                            <dt>{row.label}</dt>
+                            <dd>{row.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      {usesProposalDetail(selectedNeedsItem) ? (
+                        proposalOf(selectedNeedsItem) ? (
+                          <ProposalDetail
+                            {...props}
+                            proposal={proposalOf(selectedNeedsItem) as BaseRecord}
+                            onDecided={() => setSelectedNeedsId(null)}
+                          />
+                        ) : (
+                          <p className="feed-post-meta">
+                            この提案を読み込めませんでした。画面を更新してください。
+                          </p>
+                        )
+                      ) : selectedNeedsItem.requestId ? (
+                        <form
+                          className="feed-reply"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void submitAnswer(selectedNeedsItem);
+                          }}
+                        >
+                          <label htmlFor="feed-answer-body">回答</label>
+                          <textarea
+                            id="feed-answer-body"
+                            value={draftAnswer}
+                            onChange={(event) => setDraftAnswer(event.target.value)}
+                            rows={3}
+                            disabled={busy}
+                          />
+                          <div className="feed-detail-actions">
+                            <Button variant="primary" type="submit" disabled={busy}>
+                              {busy ? "送信中" : "回答を送る"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void changeTodayDate(selectedNeedsItem, null)}
+                            >
+                              今日の選択を外す
+                            </Button>
+                          </div>
+                        </form>
+                      ) : selectedNeedsItem.kind === "review_ready" ? (
+                        <div className="feed-review">
+                          {/* 読み順は #599 の契約どおり。生成文で順序を変えない。 */}
+                          <dl className="feed-detail-rows">
+                            <div>
+                              <dt>成果</dt>
+                              <dd>{selectedNeedsItem.summary}</dd>
                             </div>
-                          ) : (
+                            <div>
+                              <dt>確認できたこと</dt>
+                              <dd>
+                                {reviewDetailOf(selectedNeedsItem.sourceId).verification || "—"}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>未確認事項</dt>
+                              <dd>
+                                {reviewDetailOf(selectedNeedsItem.sourceId).remainingWork || "—"}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>Taskenへ反映する内容</dt>
+                              <dd>
+                                {reviewDetailOf(selectedNeedsItem.sourceId).completedItems ||
+                                  "チェック項目の変更はありません"}
+                              </dd>
+                            </div>
+                          </dl>
+                          {/* 既定の主操作は「報告を採用」。Task完了は選ばれていない明示オプション（#599）。 */}
+                          <label className="feed-review-check">
+                            <input
+                              type="checkbox"
+                              checked={completeTask}
+                              onChange={(event) => setCompleteTask(event.target.checked)}
+                            />
+                            Taskも完了する
+                          </label>
+                          <div className="feed-detail-actions">
+                            <Button
+                              variant="primary"
+                              disabled={busy}
+                              onClick={() => void acceptReport(selectedNeedsItem, completeTask)}
+                            >
+                              {busy ? "処理中" : completeTask ? "採用してTaskを完了" : "報告を採用"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() => openTaskDrawer(selectedNeedsItem)}
+                            >
+                              Taskを開く
+                            </Button>
+                          </div>
+                          <form
+                            className="feed-reply"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              void returnReport(selectedNeedsItem);
+                            }}
+                          >
+                            <label htmlFor="feed-review-note">修正してほしい点</label>
+                            <textarea
+                              id="feed-review-note"
+                              value={draftReviewNote}
+                              onChange={(event) => setDraftReviewNote(event.target.value)}
+                              rows={2}
+                              disabled={busy}
+                            />
                             <div className="feed-detail-actions">
-                              <Button
-                                variant="secondary"
-                                compact
-                                onClick={() => openTaskDrawer(item)}
-                              >
-                                Taskを開く
+                              <Button variant="secondary" type="submit" disabled={busy}>
+                                {busy ? "送信中" : "修正を依頼"}
                               </Button>
                             </div>
-                          )}
+                          </form>
                         </div>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
+                      ) : (
+                        <div className="feed-detail-actions">
+                          <Button
+                            variant="secondary"
+                            compact
+                            onClick={() => openTaskDrawer(selectedNeedsItem)}
+                          >
+                            Taskを開く
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
               )}
-              {/*
-                変更案の確認・採否はこのタブで完結させる（`ai-io` への移動は不要）。
-                対応待ち一覧の `proposal_pending` 行は上で外しており、ここが唯一の入口。
-              */}
-              <AiProposalPanel {...props} focusRequest={proposalFocus} />
+              {/* 決着済みの変更案とhookの観測だけを残す。判断の選択は対応待ちの一覧が持つ。 */}
+              <AiProposalPanel {...props} />
             </section>
           ) : (
             <section

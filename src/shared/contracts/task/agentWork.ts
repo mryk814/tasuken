@@ -83,6 +83,38 @@ export interface AgentWorkAttentionItem {
   availableActions: AgentWorkActionId[];
 }
 
+/**
+ * 判断ではないが未決着の報告の種類。
+ *
+ * どちらも「人が採用も却下もしていない」だけで、回答や確認を待っているわけではない。
+ * 要対応の件数（badge）には数えない。表示は Desktop と Android で同じ意味にする。
+ */
+export const agentWorkConfirmationKindSchema = z.enum([
+  /** 進捗の追記。判断を作らないので要対応には現れない。 */
+  "progress_report",
+  /** 質問へ回答済みだが、報告の採用はまだ決まっていない。 */
+  "answered_report",
+]);
+
+export type AgentWorkConfirmationKind = z.output<typeof agentWorkConfirmationKindSchema>;
+
+export interface AgentWorkConfirmationItem {
+  /** source参照から導出する安定ID。同じ内容の再送では変わらない。 */
+  confirmationId: string;
+  kind: AgentWorkConfirmationKind;
+  sourceRef: AgentWorkSourceRef;
+  sourceVersion: number | null;
+  taskId: string;
+  workAttemptId: string | null;
+  requestId: string | null;
+  headline: string;
+  summary: string;
+  reportedAt: string | null;
+  receivedAt: string | null;
+  sequence: number | null;
+  generated: boolean;
+}
+
 export interface AgentWorkReportView {
   proposalId: string | null;
   receiptId: string | null;
@@ -114,6 +146,8 @@ export interface AgentWorkReadModel {
   };
   currentReceiptId: string | null;
   attention: AgentWorkAttentionItem[];
+  /** 判断ではないが採用/却下がまだ決まっていない報告（確認待ち）。 */
+  confirmations: AgentWorkConfirmationItem[];
   reports: AgentWorkReportView[];
   /** この状態を導出した根拠。UIやテストが表示理由を説明できるようにする。 */
   evidence: string[];
@@ -201,6 +235,7 @@ export function deriveAgentWorkState(input: {
       },
       currentReceiptId: null,
       attention: [],
+      confirmations: [],
       reports: [],
       evidence: ["source_unavailable"],
     };
@@ -292,6 +327,37 @@ export function deriveAgentWorkState(input: {
     workStateForAttention === "reported_done" || workStateForAttention === "needs_human_review";
 
   const attention: AgentWorkAttentionItem[] = [];
+  const confirmations: AgentWorkConfirmationItem[] = [];
+
+  /**
+   * 判断にならなかった報告も、採用/却下がまだ決まっていなければ確認待ちとして残す。
+   * 人が採用して初めて正式なReceiptになるため、未決着のまま消さない。
+   */
+  const pushConfirmation = (
+    report: AgentWorkReportView,
+    kind: AgentWorkConfirmationKind,
+    requestId: string | null,
+    entry: Record<string, unknown> | null,
+    proposal: WorkRecord | null | undefined,
+  ) => {
+    if (!report.proposalId || report.proposalStatus !== "pending") return;
+    confirmations.push({
+      confirmationId: `confirmation:${report.proposalId}`,
+      kind,
+      sourceRef: { type: "ai_proposal", id: report.proposalId },
+      sourceVersion: typeof proposal?.version === "number" ? proposal.version : null,
+      taskId,
+      workAttemptId: report.workAttemptId,
+      requestId,
+      headline: text(entry?.headline) || "",
+      summary: report.summary,
+      reportedAt: report.reportedAt,
+      receivedAt: report.receivedAt,
+      sequence: report.sequence,
+      generated: true,
+    });
+  };
+
   for (const report of reports) {
     if (!report.isCurrentAttempt) continue;
     const proposal = report.proposalId
@@ -306,7 +372,11 @@ export function deriveAgentWorkState(input: {
       const resolved = requestId
         ? answeredRequests.has(requestId)
         : workStateForAttention !== "blocked";
-      if (resolved) continue;
+      if (resolved) {
+        // 回答済みでも、報告そのものの採用はまだ決まっていない。
+        pushConfirmation(report, "answered_report", requestId, entry, proposal);
+        continue;
+      }
       const kind: AgentWorkAttentionKind =
         entry && needsInput(entry) ? "answer_request" : "decision_request";
       attention.push({
@@ -362,6 +432,12 @@ export function deriveAgentWorkState(input: {
           "request_revision",
         ],
       });
+      continue;
+    }
+
+    // 進捗の追記は判断を作らない。人が採用/却下を決めるまで確認待ちへ出す。
+    if (report.action === "append_receipt") {
+      pushConfirmation(report, "progress_report", null, entry, proposal);
     }
   }
 
@@ -435,6 +511,7 @@ export function deriveAgentWorkState(input: {
     },
     currentReceiptId: latestReceipt?.receiptId || null,
     attention: openAttention,
+    confirmations,
     reports,
     evidence,
   };

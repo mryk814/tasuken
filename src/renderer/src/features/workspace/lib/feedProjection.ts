@@ -1,7 +1,9 @@
 import {
   buildAttentionQueue,
+  buildConfirmationQueue,
   countAttention,
   type AttentionItem,
+  type ConfirmationItem,
 } from "../../../../../shared/contracts/task/public.ts";
 import {
   FEED_ACTORS,
@@ -82,6 +84,8 @@ function pathLabel(themeName: string | null, taskTitle: string | null): string {
 const DEFER: FeedAction = { id: "defer_attention", label: "後で見る", role: "secondary" };
 const OPEN_TASK: FeedAction = { id: "open_task", label: "Taskを開く", role: "secondary" };
 const DISMISS: FeedAction = { id: "dismiss", label: "今回は見送る", role: "secondary" };
+/** 確認待ちは行では決めず、詳細で採用/却下する（読み順と版の確認を飛ばさない）。 */
+const REVIEW_WORK: FeedAction = { id: "view_proposal", label: "報告を確認", role: "primary" };
 
 interface KindShape {
   kind: FeedItemKind;
@@ -186,6 +190,62 @@ function attentionRow(
   };
 }
 
+/**
+ * 確認待ち1件をFeedの1行へ写す。
+ *
+ * 判断ではないので `group` は `confirmation` にし、要対応の件数へは数えない。
+ * 採用/却下は提案ID（`sourceId`）で送る。Taskに紐づかない報告は作らない。
+ */
+function confirmationRow(
+  item: ConfirmationItem,
+  themeName: string | null,
+  dueAt: string | null,
+): FeedItem {
+  const isProgress = item.kind === "progress_report";
+  return {
+    id: `feed:${item.confirmationId}`,
+    kind: isProgress ? "progress_report" : "answered_report",
+    group: "confirmation",
+    actor: actorIdFor(item.agentLabel),
+    actorLabel: item.agentLabel,
+    taskId: item.taskId,
+    requestId: null,
+    receivedAt: item.createdAt ?? item.updatedAt ?? "",
+    dueAt,
+    headline: item.headline || item.summary,
+    summary: item.summary,
+    state: "info",
+    stateLabel: isProgress ? "進捗追記" : "回答済み",
+    // 事実の記録であってAIの提案ではない。生成ラベルは付けない。
+    generated: null,
+    reasonShown: isProgress
+      ? "進捗の追記です。採用も却下もまだ決まっていません。"
+      : "回答済みです。報告の採用はまだ決まっていません。",
+    pathLabel: pathLabel(item.themeName ?? themeName, item.taskTitle),
+    sourceLabel: null,
+    sourceId: item.sourceId,
+    actions: [REVIEW_WORK, OPEN_TASK],
+    detail: {
+      title: item.headline || item.summary,
+      rows: [
+        { label: "対象Task", value: item.taskTitle ?? item.taskId },
+        { label: "出所", value: item.agentLabel ?? "不明" },
+        ...(item.workAttemptId
+          ? [{ label: "作業単位", value: item.workAttemptId.slice(0, 8) }]
+          : []),
+        ...(item.createdAt
+          ? [
+              {
+                label: "受信",
+                value: `${item.createdAt.slice(0, 10)} ${item.createdAt.slice(11, 16)}`,
+              },
+            ]
+          : []),
+      ],
+    },
+  };
+}
+
 /** 今日扱うTask。`today_date` が今日のものだけを出し、期限はScheduleから読む。 */
 function todayRow(
   task: Row,
@@ -249,6 +309,12 @@ export function buildLiveFeed(input: LiveFeedInput): LiveFeed {
     receipts: input.receipts,
     themes,
   });
+  const confirmations = buildConfirmationQueue({
+    tasks,
+    proposals: input.proposals,
+    receipts: input.receipts,
+    themes,
+  });
 
   const items: FeedItem[] = attention.map((item) =>
     attentionRow(
@@ -257,6 +323,17 @@ export function buildLiveFeed(input: LiveFeedInput): LiveFeed {
       item.taskId ? deadlineOf(schedules, item.taskId) : null,
     ),
   );
+
+  // 判断ではないが未決着の報告（確認待ち）。**要対応の件数へは数えない。**
+  for (const confirmation of confirmations) {
+    items.push(
+      confirmationRow(
+        confirmation,
+        confirmation.themeId ? (themeNames.get(confirmation.themeId) ?? null) : null,
+        deadlineOf(schedules, confirmation.taskId),
+      ),
+    );
+  }
 
   for (const task of tasks) {
     if (task.deleted_at) continue;

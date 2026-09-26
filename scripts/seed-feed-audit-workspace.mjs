@@ -184,6 +184,35 @@ database.save("ai_proposal", {
   request: { idempotency_key: "feed-audit-note", source: "mcp" },
 });
 
+// 進捗の追記（確認待ち）。判断は作らないが、採用/却下はまだ決まっていない。
+database.save("ai_proposal", {
+  id: "feed-audit-progress-proposal",
+  source: "mcp",
+  source_app: "codex",
+  payload_type: "task_work",
+  status: "pending",
+  received_at: at,
+  created_at: at,
+  version: 1,
+  payload: {
+    task_work: [
+      {
+        action: "append_receipt",
+        task_id: "feed-audit-review",
+        expected_version: 1,
+        caller: "Codex",
+        executor_kind: "ai_agent",
+        executor_label: "Codex",
+        summary: "比較表の下書きまで進みました。",
+        reported_at: at,
+        work_attempt_id: ATTEMPT,
+        runtime_metadata: { report_kind: "progress" },
+      },
+    ],
+  },
+  request: { idempotency_key: "feed-audit-progress", source: "mcp" },
+});
+
 // 実データの読み物投稿。Core（`tasken.propose_feed_post`）が書く形と同じpayloadにする。
 if (withFeedPost) {
   database.save("ai_proposal", {

@@ -553,3 +553,100 @@ test("an unreadable packet file is reported as waiting instead of corrupt", asyn
     pair.close();
   }
 });
+
+/** 正本が公開した後継revisionを、replica側の公開済み差分として書き足す。 */
+function appendReceiptRevision(pair, entityId, overrides, revisionSuffix) {
+  const deviceDirectory = path.join(pair.shared, "devices", pair.first.deviceId);
+  const packets = fs
+    .readdirSync(deviceDirectory)
+    .filter((name) => name.endsWith(".json"))
+    .sort()
+    .map((name) => JSON.parse(fs.readFileSync(path.join(deviceDirectory, name), "utf8")));
+  const published = packets.find((packet) => packet.entityId === entityId);
+  assert.ok(published, `${entityId} の公開済み差分が見つかりません。`);
+  const sequence =
+    packets.reduce((max, packet) => Math.max(max, Number(packet.deviceSequence) || 0), 0) + 1;
+  const revisionId = `00000000-0000-4000-8000-0000000000${revisionSuffix}`;
+  fs.writeFileSync(
+    path.join(deviceDirectory, `${String(sequence).padStart(12, "0")}-${revisionId}.json`),
+    JSON.stringify({
+      ...published,
+      changeId: revisionId,
+      revisionId,
+      deviceSequence: sequence,
+      parentRevisionIds: [published.revisionId],
+      entity: { ...published.entity, ...overrides },
+    }),
+  );
+}
+
+function receiptInput(overrides = {}) {
+  return {
+    id: "receipt-revision",
+    task_id: "task-receipt",
+    executor_kind: "ai_agent",
+    executor_label: "AI agent",
+    reported_at: "2026-08-10T00:14:25.900Z",
+    summary: "first",
+    completed_items: [],
+    changed_or_created_items: [],
+    source: "ai",
+    ...overrides,
+  };
+}
+
+/**
+ * 正本が同じReceiptの後継revisionを公開しても、replicaはそこで止まらない。
+ * 実機NASは seq197 のReceipt更新で append-only 例外を毎回投げ、2週間停止した（#588）。
+ */
+test("a later Work Receipt revision is applied instead of stalling the replica", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-receipt", "Receipt task"));
+    pair.first.save("work_receipt", receiptInput());
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+    assert.equal(pair.second.get("work_receipt", "receipt-revision").summary, "first");
+
+    appendReceiptRevision(
+      pair,
+      "receipt-revision",
+      { summary: "revised", version: 2, updated_at: "2026-08-10T00:16:07.980Z" },
+      "aa",
+    );
+
+    await pair.secondSync.syncNow();
+    assert.equal(pair.second.get("work_receipt", "receipt-revision").summary, "revised");
+    assert.equal(pair.secondSync.status().lastError, "");
+    assert.equal(pair.secondSync.status().conflictCount, 0);
+  } finally {
+    pair.close();
+  }
+});
+
+/** 内容が同じ再公開では書き換えず、headだけ進める。 */
+test("republishing an identical Work Receipt writes nothing and keeps syncing", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-receipt", "Receipt task"));
+    pair.first.save("work_receipt", receiptInput());
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+
+    appendReceiptRevision(
+      pair,
+      "receipt-revision",
+      { version: 2, updated_at: "2026-08-10T00:20:00.000Z" },
+      "bb",
+    );
+
+    await pair.secondSync.syncNow();
+    const stored = pair.second.get("work_receipt", "receipt-revision");
+    assert.equal(stored.summary, "first");
+    assert.equal(stored.version, 1);
+    assert.equal(pair.secondSync.status().lastError, "");
+    assert.equal(pair.secondSync.status().conflictCount, 0);
+  } finally {
+    pair.close();
+  }
+});

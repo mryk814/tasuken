@@ -52,6 +52,9 @@ Desktopが停止していても、NASのローカルSQLiteが最新の同期差�
 
 開発機（Docker Desktop）でlinux/amd64を作り、NASへ渡す。NAS上ではbuildしない。PowerShellでバイナリをパイプすると壊れるため、`docker save -o` と `git archive -o` で直接ファイルへ書く。
 
+`core.autocrlf=true` の作業コピーでは `git archive` が**CRLFのまま**書き出し、NAS上の `bash nas-install.sh` が
+`set: pipefail` で失敗する。ソースtarは改行をLFへ固定して作る（2026-09-26に実機で発生）。
+
 SMBで共有フォルダを割り当てている場合（最小構成。例: `T:` = `\\synologyDS723\tasken`）:
 
 ```powershell
@@ -59,18 +62,25 @@ SMBで共有フォルダを割り当てている場合（最小構成。例: `T:
 docker build --platform linux/amd64 -f deploy/synology/Dockerfile -t tasken-headless:local .
 New-Item -ItemType Directory -Force T:\_deploy | Out-Null
 docker save -o T:\_deploy\tasken-headless-linux-amd64.tar tasken-headless:local
-git archive -o T:\_deploy\tasken-source.tar HEAD
-Copy-Item deploy/synology/nas-install.sh T:\_deploy\nas-install.sh
+git -c core.autocrlf=false -c core.eol=lf archive --format=tar -o T:\_deploy\tasken-source.tar HEAD
+# nas-install.sh もLFで渡す（作業コピーはCRLFのことがある）。tarから取り出すのが確実。
+tar -xf T:\_deploy\tasken-source.tar -C $env:TEMP deploy/synology/nas-install.sh
+Copy-Item "$env:TEMP\deploy\synology\nas-install.sh" T:\_deploy\nas-install.sh -Force
 ```
+
+転送後は両側で `sha256sum` を突き合わせる（SMB経由の取りこぼしを検知する）。
 
 SSH/scpを使う場合（Tailscale経由）:
 
 ```bash
 docker save -o tasken-headless-linux-amd64.tar tasken-headless:local
-git archive -o tasken-source.tar HEAD
+git -c core.autocrlf=false -c core.eol=lf archive --format=tar -o tasken-source.tar HEAD
 ssh <user>@synologyDS723 "sudo mkdir -p /volume1/tasken/_deploy"
 scp -O tasken-headless-linux-amd64.tar tasken-source.tar deploy/synology/nas-install.sh <user>@synologyDS723:/volume1/tasken/_deploy/
 ```
+
+DSM側の設定によっては `scp` が `Connection closed` で拒否される（2026-09-26の実機DS723+で発生。SSHのログイン自体は成功する）。
+その場合はSMB共有経由でコピーする。
 
 `docker-compose` はContainer Manager同梱の `/var/packages/ContainerManager/target/usr/bin/docker-compose` を使う。
 

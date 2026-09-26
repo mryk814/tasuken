@@ -18,7 +18,7 @@ const aiProposalPanelSource = readFileSync(
   "utf8",
 );
 const semanticActionsSource = readFileSync("src/renderer/src/pages/semanticActions.ts", "utf8");
-const stylesSource = readFileSync("src/renderer/src/styles/app.css", "utf8");
+const feedStylesSource = readFileSync("src/renderer/src/styles/feed.css", "utf8");
 
 test("AI proposals use the existing AI route beside Inbox with an action count", () => {
   assert.doesNotMatch(routesSource, /\["proposal-inbox", "AI提案の確認"\]/);
@@ -46,14 +46,20 @@ test("Feed hosts the safe proposal review surface", () => {
     existsSync("src/renderer/src/features/workspace/components/AgentDeskPanel.tsx"),
     false,
   );
+  // 対応待ちの一覧はFeedが持ち、採否は選んだ1件の詳細（ProposalDetail）で決める。
   assert.match(feedPageSource, /<AiProposalPanel/);
+  assert.match(feedPageSource, /<ProposalDetail/);
+  assert.match(feedPageSource, /className="feed-needs-select"/);
+  assert.match(feedPageSource, /className=\{`feed-needs-panel\$\{/);
   assert.match(aiProposalPanelSource, /export function AiProposalPanel/);
-  assert.match(aiProposalPanelSource, /<h2>提案の確認<\/h2>/);
+  assert.match(aiProposalPanelSource, /export function ProposalDetail/);
+  assert.match(aiProposalPanelSource, /<h2>提案の履歴<\/h2>/);
   assert.match(aiProposalPanelSource, /履歴/);
   assert.match(aiProposalPanelSource, /proposalTargetLabel/);
   assert.match(aiProposalPanelSource, /quarantine/);
-  assert.match(aiProposalPanelSource, /className="proposal-row-select"/);
-  assert.match(aiProposalPanelSource, /onClick=\{\(\) => previewProposal\(proposal\)\}/);
+  // 一覧を持たない。同じ報告を2面に出さない（docs/feed-surface.md §6.6）。
+  assert.doesNotMatch(aiProposalPanelSource, /className="proposal-row-select"/);
+  assert.doesNotMatch(aiProposalPanelSource, /className="proposal-list"/);
   assert.match(aiProposalPanelSource, /className="proposal-inline-preview"/);
   assert.doesNotMatch(aiProposalPanelSource, /Pending Proposal|Proposal Preview|aiProposalPreview/);
   assert.match(aiProposalPanelSource, /ActionButton\s+action="actionReject"/);
@@ -72,74 +78,59 @@ test("Feed hosts the safe proposal review surface", () => {
 });
 
 test("Agent Desk can resync explicitly and quietly recovers when the window regains focus", () => {
-  assert.match(aiProposalPanelSource, /useWorkspaceStore\(\(state\) => state\.refresh\)/);
-  assert.match(aiProposalPanelSource, /window\.addEventListener\("focus", resyncOnFocus\)/);
-  assert.match(aiProposalPanelSource, /onClick=\{\(\) => void refreshProposals\(true\)\}/);
-  assert.match(aiProposalPanelSource, /Proposalを更新できませんでした/);
+  assert.match(feedPageSource, /useWorkspaceStore\(\(state\) => state\.refresh\)/);
+  assert.match(feedPageSource, /window\.addEventListener\("focus", resyncOnFocus\)/);
+  assert.match(feedPageSource, /onClick=\{\(\) => void refreshNeeds\(true\)\}/);
+  assert.match(feedPageSource, /Proposalを更新できませんでした/);
+  // 一覧を持つ面が更新の入口を持つ。履歴だけの面へ戻さない。
+  assert.doesNotMatch(aiProposalPanelSource, /onClick=\{\(\) => void refreshProposals\(true\)\}/);
 });
 
 test("Proposal rows keep a visible focus ring for keyboard review", () => {
   assert.match(
-    stylesSource,
-    /\.proposal-row-select:focus-visible\s*\{[^}]*box-shadow:\s*var\(--focus-ring\)/s,
+    feedStylesSource,
+    /\.feed-needs-select:focus-visible\s*\{[^}]*box-shadow:\s*var\(--focus-ring\)/s,
   );
   assert.match(
-    stylesSource,
-    /\.proposal-row-select\[aria-pressed="true"\]:focus-visible\s*\{[^}]*var\(--focus-ring\)[^}]*inset 3px/s,
+    feedStylesSource,
+    /\.feed-needs-select\[aria-pressed="true"\]:focus-visible\s*\{[^}]*var\(--focus-ring\)[^}]*inset 3px/s,
   );
 });
 
-test("Selected Proposal uses a sticky two-column review surface on desktop", () => {
+test("Selected attention uses a sticky two-column review surface on desktop", () => {
+  assert.match(feedPageSource, /feed-needs-panel\$\{selectedNeedsItem \? " has-selection" : ""\}/);
   assert.match(
-    aiProposalPanelSource,
-    /proposal-inbox-panel\$\{selected && preview \? " has-selection" : ""\}/,
+    feedStylesSource,
+    /\.feed-needs-panel\.has-selection\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:[^;]+;/s,
   );
   assert.match(
-    stylesSource,
-    /\.proposal-inbox-panel\.has-selection\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:[^;]+;/s,
-  );
-  assert.match(
-    stylesSource,
-    /\.proposal-inbox-panel\.has-selection > \.proposal-inline-preview\s*\{[^}]*position:\s*sticky;[^}]*overflow:\s*auto;/s,
+    feedStylesSource,
+    /\.feed-needs-panel\.has-selection > \.feed-needs-detail\s*\{[^}]*position:\s*sticky;[^}]*overflow:\s*auto;/s,
   );
 });
 
-test("Narrow Proposal review stacks preview before history", () => {
-  const responsiveStart = stylesSource.indexOf("@media (max-width: 1120px)");
-  const responsiveEnd = stylesSource.indexOf(".metric-grid", responsiveStart);
+test("Narrow attention review stacks the detail under the list", () => {
+  const responsiveStart = feedStylesSource.indexOf("@media (max-width: 1120px)");
   assert.notEqual(responsiveStart, -1);
-  assert.notEqual(responsiveEnd, -1);
-  const responsiveStyles = stylesSource.slice(responsiveStart, responsiveEnd);
+  const responsiveStyles = feedStylesSource.slice(responsiveStart);
+  assert.match(responsiveStyles, /\.feed-needs-panel\.has-selection\s*\{[^}]*display:\s*flex;/s);
   assert.match(
     responsiveStyles,
-    /\.proposal-inbox-panel\.has-selection\s*\{[^}]*display:\s*flex;/s,
+    /\.feed-needs-panel\.has-selection > \.feed-needs-detail\s*\{[^}]*position:\s*static;/s,
   );
-  assert.match(
-    responsiveStyles,
-    /\.proposal-inbox-panel\.has-selection > \.proposal-inline-preview\s*\{[^}]*position:\s*static;/s,
-  );
-  assert.match(stylesSource, /\.proposal-list\s*\{\s*order:\s*0;/);
-  assert.match(stylesSource, /\.proposal-inline-preview\s*\{[^}]*order:\s*1;/s);
-  assert.match(stylesSource, /\.proposal-history\s*\{[^}]*order:\s*2;/s);
 });
 
-test("1050x800でもProposal一覧と選択previewを同じviewportへ収める", () => {
-  const responsiveStart = stylesSource.indexOf("@media (max-width: 1120px)");
-  const responsiveEnd = stylesSource.indexOf(".metric-grid", responsiveStart);
+test("1050x800でも一覧と選択detailを同じviewportへ収める", () => {
+  const responsiveStart = feedStylesSource.indexOf("@media (max-width: 1120px)");
   assert.notEqual(responsiveStart, -1);
-  assert.notEqual(responsiveEnd, -1);
-  const responsiveStyles = stylesSource.slice(responsiveStart, responsiveEnd);
+  const responsiveStyles = feedStylesSource.slice(responsiveStart);
   assert.match(
     responsiveStyles,
-    /\.proposal-inbox-panel\.has-selection > \.proposal-list\s*\{[^}]*max-height:\s*min\(42vh, 360px\);[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/s,
+    /\.feed-needs-panel\.has-selection > \.feed-needs-list\s*\{[^}]*max-height:\s*min\(42vh, 360px\);[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/s,
   );
   assert.match(
     responsiveStyles,
-    /\.proposal-inbox-panel\.has-selection > \.proposal-list,\s*\.proposal-inbox-panel\.has-selection > \.proposal-inline-preview,\s*\.proposal-inbox-panel\.has-selection > \.proposal-history\s*\{[^}]*inline-size:\s*100%;/s,
-  );
-  assert.match(
-    responsiveStyles,
-    /\.proposal-inbox-panel\.has-selection\s*\{[^}]*align-items:\s*stretch;/s,
+    /\.feed-needs-panel\.has-selection > \.feed-needs-list,\s*\.feed-needs-panel\.has-selection > \.feed-needs-detail\s*\{[^}]*inline-size:\s*100%;/s,
   );
   assert.equal(Math.min(800 * 0.42, 360), 336);
 });
@@ -147,46 +138,44 @@ test("1050x800でもProposal一覧と選択previewを同じviewportへ収める"
 test("Agent Desk offers adopt-and-complete only for completable Task work reports", () => {
   assert.match(
     aiProposalPanelSource,
-    /ActionButton\s+action="aiProposalAcceptAndComplete"[\s\S]*?void acceptProposal\(selected, \{ completeTask: true \}\)/,
+    /ActionButton\s+action="aiProposalAcceptAndComplete"[\s\S]*?void acceptProposal\(\{ completeTask: true \}\)/,
   );
   assert.match(
     semanticActionsSource,
     /aiProposalAcceptAndComplete: \{[\s\S]*?label: "完了"[\s\S]*?role: "primary"/,
   );
-  assert.match(aiProposalPanelSource, /selectedWork && canCompleteSelectedWork && \(/);
+  assert.match(aiProposalPanelSource, /activeWork && canCompleteActiveWork && \(/);
   assert.match(
     aiProposalPanelSource,
-    /onClick=\{\(\) => void acceptProposal\(selected, \{ completeTask: true \}\)\}/,
+    /onClick=\{\(\) => void acceptProposal\(\{ completeTask: true \}\)\}/,
   );
   assert.match(aiProposalPanelSource, /name: "AcceptTaskWork"/);
-  assert.match(aiProposalPanelSource, /receiptId: proposal\.id, completeTask: true/);
+  assert.match(aiProposalPanelSource, /receiptId: active\.id, completeTask: true/);
   assert.match(aiProposalPanelSource, /\["done", "cancelled"\]\.includes\(str\(/);
   assert.match(aiProposalPanelSource, /作業報告を採用し、Taskを完了しました。/);
   assert.match(aiProposalPanelSource, /対象Taskは既に完了またはキャンセルされています。/);
   assert.match(
     aiProposalPanelSource,
-    /ActionButton\s+action="aiProposalAccept"[\s\S]*?void acceptProposal\(selected\)/,
+    /ActionButton\s+action="aiProposalAccept"[\s\S]*?void acceptProposal\(\)/,
   );
 });
 
-test("Proposal rows lead with a content-specific headline", () => {
-  assert.match(aiProposalPanelSource, /function proposalHeadline\(proposal: BaseRecord\)/);
+test("Attention rows lead with the content headline and keep the summary", () => {
+  assert.match(aiProposalPanelSource, /export function proposalHeadline\(proposal: BaseRecord\)/);
   assert.match(
     aiProposalPanelSource,
     /str\(proposal\.summary\) \|\| str\(proposal\.title\) \|\| str\(proposal\.label\)/,
   );
   assert.match(aiProposalPanelSource, /str\(entry\.task_title\)/);
   assert.match(aiProposalPanelSource, /str\(entry\.taskTitle\)/);
+  // 変更案の行は種別ラベルではなく中身の見出しを先頭にし、要旨が違うときだけ2行目へ出す。
+  assert.match(feedPageSource, /item\.kind === "proposal_pending" && proposal/);
+  assert.match(feedPageSource, /\? proposalHeadline\(proposal\)/);
+  assert.match(feedPageSource, /className="feed-needs-title">\{title\}/);
   assert.match(
-    aiProposalPanelSource,
-    /className="proposal-row-title">\s*\{domain\.tasks\.find\([\s\S]*?proposalHeadline\(proposal\)\}\s*<\/strong>/,
+    feedPageSource,
+    /item\.summary !== title[\s\S]*?className="feed-needs-summary">\{item\.summary\}/,
   );
-  assert.match(
-    aiProposalPanelSource,
-    /className="proposal-row-kind">[\s\S]*?proposalTypeLabel\(proposal\)/,
-  );
-  assert.match(aiProposalPanelSource, /選択すると、本文と採用範囲を確認できます。/);
-  assert.doesNotMatch(aiProposalPanelSource, /選択すると、下で本文と採用範囲を確認できます。/);
 });
 
 test("Agent Deskの旧deep linkはFeedの対応待ちへ着地する（#600 集約）", () => {
@@ -196,8 +185,9 @@ test("Agent Deskの旧deep linkはFeedの対応待ちへ着地する（#600 集�
   // 旧称を表示名として復活させない。
   assert.doesNotMatch(routesSource, /label: "AI Inbox"/);
   assert.doesNotMatch(routesSource, /label: "AI IO"/);
-  // TaskなしProposalと履歴はFeedの「対応待ち」タブから到達できる。
+  // 変更案の採否と履歴はFeedの「対応待ち」タブから到達できる。
   assert.match(feedPageSource, /<AiProposalPanel/);
-  assert.match(aiProposalPanelSource, /<h2>提案の確認<\/h2>/);
+  assert.match(feedPageSource, /<ProposalDetail/);
+  assert.match(aiProposalPanelSource, /<h2>提案の履歴<\/h2>/);
   assert.match(aiProposalPanelSource, /履歴/);
 });

@@ -12,6 +12,7 @@ import {
   TASK_ID,
   WORK_ATTEMPT_A,
   makeProposal,
+  makeReceipt,
   makeTask,
 } from "./fixtures/agentWorkScenarios.mjs";
 
@@ -219,4 +220,52 @@ test("常時表示する操作は型付きIDで2つまでにする（#604後半�
     }
     assert.ok(item.reasonShown.length > 0, `${item.id} に表示理由がない`);
   }
+});
+
+test("確認待ちは要対応の件数を増やさず、同じ一覧の後ろへ並ぶ（#604後半）", () => {
+  const base = workspace();
+  const progress = makeProposal("ai-progress", {
+    action: "append_receipt",
+    work_attempt_id: WORK_ATTEMPT_A,
+    executor_label: "Codex",
+    summary: "条件を比較中です。",
+    reported_at: "2026-09-20T09:05:00.000Z",
+  });
+  const live = buildLiveFeed({ ...base, proposals: [...base.proposals, progress] });
+
+  // badge（要対応）は判断だけを数える。進捗の追記では増えない。
+  assert.equal(live.unresolved, 3);
+  const needs = selectNeedsYou(buildFeedProjection(live.items).items);
+  const confirmations = needs.filter((item) => item.group === "confirmation");
+  assert.equal(confirmations.length, 1);
+  assert.equal(confirmations[0].kind, "progress_report");
+  assert.equal(confirmations[0].stateLabel, "進捗追記");
+  assert.equal(confirmations[0].sourceId, "ai-progress");
+  assert.equal(confirmations[0].taskId, TASK_ID);
+  // 事実の記録なのでAI生成ラベルを付けない。
+  assert.equal(confirmations[0].generated, null);
+  // 採用/却下は行では決めず、詳細（提案の経路）へ戻す。
+  assert.deepEqual(
+    confirmations[0].actions.map((action) => action.id),
+    ["view_proposal", "open_task"],
+  );
+  // 判断の後ろに並ぶ。別の面ではなく同じ一覧である。
+  assert.equal(needs.at(-1).id, confirmations[0].id);
+
+  // 回答済みの停止報告も、判断から外れて確認待ちへ移る。
+  const reply = makeReceipt("reply-1", {
+    executor_kind: "human",
+    executor_label: "自分",
+    receipt_kind: "human_reply",
+    request_id: REQUEST_MEASUREMENT,
+    work_attempt_id: WORK_ATTEMPT_A,
+    summary: "25℃で進めてください。",
+  });
+  const answered = buildLiveFeed({ ...base, receipts: [reply] });
+  assert.equal(answered.unresolved, 2);
+  const answeredNeeds = selectNeedsYou(buildFeedProjection(answered.items).items);
+  const answeredRow = answeredNeeds.find((item) => item.kind === "answered_report");
+  assert.equal(answeredRow.stateLabel, "回答済み");
+  assert.equal(answeredRow.group, "confirmation");
+  assert.equal(answeredRow.sourceId, "ai-question");
 });
