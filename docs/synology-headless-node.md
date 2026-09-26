@@ -266,15 +266,32 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 
 ## トラブルシューティング
 
-| 症状                                                       | 原因と対処                                                                                                                  |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `SYNC_FOLDER_NOT_READY`                                    | 共有フォルダが未初期化。先にデータ端末で同期を設定する                                                                      |
-| `CORE_ALREADY_RUNNING`                                     | 同じuserDataで別Coreが稼働中。既存コンテナ/プロセスを止める                                                                 |
-| `DISCOVERY_OWNER_MISMATCH`                                 | MCP bridgeが別uid/別コンテナ。同じコンテナで`docker exec`する                                                               |
-| `NODE_MODULE_VERSION` 不一致                               | `better-sqlite3`が別runtime向け。イメージを再buildする（`npm rebuild better-sqlite3`）                                      |
-| 権限エラー（EACCES/EPERM）                                 | `/volume1/tasken/sync` の所有者・権限を確認                                                                                 |
-| 共有フォルダだけEACCES（mode 0000表示）                    | Synologyの`synoacl`（NFSv4 ACL）。`group_add`のgid（DSM標準は101=administrators）を合わせる。`nas-install.sh`が自動検出する |
-| tunnelの`read control-plane api key ... permission denied` | secretの所有者を`TASKEN_UID`に合わせる（`chown -R "$UID_:$GID_" secrets`）                                                  |
+| 症状                                                       | 原因と対処                                                                                                                                                                            |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SYNC_FOLDER_NOT_READY`                                    | 共有フォルダが未初期化。先にデータ端末で同期を設定する                                                                                                                                |
+| `CORE_ALREADY_RUNNING`                                     | 同じuserDataで別Coreが稼働中。既存コンテナ/プロセスを止める                                                                                                                           |
+| `DISCOVERY_OWNER_MISMATCH`                                 | MCP bridgeが別uid/別コンテナ。同じコンテナで`docker exec`する                                                                                                                         |
+| `NODE_MODULE_VERSION` 不一致                               | `better-sqlite3`が別runtime向け。イメージを再buildする（`npm rebuild better-sqlite3`）                                                                                                |
+| 権限エラー（EACCES/EPERM）                                 | `/volume1/tasken/sync` の所有者・権限を確認                                                                                                                                           |
+| 共有フォルダだけEACCES（mode 0000表示）                    | Synologyの`synoacl`（NFSv4 ACL）。`group_add`のgid（DSM標準は101=administrators）を合わせる。`nas-install.sh`が自動検出する                                                           |
+| tunnelの`read control-plane api key ... permission denied` | secretの所有者を`TASKEN_UID`に合わせる（`chown -R "$UID_:$GID_" secrets`）                                                                                                            |
+| ChatGPTにwrite toolsが出ない（read-onlyのまま）            | tunnel側の`TASKEN_MCP_READ_ONLY=0`とCore側の`--write-mode=proposals`の両方を確認する。NAS側は「投稿・提案を受け付ける」節の`nas-read-check.mjs`で実測できる                           |
+| ChatGPTのtool一覧が古い（例: `TOOL_COUNT 29`のまま）       | その数は現行のNASが返す値ではない（現行はread-only 13 / write有効 21）。ChatGPTのconnectorはtool定義を保持するため、**削除して再追加**する。解除→再接続だけでは更新されないことがある |
+| ChatGPTから投稿したがDesktopに出ない                       | `T:\sync\devices\<replicaのdevice id>\` に差分が増えているか、Desktopの端末間同期が有効かを確認する（下の「往復の確認」）                                                             |
+
+### 往復の確認（PC側から見る）
+
+書き込みが公開されたかは、replica自身のdeviceフォルダで確認できます。device idは`deploy/synology/state`の`workspace_meta.device_id`です。
+
+```powershell
+# T: = \\synologyDS723\tasken のとき
+Get-ChildItem T:\sync\devices\<replicaのdevice id> -Force |
+  Sort-Object Name | Select-Object -Last 3 | Select-Object LastWriteTime,Length,Name
+```
+
+- 差分は`ai_proposal`のEntity 1件ごとに1ファイル（`<seq>-<changeId>.json`）。`payload_type`が`feed_posts`・`notes`・`task_work`のいずれかになる。
+- Desktop側はこの差分を通常の同期で取り込み、Feedの「対応待ち」へ出す。採用すると正式データ（Note・Task・Work Receipt）になる。
+- 差分が増えていなければ、Coreが受理していない（エラーは応答の`error.code`を見る）か、replicaのpollが止まっている。`shared_sync_last_error`を確認する。
 
 ## 検証
 
