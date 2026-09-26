@@ -128,6 +128,36 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 - 画像付きProposalのstageはNASにはないため、画像付きNote案は受け付けられません。
 - 設定は`nas-install.sh`の再実行でも保持されます。`.env`を直接編集したあとは、`docker-compose ... up -d`で`tasken-headless`と`tasken-tunnel`を作り直してください。
 
+#### MCP client（ChatGPT等）から見える範囲
+
+`TASKEN_MCP_READ_ONLY=0`のbridgeはwrite toolsを8件登録しますが、**登録されることとCoreが受け付けることは別**です。実際に使えるのは次の5つです。
+
+| tool                          | Coreの判定                                       |
+| ----------------------------- | ------------------------------------------------ |
+| `tasken.propose_feed_post`    | 受け付ける（`feed_post`）                        |
+| `tasken.propose_note`         | 受け付ける（画像なしの`note_create`）            |
+| `tasken.append_work_receipt`  | 受け付ける（`propose_task_work`）                |
+| `tasken.report_task_done`     | 受け付ける（同上）                               |
+| `tasken.report_task_blocked`  | 受け付ける（同上）                               |
+| `tasken.propose_note_edit`    | `WRITE_NOT_ALLOWED`（`note_edit`は範囲外）       |
+| `tasken.answer_feed_question` | `WRITE_NOT_ALLOWED`（`feed_reply`は範囲外）      |
+| `tasken.start_task_work`      | `CAPABILITY_UNAVAILABLE`（直接開始は公開しない） |
+
+Task**案**を作るtoolは現行のMCP bridgeには登録されていません（`propose_repository_task` capabilityはCore側にあります）。ChatGPTへTaskを作らせたい場合は、Feed投稿かNote案として送り、DesktopでTaskへ昇格させてください。
+
+現在の見え方は次のコマンドで実測できます（toolを列挙して`search_items`を1回読むだけで、書き込みはしません）。
+
+```bash
+sudo docker run --rm --network container:tasken-headless --user 1026:100 \
+  -e TASKEN_MCP_READ_ONLY=0 \
+  -v /volume1/docker/tasken/deploy/synology/nas-read-check.mjs:/check/nas-read-check.mjs:ro \
+  -v /volume1/docker/tasken/deploy/synology/state:/data:ro \
+  --entrypoint node tasken-headless:local /check/nas-read-check.mjs
+```
+
+- 期待値: `TOOL_COUNT 21`（read 13 + write 8）・`HAS_WRITE true`。`-e TASKEN_MCP_READ_ONLY=0`を外すと`TOOL_COUNT 13`・`HAS_WRITE false`。
+- `tasken-headless:local`の代わりに固定tagのimageを使うと、配置版を明示できます。
+
 ## Phase 3: Secure MCP Tunnelで外部AIへ公開
 
 NASのCoreはloopbackのみなので、ChatGPT/Codex等へはOpenAI Secure MCP Tunnelの`tunnel-client`をNAS側で常駐させ、**outbound HTTPSだけ**で接続します（inboundポートは開けません）。実装は`deploy/synology/docker-compose.tunnel.yml`のサイドカーで、Coreとネットワーク名前空間を共有し、`node /app/mcp-dist/server.mjs`をstdio子プロセスとして起動します（`TASKEN_MCP_READ_ONLY`は既定`1`）。Tasken domain側へtransport固有logicは持ち込みません。

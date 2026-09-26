@@ -105,7 +105,7 @@ SSHの鍵が無いためコンテナ側は依然として未確認。共有か�
 
 ### 2026-09-27 書き込みをproposalsで有効化（#588 N4 / N5）
 
-read-onlyだった実機NASを、Proposal（Feed投稿・Note案・Task案・**Task作業報告**）だけを受け付ける配備へ切り替えた。正式データの採用とTask完了はDesktopの人の操作のまま。
+read-onlyだった実機NASを、Proposal（Coreの受付範囲はテキストのFeed投稿・Note案・Task案・**Task作業報告**）だけを受け付ける配備へ切り替えた。正式データの採用とTask完了はDesktopの人の操作のまま。
 
 - 配備物: 開発機（Docker Desktop）で`linux/amd64`の`tasken-headless:local`を作り直した。
   - image ID `sha256:72be677563b030f28fbc63435cb0b8cb38f538c3f5a3a906ad49800b2ae3b38d`、`docker save`したtarのsha256 `14fbfdfca630835719828b81c47f59abae49c0fcc17e212ae60a2330d401f2fa`。
@@ -117,6 +117,7 @@ read-onlyだった実機NASを、Proposal（Feed投稿・Note案・Task案・**T
   - `WRITE_OK` → Core `TASKEN_HEADLESS_CORE_READY {"...","capability_count":31,"sync_directory":"/sync","write_mode":"proposals","pid":7}`。
   - `tasken-headless` Started 0.9s、`tasken-tunnel` Started 0.2s。tunnelは`tunnel metadata fetched`（name `Tasken MCP - Synology`、tunnel_id `tunnel_6aa4aa138f10819198458b82e82c079e`据え置き）の後に`Tasken MCP Bridge is running on stdio.`
   - 事前確認として、同じimageを一時volumeで起動し`--write-mode=proposals`がcapability 31（`propose_task_work`あり・`task.command`なし）、既定がcapability 28のread-onlyになることをPC側で確認している。
+  - 同じimageでMCP bridgeのtool一覧も実測した。`TASKEN_MCP_READ_ONLY=0`で21 tools（read 13 + write 8）、既定で13 tools。write 8件のうちCoreが受け付けるのは`propose_feed_post`・`propose_note`・`append_work_receipt`・`report_task_done`・`report_task_blocked`の5件で、`propose_note_edit`と`answer_feed_question`は`WRITE_NOT_ALLOWED`、`start_task_work`は`CAPABILITY_UNAVAILABLE`。Task**案**を作るtoolはMCP bridgeに登録されていない。
 - 実測（PC側からの読み取り）:
   - `deploy/synology/.env`: `TASKEN_CORE_WRITE_MODE=proposals`・`TASKEN_MCP_READ_ONLY=0`・`CONTROL_PLANE_TUNNEL_ID`を保持。`nas-install.sh`の再生成後も消えていない（2026-09-26までの版は書き込み設定を書かず、再配置で既定へ戻っていた）。
   - `state/tasken-core.json`: capability 31。`propose_content`・`propose_repository_task`・`propose_task_work`あり、`task.command`・`propose_agent_session`なし（＝proposals配備）。
