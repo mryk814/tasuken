@@ -102,6 +102,32 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+/** キー順に依存せずに比較する。 */
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  if (isPlainObject(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value === undefined ? null : value);
+}
+
+/**
+ * 同期で届いたReceiptが、いま持っている内容と実質同じか。
+ * 版と更新時刻は同期のたびに変わるため比較しない。
+ */
+function sameReceiptPayload(local, incoming) {
+  const strip = (entity) => {
+    const copy = { ...(entity || {}) };
+    delete copy.version;
+    delete copy.updated_at;
+    return stableJson(copy);
+  };
+  return strip(local) === strip(incoming);
+}
+
 function normalizeImportedTask(input, previous, fallbackSource) {
   const syncStartsAiWork =
     fallbackSource === "sync" &&
@@ -1844,11 +1870,14 @@ export class WorkspaceDatabase {
     return this.loadWorkspace();
   }
 
-  insertImported(type, input, fallbackSource = "imported", previous = null) {
+  insertImported(type, input, fallbackSource = "imported", previous = null, options = {}) {
     assertEntityType(type);
     const normalizedInput =
       type === "task" ? normalizeImportedTask(input, previous, fallbackSource) : input;
-    if (type === "work_receipt" && normalizedInput.id && this.get(type, normalizedInput.id, true)) {
+    // Receiptはローカルではappend-only。正本が公開した後継revisionの取り込みだけを許す。
+    const updatingReceipt =
+      type === "work_receipt" && normalizedInput.id && this.get(type, normalizedInput.id, true);
+    if (updatingReceipt && !options.allowReceiptRevision) {
       throw new Error("Work Receiptはappend-onlyです。既存Receiptを取り込みで更新できません。");
     }
     validateEntity(type, normalizedInput);
@@ -2379,7 +2408,16 @@ export class WorkspaceDatabase {
       const local = this.get(type, id, true);
       const canApply = !local || !currentHead || incomingParents.includes(currentHead);
       if (canApply) {
-        this.insertImported(type, packet.entity, "sync", local);
+        // 正本は同じReceiptの後継revisionを公開することがある（Taskの削除→復元など）。
+        // 同一内容なら書き込まずheadだけ進め、差分があれば同期取り込みとして適用する。
+        // ここで例外にすると、その端末は同じ差分で永久に停止する（#588の実機NASで発生）。
+        if (type === "work_receipt" && local && sameReceiptPayload(local, packet.entity)) {
+          this.setSyncHead(type, id, revisionId);
+          return { status: "duplicate", entity: local };
+        }
+        this.insertImported(type, packet.entity, "sync", local, {
+          allowReceiptRevision: type === "work_receipt",
+        });
         this.setSyncHead(type, id, revisionId);
         this.db
           .prepare("DELETE FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?")
