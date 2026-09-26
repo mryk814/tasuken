@@ -16,13 +16,20 @@ export type FeedItemKind =
   | "review_ready"
   | "past_context"
   /** 実データの未処理Proposal（#604後半）。提案を見る／今回は見送るの組を持つ。 */
-  | "proposal_pending";
+  | "proposal_pending"
+  /** 進捗の追記（確認待ち）。採用/却下だけが残る。 */
+  | "progress_report"
+  /** 回答済みだが採用が未決着の報告（確認待ち）。 */
+  | "answered_report";
 
 /**
  * 並び順の段階。docs/feed-surface.md の順序規則そのもの。
  * 0が先頭。段階の中では人が設定した期限 → 受信の古い順に並べる。
+ *
+ * `confirmation` は判断ではない（進捗追記・回答済み）。**要対応の件数には数えない**が、
+ * 採用/却下が未決着なので同じ一覧へ並べる（Androidの「確認待ち」と同じ意味）。
  */
-export type FeedGroup = "needs_you" | "review" | "today_change" | "optional";
+export type FeedGroup = "needs_you" | "review" | "confirmation" | "today_change" | "optional";
 
 /** 行の状態。色だけでなく文字ラベルも必ず併記する。 */
 export type FeedItemState = "active" | "blocked" | "review" | "done" | "info";
@@ -425,8 +432,9 @@ export const FEED_FIXTURE_ITEMS: readonly FeedItem[] = [...FEED_CANONICAL_ITEMS,
 export const FEED_GROUP_ORDER: Record<FeedGroup, number> = {
   needs_you: 0,
   review: 1,
-  today_change: 2,
-  optional: 3,
+  confirmation: 2,
+  today_change: 3,
+  optional: 4,
 };
 
 /** 任意の提案と関連記録は初期値として一日合計5件まで。要対応項目をこの上限で隠さない。 */
@@ -461,8 +469,9 @@ function compareFeedItems(a: FeedItem, b: FeedItem): number {
  *
  * 1. 保留していない人間への質問と判断依頼
  * 2. 未処理の成果確認と変更Proposal
- * 3. 今日扱うTaskに関する新しい変化
- * 4. 任意の提案と関連記録（一日の上限あり）
+ * 3. 判断ではないが未決着の報告（確認待ち。進捗追記・回答済み）
+ * 4. 今日扱うTaskに関する新しい変化
+ * 5. 任意の提案と関連記録（一日の上限あり）
  *
  * 同じ段階では人が設定した期限を優先し、次に受信の古いものを先にする。
  * AIの自己申告による緊急度では順位を変えない。
@@ -488,9 +497,15 @@ export function buildFeedProjection(
   };
 }
 
-/** 「対応待ち」タブ。未解決の判断だけを出す。 */
+/**
+ * 「対応待ち」タブ。未解決の判断と、判断ではないが未決着の報告（確認待ち）を出す。
+ * 段階の順序は `FEED_GROUP_ORDER` が決める（判断 → 確認待ち）。
+ */
 export function selectNeedsYou(items: readonly FeedItem[]): FeedItem[] {
-  return items.filter((item) => item.group === "needs_you" || item.group === "review");
+  return items.filter(
+    (item) =>
+      item.group === "needs_you" || item.group === "review" || item.group === "confirmation",
+  );
 }
 
 /** 「最近の更新」タブ。受信の新しい順にし、判断待ちの重要順と混ぜない。 */
@@ -500,7 +515,10 @@ export function selectRecent(items: readonly FeedItem[]): FeedItem[] {
   );
 }
 
-/** 要対応件数は未解決の判断単位の数。「後で見る」は減らさない。 */
+/**
+ * 要対応件数は未解決の**判断**単位の数。「後で見る」は減らさない。
+ * 確認待ち（進捗追記・回答済み）は判断ではないので数えない（badgeと同じ意味）。
+ */
 export function countUnresolved(items: readonly FeedItem[]): number {
   return items.filter((item) => item.group === "needs_you" || item.group === "review").length;
 }

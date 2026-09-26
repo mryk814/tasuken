@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildAttentionQueue,
+  buildConfirmationQueue,
   countAttention,
   isPassiveAgentSessionProposal,
 } from "../src/shared/contracts/task/public.ts";
@@ -325,4 +326,92 @@ test("Taskの情報がitemへ引き継がれ、元のsourceへ辿れる", () => 
 test("委任もProposalも無いTaskは要対応を生まない", () => {
   const task = makeTask({ work_state: "not_delegated", intended_executor: "unassigned" });
   assert.equal(countAttention(buildAttentionQueue({ tasks: [task] })), 0);
+});
+
+test("進捗の追記は判断を作らず、確認待ちとしてだけ残る", () => {
+  const task = makeTask({
+    work_state: "in_progress",
+    work_attempt_id: WORK_ATTEMPT_A,
+    project_id: "theme-materials",
+  });
+  const progress = makeProposal("progress-1", {
+    action: "append_receipt",
+    work_attempt_id: WORK_ATTEMPT_A,
+    executor_label: "Codex",
+    summary: "条件を比較中です。",
+    reported_at: "2026-09-20T09:10:00.000Z",
+  });
+  const input = {
+    tasks: [task],
+    proposals: [progress],
+    receipts: [],
+    themes: [{ id: "theme-materials", name: "高分子材料評価" }],
+  };
+
+  // 要対応は増えない（badgeと同じ意味）。
+  assert.equal(countAttention(buildAttentionQueue(input)), 0);
+  const confirmations = buildConfirmationQueue(input);
+  assert.equal(confirmations.length, 1);
+  assert.equal(confirmations[0].kind, "progress_report");
+  assert.equal(confirmations[0].taskId, TASK_ID);
+  assert.equal(confirmations[0].themeName, "高分子材料評価");
+  assert.equal(confirmations[0].agentLabel, "Codex");
+  // 採否は提案へ戻れる。sourceを失わない。
+  assert.equal(confirmations[0].sourceType, "ai_proposal");
+  assert.equal(confirmations[0].sourceId, "progress-1");
+  assert.equal(confirmations[0].summary, "条件を比較中です。");
+
+  // 採用/却下が決まった提案は確認待ちから消える。
+  for (const status of ["accepted", "rejected"]) {
+    const settled = buildConfirmationQueue({
+      ...input,
+      proposals: [makeProposal("progress-1", { action: "append_receipt" }, { status })],
+    });
+    assert.deepEqual(settled, []);
+  }
+});
+
+test("回答済みでも採用が未決着の停止報告は確認待ちへ移る", () => {
+  const task = makeTask({ work_state: "blocked", work_attempt_id: WORK_ATTEMPT_A });
+  const question = questionProposal("question-1");
+  const reply = makeReceipt("reply-1", {
+    executor_kind: "human",
+    executor_label: "自分",
+    receipt_kind: "human_reply",
+    request_id: REQUEST_MEASUREMENT,
+    work_attempt_id: WORK_ATTEMPT_A,
+    summary: "25℃で進めてください。",
+  });
+  const input = { tasks: [task], proposals: [question], receipts: [reply] };
+
+  // 回答が保存されたので要対応からは外れる。
+  assert.equal(countAttention(buildAttentionQueue(input)), 0);
+  const confirmations = buildConfirmationQueue(input);
+  assert.equal(confirmations.length, 1);
+  assert.equal(confirmations[0].kind, "answered_report");
+  assert.equal(confirmations[0].requestId, REQUEST_MEASUREMENT);
+  assert.equal(confirmations[0].workAttemptId, WORK_ATTEMPT_A);
+  assert.equal(confirmations[0].sourceId, "question-1");
+
+  // 未回答のあいだは判断として残り、確認待ちには出さない。
+  const unanswered = { tasks: [task], proposals: [question], receipts: [] };
+  assert.equal(countAttention(buildAttentionQueue(unanswered)), 1);
+  assert.deepEqual(buildConfirmationQueue(unanswered), []);
+});
+
+test("確認待ちは同じProposalを二度並べない", () => {
+  const task = makeTask({ work_state: "in_progress", work_attempt_id: WORK_ATTEMPT_A });
+  const progress = makeProposal("progress-1", {
+    action: "append_receipt",
+    work_attempt_id: WORK_ATTEMPT_A,
+    summary: "1回目",
+    reported_at: "2026-09-20T09:10:00.000Z",
+  });
+  const confirmations = buildConfirmationQueue({
+    tasks: [task],
+    proposals: [progress, { ...progress }],
+    receipts: [],
+  });
+  assert.equal(confirmations.length, 1);
+  assert.equal(confirmations[0].sourceId, "progress-1");
 });

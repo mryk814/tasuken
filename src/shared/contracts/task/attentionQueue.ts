@@ -250,6 +250,109 @@ export function countAttention(items: readonly AttentionItem[]): number {
 }
 
 /**
+ * 確認待ちの種類。
+ *
+ * 判断ではないので `attentionKindSchema` へは混ぜない。混ぜると
+ * 要対応の件数（Desktopのbadge / Androidの要対応）が水増しされる。
+ */
+export const confirmationKindSchema = z.enum(["progress_report", "answered_report"]);
+
+export type ConfirmationKind = z.output<typeof confirmationKindSchema>;
+
+/**
+ * 判断ではないが未決着の報告（確認待ち）。
+ *
+ * - 進捗の追記と、回答済みだが採用がまだ決まっていない停止報告がここへ来る。
+ * - **要対応の件数には数えない。** 人が採用/却下するまでは未決着なので消さない。
+ * - 同じProposalは1件1回だけ並べる（`sourceId` で畳む）。
+ */
+export interface ConfirmationItem {
+  confirmationId: string;
+  kind: ConfirmationKind;
+  taskId: string;
+  taskTitle: string | null;
+  themeId: string | null;
+  themeName: string | null;
+  agentLabel: string | null;
+  headline: string;
+  summary: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  sourceType: AttentionSourceType;
+  sourceId: string;
+  sourceVersion: number | null;
+  workAttemptId: string | null;
+  requestId: string | null;
+  generated: boolean;
+}
+
+/**
+ * 確認待ちを一つのqueueへ集約する。
+ *
+ * 導出は `deriveAgentWorkState` の結果をそのまま使う（`buildAttentionQueue` と同じsource）。
+ * 判断と確認待ちを別の関数に分けているのは、**数え方の意味が違う**ためである。
+ */
+export function buildConfirmationQueue(input: {
+  tasks?: readonly unknown[];
+  proposals?: readonly unknown[];
+  receipts?: readonly unknown[];
+  themes?: readonly unknown[];
+}): ConfirmationItem[] {
+  const tasks = asRecords(input.tasks).filter((task) => !task.deleted_at);
+  const proposals = asRecords(input.proposals).filter((proposal) => !proposal.deleted_at);
+  const receipts = asRecords(input.receipts).filter((receipt) => !receipt.deleted_at);
+  const themes = asRecords(input.themes).filter((theme) => !theme.deleted_at);
+  const themeName = new Map(themes.map((theme) => [String(theme.id), text(theme.name)]));
+
+  const items: ConfirmationItem[] = [];
+  for (const task of tasks) {
+    const state = deriveAgentWorkState({ task, proposals, receipts });
+    if (!state) continue;
+    for (const confirmation of state.confirmations) {
+      const themeId = text(task.project_id) || null;
+      items.push({
+        confirmationId: `task-work:${confirmation.confirmationId}`,
+        kind: confirmation.kind,
+        taskId: String(task.id),
+        taskTitle: text(task.title) || null,
+        themeId,
+        themeName: themeId ? themeName.get(themeId) || null : null,
+        agentLabel: state.delegate.lastExecutorLabel || state.delegate.executorIdentity || null,
+        headline: confirmation.headline || confirmation.summary,
+        summary: confirmation.summary,
+        createdAt: confirmation.receivedAt || confirmation.reportedAt,
+        updatedAt: confirmation.receivedAt || confirmation.reportedAt,
+        sourceType: confirmation.sourceRef.type,
+        sourceId: confirmation.sourceRef.id,
+        sourceVersion: confirmation.sourceVersion,
+        workAttemptId: confirmation.workAttemptId,
+        requestId: confirmation.requestId,
+        generated: confirmation.generated,
+      });
+    }
+  }
+
+  // 経路の違いで生じた同じsourceの重複を件数へ持ち込まない。
+  const deduped = new Map<string, ConfirmationItem>();
+  for (const item of items) {
+    const previous = deduped.get(item.sourceId);
+    if (!previous) {
+      deduped.set(item.sourceId, item);
+      continue;
+    }
+    const previousAt = Date.parse(previous.updatedAt || "") || 0;
+    const currentAt = Date.parse(item.updatedAt || "") || 0;
+    if (currentAt >= previousAt) deduped.set(item.sourceId, item);
+  }
+
+  return [...deduped.values()].sort(
+    (a, b) =>
+      (a.createdAt || "").localeCompare(b.createdAt || "") ||
+      a.confirmationId.localeCompare(b.confirmationId),
+  );
+}
+
+/**
  * Agent Deskが同時に示す3つの数（#601）。
  *
  * Desktopの画面とAndroidは同じ数を出す。片方だけが独自に数えると

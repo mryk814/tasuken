@@ -584,10 +584,20 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
     () => (data.ai_proposals || []).filter((proposal) => isPassiveAgentSessionProposal(proposal)),
     [data.ai_proposals],
   );
+  /**
+   * 変更案の一覧。
+   *
+   * **task_work（作業報告）はここへ入れない。** 同じ報告が「対応待ち」と
+   * 「提案の確認」の2面に出るのを避けるため、判断と確認待ちは Feed の「対応待ち」が持つ。
+   * このパネルは変更案のプレビューと採否だけを担う（docs/feed-surface.md §6.6）。
+   */
   const proposalGroups = useMemo(
     () =>
       taskWorkInboxGroups(
-        (data.ai_proposals || []).filter((proposal) => !isPassiveAgentSessionProposal(proposal)),
+        (data.ai_proposals || []).filter(
+          (proposal) =>
+            !isPassiveAgentSessionProposal(proposal) && str(proposal.payload_type) !== "task_work",
+        ),
       ),
     [data.ai_proposals],
   );
