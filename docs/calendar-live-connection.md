@@ -179,3 +179,27 @@ Todayの予定欄の状態は `src/renderer/src/features/workspace/lib/calendarS
 `npm run smoke:calendar-live` が**9項目すべてOK**。隔離userDataで実アカウントへ接続し、
 Todayの当日予定1件・再取得での更新・Debriefの時間軸の予定1件・接続解除まで実測した。
 証跡は `output/playwright/calendar-live`（`01-disconnected` / `02-connected` / `03-today` / `04-activity` / `05-after-disconnect`）。
+
+## 失効→再接続の再測（#273の残り1項目）
+
+同意を失効させたときに、アプリが黙って古い予定を出し続けず**再接続を促す**ことを確かめる。
+判定は表示文言ではなく `errorCode`（`authentication_required` / `token_expired`）で行う。
+
+### 手順
+
+1. 予定が取れている状態を作る（通常起動で接続済み、または `smoke:calendar-live` の接続直後）。
+2. **Google側で同意を取り消す**: [Google アカウントのサードパーティ アクセス](https://myaccount.google.com/connections)
+   で `Tasken Desktop` のアクセスを削除する。
+3. アプリでTodayの予定を**更新**する。期待は次の2つ。
+   - 表示: 予定欄に「Googleの認証が必要です」相当のエラーと「再接続」導線が出る（Taskの一覧は消えない）
+   - 診断: 標準エラーへ `TASKEN_CALENDAR_OAUTH_FAILED` は**出ない**（あれはtoken交換時の診断）。
+     代わりに `errorCode: authentication_required` が返る
+4. Settings → Integrations で**再接続**する。同意画面が出るので許可する（失効後は再同意が必要）。
+5. 接続済みへ戻り、予定が再び取れることを確認する。
+
+### 注意
+
+- 取り消すと、通常起動の接続は**その場で使えなくなる**。再接続の同意（ブラウザ）まで行って元に戻す。
+- `smoke:calendar-live` で試す場合は毎回**新しい同意**が要る（隔離userDataのため、失効前の接続が無い状態から始まる）。
+  そのため失効の実測は「通常起動で接続 → Google側で取り消し → 更新で確認」の順が確実である。
+- 実測できたら、この節の結果（表示・`errorCode`）をここへ追記し、#273を閉じてよいか判断する。
