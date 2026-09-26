@@ -20,7 +20,7 @@
 - Feedの説明と、MCP全体instructions・共通成功文の「Previewして採用」が一致していない。
 - 再送にはidempotency keyが使えるが、省略時は新しいキーになる。`recent_post_ids` は現在のhandlerで重複排除に使われない。
 - MCP応答の `queued / duplicate` は受付結果であり、採否やDesktopへの配送確認ではない。Proposalの採否照会toolはない。
-- リポジトリのNAS構成は `TASKEN_MCP_READ_ONLY=1`。Headless Core自身のwrite gateは未実装。
+- リポジトリのNAS構成は `TASKEN_MCP_READ_ONLY=1`。Headless Core自身のwrite gate（`--write-mode`）は2026-09-21に実装し、2026-09-27に実機へ配置した。
 - NASとDesktopは別のローカルSQLiteを持ち、共有フォルダで差分を交換する。ライブSQLiteを共有しない。
 - 未採用のNote画像は同期されず、Headlessには画像Proposalのstage機能がない。
 
@@ -78,7 +78,7 @@
 
 ### 分かった制約
 
-- MCP bridgeの `TASKEN_MCP_READ_ONLY=1` を外すと、Headless Coreはreplicaからの書き込みをそのまま受理する。Core側のgateは無い。
+- MCP bridgeの `TASKEN_MCP_READ_ONLY` を外すだけでは、Headless Core側のwrite gateを選ばない限り書き込みは公開されない（`--write-mode`の既定はread-only）。
 - 同じ `idempotency_key` をDesktopとNASの両方へ送ると、同じProposal IDが両nodeで別revisionとして生まれ、競合になりうる。1つの要求は1つのnodeへ送る運用が必要。
 - 端末ごとの `deviceSequence` は1から連番である必要がある。NAS役の公開は1件目から連番になる。
 
@@ -126,9 +126,9 @@
 
 Phase 0の同期調査結果を設計ゲートとする。read-only設定の単純解除では実施しない。
 
-状態: ローカル実装済み（2026-09-21）。Task作業報告の受付を追加（2026-09-27）。実Synologyへの配置は未実施。
+状態: ローカル実装済み（2026-09-21）。Task作業報告の受付を追加（2026-09-27）。実Synologyへ配置済み（2026-09-27、`TASKEN_CORE_WRITE_MODE=proposals`と`TASKEN_MCP_READ_ONLY=0`。観測は[DEPLOYED.md](../deploy/synology/DEPLOYED.md)）。実クライアントからの往復は未確認。
 
-実装内容: Headless Coreに `--write-mode`（`read-only` 既定 / `proposals`）を追加。既定は書き込みcapabilityを公開せず、`proposals` ではテキストのFeed投稿・Note案・Task案だけを受け付け、Core自身が種類単位で拒否する（`WRITE_NOT_ALLOWED`、HTTP 403）。Desktopは変更しない。`scripts/mcp-doctor.mjs` は `read-only`・`proposals` 配備を正常として診断する。NAS側のcompose・`.env.example` にも `TASKEN_CORE_WRITE_MODE` とtunnel側の `TASKEN_MCP_READ_ONLY` 既定を反映した。
+実装内容: Headless Coreに `--write-mode`（`read-only` 既定 / `proposals`）を追加。既定は書き込みcapabilityを公開せず、`proposals` ではテキストのFeed投稿・Note案・Task案・Task作業報告だけを受け付け、Core自身が種類単位で拒否する（`WRITE_NOT_ALLOWED`、HTTP 403）。Desktopは変更しない。`scripts/mcp-doctor.mjs` は `read-only`・`proposals` 配備を正常として診断する。NAS側のcompose・`.env.example` にも `TASKEN_CORE_WRITE_MODE` とtunnel側の `TASKEN_MCP_READ_ONLY` 既定を反映した。
 
 ### Task作業報告の受付（2026-09-27）
 
@@ -166,7 +166,7 @@ ChatGPTから接続した利用者から「viewだけでなく作業報告も残
 
 ## Phase 3 — 受領・採否・鮮度を確認できるようにする
 
-状態: 作業1・2を実装済み（2026-09-21）。作業3（受領ID応答への同期鮮度、2026-09-21実装済み）と作業4（Settings MCP Bridgeの書き込み範囲表示、2026-09-21実装済み）。実Synologyへの配置は未実施。
+状態: 作業1・2を実装済み（2026-09-21）。作業3（受領ID応答への同期鮮度、2026-09-21実装済み）と作業4（Settings MCP Bridgeの書き込み範囲表示、2026-09-21実装済み）。実Synologyへ配置済み（2026-09-27）。
 
 ### 下調べで分かった制約
 

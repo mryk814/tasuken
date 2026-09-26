@@ -110,7 +110,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 
 - NAS上のNode（またはNode入りコンテナ）で `npm ci`、`npm run build:core:headless` を実行し、`core-dist/headless.mjs` と `node_modules` を配置する。
 - `node core-dist/headless.mjs --user-data-dir=/volume1/tasken --sync-directory=/volume1/tasken-sync` をsystemd・Container Manager等で常時起動する。停止はSIGTERMでgraceful。
-- MCP clientはNAS上で `node scripts/mcp-server.mjs` をstdio起動するか、transport（Secure MCP Tunnel等）で公開する。replica運用では`TASKEN_MCP_READ_ONLY=1`を付ける。Tasken domain側へtransport固有logicは入れない。
+- MCP clientはNAS上で `node scripts/mcp-server.mjs` をstdio起動するか、transport（Secure MCP Tunnel等）で公開する。replica運用の既定は`TASKEN_MCP_READ_ONLY=1`。提案を受け付ける配備では`0`にする（Core側の`--write-mode=proposals`と両方が要る）。Tasken domain側へtransport固有logicは入れない。
 - discovery fileはuserData配下のowner-only。MCPへtoken・local path・credentialを返さない現在の境界をそのまま維持する。
 
 ## #427 / shared-folder syncとの関係
@@ -137,7 +137,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 ## 残作業
 
 - Phase 0: 実ChatGPT等からSecure MCP Tunnel経由で既存MCP contractへ接続する実証（利用者アカウント・tunnel設定が必要）
-- Phase 2（残り）: 実Synologyでの参加検証、bootstrap/compaction/revoke/schema upgradeのowner決定。Core側の提案受付gate（`--write-mode=proposals`）は2026-09-21に実装済みで、実環境への配置が残る
+- Phase 2（残り）: 実Synologyでの参加検証、bootstrap/compaction/revoke/schema upgradeのowner決定。Core側の提案受付gate（`--write-mode=proposals`）は2026-09-21に実装済みで、2026-09-27に実機NASへ配置した（[DEPLOYED.md](../deploy/synology/DEPLOYED.md)）。
 - Phase 3: NAS上の常時稼働MCP、transport切断・再接続時の状態非破壊、NAS再起動後の自動復帰
 - Phase 4: 通常command経路でのwrite有効化とconflict/Tombstone/undo検証、read-only feature gate
 - Phase 5: relay責務のADR（Synology thin relay・共有フォルダ・Desktop Gateway・managed backendの比較）

@@ -103,6 +103,30 @@ SSHの鍵が無いためコンテナ側は依然として未確認。共有か�
     - ChatGPT側の一覧にtunnelが出るかは未確認（OpenAI側の既知問題。09-12の保留理由が解消したかは画面での再確認が要る）
 - 未確認: Desktop停止中の読み取り（N3）、`backup.sh` の実機実行、Desktop停止・NAS再起動・transport再接続の一連
 
+### 2026-09-27 書き込みをproposalsで有効化（#588 N4 / N5）
+
+read-onlyだった実機NASを、Proposal（Feed投稿・Note案・Task案・**Task作業報告**）だけを受け付ける配備へ切り替えた。正式データの採用とTask完了はDesktopの人の操作のまま。
+
+- 配備物: 開発機（Docker Desktop）で`linux/amd64`の`tasken-headless:local`を作り直した。
+  - image ID `sha256:72be677563b030f28fbc63435cb0b8cb38f538c3f5a3a906ad49800b2ae3b38d`、`docker save`したtarのsha256 `14fbfdfca630835719828b81c47f59abae49c0fcc17e212ae60a2330d401f2fa`。
+  - sourceは`b779c067`から`git -c core.autocrlf=false -c core.eol=lf archive`で作成（sha256 `b17c01414721fd1e6fe93efae5c3ba960dae670b0b7e5c0ece8599d65871ebe4`）。`nas-install.sh`は同commitのもの（sha256 `1679c3dd91c90e00ca14f42b848829d80375be7eb4fe7736107672215c6afeb5`）。
+  - SMB共有`_deploy`経由で搬入し、PC側とNAS側の`sha256sum`が3ファイルとも一致することを確認。旧配備物は`.prev-2026-09-26.tar`として残置。
+  - 搬入後も追加commit（`f8bb53e1`、テストのみ）はNASへ送っていない。imageとsourceは`b779c067`で一致しており、テストは実行時に使わない。
+- 実行: `sudo TASKEN_CORE_WRITE_MODE=proposals TASKEN_MCP_READ_ONLY=0 bash /volume1/tasken/_deploy/nas-install.sh`
+- 実測（実行ログ）:
+  - `WRITE_OK` → Core `TASKEN_HEADLESS_CORE_READY {"...","capability_count":31,"sync_directory":"/sync","write_mode":"proposals","pid":7}`。
+  - `tasken-headless` Started 0.9s、`tasken-tunnel` Started 0.2s。tunnelは`tunnel metadata fetched`（name `Tasken MCP - Synology`、tunnel_id `tunnel_6aa4aa138f10819198458b82e82c079e`据え置き）の後に`Tasken MCP Bridge is running on stdio.`
+  - 事前確認として、同じimageを一時volumeで起動し`--write-mode=proposals`がcapability 31（`propose_task_work`あり・`task.command`なし）、既定がcapability 28のread-onlyになることをPC側で確認している。
+- 実測（PC側からの読み取り）:
+  - `deploy/synology/.env`: `TASKEN_CORE_WRITE_MODE=proposals`・`TASKEN_MCP_READ_ONLY=0`・`CONTROL_PLANE_TUNNEL_ID`を保持。`nas-install.sh`の再生成後も消えていない（2026-09-26までの版は書き込み設定を書かず、再配置で既定へ戻っていた）。
+  - `state/tasken-core.json`: capability 31。`propose_content`・`propose_repository_task`・`propose_task_work`あり、`task.command`・`propose_agent_session`なし（＝proposals配備）。
+  - replica DB（`/data`をコピーしてread-onlyで読む。外へは出していない）: `workspace_id 047c7258-…`（ホストと一致）、`shared_sync_last_error`空、`shared_sync_last_at 2026-09-26T20:36:03Z`、cursor `14efbb12-…: 3297`、`sync_conflicts` 0、`sync_outbox` 0。entity（`deleted_at IS NULL`）は task 99 / ai_proposal 131 / work_receipt 54 / note 10 / change_event 889、pending proposal 44（うち`task_work` 80件は累計）。
+  - 同じworkspaceの`sync/devices/9aab88aa-…`は**空**。このdevice idはNAS replica自身のもので、read-only運用では公開する差分が無かったため。2026-09-20の記録にある「もう一方の端末」という解釈はこれに訂正する（過去の記録はそのまま残す）。
+- 未確認（この時点）:
+  - `tasken-tunnel`の環境変数を`docker inspect`で直接読む確認（`.env`の値とコンテナ再作成の事実までは確認済み）。
+  - ChatGPT側のconnectorが新しいtool一覧を取得すること、実クライアントからのFeed投稿・Task作業報告の往復、Desktopでの採用。
+  - 1つの`idempotency_key`をDesktopとNASの両方へ送らない運用は未変更。
+
 ## ローカル検証（NASではない）
 
 ### 2026-09-12 Linux amd64コンテナ（Docker Desktop）

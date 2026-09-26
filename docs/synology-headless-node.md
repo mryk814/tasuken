@@ -3,7 +3,7 @@
 Synology上でElectronなしのTasken Coreを常時稼働させ、既存の共有フォルダ同期へ**read-only replica**として参加させる手順です。
 Desktopが停止していても、NASのローカルSQLiteが最新の同期差分を持ち、MCP（read-only）からContextを読める状態を目指します。
 
-実装済みなのはheadless Coreとreplica参加（`docs/headless-core.md`）までです。MCP transport / Secure MCP Tunnelの常時稼働と、write有効化はPhase 3/4で未検証です。
+実装済みなのはheadless Coreとreplica参加（`docs/headless-core.md`）までです。MCP transport / Secure MCP Tunnelの常時稼働とwrite有効化（`proposals`配備）は2026-09-27に実機NASへ配置済みで、観測は[deploy/synology/DEPLOYED.md](../../deploy/synology/DEPLOYED.md)にあります。ChatGPT実クライアントからの往復とtransport再接続は未検証です。
 
 ```text
 [データ端末 Tasken]
@@ -14,9 +14,9 @@ Desktopが停止していても、NASのローカルSQLiteが最新の同期差�
    ▼
 [tasken-headless コンテナ]  tasken-data volume に自分のSQLite
    │  Docker exec 経由
-   └─ node mcp-dist/server.mjs  (TASKEN_MCP_READ_ONLY=1)
+   └─ node mcp-dist/server.mjs  (TASKEN_MCP_READ_ONLY=1。提案を受け付ける配備では0)
           ▲
-          外部AI（Phase 3でtransport接続）
+          外部AI（Secure MCP Tunnel経由）
 ```
 
 ## 前提
@@ -114,7 +114,7 @@ Coreは`127.0.0.1`のloopbackにだけ待ち受け、discovery fileはowner-only
 sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/server.mjs
 ```
 
-- `TASKEN_MCP_READ_ONLY=1` でwrite tools（`start_task_work`・`report_task_done`・`propose_*`等）は公開されません（読み取りtoolsのみ）。replicaからcanonical stateを書き換えないための必須設定です。
+- `TASKEN_MCP_READ_ONLY=1` でwrite tools（`start_task_work`・`report_task_done`・`propose_*`等）は公開されません（読み取りtoolsのみ）。replicaからcanonical stateを書き換えないための既定です。提案だけを受け付ける場合は次の節の2設定を使います。
 - 外部AIへつなぐSecure MCP Tunnel等のクライアントは、NASホスト側でこの`docker exec`をstdio起動する形にします。常時稼働させる構成は次のPhase 3を参照してください。
 
 ### 投稿・提案を受け付ける（`--write-mode=proposals`）
@@ -166,7 +166,8 @@ sudo docker logs --tail=30 tasken-tunnel
 
 - tunnel-clientのimageは`--build-arg TUNNEL_CLIENT_IMAGE=ghcr.io/openai/tunnel-client:vX.Y.Z`で固定できます（既定`latest`。本番は固定を推奨）。
 - 2026-09-12時点の実機観測: NAS側のdaemonは`healthy`・metadata取得済みだが、**ChatGPT Plus + Personal workspaceでは`Connection: Tunnel`の一覧にtunnelが出ない**（OpenAI側の既知問題。`tunnel_principal_association_unverified`）。Business/Enterprise workspaceかOpenAI側の修正待ち。経緯は[deploy/synology/DEPLOYED.md](../../deploy/synology/DEPLOYED.md)。
-- 未検証: ChatGPTからのtool call（上記理由で保留）、transport切断・再接続、NAS再起動後の自動復帰。
+- その後、利用者からChatGPTから接続できたとの報告があり、現在の利用状況として扱う（2026-09-27時点）。上の09-12観測は履歴として残す。
+- 未検証: ChatGPT実クライアントからの書き込み往復（読み取りは利用中）、transport切断・再接続、NAS再起動後の自動復帰。
 
 ## コンテナ設定（堅牢化）
 
@@ -273,7 +274,7 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 - arm64 / armv7のNASは未検証（実機確認はamd64のDS723+）。
 - Synology Drive / Cloud Sync経由の同期（実機確認はSMB共有フォルダ直結）。
 - `backup.sh`のNAS上での一連実行（compose検出・排他lock・再起動を含む）は未実施。
-- MCP transport / Secure MCP Tunnelの常時稼働と再接続、write有効化の実機確認。Core側のwrite capability gate（`--write-mode`）は実装済みで、既定は書き込みを公開しない。
+- MCP transport / Secure MCP Tunnelの再接続と、ChatGPT実クライアントからの投稿・作業報告の往復。常時稼働と`proposals`配備（`TASKEN_CORE_WRITE_MODE=proposals` + `TASKEN_MCP_READ_ONLY=0`）は2026-09-27に実機へ配置し、Core capability 31と`write_mode":"proposals"`まで確認済み（[DEPLOYED.md](../../deploy/synology/DEPLOYED.md)）。
 - bootstrap / compaction / revoke / schema upgradeのowner決定はPhase 2の残り。Note Markdown画像の扱いと、コンテナ上での画像MCP再実行は未検証。
 - イメージbuild/runにはDocker daemonが必要。
 
