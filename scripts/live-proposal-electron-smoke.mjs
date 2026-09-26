@@ -85,22 +85,45 @@ async function openProposalConfirmation(page) {
   await page.locator("#feed-panel-needs").waitFor();
 }
 
+/**
+ * 未決着の件数は、対応待ちの一覧の行数で読む。
+ * 変更案も作業報告も同じ一覧に並ぶ（「提案の確認」の一覧は廃止した）。
+ */
 async function waitForPendingCount(page, expected) {
   await page.waitForFunction(
-    (count) =>
-      document.querySelector(".proposal-pending-count")?.textContent?.trim() ===
-      `${count}件の確認待ち`,
+    (count) => document.querySelectorAll(".feed-needs-row").length === count,
     expected,
     { timeout: 15_000 },
   );
 }
 
+/** 一覧の先頭の行を選び、詳細を開く。 */
+async function openFirstNeedsRow(page) {
+  await page.locator(".feed-needs-select").first().waitFor();
+  await page.locator(".feed-needs-select").first().click();
+}
+
+/**
+ * 選択中の1件を採用する。
+ * 成果確認は #599 の読み順を持つ面（`feed-review`）、変更案と作業報告は提案のプレビューで決める。
+ */
+async function acceptSelectedNeedsItem(page) {
+  const detail = page.locator(".feed-needs-detail");
+  const review = detail.locator(".feed-review");
+  if (await review.count()) {
+    await review.getByRole("button", { name: "報告を採用", exact: true }).click();
+    return;
+  }
+  await detail
+    .locator(".proposal-inline-preview")
+    .getByRole("button", { name: "採用", exact: true })
+    .click();
+}
+
 async function waitForWorkProposalDecision(page) {
   const outcomeHandle = await page.waitForFunction(
     () => {
-      if (
-        document.querySelector(".proposal-pending-count")?.textContent?.trim() === "0件の確認待ち"
-      ) {
+      if (document.querySelectorAll(".feed-needs-row").length === 0) {
         return { status: "accepted" };
       }
       const message = document.querySelector(".toast-message")?.textContent?.trim() || "";
@@ -195,7 +218,8 @@ try {
   mcpClient = await connectMcp();
 
   await openProposalConfirmation(page);
-  // 提案が届く前は「提案の確認」を出さない。件数の基準は到着後に読む。
+  // 提案が届く前は対応待ちに何も無い（履歴の面も出さない）。件数の基準は到着後に読む。
+  assert.equal(await page.locator(".feed-needs-row").count(), 0);
   assert.equal(await page.locator(".proposal-inbox-panel").count(), 0);
   const routeBeforeProposal = await page.evaluate(() => location.hash);
 
@@ -241,7 +265,7 @@ try {
   assert.doesNotMatch(diagnosticsText, /API key|AI Provider|OpenAI/);
 
   await openProposalConfirmation(page);
-  await page.locator(".proposal-row-select").first().click();
+  await openFirstNeedsRow(page);
   assert.match(await page.locator(".proposal-inline-preview").innerText(), new RegExp(title));
   await page.getByRole("button", { name: "採用", exact: true }).click();
   await waitForPendingCount(page, 0);
@@ -298,12 +322,9 @@ try {
   assert.equal(staleWork.status, "queued");
   await openProposalConfirmation(page);
   await waitForPendingCount(page, 1);
-  await page.locator(".proposal-row-select").first().waitFor();
-  await page.locator(".proposal-row-select").first().click();
-  await page
-    .locator(".proposal-inline-preview")
-    .getByRole("button", { name: "採用", exact: true })
-    .click();
+  await openFirstNeedsRow(page);
+  await acceptSelectedNeedsItem(page);
+
   await page.waitForFunction(
     () => {
       const text = document.body.innerText;
@@ -350,11 +371,9 @@ try {
   const completedWork = await callMcp("tasken.report_task_done", completedWorkArguments);
   assert.equal(completedWork.status, "queued");
   await waitForPendingCount(page, 1);
-  await page.locator(".proposal-row-select").first().click();
-  await page
-    .locator(".proposal-inline-preview")
-    .getByRole("button", { name: "採用", exact: true })
-    .click();
+  await openFirstNeedsRow(page);
+  await acceptSelectedNeedsItem(page);
+
   await waitForWorkProposalDecision(page);
 
   const duplicateCompletedWork = await callMcp("tasken.report_task_done", completedWorkArguments);
@@ -387,11 +406,9 @@ try {
   assert.equal(followUp.status, "queued");
   await openProposalConfirmation(page);
   await waitForPendingCount(page, 1);
-  await page.locator(".proposal-row-select").first().click();
-  await page
-    .locator(".proposal-inline-preview")
-    .getByRole("button", { name: "採用", exact: true })
-    .click();
+  await openFirstNeedsRow(page);
+  await acceptSelectedNeedsItem(page);
+
   await waitForWorkProposalDecision(page);
   const finalTaskContext = await getTaskContext(taskId);
   assert.equal(finalTaskContext.task.state, "done");
@@ -420,7 +437,7 @@ try {
   });
   assert.equal(rejected.structuredContent?.status, "queued");
   await waitForPendingCount(page, 1);
-  await page.locator(".proposal-row-select").first().click();
+  await openFirstNeedsRow(page);
   await page
     .locator(".proposal-inline-preview")
     .getByRole("button", { name: "拒否", exact: true })

@@ -121,9 +121,10 @@ test("Receipt UI keeps external references compact and delegates task_work appli
   assert.match(drawer, /target="_blank" rel="noreferrer"/);
   assert.doesNotMatch(panel, /external_references: normalizeExternalReferences/);
   assert.match(panel, /name: "ApplyTaskWorkProposal"/);
+  // 採用は詳細（ProposalDetail）から既存Commandへ渡す。対象は選択中の1件。
   assert.match(
     panel,
-    /payload:\s*\{\s*proposalId: proposal\.id,\s*decision: "accept",\s*coveredProposalIds:/,
+    /payload:\s*\{\s*proposalId: active\.id,\s*decision: "accept",\s*coveredProposalIds:/,
   );
   assert.match(command, /normalizeExternalReferences\(entry\.external_references\)/);
   assert.match(command, /normalizeExternalReferences\(payload\.receipt\.external_references\)/);

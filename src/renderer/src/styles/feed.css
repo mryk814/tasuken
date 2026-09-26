@@ -467,23 +467,177 @@
 .feed-needs-list {
   display: flex;
   flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 判断と確認待ちの境目。見出しは一覧の中に1つだけ置く。 */
+.feed-needs-section {
+  padding: var(--space-3) 0 var(--space-1);
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.feed-needs-section > h3 {
+  margin: 0;
+  font: inherit;
 }
 
 .feed-needs-row {
-  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--color-border-subtle);
+}
+
+/* 行は選ぶだけ。決める操作は詳細ペインへ置く（判断は1か所）。 */
+.feed-needs-select {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-3) var(--space-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.feed-needs-select:hover {
+  background: var(--color-surface-subtle);
+}
+
+.feed-needs-select[aria-pressed="true"] {
+  background: var(--color-accent-subtle-bg);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.feed-needs-select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.feed-needs-select[aria-pressed="true"]:focus-visible {
+  box-shadow:
+    var(--focus-ring),
+    inset 3px 0 0 var(--color-accent);
 }
 
 .feed-needs-head {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
 .feed-needs-title {
-  margin: var(--space-1) 0 0;
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+
+.feed-needs-time {
+  margin-left: auto;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+/* 行の中で中身の要旨を示す。行数は増やしすぎず2行で切る。 */
+.feed-needs-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/*
+ * 広い幅は一覧と詳細を並べ、狭い幅は詳細を下へ置く（design-guide §9の1120px）。
+ * 一覧側は件数が増えても高さを占有しない。
+ */
+.feed-needs-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 一覧が更新の入口を持つ。詳細の有無で位置が動かないよう見出しは常に出す。 */
+.feed-needs-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+
+.feed-needs-heading > h2 {
+  margin: 0;
   font-size: var(--text-lg);
-  line-height: 1.6;
+  font-weight: var(--weight-bold);
+}
+
+.feed-needs-panel.has-selection {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.15fr);
+  column-gap: var(--space-3);
+  align-items: start;
+}
+
+.feed-needs-panel.has-selection > .feed-needs-heading {
+  grid-column: 1 / -1;
+}
+
+.feed-needs-panel.has-selection > .feed-needs-list {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+}
+
+.feed-needs-panel.has-selection > .feed-needs-detail {
+  grid-column: 2;
+  grid-row: 2;
+  position: sticky;
+  top: var(--space-3);
+  max-height: calc(100vh - var(--space-8));
+  overflow: auto;
+  padding: var(--space-3) var(--pad-card) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+@media (max-width: 1120px) {
+  .feed-needs-panel.has-selection {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .feed-needs-panel.has-selection > .feed-needs-list,
+  .feed-needs-panel.has-selection > .feed-needs-detail {
+    inline-size: 100%;
+  }
+
+  .feed-needs-panel.has-selection > .feed-needs-list {
+    max-height: min(42vh, 360px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .feed-needs-panel.has-selection > .feed-needs-detail {
+    position: static;
+    max-height: min(58vh, 600px);
+    margin-top: var(--space-3);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 0;
+    border-top: 1px solid var(--color-border-strong);
+    border-radius: 0;
+  }
 }
 
 .feed-answer {
