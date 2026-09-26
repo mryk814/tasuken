@@ -223,3 +223,10 @@ internal fun VoiceToolButton(
         }
     }
 }
+
+/** 返信欄で話して入力するための口。認識状態と開始・確定の操作を束ねる。 */
+internal class ReplyDictation(
+    val state: ShortSpeechUiState,
+    val start: ((String) -> Unit) -> Unit,
+    val stop: () -> Unit,
+)

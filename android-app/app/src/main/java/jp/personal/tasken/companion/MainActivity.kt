@@ -374,6 +374,30 @@ internal fun TodayApp(
             microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
+    // AIへの返信を話して書く。認識した文字は下書きへ足すだけで、送信は本人が押す。
+    var replySpeechState by remember(speechRecognizer) {
+        mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(speechRecognizer.availableMode()))
+    }
+    val replyMicrophonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) replySpeechState = ShortSpeechUiState.Error("マイク権限がありません。文字で返信できます。")
+    }
+    val replyDictation = ReplyDictation(
+        state = replySpeechState,
+        start = { deliver ->
+            if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                speechRecognizer.start(Locale.getDefault().toLanguageTag()) { next ->
+                    replySpeechState = next
+                    if (next is ShortSpeechUiState.Result) {
+                        deliver(next.result.text)
+                        replySpeechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+                    }
+                }
+            } else {
+                replyMicrophonePermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        },
+        stop = speechRecognizer::stop,
+    )
     val adaptiveInfo = currentWindowAdaptiveInfo()
     val windowWidthDp = LocalConfiguration.current.screenWidthDp.dp
     val scaffoldDirective = taskenPaneScaffoldDirective(
@@ -896,6 +920,7 @@ internal fun TodayApp(
                                 selectedAttentionId = paneState.selectedAttentionId,
                                 attentionNewArrivals = attentionNewArrivals,
                                 seenBefore = aiSeenBefore,
+                                replyDictation = replyDictation,
                                 attentionNotificationsEnabled = attentionNotificationsEnabled,
                                 onToggleAttentionNotifications = {
                                     val next = !attentionNotificationsEnabled
@@ -993,6 +1018,7 @@ internal fun TodayApp(
                                 { paneState.selectedTaskId = taskId }
                             },
                             onBack = navigateToList,
+                            dictation = replyDictation,
                         )
                     } else {
                     if (localSearchTaskReturn != null) TextButton(onClick = { localSearchOpen = true; localSearchTaskReturn = null },
@@ -1965,6 +1991,7 @@ internal fun AiInboxListPane(
     onAttentionOpened: () -> Unit = {},
     /** 前回AIタブを見た時刻。これより新しい動きを新着として示す。 */
     seenBefore: java.time.Instant? = null,
+    replyDictation: ReplyDictation? = null,
 ) {
     // 回答の下書きは1列でも展開幅と同じ保存先（paneState）に置く。
     // 面を移動しても、画面が作り直されても残り、正式に保存できたときだけ閉じる。
@@ -2032,6 +2059,7 @@ internal fun AiInboxListPane(
                         AgentAttentionCard(
                             row = row,
                             selected = selectedAttentionId == row.attentionId,
+                            replyOpenBelow = inlineTarget?.attentionId == row.attentionId,
                             onOpenReply = {
                                 onResetAgentReply()
                                 // 展開幅では詳細ペインへ、1列では行の直下へ開く。置き場所だけを変える。
@@ -2055,6 +2083,7 @@ internal fun AiInboxListPane(
                                     paneState.closeAttention()
                                     onResetAgentReply()
                                 },
+                                dictation = replyDictation,
                             )
                         }
                     }
@@ -2267,6 +2296,8 @@ private fun AgentWorkCounts(counts: MobileAttentionCountsDto?) {
 private fun AgentAttentionCard(
     row: AttentionRow,
     selected: Boolean,
+    /** 直下に返信欄を開いている。入口を重ねて出さない。 */
+    replyOpenBelow: Boolean = false,
     onOpenReply: () -> Unit,
     onOpenTask: () -> Unit,
 ) {
@@ -2328,13 +2359,36 @@ private fun AgentAttentionCard(
                     )
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (row.canReply) {
-                    Button(
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (row.canReply && !replyOpenBelow) {
+                    // 返信欄の入口。押すとその場で書き始められる（Xの返信欄と同じ手触り）。
+                    Surface(
                         onClick = onOpenReply,
-                        modifier = Modifier.testTag("attention-reply-open-${row.attentionId}"),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 44.dp)
+                            .semantics { contentDescription = "回答する" }
+                            .testTag("attention-reply-open-${row.attentionId}"),
                     ) {
-                        Text("回答する")
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "返信する…",
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Icon(
+                                painterResource(R.drawable.ic_tabler_microphone),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
                 if (row.taskId != null) {
@@ -2368,11 +2422,17 @@ internal fun AttentionDetailPane(
     onSend: () -> Unit,
     onOpenTask: (() -> Unit)?,
     onBack: (() -> Unit)?,
+    dictation: ReplyDictation? = null,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp).testTag("attention-detail"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+      // 読む部分だけをスクロールし、返信欄はキーボードの直上に残す。
+      Column(
+        modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
         if (onBack != null) {
             TextButton(onClick = onBack, modifier = Modifier.testTag("attention-detail-back")) {
                 Text("一覧へ戻る")
@@ -2401,7 +2461,7 @@ internal fun AttentionDetailPane(
                 Text("Taskを開く")
             }
         }
-        Spacer(Modifier.weight(1f))
+      }
         AttentionReplyForm(
             row = row,
             body = body,
@@ -2411,6 +2471,7 @@ internal fun AttentionDetailPane(
             onSend = onSend,
             onCancel = null,
             tagPrefix = "attention-detail",
+            dictation = dictation,
         )
     }
 }
@@ -2425,21 +2486,78 @@ private fun AttentionReplyForm(
     onSend: () -> Unit,
     onCancel: (() -> Unit)?,
     tagPrefix: String,
+    /** 話して返す。認識した文字は下書きへ足し、送るのは本人が押した時だけ。 */
+    dictation: ReplyDictation? = null,
+    focusOnOpen: Boolean = false,
 ) {
     val sending = state is AgentReplyUiState.Replying
+    val currentBody by rememberUpdatedState(body)
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(row.attentionId, focusOnOpen) {
+        if (focusOnOpen) runCatching { focusRequester.requestFocus() }
+    }
     Column(
         modifier = Modifier.fillMaxWidth().testTag("$tagPrefix-reply-editor"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("回答", fontWeight = FontWeight.Bold)
-        OutlinedTextField(
-            value = body,
-            onValueChange = onBodyChange,
-            modifier = Modifier.fillMaxWidth().testTag("$tagPrefix-reply-text"),
-            label = { Text("回答を入力") },
-            minLines = 2,
-            enabled = !sending,
-        )
+        // 会話の返信欄。入力・音声・送信を1つの帯にまとめる。
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 4.dp, end = 4.dp)) {
+                androidx.compose.material3.TextField(
+                    value = body,
+                    onValueChange = onBodyChange,
+                    modifier = Modifier.weight(1f).focusRequester(focusRequester).testTag("$tagPrefix-reply-text"),
+                    placeholder = { Text("${row.agentLabel ?: "AI"}に返信") },
+                    minLines = 1,
+                    maxLines = 6,
+                    enabled = !sending,
+                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                        focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                    ),
+                )
+                dictation?.let { voice ->
+                    val listening = voice.state is ShortSpeechUiState.Listening || voice.state is ShortSpeechUiState.Partial
+                    VoiceToolButton(
+                        speechState = voice.state,
+                        hasText = body.isNotBlank(),
+                        enabled = !sending && voice.state !is ShortSpeechUiState.Processing,
+                        onClick = {
+                            if (listening) {
+                                voice.stop()
+                            } else {
+                                voice.start { spoken ->
+                                    onBodyChange(if (currentBody.isBlank()) spoken else "${currentBody.trimEnd()} $spoken")
+                                }
+                            }
+                        },
+                        modifier = Modifier.testTag("$tagPrefix-reply-voice"),
+                    )
+                }
+                androidx.compose.material3.FilledIconButton(
+                    onClick = onSend,
+                    enabled = body.isNotBlank() && !sending && online,
+                    modifier = Modifier.padding(bottom = 4.dp).testTag("$tagPrefix-reply-send"),
+                ) {
+                    if (sending) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            painterResource(R.drawable.ic_tabler_arrow_up),
+                            contentDescription = "回答を送る",
+                        )
+                    }
+                }
+            }
+        }
         if (!online) {
             Text(
                 "Desktopへ接続してから回答してください。",
@@ -2470,22 +2588,13 @@ private fun AttentionReplyForm(
             )
             else -> Unit
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = onSend,
-                enabled = body.isNotBlank() && !sending && online,
-                modifier = Modifier.testTag("$tagPrefix-reply-send"),
+        onCancel?.let { cancel ->
+            TextButton(
+                onClick = cancel,
+                enabled = !sending,
+                modifier = Modifier.testTag("$tagPrefix-reply-cancel"),
             ) {
-                Text(if (sending) "送信中" else "回答を送る")
-            }
-            onCancel?.let { cancel ->
-                TextButton(
-                    onClick = cancel,
-                    enabled = !sending,
-                    modifier = Modifier.testTag("$tagPrefix-reply-cancel"),
-                ) {
-                    Text("閉じる")
-                }
+                Text("閉じる")
             }
         }
     }
@@ -2500,29 +2609,22 @@ private fun AgentReplyEditor(
     online: Boolean,
     onSend: () -> Unit,
     onCancel: () -> Unit,
+    dictation: ReplyDictation? = null,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(row.questionOrAction)
-            AttentionReplyForm(
-                row = row,
-                body = body,
-                onBodyChange = onBodyChange,
-                state = state,
-                online = online,
-                onSend = onSend,
-                onCancel = onCancel,
-                // 一覧の行の直下は従来の test tag（attention-reply-*）を保つ。
-                tagPrefix = "attention",
-            )
-        }
-    }
+    // 質問は直上のカードに出ている。ここでは返信だけに集中させる。
+    AttentionReplyForm(
+        row = row,
+        body = body,
+        onBodyChange = onBodyChange,
+        state = state,
+        online = online,
+        onSend = onSend,
+        onCancel = onCancel,
+        // 一覧の行の直下は従来の test tag（attention-reply-*）を保つ。
+        tagPrefix = "attention",
+        dictation = dictation,
+        focusOnOpen = true,
+    )
 }
 
 internal fun attentionKindLabel(kind: AttentionKind): String = when (kind) {

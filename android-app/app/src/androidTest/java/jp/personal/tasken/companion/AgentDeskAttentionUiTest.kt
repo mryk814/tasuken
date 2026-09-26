@@ -433,7 +433,8 @@ class AgentDeskAttentionUiTest {
             .performClick()
         composeRule.onNodeWithTag("attention-reply-text").performTextInput("25℃で進めてください。")
 
-        // 同じ質問を開き直しても下書きは残る。
+        // 閉じて同じ質問を開き直しても下書きは残る。
+        composeRule.onNodeWithTag("attention-reply-cancel").performClick()
         composeRule
             .onNodeWithTag("attention-reply-open-${question().attentionId}")
             .performScrollTo()
