@@ -297,6 +297,22 @@ internal fun TodayApp(
     var recallCapture by remember { mutableStateOf<MobilePendingCapture?>(null) }
     val recallSavedState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val paneState = rememberTodayPaneState(restoredCaptureDraft)
+    // AIの動きをどこまで見たか。区切り線は入った時点の位置で引き、見た印は次に開く時のために進める。
+    val aiSeenStore = remember(context) { AiSeenStore(context) }
+    var aiLastSeen by remember { mutableStateOf(aiSeenStore.lastSeenAt()) }
+    var aiSeenBefore by remember { mutableStateOf(aiLastSeen) }
+    val newestAi = remember(allTasks, taskWorkProposals) { newestAiActivity(buildAiTimeline(allTasks, taskWorkProposals)) }
+    val onAiSection = paneState.activeSection == AppSection.Ai
+    val aiUnseen = newestAi != null && aiLastSeen?.let { newestAi.isAfter(it) } != false
+    LaunchedEffect(onAiSection) {
+        if (onAiSection) aiSeenBefore = aiLastSeen
+    }
+    LaunchedEffect(onAiSection, newestAi) {
+        if (onAiSection && newestAi != null) {
+            aiSeenStore.markSeen(newestAi)
+            aiLastSeen = aiSeenStore.lastSeenAt()
+        }
+    }
     val speechRecognizer = remember(context) { AndroidShortSpeechRecognizer(context.applicationContext) }
     val photoStore = remember(context) { MobileCapturePhotoStore(context.applicationContext) }
     var pendingPhotoName by remember { mutableStateOf<String?>(null) }
@@ -782,7 +798,8 @@ internal fun TodayApp(
                                     needsYou > 0 -> Badge(Modifier.testTag("ai-tab-badge")) {
                                         Text(if (needsYou > 99) "99+" else needsYou.toString())
                                     }
-                                    attentionNewArrivals.isNotEmpty() -> Badge(Modifier.testTag("ai-tab-badge"))
+                                    attentionNewArrivals.isNotEmpty() || (aiUnseen && !onAiSection) ->
+                                        Badge(Modifier.testTag("ai-tab-badge"))
                                 }
                             },
                             modifier = Modifier.semantics {
@@ -869,6 +886,7 @@ internal fun TodayApp(
                                 attentionInDetailPane = attentionInDetailPane,
                                 selectedAttentionId = paneState.selectedAttentionId,
                                 attentionNewArrivals = attentionNewArrivals,
+                                seenBefore = aiSeenBefore,
                                 attentionNotificationsEnabled = attentionNotificationsEnabled,
                                 onToggleAttentionNotifications = {
                                     val next = !attentionNotificationsEnabled
@@ -1907,6 +1925,7 @@ internal fun TasksListPane(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AiInboxListPane(
     uiState: TodayUiState,
@@ -1938,6 +1957,8 @@ internal fun AiInboxListPane(
     attentionNotificationsEnabled: Boolean = false,
     onToggleAttentionNotifications: (() -> Unit)? = null,
     onAttentionOpened: () -> Unit = {},
+    /** 前回AIタブを見た時刻。これより新しい動きを新着として示す。 */
+    seenBefore: java.time.Instant? = null,
 ) {
     // 回答の下書きは1列でも展開幅と同じ保存先（paneState）に置く。
     // 面を移動しても、画面が作り直されても残り、正式に保存できたときだけ閉じる。
@@ -1953,7 +1974,11 @@ internal fun AiInboxListPane(
                 TextButton(onClick = open, modifier = Modifier.testTag("open-direct-ai-settings")) { Text("PCなし整理の設定") }
             }
         }
-        Box(modifier = Modifier.weight(1f)) {
+        PullToRefreshBox(
+            isRefreshing = attentionRefreshing,
+            onRefresh = { onRefreshAttention(); onRetry() },
+            modifier = Modifier.weight(1f).testTag("ai-pull-refresh"),
+        ) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
         uiState is TodayUiState.Error && tasks.isEmpty() -> GatewayErrorState(uiState, onRetry, onRetryPairing)
@@ -1962,7 +1987,6 @@ internal fun AiInboxListPane(
             Text("Agent Deskを読み込んでいます")
         }
         else -> {
-            val sections = filterAiInboxTasks(tasks)
             // 要対応が0件でも見出しは出す。「取得できていない」と「0件」を利用者が区別できるようにする。
             run {
                 val listState = rememberLazyListState(
@@ -2028,107 +2052,84 @@ internal fun AiInboxListPane(
                         }
                     }
                     item(key = "section-agent-counts") {
-                        AgentWorkCounts(counts = attentionCounts)
+                        AiCountsStrip(counts = attentionCounts)
                     }
-                    if (proposals.isNotEmpty()) {
-                        item(key = "section-proposals") {
-                            Text(
-                                "確認待ち",
-                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                            )
+                    val timeline = buildAiTimeline(tasks, proposals)
+                    if (timeline.isNotEmpty()) {
+                        item(key = "section-ai-timeline") {
+                            AiSectionTitle("AIの動き")
                         }
-                        items(proposals, key = { "proposal-${it.id}" }) { proposal ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("proposal-list-${proposal.id}")
-                                    .semantics { role = Role.Button }
-                                    .clickable { onTaskSelected(proposal.taskId) },
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (proposal.taskId == paneState.selectedTaskId) {
-                                        MaterialTheme.colorScheme.tertiaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.surface
-                                    },
-                                ),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary),
-                            ) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    }
+                    val hasNewAndOld = seenBefore != null &&
+                        timeline.any { it.at?.isAfter(seenBefore) == true } &&
+                        timeline.any { it.at?.isAfter(seenBefore) != true }
+                    var dividerPlaced = false
+                    for (entry in timeline) {
+                        val isNew = seenBefore != null && entry.at?.isAfter(seenBefore) == true
+                        if (hasNewAndOld && !isNew && !dividerPlaced) {
+                            dividerPlaced = true
+                            item(key = "ai-seen-divider") { AiSeenDivider(Modifier.testTag("ai-seen-divider")) }
+                        }
+                        when (entry) {
+                            is AiTimelineEntry.Proposal -> item(key = entry.key) {
+                                val proposal = entry.proposal
+                                AiPost(
+                                    author = proposal.executorLabel ?: proposal.caller,
+                                    verb = "変更を提案しました",
+                                    at = entry.at,
+                                    isNew = isNew,
+                                    highlighted = proposal.taskId == paneState.selectedTaskId,
+                                    onClick = { onTaskSelected(proposal.taskId) },
+                                    modifier = Modifier.testTag("proposal-list-${proposal.id}"),
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    Text(proposal.taskTitle, fontWeight = FontWeight.SemiBold)
+                                    proposal.summary?.let { Text(it, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                        itemVerticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Text(proposal.taskTitle, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                        TaskThemeLabel(proposal.themeId, themes)
                                         Text(
                                             taskWorkProposalActionLabel(proposal.action),
                                             color = MaterialTheme.colorScheme.tertiary,
+                                            style = MaterialTheme.typography.labelMedium,
+                                        )
+                                        Text(
+                                            proposal.sourceApp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.labelSmall,
                                         )
                                     }
-                                    TaskThemeLabel(proposal.themeId, themes)
-                                    Text(
-                                        "${proposal.caller} · ${proposal.sourceApp}",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 12.sp,
-                                    )
-                                    proposal.summary?.let { Text(it, maxLines = 2) }
                                     if (proposal.stale) {
                                         Text("Task更新済み · 承認不可", color = MaterialTheme.colorScheme.error)
                                     }
                                 }
                             }
-                        }
-                    }
-                    for ((section, sectionTasks) in sections) {
-                        item(key = "section-${section.name}") {
-                            Text(
-                                aiInboxSectionLabel(section),
-                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                        items(sectionTasks, key = { it.id }) { task ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .semantics { role = Role.Button }
-                                    .clickable { onTaskSelected(task.id) },
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (task.id == paneState.selectedTaskId) {
-                                        MaterialTheme.colorScheme.secondaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.surface
-                                    },
-                                ),
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (task.id == paneState.selectedTaskId) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.outline
-                                    },
-                                ),
-                            ) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                            is AiTimelineEntry.TaskActivity -> item(key = entry.key) {
+                                val task = entry.task
+                                AiPost(
+                                    author = task.latestWorkReceipt?.executorLabel ?: "AI",
+                                    verb = aiActivityVerb(aiInboxSection(task.workState)),
+                                    at = entry.at,
+                                    isNew = isNew,
+                                    highlighted = task.id == paneState.selectedTaskId,
+                                    onClick = { onTaskSelected(task.id) },
                                 ) {
                                     Text(task.title, fontWeight = FontWeight.SemiBold)
-                                    TaskThemeLabel(task.themeId, themes)
-                                    Text(
-                                        taskWorkStateLabel(task.workState ?: ""),
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
                                     task.latestWorkReceipt?.summary?.let { summary ->
+                                        Text(summary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                        itemVerticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        TaskThemeLabel(task.themeId, themes)
                                         Text(
-                                            summary,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 2,
+                                            taskWorkStateLabel(task.workState ?: ""),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            style = MaterialTheme.typography.labelMedium,
                                         )
                                     }
                                 }
@@ -2262,45 +2263,64 @@ private fun AgentAttentionCard(
     onOpenReply: () -> Unit,
     onOpenTask: () -> Unit,
 ) {
-    Card(
+    // あなたの番。AIからの投稿として見せ、問いかけは吹き出しで目立たせる。
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("attention-row-${row.attentionId}")
             .semantics { role = Role.Button },
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = if (selected) 1f else 0.45f)),
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+        AiAvatar()
         Column(
-            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    row.headline,
-                    modifier = Modifier.weight(1f),
-                    fontWeight = FontWeight.SemiBold,
+                    row.agentLabel ?: "AI",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
                 )
-                Text(
-                    attentionKindLabel(row.kind),
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(50)) {
+                    Text(
+                        attentionKindLabel(row.kind),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
+            Text(row.headline, fontWeight = FontWeight.SemiBold)
             row.taskTitle?.let { title ->
                 Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             }
-            row.agentLabel?.let { label ->
-                Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            if (row.summary != row.headline) Text(row.summary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            if (row.questionOrAction.isNotBlank() && row.questionOrAction != row.summary) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = RoundedCornerShape(topStart = 4.dp, topEnd = 12.dp, bottomEnd = 12.dp, bottomStart = 12.dp),
+                ) {
+                    Text(
+                        row.questionOrAction,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-            Text(row.summary, maxLines = 3)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (row.canReply) {
                     Button(
@@ -2319,6 +2339,7 @@ private fun AgentAttentionCard(
                     }
                 }
             }
+        }
         }
     }
 }
@@ -3529,7 +3550,7 @@ private fun TaskWorkProposalReviewCard(
     }
 }
 
-private fun taskWorkProposalActionLabel(action: String): String = when (action) {
+internal fun taskWorkProposalActionLabel(action: String): String = when (action) {
     "start" -> "作業開始"
     "append_receipt" -> "進捗追記"
     "report_done" -> "完了報告"
