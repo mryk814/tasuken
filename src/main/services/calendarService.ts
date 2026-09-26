@@ -359,6 +359,18 @@ export class CalendarService {
     clientId: string,
   ): Promise<{ code: string; redirectUri: string }> {
     return new Promise((resolve, reject) => {
+      /**
+       * 認証コードの交換は1回だけ。同じコードを2回交換するとproviderは`invalid_grant`を返す（#273）。
+       * ブラウザの再送や戻る操作で同じcallbackが来ても、resolveもrejectも再度は起こさない。
+       */
+      let settled = false;
+      const settle = (act: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        act();
+      };
+
       const server = http.createServer((req, res) => {
         const url = new URL(req.url || "/", "http://127.0.0.1");
         const returnedState = url.searchParams.get("state");
@@ -373,31 +385,37 @@ export class CalendarService {
           );
           return;
         }
-        if (error) {
-          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        if (settled) {
+          // 同じコードをもう一度交換させない（Taskenは既に処理済み）。
+          res.writeHead(409, { "Content-Type": "text/html; charset=utf-8" });
           res.end(
-            "<html><body><h2>接続に失敗しました</h2><p>このタブを閉じてTaskenに戻ってください。</p></body></html>",
+            "<html><body><h2>すでに処理済みです</h2><p>このタブを閉じてTaskenに戻ってください。</p></body></html>",
           );
-          cleanup();
-          reject(classifyOAuthError(error, errorDescription));
           return;
         }
-        if (!code) return;
+        if (code) {
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(
+            "<html><body><h2>接続が完了しました</h2><p>このタブを閉じてTaskenに戻ってください。</p></body></html>",
+          );
+          const address = server.address() as { port: number };
+          settle(() => resolve({ code, redirectUri: `http://127.0.0.1:${address.port}` }));
+          return;
+        }
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(
-          "<html><body><h2>接続が完了しました</h2><p>このタブを閉じてTaskenに戻ってください。</p></body></html>",
+          "<html><body><h2>接続に失敗しました</h2><p>このタブを閉じてTaskenに戻ってください。</p></body></html>",
         );
-        const address = server.address() as { port: number };
-        cleanup();
-        resolve({ code, redirectUri: `http://127.0.0.1:${address.port}` });
+        settle(() => reject(classifyOAuthError(error, errorDescription)));
       });
 
       const timeout = setTimeout(() => {
-        cleanup();
-        reject(
-          new CalendarServiceError(
-            "authentication_required",
-            "認証がタイムアウトしました。再度接続してください。",
+        settle(() =>
+          reject(
+            new CalendarServiceError(
+              "authentication_required",
+              "認証がタイムアウトしました。再度接続してください。",
+            ),
           ),
         );
       }, OAUTH_TIMEOUT_MS);

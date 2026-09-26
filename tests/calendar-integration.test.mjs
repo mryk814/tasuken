@@ -627,6 +627,41 @@ test("Calendar account switch clears memory cache before a failed first fetch", 
   }
 });
 
+test("OAuth callback exchanges the authorization code only once", async () => {
+  const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-calendar-once-"));
+  try {
+    let tokenRequests = 0;
+    const service = new calendarService.CalendarService(
+      userDataPath,
+      fakeSafeStorage(),
+      async () => {
+        tokenRequests += 1;
+        return response({
+          access_token: "once-test-token",
+          expires_in: 3600,
+          id_token: idTokenFor("once@example.com"),
+        });
+      },
+      async (authorizeUrl) => {
+        const authorize = new URL(authorizeUrl);
+        const callback = new URL(authorize.searchParams.get("redirect_uri"));
+        callback.searchParams.set("state", authorize.searchParams.get("state"));
+        callback.searchParams.set("code", "once-test-code");
+        // Googleのcodeは1回限り。ブラウザの再送で同じcallbackが2回来ても交換は1回に留める（#273）。
+        assert.equal((await fetch(callback)).status, 200);
+        assert.equal((await fetch(callback)).status, 409);
+      },
+      { clientId: "test-client", timeZone: "Asia/Tokyo" },
+    );
+    const status = await service.connect({ provider: "microsoft" });
+    assert.equal(status.connected, true);
+    assert.equal(status.accountName, "once@example.com");
+    assert.equal(tokenRequests, 1);
+  } finally {
+    rmSync(userDataPath, { recursive: true, force: true });
+  }
+});
+
 test("OAuth callback ignores unrelated requests before accepting the matching state", async () => {
   const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-calendar-state-"));
   try {

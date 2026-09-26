@@ -64,6 +64,27 @@ npm run smoke:calendar-live
 | ---------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 2026-09-21 | 同意の途中で「認証がタイムアウトしました」                       | アプリの待ち時間が2分で、Googleのアカウント選択と同意には足りなかった。**5分へ延ばした**                                                                                                                                                                                                                                                                                 |
 | 2026-09-21 | token交換が `status 400` / `oauth_error: invalid_request` で失敗 | **原因を確定**: 設定されていたclient IDは**Web アプリケーション種別**だった。`npm run doctor:calendar-client` が同じclient IDで `client_secret is missing.` を再現し、`client_kind: "confidential_client"` と判定する。デスクトップ種別はPKCEだけで交換できる（この実装は client secret を持たない）ため、**「デスクトップ アプリ」種別でclient IDを作り直す**必要がある |
+| 2026-09-26 | 同意後に「Googleの認証が必要です」で拒否（`invalid_grant`）      | **client種別が未解消のまま**だった。`npm run doctor:calendar-client` が同じく `confidential_client` を返し、`npm run smoke:calendar-live` は同意画面を開く前のpreflightで停止した。加えて、**callbackの重複で同じ認証コードを2回交換し得る欠陥**を修正した（下記）                                                                                                       |
+
+### callbackの重複（実装の欠陥・2026-09-26修正）
+
+loopbackのcallbackは同じ認証コードでも何度でも受け付け、成功・失敗いずれの経路も複数回resolve/rejectし得た。
+Googleの認証コードは1回限りなので、ブラウザの再送や「戻る」で2回目の交換が起きると `invalid_grant` になる。
+**1回の接続で交換するのは1回だけ**にし、処理済みのcallbackへは409を返す（`calendarService.listenForAuthCode`）。
+`tests/calendar-integration.test.mjs` の「OAuth callback exchanges the authorization code only once」が固定する。
+
+### 同意後に拒否されたときの見分け方（2026-09-26）
+
+端末の画面の文言は失敗の種類ごとに分かれている。`invalid_grant` は `authentication_required` へ分類される。
+
+| 画面の文言                                         | 意味                                            | 次に直す場所                                       |
+| -------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------- |
+| 「Google連携が未設定です。…クライアントIDを設定…」 | client IDが空                                   | 環境変数 `TASKEN_GOOGLE_CLIENT_ID`                 |
+| 「Googleの認証が必要です。Settingsから再接続…」    | token交換をGoogleが拒否（`invalid_grant` など） | client IDの**種別**（デスクトップ アプリ）と再試行 |
+| 「Googleのカレンダー権限への同意が必要です。…」    | 同意そのものが未完了                            | ブラウザでの同意を最後まで終える                   |
+| 「カレンダー権限が拒否されました。…」              | 同意画面で拒否した                              | 同意し直す                                         |
+
+client IDを変えたら**アプリを完全に終了して起動し直す**（環境変数は起動時に一度だけ読む）。
 
 失敗の種類は標準エラーへ
 `TASKEN_CALENDAR_OAUTH_FAILED {"provider":"google","status":400,"oauth_error":"...","hint":"..."}`
@@ -75,7 +96,7 @@ npm run smoke:calendar-live
 `tests/calendar-integration.test.mjs` が持つ範囲。実接続で見つかった差分だけをここへ足す。
 
 - Google adapterのpageToken、終日予定、private予定の伏せ字
-- PKCE + loopbackのOAuth、stateの取り違え拒否、client ID未設定の拒否
+- PKCE + loopbackのOAuth、stateの取り違え拒否、client ID未設定の拒否、同じ認証コードの二重交換の拒否
 - 日付範囲のローカルtimezoneオフセット、キャッシュのstale表示、エラー分類
 - Today/Activity/SettingsのDOMとCSSの存在
 
@@ -99,11 +120,12 @@ Todayの予定欄の状態は `src/renderer/src/features/workspace/lib/calendarS
 
 ## 実接続でまだ確認していないこと
 
-| 未確認         | 内容                                                                                                                                                            |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 実アカウント   | **client IDが Web アプリ種別のため未接続**（`npm run doctor:calendar-client` で確定）。デスクトップ アプリ種別で作り直してから `smoke:calendar-live` を実行する |
-| 同意の失効     | 実アカウントで同意を取り消した後の再取得（`authentication_required` の実挙動）                                                                                  |
-| token更新      | 1時間を超える利用での refresh_token による更新                                                                                                                  |
-| 複数カレンダー | 初期実装はprimary calendarのみ。複数選択は別slice                                                                                                               |
-| offline        | 実回線断でのキャッシュ表示（状態の判定と文言はmockで確認済み）                                                                                                  |
-| 権限の最小化   | 実接続後に不要scopeを削減できるかの確認                                                                                                                         |
+| 未確認         | 内容                                                                                                                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 実アカウント   | **client IDが Web アプリ種別のため未接続**（`npm run doctor:calendar-client` で確定）。デスクトップ アプリ種別で作り直してから `smoke:calendar-live` を実行する。2026-09-26時点で未解消 |
+| 同意後の拒否   | `invalid_grant` の実測（`oauth_error` と `hint`）。client種別を直した後の `smoke:calendar-live` で確認する                                                                              |
+| 同意の失効     | 実アカウントで同意を取り消した後の再取得（`authentication_required` の実挙動）                                                                                                          |
+| token更新      | 1時間を超える利用での refresh_token による更新                                                                                                                                          |
+| 複数カレンダー | 初期実装はprimary calendarのみ。複数選択は別slice                                                                                                                                       |
+| offline        | 実回線断でのキャッシュ表示（状態の判定と文言はmockで確認済み）                                                                                                                          |
+| 権限の最小化   | 実接続後に不要scopeを削減できるかの確認                                                                                                                                                 |
