@@ -129,6 +129,7 @@ read-onlyだった実機NASを、Proposal（Coreの受付範囲はテキスト�
   - 稼働中Coreと同じnetwork名前空間・同じ`tasken-headless:local`で実行しているため、tunnelのMCP bridgeが見せている範囲と一致する。`tasken-tunnel`の環境変数を`docker inspect`で読む確認は未実施だが、この tool一覧が実挙動として同じ境界を示している。
 - 未確認（この時点）:
   - ChatGPT側のconnectorが新しいtool一覧を取得すること、実クライアントからのFeed投稿・Task作業報告の往復、Desktopでの採用。
+    - 2026-09-27の利用者報告: Connectorを解除→再接続しても、ChatGPTが見ているtool一覧は**29 tools・read-only**のまま。29は2026-09-12時点のread-only面の数（本ファイルの09-12記録）で、現行は13（read-only）/21（write有効）。NAS側に29を返す経路が無いため、ChatGPT側のスキーマキャッシュか、別nodeへの接続を疑う。切り分けは新しいチャット→それでも同じならconnectorの削除と再追加、の順で行う。
   - 1つの`idempotency_key`をDesktopとNASの両方へ送らない運用は未変更。
 
 ## ローカル検証（NASではない）
