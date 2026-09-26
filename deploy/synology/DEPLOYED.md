@@ -132,6 +132,7 @@ read-onlyだった実機NASを、Proposal（Coreの受付範囲はテキスト�
   - NAS replica: `ai_proposal 84bd84aa-1dd1-5347-8068-0d2c61085a08`（`source_app: ChatGPT` / `payload_type: feed_posts` / `status: pending`）を`21:06:27.387Z`に受理。
   - 公開: 7秒後の`21:06:34Z`に`devices/9aab88aa-…/000000000001-0283123c-….json`としてこのdeviceの初公開。差分の中身は同じProposalで本文も一致。
   - Desktop（インストール版`Tasken.exe`、userData `%APPDATA%\tasken`）: 同時刻にcursor `9aab88aa-…: 1`を適用（`shared_sync_last_at 21:07:24Z`、`shared_sync_last_error`空、conflicts 0）。DesktopのDBに同じProposalが`pending`/`feed_posts`で存在し、pendingのfeed_postは1件。
+  - DesktopのDBコピーにFeedの投影（`buildPostsFromProposals`）を実行すると、投稿は全1件で`feed-post:84bd84aa-…`（`author: external_ai`、`kind: insight`、本文「ChatGPT Connectorからの書き込みテストです。」、`proposalStatus: pending`、`learnable: true`）。実際の画面表示は利用者の目視で確認する。
   - これで**ChatGPT → Connector → tunnel → NAS Core → 共有フォルダ → Desktop**の書き込み往復が実データで成立したことを確認した（DesktopのFeed表示は利用者の目視で確認する）。
 - 未確認（更新）:
   - Task作業報告（`report_task_done`等）の実クライアント往復と、DesktopのAgent Desk（Feed）での採用。canonical Themeを持たないTaskでは採用が拒否される既知の制約がある（本ファイルのローカル検証と手順書を参照）。
