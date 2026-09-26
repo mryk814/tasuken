@@ -180,6 +180,23 @@ MCPツールの正確な引数は接続先の`tools/list`、Contextの選び方�
 一時userDataで実Electronとstdio MCPを使い、報告の採用だけではTaskを完了しないこと、人が別操作で完了できること、完了後の追加報告でTask本文・完了状態を維持することを確認しました。
 Agent Deskの項目名プレビューから指定Checklist itemだけをチェックし、古いTask versionのチェック報告は採用を拒否してプレビューを保持することも確認しました。
 
+### 2026-09-26の実クライアント往復（Codex CLI）
+
+実プロファイルのTasken（v0.1.69）へ、ユーザー設定のCodex CLI `0.155.1` から接続して一往復を通しました。
+
+- `codex exec --json -s read-only` で `tasken.list_agent_ready_tasks` を実行し、実データを読めることを確認。
+- `get_task_context` → `start_task_work`（`applied`）→ `append_work_receipt`（Proposal）→ `report_task_blocked`（Proposal）→ 実機Androidから回答 →
+  `get_task_context` で `human_reply` を取得 → `report_task_done`（Proposal）→ Desktopで採用。
+- **採用してもTaskは完了しない**（`state === "todo"` のまま）。3 Proposal は採用後に `accepted`、Receipt 4件が正式化。
+- 同じTaskをDesktopで編集した後に古い `expected_version` で開始すると `CONFLICT`（`retryable: false`）になる。再送せず読み直すのが正しい。
+
+実クライアント特有の注意:
+
+- Codexのツール一覧には、ユーザー設定の `tasken` MCP と、Codexアプリ側が公開する `tasken.tasken.*` の**2経路が見える**。
+  後者を選ぶと `get_task_context` が `not_found` になる（別環境を見ている）。`tasken.*` を明示して使う。
+- `append_work_receipt` / `report_task_blocked` / `report_task_done` はProposalを作るだけで**Taskのversionを進めない**。
+  続けて送るときの `expected_version` は据え置きになる。
+
 ### 参照先
 
 - [AI collaboration E2E](ai-collaboration-e2e.md): 一時DB・実stdioによる着手、報告、採用、再起動の検証。
