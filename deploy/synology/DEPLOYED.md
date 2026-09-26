@@ -134,6 +134,17 @@ read-onlyだった実機NASを、Proposal（Coreの受付範囲はテキスト�
 
 ## ローカル検証（NASではない）
 
+### 2026-09-27 NASデータのコピーで書き込み→公開を隔離検証
+
+本番のstate・共有フォルダには書き込まず、コピーだけを使った検証。
+
+- NASの実DB（`deploy/synology/state`、添付0.5MBを含む）と共有フォルダ（`T:\sync`、41.5MB / 3319 files）をPCの一時ディレクトリへコピーし、配置済みと同じimage（ID `sha256:72be6775…`）を`--write-mode=proposals --sync-directory=/sync`で起動した。`capability_count 31`・`write_mode proposals`・`sync_directory /sync`で起動。
+- MCP bridge（`TASKEN_MCP_READ_ONLY=0`）から`propose_feed_post`と`report_task_done`（実在Task `8fa3f995-3f3b-3631-afde-0b0ca28a1850` v3）を送ると、どちらもProposal IDを返して`pending`で保存された。
+- 約12秒後のpollで、replica自身のdevice（`9aab88aa-…`）が**初めて**差分を公開した。
+  - `devices/9aab88aa-…/000000000001-….json`: `entityType=ai_proposal` / `payload_type=feed_posts` / `status=pending`。
+  - `devices/9aab88aa-…/000000000002-….json`: `entityType=ai_proposal` / `payload_type=task_work` / `request.tool=tasken.report_task_done` / `action=report_done` / `task_id=8fa3f995-…` / `status=pending`。
+- これで「replicaが受けた書き込みが共有フォルダへ公開され、Desktopが取り込める差分になる」ところまで実データで確認できた。Desktop側の取り込みと人の採用は実クライアントの往復で確認する。
+
 ### 2026-09-12 Linux amd64コンテナ（Docker Desktop）
 
 - Image: `tasken-headless:local`（Node 24.20 / Debian bookworm / amd64）。source commit未固定の作業用build。
