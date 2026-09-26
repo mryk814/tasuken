@@ -119,12 +119,14 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 
 ### 投稿・提案を受け付ける（`--write-mode=proposals`）
 
-既定では読み取りだけです。`deploy/synology/.env`で`TASKEN_CORE_WRITE_MODE=proposals`にすると、CoreはテキストのFeed投稿・Note案・Task案だけを受け付けます。さらにtunnel側で`TASKEN_MCP_READ_ONLY=0`にすると、外部AIからこれらの提案を送れます（**両方の設定が必要**）。
+既定では読み取りだけです。`deploy/synology/.env`で`TASKEN_CORE_WRITE_MODE=proposals`にすると、CoreはテキストのFeed投稿・Note案・Task案・Task作業報告だけを提案として受け付けます。さらにtunnel側で`TASKEN_MCP_READ_ONLY=0`にすると、外部AIからこれらの提案を送れます（**両方の設定が必要**）。
 
 - Core側が許可範囲を強制します。範囲外の種類（`note_edit`・`feed_reply`・画像付きNote・`repository_context`・直接開始など）は`WRITE_NOT_ALLOWED`で拒否されます。
+- Task作業報告（`append_work_receipt`・`report_task_done`・`report_task_blocked`）はProposalなので、NASでも正式データはDesktopでの採用まで変わりません。開始（`start_task_work`）は直接書き込みのため公開しません。Desktopから開始するか、完了報告の採用時に開始も記録させてください。
 - 作ったProposalは正式データではなく、DesktopのAgent Desk・Feedで人が確認して採用します。
 - 1つの`idempotency_key`は1つのnodeだけへ送ってください。DesktopとNASの両方へ同じkeyを送ると競合になります。
 - 画像付きProposalのstageはNASにはないため、画像付きNote案は受け付けられません。
+- 設定は`nas-install.sh`の再実行でも保持されます。`.env`を直接編集したあとは、`docker-compose ... up -d`で`tasken-headless`と`tasken-tunnel`を作り直してください。
 
 ## Phase 3: Secure MCP Tunnelで外部AIへ公開
 
@@ -181,15 +183,15 @@ sudo docker logs --tail=30 tasken-tunnel
 
 `deploy/synology/` の各ファイル:
 
-| ファイル                    | 役割                                                                                             |
-| --------------------------- | ------------------------------------------------------------------------------------------------ |
-| `Dockerfile`                | core-dist / mcp-dist を作るNode専用image                                                         |
-| `docker-compose.yml`        | Container Manager Project用のservice定義                                                         |
-| `docker-compose.tunnel.yml` | Secure MCP Tunnelサイドカー（Phase 3、上書き用）                                                 |
-| `.env.example`              | `TASKEN_UID` / `TASKEN_GID` / `TASKEN_ADMIN_GID` / `TASKEN_SYNC_DIR` / `CONTROL_PLANE_TUNNEL_ID` |
-| `backup.sh`                 | 稼働中replicaのsnapshotと隔離検証（後述）                                                        |
-| `nas-install.sh`            | NAS上の配置入口（source展開・load・.env/state・probe・起動）                                     |
-| `DEPLOYED.md`               | 最後に観測した稼働状態（branch・versionとは別）                                                  |
+| ファイル                    | 役割                                                                                               |
+| --------------------------- | -------------------------------------------------------------------------------------------------- |
+| `Dockerfile`                | core-dist / mcp-dist を作るNode専用image                                                           |
+| `docker-compose.yml`        | Container Manager Project用のservice定義                                                           |
+| `docker-compose.tunnel.yml` | Secure MCP Tunnelサイドカー（Phase 3、上書き用）                                                   |
+| `.env.example`              | UID/GID・同期フォルダ・`TASKEN_CORE_WRITE_MODE`・`TASKEN_MCP_READ_ONLY`・`CONTROL_PLANE_TUNNEL_ID` |
+| `backup.sh`                 | 稼働中replicaのsnapshotと隔離検証（後述）                                                          |
+| `nas-install.sh`            | NAS上の配置入口（source展開・load・.env/state・probe・起動）                                       |
+| `DEPLOYED.md`               | 最後に観測した稼働状態（branch・versionとは別）                                                    |
 
 ## 更新と復旧
 
@@ -220,7 +222,7 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 
 ## 二重writerにしない
 
-- replicaは**read-only運用**。MCPは `TASKEN_MCP_READ_ONLY=1` で起動し、write toolsを公開しない。
+- replicaは**read-only運用が既定**。MCPは `TASKEN_MCP_READ_ONLY=1` で起動し、write toolsを公開しない。書き込みを許す配備でも、Core側の`--write-mode=proposals`と合わせてProposal（Feed投稿・Note案・Task案・Task作業報告）だけを許可し、正式データはDesktopでの採用まで変えない。
 - DesktopとNASで**同じuserData/stateを同時に開かない**。stateは各nodeのローカルに置き、SQLite/WALをSMB/NFSや同期フォルダへ置かない。
 - 同じuserDataでCoreが稼働中なら `CORE_ALREADY_RUNNING` で拒否される。durableなwriter authorityはPhase 4のwrite有効化と合わせて設計する。
 
@@ -271,7 +273,7 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 - arm64 / armv7のNASは未検証（実機確認はamd64のDS723+）。
 - Synology Drive / Cloud Sync経由の同期（実機確認はSMB共有フォルダ直結）。
 - `backup.sh`のNAS上での一連実行（compose検出・排他lock・再起動を含む）は未実施。
-- MCP transport / Secure MCP Tunnelの常時稼働、再接続、write有効化はPhase 3/4で、Core側のwrite capability gateは未実装（現状はMCP bridgeのread-only設定に依存）。
+- MCP transport / Secure MCP Tunnelの常時稼働と再接続、write有効化の実機確認。Core側のwrite capability gate（`--write-mode`）は実装済みで、既定は書き込みを公開しない。
 - bootstrap / compaction / revoke / schema upgradeのowner決定はPhase 2の残り。Note Markdown画像の扱いと、コンテナ上での画像MCP再実行は未検証。
 - イメージbuild/runにはDocker daemonが必要。
 

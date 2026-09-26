@@ -8,7 +8,8 @@ import {
 
 /**
  * 書き込みcapability。配備によって公開範囲が変わるため、読み取りとは別に扱う。
- * `proposals`配備はテキストのFeed投稿・Note案・Task案だけを公開する。
+ * `proposals`配備はテキストのFeed投稿・Note案・Task案・Task作業報告だけを公開する。
+ * 直接書き込み（`task.command`）とAgent Sessionは`full`だけが公開する。
  */
 export const TASKEN_CORE_WRITE_CAPABILITIES = Object.freeze([
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
@@ -21,6 +22,7 @@ export const TASKEN_CORE_WRITE_CAPABILITIES = Object.freeze([
 const PROPOSALS_ONLY_CAPABILITIES = Object.freeze([
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
+  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
 ]);
 
 /**

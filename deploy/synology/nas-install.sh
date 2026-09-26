@@ -53,15 +53,22 @@ tar -xf "$SOURCE_TAR" -C "$PROJECT_DIR"
 deploy="$PROJECT_DIR/deploy/synology"
 [[ -f "$deploy/docker-compose.yml" ]] || fail "composeが見つかりません: $deploy"
 
-# 既存の.envを尊重する（特にCONTROL_PLANE_TUNNEL_IDを消さない）。
-existing_tunnel_id=""
-if [[ -f "$deploy/.env" ]]; then
-  existing_tunnel_id="$(sed -n 's/^CONTROL_PLANE_TUNNEL_ID=//p' "$deploy/.env" | tail -1)"
-fi
-tunnel_id="${CONTROL_PLANE_TUNNEL_ID:-$existing_tunnel_id}"
+# 既存の.envを尊重する（特にCONTROL_PLANE_TUNNEL_IDと書き込みの設定を消さない）。
+existing_value() {
+  [[ -f "$deploy/.env" ]] || return 0
+  sed -n "s/^$1=//p" "$deploy/.env" | tail -1
+}
+existing_tunnel_id="$(existing_value CONTROL_PLANE_TUNNEL_ID)"
+existing_write_mode="$(existing_value TASKEN_CORE_WRITE_MODE)"
+existing_mcp_read_only="$(existing_value TASKEN_MCP_READ_ONLY)"
 
-printf 'TASKEN_UID=%s\nTASKEN_GID=%s\nTASKEN_ADMIN_GID=%s\nTASKEN_SYNC_DIR=%s\nCONTROL_PLANE_TUNNEL_ID=%s\n' \
-  "$uid" "$gid" "$admin_gid" "$SYNC_DIR" "$tunnel_id" >"$deploy/.env"
+tunnel_id="${CONTROL_PLANE_TUNNEL_ID:-$existing_tunnel_id}"
+# 環境変数で明示された場合だけ上書きし、未指定なら既存の配備設定を保つ。
+write_mode="${TASKEN_CORE_WRITE_MODE:-${existing_write_mode:-read-only}}"
+mcp_read_only="${TASKEN_MCP_READ_ONLY:-${existing_mcp_read_only:-1}}"
+
+printf 'TASKEN_UID=%s\nTASKEN_GID=%s\nTASKEN_ADMIN_GID=%s\nTASKEN_SYNC_DIR=%s\nTASKEN_CORE_WRITE_MODE=%s\nTASKEN_MCP_READ_ONLY=%s\nCONTROL_PLANE_TUNNEL_ID=%s\n' \
+  "$uid" "$gid" "$admin_gid" "$SYNC_DIR" "$write_mode" "$mcp_read_only" "$tunnel_id" >"$deploy/.env"
 mkdir -p "$deploy/state" "$deploy/secrets"
 chmod 700 "$deploy/secrets"
 chown -R "$uid:$gid" "$deploy/state" "$SYNC_DIR" "$deploy/secrets"

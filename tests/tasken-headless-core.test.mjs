@@ -294,10 +294,14 @@ test("Headless replicaが受けたProposalはDesktopへ届き、採否はreplica
       // replicaのCoreへ書き込む。MCP bridgeのread-only指定を付けない場合の経路。
       client = await connectMcp(replicaUserData);
       const inspected = await new TaskenCoreClient({ userDataPath: replicaUserData }).inspect();
-      for (const capability of ["propose_content", "propose_repository_task"]) {
+      for (const capability of [
+        "propose_content",
+        "propose_repository_task",
+        "propose_task_work",
+      ]) {
         assert.ok(inspected.capabilities.includes(capability), capability);
       }
-      for (const capability of ["task.command", "propose_task_work", "propose_agent_session"]) {
+      for (const capability of ["task.command", "propose_agent_session"]) {
         assert.equal(inspected.capabilities.includes(capability), false, capability);
       }
       const queued = await client.callTool({
@@ -377,7 +381,7 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
   try {
     client = await connectMcp(userDataPath);
 
-    // 許可: テキストの読み物投稿・Note案。
+    // 許可: テキストの読み物投稿・Note案・Task作業報告。
     for (const [name, args] of [
       [
         "tasken.propose_feed_post",
@@ -397,6 +401,23 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
           source_app: "gate-test",
           title: "許可されたNote案",
           body: "本文。",
+        },
+      ],
+      [
+        "tasken.report_task_done",
+        {
+          idempotency_key: "restricted-report",
+          caller: "gate test",
+          source_app: "gate-test",
+          task_id: "task-headless",
+          expected_version: 1,
+          executor_kind: "ai_agent",
+          executor_label: "gate test",
+          summary: "許可された作業報告。",
+          completed_items: ["proposalsの許可範囲を確認した"],
+          changed_or_created_items: [],
+          verification: [],
+          remaining_work: [],
         },
       ],
     ]) {
@@ -469,11 +490,16 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
     });
     assert.equal(unavailable.isError, true);
     assert.equal(unavailable.structuredContent.error.code, "CAPABILITY_UNAVAILABLE");
+    // 版の不一致ではなく配備の境界なので、「更新してください」だけを案内しない。
+    assert.match(
+      String(unavailable.structuredContent.error.next_action),
+      /直接開始を公開していません/u,
+    );
   } finally {
     await client?.close().catch(() => {});
     await stopAndInspect(handle, userDataPath, (database) => {
-      // 拒否された要求はProposalもTask変更も残さない。
-      assert.equal(database.list("ai_proposal").length, 2);
+      // 拒否された要求はProposalもTask変更も残さない。作業報告はProposalとしてだけ残る。
+      assert.equal(database.list("ai_proposal").length, 3);
       assert.equal(database.list("work_receipt").length, 0);
       assert.notEqual(database.get("task", "task-headless")?.work_state, "in_progress");
     });

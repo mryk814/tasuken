@@ -70,7 +70,7 @@ export async function buildReport(coreClient = new TaskenCoreClient()) {
                 status: "ok",
                 code: "MCP_CORE_WRITE_PROPOSALS_ONLY",
                 message:
-                  "このCoreはテキストのFeed投稿・Note案・Task案だけを受け付けます。直接開始と作業報告は公開していません。",
+                  "このCoreはテキストのFeed投稿・Note案・Task案・Task作業報告だけを受け付けます。直接開始は公開していません。",
               }
             : {
                 status: "ok",

@@ -5,6 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 
 import { localDate } from "../../shared/activityProjection.mjs";
+import { TASKEN_CORE_TASK_COMMAND_CAPABILITY } from "../../shared/contracts/core/public.mjs";
 import { parseCanonicalTaskId, parseTaskLocator } from "../../shared/contracts/mobile/public.mjs";
 import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
@@ -578,24 +579,42 @@ export function createTaskenMcpServer(options = {}) {
       source: "mcp",
       source_app: sourceApp(args),
     });
-  const startTaskWork = (args) =>
-    coreClient.executeTaskCommand({
-      schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
-      command_id: args.idempotency_key,
-      name: "StartTaskWork",
-      actor: { kind: "ai_agent", id: args.caller },
-      source: "mcp",
-      entrypoint: "mcp",
-      issued_at: args.started_at,
-      payload: {
-        task_id: args.task_id,
-        expected_version: args.expected_version,
-        executor_identity: args.caller,
-        started_at: args.started_at,
-        ...(args.source_session ? { source_session: args.source_session } : {}),
-        ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
-      },
-    });
+  const startTaskWork = async (args) => {
+    try {
+      return await coreClient.executeTaskCommand({
+        schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+        command_id: args.idempotency_key,
+        name: "StartTaskWork",
+        actor: { kind: "ai_agent", id: args.caller },
+        source: "mcp",
+        entrypoint: "mcp",
+        issued_at: args.started_at,
+        payload: {
+          task_id: args.task_id,
+          expected_version: args.expected_version,
+          executor_identity: args.caller,
+          started_at: args.started_at,
+          ...(args.source_session ? { source_session: args.source_session } : {}),
+          ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
+        },
+      });
+    } catch (error) {
+      // 提案だけを公開する配備では直接開始のcapabilityがない。既定の「更新してください」は
+      // その場合に当てはまらないため、配備の境界として案内し直す。
+      if (error instanceof TaskenCoreClientError && error.code === "CAPABILITY_UNAVAILABLE") {
+        throw new TaskenCoreClientError(
+          "CAPABILITY_UNAVAILABLE",
+          `Tasken Core operation capabilityが利用できません（${TASKEN_CORE_TASK_COMMAND_CAPABILITY}）。`,
+          {
+            details: { capability: TASKEN_CORE_TASK_COMMAND_CAPABILITY },
+            next_action:
+              "この接続先は直接開始を公開していません。Tasken Desktopから開始するか、tasken.report_task_doneで作業報告を送ってください（採用時に開始も記録されます）。Coreが古い場合は同じ版へ更新してください。",
+          },
+        );
+      }
+      throw error;
+    }
+  };
   const requiredTimestamp = z
     .string()
     .trim()

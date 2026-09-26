@@ -1419,7 +1419,7 @@ export function SettingsPage({
                     {mcpInfo?.coreWriteProfile === "full"
                       ? "提案と直接開始を受け付ける"
                       : mcpInfo?.coreWriteProfile === "proposals"
-                        ? "Text Proposal（Feed投稿・Note案・Task案）のみ受け付ける"
+                        ? "Text Proposal（Feed投稿・Note案・Task案・作業報告）のみ受け付ける"
                         : mcpInfo?.coreWriteProfile === "read-only"
                           ? "読み取りのみ（書き込みは公開していない）"
                           : mcpInfo?.coreWriteProfile === "partial"

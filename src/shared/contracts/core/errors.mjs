@@ -44,7 +44,7 @@ const CORE_ERROR_GUIDANCE = Object.freeze({
   WRITE_NOT_ALLOWED: {
     retryable: false,
     next_action:
-      "この接続先では許可されていない書き込みです。テキストのFeed投稿・Note案・Task案だけを送り、それ以外は利用者へ依頼してください。",
+      "この接続先では許可されていない書き込みです。テキストのFeed投稿・Note案・Task案・Task作業報告だけを送り、それ以外は利用者へ依頼してください。",
   },
   UNAUTHORIZED: { retryable: false, next_action: RESTART_ACTION },
   INVALID_DISCOVERY: { retryable: false, next_action: RESTART_ACTION },

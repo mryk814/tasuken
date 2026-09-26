@@ -281,12 +281,14 @@ export class TaskenCoreRuntime {
             proposeContent: restrictsProposals
               ? restrictContentProposals(core.proposeContent)
               : core.proposeContent,
+            // Task作業報告もProposalであり、正式データは人の採用まで変わらない。
+            // 提案受付を公開する配備では、作業報告も同じPreview/採用の境界へ合流させる。
+            proposeTaskWork: core.proposeTaskWork,
           }
         : {}),
-      // Task作業報告とAgent Sessionは常時稼働nodeの受付対象外。
+      // Agent Sessionは常時稼働nodeの受付対象外。
       ...(proposalAccess === "full"
         ? {
-            proposeTaskWork: core.proposeTaskWork,
             proposeAgentSession: core.proposeAgentSession,
           }
         : {}),

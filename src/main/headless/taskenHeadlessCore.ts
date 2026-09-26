@@ -66,7 +66,8 @@ export class TaskenHeadlessCoreError extends Error {
  * MCPはread-only deployment（`TASKEN_MCP_READ_ONLY=1`）で動かす前提とする。
  *
  * 書き込みは既定で公開しない。`writeMode: "proposals"` を明示した場合だけ、
- * テキストの読み物投稿・Note案・Task案を受け付け、Core自身が許可範囲を強制する。
+ * テキストの読み物投稿・Note案・Task案・Task作業報告を受け付け、Core自身が許可範囲を強制する。
+ * 直接開始（`task.command`）は`full`だけが公開し、常時稼働nodeでは使わない。
  */
 export async function startTaskenHeadlessCore(
   options: TaskenHeadlessCoreOptions = {},

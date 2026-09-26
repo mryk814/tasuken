@@ -126,9 +126,20 @@
 
 Phase 0の同期調査結果を設計ゲートとする。read-only設定の単純解除では実施しない。
 
-状態: ローカル実装済み（2026-09-21）。実Synologyへの配置は未実施。
+状態: ローカル実装済み（2026-09-21）。Task作業報告の受付を追加（2026-09-27）。実Synologyへの配置は未実施。
 
 実装内容: Headless Coreに `--write-mode`（`read-only` 既定 / `proposals`）を追加。既定は書き込みcapabilityを公開せず、`proposals` ではテキストのFeed投稿・Note案・Task案だけを受け付け、Core自身が種類単位で拒否する（`WRITE_NOT_ALLOWED`、HTTP 403）。Desktopは変更しない。`scripts/mcp-doctor.mjs` は `read-only`・`proposals` 配備を正常として診断する。NAS側のcompose・`.env.example` にも `TASKEN_CORE_WRITE_MODE` とtunnel側の `TASKEN_MCP_READ_ONLY` 既定を反映した。
+
+### Task作業報告の受付（2026-09-27）
+
+ChatGPTから接続した利用者から「viewだけでなく作業報告も残したい」という要求が出たため、`proposals`配備の許可範囲へ`propose_task_work`を加えた。この節はPhase 2の「Feed返信・Task報告の受付拡大は、初期往復成立後に既存契約を確認して別段階で判断する」に対する判断である。
+
+- 追加するのは`append_work_receipt`・`report_task_done`・`report_blocked`の3つで、いずれも`ai_proposal`（`payload_type: "task_work"`）を作るだけ。正式なTask・Work ReceiptはDesktopでの採用後にしか変わらない。
+- 直接書き込みである`start_task_work`（`task.command`）と`propose_agent_session`は`proposals`配備では引き続き公開しない。開始はDesktopで行うか、完了報告の採用時に記録させる。
+- 提案だけを公開する配備で`start_task_work`を呼ぶと`CAPABILITY_UNAVAILABLE`になる。既定の「同じ版へ更新してください」は当てはまらないため、MCP bridge側で「この接続先は直接開始を公開していない」と案内し直す。
+- `nas-install.sh`は`.env`を再生成するため、`TASKEN_CORE_WRITE_MODE`と`TASKEN_MCP_READ_ONLY`を既存値から引き継ぐよう直した。以前は再配置のたびに既定へ戻っていた。
+- 配置は`TASKEN_CORE_WRITE_MODE=proposals`と`TASKEN_MCP_READ_ONLY=0`の2つを設定し、`tasken-headless`と`tasken-tunnel`を作り直す。`propose_task_work`を含む版のimageが必要なため、コード変更を伴う再配置になる。
+- 実測は`deploy/synology/DEPLOYED.md`へ追記する。1つの`idempotency_key`を1つのnodeだけへ送る運用は変えない。
 
 ### 作業
 
