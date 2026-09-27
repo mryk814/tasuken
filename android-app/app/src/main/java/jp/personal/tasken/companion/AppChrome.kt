@@ -22,6 +22,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -230,3 +233,69 @@ internal class ReplyDictation(
     val start: ((String) -> Unit) -> Unit,
     val stop: () -> Unit,
 )
+
+/**
+ * 端末への保存が済んだ瞬間だけ出る小さな印。押印のように一度弾んで、少し経つと消える。
+ * 保存前・送信前には出さない（呼び出し側が永続保存の後に eventKey を渡す）。
+ */
+@Composable
+internal fun SavedStamp(
+    eventKey: Any?,
+    text: String = "端末に保存しました",
+    onShown: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    var visible by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    LaunchedEffect(eventKey) {
+        if (eventKey == null) return@LaunchedEffect
+        visible = true
+        kotlinx.coroutines.delay(1800)
+        visible = false
+        onShown()
+    }
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val success = taskenSuccessColor(dark)
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = androidx.compose.animation.scaleIn(
+            spring(dampingRatio = 0.45f, stiffness = 500f),
+            initialScale = 1.4f,
+        ) + androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(240)),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = success.copy(alpha = 0.12f),
+            contentColor = success,
+            border = androidx.compose.foundation.BorderStroke(1.dp, success.copy(alpha = 0.6f)),
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        ) {
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(painterResource(R.drawable.ic_tabler_circle_check), contentDescription = null, modifier = Modifier.size(16.dp))
+                androidx.compose.material3.Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/**
+ * いま追加した行を一度だけ明るくし、ゆっくり元の面へ戻す。
+ * どこに入ったかを目で追えるようにする。
+ */
+@Composable
+internal fun rememberJustAddedTint(highlighted: Boolean): androidx.compose.ui.graphics.Color {
+    val amount = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(highlighted) {
+        if (highlighted) {
+            amount.snapTo(1f)
+            kotlinx.coroutines.delay(400)
+            amount.animateTo(0f, androidx.compose.animation.core.tween(1400))
+        }
+    }
+    return MaterialTheme.colorScheme.primary.copy(alpha = 0.16f * amount.value)
+}

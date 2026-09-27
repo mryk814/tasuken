@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -46,6 +47,9 @@ internal fun MobileWorkLogSheet(
     var historyOpen by rememberSaveable { mutableStateOf(initialRecordId != null) }
     var busy by remember { mutableStateOf(false) }
     var selectedId by rememberSaveable { mutableStateOf(initialRecordId) }
+    // 端末に保存できた記録。履歴の該当カードへ保存の印を一度だけ出す。
+    var justSavedId by remember { mutableStateOf<String?>(null) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val recordsFlow = remember(repository) { repository.observeWorkLogs() }
     val records by recordsFlow.collectAsState(emptyList())
     val scope = rememberCoroutineScope()
@@ -113,7 +117,10 @@ internal fun MobileWorkLogSheet(
                         val record = item.record
                         ElevatedCard(Modifier.fillMaxWidth().testTag("work-log-record-${record.id}")) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(record.performedDate, style = MaterialTheme.typography.labelLarge)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(record.performedDate, style = MaterialTheme.typography.labelLarge)
+                                    if (record.id == justSavedId) SavedStamp(justSavedId, modifier = Modifier.testTag("work-log-saved-stamp"))
+                                }
                                 SelectionContainer { Text(record.body, maxLines = if (selectedId == record.id) Int.MAX_VALUE else 3) }
                                 Text(item.status, style = MaterialTheme.typography.bodySmall)
                                 if (record.taskMissing || (record.taskId != null && tasks.none { it.id == record.taskId })) Text("関連Taskが見つかりません。記録は保持しています。", style = MaterialTheme.typography.bodySmall)
@@ -163,7 +170,11 @@ internal fun MobileWorkLogSheet(
                         action {
                             repository.recordWorkLog(submitted)
                             withContext(Dispatchers.Main) {
-                                if (store.clear()) { draft = MobileWorkLogDraft(); historyOpen = true; selectedId = submitted.id; keyboard?.hide() }
+                                if (store.clear()) {
+                                    draft = MobileWorkLogDraft(); historyOpen = true; selectedId = submitted.id; keyboard?.hide()
+                                    justSavedId = submitted.id
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
+                                }
                                 else error("記録は保存済みです。入力欄の片付けに失敗したため、同じ入力を保持しています。")
                             }
                         }

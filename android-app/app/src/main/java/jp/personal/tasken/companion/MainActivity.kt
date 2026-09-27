@@ -125,6 +125,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -415,6 +416,9 @@ internal fun TodayApp(
     val snackbarHostState = remember { SnackbarHostState() }
     val hapticFeedback = LocalHapticFeedback.current
     var completionFeedback by remember { mutableStateOf<TaskCompletionFeedback?>(null) }
+    // 端末に保存できた追加。一覧の行を一度光らせ、入力シートには保存の印を出す。
+    var justAddedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var captureSavedKey by remember { mutableStateOf<Long?>(null) }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var handledEntryToken by rememberSaveable { mutableLongStateOf(0L) }
@@ -567,6 +571,9 @@ internal fun TodayApp(
         if (captureState is CaptureUiState.Queued) {
             val queued = captureState as CaptureUiState.Queued
             val queuedEntityIds = listOf(queued.entityId) + queued.additionalEntityIds
+            justAddedIds = queuedEntityIds.toSet()
+            captureSavedKey = System.nanoTime()
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
             if (queuedEntityIds.size > 1) {
                 speechRecognizer.cancel()
                 speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
@@ -879,6 +886,7 @@ internal fun TodayApp(
                                 onChecklistUpdate = todayViewModel::updateTaskChecklist,
                                 onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                                 completionFeedback = completionFeedback,
+                                justAddedIds = justAddedIds,
                             )
                             AppSection.Tasks -> TasksListPane(
                                 uiState = uiState,
@@ -895,6 +903,7 @@ internal fun TodayApp(
                                 onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                                 onLocalSearch = if (todayViewModel.localSearchRepository != null) ({ localSearchOpen = true }) else null,
                                 completionFeedback = completionFeedback,
+                                justAddedIds = justAddedIds,
                             )
                             AppSection.Ai -> AiInboxListPane(
                                 uiState = uiState,
@@ -1184,6 +1193,7 @@ internal fun TodayApp(
     }
     if (paneState.captureOpen) {
         CaptureTaskSheet(
+            savedEventKey = captureSavedKey,
             draft = paneState.captureDraft,
             state = captureState,
             speechState = speechState,
@@ -1264,6 +1274,8 @@ internal fun CaptureTaskSheet(
     onStartVoice: () -> Unit,
     onStopVoice: () -> Unit,
     onDismiss: () -> Unit,
+    /** 端末への保存が済んだ合図。続けて追加する時も、保存できたことを見せる。 */
+    savedEventKey: Any? = null,
     bottomContentInsets: WindowInsets = WindowInsets.safeDrawing
         .union(WindowInsets.ime)
         .only(WindowInsetsSides.Bottom),
@@ -1360,7 +1372,10 @@ internal fun CaptureTaskSheet(
         }
         val sheetEnabled = state !is CaptureUiState.Saving && !speechBusy
         val body: @Composable () -> Unit = {
-            Text("Taskを追加", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Taskを追加", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                SavedStamp(savedEventKey, modifier = Modifier.testTag("capture-saved-stamp"))
+            }
             if (draft.organization == null) {
                 // 枠のない入力欄。キーボードで狭くなる画面では、文字そのものを主役にする。
                 androidx.compose.material3.TextField(
@@ -1719,6 +1734,7 @@ internal fun TodayListPane(
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit,
     onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
     completionFeedback: TaskCompletionFeedback? = null,
+    justAddedIds: Set<String> = emptySet(),
 ) {
     val tasks = when (uiState) {
         is TodayUiState.Success -> uiState.tasks
@@ -1761,6 +1777,7 @@ internal fun TodayListPane(
                         onChecklistUpdate = onChecklistUpdate,
                         onTodayDateUpdate = onTodayDateUpdate,
                         completionFeedback = completionFeedback,
+                        justAddedIds = justAddedIds,
                     )
                 }
             }
@@ -1887,6 +1904,7 @@ internal fun TasksListPane(
     onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
     onLocalSearch: (() -> Unit)? = null,
     completionFeedback: TaskCompletionFeedback? = null,
+    justAddedIds: Set<String> = emptySet(),
 ) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
@@ -1950,6 +1968,7 @@ internal fun TasksListPane(
                         onChecklistUpdate = onChecklistUpdate,
                         onTodayDateUpdate = onTodayDateUpdate,
                         completionFeedback = completionFeedback,
+                        justAddedIds = justAddedIds,
                     )
                 }
             }
@@ -2712,6 +2731,7 @@ internal fun TodayTaskList(
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
     onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
     completionFeedback: TaskCompletionFeedback? = null,
+    justAddedIds: Set<String> = emptySet(),
 ) {
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = if (allTasksMode) paneState.taskListScrollIndex else paneState.listScrollIndex,
@@ -2763,9 +2783,12 @@ internal fun TodayTaskList(
             val rowInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
             val selected = task.id == paneState.selectedTaskId
             val rowShape = segmentShape(index, tasks.size)
+            val addedTint = rememberJustAddedTint(task.id in justAddedIds)
             Surface(
                 shape = rowShape,
-                color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                color = addedTint.compositeOver(
+                    if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                ),
                 border = if (selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
                 modifier = Modifier
                     .fillMaxWidth()
