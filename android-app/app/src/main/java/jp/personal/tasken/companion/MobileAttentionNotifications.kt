@@ -152,8 +152,10 @@ class AttentionReplyReceiver : BroadcastReceiver() {
                     return@launch
                 }
                 when (val result = repository.replyToAgent(row, null, body)) {
-                    is MobileAgentReplyResult.Applied ->
+                    is MobileAgentReplyResult.Applied -> {
                         MobileAttentionNotifications.showReplyResult(appContext, true, agentDisplayStateLabel(result.displayState), null)
+                        TaskenTodayWidget.updateAllNow(appContext)
+                    }
                     is MobileAgentReplyResult.Conflict ->
                         MobileAttentionNotifications.showReplyResult(appContext, false, result.message, body)
                     is MobileAgentReplyResult.Rejected ->

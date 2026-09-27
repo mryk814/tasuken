@@ -619,6 +619,8 @@ class TodayViewModel(
             if (online) {
                 currentCoroutineContext().ensureActive()
                 recordNewAttentionArrivals()
+                // ホーム画面のウィジェットにも、AIが待っている数を反映する。
+                refreshExternalProjection()
             }
         }
     }
@@ -701,6 +703,7 @@ class TodayViewModel(
             is MobileAgentReplyResult.Applied -> {
                 mutableAttentionOnline.value = true
                 mutableAgentReplyState.value = AgentReplyUiState.Applied(result.attentionId, result.displayState)
+                refreshExternalProjection()
             }
             is MobileAgentReplyResult.Conflict -> {
                 mutableAttentionOnline.value = true

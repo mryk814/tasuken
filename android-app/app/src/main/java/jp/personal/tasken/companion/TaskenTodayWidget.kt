@@ -17,6 +17,7 @@ import android.widget.RemoteViews
 import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 data class TaskenWidgetTask(
@@ -41,6 +42,9 @@ data class TaskenWidgetSnapshot(
     /** 今日の予定に入ったTaskのうち完了した数と、取り消しを除いた総数。 */
     val todayDoneCount: Int = 0,
     val todayTotalCount: Int = 0,
+    /** AIがあなたの返事・判断を待っている件数（Desktopのbadgeと同じ意味）。 */
+    val aiNeedsYou: Int = 0,
+    val firstAttentionId: String? = null,
 )
 
 internal enum class TaskenWidgetMode(val taskLimit: Int) {
@@ -250,7 +254,14 @@ class TaskenTodayWidget : AppWidgetProvider() {
                 today,
                 openTasks.associate { it.id to it.todayDate },
             )
+            val serverId = dao.syncState()?.serverId
+            val attentionState = serverId?.let { dao.attentionState(it) }
+            val firstAttentionId = serverId?.let { id ->
+                dao.observeAttention().first().firstOrNull { it.serverId == id }?.attentionId
+            }
             return TaskenWidgetSnapshot(
+                aiNeedsYou = attentionState?.needsYou ?: 0,
+                firstAttentionId = firstAttentionId,
                 tasks = ordered,
                 totalTaskCount = ordered.size,
                 todayDoneCount = todayTasks.count { it.state == "done" },
@@ -321,7 +332,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
             ),
         )
 
-        private fun viewsForMode(
+        internal fun viewsForMode(
             context: Context,
             widgetId: Int,
             snapshot: TaskenWidgetSnapshot,
@@ -354,6 +365,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
             setProgressBar(R.id.widget_progress, snapshot.todayTotalCount.coerceAtLeast(1), snapshot.todayDoneCount, false)
             setTextViewText(R.id.widget_status, statusText(snapshot))
             setOnClickPendingIntent(R.id.widget_status, openAppIntent(context, widgetId + 30_000, "tasken://today?source=widget"))
+            bindAiBadge(context, widgetId, snapshot)
             if (hasLayoutElement(layoutId, "widget_count")) {
                 setTextViewText(R.id.widget_count, taskCountText(snapshot))
             }
@@ -374,6 +386,19 @@ class TaskenTodayWidget : AppWidgetProvider() {
         private fun hasLayoutElement(layoutId: Int, name: String): Boolean = when (layoutId) {
             R.layout.tasken_today_widget_large, R.layout.tasken_today_widget_wide -> name == "widget_count"
             else -> false
+        }
+
+        /** AIが待っている時だけ出す。押すとその質問・判断を開く。 */
+        private fun RemoteViews.bindAiBadge(context: Context, widgetId: Int, snapshot: TaskenWidgetSnapshot) {
+            val count = snapshot.aiNeedsYou
+            setViewVisibility(R.id.widget_ai, if (count > 0) View.VISIBLE else View.GONE)
+            if (count <= 0) return
+            setTextViewText(R.id.widget_ai, if (count > 99) "AI 99+" else "AI $count")
+            setContentDescription(R.id.widget_ai, "AIが返事を待っています ${count}件")
+            val target = snapshot.firstAttentionId
+                ?.let { MobileAttentionNotifications.attentionUri(it).toString() }
+                ?: "tasken://today?source=widget"
+            setOnClickPendingIntent(R.id.widget_ai, openAppIntent(context, widgetId + 50_000, target))
         }
 
         private fun RemoteViews.bindAddAction(context: Context, widgetId: Int) {
