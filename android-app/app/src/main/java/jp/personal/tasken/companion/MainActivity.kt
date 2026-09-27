@@ -702,13 +702,20 @@ internal fun TodayApp(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        when (paneState.activeSection) {
-                            AppSection.Today -> "Today"
-                            AppSection.Tasks -> "ToDo"
-                            AppSection.Ai -> "AI"
-                        },
-                    )
+                    if (paneState.activeSection == AppSection.Today) {
+                        // Todayの見出しは1行に集約する（Desktopと同じ「今日やること」と日付）。
+                        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("今日やること")
+                            Text(
+                                LocalDate.now().format(DateTimeFormatter.ofPattern("M月d日（E）", Locale.JAPANESE)),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 2.dp),
+                            )
+                        }
+                    } else {
+                        Text(if (paneState.activeSection == AppSection.Tasks) "ToDo" else "AI")
+                    }
                 },
                 actions = {
                     if (todayViewModel.recallRepository != null && paneState.activeSection == AppSection.Today) {

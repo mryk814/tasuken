@@ -51,7 +51,7 @@ class TodayOfflineUiTest {
                 }
             }
         }
-        composeRule.onNodeWithText("今日やること").assertIsDisplayed()
+        composeRule.onNodeWithText("あと", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("最終同期", substring = true).assertIsDisplayed()
         composeRule.onNodeWithTag("today-task-list").performScrollToNode(hasText(task(20).title))
         composeRule.runOnIdle {

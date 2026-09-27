@@ -59,7 +59,6 @@ class TodayDelightUiTest {
                 }
             }
         }
-        composeRule.onNodeWithText("今日やること").assertIsDisplayed()
         composeRule.onNodeWithText("あと4件").assertIsDisplayed()
         composeRule.onNodeWithText("1/5").assertIsDisplayed()
         capture("01-progress-header")
@@ -117,10 +116,8 @@ class TodayDelightUiTest {
                 }
             }
         }
-        composeRule.onNodeWithText("今日やること").assertIsDisplayed()
         composeRule.onNodeWithTag("today-task-list").performScrollToNode(hasText("比較実験 15：測定条件を確認する"))
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("今日やること").assertDoesNotExist()
         composeRule.onNodeWithText("あと17件").assertIsDisplayed()
         capture("08-collapsed-header")
     }

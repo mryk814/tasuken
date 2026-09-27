@@ -122,21 +122,7 @@ internal fun TodayProgressHeader(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                if (!collapsed) {
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "今日やること",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            LocalDate.now().format(DateTimeFormatter.ofPattern("M月d日（E）", Locale.JAPANESE)),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                // 「今日やること」と日付は上部バーに置く。ここは残りの数から始める。
                 AnimatedContent(
                     targetState = progress,
                     transitionSpec = {
