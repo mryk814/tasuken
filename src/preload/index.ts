@@ -172,6 +172,8 @@ const api: ResearchDeskApi = {
       };
     },
     ackAppFlush: (requestId, ok) => ipcRenderer.invoke(IPC.appFlushAck, { requestId, ok }),
+    performanceDiagnosticsEnabled: () => ipcRenderer.invoke(IPC.appPerformanceDiagnosticsEnabled),
+    reportPerformance: (report) => ipcRenderer.send(IPC.appPerformanceReport, report),
     getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
     toggleTaskenRoot: () => ipcRenderer.invoke(IPC.taskenRootToggle),
     hideTaskenRoot: () => ipcRenderer.invoke(IPC.taskenRootHide),

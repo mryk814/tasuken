@@ -51,7 +51,7 @@ class MobileLongCaptureUiTest {
         val bounds = input.getBoundsInRoot()
         assertTrue((bounds.bottom - bounds.top).value < 290f)
         screenshot("01-long-input")
-        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("capture-submit-close").assertIsDisplayed().assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals(text, submitted) }
         screenshot("02-long-save-actions")
     }
@@ -80,7 +80,7 @@ class MobileLongCaptureUiTest {
         }
         screenshot("03-over-limit-copy")
         composeRule.onNodeWithTag("capture-text-input").performScrollTo().performTextReplacement(text)
-        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled()
         composeRule.runOnIdle { assertEquals(text, draft.value.text) }
     }
 
@@ -131,10 +131,10 @@ class MobileLongCaptureUiTest {
                 )
             }
         }
-        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-organize").performClick()
         composeRule.onNodeWithTag("capture-organization-error").assertExists()
         composeRule.runOnIdle { assertEquals(text, draft.value.text) }
-        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled().performClick()
         composeRule.runOnIdle {
             assertEquals(MobileCaptureKind.Capture, submitted?.kind)
             assertEquals(text, submitted?.text)

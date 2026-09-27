@@ -51,12 +51,14 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 
 常時稼働nodeは既定で書き込みを公開しない。`--write-mode=proposals`（または `TASKEN_CORE_WRITE_MODE=proposals`）を選んだ場合だけ、次を公開する。
 
-| 公開する                                                  | 公開しない                                                                        |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `propose_content`（`feed_post`・画像なしの`note_create`） | `note_edit`、`feed_reply`、`artifact`、`sketch`、`knowledge`                      |
-| `propose_repository_task`（`task`）                       | `repository_context`                                                              |
-| 既存の読み取りcapability                                  | `task.command`（`start_task_work`）、`propose_task_work`、`propose_agent_session` |
+| 公開する                                                                 | 公開しない                                                   |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| `propose_content`（`feed_post`・画像なしの`note_create`）                | `note_edit`、`feed_reply`、`artifact`、`sketch`、`knowledge` |
+| `propose_repository_task`（`task`）                                      | `repository_context`                                         |
+| `propose_task_work`（`append_receipt`・`report_done`・`report_blocked`） | `task.command`（`start_task_work`）、`propose_agent_session` |
+| 既存の読み取りcapability                                                 |                                                              |
 
+- Task作業報告もProposalなので、`proposals`配備でも正式データは人の採用まで変わらない。開始（`start_task_work`）は直接書き込みであり、`full`だけが公開する。
 - 範囲外の種類は、capabilityを残したまま実行時に `WRITE_NOT_ALLOWED`（HTTP 403）で拒否する。AIは `next_action` から送り直し方を判断できる。
 - 公開しないcapabilityは `/capabilities` に出さないため、MCP bridgeは呼び出し時点で `CAPABILITY_UNAVAILABLE` を返す。
 - 許可範囲はCore側で強制する。MCP bridgeの `TASKEN_MCP_READ_ONLY` は公開toolを減らすための追加の境界であり、Core側の制御を置き換えない。
@@ -75,7 +77,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 - 共有フォルダのmanifestが無い場合は `SYNC_FOLDER_NOT_READY` で失敗する。先にデータ端末で同期を設定しておく。
 - ホストの`workspaceId`を採用し、node自身の`deviceId`は固定のまま。同期カーソル・適用済みsequence・取り込んだentityはnodeのSQLiteに永続化されるため、再起動後も同じidentityとstateで復帰する。
 - 初回や途中の差分がOneDrive等で未到着でも、poll（10秒間隔）で再試行する。解消しない場合の「差分を再公開」はデータ端末側で行う（`docs/shared-folder-sync.md`）。
-- このnodeは読み取り専用の運用を既定とする。MCP clientは`TASKEN_MCP_READ_ONLY=1`で起動し、write tools（`start_task_work`・`report_task_done`・`propose_*`等）を公開しない。`--write-mode=proposals`を選んだ場合だけ提案受付を公開する（前節）。proposals配備では、replicaが作ったProposalとDesktopの採否が変更差分として往復する。1つの`idempotency_key`は1つのnodeだけへ送る。
+- このnodeは読み取り専用の運用を既定とする。MCP clientは`TASKEN_MCP_READ_ONLY=1`で起動し、write tools（`start_task_work`・`report_task_done`・`propose_*`等）を公開しない。`--write-mode=proposals`を選んだ場合だけ、テキストのFeed投稿・Note案・Task案・Task作業報告を提案として受け付ける（前節）。proposals配備では、replicaが作ったProposalとDesktopの採否が変更差分として往復する。1つの`idempotency_key`は1つのnodeだけへ送る。
 - 添付画像は共有フォルダ同期の対象で、受信後に`get_capture_image`・`get_task_image`で読める。`ContentDetailQueryService`がmanifestの`size`・`sha256`と照合するため、欠落・不一致はnot_foundになる。
 - Note Proposal画像のstage（`nativeImage`によるdecode）は含まないため、画像付きProposalの作成はできない。
 
@@ -108,7 +110,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 
 - NAS上のNode（またはNode入りコンテナ）で `npm ci`、`npm run build:core:headless` を実行し、`core-dist/headless.mjs` と `node_modules` を配置する。
 - `node core-dist/headless.mjs --user-data-dir=/volume1/tasken --sync-directory=/volume1/tasken-sync` をsystemd・Container Manager等で常時起動する。停止はSIGTERMでgraceful。
-- MCP clientはNAS上で `node scripts/mcp-server.mjs` をstdio起動するか、transport（Secure MCP Tunnel等）で公開する。replica運用では`TASKEN_MCP_READ_ONLY=1`を付ける。Tasken domain側へtransport固有logicは入れない。
+- MCP clientはNAS上で `node scripts/mcp-server.mjs` をstdio起動するか、transport（Secure MCP Tunnel等）で公開する。replica運用の既定は`TASKEN_MCP_READ_ONLY=1`。提案を受け付ける配備では`0`にする（Core側の`--write-mode=proposals`と両方が要る）。Tasken domain側へtransport固有logicは入れない。
 - discovery fileはuserData配下のowner-only。MCPへtoken・local path・credentialを返さない現在の境界をそのまま維持する。
 
 ## #427 / shared-folder syncとの関係
@@ -135,7 +137,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 ## 残作業
 
 - Phase 0: 実ChatGPT等からSecure MCP Tunnel経由で既存MCP contractへ接続する実証（利用者アカウント・tunnel設定が必要）
-- Phase 2（残り）: 実Synologyでの参加検証、bootstrap/compaction/revoke/schema upgradeのowner決定。Core側の提案受付gate（`--write-mode=proposals`）は2026-09-21に実装済みで、実環境への配置が残る
+- Phase 2（残り）: 実Synologyでの参加検証、bootstrap/compaction/revoke/schema upgradeのowner決定。Core側の提案受付gate（`--write-mode=proposals`）は2026-09-21に実装済みで、2026-09-27に実機NASへ配置した（[DEPLOYED.md](../deploy/synology/DEPLOYED.md)）。
 - Phase 3: NAS上の常時稼働MCP、transport切断・再接続時の状態非破壊、NAS再起動後の自動復帰
 - Phase 4: 通常command経路でのwrite有効化とconflict/Tombstone/undo検証、read-only feature gate
 - Phase 5: relay責務のADR（Synology thin relay・共有フォルダ・Desktop Gateway・managed backendの比較）

@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.Flow
@@ -592,14 +593,18 @@ class TodayViewModelTest {
     }
 
     @Test
-    fun taskStateActionQueuesCompleteAndReopenIntents() {
+    fun taskStateActionQueuesCompleteAndReopenIntents() = runBlocking {
         val received = mutableListOf<String>()
+        val completeStarted = CompletableDeferred<Unit>()
+        val releaseComplete = CompletableDeferred<Unit>()
         val repository = object : MobileTaskRepository, MobileOfflineTaskRepository {
             override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-21T10:00:00.000Z")
             override fun observeCachedTasks(): Flow<List<MobileTask>> = flowOf(emptyList())
             override fun observePendingCount(): Flow<Int> = flowOf(0)
             override suspend fun enqueueCreateTask(draft: MobileCaptureDraft, todayDate: java.time.LocalDate?) = "unused"
             override suspend fun enqueueCompleteTask(taskId: String): MobileStateActionResult {
+                completeStarted.complete(Unit)
+                releaseComplete.await()
                 received += "complete:$taskId"
                 return MobileStateActionResult("complete-command", true)
             }
@@ -610,12 +615,27 @@ class TodayViewModelTest {
         }
         val viewModel = TodayViewModel(repository)
         val task = sampleTask()
+        val feedback = mutableListOf<TaskCompletionFeedback>()
+        val feedbackCollector = launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.taskCompletionFeedback.collect { feedback += it }
+        }
 
-        runBlocking { viewModel.toggleTaskStateNow(task) }
-        assertEquals(TaskActionUiState.Queued(task.id), viewModel.taskActionState.value)
-        runBlocking { viewModel.toggleTaskStateNow(task.copy(state = "done")) }
-        assertEquals(TaskActionUiState.Queued(task.id), viewModel.taskActionState.value)
-        assertEquals(listOf("complete:${task.id}", "reopen:${task.id}"), received)
+        try {
+            val completion = launch { viewModel.toggleTaskStateNow(task) }
+            completeStarted.await()
+            assertTrue(feedback.isEmpty())
+            releaseComplete.complete(Unit)
+            completion.join()
+            assertEquals(TaskActionUiState.Queued(task.id), viewModel.taskActionState.value)
+            assertEquals(listOf(task.id), feedback.map { it.taskId })
+
+            viewModel.toggleTaskStateNow(task.copy(state = "done"))
+            assertEquals(TaskActionUiState.Queued(task.id), viewModel.taskActionState.value)
+            assertEquals(listOf(task.id), feedback.map { it.taskId })
+            assertEquals(listOf("complete:${task.id}", "reopen:${task.id}"), received)
+        } finally {
+            feedbackCollector.cancel()
+        }
     }
 
     @Test

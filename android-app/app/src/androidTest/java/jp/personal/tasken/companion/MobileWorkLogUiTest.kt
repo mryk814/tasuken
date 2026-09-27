@@ -40,9 +40,12 @@ class MobileWorkLogUiTest {
         assertEquals(raw, store.load()?.body)
         assertEquals("2026-09-06", store.load()?.performedDate)
         screenshot("01-save-failure-ime")
+        // 保存に失敗した時は保存の印を出さない。
+        compose.onAllNodesWithTag("work-log-saved-stamp").assertCountEquals(0)
         repository.fail = false
         compose.onNodeWithTag("work-log-save").performClick()
         compose.waitUntil { repository.saved != null }
+        compose.waitUntil { compose.onAllNodesWithTag("work-log-saved-stamp").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("保存した記録").assertIsDisplayed()
         assertEquals(raw, repository.saved?.body)
         assertEquals("2026-09-06", repository.saved?.performedDate)

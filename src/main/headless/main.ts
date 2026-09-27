@@ -40,7 +40,8 @@ Options:
                      参加できるのは空のnodeだけ。MCPはTASKEN_MCP_READ_ONLY=1で動かす。
   --write-mode       受け付ける書き込みの範囲。read-only（既定）またはproposals。
                      省略時はTASKEN_CORE_WRITE_MODE。proposalsではテキストのFeed投稿・
-                     Note案・Task案だけを受け付け、Core自身が許可範囲を強制する。
+                     Note案・Task案・Task作業報告だけを受け付け、Core自身が許可範囲を強制する。
+                     直接開始（start_task_work）は公開しない。
   -h, --help         このhelpを表示する。
 
 起動するとstdoutへTASKEN_HEADLESS_CORE_READY、SIGINT/SIGTERMの正常終了時に

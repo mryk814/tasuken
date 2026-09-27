@@ -3,7 +3,7 @@
 Synology上でElectronなしのTasken Coreを常時稼働させ、既存の共有フォルダ同期へ**read-only replica**として参加させる手順です。
 Desktopが停止していても、NASのローカルSQLiteが最新の同期差分を持ち、MCP（read-only）からContextを読める状態を目指します。
 
-実装済みなのはheadless Coreとreplica参加（`docs/headless-core.md`）までです。MCP transport / Secure MCP Tunnelの常時稼働と、write有効化はPhase 3/4で未検証です。
+実装済みなのはheadless Coreとreplica参加（`docs/headless-core.md`）までです。MCP transport / Secure MCP Tunnelの常時稼働とwrite有効化（`proposals`配備）は2026-09-27に実機NASへ配置済みで、観測は[deploy/synology/DEPLOYED.md](../../deploy/synology/DEPLOYED.md)にあります。ChatGPT実クライアントからの往復とtransport再接続は未検証です。
 
 ```text
 [データ端末 Tasken]
@@ -14,15 +14,15 @@ Desktopが停止していても、NASのローカルSQLiteが最新の同期差�
    ▼
 [tasken-headless コンテナ]  tasken-data volume に自分のSQLite
    │  Docker exec 経由
-   └─ node mcp-dist/server.mjs  (TASKEN_MCP_READ_ONLY=1)
+   └─ node mcp-dist/server.mjs  (TASKEN_MCP_READ_ONLY=1。提案を受け付ける配備では0)
           ▲
-          外部AI（Phase 3でtransport接続）
+          外部AI（Secure MCP Tunnel経由）
 ```
 
 ## 前提
 
 - DSM 7.2以降 + Container Manager
-- NASへSSHできる（この手順はTailscale経由のSSH/scpを前提。`ssh <user>@synologyDS723`）
+- NASへSSHできる（この手順はTailscale経由のSSH/scpを前提。`ssh <user>@<nas-host>`）
 - CPUアーキテクチャを確認する。x86_64（Intel/AMD）またはaarch64（ARM64）を推奨。32-bit ARM（armv7）は非推奨。
   ```bash
   uname -m
@@ -35,7 +35,7 @@ Desktopが停止していても、NASのローカルSQLiteが最新の同期差�
 
 - **直接SMB（推奨・最小構成）**: NASの共有フォルダを作り、PCからSMBで開く。
   - NAS側: 共有フォルダ `Tasken` を作り、その下に `sync`（例 `/volume1/Tasken/sync`）。
-  - PC側: `\\synologyDS723\Tasken\sync` をTaskenの「端末間同期」で選ぶ（`T:` などドライブ割り当てを推奨）。
+  - PC側: `\\<nas-host>\Tasken\sync` をTaskenの「端末間同期」で選ぶ（`T:` などドライブ割り当てを推奨）。
   - クラウド同期を挟まないため遅延や途中欠けが少ない。
 - **OneDrive + Cloud Sync**: PCはOneDriveフォルダ、NASはCloud Syncで同じフォルダを `/volume1/...` に落とす。既にOneDrive運用がある場合はこちら。
 
@@ -55,7 +55,7 @@ Desktopが停止していても、NASのローカルSQLiteが最新の同期差�
 `core.autocrlf=true` の作業コピーでは `git archive` が**CRLFのまま**書き出し、NAS上の `bash nas-install.sh` が
 `set: pipefail` で失敗する。ソースtarは改行をLFへ固定して作る（2026-09-26に実機で発生）。
 
-SMBで共有フォルダを割り当てている場合（最小構成。例: `T:` = `\\synologyDS723\tasken`）:
+SMBで共有フォルダを割り当てている場合（最小構成。例: `T:` = `\\<nas-host>\tasken`）:
 
 ```powershell
 # 開発機（リポジトリroot）
@@ -75,11 +75,11 @@ SSH/scpを使う場合（Tailscale経由）:
 ```bash
 docker save -o tasken-headless-linux-amd64.tar tasken-headless:local
 git -c core.autocrlf=false -c core.eol=lf archive --format=tar -o tasken-source.tar HEAD
-ssh <user>@synologyDS723 "sudo mkdir -p /volume1/tasken/_deploy"
-scp -O tasken-headless-linux-amd64.tar tasken-source.tar deploy/synology/nas-install.sh <user>@synologyDS723:/volume1/tasken/_deploy/
+ssh <user>@<nas-host> "sudo mkdir -p /volume1/tasken/_deploy"
+scp -O tasken-headless-linux-amd64.tar tasken-source.tar deploy/synology/nas-install.sh <user>@<nas-host>:/volume1/tasken/_deploy/
 ```
 
-DSM側の設定によっては `scp` が `Connection closed` で拒否される（2026-09-26の実機DS723+で発生。SSHのログイン自体は成功する）。
+DSM側の設定によっては `scp` が `Connection closed` で拒否される（実機で発生。SSHのログイン自体は成功する）。
 その場合はSMB共有経由でコピーする。
 
 `docker-compose` はContainer Manager同梱の `/var/packages/ContainerManager/target/usr/bin/docker-compose` を使う。
@@ -114,17 +114,49 @@ Coreは`127.0.0.1`のloopbackにだけ待ち受け、discovery fileはowner-only
 sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/server.mjs
 ```
 
-- `TASKEN_MCP_READ_ONLY=1` でwrite tools（`start_task_work`・`report_task_done`・`propose_*`等）は公開されません（読み取りtoolsのみ）。replicaからcanonical stateを書き換えないための必須設定です。
+- `TASKEN_MCP_READ_ONLY=1` でwrite tools（`start_task_work`・`report_task_done`・`propose_*`等）は公開されません（読み取りtoolsのみ）。replicaからcanonical stateを書き換えないための既定です。提案だけを受け付ける場合は次の節の2設定を使います。
 - 外部AIへつなぐSecure MCP Tunnel等のクライアントは、NASホスト側でこの`docker exec`をstdio起動する形にします。常時稼働させる構成は次のPhase 3を参照してください。
 
 ### 投稿・提案を受け付ける（`--write-mode=proposals`）
 
-既定では読み取りだけです。`deploy/synology/.env`で`TASKEN_CORE_WRITE_MODE=proposals`にすると、CoreはテキストのFeed投稿・Note案・Task案だけを受け付けます。さらにtunnel側で`TASKEN_MCP_READ_ONLY=0`にすると、外部AIからこれらの提案を送れます（**両方の設定が必要**）。
+既定では読み取りだけです。`deploy/synology/.env`で`TASKEN_CORE_WRITE_MODE=proposals`にすると、CoreはテキストのFeed投稿・Note案・Task案・Task作業報告だけを提案として受け付けます。さらにtunnel側で`TASKEN_MCP_READ_ONLY=0`にすると、外部AIからこれらの提案を送れます（**両方の設定が必要**）。
 
 - Core側が許可範囲を強制します。範囲外の種類（`note_edit`・`feed_reply`・画像付きNote・`repository_context`・直接開始など）は`WRITE_NOT_ALLOWED`で拒否されます。
+- Task作業報告（`append_work_receipt`・`report_task_done`・`report_task_blocked`）はProposalなので、NASでも正式データはDesktopでの採用まで変わりません。開始（`start_task_work`）は直接書き込みのため公開しません。Desktopから開始するか、完了報告の採用時に開始も記録させてください。
 - 作ったProposalは正式データではなく、DesktopのAgent Desk・Feedで人が確認して採用します。
 - 1つの`idempotency_key`は1つのnodeだけへ送ってください。DesktopとNASの両方へ同じkeyを送ると競合になります。
 - 画像付きProposalのstageはNASにはないため、画像付きNote案は受け付けられません。
+- 設定は`nas-install.sh`の再実行でも保持されます。`.env`を直接編集したあとは、`docker-compose ... up -d`で`tasken-headless`と`tasken-tunnel`を作り直してください。
+
+#### MCP client（ChatGPT等）から見える範囲
+
+`TASKEN_MCP_READ_ONLY=0`のbridgeはwrite toolsを8件登録しますが、**登録されることとCoreが受け付けることは別**です。実際に使えるのは次の5つです。
+
+| tool                          | Coreの判定                                       |
+| ----------------------------- | ------------------------------------------------ |
+| `tasken.propose_feed_post`    | 受け付ける（`feed_post`）                        |
+| `tasken.propose_note`         | 受け付ける（画像なしの`note_create`）            |
+| `tasken.append_work_receipt`  | 受け付ける（`propose_task_work`）                |
+| `tasken.report_task_done`     | 受け付ける（同上）                               |
+| `tasken.report_task_blocked`  | 受け付ける（同上）                               |
+| `tasken.propose_note_edit`    | `WRITE_NOT_ALLOWED`（`note_edit`は範囲外）       |
+| `tasken.answer_feed_question` | `WRITE_NOT_ALLOWED`（`feed_reply`は範囲外）      |
+| `tasken.start_task_work`      | `CAPABILITY_UNAVAILABLE`（直接開始は公開しない） |
+
+Task**案**を作るtoolは現行のMCP bridgeには登録されていません（`propose_repository_task` capabilityはCore側にあります）。ChatGPTへTaskを作らせたい場合は、Feed投稿かNote案として送り、DesktopでTaskへ昇格させてください。
+
+現在の見え方は次のコマンドで実測できます（toolを列挙して`search_items`を1回読むだけで、書き込みはしません）。
+
+```bash
+sudo docker run --rm --network container:tasken-headless --user 1026:100 \
+  -e TASKEN_MCP_READ_ONLY=0 \
+  -v /volume1/docker/tasken/deploy/synology/nas-read-check.mjs:/check/nas-read-check.mjs:ro \
+  -v /volume1/docker/tasken/deploy/synology/state:/data:ro \
+  --entrypoint node tasken-headless:local /check/nas-read-check.mjs
+```
+
+- 期待値: `TOOL_COUNT 21`（read 13 + write 8）・`HAS_WRITE true`。`-e TASKEN_MCP_READ_ONLY=0`を外すと`TOOL_COUNT 13`・`HAS_WRITE false`。
+- `tasken-headless:local`の代わりに固定tagのimageを使うと、配置版を明示できます。
 
 ## Phase 3: Secure MCP Tunnelで外部AIへ公開
 
@@ -164,7 +196,8 @@ sudo docker logs --tail=30 tasken-tunnel
 
 - tunnel-clientのimageは`--build-arg TUNNEL_CLIENT_IMAGE=ghcr.io/openai/tunnel-client:vX.Y.Z`で固定できます（既定`latest`。本番は固定を推奨）。
 - 2026-09-12時点の実機観測: NAS側のdaemonは`healthy`・metadata取得済みだが、**ChatGPT Plus + Personal workspaceでは`Connection: Tunnel`の一覧にtunnelが出ない**（OpenAI側の既知問題。`tunnel_principal_association_unverified`）。Business/Enterprise workspaceかOpenAI側の修正待ち。経緯は[deploy/synology/DEPLOYED.md](../../deploy/synology/DEPLOYED.md)。
-- 未検証: ChatGPTからのtool call（上記理由で保留）、transport切断・再接続、NAS再起動後の自動復帰。
+- その後、利用者からChatGPTから接続できたとの報告があり、現在の利用状況として扱う（2026-09-27時点）。上の09-12観測は履歴として残す。
+- 未検証: ChatGPT実クライアントからの書き込み往復（読み取りは利用中）、transport切断・再接続、NAS再起動後の自動復帰。
 
 ## コンテナ設定（堅牢化）
 
@@ -181,15 +214,15 @@ sudo docker logs --tail=30 tasken-tunnel
 
 `deploy/synology/` の各ファイル:
 
-| ファイル                    | 役割                                                                                             |
-| --------------------------- | ------------------------------------------------------------------------------------------------ |
-| `Dockerfile`                | core-dist / mcp-dist を作るNode専用image                                                         |
-| `docker-compose.yml`        | Container Manager Project用のservice定義                                                         |
-| `docker-compose.tunnel.yml` | Secure MCP Tunnelサイドカー（Phase 3、上書き用）                                                 |
-| `.env.example`              | `TASKEN_UID` / `TASKEN_GID` / `TASKEN_ADMIN_GID` / `TASKEN_SYNC_DIR` / `CONTROL_PLANE_TUNNEL_ID` |
-| `backup.sh`                 | 稼働中replicaのsnapshotと隔離検証（後述）                                                        |
-| `nas-install.sh`            | NAS上の配置入口（source展開・load・.env/state・probe・起動）                                     |
-| `DEPLOYED.md`               | 最後に観測した稼働状態（branch・versionとは別）                                                  |
+| ファイル                    | 役割                                                                                               |
+| --------------------------- | -------------------------------------------------------------------------------------------------- |
+| `Dockerfile`                | core-dist / mcp-dist を作るNode専用image                                                           |
+| `docker-compose.yml`        | Container Manager Project用のservice定義                                                           |
+| `docker-compose.tunnel.yml` | Secure MCP Tunnelサイドカー（Phase 3、上書き用）                                                   |
+| `.env.example`              | UID/GID・同期フォルダ・`TASKEN_CORE_WRITE_MODE`・`TASKEN_MCP_READ_ONLY`・`CONTROL_PLANE_TUNNEL_ID` |
+| `backup.sh`                 | 稼働中replicaのsnapshotと隔離検証（後述）                                                          |
+| `nas-install.sh`            | NAS上の配置入口（source展開・load・.env/state・probe・起動）                                       |
+| `DEPLOYED.md`               | 最後に観測した稼働状態（branch・versionとは別）                                                    |
 
 ## 更新と復旧
 
@@ -220,7 +253,7 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 
 ## 二重writerにしない
 
-- replicaは**read-only運用**。MCPは `TASKEN_MCP_READ_ONLY=1` で起動し、write toolsを公開しない。
+- replicaは**read-only運用が既定**。MCPは `TASKEN_MCP_READ_ONLY=1` で起動し、write toolsを公開しない。書き込みを許す配備でも、Core側の`--write-mode=proposals`と合わせてProposal（Feed投稿・Note案・Task案・Task作業報告）だけを許可し、正式データはDesktopでの採用まで変えない。
 - DesktopとNASで**同じuserData/stateを同時に開かない**。stateは各nodeのローカルに置き、SQLite/WALをSMB/NFSや同期フォルダへ置かない。
 - 同じuserDataでCoreが稼働中なら `CORE_ALREADY_RUNNING` で拒否される。durableなwriter authorityはPhase 4のwrite有効化と合わせて設計する。
 
@@ -233,15 +266,34 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 
 ## トラブルシューティング
 
-| 症状                                                       | 原因と対処                                                                                                                  |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `SYNC_FOLDER_NOT_READY`                                    | 共有フォルダが未初期化。先にデータ端末で同期を設定する                                                                      |
-| `CORE_ALREADY_RUNNING`                                     | 同じuserDataで別Coreが稼働中。既存コンテナ/プロセスを止める                                                                 |
-| `DISCOVERY_OWNER_MISMATCH`                                 | MCP bridgeが別uid/別コンテナ。同じコンテナで`docker exec`する                                                               |
-| `NODE_MODULE_VERSION` 不一致                               | `better-sqlite3`が別runtime向け。イメージを再buildする（`npm rebuild better-sqlite3`）                                      |
-| 権限エラー（EACCES/EPERM）                                 | `/volume1/tasken/sync` の所有者・権限を確認                                                                                 |
-| 共有フォルダだけEACCES（mode 0000表示）                    | Synologyの`synoacl`（NFSv4 ACL）。`group_add`のgid（DSM標準は101=administrators）を合わせる。`nas-install.sh`が自動検出する |
-| tunnelの`read control-plane api key ... permission denied` | secretの所有者を`TASKEN_UID`に合わせる（`chown -R "$UID_:$GID_" secrets`）                                                  |
+| 症状                                                               | 原因と対処                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SYNC_FOLDER_NOT_READY`                                            | 共有フォルダが未初期化。先にデータ端末で同期を設定する                                                                                                                                                                                                                                                                                                                       |
+| `CORE_ALREADY_RUNNING`                                             | 同じuserDataで別Coreが稼働中。既存コンテナ/プロセスを止める                                                                                                                                                                                                                                                                                                                  |
+| `DISCOVERY_OWNER_MISMATCH`                                         | MCP bridgeが別uid/別コンテナ。同じコンテナで`docker exec`する                                                                                                                                                                                                                                                                                                                |
+| `NODE_MODULE_VERSION` 不一致                                       | `better-sqlite3`が別runtime向け。イメージを再buildする（`npm rebuild better-sqlite3`）                                                                                                                                                                                                                                                                                       |
+| 権限エラー（EACCES/EPERM）                                         | `/volume1/tasken/sync` の所有者・権限を確認                                                                                                                                                                                                                                                                                                                                  |
+| 共有フォルダだけEACCES（mode 0000表示）                            | Synologyの`synoacl`（NFSv4 ACL）。`group_add`のgid（DSM標準は101=administrators）を合わせる。`nas-install.sh`が自動検出する                                                                                                                                                                                                                                                  |
+| tunnelの`read control-plane api key ... permission denied`         | secretの所有者を`TASKEN_UID`に合わせる（`chown -R "$UID_:$GID_" secrets`）                                                                                                                                                                                                                                                                                                   |
+| ChatGPTにwrite toolsが出ない（read-onlyのまま）                    | tunnel側の`TASKEN_MCP_READ_ONLY=0`とCore側の`--write-mode=proposals`の両方を確認する。NAS側は「投稿・提案を受け付ける」節の`nas-read-check.mjs`で実測できる                                                                                                                                                                                                                  |
+| ChatGPTのtool一覧が古い／新しいwrite toolsが出ない                 | Settings → Connectorsでこのアプリを開き**Refresh**を押す。OpenAIの仕様ではサーバー更新は自動反映されず、増えたactionは**既定で無効**なので、一覧に出たwrite toolsを有効にする。既存チャットは更新前の一覧のままなので**新しいチャット**で試す。改善しなければconnectorを削除して再追加する。現行のNASが返すのはread-only 13 / write有効 21 toolsで、`29`は2026-09-26以前の数 |
+| ChatGPTから投稿したがDesktopに出ない                               | `T:\sync\devices\<replicaのdevice id>\` に差分が増えているか、Desktopの端末間同期が有効かを確認する（下の「往復の確認」）                                                                                                                                                                                                                                                    |
+| tunnelが昇っているか疑わしい                                       | `sudo docker exec tasken-tunnel node -e "fetch('http://127.0.0.1:18080/readyz').then(r=>console.log('readyz',r.status)).catch(e=>console.log('ERR',e.message))"`。admin UIは同じnetnsの`http://127.0.0.1:18080/ui`                                                                                                                                                           |
+| 作業報告の採用が「Taskのcanonical Theme IDがありません」で失敗する | 対象TaskがcanonicalなTheme（`project_id`）を持っていない。古いTaskにこの状態が残る場合がある。TaskenでそのTaskを開いて保存し直すと`project_id`が付く（提案自体は受理済みなので、直せば採用できる）。この拒否はMCP経由に限らず既存の挙動                                                                                                                                      |
+
+### 往復の確認（PC側から見る）
+
+書き込みが公開されたかは、replica自身のdeviceフォルダで確認できます。device idは`deploy/synology/state`の`workspace_meta.device_id`です。
+
+```powershell
+# T: = \\<nas-host>\tasken のとき
+Get-ChildItem T:\sync\devices\<replicaのdevice id> -Force |
+  Sort-Object Name | Select-Object -Last 3 | Select-Object LastWriteTime,Length,Name
+```
+
+- 差分は`ai_proposal`のEntity 1件ごとに1ファイル（`<seq>-<changeId>.json`）。`payload_type`が`feed_posts`・`notes`・`task_work`のいずれかになる。
+- Desktop側はこの差分を通常の同期で取り込み、Feedの「対応待ち」へ出す。採用すると正式データ（Note・Task・Work Receipt）になる。
+- 差分が増えていなければ、Coreが受理していない（エラーは応答の`error.code`を見る）か、replicaのpollが止まっている。`shared_sync_last_error`を確認する。
 
 ## 検証
 
@@ -271,7 +323,7 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 - arm64 / armv7のNASは未検証（実機確認はamd64のDS723+）。
 - Synology Drive / Cloud Sync経由の同期（実機確認はSMB共有フォルダ直結）。
 - `backup.sh`のNAS上での一連実行（compose検出・排他lock・再起動を含む）は未実施。
-- MCP transport / Secure MCP Tunnelの常時稼働、再接続、write有効化はPhase 3/4で、Core側のwrite capability gateは未実装（現状はMCP bridgeのread-only設定に依存）。
+- MCP transport / Secure MCP Tunnelの再接続と、ChatGPT実クライアントからの投稿・作業報告の往復。常時稼働と`proposals`配備（`TASKEN_CORE_WRITE_MODE=proposals` + `TASKEN_MCP_READ_ONLY=0`）は2026-09-27に実機へ配置し、Core capability 31と`write_mode":"proposals"`まで確認済み（[DEPLOYED.md](../../deploy/synology/DEPLOYED.md)）。
 - bootstrap / compaction / revoke / schema upgradeのowner決定はPhase 2の残り。Note Markdown画像の扱いと、コンテナ上での画像MCP再実行は未検証。
 - イメージbuild/runにはDocker daemonが必要。
 

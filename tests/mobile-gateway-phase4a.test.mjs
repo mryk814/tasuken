@@ -4110,7 +4110,12 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
       (error) => error?.code === "CORE_UNAVAILABLE",
     );
     const mcpServer = readFileSync("src/main/mcp/server.mjs", "utf8");
-    assert.match(mcpServer, /const startTaskWork = \(args\) =>\s*coreClient\.executeTaskCommand/);
+    // 直接開始はCore HTTPのtyped commandだけを通る。案内文のためのtry/catchが付いても
+    // 呼び出し先がcoreClient.executeTaskCommandであることは変えない。
+    assert.match(
+      mcpServer,
+      /const startTaskWork = async \(args\) => \{[\s\S]{0,200}coreClient\.executeTaskCommand/,
+    );
     assert.doesNotMatch(
       mcpServer,
       /server\.registerTool\(\s*"tasken\.(?:create|update|delete|complete)_task"/,

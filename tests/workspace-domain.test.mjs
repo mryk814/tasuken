@@ -939,3 +939,33 @@ test("post-migration smoke: MCP mergedItems includes plan_nodes", async () => {
     ctx.close();
   }
 });
+
+test("today task progress counts completed today tasks like the Android header", () => {
+  const task = (id, state, todayDate) => ({
+    id,
+    title: id,
+    state,
+    today_date: todayDate,
+    project_id: null,
+  });
+  const domain = {
+    tasks: [
+      task("done-today", "done", "2026-06-20"),
+      task("open-today", "todo", "2026-06-20"),
+      task("doing-today", "doing", "2026-06-20"),
+      task("cancelled-today", "cancelled", "2026-06-20"),
+      task("done-yesterday", "done", "2026-06-19"),
+    ],
+    schedules: [],
+  };
+  // 完了済みも分母に残し、取り消し済みと別の日のTaskは数えない。
+  assert.deepEqual(selectors.todayTaskProgress(domain, "2026-06-20"), { done: 1, total: 3 });
+  // 表示中の一覧は未完了だけ（完了すると一覧から外れても、進み具合は進む）。
+  assert.deepEqual(
+    selectors
+      .buildTodayView({ ...domain, waitings: [], plan_nodes: [] }, "2026-06-20")
+      .map((entry) => entry.task.id)
+      .sort(),
+    ["doing-today", "open-today"],
+  );
+});

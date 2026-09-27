@@ -1,22 +1,66 @@
 type MainDiagnosticKind = "event_loop_lag" | "workspace_load";
+type RendererDiagnosticKind = "long_task" | "event_loop_lag";
 
-type MainDiagnosticEvent = {
-  source: "main";
-  kind: MainDiagnosticKind;
-  duration_ms: number;
-  result_size_kb?: number;
-};
+type DiagnosticEvent =
+  | {
+      source: "main";
+      kind: MainDiagnosticKind;
+      duration_ms: number;
+      result_size_kb?: number;
+    }
+  | {
+      source: "renderer";
+      kind: RendererDiagnosticKind;
+      duration_ms: number;
+      heap_used_mb?: number;
+    };
 
-function report(event: MainDiagnosticEvent): void {
-  console.info("[tasken:performance]", event);
+const RENDERER_KINDS = new Set<RendererDiagnosticKind>(["long_task", "event_loop_lag"]);
+
+let writeDiagnostic: (line: string) => void = (line) => console.info("[tasken:performance]", line);
+
+/**
+ * 配布版ではConsoleを見られないため、起動側がmain.logへの書き込みを渡す。
+ * 「急に止まった」時刻とログの時刻を突き合わせて、MainとRendererのどちらが止まったか切り分ける。
+ */
+export function setPerformanceDiagnosticsWriter(writer: (line: string) => void): void {
+  writeDiagnostic = writer;
 }
 
-function diagnosticsEnabled(): boolean {
+function report(event: DiagnosticEvent): void {
+  writeDiagnostic(JSON.stringify(event));
+}
+
+export function performanceDiagnosticsEnabled(): boolean {
   return process.env.TASKEN_PERF_DIAGNOSTICS === "1";
 }
 
+function roundedNumber(value: unknown, max: number): number | null {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > max) return null;
+  return Math.round(number);
+}
+
+/** Rendererから届いた値は固定kindと数値だけを通し、任意の文字列をログへ入れない。 */
+export function recordRendererPerformance(value: unknown): void {
+  if (!performanceDiagnosticsEnabled()) return;
+  if (!value || typeof value !== "object") return;
+  const input = value as Record<string, unknown>;
+  const kind = input.kind as RendererDiagnosticKind;
+  if (!RENDERER_KINDS.has(kind)) return;
+  const durationMs = roundedNumber(input.duration_ms, 3_600_000);
+  if (durationMs === null) return;
+  const heapUsedMb = roundedNumber(input.heap_used_mb, 1_048_576);
+  report({
+    source: "renderer",
+    kind,
+    duration_ms: durationMs,
+    ...(heapUsedMb === null ? {} : { heap_used_mb: heapUsedMb }),
+  });
+}
+
 export function measureMainPerformance<T>(kind: "workspace_load", operation: () => T): T {
-  if (!diagnosticsEnabled()) return operation();
+  if (!performanceDiagnosticsEnabled()) return operation();
 
   const startedAt = performance.now();
   const result = operation();
@@ -36,7 +80,7 @@ export function measureMainPerformance<T>(kind: "workspace_load", operation: () 
 }
 
 export function installMainPerformanceDiagnostics(
-  enabled = process.env.TASKEN_PERF_DIAGNOSTICS === "1",
+  enabled = performanceDiagnosticsEnabled(),
 ): () => void {
   if (!enabled) return () => undefined;
 

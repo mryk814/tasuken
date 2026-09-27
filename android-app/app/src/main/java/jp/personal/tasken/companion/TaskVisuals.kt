@@ -10,14 +10,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -37,15 +43,39 @@ internal fun TaskCompletionControl(
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
+    feedbackEventId: Long? = null,
 ) {
-    Box(
-        modifier = modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-            .clip(CircleShape)
-            .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = onCheckedChange),
-        contentAlignment = Alignment.Center,
-    ) {
-        CompletionMark(checked, enabled, 22.dp)
+    val feedbackScale = rememberTaskCompletionFeedbackScale(feedbackEventId)
+    Box(contentAlignment = Alignment.Center) {
+        CompletionBurst(feedbackEventId, Modifier.matchParentSize())
+        Box(
+            modifier = modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .graphicsLayer { scaleX = feedbackScale; scaleY = feedbackScale }
+                .clip(CircleShape)
+                .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = onCheckedChange),
+            contentAlignment = Alignment.Center,
+        ) {
+            CompletionMark(checked, enabled, 22.dp)
+        }
     }
+}
+
+internal fun taskenSuccessColor(dark: Boolean): Color = if (dark) Color(0xFF5BB98B) else Color(0xFF2E8B57)
+
+@Composable
+internal fun rememberTaskCompletionFeedbackScale(eventId: Long?): Float {
+    val scale = remember { Animatable(1f) }
+    LaunchedEffect(eventId) {
+        if (eventId == null) {
+            scale.animateTo(1f, tween(durationMillis = 120))
+        } else {
+            scale.snapTo(1f)
+            // 一度だけ弾ませ、バネで静止させる。
+            scale.animateTo(1.22f, tween(durationMillis = 90))
+            scale.animateTo(1f, spring(dampingRatio = 0.32f, stiffness = 420f))
+        }
+    }
+    return scale.value
 }
 
 @Composable
@@ -82,7 +112,7 @@ internal fun InlineChecklistControl(
 private fun CompletionMark(checked: Boolean, enabled: Boolean, diameter: Dp) {
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     // Desktop .todo-check-circle uses the design-standard success and border-strong tokens.
-    val success = if (dark) Color(0xFF5BB98B) else Color(0xFF2E8B57)
+    val success = taskenSuccessColor(dark)
     val border = if (dark) Color(0xFF5E3F43) else Color(0xFFC9A6AA)
     val alpha = if (enabled) 1f else 0.5f
     Canvas(Modifier.size(diameter)) {

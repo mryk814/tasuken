@@ -1,3 +1,5 @@
+import { performanceDiagnosticsApi } from "../services/performanceDiagnosticsApi";
+
 export const PERFORMANCE_DIAGNOSTICS_STORAGE_KEY = "tasken.performanceDiagnostics";
 
 type DiagnosticKind = "long_task" | "event_loop_lag";
@@ -29,13 +31,48 @@ function coarseHeapUsedMb(): number | undefined {
   return Math.round(Number(bytes) / 1024 / 1024 / 8) * 8;
 }
 
+/** long taskは50ms以上で全件届くため、体感で「止まった」と感じる長さだけMainのログへ送る。 */
+const LOGGED_DURATION_MS = 200;
+
 function report(event: DiagnosticEvent): void {
   console.info("[tasken:performance]", event);
+  if (event.duration_ms < LOGGED_DURATION_MS) return;
+  try {
+    performanceDiagnosticsApi.report({
+      kind: event.kind,
+      duration_ms: event.duration_ms,
+      heap_used_mb: event.heap_used_mb,
+    });
+  } catch {
+    // 診断の送信失敗で画面の動作を変えない。
+  }
 }
 
+/**
+ * localStorageのflag、またはアプリ起動時の TASKEN_PERF_DIAGNOSTICS=1 で有効になる。
+ * 後者はDevToolsを開けない配布版で計測を始めるための入口。
+ */
 export function installRendererPerformanceDiagnostics(): () => void {
-  if (!diagnosticsEnabled()) return () => undefined;
+  let stop: () => void = () => undefined;
+  let cancelled = false;
+  const start = () => {
+    if (!cancelled) stop = startRendererPerformanceDiagnostics();
+  };
+  if (diagnosticsEnabled()) start();
+  else
+    void performanceDiagnosticsApi
+      .enabled()
+      .then((enabled) => {
+        if (enabled) start();
+      })
+      .catch(() => undefined);
+  return () => {
+    cancelled = true;
+    stop();
+  };
+}
 
+function startRendererPerformanceDiagnostics(): () => void {
   let observer: PerformanceObserver | null = null;
   if (
     typeof PerformanceObserver !== "undefined" &&

@@ -66,7 +66,8 @@ export class TaskenHeadlessCoreError extends Error {
  * MCPはread-only deployment（`TASKEN_MCP_READ_ONLY=1`）で動かす前提とする。
  *
  * 書き込みは既定で公開しない。`writeMode: "proposals"` を明示した場合だけ、
- * テキストの読み物投稿・Note案・Task案を受け付け、Core自身が許可範囲を強制する。
+ * テキストの読み物投稿・Note案・Task案・Task作業報告を受け付け、Core自身が許可範囲を強制する。
+ * 直接開始（`task.command`）は`full`だけが公開し、常時稼働nodeでは使わない。
  */
 export async function startTaskenHeadlessCore(
   options: TaskenHeadlessCoreOptions = {},
@@ -110,7 +111,7 @@ export async function startTaskenHeadlessCore(
         path.join(userDataPath, "attachments", "markdown-images"),
         path.join(userDataPath, "attachments", "capture-images"),
       );
-      if (!syncService.readManifest(syncDirectory)) {
+      if (!(await syncService.readManifest(syncDirectory))) {
         throw new TaskenHeadlessCoreError(
           "SYNC_FOLDER_NOT_READY",
           "共有フォルダがまだデータ端末で初期化されていません。先にデータを持つ端末で同期を設定してください。",
@@ -128,7 +129,7 @@ export async function startTaskenHeadlessCore(
       }
     }
   } catch (error) {
-    syncService?.stop();
+    await syncService?.stop();
     repository.db.close();
     throw error;
   }
@@ -153,7 +154,7 @@ export async function startTaskenHeadlessCore(
       async stop() {
         if (stopped) return;
         stopped = true;
-        syncService?.stop();
+        await syncService?.stop();
         try {
           await runtime.stop();
         } finally {
@@ -162,7 +163,7 @@ export async function startTaskenHeadlessCore(
       },
     };
   } catch (error) {
-    syncService?.stop();
+    await syncService?.stop();
     await runtime.stop().catch(() => {});
     repository.db.close();
     throw error;

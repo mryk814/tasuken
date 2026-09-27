@@ -458,23 +458,25 @@ test("Calendar service keeps Microsoft on PKCE only even when a client secret is
 });
 
 test("Calendar service rejects Google connect when its client ID is not configured", async () => {
-  const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-calendar-google-config-"));
-  try {
-    const service = new calendarService.CalendarService(
-      userDataPath,
-      fakeSafeStorage(),
-      async () => response({}),
-      async () => {},
-      { googleClientId: "", timeZone: "Asia/Tokyo" },
-    );
-    await assert.rejects(
-      service.connect({ provider: "google" }),
-      (error) =>
-        error?.code === "not_configured" && /TASKEN_GOOGLE_CLIENT_ID/.test(String(error.message)),
-    );
-  } finally {
-    rmSync(userDataPath, { recursive: true, force: true });
-  }
+  await withEnvironmentVariableUnset("TASKEN_GOOGLE_CLIENT_ID", async () => {
+    const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-calendar-google-config-"));
+    try {
+      const service = new calendarService.CalendarService(
+        userDataPath,
+        fakeSafeStorage(),
+        async () => response({}),
+        async () => {},
+        { googleClientId: "", timeZone: "Asia/Tokyo" },
+      );
+      await assert.rejects(
+        service.connect({ provider: "google" }),
+        (error) =>
+          error?.code === "not_configured" && /TASKEN_GOOGLE_CLIENT_ID/.test(String(error.message)),
+      );
+    } finally {
+      rmSync(userDataPath, { recursive: true, force: true });
+    }
+  });
 });
 
 function fakeSafeStorage() {
@@ -566,23 +568,37 @@ test("Calendar service caches fresh empty results and serves them stale after pr
 });
 
 test("Calendar service rejects Microsoft connect when client ID is not configured", async () => {
-  const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-calendar-config-"));
-  try {
-    const service = new calendarService.CalendarService(
-      userDataPath,
-      fakeSafeStorage(),
-      async () => response({}),
-      async () => {},
-      { clientId: "", timeZone: "Asia/Tokyo" },
-    );
-    await assert.rejects(
-      service.connect({ provider: "microsoft" }),
-      (error) => error?.code === "not_configured" && !String(error.message).includes("PLACEHOLDER"),
-    );
-  } finally {
-    rmSync(userDataPath, { recursive: true, force: true });
-  }
+  await withEnvironmentVariableUnset("TASKEN_MICROSOFT_CLIENT_ID", async () => {
+    const userDataPath = mkdtempSync(path.join(os.tmpdir(), "tasken-calendar-config-"));
+    try {
+      const service = new calendarService.CalendarService(
+        userDataPath,
+        fakeSafeStorage(),
+        async () => response({}),
+        async () => {},
+        { clientId: "", timeZone: "Asia/Tokyo" },
+      );
+      await assert.rejects(
+        service.connect({ provider: "microsoft" }),
+        (error) =>
+          error?.code === "not_configured" && !String(error.message).includes("PLACEHOLDER"),
+      );
+    } finally {
+      rmSync(userDataPath, { recursive: true, force: true });
+    }
+  });
 });
+
+async function withEnvironmentVariableUnset(name, action) {
+  const previous = process.env[name];
+  delete process.env[name];
+  try {
+    return await action();
+  } finally {
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
+  }
+}
 
 function idTokenFor(name) {
   const payload = Buffer.from(JSON.stringify({ name }), "utf8")

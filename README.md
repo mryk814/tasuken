@@ -45,6 +45,19 @@ Taskenは同じユーザーデータを使う二重起動を防ぎます。イ�
 [`docs/development-environment.md`](./docs/development-environment.md)を参照してください。
 doctorがWSLgの0×0 monitorやNode/npmのOS混在を検出した場合、Electronプロセスを残さず停止します。
 
+## 動作が重いときの記録
+
+`TASKEN_PERF_DIAGNOSTICS=1` を付けて起動すると、Main / Rendererが200ms以上止まった時刻と長さを
+`%APPDATA%\tasken\logs\main.log` に `performance` として残します。記録は固定の種類と数値だけで、
+本文やタイトルは含みません。トレイからTaskenを終了してから、PowerShellで起動します。
+
+```powershell
+$env:TASKEN_PERF_DIAGNOSTICS = '1'
+& "$env:LOCALAPPDATA\Programs\Tasken\Tasken.exe"
+```
+
+重いと感じた時刻と `main.log` の記録を突き合わせ、`source` がmainかrendererかで止まった側を切り分けます。
+
 ## ビルド
 
 ```bash

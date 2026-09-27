@@ -253,7 +253,7 @@ test("photo sync reports missing bytes and recovers on the next poll", async () 
   }
 });
 
-test("photo sync rejects invalid manifest paths, size, hash and linked roots", () => {
+test("photo sync rejects invalid manifest paths, size, hash and linked roots", async () => {
   const pair = createPair();
   try {
     const fileName = "123e4567-e89b-02d3-0456-426614174001.jpg";
@@ -265,14 +265,14 @@ test("photo sync rejects invalid manifest paths, size, hash and linked roots", (
         deviceId: pair.first.deviceId,
         photoManifests: new Map([[name, image]]),
       });
-    assert.throws(() => sync("../image.jpg", entry), /manifest/);
-    assert.throws(() => sync(fileName, { ...entry, size: 13 * 1024 * 1024 }), /manifest/);
-    assert.throws(() => sync(fileName, { ...entry, sha256: "invalid" }), /manifest/);
+    await assert.rejects(() => sync("../image.jpg", entry), /manifest/);
+    await assert.rejects(() => sync(fileName, { ...entry, size: 13 * 1024 * 1024 }), /manifest/);
+    await assert.rejects(() => sync(fileName, { ...entry, sha256: "invalid" }), /manifest/);
     fs.mkdirSync(path.dirname(pair.firstPhotos), { recursive: true });
     const outside = path.join(pair.root, "private");
     fs.mkdirSync(outside);
     fs.symlinkSync(outside, pair.firstPhotos, "junction");
-    assert.throws(() => sync(fileName, entry), /リンク/);
+    await assert.rejects(() => sync(fileName, entry), /リンク/);
   } finally {
     pair.close();
   }
@@ -384,6 +384,55 @@ test("shared folder sync never confirms an incomplete or corrupted Markdown imag
   }
 });
 
+test("periodic sync skips re-reading verified images and re-verifies after a change", async () => {
+  const pair = createPair();
+  const fileName = "123e4567-e89b-42d3-a456-426614174002.png";
+  const imageReads = [];
+  const originalReadFile = fs.promises.readFile;
+  try {
+    writeMarkdownImage(pair.firstAttachments, fileName, "verified-image");
+    pair.first.save("note", {
+      id: "verified-image-note",
+      title: "Verified image",
+      body_markdown: `![diagram](tasken-attachment://local/${fileName}/diagram)`,
+    });
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+
+    const remoteImagePath = path.join(
+      pair.shared,
+      "devices",
+      pair.first.deviceId,
+      "attachments",
+      "markdown-images",
+      fileName,
+    );
+    const stableTime = new Date("2020-01-01T00:00:00.000Z");
+    fs.utimesSync(remoteImagePath, stableTime, stableTime);
+    await pair.firstSync.syncNow();
+    await pair.secondSync.syncNow();
+    const verifiedStat = fs.statSync(remoteImagePath);
+
+    // OneDrive/NASでは中身の読み出しがダウンロードになる。変化がなければ読まない。
+    fs.promises.readFile = (filePath, ...rest) => {
+      if (String(filePath).endsWith(fileName)) imageReads.push(String(filePath));
+      return originalReadFile.call(fs.promises, filePath, ...rest);
+    };
+    await pair.firstSync.syncNow();
+    await pair.secondSync.syncNow();
+    assert.deepEqual(imageReads, []);
+
+    fs.writeFileSync(remoteImagePath, "changed--image");
+    fs.utimesSync(remoteImagePath, verifiedStat.atime, verifiedStat.mtime);
+    assert.equal(fs.statSync(remoteImagePath).mtimeMs, verifiedStat.mtimeMs);
+    await assert.rejects(() => pair.secondSync.syncNow(), /同期途中か破損しています/);
+    assert.ok(imageReads.includes(remoteImagePath));
+  } finally {
+    fs.promises.readFile = originalReadFile;
+    pair.close();
+  }
+});
+
 test("Markdown images remain local when the shared folder is unavailable and publish after recovery", async () => {
   const pair = createPair();
   const fileName = "123e4567-e89b-42d3-a456-426614174002.webp";
@@ -447,7 +496,10 @@ test("joining another workspace never overwrites a non-empty local database", as
     pair.first.save("task", task("task-a", "Desktop task"));
     pair.second.save("task", task("task-b", "Notebook-only task"));
     await pair.firstSync.configure(pair.shared);
-    assert.throws(() => pair.secondSync.configure(pair.shared), /空のTaskenから同期フォルダへ参加/);
+    await assert.rejects(
+      () => pair.secondSync.configure(pair.shared),
+      /空のTaskenから同期フォルダへ参加/,
+    );
     assert.equal(pair.second.get("task", "task-b").title, "Notebook-only task");
   } finally {
     pair.close();
@@ -495,7 +547,7 @@ test("republishing deleted packets lets a new device join from the middle", asyn
       /同期差分 000000000001 を待っています/,
     );
 
-    const repair = pair.firstSync.republishMissing();
+    const repair = await pair.firstSync.republishMissing();
     assert.equal(repair.republished, 2);
 
     await pair.secondSync.configure(pair.shared);
@@ -503,7 +555,7 @@ test("republishing deleted packets lets a new device join from the middle", asyn
     assert.equal(pair.second.get("task", "task-b").title, "Second change");
     assert.equal(pair.second.get("task", "task-c").title, "Third change");
 
-    const repeat = pair.firstSync.republishMissing();
+    const repeat = await pair.firstSync.republishMissing();
     assert.equal(repeat.republished, 0);
   } finally {
     pair.close();

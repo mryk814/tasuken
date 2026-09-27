@@ -37,6 +37,10 @@ import { projectScreenRecordingIpcError } from "../screenRecordingIpcError";
 import { logMain } from "../log";
 import { normalizeMediaCapturePersistence } from "../mediaCapturePersistence";
 import { registerTaskIpc, type TaskCapabilityService } from "../modules/task/public.ts";
+import {
+  performanceDiagnosticsEnabled,
+  recordRendererPerformance,
+} from "../services/performanceDiagnostics";
 import { assertRendererBootstrapContainsNoMedia } from "../services/snapshotMediaValidation";
 import {
   isViewPreferenceId,
@@ -614,6 +618,8 @@ export function registerIpc(
     service.openReleasePage(typeof url === "string" ? url : undefined),
   );
   ipcMain.handle(IPC.mcpBridgeInfo, () => service.getMcpBridgeInfo());
+  ipcMain.handle(IPC.appPerformanceDiagnosticsEnabled, () => performanceDiagnosticsEnabled());
+  ipcMain.on(IPC.appPerformanceReport, (_event, report) => recordRendererPerformance(report));
   ipcMain.handle(IPC.appTitleBarTheme, (event, theme) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window) return false;

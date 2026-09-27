@@ -9,7 +9,8 @@ import type {
  * 配備ごとに許可する書き込みの範囲。
  *
  * - `full`: Desktopと同じ。すべてのProposalを作れる。
- * - `proposals`: 常時稼働node向け。テキストの読み物投稿・Note案・Task案だけを受け付ける。
+ * - `proposals`: 常時稼働node向け。テキストの読み物投稿・Note案・Task案だけを種類単位で絞る。
+ *   Task作業報告は種類を絞らず`propose_task_work`として公開する（正式データの変更は人の採用後）。
  * - `read-only`: 書き込みcapabilityを公開しない。
  *
  * 既定は`full`とし、Headless Coreは明示的に選ばれた場合だけ`proposals`を使う。
@@ -48,7 +49,7 @@ function refusedContentMessage(request: ProposeContentRequest): string {
   ) {
     return "この接続では画像付きNoteを受け付けません。画像のないNote案を送ってください。";
   }
-  return `この接続では${request.kind}のProposalを受け付けません。テキストのFeed投稿・Note案・Task案だけを送れます。`;
+  return `この接続では${request.kind}のProposalを受け付けません。テキストのFeed投稿・Note案・Task案・Task作業報告だけを送れます。`;
 }
 
 function refusedTaskMessage(request: ProposeRepositoryTaskRequest): string {

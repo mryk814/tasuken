@@ -150,7 +150,7 @@ class TaskDailyFlowUiTest {
         composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled()
         composeRule.runOnIdle { assertEquals(emptyList<String>(), submitted) }
         capture("06-speech-title-confirmation")
-        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-submit-close").performClick()
         composeRule.runOnIdle { assertEquals(listOf("クリーニングを受け取る"), submitted) }
     }
 
@@ -192,7 +192,7 @@ class TaskDailyFlowUiTest {
         capture("08-over-limit-keeps-full-draft")
         input.performScrollTo().performTextReplacement(text)
         composeRule.runOnIdle { assertEquals(text, draft.value.text) }
-        composeRule.onNodeWithTag("capture-submit-close").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("capture-submit-close").assertIsDisplayed().performClick()
         composeRule.runOnIdle {
             assertEquals(text, submitted?.text)
             assertEquals("ideas", submitted?.projectId)

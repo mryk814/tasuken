@@ -310,6 +310,7 @@
     "rendererAdapterPaths": [
       "src/renderer/src/services/captureOrganizerApi.ts",
       "src/renderer/src/services/mobileGatewayApi.ts",
+      "src/renderer/src/services/performanceDiagnosticsApi.ts",
       "src/renderer/src/services/workspaceApi.ts"
     ],
     "ipcRegistrarPaths": [

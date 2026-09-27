@@ -8,7 +8,17 @@ import {
 } from "./scheduleSemantics";
 import type { CaptureEntry, PlanNode, Schedule, Task, WorkspaceDomain } from "./types";
 import { selectTodayTasks, TODAY_TASK_POLICY } from "../../../../../shared/todayTasks.mjs";
-import type { ExecutionWindowTaskRow, InboxView, MicroMemoView, OngoingPeriodTaskRow, TimelineRow, TimelineView, TodayEntry, TodoView, WaitingView } from "./viewModels";
+import type {
+  ExecutionWindowTaskRow,
+  InboxView,
+  MicroMemoView,
+  OngoingPeriodTaskRow,
+  TimelineRow,
+  TimelineView,
+  TodayEntry,
+  TodoView,
+  WaitingView,
+} from "./viewModels";
 
 // 日付境界はローカル日付で揃える（UTC変換で前日へずれるため toISOString は使わない）。
 const todayString = todayIso;
@@ -18,7 +28,12 @@ function scheduleKey(ownerType: Schedule["owner_type"], ownerId: string): string
 }
 
 function schedulesByOwner(domain: WorkspaceDomain): Map<string, Schedule> {
-  return new Map(domain.schedules.map((schedule) => [scheduleKey(schedule.owner_type, schedule.owner_id), schedule]));
+  return new Map(
+    domain.schedules.map((schedule) => [
+      scheduleKey(schedule.owner_type, schedule.owner_id),
+      schedule,
+    ]),
+  );
 }
 
 function dateValue(schedule?: Schedule): string {
@@ -47,11 +62,17 @@ function scheduleHasExplicitDate(schedule: Schedule | undefined, date: string): 
  * ongoing と、意味が未設定の既存範囲だけを対象にする。`期間内に一度`は
  * 期間中ずっと継続しているわけではないので、ここには入れない。
  */
-function isContinuingRange(schedule: Schedule | undefined, date: string): schedule is Schedule & { start_date: string; end_date: string } {
+function isContinuingRange(
+  schedule: Schedule | undefined,
+  date: string,
+): schedule is Schedule & { start_date: string; end_date: string } {
   const kind = getScheduleKind(schedule);
   if (kind !== "ongoing_period" && kind !== "unspecified_range") return false;
   // 未分類の既存範囲は #95 の規則（終了日当日は今日やることへ出す）を維持する。
-  const openEnd = kind === "unspecified_range" ? date < String(schedule?.end_date) : date <= String(schedule?.end_date);
+  const openEnd =
+    kind === "unspecified_range"
+      ? date < String(schedule?.end_date)
+      : date <= String(schedule?.end_date);
   return String(schedule?.start_date) <= date && openEnd;
 }
 
@@ -71,7 +92,9 @@ function todayEntryDate(entry: TodayEntry): string {
   }
 }
 
-export function captureSortKey(entry: CaptureEntry & { created_at?: string; updated_at?: string }): string {
+export function captureSortKey(
+  entry: CaptureEntry & { created_at?: string; updated_at?: string },
+): string {
   return String(entry.captured_at || entry.updated_at || entry.created_at || "");
 }
 
@@ -102,7 +125,10 @@ export function isRecordingCapture(entry: { content_type?: string | null }): boo
 export function buildInboxView(domain: WorkspaceDomain): InboxView {
   return {
     entries: domain.capture_entries
-      .filter((entry) => entry.state === "untriaged" && entry.kind !== "micro_memo" && !isRecordingCapture(entry))
+      .filter(
+        (entry) =>
+          entry.state === "untriaged" && entry.kind !== "micro_memo" && !isRecordingCapture(entry),
+      )
       .sort(compareCapturesNewestFirst),
   };
 }
@@ -130,9 +156,12 @@ export function buildMicroMemoView(domain: WorkspaceDomain): MicroMemoView {
  */
 export function buildTodayTaskShortlist(domain: WorkspaceDomain, date = todayString()): Task[] {
   const schedules = schedulesByOwner(domain);
-  return domain.tasks
-    .filter((task) => task.state !== "cancelled"
-      && (task.today_date === date || scheduleHasExplicitDate(schedules.get(scheduleKey("task", task.id)), date)));
+  return domain.tasks.filter(
+    (task) =>
+      task.state !== "cancelled" &&
+      (task.today_date === date ||
+        scheduleHasExplicitDate(schedules.get(scheduleKey("task", task.id)), date)),
+  );
 }
 
 export function buildWaitingView(domain: WorkspaceDomain): WaitingView {
@@ -145,23 +174,48 @@ export function buildWaitingView(domain: WorkspaceDomain): WaitingView {
   };
 }
 
+/**
+ * 今日やることの進み具合。今日の表示と同じ選び方で、完了済みも数に含める。
+ * Androidの「あと◯件」と同じ数え方（取り消し済みは入れない）。
+ */
+export function todayTaskProgress(
+  domain: WorkspaceDomain,
+  date = todayString(),
+): { done: number; total: number } {
+  const rows = selectTodayTasks(domain.tasks, domain.schedules, date, {
+    ...TODAY_TASK_POLICY,
+    includeCompleted: true,
+  }) as Array<{ task: Task }>;
+  return { done: rows.filter((row) => row.task.state === "done").length, total: rows.length };
+}
+
 export function buildTodayView(domain: WorkspaceDomain, date = todayString()): TodayEntry[] {
   const schedules = schedulesByOwner(domain);
   const entries: TodayEntry[] = [];
 
-  const taskRows = selectTodayTasks(domain.tasks, domain.schedules, date, TODAY_TASK_POLICY) as Array<{ task: Task; schedule?: Schedule }>;
+  const taskRows = selectTodayTasks(
+    domain.tasks,
+    domain.schedules,
+    date,
+    TODAY_TASK_POLICY,
+  ) as Array<{ task: Task; schedule?: Schedule }>;
   for (const row of taskRows) {
     entries.push({ type: "task", task: row.task, schedule: row.schedule });
   }
 
   for (const waiting of domain.waitings) {
     const schedule = schedules.get(scheduleKey("waiting", waiting.id));
-    if (waiting.state === "waiting" && scheduleHasExplicitDate(schedule, date)) entries.push({ type: "waiting", waiting, schedule });
+    if (waiting.state === "waiting" && scheduleHasExplicitDate(schedule, date))
+      entries.push({ type: "waiting", waiting, schedule });
   }
 
   for (const planNode of domain.plan_nodes) {
     const schedule = schedules.get(scheduleKey("plan_node", planNode.id));
-    if (planNode.type === "milestone" && planNode.state !== "done" && scheduleHasExplicitDate(schedule, date)) {
+    if (
+      planNode.type === "milestone" &&
+      planNode.state !== "done" &&
+      scheduleHasExplicitDate(schedule, date)
+    ) {
       entries.push({ type: "milestone", planNode, schedule });
     }
   }
@@ -173,13 +227,23 @@ export function buildTodayView(domain: WorkspaceDomain, date = todayString()): T
  * 継続中Task（#309）。終了予定日を過ぎたものも、完了 / 延長 / 継続を選べるよう残す。
  * 一回の完了で閉じるTaskはここに出さない（buildExecutionWindowTaskView が受け持つ）。
  */
-export function buildOngoingPeriodTaskView(domain: WorkspaceDomain, date = todayString()): OngoingPeriodTaskRow[] {
+export function buildOngoingPeriodTaskView(
+  domain: WorkspaceDomain,
+  date = todayString(),
+): OngoingPeriodTaskRow[] {
   const schedules = schedulesByOwner(domain);
   return domain.tasks
     .map((task) => ({ task, schedule: schedules.get(scheduleKey("task", task.id)) }))
-    .filter((row): row is { task: typeof row.task; schedule: Schedule & { start_date: string; end_date: string } } => (
-      isActiveTask(row.task.state) && (isContinuingRange(row.schedule, date) || isOngoingPeriodPastEnd(row.schedule, date))
-    ))
+    .filter(
+      (
+        row,
+      ): row is {
+        task: typeof row.task;
+        schedule: Schedule & { start_date: string; end_date: string };
+      } =>
+        isActiveTask(row.task.state) &&
+        (isContinuingRange(row.schedule, date) || isOngoingPeriodPastEnd(row.schedule, date)),
+    )
     .map(({ task, schedule }) => ({
       task,
       schedule,
@@ -189,9 +253,12 @@ export function buildOngoingPeriodTaskView(domain: WorkspaceDomain, date = today
       unspecified: getScheduleKind(schedule) === "unspecified_range",
       pastEnd: isOngoingPeriodPastEnd(schedule, date),
     }))
-    .sort((a, b) => Number(b.pastEnd) - Number(a.pastEnd)
-      || a.schedule.end_date.localeCompare(b.schedule.end_date)
-      || a.task.title.localeCompare(b.task.title, "ja"));
+    .sort(
+      (a, b) =>
+        Number(b.pastEnd) - Number(a.pastEnd) ||
+        a.schedule.end_date.localeCompare(b.schedule.end_date) ||
+        a.task.title.localeCompare(b.task.title, "ja"),
+    );
 }
 
 /**
@@ -199,31 +266,43 @@ export function buildOngoingPeriodTaskView(domain: WorkspaceDomain, date = today
  * 期間に入っただけでは「今日必ずやること」にせず、この候補セクションから拾う。
  * 終了日が近いものほど前に出し、超過は最優先で見せる。
  */
-export function buildExecutionWindowTaskView(domain: WorkspaceDomain, date = todayString()): ExecutionWindowTaskRow[] {
+export function buildExecutionWindowTaskView(
+  domain: WorkspaceDomain,
+  date = todayString(),
+): ExecutionWindowTaskRow[] {
   const schedules = schedulesByOwner(domain);
   return domain.tasks
     .map((task) => ({ task, schedule: schedules.get(scheduleKey("task", task.id)) }))
-    .filter((row): row is { task: typeof row.task; schedule: Schedule & { start_date: string; end_date: string } } => (
-      isActiveTask(row.task.state)
-      && getScheduleKind(row.schedule) === "execution_window"
-      && row.task.today_date !== date
-      // 開始日前はTodayへ出さない。超過は見逃さないよう残す。
-      && String(row.schedule?.start_date) <= date
-    ))
+    .filter(
+      (
+        row,
+      ): row is {
+        task: typeof row.task;
+        schedule: Schedule & { start_date: string; end_date: string };
+      } =>
+        isActiveTask(row.task.state) &&
+        getScheduleKind(row.schedule) === "execution_window" &&
+        row.task.today_date !== date &&
+        // 開始日前はTodayへ出さない。超過は見逃さないよう残す。
+        String(row.schedule?.start_date) <= date,
+    )
     .map(({ task, schedule }) => ({
       task,
       schedule,
       urgency: executionWindowUrgency(schedule, date),
       daysRemaining: daysUntil(date, schedule.end_date),
     }))
-    .sort((a, b) => a.daysRemaining - b.daysRemaining || a.task.title.localeCompare(b.task.title, "ja"));
+    .sort(
+      (a, b) => a.daysRemaining - b.daysRemaining || a.task.title.localeCompare(b.task.title, "ja"),
+    );
 }
 
 function comparePlanNodes(schedules: Map<string, Schedule>, a: PlanNode, b: PlanNode): number {
   const order = a.sort_order - b.sort_order;
   if (order !== 0) return order;
-  return dateValue(schedules.get(scheduleKey("plan_node", a.id)))
-    .localeCompare(dateValue(schedules.get(scheduleKey("plan_node", b.id))));
+  return dateValue(schedules.get(scheduleKey("plan_node", a.id))).localeCompare(
+    dateValue(schedules.get(scheduleKey("plan_node", b.id))),
+  );
 }
 
 export function buildTimelineView(domain: WorkspaceDomain): TimelineView {

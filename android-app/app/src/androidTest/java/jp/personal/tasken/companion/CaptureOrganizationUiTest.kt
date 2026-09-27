@@ -34,7 +34,7 @@ class CaptureOrganizationUiTest {
         val draft = freshDraft()
         showSheet(draft, organize = { List(8) { proposal.copy(title = "候補 $it") } })
         capture("00-ai-collapsed")
-        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-organize").performClick()
         composeRule.waitUntil { draft.value.allOrganizations().size == 8 }
         selectCandidate(1)
         composeRule.onNodeWithTag("organization-title").performScrollTo().performTextReplacement("次の候補を編集")
@@ -79,7 +79,7 @@ class CaptureOrganizationUiTest {
         val saved = mutableListOf<MobileCaptureDraft>()
         showSheet(draft, organize = { listOf(timed, timed.copy(title = "資料の図を直す", plannedStartTime = null)) },
             onSubmit = { saved += it })
-        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-organize").performClick()
         composeRule.waitUntil { draft.value.additionalOrganizations.size == 1 }
         composeRule.onNodeWithTag("organization-time").performScrollTo().assertTextContains("15:00")
         capture("05-planned-time-proposal")
@@ -114,7 +114,7 @@ class CaptureOrganizationUiTest {
         val requested = mutableListOf<MobileCaptureDraft>()
         showSheet(draft, organize = { requested += it; result.await() }, onSubmit = { saved += it })
 
-        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-organize").performClick()
         composeRule.onNodeWithTag("capture-organizing").assertExists()
         composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()
         composeRule.runOnIdle {
@@ -148,7 +148,7 @@ class CaptureOrganizationUiTest {
     fun discardingOrganizationRestoresOriginalInput() {
         val draft = freshDraft()
         showSheet(draft, organize = { listOf(proposal) })
-        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-organize").performClick()
         composeRule.waitUntil { draft.value.organization != null }
         composeRule.onNodeWithText("整理を取り消す").performScrollTo().performClick()
         composeRule.onNodeWithTag("capture-text-input").assertTextContains(original)
@@ -170,7 +170,7 @@ class CaptureOrganizationUiTest {
         val draft = freshDraft()
         showSheet(draft, organize = { listOf(proposal, second) })
 
-        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-organize").performClick()
         composeRule.waitUntil { draft.value.additionalOrganizations.size == 1 }
         composeRule.onNodeWithTag("organization-counts").performScrollTo().assertTextEquals("追加対象 2件 · 除外 0件")
         selectCandidate(1)
@@ -190,7 +190,7 @@ class CaptureOrganizationUiTest {
     fun incompleteProposalEditsStayVisibleAndPreventSavingUntilCorrected() {
         val draft = freshDraft()
         showSheet(draft, organize = { listOf(proposal, proposal.copy(title = "別のTask")) })
-        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-organize").performClick()
         composeRule.waitUntil { draft.value.additionalOrganizations.size == 1 }
         selectCandidate(1)
         composeRule.onNodeWithTag("organization-title")
@@ -213,7 +213,7 @@ class CaptureOrganizationUiTest {
         val draft = freshDraft()
         val saved = mutableListOf<MobileCaptureDraft>()
         showSheet(draft, organize = { error("private-provider-error") }, onSubmit = { saved += it })
-        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-organize").performClick()
         composeRule.onNodeWithTag("capture-organization-error").assertExists()
         composeRule.onNodeWithText("private-provider-error").assertDoesNotExist()
         composeRule.onNodeWithTag("capture-text-input").assertTextContains(original)
@@ -227,7 +227,7 @@ class CaptureOrganizationUiTest {
         val draft = freshDraft()
         val result = CompletableDeferred<List<MobileCaptureOrganization>>()
         showSheet(draft, organize = { result.await() })
-        composeRule.onNodeWithTag("capture-organize").performScrollTo().performClick()
+        composeRule.onNodeWithTag("capture-organize").performClick()
         val changed = "牛乳は家にあったので、卵だけ買う"
         composeRule.onNodeWithTag("capture-text-input").performScrollTo().performTextReplacement(changed)
         composeRule.runOnIdle { result.complete(listOf(proposal)) }

@@ -151,7 +151,12 @@ test("doctor accepts a read-only or proposals deployment as ready", async () => 
     inspect: async () => ({
       status: "ok",
       api_version: "1",
-      capabilities: [...readCapabilities, "propose_repository_task", "propose_content"],
+      capabilities: [
+        ...readCapabilities,
+        "propose_repository_task",
+        "propose_content",
+        "propose_task_work",
+      ],
     }),
   });
   assert.equal(proposals.ok, true);
