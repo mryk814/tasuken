@@ -228,7 +228,6 @@ function reminderMeta(row: TodayRow, today: string): string {
   return row.v2?.type === "task" ? reminderTimeLabel(row.v2.task.reminder_at, today) : "";
 }
 
-/** 「AIから届いたこと」の一件。既存の出所から投影した値だけで作る。 */
 /**
  * 今日やることの残り。Androidの見出しと同じ数え方（取り消し済みは分母に入れない）。
  * 数だけを示し、少ない日を責める表現にしない。
@@ -254,6 +253,7 @@ function TodayProgress({ done, total }: { done: number; total: number }) {
   );
 }
 
+/** 「AIから届いたこと」の一件。既存の出所から投影した値だけで作る。 */
 function TodayRows({
   rows,
   themes,
