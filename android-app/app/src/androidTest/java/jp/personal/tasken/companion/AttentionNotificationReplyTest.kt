@@ -45,12 +45,21 @@ class AttentionNotificationReplyTest {
             listOf(row(canReply = true), row(canReply = true).copy(attentionId = "task-work:request:2")),
             "server-1",
         )
-        assertNull(postedActions().firstOrNull { it.title == "返信" })
+        assertNull(postedActions(expectedCount = 2).firstOrNull { it.title == "返信" })
     }
 
-    private fun postedActions(): List<android.app.Notification.Action> {
-        val posted = manager.activeNotifications.single { it.packageName == context.packageName && it.id == 0x7A4E }
-        return posted.notification.actions?.toList().orEmpty()
+    /** 通知の反映は非同期。期待する件数の通知が並ぶまで短く待つ。 */
+    private fun postedActions(expectedCount: Int = 1): List<android.app.Notification.Action> {
+        val deadline = android.os.SystemClock.uptimeMillis() + 3_000
+        while (true) {
+            val posted = manager.activeNotifications.firstOrNull {
+                it.packageName == context.packageName && it.id == 0x7A4E &&
+                    it.notification.extras.getCharSequence("android.title")?.contains("${expectedCount}件") == true
+            }
+            if (posted != null) return posted.notification.actions?.toList().orEmpty()
+            check(android.os.SystemClock.uptimeMillis() < deadline) { "要対応の通知が出ませんでした" }
+            Thread.sleep(50)
+        }
     }
 
     private fun row(canReply: Boolean) = AttentionRow(
