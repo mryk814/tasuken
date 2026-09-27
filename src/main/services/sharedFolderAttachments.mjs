@@ -90,7 +90,7 @@ async function readImage(filePath, fileName) {
 }
 
 /**
- * 照合済みの画像組をサイズと更新時刻で覚え、変わっていなければ中身を読まない。
+ * 照合済みの画像組をサイズ・時刻・ファイル識別情報で覚え、変わっていなければ中身を読まない。
  * OneDriveのオンデマンドやNASでは中身の読み出しがダウンロードになるため、
  * 定期同期のたびに全画像を読み直すと通信とハッシュ計算が積み上がる。
  * statはplaceholderを実体化しない。
@@ -100,7 +100,7 @@ async function verificationSignature(filePaths, expected) {
   for (const filePath of filePaths) {
     const stat = await fs.promises.stat(filePath).catch(() => null);
     if (!stat?.isFile()) return "";
-    parts.push(`${stat.size}:${stat.mtimeMs}`);
+    parts.push(`${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.dev}:${stat.ino}`);
   }
   return `${parts.join("|")}|${expected ? JSON.stringify(expected) : ""}`;
 }

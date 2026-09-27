@@ -399,6 +399,20 @@ test("periodic sync skips re-reading verified images and re-verifies after a cha
     await pair.firstSync.configure(pair.shared);
     await pair.secondSync.configure(pair.shared);
 
+    const remoteImagePath = path.join(
+      pair.shared,
+      "devices",
+      pair.first.deviceId,
+      "attachments",
+      "markdown-images",
+      fileName,
+    );
+    const stableTime = new Date("2020-01-01T00:00:00.000Z");
+    fs.utimesSync(remoteImagePath, stableTime, stableTime);
+    await pair.firstSync.syncNow();
+    await pair.secondSync.syncNow();
+    const verifiedStat = fs.statSync(remoteImagePath);
+
     // OneDrive/NASでは中身の読み出しがダウンロードになる。変化がなければ読まない。
     fs.promises.readFile = (filePath, ...rest) => {
       if (String(filePath).endsWith(fileName)) imageReads.push(String(filePath));
@@ -408,15 +422,9 @@ test("periodic sync skips re-reading verified images and re-verifies after a cha
     await pair.secondSync.syncNow();
     assert.deepEqual(imageReads, []);
 
-    const remoteImagePath = path.join(
-      pair.shared,
-      "devices",
-      pair.first.deviceId,
-      "attachments",
-      "markdown-images",
-      fileName,
-    );
-    fs.writeFileSync(remoteImagePath, "tampered-image");
+    fs.writeFileSync(remoteImagePath, "changed--image");
+    fs.utimesSync(remoteImagePath, verifiedStat.atime, verifiedStat.mtime);
+    assert.equal(fs.statSync(remoteImagePath).mtimeMs, verifiedStat.mtimeMs);
     await assert.rejects(() => pair.secondSync.syncNow(), /同期途中か破損しています/);
     assert.ok(imageReads.includes(remoteImagePath));
   } finally {
