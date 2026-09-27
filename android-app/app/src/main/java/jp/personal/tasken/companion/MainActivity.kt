@@ -711,7 +711,7 @@ internal fun TodayApp(
                     }
                     if (todayViewModel.workLogRepository != null) {
                         IconButton(onClick = { workLogTaskId = null; workLogRecordId = null; workLogOpen = true }, modifier = Modifier.testTag("open-work-log")) {
-                            Icon(painterResource(R.drawable.ic_tabler_pencil), contentDescription = "作業を記録")
+                            Icon(painterResource(R.drawable.ic_tabler_pencil), contentDescription = "やったことを記録")
                         }
                     }
                     if (pendingCaptures.isNotEmpty()) {
@@ -1749,7 +1749,7 @@ internal fun TodayListPane(
                 modifier = Modifier.weight(1f).testTag("today-pull-refresh"),
             ) {
                 if (tasks.isEmpty()) {
-                    CenteredState { Text("今日のTaskはありません") }
+                    CenteredState { Text("今日のタスクはありません") }
                 } else {
                     TodayTaskList(
                         tasks,

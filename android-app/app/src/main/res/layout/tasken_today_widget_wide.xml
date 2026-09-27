@@ -78,7 +78,7 @@
         android:layout_width="match_parent"
         android:layout_height="6dp"
         android:layout_marginBottom="6dp"
-        android:contentDescription="今日のTaskの進み具合"
+        android:contentDescription="今日やることの進み具合"
         android:max="1"
         android:progress="0"
         android:progressDrawable="@drawable/tasken_widget_progress"
@@ -90,7 +90,7 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:includeFontPadding="false"
-        android:text="今日のTaskはありません"
+        android:text="今日のタスクはありません"
         android:textColor="@color/tasken_widget_on_surface_variant"
         android:textSize="13sp"
         android:visibility="gone" />

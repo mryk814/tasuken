@@ -51,7 +51,7 @@ class TodayOfflineUiTest {
                 }
             }
         }
-        composeRule.onNodeWithText("今日のTask").assertIsDisplayed()
+        composeRule.onNodeWithText("今日やること").assertIsDisplayed()
         composeRule.onNodeWithText("最終同期", substring = true).assertIsDisplayed()
         composeRule.onNodeWithTag("today-task-list").performScrollToNode(hasText(task(20).title))
         composeRule.runOnIdle {
@@ -109,7 +109,7 @@ class TodayOfflineUiTest {
         composeRule.runOnIdle {
             state.value = TodayUiState.Cached(emptyList(), SYNCED_AT, "接続をやり直してください。", TodayUiState.CachedRecovery.RePair)
         }
-        composeRule.onNodeWithText("今日のTaskはありません").assertIsDisplayed()
+        composeRule.onNodeWithText("今日のタスクはありません").assertIsDisplayed()
         composeRule.onNodeWithText("再接続").assertIsDisplayed()
         capture("07-synced-empty")
     }
@@ -128,7 +128,7 @@ class TodayOfflineUiTest {
         }
 
         composeRule.waitUntil(5_000) { viewModel.uiState.value is TodayUiState.Success }
-        composeRule.onNodeWithText("今日のTask").assertIsDisplayed()
+        composeRule.onNodeWithText("今日やること").assertIsDisplayed()
         composeRule.onNodeWithText(task(0).title).assertIsDisplayed()
         composeRule.onNodeWithTag("open-capture-action").assertIsDisplayed()
         // 追加の入口は1つ。長押しで話して追加できる。

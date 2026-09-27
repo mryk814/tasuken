@@ -125,7 +125,7 @@ internal fun TodayProgressHeader(
                 if (!collapsed) {
                     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "今日のTask",
+                            "今日やること",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold,

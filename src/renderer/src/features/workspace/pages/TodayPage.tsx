@@ -53,6 +53,7 @@ import {
   buildExecutionWindowTaskView,
   buildOngoingPeriodTaskView,
   buildTodayView,
+  todayTaskProgress,
 } from "../domain-model/selectors";
 import {
   buildSaveTaskOperations,
@@ -228,6 +229,31 @@ function reminderMeta(row: TodayRow, today: string): string {
 }
 
 /** 「AIから届いたこと」の一件。既存の出所から投影した値だけで作る。 */
+/**
+ * 今日やることの残り。Androidの見出しと同じ数え方（取り消し済みは分母に入れない）。
+ * 数だけを示し、少ない日を責める表現にしない。
+ */
+function TodayProgress({ done, total }: { done: number; total: number }) {
+  if (total === 0) return null;
+  const remaining = total - done;
+  const allDone = remaining === 0;
+  return (
+    <span
+      className={`today-progress${allDone ? " is-all-done" : ""}`}
+      role="status"
+      aria-label={`今日やること ${total}件中${done}件完了`}
+    >
+      <span className="today-progress-label">{allDone ? "ぜんぶ完了" : `あと${remaining}件`}</span>
+      <span className="today-progress-track" aria-hidden="true">
+        <span className="today-progress-fill" style={{ width: `${(done / total) * 100}%` }} />
+      </span>
+      <span className="today-progress-count">
+        {done}/{total}
+      </span>
+    </span>
+  );
+}
+
 function TodayRows({
   rows,
   themes,
@@ -1576,6 +1602,7 @@ export function TodayPage({
       <section className="panel today-focus-panel">
         <div className="section-heading">
           <h2>今日やること</h2>
+          <TodayProgress {...todayTaskProgress(v2, today)} />
           <button className="text-button compact" onClick={() => navigate("todo")}>
             ToDoへ
           </button>
