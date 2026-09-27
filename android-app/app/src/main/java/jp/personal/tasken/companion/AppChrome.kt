@@ -122,7 +122,6 @@ internal fun ScrollToTopEffect(
 ) {
     LaunchedEffect(request) {
         if (request != null && request.section == section) {
-            if (listState.firstVisibleItemIndex > 12) listState.scrollToItem(6)
             listState.animateScrollToItem(0)
         }
     }
