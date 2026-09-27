@@ -22,7 +22,7 @@ Desktopが停止していても、NASのローカルSQLiteが最新の同期差�
 ## 前提
 
 - DSM 7.2以降 + Container Manager
-- NASへSSHできる（この手順はTailscale経由のSSH/scpを前提。`ssh <user>@synologyDS723`）
+- NASへSSHできる（この手順はTailscale経由のSSH/scpを前提。`ssh <user>@<nas-host>`）
 - CPUアーキテクチャを確認する。x86_64（Intel/AMD）またはaarch64（ARM64）を推奨。32-bit ARM（armv7）は非推奨。
   ```bash
   uname -m
@@ -35,7 +35,7 @@ Desktopが停止していても、NASのローカルSQLiteが最新の同期差�
 
 - **直接SMB（推奨・最小構成）**: NASの共有フォルダを作り、PCからSMBで開く。
   - NAS側: 共有フォルダ `Tasken` を作り、その下に `sync`（例 `/volume1/Tasken/sync`）。
-  - PC側: `\\synologyDS723\Tasken\sync` をTaskenの「端末間同期」で選ぶ（`T:` などドライブ割り当てを推奨）。
+  - PC側: `\\<nas-host>\Tasken\sync` をTaskenの「端末間同期」で選ぶ（`T:` などドライブ割り当てを推奨）。
   - クラウド同期を挟まないため遅延や途中欠けが少ない。
 - **OneDrive + Cloud Sync**: PCはOneDriveフォルダ、NASはCloud Syncで同じフォルダを `/volume1/...` に落とす。既にOneDrive運用がある場合はこちら。
 
@@ -55,7 +55,7 @@ Desktopが停止していても、NASのローカルSQLiteが最新の同期差�
 `core.autocrlf=true` の作業コピーでは `git archive` が**CRLFのまま**書き出し、NAS上の `bash nas-install.sh` が
 `set: pipefail` で失敗する。ソースtarは改行をLFへ固定して作る（2026-09-26に実機で発生）。
 
-SMBで共有フォルダを割り当てている場合（最小構成。例: `T:` = `\\synologyDS723\tasken`）:
+SMBで共有フォルダを割り当てている場合（最小構成。例: `T:` = `\\<nas-host>\tasken`）:
 
 ```powershell
 # 開発機（リポジトリroot）
@@ -75,11 +75,11 @@ SSH/scpを使う場合（Tailscale経由）:
 ```bash
 docker save -o tasken-headless-linux-amd64.tar tasken-headless:local
 git -c core.autocrlf=false -c core.eol=lf archive --format=tar -o tasken-source.tar HEAD
-ssh <user>@synologyDS723 "sudo mkdir -p /volume1/tasken/_deploy"
-scp -O tasken-headless-linux-amd64.tar tasken-source.tar deploy/synology/nas-install.sh <user>@synologyDS723:/volume1/tasken/_deploy/
+ssh <user>@<nas-host> "sudo mkdir -p /volume1/tasken/_deploy"
+scp -O tasken-headless-linux-amd64.tar tasken-source.tar deploy/synology/nas-install.sh <user>@<nas-host>:/volume1/tasken/_deploy/
 ```
 
-DSM側の設定によっては `scp` が `Connection closed` で拒否される（2026-09-26の実機DS723+で発生。SSHのログイン自体は成功する）。
+DSM側の設定によっては `scp` が `Connection closed` で拒否される（実機で発生。SSHのログイン自体は成功する）。
 その場合はSMB共有経由でコピーする。
 
 `docker-compose` はContainer Manager同梱の `/var/packages/ContainerManager/target/usr/bin/docker-compose` を使う。
@@ -279,14 +279,14 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 | ChatGPTのtool一覧が古い／新しいwrite toolsが出ない                 | Settings → Connectorsでこのアプリを開き**Refresh**を押す。OpenAIの仕様ではサーバー更新は自動反映されず、増えたactionは**既定で無効**なので、一覧に出たwrite toolsを有効にする。既存チャットは更新前の一覧のままなので**新しいチャット**で試す。改善しなければconnectorを削除して再追加する。現行のNASが返すのはread-only 13 / write有効 21 toolsで、`29`は2026-09-26以前の数 |
 | ChatGPTから投稿したがDesktopに出ない                               | `T:\sync\devices\<replicaのdevice id>\` に差分が増えているか、Desktopの端末間同期が有効かを確認する（下の「往復の確認」）                                                                                                                                                                                                                                                    |
 | tunnelが昇っているか疑わしい                                       | `sudo docker exec tasken-tunnel node -e "fetch('http://127.0.0.1:18080/readyz').then(r=>console.log('readyz',r.status)).catch(e=>console.log('ERR',e.message))"`。admin UIは同じnetnsの`http://127.0.0.1:18080/ui`                                                                                                                                                           |
-| 作業報告の採用が「Taskのcanonical Theme IDがありません」で失敗する | 対象TaskがcanonicalなTheme（`project_id`）を持っていない。実データの16/99件が該当し、すべて2026-08以前の`done`/`cancelled`。TaskenでそのTaskを開いて保存し直すと`project_id`が付く（提案自体は受理済みなので、直せば採用できる）。この拒否はMCP経由に限らず既存の挙動                                                                                                        |
+| 作業報告の採用が「Taskのcanonical Theme IDがありません」で失敗する | 対象TaskがcanonicalなTheme（`project_id`）を持っていない。古いTaskにこの状態が残る場合がある。TaskenでそのTaskを開いて保存し直すと`project_id`が付く（提案自体は受理済みなので、直せば採用できる）。この拒否はMCP経由に限らず既存の挙動                                                                                                                                      |
 
 ### 往復の確認（PC側から見る）
 
 書き込みが公開されたかは、replica自身のdeviceフォルダで確認できます。device idは`deploy/synology/state`の`workspace_meta.device_id`です。
 
 ```powershell
-# T: = \\synologyDS723\tasken のとき
+# T: = \\<nas-host>\tasken のとき
 Get-ChildItem T:\sync\devices\<replicaのdevice id> -Force |
   Sort-Object Name | Select-Object -Last 3 | Select-Object LastWriteTime,Length,Name
 ```
