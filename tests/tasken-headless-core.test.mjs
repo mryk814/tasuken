@@ -266,7 +266,7 @@ test("Headless replica joins a shared-folder sync and serves read-only MCP reads
     assert.equal(Boolean(after.get("task", "task-replica-b")), true);
     after.db.close();
   } finally {
-    hostSync.stop();
+    await hostSync.stop();
     if (host.db.open) host.db.close();
   }
 });
@@ -373,7 +373,7 @@ test("Headless replicaが受けたProposalはDesktopへ届き、採否はreplica
       replica.db.close();
     }
   } finally {
-    hostSync.stop();
+    await hostSync.stop();
     if (host.db.open) host.db.close();
   }
 });
@@ -497,7 +497,7 @@ test("replicaが受けたTask作業報告はDesktopの採用でWork Receiptに�
       replica.db.close();
     }
   } finally {
-    hostSync.stop();
+    await hostSync.stop();
     if (host.db.open) host.db.close();
   }
 });
@@ -738,7 +738,7 @@ test("Headless replica serves synced capture and task images over Core HTTP (MCP
       await restarted.stop();
     }
   } finally {
-    hostSync.stop();
+    await hostSync.stop();
     if (host.db.open) host.db.close();
   }
 });

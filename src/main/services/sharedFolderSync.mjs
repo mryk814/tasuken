@@ -11,15 +11,27 @@ const MANIFEST_FILE = "tasken-sync.json";
 const DEVICE_DIRECTORY = "devices";
 const SYNC_INTERVAL_MS = 10_000;
 
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+// 同期フォルダはNAS(SMB)上にあることが多く、数千件のreaddirだけで1秒前後かかる。
+// 同期FSは10秒ごとにMainのevent loopを止めて画面操作まで固まるため、
+// 共有フォルダへの読み書きは必ず fs.promises で行う。
+async function exists(filePath) {
+  try {
+    await fs.promises.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-function writeJsonAtomic(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+async function readJson(filePath) {
+  return JSON.parse(await fs.promises.readFile(filePath, "utf8"));
+}
+
+async function writeJsonAtomic(filePath, value) {
+  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  fs.renameSync(temporaryPath, filePath);
+  await fs.promises.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await fs.promises.rename(temporaryPath, filePath);
 }
 
 function packetFileName(packet) {
@@ -76,9 +88,16 @@ export class SharedFolderSyncService {
     }, SYNC_INTERVAL_MS);
   }
 
+  /** 実行中の同期はawait境界で進行中のまま残るため、DBを閉じる側は戻り値を待つ。 */
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    return this.running
+      ? this.running.then(
+          () => {},
+          () => {},
+        )
+      : Promise.resolve();
   }
 
   /**
@@ -96,10 +115,10 @@ export class SharedFolderSyncService {
     return path.join(directory, MANIFEST_FILE);
   }
 
-  readManifest(directory) {
+  async readManifest(directory) {
     const manifestPath = this.manifestPath(directory);
-    if (!fs.existsSync(manifestPath)) return null;
-    const manifest = readJson(manifestPath);
+    if (!(await exists(manifestPath))) return null;
+    const manifest = await readJson(manifestPath);
     if (
       manifest?.format !== "tasken-shared-folder-sync" ||
       manifest?.formatVersion !== 1 ||
@@ -112,11 +131,13 @@ export class SharedFolderSyncService {
     return manifest;
   }
 
-  configure(directoryValue) {
+  async configure(directoryValue) {
     const directory = typeof directoryValue === "string" ? path.resolve(directoryValue) : "";
     if (!directory) throw new Error("同期フォルダを選択してください。");
-    fs.mkdirSync(directory, { recursive: true });
-    let manifest = this.readManifest(directory);
+    // 非同期化で定期同期と交互に進みうる。旧設定の同期が終わってから切り替える。
+    await this.running?.catch(() => {});
+    await fs.promises.mkdir(directory, { recursive: true });
+    let manifest = await this.readManifest(directory);
     if (!manifest) {
       manifest = {
         format: "tasken-shared-folder-sync",
@@ -124,7 +145,7 @@ export class SharedFolderSyncService {
         workspaceId: this.repository.workspaceId,
         createdAt: new Date().toISOString(),
       };
-      writeJsonAtomic(this.manifestPath(directory), manifest);
+      await writeJsonAtomic(this.manifestPath(directory), manifest);
     } else if (manifest.workspaceId !== this.repository.workspaceId) {
       this.repository.adoptSyncWorkspace(manifest.workspaceId);
     }
@@ -179,13 +200,13 @@ export class SharedFolderSyncService {
     try {
       this.waitingFor = null;
       this.waitingImage = null;
-      const manifest = this.readManifest(directory);
+      const manifest = await this.readManifest(directory);
       if (!manifest) throw new Error("同期フォルダのTasken設定が見つかりません。");
       if (manifest.workspaceId !== this.repository.workspaceId) {
         throw new Error("選択した同期フォルダは別のWorkspace用です。");
       }
       this.repository.ensureSyncBaseline();
-      const attachments = syncMarkdownImageAttachments({
+      const attachments = await syncMarkdownImageAttachments({
         sharedDirectory: directory,
         localDirectory: this.attachmentDirectory,
         deviceId: this.repository.deviceId,
@@ -195,8 +216,8 @@ export class SharedFolderSyncService {
         published: attachments.published,
         received: attachments.received,
       };
-      this.publishPending(directory);
-      const incoming = this.receiveChanges(directory);
+      await this.publishPending(directory);
+      const incoming = await this.receiveChanges(directory);
       // Database changes are already committed, even if a photo arrives later.
       if (incoming.applied || incoming.conflicts || attachments.received)
         this.notifyWorkspaceChanged();
@@ -211,7 +232,7 @@ export class SharedFolderSyncService {
           }
         }
       }
-      syncCaptureImageAttachments({
+      await syncCaptureImageAttachments({
         sharedDirectory: directory,
         localDirectory: this.captureImageDirectory,
         deviceId: this.repository.deviceId,
@@ -234,11 +255,11 @@ export class SharedFolderSyncService {
     }
   }
 
-  publishPending(directory) {
+  async publishPending(directory) {
     const deviceDirectory = path.join(directory, DEVICE_DIRECTORY, this.repository.deviceId);
-    fs.mkdirSync(deviceDirectory, { recursive: true });
+    await fs.promises.mkdir(deviceDirectory, { recursive: true });
     const present = new Set(
-      fs.readdirSync(deviceDirectory).filter((name) => name.endsWith(".json")),
+      (await fs.promises.readdir(deviceDirectory)).filter((name) => name.endsWith(".json")),
     );
     let republished = 0;
     for (const header of this.repository.syncPacketHeaders()) {
@@ -249,7 +270,7 @@ export class SharedFolderSyncService {
       if (!present.has(fileName)) {
         const entry = this.repository.syncPacket(header.changeId);
         const filePath = path.join(deviceDirectory, packetFileName(entry.packet));
-        if (!fs.existsSync(filePath)) writeJsonAtomic(filePath, entry.packet);
+        if (!(await exists(filePath))) await writeJsonAtomic(filePath, entry.packet);
         present.add(path.basename(filePath));
         republished += 1;
       }
@@ -258,24 +279,24 @@ export class SharedFolderSyncService {
     this.healStats = { republished };
   }
 
-  republishMissing(directoryValue) {
+  async republishMissing(directoryValue) {
     const directory =
       typeof directoryValue === "string" && directoryValue
         ? path.resolve(directoryValue)
         : String(this.repository.getPreference("sharedSyncDirectory") || "");
     if (!directory) throw new Error("同期フォルダが設定されていません。");
-    const manifest = this.readManifest(directory);
+    const manifest = await this.readManifest(directory);
     if (!manifest) throw new Error("同期フォルダのTasken設定が見つかりません。");
     if (manifest.workspaceId !== this.repository.workspaceId) {
       throw new Error("選択した同期フォルダは別のWorkspace用です。");
     }
     const deviceDirectory = path.join(directory, DEVICE_DIRECTORY, this.repository.deviceId);
-    fs.mkdirSync(deviceDirectory, { recursive: true });
+    await fs.promises.mkdir(deviceDirectory, { recursive: true });
     let republished = 0;
     for (const entry of this.repository.allSyncPackets()) {
       const filePath = path.join(deviceDirectory, packetFileName(entry.packet));
-      if (!fs.existsSync(filePath)) {
-        writeJsonAtomic(filePath, entry.packet);
+      if (!(await exists(filePath))) {
+        await writeJsonAtomic(filePath, entry.packet);
         republished += 1;
       }
       this.repository.markSyncPublished(entry.changeId);
@@ -283,20 +304,18 @@ export class SharedFolderSyncService {
     return { republished, status: this.status() };
   }
 
-  receiveChanges(directory) {
+  async receiveChanges(directory) {
     const devicesRoot = path.join(directory, DEVICE_DIRECTORY);
-    if (!fs.existsSync(devicesRoot)) return { applied: 0, conflicts: 0 };
+    if (!(await exists(devicesRoot))) return { applied: 0, conflicts: 0 };
     let applied = 0;
     let conflicts = 0;
-    const deviceDirectories = fs
-      .readdirSync(devicesRoot, { withFileTypes: true })
+    const deviceDirectories = (await fs.promises.readdir(devicesRoot, { withFileTypes: true }))
       .filter((entry) => entry.isDirectory() && entry.name !== this.repository.deviceId)
       .sort((a, b) => a.name.localeCompare(b.name));
     for (const deviceEntry of deviceDirectories) {
       const deviceId = deviceEntry.name;
       let cursor = this.repository.syncCursor(deviceId);
-      const files = fs
-        .readdirSync(path.join(devicesRoot, deviceId))
+      const files = (await fs.promises.readdir(path.join(devicesRoot, deviceId)))
         .filter((name) => /^\d{12}-[0-9a-f-]+\.json$/i.test(name))
         .sort();
       for (const fileName of files) {
@@ -310,7 +329,7 @@ export class SharedFolderSyncService {
         }
         let packet = null;
         try {
-          packet = readJson(path.join(devicesRoot, deviceId, fileName));
+          packet = await readJson(path.join(devicesRoot, deviceId, fileName));
         } catch {
           this.waitingFor = { deviceId, sequence };
           throw new Error(

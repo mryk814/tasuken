@@ -8,9 +8,21 @@ const IMAGE_FILE_PATTERN =
 const PHOTO_FILE_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpg)$/i;
 
-function assertPhotoPath(filePath) {
+// 共有フォルダはNAS(SMB)等の遅いFSになりうる。同期FSはMainのevent loopを
+// 数百ms～秒単位で止めるため、定期同期の経路は fs.promises だけを使う。
+async function exists(filePath) {
+  try {
+    await fs.promises.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function assertPhotoPath(filePath) {
   for (let current = path.resolve(filePath); ; current = path.dirname(current)) {
-    if (fs.existsSync(current) && fs.lstatSync(current).isSymbolicLink())
+    const stat = await fs.promises.lstat(current).catch(() => null);
+    if (stat?.isSymbolicLink())
       throw new Error("写真の同期先にリンクがあります。保存先を確認してください。");
     if (path.dirname(current) === current) break;
   }
@@ -32,18 +44,15 @@ const IMAGE_MIME_TYPES = {
   bmp: "image/bmp",
 };
 
-function writeJsonAtomic(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  fs.renameSync(temporaryPath, filePath);
+async function writeJsonAtomic(filePath, value) {
+  await writeBufferAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function writeBufferAtomic(filePath, buffer) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+async function writeBufferAtomic(filePath, data) {
+  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporaryPath, buffer);
-  fs.renameSync(temporaryPath, filePath);
+  await fs.promises.writeFile(temporaryPath, data);
+  await fs.promises.rename(temporaryPath, filePath);
 }
 
 function sha256(buffer) {
@@ -64,11 +73,11 @@ function mimeTypeFor(fileName) {
   return IMAGE_MIME_TYPES[extension] || "";
 }
 
-function readImage(filePath, fileName) {
-  const stat = fs.statSync(filePath);
+async function readImage(filePath, fileName) {
+  const stat = await fs.promises.stat(filePath);
   if (!stat.isFile() || stat.size <= 0 || stat.size > MARKDOWN_IMAGE_MAX_BYTES)
     throw new Error(`${fileName} は空か12MBを超えているため、添付画像として同期できません。`);
-  const buffer = fs.readFileSync(filePath);
+  const buffer = await fs.promises.readFile(filePath);
   if (!buffer.length || buffer.length > MARKDOWN_IMAGE_MAX_BYTES) {
     throw new Error(`${fileName} は空か12MBを超えているため、添付画像として同期できません。`);
   }
@@ -88,8 +97,8 @@ function originFileName(fileName) {
   return `${fileName}.sync-origin.json`;
 }
 
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+async function readJson(filePath) {
+  return JSON.parse(await fs.promises.readFile(filePath, "utf8"));
 }
 
 function imageWaitingError(message, sourceDeviceId, fileName) {
@@ -119,19 +128,19 @@ function validateDescriptor(value, expectedFileName, expectedDeviceId) {
   return value;
 }
 
-function readOrigin(localDirectory, fileName) {
+async function readOrigin(localDirectory, fileName) {
   const filePath = path.join(localDirectory, originFileName(fileName));
-  if (!fs.existsSync(filePath)) return null;
+  if (!(await exists(filePath))) return null;
   try {
-    const value = readJson(filePath);
+    const value = await readJson(filePath);
     return typeof value?.sourceDeviceId === "string" ? value.sourceDeviceId : null;
   } catch {
     return null;
   }
 }
 
-function writeOrigin(localDirectory, fileName, sourceDeviceId) {
-  writeJsonAtomic(path.join(localDirectory, originFileName(fileName)), {
+async function writeOrigin(localDirectory, fileName, sourceDeviceId) {
+  await writeJsonAtomic(path.join(localDirectory, originFileName(fileName)), {
     format: "tasken-markdown-image-origin",
     formatVersion: 1,
     fileName,
@@ -139,7 +148,7 @@ function writeOrigin(localDirectory, fileName, sourceDeviceId) {
   });
 }
 
-function publishLocalImages({
+async function publishLocalImages({
   sharedDirectory,
   localDirectory,
   deviceId,
@@ -154,8 +163,8 @@ function publishLocalImages({
     photoManifests ? "capture-images" : "markdown-images",
   );
   if (photoManifests) {
-    assertPhotoPath(localDirectory);
-    assertPhotoPath(remoteDirectory);
+    await assertPhotoPath(localDirectory);
+    await assertPhotoPath(remoteDirectory);
   }
   let published = 0;
   for (const fileName of imageFiles(
@@ -164,39 +173,43 @@ function publishLocalImages({
   )) {
     if (publishFileNames && !publishFileNames.has(fileName)) continue;
     if (photoManifests && !photoManifests.has(fileName)) continue;
-    if (photoManifests) assertPhotoPath(path.join(localDirectory, fileName));
-    const origin = readOrigin(localDirectory, fileName);
+    if (photoManifests) await assertPhotoPath(path.join(localDirectory, fileName));
+    const origin = await readOrigin(localDirectory, fileName);
     if (origin && origin !== deviceId) continue;
-    const localImage = readImage(path.join(localDirectory, fileName), fileName);
+    const localImage = await readImage(path.join(localDirectory, fileName), fileName);
     if (photoManifests) verifyPhoto(localImage, photoManifests.get(fileName));
     const remoteImagePath = path.join(remoteDirectory, fileName);
     const remoteDescriptorPath = path.join(remoteDirectory, descriptorFileName(fileName));
     if (photoManifests) {
-      assertPhotoPath(remoteImagePath);
-      assertPhotoPath(remoteDescriptorPath);
-      assertPhotoPath(path.join(localDirectory, originFileName(fileName)));
+      await assertPhotoPath(remoteImagePath);
+      await assertPhotoPath(remoteDescriptorPath);
+      await assertPhotoPath(path.join(localDirectory, originFileName(fileName)));
     }
     let wrote = false;
-    if (fs.existsSync(remoteImagePath)) {
-      const remoteImage = readImage(remoteImagePath, fileName);
+    if (await exists(remoteImagePath)) {
+      const remoteImage = await readImage(remoteImagePath, fileName);
       if (remoteImage.size !== localImage.size || remoteImage.sha256 !== localImage.sha256) {
         throw new Error(
           `添付画像 ${fileName} は同じ端末内で内容が変わっています。元画像を確認してください。`,
         );
       }
     } else {
-      writeBufferAtomic(remoteImagePath, localImage.buffer);
+      await writeBufferAtomic(remoteImagePath, localImage.buffer);
       wrote = true;
     }
-    if (fs.existsSync(remoteDescriptorPath)) {
-      const descriptor = validateDescriptor(readJson(remoteDescriptorPath), fileName, deviceId);
+    if (await exists(remoteDescriptorPath)) {
+      const descriptor = validateDescriptor(
+        await readJson(remoteDescriptorPath),
+        fileName,
+        deviceId,
+      );
       if (descriptor.size !== localImage.size || descriptor.sha256 !== localImage.sha256) {
         throw new Error(
           `添付画像 ${fileName} は同じ端末内で内容が変わっています。元画像を確認してください。`,
         );
       }
     } else {
-      writeJsonAtomic(remoteDescriptorPath, {
+      await writeJsonAtomic(remoteDescriptorPath, {
         format: "tasken-markdown-image",
         formatVersion: 1,
         fileName,
@@ -208,13 +221,13 @@ function publishLocalImages({
       });
       wrote = true;
     }
-    writeOrigin(localDirectory, fileName, deviceId);
+    await writeOrigin(localDirectory, fileName, deviceId);
     if (wrote) published += 1;
   }
   return published;
 }
 
-function receiveRemoteImages({
+async function receiveRemoteImages({
   sharedDirectory,
   localDirectory,
   deviceId,
@@ -222,10 +235,9 @@ function receiveRemoteImages({
   onReceived,
 }) {
   const devicesRoot = path.join(sharedDirectory, "devices");
-  if (!fs.existsSync(devicesRoot)) return 0;
+  if (!(await exists(devicesRoot))) return 0;
   let received = 0;
-  const deviceDirectories = fs
-    .readdirSync(devicesRoot, { withFileTypes: true })
+  const deviceDirectories = (await fs.promises.readdir(devicesRoot, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .sort((left, right) => left.name.localeCompare(right.name));
   for (const deviceEntry of deviceDirectories) {
@@ -236,10 +248,9 @@ function receiveRemoteImages({
       "attachments",
       photoManifests ? "capture-images" : "markdown-images",
     );
-    if (!fs.existsSync(remoteDirectory)) continue;
-    if (photoManifests) assertPhotoPath(remoteDirectory);
-    const descriptors = fs
-      .readdirSync(remoteDirectory)
+    if (!(await exists(remoteDirectory))) continue;
+    if (photoManifests) await assertPhotoPath(remoteDirectory);
+    const descriptors = (await fs.promises.readdir(remoteDirectory))
       .filter(
         (name) =>
           (photoManifests ? PHOTO_FILE_PATTERN : IMAGE_FILE_PATTERN).test(name.slice(0, -5)) &&
@@ -250,12 +261,12 @@ function receiveRemoteImages({
       const fileName = descriptorName.slice(0, -5);
       if (photoManifests && !photoManifests.has(fileName)) continue;
       if (photoManifests) {
-        assertPhotoPath(path.join(remoteDirectory, descriptorName));
-        assertPhotoPath(path.join(remoteDirectory, fileName));
+        await assertPhotoPath(path.join(remoteDirectory, descriptorName));
+        await assertPhotoPath(path.join(remoteDirectory, fileName));
       }
       let rawDescriptor = null;
       try {
-        rawDescriptor = readJson(path.join(remoteDirectory, descriptorName));
+        rawDescriptor = await readJson(path.join(remoteDirectory, descriptorName));
       } catch {
         throw imageWaitingError(
           `${sourceDeviceId} の添付画像 ${fileName} は同期途中か破損しています。共有フォルダの同期完了後に再試行します。`,
@@ -265,14 +276,14 @@ function receiveRemoteImages({
       }
       const descriptor = validateDescriptor(rawDescriptor, fileName, sourceDeviceId);
       const remoteImagePath = path.join(remoteDirectory, fileName);
-      if (!fs.existsSync(remoteImagePath)) {
+      if (!(await exists(remoteImagePath))) {
         throw imageWaitingError(
           `${sourceDeviceId} の添付画像 ${fileName} の到着を待っています。共有フォルダの同期完了後に再試行します。`,
           sourceDeviceId,
           fileName,
         );
       }
-      const remoteImage = readImage(remoteImagePath, fileName);
+      const remoteImage = await readImage(remoteImagePath, fileName);
       if (photoManifests) verifyPhoto(remoteImage, photoManifests.get(fileName));
       if (remoteImage.size !== descriptor.size || remoteImage.sha256 !== descriptor.sha256) {
         throw imageWaitingError(
@@ -283,44 +294,44 @@ function receiveRemoteImages({
       }
       const localImagePath = path.join(localDirectory, fileName);
       if (photoManifests) {
-        assertPhotoPath(localImagePath);
-        assertPhotoPath(path.join(localDirectory, originFileName(fileName)));
+        await assertPhotoPath(localImagePath);
+        await assertPhotoPath(path.join(localDirectory, originFileName(fileName)));
       }
-      if (fs.existsSync(localImagePath)) {
-        const localImage = readImage(localImagePath, fileName);
+      if (await exists(localImagePath)) {
+        const localImage = await readImage(localImagePath, fileName);
         if (localImage.sha256 !== descriptor.sha256) {
           throw new Error(
             `ローカルの添付画像 ${fileName} が共有画像と一致しません。画像を退避してから再同期してください。`,
           );
         }
-        if (!readOrigin(localDirectory, fileName))
-          writeOrigin(localDirectory, fileName, sourceDeviceId);
+        if (!(await readOrigin(localDirectory, fileName)))
+          await writeOrigin(localDirectory, fileName, sourceDeviceId);
         continue;
       }
-      writeBufferAtomic(localImagePath, remoteImage.buffer);
+      await writeBufferAtomic(localImagePath, remoteImage.buffer);
       onReceived?.();
-      writeOrigin(localDirectory, fileName, sourceDeviceId);
+      await writeOrigin(localDirectory, fileName, sourceDeviceId);
       received += 1;
     }
   }
   return received;
 }
 
-export function syncMarkdownImageAttachments({
+export async function syncMarkdownImageAttachments({
   sharedDirectory,
   localDirectory,
   deviceId,
   publishFileNames,
 }) {
   if (!localDirectory) return { published: 0, received: 0, available: 0 };
-  fs.mkdirSync(localDirectory, { recursive: true });
-  const published = publishLocalImages({
+  await fs.promises.mkdir(localDirectory, { recursive: true });
+  const published = await publishLocalImages({
     sharedDirectory,
     localDirectory,
     deviceId,
     publishFileNames,
   });
-  const received = receiveRemoteImages({ sharedDirectory, localDirectory, deviceId });
+  const received = await receiveRemoteImages({ sharedDirectory, localDirectory, deviceId });
   return {
     published,
     received,
@@ -333,7 +344,7 @@ export function countMarkdownImageAttachments(localDirectory) {
 }
 
 /** Photo bytes are transferred only for live Capture/Task manifest references. */
-export function syncCaptureImageAttachments({
+export async function syncCaptureImageAttachments({
   sharedDirectory,
   localDirectory,
   deviceId,
@@ -352,21 +363,21 @@ export function syncCaptureImageAttachments({
     )
       throw new Error("写真の同期manifestが不正です。");
   }
-  assertPhotoPath(localDirectory);
-  fs.mkdirSync(localDirectory, { recursive: true });
+  await assertPhotoPath(localDirectory);
+  await fs.promises.mkdir(localDirectory, { recursive: true });
   const options = { sharedDirectory, localDirectory, deviceId, photoManifests, onReceived };
-  const published = publishLocalImages(options);
-  const received = receiveRemoteImages(options);
+  const published = await publishLocalImages(options);
+  const received = await receiveRemoteImages(options);
   for (const fileName of photoManifests.keys()) {
     const target = path.join(localDirectory, fileName);
-    assertPhotoPath(target);
-    if (!fs.existsSync(target))
+    await assertPhotoPath(target);
+    if (!(await exists(target)))
       throw imageWaitingError(
         "写真の到着を待っています。共有フォルダーの同期後に再試行してください。",
         "",
         fileName,
       );
-    verifyPhoto(readImage(target, fileName), photoManifests.get(fileName));
+    verifyPhoto(await readImage(target, fileName), photoManifests.get(fileName));
   }
   return { published, received };
 }

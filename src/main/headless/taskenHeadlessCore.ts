@@ -111,7 +111,7 @@ export async function startTaskenHeadlessCore(
         path.join(userDataPath, "attachments", "markdown-images"),
         path.join(userDataPath, "attachments", "capture-images"),
       );
-      if (!syncService.readManifest(syncDirectory)) {
+      if (!(await syncService.readManifest(syncDirectory))) {
         throw new TaskenHeadlessCoreError(
           "SYNC_FOLDER_NOT_READY",
           "共有フォルダがまだデータ端末で初期化されていません。先にデータを持つ端末で同期を設定してください。",
@@ -129,7 +129,7 @@ export async function startTaskenHeadlessCore(
       }
     }
   } catch (error) {
-    syncService?.stop();
+    await syncService?.stop();
     repository.db.close();
     throw error;
   }
@@ -154,7 +154,7 @@ export async function startTaskenHeadlessCore(
       async stop() {
         if (stopped) return;
         stopped = true;
-        syncService?.stop();
+        await syncService?.stop();
         try {
           await runtime.stop();
         } finally {
@@ -163,7 +163,7 @@ export async function startTaskenHeadlessCore(
       },
     };
   } catch (error) {
-    syncService?.stop();
+    await syncService?.stop();
     await runtime.stop().catch(() => {});
     repository.db.close();
     throw error;
