@@ -193,6 +193,8 @@ export const IPC = {
   appTitleBarTheme: "app:titlebar-theme",
   appFlushRequested: "app:flush-requested",
   appFlushAck: "app:flush-ack",
+  appPerformanceDiagnosticsEnabled: "app:performance-diagnostics-enabled",
+  appPerformanceReport: "app:performance-report",
   taskenRootToggle: "tasken-root:toggle",
   taskenRootHide: "tasken-root:hide",
   taskenRootShown: "tasken-root:shown",
@@ -326,6 +328,13 @@ export interface RootShortcutState {
 export interface RendererFlushRequest {
   requestId: string;
   noteId?: string;
+}
+
+/** 固定kindと数値だけ。操作内容や画面の文字列は載せない（#481）。 */
+export interface RendererPerformanceReport {
+  kind: "long_task" | "event_loop_lag";
+  duration_ms: number;
+  heap_used_mb?: number;
 }
 
 export interface RendererFlushAck {
@@ -883,6 +892,8 @@ export interface ResearchDeskApi {
     setTitleBarTheme(theme: "light" | "dark"): Promise<boolean>;
     onAppFlushRequested(callback: (request: RendererFlushRequest) => void): () => void;
     ackAppFlush(requestId: string, ok: boolean): Promise<boolean>;
+    performanceDiagnosticsEnabled(): Promise<boolean>;
+    reportPerformance(report: RendererPerformanceReport): void;
     getMcpBridgeInfo(): Promise<McpBridgeInfo>;
     toggleTaskenRoot(): Promise<boolean>;
     hideTaskenRoot(): Promise<boolean>;

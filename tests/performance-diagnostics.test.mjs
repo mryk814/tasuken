@@ -44,6 +44,39 @@ test("workspace reload is measured only through the opt-in main diagnostic helpe
   assert.match(source("src/main/services/performanceDiagnostics.ts"), /TASKEN_PERF_DIAGNOSTICS/);
 });
 
+test("enabled diagnostics are kept in main.log so packaged builds can be investigated", () => {
+  const diagnostics = source("src/main/services/performanceDiagnostics.ts");
+  assert.match(diagnostics, /writeDiagnostic\(JSON\.stringify\(event\)\)/);
+  assert.match(
+    source("src/main/index.ts"),
+    /setPerformanceDiagnosticsWriter\(\(line\) => logMain\("info", "performance", line\)\)/,
+  );
+  const record =
+    diagnostics.match(/export function recordRendererPerformance[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(record, /if \(!performanceDiagnosticsEnabled\(\)\) return;/);
+  assert.match(record, /RENDERER_KINDS\.has\(kind\)/);
+  assert.doesNotMatch(record, /\.\.\.input|String\(/);
+});
+
+test("renderer follows the app-level opt-in and forwards only fixed numeric fields", () => {
+  const renderer = source("src/renderer/src/utils/performanceDiagnostics.ts");
+  assert.match(renderer, /performanceDiagnosticsApi\s*\.enabled\(\)/);
+  assert.doesNotMatch(renderer, /window\.api/);
+  const forwarded = renderer.match(/performanceDiagnosticsApi\.report\(\{[\s\S]*?\}\)/)?.[0] || "";
+  assert.match(forwarded, /kind: event\.kind/);
+  assert.match(forwarded, /duration_ms: event\.duration_ms/);
+  assert.doesNotMatch(forwarded, /title|body|url|path|query|content/i);
+  const ipc = source("src/main/ipc/registerIpc.ts");
+  assert.match(
+    ipc,
+    /IPC\.appPerformanceDiagnosticsEnabled, \(\) => performanceDiagnosticsEnabled\(\)/,
+  );
+  assert.match(
+    ipc,
+    /IPC\.appPerformanceReport, \(_event, report\) => recordRendererPerformance\(report\)/,
+  );
+});
+
 test("both process bootstraps install diagnostics without enabling them", () => {
   assert.match(source("src/renderer/src/main.tsx"), /installRendererPerformanceDiagnostics\(\)/);
   assert.match(source("src/main/index.ts"), /installMainPerformanceDiagnostics\(\)/);

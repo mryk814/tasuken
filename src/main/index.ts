@@ -56,7 +56,10 @@ import { FeedLinkPreviewService } from "./services/feedLinkPreviewService";
 import { ScreenRecordingService } from "./services/screenRecordingService";
 import { commandNotificationPayloads } from "./rendererMediaProjection";
 import { configureMainLog, logMain } from "./log";
-import { installMainPerformanceDiagnostics } from "./services/performanceDiagnostics";
+import {
+  installMainPerformanceDiagnostics,
+  setPerformanceDiagnosticsWriter,
+} from "./services/performanceDiagnostics";
 import { createRecordingIndicatorController } from "./recordingIndicatorController";
 import { createTaskenRootController, type TaskenRootController } from "./taskenRootController";
 import { screenRecordingOriginsMatch } from "../shared/screenRecording.mjs";
@@ -2615,6 +2618,7 @@ async function startDesktopApp(): Promise<void> {
   migrateLegacyUserDataIfNeeded();
   applyEmbeddedAiRetirementMigration(app.getPath("userData"));
   configureMainLog(app.getPath("userData"));
+  setPerformanceDiagnosticsWriter((line) => logMain("info", "performance", line));
   installMainPerformanceDiagnostics();
   registerAttachmentProtocol();
   workspaceRepository = new WorkspaceDatabase(
