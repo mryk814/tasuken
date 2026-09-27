@@ -74,6 +74,8 @@ export class SharedFolderSyncService {
     this.waitingImage = null;
     this.healStats = { republished: 0 };
     this.lastReportedError = null;
+    // 照合済み画像のstat署名。再起動で消えてよい派生キャッシュ。
+    this.verifiedImages = new Map();
   }
 
   start() {
@@ -211,6 +213,7 @@ export class SharedFolderSyncService {
         localDirectory: this.attachmentDirectory,
         deviceId: this.repository.deviceId,
         publishFileNames: referencedMarkdownImageFiles(this.repository),
+        verified: this.verifiedImages,
       });
       this.attachmentStats = {
         published: attachments.published,
@@ -238,6 +241,7 @@ export class SharedFolderSyncService {
         deviceId: this.repository.deviceId,
         photoManifests,
         onReceived: () => this.notifyWorkspaceChanged(),
+        verified: this.verifiedImages,
       });
       const timestamp = new Date().toISOString();
       this.repository.setPreference("sharedSyncLastAt", timestamp);

@@ -384,6 +384,47 @@ test("shared folder sync never confirms an incomplete or corrupted Markdown imag
   }
 });
 
+test("periodic sync skips re-reading verified images and re-verifies after a change", async () => {
+  const pair = createPair();
+  const fileName = "123e4567-e89b-42d3-a456-426614174002.png";
+  const imageReads = [];
+  const originalReadFile = fs.promises.readFile;
+  try {
+    writeMarkdownImage(pair.firstAttachments, fileName, "verified-image");
+    pair.first.save("note", {
+      id: "verified-image-note",
+      title: "Verified image",
+      body_markdown: `![diagram](tasken-attachment://local/${fileName}/diagram)`,
+    });
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+
+    // OneDrive/NASでは中身の読み出しがダウンロードになる。変化がなければ読まない。
+    fs.promises.readFile = (filePath, ...rest) => {
+      if (String(filePath).endsWith(fileName)) imageReads.push(String(filePath));
+      return originalReadFile.call(fs.promises, filePath, ...rest);
+    };
+    await pair.firstSync.syncNow();
+    await pair.secondSync.syncNow();
+    assert.deepEqual(imageReads, []);
+
+    const remoteImagePath = path.join(
+      pair.shared,
+      "devices",
+      pair.first.deviceId,
+      "attachments",
+      "markdown-images",
+      fileName,
+    );
+    fs.writeFileSync(remoteImagePath, "tampered-image");
+    await assert.rejects(() => pair.secondSync.syncNow(), /同期途中か破損しています/);
+    assert.ok(imageReads.includes(remoteImagePath));
+  } finally {
+    fs.promises.readFile = originalReadFile;
+    pair.close();
+  }
+});
+
 test("Markdown images remain local when the shared folder is unavailable and publish after recovery", async () => {
   const pair = createPair();
   const fileName = "123e4567-e89b-42d3-a456-426614174002.webp";

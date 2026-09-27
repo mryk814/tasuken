@@ -89,6 +89,22 @@ async function readImage(filePath, fileName) {
   };
 }
 
+/**
+ * 照合済みの画像組をサイズと更新時刻で覚え、変わっていなければ中身を読まない。
+ * OneDriveのオンデマンドやNASでは中身の読み出しがダウンロードになるため、
+ * 定期同期のたびに全画像を読み直すと通信とハッシュ計算が積み上がる。
+ * statはplaceholderを実体化しない。
+ */
+async function verificationSignature(filePaths, expected) {
+  const parts = [];
+  for (const filePath of filePaths) {
+    const stat = await fs.promises.stat(filePath).catch(() => null);
+    if (!stat?.isFile()) return "";
+    parts.push(`${stat.size}:${stat.mtimeMs}`);
+  }
+  return `${parts.join("|")}|${expected ? JSON.stringify(expected) : ""}`;
+}
+
 function descriptorFileName(fileName) {
   return `${fileName}.json`;
 }
@@ -154,6 +170,7 @@ async function publishLocalImages({
   deviceId,
   publishFileNames,
   photoManifests,
+  verified = new Map(),
 }) {
   const remoteDirectory = path.join(
     sharedDirectory,
@@ -176,8 +193,7 @@ async function publishLocalImages({
     if (photoManifests) await assertPhotoPath(path.join(localDirectory, fileName));
     const origin = await readOrigin(localDirectory, fileName);
     if (origin && origin !== deviceId) continue;
-    const localImage = await readImage(path.join(localDirectory, fileName), fileName);
-    if (photoManifests) verifyPhoto(localImage, photoManifests.get(fileName));
+    const localImagePath = path.join(localDirectory, fileName);
     const remoteImagePath = path.join(remoteDirectory, fileName);
     const remoteDescriptorPath = path.join(remoteDirectory, descriptorFileName(fileName));
     if (photoManifests) {
@@ -185,6 +201,15 @@ async function publishLocalImages({
       await assertPhotoPath(remoteDescriptorPath);
       await assertPhotoPath(path.join(localDirectory, originFileName(fileName)));
     }
+    const verifiedPaths = [localImagePath, remoteImagePath, remoteDescriptorPath];
+    const expected = photoManifests?.get(fileName);
+    const cacheKey = `publish:${remoteImagePath}`;
+    if (origin === deviceId) {
+      const signature = await verificationSignature(verifiedPaths, expected);
+      if (signature && verified.get(cacheKey) === signature) continue;
+    }
+    const localImage = await readImage(localImagePath, fileName);
+    if (photoManifests) verifyPhoto(localImage, expected);
     let wrote = false;
     if (await exists(remoteImagePath)) {
       const remoteImage = await readImage(remoteImagePath, fileName);
@@ -221,7 +246,8 @@ async function publishLocalImages({
       });
       wrote = true;
     }
-    await writeOrigin(localDirectory, fileName, deviceId);
+    if (origin !== deviceId) await writeOrigin(localDirectory, fileName, deviceId);
+    verified.set(cacheKey, await verificationSignature(verifiedPaths, expected));
     if (wrote) published += 1;
   }
   return published;
@@ -233,6 +259,7 @@ async function receiveRemoteImages({
   deviceId,
   photoManifests,
   onReceived,
+  verified = new Map(),
 }) {
   const devicesRoot = path.join(sharedDirectory, "devices");
   if (!(await exists(devicesRoot))) return 0;
@@ -260,13 +287,23 @@ async function receiveRemoteImages({
     for (const descriptorName of descriptors) {
       const fileName = descriptorName.slice(0, -5);
       if (photoManifests && !photoManifests.has(fileName)) continue;
+      const descriptorPath = path.join(remoteDirectory, descriptorName);
+      const remoteImagePath = path.join(remoteDirectory, fileName);
+      const localImagePath = path.join(localDirectory, fileName);
       if (photoManifests) {
-        await assertPhotoPath(path.join(remoteDirectory, descriptorName));
-        await assertPhotoPath(path.join(remoteDirectory, fileName));
+        await assertPhotoPath(descriptorPath);
+        await assertPhotoPath(remoteImagePath);
+        await assertPhotoPath(localImagePath);
+        await assertPhotoPath(path.join(localDirectory, originFileName(fileName)));
       }
+      const verifiedPaths = [descriptorPath, remoteImagePath, localImagePath];
+      const expected = photoManifests?.get(fileName);
+      const cacheKey = `receive:${remoteImagePath}`;
+      const signature = await verificationSignature(verifiedPaths, expected);
+      if (signature && verified.get(cacheKey) === signature) continue;
       let rawDescriptor = null;
       try {
-        rawDescriptor = await readJson(path.join(remoteDirectory, descriptorName));
+        rawDescriptor = await readJson(descriptorPath);
       } catch {
         throw imageWaitingError(
           `${sourceDeviceId} の添付画像 ${fileName} は同期途中か破損しています。共有フォルダの同期完了後に再試行します。`,
@@ -275,7 +312,6 @@ async function receiveRemoteImages({
         );
       }
       const descriptor = validateDescriptor(rawDescriptor, fileName, sourceDeviceId);
-      const remoteImagePath = path.join(remoteDirectory, fileName);
       if (!(await exists(remoteImagePath))) {
         throw imageWaitingError(
           `${sourceDeviceId} の添付画像 ${fileName} の到着を待っています。共有フォルダの同期完了後に再試行します。`,
@@ -284,18 +320,13 @@ async function receiveRemoteImages({
         );
       }
       const remoteImage = await readImage(remoteImagePath, fileName);
-      if (photoManifests) verifyPhoto(remoteImage, photoManifests.get(fileName));
+      if (photoManifests) verifyPhoto(remoteImage, expected);
       if (remoteImage.size !== descriptor.size || remoteImage.sha256 !== descriptor.sha256) {
         throw imageWaitingError(
           `${sourceDeviceId} の添付画像 ${fileName} は同期途中か破損しています。共有フォルダの同期完了後に再試行します。`,
           sourceDeviceId,
           fileName,
         );
-      }
-      const localImagePath = path.join(localDirectory, fileName);
-      if (photoManifests) {
-        await assertPhotoPath(localImagePath);
-        await assertPhotoPath(path.join(localDirectory, originFileName(fileName)));
       }
       if (await exists(localImagePath)) {
         const localImage = await readImage(localImagePath, fileName);
@@ -306,11 +337,13 @@ async function receiveRemoteImages({
         }
         if (!(await readOrigin(localDirectory, fileName)))
           await writeOrigin(localDirectory, fileName, sourceDeviceId);
+        if (signature) verified.set(cacheKey, signature);
         continue;
       }
       await writeBufferAtomic(localImagePath, remoteImage.buffer);
       onReceived?.();
       await writeOrigin(localDirectory, fileName, sourceDeviceId);
+      verified.set(cacheKey, await verificationSignature(verifiedPaths, expected));
       received += 1;
     }
   }
@@ -322,6 +355,7 @@ export async function syncMarkdownImageAttachments({
   localDirectory,
   deviceId,
   publishFileNames,
+  verified,
 }) {
   if (!localDirectory) return { published: 0, received: 0, available: 0 };
   await fs.promises.mkdir(localDirectory, { recursive: true });
@@ -330,8 +364,14 @@ export async function syncMarkdownImageAttachments({
     localDirectory,
     deviceId,
     publishFileNames,
+    verified,
   });
-  const received = await receiveRemoteImages({ sharedDirectory, localDirectory, deviceId });
+  const received = await receiveRemoteImages({
+    sharedDirectory,
+    localDirectory,
+    deviceId,
+    verified,
+  });
   return {
     published,
     received,
@@ -350,6 +390,7 @@ export async function syncCaptureImageAttachments({
   deviceId,
   photoManifests,
   onReceived,
+  verified = new Map(),
 }) {
   if (!localDirectory) return { published: 0, received: 0 };
   for (const [fileName, entry] of photoManifests) {
@@ -365,10 +406,17 @@ export async function syncCaptureImageAttachments({
   }
   await assertPhotoPath(localDirectory);
   await fs.promises.mkdir(localDirectory, { recursive: true });
-  const options = { sharedDirectory, localDirectory, deviceId, photoManifests, onReceived };
+  const options = {
+    sharedDirectory,
+    localDirectory,
+    deviceId,
+    photoManifests,
+    onReceived,
+    verified,
+  };
   const published = await publishLocalImages(options);
   const received = await receiveRemoteImages(options);
-  for (const fileName of photoManifests.keys()) {
+  for (const [fileName, expected] of photoManifests) {
     const target = path.join(localDirectory, fileName);
     await assertPhotoPath(target);
     if (!(await exists(target)))
@@ -377,7 +425,11 @@ export async function syncCaptureImageAttachments({
         "",
         fileName,
       );
-    verifyPhoto(await readImage(target, fileName), photoManifests.get(fileName));
+    const cacheKey = `local:${target}`;
+    const signature = await verificationSignature([target], expected);
+    if (signature && verified.get(cacheKey) === signature) continue;
+    verifyPhoto(await readImage(target, fileName), expected);
+    if (signature) verified.set(cacheKey, signature);
   }
   return { published, received };
 }
