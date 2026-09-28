@@ -112,7 +112,9 @@ npm run doctor:mcp -- --json
 
 Claude Code / Codex / GitHub Copilot CLIの登録方法、依頼文、着手から採用までの手順は [外部AI連携ガイド](./docs/external-ai-integration.md) を参照してください。診断対象をインストール済みMCPに合わせるには、設定画面でコピーしたserverパスを`--server`へ渡します。
 
-MCPの検索・文脈取得toolは読み取り専用です。Noteの要約一覧で本文を含めるには`include_raw_body: true`を指定し、個別本文は`get_note`で取得します。作成・編集・結果報告はProposalとして届き、Taskenで採用するまで正式データは変わりません。例外は`start_task_work`で、人がAI ReadyにしたTaskの開始だけを直接記録します。
+外部AIは最初に`tasken.get_capabilities`を呼ぶと、接続先がどの書き込みを受け付けるかと、使えないtoolの理由をまとめて確認できます。MCP serverは起動時に接続先を確認し、使えない書き込みtoolを一覧に出しません。
+
+MCPの検索・文脈取得toolは読み取り専用です。Task・待ち・計画は`search_items`、Noteは`search_notes`で探します。Noteの要約一覧で本文を含めるには`include_raw_body: true`を指定し、個別本文は`get_note`で取得します。AIが着手してよいTaskかは、Taskに添える`agent_state.runnable`で判断します。作成・編集・結果報告はProposalとして届き、Taskenで採用するまで正式データは変わりません。例外は`start_task_work`で、人がAI ReadyにしたTaskの開始だけを直接記録します。
 
 Coding Agentは`tasken.get_task_context`へTask IDと現在のworkspace情報を渡すと、Task / assignment / Theme / RepositoryContextと、関係理由付きのNote・Activity・Work Receipt概要をまとめて取得できます。件数と本文長には上限があり、Note全文が必要な場合だけレスポンス内のstable locatorから`tasken.get_note`で取得します。
 

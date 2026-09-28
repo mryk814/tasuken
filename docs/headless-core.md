@@ -61,6 +61,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 - Task作業報告もProposalなので、`proposals`配備でも正式データは人の採用まで変わらない。開始（`start_task_work`）は直接書き込みであり、`full`だけが公開する。
 - 範囲外の種類は、capabilityを残したまま実行時に `WRITE_NOT_ALLOWED`（HTTP 403）で拒否する。AIは `next_action` から送り直し方を判断できる。
 - 公開しないcapabilityは `/capabilities` に出さないため、MCP bridgeは呼び出し時点で `CAPABILITY_UNAVAILABLE` を返す。
+- MCP bridgeは起動時に `/capabilities` を読み、使えない書き込みtool（直接開始・範囲外の種類）を一覧から外す。理由は `tasken.get_capabilities` が返す。起動時にCoreへ接続できなかった場合は全toolを登録し、上の拒否が境界になる。
 - 許可範囲はCore側で強制する。MCP bridgeの `TASKEN_MCP_READ_ONLY` は公開toolを減らすための追加の境界であり、Core側の制御を置き換えない。
 - 提案受付を使う配備では、bridge側も `TASKEN_MCP_READ_ONLY=0` にする必要がある（両方が要る）。
 - Desktopは `proposalAccess: "full"` のままで、この制限の影響を受けない。

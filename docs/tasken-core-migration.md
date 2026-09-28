@@ -44,9 +44,9 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 5. write toolは`ai_proposal`だけを作り、正式データは利用者のPreview/採用後に既存Application Commandへ到達させる。
 6. idempotencyはcaller/source identityとpayloadへ結び、process restart後も同じkeyの重複作成を防ぐ。
 
-## MCP inventory（2026-09 slimming: MCP 21 tools、以後の追加を含め22 tools。Coreのquery/commandは全種別を温存）
+## MCP inventory（2026-09 slimming: MCP 21 tools、以後の追加を含め23 tools。Coreのquery/commandは全種別を温存）
 
-### Read 14 / MCP
+### Read 15 / MCP
 
 - Work selection: `search_items`, `list_open_items`, `list_agent_ready_tasks`, `get_task_assignment`
 - Task detail: `get_task_context`, `get_note`
@@ -56,6 +56,7 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 - Theme: `get_theme_context`
 - Feed: `get_feed_context`
 - Proposal: `get_proposal_status`
+- Connection: `get_capabilities`
 - Cross-cutting: `get_activity`
 
 `search_items`・`list_open_items`の`id`は他のtoolへそのまま渡せる正本IDで、移行元の旧Item IDは`legacy_item_id`へ分ける。Taskには`canonical_locator`（`tasken://task/...`）を添え、削除済みの結果は`lifecycle: "archived"`で示す。Noteは`search_items`の対象外で、`search_notes`（Coreの`get_recent_notes`に`query`を足したもの）で探す。
@@ -67,6 +68,8 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 `get_feed_context`はFeedの読み出しである。利用者が「AIに聞く」で残した未回答の質問（元の投稿の抜粋と参照IDつき）と、直近の投稿、明示的な反応（ブックマーク・おもしろい・既知だった）だけを返し、正式データを変更しない。Task・Themeの詳細は既存の読み出しtoolで取得し、そこのAI公開範囲の判定に従う。
 
 `get_proposal_status`は受領IDからProposalの現在地を返す読み出しである。`pending`（人が未判断）かどうかと、採用で生まれたEntityを返すため、AIは同じ内容を再送せずに結果を確認できる。未採用・却下のProposalにはEntityを返さず、既知でない状態は`null`のまま返して確定状態を偽らない。応答は接続中のnodeが持つ正本だけを表し、別端末への配送とそちらでの採否は確認しない（`docs/mcp-nas-experience-plan.md`）。
+
+`get_capabilities`は接続中のCoreの書き込み範囲（`write_profile`）、受け付ける書き込みの種類（`writes`）、toolごとの可否と機械可読な理由（`missing_capability:task.command`・`kind_not_allowed:note_edit`・`bridge_read_only`）を返す。判定の正本は`src/main/mcp/toolAvailability.mjs`の要件表で、`proposals`配備の種類は`TASKEN_CORE_PROPOSALS_CONTENT_KINDS`をCoreの拒否と共有する。MCP bridgeは起動時にCoreのcapabilityを一度読み、使えない書き込みtoolを一覧から外す。起動時にCoreへ接続できなかった場合は全toolを登録し（`bridge.filtered_at_startup: false`）、Core側の拒否が最終の境界になる。
 
 ### Proposal 8 / MCP
 

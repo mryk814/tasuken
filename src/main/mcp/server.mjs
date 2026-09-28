@@ -9,6 +9,7 @@ import { TASKEN_CORE_TASK_COMMAND_CAPABILITY } from "../../shared/contracts/core
 import { parseCanonicalTaskId, parseTaskLocator } from "../../shared/contracts/mobile/public.mjs";
 import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
+import { mcpToolAvailability } from "./toolAvailability.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -110,6 +111,16 @@ export function mcpReadOnlyMode(env = process.env) {
   );
 }
 
+/**
+ * @param {{
+ *   readOnly?: boolean,
+ *   env?: NodeJS.ProcessEnv,
+ *   coreClient?: TaskenCoreClient,
+ *   capabilities?: readonly string[],
+ * }} [options]
+ *   `capabilities`は起動時に読めたCoreのcapability。渡した場合だけ、この接続で使えない
+ *   書き込みtoolを一覧から外す。読めなかった場合は従来どおり全toolを登録する。
+ */
 export function createTaskenMcpServer(options = {}) {
   const readOnly = options.readOnly ?? mcpReadOnlyMode(options.env || process.env);
   const coreClient =
@@ -121,10 +132,19 @@ export function createTaskenMcpServer(options = {}) {
     },
     {
       instructions: readOnly
-        ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed."
-        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. Every other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content.",
+        ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed. Call tasken.get_capabilities to confirm what this connection allows."
+        : "Tasken is a local-first work and knowledge app. Call tasken.get_capabilities first to see which reads and writes this connection allows; a listed write tool can still be refused when the Core changed after this server started. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. Every other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content.",
     },
   );
+
+  // 登録したtoolを覚えておき、起動時に分かった利用不可のtoolを最後に外す。
+  const registeredTools = new Map();
+  const registerTool = server.registerTool.bind(server);
+  server.registerTool = (name, ...rest) => {
+    const registered = registerTool(name, ...rest);
+    registeredTools.set(name, registered);
+    return registered;
+  };
 
   server.registerResource(
     "theme-intent",
@@ -500,6 +520,42 @@ export function createTaskenMcpServer(options = {}) {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     withCoreClient((args) => coreClient.getProposalStatus(args)),
+  );
+
+  server.registerTool(
+    "tasken.get_capabilities",
+    {
+      description:
+        "Report what this connection can do right now: the Core write profile, which kinds of writes are accepted, and each tool's availability with a machine-readable reason (for example missing_capability:task.command or kind_not_allowed:note_edit). Call it once before planning writes instead of discovering limits by trial. Read-only.",
+      inputSchema: {},
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient(async () => {
+      const status = await coreClient.status();
+      const availability = mcpToolAvailability(status.capabilities, { readOnly });
+      const tools = Object.entries(availability.tools).map(([name, tool]) => ({
+        name,
+        access: tool.access,
+        available: tool.available,
+        listed: registeredTools.has(name),
+        ...(tool.reason ? { reason: tool.reason } : {}),
+      }));
+      return {
+        schema: "tasken-mcp-capabilities/v1",
+        core: { api_version: status.apiVersion, write_profile: availability.write_profile },
+        bridge: {
+          read_only: readOnly,
+          // 起動時にCoreを読めなかった場合、使えないtoolも一覧に残る。
+          filtered_at_startup: Array.isArray(options.capabilities),
+        },
+        writes: availability.writes,
+        tools,
+        unavailable_tools: tools
+          .filter((tool) => !tool.available)
+          .map((tool) => ({ name: tool.name, reason: tool.reason, listed: tool.listed })),
+        read_only: true,
+      };
+    }),
   );
 
   if (readOnly) return server;
@@ -985,11 +1041,36 @@ export function createTaskenMcpServer(options = {}) {
     withCoreClient((args) => queueContent(args, "note_edit")),
   );
 
+  if (Array.isArray(options.capabilities)) {
+    const { tools } = mcpToolAvailability(options.capabilities, { readOnly });
+    for (const [name, registered] of registeredTools) {
+      if (tools[name]?.access === "read" || tools[name]?.available !== false) continue;
+      registered.remove();
+      registeredTools.delete(name);
+    }
+  }
+
   return server;
 }
 
+/**
+ * 起動時にCoreのcapabilityを一度読む。Coreが未起動などで読めない場合は`undefined`を返し、
+ * 全toolを登録する（後からCoreを起動しても書き込みtoolを使えるようにするため）。
+ */
+async function startupCapabilities(coreClient) {
+  try {
+    return (await coreClient.status()).capabilities;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function startTaskenMcpServer() {
-  const server = createTaskenMcpServer();
+  const coreClient = new TaskenCoreClient({ env: process.env });
+  const server = createTaskenMcpServer({
+    coreClient,
+    capabilities: await startupCapabilities(coreClient),
+  });
   const transport = new StdioServerTransport(undefined, undefined, {
     maxBufferSize: MCP_STDIO_MAX_BUFFER_BYTES,
   });
