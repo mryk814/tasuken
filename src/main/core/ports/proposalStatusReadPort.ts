@@ -45,6 +45,21 @@ export interface ProposalStatusSnapshot {
   createdEntities: ProposalStatusCreatedEntity[];
 }
 
+/** 一覧で返すProposalの識別と状態。payload本文は含めない。 */
+export interface ProposalListRecord {
+  id: string;
+  status: ProposalStatusValue | null;
+  payload_type: string;
+  tool: string | null;
+  source_app: string | null;
+  caller: string | null;
+  source_session: string | null;
+  received_at: string | null;
+  task_id: string | null;
+}
+
 export interface ProposalStatusReadPort {
   readProposalStatus(proposalId: string): ProposalStatusSnapshot;
+  /** 削除されていないProposalを、受領の新しい順で返す。 */
+  listProposals(): ProposalListRecord[];
 }

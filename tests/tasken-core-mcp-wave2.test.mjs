@@ -123,8 +123,20 @@ function fixture() {
       },
     ],
     work_receipts: [
-      { id: "receipt-new", task_id: "task-visible", summary: "new", reported_at: now, updated_at: "2026-08-21T03:30:00.000Z" },
-      { id: "receipt-old", task_id: "task-visible", summary: "old", reported_at: now, updated_at: "2026-08-21T02:30:00.000Z" },
+      {
+        id: "receipt-new",
+        task_id: "task-visible",
+        summary: "new",
+        reported_at: now,
+        updated_at: "2026-08-21T03:30:00.000Z",
+      },
+      {
+        id: "receipt-old",
+        task_id: "task-visible",
+        summary: "old",
+        reported_at: now,
+        updated_at: "2026-08-21T02:30:00.000Z",
+      },
     ],
   };
 }
@@ -135,10 +147,13 @@ class FixtureRepository {
   }
 
   list(type, includeDeleted = false) {
-    const records = this.workspace[`${type === "repository_context" ? "repository_context" : type}s`] || [];
+    const records =
+      this.workspace[`${type === "repository_context" ? "repository_context" : type}s`] || [];
     return records
       .filter((record) => includeDeleted || !record.deleted_at)
-      .sort((left, right) => String(right.updated_at || "").localeCompare(String(left.updated_at || "")));
+      .sort((left, right) =>
+        String(right.updated_at || "").localeCompare(String(left.updated_at || "")),
+      );
   }
 
   readPreference(key) {
@@ -147,9 +162,20 @@ class FixtureRepository {
   }
 }
 
-async function callMcp(coreClient, name, args, readContextProvider = () => {
-  throw new Error("DB_CONSTRUCTOR_SENTINEL");
-}) {
+/** 旧実装にない追加欄（agent_state）を除いて、互換部分だけを比べる。 */
+function withoutAgentState(response) {
+  const { agent_state: _agentState, ...rest } = response;
+  return rest;
+}
+
+async function callMcp(
+  coreClient,
+  name,
+  args,
+  readContextProvider = () => {
+    throw new Error("DB_CONSTRUCTOR_SENTINEL");
+  },
+) {
   const server = createTaskenMcpServer({ coreClient, readContextProvider, readOnly: true });
   const client = new Client({ name: "tasken-core-wave2-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -168,7 +194,10 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
   const workspace = fixture();
   const core = createTaskenCore(new FixtureRepository(workspace));
   const host = new TaskenCoreHost({ userDataPath: root, ...core });
-  const legacy = new ReadOnlyTaskenContext("wave2.sqlite", { workspace, aiVisibilityDefault: ["coding_agent"] });
+  const legacy = new ReadOnlyTaskenContext("wave2.sqlite", {
+    workspace,
+    aiVisibilityDefault: ["coding_agent"],
+  });
   try {
     await host.start();
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
@@ -179,32 +208,54 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
       "find_tasks_for_repository",
       "get_task_assignment",
       "get_task_context",
-    ]) assert.ok(discovery.capabilities.includes(capability), capability);
+    ])
+      assert.ok(discovery.capabilities.includes(capability), capability);
     const cases = [
-      ["tasken.resolve_repository_context", "toolResolveRepositoryContext", "resolveRepositoryContext", {
-        remote_url: "git@github.com:mryk814/tasuken.git",
-        git_root: "/private/tasuken",
-        cwd: "/private/tasuken/packages/core",
-      }],
-      ["tasken.get_task_assignment", "toolGetTaskAssignment", "getTaskAssignment", {
-        task_id: "task-visible",
-        limit: 1,
-      }],
-      ["tasken.resolve_repository_context", "toolResolveRepositoryContext", "resolveRepositoryContext", {
-        remote_url: "https://github.com/private/archived",
-      }],
-      ["tasken.get_task_assignment", "toolGetTaskAssignment", "getTaskAssignment", {
-        task_id: "task-active-under-archived-private-theme",
-      }],
+      [
+        "tasken.resolve_repository_context",
+        "toolResolveRepositoryContext",
+        "resolveRepositoryContext",
+        {
+          remote_url: "git@github.com:mryk814/tasuken.git",
+          git_root: "/private/tasuken",
+          cwd: "/private/tasuken/packages/core",
+        },
+      ],
+      [
+        "tasken.get_task_assignment",
+        "toolGetTaskAssignment",
+        "getTaskAssignment",
+        {
+          task_id: "task-visible",
+          limit: 1,
+        },
+      ],
+      [
+        "tasken.resolve_repository_context",
+        "toolResolveRepositoryContext",
+        "resolveRepositoryContext",
+        {
+          remote_url: "https://github.com/private/archived",
+        },
+      ],
+      [
+        "tasken.get_task_assignment",
+        "toolGetTaskAssignment",
+        "getTaskAssignment",
+        {
+          task_id: "task-active-under-archived-private-theme",
+        },
+      ],
     ];
     for (const [toolName, legacyMethod, clientMethod, request] of cases) {
       const expected = legacy[legacyMethod](request);
       const inProcess = core[clientMethod].execute(request);
       const http = await client[clientMethod](request);
       const mcp = await callMcp(client, toolName, request);
-      assert.deepEqual(inProcess, expected, `${toolName}: in-process`);
-      assert.deepEqual(http, expected, `${toolName}: HTTP`);
-      assert.deepEqual(mcp.structuredContent, expected, `${toolName}: MCP`);
+      assert.deepEqual(withoutAgentState(inProcess), expected, `${toolName}: in-process`);
+      assert.deepEqual(withoutAgentState(http), expected, `${toolName}: HTTP`);
+      assert.deepEqual(withoutAgentState(mcp.structuredContent), expected, `${toolName}: MCP`);
+      if (inProcess.task) assert.equal(inProcess.agent_state.runnable, true);
       assert.doesNotMatch(JSON.stringify(expected), /\/private\//);
       if (request.task_id === "task-active-under-archived-private-theme") {
         assert.equal(expected.task, null);
@@ -231,7 +282,7 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
       { task_id: "task-visible", limit: 100, include_archived: true },
     ]) {
       assert.deepEqual(
-        core.getTaskAssignment.execute(request),
+        withoutAgentState(core.getTaskAssignment.execute(request)),
         legacy.toolGetTaskAssignment(request),
       );
     }
@@ -244,9 +295,15 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
 
 test("migrated Wave 2 tools fail closed without constructing the legacy DB context", async () => {
   const coreClient = {
-    resolveRepositoryContext: async () => { throw new Error("CORE_UNAVAILABLE_SENTINEL"); },
-    findTasksForRepository: async () => { throw new Error("CORE_UNAVAILABLE_SENTINEL"); },
-    getTaskAssignment: async () => { throw new Error("CORE_UNAVAILABLE_SENTINEL"); },
+    resolveRepositoryContext: async () => {
+      throw new Error("CORE_UNAVAILABLE_SENTINEL");
+    },
+    findTasksForRepository: async () => {
+      throw new Error("CORE_UNAVAILABLE_SENTINEL");
+    },
+    getTaskAssignment: async () => {
+      throw new Error("CORE_UNAVAILABLE_SENTINEL");
+    },
   };
   for (const [name, args] of [
     ["tasken.resolve_repository_context", {}],
@@ -276,13 +333,17 @@ test("each Core client operation requires its named discovery capability before 
   const allCapabilities = operations.map(([, capability]) => capability);
   try {
     for (const [method, missingCapability, request] of operations) {
-      fs.writeFileSync(discoveryPath, JSON.stringify({
-        schema_version: 1,
-        api_version: "1",
-        origin: "http://127.0.0.1:65535",
-        token: Buffer.alloc(32, 7).toString("base64url"),
-        capabilities: allCapabilities.filter((capability) => capability !== missingCapability),
-      }), { mode: 0o600 });
+      fs.writeFileSync(
+        discoveryPath,
+        JSON.stringify({
+          schema_version: 1,
+          api_version: "1",
+          origin: "http://127.0.0.1:65535",
+          token: Buffer.alloc(32, 7).toString("base64url"),
+          capabilities: allCapabilities.filter((capability) => capability !== missingCapability),
+        }),
+        { mode: 0o600 },
+      );
       fs.chmodSync(discoveryPath, 0o600);
       let fetchCalls = 0;
       const client = new TaskenCoreClient({
@@ -292,9 +353,12 @@ test("each Core client operation requires its named discovery capability before 
           throw new Error("HTTP_MUST_NOT_RUN");
         },
       });
-      await assert.rejects(client[method](request), (error) => (
-        error?.code === "CAPABILITY_UNAVAILABLE" && String(error.message).includes(missingCapability)
-      ));
+      await assert.rejects(
+        client[method](request),
+        (error) =>
+          error?.code === "CAPABILITY_UNAVAILABLE" &&
+          String(error.message).includes(missingCapability),
+      );
       assert.equal(fetchCalls, 0, method);
     }
   } finally {

@@ -6,7 +6,11 @@ import {
   type ProposeTaskWorkRequest,
   type ProposeTaskWorkResponse,
 } from "../../../shared/contracts/task/public.ts";
-import type { AiProposalRecord, AiProposalWritePort } from "../ports/aiProposalWritePort.ts";
+import type {
+  AiProposalRecord,
+  AiProposalTransaction,
+  AiProposalWritePort,
+} from "../ports/aiProposalWritePort.ts";
 
 const TOOL_BY_ACTION = {
   start: "tasken.start_task_work",
@@ -143,6 +147,35 @@ function taskWorkEntry(request: ProposeTaskWorkRequest): Record<string, unknown>
   return { ...commonEntry(request), ...receiptFields(request) };
 }
 
+function taskDryRunChecks(request: ProposeTaskWorkRequest, transaction: AiProposalTransaction) {
+  const task = transaction.getEntity("task", request.task_id);
+  if (!task) {
+    return [
+      {
+        code: "task_found",
+        ok: false,
+        message: "対象のTaskが見つかりません。task_idを確認してください。",
+      },
+    ];
+  }
+  const version = Number(task.version || 0);
+  return [
+    { code: "task_found", ok: true, message: "対象のTaskがあります。" },
+    version === request.expected_version
+      ? {
+          code: "expected_version_current",
+          ok: true,
+          message: "expected_versionは現在の版と一致します。",
+        }
+      : {
+          code: "expected_version_current",
+          ok: false,
+          message:
+            "expected_versionが現在の版と一致しません。get_task_contextで読み直してください。",
+        },
+  ];
+}
+
 export class ProposeTaskWorkService {
   constructor(
     private readonly writePort: AiProposalWritePort,
@@ -167,23 +200,44 @@ export class ProposeTaskWorkService {
     const payloadDigest = proposalDigest(payload, proposalRequestBase);
     const proposalRequest = { ...proposalRequestBase, payload_digest: payloadDigest };
 
-    const status = this.writePort.runTransaction((transaction) => {
+    const existingStatus = (transaction: AiProposalTransaction) => {
       const existing = transaction.get(id);
-      if (existing) {
-        const existingDigest = proposalDigest(existing.payload, existing.request || {});
-        if (
-          existing.source !== "mcp" ||
-          existing.payload_type !== "task_work" ||
-          existingDigest !== payloadDigest
-        ) {
-          throw new ProposeTaskWorkError(
-            "IDEMPOTENCY_CONFLICT",
-            "同じidempotency_keyへ異なる内容を送信できません。",
-            { proposal_id: id },
-          );
-        }
-        return "duplicate" as const;
+      if (!existing) return "queued" as const;
+      const existingDigest = proposalDigest(existing.payload, existing.request || {});
+      if (
+        existing.source !== "mcp" ||
+        existing.payload_type !== "task_work" ||
+        existingDigest !== payloadDigest
+      ) {
+        throw new ProposeTaskWorkError(
+          "IDEMPOTENCY_CONFLICT",
+          "同じidempotency_keyへ異なる内容を送信できません。",
+          { proposal_id: id },
+        );
       }
+      return "duplicate" as const;
+    };
+
+    if (request.dry_run) {
+      // 保存せず、本送信の結果とTaskの版の食い違いだけを返す。版は採用時に検査されるため拒否しない。
+      const preview = this.writePort.runTransaction((transaction) => ({
+        wouldStatus: existingStatus(transaction),
+        checks: taskDryRunChecks(request, transaction),
+      }));
+      return proposeTaskWorkResponseSchema.parse({
+        proposal_id: id,
+        status: "validated",
+        payload_type: "task_work",
+        message:
+          "dry_runのため検証だけを行い、Proposalは保存していません。本送信は同じidempotency_keyで行ってください。",
+        dry_run: true,
+        would_status: preview.wouldStatus,
+        checks: preview.checks,
+      });
+    }
+
+    const status = this.writePort.runTransaction((transaction) => {
+      if (existingStatus(transaction) === "duplicate") return "duplicate" as const;
       const proposal: AiProposalRecord = {
         id,
         source: "mcp",

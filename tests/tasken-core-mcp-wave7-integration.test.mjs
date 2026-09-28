@@ -277,6 +277,16 @@ test("Wave 7 Note visibility and Theme filters prefer canonical project_id", () 
   const serialized = JSON.stringify(result);
   assert.match(serialized, /note-canonical-public|canonical public body/);
   assert.doesNotMatch(serialized, /note-canonical-private|PRIVATE_CANONICAL_NOTE/);
+
+  // search_notesの検索語は公開範囲の判定後に当てる。非公開Noteの本文に一致しても件数に出ない。
+  const byBody = core.getRecentNotes.execute({ query: "PUBLIC BODY" });
+  assert.deepEqual(
+    byBody.notes.map((note) => note.id),
+    ["note-canonical-public"],
+  );
+  const hiddenMatch = core.getRecentNotes.execute({ query: "PRIVATE_CANONICAL_NOTE" });
+  assert.equal(hiddenMatch.notes.length, 0);
+  assert.equal(hiddenMatch.result_meta.matched_visible_count, 0);
 });
 
 test("Wave 7 all five tools allowlist fields and recursively redact adversarial values", () => {

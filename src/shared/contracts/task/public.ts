@@ -379,9 +379,13 @@ export {
   type TaskenUploadImagePlaceholder,
 } from "./contentProposal.ts";
 export {
+  listProposalsRequestSchema,
+  listProposalsResponseSchema,
   proposalStatusRequestSchema,
   proposalStatusResponseSchema,
   proposalStatusValueSchema,
+  type ListProposalsRequest,
+  type ListProposalsResponse,
   type ProposalStatusRequest,
   type ProposalStatusResponse,
 } from "./proposalStatusQuery.ts";
@@ -392,3 +396,8 @@ export {
   taskenMarkdownNonBodyRanges,
   type TaskenMarkdownSourceRange,
 } from "./taskenMarkdownAst.ts";
+export { taskAgentState, type TaskAgentState } from "./agentReadiness.ts";
+export {
+  PROPOSALS_PROFILE_CONTENT_KINDS,
+  PROPOSALS_PROFILE_REPOSITORY_TASK_KINDS,
+} from "./proposalsProfile.ts";

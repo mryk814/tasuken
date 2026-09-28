@@ -176,7 +176,10 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, visibility-before-lim
 
   const search = core.searchItems.execute({ query: "needle", limit: 1 });
   assert.equal(search.items.length, 1);
-  assert.equal(search.items[0].id, "legacy-shadowed");
+  // idは他のtoolへ渡せる正本ID。旧Item IDはlegacy_item_idへ分ける。
+  assert.equal(search.items[0].id, "task-visible");
+  assert.equal(search.items[0].legacy_item_id, "legacy-shadowed");
+  assert.equal(search.items[0].lifecycle, "active");
   assert.equal(search.items[0].title, "Needle task");
   assert.equal(search.items[0].planned_end, "2026-08-12");
   assert.deepEqual(search.items[0].locator, {
@@ -212,7 +215,12 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, visibility-before-lim
     matched_visible_count: 0,
     truncated: false,
   });
-  assert.equal(all.items.filter((item) => item.id === "legacy-shadowed").length, 1);
+  assert.equal(
+    all.items.filter(
+      (item) => item.id === "legacy-shadowed" || item.legacy_item_id === "legacy-shadowed",
+    ).length,
+    1,
+  );
   assert.equal(
     all.items.some((item) => item.id === "task-archived"),
     false,
@@ -227,7 +235,7 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, visibility-before-lim
   const open = core.listOpenItems.execute({ limit: 100 });
   assert.deepEqual(
     open.items.map((item) => item.id),
-    ["waiting-open", "legacy-shadowed", "legacy-visible", "plan-open"],
+    ["waiting-open", "task-visible", "legacy-visible", "plan-open"],
   );
   assert.equal(
     open.items.some((item) => item.id === "waiting-received"),
@@ -282,6 +290,11 @@ test("Wave 4 named HTTP and pure MCP paths expose both capabilities without a na
     const mcpSearch = await callMcp(client, "tasken.search_items", { query: "needle", limit: 1 });
     assert.equal(mcpSearch.isError, undefined);
     assert.equal(mcpSearch.structuredContent.items[0].locator.entity_id, "task-visible");
+    // MCPはTaskにget_task_contextへ渡せるcanonical locatorを添える。
+    assert.equal(
+      mcpSearch.structuredContent.items[0].canonical_locator,
+      "tasken://task/task-visible",
+    );
     assert.equal(mcpSearch.structuredContent.result_meta.truncated, true);
     const mcpOpen = await callMcp(client, "tasken.list_open_items", { limit: 1 });
     assert.equal(mcpOpen.structuredContent.items[0].id, "waiting-open");

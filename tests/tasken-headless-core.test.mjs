@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { build } from "esbuild";
 
 import {
@@ -15,6 +16,7 @@ import {
   TaskenCoreClient,
   TaskenCoreClientError,
 } from "../src/main/mcp/taskenCoreClient.mjs";
+import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
 
@@ -128,7 +130,12 @@ test("Headless Core serves MCP reads without Electron and stops cleanly", async 
 
     client = await connectMcp(userDataPath);
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 21);
+    // 書き込みを公開しないCoreでは、bridgeがwrite可能でも使えない書き込みtoolを並べない。
+    assert.equal(listed.tools.length, 16);
+    assert.equal(
+      listed.tools.some((tool) => /(propose|report|append|start|answer)_/u.test(tool.name)),
+      false,
+    );
     const searched = await client.callTool({
       name: "tasken.search_items",
       arguments: { query: "Headless context" },
@@ -193,7 +200,7 @@ test("Headless replica joins a shared-folder sync and serves read-only MCP reads
 
       client = await connectMcp(replicaUserData, { TASKEN_MCP_READ_ONLY: "1" });
       const listed = await client.listTools();
-      assert.ok(listed.tools.length < 21, String(listed.tools.length));
+      assert.ok(listed.tools.length < 22, String(listed.tools.length));
       for (const writeTool of [
         "tasken.start_task_work",
         "tasken.append_work_receipt",
@@ -555,30 +562,72 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       assert.equal(allowed.isError, undefined, `${name}: ${JSON.stringify(allowed)}`);
     }
 
-    // 拒否: 許可範囲外の種類はCore自身がWRITE_NOT_ALLOWEDで止める。
+    // 非公開: 使えない書き込みtoolは一覧に出さず、get_capabilitiesが理由を返す。
+    const listedNames = new Set((await client.listTools()).tools.map((tool) => tool.name));
+    for (const name of [
+      "tasken.propose_note_edit",
+      "tasken.answer_feed_question",
+      "tasken.start_task_work",
+    ]) {
+      assert.equal(listedNames.has(name), false, `${name}は一覧に出さない`);
+    }
+    const capabilities = await client.callTool({ name: "tasken.get_capabilities", arguments: {} });
+    assert.equal(capabilities.isError, undefined, JSON.stringify(capabilities));
+    assert.equal(capabilities.structuredContent.core.write_profile, "proposals");
+    assert.deepEqual(capabilities.structuredContent.writes, {
+      feed_post: true,
+      feed_reply: false,
+      note_create: true,
+      note_images: false,
+      note_edit: false,
+      task_work_report: true,
+      task_start: false,
+    });
+    assert.deepEqual(capabilities.structuredContent.unavailable_tools, [
+      {
+        name: "tasken.start_task_work",
+        reason: "missing_capability:task.command",
+        listed: false,
+      },
+      { name: "tasken.propose_note_edit", reason: "kind_not_allowed:note_edit", listed: false },
+      {
+        name: "tasken.answer_feed_question",
+        reason: "kind_not_allowed:feed_reply",
+        listed: false,
+      },
+    ]);
+
+    // 拒否: bridgeを経由しない要求も、許可範囲外の種類はCore自身がWRITE_NOT_ALLOWEDで止める。
+    const coreClient = new TaskenCoreClient({ userDataPath });
+    for (const request of [
+      {
+        kind: "note_edit",
+        note_id: "note-existing",
+        base_version: 1,
+        title: "編集案",
+        body: "本文。",
+        reason: "確認",
+      },
+      { kind: "feed_reply", post_id: "post-1", reply_to: "reply-1", body: "返信。" },
+    ]) {
+      await assert.rejects(
+        coreClient.proposeContent({
+          ...request,
+          idempotency_key: `restricted-${request.kind}`,
+          caller: "gate test",
+          actor: { kind: "ai_agent" },
+          source: "mcp",
+        }),
+        (error) =>
+          error instanceof TaskenCoreClientError &&
+          error.code === "WRITE_NOT_ALLOWED" &&
+          JSON.stringify(error.details.allowed_kinds) ===
+            JSON.stringify(["feed_post", "note_create"]),
+      );
+    }
+
+    // 拒否: 一覧に残る種類でも、画像付きNoteはCoreがWRITE_NOT_ALLOWEDで止める。
     for (const [name, args] of [
-      [
-        "tasken.propose_note_edit",
-        {
-          idempotency_key: "restricted-edit",
-          caller: "gate test",
-          note_id: "note-existing",
-          base_version: 1,
-          title: "編集案",
-          body: "本文。",
-          reason: "確認",
-        },
-      ],
-      [
-        "tasken.answer_feed_question",
-        {
-          idempotency_key: "restricted-reply",
-          caller: "gate test",
-          post_id: "post-1",
-          reply_to: "reply-1",
-          body: "返信。",
-        },
-      ],
       [
         "tasken.propose_note",
         {
@@ -605,10 +654,21 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
         `${name}: ${JSON.stringify(refused.structuredContent)}`,
       );
       assert.match(String(refused.structuredContent.error.next_action), /許可されていない/u);
+      // 文言と詳細は同じ一覧から作る。作業報告は別経路として分けて示す。
+      assert.deepEqual(refused.structuredContent.error.details.allowed_kinds, [
+        "feed_post",
+        "note_create",
+      ]);
+      assert.equal(refused.structuredContent.error.details.task_work_allowed, true);
     }
 
-    // 拒否: 直接書き込みはcapabilityごと公開しない。
-    const unavailable = await client.callTool({
+    // 拒否: 起動時にCoreを読めず直接開始が一覧に残った場合も、配備の境界として案内する。
+    const unfiltered = createTaskenMcpServer({ coreClient });
+    const unfilteredClient = new Client({ name: "tasken-headless-unfiltered", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await unfiltered.connect(serverTransport);
+    await unfilteredClient.connect(clientTransport);
+    const unavailable = await unfilteredClient.callTool({
       name: "tasken.start_task_work",
       arguments: {
         idempotency_key: "restricted-start",
@@ -625,6 +685,8 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       String(unavailable.structuredContent.error.next_action),
       /直接開始を公開していません/u,
     );
+    await unfilteredClient.close();
+    await unfiltered.close();
   } finally {
     await client?.close().catch(() => {});
     await stopAndInspect(handle, userDataPath, (database) => {

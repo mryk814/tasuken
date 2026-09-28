@@ -65,6 +65,8 @@ import type {
   ProposeContentResponse,
   ProposalStatusRequest,
   ProposalStatusResponse,
+  ListProposalsRequest,
+  ListProposalsResponse,
   TaskCommandResponse,
   TaskQueryResponse,
 } from "../../../shared/contracts/task/public.ts";
@@ -98,6 +100,7 @@ import {
   proposeRepositoryTaskRequestSchema,
   proposeContentRequestSchema,
   proposalStatusRequestSchema,
+  listProposalsRequestSchema,
   taskCommandSchema,
   taskQuerySchema,
 } from "../../../shared/contracts/task/public.ts";
@@ -125,6 +128,7 @@ import {
   TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
   TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY,
+  TASKEN_CORE_LIST_PROPOSALS_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
@@ -190,6 +194,7 @@ export interface TaskenCoreHostOptions {
   getContextSubgraph?: QueryProvider<GetContextSubgraphRequest, GetContextSubgraphResponse>;
   getFeedContext?: QueryProvider<GetFeedContextRequest, GetFeedContextResponse>;
   getProposalStatus?: QueryProvider<ProposalStatusRequest, ProposalStatusResponse>;
+  listProposals?: QueryProvider<ListProposalsRequest, ListProposalsResponse>;
   exportAiContext?: QueryProvider<ExportAiContextRequest, ExportAiContextResponse>;
   proposeTaskWork?: QueryProvider<ProposeTaskWorkRequest, ProposeTaskWorkResponse>;
   proposeAgentSession?: QueryProvider<ProposeAgentSessionRequest, ProposeAgentSessionResponse>;
@@ -301,7 +306,10 @@ function parseOperationRequest(url: string, body: unknown): unknown {
                                                               : url ===
                                                                   "/v1/queries/get-proposal-status"
                                                                 ? proposalStatusRequestSchema
-                                                                : exportAiContextRequestSchema;
+                                                                : url ===
+                                                                    "/v1/queries/list-proposals"
+                                                                  ? listProposalsRequestSchema
+                                                                  : exportAiContextRequestSchema;
   const result = schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
@@ -529,6 +537,7 @@ export class TaskenCoreHost {
       ...(this.options.getContextSubgraph ? [TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY] : []),
       ...(this.options.getFeedContext ? [TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY] : []),
       ...(this.options.getProposalStatus ? [TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY] : []),
+      ...(this.options.listProposals ? [TASKEN_CORE_LIST_PROPOSALS_CAPABILITY] : []),
       ...(this.options.exportAiContext ? [TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY] : []),
       ...(this.options.proposeTaskWork ? [TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY] : []),
       ...(this.options.proposeAgentSession ? [TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY] : []),
@@ -628,6 +637,7 @@ export class TaskenCoreHost {
         ...(this.options.getContextSubgraph ? ["/v1/queries/get-context-subgraph"] : []),
         ...(this.options.getFeedContext ? ["/v1/queries/get-feed-context"] : []),
         ...(this.options.getProposalStatus ? ["/v1/queries/get-proposal-status"] : []),
+        ...(this.options.listProposals ? ["/v1/queries/list-proposals"] : []),
         ...(this.options.exportAiContext ? ["/v1/queries/export-ai-context"] : []),
       ]);
       const commandPaths = new Set([
@@ -819,6 +829,8 @@ export class TaskenCoreHost {
             200,
             this.options.getProposalStatus!.execute(body as ProposalStatusRequest),
           );
+        } else if (request.url === "/v1/queries/list-proposals") {
+          json(response, 200, this.options.listProposals!.execute(body as ListProposalsRequest));
         } else if (request.url === "/v1/queries/export-ai-context") {
           json(
             response,

@@ -36,9 +36,10 @@ import {
   contextSelectionEntry,
   contextSelectionExclusions,
 } from "../../../shared/contextSelection.mjs";
-import type {
-  GetTaskContextRequest,
-  GetTaskContextResponse,
+import {
+  taskAgentState,
+  type GetTaskContextRequest,
+  type GetTaskContextResponse,
 } from "../../../shared/contracts/task/public.ts";
 import type { EntityType } from "../../../shared/types/workspace.ts";
 import type {
@@ -205,7 +206,11 @@ export class TaskContextQueryService {
         message: "TaskのThemeはAI公開範囲外のため含めていません。",
       });
     const taskOutput = publicTaskForContext(filteredTask.records[0], budget);
-    const assignmentOutput = publicAssignmentForContext(task, budget);
+    // 委任段階（work_state）だけでは削除・完了を表せないため、着手可否を状態から添える。
+    const assignmentOutput = {
+      ...publicAssignmentForContext(task, budget),
+      agent_state: taskAgentState(task),
+    };
     const themeOutput = includeSet.has("theme")
       ? publicThemeForContext(filteredTheme, budget)
       : null;

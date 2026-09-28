@@ -274,6 +274,13 @@ class FixtureRepository {
   }
 }
 
+/** 旧実装にない追加欄（assignment.agent_state）を除いて、互換部分だけを比べる。 */
+function withoutAgentState(result) {
+  if (!result?.assignment) return result;
+  const { agent_state: _agentState, ...assignment } = result.assignment;
+  return { ...result, assignment };
+}
+
 async function callMcp(
   coreClient,
   name,
@@ -333,11 +340,12 @@ test("MCP Wave 3 get_task_context preserves legacy fields and the empty capture 
         assert.equal(expected.error.code, "not_found");
         assert.equal(expected.excluded_count, 1);
       }
-      assert.deepEqual(core.getTaskContext.execute(request), expected);
-      assert.deepEqual(await client.getTaskContext(request), expected);
+      assert.deepEqual(withoutAgentState(core.getTaskContext.execute(request)), expected);
+      assert.deepEqual(withoutAgentState(await client.getTaskContext(request)), expected);
       const mcp = await callMcp(client, "tasken.get_task_context", request);
-      assert.equal(mcp.isError, undefined);
-      assert.deepEqual(JSON.parse(mcp.content[0].text), expected);
+      // errorを持つ応答は、例外による失敗と同じくisErrorで示す。
+      assert.equal(mcp.isError, expected.error ? true : undefined);
+      assert.deepEqual(withoutAgentState(JSON.parse(mcp.content[0].text)), expected);
     }
   } finally {
     legacy.close();
@@ -358,7 +366,14 @@ test("Wave 3 preserves graph/text bounds and redacts receipt, URL, and local pat
     const result = core.getTaskContext.execute(request);
     const expected = legacy.toolGetTaskContext(request);
     expected.related.captures = [];
-    assert.deepEqual(result, expected);
+    assert.deepEqual(withoutAgentState(result), expected);
+    // 作業中のTaskは委任済みでも、新しく着手できるとは示さない。
+    assert.deepEqual(result.assignment.agent_state, {
+      lifecycle: "active",
+      ai_ready: false,
+      runnable: false,
+      not_runnable_reasons: ["work_state_in_progress"],
+    });
     assert.ok(result.context_graph.nodes.length <= 100);
     assert.ok(result.context_graph.edges.length <= 200);
     assert.ok(result.context_selection.estimated_characters <= 100_000);

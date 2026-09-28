@@ -112,7 +112,9 @@ npm run doctor:mcp -- --json
 
 Claude Code / Codex / GitHub Copilot CLIの登録方法、依頼文、着手から採用までの手順は [外部AI連携ガイド](./docs/external-ai-integration.md) を参照してください。診断対象をインストール済みMCPに合わせるには、設定画面でコピーしたserverパスを`--server`へ渡します。
 
-MCPの検索・文脈取得toolは読み取り専用です。Noteの要約一覧で本文を含めるには`include_raw_body: true`を指定し、個別本文は`get_note`で取得します。作成・編集・結果報告はProposalとして届き、Taskenで採用するまで正式データは変わりません。例外は`start_task_work`で、人がAI ReadyにしたTaskの開始だけを直接記録します。
+外部AIは最初に`tasken.get_capabilities`を呼ぶと、接続先がどの書き込みを受け付けるかと、使えないtoolの理由をまとめて確認できます。MCP serverは起動時に接続先を確認し、使えない書き込みtoolを一覧に出しません。
+
+MCPの検索・文脈取得toolは読み取り専用です。Task・待ち・計画は`search_items`、Noteは`search_notes`で探します。Noteの要約一覧で本文を含めるには`include_raw_body: true`を指定し、個別本文は`get_note`で取得します。AIが着手してよいTaskかは、Taskに添える`agent_state.runnable`で判断します。作成・編集・結果報告はProposalとして届き、Taskenで採用するまで正式データは変わりません。例外は`start_task_work`で、人がAI ReadyにしたTaskの開始だけを直接記録します。
 
 Coding Agentは`tasken.get_task_context`へTask IDと現在のworkspace情報を渡すと、Task / assignment / Theme / RepositoryContextと、関係理由付きのNote・Activity・Work Receipt概要をまとめて取得できます。件数と本文長には上限があり、Note全文が必要な場合だけレスポンス内のstable locatorから`tasken.get_note`で取得します。
 
@@ -121,6 +123,8 @@ Themeには、人間が書く比較的安定した`Theme Charter`と、現在の
 人がAI ReadyにしたTaskを外部AIが選び、`get_task_context`で確認してから`start_task_work`で開始します。開始後の最新versionを使って`append_work_receipt`、`report_task_done`、`report_task_blocked`を送ります。報告はAgent Deskで採用し、完了報告の採用後もTaskの完了は利用者が明示します。AIは完了したチェック項目のIDを報告に添えられ、採用時に該当項目へ反映されます。Taskの完了後も追加報告を履歴へ残せます。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
 
 AI Readyは事前許可であり、自動実行の予約ではありません。外部AIを普段どおり開き、依頼文を貼り付けるかAI Readyの確認を頼みます。TaskenからCLIを直接起動する機能はありません。実stdioと一時DBを通す検証は [AI collaboration E2E](./docs/ai-collaboration-e2e.md) を参照してください。
+
+書き込みtoolに`dry_run: true`を付けると、保存せずに検証だけを行い、本送信した場合の結果と対象の版の食い違いを返します。受領IDを失った場合は`tasken.list_proposals`で自分の`source_session`などから探し直せます。
 
 送ったProposalのその後は`tasken.get_proposal_status`へ受領IDを渡すと確認できます。未採用かどうか、採用でどのEntityができたかを返すため、同じ内容を再送する必要はありません。応答は接続中のnodeが持つ正本だけを表し、別端末への配送とそちらでの採否は確認しません。採用で新しく作られたEntityには、どのProposalから生まれたかを示す`accepted_from_proposal_id`が保存されます。
 

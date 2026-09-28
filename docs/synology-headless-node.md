@@ -130,18 +130,17 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 
 #### MCP client（ChatGPT等）から見える範囲
 
-`TASKEN_MCP_READ_ONLY=0`のbridgeはwrite toolsを8件登録しますが、**登録されることとCoreが受け付けることは別**です。実際に使えるのは次の5つです。
+`TASKEN_MCP_READ_ONLY=0`のbridgeは、起動時にCoreのcapabilityを読み、この配備で使える書き込みtoolだけを一覧に出します。`proposals`配備で一覧に出るwrite toolsは次の5つです。
 
-| tool                          | Coreの判定                                       |
-| ----------------------------- | ------------------------------------------------ |
-| `tasken.propose_feed_post`    | 受け付ける（`feed_post`）                        |
-| `tasken.propose_note`         | 受け付ける（画像なしの`note_create`）            |
-| `tasken.append_work_receipt`  | 受け付ける（`propose_task_work`）                |
-| `tasken.report_task_done`     | 受け付ける（同上）                               |
-| `tasken.report_task_blocked`  | 受け付ける（同上）                               |
-| `tasken.propose_note_edit`    | `WRITE_NOT_ALLOWED`（`note_edit`は範囲外）       |
-| `tasken.answer_feed_question` | `WRITE_NOT_ALLOWED`（`feed_reply`は範囲外）      |
-| `tasken.start_task_work`      | `CAPABILITY_UNAVAILABLE`（直接開始は公開しない） |
+| tool                         | Coreの判定                            |
+| ---------------------------- | ------------------------------------- |
+| `tasken.propose_feed_post`   | 受け付ける（`feed_post`）             |
+| `tasken.propose_note`        | 受け付ける（画像なしの`note_create`） |
+| `tasken.append_work_receipt` | 受け付ける（`propose_task_work`）     |
+| `tasken.report_task_done`    | 受け付ける（同上）                    |
+| `tasken.report_task_blocked` | 受け付ける（同上）                    |
+
+`propose_note_edit`（`kind_not_allowed:note_edit`）・`answer_feed_question`（`kind_not_allowed:feed_reply`）・`start_task_work`（`missing_capability:task.command`）は一覧に出ません。AIは`tasken.get_capabilities`で、使えないtoolとその理由を一度に確認できます。一覧から外すのは案内のためで、Core自身の`WRITE_NOT_ALLOWED`による拒否が引き続き最終の境界です（画像付きNote案は`propose_note`が一覧に残るため、Coreが拒否します）。bridgeの起動時にCoreへ接続できなかった場合は全toolを登録し、呼び出し時にCoreが拒否します。
 
 Task**案**を作るtoolは現行のMCP bridgeには登録されていません（`propose_repository_task` capabilityはCore側にあります）。ChatGPTへTaskを作らせたい場合は、Feed投稿かNote案として送り、DesktopでTaskへ昇格させてください。
 
@@ -155,7 +154,7 @@ sudo docker run --rm --network container:tasken-headless --user 1026:100 \
   --entrypoint node tasken-headless:local /check/nas-read-check.mjs
 ```
 
-- 期待値: `TOOL_COUNT 21`（read 13 + write 8）・`HAS_WRITE true`。`-e TASKEN_MCP_READ_ONLY=0`を外すと`TOOL_COUNT 13`・`HAS_WRITE false`。
+- 期待値（`proposals`配備）: `TOOL_COUNT 21`（read 16 + write 5）・`HAS_WRITE true`。`-e TASKEN_MCP_READ_ONLY=0`を外すと`TOOL_COUNT 16`・`HAS_WRITE false`。Coreが`read-only`配備なら、`TASKEN_MCP_READ_ONLY=0`でも使える書き込みtoolがないため`TOOL_COUNT 16`です。
 - `tasken-headless:local`の代わりに固定tagのimageを使うと、配置版を明示できます。
 
 ## Phase 3: Secure MCP Tunnelで外部AIへ公開
@@ -266,20 +265,20 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 
 ## トラブルシューティング
 
-| 症状                                                               | 原因と対処                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SYNC_FOLDER_NOT_READY`                                            | 共有フォルダが未初期化。先にデータ端末で同期を設定する                                                                                                                                                                                                                                                                                                                       |
-| `CORE_ALREADY_RUNNING`                                             | 同じuserDataで別Coreが稼働中。既存コンテナ/プロセスを止める                                                                                                                                                                                                                                                                                                                  |
-| `DISCOVERY_OWNER_MISMATCH`                                         | MCP bridgeが別uid/別コンテナ。同じコンテナで`docker exec`する                                                                                                                                                                                                                                                                                                                |
-| `NODE_MODULE_VERSION` 不一致                                       | `better-sqlite3`が別runtime向け。イメージを再buildする（`npm rebuild better-sqlite3`）                                                                                                                                                                                                                                                                                       |
-| 権限エラー（EACCES/EPERM）                                         | `/volume1/tasken/sync` の所有者・権限を確認                                                                                                                                                                                                                                                                                                                                  |
-| 共有フォルダだけEACCES（mode 0000表示）                            | Synologyの`synoacl`（NFSv4 ACL）。`group_add`のgid（DSM標準は101=administrators）を合わせる。`nas-install.sh`が自動検出する                                                                                                                                                                                                                                                  |
-| tunnelの`read control-plane api key ... permission denied`         | secretの所有者を`TASKEN_UID`に合わせる（`chown -R "$UID_:$GID_" secrets`）                                                                                                                                                                                                                                                                                                   |
-| ChatGPTにwrite toolsが出ない（read-onlyのまま）                    | tunnel側の`TASKEN_MCP_READ_ONLY=0`とCore側の`--write-mode=proposals`の両方を確認する。NAS側は「投稿・提案を受け付ける」節の`nas-read-check.mjs`で実測できる                                                                                                                                                                                                                  |
-| ChatGPTのtool一覧が古い／新しいwrite toolsが出ない                 | Settings → Connectorsでこのアプリを開き**Refresh**を押す。OpenAIの仕様ではサーバー更新は自動反映されず、増えたactionは**既定で無効**なので、一覧に出たwrite toolsを有効にする。既存チャットは更新前の一覧のままなので**新しいチャット**で試す。改善しなければconnectorを削除して再追加する。現行のNASが返すのはread-only 13 / write有効 21 toolsで、`29`は2026-09-26以前の数 |
-| ChatGPTから投稿したがDesktopに出ない                               | `T:\sync\devices\<replicaのdevice id>\` に差分が増えているか、Desktopの端末間同期が有効かを確認する（下の「往復の確認」）                                                                                                                                                                                                                                                    |
-| tunnelが昇っているか疑わしい                                       | `sudo docker exec tasken-tunnel node -e "fetch('http://127.0.0.1:18080/readyz').then(r=>console.log('readyz',r.status)).catch(e=>console.log('ERR',e.message))"`。admin UIは同じnetnsの`http://127.0.0.1:18080/ui`                                                                                                                                                           |
-| 作業報告の採用が「Taskのcanonical Theme IDがありません」で失敗する | 対象TaskがcanonicalなTheme（`project_id`）を持っていない。古いTaskにこの状態が残る場合がある。TaskenでそのTaskを開いて保存し直すと`project_id`が付く（提案自体は受理済みなので、直せば採用できる）。この拒否はMCP経由に限らず既存の挙動                                                                                                                                      |
+| 症状                                                               | 原因と対処                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SYNC_FOLDER_NOT_READY`                                            | 共有フォルダが未初期化。先にデータ端末で同期を設定する                                                                                                                                                                                                                                                                                                                                        |
+| `CORE_ALREADY_RUNNING`                                             | 同じuserDataで別Coreが稼働中。既存コンテナ/プロセスを止める                                                                                                                                                                                                                                                                                                                                   |
+| `DISCOVERY_OWNER_MISMATCH`                                         | MCP bridgeが別uid/別コンテナ。同じコンテナで`docker exec`する                                                                                                                                                                                                                                                                                                                                 |
+| `NODE_MODULE_VERSION` 不一致                                       | `better-sqlite3`が別runtime向け。イメージを再buildする（`npm rebuild better-sqlite3`）                                                                                                                                                                                                                                                                                                        |
+| 権限エラー（EACCES/EPERM）                                         | `/volume1/tasken/sync` の所有者・権限を確認                                                                                                                                                                                                                                                                                                                                                   |
+| 共有フォルダだけEACCES（mode 0000表示）                            | Synologyの`synoacl`（NFSv4 ACL）。`group_add`のgid（DSM標準は101=administrators）を合わせる。`nas-install.sh`が自動検出する                                                                                                                                                                                                                                                                   |
+| tunnelの`read control-plane api key ... permission denied`         | secretの所有者を`TASKEN_UID`に合わせる（`chown -R "$UID_:$GID_" secrets`）                                                                                                                                                                                                                                                                                                                    |
+| ChatGPTにwrite toolsが出ない（read-onlyのまま）                    | tunnel側の`TASKEN_MCP_READ_ONLY=0`とCore側の`--write-mode=proposals`の両方を確認する。NAS側は「投稿・提案を受け付ける」節の`nas-read-check.mjs`で実測できる                                                                                                                                                                                                                                   |
+| ChatGPTのtool一覧が古い／新しいwrite toolsが出ない                 | Settings → Connectorsでこのアプリを開き**Refresh**を押す。OpenAIの仕様ではサーバー更新は自動反映されず、増えたactionは**既定で無効**なので、一覧に出たwrite toolsを有効にする。既存チャットは更新前の一覧のままなので**新しいチャット**で試す。改善しなければconnectorを削除して再追加する。現行のNASが返すのはread-only 16 / `proposals`配備でwrite有効 21 toolsで、`29`は2026-09-26以前の数 |
+| ChatGPTから投稿したがDesktopに出ない                               | `T:\sync\devices\<replicaのdevice id>\` に差分が増えているか、Desktopの端末間同期が有効かを確認する（下の「往復の確認」）                                                                                                                                                                                                                                                                     |
+| tunnelが昇っているか疑わしい                                       | `sudo docker exec tasken-tunnel node -e "fetch('http://127.0.0.1:18080/readyz').then(r=>console.log('readyz',r.status)).catch(e=>console.log('ERR',e.message))"`。admin UIは同じnetnsの`http://127.0.0.1:18080/ui`                                                                                                                                                                            |
+| 作業報告の採用が「Taskのcanonical Theme IDがありません」で失敗する | 対象TaskがcanonicalなTheme（`project_id`）を持っていない。古いTaskにこの状態が残る場合がある。TaskenでそのTaskを開いて保存し直すと`project_id`が付く（提案自体は受理済みなので、直せば採用できる）。この拒否はMCP経由に限らず既存の挙動                                                                                                                                                       |
 
 ### 往復の確認（PC側から見る）
 

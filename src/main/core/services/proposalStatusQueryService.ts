@@ -1,6 +1,10 @@
 import {
+  listProposalsRequestSchema,
+  listProposalsResponseSchema,
   proposalStatusRequestSchema,
   proposalStatusResponseSchema,
+  type ListProposalsRequest,
+  type ListProposalsResponse,
   type ProposalStatusRequest,
   type ProposalStatusResponse,
 } from "../../../shared/contracts/task/public.ts";
@@ -10,6 +14,7 @@ import type {
 } from "../ports/proposalStatusReadPort.ts";
 
 const ADOPTED_STATUSES = new Set(["accepted", "partially_accepted"]);
+const DEFAULT_LIST_LIMIT = 20;
 
 /**
  * 受領したProposalの現在地を返す。
@@ -19,6 +24,56 @@ const ADOPTED_STATUSES = new Set(["accepted", "partially_accepted"]);
  */
 export class ProposalStatusQueryService {
   constructor(private readonly port: ProposalStatusReadPort) {}
+
+  /**
+   * 送信元の識別で絞ったProposalの一覧。payload本文は返さず、詳細は受領IDで個別に読む。
+   * 絞り込みは任意で、指定しない場合はこのnodeが持つ全Proposalを新しい順に返す。
+   */
+  list(input: ListProposalsRequest): ListProposalsResponse {
+    const request = listProposalsRequestSchema.parse(input);
+    const limit = request.limit ?? DEFAULT_LIST_LIMIT;
+    const matched = this.port
+      .listProposals()
+      .filter(
+        (proposal) => !request.source_session || proposal.source_session === request.source_session,
+      )
+      .filter((proposal) => !request.source_app || proposal.source_app === request.source_app)
+      .filter((proposal) => !request.caller || proposal.caller === request.caller)
+      .filter((proposal) => !request.status || proposal.status === request.status);
+    const proposals = matched.slice(0, limit).map((proposal) => ({
+      proposal_id: proposal.id,
+      status: proposal.status,
+      awaiting_review: proposal.status === "pending",
+      payload_type: proposal.payload_type,
+      tool: proposal.tool,
+      source_app: proposal.source_app,
+      caller: proposal.caller,
+      source_session: proposal.source_session,
+      received_at: proposal.received_at,
+      task_id: proposal.task_id,
+    }));
+    return listProposalsResponseSchema.parse({
+      schema: "tasken-proposal-list/v1",
+      proposals,
+      result_meta: {
+        returned_count: proposals.length,
+        matched_count: matched.length,
+        truncated: matched.length > proposals.length,
+      },
+      view: {
+        canonical_node: "this_node",
+        delivery_confirmed: false,
+        note: "この一覧はこのnodeが受け取ったProposalだけです。別の端末へ送ったProposalと、そちらでの採否は含みません。",
+      },
+      next_tools: [
+        {
+          tool: "tasken.get_proposal_status",
+          description: "受領IDから採否と、採用で生まれたEntityを確認する。",
+        },
+      ],
+      read_only: true,
+    });
+  }
 
   execute(input: ProposalStatusRequest): ProposalStatusResponse {
     const request = proposalStatusRequestSchema.parse(input);

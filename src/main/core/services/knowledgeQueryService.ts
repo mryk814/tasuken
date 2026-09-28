@@ -401,8 +401,14 @@ export class KnowledgeQueryService {
       .list("note", Boolean(request.include_archived))
       .filter((note) => !request.theme_id || noteProjectId(note) === request.theme_id);
     const filtered = this.filterForAi("note", scoped, audience);
-    const matchedVisible = filtered.records.length;
-    const notes = sortUpdated(filtered.records)
+    const query = text(request.query).toLowerCase();
+    const matched = filtered.records.filter(
+      (note) =>
+        !query ||
+        [note.title, note.body_markdown].some((value) => text(value).toLowerCase().includes(query)),
+    );
+    const matchedVisible = matched.length;
+    const notes = sortUpdated(matched)
       .slice(0, limit)
       .map((note) => publicNote(note, Boolean(request.include_raw_body), textLimit));
     const truncated = matchedVisible > notes.length;

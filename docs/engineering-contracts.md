@@ -53,7 +53,8 @@
 2. MCP等でAIにアプリへ直接アクセスさせる場合は read-only を既定にする。書き込みを許可する場合は「提案（proposal）エンティティを作成するだけ」の操作に限定する。提案を実データへ反映するのは、利用者がUI上で内容を確認し採用を選んだ後にする。
 3. AIからの取り込みも、上記「データモデルと永続化の標準」の Import と同じ「検証→プレビュー→決定→適用」の手順に従う。取り込みが失敗した場合、既存データと入力途中の値の両方を保持したままにする。
 4. 人がProposalを採用して**新しくEntityが作られた**とき、そのEntityへ`accepted_from_proposal_id`（Proposal ID）を保存する。既存Entityの更新では上書きしない（最初に作ったProposalを失わないため）。`source_type`/`source_id`はActivityの参照へ波及するため、この用途には使わない。
-5. 外部AIは`tasken.get_proposal_status`で受領IDから採否と作成Entityを確認できる。応答は**接続中のnodeが持つ正本**だけを表し、別端末への配送とそちらでの採否は確認しない。未採用のProposalにはEntityを返さない。
+5. 外部AIは`tasken.get_proposal_status`で受領IDから採否と作成Entityを確認できる。応答は**接続中のnodeが持つ正本**だけを表し、別端末への配送とそちらでの採否は確認しない。未採用のProposalにはEntityを返さない。`tasken.list_proposals`は同じnodeのProposalを識別と状態だけで一覧し、payload本文は返さない。
+6. Proposal・読み物の書き込みで`dry_run: true`を指定した場合、Coreは本送信と同じ検証だけを行い、Proposalの保存・画像のstage・Feedへの表示をしない。応答は`status: "validated"`とし、保存されていないことを明示する。
 
 ## セキュリティと秘密情報
 

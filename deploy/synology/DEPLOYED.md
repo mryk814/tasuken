@@ -32,6 +32,14 @@ PC側から共有フォルダを確認しただけでは、コンテナやSQLite
 - 隔離コピーでは、正規Themeを持つTaskの作業報告を採用でき、Taskの完了状態と作業報告の採用状態が別であることを確認。既存データに正規ThemeがないTaskは採用時に拒否される。TaskをDesktopで保存し直して正規Themeを付けると再試行できる。
 - この観測時のNAS imageはリリース候補とは別の以前のbuildです。この記録を `v0.1.71` の配備確認として扱わないでください。
 
+### 2026-09-28 MCP改善の配備（commit `be8d519`）
+
+- 固定commit `be8d519` からimage `tasken-headless:be8d519`（同一imageを`:local`にも付与）を作成し、共有フォルダ経由で搬入。NAS上でimage・source・`nas-install.sh`のSHA256照合が一致。
+- 交換前に `backup.sh` でsnapshotを取得し `VERIFIED` を確認。元のコンテナがhealthyへ戻ってから交換した。
+- `nas-install.sh` で配置。既存の `.env`（`proposals`配備・tunnel設定）を保持したまま起動し、`WRITE_OK`、`TASKEN_HEADLESS_CORE_READY`（`write_mode: proposals`、capability 32）、health `healthy`、tunnel-clientの起動を確認。
+- `nas-read-check.mjs`（`TASKEN_MCP_READ_ONLY=0`）で `TOOL_COUNT 21`（read 16 + write 5）。`get_capabilities`・`list_proposals`・`search_notes` が一覧に出て、この配備で使えない `start_task_work`・`propose_note_edit`・`answer_feed_question` は一覧に出ないことを確認。`search_items` の読み取りも成功。
+- 未確認: ChatGPT側でのConnector再読み込み後のtool一覧と `get_capabilities` の応答。
+
 ## ローカル隔離検証（NASではない）
 
 2026-09-27にNASデータのコピーを一時環境へ置き、Proposalの受付、共有フォルダへの公開、Desktop相当の採用経路を確認。本番NASと実データには書き込んでいません。

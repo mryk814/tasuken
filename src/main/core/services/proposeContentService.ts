@@ -320,6 +320,43 @@ function prepareNoteImages(
   };
 }
 
+const DRY_RUN_MESSAGE =
+  "dry_runのため検証だけを行い、Proposalは保存していません。本送信は同じidempotency_keyで行ってください。";
+
+type DryRunCheck = { code: string; ok: boolean; message: string };
+
+/**
+ * dry_runで正本と照合できる前提を確かめる。本送信は対象の版を採用時に検査するため、
+ * ここでの不一致は拒否ではなく、送る前に分かる食い違いとして返す。
+ */
+function contentDryRunChecks(
+  request: ProposeContentRequest,
+  transaction: AiProposalTransaction,
+): DryRunCheck[] {
+  if (request.kind !== "note_edit") return [];
+  const note = transaction.getEntity("note", request.note_id);
+  if (!note) {
+    return [
+      {
+        code: "note_found",
+        ok: false,
+        message: "編集対象のNoteが見つかりません。note_idを確認してください。",
+      },
+    ];
+  }
+  const version = Number(note.version || 0);
+  return [
+    { code: "note_found", ok: true, message: "編集対象のNoteがあります。" },
+    version === request.base_version
+      ? { code: "base_version_current", ok: true, message: "base_versionは現在の版と一致します。" }
+      : {
+          code: "base_version_current",
+          ok: false,
+          message: "base_versionが現在の版と一致しません。get_noteで読み直してください。",
+        },
+  ];
+}
+
 export class ProposeContentService {
   constructor(
     private readonly writePort: AiProposalWritePort,
@@ -405,6 +442,23 @@ export class ProposeContentService {
         transaction.save(proposal);
         return { result: "queued" } as const;
       });
+
+    if (request.dry_run) {
+      // 画像はprepareで検証済み。stageと保存はせず、本送信の結果だけを見積もる。
+      const preview = this.writePort.runTransaction((transaction) => ({
+        wouldStatus: getExistingStatus(transaction).result,
+        checks: contentDryRunChecks(request, transaction),
+      }));
+      return proposeContentResponseSchema.parse({
+        proposal_id: id,
+        status: "validated",
+        payload_type: payloadType,
+        message: DRY_RUN_MESSAGE,
+        dry_run: true,
+        would_status: preview.wouldStatus,
+        checks: preview.checks,
+      });
+    }
 
     let status: "queued" | "duplicate";
     if (!preparedImages) {

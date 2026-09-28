@@ -16,6 +16,7 @@ const readTools = [
   "tasken.get_task_assignment",
   "tasken.get_task_context",
   "tasken.get_note",
+  "tasken.search_notes",
   "tasken.resolve_repository_context",
   "tasken.get_repository_context",
   "tasken.get_theme_context",
@@ -23,6 +24,8 @@ const readTools = [
   "tasken.get_activity",
   "tasken.get_feed_context",
   "tasken.get_proposal_status",
+  "tasken.list_proposals",
+  "tasken.get_capabilities",
 ];
 const proposalTools = [
   "tasken.append_work_receipt",

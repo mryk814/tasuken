@@ -6,9 +6,14 @@ import * as z from "zod/v4";
 
 import { localDate } from "../../shared/activityProjection.mjs";
 import { TASKEN_CORE_TASK_COMMAND_CAPABILITY } from "../../shared/contracts/core/public.mjs";
-import { parseCanonicalTaskId, parseTaskLocator } from "../../shared/contracts/mobile/public.mjs";
+import {
+  formatTaskLocator,
+  parseCanonicalTaskId,
+  parseTaskLocator,
+} from "../../shared/contracts/mobile/public.mjs";
 import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
+import { mcpToolAvailability } from "./toolAvailability.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -31,6 +36,12 @@ const DIRECT_WRITE_ANNOTATIONS = {
 const MCP_STDIO_MAX_BUFFER_BYTES = 35 * 1024 * 1024;
 const optionalText = z.string().trim().optional();
 const optionalLimit = z.number().int().positive().max(100).optional();
+const dryRun = z
+  .boolean()
+  .optional()
+  .describe(
+    "When true, Tasken validates the request (schema, what this connection accepts, idempotency conflicts, and the target's current version) without saving anything. The result has status `validated`, would_status (queued or duplicate), and checks. Send again without dry_run and with the same idempotency_key to actually submit.",
+  );
 const noteProposalImages = z
   .array(
     z
@@ -83,10 +94,21 @@ function toolResult(value) {
   };
 }
 
+/**
+ * 見つからない等の結果も`error`を持つ応答として返る。例外で返る失敗と同じく
+ * `isError`を立て、AIが失敗を形の違いから推測しなくてよいようにする。
+ */
+function hasErrorEnvelope(value) {
+  return Boolean(
+    value && typeof value === "object" && value.error && typeof value.error === "object",
+  );
+}
+
 function withCoreClient(handler) {
   return async (args) => {
     try {
-      return toolResult(await handler(args));
+      const value = await handler(args);
+      return hasErrorEnvelope(value) ? { ...toolResult(value), isError: true } : toolResult(value);
     } catch (error) {
       if (!(error instanceof TaskenCoreClientError)) throw error;
       const value = { error: error.toPublicError() };
@@ -95,6 +117,19 @@ function withCoreClient(handler) {
         isError: true,
       };
     }
+  };
+}
+
+/** 検索結果のTaskに、get_task_contextへそのまま渡せるcanonical locatorを添える。 */
+function withTaskLocators(result) {
+  if (!Array.isArray(result?.items)) return result;
+  return {
+    ...result,
+    items: result.items.map((item) =>
+      item?.locator?.entity_type === "task" && parseCanonicalTaskId(item.locator.entity_id)
+        ? { ...item, canonical_locator: formatTaskLocator(item.locator.entity_id) }
+        : item,
+    ),
   };
 }
 
@@ -110,6 +145,16 @@ export function mcpReadOnlyMode(env = process.env) {
   );
 }
 
+/**
+ * @param {{
+ *   readOnly?: boolean,
+ *   env?: NodeJS.ProcessEnv,
+ *   coreClient?: TaskenCoreClient,
+ *   capabilities?: readonly string[],
+ * }} [options]
+ *   `capabilities`は起動時に読めたCoreのcapability。渡した場合だけ、この接続で使えない
+ *   書き込みtoolを一覧から外す。読めなかった場合は従来どおり全toolを登録する。
+ */
 export function createTaskenMcpServer(options = {}) {
   const readOnly = options.readOnly ?? mcpReadOnlyMode(options.env || process.env);
   const coreClient =
@@ -121,10 +166,19 @@ export function createTaskenMcpServer(options = {}) {
     },
     {
       instructions: readOnly
-        ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed."
-        : "Tasken is a local-first work and knowledge app. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. Every other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content.",
+        ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed. Call tasken.get_capabilities to confirm what this connection allows."
+        : "Tasken is a local-first work and knowledge app. Call tasken.get_capabilities first to see which reads and writes this connection allows; a listed write tool can still be refused when the Core changed after this server started. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. Every other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content. Every Proposal and reading tool accepts dry_run: true to validate without saving. If you lose a Proposal ID, find it with tasken.list_proposals. A result that carries an error object is always marked isError.",
     },
   );
+
+  // 登録したtoolを覚えておき、起動時に分かった利用不可のtoolを最後に外す。
+  const registeredTools = new Map();
+  const registerTool = server.registerTool.bind(server);
+  server.registerTool = (name, ...rest) => {
+    const registered = registerTool(name, ...rest);
+    registeredTools.set(name, registered);
+    return registered;
+  };
 
   server.registerResource(
     "theme-intent",
@@ -203,7 +257,8 @@ export function createTaskenMcpServer(options = {}) {
   server.registerTool(
     "tasken.search_items",
     {
-      description: "Search Tasken tasks, waitings, and plan nodes.",
+      description:
+        "Search Tasken tasks, waitings, and plan nodes. Each result's id is the stable entity ID other tools accept; a Task also carries canonical_locator for tasken.get_task_context. lifecycle marks archived results. Notes are not covered; use tasken.search_notes.",
       inputSchema: {
         query: optionalText,
         theme_id: optionalText,
@@ -212,7 +267,7 @@ export function createTaskenMcpServer(options = {}) {
       },
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    withCoreClient((args) => coreClient.searchItems(args)),
+    withCoreClient(async (args) => withTaskLocators(await coreClient.searchItems(args))),
   );
 
   server.registerTool(
@@ -226,14 +281,14 @@ export function createTaskenMcpServer(options = {}) {
       },
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    withCoreClient((args) => coreClient.listOpenItems(args)),
+    withCoreClient(async (args) => withTaskLocators(await coreClient.listOpenItems(args))),
   );
 
   server.registerTool(
     "tasken.list_agent_ready_tasks",
     {
       description:
-        "List Tasks whose human-set AI Ready gate allows agent work. Read-only; a Work Receipt still requires human review.",
+        "List Tasks whose human-set AI Ready gate allows agent work. Start only a Task whose agent_state.runnable is true; include_archived also lists archived Tasks, which are never runnable. Read-only; a Work Receipt still requires human review.",
       inputSchema: {
         theme_id: optionalText,
         limit: optionalLimit,
@@ -350,6 +405,23 @@ export function createTaskenMcpServer(options = {}) {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     withCoreClient((args) => coreClient.getNote(args)),
+  );
+
+  server.registerTool(
+    "tasken.search_notes",
+    {
+      description:
+        "Search AI-visible Notes by title and body text, newest first. Results carry stable Note IDs and short excerpts; read a full body with tasken.get_note. tasken.search_items does not cover Notes.",
+      inputSchema: {
+        query: z.string().trim().min(1).max(1_000).optional(),
+        theme_id: optionalText,
+        limit: optionalLimit,
+        max_chars: z.number().int().positive().max(8_000).optional(),
+        include_archived: z.boolean().optional(),
+      },
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.getRecentNotes(args)),
   );
 
   const repositoryLookupSchema = {
@@ -482,6 +554,61 @@ export function createTaskenMcpServer(options = {}) {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     withCoreClient((args) => coreClient.getProposalStatus(args)),
+  );
+
+  server.registerTool(
+    "tasken.list_proposals",
+    {
+      description:
+        "List Proposals received by the node you are connected to, newest first, so you can recover a Proposal ID you lost. Filter by your own source_session, source_app, or caller, and by status (pending means the user has not decided yet). Returns identity and status only, not payload bodies; use tasken.get_proposal_status for one Proposal's outcome. Read-only and limited to this node.",
+      inputSchema: {
+        source_session: z.string().trim().min(1).max(200).optional(),
+        source_app: z.string().trim().min(1).max(120).optional(),
+        caller: z.string().trim().min(1).max(200).optional(),
+        status: z
+          .enum(["pending", "accepted", "rejected", "partially_accepted", "quarantined"])
+          .optional(),
+        limit: optionalLimit,
+      },
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.listProposals(args)),
+  );
+
+  server.registerTool(
+    "tasken.get_capabilities",
+    {
+      description:
+        "Report what this connection can do right now: the Core write profile, which kinds of writes are accepted, and each tool's availability with a machine-readable reason (for example missing_capability:task.command or kind_not_allowed:note_edit). Call it once before planning writes instead of discovering limits by trial. Read-only.",
+      inputSchema: {},
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient(async () => {
+      const status = await coreClient.status();
+      const availability = mcpToolAvailability(status.capabilities, { readOnly });
+      const tools = Object.entries(availability.tools).map(([name, tool]) => ({
+        name,
+        access: tool.access,
+        available: tool.available,
+        listed: registeredTools.has(name),
+        ...(tool.reason ? { reason: tool.reason } : {}),
+      }));
+      return {
+        schema: "tasken-mcp-capabilities/v1",
+        core: { api_version: status.apiVersion, write_profile: availability.write_profile },
+        bridge: {
+          read_only: readOnly,
+          // 起動時にCoreを読めなかった場合、使えないtoolも一覧に残る。
+          filtered_at_startup: Array.isArray(options.capabilities),
+        },
+        writes: availability.writes,
+        tools,
+        unavailable_tools: tools
+          .filter((tool) => !tool.available)
+          .map((tool) => ({ name: tool.name, reason: tool.reason, listed: tool.listed })),
+        read_only: true,
+      };
+    }),
   );
 
   if (readOnly) return server;
@@ -634,6 +761,7 @@ export function createTaskenMcpServer(options = {}) {
     caller: z.string().trim().min(1).max(200).optional(),
     source_session: z.string().trim().min(1).max(200).optional(),
     source_app: z.string().trim().min(1).max(120).optional(),
+    dry_run: dryRun,
   };
   const contentProposalBase = {
     ...contentProposalIdentity,
@@ -650,7 +778,8 @@ export function createTaskenMcpServer(options = {}) {
         : kind === "feed_post" && Array.isArray(args.article?.images)
           ? args.article.images.length
           : 0;
-    if (imageCount > 0 && !args.idempotency_key) {
+    // dry_runは保存しないため、画像の再試行を結び付けるkeyを要求しない。
+    if (imageCount > 0 && !args.idempotency_key && !args.dry_run) {
       throw new TaskenCoreClientError(
         "VALIDATION_FAILED",
         "画像付きのProposalにはidempotency_keyが必要です。再試行でも同じ値を指定してください。",
@@ -702,6 +831,7 @@ export function createTaskenMcpServer(options = {}) {
     reported_at: optionalTimestamp,
     provider: z.string().trim().max(120).optional(),
     model: z.string().trim().max(200).optional(),
+    dry_run: dryRun,
   };
   server.registerTool(
     "tasken.append_work_receipt",
@@ -751,6 +881,7 @@ export function createTaskenMcpServer(options = {}) {
         reported_at: optionalTimestamp,
         provider: z.string().trim().max(120).optional(),
         model: z.string().trim().max(200).optional(),
+        dry_run: dryRun,
       },
       annotations: PROPOSAL_ANNOTATIONS,
     },
@@ -967,11 +1098,36 @@ export function createTaskenMcpServer(options = {}) {
     withCoreClient((args) => queueContent(args, "note_edit")),
   );
 
+  if (Array.isArray(options.capabilities)) {
+    const { tools } = mcpToolAvailability(options.capabilities, { readOnly });
+    for (const [name, registered] of registeredTools) {
+      if (tools[name]?.access === "read" || tools[name]?.available !== false) continue;
+      registered.remove();
+      registeredTools.delete(name);
+    }
+  }
+
   return server;
 }
 
+/**
+ * 起動時にCoreのcapabilityを一度読む。Coreが未起動などで読めない場合は`undefined`を返し、
+ * 全toolを登録する（後からCoreを起動しても書き込みtoolを使えるようにするため）。
+ */
+async function startupCapabilities(coreClient) {
+  try {
+    return (await coreClient.status()).capabilities;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function startTaskenMcpServer() {
-  const server = createTaskenMcpServer();
+  const coreClient = new TaskenCoreClient({ env: process.env });
+  const server = createTaskenMcpServer({
+    coreClient,
+    capabilities: await startupCapabilities(coreClient),
+  });
   const transport = new StdioServerTransport(undefined, undefined, {
     maxBufferSize: MCP_STDIO_MAX_BUFFER_BYTES,
   });

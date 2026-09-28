@@ -272,6 +272,7 @@ export class TaskenCoreRuntime {
       getContextSubgraph: core.getContextSubgraph,
       getFeedContext: core.getFeedContext,
       getProposalStatus: core.getProposalStatus,
+      listProposals: core.listProposals,
       exportAiContext: core.exportAiContext,
       ...(allowsProposals
         ? {
