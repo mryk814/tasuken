@@ -244,9 +244,7 @@ test("Wave 5 detail/activity are exact across legacy fields, Core, and HTTP (MCP
       const expected = legacy[legacyMethod](request);
       const inProcess = core[method].execute(request);
       const overHttp = await client[method](request);
-      const overMcp = mcpExposed.has(tool)
-        ? await mcpCall(client, tool, request)
-        : null;
+      const overMcp = mcpExposed.has(tool) ? await mcpCall(client, tool, request) : null;
       if (method === "getActivityEntries") {
         for (const response of overMcp
           ? [inProcess, overHttp, overMcp.structuredContent]
@@ -408,9 +406,7 @@ test("actual stdio MCP reads kept Wave 5 tools from a running Core host and inje
     });
     client = new Client({ name: "wave5-actual-stdio", version: "1.0.0" });
     await client.connect(transport);
-    const calls = [
-      ["tasken.get_note", { note_id: "note-wave5" }, "note"],
-    ];
+    const calls = [["tasken.get_note", { note_id: "note-wave5" }, "note"]];
     for (const [name, args, field] of calls) {
       const result = await client.callTool({ name, arguments: args });
       assert.equal(result.isError, undefined, JSON.stringify(result));
