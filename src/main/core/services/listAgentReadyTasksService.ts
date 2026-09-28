@@ -4,6 +4,7 @@ import {
   type ListAgentReadyTasksRequest,
   type ListAgentReadyTasksResponse,
 } from "../../../shared/contracts/task/public.ts";
+import { taskAgentState } from "../../../shared/agentReadiness.mjs";
 import type { AgentReadyTaskReadPort } from "../ports/agentReadyTaskReadPort.ts";
 import { AgentReadyTaskAiProjectionPolicy } from "../policies/agentReadyTaskAiProjectionPolicy.ts";
 
@@ -24,12 +25,15 @@ export class ListAgentReadyTasksService {
   execute(input: ListAgentReadyTasksRequest = {}): ListAgentReadyTasksResponse {
     const request = listAgentReadyTasksRequestSchema.parse(input);
     const limit = request.limit ?? DEFAULT_LIMIT;
-    const candidates = this.readPort.listTasks(Boolean(request.include_archived))
+    const candidates = this.readPort
+      .listTasks(Boolean(request.include_archived))
       .filter((task) => task.intended_executor === "ai_agent")
       .filter((task) => (task.work_state || "ready_for_agent") === "ready_for_agent")
       .filter((task) => task.state !== "done" && task.state !== "cancelled")
       .filter((task) => !request.theme_id || task.project_id === request.theme_id)
-      .sort((left, right) => String(right.updated_at || "").localeCompare(String(left.updated_at || "")));
+      .sort((left, right) =>
+        String(right.updated_at || "").localeCompare(String(left.updated_at || "")),
+      );
     const projected = this.projectionPolicy.project(
       candidates,
       this.readPort.listThemes(),
@@ -37,7 +41,10 @@ export class ListAgentReadyTasksService {
     );
 
     return listAgentReadyTasksResponseSchema.parse({
-      tasks: projected.records.slice(0, limit),
+      // include_archivedでは削除済みTaskも並ぶため、着手できるかを状態から添える。
+      tasks: projected.records
+        .slice(0, limit)
+        .map((task) => ({ ...task, agent_state: taskAgentState(task) })),
       limit,
       ai_audience: "coding_agent",
       read_only: true,

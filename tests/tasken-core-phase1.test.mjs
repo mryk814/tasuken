@@ -23,12 +23,22 @@ const bundled = await build({
   logLevel: "silent",
 });
 
-const {
-  createTaskenCore,
-  WorkspaceAgentReadyTaskReadAdapter,
-} = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`);
+const { createTaskenCore, WorkspaceAgentReadyTaskReadAdapter } = await import(
+  `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
+);
 
 const now = "2026-08-20T00:00:00.000Z";
+
+/** 旧実装にない追加欄（agent_state）を除いて、互換部分だけを比べる。 */
+function withoutAgentState(response) {
+  const { agent_state: _agentState, ...rest } = response;
+  return {
+    ...rest,
+    ...(Array.isArray(rest.tasks)
+      ? { tasks: rest.tasks.map(({ agent_state: _taskAgentState, ...task }) => task) }
+      : {}),
+  };
+}
 
 function task(id, overrides = {}) {
   return {
@@ -45,7 +55,12 @@ function task(id, overrides = {}) {
 function fixture() {
   return {
     themes: [
-      { id: "theme-visible", name: "Visible", default_ai_visibility: ["coding_agent"], updated_at: now },
+      {
+        id: "theme-visible",
+        name: "Visible",
+        default_ai_visibility: ["coding_agent"],
+        updated_at: now,
+      },
       { id: "theme-hidden", name: "Hidden", default_ai_visibility: ["m365"], updated_at: now },
     ],
     tasks: [
@@ -53,7 +68,10 @@ function fixture() {
         updated_at: "2026-08-20T03:00:00.000Z",
         legacy_extension: { retained: true },
       }),
-      task("ready-explicit", { work_state: "ready_for_agent", updated_at: "2026-08-20T02:00:00.000Z" }),
+      task("ready-explicit", {
+        work_state: "ready_for_agent",
+        updated_at: "2026-08-20T02:00:00.000Z",
+      }),
       task("ready-workspace", { project_id: null, updated_at: "2026-08-20T01:00:00.000Z" }),
       task("working", { work_state: "in_progress" }),
       task("human", { intended_executor: "self" }),
@@ -61,7 +79,10 @@ function fixture() {
       task("cancelled", { state: "cancelled" }),
       task("hidden-entity", { ai_visibility: ["m365"] }),
       task("hidden-theme", { project_id: "theme-hidden" }),
-      task("archived", { deleted_at: "2026-08-20T04:00:00.000Z", updated_at: "2026-08-20T04:00:00.000Z" }),
+      task("archived", {
+        deleted_at: "2026-08-20T04:00:00.000Z",
+        updated_at: "2026-08-20T04:00:00.000Z",
+      }),
     ],
   };
 }
@@ -102,9 +123,25 @@ test("Phase 1 Core is deep-equal to the legacy agent-ready query for compatible 
       { theme_id: "theme-visible", limit: 1 },
       { theme_id: "theme-visible", include_archived: true, limit: 100 },
     ]) {
-      assert.deepEqual(core.listAgentReadyTasks.execute(request), context.toolListAgentReadyTasks(request));
+      assert.deepEqual(
+        withoutAgentState(core.listAgentReadyTasks.execute(request)),
+        context.toolListAgentReadyTasks(request),
+      );
     }
-    assert.deepEqual(core.listAgentReadyTasks.execute().tasks[0].legacy_extension, { retained: true });
+    // 削除済みTaskはinclude_archivedで並んでも、着手できるとは示さない。
+    const archived = core.listAgentReadyTasks
+      .execute({ theme_id: "theme-visible", include_archived: true, limit: 100 })
+      .tasks.find((entry) => entry.id === "archived");
+    assert.deepEqual(archived.agent_state, {
+      lifecycle: "archived",
+      ai_ready: true,
+      runnable: false,
+      not_runnable_reasons: ["task_archived"],
+    });
+    assert.equal(core.listAgentReadyTasks.execute().tasks[0].agent_state.runnable, true);
+    assert.deepEqual(core.listAgentReadyTasks.execute().tasks[0].legacy_extension, {
+      retained: true,
+    });
   } finally {
     context.close();
   }

@@ -36,6 +36,7 @@ import {
   type ResolveRepositoryContextResponse,
 } from "../../../shared/contracts/task/public.ts";
 import { publicAgentSession, publicWorkingCopy } from "../../../shared/agentSession.mjs";
+import { taskAgentState } from "../../../shared/agentReadiness.mjs";
 import { AgentReadyTaskAiProjectionPolicy } from "../policies/agentReadyTaskAiProjectionPolicy.ts";
 import type { AgentWorkspaceReadPort } from "../ports/agentWorkspaceReadPort.ts";
 import {
@@ -507,6 +508,7 @@ export class AgentWorkspaceQueryService {
     const limit = request.limit ?? 50;
     return getTaskAssignmentResponseSchema.parse({
       task: filtered.records[0],
+      agent_state: taskAgentState(task),
       receipts: this.readPort
         .listWorkReceipts(includeArchived)
         .filter((receipt) => receipt.task_id === request.task_id)

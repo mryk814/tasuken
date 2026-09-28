@@ -203,7 +203,8 @@ export function createTaskenMcpServer(options = {}) {
   server.registerTool(
     "tasken.search_items",
     {
-      description: "Search Tasken tasks, waitings, and plan nodes.",
+      description:
+        "Search Tasken tasks, waitings, and plan nodes. Each result's id is the stable entity ID other tools accept; a Task also carries canonical_locator for tasken.get_task_context. lifecycle marks archived results. Notes are not covered; use tasken.search_notes.",
       inputSchema: {
         query: optionalText,
         theme_id: optionalText,
@@ -233,7 +234,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.list_agent_ready_tasks",
     {
       description:
-        "List Tasks whose human-set AI Ready gate allows agent work. Read-only; a Work Receipt still requires human review.",
+        "List Tasks whose human-set AI Ready gate allows agent work. Start only a Task whose agent_state.runnable is true; include_archived also lists archived Tasks, which are never runnable. Read-only; a Work Receipt still requires human review.",
       inputSchema: {
         theme_id: optionalText,
         limit: optionalLimit,
@@ -350,6 +351,23 @@ export function createTaskenMcpServer(options = {}) {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     withCoreClient((args) => coreClient.getNote(args)),
+  );
+
+  server.registerTool(
+    "tasken.search_notes",
+    {
+      description:
+        "Search AI-visible Notes by title and body text, newest first. Results carry stable Note IDs and short excerpts; read a full body with tasken.get_note. tasken.search_items does not cover Notes.",
+      inputSchema: {
+        query: z.string().trim().min(1).max(1_000).optional(),
+        theme_id: optionalText,
+        limit: optionalLimit,
+        max_chars: z.number().int().positive().max(8_000).optional(),
+        include_archived: z.boolean().optional(),
+      },
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.getRecentNotes(args)),
   );
 
   const repositoryLookupSchema = {

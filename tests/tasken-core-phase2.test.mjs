@@ -50,7 +50,12 @@ function task(id, overrides = {}) {
 function fixture() {
   return {
     themes: [
-      { id: "theme-visible", name: "Visible", default_ai_visibility: ["coding_agent"], updated_at: now },
+      {
+        id: "theme-visible",
+        name: "Visible",
+        default_ai_visibility: ["coding_agent"],
+        updated_at: now,
+      },
       { id: "theme-hidden", name: "Hidden", default_ai_visibility: ["m365"], updated_at: now },
     ],
     tasks: [
@@ -78,9 +83,13 @@ class FixtureRepository {
   }
 }
 
-async function mcpResult(coreClient, request, readContextProvider = () => {
-  throw new Error("DB_CONSTRUCTOR_SENTINEL");
-}) {
+async function mcpResult(
+  coreClient,
+  request,
+  readContextProvider = () => {
+    throw new Error("DB_CONSTRUCTOR_SENTINEL");
+  },
+) {
   const server = createTaskenMcpServer({ coreClient, readContextProvider, readOnly: true });
   const client = new Client({ name: "tasken-core-phase2-test", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -94,12 +103,26 @@ async function mcpResult(coreClient, request, readContextProvider = () => {
   }
 }
 
+/** 旧実装にない追加欄（agent_state）を除いて、互換部分だけを比べる。 */
+function withoutAgentState(response) {
+  const { agent_state: _agentState, ...rest } = response;
+  return {
+    ...rest,
+    ...(Array.isArray(rest.tasks)
+      ? { tasks: rest.tasks.map(({ agent_state: _taskAgentState, ...task }) => task) }
+      : {}),
+  };
+}
+
 test("Phase 2: legacy, in-process, HTTP, and MCP agent-ready results are deep-equal", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-phase2-"));
   const workspace = fixture();
   const repository = new FixtureRepository(workspace);
   const core = createTaskenCore(repository);
-  const host = new TaskenCoreHost({ userDataPath: root, listAgentReadyTasks: core.listAgentReadyTasks });
+  const host = new TaskenCoreHost({
+    userDataPath: root,
+    listAgentReadyTasks: core.listAgentReadyTasks,
+  });
   const context = new ReadOnlyTaskenContext("phase2.sqlite", {
     workspace,
     aiVisibilityDefault: ["coding_agent"],
@@ -109,16 +132,17 @@ test("Phase 2: legacy, in-process, HTTP, and MCP agent-ready results are deep-eq
     const request = { theme_id: "theme-visible", limit: 20 };
     const legacy = context.toolListAgentReadyTasks(request);
     const inProcess = core.listAgentReadyTasks.execute(request);
-    const httpResult = await new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") })
-      .listAgentReadyTasks(request);
+    const httpResult = await new TaskenCoreClient({
+      discoveryPath: path.join(root, "tasken-core.json"),
+    }).listAgentReadyTasks(request);
     const mcp = await mcpResult(
       new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") }),
       request,
     );
 
-    assert.deepEqual(inProcess, legacy);
-    assert.deepEqual(httpResult, legacy);
-    assert.deepEqual(mcp.structuredContent, legacy);
+    assert.deepEqual(withoutAgentState(inProcess), legacy);
+    assert.deepEqual(withoutAgentState(httpResult), legacy);
+    assert.deepEqual(withoutAgentState(mcp.structuredContent), legacy);
   } finally {
     context.close();
     await host.stop();
@@ -129,14 +153,21 @@ test("Phase 2: legacy, in-process, HTTP, and MCP agent-ready results are deep-eq
 test("Phase 2: discovery, auth, health, capabilities, body, and timeout boundaries are enforced", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-security-"));
   const core = createTaskenCore(new FixtureRepository(fixture()));
-  const host = new TaskenCoreHost({ userDataPath: root, listAgentReadyTasks: core.listAgentReadyTasks });
+  const host = new TaskenCoreHost({
+    userDataPath: root,
+    listAgentReadyTasks: core.listAgentReadyTasks,
+  });
   try {
     await host.start();
     const discoveryPath = path.join(root, "tasken-core.json");
     const discovery = JSON.parse(fs.readFileSync(discoveryPath, "utf8"));
     assert.equal(Buffer.from(discovery.token, "base64url").length, 32);
-    if (typeof process.getuid === "function") assert.equal(fs.statSync(discoveryPath).uid, process.getuid());
-    assert.match(fs.readFileSync("src/main/infrastructure/http/taskenCoreHost.ts", "utf8"), /chmod\([^,]+, 0o600\)/);
+    if (typeof process.getuid === "function")
+      assert.equal(fs.statSync(discoveryPath).uid, process.getuid());
+    assert.match(
+      fs.readFileSync("src/main/infrastructure/http/taskenCoreHost.ts", "utf8"),
+      /chmod\([^,]+, 0o600\)/,
+    );
 
     const headers = { authorization: `Bearer ${discovery.token}` };
     const health = await fetch(`${discovery.origin}/health`, { headers });
@@ -170,13 +201,17 @@ test("Phase 2: discovery, auth, health, capabilities, body, and timeout boundari
     const timeoutClient = new TaskenCoreClient({
       discoveryPath,
       timeoutMs: 10,
-      fetch: (_url, options) => new Promise((_resolve, reject) => {
-        options.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-      }),
+      fetch: (_url, options) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
     });
-    await assert.rejects(timeoutClient.listAgentReadyTasks({}), (error) => (
-      error instanceof TaskenCoreClientError && error.code === "CORE_UNAVAILABLE"
-    ));
+    await assert.rejects(
+      timeoutClient.listAgentReadyTasks({}),
+      (error) => error instanceof TaskenCoreClientError && error.code === "CORE_UNAVAILABLE",
+    );
   } finally {
     await host.stop();
     assert.equal(fs.existsSync(path.join(root, "tasken-core.json")), false);
@@ -187,7 +222,10 @@ test("Phase 2: discovery, auth, health, capabilities, body, and timeout boundari
 test("Phase 2: Core stop closes a partial keep-alive connection and remains idempotent", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-stop-"));
   const core = createTaskenCore(new FixtureRepository(fixture()));
-  const host = new TaskenCoreHost({ userDataPath: root, listAgentReadyTasks: core.listAgentReadyTasks });
+  const host = new TaskenCoreHost({
+    userDataPath: root,
+    listAgentReadyTasks: core.listAgentReadyTasks,
+  });
   let socket;
   try {
     const { origin } = await host.start();
@@ -215,7 +253,10 @@ test("Phase 2: Core stop closes a partial keep-alive connection and remains idem
 });
 
 test("Phase 2: unavailable Core never constructs the legacy DB context", async () => {
-  const missingDiscovery = path.join(os.tmpdir(), `tasken-core-missing-${crypto.randomUUID()}.json`);
+  const missingDiscovery = path.join(
+    os.tmpdir(),
+    `tasken-core-missing-${crypto.randomUUID()}.json`,
+  );
   const result = await mcpResult(new TaskenCoreClient({ discoveryPath: missingDiscovery }), {});
 
   assert.equal(result.isError, true);
@@ -226,13 +267,17 @@ test("Phase 2: unavailable Core never constructs the legacy DB context", async (
 test("Phase 2: version and auth failures never fall back to the legacy DB context", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-fail-closed-"));
   const discoveryPath = path.join(root, "tasken-core.json");
-  fs.writeFileSync(discoveryPath, JSON.stringify({
-    schema_version: 1,
-    api_version: "999",
-    origin: "http://127.0.0.1:1",
-    token: "x".repeat(43),
-    capabilities: ["list_agent_ready_tasks"],
-  }), { mode: 0o600 });
+  fs.writeFileSync(
+    discoveryPath,
+    JSON.stringify({
+      schema_version: 1,
+      api_version: "999",
+      origin: "http://127.0.0.1:1",
+      token: "x".repeat(43),
+      capabilities: ["list_agent_ready_tasks"],
+    }),
+    { mode: 0o600 },
+  );
   fs.chmodSync(discoveryPath, 0o600);
   const versionResult = await mcpResult(new TaskenCoreClient({ discoveryPath }), {});
   assert.equal(versionResult.isError, true);
@@ -240,11 +285,17 @@ test("Phase 2: version and auth failures never fall back to the legacy DB contex
   assert.doesNotMatch(JSON.stringify(versionResult.content), /DB_CONSTRUCTOR_SENTINEL/);
 
   const core = createTaskenCore(new FixtureRepository(fixture()));
-  const host = new TaskenCoreHost({ userDataPath: root, listAgentReadyTasks: core.listAgentReadyTasks });
+  const host = new TaskenCoreHost({
+    userDataPath: root,
+    listAgentReadyTasks: core.listAgentReadyTasks,
+  });
   try {
     await host.start();
     const discovery = JSON.parse(fs.readFileSync(discoveryPath, "utf8"));
-    fs.writeFileSync(discoveryPath, JSON.stringify({ ...discovery, token: Buffer.alloc(32, 9).toString("base64url") }));
+    fs.writeFileSync(
+      discoveryPath,
+      JSON.stringify({ ...discovery, token: Buffer.alloc(32, 9).toString("base64url") }),
+    );
     fs.chmodSync(discoveryPath, 0o600);
     const authResult = await mcpResult(new TaskenCoreClient({ discoveryPath }), {});
     assert.equal(authResult.isError, true);
@@ -282,7 +333,10 @@ test("Wave 5: migrated MCP detail tool never opens the legacy context provider",
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   try {
-    const result = await client.callTool({ name: "tasken.get_note", arguments: { note_id: "legacy-note" } });
+    const result = await client.callTool({
+      name: "tasken.get_note",
+      arguments: { note_id: "legacy-note" },
+    });
     assert.equal(result.isError, undefined);
     assert.equal(result.structuredContent.note.id, "core-note");
     assert.equal(legacyCalls, 0);
@@ -294,10 +348,18 @@ test("Wave 5: migrated MCP detail tool never opens the legacy context provider",
 
 test("Phase 2: pure Core client imports under normal Node without SQLite or native modules", () => {
   const nodeExecutable = process.env.TASKEN_NODE_EXEC_PATH || "node";
-  const result = spawnSync(nodeExecutable, ["--input-type=module", "--eval", `
+  const result = spawnSync(
+    nodeExecutable,
+    [
+      "--input-type=module",
+      "--eval",
+      `
     import { TaskenCoreClient } from "./src/main/mcp/taskenCoreClient.mjs";
     if (typeof TaskenCoreClient !== "function") process.exit(2);
-  `], { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, ELECTRON_RUN_AS_NODE: "" } });
+  `,
+    ],
+    { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, ELECTRON_RUN_AS_NODE: "" } },
+  );
   assert.equal(result.status, 0, result.stderr);
   const source = fs.readFileSync("src/main/mcp/taskenCoreClient.mjs", "utf8");
   assert.doesNotMatch(source, /better-sqlite3|readOnlyContext|\.node["']/);
@@ -308,34 +370,44 @@ test("Phase 2: discovery symlinks and malformed credentials are rejected without
   const target = path.join(root, "target.json");
   const link = path.join(root, "tasken-core.json");
   const token = Buffer.alloc(32, 7).toString("base64url");
-  fs.writeFileSync(target, JSON.stringify({
-    schema_version: 1,
-    api_version: "1",
-    origin: "http://127.0.0.1:1",
-    token,
-    capabilities: ["list_agent_ready_tasks"],
-  }), { mode: 0o600 });
+  fs.writeFileSync(
+    target,
+    JSON.stringify({
+      schema_version: 1,
+      api_version: "1",
+      origin: "http://127.0.0.1:1",
+      token,
+      capabilities: ["list_agent_ready_tasks"],
+    }),
+    { mode: 0o600 },
+  );
   fs.symlinkSync(target, link);
   try {
     await assert.rejects(
       new TaskenCoreClient({ discoveryPath: link }).listAgentReadyTasks({}),
-      (error) => error instanceof TaskenCoreClientError
-        && error.code === "INVALID_DISCOVERY"
-        && !error.message.includes(token),
+      (error) =>
+        error instanceof TaskenCoreClientError &&
+        error.code === "INVALID_DISCOVERY" &&
+        !error.message.includes(token),
     );
     fs.rmSync(link);
-    fs.writeFileSync(link, JSON.stringify({
-      schema_version: 1,
-      api_version: "1",
-      origin: "http://127.0.0.1:1",
-      token: "not-base64url",
-      capabilities: ["list_agent_ready_tasks"],
-    }), { mode: 0o600 });
+    fs.writeFileSync(
+      link,
+      JSON.stringify({
+        schema_version: 1,
+        api_version: "1",
+        origin: "http://127.0.0.1:1",
+        token: "not-base64url",
+        capabilities: ["list_agent_ready_tasks"],
+      }),
+      { mode: 0o600 },
+    );
     await assert.rejects(
       new TaskenCoreClient({ discoveryPath: link }).listAgentReadyTasks({}),
-      (error) => error instanceof TaskenCoreClientError
-        && error.code === "INVALID_DISCOVERY"
-        && !error.message.includes("not-base64url"),
+      (error) =>
+        error instanceof TaskenCoreClientError &&
+        error.code === "INVALID_DISCOVERY" &&
+        !error.message.includes("not-base64url"),
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

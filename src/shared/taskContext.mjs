@@ -1,3 +1,4 @@
+import { taskAgentState } from "./agentReadiness.mjs";
 import { publicThemeIntent } from "./themeRef.mjs";
 
 const DEFAULT_INCLUDE = [
@@ -121,6 +122,7 @@ export function publicAssignmentForContext(task, budget) {
     work_started_at: task.work_started_at || null,
     work_reported_at: task.work_reported_at || null,
     work_review_note: takeSafe(task.work_review_note, 2_000) || null,
+    agent_state: taskAgentState(task),
   };
 }
 

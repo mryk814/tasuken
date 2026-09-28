@@ -16,6 +16,7 @@ const readTools = [
   "tasken.get_task_assignment",
   "tasken.get_task_context",
   "tasken.get_note",
+  "tasken.search_notes",
   "tasken.resolve_repository_context",
   "tasken.get_repository_context",
   "tasken.get_theme_context",

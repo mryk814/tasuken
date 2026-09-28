@@ -319,7 +319,19 @@ test("Wave 5 Note detail visibility prefers canonical project_id over legacy the
       updated_at: now,
     },
   );
-  assert.equal(service.getNote({ note_id: "note-canonical-private" }).error?.code, "not_found");
+  const hidden = service.getNote({ note_id: "note-canonical-private" });
+  assert.equal(hidden.error?.code, "not_found");
+  // search_itemsはNoteを検索できないため、Note専用の検索へ案内する。
+  assert.deepEqual(
+    hidden.next_tools.map((entry) => entry.tool),
+    ["tasken.search_notes"],
+  );
+  assert.deepEqual(
+    service
+      .getArtifactMetadata({ artifact_id: "artifact-missing" })
+      .next_tools.map((entry) => entry.tool),
+    ["tasken.get_task_context"],
+  );
   const visible = service.getNote({ note_id: "note-canonical-public" });
   assert.equal(visible.note?.project_id, "theme-visible");
   assert.match(visible.note?.body_markdown || "", /canonical public detail/);

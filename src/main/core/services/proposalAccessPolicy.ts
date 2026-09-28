@@ -4,6 +4,11 @@ import type {
   ProposeRepositoryTaskRequest,
   ProposeRepositoryTaskResponse,
 } from "../../../shared/contracts/task/public.ts";
+import {
+  TASKEN_CORE_PROPOSALS_CONTENT_KINDS,
+  TASKEN_CORE_PROPOSALS_REPOSITORY_TASK_KINDS,
+  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+} from "../../../shared/contracts/core/public.mjs";
 
 /**
  * 配備ごとに許可する書き込みの範囲。
@@ -33,13 +38,24 @@ export class CoreWriteNotAllowedError extends Error {
 }
 
 /** `proposals`モードで許可する読み物・Note案の種類。 */
-const RESTRICTED_CONTENT_KINDS = new Set<ProposeContentRequest["kind"]>([
-  "feed_post",
-  "note_create",
-]);
+const RESTRICTED_CONTENT_KINDS = new Set<string>(TASKEN_CORE_PROPOSALS_CONTENT_KINDS);
 
 /** `proposals`モードで許可するTask案の種類。 */
-const RESTRICTED_TASK_KINDS = new Set<ProposeRepositoryTaskRequest["kind"]>(["task"]);
+const RESTRICTED_TASK_KINDS = new Set<string>(TASKEN_CORE_PROPOSALS_REPOSITORY_TASK_KINDS);
+
+/**
+ * 拒否の詳細。`allowed_kinds`はこの経路（kind）で送れる種類だけを示し、
+ * 別の経路で送れる書き込みは`other_allowed_operations`へ分けて示す。
+ * 文言と詳細を同じ一覧から作り、両者が食い違わないようにする。
+ */
+function refusedContentDetails(kind: string) {
+  return {
+    kind,
+    allowed_kinds: [...RESTRICTED_CONTENT_KINDS],
+    images_allowed: false,
+    other_allowed_operations: [TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY],
+  };
+}
 
 function refusedContentMessage(request: ProposeContentRequest): string {
   if (
@@ -49,11 +65,11 @@ function refusedContentMessage(request: ProposeContentRequest): string {
   ) {
     return "この接続では画像付きNoteを受け付けません。画像のないNote案を送ってください。";
   }
-  return `この接続では${request.kind}のProposalを受け付けません。テキストのFeed投稿・Note案・Task案・Task作業報告だけを送れます。`;
+  return `この接続では${request.kind}のProposalを受け付けません。この経路で送れるのは${[...RESTRICTED_CONTENT_KINDS].join("・")}（画像なし）だけです。Task作業報告は別の経路（${TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY}）で送れます。`;
 }
 
 function refusedTaskMessage(request: ProposeRepositoryTaskRequest): string {
-  return `この接続では${request.kind}のProposalを受け付けません。Task案だけを送れます。`;
+  return `この接続では${request.kind}のProposalを受け付けません。この経路で送れるのは${[...RESTRICTED_TASK_KINDS].join("・")}だけです。`;
 }
 
 /**
@@ -66,20 +82,20 @@ export function restrictContentProposals(
   return {
     execute(request) {
       if (!RESTRICTED_CONTENT_KINDS.has(request.kind)) {
-        throw new CoreWriteNotAllowedError(refusedContentMessage(request), {
-          kind: request.kind,
-          allowed_kinds: [...RESTRICTED_CONTENT_KINDS],
-        });
+        throw new CoreWriteNotAllowedError(
+          refusedContentMessage(request),
+          refusedContentDetails(request.kind),
+        );
       }
       if (
         request.kind === "note_create" &&
         Array.isArray(request.images) &&
         request.images.length > 0
       ) {
-        throw new CoreWriteNotAllowedError(refusedContentMessage(request), {
-          kind: request.kind,
-          allowed_kinds: [...RESTRICTED_CONTENT_KINDS],
-        });
+        throw new CoreWriteNotAllowedError(
+          refusedContentMessage(request),
+          refusedContentDetails(request.kind),
+        );
       }
       return provider.execute(request);
     },

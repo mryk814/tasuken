@@ -44,18 +44,23 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 5. write toolは`ai_proposal`だけを作り、正式データは利用者のPreview/採用後に既存Application Commandへ到達させる。
 6. idempotencyはcaller/source identityとpayloadへ結び、process restart後も同じkeyの重複作成を防ぐ。
 
-## MCP inventory（2026-09 slimming: MCP 21 tools。Coreのquery/commandは全種別を温存）
+## MCP inventory（2026-09 slimming: MCP 21 tools、以後の追加を含め22 tools。Coreのquery/commandは全種別を温存）
 
-### Read 13 / MCP
+### Read 14 / MCP
 
 - Work selection: `search_items`, `list_open_items`, `list_agent_ready_tasks`, `get_task_assignment`
 - Task detail: `get_task_context`, `get_note`
+- Note: `search_notes`
 - Repository: `resolve_repository_context`, `get_repository_context`
 - Agent session: `get_agent_session_context`
 - Theme: `get_theme_context`
 - Feed: `get_feed_context`
 - Proposal: `get_proposal_status`
 - Cross-cutting: `get_activity`
+
+`search_items`・`list_open_items`の`id`は他のtoolへそのまま渡せる正本IDで、移行元の旧Item IDは`legacy_item_id`へ分ける。Taskには`canonical_locator`（`tasken://task/...`）を添え、削除済みの結果は`lifecycle: "archived"`で示す。Noteは`search_items`の対象外で、`search_notes`（Coreの`get_recent_notes`に`query`を足したもの）で探す。
+
+`list_agent_ready_tasks`・`get_task_assignment`・`get_task_context`は、Taskの状態から導出した`agent_state`（`lifecycle`・`ai_ready`・`runnable`・`not_runnable_reasons`）を添える。`work_state`は委任の段階だけを表し削除・完了を含まないため、AIが着手してよいかは`runnable`で判断する。
 
 写真の要約・manifestはCoreのTask Contextが返すが、MCPのPhoto tool（`get_capture_image` / `get_task_image`）は slimmingで廃止した。MCP経由の画像取得は行わない。
 

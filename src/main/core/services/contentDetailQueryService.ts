@@ -52,7 +52,27 @@ function truncate(value: unknown, limit: number) {
   return raw.length <= limit ? raw : `${raw.slice(0, limit)}...`;
 }
 
-function notFound(codeField: string, id: string, label: string) {
+// Noteはsearch_itemsの対象外なので、Note専用の検索へ案内する。
+const NOTE_SEARCH_GUIDANCE = [
+  {
+    tool: "tasken.search_notes",
+    description: "stable IDが不明な場合にAI公開対象のNoteをtitle・本文で検索し直す。",
+  },
+];
+// ConversationとArtifactは検索toolを持たないため、関連Taskのcontextからlocatorを取り直す。
+const RELATED_CONTEXT_GUIDANCE = [
+  {
+    tool: "tasken.get_task_context",
+    description: "関連Taskのcontextに含まれるlocatorからstable IDを確認し直す。",
+  },
+];
+
+function notFound(
+  codeField: string,
+  id: string,
+  label: string,
+  guidance: { tool: string; description: string }[],
+) {
   return {
     error: {
       code: "not_found" as const,
@@ -61,7 +81,7 @@ function notFound(codeField: string, id: string, label: string) {
     },
     read_only: true as const,
     ai_audience: AUDIENCE,
-    next_tools: SEARCH_GUIDANCE,
+    next_tools: guidance,
   };
 }
 
@@ -118,7 +138,7 @@ export class ContentDetailQueryService {
       themes,
       this.port.workspaceAiVisibilityDefault(),
     );
-    if (!filtered.record) return notFound("note_id", noteId, "Note");
+    if (!filtered.record) return notFound("note_id", noteId, "Note", NOTE_SEARCH_GUIDANCE);
 
     const maxTextLength = taskContextLimits(request).maxTextLength;
     const body = text(filtered.record.body_markdown);
@@ -164,7 +184,8 @@ export class ContentDetailQueryService {
       themes,
       this.port.workspaceAiVisibilityDefault(),
     );
-    if (!filtered.record) return notFound("conversation_id", conversationId, "Conversation");
+    if (!filtered.record)
+      return notFound("conversation_id", conversationId, "Conversation", RELATED_CONTEXT_GUIDANCE);
 
     const maxTextLength = taskContextLimits(request).maxTextLength;
     const body = text(filtered.record.body_markdown);
@@ -211,7 +232,8 @@ export class ContentDetailQueryService {
       themes,
       this.port.workspaceAiVisibilityDefault(),
     );
-    if (!filtered.record) return notFound("artifact_id", artifactId, "Artifact");
+    if (!filtered.record)
+      return notFound("artifact_id", artifactId, "Artifact", RELATED_CONTEXT_GUIDANCE);
 
     const budget = new TaskContextTextBudget(taskContextLimits(request).maxTextLength);
     return {

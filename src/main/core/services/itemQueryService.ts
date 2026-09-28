@@ -8,9 +8,14 @@ import {
   type SearchItemsRequest,
   type SearchItemsResponse,
 } from "../../../shared/contracts/task/public.ts";
-import type { ItemQueryReadPort, ItemQueryRecord, ItemQuerySnapshot } from "../ports/itemQueryReadPort.ts";
+import type {
+  ItemQueryReadPort,
+  ItemQueryRecord,
+  ItemQuerySnapshot,
+} from "../ports/itemQueryReadPort.ts";
 import { ItemQueryAiProjectionPolicy } from "../policies/itemQueryAiProjectionPolicy.ts";
 import type { AiAudience } from "../../../shared/aiMetadata.mjs";
+import { formatTaskLocator } from "../../../shared/contracts/mobile/public.mjs";
 
 const DEFAULT_LIMIT = 20;
 const OPEN_ITEM_STATUSES = new Set(["todo", "doing", "waiting", "review", "inbox"]);
@@ -30,9 +35,9 @@ function text(value: unknown) {
 }
 
 function pickAiMetadata(entity: ItemQueryRecord) {
-  return Object.fromEntries(AI_METADATA_KEYS
-    .filter((key) => entity[key] !== undefined)
-    .map((key) => [key, entity[key]]));
+  return Object.fromEntries(
+    AI_METADATA_KEYS.filter((key) => entity[key] !== undefined).map((key) => [key, entity[key]]),
+  );
 }
 
 function locator(entityType: "item" | "task" | "waiting" | "plan_node", entityId: string) {
@@ -47,11 +52,22 @@ function locator(entityType: "item" | "task" | "waiting" | "plan_node", entityId
   return { entity_type: entityType, entity_id: entityId };
 }
 
+/**
+ * 移行済みEntityの共通欄。`id`は他のtoolへ渡せる正本IDにし、旧Item IDは別欄へ残す。
+ * 旧Item IDを`id`に置くと、AIがそれを`get_task_context`へ渡して見つからなくなる。
+ */
+function migratedIdentity(record: ItemQueryRecord) {
+  return {
+    id: text(record.id),
+    ...(record.legacy_item_id ? { legacy_item_id: text(record.legacy_item_id) } : {}),
+    lifecycle: record.deleted_at ? "archived" : "active",
+  };
+}
+
 function projectItems(snapshot: ItemQuerySnapshot): ItemQueryRecord[] {
-  const scheduleMap = new Map(snapshot.schedules.map((schedule) => [
-    `${schedule.owner_type}:${schedule.owner_id}`,
-    schedule,
-  ]));
+  const scheduleMap = new Map(
+    snapshot.schedules.map((schedule) => [`${schedule.owner_type}:${schedule.owner_id}`, schedule]),
+  );
   const migratedLegacyIds = new Set<string>();
   const projected: ItemQueryRecord[] = [];
 
@@ -59,7 +75,8 @@ function projectItems(snapshot: ItemQuerySnapshot): ItemQueryRecord[] {
     if (task.legacy_item_id) migratedLegacyIds.add(String(task.legacy_item_id));
     const schedule = scheduleMap.get(`task:${task.id}`);
     projected.push({
-      id: text(task.legacy_item_id || task.id),
+      ...migratedIdentity(task),
+      canonical_locator: formatTaskLocator(text(task.id)),
       title: task.title,
       kind: "task",
       status: task.state || "todo",
@@ -82,10 +99,15 @@ function projectItems(snapshot: ItemQuerySnapshot): ItemQueryRecord[] {
     if (waiting.legacy_item_id) migratedLegacyIds.add(String(waiting.legacy_item_id));
     const schedule = scheduleMap.get(`waiting:${waiting.id}`);
     projected.push({
-      id: text(waiting.legacy_item_id || waiting.id),
+      ...migratedIdentity(waiting),
       title: waiting.title,
       kind: "waiting",
-      status: waiting.state === "received" ? "done" : waiting.state === "cancelled" ? "cancelled" : "waiting",
+      status:
+        waiting.state === "received"
+          ? "done"
+          : waiting.state === "cancelled"
+            ? "cancelled"
+            : "waiting",
       priority: "normal",
       theme_id: waiting.project_id || null,
       description: waiting.description || "",
@@ -107,7 +129,7 @@ function projectItems(snapshot: ItemQuerySnapshot): ItemQueryRecord[] {
     if (node.legacy_item_id) migratedLegacyIds.add(String(node.legacy_item_id));
     const schedule = scheduleMap.get(`plan_node:${node.id}`);
     projected.push({
-      id: text(node.legacy_item_id || node.id),
+      ...migratedIdentity(node),
       title: node.title,
       kind: node.type === "milestone" ? "milestone" : "period",
       status: node.state === "done" ? "done" : node.state === "cancelled" ? "cancelled" : "todo",
@@ -129,9 +151,14 @@ function projectItems(snapshot: ItemQuerySnapshot): ItemQueryRecord[] {
 
   const legacy: ItemQueryRecord[] = snapshot.items
     .filter((item) => !migratedLegacyIds.has(item.id))
-    .map((item) => ({ ...item, locator: locator("item", item.id) }));
-  return [...legacy, ...projected]
-    .sort((left, right) => text(right.updated_at).localeCompare(text(left.updated_at)));
+    .map((item) => ({
+      ...item,
+      lifecycle: item.deleted_at ? "archived" : "active",
+      locator: locator("item", item.id),
+    }));
+  return [...legacy, ...projected].sort((left, right) =>
+    text(right.updated_at).localeCompare(text(left.updated_at)),
+  );
 }
 
 function itemDate(item: ItemQueryRecord) {
@@ -141,8 +168,9 @@ function itemDate(item: ItemQueryRecord) {
 function queryMatches(item: ItemQueryRecord, query: string | undefined) {
   const normalized = text(query).toLowerCase();
   if (!normalized) return true;
-  return ["title", "description", "next_action", "waiting_for"]
-    .some((field) => text(item[field]).toLowerCase().includes(normalized));
+  return ["title", "description", "next_action", "waiting_for"].some((field) =>
+    text(item[field]).toLowerCase().includes(normalized),
+  );
 }
 
 const SEARCH_NEXT_TOOLS = [
@@ -161,7 +189,10 @@ export class ItemQueryService {
     private readonly projection = new ItemQueryAiProjectionPolicy(),
   ) {}
 
-  searchItems(input: SearchItemsRequest, audience: AiAudience = "coding_agent"): SearchItemsResponse {
+  searchItems(
+    input: SearchItemsRequest,
+    audience: AiAudience = "coding_agent",
+  ): SearchItemsResponse {
     const request = searchItemsRequestSchema.parse(input);
     const snapshot = this.readPort.readItemQuerySnapshot(Boolean(request.include_archived));
     const candidates = projectItems(snapshot)
@@ -187,13 +218,18 @@ export class ItemQueryService {
     });
   }
 
-  listOpenItems(input: ListOpenItemsRequest, audience: AiAudience = "coding_agent"): ListOpenItemsResponse {
+  listOpenItems(
+    input: ListOpenItemsRequest,
+    audience: AiAudience = "coding_agent",
+  ): ListOpenItemsResponse {
     const request = listOpenItemsRequestSchema.parse(input);
     const snapshot = this.readPort.readItemQuerySnapshot(Boolean(request.include_archived));
     const candidates = projectItems(snapshot)
       .filter((item) => OPEN_ITEM_STATUSES.has(text(item.status || "todo")) && !item.deleted_at)
       .filter((item) => !request.theme_id || item.theme_id === request.theme_id)
-      .sort((left, right) => (itemDate(left) || "9999-12-31").localeCompare(itemDate(right) || "9999-12-31"));
+      .sort((left, right) =>
+        (itemDate(left) || "9999-12-31").localeCompare(itemDate(right) || "9999-12-31"),
+      );
     const filtered = this.projection.project(candidates, snapshot, audience);
     const limit = request.limit ?? DEFAULT_LIMIT;
     const items = filtered.records.slice(0, limit);

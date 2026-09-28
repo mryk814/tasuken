@@ -128,7 +128,7 @@ test("Headless Core serves MCP reads without Electron and stops cleanly", async 
 
     client = await connectMcp(userDataPath);
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 21);
+    assert.equal(listed.tools.length, 22);
     const searched = await client.callTool({
       name: "tasken.search_items",
       arguments: { query: "Headless context" },
@@ -193,7 +193,7 @@ test("Headless replica joins a shared-folder sync and serves read-only MCP reads
 
       client = await connectMcp(replicaUserData, { TASKEN_MCP_READ_ONLY: "1" });
       const listed = await client.listTools();
-      assert.ok(listed.tools.length < 21, String(listed.tools.length));
+      assert.ok(listed.tools.length < 22, String(listed.tools.length));
       for (const writeTool of [
         "tasken.start_task_work",
         "tasken.append_work_receipt",
@@ -605,6 +605,14 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
         `${name}: ${JSON.stringify(refused.structuredContent)}`,
       );
       assert.match(String(refused.structuredContent.error.next_action), /許可されていない/u);
+      // 文言と詳細は同じ一覧から作る。作業報告は別経路として分けて示す。
+      assert.deepEqual(refused.structuredContent.error.details.allowed_kinds, [
+        "feed_post",
+        "note_create",
+      ]);
+      assert.deepEqual(refused.structuredContent.error.details.other_allowed_operations, [
+        "propose_task_work",
+      ]);
     }
 
     // 拒否: 直接書き込みはcapabilityごと公開しない。
