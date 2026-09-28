@@ -291,7 +291,7 @@ test("Wave 5 detail/activity are exact across legacy fields, Core, and HTTP (MCP
     );
 
     const missing = await mcpCall(client, "tasken.get_note", { note_id: "missing" });
-    assert.equal(missing.isError, undefined);
+    assert.equal(missing.isError, true);
     assert.equal(missing.structuredContent.error.code, "not_found");
   } finally {
     legacy.close();

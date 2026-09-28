@@ -32,6 +32,12 @@ const DIRECT_WRITE_ANNOTATIONS = {
 const MCP_STDIO_MAX_BUFFER_BYTES = 35 * 1024 * 1024;
 const optionalText = z.string().trim().optional();
 const optionalLimit = z.number().int().positive().max(100).optional();
+const dryRun = z
+  .boolean()
+  .optional()
+  .describe(
+    "When true, Tasken validates the request (schema, what this connection accepts, idempotency conflicts, and the target's current version) without saving anything. The result has status `validated`, would_status (queued or duplicate), and checks. Send again without dry_run and with the same idempotency_key to actually submit.",
+  );
 const noteProposalImages = z
   .array(
     z
@@ -84,10 +90,21 @@ function toolResult(value) {
   };
 }
 
+/**
+ * 見つからない等の結果も`error`を持つ応答として返る。例外で返る失敗と同じく
+ * `isError`を立て、AIが失敗を形の違いから推測しなくてよいようにする。
+ */
+function hasErrorEnvelope(value) {
+  return Boolean(
+    value && typeof value === "object" && value.error && typeof value.error === "object",
+  );
+}
+
 function withCoreClient(handler) {
   return async (args) => {
     try {
-      return toolResult(await handler(args));
+      const value = await handler(args);
+      return hasErrorEnvelope(value) ? { ...toolResult(value), isError: true } : toolResult(value);
     } catch (error) {
       if (!(error instanceof TaskenCoreClientError)) throw error;
       const value = { error: error.toPublicError() };
@@ -133,7 +150,7 @@ export function createTaskenMcpServer(options = {}) {
     {
       instructions: readOnly
         ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed. Call tasken.get_capabilities to confirm what this connection allows."
-        : "Tasken is a local-first work and knowledge app. Call tasken.get_capabilities first to see which reads and writes this connection allows; a listed write tool can still be refused when the Core changed after this server started. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. Every other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content.",
+        : "Tasken is a local-first work and knowledge app. Call tasken.get_capabilities first to see which reads and writes this connection allows; a listed write tool can still be refused when the Core changed after this server started. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. Every other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content. Every Proposal and reading tool accepts dry_run: true to validate without saving. If you lose a Proposal ID, find it with tasken.list_proposals. A result that carries an error object is always marked isError.",
     },
   );
 
@@ -523,6 +540,25 @@ export function createTaskenMcpServer(options = {}) {
   );
 
   server.registerTool(
+    "tasken.list_proposals",
+    {
+      description:
+        "List Proposals received by the node you are connected to, newest first, so you can recover a Proposal ID you lost. Filter by your own source_session, source_app, or caller, and by status (pending means the user has not decided yet). Returns identity and status only, not payload bodies; use tasken.get_proposal_status for one Proposal's outcome. Read-only and limited to this node.",
+      inputSchema: {
+        source_session: z.string().trim().min(1).max(200).optional(),
+        source_app: z.string().trim().min(1).max(120).optional(),
+        caller: z.string().trim().min(1).max(200).optional(),
+        status: z
+          .enum(["pending", "accepted", "rejected", "partially_accepted", "quarantined"])
+          .optional(),
+        limit: optionalLimit,
+      },
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.listProposals(args)),
+  );
+
+  server.registerTool(
     "tasken.get_capabilities",
     {
       description:
@@ -708,6 +744,7 @@ export function createTaskenMcpServer(options = {}) {
     caller: z.string().trim().min(1).max(200).optional(),
     source_session: z.string().trim().min(1).max(200).optional(),
     source_app: z.string().trim().min(1).max(120).optional(),
+    dry_run: dryRun,
   };
   const contentProposalBase = {
     ...contentProposalIdentity,
@@ -724,7 +761,8 @@ export function createTaskenMcpServer(options = {}) {
         : kind === "feed_post" && Array.isArray(args.article?.images)
           ? args.article.images.length
           : 0;
-    if (imageCount > 0 && !args.idempotency_key) {
+    // dry_runは保存しないため、画像の再試行を結び付けるkeyを要求しない。
+    if (imageCount > 0 && !args.idempotency_key && !args.dry_run) {
       throw new TaskenCoreClientError(
         "VALIDATION_FAILED",
         "画像付きのProposalにはidempotency_keyが必要です。再試行でも同じ値を指定してください。",
@@ -776,6 +814,7 @@ export function createTaskenMcpServer(options = {}) {
     reported_at: optionalTimestamp,
     provider: z.string().trim().max(120).optional(),
     model: z.string().trim().max(200).optional(),
+    dry_run: dryRun,
   };
   server.registerTool(
     "tasken.append_work_receipt",
@@ -825,6 +864,7 @@ export function createTaskenMcpServer(options = {}) {
         reported_at: optionalTimestamp,
         provider: z.string().trim().max(120).optional(),
         model: z.string().trim().max(200).optional(),
+        dry_run: dryRun,
       },
       annotations: PROPOSAL_ANNOTATIONS,
     },

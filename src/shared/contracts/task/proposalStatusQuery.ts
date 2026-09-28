@@ -76,5 +76,60 @@ export const proposalStatusResponseSchema = z
   })
   .strict();
 
+/**
+ * 自分が送ったProposalを、受領IDを失っても追えるように一覧で読む。
+ * 本文やpayloadは返さず、状態と送信元の識別だけを返す。
+ */
+export const listProposalsRequestSchema = z
+  .object({
+    source_session: boundedText(200).optional(),
+    source_app: boundedText(120).optional(),
+    caller: boundedText(200).optional(),
+    status: proposalStatusValueSchema.optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+
+const listedProposalSchema = z
+  .object({
+    proposal_id: z.string(),
+    status: proposalStatusValueSchema.nullable(),
+    awaiting_review: z.boolean(),
+    payload_type: z.string(),
+    tool: z.string().nullable(),
+    source_app: z.string().nullable(),
+    caller: z.string().nullable(),
+    source_session: z.string().nullable(),
+    received_at: z.string().nullable(),
+    /** Task作業報告だけが持つ対象Task。 */
+    task_id: z.string().nullable(),
+  })
+  .strict();
+
+export const listProposalsResponseSchema = z
+  .object({
+    schema: z.literal("tasken-proposal-list/v1"),
+    proposals: z.array(listedProposalSchema).max(100),
+    result_meta: z
+      .object({
+        returned_count: z.number().int().nonnegative(),
+        matched_count: z.number().int().nonnegative(),
+        truncated: z.boolean(),
+      })
+      .strict(),
+    view: z
+      .object({
+        canonical_node: z.literal("this_node"),
+        delivery_confirmed: z.literal(false),
+        note: z.string(),
+      })
+      .strict(),
+    next_tools: z.array(z.object({ tool: z.string(), description: z.string() }).strict()).max(4),
+    read_only: z.literal(true),
+  })
+  .strict();
+
 export type ProposalStatusRequest = z.output<typeof proposalStatusRequestSchema>;
 export type ProposalStatusResponse = z.output<typeof proposalStatusResponseSchema>;
+export type ListProposalsRequest = z.output<typeof listProposalsRequestSchema>;
+export type ListProposalsResponse = z.output<typeof listProposalsResponseSchema>;

@@ -379,9 +379,13 @@ export {
   type TaskenUploadImagePlaceholder,
 } from "./contentProposal.ts";
 export {
+  listProposalsRequestSchema,
+  listProposalsResponseSchema,
   proposalStatusRequestSchema,
   proposalStatusResponseSchema,
   proposalStatusValueSchema,
+  type ListProposalsRequest,
+  type ListProposalsResponse,
   type ProposalStatusRequest,
   type ProposalStatusResponse,
 } from "./proposalStatusQuery.ts";

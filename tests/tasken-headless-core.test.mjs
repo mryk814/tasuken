@@ -131,7 +131,7 @@ test("Headless Core serves MCP reads without Electron and stops cleanly", async 
     client = await connectMcp(userDataPath);
     const listed = await client.listTools();
     // 書き込みを公開しないCoreでは、bridgeがwrite可能でも使えない書き込みtoolを並べない。
-    assert.equal(listed.tools.length, 15);
+    assert.equal(listed.tools.length, 16);
     assert.equal(
       listed.tools.some((tool) => /(propose|report|append|start|answer)_/u.test(tool.name)),
       false,

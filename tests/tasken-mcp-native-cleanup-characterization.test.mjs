@@ -24,6 +24,7 @@ const readTools = [
   "tasken.get_activity",
   "tasken.get_feed_context",
   "tasken.get_proposal_status",
+  "tasken.list_proposals",
   "tasken.get_capabilities",
 ];
 const proposalTools = [

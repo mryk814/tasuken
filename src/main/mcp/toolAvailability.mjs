@@ -10,6 +10,7 @@ import {
   TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY,
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
+  TASKEN_CORE_LIST_PROPOSALS_CAPABILITY,
   TASKEN_CORE_PROPOSALS_CONTENT_KINDS,
   TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
@@ -67,6 +68,7 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
     access: "read",
     capability: TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY,
   },
+  "tasken.list_proposals": { access: "read", capability: TASKEN_CORE_LIST_PROPOSALS_CAPABILITY },
   "tasken.get_capabilities": { access: "read", capability: null },
   "tasken.start_task_work": {
     access: "direct_write",

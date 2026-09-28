@@ -28,6 +28,7 @@ export {
 export type { CoreProposalAccess } from "./services/proposalAccessPolicy.ts";
 export { ProposalStatusQueryService } from "./services/proposalStatusQueryService.ts";
 export type {
+  ProposalListRecord,
   ProposalStatusCreatedEntity,
   ProposalStatusProposalRecord,
   ProposalStatusReadPort,

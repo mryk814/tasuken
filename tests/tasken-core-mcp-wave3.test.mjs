@@ -336,7 +336,8 @@ test("MCP Wave 3 get_task_context preserves legacy fields and the empty capture 
       assert.deepEqual(core.getTaskContext.execute(request), expected);
       assert.deepEqual(await client.getTaskContext(request), expected);
       const mcp = await callMcp(client, "tasken.get_task_context", request);
-      assert.equal(mcp.isError, undefined);
+      // errorを持つ応答は、例外による失敗と同じくisErrorで示す。
+      assert.equal(mcp.isError, expected.error ? true : undefined);
       assert.deepEqual(JSON.parse(mcp.content[0].text), expected);
     }
   } finally {

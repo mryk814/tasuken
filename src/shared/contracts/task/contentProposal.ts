@@ -269,6 +269,11 @@ const requestBase = {
   source_session: boundedText(200).optional(),
   source_app: boundedText(120).optional(),
   repository_context: contentProposalRepositoryContextSchema.optional(),
+  /**
+   * trueなら検証だけを行い、Proposalを保存しない。同じ入力で本送信したときの結果を
+   * `would_status`で、正本との食い違いを`checks`で返す。
+   */
+  dry_run: z.boolean().optional(),
 };
 
 export const proposeContentRequestSchema = z
@@ -426,9 +431,17 @@ export const contentProposalPayloadTypeSchema = z.enum([
 export const proposeContentResponseSchema = z
   .object({
     proposal_id: z.string().uuid(),
-    status: z.enum(["queued", "duplicate"]),
+    /** `validated`はdry_runで検証だけを行い、保存していないことを表す。 */
+    status: z.enum(["queued", "duplicate", "validated"]),
     payload_type: contentProposalPayloadTypeSchema,
     message: boundedText(500),
+    /** dry_runの応答だけが持つ。保存していないことを明示する。 */
+    dry_run: z.literal(true).optional(),
+    would_status: z.enum(["queued", "duplicate"]).optional(),
+    checks: z
+      .array(z.object({ code: z.string(), ok: z.boolean(), message: boundedText(500) }).strict())
+      .max(20)
+      .optional(),
   })
   .strict();
 

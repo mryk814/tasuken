@@ -1,4 +1,5 @@
 import type {
+  ProposalListRecord,
   ProposalStatusCreatedEntity,
   ProposalStatusProposalRecord,
   ProposalStatusReadPort,
@@ -99,6 +100,32 @@ export class WorkspaceProposalStatusReadAdapter implements ProposalStatusReadPor
           : null,
       createdEntities: this.findCreatedEntities(proposalId),
     };
+  }
+
+  listProposals(): ProposalListRecord[] {
+    return this.persistence
+      .list("ai_proposal", false)
+      .filter((record) => !record.deleted_at && text(record.id))
+      .map((record) => {
+        const request = isRecord(record.request) ? record.request : {};
+        const payload = isRecord(record.payload) ? record.payload : {};
+        const taskWork = Array.isArray(payload.task_work) ? payload.task_work[0] : null;
+        const rawStatus = text(record.status);
+        return {
+          id: text(record.id),
+          status: PROPOSAL_STATUSES.has(rawStatus as ProposalStatusValue)
+            ? (rawStatus as ProposalStatusValue)
+            : null,
+          payload_type: text(record.payload_type),
+          tool: text(request.tool) || null,
+          source_app: text(record.source_app) || null,
+          caller: text(request.caller) || null,
+          source_session: text(request.source_session) || null,
+          received_at: text(record.received_at) || null,
+          task_id: isRecord(taskWork) ? text(taskWork.task_id) || null : null,
+        };
+      })
+      .sort((left, right) => (right.received_at || "").localeCompare(left.received_at || ""));
   }
 
   /**

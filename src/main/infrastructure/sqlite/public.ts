@@ -130,6 +130,9 @@ export function createTaskenCore(
     knowledge,
     agentContext,
   );
+  const proposalStatus = new ProposalStatusQueryService(
+    new WorkspaceProposalStatusReadAdapter(persistence),
+  );
   return {
     listAgentReadyTasks: new ListAgentReadyTasksService(
       new WorkspaceAgentReadyTaskReadAdapter(persistence),
@@ -166,9 +169,8 @@ export function createTaskenCore(
     getActivity: { execute: agentContext.getActivity.bind(agentContext) },
     getContextSubgraph: { execute: agentContext.getContextSubgraph.bind(agentContext) },
     getFeedContext: new FeedContextQueryService(new WorkspaceFeedContextReadAdapter(persistence)),
-    getProposalStatus: new ProposalStatusQueryService(
-      new WorkspaceProposalStatusReadAdapter(persistence),
-    ),
+    getProposalStatus: proposalStatus,
+    listProposals: { execute: proposalStatus.list.bind(proposalStatus) },
     exportAiContext,
     proposeTaskWork: new ProposeTaskWorkService(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
