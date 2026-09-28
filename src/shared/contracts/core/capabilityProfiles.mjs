@@ -26,15 +26,6 @@ const PROPOSALS_ONLY_CAPABILITIES = Object.freeze([
 ]);
 
 /**
- * `proposals`配備が`propose_content`で受け付ける種類。画像付きNoteは含まない。
- * Coreの拒否とMCP bridgeの公開判定は、どちらもこの一覧を正本にする。
- */
-export const TASKEN_CORE_PROPOSALS_CONTENT_KINDS = Object.freeze(["feed_post", "note_create"]);
-
-/** `proposals`配備が`propose_repository_task`で受け付ける種類。 */
-export const TASKEN_CORE_PROPOSALS_REPOSITORY_TASK_KINDS = Object.freeze(["task"]);
-
-/**
  * @typedef {"full" | "proposals" | "read-only" | "partial"} CoreWriteProfile
  * @typedef {{ profile: CoreWriteProfile, missingWrites: string[] }} CoreWriteProfileResult
  */

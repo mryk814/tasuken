@@ -75,7 +75,7 @@ Proposal・読み物の書き込みtool（`start_task_work`を除く）は`dry_r
 
 MCP bridgeは、`error`オブジェクトを持つ応答（見つからない等）にも例外による失敗と同じく`isError: true`を付ける。
 
-`get_capabilities`は接続中のCoreの書き込み範囲（`write_profile`）、受け付ける書き込みの種類（`writes`）、toolごとの可否と機械可読な理由（`missing_capability:task.command`・`kind_not_allowed:note_edit`・`bridge_read_only`）を返す。判定の正本は`src/main/mcp/toolAvailability.mjs`の要件表で、`proposals`配備の種類は`TASKEN_CORE_PROPOSALS_CONTENT_KINDS`をCoreの拒否と共有する。MCP bridgeは起動時にCoreのcapabilityを一度読み、使えない書き込みtoolを一覧から外す。起動時にCoreへ接続できなかった場合は全toolを登録し（`bridge.filtered_at_startup: false`）、Core側の拒否が最終の境界になる。
+`get_capabilities`は接続中のCoreの書き込み範囲（`write_profile`）、受け付ける書き込みの種類（`writes`）、toolごとの可否と機械可読な理由（`missing_capability:task.command`・`kind_not_allowed:note_edit`・`bridge_read_only`）を返す。判定の正本は`src/main/mcp/toolAvailability.mjs`の要件表で、`proposals`配備の種類は`PROPOSALS_PROFILE_CONTENT_KINDS`（task契約）をCoreの拒否と共有する。MCP bridgeは起動時にCoreのcapabilityを一度読み、使えない書き込みtoolを一覧から外す。起動時にCoreへ接続できなかった場合は全toolを登録し（`bridge.filtered_at_startup: false`）、Core側の拒否が最終の境界になる。
 
 ### Proposal 8 / MCP
 

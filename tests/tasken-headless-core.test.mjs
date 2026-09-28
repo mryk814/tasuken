@@ -659,9 +659,7 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
         "feed_post",
         "note_create",
       ]);
-      assert.deepEqual(refused.structuredContent.error.details.other_allowed_operations, [
-        "propose_task_work",
-      ]);
+      assert.equal(refused.structuredContent.error.details.task_work_allowed, true);
     }
 
     // 拒否: 起動時にCoreを読めず直接開始が一覧に残った場合も、配備の境界として案内する。

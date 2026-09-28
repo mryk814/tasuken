@@ -179,7 +179,6 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, visibility-before-lim
   // idは他のtoolへ渡せる正本ID。旧Item IDはlegacy_item_idへ分ける。
   assert.equal(search.items[0].id, "task-visible");
   assert.equal(search.items[0].legacy_item_id, "legacy-shadowed");
-  assert.equal(search.items[0].canonical_locator, "tasken://task/task-visible");
   assert.equal(search.items[0].lifecycle, "active");
   assert.equal(search.items[0].title, "Needle task");
   assert.equal(search.items[0].planned_end, "2026-08-12");
@@ -291,6 +290,11 @@ test("Wave 4 named HTTP and pure MCP paths expose both capabilities without a na
     const mcpSearch = await callMcp(client, "tasken.search_items", { query: "needle", limit: 1 });
     assert.equal(mcpSearch.isError, undefined);
     assert.equal(mcpSearch.structuredContent.items[0].locator.entity_id, "task-visible");
+    // MCPはTaskにget_task_contextへ渡せるcanonical locatorを添える。
+    assert.equal(
+      mcpSearch.structuredContent.items[0].canonical_locator,
+      "tasken://task/task-visible",
+    );
     assert.equal(mcpSearch.structuredContent.result_meta.truncated, true);
     const mcpOpen = await callMcp(client, "tasken.list_open_items", { limit: 1 });
     assert.equal(mcpOpen.structuredContent.items[0].id, "waiting-open");

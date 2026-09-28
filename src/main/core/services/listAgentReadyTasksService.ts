@@ -1,10 +1,10 @@
 import {
   listAgentReadyTasksRequestSchema,
   listAgentReadyTasksResponseSchema,
+  taskAgentState,
   type ListAgentReadyTasksRequest,
   type ListAgentReadyTasksResponse,
 } from "../../../shared/contracts/task/public.ts";
-import { taskAgentState } from "../../../shared/agentReadiness.mjs";
 import type { AgentReadyTaskReadPort } from "../ports/agentReadyTaskReadPort.ts";
 import { AgentReadyTaskAiProjectionPolicy } from "../policies/agentReadyTaskAiProjectionPolicy.ts";
 

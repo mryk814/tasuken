@@ -6,7 +6,11 @@ import * as z from "zod/v4";
 
 import { localDate } from "../../shared/activityProjection.mjs";
 import { TASKEN_CORE_TASK_COMMAND_CAPABILITY } from "../../shared/contracts/core/public.mjs";
-import { parseCanonicalTaskId, parseTaskLocator } from "../../shared/contracts/mobile/public.mjs";
+import {
+  formatTaskLocator,
+  parseCanonicalTaskId,
+  parseTaskLocator,
+} from "../../shared/contracts/mobile/public.mjs";
 import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
 import { mcpToolAvailability } from "./toolAvailability.mjs";
@@ -113,6 +117,19 @@ function withCoreClient(handler) {
         isError: true,
       };
     }
+  };
+}
+
+/** 検索結果のTaskに、get_task_contextへそのまま渡せるcanonical locatorを添える。 */
+function withTaskLocators(result) {
+  if (!Array.isArray(result?.items)) return result;
+  return {
+    ...result,
+    items: result.items.map((item) =>
+      item?.locator?.entity_type === "task" && parseCanonicalTaskId(item.locator.entity_id)
+        ? { ...item, canonical_locator: formatTaskLocator(item.locator.entity_id) }
+        : item,
+    ),
   };
 }
 
@@ -250,7 +267,7 @@ export function createTaskenMcpServer(options = {}) {
       },
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    withCoreClient((args) => coreClient.searchItems(args)),
+    withCoreClient(async (args) => withTaskLocators(await coreClient.searchItems(args))),
   );
 
   server.registerTool(
@@ -264,7 +281,7 @@ export function createTaskenMcpServer(options = {}) {
       },
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    withCoreClient((args) => coreClient.listOpenItems(args)),
+    withCoreClient(async (args) => withTaskLocators(await coreClient.listOpenItems(args))),
   );
 
   server.registerTool(

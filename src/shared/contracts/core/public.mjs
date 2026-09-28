@@ -40,9 +40,4 @@ export {
 
 export { taskenCoreErrorGuidance, taskenCorePublicError } from "./errors.mjs";
 
-export {
-  TASKEN_CORE_PROPOSALS_CONTENT_KINDS,
-  TASKEN_CORE_PROPOSALS_REPOSITORY_TASK_KINDS,
-  TASKEN_CORE_WRITE_CAPABILITIES,
-  coreWriteProfile,
-} from "./capabilityProfiles.mjs";
+export { TASKEN_CORE_WRITE_CAPABILITIES, coreWriteProfile } from "./capabilityProfiles.mjs";

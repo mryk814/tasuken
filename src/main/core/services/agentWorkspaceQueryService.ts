@@ -34,9 +34,9 @@ import {
   type GetTaskAssignmentResponse,
   type RepositoryLookupRequest,
   type ResolveRepositoryContextResponse,
+  taskAgentState,
 } from "../../../shared/contracts/task/public.ts";
 import { publicAgentSession, publicWorkingCopy } from "../../../shared/agentSession.mjs";
-import { taskAgentState } from "../../../shared/agentReadiness.mjs";
 import { AgentReadyTaskAiProjectionPolicy } from "../policies/agentReadyTaskAiProjectionPolicy.ts";
 import type { AgentWorkspaceReadPort } from "../ports/agentWorkspaceReadPort.ts";
 import {

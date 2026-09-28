@@ -15,7 +15,6 @@ import type {
 } from "../ports/itemQueryReadPort.ts";
 import { ItemQueryAiProjectionPolicy } from "../policies/itemQueryAiProjectionPolicy.ts";
 import type { AiAudience } from "../../../shared/aiMetadata.mjs";
-import { formatTaskLocator } from "../../../shared/contracts/mobile/public.mjs";
 
 const DEFAULT_LIMIT = 20;
 const OPEN_ITEM_STATUSES = new Set(["todo", "doing", "waiting", "review", "inbox"]);
@@ -76,7 +75,6 @@ function projectItems(snapshot: ItemQuerySnapshot): ItemQueryRecord[] {
     const schedule = scheduleMap.get(`task:${task.id}`);
     projected.push({
       ...migratedIdentity(task),
-      canonical_locator: formatTaskLocator(text(task.id)),
       title: task.title,
       kind: "task",
       status: task.state || "todo",

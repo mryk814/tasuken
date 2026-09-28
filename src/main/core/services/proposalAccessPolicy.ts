@@ -1,14 +1,11 @@
-import type {
-  ProposeContentRequest,
-  ProposeContentResponse,
-  ProposeRepositoryTaskRequest,
-  ProposeRepositoryTaskResponse,
-} from "../../../shared/contracts/task/public.ts";
 import {
-  TASKEN_CORE_PROPOSALS_CONTENT_KINDS,
-  TASKEN_CORE_PROPOSALS_REPOSITORY_TASK_KINDS,
-  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
-} from "../../../shared/contracts/core/public.mjs";
+  PROPOSALS_PROFILE_CONTENT_KINDS,
+  PROPOSALS_PROFILE_REPOSITORY_TASK_KINDS,
+  type ProposeContentRequest,
+  type ProposeContentResponse,
+  type ProposeRepositoryTaskRequest,
+  type ProposeRepositoryTaskResponse,
+} from "../../../shared/contracts/task/public.ts";
 
 /**
  * 配備ごとに許可する書き込みの範囲。
@@ -38,14 +35,14 @@ export class CoreWriteNotAllowedError extends Error {
 }
 
 /** `proposals`モードで許可する読み物・Note案の種類。 */
-const RESTRICTED_CONTENT_KINDS = new Set<string>(TASKEN_CORE_PROPOSALS_CONTENT_KINDS);
+const RESTRICTED_CONTENT_KINDS = new Set<string>(PROPOSALS_PROFILE_CONTENT_KINDS);
 
 /** `proposals`モードで許可するTask案の種類。 */
-const RESTRICTED_TASK_KINDS = new Set<string>(TASKEN_CORE_PROPOSALS_REPOSITORY_TASK_KINDS);
+const RESTRICTED_TASK_KINDS = new Set<string>(PROPOSALS_PROFILE_REPOSITORY_TASK_KINDS);
 
 /**
  * 拒否の詳細。`allowed_kinds`はこの経路（kind）で送れる種類だけを示し、
- * 別の経路で送れる書き込みは`other_allowed_operations`へ分けて示す。
+ * Task作業報告は別の経路で送れることを`task_work_allowed`で示す。
  * 文言と詳細を同じ一覧から作り、両者が食い違わないようにする。
  */
 function refusedContentDetails(kind: string) {
@@ -53,7 +50,7 @@ function refusedContentDetails(kind: string) {
     kind,
     allowed_kinds: [...RESTRICTED_CONTENT_KINDS],
     images_allowed: false,
-    other_allowed_operations: [TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY],
+    task_work_allowed: true,
   };
 }
 
@@ -65,7 +62,7 @@ function refusedContentMessage(request: ProposeContentRequest): string {
   ) {
     return "この接続では画像付きNoteを受け付けません。画像のないNote案を送ってください。";
   }
-  return `この接続では${request.kind}のProposalを受け付けません。この経路で送れるのは${[...RESTRICTED_CONTENT_KINDS].join("・")}（画像なし）だけです。Task作業報告は別の経路（${TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY}）で送れます。`;
+  return `この接続では${request.kind}のProposalを受け付けません。この経路で送れるのは${[...RESTRICTED_CONTENT_KINDS].join("・")}（画像なし）だけです。Task作業報告は別の経路（append_work_receipt・report_task_done・report_task_blocked）で送れます。`;
 }
 
 function refusedTaskMessage(request: ProposeRepositoryTaskRequest): string {

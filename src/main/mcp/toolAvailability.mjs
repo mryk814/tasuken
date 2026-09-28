@@ -11,7 +11,6 @@ import {
   TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_PROPOSALS_CAPABILITY,
-  TASKEN_CORE_PROPOSALS_CONTENT_KINDS,
   TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
@@ -20,6 +19,7 @@ import {
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   coreWriteProfile,
 } from "../../shared/contracts/core/public.mjs";
+import { PROPOSALS_PROFILE_CONTENT_KINDS } from "../../shared/contracts/task/public.ts";
 
 /**
  * MCP toolごとに、Coreのどのcapabilityと書き込みの種類を必要とするか。
@@ -109,7 +109,7 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
 });
 
 function contentKindAllowed(profile, kind) {
-  return profile !== "proposals" || TASKEN_CORE_PROPOSALS_CONTENT_KINDS.includes(kind);
+  return profile !== "proposals" || PROPOSALS_PROFILE_CONTENT_KINDS.includes(kind);
 }
 
 /**

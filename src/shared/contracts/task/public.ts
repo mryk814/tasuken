@@ -396,3 +396,8 @@ export {
   taskenMarkdownNonBodyRanges,
   type TaskenMarkdownSourceRange,
 } from "./taskenMarkdownAst.ts";
+export { taskAgentState, type TaskAgentState } from "./agentReadiness.ts";
+export {
+  PROPOSALS_PROFILE_CONTENT_KINDS,
+  PROPOSALS_PROFILE_REPOSITORY_TASK_KINDS,
+} from "./proposalsProfile.ts";
