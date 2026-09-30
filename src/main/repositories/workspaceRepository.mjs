@@ -2366,16 +2366,56 @@ export class WorkspaceDatabase {
     if (typeof workspaceId !== "string" || !workspaceId.trim()) {
       throw new Error("同期先のWorkspace IDが不正です。");
     }
-    this.db
-      .prepare(
-        `
+    this.db.transaction(() => {
+      this.repairSyncWorkspacePackets(workspaceId);
+      this.db
+        .prepare(
+          `
       INSERT INTO workspace_meta(key, value) VALUES('workspace_id', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `,
-      )
-      .run(workspaceId);
+        )
+        .run(workspaceId);
+    })();
     this.workspaceId = workspaceId;
     return workspaceId;
+  }
+
+  repairSyncWorkspacePackets(workspaceId = this.workspaceId) {
+    // 旧版は空の端末の参加時に、自動作成ThemeのOutboxだけ旧Workspaceに残した。
+    // 通常データの所属変更は許さず、Revisionと連番を保ったまま再送する。
+    return this.db.transaction(() => {
+      const rows = this.db
+        .prepare(
+          "SELECT change_id, payload_json FROM sync_outbox WHERE json_extract(payload_json, '$.workspaceId') <> ?",
+        )
+        .all(workspaceId);
+      for (const row of rows) {
+        const packet = JSON.parse(row.payload_json);
+        if (
+          packet.deviceId !== this.deviceId ||
+          packet.entityType !== "theme" ||
+          packet.entityId !== PERSONAL_DEFAULT_THEME_ID ||
+          packet.entity?.id !== PERSONAL_DEFAULT_THEME_ID ||
+          !isPersonalDefaultTheme(packet.entity) ||
+          packet.entity.source !== "system" ||
+          packet.entity.version !== 1 ||
+          packet.entity.deleted_at ||
+          packet.parentRevisionIds?.length !== 0
+        ) {
+          throw new Error(
+            "送信履歴に別のWorkspaceのデータがあります。同期を停止して保存先を確認してください。",
+          );
+        }
+        packet.workspaceId = workspaceId;
+        this.db
+          .prepare(
+            "UPDATE sync_outbox SET payload_json = ?, published_at = NULL WHERE change_id = ?",
+          )
+          .run(JSON.stringify(packet), row.change_id);
+      }
+      return rows.length;
+    })();
   }
 
   applySyncPacket(packet) {

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   countMarkdownImageAttachments,
@@ -38,6 +39,31 @@ function packetFileName(packet) {
   return `${String(packet.deviceSequence).padStart(12, "0")}-${packet.changeId}.json`;
 }
 
+async function publishPacket(filePath, packet, pending) {
+  if (!(await exists(filePath))) {
+    await writeJsonAtomic(filePath, packet);
+    return true;
+  }
+  if (pending) {
+    const existing = await readJson(filePath);
+    // 参加前のWorkspace IDだけを持つ旧版の自端末ファイルを修復する。
+    // 本文・Revision・連番が異なるファイルは上書きしない。
+    if (
+      existing.workspaceId !== packet.workspaceId &&
+      isDeepStrictEqual({ ...existing, workspaceId: packet.workspaceId }, packet)
+    ) {
+      await writeJsonAtomic(filePath, packet);
+      return true;
+    }
+    if (!isDeepStrictEqual(existing, packet)) {
+      throw new Error(
+        "送信済みの同期差分がローカル履歴と一致しません。同期フォルダを確認してください。",
+      );
+    }
+  }
+  return false;
+}
+
 function syncErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -74,6 +100,7 @@ export class SharedFolderSyncService {
     this.waitingImage = null;
     this.healStats = { republished: 0 };
     this.lastReportedError = null;
+    this.checkedWorkspaceId = null;
     // 照合済み画像のstat署名。再起動で消えてよい派生キャッシュ。
     this.verifiedImages = new Map();
   }
@@ -260,6 +287,10 @@ export class SharedFolderSyncService {
   }
 
   async publishPending(directory) {
+    if (this.checkedWorkspaceId !== this.repository.workspaceId) {
+      this.repository.repairSyncWorkspacePackets();
+      this.checkedWorkspaceId = this.repository.workspaceId;
+    }
     const deviceDirectory = path.join(directory, DEVICE_DIRECTORY, this.repository.deviceId);
     await fs.promises.mkdir(deviceDirectory, { recursive: true });
     const present = new Set(
@@ -271,12 +302,12 @@ export class SharedFolderSyncService {
         deviceSequence: header.deviceSequence,
         changeId: header.changeId,
       });
-      if (!present.has(fileName)) {
+      if (!present.has(fileName) || !header.published) {
         const entry = this.repository.syncPacket(header.changeId);
         const filePath = path.join(deviceDirectory, packetFileName(entry.packet));
-        if (!(await exists(filePath))) await writeJsonAtomic(filePath, entry.packet);
+        const written = await publishPacket(filePath, entry.packet, !header.published);
         present.add(path.basename(filePath));
-        republished += 1;
+        if (written) republished += 1;
       }
       if (!header.published) this.repository.markSyncPublished(header.changeId);
     }
@@ -294,13 +325,13 @@ export class SharedFolderSyncService {
     if (manifest.workspaceId !== this.repository.workspaceId) {
       throw new Error("選択した同期フォルダは別のWorkspace用です。");
     }
+    this.repository.repairSyncWorkspacePackets();
     const deviceDirectory = path.join(directory, DEVICE_DIRECTORY, this.repository.deviceId);
     await fs.promises.mkdir(deviceDirectory, { recursive: true });
     let republished = 0;
     for (const entry of this.repository.allSyncPackets()) {
       const filePath = path.join(deviceDirectory, packetFileName(entry.packet));
-      if (!(await exists(filePath))) {
-        await writeJsonAtomic(filePath, entry.packet);
+      if (await publishPacket(filePath, entry.packet, true)) {
         republished += 1;
       }
       this.repository.markSyncPublished(entry.changeId);
