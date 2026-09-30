@@ -92,6 +92,97 @@ test("shared folder sync allows a freshly started device with only the personal 
 
     assert.equal(pair.second.workspaceId, pair.first.workspaceId);
     assert.equal(pair.second.get("task", "task-a").title, "Desktop task");
+    await pair.firstSync.syncNow();
+    pair.second.save("task", task("joined-task", "Created after joining"));
+    await pair.secondSync.syncNow();
+    await pair.firstSync.syncNow();
+    assert.equal(pair.first.get("task", "joined-task").title, "Created after joining");
+  } finally {
+    pair.close();
+  }
+});
+
+for (const recovery of ["automatic", "manual"]) {
+  test(`legacy default-theme packets recover after restart through ${recovery} publication`, async () => {
+    const pair = createPair();
+    let reopened;
+    try {
+      const previousWorkspaceId = pair.second.workspaceId;
+      pair.first.ensurePersonalDefaultTheme();
+      pair.second.ensurePersonalDefaultTheme();
+      pair.first.save("task", task("host-task", "Host task"));
+      await pair.firstSync.configure(pair.shared);
+      await pair.secondSync.configure(pair.shared);
+      const entry = pair.second.allSyncPackets()[0];
+      const legacy = { ...entry.packet, workspaceId: previousWorkspaceId };
+      const filePath = path.join(
+        pair.shared,
+        "devices",
+        pair.second.deviceId,
+        `${String(legacy.deviceSequence).padStart(12, "0")}-${legacy.changeId}.json`,
+      );
+      pair.second.db
+        .prepare("UPDATE sync_outbox SET payload_json = ? WHERE change_id = ?")
+        .run(JSON.stringify(legacy), legacy.changeId);
+      fs.writeFileSync(filePath, JSON.stringify(legacy));
+      pair.second.save("task", task("participant-task", "Participant task"));
+      await assert.rejects(() => pair.firstSync.syncNow(), /別のWorkspaceの同期差分/);
+      assert.equal(pair.first.syncCursor(pair.second.deviceId), 0);
+
+      pair.second.db.close();
+      reopened = new WorkspaceDatabase(path.join(pair.root, "second", "research-desk.sqlite"));
+      const service = new SharedFolderSyncService(reopened);
+      if (recovery === "manual") await service.republishMissing();
+      else await service.syncNow();
+      assert.deepEqual(JSON.parse(fs.readFileSync(filePath, "utf8")), entry.packet);
+      await pair.firstSync.syncNow();
+      assert.equal(pair.first.get("task", "participant-task").title, "Participant task");
+      assert.equal(reopened.get("task", "host-task").title, "Host task");
+      await service.syncNow();
+      assert.equal(service.status().lastAutoRepublished, 0);
+    } finally {
+      reopened?.db.close();
+      pair.close();
+    }
+  });
+}
+
+test("publication preserves a shared packet whose content differs from local history", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "Local content"));
+    await pair.firstSync.configure(pair.shared);
+    const packet = pair.first.allSyncPackets()[0].packet;
+    const filePath = path.join(
+      pair.shared,
+      "devices",
+      pair.first.deviceId,
+      `${String(packet.deviceSequence).padStart(12, "0")}-${packet.changeId}.json`,
+    );
+    const different = { ...packet, entity: { ...packet.entity, title: "Different content" } };
+    fs.writeFileSync(filePath, JSON.stringify(different));
+    await assert.rejects(() => pair.firstSync.republishMissing(), /ローカル履歴と一致しません/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(filePath, "utf8")), different);
+    assert.equal(pair.first.get("task", "task-a").title, "Local content");
+  } finally {
+    pair.close();
+  }
+});
+
+test("foreign ordinary data is neither relabelled nor accepted", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("foreign-task", "Keep private"));
+    const original = pair.first.allSyncPackets()[0].packet;
+    const foreign = { ...original, workspaceId: pair.second.workspaceId };
+    pair.first.db
+      .prepare("UPDATE sync_outbox SET payload_json = ? WHERE change_id = ?")
+      .run(JSON.stringify(foreign), original.changeId);
+    assert.throws(() => pair.first.repairSyncWorkspacePackets(), /別のWorkspaceのデータ/);
+    assert.deepEqual(pair.first.allSyncPackets()[0].packet, foreign);
+    assert.throws(() => pair.second.applySyncPacket(original), /別のWorkspaceの同期差分/);
+    assert.equal(pair.second.get("task", "foreign-task"), null);
+    assert.equal(pair.first.get("task", "foreign-task").title, "Keep private");
   } finally {
     pair.close();
   }
