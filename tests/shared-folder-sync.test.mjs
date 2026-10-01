@@ -793,3 +793,95 @@ test("republishing an identical Work Receipt writes nothing and keeps syncing", 
     pair.close();
   }
 });
+
+function addReplacementDevice(pair) {
+  const root = path.join(pair.root, "replacement");
+  const database = new WorkspaceDatabase(path.join(root, "research-desk.sqlite"));
+  const sync = new SharedFolderSyncService(
+    database,
+    () => {},
+    path.join(root, "attachments", "markdown-images"),
+    path.join(root, "attachments", "capture-images"),
+  );
+  return { database, sync };
+}
+
+/** 作成端末のリセットや同期フォルダの作り直しで、記録が持ち主の端末にしか残らない状態。 */
+test("records whose author directory vanished are relayed to a replacement device", async () => {
+  const pair = createPair();
+  const replacement = addReplacementDevice(pair);
+  try {
+    pair.first.save("task", task("task-desktop", "Desktop task"));
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+    pair.second.save("task", task("task-notebook", "Notebook task"));
+    pair.second.save("task", {
+      ...pair.second.get("task", "task-desktop"),
+      title: "Desktop task edited on notebook",
+    });
+    await pair.secondSync.syncNow();
+    await pair.firstSync.syncNow();
+    assert.equal(pair.first.get("task", "task-notebook").title, "Notebook task");
+
+    // ノート端末をリセットし、その送信履歴も共有フォルダから消えた。
+    pair.second.db.close();
+    fs.rmSync(path.join(pair.shared, "devices", pair.second.deviceId), { recursive: true });
+
+    await pair.firstSync.syncNow();
+    await replacement.sync.configure(pair.shared);
+    assert.equal(replacement.database.get("task", "task-notebook").title, "Notebook task");
+    assert.equal(
+      replacement.database.get("task", "task-desktop").title,
+      "Desktop task edited on notebook",
+    );
+    assert.equal(replacement.database.syncConflictCount(), 0);
+
+    // 中継後の編集は通常の後継Revisionとして戻る。
+    replacement.database.save("task", {
+      ...replacement.database.get("task", "task-notebook"),
+      title: "Edited after reset",
+    });
+    await replacement.sync.syncNow();
+    await pair.firstSync.syncNow();
+    assert.equal(pair.first.get("task", "task-notebook").title, "Edited after reset");
+    assert.equal(pair.first.syncConflictCount(), 0);
+
+    // 中継済みのRevisionは二度送らない。
+    const present = new Set(fs.readdirSync(path.join(pair.shared, "devices")));
+    assert.equal(pair.first.enqueueOrphanSyncRelays(present), 0);
+  } finally {
+    if (replacement.database.db.open) replacement.database.db.close();
+    pair.close();
+  }
+});
+
+test("a relay never overwrites or conflicts with a newer local revision", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "Original"));
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+    pair.second.save("task", { ...pair.second.get("task", "task-a"), title: "Newer on notebook" });
+
+    const result = pair.second.applySyncPacket({
+      format: "tasken-sync-change",
+      formatVersion: 1,
+      workspaceId: pair.first.workspaceId,
+      changeId: "relay-change",
+      revisionId: "stale-revision",
+      parentRevisionIds: [],
+      deviceId: pair.first.deviceId,
+      deviceSequence: 99,
+      entityType: "task",
+      entityId: "task-a",
+      entity: { ...pair.first.get("task", "task-a"), title: "Stale relay" },
+      createdAt: new Date().toISOString(),
+      relay: true,
+    });
+    assert.equal(result.status, "duplicate");
+    assert.equal(pair.second.get("task", "task-a").title, "Newer on notebook");
+    assert.equal(pair.second.syncConflictCount(), 0);
+  } finally {
+    pair.close();
+  }
+});
