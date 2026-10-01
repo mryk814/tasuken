@@ -2269,9 +2269,10 @@ export class WorkspaceDatabase {
           if (entity.device_id !== this.deviceId && availableDeviceIds.has(entity.device_id)) {
             continue;
           }
+          // 受信側では中継端末を送り元とみなし、受け取った中継を再び中継しない。
           this.enqueueSyncEntity(
             type,
-            entity,
+            { ...entity, device_id: this.deviceId },
             ownRevisions.get(`${type}\u0000${entity.id}`) || [],
             head,
           );

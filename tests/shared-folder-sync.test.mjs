@@ -846,9 +846,10 @@ test("records whose author directory vanished are relayed to a replacement devic
     assert.equal(pair.first.get("task", "task-notebook").title, "Edited after reset");
     assert.equal(pair.first.syncConflictCount(), 0);
 
-    // 中継済みのRevisionは二度送らない。
+    // 中継済みのRevisionは二度送らず、受け取った端末も再び中継しない。
     const present = new Set(fs.readdirSync(path.join(pair.shared, "devices")));
     assert.equal(pair.first.enqueueOrphanSyncRelays(present), 0);
+    assert.equal(replacement.database.enqueueOrphanSyncRelays(present), 0);
   } finally {
     if (replacement.database.db.open) replacement.database.db.close();
     pair.close();
