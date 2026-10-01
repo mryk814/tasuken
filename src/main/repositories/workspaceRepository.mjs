@@ -2195,7 +2195,7 @@ export class WorkspaceDatabase {
       .run(type, String(id), revisionId);
   }
 
-  enqueueSyncEntity(type, entity, parentRevisionIds) {
+  enqueueSyncEntity(type, entity, parentRevisionIds, relayRevisionId = "") {
     if (!entity) return null;
     const changeId = uuid();
     const sequence = this.nextSyncSequence();
@@ -2211,7 +2211,7 @@ export class WorkspaceDatabase {
       formatVersion: 1,
       workspaceId: this.workspaceId,
       changeId,
-      revisionId: changeId,
+      revisionId: relayRevisionId || changeId,
       parentRevisionIds: parents,
       deviceId: this.deviceId,
       deviceSequence: sequence,
@@ -2219,6 +2219,7 @@ export class WorkspaceDatabase {
       entityId: entity.id,
       entity,
       createdAt: timestamp,
+      ...(relayRevisionId ? { relay: true } : {}),
     };
     this.db
       .prepare(
@@ -2228,8 +2229,58 @@ export class WorkspaceDatabase {
     `,
       )
       .run(changeId, sequence, JSON.stringify(packet), timestamp);
-    this.setSyncHead(type, entity.id, changeId);
+    if (!relayRevisionId) this.setSyncHead(type, entity.id, changeId);
     return packet;
+  }
+
+  /**
+   * 作成端末の差分が共有フォルダから消えたEntityを、自端末の差分として中継する。
+   * 受信した変更は自端末のOutboxに入らないため、作成端末のリセットや同期フォルダの
+   * 作り直しの後は、記録を持つ端末があっても新しい端末へ届かなかった。
+   * 中継は既存のRevision IDを保ち、親には自端末が公開した同じEntityのRevisionを並べる。
+   * 受信側は欠けているEntityの補充と、親を持つheadの早送りだけに使う。
+   */
+  enqueueOrphanSyncRelays(availableDeviceIds) {
+    return this.db.transaction(() => {
+      const published = new Set();
+      const ownRevisions = new Map();
+      const rows = this.db
+        .prepare(
+          `
+        SELECT
+          json_extract(payload_json, '$.revisionId') AS revision_id,
+          json_extract(payload_json, '$.entityType') AS entity_type,
+          json_extract(payload_json, '$.entityId') AS entity_id
+        FROM sync_outbox
+        ORDER BY device_sequence
+      `,
+        )
+        .all();
+      for (const row of rows) {
+        published.add(row.revision_id);
+        const key = `${row.entity_type}\u0000${row.entity_id}`;
+        ownRevisions.set(key, [...(ownRevisions.get(key) || []), row.revision_id]);
+      }
+      let count = 0;
+      for (const type of workspaceEntityTypes) {
+        for (const entity of this.list(type, true)) {
+          const head = this.syncHead(type, entity.id);
+          if (!head || published.has(head)) continue;
+          if (entity.device_id !== this.deviceId && availableDeviceIds.has(entity.device_id)) {
+            continue;
+          }
+          // 受信側では中継端末を送り元とみなし、受け取った中継を再び中継しない。
+          this.enqueueSyncEntity(
+            type,
+            { ...entity, device_id: this.deviceId },
+            ownRevisions.get(`${type}\u0000${entity.id}`) || [],
+            head,
+          );
+          count += 1;
+        }
+      }
+      return count;
+    })();
   }
 
   ensureSyncBaseline() {
@@ -2447,6 +2498,8 @@ export class WorkspaceDatabase {
         return { status: "duplicate", entity: this.get(type, id, true) };
       const local = this.get(type, id, true);
       const canApply = !local || !currentHead || incomingParents.includes(currentHead);
+      // 中継は欠けた記録の補充用。手元が別系統へ進んでいれば上書きも競合登録もしない。
+      if (!canApply && packet.relay === true) return { status: "duplicate", entity: local };
       if (canApply) {
         // 正本は同じReceiptの後継revisionを公開することがある（Taskの削除→復元など）。
         // 同一内容なら書き込まずheadだけ進め、差分があれば同期取り込みとして適用する。

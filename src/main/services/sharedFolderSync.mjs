@@ -101,6 +101,7 @@ export class SharedFolderSyncService {
     this.healStats = { republished: 0 };
     this.lastReportedError = null;
     this.checkedWorkspaceId = null;
+    this.relayCheckedKey = null;
     // 照合済み画像のstat署名。再起動で消えてよい派生キャッシュ。
     this.verifiedImages = new Map();
   }
@@ -293,6 +294,7 @@ export class SharedFolderSyncService {
     }
     const deviceDirectory = path.join(directory, DEVICE_DIRECTORY, this.repository.deviceId);
     await fs.promises.mkdir(deviceDirectory, { recursive: true });
+    await this.relayOrphanedChanges(directory);
     const present = new Set(
       (await fs.promises.readdir(deviceDirectory)).filter((name) => name.endsWith(".json")),
     );
@@ -314,6 +316,24 @@ export class SharedFolderSyncService {
     this.healStats = { republished };
   }
 
+  /**
+   * 作成端末のディレクトリが消えた記録を中継する。全Entityの走査になるため、
+   * 共有フォルダ内の端末ディレクトリの顔ぶれが変わったときだけ確認する。
+   */
+  async relayOrphanedChanges(directory) {
+    const deviceIds = (
+      await fs.promises.readdir(path.join(directory, DEVICE_DIRECTORY), { withFileTypes: true })
+    )
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+    const key = JSON.stringify([this.repository.workspaceId, deviceIds]);
+    if (key === this.relayCheckedKey) return 0;
+    const relayed = this.repository.enqueueOrphanSyncRelays(new Set(deviceIds));
+    this.relayCheckedKey = key;
+    return relayed;
+  }
+
   async republishMissing(directoryValue) {
     const directory =
       typeof directoryValue === "string" && directoryValue
@@ -328,6 +348,8 @@ export class SharedFolderSyncService {
     this.repository.repairSyncWorkspacePackets();
     const deviceDirectory = path.join(directory, DEVICE_DIRECTORY, this.repository.deviceId);
     await fs.promises.mkdir(deviceDirectory, { recursive: true });
+    this.relayCheckedKey = null;
+    await this.relayOrphanedChanges(directory);
     let republished = 0;
     for (const entry of this.repository.allSyncPackets()) {
       const filePath = path.join(deviceDirectory, packetFileName(entry.packet));
