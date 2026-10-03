@@ -443,7 +443,14 @@ try {
   });
   await assertWorkLogDateRollover();
   await page.getByRole("button", { name: "Debrief", exact: true }).click();
-  const activityDate = page.getByLabel("Activity対象日");
+  const taskenActivity = page.locator("details").filter({
+    has: page.locator("summary").filter({ hasText: /^TaskenのActivity$/ }),
+  });
+  await taskenActivity.waitFor({ state: "visible" });
+  if (!(await taskenActivity.evaluate((details) => details.open))) {
+    await taskenActivity.locator("summary").click();
+  }
+  const activityDate = taskenActivity.getByLabel("Activity対象日");
   await activityDate.waitFor();
   await activityDate.fill("2026-08-28");
   await page.locator(".activity-calendar-event").first().waitFor({ timeout: 15_000 });
