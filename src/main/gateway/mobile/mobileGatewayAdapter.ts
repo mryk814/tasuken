@@ -72,6 +72,7 @@ import {
   type MobileThemeCatalogItem,
   type MobileWorkLog,
   type MobileWorkLogCommandRequest,
+  type MobileTodayResponse,
 } from "../../../shared/contracts/mobile/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -250,6 +251,7 @@ export interface MobileGatewayCorePort {
     input: MobileRelatedDocumentRequest,
   ): Promise<MobileRelatedDocumentData> | MobileRelatedDocumentData;
   queryActivity?(input: MobileActivityRequest): Promise<MobileActivityData> | MobileActivityData;
+  queryAgentSessions?(date: string): NonNullable<MobileTodayResponse["data"]["agentSessions"]>;
   executeWorkLogCommand?(
     input: MobileGatewayWorkLogCommand,
   ): Promise<MobileGatewayWorkLogCommandResult> | MobileGatewayWorkLogCommandResult;
@@ -1141,6 +1143,8 @@ export class MobileGatewayAdapter {
 
       const today =
         request.path === TASKEN_MOBILE_ENDPOINTS.today ? this.parseTodayQuery(request.query) : null;
+      if (today?.includeAgentSessions && !request.principal.scopes.includes("mobile:context-read"))
+        return this.error(meta, "forbidden");
       const activity =
         request.path === TASKEN_MOBILE_ENDPOINTS.activity
           ? mobileActivityRequestSchema.safeParse({
@@ -1442,14 +1446,21 @@ export class MobileGatewayAdapter {
         if (!result.ok) return this.taskError(meta, result.error);
         if (result.value.name !== "ListTodayTasks")
           throw new Error("Unexpected Task query outcome");
+        const agentSessions = today!.includeAgentSessions
+          ? this.options.core.queryAgentSessions?.(today!.date)
+          : undefined;
         return this.success(
           mobileTodayResponseSchema.parse({
             ok: true,
-            meta,
+            meta: {
+              ...meta,
+              truncated: meta.truncated || Boolean(agentSessions && agentSessions.length > 20),
+            },
             data: {
               date: result.value.date,
               items: result.value.items.map((task) => projectTask(task)),
               nextCursor: result.value.next_cursor,
+              ...(agentSessions ? { agentSessions: agentSessions.slice(0, 20) } : {}),
             },
           }),
         );
@@ -1989,7 +2000,15 @@ export class MobileGatewayAdapter {
     const keys = Object.keys(values);
     if (
       keys.some(
-        (key) => !["apiVersion", "schemaVersion", "requestId", "date", "limit"].includes(key),
+        (key) =>
+          ![
+            "apiVersion",
+            "schemaVersion",
+            "requestId",
+            "date",
+            "limit",
+            "includeAgentSessions",
+          ].includes(key),
       )
     )
       return null;
@@ -2002,6 +2021,16 @@ export class MobileGatewayAdapter {
       requestId: values.requestId,
       date: values.date,
       ...(limit === undefined ? {} : { limit }),
+      ...(values.includeAgentSessions === undefined
+        ? {}
+        : {
+            includeAgentSessions:
+              values.includeAgentSessions === "true"
+                ? true
+                : values.includeAgentSessions === "false"
+                  ? false
+                  : values.includeAgentSessions,
+          }),
     });
     return parsed.success ? parsed.data : null;
   }

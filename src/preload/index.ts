@@ -29,6 +29,10 @@ const api: ResearchDeskApi = {
     revokeDevice: (deviceId) => ipcRenderer.invoke(IPC.mobileGatewayRevokeDevice, deviceId),
   },
   task: createTaskPreloadCapability(),
+  agentWorkLogs: {
+    import: (raw, repositoryContextIds) =>
+      ipcRenderer.invoke(IPC.agentWorkLogImport, raw, repositoryContextIds),
+  },
   activity: {
     getCanonicalRootStatus: () => ipcRenderer.invoke(IPC.activityCanonicalRootStatus),
     openCanonicalRef: (ref) => ipcRenderer.invoke(IPC.activityOpenCanonicalRef, ref),

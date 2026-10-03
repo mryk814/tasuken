@@ -213,6 +213,58 @@ function todayQuery(overrides = {}) {
   };
 }
 
+test("Today AgentSession details are opt-in, context-scoped and bounded without changing old responses", async () => {
+  const { service } = capability();
+  const golden = JSON.parse(
+    readFileSync(
+      new URL("../contracts/mobile/v1/today-agent-sessions.golden.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(mobileTodayResponseSchema.parse(golden).data.agentSessions[0].status, "unknown");
+  let calls = 0;
+  const adapter = gateway(service, {
+    queryAgentSessions: (date) => {
+      assert.equal(date, "2026-08-21");
+      calls++;
+      return Array.from({ length: 21 }, (_, index) => ({
+        ...golden.data.agentSessions[0],
+        id: `session-${index}`,
+      }));
+    },
+  });
+  const request = {
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.today,
+    principal,
+    query: todayQuery(),
+  };
+  const old = await adapter.handle(request);
+  assert.equal(old.status, 200);
+  assert.equal(old.body.data.agentSessions, undefined);
+  assert.equal(calls, 0);
+  const selected = await adapter.handle({
+    ...request,
+    query: todayQuery({ includeAgentSessions: "true" }),
+  });
+  assert.equal(selected.status, 200);
+  assert.equal(selected.body.data.agentSessions.length, 20);
+  assert.equal(selected.body.meta.truncated, true);
+  const forbidden = await adapter.handle({
+    ...request,
+    principal: { ...principal, scopes: ["mobile:read"] },
+    query: todayQuery({ includeAgentSessions: "true" }),
+  });
+  assert.equal(forbidden.status, 403);
+  assert.equal(calls, 1);
+  const malformed = await adapter.handle({
+    ...request,
+    query: todayQuery({ includeAgentSessions: "yes" }),
+  });
+  assert.equal(malformed.status, 400);
+  assert.equal(calls, 1);
+});
+
 function createRequest(overrides = {}) {
   return {
     apiVersion: 1,

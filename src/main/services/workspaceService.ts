@@ -65,6 +65,11 @@ import type {
 } from "../../shared/ipc/contracts";
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
 import { coreWriteProfile } from "../../shared/contracts/core/public.mjs";
+import { parseAgentWorkLog } from "../../shared/agentWorkLogImport";
+import type {
+  ProposeAgentSessionRequest,
+  ProposeAgentSessionResponse,
+} from "../../shared/contracts/task/public";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import {
   validateMermaidPptxDiagram,
@@ -765,6 +770,7 @@ export class WorkspaceService {
   private readonly conversationContextRecoveryDirectory: string;
   private readonly proposalMarkdownImages: ProposalMarkdownImageStore;
   private readonly taskenCoreClient?: {
+    proposeAgentSession?(request: ProposeAgentSessionRequest): Promise<ProposeAgentSessionResponse>;
     getTaskContext(request: { task_id: string }): Promise<unknown>;
     getThemeContext(request: { theme_id: string }): Promise<unknown>;
     inspect(): Promise<{ api_version: string; capabilities: string[] }>;
@@ -774,6 +780,9 @@ export class WorkspaceService {
     private readonly userDataPath: string,
     private readonly now: () => string = () => new Date().toISOString(),
     taskenCoreClient?: {
+      proposeAgentSession?(
+        request: ProposeAgentSessionRequest,
+      ): Promise<ProposeAgentSessionResponse>;
       getTaskContext(request: { task_id: string }): Promise<unknown>;
       getThemeContext(request: { theme_id: string }): Promise<unknown>;
       inspect(): Promise<{ api_version: string; capabilities: string[] }>;
@@ -3651,10 +3660,33 @@ export class WorkspaceService {
     }
   }
 
-  /**
-   * アプリ内ビューア用にローカルファイルを読む。
-   * 画像は data URL、Markdown/テキストは UTF-8 本文。URL や巨大ファイルは拒否する。
-   */
+  /** User-selected, redacted text becomes a proposal through the existing Core. */
+  async importAgentWorkLog(raw: string, repositoryContextIds: string[]) {
+    const imported = parseAgentWorkLog(raw);
+    if (
+      !Array.isArray(repositoryContextIds) ||
+      repositoryContextIds.length > 1 ||
+      repositoryContextIds.some(
+        (id) => typeof id !== "string" || !this.repository.get("repository_context", id),
+      )
+    )
+      throw new Error("関連Repositoryを選び直してください。");
+    if (!this.taskenCoreClient?.proposeAgentSession)
+      throw new Error("取込受付に接続できません。Taskenを再起動してお試しください。");
+    const request: ProposeAgentSessionRequest = {
+      ...imported,
+      action: "capture",
+      idempotency_key: `file-v1:${createHash("sha256").update(JSON.stringify({ imported, repositoryContextIds })).digest("hex")}`,
+      caller: "Tasken file ingestion",
+      source: "mcp",
+      source_app: `tasken-session-hook:${imported.client_kind}`,
+      actor: { kind: "ai_agent" },
+      repository_context_ids: repositoryContextIds,
+    };
+    return this.taskenCoreClient.proposeAgentSession(request);
+  }
+
+  /** アプリ内ビューア用にローカルの画像・Markdown・テキストを読む。 */
   readFilePreview(filePathValue: unknown): FilePreviewReadResult {
     if (typeof filePathValue !== "string" || !filePathValue.trim()) {
       return { ok: false, error: "プレビューするファイルの場所がありません。" };

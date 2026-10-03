@@ -23,11 +23,30 @@ const relationTargets = {
 };
 
 const clientMetadata = {
-  client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]),
+  client_kind: z.enum([
+    "codex",
+    "claude_code",
+    "cursor",
+    "github_copilot",
+    "opencode",
+    "deepseek_harness",
+    "other",
+  ]),
   client_label: z.string().trim().max(200).optional(),
   agent_label: z.string().trim().max(200).optional(),
   provider_label: z.string().trim().max(200).optional(),
   model_label: z.string().trim().max(200).optional(),
+  observation: z
+    .object({
+      schema_version: z.literal(1),
+      adapter: text(120),
+      client_version: text(120),
+      coverage: z.enum(["complete", "partial"]),
+      observed_until: timestamp,
+      mode: z.literal("history"),
+    })
+    .strict()
+    .optional(),
 };
 
 const intent = z
@@ -54,6 +73,7 @@ const requestEvents = z
     z
       .object({
         observed_at: timestamp,
+        event_id: text(200).optional(),
         text: text(4000),
       })
       .strict(),
@@ -66,6 +86,7 @@ const responseCheckpoints = z
     z
       .object({
         observed_at: timestamp,
+        event_id: text(200).optional(),
         text: text(8000),
       })
       .strict(),
@@ -93,7 +114,7 @@ export const proposeAgentSessionRequestSchema = z.discriminatedUnion("action", [
       agent_session_id: z.string().uuid(),
       expected_version: z.number().int().positive(),
       ended_at: timestamp,
-      status: z.enum(["completed", "blocked", "abandoned"]),
+      status: z.enum(["completed", "blocked", "abandoned", "unknown", "interrupted"]),
       outcome,
     })
     .strict(),
@@ -104,7 +125,7 @@ export const proposeAgentSessionRequestSchema = z.discriminatedUnion("action", [
       action: z.literal("capture"),
       started_at: timestamp,
       ended_at: timestamp,
-      status: z.enum(["completed", "blocked", "abandoned"]),
+      status: z.enum(["completed", "blocked", "abandoned", "unknown", "interrupted"]),
       ...clientMetadata,
       request_events: requestEvents,
       response_checkpoints: responseCheckpoints,

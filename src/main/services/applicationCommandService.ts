@@ -3290,7 +3290,9 @@ export class ApplicationCommandService {
           const isCapturedTerminalRecord = capturedAgentSessionIds.has(candidateEntity.id);
           if (isCapturedTerminalRecord) {
             if (
-              !["completed", "blocked", "abandoned"].includes(String(candidateEntity.status)) ||
+              !["completed", "blocked", "abandoned", "unknown", "interrupted"].includes(
+                String(candidateEntity.status),
+              ) ||
               !candidateEntity.ended_at ||
               !candidateEntity.outcome
             ) {
@@ -3336,7 +3338,9 @@ export class ApplicationCommandService {
           }
           if (
             before.status !== "active" ||
-            !["completed", "blocked", "abandoned"].includes(String(candidateEntity.status))
+            !["completed", "blocked", "abandoned", "unknown", "interrupted"].includes(
+              String(candidateEntity.status),
+            )
           ) {
             throw new ApplicationCommandError(
               "INVALID_TRANSITION",

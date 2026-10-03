@@ -1,4 +1,5 @@
 import { TaskenCoreHost } from "../infrastructure/http/taskenCoreHost.ts";
+import { entityIdSchema } from "../../shared/kernel/public.ts";
 import { createMobileActivityReadPort } from "./mobileActivityReadPort.ts";
 import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentReadPort.ts";
 import { createMobileThemeContextReadPort } from "./mobileThemeContextReadPort.ts";
@@ -199,6 +200,9 @@ export class TaskenCoreRuntime {
   private readonly persistence: CorePersistence;
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
   private readonly taskContext: ReturnType<typeof createTaskenCore>["getTaskContext"];
+  private readonly agentSessionContext: ReturnType<
+    typeof createTaskenCore
+  >["getAgentSessionContext"];
   private readonly executeTaskDelegation?: (
     command: unknown,
     currentContextFingerprint: () => string,
@@ -237,6 +241,7 @@ export class TaskenCoreRuntime {
       captureImagePort: this.captureImagePort,
     });
     this.taskContext = core.getTaskContext;
+    this.agentSessionContext = core.getAgentSessionContext;
     this.executeTaskDelegation = executeTaskDelegation;
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
     this.host = new TaskenCoreHost({
@@ -311,6 +316,22 @@ export class TaskenCoreRuntime {
       getCaptureOrganizer,
       core: {
         queryActivity: createMobileActivityReadPort(this.persistence),
+        queryAgentSessions: (date) =>
+          this.agentSessionContext
+            .execute({ date, limit: 21, source_session: "tasken-mobile-today" })
+            .sessions.map((session) => ({
+              id: entityIdSchema.parse(session.id),
+              sourceSessionId: session.source_session_id,
+              clientKind: session.client_kind,
+              startedAt: session.started_at,
+              endedAt: session.ended_at,
+              status: session.status,
+              intent: session.intent.summary,
+              outcome: session.outcome?.summary || null,
+              remainingWork: Array.isArray(session.outcome?.remaining_work)
+                ? (session.outcome.remaining_work as string[])
+                : [],
+            })),
         ...createMobileRelatedDocumentReadPort(this.persistence),
         getThemeContext: createMobileThemeContextReadPort(this.persistence),
         ...createMobileWorkLogPort(this.persistence, this.workLogWriter),

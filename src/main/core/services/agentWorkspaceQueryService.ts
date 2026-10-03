@@ -401,7 +401,18 @@ export class AgentWorkspaceQueryService {
       .listAgentSessions(false)
       .filter((session) => globalDaily || relatedSessionIds.has(session.id))
       .filter(
-        (session) => !request.date || localDate(session.started_at, timezone) === request.date,
+        (session) =>
+          !request.date ||
+          (localDate(session.started_at, timezone) <= request.date &&
+            localDate(
+              new Date(
+                Math.max(
+                  Date.parse(String(session.started_at)),
+                  Date.parse(String(session.ended_at || new Date().toISOString())) - 1,
+                ),
+              ).toISOString(),
+              timezone,
+            ) >= request.date),
       )
       .filter((session) => !globalDaily || dailySessionIsVisible(session))
       .filter((session) => !request.client_kind || session.client_kind === request.client_kind)

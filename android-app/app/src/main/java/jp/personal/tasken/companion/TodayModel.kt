@@ -337,7 +337,7 @@ data class MobileTaskConflict(
 )
 
 sealed interface MobileTodayResult {
-    data class Available(val tasks: List<MobileTask>, val generatedAt: String) : MobileTodayResult
+    data class Available(val tasks: List<MobileTask>, val generatedAt: String, val agentSessions: List<MobileAgentSessionDto> = emptyList(), val agentSessionsUnavailable: Boolean = false) : MobileTodayResult
     data class Unavailable(val message: String, val recovery: String) : MobileTodayResult
     data class PairingRequired(val origin: String = "", val message: String = "") : MobileTodayResult
 }
@@ -423,6 +423,10 @@ class TodayViewModel(
         }
     private val mutableUiState = MutableStateFlow<TodayUiState>(TodayUiState.Loading)
     val uiState: StateFlow<TodayUiState> = mutableUiState.asStateFlow()
+    private val mutableAgentSessions = MutableStateFlow<List<MobileAgentSessionDto>>(emptyList())
+    val agentSessions: StateFlow<List<MobileAgentSessionDto>> = mutableAgentSessions.asStateFlow()
+    private val mutableAgentSessionsUnavailable = MutableStateFlow(false)
+    val agentSessionsUnavailable: StateFlow<Boolean> = mutableAgentSessionsUnavailable.asStateFlow()
     private val mutableRefreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = mutableRefreshing.asStateFlow()
     private val mutableCaptureState = MutableStateFlow<CaptureUiState>(CaptureUiState.Idle)
@@ -563,6 +567,7 @@ class TodayViewModel(
         }
         val result = withContext(ioDispatcher) { repository.loadToday() }
         if (generation != connectionGeneration.get() || pairingFormOpen) return
+        updateAgentSessions(result)
         val gatewayConfiguration = (repository as? MobileGatewayRepository)?.configuration()
         mutableHumanReviewOnline.value = result is MobileTodayResult.Available &&
             gatewayConfiguration?.canReviewWorkReceipts() == true
@@ -1457,7 +1462,13 @@ class TodayViewModel(
         mutableCaptureState.value = CaptureUiState.Idle
     }
 
+    private fun updateAgentSessions(result: MobileTodayResult) {
+        mutableAgentSessions.value = (result as? MobileTodayResult.Available)?.agentSessions.orEmpty()
+        mutableAgentSessionsUnavailable.value = (result as? MobileTodayResult.Available)?.agentSessionsUnavailable ?: false
+    }
+
     private fun applyResult(result: MobileTodayResult) {
+        updateAgentSessions(result)
         mutableUiState.value = when (result) {
             is MobileTodayResult.Available -> if (result.tasks.isEmpty()) {
                 TodayUiState.Empty

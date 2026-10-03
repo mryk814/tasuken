@@ -153,7 +153,7 @@ test("daily report request limits AI to proposal and leaves answers for human re
   assert.doesNotMatch(request, /tasken\.(?:create|save|update)_note/);
 });
 
-test("Daily Debrief removes duplicate source sessions and flags empty task work", () => {
+test("Daily Debrief preserves resumed generations of one source session and flags empty task work", () => {
   const base = domainFixture();
   const session = base.agent_sessions[0];
   const duplicated = {
@@ -167,7 +167,7 @@ test("Daily Debrief removes duplicate source sessions and flags empty task work"
   const evidence = buildDailyDebriefEvidence(duplicated, "2026-08-25");
   assert.equal(
     evidence.filter((entry) => entry.sourceSessionId === session.source_session_id).length,
-    1,
+    2,
   );
 
   const startedAt = new Date(2026, 7, 25, 10).toISOString();

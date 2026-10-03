@@ -183,6 +183,9 @@ export const workspaceApi = {
   readFilePreview(filePath: string) {
     return desktopApi().files.readPreview(filePath);
   },
+  importAgentWorkLog(raw: string, repositoryContextIds: string[]) {
+    return desktopApi().agentWorkLogs.import(raw, repositoryContextIds);
+  },
   pathForFile(file: File) {
     return desktopApi().files.pathForFile(file);
   },
