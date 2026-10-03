@@ -6,10 +6,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 
 @Serializable data class RelatedReason(val predicate: String, val direction: String)
-@Serializable data class RelatedSummary(val type: String, val id: String, val title: String, val version: Int?, val status: String, val reasons: List<RelatedReason>)
+@Serializable data class RelatedSummary(val type: String, val id: String, val title: String, val version: Int?, val status: String, val reasons: List<RelatedReason>, val aiOrigin: MobileAiOrigin? = null)
 @Serializable data class RelatedListData(val taskId: String, val status: String, val documents: List<RelatedSummary>, val nextCursor: String?)
 @Serializable data class RelatedListResponse(val ok: Boolean, val meta: MobileResponseMetaDto, val data: RelatedListData)
-@Serializable data class RelatedBody(val title: String, val version: Int, val body: String, val totalCharacters: Int, val truncated: Boolean)
+@Serializable data class RelatedBody(val title: String, val version: Int, val body: String, val totalCharacters: Int, val truncated: Boolean, val aiOrigin: MobileAiOrigin? = null)
 @Serializable data class RelatedBodyData(val taskId: String, val type: String, val id: String, val status: String, val document: RelatedBody?)
 @Serializable data class RelatedBodyResponse(val ok: Boolean, val meta: MobileResponseMetaDto, val data: RelatedBodyData)
 @Serializable data class CachedRelatedBody(val type: String, val id: String, val document: RelatedBody, val fetchedAt: String)

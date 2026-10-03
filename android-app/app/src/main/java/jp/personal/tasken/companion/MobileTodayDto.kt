@@ -49,7 +49,18 @@ data class MobileTaskSummaryDto(
     val updatedAt: String,
     val description: String? = null,
     val images: List<MobileTaskImageSummaryDto> = emptyList(),
+    val aiOrigin: MobileAiOrigin? = null,
 )
+
+@Serializable
+data class MobileAiOrigin(val caller: String, val receivedAt: String, val seenAt: String? = null)
+
+internal fun validateMobileAiOrigin(origin: MobileAiOrigin?) {
+    if (origin == null) return
+    require(origin.caller.trim().length in 1..200 && origin.caller == origin.caller.trim())
+    OffsetDateTime.parse(origin.receivedAt)
+    origin.seenAt?.let { OffsetDateTime.parse(it) }
+}
 
 @Serializable
 data class MobileTaskImageSummaryDto(
@@ -142,6 +153,7 @@ object MobileTodayContract {
             requireContract(item.version > 0, "Invalid Task version.")
             requireContract(item.title.trim().isNotEmpty() && item.title.length <= 500, "Invalid Task title.")
             requireContract(item.description == null || item.description.length <= 50000, "Invalid Task description.")
+            validateMobileAiOrigin(item.aiOrigin)
             requireContract(item.themeId == null || isEntityId(item.themeId), "Invalid Theme ID.")
             requireContract(item.state in taskStates, "Invalid Task state.")
             requireContract(item.workState == null || item.workState in workStates, "Invalid work state.")

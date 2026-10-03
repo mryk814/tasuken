@@ -38,9 +38,10 @@ Options:
   --db-path          SQLite本体のパス。省略時はTASKEN_DB_PATH、または<userData>/research-desk.sqlite。
   --sync-directory   既存の共有フォルダ同期へreplicaとして参加する。省略時はTASKEN_SYNC_DIRECTORY。
                      参加できるのは空のnodeだけ。MCPはTASKEN_MCP_READ_ONLY=1で動かす。
-  --write-mode       受け付ける書き込みの範囲。read-only（既定）またはproposals。
+  --write-mode       受け付ける書き込みの範囲。read-only（既定）・proposals・create-only。
                      省略時はTASKEN_CORE_WRITE_MODE。proposalsではテキストのFeed投稿・
                      Note案・Task案・Task作業報告だけを受け付け、Core自身が許可範囲を強制する。
+                     create-onlyでは上記に本人用Task/Note新規作成だけを追加する。
                      直接開始（start_task_work）は公開しない。
   -h, --help         このhelpを表示する。
 
@@ -74,7 +75,7 @@ export function parseTaskenHeadlessCoreArgs(
   );
   if (writeModeOption !== undefined && writeMode !== writeModeOption.trim().toLowerCase()) {
     throw new TaskenHeadlessCoreUsageError(
-      "--write-modeにはread-onlyまたはproposalsを指定してください。",
+      "--write-modeにはread-only・proposals・create-onlyを指定してください。",
     );
   }
   if (userDataPath !== undefined && !userDataPath.trim()) {

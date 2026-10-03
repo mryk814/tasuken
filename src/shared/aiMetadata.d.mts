@@ -10,11 +10,7 @@ export type AiVisibilityPreset =
 export type AiFreshness = "current" | "stale" | "superseded" | "unknown";
 
 export type AiAuthority =
-  | "user_confirmed"
-  | "imported"
-  | "ai_generated"
-  | "inferred"
-  | "external_source";
+  "user_confirmed" | "imported" | "ai_generated" | "inferred" | "external_source";
 
 export type AiSummaryAuthority = "user_confirmed" | "rule_generated" | "ai_generated" | "excerpt";
 
@@ -44,6 +40,8 @@ export interface AiEntityRef {
 
 /** Entityへ保存する共通metadata。未設定はnull、明示的な「ローカルのみ」は空配列。 */
 export interface AiMetadataFields {
+  ai_creation?: Record<string, unknown> | null;
+  ai_seen_at?: string | null;
   ai_summary: string | null;
   ai_summary_authority: AiSummaryAuthority | null;
   ai_freshness: AiFreshness | null;
@@ -106,7 +104,10 @@ export function aiVisibilityPresetOf(audiences: unknown): AiVisibilityPreset | n
 export function normalizeAiMetadata(type: string, input: unknown): Partial<AiMetadataFields>;
 export function aiEntityBodyText(type: string, entity: unknown): string;
 
-export function resolveAiSummary(type: string, entity: unknown): {
+export function resolveAiSummary(
+  type: string,
+  entity: unknown,
+): {
   summary: string;
   authority: AiSummaryAuthority | null;
   origin: "explicit" | "derived" | "missing";
@@ -118,7 +119,10 @@ export function resolveAiFreshness(entity: unknown): {
   reason: string;
 };
 
-export function resolveAiAuthority(type: string, entity: unknown): {
+export function resolveAiAuthority(
+  type: string,
+  entity: unknown,
+): {
   authority: AiAuthority | null;
   origin: "explicit" | "derived" | "unset";
   reason: string;

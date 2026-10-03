@@ -390,9 +390,12 @@ try {
     .first()
     .getByText(title, { exact: true })
     .click();
-  await page.getByRole("button", { name: "承認して完了", exact: true }).click();
+  await page.getByRole("button", { name: "Taskを完了", exact: true }).click();
   await page.getByText("Work Receiptを承認し、Taskを完了しました。", { exact: true }).waitFor();
   const completedTaskContext = await getTaskContext(taskId);
+  assert.equal(completedTaskContext.task.state, "done");
+  assert.equal(completedTaskContext.assignment.work_state, "accepted");
+  assert.equal(await page.getByRole("button", { name: "Taskを完了", exact: true }).count(), 0);
   await page.keyboard.press("Escape");
   const followUp = await callMcp(
     "tasken.append_work_receipt",

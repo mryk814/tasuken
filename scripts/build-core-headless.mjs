@@ -4,6 +4,7 @@ import { build } from "vite";
 
 await build({
   configFile: false,
+  resolve: { alias: { electron: path.resolve("src/main/headless/electronUnavailable.ts") } },
   build: {
     emptyOutDir: true,
     minify: false,

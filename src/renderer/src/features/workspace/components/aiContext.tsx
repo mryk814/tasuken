@@ -1,3 +1,4 @@
+import { AiCreationMark } from "./AiCreationMark";
 import { useState } from "react";
 
 import {
@@ -38,7 +39,13 @@ export function workspaceAiVisibility(data: WorkspaceData): AiAudience[] | null 
 }
 
 /** 置き換え先に指定できる種別。参照できるEntityだけを出す。 */
-const SUPERSEDED_BY_TYPES: EntityRefType[] = ["note", "task", "knowledge_node", "resource", "plan_node"];
+const SUPERSEDED_BY_TYPES: EntityRefType[] = [
+  "note",
+  "task",
+  "knowledge_node",
+  "resource",
+  "plan_node",
+];
 
 function audienceListLabel(audiences: AiAudience[]): string {
   const preset = aiVisibilityPresetOf(audiences);
@@ -75,23 +82,30 @@ export function AiContextSummary({
     theme: themeOf(entity, themes),
     workspaceDefault,
   });
-  const sourceRefs: AiSourceRef[] = Array.isArray(entity.ai_source_refs) ? entity.ai_source_refs : [];
+  const sourceRefs: AiSourceRef[] = Array.isArray(entity.ai_source_refs)
+    ? entity.ai_source_refs
+    : [];
   const lastVerified = String(entity.ai_last_verified_at || "");
   return (
     <section className="ai-context-summary">
       <h3>AI・情報状態</h3>
+      <AiCreationMark key={String(entity.id)} entity={entity} type={type} detail />
       <dl>
         <dt>概要</dt>
         <dd>
           {summary.summary || AI_UNSET_LABEL}
           {summary.authority && (
-            <span className="ai-context-note">{AI_SUMMARY_AUTHORITY_LABELS[summary.authority]}</span>
+            <span className="ai-context-note">
+              {AI_SUMMARY_AUTHORITY_LABELS[summary.authority]}
+            </span>
           )}
         </dd>
         <dt>状態</dt>
         <dd>
           {AI_FRESHNESS_LABELS[freshness.freshness]}
-          {freshness.origin !== "explicit" && <span className="ai-context-note">{freshness.reason}</span>}
+          {freshness.origin !== "explicit" && (
+            <span className="ai-context-note">{freshness.reason}</span>
+          )}
         </dd>
         <dt>根拠</dt>
         <dd>
@@ -100,7 +114,9 @@ export function AiContextSummary({
         </dd>
         <dt>AI公開</dt>
         <dd>
-          {visibility.audiences.length ? audienceListLabel(visibility.audiences) : AI_VISIBILITY_PRESET_LABELS.local_only}
+          {visibility.audiences.length
+            ? audienceListLabel(visibility.audiences)
+            : AI_VISIBILITY_PRESET_LABELS.local_only}
           <span className="ai-context-note">{AI_VISIBILITY_SOURCE_LABELS[visibility.source]}</span>
         </dd>
         <dt>最終確認</dt>
@@ -141,7 +157,9 @@ export function AiContextFields({
   workspaceDefault?: AiAudience[] | null;
 }) {
   const [freshness, setFreshness] = useState(String(entity.ai_freshness || ""));
-  const storedSourceRefs: AiSourceRef[] = Array.isArray(entity.ai_source_refs) ? entity.ai_source_refs : [];
+  const storedSourceRefs: AiSourceRef[] = Array.isArray(entity.ai_source_refs)
+    ? entity.ai_source_refs
+    : [];
   // 空行は保存時に捨てるので、行数だけを状態に持つ（値はフォームが正本）。
   const [sourceRefRows, setSourceRefRows] = useState(storedSourceRefs.length + 1);
   if (!hasAiContextSection(type)) return null;
@@ -150,7 +168,9 @@ export function AiContextFields({
     theme: themeOf(entity, themes),
     workspaceDefault,
   });
-  const visibility = Array.isArray(entity.ai_visibility) ? (entity.ai_visibility as AiAudience[]) : null;
+  const visibility = Array.isArray(entity.ai_visibility)
+    ? (entity.ai_visibility as AiAudience[])
+    : null;
   const supersededBy = entity.ai_superseded_by as { type?: string; id?: string } | null | undefined;
   return (
     <details className="ai-context-fields">
@@ -165,9 +185,14 @@ export function AiContextFields({
         />
       </Field>
       <Field label="概要の根拠">
-        <select name="ai_summary_authority" defaultValue={String(entity.ai_summary_authority || "user_confirmed")}>
+        <select
+          name="ai_summary_authority"
+          defaultValue={String(entity.ai_summary_authority || "user_confirmed")}
+        >
           {Object.entries(AI_SUMMARY_AUTHORITY_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
+            <option key={value} value={value}>
+              {label}
+            </option>
           ))}
         </select>
       </Field>
@@ -179,7 +204,9 @@ export function AiContextFields({
         >
           <option value="">{AI_UNSET_LABEL}</option>
           {(["current", "stale", "superseded"] as const).map((value) => (
-            <option key={value} value={value}>{AI_FRESHNESS_LABELS[value]}</option>
+            <option key={value} value={value}>
+              {AI_FRESHNESS_LABELS[value]}
+            </option>
           ))}
         </select>
       </Field>
@@ -187,9 +214,14 @@ export function AiContextFields({
       {freshness === "superseded" && (
         <>
           <Field label="置き換えた項目の種別">
-            <select name="ai_superseded_by_type" defaultValue={String(supersededBy?.type || "note")}>
+            <select
+              name="ai_superseded_by_type"
+              defaultValue={String(supersededBy?.type || "note")}
+            >
               {SUPERSEDED_BY_TYPES.map((value) => (
-                <option key={value} value={value}>{ENTITY_REF_TYPE_LABELS[value]}</option>
+                <option key={value} value={value}>
+                  {ENTITY_REF_TYPE_LABELS[value]}
+                </option>
               ))}
             </select>
           </Field>
@@ -202,12 +234,18 @@ export function AiContextFields({
         <select name="ai_authority" defaultValue={String(entity.ai_authority || "")}>
           <option value="">{AI_UNSET_LABEL}</option>
           {Object.entries(AI_AUTHORITY_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
+            <option key={value} value={value}>
+              {label}
+            </option>
           ))}
         </select>
       </Field>
       <Field label="最終確認日">
-        <input type="date" name="ai_last_verified_at" defaultValue={String(entity.ai_last_verified_at || "").slice(0, 10)} />
+        <input
+          type="date"
+          name="ai_last_verified_at"
+          defaultValue={String(entity.ai_last_verified_at || "").slice(0, 10)}
+        />
       </Field>
       <fieldset className="ai-context-source-refs">
         <legend>出典</legend>
@@ -215,9 +253,15 @@ export function AiContextFields({
           const ref = storedSourceRefs[index];
           return (
             <div className="ai-context-source-row" key={index}>
-              <select name="ai_source_ref_kind" defaultValue={ref?.kind || "url"} aria-label="出典の種類">
+              <select
+                name="ai_source_ref_kind"
+                defaultValue={ref?.kind || "url"}
+                aria-label="出典の種類"
+              >
                 {Object.entries(AI_SOURCE_REF_KIND_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
                 ))}
               </select>
               <input
@@ -235,7 +279,11 @@ export function AiContextFields({
             </div>
           );
         })}
-        <button type="button" className="text-button compact" onClick={() => setSourceRefRows((rows) => rows + 1)}>
+        <button
+          type="button"
+          className="text-button compact"
+          onClick={() => setSourceRefRows((rows) => rows + 1)}
+        >
           出典を追加
         </button>
         <p className="ai-context-note">場所を空にすると、その行は保存時に外れます。</p>
@@ -264,7 +312,9 @@ export function AiContextFields({
         ))}
         <p className="ai-context-note">
           個別設定を外すと{AI_VISIBILITY_SOURCE_LABELS[inherited.source]}（
-          {inherited.audiences.length ? audienceListLabel(inherited.audiences) : AI_VISIBILITY_PRESET_LABELS.local_only}
+          {inherited.audiences.length
+            ? audienceListLabel(inherited.audiences)
+            : AI_VISIBILITY_PRESET_LABELS.local_only}
           ）を使います。
         </p>
       </fieldset>

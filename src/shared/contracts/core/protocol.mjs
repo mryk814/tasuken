@@ -38,3 +38,5 @@ export const TASKEN_CORE_LIST_PROPOSALS_CAPABILITY = "list_proposals";
 // These identify the shared Task capability contract across in-process and loopback adapters.
 export const TASKEN_CORE_TASK_QUERY_CAPABILITY = "task.query";
 export const TASKEN_CORE_TASK_COMMAND_CAPABILITY = "task.command";
+
+export const TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY = "create_ai_item";

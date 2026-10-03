@@ -1,3 +1,4 @@
+import { AiItemCreationService, type AiItemCreationPort } from "../core/public.ts";
 import { TaskenCoreHost } from "../infrastructure/http/taskenCoreHost.ts";
 import { createMobileActivityReadPort } from "./mobileActivityReadPort.ts";
 import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentReadPort.ts";
@@ -635,6 +636,10 @@ export class TaskenCoreRuntime {
     });
   }
 
+  enableAiItemCreation(port: AiItemCreationPort) {
+    this.host.enableAiItemCreation(new AiItemCreationService(this.persistence, port));
+  }
+
   async start() {
     return this.host.start();
   }
@@ -643,3 +648,4 @@ export class TaskenCoreRuntime {
     await this.host.stop();
   }
 }
+export { createAiItemCreationPort } from "./aiItemCreationPort.ts";

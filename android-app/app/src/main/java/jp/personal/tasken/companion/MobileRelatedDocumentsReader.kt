@@ -63,6 +63,7 @@ internal class MobileRelatedDocumentsReader(private val dao: MobileLocalDao, pri
         require(data.status == "available" || data.documents.isEmpty() && data.nextCursor == null)
         require(data.documents.map { it.type to it.id }.distinct().size == data.documents.size)
         data.documents.forEach {
+            validateMobileAiOrigin(it.aiOrigin)
             require(it.type in listOf("note", "capture_entry") && it.status in listOf("available", "not_found") && it.reasons.size in 1..3 && it.title.length <= 500)
             require(it.id.isNotBlank() && it.id.length <= 200 && it.id == it.id.trim())
             require(if (it.status == "available") it.version != null && it.version > 0 else it.version == null)
@@ -89,6 +90,7 @@ internal class MobileRelatedDocumentsReader(private val dao: MobileLocalDao, pri
             if (data.status == "not_found") setOf(type to id) else emptySet())
         else {
             val body = requireNotNull(data.document)
+            validateMobileAiOrigin(body.aiOrigin)
             require(body.body.length <= 50000 && body.version > 0 && body.totalCharacters >= body.body.length && body.truncated == (body.totalCharacters > body.body.length))
             RelatedReadUpdate(previous.copy(bodies = retained + CachedRelatedBody(type, id, body, Instant.now().toString()), error = null))
         }

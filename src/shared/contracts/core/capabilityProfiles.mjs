@@ -1,4 +1,5 @@
 import {
+  TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
@@ -26,7 +27,7 @@ const PROPOSALS_ONLY_CAPABILITIES = Object.freeze([
 ]);
 
 /**
- * @typedef {"full" | "proposals" | "read-only" | "partial"} CoreWriteProfile
+ * @typedef {"full" | "proposals" | "read-only" | "partial" | "create-only"} CoreWriteProfile
  * @typedef {{ profile: CoreWriteProfile, missingWrites: string[] }} CoreWriteProfileResult
  */
 
@@ -38,6 +39,20 @@ const PROPOSALS_ONLY_CAPABILITIES = Object.freeze([
  */
 export function coreWriteProfile(capabilities) {
   const advertised = Array.isArray(capabilities) ? capabilities : [];
+  if (advertised.includes(TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY)) {
+    const legacy = coreWriteProfile(
+      advertised.filter((value) => value !== TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY),
+    );
+    return {
+      profile:
+        legacy.profile === "full"
+          ? "full"
+          : legacy.profile === "proposals"
+            ? "create-only"
+            : "partial",
+      missingWrites: legacy.missingWrites,
+    };
+  }
   const present = (capability) => advertised.includes(capability);
   const presentWrites = TASKEN_CORE_WRITE_CAPABILITIES.filter(present);
   const missingWrites = TASKEN_CORE_WRITE_CAPABILITIES.filter((capability) => !present(capability));

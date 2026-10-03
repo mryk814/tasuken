@@ -34,6 +34,9 @@ internal fun encodeMobileChecklist(items: List<MobileChecklistItem>): String = m
 
 internal fun decodeMobileChecklist(value: String): List<MobileChecklistItem> = mobileChecklistJson.decodeFromString(value)
 
+internal fun encodeMobileAiOrigin(value: MobileAiOrigin?): String? = value?.let { mobileChecklistJson.encodeToString(it) }
+internal fun decodeMobileAiOrigin(value: String?): MobileAiOrigin? = value?.let { mobileChecklistJson.decodeFromString(it) }
+
 @Entity(tableName = "task_cache")
 data class TaskCacheEntity(
     @PrimaryKey val id: String,
@@ -62,6 +65,7 @@ data class TaskCacheEntity(
     val latestReceiptSummary: String? = null,
     val checklistJson: String = "[]",
     val description: String? = null,
+    val aiOriginJson: String? = null,
 )
 
 @Entity(tableName = "work_log_cache")
@@ -2178,7 +2182,7 @@ abstract class MobileLocalDao {
         AttentionStateEntity::class,
         PendingAgentReplyEntity::class,
     ],
-    version = 26,
+    version = 27,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -2219,8 +2223,15 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_23_24,
                     MIGRATION_24_25,
                     MIGRATION_25_26,
+                    MIGRATION_26_27,
             ).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_26_27 = object : Migration(26, 27) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN aiOriginJson TEXT")
     }
 }
 
@@ -2549,6 +2560,7 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     version = serverVersion ?: 0,
     title = title,
     description = description,
+    aiOrigin = decodeMobileAiOrigin(aiOriginJson),
     themeId = themeId,
     state = state,
     workState = workState,

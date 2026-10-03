@@ -293,6 +293,7 @@ const api: ResearchDeskApi = {
     },
   },
   entities: {
+    markAiItemSeen: (type, id) => ipcRenderer.invoke(IPC.aiItemSeen, type, id),
     list: (type, includeDeleted = false) =>
       ipcRenderer.invoke(IPC.entityList, type, includeDeleted),
     get: (type, id) => ipcRenderer.invoke(IPC.entityGet, type, id),

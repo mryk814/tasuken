@@ -8,8 +8,6 @@ const steps = [
   ["Electron ABI rebuild", "rebuild:electron", []],
   ["ESLint", "lint", []],
   ["TypeScript typecheck", "typecheck", []],
-  ["Unit and contract tests", "test:unit-contract", []],
-  ["Behavior and data-safety tests", "test:behavior", []],
   ["Full test suite", "test:full", []],
   ["Strict consistency audit", "audit:consistency", ["--strict", "--format=json"]],
   ["Architecture inventory (report-only)", "audit:architecture", []],

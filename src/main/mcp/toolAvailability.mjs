@@ -1,4 +1,5 @@
 import {
+  TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
   TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY,
@@ -27,6 +28,14 @@ import { PROPOSALS_PROFILE_CONTENT_KINDS } from "../../shared/contracts/task/pub
  * `kind`はpropose_contentの種類で、`proposals`配備はその一部だけを受け付ける。
  */
 export const MCP_TOOL_REQUIREMENTS = Object.freeze({
+  "tasken.create_task": {
+    access: "direct_write",
+    capability: TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+  },
+  "tasken.create_note": {
+    access: "direct_write",
+    capability: TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+  },
   "tasken.search_items": { access: "read", capability: TASKEN_CORE_SEARCH_ITEMS_CAPABILITY },
   "tasken.list_open_items": { access: "read", capability: TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY },
   "tasken.list_agent_ready_tasks": {
@@ -109,7 +118,10 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
 });
 
 function contentKindAllowed(profile, kind) {
-  return profile !== "proposals" || PROPOSALS_PROFILE_CONTENT_KINDS.includes(kind);
+  return (
+    (profile !== "proposals" && profile !== "create-only") ||
+    PROPOSALS_PROFILE_CONTENT_KINDS.includes(kind)
+  );
 }
 
 /**
@@ -138,11 +150,15 @@ export function mcpToolAvailability(capabilities, options = {}) {
   return {
     write_profile: profile,
     writes: {
+      task_create: !options.readOnly && advertised.has(TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY),
+      note_direct_create:
+        !options.readOnly && advertised.has(TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY),
       feed_post: canContent("feed_post"),
       feed_reply: canContent("feed_reply"),
       note_create: canContent("note_create"),
       // proposals配備は画像のstage先を持たないため、画像付きNoteを受け付けない。
-      note_images: canContent("note_create") && profile !== "proposals",
+      note_images:
+        canContent("note_create") && profile !== "proposals" && profile !== "create-only",
       note_edit: canContent("note_edit"),
       task_work_report:
         !options.readOnly && advertised.has(TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY),

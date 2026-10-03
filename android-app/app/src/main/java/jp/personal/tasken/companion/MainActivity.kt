@@ -2178,7 +2178,10 @@ internal fun AiInboxListPane(
                                     highlighted = task.id == paneState.selectedTaskId,
                                     onClick = { onTaskSelected(task.id) },
                                 ) {
-                                    Text(task.title, fontWeight = FontWeight.SemiBold)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(task.title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                        AiOriginMark(task.aiOrigin)
+                                    }
                                     task.latestWorkReceipt?.summary?.let { summary ->
                                         Text(summary, maxLines = 3, overflow = TextOverflow.Ellipsis)
                                     }
@@ -2820,9 +2823,10 @@ internal fun TodayTaskList(
                             if (task.state == "done") 0.55f else 1f,
                             label = "task-done-alpha",
                         )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             task.title,
-                            modifier = Modifier.graphicsLayer { alpha = doneAlpha },
+                            modifier = Modifier.weight(1f).graphicsLayer { alpha = doneAlpha },
                             style = if (!allTasksMode && index == 0) {
                                 MaterialTheme.typography.titleMedium
                             } else {
@@ -2831,6 +2835,8 @@ internal fun TodayTaskList(
                             fontWeight = FontWeight.SemiBold,
                             textDecoration = if (task.state == "done") TextDecoration.LineThrough else null,
                         )
+                        AiOriginMark(task.aiOrigin)
+                        }
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -3082,6 +3088,7 @@ internal fun TodayDetailPane(
                             .clickable(enabled = titleEditable, onClickLabel = "Task名を編集") { titleEditing = true },
                     )
                 }
+                AiOriginMark(task.aiOrigin)
                 IconButton(
                     onClick = { titleEditing = !titleEditing },
                     enabled = titleEditing || titleEditable,

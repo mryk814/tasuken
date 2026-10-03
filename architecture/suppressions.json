@@ -76,6 +76,45 @@
       "issue": 588,
       "expiresAt": "2026-11-30",
       "removalCondition": "Use the public headless-database fixture factory once it exists."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "src/main/headless/taskenHeadlessCore.ts",
+      "target": "workspace-service",
+      "reason": "#588 creation-only headless uses the existing canonical Note writer and receipt recovery, with Electron APIs rejected. This avoids a parallel file/DB writer; no existing Note migration is run.",
+      "owner": "issue-588-synology-replica",
+      "issue": 588,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Extract the canonical Note writer into an Electron-independent public composition and replace WorkspaceService construction."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "tests/ai-item-creation.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#588 creation-only tests require isolated real SQLite persistence to verify MCP retries, tombstones and canonical Note file/DB recovery. No production data is opened.",
+      "owner": "issue-588-synology-replica",
+      "issue": 588,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Use the public temporary-database fixture factory once available."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "src/main/services/workspaceService.ts",
+      "target": "generic-task-write",
+      "reason": "#405 human-only AI item seen IPC changes only ai_seen_at while preserving Task semantics and provenance. It is not exposed through MCP; this metadata write remains explicit migration debt.",
+      "owner": "task-capability-migration",
+      "issue": 405,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Move the human-only seen metadata operation into the Task command capability and remove the generic Task save."
+    },
+    {
+      "rule": "composition.baseline_increase",
+      "source": "src/renderer/src/services/workspaceApi.ts",
+      "reason": "#405 typed human-only markAiItemSeen adapter is composed beside the remaining aggregate workspace adapters. No generic MCP write permission is added.",
+      "owner": "task-capability-migration",
+      "issue": 405,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Move seen metadata into the scoped Task/Note UI clients when aggregate workspace adapters are retired."
     }
   ]
 }

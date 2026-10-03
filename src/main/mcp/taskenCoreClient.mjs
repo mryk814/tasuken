@@ -1,3 +1,4 @@
+import { aiItemCreationResponseSchema } from "../../shared/contracts/task/public.ts";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -487,6 +488,16 @@ export class TaskenCoreClient {
       request,
       proposeAgentSessionResponseSchema,
       "propose-agent-session",
+    );
+  }
+
+  async createAiItem(request = {}) {
+    return this.request(
+      "/v1/commands/create-ai-item",
+      "create_ai_item",
+      request,
+      aiItemCreationResponseSchema,
+      "create-ai-item",
     );
   }
 

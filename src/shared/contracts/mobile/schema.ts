@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { mobileAiOriginSchema } from "./aiOrigin.ts";
 
 import {
   entityIdSchema,
@@ -596,6 +597,7 @@ export const mobileTaskSummarySchema = z
     version: entityVersionSchema,
     title: z.string().trim().min(1).max(500),
     description: z.string().max(50000).optional(),
+    aiOrigin: mobileAiOriginSchema.optional(),
     themeId: entityIdSchema.nullable(),
     state: taskStateSchema,
     workState: taskWorkStateSchema.nullable(),

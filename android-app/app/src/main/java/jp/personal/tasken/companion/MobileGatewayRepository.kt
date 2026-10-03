@@ -1872,6 +1872,7 @@ class AndroidMobileTaskRepository(
         serverVersion = version,
         title = title,
         description = description,
+        aiOriginJson = encodeMobileAiOrigin(aiOrigin),
         themeId = themeId,
         state = state,
         workState = workState,
@@ -2018,6 +2019,7 @@ class AndroidMobileTaskRepository(
             connection.readTimeout = if (path in setOf("/v1/capture-organization", "/v1/work-log-organization")) 35_000 else REQUEST_TIMEOUT_MS
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("X-Tasken-Ai-Origin", "1")
             if (accessToken != null) connection.setRequestProperty("Authorization", "Bearer $accessToken")
             if (body != null) {
                 connection.doOutput = true

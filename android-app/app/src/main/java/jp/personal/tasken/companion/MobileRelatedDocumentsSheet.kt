@@ -75,7 +75,10 @@ internal fun MobileRelatedDocumentsSheet(repository: MobileRelatedDocumentsRepos
                                 action { repository.loadRelatedDocument(taskId, item.type, item.id) }
                             }, enabled = item.status == "available" && !busy, modifier = Modifier.fillMaxWidth().testTag("related-${item.id}")) {
                                 Column(Modifier.padding(12.dp)) {
-                                    Text(item.title, style = MaterialTheme.typography.titleSmall)
+                                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                        Text(item.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                                        AiOriginMark(item.aiOrigin)
+                                    }
                                     Text((if (item.type == "note") "Note" else "Capture") + " · " + item.reasons.joinToString(" / ", transform = ::relatedReasonLabel), style = MaterialTheme.typography.bodySmall)
                                     val cached = state.bodies.firstOrNull { it.type == item.type && it.id == item.id }
                                     Text(if (item.status != "available") "参照先なし" else if (cached == null) "本文は未取得" else if (cached.document.version != item.version) "本文に更新あり" else "本文を端末に保存済み", style = MaterialTheme.typography.labelSmall)
@@ -93,7 +96,10 @@ internal fun MobileRelatedDocumentsSheet(repository: MobileRelatedDocumentsRepos
                     }
                     if (summary == null) Text("参照先は利用できません。")
                     else {
-                        Text(summary.title, style = MaterialTheme.typography.titleMedium)
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text(summary.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                            AiOriginMark(cached?.document?.aiOrigin ?: summary.aiOrigin)
+                        }
                         if (cached == null) Text("本文は未取得です。Desktopに接続すると読めます。")
                         else {
                             Text("最終取得 ${relatedFetchedLabel(cached.fetchedAt)}" + if (cached.document.version != summary.version) " · 更新あり" else " · 端末保存", style = MaterialTheme.typography.labelSmall)

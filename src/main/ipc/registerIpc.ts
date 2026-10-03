@@ -676,6 +676,12 @@ export function registerIpc(
     notifyEntitiesChanged(["note", "reference", "change_event"]);
     return receipt;
   });
+  ipcMain.handle(IPC.aiItemSeen, (_event, type, id) => {
+    if (type !== "task" && type !== "note") throw new Error("Task/Noteだけを確認できます。");
+    const saved = service.markAiItemSeen(type, requireId(id));
+    notifyEntitiesChanged([type], { entities: [{ type, entity: saved as Entity }] });
+    return saved;
+  });
   ipcMain.handle(IPC.documentSave, (_event, request) => {
     const saved = service.saveCanonicalNote(request);
     notifyEntitiesChanged(documentSaveChangedTypes(request));

@@ -401,3 +401,10 @@ export {
   PROPOSALS_PROFILE_CONTENT_KINDS,
   PROPOSALS_PROFILE_REPOSITORY_TASK_KINDS,
 } from "./proposalsProfile.ts";
+export {
+  aiItemCreationRequestSchema,
+  aiItemCreationResponseSchema,
+  aiCreationOriginSchema,
+  type AiItemCreationRequest,
+  type AiItemCreationResponse,
+} from "./aiItemCreation.ts";

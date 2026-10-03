@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { mobileAiOriginSchema } from "./aiOrigin.ts";
 import { TASKEN_MOBILE_API_VERSION, TASKEN_MOBILE_SCHEMA_VERSION } from "./protocol.mjs";
 
 const identity = z.string().trim().min(1).max(200);
@@ -25,6 +26,7 @@ export const mobileRelatedDocumentSummarySchema = z
     type: z.enum(["note", "capture_entry"]),
     id: identity,
     title: z.string().max(500),
+    aiOrigin: mobileAiOriginSchema.optional(),
     version: z.number().int().positive().nullable(),
     status: z.enum(["available", "not_found"]),
     reasons: z
@@ -54,6 +56,7 @@ export const mobileRelatedDocumentDataSchema = z
     document: z
       .object({
         title: z.string().max(500),
+        aiOrigin: mobileAiOriginSchema.optional(),
         version: z.number().int().positive(),
         body: z.string().max(50000),
         totalCharacters: z.number().int().nonnegative(),

@@ -100,3 +100,8 @@ export type {
   CaptureImagePort,
   StagedCaptureImages,
 } from "./ports/captureImagePort.ts";
+export {
+  AiItemCreationService,
+  AiItemCreationError,
+  type AiItemCreationPort,
+} from "./services/aiItemCreationService.ts";

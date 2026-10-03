@@ -1,3 +1,4 @@
+import { aiItemCreationRequestSchema } from "../../shared/contracts/task/public.ts";
 import { randomUUID } from "node:crypto";
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -167,7 +168,7 @@ export function createTaskenMcpServer(options = {}) {
     {
       instructions: readOnly
         ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed. Call tasken.get_capabilities to confirm what this connection allows."
-        : "Tasken is a local-first work and knowledge app. Call tasken.get_capabilities first to see which reads and writes this connection allows; a listed write tool can still be refused when the Core changed after this server started. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. Every other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content. Every Proposal and reading tool accepts dry_run: true to validate without saving. If you lose a Proposal ID, find it with tasken.list_proposals. A result that carries an error object is always marked isError.",
+        : "Tasken is a local-first work and knowledge app. Call tasken.get_capabilities first to see which reads and writes this connection allows; a listed write tool can still be refused when the Core changed after this server started. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. tasken.create_task and tasken.create_note directly create new personal records marked AI-created and unseen when explicitly enabled; they return official Entity IDs. Each other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content. Existing content and work-report Proposal tools accept dry_run: true to validate without saving. If you lose a Proposal ID, find it with tasken.list_proposals. A result that carries an error object is always marked isError.",
     },
   );
 
@@ -887,6 +888,28 @@ export function createTaskenMcpServer(options = {}) {
     },
     withCoreClient((args) => queueTaskWork(args, "report_blocked")),
   );
+
+  for (const kind of ["task", "note"]) {
+    const { kind: _kind, ...creationFields } = aiItemCreationRequestSchema.shape;
+    const toolName = "tasken.create_" + kind;
+    server.registerTool(
+      toolName,
+      {
+        description:
+          "Create a new personal " +
+          kind +
+          " immediately, marked AI-created and unseen. Returns the official ID, version and current readback. Reuse idempotency_key with identical content on retries; a deleted item stays deleted. Cannot update, delete, complete or delegate existing items. No due date or caller-selected workspace/actor/path is accepted.",
+        inputSchema: creationFields,
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      withCoreClient((args) => coreClient.createAiItem({ ...args, kind })),
+    );
+  }
 
   server.registerTool(
     "tasken.propose_note",

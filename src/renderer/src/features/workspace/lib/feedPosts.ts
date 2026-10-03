@@ -1018,6 +1018,7 @@ export function buildOwnPosts(input: { feedPosts?: readonly unknown[] }): FeedPo
       learnable: false,
       // Feed専用投稿のThemeはproject_idが正本。Theme面はこのIDだけで自分の投稿を絞り込む。
       themeId: noteProjectId(post),
+      taskId: text(post.task_id) || null,
     } as FeedPost);
   }
   return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));

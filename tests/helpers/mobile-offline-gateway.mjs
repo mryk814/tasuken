@@ -173,6 +173,52 @@ export async function createMobileOfflineGateway({ scopes, organizer = null } = 
   }
 
   async function control(action) {
+    if (action.seedAiOrigin === true) {
+      const origin = {
+        schema: "tasken-ai-creation/v1",
+        caller: "Codex",
+        source_app: "codex",
+        source_session: null,
+        received_at: "2026-10-03T08:00:00.000Z",
+        command_id: "fixture-ai-origin",
+        reason: "fixture",
+      };
+      database.save("task", {
+        id: "ai-origin-task",
+        title: "AI作成の測定条件を確認する",
+        state: "todo",
+        priority: "normal",
+        today_date: "2026-10-03",
+        ai_creation: origin,
+        ai_seen_at: null,
+      });
+      database.save("note", {
+        id: "ai-origin-note",
+        title: "AI作成の比較メモ",
+        body_markdown: "測定条件の下書き",
+        ai_creation: { ...origin, command_id: "fixture-ai-note" },
+        ai_seen_at: null,
+      });
+      database.save("reference", {
+        id: "ai-origin-ref",
+        source_type: "task",
+        source_id: "ai-origin-task",
+        target_type: "note",
+        target_id: "ai-origin-note",
+        relation_type: "related_to",
+        status: "asserted",
+      });
+    }
+    if (action.seeAiOrigin === true) {
+      for (const [type, id] of [
+        ["task", "ai-origin-task"],
+        ["note", "ai-origin-note"],
+      ]) {
+        const entity = database.get(type, id);
+        assert.ok(entity);
+        database.save(type, { ...entity, ai_seen_at: "2026-10-03T09:00:00.000Z" });
+      }
+    }
     if (action.themeContextPhase) {
       assert.ok(["initial", "updated", "deleted"].includes(action.themeContextPhase));
       const id = "theme-context-fixture";

@@ -1,3 +1,4 @@
+import { AiCreationMark } from "../components/AiCreationMark";
 import {
   IconExternalLink,
   IconFolder,
@@ -2569,6 +2570,7 @@ export function NotesPage({
                     </span>
                   </span>
                 </button>
+                <AiCreationMark key={record.id} entity={record} />
                 {url && (
                   <a
                     className="row-action-button note-row-open"
@@ -2646,10 +2648,13 @@ export function NotesPage({
               )}
               <div className="note-preview-header">
                 <div>
-                  <h2>
-                    {str(selected.title) ||
-                      (selectedKind === "resource" ? selectedUrl || "無題のResource" : "無題")}
-                  </h2>
+                  <div className="ai-origin-heading">
+                    <h2>
+                      {str(selected.title) ||
+                        (selectedKind === "resource" ? selectedUrl || "無題のResource" : "無題")}
+                    </h2>
+                    <AiCreationMark key={selected.id} entity={selected} type="note" detail />
+                  </div>
                   {(selected.created_at || selected.updated_at || draftState) && (
                     <div className="note-date-meta">
                       {selected.created_at && (

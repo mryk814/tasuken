@@ -26,10 +26,11 @@ after(() => fs.rmSync(bundleDirectory, { recursive: true, force: true }));
 async function bundleEntry(relativePath, fileName) {
   const result = await build({
     entryPoints: [path.resolve(relativePath)],
+    alias: { electron: path.resolve("src/main/headless/electronUnavailable.ts") },
     bundle: true,
     platform: "node",
     format: "esm",
-    external: ["better-sqlite3"],
+    external: ["better-sqlite3", "adm-zip", "pptxgenjs"],
     write: false,
     logLevel: "silent",
   });
@@ -575,6 +576,8 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
     assert.equal(capabilities.isError, undefined, JSON.stringify(capabilities));
     assert.equal(capabilities.structuredContent.core.write_profile, "proposals");
     assert.deepEqual(capabilities.structuredContent.writes, {
+      task_create: false,
+      note_direct_create: false,
       feed_post: true,
       feed_reply: false,
       note_create: true,
@@ -584,6 +587,8 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       task_start: false,
     });
     assert.deepEqual(capabilities.structuredContent.unavailable_tools, [
+      { name: "tasken.create_task", reason: "missing_capability:create_ai_item", listed: false },
+      { name: "tasken.create_note", reason: "missing_capability:create_ai_item", listed: false },
       {
         name: "tasken.start_task_work",
         reason: "missing_capability:task.command",

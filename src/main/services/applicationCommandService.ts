@@ -8,7 +8,7 @@ import {
   referenceTargetEntityTypes,
 } from "../../shared/entityRegistry.mjs";
 import { normalizeAgentSession } from "../../shared/agentSession.mjs";
-import { taskWorkEntry } from "../../shared/contracts/task/public.ts";
+import { deriveAgentWorkState, taskWorkEntry } from "../../shared/contracts/task/public.ts";
 import { buildActivityEvent } from "../../shared/activityEvent.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeRepositoryContext } from "../../shared/repositoryContext.mjs";
@@ -1057,6 +1057,56 @@ export class ApplicationCommandService {
     );
   }
 
+  /** Called only by Core's explicitly enabled, creation-only service. */
+  executeAiTaskCreation(input: unknown, creationEvent: Entity): CommandReceipt {
+    const command = parseCommandEnvelope(input);
+    const task = (command.payload as { task?: Entity }).task;
+    const origin = task?.ai_creation as Record<string, unknown> | undefined;
+    if (
+      command.name !== "CreateTask" ||
+      command.actor.kind !== "ai_agent" ||
+      command.source !== "mcp" ||
+      !task ||
+      task.project_id !== "theme-personal-default" ||
+      task.state !== "todo" ||
+      task.requester !== "self" ||
+      task.intended_executor !== "self" ||
+      task.work_state !== "not_delegated" ||
+      origin?.command_id !== command.commandId ||
+      Object.keys(command.payload).some((key) => key !== "task") ||
+      Object.keys(task).some(
+        (key) =>
+          ![
+            "id",
+            "title",
+            "project_id",
+            "ai_authority",
+            "ai_creation",
+            "ai_seen_at",
+            "description",
+            "state",
+            "priority",
+            "requester",
+            "intended_executor",
+            "work_state",
+          ].includes(key),
+      ) ||
+      creationEvent.entity_id !== task.id ||
+      creationEvent.command_id !== command.commandId ||
+      creationEvent.command_name !== "CreateAiItem"
+    )
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "AI新規作成の範囲外です。");
+    return this.repository.runTransaction((transaction) => {
+      const receipt = new ApplicationCommandService(transaction).executeParsed(
+        command,
+        undefined,
+        true,
+      );
+      transaction.save("change_event", creationEvent);
+      return receipt;
+    });
+  }
+
   executeTaskDelegation(
     input: unknown,
     currentContextFingerprint: () => string,
@@ -1274,10 +1324,15 @@ export class ApplicationCommandService {
   private executeParsed(
     command: CommandEnvelope,
     taskWorkContext?: { startReadyTask?: boolean; exactReceiptId?: string },
+    aiTaskCreation = false,
   ): CommandReceipt {
     const previous = readIdempotent(this.repository, command);
     if (previous) return previous;
-    if (command.actor.kind === "ai_agent" && !aiAgentCommands.has(command.name)) {
+    if (
+      command.actor.kind === "ai_agent" &&
+      !aiAgentCommands.has(command.name) &&
+      !aiTaskCreation
+    ) {
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",
         "AI agentはTaskを直接変更・完了できません。Task Work Proposalを人間の確認へ送ってください。",
@@ -2469,7 +2524,27 @@ export class ApplicationCommandService {
         { type: "task", id: taskId },
       );
     assertExpectedVersion(this.repository, command, "task", taskId, current);
-    if (!["reported_done", "needs_human_review", "blocked"].includes(currentWorkState(current)))
+    const pending = payload.receiptId
+      ? pendingTaskReport(this.repository, String(payload.receiptId), taskId)
+      : null;
+    // MCPの未採用成果報告はTaskをまだ変えない。現在の作業単位の判断だけを許す。
+    const pendingReview =
+      pending &&
+      deriveAgentWorkState({
+        task: current,
+        proposals: [pending.proposal],
+        receipts: this.repository.list("work_receipt"),
+      })?.attention.some(
+        (item) => item.kind === "review_report" && item.sourceRef.id === pending.proposal.id,
+      );
+    if (
+      !["reported_done", "needs_human_review", "blocked"].includes(currentWorkState(current)) &&
+      !(
+        currentWorkState(current) === "in_progress" &&
+        pendingReview &&
+        !["done", "cancelled"].includes(String(current.state))
+      )
+    )
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",
         "確認待ちまたは停止中のTaskだけへ返信できます。",
@@ -2482,9 +2557,6 @@ export class ApplicationCommandService {
         "差戻し理由を1〜2000文字で入力してください。",
       );
     // 差戻しの対象は人が見ている報告そのもの。採用前のProposalと、採用済みのWork Receiptの両方を受け付ける。
-    const pending = payload.receiptId
-      ? pendingTaskReport(this.repository, String(payload.receiptId), taskId)
-      : null;
     const latest = latestWorkReceipt(this.repository, taskId);
     const receipt = pending
       ? null

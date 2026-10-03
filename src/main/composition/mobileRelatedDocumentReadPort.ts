@@ -3,6 +3,7 @@ import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs"
 import {
   mobileRelatedDocumentDataSchema,
   mobileRelatedDocumentsDataSchema,
+  projectMobileAiOrigin,
   type MobileRelatedDocumentRequest,
   type MobileRelatedDocumentsRequest,
   type MobileRelatedDocumentsData,
@@ -32,6 +33,7 @@ export function createMobileRelatedDocumentReadPort(persistence: Persistence) {
           version: record ? Number(record.version) : null,
           status: record ? "available" : "not_found",
           reasons: [],
+          ...(record ? { aiOrigin: projectMobileAiOrigin(record) } : {}),
         };
         result.set(key, item);
       }
@@ -121,6 +123,7 @@ export function createMobileRelatedDocumentReadPort(persistence: Persistence) {
         status: "available",
         document: {
           title: summary.title,
+          aiOrigin: projectMobileAiOrigin(record),
           version: Number(record.version),
           body: body.slice(0, end),
           totalCharacters: body.length,

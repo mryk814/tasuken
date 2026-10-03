@@ -53,6 +53,7 @@ data class MobileTask(
     val rejectedThemeUpdate: MobileRejectedThemeUpdate? = null,
     val version: Int = 0,
     val description: String? = null,
+    val aiOrigin: MobileAiOrigin? = null,
 )
 
 @Serializable

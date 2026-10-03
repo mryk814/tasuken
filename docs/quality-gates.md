@@ -11,20 +11,24 @@ Pull Requestでは `npm run ci` を通し、タグをpushしたときは `Window
 
 ```text
 Electron ABI rebuild
+  → lint
   → typecheck
-  → unit/contract
-  → behavior/data-safety
   → full-test
-  → strict consistency audit / script inventory audit
+  → strict consistency audit
+  → architecture inventory / task・core-mcp enforcement
+  → script inventory audit
   → build
   → focused Electron smoke
+  → live MCP Proposal Electron smoke
 ```
 
 途中で失敗したらそこで止まる。分割実行したいときは同じ順で個別のnpm scriptを叩く。
 
 Desktop repositoryを含むtestはElectron test runtimeで実行する。better-sqlite3のようなnative moduleは1つの`.node`に1つのABIしか持てないため、Desktop側の検証環境をElectronへ一本化している。MCP bridge自身はnative moduleを含まず、plain system Node source/bundle smokeを別gateで通す。Node ABI向けのSQLite rebuild scriptは持たない。
 
-full-testは全tests/*.test.mjsをnpm test経由で実行する。globはNodeのtest runnerが解決するため、新しいtest fileは自動的に含まれ、手動partitionから漏れない。
+full-testは全tests/*.test.mjsを`test:full`経由で直列実行する。globはNodeのtest runnerが解決するため、新しいtest fileは自動的に含まれ、手動partitionから漏れない。`test:unit-contract`と`test:behavior`は日常のfocused検証用に維持するが、対象はfull-testに含まれるためCIでは重複実行しない。
+
+AI作成のstdio integration testは、`buildMcpBridge`で本番と同じMCP bundleをテスト専用一時directoryへ作り、実stdioへ接続する。`mcp-dist`の事前生成や古い成果物に依存せずfresh checkoutで全testを実行できる。通常の`npm run build:mcp`の出力先とbundle構成は維持する。
 
 ## リリース
 

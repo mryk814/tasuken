@@ -1,3 +1,5 @@
+import { WorkspaceService } from "../services/workspaceService.ts";
+import { createAiItemCreationPort } from "../composition/taskenCoreRuntime.ts";
 import path from "node:path";
 
 import { TaskenCoreRuntime } from "../composition/taskenCoreRuntime.ts";
@@ -21,9 +23,15 @@ export interface TaskenHeadlessCoreOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-export type TaskenHeadlessWriteMode = "read-only" | "proposals";
+export type TaskenHeadlessWriteMode = "read-only" | "proposals" | "create-only";
 
 export function resolveTaskenHeadlessWriteMode(value: unknown): TaskenHeadlessWriteMode {
+  if (
+    String(value || "")
+      .trim()
+      .toLowerCase() === "create-only"
+  )
+    return "create-only";
   return String(value || "")
     .trim()
     .toLowerCase() === "proposals"
@@ -102,7 +110,7 @@ export async function startTaskenHeadlessCore(
       undefined,
       undefined,
       createReadOnlyCaptureImagePort(userDataPath),
-      { proposalAccess: writeMode === "proposals" ? "proposals" : "read-only" },
+      { proposalAccess: writeMode !== "read-only" ? "proposals" : "read-only" },
     );
     if (syncDirectory) {
       syncService = new SharedFolderSyncService(
@@ -127,6 +135,15 @@ export async function startTaskenHeadlessCore(
           String(repository.getPreference("sharedSyncDirectory") || "") === syncDirectory;
         if (!joined) throw error;
       }
+    }
+    if (writeMode === "create-only") {
+      const workspace = new WorkspaceService(repository, userDataPath, undefined, undefined, () => {
+        throw new Error("Headless creation accepts text only.");
+      });
+      // Join first: a new replica must be empty before its personal theme is bootstrapped.
+      repository.loadWorkspace();
+      workspace.recoverCanonicalMarkdownReceipts();
+      runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace));
     }
   } catch (error) {
     await syncService?.stop();

@@ -44,6 +44,7 @@ export interface TimelinePreferenceValue {
 }
 
 export interface TodoPreferenceValue {
+  layout: "list" | "board";
   filter: "open" | "today" | "overdue" | "no-schedule" | "done";
   taskFilters: {
     tab: TodoPreferenceValue["filter"];

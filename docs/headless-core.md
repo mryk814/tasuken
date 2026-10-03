@@ -15,7 +15,7 @@ node core-dist/headless.mjs --user-data-dir=/volume1/tasken --sync-directory=/vo
 - `--user-data-dir` 省略時は `TASKEN_USER_DATA_DIR`、それも無ければOS標準のTasken保存先。
 - `--db-path` 省略時は `TASKEN_DB_PATH`、または `<userData>/research-desk.sqlite`。
 - `--sync-directory` 省略時は `TASKEN_SYNC_DIRECTORY`。指定すると共有フォルダ同期へreplica参加する（後述）。
-- `--write-mode` は `read-only`（既定）または `proposals`。省略時は `TASKEN_CORE_WRITE_MODE`。既定の `read-only` は書き込みcapabilityを公開せず、`proposals` はテキストのFeed投稿・Note案・Task案だけを受け付ける。
+- `--write-mode` は `read-only`（既定）・`proposals`・`create-only`。省略時は `TASKEN_CORE_WRITE_MODE`。`create-only` は提案受付に加え本人用Task/Noteの新規作成だけを許可する（[詳細](ai-item-creation.md)）。
 - stdoutへ1行ずつ次を出す。token・秘密は出さない。
 
 ```text
@@ -144,3 +144,5 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 - Phase 5: relay責務のADR（Synology thin relay・共有フォルダ・Desktop Gateway・managed backendの比較）
 
 回帰の入口: `src/main/headless/`、`scripts/build-core-headless.mjs`、`scripts/mcp-doctor.mjs`、`docs/tasken-core-migration.md`。
+
+本人用Task/Noteの直接新規作成は [AI item creation](ai-item-creation.md) を参照。既定のread-only/proposalsは維持する。

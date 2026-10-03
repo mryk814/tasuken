@@ -1,3 +1,4 @@
+import { createAiItemCreationPort } from "./composition/taskenCoreRuntime.ts";
 import {
   app,
   BrowserWindow,
@@ -2678,7 +2679,6 @@ async function startDesktopApp(): Promise<void> {
     app.exit(0);
     return;
   }
-  await composition.start();
   const applicationCommands = composition.applicationCommands;
   let smokeAudioSourcePath = "";
   if (isSmokeTest && !isSmokeRestartCheck) {
@@ -2695,6 +2695,14 @@ async function startDesktopApp(): Promise<void> {
     undefined,
     composition.createCoreClient(),
   );
+  if (process.env.TASKEN_CORE_AI_ITEM_CREATE === "1") {
+    composition.coreRuntime.enableAiItemCreation(
+      createAiItemCreationPort(applicationCommands, workspaceService, () => {
+        notifyMainWindowRefresh();
+      }),
+    );
+  }
+  await composition.start();
   const automaticSnapshotBackup = new AutomaticSnapshotBackupService({
     repository: workspaceRepository,
     defaultDirectory: path.join(app.getPath("userData"), "Backups"),

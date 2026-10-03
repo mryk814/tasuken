@@ -13,6 +13,7 @@ import {
   decodeTaskenMobileThemeCursor,
   encodeTaskenMobileThemeCursor,
   mobileBootstrapRequestSchema,
+  projectMobileAiOrigin,
   mobileActivityRequestSchema,
   mobileActivityResponseSchema,
   mobileRelatedDocumentsRequestSchema,
@@ -114,6 +115,7 @@ export interface MobileGatewayRequest {
   query?: Readonly<Record<string, string | undefined>>;
   body?: unknown;
   principal: MobilePrincipal | null;
+  includeAiOrigin?: boolean;
 }
 
 export interface MobileGatewayResponse {
@@ -670,11 +672,13 @@ function projectTask(
   task: TaskReadModel,
   includeTodayDate = false,
   receipts: readonly MobileGatewayWorkReceiptRecord[] = [],
+  includeAiOrigin = false,
 ) {
   return {
     id: task.id,
     version: task.version,
     title: task.title,
+    ...(includeAiOrigin ? { aiOrigin: projectMobileAiOrigin(task) } : {}),
     ...(typeof task.description === "string" ? { description: task.description } : {}),
     themeId: task.project_id || null,
     state: task.state,
@@ -1304,6 +1308,7 @@ export class MobileGatewayAdapter {
         const data = mobileRelatedDocumentsDataSchema.parse(
           await this.options.core.queryRelatedDocuments(parsed.data),
         );
+        if (!request.includeAiOrigin) for (const item of data.documents) delete item.aiOrigin;
         return this.success({
           ok: true,
           meta: { ...meta, truncated: data.nextCursor !== null },
@@ -1322,6 +1327,7 @@ export class MobileGatewayAdapter {
         const data = mobileRelatedDocumentDataSchema.parse(
           await this.options.core.getRelatedDocument(parsed.data),
         );
+        if (!request.includeAiOrigin && data.document) delete data.document.aiOrigin;
         return this.success({
           ok: true,
           meta: { ...meta, truncated: data.document?.truncated ?? false },
@@ -1392,7 +1398,7 @@ export class MobileGatewayAdapter {
             throw new Error("Delegation version conflict is missing its canonical Task");
           }
           return this.error(meta, "version_conflict", false, {
-            currentTask: projectTask(current.value.task, true),
+            currentTask: projectTask(current.value.task, true, [], request.includeAiOrigin),
             intendedAction: "DelegateTaskToAgent",
             expectedVersion: delegation.expectedTaskVersion,
             conflictField: "task",
@@ -1410,6 +1416,7 @@ export class MobileGatewayAdapter {
                 result.task,
                 true,
                 result.latestWorkReceipt ? [result.latestWorkReceipt] : [],
+                request.includeAiOrigin,
               ),
               safeShare: createTaskDelegationSafeShare({
                 taskId: result.task.id,
@@ -1448,7 +1455,9 @@ export class MobileGatewayAdapter {
             meta,
             data: {
               date: result.value.date,
-              items: result.value.items.map((task) => projectTask(task)),
+              items: result.value.items.map((task) =>
+                projectTask(task, false, [], request.includeAiOrigin),
+              ),
               nextCursor: result.value.next_cursor,
             },
           }),
@@ -1697,7 +1706,7 @@ export class MobileGatewayAdapter {
               commandStatus: result.value.status,
               action: review.action,
               receiptId: review.receiptId,
-              task: projectTask(result.value.task, true, receipts),
+              task: projectTask(result.value.task, true, receipts, request.includeAiOrigin),
             },
           }),
         );
@@ -1769,7 +1778,7 @@ export class MobileGatewayAdapter {
             data: {
               tasks: tasks
                 .slice(0, bootstrap!.limit)
-                .map((task) => projectTask(task, true, receipts)),
+                .map((task) => projectTask(task, true, receipts, request.includeAiOrigin)),
               nextCursor: cursor || "",
               hasMore: false,
             },
@@ -1801,7 +1810,10 @@ export class MobileGatewayAdapter {
                       version: task.version,
                       updatedAt: task.updated_at,
                     }
-                  : { kind: "upsert", task: projectTask(task, true, receipts) },
+                  : {
+                      kind: "upsert",
+                      task: projectTask(task, true, receipts, request.includeAiOrigin),
+                    },
               ),
               nextCursor: result.value.next_cursor || sync!.cursor,
               hasMore: result.value.has_more,
@@ -1970,7 +1982,7 @@ export class MobileGatewayAdapter {
           data: {
             commandId: result.value.command_id,
             status: result.value.status,
-            task: projectTask(result.value.task, true, receipts),
+            task: projectTask(result.value.task, true, receipts, request.includeAiOrigin),
           },
         }),
       );

@@ -12,8 +12,10 @@ import { migratePublishedFeedNotes } from "../src/main/repositories/feedPostMigr
 import { buildAttentionQueue, countAttention } from "../src/shared/contracts/task/public.ts";
 import {
   buildOwnPosts,
+  buildRepliesFromEntities,
   captureFeedPost,
   feedPostEntity,
+  feedReplyEntity,
   noteTitleFrom,
   postsForHome,
   postsForLearning,
@@ -285,4 +287,25 @@ test("schema v7で起動時移行が配線されている", async () => {
     reopened.db.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("課題コメントは既存Feed投稿と返信だけを使い同じTaskへ再投影できる", () => {
+  const root = {
+    ...feedPostEntity({
+      id: "root",
+      body: "この条件で進める",
+      publishedAt: "2026-10-03T10:00:00Z",
+    }),
+    task_id: "task-a",
+  };
+  const reply = feedReplyEntity({
+    id: "reply",
+    postId: root.id,
+    body: "追記",
+    createdAt: "2026-10-03T11:00:00Z",
+  });
+  const restored = JSON.parse(JSON.stringify({ root, reply }));
+  const posts = buildOwnPosts({ feedPosts: [restored.root] });
+  assert.equal(posts[0].taskId, "task-a");
+  assert.equal(buildRepliesFromEntities({ replies: [restored.reply] })[0].replyTo, posts[0].id);
 });

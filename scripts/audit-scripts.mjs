@@ -8,6 +8,8 @@ const schemaVersion = 1;
 const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 const packageScripts = packageJson.scripts || {};
 const manualAllowlist = {
+  "ai-item-creation-ui-smoke.mjs":
+    "Manual isolated Electron AI creation/seen smoke, documented in docs/ai-item-creation.md; not a merge gate.",
   "agent-session-hook.mjs":
     "Packaged lifecycle hook entry point bundled by build-mcp-bridge; launched by supported AI clients.",
   "audit-rules.mjs":
@@ -30,6 +32,10 @@ const manualAllowlist = {
     "Internal isolated-workspace seeder spawned by today-arrivals-audit; not a CLI entry point.",
   "seed-inbox-feed-audit-workspace.mjs":
     "Internal isolated-workspace seeder spawned by inbox-feed-post-audit; not a CLI entry point.",
+  "task-board-audit.mjs":
+    "Internal isolated Task board UI audit imported by task-handoff-audit --task-board; not a CLI entry point.",
+  "task-board-integration-audit.mjs":
+    "Internal AI creation/coexistence fixture imported by task-board-audit --integrated; not a CLI entry point.",
 };
 
 function scriptFiles(directory) {

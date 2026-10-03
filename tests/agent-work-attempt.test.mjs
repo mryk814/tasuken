@@ -167,6 +167,44 @@ function readModel(repo) {
   });
 }
 
+test("MCPの未採用成果報告を現在の作業単位から差戻せるが、遅着・進捗・完了済みは許さない", () => {
+  for (const scenario of ["current", "past", "progress", "completed"]) {
+    const repo = repository();
+    const service = new ApplicationCommandService(repo);
+    createAiTask(service);
+    startWork(service, repo, {
+      commandId: `start-${scenario}`,
+      attemptId: ATTEMPT_B,
+      executorIdentity: "Codex",
+    });
+    const proposal = saveWorkProposal(repo, {
+      proposalId: `result-${scenario}`,
+      action: scenario === "progress" ? "append_receipt" : "report_done",
+      summary: "比較結果",
+      reportedAt: "2026-09-20T09:00:00.000Z",
+      workAttemptId: scenario === "past" ? ATTEMPT_A : ATTEMPT_B,
+    });
+    if (scenario === "completed")
+      repo.save("task", { ...repo.get("task", "task-viscosity"), state: "done" });
+    const task = repo.get("task", "task-viscosity");
+    const command = envelope(
+      "ReturnTaskWork",
+      { taskId: task.id, receiptId: proposal.id, reviewNote: "根拠を追記" },
+      `return-${scenario}`,
+      [{ type: "task", id: task.id, version: task.version }],
+    );
+    if (scenario !== "current") {
+      assert.throws(() => service.execute(command), /確認待ちまたは停止中/);
+      assert.equal(repo.get("ai_proposal", proposal.id).status, "pending");
+      continue;
+    }
+    service.execute(command);
+    assert.equal(repo.get("task", task.id).state, "todo");
+    assert.equal(repo.get("task", task.id).work_review_note, "根拠を追記");
+    assert.equal(repo.get("ai_proposal", proposal.id).status, "rejected");
+  }
+});
+
 test("明示startの作業単位IDはTaskへ保存され、報告へ引き継がれる", () => {
   const repo = repository();
   const service = new ApplicationCommandService(repo);
