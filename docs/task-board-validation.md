@@ -1,5 +1,7 @@
 # Taskボード統合候補の検証記録
 
+この文書は単独公開候補の記録。3候補を合流した現在の手順と互換性は [統合候補](tasken-unified-integration.md) を参照。
+
 検証日: 2026-10-03。Windows / Node.js 24.4.1 / npm 11.4.2 / Electron 37.10.3。
 公開baseは `a98f9955fb88140ac4b944ac9dfbdada3acb18b9`。
 

@@ -119,6 +119,7 @@ export type RecordingIndicatorCommand = "pause" | "resume" | "stop" | "discard";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
+  agentWorkLogImport: "agent-work-log:import",
   workspaceBootstrap: "workspace:bootstrap",
   workspaceMeta: "workspace:meta",
   mobileGatewayDiagnostics: "mobile-gateway:diagnostics",
@@ -406,7 +407,15 @@ export interface AppUpdateCheckResult {
 }
 
 export type McpCoreWriteProfile =
-  "full" | "proposals" | "read-only" | "partial" | "create-only" | "unknown";
+  | "start-only"
+  | "proposals-and-start"
+  | "create-and-start"
+  | "full"
+  | "proposals"
+  | "read-only"
+  | "partial"
+  | "create-only"
+  | "unknown";
 
 export interface McpBridgeInfo {
   command: string;
@@ -765,6 +774,12 @@ export interface ResearchDeskApi {
     load(): Promise<Workspace>;
     bootstrap(legacy: Workspace): Promise<Workspace>;
     getMeta(): Promise<WorkspaceMeta>;
+  };
+  agentWorkLogs: {
+    import(
+      raw: string,
+      repositoryContextIds: string[],
+    ): Promise<import("../contracts/task/public").ProposeAgentSessionResponse>;
   };
   mobileGateway: {
     diagnostics(): Promise<MobileGatewayDiagnostics>;

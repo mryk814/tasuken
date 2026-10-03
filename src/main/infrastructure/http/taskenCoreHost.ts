@@ -1,5 +1,7 @@
 import {
   aiItemCreationRequestSchema,
+  aiTaskStartRequestSchema,
+  type AiTaskStartRequest,
   type AiItemCreationRequest,
   type AiItemCreationResponse,
 } from "../../../shared/contracts/task/public.ts";
@@ -146,6 +148,7 @@ import {
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   taskenCorePublicError,
 } from "../../../shared/contracts/core/public.mjs";
@@ -166,6 +169,7 @@ interface QueryProvider<Request, Response> {
 export interface TaskenCoreHostOptions {
   userDataPath: string;
   createAiItem?: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>;
+  startAiTaskWork?: QueryProvider<AiTaskStartRequest, TaskCommandResponse>;
   taskQuery?: QueryProvider<unknown, TaskQueryResponse>;
   taskCommand?: QueryProvider<unknown, TaskCommandResponse>;
   listAgentReadyTasks: ListAgentReadyTasksProvider;
@@ -318,7 +322,10 @@ function parseOperationRequest(url: string, body: unknown): unknown {
                                                                   : url ===
                                                                       "/v1/queries/list-proposals"
                                                                     ? listProposalsRequestSchema
-                                                                    : exportAiContextRequestSchema;
+                                                                    : url ===
+                                                                        "/v1/commands/start-ai-task-work"
+                                                                      ? aiTaskStartRequestSchema
+                                                                      : exportAiContextRequestSchema;
   const result = schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
@@ -517,6 +524,7 @@ export class TaskenCoreHost {
   private capabilities() {
     return [
       ...(this.options.createAiItem ? ["create_ai_item"] : []),
+      ...(this.options.startAiTaskWork ? [TASKEN_CORE_TASK_START_WORK_CAPABILITY] : []),
       ...(this.options.taskQuery ? [TASKEN_CORE_TASK_QUERY_CAPABILITY] : []),
       ...(this.options.taskCommand ? [TASKEN_CORE_TASK_COMMAND_CAPABILITY] : []),
       TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
@@ -659,6 +667,7 @@ export class TaskenCoreHost {
       const commandPaths = new Set([
         ...(this.options.createAiItem ? ["/v1/commands/create-ai-item"] : []),
         ...(this.options.taskCommand ? ["/v1/task/command"] : []),
+        ...(this.options.startAiTaskWork ? ["/v1/commands/start-ai-task-work"] : []),
         ...(this.options.proposeTaskWork ? ["/v1/commands/propose-task-work"] : []),
         ...(this.options.proposeAgentSession ? ["/v1/commands/propose-agent-session"] : []),
         ...(this.options.proposeRepositoryTask ? ["/v1/commands/propose-repository-task"] : []),
@@ -710,6 +719,8 @@ export class TaskenCoreHost {
         );
         if (request.url === "/v1/commands/create-ai-item") {
           json(response, 200, this.options.createAiItem!.execute(body as AiItemCreationRequest));
+        } else if (request.url === "/v1/commands/start-ai-task-work") {
+          json(response, 200, this.options.startAiTaskWork!.execute(body as AiTaskStartRequest));
         } else if (request.url === "/v1/task/query") {
           json(response, 200, this.options.taskQuery!.execute(body));
         } else if (request.url === "/v1/task/command") {

@@ -69,6 +69,7 @@ import {
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   taskenCorePublicError,
 } from "../../shared/contracts/core/public.mjs";
@@ -546,6 +547,16 @@ export class TaskenCoreClient {
       request,
       taskCommandResponseSchema,
       "task-command",
+    );
+  }
+
+  async startAiTaskWork(request = {}) {
+    return this.request(
+      "/v1/commands/start-ai-task-work",
+      TASKEN_CORE_TASK_START_WORK_CAPABILITY,
+      request,
+      taskCommandResponseSchema,
+      "start-ai-task-work",
     );
   }
 

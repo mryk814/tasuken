@@ -21,6 +21,18 @@ class MobileTodayGoldenFixtureTest {
     private val json = Json.parseToJsonElement(golden).jsonObject
 
     @Test
+    fun decodesOptionalAgentSessionDetailsAndRejectsInvalidIntervals() {
+        val payload = requireNotNull(javaClass.classLoader?.getResource("today-agent-sessions.golden.json")).readText()
+        val response = MobileTodayContract.decodeSuccess(payload)
+        assertEquals("synthetic-native-thread", response.data.agentSessions.single().sourceSessionId)
+        assertEquals("unknown", response.data.agentSessions.single().status)
+        assertTrue(MobileTodayContract.decodeSuccess(golden).data.agentSessions.isEmpty())
+        assertThrows(MobileTodayContractException::class.java) {
+            MobileTodayContract.decodeSuccess(payload.replace("2026-08-21T10:00:00Z", "2026-08-20T10:00:00Z"))
+        }
+    }
+
+    @Test
     fun decodesCanonicalLanguageNeutralTodayContractFixture() {
         val response = MobileTodayContract.decodeSuccess(golden)
 

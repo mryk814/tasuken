@@ -36,7 +36,17 @@ export const getRepositoryContextRequestSchema = z
 
 export const getAgentSessionContextRequestSchema = repositoryLookupRequestSchema
   .extend({
-    client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]).optional(),
+    client_kind: z
+      .enum([
+        "codex",
+        "claude_code",
+        "cursor",
+        "github_copilot",
+        "opencode",
+        "deepseek_harness",
+        "other",
+      ])
+      .optional(),
     date: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -231,7 +241,7 @@ const publicAgentSessionSchema = z.looseObject({
   id: z.string(),
   started_at: z.string(),
   ended_at: z.string().nullable(),
-  status: z.enum(["active", "completed", "blocked", "abandoned"]),
+  status: z.enum(["active", "completed", "blocked", "abandoned", "unknown", "interrupted"]),
   client_kind: z.string(),
   source_session_id: z.string().nullable(),
   intent: z.looseObject({ summary: z.string() }),

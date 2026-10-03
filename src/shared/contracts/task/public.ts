@@ -397,6 +397,7 @@ export {
   type TaskenMarkdownSourceRange,
 } from "./taskenMarkdownAst.ts";
 export { taskAgentState, type TaskAgentState } from "./agentReadiness.ts";
+export { aiTaskStartRequestSchema, type AiTaskStartRequest } from "./aiTaskStart.ts";
 export {
   PROPOSALS_PROFILE_CONTENT_KINDS,
   PROPOSALS_PROFILE_REPOSITORY_TASK_KINDS,

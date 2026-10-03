@@ -1,0 +1,51 @@
+{
+  "schema": "tasken-ai-work-log/1",
+  "adapter": "opencode-export/1",
+  "client_version": "synthetic-v1",
+  "source_session": "synthetic-opencode",
+  "started_at": "2026-10-03T09:30:00+09:00",
+  "observed_until": "2026-10-03T11:00:00+09:00",
+  "coverage": "partial",
+  "payload": {
+    "info": {
+      "id": "synthetic-opencode"
+    },
+    "messages": [
+      {
+        "info": {
+          "role": "user",
+          "time": {
+            "created": 1790987400000
+          }
+        },
+        "parts": [
+          {
+            "id": "part-user",
+            "type": "text",
+            "text": "Android幅で詳細を確認する"
+          }
+        ]
+      },
+      {
+        "info": {
+          "role": "assistant",
+          "time": {
+            "created": 1790991000000
+          }
+        },
+        "parts": [
+          {
+            "id": "part-answer",
+            "type": "text",
+            "text": "タッチ操作で詳細を開けました。実機確認は残っています。"
+          },
+          {
+            "id": "part-hidden",
+            "type": "reasoning",
+            "text": "DO-NOT-IMPORT"
+          }
+        ]
+      }
+    ]
+  }
+}

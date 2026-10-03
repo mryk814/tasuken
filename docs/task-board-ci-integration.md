@@ -1,5 +1,7 @@
 # Taskボード・AI作成・由来表示の再現手順
 
+この文書は単独公開候補の記録。3候補を合流した現在の手順と互換性は [統合候補](tasken-unified-integration.md) を参照。
+
 公開baseは `a98f9955fb88140ac4b944ac9dfbdada3acb18b9`。
 delivery branchは `codex/komori-20261003-board-ai-icons`。
 既存Taskの一覧／状態別ボード、課題のやり取り、明示的なAI Task/Note新規作成、PC/Androidの由来アイコンをまとめた候補。

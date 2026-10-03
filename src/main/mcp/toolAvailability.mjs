@@ -18,6 +18,7 @@ import {
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   coreWriteProfile,
 } from "../../shared/contracts/core/public.mjs";
 import { PROPOSALS_PROFILE_CONTENT_KINDS } from "../../shared/contracts/task/public.ts";
@@ -81,7 +82,8 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
   "tasken.get_capabilities": { access: "read", capability: null },
   "tasken.start_task_work": {
     access: "direct_write",
-    capability: TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+    capability: TASKEN_CORE_TASK_START_WORK_CAPABILITY,
+    alternativeCapability: TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   },
   "tasken.append_work_receipt": {
     access: "proposal",
@@ -119,7 +121,7 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
 
 function contentKindAllowed(profile, kind) {
   return (
-    (profile !== "proposals" && profile !== "create-only") ||
+    !["proposals", "create-only", "proposals-and-start", "create-and-start"].includes(profile) ||
     PROPOSALS_PROFILE_CONTENT_KINDS.includes(kind)
   );
 }
@@ -137,7 +139,11 @@ export function mcpToolAvailability(capabilities, options = {}) {
   for (const [name, requirement] of Object.entries(MCP_TOOL_REQUIREMENTS)) {
     let reason = null;
     if (requirement.access !== "read" && options.readOnly) reason = "bridge_read_only";
-    else if (requirement.capability && !advertised.has(requirement.capability))
+    else if (
+      requirement.capability &&
+      !advertised.has(requirement.capability) &&
+      !(requirement.alternativeCapability && advertised.has(requirement.alternativeCapability))
+    )
       reason = `missing_capability:${requirement.capability}`;
     else if (requirement.kind && !contentKindAllowed(profile, requirement.kind))
       reason = `kind_not_allowed:${requirement.kind}`;
@@ -158,11 +164,15 @@ export function mcpToolAvailability(capabilities, options = {}) {
       note_create: canContent("note_create"),
       // proposals配備は画像のstage先を持たないため、画像付きNoteを受け付けない。
       note_images:
-        canContent("note_create") && profile !== "proposals" && profile !== "create-only",
+        canContent("note_create") &&
+        !["proposals", "create-only", "proposals-and-start", "create-and-start"].includes(profile),
       note_edit: canContent("note_edit"),
       task_work_report:
         !options.readOnly && advertised.has(TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY),
-      task_start: !options.readOnly && advertised.has(TASKEN_CORE_TASK_COMMAND_CAPABILITY),
+      task_start:
+        !options.readOnly &&
+        (advertised.has(TASKEN_CORE_TASK_START_WORK_CAPABILITY) ||
+          advertised.has(TASKEN_CORE_TASK_COMMAND_CAPABILITY)),
     },
     tools,
   };

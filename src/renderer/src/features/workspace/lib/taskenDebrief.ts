@@ -174,13 +174,13 @@ export function buildDailyDebriefEvidence(
   const canonical = domain.agent_sessions
     .filter((session) => localDate(session.started_at) === date)
     .map((session) => evidenceFromSession(session, undefined, hookSourceApps.get(session.id)));
-  const canonicalSourceIds = new Set(canonical.map((entry) => entry.sourceSessionId));
+  const canonicalSessionIds = new Set(canonical.map((entry) => entry.sessionId));
   const pending = domain.ai_proposals.flatMap((proposal) => {
     const base = proposal as BaseRecord;
     if (!isPassiveAgentSessionProposal(base)) return [];
     return sessionsFromProposal(base)
       .filter((session) => localDate(session.started_at) === date)
-      .filter((session) => !canonicalSourceIds.has(session.source_session_id || session.id))
+      .filter((session) => !canonicalSessionIds.has(session.id))
       .map((session) => evidenceFromSession(session, base, hookSourceApps.get(session.id)));
   });
   const taskWork: DebriefSessionEvidence[] = taskWorkPeriods(
@@ -233,7 +233,7 @@ export function buildDailyDebriefEvidence(
         left.startedAt.localeCompare(right.startedAt),
     )
     .filter((entry) => {
-      const key = entry.sourceSessionId || entry.id;
+      const key = entry.sessionId;
       if (seenSessionIds.has(key)) return false;
       seenSessionIds.add(key);
       return true;

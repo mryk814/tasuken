@@ -1,0 +1,352 @@
+.agent-log-panel {
+  padding: 0;
+  overflow: hidden;
+  min-width: 0;
+}
+.agent-log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  padding: 16px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.agent-log-toolbar h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 auto 0 0;
+  font-size: var(--text-md);
+}
+.agent-log-date-controls,
+.agent-log-mode {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.agent-log-mode button[aria-pressed="true"] {
+  background: var(--color-accent-subtle-bg);
+  color: var(--color-accent-strong);
+  box-shadow: inset 0 -2px var(--color-accent);
+}
+.agent-log-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  flex-wrap: wrap;
+}
+.agent-log-filters select {
+  max-width: 220px;
+}
+.agent-log-filters small {
+  color: var(--color-text-secondary);
+  margin-left: auto;
+}
+.agent-log-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  min-height: 540px;
+}
+.agent-log-calendar {
+  min-width: 0;
+  position: relative;
+  background: var(--color-surface);
+}
+.agent-log-day-heads {
+  display: grid;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.agent-log-day-heads button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  background: transparent;
+  padding: 8px 0;
+  color: var(--color-text);
+  min-height: 44px;
+}
+.agent-log-day-heads button span {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+.agent-log-day-heads button strong {
+  font-size: 18px;
+}
+.agent-log-grid-scroll {
+  max-height: 572px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 16px;
+}
+.agent-log-grid {
+  display: grid;
+  position: relative;
+}
+.agent-log-hours {
+  position: relative;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.agent-log-hours time {
+  position: absolute;
+  right: 8px;
+  transform: translateY(-1px);
+}
+.agent-log-day {
+  position: relative;
+  min-width: 0;
+  border-left: 1px solid var(--color-border-subtle);
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 51px,
+    var(--color-border-subtle) 51px,
+    var(--color-border-subtle) 52px
+  );
+}
+.agent-log-block {
+  position: absolute;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--agent-log-color) 40%, var(--color-border));
+  border-left: 3px solid var(--agent-log-color);
+  border-radius: var(--radius-md);
+  padding: 5px 6px;
+  background: color-mix(in srgb, var(--agent-log-color) 11%, var(--color-surface));
+  color: var(--color-text);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease),
+    box-shadow var(--duration-fast) var(--ease);
+}
+.agent-log-block > span {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 12px;
+}
+.agent-log-block strong {
+  font-size: 11px;
+  line-height: 1.3;
+  min-height: 1.3em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.agent-log-block small {
+  font-size: 10px;
+  line-height: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.agent-log-block:hover {
+  background: color-mix(in srgb, var(--agent-log-color) 19%, var(--color-surface));
+}
+.agent-log-block.is-selected {
+  box-shadow: inset 0 0 0 1px var(--agent-log-color);
+  background: color-mix(in srgb, var(--agent-log-color) 20%, var(--color-surface));
+}
+.agent-log-block.is-live {
+  border-style: dashed;
+}
+.agent-log-panel button:focus-visible,
+.agent-log-import-dialog button:focus-visible,
+.agent-log-detail-dialog button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.agent-log-detail {
+  border-left: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-subtle);
+  padding: 16px;
+  min-width: 0;
+  max-height: 630px;
+  overflow-y: auto;
+}
+.agent-log-detail header,
+.agent-log-import-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.agent-log-detail header > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.agent-log-detail h3 {
+  margin: 18px 0 8px;
+  font-size: 18px;
+}
+.agent-log-interval {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.agent-log-interval small {
+  width: 100%;
+  color: var(--color-text-secondary);
+}
+.agent-log-detail dl,
+.agent-log-import-preview dl {
+  margin: 20px 0;
+}
+.agent-log-detail dt,
+.agent-log-import-preview dt {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  margin-top: 16px;
+}
+.agent-log-detail dd,
+.agent-log-import-preview dd {
+  margin: 5px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-log-detail details {
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 12px 0;
+}
+.agent-log-detail details summary {
+  cursor: pointer;
+  min-height: 32px;
+}
+.agent-log-detail code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.agent-log-detail ol {
+  padding-left: 16px;
+}
+.agent-log-detail li {
+  margin-top: 12px;
+}
+.agent-log-detail li time {
+  color: var(--color-text-secondary);
+  margin-right: 6px;
+  font-size: 11px;
+}
+.agent-log-detail li p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-log-detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  height: 100%;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+.agent-log-empty {
+  position: absolute;
+  top: 180px;
+  left: 40px;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-text-secondary);
+}
+.agent-log-detail-dialog,
+.agent-log-import-dialog {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-md);
+  width: min(620px, calc(100vw - 24px));
+  max-height: calc(100dvh - 32px);
+  padding: 20px;
+}
+.agent-log-detail-dialog::backdrop,
+.agent-log-import-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.28);
+}
+.agent-log-detail-dialog {
+  width: min(620px, calc(100vw - 24px));
+}
+.agent-log-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+.agent-log-file input {
+  width: 100%;
+}
+.agent-log-import-preview label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.agent-log-import-dialog > small {
+  display: block;
+  margin: 10px 0;
+  color: var(--color-text-secondary);
+}
+.agent-log-import-dialog > details {
+  margin-top: 16px;
+}
+.agent-log-error {
+  color: var(--color-danger-strong);
+}
+.debrief-tasken-activity > summary {
+  padding: 12px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-log-block {
+    transition: none;
+  }
+}
+@media (max-width: 760px) {
+  .agent-log-toolbar {
+    padding: 12px;
+  }
+  .agent-log-toolbar h2 {
+    width: 100%;
+  }
+  .agent-log-toolbar button,
+  .agent-log-toolbar input,
+  .agent-log-filters select,
+  .agent-log-detail-dialog button {
+    min-height: 44px;
+  }
+  .agent-log-filters {
+    padding: 8px 12px;
+  }
+  .agent-log-filters label {
+    flex: 1;
+    min-width: 0;
+  }
+  .agent-log-filters select {
+    width: 100%;
+  }
+  .agent-log-filters small {
+    width: 100%;
+    margin: 0;
+  }
+}

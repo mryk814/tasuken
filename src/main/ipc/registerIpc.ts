@@ -227,6 +227,14 @@ export function registerIpc(
   notifyTaskProjectionChanged: (types: EntityType[]) => void = () => {},
 ): void {
   const screenRecordingSenderIds = new Set<number>();
+  ipcMain.handle(
+    IPC.agentWorkLogImport,
+    async (_event, raw: string, repositoryContextIds: string[]) => {
+      const result = await service.importAgentWorkLog(raw, repositoryContextIds);
+      notifyEntitiesChanged(["ai_proposal"]);
+      return result;
+    },
+  );
   const aiProposalAcceptance = new AiProposalAcceptanceService(
     applicationCommands,
     service,

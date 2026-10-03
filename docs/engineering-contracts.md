@@ -56,6 +56,8 @@
 5. 外部AIは`tasken.get_proposal_status`で受領IDから採否と作成Entityを確認できる。応答は**接続中のnodeが持つ正本**だけを表し、別端末への配送とそちらでの採否は確認しない。未採用のProposalにはEntityを返さない。`tasken.list_proposals`は同じnodeのProposalを識別と状態だけで一覧し、payload本文は返さない。
 6. Proposal・読み物の書き込みで`dry_run: true`を指定した場合、Coreは本送信と同じ検証だけを行い、Proposalの保存・画像のstage・Feedへの表示をしない。応答は`status: "validated"`とし、保存されていないことを明示する。
 
+開始専用の`task.start_work`は新規作成と独立した明示opt-inとする。本人の個人業務で、人がAI Readyにした未着手Taskに限り、開始状態・時刻・実行者・作業単位・監査を直接保存する。actor/sourceはCoreで固定し、本文・完了・削除・採用・委任の権限を増やさない。報告はProposalのまま、人の採用とTask完了を別操作に保つ。撤回後も履歴を保持する。詳細は[開始専用権限](ai-task-start.md)。
+
 ## セキュリティと秘密情報
 
 1. 秘密情報（APIキー・トークン・パスワード）をソースコード・設定ファイルに直書きしない。リポジトリにコミットしない。

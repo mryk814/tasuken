@@ -67,9 +67,14 @@ export class ProposeAgentSessionService {
   execute(input: ProposeAgentSessionRequest): ProposeAgentSessionResponse {
     const request = proposeAgentSessionRequestSchema.parse(input);
     const proposalId = uuidFrom([request.source_app, "agent_sessions", request.idempotency_key]);
-    const sessionId =
+    let sessionId =
       request.action !== "finish"
-        ? uuidFrom([request.source_app, "agent_session", request.source_session])
+        ? uuidFrom([
+            request.source_app,
+            "agent_session",
+            request.source_session,
+            ...(request.action === "capture" ? [new Date(request.started_at).toISOString()] : []),
+          ])
         : request.agent_session_id;
     const receivedAt = this.now();
     const requestDigest = digest(request);
@@ -89,9 +94,21 @@ export class ProposeAgentSessionService {
             { proposal_id: proposalId },
           );
         }
+        const entries = existingProposal.payload.agent_sessions as Array<{
+          session: { id: string };
+        }>;
+        sessionId = entries[0].session.id;
         return "duplicate" as const;
       }
 
+      // Keep already-adopted pre-generation captures addressable without migration.
+      if (request.action === "capture") {
+        const legacyId = uuidFrom([request.source_app, "agent_session", request.source_session]);
+        const legacy = transaction.getEntity("agent_session", legacyId);
+        if (legacy && Date.parse(String(legacy.started_at)) === Date.parse(request.started_at)) {
+          sessionId = legacyId;
+        }
+      }
       const current =
         request.action === "finish" ? transaction.getEntity("agent_session", sessionId) : null;
       if (request.action === "finish") {
@@ -145,6 +162,7 @@ export class ProposeAgentSessionService {
               provider_label: request.provider_label || null,
               model_label: request.model_label || null,
               source_session_id: request.source_session,
+              ...(request.observation ? { observation: request.observation } : {}),
               request_events: request.request_events || [],
               response_checkpoints: request.response_checkpoints || [],
               intent: request.intent,

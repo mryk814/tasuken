@@ -17,6 +17,7 @@ export interface TaskenHeadlessCoreArgs {
   databasePath?: string;
   syncDirectory?: string;
   writeMode: TaskenHeadlessWriteMode;
+  allowAiTaskStart?: boolean;
   help: boolean;
 }
 
@@ -30,7 +31,7 @@ export class TaskenHeadlessCoreUsageError extends Error {
 const HELP = `Tasken CoreをGUIなしで起動します。
 
 Usage:
-  node core-dist/headless.mjs [--user-data-dir=<path>] [--db-path=<path>] [--sync-directory=<path>] [--write-mode=<mode>]
+  node core-dist/headless.mjs [--user-data-dir=<path>] [--db-path=<path>] [--sync-directory=<path>] [--write-mode=<mode>] [--allow-ai-task-start]
 
 Options:
   --user-data-dir    CoreのuserData（discovery fileの保存先）。省略時はTASKEN_USER_DATA_DIR、
@@ -42,7 +43,10 @@ Options:
                      省略時はTASKEN_CORE_WRITE_MODE。proposalsではテキストのFeed投稿・
                      Note案・Task案・Task作業報告だけを受け付け、Core自身が許可範囲を強制する。
                      create-onlyでは上記に本人用Task/Note新規作成だけを追加する。
-                     直接開始（start_task_work）は公開しない。
+                     この指定だけでは直接開始（start_task_work）は公開しない。
+  --allow-ai-task-start  本人の個人業務のAI Ready Taskだけ開始を直接記録する。既定は無効。
+                     TASKEN_CORE_AI_TASK_START=1でも明示できる。read-onlyとの併用は拒否する。
+                     汎用task.command、編集・削除・完了・採用・自動委任は公開しない。
   -h, --help         このhelpを表示する。
 
 起動するとstdoutへTASKEN_HEADLESS_CORE_READY、SIGINT/SIGTERMの正常終了時に
@@ -59,6 +63,7 @@ export function parseTaskenHeadlessCoreArgs(
       "db-path": { type: "string" },
       "sync-directory": { type: "string" },
       "write-mode": { type: "string" },
+      "allow-ai-task-start": { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: false,
@@ -90,6 +95,9 @@ export function parseTaskenHeadlessCoreArgs(
   return {
     help: false,
     writeMode,
+    ...(values["allow-ai-task-start"] || env.TASKEN_CORE_AI_TASK_START === "1"
+      ? { allowAiTaskStart: true }
+      : {}),
     ...(userDataPath ? { userDataPath: path.resolve(userDataPath) } : {}),
     ...(databasePath ? { databasePath: path.resolve(databasePath) } : {}),
     ...(syncDirectory ? { syncDirectory: path.resolve(syncDirectory) } : {}),
@@ -130,6 +138,7 @@ async function run(): Promise<void> {
       ...(args.databasePath ? { databasePath: args.databasePath } : {}),
       ...(args.syncDirectory ? { syncDirectory: args.syncDirectory } : {}),
       writeMode: args.writeMode,
+      ...(args.allowAiTaskStart ? { allowAiTaskStart: true } : {}),
     });
   } catch (error) {
     const code = error instanceof TaskenHeadlessCoreError ? error.code : "CORE_START_FAILED";

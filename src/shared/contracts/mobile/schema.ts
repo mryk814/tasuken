@@ -279,6 +279,7 @@ export const mobileTodayRequestSchema = z
     requestId: requestIdSchema,
     date: localDateSchema,
     limit: z.number().int().positive().max(TASKEN_MOBILE_MAX_ITEMS).default(20),
+    includeAgentSessions: z.boolean().optional(),
   })
   .strict();
 
@@ -927,6 +928,31 @@ export const mobileTodayResponseSchema = z
         date: localDateSchema,
         items: z.array(mobileTaskSummarySchema).max(TASKEN_MOBILE_MAX_ITEMS),
         nextCursor: z.string().max(1000).nullable(),
+        agentSessions: z
+          .array(
+            z
+              .object({
+                id: entityIdSchema,
+                sourceSessionId: z.string().max(500).nullable(),
+                clientKind: z.string().max(50),
+                startedAt: isoTimestampSchema,
+                endedAt: isoTimestampSchema.nullable(),
+                status: z.enum([
+                  "active",
+                  "completed",
+                  "blocked",
+                  "abandoned",
+                  "unknown",
+                  "interrupted",
+                ]),
+                intent: z.string().max(4000),
+                outcome: z.string().max(8000).nullable(),
+                remainingWork: z.array(z.string().max(1000)).max(100),
+              })
+              .strict(),
+          )
+          .max(20)
+          .optional(),
       })
       .strict(),
   })

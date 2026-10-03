@@ -1,0 +1,193 @@
+/** Real file input → IPC/Core proposal → human acceptance → persisted timeline. */
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { _electron } from "playwright";
+
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-agent-log-smoke-"));
+const output = path.resolve(
+  process.env.TASKEN_AGENT_LOG_SMOKE_OUTPUT_DIR || "output/playwright/agent-work-logs",
+);
+fs.mkdirSync(output, { recursive: true });
+const errors = [];
+let app;
+let page;
+async function launch() {
+  app = await _electron.launch({
+    executablePath: path.resolve(
+      "node_modules/electron/dist",
+      process.platform === "win32" ? "electron.exe" : "electron",
+    ),
+    cwd: process.cwd(),
+    args: [".", `--user-data-dir=${root}`],
+    env: {
+      ...process.env,
+      TASKEN_USER_DATA_DIR: root,
+      TASKEN_DEV_USER_DATA_DIR: root,
+      TASKEN_DB_PATH: path.join(root, "research-desk.sqlite"),
+    },
+  });
+  page = await app.firstWindow();
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setMinimumSize(0, 0);
+    window.setContentSize(1760, 1024);
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.getByText("Debrief", { exact: true }).first().click();
+  await page.getByRole("region", { name: "AI作業ログ", exact: true }).waitFor();
+}
+const panel = () => page.getByRole("region", { name: "AI作業ログ", exact: true });
+async function importFixture(name) {
+  await panel().getByRole("button", { name: "AI作業ログを取り込む", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "AI作業ログを取り込む", exact: true });
+  await dialog
+    .locator('input[type="file"]')
+    .setInputFiles(path.resolve(`fixtures/agent-work-logs/${name}.json`));
+  await dialog.getByRole("button", { name: "確認へ進む", exact: true }).waitFor();
+  await dialog.getByLabel("関連Repository").selectOption("synthetic-repository");
+  await dialog.getByRole("button", { name: "確認へ進む", exact: true }).click();
+  await dialog.waitFor({ state: "detached" });
+  console.log(`queued ${name}`);
+  const detail = panel().getByRole("complementary", { name: "選択Sessionの詳細", exact: true });
+  await detail.getByRole("button", { name: "採用", exact: true }).click();
+  await detail.getByRole("button", { name: "採用", exact: true }).waitFor({ state: "detached" });
+  console.log(`accepted ${name}`);
+}
+try {
+  await launch();
+  await page.evaluate(() =>
+    window.api.entities.save("repository_context", {
+      id: "synthetic-repository",
+      label: "Tasken fixture",
+      remote_url: "https://example.com/fixture/tasken.git",
+      provider: "generic_git",
+    }),
+  );
+  for (const name of ["codex", "claude", "copilot", "opencode", "deepseek"])
+    await importFixture(name);
+  await panel().getByLabel("表示日").fill("2026-10-03");
+  await panel().getByRole("button", { name: "週", exact: true }).click();
+  assert.equal(await panel().locator(".agent-log-block").count(), 5);
+  await panel().getByLabel("Clientで絞る").selectOption("codex");
+  assert.equal(await panel().locator(".agent-log-block").count(), 1);
+  await panel().getByLabel("Clientで絞る").selectOption("");
+  await panel().getByLabel("Repositoryで絞る").selectOption("synthetic-repository");
+  assert.equal(await panel().locator(".agent-log-block").count(), 5);
+  await panel().locator(".agent-log-block").filter({ hasText: "Codex" }).click();
+  await panel().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, "after-desktop.png") });
+  const canonical = await page.evaluate(() => window.api.entities.list("agent_session"));
+  assert.equal(canonical.length, 5);
+  assert.ok(
+    canonical.every(
+      (session) => session.observation?.mode === "history" && session.status !== "active",
+    ),
+  );
+  assert.doesNotMatch(
+    JSON.stringify(canonical),
+    /DO-NOT-READ|DO-NOT-IMPORT|transcriptPath|reasoning/,
+  );
+  await panel().getByRole("button", { name: "詳細を閉じる", exact: true }).click();
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setMinimumSize(0, 0);
+    window.setContentSize(390, 844);
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await panel().getByLabel("表示日").fill("2026-10-03");
+  await panel().locator(".agent-log-block").filter({ hasText: "Codex" }).click();
+  await page.getByRole("dialog", { name: "選択Sessionの詳細", exact: true }).waitFor();
+  await page.screenshot({ path: path.join(output, "after-narrow-detail.png") });
+  const narrowWidth = await page.evaluate(() => document.documentElement.clientWidth);
+  // Windows fractional display scaling may round the requested content width by one pixel.
+  assert.ok(Math.abs(narrowWidth - 390) <= 1, `unexpected narrow width: ${narrowWidth}`);
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("dialog", { name: "選択Sessionの詳細", exact: true })
+    .waitFor({ state: "detached" });
+  await page.screenshot({ path: path.join(output, "after-narrow-timeline.png") });
+  // Keyboard opens detail and native dialog returns focus after Escape.
+  const block = panel().locator(".agent-log-block").filter({ hasText: "Codex" });
+  await block.focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("dialog", { name: "選択Sessionの詳細", exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  assert.equal(await block.evaluate((element) => element === document.activeElement), true);
+  const transition = await block.evaluate(
+    (element) => getComputedStyle(element).transitionDuration,
+  );
+  assert.ok(parseFloat(transition) <= 0.001, transition);
+  // Invalid import is an inline recoverable error; no canonical row changes.
+  await panel().getByRole("button", { name: "AI作業ログを取り込む", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "AI作業ログを取り込む", exact: true });
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: "unsupported.json",
+    mimeType: "application/json",
+    buffer: Buffer.from('{"schema":"unsupported"}'),
+  });
+  await dialog.getByRole("alert").waitFor();
+  assert.equal(await dialog.getByRole("button", { name: "確認へ進む", exact: true }).count(), 0);
+  await page.keyboard.press("Escape");
+  await app.close();
+  app = null;
+  await launch();
+  assert.equal((await page.evaluate(() => window.api.entities.list("agent_session"))).length, 5);
+  assert.equal(errors.length, 0, errors.join("\n"));
+  fs.writeFileSync(
+    path.join(output, "result.json"),
+    JSON.stringify(
+      {
+        passed: true,
+        canonicalSessions: 5,
+        clients: 5,
+        width: narrowWidth,
+        keyboard: true,
+        reducedMotion: true,
+        restart: true,
+        errors,
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(JSON.stringify({ passed: true, output }));
+} catch (error) {
+  if (page) await page.screenshot({ path: path.join(output, "failure.png") }).catch(() => {});
+  if (page)
+    fs.writeFileSync(
+      path.join(output, "failure-layout.json"),
+      JSON.stringify(
+        await page
+          .locator('[aria-label="採用"]')
+          .evaluateAll((elements) =>
+            elements.map((element) => {
+              const ancestors = [];
+              for (let current = element; current; current = current.parentElement) {
+                const style = getComputedStyle(current),
+                  rect = current.getBoundingClientRect();
+                ancestors.push({
+                  tag: current.tagName,
+                  class: current.className,
+                  rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+                  overflow: style.overflow,
+                  display: style.display,
+                  position: style.position,
+                  scrollTop: current.scrollTop,
+                  scrollHeight: current.scrollHeight,
+                });
+              }
+              return ancestors;
+            }),
+          )
+          .catch(() => []),
+        null,
+        2,
+      ),
+    );
+  throw error;
+} finally {
+  if (app) await app.close();
+  fs.rmSync(root, { recursive: true, force: true });
+}

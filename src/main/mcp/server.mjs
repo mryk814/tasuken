@@ -6,7 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 
 import { localDate } from "../../shared/activityProjection.mjs";
-import { TASKEN_CORE_TASK_COMMAND_CAPABILITY } from "../../shared/contracts/core/public.mjs";
+import { TASKEN_CORE_TASK_START_WORK_CAPABILITY } from "../../shared/contracts/core/public.mjs";
 import {
   formatTaskLocator,
   parseCanonicalTaskId,
@@ -709,6 +709,28 @@ export function createTaskenMcpServer(options = {}) {
     });
   const startTaskWork = async (args) => {
     try {
+      if (typeof coreClient.startAiTaskWork === "function") {
+        try {
+          return await coreClient.startAiTaskWork({
+            task_id: args.task_id,
+            expected_version: args.expected_version,
+            idempotency_key: args.idempotency_key,
+            caller: args.caller,
+            started_at: args.started_at,
+            ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
+            ...(args.source_session ? { source_session: args.source_session } : {}),
+          });
+        } catch (error) {
+          // Legacy Desktop Core advertises task.command. A refusal from the
+          // limited operation must never fall back to a broader operation.
+          if (
+            !(error instanceof TaskenCoreClientError) ||
+            error.code !== "CAPABILITY_UNAVAILABLE"
+          ) {
+            throw error;
+          }
+        }
+      }
       return await coreClient.executeTaskCommand({
         schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
         command_id: args.idempotency_key,
@@ -732,11 +754,11 @@ export function createTaskenMcpServer(options = {}) {
       if (error instanceof TaskenCoreClientError && error.code === "CAPABILITY_UNAVAILABLE") {
         throw new TaskenCoreClientError(
           "CAPABILITY_UNAVAILABLE",
-          `Tasken Core operation capabilityが利用できません（${TASKEN_CORE_TASK_COMMAND_CAPABILITY}）。`,
+          `Tasken Core operation capabilityが利用できません（${TASKEN_CORE_TASK_START_WORK_CAPABILITY}）。`,
           {
-            details: { capability: TASKEN_CORE_TASK_COMMAND_CAPABILITY },
+            details: { capability: TASKEN_CORE_TASK_START_WORK_CAPABILITY },
             next_action:
-              "この接続先は直接開始を公開していません。Tasken Desktopから開始するか、tasken.report_task_doneで作業報告を送ってください（採用時に開始も記録されます）。Coreが古い場合は同じ版へ更新してください。",
+              "この接続先は開始専用権限を公開していません。利用者が開始権限を有効化するか、tasken.report_task_doneで作業報告を送ってください（採用時に開始も記録されます）。",
           },
         );
       }
@@ -802,10 +824,16 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.start_task_work",
     {
       description:
-        "Claim an explicitly AI Ready Task and start work immediately. Use this only after selecting the Task for actual work; listing or reading Tasks never starts them. Reuse the same idempotency_key and started_at when retrying.",
+        "Claim an explicitly AI Ready Task and start work immediately. The limited task.start_work connection accepts only the owner's personal Tasks. Supply work_attempt_id as a UUID; reuse it and the same idempotency_key, expected_version, started_at and caller for retries. A retry returns the current Task: continue only if it is in_progress and its work_attempt_id and executor_identity still match your claim. Listing or reading Tasks never starts them. Reports remain Proposals for human adoption.",
       inputSchema: {
         ...taskWorkBase,
         started_at: requiredTimestamp,
+        work_attempt_id: z
+          .string()
+          .uuid()
+          .describe(
+            "Required UUID for this delegation. Reuse it for retries and reports; use a new UUID after human re-delegation.",
+          ),
       },
       annotations: DIRECT_WRITE_ANNOTATIONS,
     },

@@ -7,16 +7,10 @@ import { ActivityLogPanel } from "../components/ActivityLogPanel";
 import { TaskenDebriefPanel } from "../components/TaskenDebriefPanel";
 import { dailyReportDate, readTaskenDebrief } from "../lib/taskenDebrief";
 import type { PageProps } from "../types";
+import { AgentWorkTimeline } from "../components/AgentWorkTimeline";
 
-export function DebriefPage({
-  data,
-  domain,
-  themes,
-  notes,
-  setToast,
-  openDrawer,
-  openNoteForEditing,
-}: PageProps) {
+export function DebriefPage(props: PageProps) {
+  const { data, domain, themes, notes, setToast, openDrawer, openNoteForEditing } = props;
   const [date, setDate] = useState(todayIso());
   const history = notes
     .flatMap((note) => {
@@ -31,22 +25,27 @@ export function DebriefPage({
   return (
     <div className="page debrief-page">
       <PageHeader route="debrief" />
+      <AgentWorkTimeline {...props} date={date} onDateChange={setDate} />
       <section className="debrief-current" aria-label="一日の記録">
-        <ActivityLogPanel
-          data={data}
-          domain={domain}
-          themes={themes}
-          date={date}
-          onDateChange={setDate}
-          openDrawer={openDrawer}
-          setToast={setToast}
-        />
+        <details className="debrief-tasken-activity">
+          <summary>TaskenのActivity</summary>
+          <ActivityLogPanel
+            data={data}
+            domain={domain}
+            themes={themes}
+            date={date}
+            onDateChange={setDate}
+            openDrawer={openDrawer}
+            setToast={setToast}
+          />
+        </details>
         <TaskenDebriefPanel
           date={date}
           domain={domain}
           notes={notes}
           openReport={openNoteForEditing}
           setToast={setToast}
+          reportsOnly
         />
       </section>
       <section className="panel debrief-history">

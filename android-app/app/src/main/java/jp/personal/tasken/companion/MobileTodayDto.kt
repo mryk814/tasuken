@@ -30,6 +30,20 @@ data class MobileTodayDataDto(
     val date: String,
     val items: List<MobileTaskSummaryDto>,
     val nextCursor: String?,
+    val agentSessions: List<MobileAgentSessionDto> = emptyList(),
+)
+
+@Serializable
+data class MobileAgentSessionDto(
+    val id: String,
+    val sourceSessionId: String?,
+    val clientKind: String,
+    val startedAt: String,
+    val endedAt: String?,
+    val status: String,
+    val intent: String,
+    val outcome: String?,
+    val remainingWork: List<String> = emptyList(),
 )
 
 @Serializable
@@ -144,6 +158,17 @@ object MobileTodayContract {
         requireContract(isTimestamp(response.meta.generatedAt), "Invalid generatedAt timestamp.")
         requireContract(isDate(response.data.date), "Invalid Today date.")
         requireContract(response.data.items.size <= MaxItems, "Today response exceeds the item limit.")
+        requireContract(response.data.agentSessions.size <= 20, "Session response exceeds the item limit.")
+        response.data.agentSessions.forEach { session ->
+            requireContract(isEntityId(session.id) && isTimestamp(session.startedAt), "Invalid Session identity or time.")
+            requireContract(session.endedAt == null || isTimestamp(session.endedAt), "Invalid Session end time.")
+            requireContract(session.endedAt == null || !OffsetDateTime.parse(session.endedAt).toInstant().isBefore(OffsetDateTime.parse(session.startedAt).toInstant()), "Session end precedes start.")
+            requireContract(session.sourceSessionId == null || session.sourceSessionId.length <= 500, "Session source ID exceeds the limit.")
+            requireContract(session.clientKind.length in 1..50, "Invalid Session client.")
+            requireContract(session.status in setOf("active", "completed", "blocked", "abandoned", "unknown", "interrupted"), "Invalid Session status.")
+            requireContract(session.intent.length <= 4000 && (session.outcome?.length ?: 0) <= 8000, "Session text exceeds the limit.")
+            requireContract(session.remainingWork.size <= 100 && session.remainingWork.all { it.length <= 1000 }, "Session remaining work exceeds the limit.")
+        }
         requireContract(
             response.data.nextCursor == null || response.data.nextCursor.length <= 1000,
             "nextCursor exceeds the contract limit.",

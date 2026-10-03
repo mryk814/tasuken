@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { _electron as electron } from "playwright";
 import path from "node:path";
+import { build } from "esbuild";
+import { pathToFileURL } from "node:url";
 import { TaskenCoreClient } from "../src/main/mcp/taskenCoreClient.mjs";
 import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
 
@@ -56,7 +58,7 @@ export async function runIntegratedBoardChecks({
       .allTextContents();
     await page.screenshot({ path: `${output}/integrated-list-unseen.png` });
     await page.getByRole("button", { name: "ボード", exact: true }).click();
-    const card = page.locator(".task-board-card", { hasText: task.title });
+    let card = page.locator(".task-board-card", { hasText: task.title });
     const originButton = card.getByRole("button", {
       name: "AI作成 · 未確認。作成元を表示",
       exact: true,
@@ -138,14 +140,83 @@ export async function runIntegratedBoardChecks({
     await handoff.getByRole("button", { name: "AIへの依頼を準備", exact: true }).click();
     await handoff.getByText("開始待ち", { exact: true }).waitFor();
     await closeTask(page);
+    if (process.argv.includes("--all-features")) {
+      await card.getByRole("combobox", { name: `${task.title}のTask状態` }).selectOption("doing");
+      const prepared = new WorkspaceDatabase(databasePath);
+      const ready = prepared.get("task", task.id);
+      prepared.db.close();
+      await app.close();
+      app = null;
+      const bundlePath = path.resolve(output, "limited-start-core.mjs");
+      await build({
+        stdin: {
+          contents:
+            'export { startTaskenHeadlessCore } from "./src/main/headless/taskenHeadlessCore.ts";',
+          resolveDir: process.cwd(),
+        },
+        bundle: true,
+        platform: "node",
+        format: "esm",
+        packages: "external",
+        alias: { electron: path.resolve("src/main/headless/electronUnavailable.ts") },
+        outfile: bundlePath,
+        logLevel: "silent",
+      });
+      const { startTaskenHeadlessCore } = await import(pathToFileURL(bundlePath).href);
+      const limited = await startTaskenHeadlessCore({
+        userDataPath: userData,
+        writeMode: "create-only",
+        allowAiTaskStart: true,
+        env: {},
+      });
+      try {
+        const client = new TaskenCoreClient({ userDataPath: userData });
+        const request = {
+          task_id: task.id,
+          expected_version: ready.version,
+          idempotency_key: "integrated-limited-start",
+          caller: "Codex",
+          started_at: new Date().toISOString(),
+          work_attempt_id: ready.work_attempt_id || randomUUID(),
+          source_session: "isolated-combined-session",
+        };
+        const started = await client.startAiTaskWork(request);
+        assert(started.ok, JSON.stringify(started));
+        assert.equal(started.value.task.work_state, "in_progress");
+        assert.equal(started.value.task.work_attempt_id, request.work_attempt_id);
+        assert.equal((await client.startAiTaskWork(request)).value.task.id, task.id);
+        const status = await client.inspect();
+        assert(status.capabilities.includes("task.start_work"));
+        assert(!status.capabilities.includes("task.command"));
+      } finally {
+        await limited.stop();
+      }
+      app = await electron.launch({
+        args: [".", "--disable-gpu", "--disable-gpu-compositing", `--user-data-dir=${userData}`],
+        env,
+      });
+      page = await app.firstWindow();
+      await app.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        window.setMinimumSize(0, 0);
+        window.setContentSize(1400, 900);
+      });
+      await board(page);
+      card = page.locator(".task-board-card", { hasText: task.title });
+      checks.push(
+        "人のAI Ready依頼→独立opt-in開始専用Core→同一attemptの再送→ボード再起動、汎用Task権限は非公開",
+      );
+    }
     const fixture = new WorkspaceDatabase(databasePath);
     const assigned = fixture.get("task", task.id);
     assert.equal(assigned.handoff_instruction, "25℃と40℃を比較してください");
-    const working = fixture.save("task", {
-      ...assigned,
-      state: "doing",
-      work_state: "in_progress",
-    });
+    const working = process.argv.includes("--all-features")
+      ? assigned
+      : fixture.save("task", {
+          ...assigned,
+          state: "doing",
+          work_state: "in_progress",
+        });
     function report(id, action, current, extra = {}) {
       return {
         id,
@@ -252,9 +323,64 @@ export async function runIntegratedBoardChecks({
     assert(accepted.get("task", task.id).ai_seen_at);
     accepted.db.close();
     checks.push("AI作成Taskを同じIDで依頼→質問→競合時入力保持→返答→成果報告→採用、Task継続");
+    if (process.argv.includes("--all-features")) {
+      await closeTask(page);
+      await page.locator(".sidebar button", { hasText: "Debrief" }).first().click();
+      const logs = page.getByRole("region", { name: "AI作業ログ", exact: true });
+      await logs.getByRole("button", { name: "AI作業ログを取り込む", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "AI作業ログを取り込む", exact: true });
+      await dialog
+        .locator('input[type="file"]')
+        .setInputFiles(path.resolve("fixtures/agent-work-logs/codex.json"));
+      await dialog.getByRole("button", { name: "確認へ進む", exact: true }).click();
+      await dialog.waitFor({ state: "detached" });
+      const detail = page.getByRole("complementary", { name: "選択Sessionの詳細", exact: true });
+      await detail.getByRole("button", { name: "採用", exact: true }).click();
+      await detail
+        .getByRole("button", { name: "採用", exact: true })
+        .waitFor({ state: "detached" });
+      await logs.getByLabel("表示日").fill("2026-10-03");
+      await logs.getByRole("button", { name: "週", exact: true }).click();
+      assert.equal(await logs.locator(".agent-log-block").count(), 1);
+      await page.screenshot({ path: `${output}/combined-work-log-desktop.png` });
+      await app.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        window.setMinimumSize(0, 0);
+        window.setContentSize(420, 844);
+      });
+      await logs.locator(".agent-log-block").click();
+      await page.getByRole("dialog", { name: "選択Sessionの詳細", exact: true }).waitFor();
+      await page.screenshot({ path: `${output}/combined-work-log-narrow.png` });
+      await page.keyboard.press("Escape");
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0].setContentSize(1400, 900),
+      );
+      const imported = new WorkspaceDatabase(databasePath);
+      assert.equal(imported.list("agent_session").length, 1);
+      assert.equal(imported.list("agent_session")[0].observation.mode, "history");
+      assert.notEqual(imported.list("agent_session")[0].status, "active");
+      assert.equal(imported.get("task", task.id).state, "doing");
+      assert.equal(imported.get("task", task.id).work_state, "accepted");
+      imported.db.close();
+      await board(page);
+      card = page.locator(".task-board-card", { hasText: task.title });
+      await card.getByRole("button", { name: task.title, exact: true }).click();
+      await page
+        .locator(".task-conversation")
+        .getByText("25℃で進めてください", { exact: true })
+        .waitFor();
+      checks.push(
+        "同じ隔離workspaceでログfixtureをpreview→採用、420幅の詳細→ボードへ戻り人の返答とTask継続を保持",
+      );
+    }
     await closeTask(page);
     await page.locator(".sidebar button", { hasText: "Notes" }).first().click();
+    const noteRow = page.locator(".note-row", { hasText: note.title });
+    await noteRow.locator(".ai-creation-mark").first().waitFor();
+    assert.equal(await noteRow.locator(".ai-creation-mark").count(), 1);
     await page.getByText(note.title, { exact: true }).first().click();
+    await page.locator(".note-preview-panel .ai-creation-mark").first().waitFor();
+    assert.equal(await page.locator(".note-preview-panel .ai-creation-mark").count(), 1);
     await page
       .locator(".note-preview-panel")
       .getByRole("button", { name: "AI作成 · 未確認。作成元を表示", exact: true })
@@ -288,6 +414,7 @@ export async function runIntegratedBoardChecks({
         "work_receipt",
         "feed_post",
         "feed_reply",
+        ...(process.argv.includes("--all-features") ? ["agent_session", "reference"] : []),
       ]) {
         assert.deepEqual(
           second

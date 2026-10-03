@@ -1650,7 +1650,21 @@ class AndroidMobileTaskRepository(
                 dao.tasksForDate(LocalDate.now().toString()).map(TaskCacheEntity::toMobileTask) to
                     state?.lastSuccessfulSyncAt.orEmpty()
             }
-            MobileTodayResult.Available(cached, syncedAt)
+            val sessions = try {
+                val response = gatewayRequest(configuration.origin,
+                    "/v1/today?apiVersion=$TASKEN_MOBILE_API_VERSION&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=${UUID.randomUUID()}&date=${LocalDate.now()}&limit=1&includeAgentSessions=true",
+                    "GET", null, token)
+                require(response.status == 200) { "Session read failed with HTTP ${response.status}" }
+                val decoded = MobileTodayContract.decodeSuccess(response.body)
+                val expectedServerId = runBlocking { dao.syncState()?.serverId }
+                require(decoded.meta.serverId == expectedServerId) { "Session response belongs to another Desktop" }
+                require(response.status == 200 && store.readToken() != null) { "Session read requires a paired Desktop" }
+                decoded.data.agentSessions
+            } catch (error: Exception) {
+                Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Session read unavailable", error)
+                null
+            }
+            MobileTodayResult.Available(cached, syncedAt, sessions.orEmpty(), sessions == null)
         } catch (error: MobileOutboxServerMismatchException) {
             MobileTodayResult.Unavailable(
                 "未解決の変更は別のDesktopに属しています。",

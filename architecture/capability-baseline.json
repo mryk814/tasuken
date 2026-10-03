@@ -25,6 +25,7 @@
       "global": "api",
       "properties": [
         "activity",
+        "agentWorkLogs",
         "ai",
         "aiContext",
         "app",
@@ -115,19 +116,12 @@
     {
       "file": "src/preload/recordingIndicator.ts",
       "global": "recordingIndicatorApi",
-      "properties": [
-        "command",
-        "onState",
-        "requestState",
-        "setRetracted"
-      ]
+      "properties": ["command", "onState", "requestState", "setRetracted"]
     },
     {
       "file": "src/preload/regionSelector.ts",
       "global": "regionSelectorApi",
-      "properties": [
-        "complete"
-      ]
+      "properties": ["complete"]
     },
     {
       "file": "src/preload/todayMini.ts",

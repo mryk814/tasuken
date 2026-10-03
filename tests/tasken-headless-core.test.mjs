@@ -591,7 +591,7 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       { name: "tasken.create_note", reason: "missing_capability:create_ai_item", listed: false },
       {
         name: "tasken.start_task_work",
-        reason: "missing_capability:task.command",
+        reason: "missing_capability:task.start_work",
         listed: false,
       },
       { name: "tasken.propose_note_edit", reason: "kind_not_allowed:note_edit", listed: false },
@@ -681,6 +681,7 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
         task_id: "task-headless",
         expected_version: 1,
         started_at: "2026-09-21T00:00:00.000Z",
+        work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
       },
     });
     assert.equal(unavailable.isError, true);
@@ -688,7 +689,7 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
     // 版の不一致ではなく配備の境界なので、「更新してください」だけを案内しない。
     assert.match(
       String(unavailable.structuredContent.error.next_action),
-      /直接開始を公開していません/u,
+      /開始専用権限を公開していません/u,
     );
     await unfilteredClient.close();
     await unfiltered.close();

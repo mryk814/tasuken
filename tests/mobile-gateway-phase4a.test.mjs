@@ -106,7 +106,7 @@ const principal = {
 };
 
 class MemoryRepository {
-  constructor() {
+  constructor(seed = []) {
     this.records = new Map();
     this.records.set("theme:theme-personal-default", {
       type: "theme",
@@ -114,6 +114,14 @@ class MemoryRepository {
       name: "Personal",
       version: 1,
     });
+    for (const entity of seed)
+      this.records.set(`${entity.type}:${entity.id}`, {
+        version: 1,
+        source: "manual",
+        created_at: now,
+        updated_at: now,
+        ...entity,
+      });
   }
 
   list(type, includeDeleted = false) {
@@ -212,6 +220,130 @@ function todayQuery(overrides = {}) {
     ...overrides,
   };
 }
+
+test("Today AgentSession details are opt-in, context-scoped and bounded without changing old responses", async () => {
+  const { service } = capability();
+  const golden = JSON.parse(
+    readFileSync(
+      new URL("../contracts/mobile/v1/today-agent-sessions.golden.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(mobileTodayResponseSchema.parse(golden).data.agentSessions[0].status, "unknown");
+  let calls = 0;
+  const adapter = gateway(service, {
+    queryAgentSessions: (date) => {
+      assert.equal(date, "2026-08-21");
+      calls++;
+      return Array.from({ length: 21 }, (_, index) => ({
+        ...golden.data.agentSessions[0],
+        id: `session-${index}`,
+      }));
+    },
+  });
+  const request = {
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.today,
+    principal,
+    query: todayQuery(),
+  };
+  const old = await adapter.handle(request);
+  assert.equal(old.status, 200);
+  assert.equal(old.body.data.agentSessions, undefined);
+  assert.equal(calls, 0);
+  const selected = await adapter.handle({
+    ...request,
+    query: todayQuery({ includeAgentSessions: "true" }),
+  });
+  assert.equal(selected.status, 200);
+  assert.equal(selected.body.data.agentSessions.length, 20);
+  assert.equal(selected.body.meta.truncated, true);
+  const forbidden = await adapter.handle({
+    ...request,
+    principal: { ...principal, scopes: ["mobile:read"] },
+    query: todayQuery({ includeAgentSessions: "true" }),
+  });
+  assert.equal(forbidden.status, 403);
+  assert.equal(calls, 1);
+  const malformed = await adapter.handle({
+    ...request,
+    query: todayQuery({ includeAgentSessions: "yes" }),
+  });
+  assert.equal(malformed.status, 400);
+  assert.equal(calls, 1);
+});
+
+test("Today AI origin and AgentSession details opt in independently on the same Task", async () => {
+  const { service } = capability(
+    new MemoryRepository([
+      {
+        type: "task",
+        id: "combined-origin-task",
+        title: "Synthetic combined mobile Task",
+        project_id: "theme-personal-default",
+        state: "todo",
+        priority: "normal",
+        requester: "self",
+        intended_executor: "self",
+        work_state: "not_delegated",
+        today_date: "2026-08-21",
+        ai_creation: {
+          schema: "tasken-ai-creation/v1",
+          command_id: "combined-fixture",
+          caller: "Codex",
+          source_app: "codex",
+          source_session: null,
+          received_at: now,
+          reason: "Synthetic fixture",
+        },
+      },
+    ]),
+  );
+  const golden = JSON.parse(
+    readFileSync(
+      new URL("../contracts/mobile/v1/today-agent-sessions.golden.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  let calls = 0;
+  const adapter = gateway(service, {
+    queryAgentSessions: () => {
+      calls++;
+      return golden.data.agentSessions;
+    },
+  });
+  for (const includeOrigin of [false, true]) {
+    for (const includeSessions of [false, true]) {
+      const response = await adapter.handle({
+        method: "GET",
+        path: TASKEN_MOBILE_ENDPOINTS.today,
+        principal,
+        includeAiOrigin: includeOrigin,
+        query: todayQuery(includeSessions ? { includeAgentSessions: "true" } : {}),
+      });
+      assert.equal(response.status, 200, JSON.stringify(response.body));
+      const parsed = mobileTodayResponseSchema.parse(response.body);
+      const task = parsed.data.items.find((item) => item.id === "combined-origin-task");
+      assert(task);
+      assert.equal(Object.hasOwn(task, "aiOrigin"), includeOrigin);
+      assert.equal(Object.hasOwn(parsed.data, "agentSessions"), includeSessions);
+      assert.equal(task.state, "todo");
+      if (includeOrigin) assert.equal(task.aiOrigin.caller, "Codex");
+      if (includeSessions)
+        assert.equal(parsed.data.agentSessions[0].id, golden.data.agentSessions[0].id);
+    }
+  }
+  assert.equal(calls, 2);
+  const denied = await adapter.handle({
+    method: "GET",
+    path: TASKEN_MOBILE_ENDPOINTS.today,
+    principal: { ...principal, scopes: ["mobile:read"] },
+    includeAiOrigin: true,
+    query: todayQuery({ includeAgentSessions: "true" }),
+  });
+  assert.equal(denied.status, 403);
+  assert.equal(calls, 2);
+});
 
 function createRequest(overrides = {}) {
   return {
@@ -4110,11 +4242,15 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
       (error) => error?.code === "CORE_UNAVAILABLE",
     );
     const mcpServer = readFileSync("src/main/mcp/server.mjs", "utf8");
-    // 直接開始はCore HTTPのtyped commandだけを通る。案内文のためのtry/catchが付いても
-    // 呼び出し先がcoreClient.executeTaskCommandであることは変えない。
+    // 開始専用Coreを優先し、未対応の旧Desktopだけtyped commandへ進む。
+    // 開始専用Coreの拒否は広い権限へfallbackしない。
     assert.match(
       mcpServer,
-      /const startTaskWork = async \(args\) => \{[\s\S]{0,200}coreClient\.executeTaskCommand/,
+      /const startTaskWork = async \(args\) => \{[\s\S]{0,200}coreClient\.startAiTaskWork/,
+    );
+    assert.match(
+      mcpServer,
+      /error\.code !== "CAPABILITY_UNAVAILABLE"[\s\S]{0,200}throw error;[\s\S]{0,200}coreClient\.executeTaskCommand/,
     );
     assert.doesNotMatch(
       mcpServer,

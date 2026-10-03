@@ -14,6 +14,8 @@ export type ActivityTimelineLayoutOptions = {
   date: string;
   pixelsPerHour?: number;
   pointHeight?: number;
+  /** Optional local-day origin; legacy Activity keeps its JST contract. */
+  dayStart?: number;
 };
 
 export type ActivityTimelineAnchor = {
@@ -72,9 +74,13 @@ export function buildActivityTimelineLayout<T extends ActivityTimelineLayoutItem
     date,
     pixelsPerHour = ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
     pointHeight = ACTIVITY_TIMELINE_POINT_HEIGHT,
+    dayStart,
   }: ActivityTimelineLayoutOptions,
 ): Array<T & AnchoredActivityTimelineLayout> {
-  const bounds = dayBounds(date);
+  const bounds =
+    dayStart === undefined
+      ? dayBounds(date)
+      : { start: dayStart, end: dayStart + ACTIVITY_TIMELINE_DAY_MINUTES * 60_000 };
   if (!bounds || !Number.isFinite(pixelsPerHour) || pixelsPerHour <= 0) return [];
 
   const pixelsPerMinute = pixelsPerHour / 60;

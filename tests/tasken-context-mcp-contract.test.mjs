@@ -5,6 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
+import { TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import { TASK_CONTRACT_SCHEMA_VERSION } from "../src/shared/contracts/task/public.ts";
 
 const charter = {
@@ -192,6 +193,7 @@ test("start_task_work directly claims an AI Ready Task without creating a Propos
         caller: "Codex",
         source_session: "codex-session-1",
         started_at: "2026-08-26T10:00:00.000Z",
+        work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
       },
     });
     assert.equal(result.structuredContent.ok, true);
@@ -214,9 +216,44 @@ test("start_task_work directly claims an AI Ready Task without creating a Propos
         executor_identity: "Codex",
         started_at: "2026-08-26T10:00:00.000Z",
         source_session: "codex-session-1",
+        work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
       },
     },
   ]);
+});
+
+test("a refused limited start never retries through the legacy generic command", async () => {
+  const argumentsForStart = {
+    task_id: "task-ready",
+    expected_version: 4,
+    idempotency_key: "refused-limited-start",
+    caller: "Codex",
+    started_at: "2026-10-03T06:00:00.000Z",
+    work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
+  };
+  for (const rejection of [
+    { ok: false, error: { code: "INVALID_TRANSITION", message: "Not AI Ready" } },
+    { ok: false, error: { code: "CONFLICT", message: "Stale version" } },
+    new TaskenCoreClientError("WRITE_NOT_ALLOWED", "Limited write refused"),
+    new TaskenCoreClientError("UNAUTHORIZED", "Authentication refused"),
+    new TaskenCoreClientError("VALIDATION_FAILED", "Input refused"),
+  ]) {
+    const core = fakeCoreClient();
+    core.startAiTaskWork = async (args) => {
+      core.calls.push(["startAiTaskWork", args]);
+      if (rejection instanceof Error) throw rejection;
+      return rejection;
+    };
+    await withMcp(core, async (client) => {
+      const result = await client.callTool({
+        name: "tasken.start_task_work",
+        arguments: argumentsForStart,
+      });
+      assert.equal(result.isError, true);
+    });
+    assert.equal(core.calls.filter(([name]) => name === "startAiTaskWork").length, 1);
+    assert.equal(core.calls.filter(([name]) => name === "executeTaskCommand").length, 0);
+  }
 });
 
 test("Theme intent ResourceTemplate is listed and reads a bounded human intent projection", async () => {

@@ -562,14 +562,21 @@ export class TaskCapabilityService {
     this.executeApplicationCommand = executeApplicationCommand;
   }
 
-  executeCommand(input: unknown): TaskCommandResponse {
+  executeCommand(
+    input: unknown,
+    options: { immutableRequest?: boolean } = {},
+  ): TaskCommandResponse {
     const parsed = parseTaskCommand(input);
     if (!parsed.ok) return parsed;
     let command = parsed.value;
     const taskId =
       command.name === "CreateTask" ? command.payload.task.id : command.payload.task_id;
     try {
-      const replayEnvelope = replayApplicationEnvelope(this.persistence, command);
+      // Limited start keeps the submitted version in its fingerprint. Legacy
+      // materialized edits still reconstruct their original command on retry.
+      const replayEnvelope = options.immutableRequest
+        ? null
+        : replayApplicationEnvelope(this.persistence, command);
       if (replayEnvelope) {
         const receipt = this.executeApplicationCommand(replayEnvelope);
         const changed =
