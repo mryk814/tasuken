@@ -30,7 +30,7 @@ Electron + TypeScript + Reactで構成し、SQLiteに利用者の正本データ
 - 既存のTypeScript strict、`.tsx` / `.ts`、Main / Preload / Renderer / shared構成を継承する。命名・書式・import順は周辺の実装に揃える。
 - 実行経路は `React → Zustand → window.api → Preload → IPC → Service → Repository → SQLite/OS`。RendererからDB・Node.js・OSへ直接アクセスしない。
 - データ・保存先・Import/Export形式を保ち、変更が必要なら移行と復旧を設計する。秘密情報をコード・ログ・Exportへ含めない。
-- AIの書き込みはProposal作成に限定する。正式データへの反映は、利用者がプレビューして採用した後に行う。
+- AIの書き込みはProposal作成を既定にする。利用者が明示的に有効化した新規作成専用経路だけは、本人の個人業務へTask/Noteを直接保存し、AI由来と未確認状態を記録できる。既存データの編集・削除・完了・委任の権限をこの例外で広げない。旧Proposalは利用者のプレビュー・採用後に反映する。
 - UI変更にはdesign-guideを適用し、トークンを見た目の正本にする。エラー時も入力を保持し、表示文言から挙動を推測せず型や明示引数で分岐する。
 - 現在の要件を満たす最小の変更にする。無関係な機能追加・リファクタリングは分け、将来用のschemaや設定を先に作らない。
 

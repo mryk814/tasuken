@@ -1,3 +1,5 @@
+import { WorkspaceService } from "../services/workspaceService.ts";
+import { createAiItemCreationPort } from "../composition/taskenCoreRuntime.ts";
 import path from "node:path";
 
 import { TaskenCoreRuntime } from "../composition/taskenCoreRuntime.ts";
@@ -18,12 +20,20 @@ export interface TaskenHeadlessCoreOptions {
    * テキストのFeed投稿・Note案・Task案を受け付ける。
    */
   writeMode?: TaskenHeadlessWriteMode;
+  /** Independent opt-in. Does not expose task.command or enable delegation. */
+  allowAiTaskStart?: boolean;
   env?: NodeJS.ProcessEnv;
 }
 
-export type TaskenHeadlessWriteMode = "read-only" | "proposals";
+export type TaskenHeadlessWriteMode = "read-only" | "proposals" | "create-only";
 
 export function resolveTaskenHeadlessWriteMode(value: unknown): TaskenHeadlessWriteMode {
+  if (
+    String(value || "")
+      .trim()
+      .toLowerCase() === "create-only"
+  )
+    return "create-only";
   return String(value || "")
     .trim()
     .toLowerCase() === "proposals"
@@ -67,13 +77,20 @@ export class TaskenHeadlessCoreError extends Error {
  *
  * 書き込みは既定で公開しない。`writeMode: "proposals"` を明示した場合だけ、
  * テキストの読み物投稿・Note案・Task案・Task作業報告を受け付け、Core自身が許可範囲を強制する。
- * 直接開始（`task.command`）は`full`だけが公開し、常時稼働nodeでは使わない。
+ * 開始専用の`task.start_work`は別の明示opt-inが必要。`task.command`は公開しない。
  */
 export async function startTaskenHeadlessCore(
   options: TaskenHeadlessCoreOptions = {},
 ): Promise<TaskenHeadlessCoreHandle> {
   const env = options.env || process.env;
   const writeMode = options.writeMode || resolveTaskenHeadlessWriteMode(env.TASKEN_CORE_WRITE_MODE);
+  const allowAiTaskStart = options.allowAiTaskStart ?? env.TASKEN_CORE_AI_TASK_START === "1";
+  if (allowAiTaskStart && writeMode === "read-only") {
+    throw new TaskenHeadlessCoreError(
+      "WRITE_MODE_CONFLICT",
+      "AI開始を許可するにはproposalsまたはcreate-onlyを明示してください。",
+    );
+  }
   const userDataPath = path.resolve(options.userDataPath || resolveTaskenUserDataPath({ env }));
   const databasePath = path.resolve(
     options.databasePath ||
@@ -102,7 +119,12 @@ export async function startTaskenHeadlessCore(
       undefined,
       undefined,
       createReadOnlyCaptureImagePort(userDataPath),
-      { proposalAccess: writeMode === "proposals" ? "proposals" : "read-only" },
+      {
+        proposalAccess: writeMode !== "read-only" ? "proposals" : "read-only",
+        ...(allowAiTaskStart
+          ? { executeAiTaskStart: (command) => commands.executeAiTaskStart(command) }
+          : {}),
+      },
     );
     if (syncDirectory) {
       syncService = new SharedFolderSyncService(
@@ -127,6 +149,15 @@ export async function startTaskenHeadlessCore(
           String(repository.getPreference("sharedSyncDirectory") || "") === syncDirectory;
         if (!joined) throw error;
       }
+    }
+    if (writeMode === "create-only") {
+      const workspace = new WorkspaceService(repository, userDataPath, undefined, undefined, () => {
+        throw new Error("Headless creation accepts text only.");
+      });
+      // Join first: a new replica must be empty before its personal theme is bootstrapped.
+      repository.loadWorkspace();
+      workspace.recoverCanonicalMarkdownReceipts();
+      runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace));
     }
   } catch (error) {
     await syncService?.stop();

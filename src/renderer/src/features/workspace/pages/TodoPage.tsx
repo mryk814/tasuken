@@ -1,3 +1,4 @@
+import { AiCreationMark } from "../components/AiCreationMark";
 import { useEffect, useMemo, useState } from "react";
 import {
   IconCalendarPlus,
@@ -564,6 +565,7 @@ export function TodoPage({
               }}
             >
               <span>{task.title}</span>
+              <AiCreationMark entity={task} />
               <ChecklistProgressBadge items={task.checklist_items} />
             </button>
             <InlineTaskChecklist

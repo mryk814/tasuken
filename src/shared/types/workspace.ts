@@ -142,6 +142,17 @@ export interface CanonicalNoteAiCompanion {
   event: Entity;
 }
 
+/** Direct AI creation has no adopted Proposal; only the durable creation event. */
+export interface CanonicalNoteCreationCompanion {
+  schema: "tasken-note-creation-companion/v1";
+  noteId: string;
+  commandId: string;
+  event: Entity;
+}
+
+export type CanonicalNoteCommitCompanion =
+  CanonicalNoteAiCompanion | CanonicalNoteCreationCompanion;
+
 export interface SaveOperation {
   action: "save";
   type: EntityType;

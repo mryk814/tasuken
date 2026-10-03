@@ -71,6 +71,7 @@ import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import type { Entity } from "../../../../../shared/types/workspace";
 import { TaskScheduleProposal } from "./TaskScheduleProposal";
+import { AiCreationMark } from "./AiCreationMark";
 import {
   AiContextFields,
   AiContextSummary,
@@ -1644,6 +1645,14 @@ function EditDrawer({
             </>
           )}
           {/* AI共通metadata（#294）。通常編集の主目的を圧迫しないよう折りたたみで置く。 */}
+          {type === "task" && (
+            <AiCreationMark
+              key={`creation:${String(entity.id)}`}
+              entity={entity}
+              type={type}
+              detail
+            />
+          )}
           <AiContextFields
             type={type}
             entity={entity}

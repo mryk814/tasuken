@@ -235,6 +235,7 @@ export const IPC = {
   entityGet: "entity:get",
   entitySave: "entity:save",
   entitySaveMany: "entity:save-many",
+  aiItemSeen: "ai-item:seen",
   documentSave: "document:save",
   workLogRecord: "work-log:record",
   entityRemove: "entity:remove",
@@ -404,7 +405,16 @@ export interface AppUpdateCheckResult {
   error?: string;
 }
 
-export type McpCoreWriteProfile = "full" | "proposals" | "read-only" | "partial" | "unknown";
+export type McpCoreWriteProfile =
+  | "start-only"
+  | "proposals-and-start"
+  | "create-and-start"
+  | "full"
+  | "proposals"
+  | "read-only"
+  | "partial"
+  | "create-only"
+  | "unknown";
 
 export interface McpBridgeInfo {
   command: string;
@@ -929,6 +939,7 @@ export interface ResearchDeskApi {
     onOpenTaskenRootTarget(callback: (request: RootOpenRequest) => void): () => void;
   };
   entities: {
+    markAiItemSeen(type: "task" | "note", id: string): Promise<Entity>;
     list(type: EntityType, includeDeleted?: boolean): Promise<Entity[]>;
     get(type: EntityType, id: string): Promise<Entity | null>;
     save(type: EntityType, entity: Entity, options?: SaveOptions): Promise<Entity>;

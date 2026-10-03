@@ -40,6 +40,9 @@ function desktopApi() {
 }
 
 export const workspaceApi = {
+  markAiItemSeen(type: "task" | "note", id: string) {
+    return desktopApi().entities.markAiItemSeen(type, id);
+  },
   proposeTaskSchedule(
     request: Parameters<Window["api"]["captureOrganizer"]["proposeTaskSchedule"]>[0],
   ) {

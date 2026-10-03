@@ -1,4 +1,5 @@
 export { AgentReadyTaskAiProjectionPolicy } from "./policies/agentReadyTaskAiProjectionPolicy.ts";
+export { AiTaskStartService, type AiTaskStartPort } from "./services/aiTaskStartService.ts";
 export { ListAgentReadyTasksService } from "./services/listAgentReadyTasksService.ts";
 export { AgentWorkspaceQueryService } from "./services/agentWorkspaceQueryService.ts";
 export { TaskContextQueryService } from "./services/taskContextQueryService.ts";
@@ -100,3 +101,8 @@ export type {
   CaptureImagePort,
   StagedCaptureImages,
 } from "./ports/captureImagePort.ts";
+export {
+  AiItemCreationService,
+  AiItemCreationError,
+  type AiItemCreationPort,
+} from "./services/aiItemCreationService.ts";

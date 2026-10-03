@@ -1,9 +1,11 @@
 import {
+  TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
 } from "./protocol.mjs";
 
 /**
@@ -26,7 +28,7 @@ const PROPOSALS_ONLY_CAPABILITIES = Object.freeze([
 ]);
 
 /**
- * @typedef {"full" | "proposals" | "read-only" | "partial"} CoreWriteProfile
+ * @typedef {"full" | "proposals" | "read-only" | "partial" | "create-only" | "start-only" | "proposals-and-start" | "create-and-start"} CoreWriteProfile
  * @typedef {{ profile: CoreWriteProfile, missingWrites: string[] }} CoreWriteProfileResult
  */
 
@@ -38,6 +40,33 @@ const PROPOSALS_ONLY_CAPABILITIES = Object.freeze([
  */
 export function coreWriteProfile(capabilities) {
   const advertised = Array.isArray(capabilities) ? capabilities : [];
+  // This additive capability never satisfies the generic task.command grant.
+  if (advertised.includes(TASKEN_CORE_TASK_START_WORK_CAPABILITY)) {
+    const base = coreWriteProfile(
+      advertised.filter((value) => value !== TASKEN_CORE_TASK_START_WORK_CAPABILITY),
+    );
+    /** @type {Partial<Record<CoreWriteProfile, CoreWriteProfile>>} */
+    const profiles = {
+      "read-only": "start-only",
+      proposals: "proposals-and-start",
+      "create-only": "create-and-start",
+    };
+    return { ...base, profile: profiles[base.profile] || base.profile };
+  }
+  if (advertised.includes(TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY)) {
+    const legacy = coreWriteProfile(
+      advertised.filter((value) => value !== TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY),
+    );
+    return {
+      profile:
+        legacy.profile === "full"
+          ? "full"
+          : legacy.profile === "proposals"
+            ? "create-only"
+            : "partial",
+      missingWrites: legacy.missingWrites,
+    };
+  }
   const present = (capability) => advertised.includes(capability);
   const presentWrites = TASKEN_CORE_WRITE_CAPABILITIES.filter(present);
   const missingWrites = TASKEN_CORE_WRITE_CAPABILITIES.filter((capability) => !present(capability));

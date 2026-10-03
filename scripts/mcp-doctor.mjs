@@ -72,11 +72,18 @@ export async function buildReport(coreClient = new TaskenCoreClient()) {
                 message:
                   "このCoreはテキストのFeed投稿・Note案・Task案・Task作業報告だけを受け付けます。直接開始は公開していません。",
               }
-            : {
-                status: "ok",
-                code: "MCP_CORE_CAPABILITIES_READY",
-                message: `MCPに必要な ${TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.length} capabilitiesを確認しました。`,
-              },
+            : ["start-only", "proposals-and-start", "create-and-start"].includes(profile)
+              ? {
+                  status: "ok",
+                  code: "MCP_CORE_LIMITED_START_READY",
+                  message:
+                    "本人の個人業務のAI Ready Taskだけ開始できる専用権限を確認しました。汎用Task変更権限は含みません。",
+                }
+              : {
+                  status: "ok",
+                  code: "MCP_CORE_CAPABILITIES_READY",
+                  message: `MCPに必要な ${TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.length} capabilitiesを確認しました。`,
+                },
     ];
     return {
       schema_version: 2,

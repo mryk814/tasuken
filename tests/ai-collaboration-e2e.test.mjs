@@ -52,6 +52,7 @@ const { TaskenDesktopComposition } = await importBundled(
 );
 
 const FIXED_AT = "2026-08-09T04:00:00.000Z";
+const FIXED_WORK_ATTEMPT_ID = "8b543370-0717-4c96-93e8-e76e99f24d02";
 const TASK_ID = "task /?#%+@ 日本語🚀";
 const THEME_ID = "theme-ai-collaboration-e2e";
 const NOTE_ID = "note-ai-collaboration-e2e";
@@ -247,13 +248,14 @@ function decideProposal(
   return service.execute(proposalDecisionCommand(database, proposal, decision, commandId));
 }
 
-function receiptArguments(provider, expectedVersion, idempotencyKey, summary) {
+function receiptArguments(provider, expectedVersion, idempotencyKey, summary, workAttemptId) {
   return {
     task_id: TASK_ID,
     expected_version: expectedVersion,
     idempotency_key: idempotencyKey,
     caller: "Fixture agent",
     source_session: "fixture-session",
+    ...(workAttemptId ? { work_attempt_id: workAttemptId } : {}),
     source_app: "fixture-provider-adapter",
     repository_context: REPOSITORY_CONTEXT,
     executor_kind: "ai_agent",
@@ -426,6 +428,7 @@ async function runProviderScenario(provider, explicitStart = false) {
     );
 
     let progressVersion = context.task.version;
+    const workAttemptId = explicitStart ? FIXED_WORK_ATTEMPT_ID : undefined;
     if (explicitStart) {
       const startArguments = {
         task_id: TASK_ID,
@@ -434,10 +437,12 @@ async function runProviderScenario(provider, explicitStart = false) {
         caller: "Fixture agent",
         source_session: "fixture-session",
         started_at: FIXED_AT,
+        work_attempt_id: workAttemptId,
       };
       const started = await callTaskWork(client, "tasken.start_task_work", startArguments);
       assert.equal(started.ok, true, JSON.stringify(started));
       assert.equal(started.value.task.work_state, "in_progress");
+      assert.equal(started.value.task.work_attempt_id, workAttemptId);
       progressVersion = started.value.task.version;
       assert.ok(progressVersion > assigned.version);
       assert.equal(fixture.database.get("task", TASK_ID).version, progressVersion);
@@ -467,6 +472,7 @@ async function runProviderScenario(provider, explicitStart = false) {
       progressVersion,
       "fixture-progress-1",
       "Interim receipt remains in progress.",
+      workAttemptId,
     );
     const queuedProgress = await callTaskWork(
       client,
@@ -546,6 +552,7 @@ async function runProviderScenario(provider, explicitStart = false) {
       fixture.database.get("task", TASK_ID).version,
       "fixture-done-rejected",
       "This report is rejected by the human reviewer.",
+      workAttemptId,
     );
     const queuedRejected = await callTaskWork(
       client,
@@ -568,6 +575,7 @@ async function runProviderScenario(provider, explicitStart = false) {
       fixture.database.get("task", TASK_ID).version,
       "fixture-done-accepted",
       "Implementation is ready for human review.",
+      workAttemptId,
     );
     const beforeChecklist = fixture.database.get("task", TASK_ID);
     const checklistTask = fixture.database.save("task", {

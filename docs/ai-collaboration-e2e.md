@@ -24,6 +24,8 @@ AI Ready TaskのAppend / Done / Blockedは開始Proposalを必須にせず、最
 採用済み・完了済み・中止済みTaskへの追加報告も受け入れ、元の本文・完了日時・work_stateを保持します。追記だけの報告は提出後のTask更新を許容し、判断時の最新versionを確認します。開始と`completed_checklist_item_ids`を含む報告は提出時versionも一致させ、該当IDだけをチェック済みにします。IDの削除・重複・不正値やversion競合時は全体を適用しません。
 失敗した command は receipt marker を残さず、同一 envelope の再送は保存済み receipt を返して Entity や ChangeEvent を増やさない。
 
+開始専用`task.start_work`を有効にしたHeadlessでは、本人の個人Taskを使う。UUIDの`work_attempt_id`を開始・報告で共通にし、同じキーの再送でversionも変更しない。再送のreadbackが別の作業単位、別executor、Ready・レビュー・削除済みなら継続着手しない。`tests/ai-task-start.test.mjs`が独立opt-in、拒否、再起動、再委任、同期、人の報告採用を検証する。通常のTask完了は引き続き人間操作とする。
+
 ## Validation
 
 ```powershell

@@ -158,6 +158,10 @@ Workspace Snapshotを自動作成し、既定5世代をローテーション保�
 SQLiteファイルそのものは共有せず、端末別の変更差分だけを交換します。
 詳細は [`docs/shared-folder-sync.md`](./docs/shared-folder-sync.md) を参照してください。
 
+NASの開始専用権限は`task.start_work`です。本人の個人業務のAI Ready Taskだけを対象にし、`create-only`とは独立して有効化します。開始にはUUIDの`work_attempt_id`も必須です。同じ要求の再送はversionを含む内容を保持し、返却されたTaskが現在も同じ作業単位・実行者のin_progressであることを確認してください。設定・撤回と報告採用の境界は[開始専用権限](docs/ai-task-start.md)を参照してください。
+
+この候補を別のPCで確認する場合は、[開始専用候補の取得・再生成・隔離preview](docs/ai-task-start-delivery.md)を参照してください。同一条件の成功済み検証は再利用し、再生成は必要なときだけ行います。
+
 ## 主な画面
 
 - 今日: テーマの現在地、近いマイルストーン、次のタスク、最近のメモ

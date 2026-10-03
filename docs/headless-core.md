@@ -15,7 +15,7 @@ node core-dist/headless.mjs --user-data-dir=/volume1/tasken --sync-directory=/vo
 - `--user-data-dir` 省略時は `TASKEN_USER_DATA_DIR`、それも無ければOS標準のTasken保存先。
 - `--db-path` 省略時は `TASKEN_DB_PATH`、または `<userData>/research-desk.sqlite`。
 - `--sync-directory` 省略時は `TASKEN_SYNC_DIRECTORY`。指定すると共有フォルダ同期へreplica参加する（後述）。
-- `--write-mode` は `read-only`（既定）または `proposals`。省略時は `TASKEN_CORE_WRITE_MODE`。既定の `read-only` は書き込みcapabilityを公開せず、`proposals` はテキストのFeed投稿・Note案・Task案だけを受け付ける。
+- `--write-mode` は `read-only`（既定）・`proposals`・`create-only`。省略時は `TASKEN_CORE_WRITE_MODE`。`create-only` は提案受付に加え本人用Task/Noteの新規作成だけを許可する（[詳細](ai-item-creation.md)）。
 - stdoutへ1行ずつ次を出す。token・秘密は出さない。
 
 ```text
@@ -58,7 +58,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 | `propose_task_work`（`append_receipt`・`report_done`・`report_blocked`） | `task.command`（`start_task_work`）、`propose_agent_session` |
 | 既存の読み取りcapability                                                 |                                                              |
 
-- Task作業報告もProposalなので、`proposals`配備でも正式データは人の採用まで変わらない。開始（`start_task_work`）は直接書き込みであり、`full`だけが公開する。
+- Task作業報告もProposalなので、`proposals`配備でも正式データは人の採用まで変わらない。開始（`start_task_work`）は直接書き込みであり、write-modeの指定だけでは公開しない。本人の個人業務のAI Ready Taskについて開始を許可するには、独立した`--allow-ai-task-start` / `TASKEN_CORE_AI_TASK_START=1`が必要。汎用`task.command`は公開しない。
 - 範囲外の種類は、capabilityを残したまま実行時に `WRITE_NOT_ALLOWED`（HTTP 403）で拒否する。AIは `next_action` から送り直し方を判断できる。
 - 公開しないcapabilityは `/capabilities` に出さないため、MCP bridgeは呼び出し時点で `CAPABILITY_UNAVAILABLE` を返す。
 - MCP bridgeは起動時に `/capabilities` を読み、使えない書き込みtool（直接開始・範囲外の種類）を一覧から外す。理由は `tasken.get_capabilities` が返す。起動時にCoreへ接続できなかった場合は全toolを登録し、上の拒否が境界になる。
@@ -67,6 +67,8 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 - Desktopは `proposalAccess: "full"` のままで、この制限の影響を受けない。
 
 `proposals` は提案を作るだけで、正式データの採用・Task完了・直接開始は行わない。`scripts/mcp-doctor.mjs` は `read-only`・`proposals`・`full` を配備として認識し、既知でない組み合わせだけを不足として報告する。
+
+開始専用opt-inのscope、UUID・再送・人間採用、有効化と撤回は[ai-task-start.md](ai-task-start.md)を参照する。既定は無効。read-onlyとの併用は拒否し、proposals/create-onlyに開始権限を含めない。
 
 ## Phase 2: read-only replicaとして同期へ参加
 
@@ -144,3 +146,5 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 - Phase 5: relay責務のADR（Synology thin relay・共有フォルダ・Desktop Gateway・managed backendの比較）
 
 回帰の入口: `src/main/headless/`、`scripts/build-core-headless.mjs`、`scripts/mcp-doctor.mjs`、`docs/tasken-core-migration.md`。
+
+本人用Task/Noteの直接新規作成は [AI item creation](ai-item-creation.md) を参照。既定のread-only/proposalsは維持する。

@@ -1,3 +1,4 @@
+import { aiItemCreationResponseSchema } from "../../shared/contracts/task/public.ts";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -68,6 +69,7 @@ import {
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   taskenCorePublicError,
 } from "../../shared/contracts/core/public.mjs";
@@ -490,6 +492,16 @@ export class TaskenCoreClient {
     );
   }
 
+  async createAiItem(request = {}) {
+    return this.request(
+      "/v1/commands/create-ai-item",
+      "create_ai_item",
+      request,
+      aiItemCreationResponseSchema,
+      "create-ai-item",
+    );
+  }
+
   async proposeRepositoryTask(request = {}) {
     return this.request(
       "/v1/commands/propose-repository-task",
@@ -535,6 +547,16 @@ export class TaskenCoreClient {
       request,
       taskCommandResponseSchema,
       "task-command",
+    );
+  }
+
+  async startAiTaskWork(request = {}) {
+    return this.request(
+      "/v1/commands/start-ai-task-work",
+      TASKEN_CORE_TASK_START_WORK_CAPABILITY,
+      request,
+      taskCommandResponseSchema,
+      "start-ai-task-work",
     );
   }
 

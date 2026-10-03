@@ -1,6 +1,6 @@
 {
   "name": "tasken",
-  "version": "0.1.73",
+  "version": "0.1.74-ai-create.1",
   "description": "研究開発職向けの長期スケジュール・タスク・メモ管理デスクトップアプリ",
   "author": "ootan",
   "private": true,
@@ -20,6 +20,7 @@
     "doctor:mcp": "node scripts/mcp-doctor.mjs",
     "test": "node scripts/run-electron-node.mjs --test --test-concurrency=1 tests/*.test.mjs",
     "test:full": "node scripts/run-electron-node.mjs --test --test-concurrency=1 tests/*.test.mjs",
+    "test:ai-task-start": "node scripts/run-electron-node.mjs --test --test-concurrency=1 tests/ai-task-start.test.mjs tests/ai-item-creation.test.mjs tests/task-capability.test.mjs tests/task-contract.test.mjs tests/task-work-receipts.test.mjs tests/agent-work-attempt.test.mjs tests/tasken-headless-core.test.mjs tests/tasken-context-mcp-contract.test.mjs tests/mcp-task-context.test.mjs tests/mcp-runtime.test.mjs tests/mcp-readonly.test.mjs tests/ai-collaboration-e2e.test.mjs tests/agent-roundtrip-acceptance.test.mjs tests/architecture-audit.test.mjs",
     "test:unit-contract": "node scripts/run-electron-node.mjs --test tests/architecture-audit.test.mjs tests/audit-tools.test.mjs tests/bundled-fonts.test.mjs tests/desktop-dev-doctor.test.mjs tests/entity-registry-theme.test.mjs tests/electron-smoke-runner.test.mjs tests/personal-default-theme.test.mjs tests/theme-picker-ui.test.mjs tests/semantic-registry.test.mjs tests/semantic-actions.test.mjs tests/storage-resolver.test.mjs tests/task-capability.test.mjs tests/task-contract.test.mjs tests/task-main-module.test.mjs",
     "test:behavior": "node scripts/run-electron-node.mjs --test tests/application-command.test.mjs tests/note-draft-identity.test.mjs tests/canonical-markdown.test.mjs tests/canonical-markdown-workspace.test.mjs tests/note-draft-flush-registry.test.mjs tests/note-draft-save-queue.test.mjs tests/document-publish.test.mjs tests/satellite-window-state.test.mjs tests/workspace-domain.test.mjs",
     "typecheck": "tsc -b",

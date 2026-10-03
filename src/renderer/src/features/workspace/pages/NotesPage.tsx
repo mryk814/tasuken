@@ -1,3 +1,4 @@
+import { AiCreationMark } from "../components/AiCreationMark";
 import {
   IconExternalLink,
   IconFolder,
@@ -2553,6 +2554,7 @@ export function NotesPage({
                       {str(record.title) ||
                         (kind === "resource" ? url || "無題のResource" : "無題")}
                     </strong>
+                    <AiCreationMark entity={record} />
                     {record.recordType === "note" && comments && comments.length > 0 && (
                       <span className="comment-count" aria-label={`${comments.length}件のコメント`}>
                         {comments.length}
@@ -2675,6 +2677,7 @@ export function NotesPage({
                       )}
                     </div>
                   )}
+                  <AiCreationMark key={selected.id} entity={selected} type="note" detail />
                   {selectedFeedOrigin ? (
                     <div className="note-origin-line">
                       <span

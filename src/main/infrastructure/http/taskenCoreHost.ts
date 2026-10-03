@@ -1,3 +1,10 @@
+import {
+  aiItemCreationRequestSchema,
+  aiTaskStartRequestSchema,
+  type AiTaskStartRequest,
+  type AiItemCreationRequest,
+  type AiItemCreationResponse,
+} from "../../../shared/contracts/task/public.ts";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs/promises";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
@@ -141,6 +148,7 @@ import {
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   taskenCorePublicError,
 } from "../../../shared/contracts/core/public.mjs";
@@ -160,6 +168,8 @@ interface QueryProvider<Request, Response> {
 
 export interface TaskenCoreHostOptions {
   userDataPath: string;
+  createAiItem?: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>;
+  startAiTaskWork?: QueryProvider<AiTaskStartRequest, TaskCommandResponse>;
   taskQuery?: QueryProvider<unknown, TaskQueryResponse>;
   taskCommand?: QueryProvider<unknown, TaskCommandResponse>;
   listAgentReadyTasks: ListAgentReadyTasksProvider;
@@ -242,74 +252,80 @@ class RequestValidationError extends Error {
 
 function parseOperationRequest(url: string, body: unknown): unknown {
   const schema =
-    url === "/v1/task/query"
-      ? taskQuerySchema
-      : url === "/v1/task/command"
-        ? taskCommandSchema
-        : url === "/v1/commands/propose-task-work"
-          ? proposeTaskWorkRequestSchema
-          : url === "/v1/commands/propose-agent-session"
-            ? proposeAgentSessionRequestSchema
-            : url === "/v1/commands/propose-repository-task"
-              ? proposeRepositoryTaskRequestSchema
-              : url === "/v1/commands/propose-content"
-                ? proposeContentRequestSchema
-                : url === "/v1/queries/list-agent-ready-tasks"
-                  ? listAgentReadyTasksRequestSchema
-                  : url === "/v1/queries/resolve-repository-context" ||
-                      url === "/v1/queries/find-tasks-for-repository" ||
-                      url === "/v1/queries/find-themes-for-repository"
-                    ? repositoryLookupRequestSchema
-                    : url === "/v1/queries/get-repository-context"
-                      ? getRepositoryContextRequestSchema
-                      : url === "/v1/queries/get-agent-session-context"
-                        ? getAgentSessionContextRequestSchema
-                        : url === "/v1/queries/get-task-assignment"
-                          ? getTaskAssignmentRequestSchema
-                          : url === "/v1/queries/get-task-context"
-                            ? getTaskContextRequestSchema
-                            : url === "/v1/queries/search-items"
-                              ? searchItemsRequestSchema
-                              : url === "/v1/queries/list-open-items"
-                                ? listOpenItemsRequestSchema
-                                : url === "/v1/queries/get-note"
-                                  ? getNoteRequestSchema
-                                  : url === "/v1/queries/get-conversation"
-                                    ? getConversationRequestSchema
-                                    : url === "/v1/queries/get-artifact-metadata"
-                                      ? getArtifactMetadataRequestSchema
-                                      : url === "/v1/queries/get-capture-image"
-                                        ? getCaptureImageRequestSchema
-                                        : url === "/v1/queries/get-task-image"
-                                          ? getTaskImageRequestSchema
-                                          : url === "/v1/queries/get-activity-entries"
-                                            ? getActivityEntriesRequestSchema
-                                            : url === "/v1/queries/get-theme-context"
-                                              ? getThemeContextRequestSchema
-                                              : url === "/v1/queries/get-recent-notes"
-                                                ? getRecentNotesRequestSchema
-                                                : url === "/v1/queries/search-knowledge"
-                                                  ? searchKnowledgeRequestSchema
-                                                  : url === "/v1/queries/get-knowledge-context"
-                                                    ? getKnowledgeContextRequestSchema
-                                                    : url === "/v1/queries/get-plan-health"
-                                                      ? getPlanHealthRequestSchema
-                                                      : url === "/v1/queries/get-knowledge-health"
-                                                        ? getKnowledgeHealthRequestSchema
-                                                        : url === "/v1/queries/get-activity"
-                                                          ? getActivityRequestSchema
-                                                          : url ===
-                                                              "/v1/queries/get-context-subgraph"
-                                                            ? getContextSubgraphRequestSchema
-                                                            : url === "/v1/queries/get-feed-context"
-                                                              ? getFeedContextRequestSchema
+    url === "/v1/commands/create-ai-item"
+      ? aiItemCreationRequestSchema
+      : url === "/v1/task/query"
+        ? taskQuerySchema
+        : url === "/v1/task/command"
+          ? taskCommandSchema
+          : url === "/v1/commands/propose-task-work"
+            ? proposeTaskWorkRequestSchema
+            : url === "/v1/commands/propose-agent-session"
+              ? proposeAgentSessionRequestSchema
+              : url === "/v1/commands/propose-repository-task"
+                ? proposeRepositoryTaskRequestSchema
+                : url === "/v1/commands/propose-content"
+                  ? proposeContentRequestSchema
+                  : url === "/v1/queries/list-agent-ready-tasks"
+                    ? listAgentReadyTasksRequestSchema
+                    : url === "/v1/queries/resolve-repository-context" ||
+                        url === "/v1/queries/find-tasks-for-repository" ||
+                        url === "/v1/queries/find-themes-for-repository"
+                      ? repositoryLookupRequestSchema
+                      : url === "/v1/queries/get-repository-context"
+                        ? getRepositoryContextRequestSchema
+                        : url === "/v1/queries/get-agent-session-context"
+                          ? getAgentSessionContextRequestSchema
+                          : url === "/v1/queries/get-task-assignment"
+                            ? getTaskAssignmentRequestSchema
+                            : url === "/v1/queries/get-task-context"
+                              ? getTaskContextRequestSchema
+                              : url === "/v1/queries/search-items"
+                                ? searchItemsRequestSchema
+                                : url === "/v1/queries/list-open-items"
+                                  ? listOpenItemsRequestSchema
+                                  : url === "/v1/queries/get-note"
+                                    ? getNoteRequestSchema
+                                    : url === "/v1/queries/get-conversation"
+                                      ? getConversationRequestSchema
+                                      : url === "/v1/queries/get-artifact-metadata"
+                                        ? getArtifactMetadataRequestSchema
+                                        : url === "/v1/queries/get-capture-image"
+                                          ? getCaptureImageRequestSchema
+                                          : url === "/v1/queries/get-task-image"
+                                            ? getTaskImageRequestSchema
+                                            : url === "/v1/queries/get-activity-entries"
+                                              ? getActivityEntriesRequestSchema
+                                              : url === "/v1/queries/get-theme-context"
+                                                ? getThemeContextRequestSchema
+                                                : url === "/v1/queries/get-recent-notes"
+                                                  ? getRecentNotesRequestSchema
+                                                  : url === "/v1/queries/search-knowledge"
+                                                    ? searchKnowledgeRequestSchema
+                                                    : url === "/v1/queries/get-knowledge-context"
+                                                      ? getKnowledgeContextRequestSchema
+                                                      : url === "/v1/queries/get-plan-health"
+                                                        ? getPlanHealthRequestSchema
+                                                        : url === "/v1/queries/get-knowledge-health"
+                                                          ? getKnowledgeHealthRequestSchema
+                                                          : url === "/v1/queries/get-activity"
+                                                            ? getActivityRequestSchema
+                                                            : url ===
+                                                                "/v1/queries/get-context-subgraph"
+                                                              ? getContextSubgraphRequestSchema
                                                               : url ===
-                                                                  "/v1/queries/get-proposal-status"
-                                                                ? proposalStatusRequestSchema
+                                                                  "/v1/queries/get-feed-context"
+                                                                ? getFeedContextRequestSchema
                                                                 : url ===
-                                                                    "/v1/queries/list-proposals"
-                                                                  ? listProposalsRequestSchema
-                                                                  : exportAiContextRequestSchema;
+                                                                    "/v1/queries/get-proposal-status"
+                                                                  ? proposalStatusRequestSchema
+                                                                  : url ===
+                                                                      "/v1/queries/list-proposals"
+                                                                    ? listProposalsRequestSchema
+                                                                    : url ===
+                                                                        "/v1/commands/start-ai-task-work"
+                                                                      ? aiTaskStartRequestSchema
+                                                                      : exportAiContextRequestSchema;
   const result = schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
@@ -348,6 +364,7 @@ function publicRequestError(error: unknown) {
   if (
     error instanceof Error &&
     [
+      "AiItemCreationError",
       "ProposeTaskWorkError",
       "ProposeRepositoryTaskError",
       "ProposeContentError",
@@ -499,8 +516,15 @@ export class TaskenCoreHost {
     this.discoveryPath = path.join(options.userDataPath, TASKEN_CORE_DISCOVERY_FILE);
   }
 
+  enableAiItemCreation(provider: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>) {
+    if (this.server) throw new Error("Core起動後の権限変更はできません。");
+    this.options.createAiItem = provider;
+  }
+
   private capabilities() {
     return [
+      ...(this.options.createAiItem ? ["create_ai_item"] : []),
+      ...(this.options.startAiTaskWork ? [TASKEN_CORE_TASK_START_WORK_CAPABILITY] : []),
       ...(this.options.taskQuery ? [TASKEN_CORE_TASK_QUERY_CAPABILITY] : []),
       ...(this.options.taskCommand ? [TASKEN_CORE_TASK_COMMAND_CAPABILITY] : []),
       TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
@@ -641,7 +665,9 @@ export class TaskenCoreHost {
         ...(this.options.exportAiContext ? ["/v1/queries/export-ai-context"] : []),
       ]);
       const commandPaths = new Set([
+        ...(this.options.createAiItem ? ["/v1/commands/create-ai-item"] : []),
         ...(this.options.taskCommand ? ["/v1/task/command"] : []),
+        ...(this.options.startAiTaskWork ? ["/v1/commands/start-ai-task-work"] : []),
         ...(this.options.proposeTaskWork ? ["/v1/commands/propose-task-work"] : []),
         ...(this.options.proposeAgentSession ? ["/v1/commands/propose-agent-session"] : []),
         ...(this.options.proposeRepositoryTask ? ["/v1/commands/propose-repository-task"] : []),
@@ -691,7 +717,11 @@ export class TaskenCoreHost {
             allowsNoteProposalImages ? MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES : MAX_BODY_BYTES,
           ),
         );
-        if (request.url === "/v1/task/query") {
+        if (request.url === "/v1/commands/create-ai-item") {
+          json(response, 200, this.options.createAiItem!.execute(body as AiItemCreationRequest));
+        } else if (request.url === "/v1/commands/start-ai-task-work") {
+          json(response, 200, this.options.startAiTaskWork!.execute(body as AiTaskStartRequest));
+        } else if (request.url === "/v1/task/query") {
           json(response, 200, this.options.taskQuery!.execute(body));
         } else if (request.url === "/v1/task/command") {
           json(response, 200, this.options.taskCommand!.execute(body));

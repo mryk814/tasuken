@@ -17106,3 +17106,33 @@ kbd {
   background: var(--color-status-blocked-bg);
   border-color: var(--color-status-blocked-bd);
 }
+
+.ai-creation-marks,
+.ai-creation-detail {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.ai-creation-tag {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  white-space: nowrap;
+}
+.ai-creation-tag.is-unseen {
+  color: var(--color-info-strong);
+  background: var(--color-info-bg);
+  border-color: var(--color-info-bd);
+}
+.ai-creation-detail {
+  display: flex;
+  padding-block: var(--space-2);
+  font-size: var(--text-sm);
+}
+.ai-creation-reason {
+  flex-basis: 100%;
+  color: var(--color-text-muted);
+}
