@@ -139,7 +139,7 @@ class TodayPaneStateTest {
             requestVoice = true,
             replaceDraft = false,
         )
-        before.activeSection = AppSection.Ai
+        before.activeSection = AppSection.Feed
         before.taskSearch = "解析"
         before.taskFilter = TaskListFilter.Done
         before.recordTaskScroll(4, 18)
@@ -161,7 +161,7 @@ class TodayPaneStateTest {
         assertEquals(true, restored.captureOpen)
         assertEquals(true, restored.captureVoiceStartRequested)
         assertEquals(false, restored.captureInputFocusRequested)
-        assertEquals(AppSection.Ai, restored.activeSection)
+        assertEquals(AppSection.Feed, restored.activeSection)
         assertEquals("解析", restored.taskSearch)
         assertEquals(TaskListFilter.Done, restored.taskFilter)
         assertEquals(4, restored.taskListScrollIndex)

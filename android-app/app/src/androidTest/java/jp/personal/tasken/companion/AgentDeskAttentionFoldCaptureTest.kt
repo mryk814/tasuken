@@ -35,7 +35,7 @@ class AgentDeskAttentionFoldCaptureTest {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxSize()) {
                         Box(modifier = Modifier.weight(1f, fill = true)) {
-                            AiInboxListPane(
+                            FeedListPane(
                                 uiState = TodayUiState.Cached(
                                     tasks = emptyList(),
                                     generatedAt = "2026-09-20T00:00:00Z",

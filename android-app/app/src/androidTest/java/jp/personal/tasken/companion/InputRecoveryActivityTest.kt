@@ -58,6 +58,7 @@ class InputRecoveryActivityTest {
 
     @Test
     fun expiredDraftIsRestoredThroughAppAndSurvivesRecreation() {
+        compose.onNodeWithTag("open-sync-status").assertIsDisplayed().performClick()
         compose.onNodeWithTag("open-input-recovery").assertIsDisplayed().performClick()
         entryId = store.recoveredInputs().single { it.snapshot?.draft?.draftId == originalDraftId }.id
         compose.onNodeWithTag("recovery-entry-$entryId").performClick()
@@ -77,6 +78,7 @@ class InputRecoveryActivityTest {
         assertEquals(restored.draft.draftId, checkNotNull(store.load()).draft.draftId)
 
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.onNodeWithTag("open-sync-status").performClick()
         compose.onNodeWithTag("open-input-recovery").performClick()
         compose.onNodeWithTag("recovery-entry-$entryId").performClick()
         compose.onNodeWithTag("recovery-restore").assertIsNotEnabled()

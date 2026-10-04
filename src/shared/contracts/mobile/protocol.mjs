@@ -119,6 +119,10 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   workReviews: "/v1/work-reviews",
   /** Agent Deskの要対応read model（#601）。Desktopと同じprojectionを返す。 */
   attention: "/v1/attention",
+  /** Feedの投稿（AI・自分）を読むread model。投稿の正本はDesktop。読むだけで、反応や返信は含めない。 */
+  feed: "/v1/feed",
+  /** Feed投稿への反応（おもしろい・ブックマーク）と、自分のメモとしての返信。冪等。 */
+  feedActions: "/v1/feed-actions",
   /** agentの質問への短い返答（#601）。 */
   agentReplies: "/v1/agent-replies",
   taskContextPreview: "/v1/task-context-preview",

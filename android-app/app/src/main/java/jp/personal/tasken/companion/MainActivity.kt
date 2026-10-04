@@ -23,6 +23,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -64,6 +65,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -255,6 +258,7 @@ internal fun TodayApp(
     val themeCatalogState by todayViewModel.themeCatalogState.collectAsState()
     val workReceiptDetailState by todayViewModel.workReceiptDetailState.collectAsState()
     val taskWorkProposals by todayViewModel.taskWorkProposals.collectAsState()
+    val feedPosts by todayViewModel.feedPosts.collectAsState()
     val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
     val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
     val humanReviewOnline by todayViewModel.humanReviewOnline.collectAsState()
@@ -288,25 +292,27 @@ internal fun TodayApp(
     var workLogOpen by rememberSaveable { mutableStateOf(false) }
     var workLogTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var workLogRecordId by rememberSaveable { mutableStateOf<String?>(null) }
-    var recallOpen by rememberSaveable { mutableStateOf(false) }
     var relatedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var themeContextId by rememberSaveable { mutableStateOf<String?>(null) }
     var localSearchOpen by rememberSaveable { mutableStateOf(false) }
     var directAiSettingsOpen by rememberSaveable { mutableStateOf(false) }
+    var syncSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var localSearchTaskReturn by rememberSaveable { mutableStateOf<String?>(null) }
     var searchDocumentType by rememberSaveable { mutableStateOf<String?>(null) }
     var searchDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
     var localSearchNotice by remember { mutableStateOf<String?>(null) }
     val localSearchSavedState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var recallCapture by remember { mutableStateOf<MobilePendingCapture?>(null) }
-    val recallSavedState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val paneState = rememberTodayPaneState(restoredCaptureDraft)
     // AIの動きをどこまで見たか。区切り線は入った時点の位置で引き、見た印は次に開く時のために進める。
     val aiSeenStore = remember(context) { AiSeenStore(context) }
     var aiLastSeen by remember { mutableStateOf(aiSeenStore.lastSeenAt()) }
     var aiSeenBefore by remember { mutableStateOf(aiLastSeen) }
-    val newestAi = remember(allTasks, taskWorkProposals) { newestAiActivity(buildAiTimeline(allTasks, taskWorkProposals)) }
-    val onAiSection = paneState.activeSection == AppSection.Ai
+    val newestAi = remember(allTasks, taskWorkProposals, feedPosts) {
+        newestAiActivity(buildAiTimeline(allTasks, taskWorkProposals, feedPosts))
+    }
+    val onAiSection = paneState.activeSection == AppSection.Feed
     val aiUnseen = newestAi != null && aiLastSeen?.let { newestAi.isAfter(it) } != false
     LaunchedEffect(onAiSection) {
         if (onAiSection) aiSeenBefore = aiLastSeen
@@ -430,6 +436,11 @@ internal fun TodayApp(
         onDispose { speechRecognizer.destroy() }
     }
 
+    // 反応・返信が受け付けられなかったときだけ知らせる（保存できたときは画面に出るので黙る）。
+    LaunchedEffect(todayViewModel) {
+        todayViewModel.feedMessages.collect { message -> snackbarHostState.showSnackbar(message) }
+    }
+
     LaunchedEffect(todayViewModel) {
         todayViewModel.taskCompletionFeedback.collectLatest { feedback ->
             hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -527,7 +538,7 @@ internal fun TodayApp(
                     keyboardController?.hide()
                     handledEntryToken = entryRequest.token
                 } else if (uiState is TodayUiState.Empty || uiState is TodayUiState.Error) {
-                    snackbarHostState.showSnackbar("Taskを開けませんでした。ToDoを同期して再試行してください。")
+                    snackbarHostState.showSnackbar("Taskを開けませんでした。Taskを同期して再試行してください。")
                     handledEntryToken = entryRequest.token
                 }
             }
@@ -540,7 +551,7 @@ internal fun TodayApp(
                 // 要対応の新着通知から、その判断へ移動する（#601）。
                 val row = attentionRows.firstOrNull { it.attentionId == entryRequest.attentionId }
                 if (row != null) {
-                    paneState.activeSection = AppSection.Ai
+                    paneState.activeSection = AppSection.Feed
                     paneState.openAttention(row.attentionId)
                     todayViewModel.clearAttentionNewArrivals()
                     if (attentionInDetailPane) {
@@ -700,6 +711,67 @@ internal fun TodayApp(
         }
     }
 
+    val syncState = syncSummary(uiState, pendingCount, conflictCount, pendingCaptures.size, recoveredInputs.size)
+    val selectSection: (AppSection) -> Unit = { section ->
+        paneState.selectSection(section)
+        coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
+    }
+    val openCompose: () -> Unit = {
+        paneState.openCapture(
+            source = MobileCaptureSource.AndroidApp,
+            requestInputFocus = true,
+            replaceDraft = false,
+        )
+        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+    }
+    val openVoiceCompose: () -> Unit = {
+        paneState.openVoiceCapture()
+        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+    }
+    val sectionBadge: @Composable (AppSection) -> Unit = { section ->
+        // あなたの返事を待つ数。Desktopのbadgeと同じ意味で、新着だけの時は点で知らせる。
+        val needsYou = attentionCounts?.needsYou ?: 0
+        if (section == AppSection.Feed) {
+            when {
+                needsYou > 0 -> Badge(Modifier.testTag("ai-tab-badge").semantics { contentDescription = "対応待ち${needsYou}件" }) {
+                    Text(if (needsYou > 99) "99+" else needsYou.toString())
+                }
+                attentionNewArrivals.isNotEmpty() || (aiUnseen && !onAiSection) ->
+                    Badge(Modifier.testTag("ai-tab-badge"))
+            }
+        }
+    }
+    val requestNotifications: (() -> Unit)? = if (android.os.Build.VERSION.SDK_INT >= 33) {
+        {
+            if (notificationPermissionDenied) {
+                context.startActivity(
+                    Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                        putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    },
+                )
+            } else {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    } else {
+        null
+    }
+
+    val recordWorkLog: ((MobileTask) -> Unit)? = if (todayViewModel.workLogRepository != null) {
+        { task -> workLogTaskId = task.id; workLogRecordId = null; workLogOpen = true }
+    } else {
+        null
+    }
+    val toggleFeedNotifications: () -> Unit = {
+        val next = !attentionNotificationsEnabled
+        attentionNotificationsEnabled = next
+        attentionNotificationStore.setEnabled(next)
+        // OS通知を出すには権限が要る。有効にした時点で一度だけ求める。
+        if (next && !notificationsEnabled && android.os.Build.VERSION.SDK_INT >= 33) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -716,81 +788,19 @@ internal fun TodayApp(
                             )
                         }
                     } else {
-                        Text(if (paneState.activeSection == AppSection.Tasks) "ToDo" else "AI")
+                        Text(sectionLabel(paneState.activeSection))
                     }
                 },
                 actions = {
-                    if (todayViewModel.recallRepository != null && paneState.activeSection == AppSection.Today) {
-                        IconButton(onClick = { recallOpen = true }, modifier = Modifier.testTag("open-recall")) {
-                            Icon(painterResource(R.drawable.ic_tabler_notebook), contentDescription = "今日の記録")
+                    // どのタブでも同じ3つ。探す・同期を確かめる・設定する。
+                    if (todayViewModel.localSearchRepository != null) {
+                        IconButton(onClick = { localSearchOpen = true }, modifier = Modifier.testTag("open-local-search")) {
+                            Icon(painterResource(R.drawable.ic_tabler_search), contentDescription = "検索")
                         }
                     }
-                    if (todayViewModel.workLogRepository != null) {
-                        IconButton(onClick = { workLogTaskId = null; workLogRecordId = null; workLogOpen = true }, modifier = Modifier.testTag("open-work-log")) {
-                            Icon(painterResource(R.drawable.ic_tabler_pencil), contentDescription = "やったことを記録")
-                        }
-                    }
-                    if (pendingCaptures.isNotEmpty()) {
-                        TextButton(
-                            onClick = { pendingCapturesOpen = true },
-                            modifier = Modifier.testTag("open-pending-captures"),
-                        ) { Text("Capture ${pendingCaptures.size}") }
-                    }
-                    if (recoveredInputs.isNotEmpty()) {
-                        TextButton(
-                            onClick = { recoveryOpen = true },
-                            modifier = Modifier.testTag("open-input-recovery"),
-                        ) { Text("回復済み入力") }
-                    }
-                    if (
-                        android.os.Build.VERSION.SDK_INT >= 33 &&
-                        !notificationsEnabled &&
-                        paneState.activeSection == AppSection.Ai
-                    ) {
-                        TextButton(
-                            onClick = {
-                                if (notificationPermissionDenied) {
-                                    context.startActivity(
-                                        Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                                            putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                        },
-                                    )
-                                } else {
-                                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                }
-                            },
-                            modifier = Modifier.testTag("notification-permission-action"),
-                        ) {
-                            Text(if (notificationPermissionDenied) "通知設定" else "通知を有効化")
-                        }
-                    }
-                    if (conflictCount != null && conflictCount!! > 0) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer,
-                            shape = RoundedCornerShape(7.dp),
-                        ) {
-                            Text(
-                                "要確認 $conflictCount",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                    }
-                    if (pendingCount != null && pendingCount!! > 0) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = RoundedCornerShape(7.dp),
-                        ) {
-                            Text(
-                                "PCへ未反映 $pendingCount",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
+                    SyncStatusButton(syncState, onClick = { syncSheetOpen = true })
+                    IconButton(onClick = { settingsOpen = true }, modifier = Modifier.testTag("open-settings")) {
+                        Icon(painterResource(R.drawable.ic_tabler_settings), contentDescription = "設定")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -799,70 +809,21 @@ internal fun TodayApp(
             )
         },
         bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = paneState.activeSection == AppSection.Today,
-                    onClick = {
-                        paneState.selectSection(AppSection.Today)
-                        coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
-                    },
-                    icon = {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_tabler_sun),
-                            contentDescription = null,
-                        )
-                    },
-                    label = { Text("Today") },
-                )
-                NavigationBarItem(
-                    selected = paneState.activeSection == AppSection.Tasks,
-                    onClick = {
-                        paneState.selectSection(AppSection.Tasks)
-                        coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
-                    },
-                    icon = {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_tabler_checklist),
-                            contentDescription = null,
-                        )
-                    },
-                    label = { Text("ToDo") },
-                )
-                NavigationBarItem(
-                    selected = paneState.activeSection == AppSection.Ai,
-                    onClick = {
-                        paneState.selectSection(AppSection.Ai)
-                        coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
-                    },
-                    icon = {
-                        // あなたの対応を待つ数。Desktopのbadgeと同じ意味で、新着だけの時は点で知らせる。
-                        val needsYou = attentionCounts?.needsYou ?: 0
-                        BadgedBox(
-                            badge = {
-                                when {
-                                    needsYou > 0 -> Badge(Modifier.testTag("ai-tab-badge")) {
-                                        Text(if (needsYou > 99) "99+" else needsYou.toString())
-                                    }
-                                    attentionNewArrivals.isNotEmpty() || (aiUnseen && !onAiSection) ->
-                                        Badge(Modifier.testTag("ai-tab-badge"))
-                                }
-                            },
-                            modifier = Modifier.semantics {
-                                if (needsYou > 0) contentDescription = "対応待ち${needsYou}件"
-                            },
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_tabler_sparkles),
-                                contentDescription = null,
-                            )
-                        }
-                    },
-                    label = { Text("AI") },
-                )
+            if (!attentionInDetailPane) {
+                AppNavigationBar(active = paneState.activeSection, onSelect = selectSection, badge = sectionBadge)
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize().padding(padding)) {
+        if (attentionInDetailPane) {
+            AppNavigationRail(
+                active = paneState.activeSection,
+                onSelect = selectSection,
+                badge = sectionBadge,
+                header = { ComposeFab(onWrite = openCompose, onSpeak = openVoiceCompose, modifier = Modifier.padding(vertical = 8.dp), vertical = true) },
+            )
+        }
+        Box(Modifier.weight(1f).fillMaxHeight()) {
         NavigableListDetailPaneScaffold(
             navigator = navigator,
             listPane = {
@@ -898,6 +859,7 @@ internal fun TodayApp(
                                 onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                                 completionFeedback = completionFeedback,
                                 justAddedIds = justAddedIds,
+                                onRecordWorkLog = recordWorkLog,
                             )
                             AppSection.Tasks -> TasksListPane(
                                 uiState = uiState,
@@ -912,21 +874,23 @@ internal fun TodayApp(
                                 onTaskStateAction = todayViewModel::toggleTaskState,
                                 onChecklistUpdate = todayViewModel::updateTaskChecklist,
                                 onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
-                                onLocalSearch = if (todayViewModel.localSearchRepository != null) ({ localSearchOpen = true }) else null,
                                 completionFeedback = completionFeedback,
                                 justAddedIds = justAddedIds,
+                                onRecordWorkLog = recordWorkLog,
                             )
-                            AppSection.Ai -> AiInboxListPane(
+                            AppSection.Feed -> FeedListPane(
                                 uiState = uiState,
                                 tasks = allTasks,
                                 themes = themes,
                                 proposals = taskWorkProposals,
+                                feedPosts = feedPosts,
+                                onToggleFeedReaction = todayViewModel::toggleFeedReaction,
+                                onPostFeedReply = todayViewModel::postFeedReply,
                                 paneState = paneState,
                                 onRetry = todayViewModel::load,
                                 onRetryPairing = todayViewModel::retryPairing,
                                 onPair = todayViewModel::pair,
                                 onTaskSelected = onTaskSelected,
-                                onOpenAiSettings = { directAiSettingsOpen = true },
                                 attention = attentionRows,
                                 attentionCounts = attentionCounts,
                                 attentionFetchedAt = attentionFetchedAt,
@@ -941,16 +905,6 @@ internal fun TodayApp(
                                 attentionNewArrivals = attentionNewArrivals,
                                 seenBefore = aiSeenBefore,
                                 replyDictation = replyDictation,
-                                attentionNotificationsEnabled = attentionNotificationsEnabled,
-                                onToggleAttentionNotifications = {
-                                    val next = !attentionNotificationsEnabled
-                                    attentionNotificationsEnabled = next
-                                    attentionNotificationStore.setEnabled(next)
-                                    // OS通知を出すには権限が要る。有効にした時点で一度だけ求める。
-                                    if (next && !notificationsEnabled && android.os.Build.VERSION.SDK_INT >= 33) {
-                                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                    }
-                                },
                                 onAttentionOpened = todayViewModel::clearAttentionNewArrivals,
                                 onAttentionSelected = { row ->
                                     paneState.openAttention(row.attentionId)
@@ -964,29 +918,23 @@ internal fun TodayApp(
                                     }
                                 },
                             )
+                            AppSection.Records -> RecordsListPane(
+                                repository = todayViewModel.recallRepository,
+                                tasks = allTasks,
+                                onTask = onTaskSelected,
+                                onWorkLog = { id -> workLogRecordId = id; workLogTaskId = null; workLogOpen = true },
+                                onCapture = { recallCapture = it },
+                            )
                         }}
                         androidx.compose.animation.AnimatedVisibility(
-                            visible = paneState.activeSection != AppSection.Ai,
+                            visible = !attentionInDetailPane,
                             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                             enter = androidx.compose.animation.scaleIn(
                                 androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 500f),
                             ) + androidx.compose.animation.fadeIn(),
                             exit = androidx.compose.animation.scaleOut() + androidx.compose.animation.fadeOut(),
                         ) {
-                            ComposeFab(
-                                onWrite = {
-                                    paneState.openCapture(
-                                        source = MobileCaptureSource.AndroidApp,
-                                        requestInputFocus = true,
-                                        replaceDraft = false,
-                                    )
-                                    speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
-                                },
-                                onSpeak = {
-                                    paneState.openVoiceCapture()
-                                    speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
-                                },
-                            )
+                            ComposeFab(onWrite = openCompose, onSpeak = openVoiceCompose)
                         }
                     }
                 }
@@ -1084,13 +1032,37 @@ internal fun TodayApp(
                     }
                 }
             },
-            modifier = Modifier.padding(padding),
+            modifier = Modifier.fillMaxSize(),
         )
             SnackbarHost(snackbarHostState, modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = padding.calculateTopPadding())
                 .testTag("top-snackbar-host"))
         }
+        }
+    }
+
+    if (syncSheetOpen) {
+        SyncStatusSheet(
+            summary = syncState,
+            refreshing = refreshing,
+            onSyncNow = todayViewModel::load,
+            onRepair = { syncSheetOpen = false; todayViewModel.retryPairing() },
+            onOpenUnsentCaptures = { syncSheetOpen = false; pendingCapturesOpen = true },
+            onOpenRecoveredInputs = { syncSheetOpen = false; recoveryOpen = true },
+            onDismiss = { syncSheetOpen = false },
+        )
+    }
+    if (settingsOpen) {
+        AppSettingsSheet(
+            notificationsAllowed = notificationsEnabled,
+            notificationPermissionDenied = notificationPermissionDenied,
+            onRequestNotifications = requestNotifications,
+            feedNotificationsEnabled = attentionNotificationsEnabled,
+            onToggleFeedNotifications = toggleFeedNotifications,
+            onOpenDirectAiSettings = { settingsOpen = false; directAiSettingsOpen = true },
+            onRepair = { settingsOpen = false; todayViewModel.retryPairing() },
+            onDismiss = { settingsOpen = false },
+        )
     }
 
     if (pendingCapturesOpen) {
@@ -1171,21 +1143,6 @@ internal fun TodayApp(
                 dismissLabel = if (localSearchOpen) "検索へ戻る" else "Taskへ戻る")
         }
     }
-    if (recallOpen && !workLogOpen && recallCapture == null) {
-        todayViewModel.recallRepository?.let { repository ->
-            recallSavedState.SaveableStateProvider("recall") {
-                MobileRecallSheet(repository, allTasks,
-                    onTask = { id ->
-                        recallOpen = false
-                        paneState.selectedTaskId = id
-                        coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, id) }
-                    },
-                    onWorkLog = { id -> workLogRecordId = id; workLogTaskId = null; workLogOpen = true },
-                    onCapture = { recallCapture = it },
-                    onDismiss = { recallOpen = false })
-            }
-        }
-    }
     recallCapture?.let { capture ->
         val current = pendingCaptures.firstOrNull { it.commandId == capture.commandId }
             ?: capture.copy(canRetry = false, status = "端末に保存した原文です。Desktop受理後も保持しています。")
@@ -1248,6 +1205,21 @@ internal fun TodayApp(
                 photoStore.deletePhotos(listOf(fileName))
             },
             loadPhotoThumbnail = photoStore::loadThumbnail,
+            onSwitchToWorkLog = if (todayViewModel.workLogRepository != null) {
+                {
+                    if (captureState !is CaptureUiState.Saving) {
+                        speechRecognizer.cancel()
+                        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
+                        paneState.captureOpen = false
+                        todayViewModel.resetCaptureState()
+                        workLogTaskId = null
+                        workLogRecordId = null
+                        workLogOpen = true
+                    }
+                }
+            } else {
+                null
+            },
             onStartVoice = { requestSpeechRecognition(false) },
             onStopVoice = speechRecognizer::stop,
             onDismiss = {
@@ -1287,6 +1259,8 @@ internal fun CaptureTaskSheet(
     onDismiss: () -> Unit,
     /** 端末への保存が済んだ合図。続けて追加する時も、保存できたことを見せる。 */
     savedEventKey: Any? = null,
+    /** 「やったこと」へ切り替える。入力中の文字は下書きに残る。 */
+    onSwitchToWorkLog: (() -> Unit)? = null,
     bottomContentInsets: WindowInsets = WindowInsets.safeDrawing
         .union(WindowInsets.ime)
         .only(WindowInsetsSides.Bottom),
@@ -1301,6 +1275,8 @@ internal fun CaptureTaskSheet(
     var organizeBusy by remember { mutableStateOf(false) }
     var organizeError by remember(draft.draftId) { mutableStateOf<String?>(null) }
     val currentDraft by rememberUpdatedState(draft)
+    // 本人が「メモ」を選んだか。長文の自動切り替えとは分けて持つ。
+    var memoMode by rememberSaveable(draft.draftId) { mutableStateOf(false) }
     DisposableEffect(Unit) {
         onDispose {
             organizeRequest++
@@ -1328,7 +1304,7 @@ internal fun CaptureTaskSheet(
                     organizeError = if (directStore.settings().enabled) {
                         failure.message ?: DIRECT_CAPTURE_FAILURE
                     } else {
-                        "AI整理を利用できません。PCがオフの場合はAIタブの「PCなし整理の設定」から直接整理できます。通常の追加も使えます。"
+                        "AI整理を利用できません。PCがオフの場合は設定（右上の歯車）の「PCなし整理」から直接整理できます。通常の追加も使えます。"
                     }
                 }
             } finally {
@@ -1341,7 +1317,7 @@ internal fun CaptureTaskSheet(
     }
     fun submit(behavior: CaptureCompletionBehavior) {
         // 500文字を超える入力は、原文を保つためメモ(Capture)として保存する。
-        val nextKind = if (draft.text.length > MOBILE_TASK_TITLE_MAX_LENGTH) {
+        val nextKind = if (memoMode || draft.text.length > MOBILE_TASK_TITLE_MAX_LENGTH) {
             MobileCaptureKind.Capture
         } else {
             MobileCaptureKind.Task
@@ -1383,8 +1359,32 @@ internal fun CaptureTaskSheet(
         }
         val sheetEnabled = state !is CaptureUiState.Saving && !speechBusy
         val body: @Composable () -> Unit = {
+            // 何を残すかを最初に選ぶ。Task・メモ・やったことの入口をこのシートへまとめる。
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Taskを追加", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                androidx.compose.material3.SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
+                    val modes = buildList {
+                        add(Triple("Task", "capture-mode-task", !memoMode))
+                        add(Triple("メモ", "capture-mode-memo", memoMode))
+                        if (onSwitchToWorkLog != null) add(Triple("やったこと", "capture-mode-work-log", false))
+                    }
+                    modes.forEachIndexed { index, (label, tag, selected) ->
+                        SegmentedButton(
+                            selected = selected,
+                            onClick = {
+                                when (tag) {
+                                    "capture-mode-task" -> memoMode = false
+                                    "capture-mode-memo" -> memoMode = true
+                                    else -> onSwitchToWorkLog?.invoke()
+                                }
+                            },
+                            enabled = sheetEnabled,
+                            shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(index, modes.size),
+                            icon = {},
+                            label = { Text(label, maxLines = 1) },
+                            modifier = Modifier.testTag(tag),
+                        )
+                    }
+                }
                 SavedStamp(savedEventKey, modifier = Modifier.testTag("capture-saved-stamp"))
             }
             if (draft.organization == null) {
@@ -1392,11 +1392,11 @@ internal fun CaptureTaskSheet(
                 androidx.compose.material3.TextField(
                     value = draft.text,
                     onValueChange = onDraftChanged,
-                    label = { Text("Task名") },
-                    placeholder = { Text("例: 帰りに牛乳を買う") },
+                    label = { Text(if (memoMode) "メモ" else "Task名") },
+                    placeholder = { Text(if (memoMode) "思いついたこと、あとで整理したいこと" else "例: 帰りに牛乳を買う") },
                     supportingText = if (overLimit) {
                         { Text("${draft.text.length} / ${MOBILE_CAPTURE_TEXT_MAX_LENGTH}文字。全文を保持しています。編集するか、全文をコピーして回収できます。") }
-                    } else if (taskOverLimit) {
+                    } else if (taskOverLimit && !memoMode) {
                         { Text("${draft.text.length}文字。長文はメモとして保存します。") }
                     } else if (state is CaptureUiState.Error) {
                         { Text(state.message) }
@@ -1528,7 +1528,7 @@ internal fun CaptureTaskSheet(
                             if (organizeBusy) {
                                 CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                             } else {
-                                Icon(painterResource(R.drawable.ic_tabler_sparkles), contentDescription = "AIで整理")
+                                Icon(painterResource(R.drawable.ic_tabler_sparkles), contentDescription = "AIで分ける")
                             }
                         }
                     }
@@ -1748,6 +1748,7 @@ internal fun TodayListPane(
     justAddedIds: Set<String> = emptySet(),
     agentSessions: List<MobileAgentSessionDto> = emptyList(),
     agentSessionsUnavailable: Boolean = false,
+    onRecordWorkLog: ((MobileTask) -> Unit)? = null,
 ) {
     val tasks = when (uiState) {
         is TodayUiState.Success -> uiState.tasks
@@ -1772,6 +1773,19 @@ internal fun TodayListPane(
                 onRetryPairing = onRetryPairing,
                 collapsed = tasks.isNotEmpty() && (paneState.listScrollIndex > 0 || paneState.listScrollOffset > 0),
             )
+            val hintContext = LocalContext.current
+            val hintStore = remember(hintContext) { UiHintStore(hintContext) }
+            var gestureHintVisible by remember(hintStore) { mutableStateOf(!hintStore.shown(UiHintStore.TODAY_GESTURES)) }
+            androidx.compose.animation.AnimatedVisibility(visible = gestureHintVisible && tasks.any { it.state != "done" }) {
+                GestureHint(
+                    text = "右へ払うと完了、左へ払うと明日へ。長押しでメニューを開けます",
+                    onDismiss = {
+                        gestureHintVisible = false
+                        hintStore.markShown(UiHintStore.TODAY_GESTURES)
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+            }
             PullToRefreshBox(
                 isRefreshing = refreshing,
                 onRefresh = if (cached?.recovery == TodayUiState.CachedRecovery.RePair) onRetryPairing else onRetry,
@@ -1794,6 +1808,7 @@ internal fun TodayListPane(
                         agentSessions = agentSessions,
                         agentSessionsUnavailable = agentSessionsUnavailable,
                         onAgentSessionRetry = onRetry,
+                        onRecordWorkLog = onRecordWorkLog,
                     )
                 }
             }
@@ -1918,16 +1933,16 @@ internal fun TasksListPane(
     onTaskStateAction: (MobileTask) -> Unit,
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
     onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
-    onLocalSearch: (() -> Unit)? = null,
     completionFeedback: TaskCompletionFeedback? = null,
     justAddedIds: Set<String> = emptySet(),
+    onRecordWorkLog: ((MobileTask) -> Unit)? = null,
 ) {
     when {
         uiState is TodayUiState.PairingRequired -> PairingPane(uiState, onPair)
         uiState is TodayUiState.Error && tasks.isEmpty() -> GatewayErrorState(uiState, onRetry, onRetryPairing)
         uiState is TodayUiState.Loading && tasks.isEmpty() -> CenteredState {
             CircularProgressIndicator()
-            Text("ToDoを読み込んでいます")
+            Text("Taskを読み込んでいます")
         }
         else -> {
             val filtered = filterDailyTasks(
@@ -1945,9 +1960,6 @@ internal fun TasksListPane(
                     label = { Text("Taskを検索") },
                     singleLine = true,
                 )
-                onLocalSearch?.let { open ->
-                    TextButton(onClick = open, modifier = Modifier.padding(horizontal = 12.dp).testTag("open-local-search")) { Text("端末内の記録を検索") }
-                }
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1985,6 +1997,7 @@ internal fun TasksListPane(
                         onTodayDateUpdate = onTodayDateUpdate,
                         completionFeedback = completionFeedback,
                         justAddedIds = justAddedIds,
+                        onRecordWorkLog = onRecordWorkLog,
                     )
                 }
             }
@@ -1994,7 +2007,7 @@ internal fun TasksListPane(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AiInboxListPane(
+internal fun FeedListPane(
     uiState: TodayUiState,
     tasks: List<MobileTask>,
     themes: List<MobileTheme>,
@@ -2004,7 +2017,12 @@ internal fun AiInboxListPane(
     onRetryPairing: () -> Unit,
     onPair: (String, String) -> Unit,
     onTaskSelected: (String) -> Unit,
-    onOpenAiSettings: (() -> Unit)? = null,
+    /** DesktopのFeed投稿（AIの投稿・自分の投稿）。タスクの動きと同じ流れに並べる。 */
+    feedPosts: List<MobileFeedPostDto> = emptyList(),
+    /** 「おもしろい」「ブックマーク」の付け外し。 */
+    onToggleFeedReaction: (MobileFeedPostDto, String) -> Unit = { _, _ -> },
+    /** 返信（自分のメモ）を残す。 */
+    onPostFeedReply: (MobileFeedPostDto, String) -> Unit = { _, _ -> },
     attention: List<AttentionRow> = emptyList(),
     attentionCounts: MobileAttentionCountsDto? = null,
     attentionFetchedAt: String? = null,
@@ -2036,11 +2054,37 @@ internal fun AiInboxListPane(
         } else {
             selectedAttentionId?.let { id -> attention.firstOrNull { it.attentionId == id } }
         }
+    // DesktopのFeedと同じく「すべて」と「対応待ち」を切り替える。AIの投稿も人の記録も同じ流れに置く。
+    var onlyNeedsYou by rememberSaveable { mutableStateOf(false) }
+    var replyingToPostId by rememberSaveable { mutableStateOf<String?>(null) }
+    feedPosts.firstOrNull { it.postId == replyingToPostId }?.let { target ->
+        FeedReplySheet(
+            post = target,
+            onSend = { body ->
+                onPostFeedReply(target, body)
+                replyingToPostId = null
+            },
+            onDismiss = { replyingToPostId = null },
+            dictation = replyDictation,
+        )
+    }
     Column(modifier = Modifier.fillMaxSize()) {
-        onOpenAiSettings?.let { open ->
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = open, modifier = Modifier.testTag("open-direct-ai-settings")) { Text("PCなし整理の設定") }
-            }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            FilterChip(
+                selected = !onlyNeedsYou,
+                onClick = { onlyNeedsYou = false },
+                label = { Text("すべて") },
+                modifier = Modifier.testTag("feed-filter-all"),
+            )
+            FilterChip(
+                selected = onlyNeedsYou,
+                onClick = { onlyNeedsYou = true },
+                label = { Text("対応待ち") },
+                modifier = Modifier.testTag("feed-filter-needs-you"),
+            )
         }
         PullToRefreshBox(
             isRefreshing = attentionRefreshing,
@@ -2065,14 +2109,17 @@ internal fun AiInboxListPane(
                     snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
                         .collect { (index, offset) -> paneState.recordAiScroll(index, offset) }
                 }
-                ScrollToTopEffect(paneState.scrollToTopRequest, AppSection.Ai, listState)
+                ScrollToTopEffect(paneState.scrollToTopRequest, AppSection.Feed, listState)
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().testTag("ai-inbox-list"),
                     state = listState,
-                    contentPadding = PaddingValues(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    // 投稿は左右いっぱいに並べ、投稿どうしの空きは線だけにする。
+                    // 要対応のカードや見出しだけが、それぞれ左右12dpの余白を持つ。
+                    contentPadding = PaddingValues(bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
                     item(key = "section-attention") {
+                        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                         AgentAttentionHeader(
                             counts = attentionCounts,
                             fetchedAt = attentionFetchedAt,
@@ -2089,8 +2136,10 @@ internal fun AiInboxListPane(
                             notificationsEnabled = attentionNotificationsEnabled,
                             onToggleNotifications = onToggleAttentionNotifications,
                         )
+                        }
                     }
                     items(attention, key = { "attention-${it.attentionId}" }) { row ->
+                        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                         AgentAttentionCard(
                             row = row,
                             selected = selectedAttentionId == row.attentionId,
@@ -2102,10 +2151,12 @@ internal fun AiInboxListPane(
                             },
                             onOpenTask = { row.taskId?.let(onTaskSelected) },
                         )
+                        }
                     }
                     if (inlineTarget != null) {
                         val target = inlineTarget
                         item(key = "attention-reply") {
+                            Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                             AgentReplyEditor(
                                 row = target,
                                 body = paneState.attentionReplyBody,
@@ -2120,28 +2171,43 @@ internal fun AiInboxListPane(
                                 },
                                 dictation = replyDictation,
                             )
+                            }
                         }
                     }
-                    item(key = "section-agent-counts") {
-                        AiCountsStrip(counts = attentionCounts)
+                    if (!onlyNeedsYou) item(key = "section-agent-counts") {
+                        Box(Modifier.padding(horizontal = 12.dp)) { AiCountsStrip(counts = attentionCounts) }
                     }
-                    val timeline = buildAiTimeline(tasks, proposals)
+                    val timeline = if (onlyNeedsYou) emptyList() else buildAiTimeline(tasks, proposals, feedPosts)
                     if (timeline.isNotEmpty()) {
                         item(key = "section-ai-timeline") {
-                            AiSectionTitle("AIの動き")
+                            AiSectionTitle("最近の動き", Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp))
                         }
                     }
+                    // 自分の投稿は新着に数えない（自分で書いたものを「新着」と呼ばない）。
+                    val others = timeline.filterNot { it.isOwn }
                     val hasNewAndOld = seenBefore != null &&
-                        timeline.any { it.at?.isAfter(seenBefore) == true } &&
-                        timeline.any { it.at?.isAfter(seenBefore) != true }
+                        others.any { it.at?.isAfter(seenBefore) == true } &&
+                        others.any { it.at?.isAfter(seenBefore) != true }
                     var dividerPlaced = false
                     for (entry in timeline) {
-                        val isNew = seenBefore != null && entry.at?.isAfter(seenBefore) == true
-                        if (hasNewAndOld && !isNew && !dividerPlaced) {
+                        val isNew = !entry.isOwn && seenBefore != null && entry.at?.isAfter(seenBefore) == true
+                        // 区切りは「新着」と「見た分」の境目に引く。自分の投稿はどちら側にも数えない。
+                        if (hasNewAndOld && !isNew && !entry.isOwn && !dividerPlaced) {
                             dividerPlaced = true
-                            item(key = "ai-seen-divider") { AiSeenDivider(Modifier.testTag("ai-seen-divider")) }
+                            item(key = "ai-seen-divider") { AiSeenDivider(Modifier.padding(horizontal = 16.dp).testTag("ai-seen-divider")) }
                         }
                         when (entry) {
+                            is AiTimelineEntry.Post -> item(key = entry.key) {
+                                FeedPostItem(
+                                    post = entry.post,
+                                    at = entry.at,
+                                    isNew = isNew,
+                                    highlighted = entry.post.taskId != null && entry.post.taskId == paneState.selectedTaskId,
+                                    onOpenTask = onTaskSelected,
+                                    onToggleReaction = { kind -> onToggleFeedReaction(entry.post, kind) },
+                                    onReply = { replyingToPostId = entry.post.postId },
+                                )
+                            }
                             is AiTimelineEntry.Proposal -> item(key = entry.key) {
                                 val proposal = entry.proposal
                                 AiPost(
@@ -2151,10 +2217,13 @@ internal fun AiInboxListPane(
                                     isNew = isNew,
                                     highlighted = proposal.taskId == paneState.selectedTaskId,
                                     onClick = { onTaskSelected(proposal.taskId) },
+                                    menu = { close ->
+                                        DropdownMenuItem(text = { Text("Taskを開く") }, onClick = { close(); onTaskSelected(proposal.taskId) })
+                                    },
                                     modifier = Modifier.testTag("proposal-list-${proposal.id}"),
                                 ) {
-                                    Text(proposal.taskTitle, fontWeight = FontWeight.SemiBold)
-                                    proposal.summary?.let { Text(it, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                                    Text(proposal.taskTitle, style = FeedBodyStyle, fontWeight = FontWeight.SemiBold)
+                                    proposal.summary?.let { Text(it, style = FeedBodyStyle, maxLines = 3, overflow = TextOverflow.Ellipsis) }
                                     FlowRow(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -2186,13 +2255,16 @@ internal fun AiInboxListPane(
                                     isNew = isNew,
                                     highlighted = task.id == paneState.selectedTaskId,
                                     onClick = { onTaskSelected(task.id) },
+                                    menu = { close ->
+                                        DropdownMenuItem(text = { Text("Taskを開く") }, onClick = { close(); onTaskSelected(task.id) })
+                                    },
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(task.title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                        Text(task.title, style = FeedBodyStyle, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                                         AiOriginMark(task.aiOrigin)
                                     }
                                     task.latestWorkReceipt?.summary?.let { summary ->
-                                        Text(summary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                        Text(summary, style = FeedBodyStyle, maxLines = 3, overflow = TextOverflow.Ellipsis)
                                     }
                                     FlowRow(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2345,15 +2417,16 @@ private fun AgentAttentionCard(
             .fillMaxWidth()
             .testTag("attention-row-${row.attentionId}")
             .semantics { role = Role.Button },
-        shape = RoundedCornerShape(12.dp),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = if (selected) 1f else 0.45f)),
+        shape = RoundedCornerShape(16.dp),
+        // あなたの返事を待つ投稿。枠ではなく淡い面で、流れの中から見つけやすくする。
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+        border = if (selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-        AiAvatar()
+        FeedAvatar(row.agentLabel ?: "AI")
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -2754,6 +2827,7 @@ internal fun TodayTaskList(
     agentSessions: List<MobileAgentSessionDto> = emptyList(),
     agentSessionsUnavailable: Boolean = false,
     onAgentSessionRetry: () -> Unit = {},
+    onRecordWorkLog: ((MobileTask) -> Unit)? = null,
 ) {
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = if (allTasksMode) paneState.taskListScrollIndex else paneState.listScrollIndex,
@@ -2808,6 +2882,8 @@ internal fun TodayTaskList(
                 modifier = Modifier.animateItem().testTag("task-swipe-${task.id}"),
             ) {
             val rowInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            var rowMenuOpen by remember { mutableStateOf(false) }
+            val rowHaptics = LocalHapticFeedback.current
             val selected = task.id == paneState.selectedTaskId
             val rowShape = segmentShape(index, tasks.size)
             val addedTint = rememberJustAddedTint(task.id in justAddedIds)
@@ -2822,11 +2898,61 @@ internal fun TodayTaskList(
                     .pressScale(rowInteraction, pressed = 0.985f)
                     .clip(rowShape)
                     .semantics { role = Role.Button }
-                    .clickable(interactionSource = rowInteraction, indication = androidx.compose.material3.ripple()) {
+                    .combinedClickable(
+                        interactionSource = rowInteraction,
+                        indication = androidx.compose.material3.ripple(),
+                        onLongClickLabel = "操作メニュー",
+                        onLongClick = {
+                            rowHaptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            rowMenuOpen = true
+                        },
+                    ) {
                         onTaskSelected(task.id)
                     },
             ) {
               Column {
+                // 長押しのメニュー。スワイプと同じ操作を、指を払わなくても選べるようにする。
+                DropdownMenu(
+                    expanded = rowMenuOpen,
+                    onDismissRequest = { rowMenuOpen = false },
+                    modifier = Modifier.testTag("task-menu-${task.id}"),
+                ) {
+                    if (stateActionEnabled) {
+                        DropdownMenuItem(
+                            text = { Text(if (task.state == "done") "未完了に戻す" else "完了") },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_tabler_circle_check), contentDescription = null) },
+                            onClick = { rowMenuOpen = false; onTaskStateAction(task) },
+                        )
+                    }
+                    rescheduleTarget?.let { target ->
+                        DropdownMenuItem(
+                            text = { Text(if (target == today) "今日やる" else "明日へ") },
+                            leadingIcon = {
+                                Icon(painterResource(if (target == today) R.drawable.ic_tabler_sun else R.drawable.ic_tabler_arrow_right), contentDescription = null)
+                            },
+                            onClick = { rowMenuOpen = false; onTodayDateUpdate?.invoke(task, target) },
+                        )
+                    }
+                    if (scheduleEditable && task.todayDate == today.toString()) {
+                        DropdownMenuItem(
+                            text = { Text("今日の予定から外す") },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_tabler_x), contentDescription = null) },
+                            onClick = { rowMenuOpen = false; onTodayDateUpdate?.invoke(task, null) },
+                        )
+                    }
+                    onRecordWorkLog?.let { record ->
+                        DropdownMenuItem(
+                            text = { Text("やったことを残す") },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_tabler_pencil), contentDescription = null) },
+                            onClick = { rowMenuOpen = false; record(task) },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("開く") },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_tabler_arrow_right), contentDescription = null) },
+                        onClick = { rowMenuOpen = false; onTaskSelected(task.id) },
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3024,7 +3150,20 @@ internal fun TodayDetailPane(
     completionFeedbackEventId: Long? = null,
 ) {
     if (task == null) {
-        CenteredState { Text("Taskを選んでください") }
+        CenteredState {
+            Icon(
+                painterResource(R.drawable.ic_tabler_checklist),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(40.dp),
+            )
+            Text("Taskを選んでください", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "左の一覧から選ぶと、ここに詳細が開きます",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         return
     }
     val completionFeedbackScale = rememberTaskCompletionFeedbackScale(completionFeedbackEventId)
@@ -3068,10 +3207,22 @@ internal fun TodayDetailPane(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
         onNavigateBack?.let { back ->
-            TextButton(
-                onClick = back,
-                modifier = Modifier.testTag("task-detail-back").statusBarsPadding(),
-            ) { Text("〈 一覧へ戻る") }
+            Row(
+                modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = back, modifier = Modifier.testTag("task-detail-back")) {
+                    Icon(painterResource(R.drawable.ic_tabler_arrow_left), contentDescription = "一覧へ戻る")
+                }
+                Text(
+                    task.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         Column(
             modifier = Modifier.weight(1f).fillMaxWidth().testTag("task-detail-content")
@@ -3122,29 +3273,72 @@ internal fun TodayDetailPane(
                     modifier = Modifier.align(Alignment.End),
                 ) { Text("Task名を保存") }
             }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            // いまの状態を一目で。状態・日付・Theme・予定を同じ形の札で並べる。
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.testTag("task-detail-chips"),
             ) {
-                Text("状態", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(7.dp),
-                ) {
-                    Text(
-                        taskStateLabel(task.state),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
+                TaskDetailChip(
+                    text = taskStateLabel(task.state),
+                    icon = if (task.state == "done") R.drawable.ic_tabler_circle_check else R.drawable.ic_tabler_circle,
+                    emphasized = task.state == "done",
+                )
+                TaskDetailChip(
+                    text = taskTodayDateLabel(task.todayDate, today.toString()),
+                    icon = R.drawable.ic_tabler_calendar,
+                    modifier = Modifier.testTag("task-date-chip"),
+                )
+                themes.firstOrNull { it.id == task.themeId }?.let { theme ->
+                    TaskDetailChip(text = theme.title, icon = R.drawable.ic_tabler_target)
+                }
+                task.schedule?.let { schedule ->
+                    schedule.startDate?.let { start ->
+                        TaskDetailChip(
+                            text = listOfNotNull(start, schedule.endDate?.takeIf { it != start }).joinToString("〜"),
+                            icon = R.drawable.ic_tabler_clock,
+                        )
+                    }
+                }
+            }
+            val aiOptionsAvailable = task.workState in setOf("not_delegated", "ready_for_agent")
+            val needsAiVisibility = aiOptionsAvailable && (task.workState == "ready_for_agent" || when (aiReadyState) {
+                is AiReadyUiState.Updating -> aiReadyState.taskId == task.id
+                is AiReadyUiState.Conflict -> aiReadyState.taskId == task.id
+                is AiReadyUiState.Rejected -> aiReadyState.taskId == task.id
+                is AiReadyUiState.Unavailable -> aiReadyState.taskId == task.id
+                else -> false
+            })
+            // よく使う操作は同じ大きさのボタンで横に並べる。文で説明せず、絵と短い語で示す。
+            Row(
+                modifier = Modifier.fillMaxWidth().testTag("task-quick-actions"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                onRecordWorkLog?.let { record ->
+                    TaskQuickAction(R.drawable.ic_tabler_pencil, "記録する", { record(task) }, Modifier.weight(1f).testTag("task-record-work-log"))
+                }
+                onReadRelatedDocuments?.let { read ->
+                    TaskQuickAction(R.drawable.ic_tabler_file_text, "資料", { read(task) }, Modifier.weight(1f).testTag("task-related-documents"))
+                }
+                if (task.themeId != null && onReadThemeContext != null) {
+                    TaskQuickAction(R.drawable.ic_tabler_target, "Theme", { onReadThemeContext(task.themeId) }, Modifier.weight(1f).testTag("task-theme-context"))
+                }
+                if (aiOptionsAvailable && !needsAiVisibility) {
+                    TaskQuickAction(
+                        R.drawable.ic_tabler_sparkles,
+                        if (aiOptionsOpen) "AIを閉じる" else "AIに任せる",
+                        { aiOptionsOpen = !aiOptionsOpen },
+                        Modifier.weight(1f).testTag("task-ai-options-toggle"),
+                        selected = aiOptionsOpen,
                     )
                 }
             }
-            onRecordWorkLog?.let { record ->
-                TextButton(onClick = { record(task) }, modifier = Modifier.testTag("task-record-work-log")) { Text("やったことを残す") }
-            }
-            onReadRelatedDocuments?.let { read ->
-                TextButton(onClick = { read(task) }, modifier = Modifier.testTag("task-related-documents")) { Text("関連資料を読む") }
+            if (aiOptionsOpen || needsAiVisibility) {
+                TaskAiReadyToggle(
+                    task = task,
+                    state = aiReadyState,
+                    onChange = onTaskAiReady,
+                )
             }
             if (task.pending) {
                 Surface(
@@ -3329,11 +3523,6 @@ internal fun TodayDetailPane(
                 },
                 onThemeSelected = { onThemeUpdate(task, it) },
             )
-            if (task.themeId != null && onReadThemeContext != null) {
-                TextButton(onClick = { onReadThemeContext(task.themeId) }, modifier = Modifier.testTag("task-theme-context")) {
-                    Text("Themeの目的・現在地を読む")
-                }
-            }
             TaskScheduleEditor(
                 task = task,
                 enabled = (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) && task.conflict == null &&
@@ -3348,28 +3537,6 @@ internal fun TodayDetailPane(
                 },
                 onSave = { onScheduleUpdate(task, it) },
             )
-            if (task.workState in setOf("not_delegated", "ready_for_agent")) {
-                val needsAiVisibility = task.workState == "ready_for_agent" || when (aiReadyState) {
-                    is AiReadyUiState.Updating -> aiReadyState.taskId == task.id
-                    is AiReadyUiState.Conflict -> aiReadyState.taskId == task.id
-                    is AiReadyUiState.Rejected -> aiReadyState.taskId == task.id
-                    is AiReadyUiState.Unavailable -> aiReadyState.taskId == task.id
-                    else -> false
-                }
-                if (!needsAiVisibility) {
-                    TextButton(
-                        onClick = { aiOptionsOpen = !aiOptionsOpen },
-                        modifier = Modifier.align(Alignment.End).testTag("task-ai-options-toggle"),
-                    ) { Text(if (aiOptionsOpen) "AI設定を閉じる" else "AIへの委任設定") }
-                }
-                if (aiOptionsOpen || needsAiVisibility) {
-                    TaskAiReadyToggle(
-                        task = task,
-                        state = aiReadyState,
-                        onChange = onTaskAiReady,
-                    )
-                }
-            }
             taskWorkProposals.forEach { proposal ->
                 TaskWorkProposalReviewCard(
                     proposal = proposal,
@@ -3438,28 +3605,28 @@ internal fun TodayDetailPane(
                     }
                 }
             }
-            Text("日付  ${taskTodayDateLabel(task.todayDate, today.toString())}")
             Text(
                 "更新  ${formatLocalTimestamp(task.updatedAt, displayZoneId)}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("task-updated-at"),
             )
         }
-        Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
-            FlowRow(
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+            Row(
                 modifier = Modifier.fillMaxWidth().padding(12.dp).testTag("task-detail-actions"),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedButton(
                     onClick = { onTodayDateUpdate(task, if (task.todayDate == today.toString()) null else today) },
                     enabled = (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) && task.conflict == null && actionState !is TaskActionUiState.Saving,
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("task-today-action"),
+                    modifier = Modifier.weight(1f).heightIn(min = 52.dp).testTag("task-today-action"),
                 ) {
                     Icon(painterResource(R.drawable.ic_tabler_sun), contentDescription = null)
                     Text(
                         if (task.todayDate == today.toString()) "今日の予定から外す" else "今日の予定に追加",
                         modifier = Modifier.padding(start = 8.dp),
+                        maxLines = 2,
                     )
                 }
                 Button(
@@ -3472,7 +3639,8 @@ internal fun TodayDetailPane(
                             scaleX = completionFeedbackScale
                             scaleY = completionFeedbackScale
                         }
-                        .heightIn(min = 48.dp)
+                        .weight(1f)
+                        .heightIn(min = 52.dp)
                         .testTag("task-primary-action"),
                 ) {
                     Text(when {
@@ -3488,6 +3656,58 @@ internal fun TodayDetailPane(
                 }
             }
         }
+        }
+    }
+}
+
+/** 詳細の頭に並べる札。変更は下の各欄で行い、ここは読むだけにする。 */
+@Composable
+private fun TaskDetailChip(
+    text: String,
+    icon: Int,
+    modifier: Modifier = Modifier,
+    emphasized: Boolean = false,
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = if (emphasized) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(16.dp))
+            Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** 詳細の操作ボタン。絵と短い語を縦に置き、どれも同じ大きさで押せる。 */
+@Composable
+private fun TaskQuickAction(
+    icon: Int,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        interactionSource = interaction,
+        modifier = modifier.heightIn(min = 64.dp).pressScale(interaction, pressed = 0.94f),
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

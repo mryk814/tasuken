@@ -41,9 +41,9 @@ class MobileRecallTodayUiTest {
                 TaskenTheme { TodayApp(viewModel(factory = TodayViewModelFactory(repository))) }
             }
         }
-        compose.onNodeWithTag("open-recall").assertIsDisplayed()
+        compose.onNodeWithTag("nav-records").assertIsDisplayed()
         screenshot("06-today-entry")
-        compose.onNodeWithTag("open-recall").performClick()
+        compose.onNodeWithTag("nav-records").performClick()
         val yesterday = LocalDate.now().minusDays(1).toString()
         compose.onNodeWithTag("recall-day-$yesterday").performClick().assertIsSelected()
         compose.onNodeWithText("一言残す").performClick()

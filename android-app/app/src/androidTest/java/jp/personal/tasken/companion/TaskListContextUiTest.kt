@@ -210,7 +210,7 @@ class TaskListContextUiTest {
         composeRule.setContent {
             TaskenTheme {
                 ListSurface {
-                    AiInboxListPane(
+                    FeedListPane(
                         uiState = TodayUiState.Success(listOf(aiTask), "2026-08-31T00:00:00Z"),
                         tasks = listOf(aiTask),
                         themes = themes,

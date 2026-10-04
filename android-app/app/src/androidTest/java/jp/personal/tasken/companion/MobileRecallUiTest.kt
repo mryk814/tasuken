@@ -61,12 +61,11 @@ class MobileRecallUiTest {
         repository.today.value = repository.today.value.copy(rows = listOf(row("note"), row("capture", "capture_entry", "未整理Capture").copy(capture = original)))
         var selectedWorkLog: String? = "unchanged"
         var selectedCapture: MobilePendingCapture? = null
-        compose.setContent { TaskenTheme { MobileRecallSheet(repository, emptyList(), {}, { selectedWorkLog = it }, { selectedCapture = it }, {}, date, zone) } }
-        compose.onNodeWithTag("recall-row-note").onChildren().filter(hasText("原記録を開く")).onFirst().performClick()
+        compose.setContent { TaskenTheme { RecordsListPane(repository, emptyList(), {}, { selectedWorkLog = it }, { selectedCapture = it }, date, zone) } }
+        compose.onNodeWithTag("recall-row-note").performClick()
         compose.waitUntil { selectedWorkLog == "note" }
         assertEquals("note", repository.loaded)
-        compose.onNodeWithTag("recall-row-capture").performScrollTo()
-        compose.onAllNodesWithText("原記録を開く").onLast().performClick()
+        compose.onNodeWithTag("recall-row-capture").performScrollTo().performClick()
         assertEquals(original, selectedCapture)
         compose.onNodeWithText("一言残す").performClick()
         assertNull(selectedWorkLog)
@@ -83,13 +82,13 @@ class MobileRecallUiTest {
         compose.onNodeWithText("Captureの原文は端末に未取得です。このDesktopからの全文取得には未対応です。").assertIsDisplayed()
         screenshot("05-source-unavailable")
         compose.onNodeWithTag("recall-row-ai").performScrollTo()
-        compose.onNodeWithText("AIの報告 · 09:30").assertIsDisplayed()
+        compose.onNodeWithText("AIの報告").assertIsDisplayed()
         compose.onNodeWithTag("recall-row-accepted").performScrollTo()
-        compose.onNodeWithText("人間が採用 · 09:30").assertIsDisplayed()
+        compose.onNodeWithText("人間が採用").assertIsDisplayed()
     }
 
     private fun content(repository: FixtureRepository) {
-        compose.setContent { TaskenTheme { MobileRecallSheet(repository, emptyList(), {}, {}, {}, {}, date, zone) } }
+        compose.setContent { TaskenTheme { RecordsListPane(repository, emptyList(), {}, {}, {}, date, zone) } }
     }
 
     private fun screenshot(name: String) {
