@@ -16,7 +16,9 @@ import {
   ProposalDetail,
   ProposalRisk,
   proposalHeadline,
+  agentSessionAdoptionCommand,
 } from "../components/AiProposalPanel";
+import { adoptSelectedProposals } from "../lib/selectedProposalAdoption";
 import { FeedArticleReader } from "../components/FeedArticleReader";
 import { FeedContextRail } from "../components/FeedContextRail";
 import { FeedStream } from "../components/FeedStream";
@@ -248,6 +250,14 @@ export function FeedPage(props: PageProps) {
   /** 対応待ちの選択。判断・変更案・確認待ちを同じ1つの選択で扱う。 */
   const [selectedNeedsId, setSelectedNeedsId] = useState<string | null>(null);
   const [refreshingNeeds, setRefreshingNeeds] = useState(false);
+  const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
+  const [adoptingRecords, setAdoptingRecords] = useState(false);
+  const [adoptionProgress, setAdoptionProgress] = useState({ completed: 0, total: 0 });
+  const adoptionLock = useRef(false);
+  const [adoptionResult, setAdoptionResult] = useState<{
+    accepted: string[];
+    failed: { id: string; message: string }[];
+  } | null>(null);
   const refreshWorkspace = useWorkspaceStore((state) => state.refresh);
   const [openArticleId, setOpenArticleId] = useState<string | null>(() =>
     optionalFeedId(storedView.articlePostId),
@@ -1603,6 +1613,58 @@ export function FeedPage(props: PageProps) {
     [domain.ai_proposals],
   );
 
+  const visibleRecords = useMemo(
+    () =>
+      needsRows.flatMap((row) => {
+        const proposal = proposalOf(row);
+        return proposal?.payload_type === "agent_sessions" && proposal.status === "pending"
+          ? [proposal]
+          : [];
+      }),
+    [needsRows, proposalOf],
+  );
+  const selectedVisibleRecords = selectedRecords.filter((id) =>
+    visibleRecords.some((row) => row.id === id),
+  );
+  useEffect(() => {
+    setSelectedRecords((previous) => {
+      const next = previous.filter((id) => visibleRecords.some((row) => row.id === id));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [visibleRecords]);
+
+  async function adoptRecords() {
+    if (adoptionLock.current || !selectedVisibleRecords.length) return;
+    adoptionLock.current = true;
+    setAdoptingRecords(true);
+    setAdoptionProgress({ completed: 0, total: selectedVisibleRecords.length });
+    setAdoptionResult(null);
+    try {
+      const result = await adoptSelectedProposals(
+        selectedVisibleRecords,
+        visibleRecords,
+        async (proposal) => {
+          try {
+            await executeCommand(
+              agentSessionAdoptionCommand(proposal, {
+                data,
+                themes: props.themes,
+                items: props.items,
+              }),
+            );
+          } finally {
+            setAdoptionProgress((previous) => ({ ...previous, completed: previous.completed + 1 }));
+          }
+        },
+      );
+      setAdoptionResult(result);
+      setSelectedRecords(result.failed.map((entry) => entry.id));
+    } finally {
+      adoptionLock.current = false;
+      setAdoptingRecords(false);
+    }
+  }
+
   /** 報告の差し戻し。修正してほしい点を `ReturnTaskWork` で返す。 */
   const returnReport = useCallback(
     async (item: FeedItem) => {
@@ -1685,6 +1747,7 @@ export function FeedPage(props: PageProps) {
                   id={tabId}
                   type="button"
                   role="tab"
+                  disabled={adoptingRecords}
                   aria-selected={tab === entry.id}
                   aria-controls={panelId}
                   className={tab === entry.id ? "is-active" : undefined}
@@ -1790,11 +1853,18 @@ export function FeedPage(props: PageProps) {
               aria-label="対応待ち"
             >
               {needsRows.length === 0 ? (
-                <EmptyState
-                  title="いま対応する更新はありません"
-                  action="ホームを読む"
-                  onAction={() => setTab("home")}
-                />
+                <>
+                  {adoptionResult ? (
+                    <p role="status" className="feed-adoption-result">
+                      {adoptionResult.accepted.length}件採用・{adoptionResult.failed.length}件失敗
+                    </p>
+                  ) : null}
+                  <EmptyState
+                    title="いま対応する更新はありません"
+                    action="ホームを読む"
+                    onAction={() => setTab("home")}
+                  />
+                </>
               ) : (
                 /* 判断・変更案・確認待ちを1本の一覧にし、選んだ1件だけを詳細で決着させる。 */
                 <div className={`feed-needs-panel${selectedNeedsItem ? " has-selection" : ""}`}>
@@ -1804,12 +1874,48 @@ export function FeedPage(props: PageProps) {
                       <span className="proposal-pending-count">{needsRows.length}件</span>
                       <Button
                         variant="secondary"
-                        disabled={refreshingNeeds}
+                        disabled={refreshingNeeds || adoptingRecords}
                         onClick={() => void refreshNeeds(true)}
                       >
                         {refreshingNeeds ? "更新中" : "更新"}
                       </Button>
                     </div>
+                    {visibleRecords.length ? (
+                      <div className="feed-record-adoption" aria-label="記録の一括採用">
+                        <span>{selectedVisibleRecords.length}件選択</span>
+                        <Button
+                          variant="secondary"
+                          disabled={adoptingRecords}
+                          onClick={() => setSelectedRecords(visibleRecords.map((row) => row.id))}
+                        >
+                          表示中の記録をすべて選択
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          disabled={adoptingRecords || !selectedVisibleRecords.length}
+                          onClick={() => setSelectedRecords([])}
+                        >
+                          選択解除
+                        </Button>
+                        <Button
+                          variant="primary"
+                          disabled={adoptingRecords || !selectedVisibleRecords.length}
+                          onClick={() => void adoptRecords()}
+                        >
+                          {adoptingRecords
+                            ? `採用中 ${adoptionProgress.completed}/${adoptionProgress.total}`
+                            : "選択した記録を採用"}
+                        </Button>
+                      </div>
+                    ) : null}
+                    {adoptionResult ? (
+                      <p className="feed-adoption-result" role="status">
+                        {adoptionResult.accepted.length}件採用・{adoptionResult.failed.length}件失敗
+                        {adoptionResult.failed.length
+                          ? "。失敗した記録の選択を残しました。再試行できます。"
+                          : ""}
+                      </p>
+                    ) : null}
                   </div>
                   <ul className="feed-needs-list">
                     {needsRows.map((item, index) => {
@@ -1829,10 +1935,29 @@ export function FeedPage(props: PageProps) {
                             </li>
                           ) : null}
                           <li className="feed-needs-row">
+                            {proposal?.payload_type === "agent_sessions" &&
+                            proposal.status === "pending" ? (
+                              <label className="feed-record-check">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`${title} を採用対象に選択`}
+                                  disabled={adoptingRecords}
+                                  checked={selectedVisibleRecords.includes(proposal.id)}
+                                  onChange={(event) =>
+                                    setSelectedRecords((previous) =>
+                                      event.target.checked
+                                        ? [...previous, proposal.id]
+                                        : previous.filter((id) => id !== proposal.id),
+                                    )
+                                  }
+                                />
+                              </label>
+                            ) : null}
                             <button
                               type="button"
                               className="feed-needs-select"
                               aria-pressed={item.id === selectedNeedsId}
+                              disabled={adoptingRecords}
                               onClick={() => {
                                 setSelectedNeedsId(item.id === selectedNeedsId ? null : item.id);
                                 setDraftAnswer("");
@@ -1865,13 +1990,26 @@ export function FeedPage(props: PageProps) {
                               ) : null}
                               <span className="feed-post-meta">{item.pathLabel}</span>
                             </button>
+                            {adoptionResult?.failed.find((entry) => entry.id === proposal?.id) ? (
+                              <p className="feed-adoption-error" role="alert">
+                                採用できませんでした:{" "}
+                                {
+                                  adoptionResult.failed.find((entry) => entry.id === proposal?.id)
+                                    ?.message
+                                }
+                              </p>
+                            ) : null}
                           </li>
                         </Fragment>
                       );
                     })}
                   </ul>
                   {selectedNeedsItem ? (
-                    <div className="feed-needs-detail" aria-label="選んだ対応待ち">
+                    <fieldset
+                      disabled={adoptingRecords}
+                      className="feed-needs-detail"
+                      aria-label="選んだ対応待ち"
+                    >
                       {usesProposalDetail(selectedNeedsItem) &&
                       proposalOf(selectedNeedsItem) ? null : (
                         <div className="section-heading">
@@ -2018,7 +2156,7 @@ export function FeedPage(props: PageProps) {
                           </Button>
                         </div>
                       )}
-                    </div>
+                    </fieldset>
                   ) : null}
                 </div>
               )}

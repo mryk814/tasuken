@@ -681,6 +681,49 @@ interface ProposalDetailProps extends PageProps {
  * **一覧を持たない。** 選択はFeedの「対応待ち」が持ち、ここは選ばれた1件だけを出す。
  * 読み順と操作は種類ごとの契約に従い、Taskの完了は最初から選ばれていない明示オプションにする（#599）。
  */
+/** The same preview, stable identities and command guard serve single and bulk session adoption. */
+export function agentSessionAdoptionCommand(
+  proposal: BaseRecord,
+  context: Pick<PageProps, "data" | "themes" | "items">,
+  preview = buildPreview(proposal, context),
+): CommandEnvelope {
+  if (proposal.payload_type !== "agent_sessions" || proposal.status !== "pending")
+    throw new Error("採用待ちのAgent Session記録ではありません。");
+  const issues = preview.candidates
+    .filter((candidate) => candidate.action !== "ignore")
+    .flatMap((candidate) => candidate.issues);
+  if (issues.length) throw new Error(issues.join(" / "));
+  const operations = buildCandidateOperations(
+    preview.candidates,
+    context.data.repository_contexts || [],
+  );
+  const accepted = preview.candidates.filter((candidate) => candidate.action !== "ignore");
+  const status = !accepted.length
+    ? "rejected"
+    : accepted.length < preview.candidates.length
+      ? "partially_accepted"
+      : "accepted";
+  const candidates = operations.map(({ type, entity }) => ({ type, entity }));
+  return {
+    commandId: `${proposal.id}:accept:v${Number(proposal.version || 0)}`,
+    name: "ApplyAiProposal",
+    payload: { proposal: { ...proposal, status }, candidates },
+    actor: { kind: "user" },
+    source: "main_ui",
+    expectedVersions: [
+      { type: "ai_proposal", id: proposal.id, version: Number(proposal.version || 0) },
+      ...candidates.flatMap(({ type, entity }) =>
+        Number.isInteger(entity.version)
+          ? [{ type, id: entity.id, version: Number(entity.version) }]
+          : [],
+      ),
+    ],
+    issuedAt:
+      str(proposal.received_at || proposal.created_at || proposal.updated_at) ||
+      new Date(0).toISOString(),
+  } as CommandEnvelope;
+}
+
 export function ProposalDetail(props: ProposalDetailProps) {
   const {
     proposal,
@@ -807,6 +850,24 @@ export function ProposalDetail(props: ProposalDetailProps) {
 
   async function acceptProposal(options: { completeTask?: boolean } = {}) {
     if (!preview) return;
+    if (active.payload_type === "agent_sessions") {
+      try {
+        const command = agentSessionAdoptionCommand(active, { data, themes, items }, preview);
+        await executeCommand(command);
+        setToast(
+          preview.candidates.some((candidate) => candidate.action !== "ignore")
+            ? "記録を採用しました。"
+            : "記録を却下しました。",
+          "success",
+        );
+        afterDecision(active.id);
+      } catch (error) {
+        setToast(
+          `記録を採用できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      return;
+    }
     if (str(active.payload_type) === "task_work") {
       try {
         const candidate = preview.candidates.find((entry) => entry.action !== "ignore");
@@ -933,14 +994,11 @@ export function ProposalDetail(props: ProposalDetailProps) {
         acceptedCursor += matched + 1;
         return acceptedDecisions[acceptedCursor - 1].entryIndex;
       });
-      const operations =
-        str(active.payload_type) === "agent_sessions"
-          ? rawOperations
-          : stabilizeProposalOperations(
-              active.id,
-              rawOperations,
-              isContentProposal ? operationIndexes : undefined,
-            );
+      const operations = stabilizeProposalOperations(
+        active.id,
+        rawOperations,
+        isContentProposal ? operationIndexes : undefined,
+      );
       for (const candidate of accepted.filter((entry) => entry.type === "artifact")) {
         const normalized = validateArtifactProposal(candidate.entry);
         const entryIndex = preview.candidates.indexOf(candidate);

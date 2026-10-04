@@ -295,6 +295,15 @@ Agent Desk の独立画面（旧 `ai-io` / `ImportExportPage` / `AgentDeskPanel`
 「Taskも完了する」を明示的に選ぶ（#599）。前半だけ成功したときは「Task完了だけを再試行できます」と案内する。
 一覧の再読込は「対応待ち」タブが持ち、Focus復帰でも静かに同期する。
 
+#### Agent Session記録の一括採用
+
+対応待ちのAgent Session変更案は、行のチェックボックスで選択し「選択した記録を採用」でまとめて保存する。
+「表示中の記録をすべて選択」は現在の一覧に含まれるAgent Session提案だけが対象で、他の変更案・判断・Task完了は含めない。
+詳細を開く操作と採用対象の選択は独立する。選択件数を明示し、選択解除も用意する。
+一覧から消えた項目と後から到着した未選択項目は採用しない。処理中は選択変更と重複実行を止める。
+既存のプレビュー・重複判定・ApplyAiProposalのversion検証と同じ経路で1件ずつ処理し、失敗しても残りを続行する。
+成功項目は選択から外し、失敗項目は理由を表示して選択を残す。再試行は失敗した選択項目だけに効く。
+
 ### 6.7 画面をまたいだ復帰
 
 タブ、絞り込み、展開、選択中の投稿、記事、スクロール位置、返信下書きは、
@@ -372,6 +381,8 @@ TaskやNoteを開いて戻っても復元する。表示状態は正本データ
 
 ```powershell
 rtk npm run build
+rtk node scripts/run-electron-node.mjs --test tests/feed-selected-adoption.test.mjs
+rtk npm run smoke:feed:selected # build後、合成記録のみ。一括採用・部分失敗・再試行・1760/390px
 rtk npm run audit:feed            # 開発用fixtureで面の設計を実測
 rtk npm run audit:feed:live       # AIから届いた実データの投稿で一周を実測（外部AI往復の架空回答つき）
 rtk npm run audit:feed:bulk       # 120件の履歴を20件単位で読み進められるか実測

@@ -11,6 +11,7 @@
  * 投稿があるときのFeedはfixtureを使わず、その投稿だけを読む。
  * `--bulk-posts <件数>` は連続読込の実測用に読み物の投稿を件数分だけ足す（100件以上の履歴）。
  * `--note-ref` は既存Noteを参照する投稿（`payload.note_id`）を1件足す。
+ * `--selected-adoption <initial|arrival|repair|empty>` は専用一時profileで一括採用のfixtureだけを準備する。
  * `--feed-media` は画像と外部リンクを添えた投稿を足す（フェーズ3の六状態のうち、
  * ネットワークを使わずに確かめられる四状態）。
  *
@@ -19,12 +20,95 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { deflateSync } from "node:zlib";
 
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 const userDataDir = process.argv[2];
 if (!userDataDir) throw new Error("userDataDirを指定してください。");
+const selectedAdoptionIndex = process.argv.indexOf("--selected-adoption");
+if (selectedAdoptionIndex >= 0) {
+  // This fixture mode can only touch the smoke runner's disposable temporary profile.
+  if (
+    path.dirname(path.resolve(userDataDir)) !== path.resolve(os.tmpdir()) ||
+    !path.basename(userDataDir).startsWith("tasken-selected-adoption-")
+  )
+    throw new Error("一括採用fixtureは専用の一時userDataだけで実行できます。");
+  const step = process.argv[selectedAdoptionIndex + 1];
+  if (!["initial", "arrival", "repair", "empty"].includes(step))
+    throw new Error("Unknown fixture step");
+  const fixture = new WorkspaceDatabase(path.join(userDataDir, "research-desk.sqlite"));
+  try {
+    fixture.loadWorkspace();
+    const sessionProposal = (id) => ({
+      id,
+      source: "mcp",
+      source_app: "tasken-log-sync:codex",
+      payload_type: "agent_sessions",
+      received_at: "2026-10-04T00:00:00Z",
+      status: "pending",
+      payload: {
+        agent_sessions: [
+          {
+            action: "capture",
+            session: {
+              id: `session-${id}`,
+              started_at: "2026-10-03T00:00:00Z",
+              ended_at: "2026-10-03T00:10:00Z",
+              status: "unknown",
+              client_kind: "codex",
+              source_session_id: id,
+              observation: {
+                schema_version: 1,
+                adapter: "synthetic",
+                coverage: "partial",
+                observed_until: "2026-10-03T00:10:00Z",
+                mode: "history",
+              },
+              intent: { summary: `合成記録 ${id}：終了時刻が不明の作業を振り返る` },
+              outcome: {
+                summary: "終了不明",
+                decisions: [],
+                changed_items: [],
+                verification: [],
+                remaining_work: [],
+              },
+              source: "ai_proposal",
+            },
+            references: [],
+          },
+        ],
+      },
+    });
+    if (step === "initial") {
+      for (const id of ["a", "b", "unselected"]) fixture.save("ai_proposal", sessionProposal(id));
+      fixture.save("ai_proposal", {
+        ...sessionProposal("stale"),
+        request: { history_refresh_version: 7 },
+      });
+      fixture.save("ai_proposal", {
+        id: "other",
+        source: "mcp",
+        source_app: "synthetic",
+        payload_type: "items",
+        status: "pending",
+        payload: { items: [{ title: "個別に確認するTask案", type: "task" }] },
+        received_at: "2026-10-04T00:00:00Z",
+      });
+    } else if (step === "arrival") {
+      fixture.save("ai_proposal", sessionProposal("new"));
+    } else if (step === "repair") {
+      fixture.save("ai_proposal", { ...fixture.get("ai_proposal", "stale"), request: {} });
+    } else {
+      fixture.save("ai_proposal", { ...fixture.get("ai_proposal", "other"), status: "rejected" });
+    }
+  } finally {
+    fixture.db.close();
+  }
+  console.log(`Selected adoption fixture: ${step}`);
+  process.exit(0);
+}
 const withFeedPost = process.argv.includes("--feed-post");
 const withNoteRef = process.argv.includes("--note-ref");
 const withFeedMedia = process.argv.includes("--feed-media");
