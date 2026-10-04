@@ -13,6 +13,7 @@ import {
   decodeTaskenMobileThemeCursor,
   encodeTaskenMobileThemeCursor,
   mobileBootstrapRequestSchema,
+  projectMobileAiOrigin,
   mobileActivityRequestSchema,
   mobileActivityResponseSchema,
   mobileRelatedDocumentsRequestSchema,
@@ -72,6 +73,7 @@ import {
   type MobileThemeCatalogItem,
   type MobileWorkLog,
   type MobileWorkLogCommandRequest,
+  type MobileTodayResponse,
 } from "../../../shared/contracts/mobile/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
@@ -114,6 +116,7 @@ export interface MobileGatewayRequest {
   query?: Readonly<Record<string, string | undefined>>;
   body?: unknown;
   principal: MobilePrincipal | null;
+  includeAiOrigin?: boolean;
 }
 
 export interface MobileGatewayResponse {
@@ -250,6 +253,7 @@ export interface MobileGatewayCorePort {
     input: MobileRelatedDocumentRequest,
   ): Promise<MobileRelatedDocumentData> | MobileRelatedDocumentData;
   queryActivity?(input: MobileActivityRequest): Promise<MobileActivityData> | MobileActivityData;
+  queryAgentSessions?(date: string): NonNullable<MobileTodayResponse["data"]["agentSessions"]>;
   executeWorkLogCommand?(
     input: MobileGatewayWorkLogCommand,
   ): Promise<MobileGatewayWorkLogCommandResult> | MobileGatewayWorkLogCommandResult;
@@ -670,11 +674,13 @@ function projectTask(
   task: TaskReadModel,
   includeTodayDate = false,
   receipts: readonly MobileGatewayWorkReceiptRecord[] = [],
+  includeAiOrigin = false,
 ) {
   return {
     id: task.id,
     version: task.version,
     title: task.title,
+    ...(includeAiOrigin ? { aiOrigin: projectMobileAiOrigin(task) } : {}),
     ...(typeof task.description === "string" ? { description: task.description } : {}),
     themeId: task.project_id || null,
     state: task.state,
@@ -1141,6 +1147,8 @@ export class MobileGatewayAdapter {
 
       const today =
         request.path === TASKEN_MOBILE_ENDPOINTS.today ? this.parseTodayQuery(request.query) : null;
+      if (today?.includeAgentSessions && !request.principal.scopes.includes("mobile:context-read"))
+        return this.error(meta, "forbidden");
       const activity =
         request.path === TASKEN_MOBILE_ENDPOINTS.activity
           ? mobileActivityRequestSchema.safeParse({
@@ -1304,6 +1312,7 @@ export class MobileGatewayAdapter {
         const data = mobileRelatedDocumentsDataSchema.parse(
           await this.options.core.queryRelatedDocuments(parsed.data),
         );
+        if (!request.includeAiOrigin) for (const item of data.documents) delete item.aiOrigin;
         return this.success({
           ok: true,
           meta: { ...meta, truncated: data.nextCursor !== null },
@@ -1322,6 +1331,7 @@ export class MobileGatewayAdapter {
         const data = mobileRelatedDocumentDataSchema.parse(
           await this.options.core.getRelatedDocument(parsed.data),
         );
+        if (!request.includeAiOrigin && data.document) delete data.document.aiOrigin;
         return this.success({
           ok: true,
           meta: { ...meta, truncated: data.document?.truncated ?? false },
@@ -1392,7 +1402,7 @@ export class MobileGatewayAdapter {
             throw new Error("Delegation version conflict is missing its canonical Task");
           }
           return this.error(meta, "version_conflict", false, {
-            currentTask: projectTask(current.value.task, true),
+            currentTask: projectTask(current.value.task, true, [], request.includeAiOrigin),
             intendedAction: "DelegateTaskToAgent",
             expectedVersion: delegation.expectedTaskVersion,
             conflictField: "task",
@@ -1410,6 +1420,7 @@ export class MobileGatewayAdapter {
                 result.task,
                 true,
                 result.latestWorkReceipt ? [result.latestWorkReceipt] : [],
+                request.includeAiOrigin,
               ),
               safeShare: createTaskDelegationSafeShare({
                 taskId: result.task.id,
@@ -1442,14 +1453,23 @@ export class MobileGatewayAdapter {
         if (!result.ok) return this.taskError(meta, result.error);
         if (result.value.name !== "ListTodayTasks")
           throw new Error("Unexpected Task query outcome");
+        const agentSessions = today!.includeAgentSessions
+          ? this.options.core.queryAgentSessions?.(today!.date)
+          : undefined;
         return this.success(
           mobileTodayResponseSchema.parse({
             ok: true,
-            meta,
+            meta: {
+              ...meta,
+              truncated: meta.truncated || Boolean(agentSessions && agentSessions.length > 20),
+            },
             data: {
               date: result.value.date,
-              items: result.value.items.map((task) => projectTask(task)),
+              items: result.value.items.map((task) =>
+                projectTask(task, false, [], request.includeAiOrigin),
+              ),
               nextCursor: result.value.next_cursor,
+              ...(agentSessions ? { agentSessions: agentSessions.slice(0, 20) } : {}),
             },
           }),
         );
@@ -1697,7 +1717,7 @@ export class MobileGatewayAdapter {
               commandStatus: result.value.status,
               action: review.action,
               receiptId: review.receiptId,
-              task: projectTask(result.value.task, true, receipts),
+              task: projectTask(result.value.task, true, receipts, request.includeAiOrigin),
             },
           }),
         );
@@ -1769,7 +1789,7 @@ export class MobileGatewayAdapter {
             data: {
               tasks: tasks
                 .slice(0, bootstrap!.limit)
-                .map((task) => projectTask(task, true, receipts)),
+                .map((task) => projectTask(task, true, receipts, request.includeAiOrigin)),
               nextCursor: cursor || "",
               hasMore: false,
             },
@@ -1801,7 +1821,10 @@ export class MobileGatewayAdapter {
                       version: task.version,
                       updatedAt: task.updated_at,
                     }
-                  : { kind: "upsert", task: projectTask(task, true, receipts) },
+                  : {
+                      kind: "upsert",
+                      task: projectTask(task, true, receipts, request.includeAiOrigin),
+                    },
               ),
               nextCursor: result.value.next_cursor || sync!.cursor,
               hasMore: result.value.has_more,
@@ -1970,7 +1993,7 @@ export class MobileGatewayAdapter {
           data: {
             commandId: result.value.command_id,
             status: result.value.status,
-            task: projectTask(result.value.task, true, receipts),
+            task: projectTask(result.value.task, true, receipts, request.includeAiOrigin),
           },
         }),
       );
@@ -1989,7 +2012,15 @@ export class MobileGatewayAdapter {
     const keys = Object.keys(values);
     if (
       keys.some(
-        (key) => !["apiVersion", "schemaVersion", "requestId", "date", "limit"].includes(key),
+        (key) =>
+          ![
+            "apiVersion",
+            "schemaVersion",
+            "requestId",
+            "date",
+            "limit",
+            "includeAgentSessions",
+          ].includes(key),
       )
     )
       return null;
@@ -2002,6 +2033,16 @@ export class MobileGatewayAdapter {
       requestId: values.requestId,
       date: values.date,
       ...(limit === undefined ? {} : { limit }),
+      ...(values.includeAgentSessions === undefined
+        ? {}
+        : {
+            includeAgentSessions:
+              values.includeAgentSessions === "true"
+                ? true
+                : values.includeAgentSessions === "false"
+                  ? false
+                  : values.includeAgentSessions,
+          }),
     });
     return parsed.success ? parsed.data : null;
   }

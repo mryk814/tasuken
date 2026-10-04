@@ -29,6 +29,10 @@ const api: ResearchDeskApi = {
     revokeDevice: (deviceId) => ipcRenderer.invoke(IPC.mobileGatewayRevokeDevice, deviceId),
   },
   task: createTaskPreloadCapability(),
+  agentWorkLogs: {
+    import: (raw, repositoryContextIds) =>
+      ipcRenderer.invoke(IPC.agentWorkLogImport, raw, repositoryContextIds),
+  },
   activity: {
     getCanonicalRootStatus: () => ipcRenderer.invoke(IPC.activityCanonicalRootStatus),
     openCanonicalRef: (ref) => ipcRenderer.invoke(IPC.activityOpenCanonicalRef, ref),
@@ -293,6 +297,7 @@ const api: ResearchDeskApi = {
     },
   },
   entities: {
+    markAiItemSeen: (type, id) => ipcRenderer.invoke(IPC.aiItemSeen, type, id),
     list: (type, includeDeleted = false) =>
       ipcRenderer.invoke(IPC.entityList, type, includeDeleted),
     get: (type, id) => ipcRenderer.invoke(IPC.entityGet, type, id),

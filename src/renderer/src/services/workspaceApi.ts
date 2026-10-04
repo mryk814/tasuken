@@ -40,6 +40,9 @@ function desktopApi() {
 }
 
 export const workspaceApi = {
+  markAiItemSeen(type: "task" | "note", id: string) {
+    return desktopApi().entities.markAiItemSeen(type, id);
+  },
   proposeTaskSchedule(
     request: Parameters<Window["api"]["captureOrganizer"]["proposeTaskSchedule"]>[0],
   ) {
@@ -182,6 +185,9 @@ export const workspaceApi = {
   },
   readFilePreview(filePath: string) {
     return desktopApi().files.readPreview(filePath);
+  },
+  importAgentWorkLog(raw: string, repositoryContextIds: string[]) {
+    return desktopApi().agentWorkLogs.import(raw, repositoryContextIds);
   },
   pathForFile(file: File) {
     return desktopApi().files.pathForFile(file);

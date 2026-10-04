@@ -124,3 +124,7 @@ Mobile GatewayはCoreの外向きadapterだが、local MCPのdiscovery tokenやl
 ## Headless Core (#588 Phase 1)
 
 Electron・renderer・Windows UIを必須とせずCoreを起動するcomposition rootを`src/main/headless/`へ追加した。既存MCP bridgeはdiscovery経由でそのまま接続する。起動・停止・health・含まない境界・Synology運用の前提は[headless-core.md](headless-core.md)を正本とする。
+
+## 本人用の直接新規作成（明示的な追加権限）
+
+create_task / create_note は create_ai_item capabilityのある接続だけに公開する。旧Proposalツールの採否・pendingは維持する。入力と安全境界は [AI item creation](ai-item-creation.md) を参照。

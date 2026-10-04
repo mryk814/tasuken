@@ -333,6 +333,7 @@ export class MobileGatewayHost {
         query,
         body,
         principal,
+        includeAiOrigin: request.headers["x-tasken-ai-origin"] === "1",
       });
       this.record(method, path, result.status, deviceId);
       json(response, result.status, result.body, result.headers);

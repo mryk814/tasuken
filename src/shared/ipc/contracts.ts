@@ -119,6 +119,7 @@ export type RecordingIndicatorCommand = "pause" | "resume" | "stop" | "discard";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
+  agentWorkLogImport: "agent-work-log:import",
   workspaceBootstrap: "workspace:bootstrap",
   workspaceMeta: "workspace:meta",
   mobileGatewayDiagnostics: "mobile-gateway:diagnostics",
@@ -235,6 +236,7 @@ export const IPC = {
   entityGet: "entity:get",
   entitySave: "entity:save",
   entitySaveMany: "entity:save-many",
+  aiItemSeen: "ai-item:seen",
   documentSave: "document:save",
   workLogRecord: "work-log:record",
   entityRemove: "entity:remove",
@@ -404,7 +406,16 @@ export interface AppUpdateCheckResult {
   error?: string;
 }
 
-export type McpCoreWriteProfile = "full" | "proposals" | "read-only" | "partial" | "unknown";
+export type McpCoreWriteProfile =
+  | "start-only"
+  | "proposals-and-start"
+  | "create-and-start"
+  | "full"
+  | "proposals"
+  | "read-only"
+  | "partial"
+  | "create-only"
+  | "unknown";
 
 export interface McpBridgeInfo {
   command: string;
@@ -764,6 +775,12 @@ export interface ResearchDeskApi {
     bootstrap(legacy: Workspace): Promise<Workspace>;
     getMeta(): Promise<WorkspaceMeta>;
   };
+  agentWorkLogs: {
+    import(
+      raw: string,
+      repositoryContextIds: string[],
+    ): Promise<import("../contracts/task/public").ProposeAgentSessionResponse>;
+  };
   mobileGateway: {
     diagnostics(): Promise<MobileGatewayDiagnostics>;
     issuePairing(): Promise<MobileGatewayPairingTicket>;
@@ -929,6 +946,7 @@ export interface ResearchDeskApi {
     onOpenTaskenRootTarget(callback: (request: RootOpenRequest) => void): () => void;
   };
   entities: {
+    markAiItemSeen(type: "task" | "note", id: string): Promise<Entity>;
     list(type: EntityType, includeDeleted?: boolean): Promise<Entity[]>;
     get(type: EntityType, id: string): Promise<Entity | null>;
     save(type: EntityType, entity: Entity, options?: SaveOptions): Promise<Entity>;

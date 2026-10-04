@@ -17106,3 +17106,74 @@ kbd {
   background: var(--color-status-blocked-bg);
   border-color: var(--color-status-blocked-bd);
 }
+
+.row-title-head,
+.ai-origin-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.ai-origin-heading > :first-child {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.row-title-head > .row-title {
+  min-width: 0;
+}
+.ai-creation-marks {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.ai-creation-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--space-8);
+  height: var(--space-8);
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+.ai-creation-mark svg {
+  width: var(--space-4);
+  height: var(--space-4);
+}
+.ai-creation-mark:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+.ai-creation-mark:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.ai-creation-dot {
+  position: absolute;
+  inset-block-start: var(--space-1);
+  inset-inline-end: var(--space-1);
+  width: var(--space-1);
+  height: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+}
+.ai-creation-explanation {
+  max-width: min(320px, calc(100vw - var(--space-8)));
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.ai-creation-explanation:popover-open {
+  display: grid;
+  gap: var(--space-2);
+}
+.ai-creation-source,
+.ai-creation-reason {
+  color: var(--color-text-secondary);
+}

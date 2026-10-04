@@ -1,0 +1,23 @@
+{
+  "schema": "tasken-ai-work-log/1",
+  "adapter": "copilot-cli-hooks/1",
+  "client_version": "synthetic-2026-10",
+  "source_session": "synthetic-copilot",
+  "started_at": "2026-10-03T10:00:00+09:00",
+  "observed_until": "2026-10-03T11:00:00+09:00",
+  "coverage": "partial",
+  "payload": [
+    {
+      "sessionId": "synthetic-copilot",
+      "hookEventName": "userPromptSubmitted",
+      "timestamp": 1790989500000,
+      "prompt": "タイムラインの重なりを確認する"
+    },
+    {
+      "sessionId": "synthetic-copilot",
+      "hookEventName": "agentStop",
+      "timestamp": 1790992200000,
+      "transcriptPath": "DO-NOT-READ"
+    }
+  ]
+}

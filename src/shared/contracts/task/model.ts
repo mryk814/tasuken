@@ -1,3 +1,4 @@
+import { aiCreationOriginSchema } from "./aiItemCreation.ts";
 import * as z from "zod/v4";
 
 import {
@@ -255,6 +256,8 @@ const taskFields = {
   repository_subdirectory: optionalText(4000),
   repository_branch_hint: optionalText(500),
   repository_context_detachments: z.array(z.record(z.string(), z.unknown())).max(100).optional(),
+  ai_creation: aiCreationOriginSchema.optional(),
+  ai_seen_at: optionalTimestamp,
   ai_summary: optionalText(20000),
   ai_summary_authority: z
     .enum(["user_confirmed", "rule_generated", "ai_generated", "excerpt"])
@@ -292,7 +295,7 @@ export const taskReadModelSchema = z
 export const taskDraftSchema = z.object(taskFields).strict();
 
 export const taskPatchSchema = taskDraftSchema
-  .omit({ id: true })
+  .omit({ id: true, ai_creation: true, ai_seen_at: true })
   .partial()
   .refine((value) => Object.keys(value).length > 0, {
     message: "変更fieldを1件以上指定してください。",

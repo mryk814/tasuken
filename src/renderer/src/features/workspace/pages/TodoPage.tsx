@@ -1,3 +1,4 @@
+import { AiCreationMark } from "../components/AiCreationMark";
 import { useEffect, useMemo, useState } from "react";
 import {
   IconCalendarPlus,
@@ -26,6 +27,7 @@ import {
 } from "../lib/savedTaskViews";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { InlineAddPanel } from "../components/InlineAddPanel";
+import { TaskBoard } from "../components/TaskBoard";
 import { ChecklistProgressBadge, InlineTaskChecklist } from "../../task/public";
 import {
   TASK_AI_DELEGATION_LABELS,
@@ -141,8 +143,10 @@ export function TodoPage({
   startFocusSession,
 }: PageProps) {
   const [viewPreference, setViewPreference] = usePreference("todo.preferences");
-  const { filter, taskFilters, sortMode, sortDirection, groupMode } = viewPreference;
+  const { filter, taskFilters, sortMode, sortDirection, groupMode, layout } = viewPreference;
   const [showAdd, setShowAdd] = useState(false);
+  const setLayout = (layout: "list" | "board") =>
+    setViewPreference((current) => ({ ...current, layout }));
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   const [addDate, setAddDate] = useState("");
@@ -556,16 +560,19 @@ export function TodoPage({
             <IconCopyPlus size={16} />
           </button>
           <div className="row-title-main">
-            <button
-              className={`row-title ${done ? "is-done" : ""}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                openTaskDetail(task, schedule);
-              }}
-            >
-              <span>{task.title}</span>
-              <ChecklistProgressBadge items={task.checklist_items} />
-            </button>
+            <span className="row-title-head">
+              <button
+                className={`row-title ${done ? "is-done" : ""}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openTaskDetail(task, schedule);
+                }}
+              >
+                <span>{task.title}</span>
+                <ChecklistProgressBadge items={task.checklist_items} />
+              </button>
+              <AiCreationMark key={task.id} entity={task} />
+            </span>
             <InlineTaskChecklist
               items={task.checklist_items}
               onToggle={(itemId) => toggleChecklistItem(task, itemId)}
@@ -682,8 +689,26 @@ export function TodoPage({
           </button>
         ))}
       </div>
-      <section className="panel list-page">
+      <section className="panel list-page task-board-surface">
         <div className="todo-table-toolbar">
+          <div role="group" aria-label="Task表示" className="task-view-switch">
+            <button
+              type="button"
+              className="secondary-button"
+              aria-pressed={layout === "list"}
+              onClick={() => setLayout("list")}
+            >
+              一覧
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              aria-pressed={layout === "board"}
+              onClick={() => setLayout("board")}
+            >
+              ボード
+            </button>
+          </div>
           <ThemePickerSelect
             themes={themes}
             value={taskFilters.themeId}
@@ -782,36 +807,53 @@ export function TodoPage({
             </button>
           </div>
         )}
-        <div className="data-table todo-table">
-          <div className="table-head">
-            <span>
-              <input
-                className="todo-row-selector"
-                type="checkbox"
-                checked={allVisibleSelected}
-                onChange={toggleVisibleSelection}
-                aria-label="表示中のタスクをすべて選択"
-              />
-            </span>
-            <span />
-            <span />
-            <span>タスク</span>
-            <span>繰り返し</span>
-            <span>Theme</span>
-            <span>{filter === "done" ? "完了日" : "予定終了"}</span>
-          </div>
-          {groupedVisible.map((group) => (
-            <div key={group.id} className="todo-row-group">
-              {groupMode !== "none" && (
-                <div className="todo-group-heading">
-                  <span>{group.title}</span>
-                  <strong>{group.rows.length}件</strong>
-                </div>
-              )}
-              {group.rows.map(renderTodoRow)}
+        {layout === "board" ? (
+          <TaskBoard
+            rows={visible}
+            proposals={domain.ai_proposals}
+            receipts={data.work_receipts}
+            saveEntities={saveEntities}
+            setToast={setToast}
+            onOpen={(task, schedule) =>
+              openDrawer({
+                type: "task",
+                mode: "view",
+                entity: { ...task, _schedule: schedule } as Record<string, unknown>,
+              })
+            }
+          />
+        ) : (
+          <div className="data-table todo-table">
+            <div className="table-head">
+              <span>
+                <input
+                  className="todo-row-selector"
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={toggleVisibleSelection}
+                  aria-label="表示中のタスクをすべて選択"
+                />
+              </span>
+              <span />
+              <span />
+              <span>タスク</span>
+              <span>繰り返し</span>
+              <span>Theme</span>
+              <span>{filter === "done" ? "完了日" : "予定終了"}</span>
             </div>
-          ))}
-        </div>
+            {groupedVisible.map((group) => (
+              <div key={group.id} className="todo-row-group">
+                {groupMode !== "none" && (
+                  <div className="todo-group-heading">
+                    <span>{group.title}</span>
+                    <strong>{group.rows.length}件</strong>
+                  </div>
+                )}
+                {group.rows.map(renderTodoRow)}
+              </div>
+            ))}
+          </div>
+        )}
         {!visible.length && (
           <EmptyState
             title="該当するタスクはありません"

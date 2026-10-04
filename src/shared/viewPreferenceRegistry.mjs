@@ -28,6 +28,7 @@ const TIMELINE_DEFAULT = {
 };
 
 const TODO_DEFAULT = {
+  layout: "list",
   filter: "open",
   taskFilters: {
     tab: "open",
@@ -178,6 +179,7 @@ function normalizeTodo(value) {
       tab: oneOf(raw.filter, ["open", "today", "overdue", "no-schedule", "done"], taskFilters.tab),
     },
     sortMode: oneOf(raw.sortMode, ["default", "priority", "theme", "title"], TODO_DEFAULT.sortMode),
+    layout: oneOf(raw.layout, ["list", "board"], TODO_DEFAULT.layout),
     sortDirection: oneOf(raw.sortDirection, ["asc", "desc"], TODO_DEFAULT.sortDirection),
     groupMode: oneOf(raw.groupMode, ["none", "schedule", "theme"], TODO_DEFAULT.groupMode),
   };
@@ -335,10 +337,11 @@ const definitions = [
     scopeKey: "",
     sortKey: "sortMode",
     direction: "sortDirection",
-    schemaVersion: 1,
+    schemaVersion: 2,
     defaultValue: TODO_DEFAULT,
     legacyKeys: [],
     normalize: normalizeTodo,
+    migrate: (value) => normalizeTodo(value),
   },
   {
     id: "theme.preferences",

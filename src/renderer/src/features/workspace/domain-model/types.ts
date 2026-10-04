@@ -71,8 +71,23 @@ export interface AgentSession {
   id: string;
   started_at: string;
   ended_at?: string | null;
-  status: "active" | "completed" | "blocked" | "abandoned";
-  client_kind: "codex" | "claude_code" | "cursor" | "github_copilot" | "other";
+  status: "active" | "completed" | "blocked" | "abandoned" | "unknown" | "interrupted";
+  client_kind:
+    | "codex"
+    | "claude_code"
+    | "cursor"
+    | "github_copilot"
+    | "opencode"
+    | "deepseek_harness"
+    | "other";
+  observation?: {
+    schema_version: 1;
+    adapter: string;
+    client_version: string;
+    coverage: "complete" | "partial";
+    observed_until: string;
+    mode: "history";
+  };
   client_label?: string | null;
   agent_label?: string | null;
   provider_label?: string | null;

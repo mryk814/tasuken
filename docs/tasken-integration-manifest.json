@@ -1,0 +1,81 @@
+{
+  "schema": "tasken-integration-manifest/v1",
+  "candidateBranch": "codex/komori-20261003-tasken-integration",
+  "sourceCommit": "Resolve git rev-parse HEAD in this checkout; all components use that exact commit.",
+  "publicBase": "a98f9955fb88140ac4b944ac9dfbdada3acb18b9",
+  "inputs": {
+    "boardAndAiOrigin": "2b017e29ad3aa7598a98b6f38c27adf5d446bb90",
+    "limitedAiTaskStart": "54bcf3937b12a8481bcb7d0dd2b421ef53d06ed2",
+    "agentWorkLogs": "bdb34946fca061feb7e8d47ca3e05fb1762eadd9"
+  },
+  "components": [
+    {
+      "name": "Windows Desktop",
+      "candidateVersion": "0.1.74-ai-create.1",
+      "build": "npm run build",
+      "output": "out/",
+      "distribution": "Not built or distributed"
+    },
+    {
+      "name": "Headless Core",
+      "candidateVersion": "0.1.74-ai-create.1",
+      "build": "npm run build:core:headless",
+      "output": "core-dist/",
+      "distribution": "NAS image and rollout not performed"
+    },
+    {
+      "name": "MCP bridge",
+      "candidateVersion": "0.1.74-ai-create.1",
+      "build": "npm run build:mcp",
+      "output": "mcp-dist/",
+      "dependency": "Use with the matching Core commit"
+    },
+    {
+      "name": "Android",
+      "candidateVersion": "0.1.71",
+      "versionCode": 65,
+      "roomVersion": 27,
+      "build": "android-app/gradlew -p android-app assembleDebug",
+      "output": "android-app/app/build/outputs/apk/debug/app-debug.apk",
+      "distribution": "Debug QA only; production version/code and signed artifact remain to be selected before release"
+    }
+  ],
+  "dependencies": {
+    "packageLockSha256Utf8Lf": "95eb5eb8e78e876d5a1c8bc1c73add83e56b1a620fff04795e330c9c594c9213",
+    "verifiedNode": "24.4.1",
+    "verifiedNpm": "11.4.2",
+    "electron": "37.10.3",
+    "betterSqlite3": "12.11.1",
+    "mcpSdk": "1.30.0",
+    "typescript": "6.0.3",
+    "vite": "6.4.3",
+    "react": "19.2.7",
+    "playwright": "1.61.0",
+    "gradle": "9.6.1",
+    "gradleDistributionSha256": "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14",
+    "androidGradlePlugin": "9.3.1",
+    "kotlinComposePlugin": "2.3.20",
+    "androidSdk": { "compile": 36, "target": 36, "min": 26 },
+    "javaCompatibility": 17,
+    "nasNodeImage": "node:24-bookworm-slim",
+    "nasTunnelImage": "Keep the currently approved immutable image tag/digest; Dockerfile latest default is not a release pin"
+  },
+  "contracts": {
+    "coreApiVersion": "1",
+    "taskSchemaVersion": 7,
+    "mobileApiVersion": 1,
+    "mobileSchemaVersion": 7,
+    "desktopSqliteMigrationChangedFromBase": false,
+    "androidRoomMigration": "26 -> 27, nullable aiOriginJson, preserves Task and pending writes",
+    "mixedOldCoreRestriction": "Base Core rejects unknown/interrupted and opencode/deepseek_harness AgentSessions; update all readers before adopting new history"
+  },
+  "activation": {
+    "aiItemCreation": "Explicit create-only configuration only",
+    "taskStart": "Independent TASKEN_CORE_AI_TASK_START=1 opt-in; default 0; read-only denied",
+    "mcpWrites": "Explicit TASKEN_MCP_READ_ONLY=0 only after approval",
+    "historyImport": "User selects a file, previews a Proposal, then adopts; no history scan or hook install",
+    "aiOrigin": "Mobile request header X-Tasken-Ai-Origin: 1",
+    "agentSessions": "Today includeAgentSessions=true with mobile:read and mobile:context-read"
+  },
+  "rollout": "Prepared only. No main merge, PR, Desktop install, physical Android install, NAS rollout, tag, release or workflow dispatch performed."
+}

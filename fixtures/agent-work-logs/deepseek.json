@@ -1,0 +1,57 @@
+{
+  "schema": "tasken-ai-work-log/1",
+  "adapter": "deepseek-native/1",
+  "client_version": "synthetic-preview",
+  "source_session": "synthetic-deepseek",
+  "started_at": "2026-10-01T13:00:00+09:00",
+  "observed_until": "2026-10-01T14:00:00+09:00",
+  "coverage": "partial",
+  "payload": {
+    "header": {
+      "id": "synthetic-deepseek",
+      "version": 4
+    },
+    "events": [
+      {
+        "seq": 0,
+        "time": 1790827500000,
+        "type": "user/message",
+        "data": {
+          "source": {
+            "kind": "user"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "取込契約の中断を検証する"
+            }
+          ]
+        }
+      },
+      {
+        "seq": 1,
+        "time": 1790830200000,
+        "type": "assistant/message",
+        "data": {
+          "message": {
+            "content": [
+              {
+                "type": "text",
+                "text": "検証を途中で中断しました。続きは次のsessionで確認してください。"
+              }
+            ]
+          },
+          "interrupted": true
+        }
+      },
+      {
+        "seq": 2,
+        "time": 1790830800000,
+        "type": "turn/end",
+        "data": {
+          "reason": "cancelled"
+        }
+      }
+    ]
+  }
+}

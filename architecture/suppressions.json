@@ -4,6 +4,16 @@
   "entries": [
     {
       "rule": "compatibility.consumer_added",
+      "source": "tests/ai-task-start.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#588 start-only headless tests require isolated production SQLite transactions to verify rollback, durable retry, revocation and shared-folder replication. This adds no runtime repository consumer and opens no production data.",
+      "owner": "issue-588-synology-replica",
+      "issue": 588,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Use the public headless temporary-database fixture factory once available."
+    },
+    {
+      "rule": "compatibility.consumer_added",
       "source": "tests/helpers/mobile-offline-gateway.mjs",
       "target": "workspace-repository",
       "reason": "#537 needs the production SQLite database to verify persisted receipts across Gateway restarts. The isolated test fixture composes Gateway/Core and owns only a temporary database; no runtime consumer is added.",
@@ -76,6 +86,75 @@
       "issue": 588,
       "expiresAt": "2026-11-30",
       "removalCondition": "Use the public headless-database fixture factory once it exists."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "src/main/headless/taskenHeadlessCore.ts",
+      "target": "workspace-service",
+      "reason": "#588 creation-only headless uses the existing canonical Note writer and receipt recovery, with Electron APIs rejected. This avoids a parallel file/DB writer; no existing Note migration is run.",
+      "owner": "issue-588-synology-replica",
+      "issue": 588,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Extract the canonical Note writer into an Electron-independent public composition and replace WorkspaceService construction."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "tests/ai-item-creation.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#588 creation-only tests require isolated real SQLite persistence to verify MCP retries, tombstones and canonical Note file/DB recovery. No production data is opened.",
+      "owner": "issue-588-synology-replica",
+      "issue": 588,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Use the public temporary-database fixture factory once available."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "src/main/services/workspaceService.ts",
+      "target": "generic-task-write",
+      "reason": "#405 human-only AI item seen IPC changes only ai_seen_at while preserving Task semantics and provenance. It is not exposed through MCP; this metadata write remains explicit migration debt.",
+      "owner": "task-capability-migration",
+      "issue": 405,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Move the human-only seen metadata operation into the Task command capability and remove the generic Task save."
+    },
+    {
+      "rule": "composition.baseline_increase",
+      "source": "src/renderer/src/services/workspaceApi.ts",
+      "reason": "#405 typed human-only markAiItemSeen adapter is composed beside the remaining aggregate workspace adapters. No generic MCP write permission is added. #629 adds a typed explicit log import through the same aggregate API and Core proposal boundary.",
+      "owner": "task-capability-migration",
+      "issue": 405,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Move seen metadata into the scoped Task/Note UI clients when aggregate workspace adapters are retired. Includes the explicit AgentSession import delegation."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "tests/agent-work-log-core-e2e.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#629 verifies capture replay and resumed generations against the real SQLite/Core acceptance path in a disposable database.",
+      "owner": "issue-629-ai-work-logs",
+      "issue": 629,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Use a public temporary SQLite fixture factory when the persistence composition provides one."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "scripts/agent-work-log-electron-smoke.mjs",
+      "target": "generic-entity-api",
+      "reason": "#629 uses the existing entity API only to seed a synthetic Repository and inspect adopted Session records in isolated smoke userData. Production imports use the typed Core proposal path.",
+      "owner": "issue-629-ai-work-logs",
+      "issue": 629,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Replace smoke seeding and inspection with public fixture/query capabilities."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "src/renderer/src/features/workspace/components/AgentWorkTimeline.tsx",
+      "target": "renderer-workspace-internals",
+      "reason": "#629 extends the existing Workspace AgentSession projection and human ProposalDetail without adding a second timeline store.",
+      "owner": "issue-629-ai-work-logs",
+      "issue": 629,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Move the Session projection and Proposal detail behind the Workspace public feature API."
     }
   ]
 }

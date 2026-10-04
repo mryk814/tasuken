@@ -65,6 +65,11 @@ import type {
 } from "../../shared/ipc/contracts";
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
 import { coreWriteProfile } from "../../shared/contracts/core/public.mjs";
+import { parseAgentWorkLog } from "../../shared/agentWorkLogImport";
+import type {
+  ProposeAgentSessionRequest,
+  ProposeAgentSessionResponse,
+} from "../../shared/contracts/task/public";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import {
   validateMermaidPptxDiagram,
@@ -83,6 +88,7 @@ import type {
 } from "../../shared/slideTimelineExport";
 import type {
   CanonicalNoteAiCompanion,
+  CanonicalNoteCommitCompanion,
   DocumentSaveReferenceCompanion,
   DocumentSaveRequest,
   SaveOperation,
@@ -327,7 +333,7 @@ interface CanonicalRecoveryReceipt {
   baseRevision?: number;
   bodySignature?: string;
   companions?: DocumentSaveReferenceCompanion[];
-  noteAiCompanion?: CanonicalNoteAiCompanion;
+  noteAiCompanion?: CanonicalNoteCommitCompanion;
   workLogCompanion?: WorkLogCompanion;
 }
 
@@ -385,9 +391,33 @@ function parsedRecord(value: unknown): Record<string, unknown> {
 function normalizeCanonicalNoteAiCompanion(
   value: unknown,
   noteId: string,
-): CanonicalNoteAiCompanion | null {
+): CanonicalNoteCommitCompanion | null {
   if (value === undefined || value === null) return null;
   const companion = objectValue(value);
+  if (companion.schema === "tasken-note-creation-companion/v1") {
+    const event = objectValue(companion.event);
+    const metadata = objectValue(event.metadata);
+    const after = parsedRecord(event.after_json);
+    const origin = objectValue(after.ai_creation);
+    if (
+      companion.noteId !== noteId ||
+      event.entity_id !== noteId ||
+      event.entity_type !== "note" ||
+      event.record_type !== "note" ||
+      event.command_name !== "CreateAiItem" ||
+      event.command_id !== companion.commandId ||
+      typeof event.command_fingerprint !== "string" ||
+      !event.command_fingerprint ||
+      event.actor_kind !== "ai_agent" ||
+      event.before_json !== "null" ||
+      after.id !== noteId ||
+      origin.schema !== "tasken-ai-creation/v1" ||
+      origin.command_id !== companion.commandId ||
+      JSON.stringify(metadata.ai_creation) !== JSON.stringify(after.ai_creation)
+    )
+      throw new Error("canonical Note creation companionが不正です。");
+    return companion as unknown as CanonicalNoteCommitCompanion;
+  }
   const proposal = objectValue(companion.proposal);
   const event = objectValue(companion.event);
   const metadata = objectValue(event.metadata);
@@ -451,8 +481,12 @@ function normalizeCanonicalNoteAiCompanion(
   };
 }
 
-function canonicalNoteAiOperations(companion: CanonicalNoteAiCompanion | null): SaveOperation[] {
+function canonicalNoteAiOperations(
+  companion: CanonicalNoteCommitCompanion | null,
+): SaveOperation[] {
   if (!companion) return [];
+  if (companion.schema === "tasken-note-creation-companion/v1")
+    return [{ action: "save", type: "change_event", entity: companion.event }];
   return [
     { action: "save", type: "ai_proposal", entity: companion.proposal },
     { action: "save", type: "change_event", entity: companion.event },
@@ -765,6 +799,7 @@ export class WorkspaceService {
   private readonly conversationContextRecoveryDirectory: string;
   private readonly proposalMarkdownImages: ProposalMarkdownImageStore;
   private readonly taskenCoreClient?: {
+    proposeAgentSession?(request: ProposeAgentSessionRequest): Promise<ProposeAgentSessionResponse>;
     getTaskContext(request: { task_id: string }): Promise<unknown>;
     getThemeContext(request: { theme_id: string }): Promise<unknown>;
     inspect(): Promise<{ api_version: string; capabilities: string[] }>;
@@ -774,6 +809,9 @@ export class WorkspaceService {
     private readonly userDataPath: string,
     private readonly now: () => string = () => new Date().toISOString(),
     taskenCoreClient?: {
+      proposeAgentSession?(
+        request: ProposeAgentSessionRequest,
+      ): Promise<ProposeAgentSessionResponse>;
       getTaskContext(request: { task_id: string }): Promise<unknown>;
       getThemeContext(request: { theme_id: string }): Promise<unknown>;
       inspect(): Promise<{ api_version: string; capabilities: string[] }>;
@@ -1068,6 +1106,27 @@ export class WorkspaceService {
       return process.platform === "win32" ? resolved.toLocaleLowerCase() : resolved;
     };
     return normalize(left) === normalize(right);
+  }
+
+  /** Human-only IPC action; records recognition without changing authority or origin. */
+  markAiItemSeen(type: "task" | "note", id: string): Record<string, unknown> {
+    if (type !== "task" && type !== "note") throw new Error("Task/Noteだけを確認できます。");
+    const current = this.repository.get(type, id);
+    if (!current || objectValue(current.ai_creation).schema !== "tasken-ai-creation/v1")
+      throw new Error("AI作成の項目が見つかりません。");
+    if (current.ai_seen_at) return current;
+    const entity = { ...current, ai_seen_at: this.now() };
+    if (type === "note")
+      return this.saveCanonicalNote({
+        entity,
+        snapshot: {
+          owner: { recordType: "note", entityId: id },
+          body: String(current.body_markdown || ""),
+          expectedRevision: Number(current.version),
+        },
+        options: { source: String(current.source || "ai") },
+      });
+    return this.repository.save("task", entity, { source: String(current.source || "ai") });
   }
 
   restoreEntity(
@@ -2560,7 +2619,7 @@ export class WorkspaceService {
     }
   }
 
-  private recoverCanonicalMarkdownReceipts(): void {
+  recoverCanonicalMarkdownReceipts(): void {
     const receipts = this.readCanonicalRecoveryReceipts();
     if (!receipts.length) return;
     const remaining: CanonicalRecoveryReceipt[] = [];
@@ -2814,7 +2873,7 @@ export class WorkspaceService {
     binding: ReturnType<typeof normalizeCanonicalMarkdownBinding>,
     options: CanonicalSaveOptions,
     companions: DocumentSaveReferenceCompanion[] = [],
-    noteAiCompanion: CanonicalNoteAiCompanion | null = null,
+    noteAiCompanion: CanonicalNoteCommitCompanion | null = null,
     workLogCompanion: WorkLogCompanion | null = null,
   ): Record<string, unknown> {
     const noteOperation = {
@@ -3651,10 +3710,33 @@ export class WorkspaceService {
     }
   }
 
-  /**
-   * アプリ内ビューア用にローカルファイルを読む。
-   * 画像は data URL、Markdown/テキストは UTF-8 本文。URL や巨大ファイルは拒否する。
-   */
+  /** User-selected, redacted text becomes a proposal through the existing Core. */
+  async importAgentWorkLog(raw: string, repositoryContextIds: string[]) {
+    const imported = parseAgentWorkLog(raw);
+    if (
+      !Array.isArray(repositoryContextIds) ||
+      repositoryContextIds.length > 1 ||
+      repositoryContextIds.some(
+        (id) => typeof id !== "string" || !this.repository.get("repository_context", id),
+      )
+    )
+      throw new Error("関連Repositoryを選び直してください。");
+    if (!this.taskenCoreClient?.proposeAgentSession)
+      throw new Error("取込受付に接続できません。Taskenを再起動してお試しください。");
+    const request: ProposeAgentSessionRequest = {
+      ...imported,
+      action: "capture",
+      idempotency_key: `file-v1:${createHash("sha256").update(JSON.stringify({ imported, repositoryContextIds })).digest("hex")}`,
+      caller: "Tasken file ingestion",
+      source: "mcp",
+      source_app: `tasken-session-hook:${imported.client_kind}`,
+      actor: { kind: "ai_agent" },
+      repository_context_ids: repositoryContextIds,
+    };
+    return this.taskenCoreClient.proposeAgentSession(request);
+  }
+
+  /** アプリ内ビューア用にローカルの画像・Markdown・テキストを読む。 */
   readFilePreview(filePathValue: unknown): FilePreviewReadResult {
     if (typeof filePathValue !== "string" || !filePathValue.trim()) {
       return { ok: false, error: "プレビューするファイルの場所がありません。" };

@@ -597,7 +597,11 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
       capabilities.structuredContent.unavailable_tools.find(
         (tool) => tool.name === "tasken.start_task_work",
       ),
-      { name: "tasken.start_task_work", reason: "missing_capability:task.command", listed: false },
+      {
+        name: "tasken.start_task_work",
+        reason: "missing_capability:task.start_work",
+        listed: false,
+      },
     );
     assert.equal(capabilities.structuredContent.writes.task_work_report, true);
     const result = await client.callTool({

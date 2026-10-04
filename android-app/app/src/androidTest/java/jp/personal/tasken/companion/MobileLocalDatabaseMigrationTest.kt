@@ -15,6 +15,21 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
+    @Test fun migrationTwentySixToTwentySevenKeepsTaskAndPendingWrites() {
+        helper.createDatabase(DatabaseName, 26).apply {
+            execSQL("INSERT INTO task_cache (id,serverVersion,title,themeId,state,workState,todayDate,updatedAt,optimisticCommandId,checklistJson) VALUES ('task',4,'保持するTask',NULL,'todo','not_delegated',NULL,'2026-10-03T08:00:00Z','command','[]')")
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt) VALUES ('command','key','request','device','2026-10-03T08:00:00Z','UpdateTask','保持する入力','server','pending',0,'2026-10-03T08:00:00Z')")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 27, true, MIGRATION_26_27).use { db ->
+            db.query("SELECT title,state,optimisticCommandId,aiOriginJson FROM task_cache WHERE id='task'").use {
+                assertTrue(it.moveToFirst()); assertEquals("保持するTask", it.getString(0)); assertEquals("todo", it.getString(1)); assertEquals("command", it.getString(2)); assertTrue(it.isNull(3))
+            }
+            db.query("SELECT envelopeJson,state FROM outbox_command WHERE commandId='command'").use {
+                assertTrue(it.moveToFirst()); assertEquals("保持する入力", it.getString(0)); assertEquals("pending", it.getString(1))
+            }
+        }
+    }
     @Test
     fun migrationTwentyFiveToTwentySixKeepsPendingWorkAndAddsEmptyAttentionCache() {
         helper.createDatabase(DatabaseName, 25).apply {

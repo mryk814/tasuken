@@ -1,4 +1,10 @@
+import {
+  AiItemCreationService,
+  AiTaskStartService,
+  type AiItemCreationPort,
+} from "../core/public.ts";
 import { TaskenCoreHost } from "../infrastructure/http/taskenCoreHost.ts";
+import { entityIdSchema } from "../../shared/kernel/public.ts";
 import { createMobileActivityReadPort } from "./mobileActivityReadPort.ts";
 import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentReadPort.ts";
 import { createMobileThemeContextReadPort } from "./mobileThemeContextReadPort.ts";
@@ -199,6 +205,9 @@ export class TaskenCoreRuntime {
   private readonly persistence: CorePersistence;
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
   private readonly taskContext: ReturnType<typeof createTaskenCore>["getTaskContext"];
+  private readonly agentSessionContext: ReturnType<
+    typeof createTaskenCore
+  >["getAgentSessionContext"];
   private readonly executeTaskDelegation?: (
     command: unknown,
     currentContextFingerprint: () => string,
@@ -221,7 +230,10 @@ export class TaskenCoreRuntime {
     noteProposalImagePort?: NoteProposalImagePort,
     private readonly workLogWriter?: WorkLogWriterPort,
     private readonly captureImagePort?: CaptureImagePort,
-    options: { proposalAccess?: CoreProposalAccess } = {},
+    options: {
+      proposalAccess?: CoreProposalAccess;
+      executeAiTaskStart?: ExecuteApplicationCommand;
+    } = {},
   ) {
     this.persistence = persistence;
     this.executeApplicationCommand = executeApplicationCommand;
@@ -237,10 +249,37 @@ export class TaskenCoreRuntime {
       captureImagePort: this.captureImagePort,
     });
     this.taskContext = core.getTaskContext;
+    this.agentSessionContext = core.getAgentSessionContext;
     this.executeTaskDelegation = executeTaskDelegation;
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
+    const aiTaskStart = options.executeAiTaskStart
+      ? new TaskCapabilityService(persistence, options.executeAiTaskStart)
+      : null;
     this.host = new TaskenCoreHost({
       userDataPath,
+      ...(aiTaskStart
+        ? {
+            startAiTaskWork: new AiTaskStartService(persistence.workspaceId, {
+              execute: (command) => {
+                const result = aiTaskStart.executeCommand(command, { immutableRequest: true });
+                if (!result.ok) return result;
+                // A replay is an acknowledgement, not permission to restore an old
+                // assignment. Return the current Task even after review or deletion.
+                const readback = aiTaskStart.executeQuery({
+                  schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+                  query_id: command.command_id,
+                  name: "GetTask",
+                  parameters: { task_id: command.payload.task_id, include_deleted: true },
+                });
+                if (!readback.ok) return readback;
+                if (readback.value.name !== "GetTask" || !readback.value.task) {
+                  throw new Error("開始済みTaskの正本を読み戻せません。");
+                }
+                return { ...result, value: { ...result.value, task: readback.value.task } };
+              },
+            }),
+          }
+        : {}),
       taskQuery: { execute: this.taskCapability.executeQuery.bind(this.taskCapability) },
       // start_task_workはProposalではなく直接書き込みなので、書き込みを絞る配備では公開しない。
       ...(proposalAccess === "full"
@@ -311,6 +350,22 @@ export class TaskenCoreRuntime {
       getCaptureOrganizer,
       core: {
         queryActivity: createMobileActivityReadPort(this.persistence),
+        queryAgentSessions: (date) =>
+          this.agentSessionContext
+            .execute({ date, limit: 21, source_session: "tasken-mobile-today" })
+            .sessions.map((session) => ({
+              id: entityIdSchema.parse(session.id),
+              sourceSessionId: session.source_session_id,
+              clientKind: session.client_kind,
+              startedAt: session.started_at,
+              endedAt: session.ended_at,
+              status: session.status,
+              intent: session.intent.summary,
+              outcome: session.outcome?.summary || null,
+              remainingWork: Array.isArray(session.outcome?.remaining_work)
+                ? (session.outcome.remaining_work as string[])
+                : [],
+            })),
         ...createMobileRelatedDocumentReadPort(this.persistence),
         getThemeContext: createMobileThemeContextReadPort(this.persistence),
         ...createMobileWorkLogPort(this.persistence, this.workLogWriter),
@@ -635,6 +690,10 @@ export class TaskenCoreRuntime {
     });
   }
 
+  enableAiItemCreation(port: AiItemCreationPort) {
+    this.host.enableAiItemCreation(new AiItemCreationService(this.persistence, port));
+  }
+
   async start() {
     return this.host.start();
   }
@@ -643,3 +702,4 @@ export class TaskenCoreRuntime {
     await this.host.stop();
   }
 }
+export { createAiItemCreationPort } from "./aiItemCreationPort.ts";

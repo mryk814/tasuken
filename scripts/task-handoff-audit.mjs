@@ -15,6 +15,13 @@ import path from "node:path";
 // playwrightはprocess.envを引き継ぐ。起動するElectronがNodeモードにならないよう外す。
 delete process.env.ELECTRON_RUN_AS_NODE;
 
+if (process.argv.includes("--task-board")) {
+  const { WorkspaceDatabase } = await import("../src/main/repositories/workspaceRepository.mjs");
+  const { runTaskBoardAudit } = await import("./task-board-audit.mjs");
+  await runTaskBoardAudit(WorkspaceDatabase);
+  process.exit(0);
+}
+
 const OUT_DIR = process.argv[2] || "output/playwright/task-handoff-audit";
 const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
 

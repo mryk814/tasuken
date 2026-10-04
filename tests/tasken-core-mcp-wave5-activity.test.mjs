@@ -314,9 +314,13 @@ test("daily Activity and Session queries use the runtime local day without chang
         workspace.change_events.map((event) => ({
           id: event.id,
           started_at: event.occurred_at,
-          status: "active",
+          // Closed one-millisecond observations stay within their local day.
+          // Open Sessions now overlap later days, as verified by #629's interval cases.
+          ended_at: new Date(Date.parse(event.occurred_at) + 1).toISOString(),
+          status: "completed",
           client_kind: "codex",
           intent: { summary: event.summary },
+          outcome: { summary: event.summary },
         })),
     });
     assert.deepEqual(

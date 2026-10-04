@@ -16,6 +16,6 @@ Issue #588 Phase 2 のTasken headless replica配置です。詳細な手順・�
 
 守ること:
 
-- replicaはread-only運用が既定。書き込みを許す場合も `TASKEN_CORE_WRITE_MODE=proposals` と `TASKEN_MCP_READ_ONLY=0` の両方で、Proposal（Feed投稿・Note案・Task案・Task作業報告）だけを許可する。直接書き込みは公開しない。
+- replicaはread-only運用が既定。`TASKEN_CORE_WRITE_MODE=proposals` と `TASKEN_MCP_READ_ONLY=0` の両方でProposal受付を許可する。本人用Task/Noteの新規作成も許可する場合だけ、新Core/bridgeを配置し`TASKEN_CORE_WRITE_MODE=create-only`を明示する。汎用編集・削除・完了・直接開始は公開しない（[詳細](../../docs/ai-item-creation.md)）。
 - SQLite/WALを同期フォルダ（SMB/NFS/OneDrive）へ置かない。`/data` はNASローカル。
 - DesktopとNASで同じstateを同時に開かない（二重writerにしない）。

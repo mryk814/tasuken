@@ -1,6 +1,21 @@
 const workingCopyStatuses = new Set([true, false]);
-const sessionStatuses = new Set(["active", "completed", "blocked", "abandoned"]);
-const clientKinds = new Set(["codex", "claude_code", "cursor", "github_copilot", "other"]);
+const sessionStatuses = new Set([
+  "active",
+  "completed",
+  "blocked",
+  "abandoned",
+  "unknown",
+  "interrupted",
+]);
+const clientKinds = new Set([
+  "codex",
+  "claude_code",
+  "cursor",
+  "github_copilot",
+  "opencode",
+  "deepseek_harness",
+  "other",
+]);
 
 const commonFields = [
   "id",
@@ -32,6 +47,7 @@ const agentSessionFields = new Set([
   "provider_label",
   "model_label",
   "source_session_id",
+  "observation",
   "request_events",
   "response_checkpoints",
   "intent",
@@ -78,7 +94,11 @@ function checkpointList(value, field, maxLength) {
     const observedAt = isoTimestamp(entry.observed_at, `${field}.observed_at`, true);
     const checkpointText = text(entry.text, maxLength);
     if (!checkpointText) throw new Error(`${field}.textを入力してください。`);
-    return { observed_at: observedAt, text: checkpointText };
+    return {
+      observed_at: observedAt,
+      text: checkpointText,
+      ...(entry.event_id ? { event_id: text(entry.event_id, 200) } : {}),
+    };
   });
 }
 
@@ -157,6 +177,23 @@ export function normalizeAgentSession(input = {}) {
   normalized.provider_label = text(input.provider_label, 200) || null;
   normalized.model_label = text(input.model_label, 200) || null;
   normalized.source_session_id = text(input.source_session_id, 500) || null;
+  if (input.observation != null) {
+    const value = input.observation;
+    if (
+      !isRecord(value) ||
+      value.schema_version !== 1 ||
+      !["complete", "partial"].includes(value.coverage)
+    )
+      throw new Error("agent_session.observationが不正です。");
+    normalized.observation = {
+      schema_version: 1,
+      adapter: text(value.adapter, 120),
+      client_version: text(value.client_version, 120),
+      coverage: value.coverage,
+      observed_until: isoTimestamp(value.observed_until, "observation.observed_until", true),
+      mode: "history",
+    };
+  }
   normalized.request_events = checkpointList(
     input.request_events,
     "agent_session.request_events",
@@ -172,7 +209,7 @@ export function normalizeAgentSession(input = {}) {
   if (!sessionStatuses.has(normalized.status)) throw new Error("agent_session.statusが不正です。");
   if (!clientKinds.has(normalized.client_kind))
     throw new Error("agent_session.client_kindが不正です。");
-  if (normalized.ended_at && normalized.ended_at < normalized.started_at) {
+  if (normalized.ended_at && Date.parse(normalized.ended_at) < Date.parse(normalized.started_at)) {
     throw new Error("agent_session.ended_atはstarted_at以降にしてください。");
   }
   if (normalized.status === "active" && normalized.ended_at)

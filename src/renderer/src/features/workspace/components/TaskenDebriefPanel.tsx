@@ -17,6 +17,7 @@ interface TaskenDebriefPanelProps {
   notes: PageProps["notes"];
   openReport(noteId: string): void;
   setToast: PageProps["setToast"];
+  reportsOnly?: boolean;
 }
 
 const CLIENT_LABELS: Record<string, string> = {
@@ -33,6 +34,7 @@ export function TaskenDebriefPanel({
   notes,
   openReport,
   setToast,
+  reportsOnly = false,
 }: TaskenDebriefPanelProps) {
   const evidence = useMemo(() => buildDailyDebriefEvidence(domain, date), [domain, date]);
   const [preview, setPreview] = useState<{ id: string; above: boolean; maxHeight: number } | null>(
@@ -190,22 +192,24 @@ export function TaskenDebriefPanel({
 
   return (
     <>
-      <section className="panel daily-work-panel" aria-label="この日のAI作業">
-        <div className="section-heading">
-          <h2>AI作業</h2>
-        </div>
-        {usefulEvidence.length ? (
-          <div className="daily-work-grid">{usefulEvidence.map(renderCard)}</div>
-        ) : (
-          <p className="tasken-debrief-empty">この日の内容のあるAI作業はまだありません。</p>
-        )}
-        {recordsOnly.length > 0 && (
-          <details className="daily-work-records">
-            <summary>記録のみ {recordsOnly.length}件</summary>
-            <div className="daily-work-grid">{recordsOnly.map(renderCard)}</div>
-          </details>
-        )}
-      </section>
+      {!reportsOnly && (
+        <section className="panel daily-work-panel" aria-label="この日のAI作業">
+          <div className="section-heading">
+            <h2>AI作業</h2>
+          </div>
+          {usefulEvidence.length ? (
+            <div className="daily-work-grid">{usefulEvidence.map(renderCard)}</div>
+          ) : (
+            <p className="tasken-debrief-empty">この日の内容のあるAI作業はまだありません。</p>
+          )}
+          {recordsOnly.length > 0 && (
+            <details className="daily-work-records">
+              <summary>記録のみ {recordsOnly.length}件</summary>
+              <div className="daily-work-grid">{recordsOnly.map(renderCard)}</div>
+            </details>
+          )}
+        </section>
+      )}
       <section className="panel daily-report-panel" aria-label="日報">
         <div className="section-heading">
           <h2>日報</h2>

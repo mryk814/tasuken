@@ -1,0 +1,36 @@
+{
+  "schema": "tasken-ai-work-log/1",
+  "adapter": "codex-hooks/1",
+  "client_version": "synthetic-2026-10",
+  "source_session": "synthetic-codex",
+  "started_at": "2026-10-03T09:00:00+09:00",
+  "observed_until": "2026-10-03T10:00:00+09:00",
+  "coverage": "complete",
+  "payload": [
+    {
+      "session_id": "synthetic-codex",
+      "hook_event_name": "SessionStart",
+      "timestamp": "2026-10-03T09:00:00+09:00"
+    },
+    {
+      "session_id": "synthetic-codex",
+      "hook_event_name": "UserPromptSubmit",
+      "timestamp": "2026-10-03T09:05:00+09:00",
+      "prompt": "AI作業ログの表示を整える",
+      "prompt_id": "prompt-1"
+    },
+    {
+      "session_id": "synthetic-codex",
+      "hook_event_name": "Stop",
+      "timestamp": "2026-10-03T09:50:00+09:00",
+      "last_assistant_message": "日と週の表示を追加しました。画面の確認が残っています。",
+      "turn_id": "turn-1"
+    },
+    {
+      "session_id": "synthetic-codex",
+      "hook_event_name": "SessionEnd",
+      "timestamp": "2026-10-03T10:00:00+09:00",
+      "reason": "completed"
+    }
+  ]
+}

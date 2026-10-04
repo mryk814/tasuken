@@ -809,7 +809,7 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   );
 });
 
-test("TodayとToDoのTaskクリックは編集DrawerからAI Readyを切り替えられる", () => {
+test("Today/ToDo一覧とボード詳細から編集Drawerへ進みAI Readyを切り替えられる", () => {
   const today = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
   const todo = readFileSync("src/renderer/src/features/workspace/pages/TodoPage.tsx", "utf8");
   const drawer = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
@@ -819,7 +819,9 @@ test("TodayとToDoのTaskクリックは編集DrawerからAI Readyを切り替�
   );
 
   assert.doesNotMatch(today, /type: "task",\s*mode: "view"/);
-  assert.doesNotMatch(todo, /type: "task",\s*mode: "view"/);
+  assert.match(todo, /function openTaskDetail[\s\S]*?type: "task",\s*mode: "edit"/);
+  assert.match(todo, /<TaskBoard[\s\S]*?onOpen=\{[\s\S]*?mode: "view"/);
+  assert.match(drawer, /close\(\{ type: "task", mode: "edit", entity:/);
   assert.doesNotMatch(drawer, /onPrepareAiDelegation/);
   assert.match(todo, /async function toggleAiReady/);
   assert.match(today, /async function handleToggleAiReady/);

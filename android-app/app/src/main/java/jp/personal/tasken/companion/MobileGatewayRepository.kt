@@ -1650,7 +1650,21 @@ class AndroidMobileTaskRepository(
                 dao.tasksForDate(LocalDate.now().toString()).map(TaskCacheEntity::toMobileTask) to
                     state?.lastSuccessfulSyncAt.orEmpty()
             }
-            MobileTodayResult.Available(cached, syncedAt)
+            val sessions = try {
+                val response = gatewayRequest(configuration.origin,
+                    "/v1/today?apiVersion=$TASKEN_MOBILE_API_VERSION&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=${UUID.randomUUID()}&date=${LocalDate.now()}&limit=1&includeAgentSessions=true",
+                    "GET", null, token)
+                require(response.status == 200) { "Session read failed with HTTP ${response.status}" }
+                val decoded = MobileTodayContract.decodeSuccess(response.body)
+                val expectedServerId = runBlocking { dao.syncState()?.serverId }
+                require(decoded.meta.serverId == expectedServerId) { "Session response belongs to another Desktop" }
+                require(response.status == 200 && store.readToken() != null) { "Session read requires a paired Desktop" }
+                decoded.data.agentSessions
+            } catch (error: Exception) {
+                Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Session read unavailable", error)
+                null
+            }
+            MobileTodayResult.Available(cached, syncedAt, sessions.orEmpty(), sessions == null)
         } catch (error: MobileOutboxServerMismatchException) {
             MobileTodayResult.Unavailable(
                 "未解決の変更は別のDesktopに属しています。",
@@ -1872,6 +1886,7 @@ class AndroidMobileTaskRepository(
         serverVersion = version,
         title = title,
         description = description,
+        aiOriginJson = encodeMobileAiOrigin(aiOrigin),
         themeId = themeId,
         state = state,
         workState = workState,
@@ -2018,6 +2033,7 @@ class AndroidMobileTaskRepository(
             connection.readTimeout = if (path in setOf("/v1/capture-organization", "/v1/work-log-organization")) 35_000 else REQUEST_TIMEOUT_MS
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("X-Tasken-Ai-Origin", "1")
             if (accessToken != null) connection.setRequestProperty("Authorization", "Bearer $accessToken")
             if (body != null) {
                 connection.doOutput = true

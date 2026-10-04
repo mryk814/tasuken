@@ -30,6 +30,8 @@ services:
       - ALL
     environment:
       TASKEN_USER_DATA_DIR: /data
+      # Independent start-only opt-in. Never implied by create-only/proposals.
+      TASKEN_CORE_AI_TASK_START: "${TASKEN_CORE_AI_TASK_START:-0}"
     command:
       - --user-data-dir=/data
       - --sync-directory=/sync

@@ -243,6 +243,8 @@ internal fun TodayApp(
     entryRequest: MobileEntryRequest = MobileEntryRequest.None,
 ) {
     val uiState by todayViewModel.uiState.collectAsState()
+    val agentSessions by todayViewModel.agentSessions.collectAsState()
+    val agentSessionsUnavailable by todayViewModel.agentSessionsUnavailable.collectAsState()
     val refreshing by todayViewModel.refreshing.collectAsState()
     val captureState by todayViewModel.captureState.collectAsState()
     val pendingCaptures by todayViewModel.pendingCaptures.collectAsState()
@@ -881,6 +883,8 @@ internal fun TodayApp(
                         ) { section -> when (section) {
                             AppSection.Today -> TodayListPane(
                                 uiState = uiState,
+                                agentSessions = agentSessions,
+                                agentSessionsUnavailable = agentSessionsUnavailable,
                                 refreshing = refreshing,
                                 themes = themes,
                                 paneState = paneState,
@@ -1742,6 +1746,8 @@ internal fun TodayListPane(
     onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
     completionFeedback: TaskCompletionFeedback? = null,
     justAddedIds: Set<String> = emptySet(),
+    agentSessions: List<MobileAgentSessionDto> = emptyList(),
+    agentSessionsUnavailable: Boolean = false,
 ) {
     val tasks = when (uiState) {
         is TodayUiState.Success -> uiState.tasks
@@ -1771,7 +1777,7 @@ internal fun TodayListPane(
                 onRefresh = if (cached?.recovery == TodayUiState.CachedRecovery.RePair) onRetryPairing else onRetry,
                 modifier = Modifier.weight(1f).testTag("today-pull-refresh"),
             ) {
-                if (tasks.isEmpty()) {
+                if (tasks.isEmpty() && agentSessions.isEmpty() && !agentSessionsUnavailable) {
                     CenteredState { Text("今日のタスクはありません") }
                 } else {
                     TodayTaskList(
@@ -1785,6 +1791,9 @@ internal fun TodayListPane(
                         onTodayDateUpdate = onTodayDateUpdate,
                         completionFeedback = completionFeedback,
                         justAddedIds = justAddedIds,
+                        agentSessions = agentSessions,
+                        agentSessionsUnavailable = agentSessionsUnavailable,
+                        onAgentSessionRetry = onRetry,
                     )
                 }
             }
@@ -2178,7 +2187,10 @@ internal fun AiInboxListPane(
                                     highlighted = task.id == paneState.selectedTaskId,
                                     onClick = { onTaskSelected(task.id) },
                                 ) {
-                                    Text(task.title, fontWeight = FontWeight.SemiBold)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(task.title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                        AiOriginMark(task.aiOrigin)
+                                    }
                                     task.latestWorkReceipt?.summary?.let { summary ->
                                         Text(summary, maxLines = 3, overflow = TextOverflow.Ellipsis)
                                     }
@@ -2739,6 +2751,9 @@ internal fun TodayTaskList(
     onTodayDateUpdate: ((MobileTask, LocalDate?) -> Unit)? = null,
     completionFeedback: TaskCompletionFeedback? = null,
     justAddedIds: Set<String> = emptySet(),
+    agentSessions: List<MobileAgentSessionDto> = emptyList(),
+    agentSessionsUnavailable: Boolean = false,
+    onAgentSessionRetry: () -> Unit = {},
 ) {
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = if (allTasksMode) paneState.taskListScrollIndex else paneState.listScrollIndex,
@@ -2757,6 +2772,11 @@ internal fun TodayTaskList(
         contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
+        if (agentSessions.isNotEmpty() || agentSessionsUnavailable) {
+            item(key = "agent-session-timeline") {
+                AgentSessionTimeline(agentSessions, agentSessionsUnavailable, onAgentSessionRetry)
+            }
+        }
         itemsIndexed(tasks, key = { _, task -> task.id }) { index, task ->
             val requiresWorkReceipt = task.workState in setOf("needs_human_review", "reported_done", "blocked")
             val stateActionEnabled = (!task.pending || task.canChangePendingState) &&
@@ -2820,9 +2840,10 @@ internal fun TodayTaskList(
                             if (task.state == "done") 0.55f else 1f,
                             label = "task-done-alpha",
                         )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             task.title,
-                            modifier = Modifier.graphicsLayer { alpha = doneAlpha },
+                            modifier = Modifier.weight(1f).graphicsLayer { alpha = doneAlpha },
                             style = if (!allTasksMode && index == 0) {
                                 MaterialTheme.typography.titleMedium
                             } else {
@@ -2831,6 +2852,8 @@ internal fun TodayTaskList(
                             fontWeight = FontWeight.SemiBold,
                             textDecoration = if (task.state == "done") TextDecoration.LineThrough else null,
                         )
+                        AiOriginMark(task.aiOrigin)
+                        }
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -3082,6 +3105,7 @@ internal fun TodayDetailPane(
                             .clickable(enabled = titleEditable, onClickLabel = "Task名を編集") { titleEditing = true },
                     )
                 }
+                AiOriginMark(task.aiOrigin)
                 IconButton(
                     onClick = { titleEditing = !titleEditing },
                     enabled = titleEditing || titleEditable,

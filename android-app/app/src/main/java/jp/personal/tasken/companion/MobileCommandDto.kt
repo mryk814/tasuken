@@ -534,6 +534,7 @@ object MobileTaskCommandContract {
         require(task.version > 0)
         require(task.title.isNotBlank() && task.title.length <= 500)
         require(task.description == null || task.description.length <= 50000)
+        validateMobileAiOrigin(task.aiOrigin)
         require(task.themeId == null || isThemeId(task.themeId))
         require(task.state in setOf("todo", "doing", "waiting", "review", "done", "cancelled"))
         require(task.todayDate == null || runCatching { LocalDate.parse(task.todayDate) }.isSuccess)

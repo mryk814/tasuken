@@ -30,6 +30,20 @@ data class MobileTodayDataDto(
     val date: String,
     val items: List<MobileTaskSummaryDto>,
     val nextCursor: String?,
+    val agentSessions: List<MobileAgentSessionDto> = emptyList(),
+)
+
+@Serializable
+data class MobileAgentSessionDto(
+    val id: String,
+    val sourceSessionId: String?,
+    val clientKind: String,
+    val startedAt: String,
+    val endedAt: String?,
+    val status: String,
+    val intent: String,
+    val outcome: String?,
+    val remainingWork: List<String> = emptyList(),
 )
 
 @Serializable
@@ -49,7 +63,18 @@ data class MobileTaskSummaryDto(
     val updatedAt: String,
     val description: String? = null,
     val images: List<MobileTaskImageSummaryDto> = emptyList(),
+    val aiOrigin: MobileAiOrigin? = null,
 )
+
+@Serializable
+data class MobileAiOrigin(val caller: String, val receivedAt: String, val seenAt: String? = null)
+
+internal fun validateMobileAiOrigin(origin: MobileAiOrigin?) {
+    if (origin == null) return
+    require(origin.caller.trim().length in 1..200 && origin.caller == origin.caller.trim())
+    OffsetDateTime.parse(origin.receivedAt)
+    origin.seenAt?.let { OffsetDateTime.parse(it) }
+}
 
 @Serializable
 data class MobileTaskImageSummaryDto(
@@ -133,6 +158,17 @@ object MobileTodayContract {
         requireContract(isTimestamp(response.meta.generatedAt), "Invalid generatedAt timestamp.")
         requireContract(isDate(response.data.date), "Invalid Today date.")
         requireContract(response.data.items.size <= MaxItems, "Today response exceeds the item limit.")
+        requireContract(response.data.agentSessions.size <= 20, "Session response exceeds the item limit.")
+        response.data.agentSessions.forEach { session ->
+            requireContract(isEntityId(session.id) && isTimestamp(session.startedAt), "Invalid Session identity or time.")
+            requireContract(session.endedAt == null || isTimestamp(session.endedAt), "Invalid Session end time.")
+            requireContract(session.endedAt == null || !OffsetDateTime.parse(session.endedAt).toInstant().isBefore(OffsetDateTime.parse(session.startedAt).toInstant()), "Session end precedes start.")
+            requireContract(session.sourceSessionId == null || session.sourceSessionId.length <= 500, "Session source ID exceeds the limit.")
+            requireContract(session.clientKind.length in 1..50, "Invalid Session client.")
+            requireContract(session.status in setOf("active", "completed", "blocked", "abandoned", "unknown", "interrupted"), "Invalid Session status.")
+            requireContract(session.intent.length <= 4000 && (session.outcome?.length ?: 0) <= 8000, "Session text exceeds the limit.")
+            requireContract(session.remainingWork.size <= 100 && session.remainingWork.all { it.length <= 1000 }, "Session remaining work exceeds the limit.")
+        }
         requireContract(
             response.data.nextCursor == null || response.data.nextCursor.length <= 1000,
             "nextCursor exceeds the contract limit.",
@@ -142,6 +178,7 @@ object MobileTodayContract {
             requireContract(item.version > 0, "Invalid Task version.")
             requireContract(item.title.trim().isNotEmpty() && item.title.length <= 500, "Invalid Task title.")
             requireContract(item.description == null || item.description.length <= 50000, "Invalid Task description.")
+            validateMobileAiOrigin(item.aiOrigin)
             requireContract(item.themeId == null || isEntityId(item.themeId), "Invalid Theme ID.")
             requireContract(item.state in taskStates, "Invalid Task state.")
             requireContract(item.workState == null || item.workState in workStates, "Invalid work state.")

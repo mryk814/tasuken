@@ -1,3 +1,4 @@
+import { aiItemCreationRequestSchema } from "../../shared/contracts/task/public.ts";
 import { randomUUID } from "node:crypto";
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -5,7 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 
 import { localDate } from "../../shared/activityProjection.mjs";
-import { TASKEN_CORE_TASK_COMMAND_CAPABILITY } from "../../shared/contracts/core/public.mjs";
+import { TASKEN_CORE_TASK_START_WORK_CAPABILITY } from "../../shared/contracts/core/public.mjs";
 import {
   formatTaskLocator,
   parseCanonicalTaskId,
@@ -167,7 +168,7 @@ export function createTaskenMcpServer(options = {}) {
     {
       instructions: readOnly
         ? "Tasken is running in read-only mode. Use bounded context and detail tools; no write or Proposal tools are exposed. Call tasken.get_capabilities to confirm what this connection allows."
-        : "Tasken is a local-first work and knowledge app. Call tasken.get_capabilities first to see which reads and writes this connection allows; a listed write tool can still be refused when the Core changed after this server started. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. Every other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content. Every Proposal and reading tool accepts dry_run: true to validate without saving. If you lose a Proposal ID, find it with tasken.list_proposals. A result that carries an error object is always marked isError.",
+        : "Tasken is a local-first work and knowledge app. Call tasken.get_capabilities first to see which reads and writes this connection allows; a listed write tool can still be refused when the Core changed after this server started. Read tools may be used directly. Writing splits in two. tasken.propose_feed_post and tasken.answer_feed_question are reading material: the user sees them immediately in Feed and they are NOT pending decisions, so accepting them is not required and they never increase the human's attention count. tasken.create_task and tasken.create_note directly create new personal records marked AI-created and unseen when explicitly enabled; they return official Entity IDs. Each other write tool queues a Proposal that stays unofficial until the user reviews and accepts it in Tasken; a successful call returns a Proposal ID, not a Note ID or the official record's ID. tasken.start_task_work is the one exception among the rest: it directly starts a Task the user already marked AI Ready. A Note proposal may carry a Theme, not a Task or Reference relation. When a call might be retried, set idempotency_key yourself and reuse it with the same content. Existing content and work-report Proposal tools accept dry_run: true to validate without saving. If you lose a Proposal ID, find it with tasken.list_proposals. A result that carries an error object is always marked isError.",
     },
   );
 
@@ -708,6 +709,28 @@ export function createTaskenMcpServer(options = {}) {
     });
   const startTaskWork = async (args) => {
     try {
+      if (typeof coreClient.startAiTaskWork === "function") {
+        try {
+          return await coreClient.startAiTaskWork({
+            task_id: args.task_id,
+            expected_version: args.expected_version,
+            idempotency_key: args.idempotency_key,
+            caller: args.caller,
+            started_at: args.started_at,
+            ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
+            ...(args.source_session ? { source_session: args.source_session } : {}),
+          });
+        } catch (error) {
+          // Legacy Desktop Core advertises task.command. A refusal from the
+          // limited operation must never fall back to a broader operation.
+          if (
+            !(error instanceof TaskenCoreClientError) ||
+            error.code !== "CAPABILITY_UNAVAILABLE"
+          ) {
+            throw error;
+          }
+        }
+      }
       return await coreClient.executeTaskCommand({
         schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
         command_id: args.idempotency_key,
@@ -731,11 +754,11 @@ export function createTaskenMcpServer(options = {}) {
       if (error instanceof TaskenCoreClientError && error.code === "CAPABILITY_UNAVAILABLE") {
         throw new TaskenCoreClientError(
           "CAPABILITY_UNAVAILABLE",
-          `Tasken Core operation capabilityが利用できません（${TASKEN_CORE_TASK_COMMAND_CAPABILITY}）。`,
+          `Tasken Core operation capabilityが利用できません（${TASKEN_CORE_TASK_START_WORK_CAPABILITY}）。`,
           {
-            details: { capability: TASKEN_CORE_TASK_COMMAND_CAPABILITY },
+            details: { capability: TASKEN_CORE_TASK_START_WORK_CAPABILITY },
             next_action:
-              "この接続先は直接開始を公開していません。Tasken Desktopから開始するか、tasken.report_task_doneで作業報告を送ってください（採用時に開始も記録されます）。Coreが古い場合は同じ版へ更新してください。",
+              "この接続先は開始専用権限を公開していません。利用者が開始権限を有効化するか、tasken.report_task_doneで作業報告を送ってください（採用時に開始も記録されます）。",
           },
         );
       }
@@ -801,10 +824,16 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.start_task_work",
     {
       description:
-        "Claim an explicitly AI Ready Task and start work immediately. Use this only after selecting the Task for actual work; listing or reading Tasks never starts them. Reuse the same idempotency_key and started_at when retrying.",
+        "Claim an explicitly AI Ready Task and start work immediately. The limited task.start_work connection accepts only the owner's personal Tasks. Supply work_attempt_id as a UUID; reuse it and the same idempotency_key, expected_version, started_at and caller for retries. A retry returns the current Task: continue only if it is in_progress and its work_attempt_id and executor_identity still match your claim. Listing or reading Tasks never starts them. Reports remain Proposals for human adoption.",
       inputSchema: {
         ...taskWorkBase,
         started_at: requiredTimestamp,
+        work_attempt_id: z
+          .string()
+          .uuid()
+          .describe(
+            "Required UUID for this delegation. Reuse it for retries and reports; use a new UUID after human re-delegation.",
+          ),
       },
       annotations: DIRECT_WRITE_ANNOTATIONS,
     },
@@ -887,6 +916,28 @@ export function createTaskenMcpServer(options = {}) {
     },
     withCoreClient((args) => queueTaskWork(args, "report_blocked")),
   );
+
+  for (const kind of ["task", "note"]) {
+    const { kind: _kind, ...creationFields } = aiItemCreationRequestSchema.shape;
+    const toolName = "tasken.create_" + kind;
+    server.registerTool(
+      toolName,
+      {
+        description:
+          "Create a new personal " +
+          kind +
+          " immediately, marked AI-created and unseen. Returns the official ID, version and current readback. Reuse idempotency_key with identical content on retries; a deleted item stays deleted. Cannot update, delete, complete or delegate existing items. No due date or caller-selected workspace/actor/path is accepted.",
+        inputSchema: creationFields,
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      withCoreClient((args) => coreClient.createAiItem({ ...args, kind })),
+    );
+  }
 
   server.registerTool(
     "tasken.propose_note",

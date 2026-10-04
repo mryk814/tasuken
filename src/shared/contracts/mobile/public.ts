@@ -1,4 +1,5 @@
 export * from "./schema.ts";
+export * from "./aiOrigin.ts";
 export * from "./relatedDocuments.ts";
 export * from "./themeContext.ts";
 export {

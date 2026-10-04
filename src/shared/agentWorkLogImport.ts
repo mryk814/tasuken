@@ -1,0 +1,234 @@
+import * as z from "zod/v4";
+
+import { safeReceiptText as redactAgentText } from "./taskContext.mjs";
+
+export const AGENT_LOG_ADAPTERS = {
+  "codex-hooks/1": "codex",
+  "claude-hooks/1": "claude_code",
+  "copilot-cli-hooks/1": "github_copilot",
+  "opencode-export/1": "opencode",
+  "deepseek-native/1": "deepseek_harness",
+} as const;
+
+const envelope = z
+  .object({
+    schema: z.literal("tasken-ai-work-log/1"),
+    adapter: z.enum(
+      Object.keys(AGENT_LOG_ADAPTERS) as [
+        keyof typeof AGENT_LOG_ADAPTERS,
+        ...Array<keyof typeof AGENT_LOG_ADAPTERS>,
+      ],
+    ),
+    client_version: z.string().trim().min(1).max(120),
+    // User-selected exported slice, never a private-store locator.
+    source_session: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .regex(/^[A-Za-z0-9_.:-]+$/),
+    started_at: z.iso.datetime({ offset: true }),
+    observed_until: z.iso.datetime({ offset: true }),
+    coverage: z.enum(["complete", "partial"]),
+    payload: z.unknown(),
+  })
+  .strict();
+
+type RecordValue = Record<string, unknown>;
+function record(value: unknown): RecordValue {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as RecordValue) : {};
+}
+function date(value: unknown): string {
+  const time =
+    typeof value === "number" || typeof value === "string" ? new Date(value).getTime() : NaN;
+  if (!Number.isFinite(time))
+    throw new Error("観測時刻がありません。時刻付きのexportを選択してください。");
+  return new Date(time).toISOString();
+}
+function visibleText(value: unknown): string {
+  if (typeof value === "string") return redactAgentText(value).trim();
+  if (!Array.isArray(value)) return "";
+  return value
+    .flatMap((part) => {
+      const item = record(part);
+      return item.type === "text" && typeof item.text === "string"
+        ? [redactAgentText(item.text)]
+        : [];
+    })
+    .join("\n")
+    .trim();
+}
+
+export function parseAgentWorkLog(raw: string) {
+  if (typeof raw !== "string" || new TextEncoder().encode(raw).length > 2 * 1024 * 1024)
+    throw new Error("取込ファイルは2MB以下のJSONにしてください。");
+  let input;
+  try {
+    input = envelope.parse(JSON.parse(raw));
+  } catch {
+    throw new Error(
+      "対応する版付きAI作業ログではありません。tasken-ai-work-log/1の形式を確認してください。",
+    );
+  }
+  const start = date(input.started_at);
+  const until = date(input.observed_until);
+  if (until < start) throw new Error("観測終了は開始以降にしてください。");
+  const requests: Array<{ observed_at: string; text: string; event_id?: string }> = [];
+  const responses: typeof requests = [];
+  let status: "completed" | "interrupted" | "blocked" | "unknown" = "unknown";
+  let terminalAt: string | null = null;
+  const add = (list: typeof requests, at: unknown, content: unknown, identity?: unknown) => {
+    const text = visibleText(content);
+    if (!text) return;
+    const observed_at = date(at);
+    if (observed_at < start || observed_at > until) return;
+    if (text.length > (list === requests ? 4000 : 8000))
+      throw new Error("発言が長すぎます。必要な範囲に絞ってください。");
+    const event_id = typeof identity === "string" && identity.length <= 200 ? identity : undefined;
+    const prior = list.find((item) =>
+      event_id
+        ? item.event_id === event_id
+        : item.observed_at === observed_at && item.text === text,
+    );
+    if (prior && (prior.text !== text || prior.observed_at !== observed_at))
+      throw new Error("同じevent IDの内容が異なります。exportを確認してください。");
+    if (!prior) list.push({ observed_at, text, ...(event_id ? { event_id } : {}) });
+  };
+  const terminal = (at: unknown, reason: unknown) => {
+    const time = date(at);
+    if (time < start || time > until || (terminalAt && time < terminalAt)) return;
+    terminalAt = time;
+    const value = String(reason || "").toLowerCase();
+    status = /interrupt|cancel|abort|exit|close|logout|clear/.test(value)
+      ? "interrupted"
+      : /error|fail|block|timeout/.test(value)
+        ? "blocked"
+        : ["success", "completed", "complete", "done", "normal"].includes(value)
+          ? "completed"
+          : "unknown";
+  };
+
+  if (input.adapter === "opencode-export/1") {
+    const exported = record(input.payload);
+    const info = record(exported.info);
+    if (
+      info.id !== input.source_session ||
+      !Array.isArray(exported.messages) ||
+      exported.messages.length > 2000
+    )
+      throw new Error("OpenCode exportのsession IDと2000件以内の収録範囲を確認してください。");
+    for (const rawMessage of exported.messages) {
+      const message = record(rawMessage);
+      const meta = record(message.info);
+      if (meta.role !== "user" && meta.role !== "assistant") continue;
+      const at = record(meta.time).created;
+      const parts = Array.isArray(message.parts) ? message.parts : [];
+      for (const rawPart of parts) {
+        const part = record(rawPart);
+        if (part.type === "text" && !part.synthetic && !part.ignored)
+          add(meta.role === "user" ? requests : responses, at, part.text, part.id);
+      }
+    }
+    // An export's updated timestamp does not establish session completion.
+  } else if (input.adapter === "deepseek-native/1") {
+    const payload = record(input.payload);
+    if (
+      record(payload.header).id !== input.source_session ||
+      !Array.isArray(payload.events) ||
+      payload.events.length > 2000
+    )
+      throw new Error("DeepSeekの選択logのsession IDと2000件以内の収録範囲を確認してください。");
+    if (record(payload.header).version !== 4)
+      throw new Error("DeepSeek native logは確認済みのformat version 4を選択してください。");
+    const seen = new Map<number, string>();
+    for (const rawEvent of [...payload.events].sort(
+      (a, b) => Number(record(a).seq) - Number(record(b).seq),
+    )) {
+      const event = record(rawEvent);
+      if (!Number.isSafeInteger(event.seq) || Number(event.seq) < 0)
+        throw new Error("DeepSeek logにはnative seqが必要です。");
+      const signature = JSON.stringify(event);
+      if (seen.has(Number(event.seq)) && seen.get(Number(event.seq)) !== signature)
+        throw new Error("DeepSeek seqが衝突しています。");
+      seen.set(Number(event.seq), signature);
+      const observedAt = date(event.time);
+      if (observedAt < start || observedAt > until) continue;
+      const data = record(event.data);
+      if (event.type === "user/message" && record(data.source).kind === "user")
+        add(requests, event.time, data.content, `seq:${event.seq}`);
+      if (event.type === "assistant/message") {
+        add(responses, event.time, record(data.message).content, `seq:${event.seq}`);
+        // The latest visible assistant message may be interrupted. Later turns can resume.
+        status = data.interrupted ? "interrupted" : "unknown";
+      }
+      // turn/end ends a turn, never the whole native session.
+    }
+  } else {
+    if (!Array.isArray(input.payload) || input.payload.length > 2000)
+      throw new Error("hook payloadは2000件以内のイベント配列にしてください。");
+    for (const rawEvent of input.payload) {
+      const event = record(rawEvent);
+      if ((event.session_id || event.sessionId) !== input.source_session)
+        throw new Error("hookのsession IDが一致しません。");
+      const name = String(event.hook_event_name || event.hookEventName || "").toLowerCase();
+      if (name === "sessionstart") {
+        const observedAt = date(event.timestamp);
+        if (observedAt > start && observedAt <= until)
+          throw new Error("再開を含むログはSessionStartごとの区間に分けてください。");
+      }
+      if (name === "userpromptsubmit" || name === "userpromptsubmitted")
+        add(requests, event.timestamp, event.prompt, event.prompt_id);
+      if (name === "stop" && input.adapter !== "copilot-cli-hooks/1")
+        add(
+          responses,
+          event.timestamp,
+          event.last_assistant_message,
+          event.turn_id || event.prompt_id,
+        );
+      if (name === "sessionend") terminal(event.timestamp, event.reason);
+      // No transcript_path/Path, tool IO, headers, env, system, reasoning, attachments.
+    }
+  }
+  requests.sort(
+    (a, b) =>
+      a.observed_at.localeCompare(b.observed_at) ||
+      (a.event_id || "").localeCompare(b.event_id || ""),
+  );
+  responses.sort(
+    (a, b) =>
+      a.observed_at.localeCompare(b.observed_at) ||
+      (a.event_id || "").localeCompare(b.event_id || ""),
+  );
+  if (terminalAt && [...requests, ...responses].some((event) => event.observed_at > terminalAt!))
+    throw new Error("SessionEnd後の発言が含まれています。再開した区間を分けてください。");
+  if (requests.length > 200 || responses.length > 200)
+    throw new Error("発言は各200件以内の範囲を選択してください。");
+  const finalStatus =
+    input.coverage === "partial" && String(status) === "completed"
+      ? "unknown"
+      : (status as "completed" | "interrupted" | "blocked" | "unknown");
+  return {
+    client_kind: AGENT_LOG_ADAPTERS[input.adapter],
+    source_session: input.source_session,
+    started_at: start,
+    ended_at: terminalAt || until,
+    status: finalStatus,
+    intent: { summary: requests[0]?.text || "依頼の記録なし" },
+    outcome: {
+      summary: responses.at(-1)?.text || "成果の記録なし",
+      remaining_work: [] as string[],
+    },
+    request_events: requests,
+    response_checkpoints: responses,
+    observation: {
+      schema_version: 1 as const,
+      adapter: input.adapter,
+      client_version: input.client_version,
+      coverage: input.coverage,
+      observed_until: until,
+      mode: "history" as const,
+    },
+  };
+}
+
+export type ImportedAgentWorkLog = ReturnType<typeof parseAgentWorkLog>;

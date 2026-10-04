@@ -5,6 +5,7 @@ import path from "node:path";
 import { resolveTaskenUserDataPath } from "../../shared/taskenPaths.mjs";
 import { extractGitHubCopilotOutcome } from "./agentSessionHookAdapters/githubCopilot.mjs";
 import { TaskenCoreClient } from "./taskenCoreClient.mjs";
+import { safeReceiptText as redactAgentText } from "../../shared/taskContext.mjs";
 
 const CLIENT_KINDS = new Set(["codex", "claude_code", "cursor", "github_copilot"]);
 const STATE_SCHEMA_VERSION = 3;
@@ -14,7 +15,7 @@ const LOCK_OWNER_FILE = "owner.json";
 const LOCK_STALE_MS = 35_000;
 
 function text(value, max) {
-  return typeof value === "string" ? sanitizeText(value).trim().slice(0, max) : "";
+  return typeof value === "string" ? redactAgentText(sanitizeText(value)).trim().slice(0, max) : "";
 }
 
 function sanitizeText(value) {

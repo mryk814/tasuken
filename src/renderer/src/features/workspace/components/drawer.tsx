@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   IconArrowsMaximize,
   IconClock,
@@ -71,6 +71,7 @@ import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import type { Entity } from "../../../../../shared/types/workspace";
 import { TaskScheduleProposal } from "./TaskScheduleProposal";
+import { AiCreationMark } from "./AiCreationMark";
 import {
   AiContextFields,
   AiContextSummary,
@@ -122,6 +123,7 @@ import {
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildTaskAiRequest } from "../lib/taskAiRequest";
 import { TaskHandoffPanel } from "./TaskHandoffPanel";
+
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type {
   CaptureEntry,
@@ -135,6 +137,407 @@ import type {
 } from "../domain-model/types";
 import { normalizeReminderDateTime } from "../lib/reminders";
 import { listTaskSections, normalizeTaskSectionId } from "../lib/taskSections";
+
+import { taskWorkEntry } from "../../../../../shared/contracts/task/public";
+import { taskNextTurn, taskWorkModel } from "./TaskBoardModel";
+import {
+  authorOf,
+  buildOwnPosts,
+  buildPostsFromProposals,
+  buildPostsFromWorkReceipts,
+  buildRepliesFromEntities,
+  feedPostEntity,
+  feedReplyEntity,
+} from "../lib/feedPosts";
+import { safeMarkdownLinkUrl } from "../lib/markdown";
+import type { PageProps } from "../types";
+import "./TaskBoard.css";
+
+function TaskConversationPanel({
+  task,
+  data,
+  executeCommand,
+  saveEntities,
+  setToast,
+}: {
+  task: Task;
+  data: WorkspaceData;
+  executeCommand?: ExecuteCommand;
+  saveEntities?: SaveEntities;
+  setToast: PageProps["setToast"];
+}) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  const model = taskWorkModel(task, data.ai_proposals, data.work_receipts);
+  const roots = [
+    ...buildOwnPosts({ feedPosts: data.feed_posts }),
+    ...buildPostsFromProposals({
+      proposals: data.ai_proposals,
+      tasks: data.tasks,
+      themes: data.themes,
+    }),
+    ...buildPostsFromWorkReceipts({
+      receipts: data.work_receipts,
+      tasks: data.tasks,
+      themes: data.themes,
+    }),
+  ].filter((post) => post.taskId === task.id);
+  const rootIds = new Set(roots.map((post) => post.id));
+  const replies = buildRepliesFromEntities({
+    replies: data.feed_replies,
+    proposals: data.ai_proposals,
+  }).filter((post) => post.replyTo && rootIds.has(post.replyTo));
+  const progress = model.reports.filter((report) => report.action === "append_receipt");
+  const attentionSources = new Set(model.attention.map((item) => item.sourceRef.id));
+  const reports = model.reports.filter(
+    (report) =>
+      report.action !== "append_receipt" &&
+      !attentionSources.has(report.receiptId || report.proposalId || ""),
+  );
+  const draft = (id: string) => drafts[id] || "";
+  const setDraft = (id: string, value: string) =>
+    setDrafts((current) => ({ ...current, [id]: value }));
+  async function perform(action: () => Promise<unknown>, message: string, clear?: () => void) {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    try {
+      await action();
+      clear?.();
+      setToast(message, "success");
+    } catch (error) {
+      setToast(
+        `保存できませんでした。入力を残しています。再試行してください。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
+  function command(
+    name: Parameters<ExecuteCommand>[0]["name"],
+    payload: unknown,
+    proposalId?: string,
+  ) {
+    if (!executeCommand)
+      return Promise.reject(new Error("操作できません。画面を開き直してください。"));
+    const proposal = data.ai_proposals.find((row) => row.id === proposalId);
+    return executeCommand({
+      commandId: crypto.randomUUID(),
+      name,
+      payload,
+      actor: { kind: "user" },
+      source: "main_ui",
+      issuedAt: new Date().toISOString(),
+      expectedVersions: [
+        {
+          type: "task",
+          id: task.id,
+          version: Number(data.tasks.find((row) => row.id === task.id)?.version || 0),
+        },
+        ...(proposal
+          ? [
+              {
+                type: "ai_proposal" as const,
+                id: proposal.id,
+                version: Number(proposal.version || 0),
+              },
+            ]
+          : []),
+      ],
+    } as Parameters<ExecuteCommand>[0]);
+  }
+  async function addComment() {
+    if (!saveEntities || !comment.trim()) return;
+    const root = roots.find((post) => post.kind === "own_note");
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await perform(
+      () =>
+        saveEntities(
+          root
+            ? [
+                {
+                  action: "save",
+                  type: "feed_reply",
+                  entity: feedReplyEntity({ id, postId: root.id, body: comment, createdAt: now }),
+                },
+              ]
+            : [
+                {
+                  action: "save",
+                  type: "feed_post",
+                  entity: {
+                    ...feedPostEntity({
+                      id,
+                      body: comment,
+                      publishedAt: now,
+                      projectId: task.project_id,
+                    }),
+                    task_id: task.id,
+                  },
+                },
+              ],
+          "コメントを保存しました。",
+        ),
+      "コメントを保存しました。",
+      () => setComment(""),
+    );
+  }
+  return (
+    <section
+      className="drawer-subsection task-conversation"
+      aria-label="課題のやり取り"
+      aria-busy={busy}
+    >
+      <h3>課題のやり取り</h3>
+      <strong>{taskNextTurn(task, model)}</strong>
+      <p className="field-help">Task状態とAI報告の確認は別です。報告採用後もTaskは継続します。</p>
+      {(task.handoff_instruction || task.handoff_expected_result) && (
+        <article>
+          <strong>依頼</strong>
+          <p>{task.handoff_instruction}</p>
+          <p>{task.handoff_expected_result}</p>
+        </article>
+      )}
+      {model.attention.map((item) => {
+        const proposal = data.ai_proposals.find((row) => row.id === item.sourceRef.id);
+        const entry = proposal
+          ? taskWorkEntry(proposal)
+          : data.work_receipts.find((row) => row.id === item.sourceRef.id);
+        const lines = (value: unknown) =>
+          Array.isArray(value)
+            ? value.map(String).join("\n")
+            : typeof value === "string"
+              ? value
+              : "";
+        const answer = item.kind !== "review_report";
+        return (
+          <article key={item.attentionId}>
+            <h4>{answer ? "質問・判断" : "成果確認"}</h4>
+            <p>{item.summary || item.headline}</p>
+            {answer ? (
+              <>
+                <p>{lines(entry?.needed_input)}</p>
+              </>
+            ) : (
+              <>
+                <strong>確認できたこと</strong>
+                <p>{lines(entry?.verification) || "記録なし"}</p>
+                <strong>未確認事項</strong>
+                <p>{lines(entry?.remaining_work) || "記録なし"}</p>
+                <p>Taskenへ反映する内容: 報告を作業記録へ保存。Taskは継続。</p>
+              </>
+            )}
+            <label>
+              {answer ? "返答" : "修正してほしい内容"}
+              <textarea
+                aria-label={answer ? "質問への返答" : "修正してほしい内容"}
+                value={draft(item.attentionId)}
+                onChange={(event) => setDraft(item.attentionId, event.target.value)}
+                maxLength={answer ? 4000 : 2000}
+              />
+            </label>
+            <div className="task-conversation-actions">
+              {answer ? (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={
+                    busy || !executeCommand || !item.requestId || !draft(item.attentionId).trim()
+                  }
+                  onClick={() =>
+                    void perform(
+                      () =>
+                        command("ReplyToAgentRequest", {
+                          taskId: task.id,
+                          requestId: item.requestId,
+                          body: draft(item.attentionId).trim(),
+                        }),
+                      "回答を保存しました。AIの再開待ちです。",
+                      () => setDraft(item.attentionId, ""),
+                    )
+                  }
+                >
+                  回答を送る
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={busy || !executeCommand}
+                    onClick={() =>
+                      void perform(
+                        () =>
+                          proposal
+                            ? command(
+                                "ApplyTaskWorkProposal",
+                                { proposalId: proposal.id, decision: "accept" },
+                                proposal.id,
+                              )
+                            : command("AcceptTaskWork", {
+                                taskId: task.id,
+                                receiptId: item.sourceRef.id,
+                                completeTask: false,
+                              }),
+                        "報告を採用しました。Taskは継続します。",
+                      )
+                    }
+                  >
+                    報告を採用
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={busy || !executeCommand || !draft(item.attentionId).trim()}
+                    onClick={() =>
+                      void perform(
+                        () =>
+                          command("ReturnTaskWork", {
+                            taskId: task.id,
+                            receiptId: item.sourceRef.id,
+                            reviewNote: draft(item.attentionId).trim(),
+                          }),
+                        "修正を依頼しました。Taskは継続します。",
+                        () => setDraft(item.attentionId, ""),
+                      )
+                    }
+                  >
+                    修正を依頼
+                  </button>
+                </>
+              )}
+            </div>
+            {answer && !item.requestId && (
+              <p className="field-help">質問IDのない旧報告です。依頼文で返答を渡してください。</p>
+            )}
+          </article>
+        );
+      })}
+      {task.intended_executor === "ai_agent" &&
+        task.work_state === "accepted" &&
+        !["done", "cancelled"].includes(task.state) && (
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy || !executeCommand}
+            onClick={() =>
+              void perform(
+                () => command("AcceptTaskWork", { taskId: task.id, completeTask: true }),
+                "Work Receiptを承認し、Taskを完了しました。",
+              )
+            }
+          >
+            Taskを完了
+          </button>
+        )}
+      {task.work_review_note && (
+        <article>
+          <strong>修正依頼</strong>
+          <p>{task.work_review_note}</p>
+        </article>
+      )}
+      {reports.map((report) => {
+        const record = report.receiptId
+          ? data.work_receipts.find((row) => row.id === report.receiptId)
+          : data.ai_proposals.find((row) => row.id === report.proposalId);
+        const entry = report.proposalId && record ? taskWorkEntry(record) : record;
+        const references = Array.isArray(entry?.external_references)
+          ? (entry.external_references as Array<{ url: string; display_label: string }>)
+          : [];
+        return (
+          <article key={report.receiptId || report.proposalId}>
+            <strong>
+              {report.action === "human_reply" ? "自分の返答" : report.executorLabel || "AI報告"}
+            </strong>
+            <small>
+              {" "}
+              {report.isCurrentAttempt ? "現在の作業" : "過去の作業"} ·{" "}
+              {report.proposalStatus === "pending" ? "未採用" : "記録"}
+            </small>
+            <p>{report.summary}</p>
+            <time>{report.receivedAt || report.reportedAt}</time>
+            {report.action !== "human_reply" && (
+              <details>
+                <summary>検証・成果物の詳細</summary>
+                <p>
+                  確認できたこと:{" "}
+                  {Array.isArray(entry?.verification)
+                    ? entry.verification.map(String).join("／")
+                    : "記録なし"}
+                </p>
+                <p>
+                  未確認事項:{" "}
+                  {Array.isArray(entry?.remaining_work)
+                    ? entry.remaining_work.map(String).join("／")
+                    : "記録なし"}
+                </p>
+                {references.map((reference) =>
+                  safeMarkdownLinkUrl(reference.url) ? (
+                    <a
+                      key={reference.url}
+                      href={safeMarkdownLinkUrl(reference.url)!}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {reference.display_label}
+                    </a>
+                  ) : null,
+                )}
+              </details>
+            )}
+          </article>
+        );
+      })}
+      {progress.length > 0 && (
+        <details>
+          <summary>進捗報告 {progress.length}件</summary>
+          {progress.map((report) => (
+            <p key={report.receiptId || report.proposalId}>
+              {report.executorLabel}: {report.summary}
+            </p>
+          ))}
+        </details>
+      )}
+      {[...roots.filter((post) => post.kind === "own_note" || post.proposalId), ...replies]
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .map((post) => (
+          <article key={post.id}>
+            <strong>{authorOf(post).label}</strong>
+            <p>{post.paragraphs.join("\n\n")}</p>
+          </article>
+        ))}
+      {reports.length === 0 && roots.length === 0 && (
+        <p className="field-help">やり取りはまだありません。</p>
+      )}
+      {saveEntities && (
+        <>
+          <label>
+            コメント
+            <textarea
+              aria-label="課題へのコメント"
+              value={comment}
+              maxLength={4000}
+              onChange={(event) => setComment(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy || !comment.trim()}
+            onClick={() => void addComment()}
+          >
+            コメントを保存
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
 
 const CHAT_REFERENCE_STATUSES = ["inbox", "adopted"];
 const CHAT_REFERENCE_STATUS_LABELS: Record<string, string> = {
@@ -899,7 +1302,10 @@ export function EntityDrawer({
               <StatusBadge value="doing" label={repeatRuleLabel(task.repeat_rule)} />
             )}
           </div>
-          <h2>{task.title}</h2>
+          <div className="ai-origin-heading">
+            <h2>{task.title}</h2>
+            <AiCreationMark key={`creation:${task.id}`} entity={task} type="task" detail />
+          </div>
           <p>{task.description || "説明なし"}</p>
           {Boolean(task.checklist_items?.length) && (
             <>
@@ -979,15 +1385,38 @@ export function EntityDrawer({
               }
             />
           )}
-          <TaskWorkSection
-            key={`${task.id}:${task.work_state || task.intended_executor || "not_delegated"}`}
+          {saveEntities && (
+            <details className="drawer-subsection drawer-disclosure">
+              <summary>AIへの依頼・任せ直す</summary>
+              <TaskHandoffPanel
+                key={`handoff:${task.id}`}
+                task={task}
+                saveEntities={saveEntities}
+                executeCommand={executeCommand}
+                setToast={setToast}
+              />
+            </details>
+          )}
+          <TaskConversationPanel
+            key={`conversation:${task.id}`}
             task={task}
-            receipts={
-              (data.work_receipts || []) as unknown as import("../domain-model/types").WorkReceipt[]
-            }
+            data={data}
             executeCommand={executeCommand}
+            saveEntities={saveEntities}
             setToast={setToast}
           />
+          {task.intended_executor !== "ai_agent" && (
+            <TaskWorkSection
+              key={`${task.id}:${task.work_state || task.intended_executor || "not_delegated"}`}
+              task={task}
+              receipts={
+                (data.work_receipts ||
+                  []) as unknown as import("../domain-model/types").WorkReceipt[]
+              }
+              executeCommand={executeCommand}
+              setToast={setToast}
+            />
+          )}
           <details className="drawer-subsection drawer-disclosure task-related-disclosure">
             <summary>
               <span className="drawer-disclosure-title">関連情報</span>
@@ -1644,6 +2073,14 @@ function EditDrawer({
             </>
           )}
           {/* AI共通metadata（#294）。通常編集の主目的を圧迫しないよう折りたたみで置く。 */}
+          {type === "task" && (
+            <AiCreationMark
+              key={`creation:${String(entity.id)}`}
+              entity={entity}
+              type={type}
+              detail
+            />
+          )}
           <AiContextFields
             type={type}
             entity={entity}
@@ -1661,6 +2098,16 @@ function EditDrawer({
           />
         )}
         {taskForWorkSection && (
+          <TaskConversationPanel
+            key={`conversation:${taskForWorkSection.id}`}
+            task={taskForWorkSection}
+            data={data}
+            executeCommand={_executeCommand}
+            saveEntities={saveEntities}
+            setToast={setToast}
+          />
+        )}
+        {taskForWorkSection && taskForWorkSection.intended_executor !== "ai_agent" && (
           <TaskWorkSection
             key={`${taskForWorkSection.id}:${taskForWorkSection.work_state || taskForWorkSection.intended_executor || "not_delegated"}`}
             task={taskForWorkSection}

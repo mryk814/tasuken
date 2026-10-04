@@ -284,11 +284,11 @@ test("production audit is deterministic and keeps temporary composition growth v
     assert.equal(first.stdout, second.stdout);
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
-    assert.equal(report.summary.newFindings, 8);
-    assert.equal(report.summary.suppressedFindings, 8);
+    assert.equal(report.summary.newFindings, 16);
+    assert.equal(report.summary.suppressedFindings, 16);
     assert.equal(report.summary.blockingFindings, 0);
     const newFindings = report.findings.filter((entry) => !entry.baseline);
-    assert.equal(newFindings.length, 8);
+    assert.equal(newFindings.length, 16);
     assert.equal(
       newFindings.every((entry) => entry.suppressed && entry.suppression?.issue),
       true,
@@ -302,16 +302,29 @@ test("production audit is deterministic and keeps temporary composition growth v
         ["src/main/ipc/registerIpc.ts", true, 405],
         ["src/preload/index.ts", true, 405],
         ["src/renderer/src/features/workspace/WorkspaceApp.tsx", true, 481],
+        ["src/renderer/src/services/workspaceApi.ts", true, 405],
         ["src/shared/ipc/contracts.ts", true, 407],
       ],
     );
-    assert.equal(report.summary.newCompatibilityConsumers, 3);
+    assert.equal(report.summary.newCompatibilityConsumers, 10);
     assert.deepEqual(
       newFindings
         .filter((entry) => entry.ruleId === "compatibility.consumer_added")
         .map((entry) => [entry.source, entry.target, entry.suppressed, entry.suppression?.issue]),
       [
+        ["scripts/agent-work-log-electron-smoke.mjs", "generic-entity-api", true, 629],
         ["src/main/headless/taskenHeadlessCore.ts", "workspace-repository", true, 588],
+        ["src/main/headless/taskenHeadlessCore.ts", "workspace-service", true, 588],
+        ["src/main/services/workspaceService.ts", "generic-task-write", true, 405],
+        [
+          "src/renderer/src/features/workspace/components/AgentWorkTimeline.tsx",
+          "renderer-workspace-internals",
+          true,
+          629,
+        ],
+        ["tests/agent-work-log-core-e2e.test.mjs", "workspace-repository", true, 629],
+        ["tests/ai-item-creation.test.mjs", "workspace-repository", true, 588],
+        ["tests/ai-task-start.test.mjs", "workspace-repository", true, 588],
         ["tests/helpers/mobile-offline-gateway.mjs", "workspace-repository", true, 537],
         ["tests/tasken-headless-core.test.mjs", "workspace-repository", true, 588],
       ],
