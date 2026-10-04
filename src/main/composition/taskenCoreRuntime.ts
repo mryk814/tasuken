@@ -8,6 +8,7 @@ import { entityIdSchema } from "../../shared/kernel/public.ts";
 import { createMobileActivityReadPort } from "./mobileActivityReadPort.ts";
 import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentReadPort.ts";
 import { createMobileThemeContextReadPort } from "./mobileThemeContextReadPort.ts";
+import { createMobileFeedActionPort, type FeedWriterPort } from "./mobileFeedActionPort.ts";
 import { createMobileWorkLogPort, type WorkLogWriterPort } from "./mobileWorkLogPort.ts";
 import type { NoteProposalImagePort } from "../core/public.ts";
 import type { CaptureImagePort } from "../core/public.ts";
@@ -203,6 +204,7 @@ function delegationFailure(error: ApplicationCommandError): MobileGatewayTaskDel
 export class TaskenCoreRuntime {
   private readonly host: TaskenCoreHost;
   private readonly persistence: CorePersistence;
+  private readonly feedWriter?: FeedWriterPort;
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
   private readonly taskContext: ReturnType<typeof createTaskenCore>["getTaskContext"];
   private readonly agentSessionContext: ReturnType<
@@ -233,9 +235,12 @@ export class TaskenCoreRuntime {
     options: {
       proposalAccess?: CoreProposalAccess;
       executeAiTaskStart?: ExecuteApplicationCommand;
+      /** Feedへの反応・返信の書き込み口。常時稼働nodeには渡さない。 */
+      feedWriter?: FeedWriterPort;
     } = {},
   ) {
     this.persistence = persistence;
+    this.feedWriter = options.feedWriter;
     this.executeApplicationCommand = executeApplicationCommand;
     const proposalAccess = options.proposalAccess || "full";
     // 常時稼働nodeでは、読み取りはそのままに書き込みだけを絞る。
@@ -369,6 +374,7 @@ export class TaskenCoreRuntime {
         ...createMobileRelatedDocumentReadPort(this.persistence),
         getThemeContext: createMobileThemeContextReadPort(this.persistence),
         ...createMobileWorkLogPort(this.persistence, this.workLogWriter),
+        ...createMobileFeedActionPort(this.persistence, this.feedWriter),
         status: async () => ({
           apiVersion: TASKEN_CORE_API_VERSION,
           capabilities: [
@@ -406,7 +412,12 @@ export class TaskenCoreRuntime {
         readFeed: () => ({
           proposals: this.persistence
             .list("ai_proposal", false)
-            .filter((proposal) => proposal.payload_type === "feed_posts"),
+            .filter(
+              (proposal) =>
+                proposal.payload_type === "feed_posts" || proposal.payload_type === "feed_replies",
+            ),
+          reactions: this.persistence.list("feed_reaction", false),
+          replies: this.persistence.list("feed_reply", false),
           feedPosts: this.persistence.list("feed_post", false),
           tasks: this.persistence.list("task", false),
           themes: this.persistence.list("theme", false),

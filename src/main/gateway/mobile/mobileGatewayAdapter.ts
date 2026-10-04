@@ -49,8 +49,11 @@ import {
   mobileAgentReplyResponseSchema,
   mobileAttentionRequestSchema,
   mobileAttentionResponseSchema,
+  mobileFeedActionRequestSchema,
+  mobileFeedActionResponseSchema,
   mobileFeedRequestSchema,
   mobileFeedResponseSchema,
+  type MobileFeedActionRequest,
   mobileTaskWorkProposalsResponseSchema,
   mobileThemeCatalogItemSchema,
   mobileThemesRequestSchema,
@@ -215,13 +218,21 @@ export type MobileGatewayCaptureCommandResult =
  * `AttentionItem` と件数だけを返し、同じ意味を二重に持たない。
  */
 export interface MobileGatewayFeedRead {
-  /** `ai_proposal` のうちFeed投稿を含むもの。投稿の抽出はgatewayの射影が行う。 */
+  /** `ai_proposal` のうちFeed投稿・AIの返答を含むもの。抽出はgatewayの射影が行う。 */
   proposals: readonly unknown[];
+  /** 自分の反応（`feed_reaction`）と返信（`feed_reply`）。 */
+  reactions: readonly unknown[];
+  replies: readonly unknown[];
   /** 自分のFeed投稿（`feed_post`）。 */
   feedPosts: readonly unknown[];
   tasks: readonly unknown[];
   themes: readonly unknown[];
 }
+
+/** Feedへの書き込みの結果。同じ反応・同じ返信の再送は `no_change` で、増やさない。 */
+export type MobileGatewayFeedActionResult =
+  | { ok: true; commandId: string; status: "applied" | "no_change" }
+  | { ok: false; code: "not_found" | "idempotency_conflict" | "validation_failed" };
 
 export interface MobileGatewayAttentionRead {
   items: readonly AttentionItem[];
@@ -288,6 +299,13 @@ export interface MobileGatewayCorePort {
   readAttention?(): Promise<MobileGatewayAttentionRead> | MobileGatewayAttentionRead;
   /** Feedの投稿（読むだけ）。未構成のCoreでは未定義でよく、その場合は取得できないと返す。 */
   readFeed?(): Promise<MobileGatewayFeedRead> | MobileGatewayFeedRead;
+  /** Feedへの反応・返信。書き込み口を持たないCoreでは未定義で、その場合は書き込めないと返す。 */
+  executeFeedAction?(input: {
+    commandId: string;
+    issuedAt: string;
+    actorId: string;
+    action: MobileFeedActionRequest["action"];
+  }): Promise<MobileGatewayFeedActionResult> | MobileGatewayFeedActionResult;
   /** 人間の返答（#601）。質問IDはattentionのrequestIdをそのまま渡す。 */
   replyToAgentRequest?(input: {
     commandId: string;
@@ -952,6 +970,7 @@ export class MobileGatewayAdapter {
         TASKEN_MOBILE_ENDPOINTS.proposalDecisions,
         TASKEN_MOBILE_ENDPOINTS.workReviews,
         TASKEN_MOBILE_ENDPOINTS.agentReplies,
+        TASKEN_MOBILE_ENDPOINTS.feedActions,
         TASKEN_MOBILE_ENDPOINTS.taskDelegations,
         TASKEN_MOBILE_ENDPOINTS.captureOrganization,
         TASKEN_MOBILE_ENDPOINTS.workLogOrganization,
@@ -1159,6 +1178,12 @@ export class MobileGatewayAdapter {
         !request.principal.scopes.includes("mobile:human-review")
       )
         return this.error(meta, "forbidden");
+      // 反応と返信は本人の入力（Capture）と同じ権限で書く。既にペア済みの端末も再ペアリング不要。
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.feedActions &&
+        !request.principal.scopes.includes("mobile:capture-write")
+      )
+        return this.error(meta, "forbidden");
 
       const today =
         request.path === TASKEN_MOBILE_ENDPOINTS.today ? this.parseTodayQuery(request.query) : null;
@@ -1200,6 +1225,10 @@ export class MobileGatewayAdapter {
           : null;
       const feed =
         request.path === TASKEN_MOBILE_ENDPOINTS.feed ? this.parseFeedQuery(request.query) : null;
+      const feedAction =
+        request.path === TASKEN_MOBILE_ENDPOINTS.feedActions
+          ? mobileFeedActionRequestSchema.safeParse(request.body)
+          : null;
       const agentReply =
         request.path === TASKEN_MOBILE_ENDPOINTS.agentReplies
           ? mobileAgentReplyRequestSchema.safeParse(request.body)
@@ -1232,6 +1261,11 @@ export class MobileGatewayAdapter {
       )
         return this.error(meta, "validation_failed");
       if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.feedActions &&
+        (!feedAction?.success || feedAction.data.clientDeviceId !== request.principal.deviceId)
+      )
+        return this.error(meta, "validation_failed");
+      if (
         request.path === TASKEN_MOBILE_ENDPOINTS.proposalDecisions &&
         (!proposalDecision?.success ||
           proposalDecision.data.clientDeviceId !== request.principal.deviceId)
@@ -1255,6 +1289,7 @@ export class MobileGatewayAdapter {
       if (proposalDecision?.success) diagnosticId = proposalDecision.data.requestId;
       if (workReview?.success) diagnosticId = workReview.data.requestId;
       if (agentReply?.success) diagnosticId = agentReply.data.requestId;
+      if (feedAction?.success) diagnosticId = feedAction.data.requestId;
       if (contextPreview) diagnosticId = contextPreview.requestId;
       if (delegationRequest?.success) diagnosticId = delegationRequest.data.requestId;
       if (
@@ -1747,6 +1782,25 @@ export class MobileGatewayAdapter {
               receiptId: review.receiptId,
               task: projectTask(result.value.task, true, receipts, request.includeAiOrigin),
             },
+          }),
+        );
+      }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.feedActions) {
+        const command = feedAction?.success ? feedAction.data : null;
+        if (!command) return this.error(meta, "validation_failed");
+        if (!this.options.core.executeFeedAction) return this.error(meta, "capability_unavailable");
+        const result = await this.options.core.executeFeedAction({
+          commandId: command.commandId,
+          issuedAt: command.issuedAt,
+          actorId: request.principal.deviceId,
+          action: command.action,
+        });
+        if (!result.ok) return this.error(meta, result.code);
+        return this.success(
+          mobileFeedActionResponseSchema.parse({
+            ok: true,
+            meta,
+            data: { commandId: result.commandId, status: result.status },
           }),
         );
       }

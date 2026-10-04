@@ -16,8 +16,11 @@ import { feedPostTitleFromBody } from "../../../../../shared/feedPost.mjs";
 import {
   FEED_AUTHOR_IDENTITIES,
   authorIdForLabel as sharedAuthorIdForLabel,
-  feedPostIdForProposal as sharedFeedPostIdForProposal,
 } from "../../../../../shared/feedAuthors.mjs";
+import {
+  feedPostIdForProposal as sharedFeedPostIdForProposal,
+  feedReactionId as sharedFeedReactionId,
+} from "../../../../../shared/feedIds.mjs";
 import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 
 /** 実データの投稿に付く参照。fixtureでは未設定。 */
@@ -576,9 +579,7 @@ export type FeedReactionKind = "bookmark" | "interesting" | "hidden" | "known";
  * 取り消しはEntityの削除（既存のUndo境界）で行う。
  */
 export function feedReactionId(postId: string, kind: FeedReactionKind): string {
-  const id = postId.trim();
-  if (!id || id.length > 200) throw new Error("投稿IDは1〜200文字で指定してください。");
-  return `feed-reaction:${id}:${kind}`;
+  return sharedFeedReactionId(postId, kind);
 }
 
 type Row = { id: string; [key: string]: unknown };

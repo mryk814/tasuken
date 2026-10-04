@@ -1794,6 +1794,21 @@ export const mobileFeedTopicSchema = z.enum([
   "own_note",
 ]);
 
+/** Androidが扱う反応。Desktopの `hidden` / `known` は読者の整理用で、この版では流さない。 */
+export const mobileFeedReactionKindSchema = z.enum(["bookmark", "interesting"]);
+
+/** 投稿への返信（自分のメモ・AIの返答）。Androidは並べ替えず、Desktopの並び（古い順）で受け取る。 */
+export const mobileFeedReplySchema = z
+  .object({
+    /** 返信Entityの正本ID。AIの返答Proposalでは `feed-answer:<proposalId>`。 */
+    replyId: z.string().trim().min(1).max(300),
+    authorKind: z.enum(["human", "ai"]),
+    authorLabel: z.string().trim().max(200),
+    createdAt: isoTimestampSchema,
+    body: z.string().max(4000),
+  })
+  .strict();
+
 export const mobileFeedPostSchema = z
   .object({
     /** 投稿の正本ID（Desktopの `feedPostId`）。 */
@@ -1817,6 +1832,10 @@ export const mobileFeedPostSchema = z
       })
       .strict()
       .nullable(),
+    /** 自分が付けた反応。 */
+    reactions: z.array(mobileFeedReactionKindSchema).max(2),
+    /** 返信（古い順）。 */
+    replies: z.array(mobileFeedReplySchema).max(50),
     /** 外部の参考リンク。画像や図はこの版では流さない。 */
     link: z
       .object({
@@ -1857,6 +1876,61 @@ export const mobileFeedResponseSchema = z
   })
   .strict();
 
+/**
+ * Feedへの書き込み。反応はIDが決まっているので連打・再送で増えず、
+ * 返信は端末が決めた `replyId` で保存する。同じ `replyId` の再送は同じ結果を返す。
+ * AIへ返答を依頼する経路は、この版では持たない。
+ */
+export const mobileFeedActionSchema = z.discriminatedUnion("name", [
+  z.strictObject({
+    name: z.literal("SetFeedReaction"),
+    postId: z.string().trim().min(1).max(200),
+    kind: mobileFeedReactionKindSchema,
+    on: z.boolean(),
+  }),
+  z.strictObject({
+    name: z.literal("PostFeedReply"),
+    replyId: entityIdSchema,
+    postId: z.string().trim().min(1).max(200),
+    body: z
+      .string()
+      .min(1)
+      .max(4000)
+      .refine((value) => Boolean(value.trim()) && isWellFormedUnicode(value)),
+  }),
+]);
+
+export const mobileFeedActionRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    commandId: entityIdSchema,
+    idempotencyKey: entityIdSchema,
+    clientDeviceId: entityIdSchema,
+    issuedAt: isoTimestampSchema,
+    action: mobileFeedActionSchema,
+  })
+  .strict()
+  .refine((value) => value.commandId === value.idempotencyKey, {
+    path: ["idempotencyKey"],
+    message: "commandIdとidempotencyKeyを一致させてください。",
+  });
+
+export const mobileFeedActionResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        commandId: entityIdSchema,
+        status: z.enum(["applied", "no_change"]),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type MobileFeedActionRequest = z.output<typeof mobileFeedActionRequestSchema>;
 export type MobileFeedPost = z.output<typeof mobileFeedPostSchema>;
 export type MobileFeedResponse = z.output<typeof mobileFeedResponseSchema>;
 

@@ -3,6 +3,7 @@ export {
   MobileGatewayCoreUnavailableError,
   type MobileGatewayAgentReplyResult,
   type MobileGatewayAttentionRead,
+  type MobileGatewayFeedActionResult,
   type MobileGatewayFeedRead,
   type MobileGatewayCorePort,
   type MobileGatewayWorkLogCommand,

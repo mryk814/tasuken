@@ -35,8 +35,3 @@ export function authorIdForLabel(label) {
   if (value.includes("tasken")) return "tasken";
   return "external_ai";
 }
-
-/** @param {string} proposalId */
-export function feedPostIdForProposal(proposalId) {
-  return `feed-post:${proposalId}`;
-}
