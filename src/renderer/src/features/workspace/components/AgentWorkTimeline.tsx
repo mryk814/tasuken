@@ -16,7 +16,12 @@ import {
   type AgentWorkProjectionRow,
 } from "../domain-model/agentSessionProjection";
 import type { AgentSession } from "../domain-model/types";
-import { agentDateText, agentSessionInterval, buildAgentDayLayout } from "../lib/agentWorkCalendar";
+import {
+  agentDateText,
+  agentSessionInterval,
+  buildAgentDayLayout,
+  agentOutcomeDetails,
+} from "../lib/activityTimelineLayout";
 import type { BaseRecord, PageProps } from "../types";
 import { Button } from "./common";
 import { AgentWorkLogImportDialog } from "./AgentWorkLogImportDialog";
@@ -175,6 +180,7 @@ export function AgentWorkTimeline(
   }
   function renderDetail(row: AgentWorkProjectionRow) {
     const session = row.session;
+    const outcomeDetails = agentOutcomeDetails(session.outcome);
     return (
       <>
         <header>
@@ -219,6 +225,51 @@ export function AgentWorkTimeline(
             </>
           ) : null}
         </dl>
+        {outcomeDetails.length > 0 && (
+          <details>
+            <summary>成果の詳細</summary>
+            <dl>
+              {outcomeDetails.map((section) => (
+                <div key={section.label}>
+                  <dt>{section.label}</dt>
+                  <dd>{section.values.join("\n")}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+        )}
+        {(row.tasks.length > 0 || row.receipts.length > 0 || row.themes.length > 0) && (
+          <details>
+            <summary>関連タスクと報告</summary>
+            {row.themes.length > 0 && <p>{row.themes.map((theme) => theme.name).join(" / ")}</p>}
+            {row.tasks.map((task) => (
+              <Button
+                key={task.id}
+                onClick={() => {
+                  closeDetail();
+                  props.openDrawer({ type: "task", entity: task as unknown as BaseRecord });
+                }}
+              >
+                Task: {task.title}
+              </Button>
+            ))}
+            {row.receipts.map((receipt) => (
+              <div key={receipt.id}>
+                <p>{receipt.summary}</p>
+                {(receipt.external_references || []).map((reference) => (
+                  <a
+                    key={`${reference.kind}:${reference.url}`}
+                    href={reference.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {reference.display_label}
+                  </a>
+                ))}
+              </div>
+            ))}
+          </details>
+        )}
         <details>
           <summary>元Sessionと収録範囲</summary>
           <code>{session.source_session_id || session.id}</code>
@@ -240,6 +291,22 @@ export function AgentWorkTimeline(
               ? `${session.observation.adapter} · client ${session.observation.client_version} · ${session.observation.coverage === "partial" ? "一部の履歴" : "選択範囲全体"}`
               : "Sessionに記録された内容"}
           </p>
+          <dl>
+            <dt>Client</dt>
+            <dd>{session.client_label || CLIENTS[session.client_kind]}</dd>
+            {session.agent_label && (
+              <>
+                <dt>Agent</dt>
+                <dd>{session.agent_label}</dd>
+              </>
+            )}
+            {session.model_label && (
+              <>
+                <dt>Model</dt>
+                <dd>{session.model_label}</dd>
+              </>
+            )}
+          </dl>
         </details>
         {session.request_events?.length || session.response_checkpoints?.length ? (
           <details>
@@ -384,6 +451,9 @@ export function AgentWorkTimeline(
                       {STATUSES[entry.row.session.status]}
                     </span>
                     <strong>{entry.row.session.intent.summary}</strong>
+                    <small className="agent-log-list-result">
+                      成果: {entry.row.result || "未記録"}
+                    </small>
                     <span>
                       {entry.row.repositories.map((repo) => repo.label).join(" / ") ||
                         "Repository未関連"}
@@ -466,11 +536,13 @@ export function AgentWorkTimeline(
                                 {CLIENTS[session.client_kind]}
                               </span>
                             </span>
-                            <strong>
-                              {entry.row.repositories.map((repo) => repo.label).join(" / ") ||
-                                "Repository未関連"}
-                            </strong>
-                            {entry.height >= 72 && <small>{session.intent.summary}</small>}
+                            <strong>{session.intent.summary}</strong>
+                            {entry.height >= 72 && (
+                              <small>
+                                {entry.row.repositories.map((repo) => repo.label).join(" / ") ||
+                                  "Repository未関連"}
+                              </small>
+                            )}
                             {entry.height >= 72 && <small>{time(session.started_at)}</small>}
                           </button>
                         );

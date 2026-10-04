@@ -69,6 +69,52 @@ try {
     await importFixture(name);
   const toastClose = page.getByRole("button", { name: "閉じる", exact: true });
   if (await toastClose.count()) await toastClose.click();
+  await page.evaluate(async () => {
+    const sessions = await window.api.entities.list("agent_session");
+    const session = sessions.find((entry) => entry.client_kind === "codex");
+    await window.api.entities.save("agent_session", {
+      ...session,
+      agent_label: "合成デモ Agent",
+      model_label: "合成デモ Model",
+      outcome: {
+        ...session.outcome,
+        changed_items: ["合成デモ: weekly-view.tsx"],
+        decisions: ["終了未確認は最終観測まで表示"],
+        verification: ["合成デモ: focused tests passed"],
+        remaining_work: ["合成デモ: 実機確認"],
+        next_suggested_action: "合成デモ: 所有者による画面確認",
+      },
+    });
+    const receipt = await window.api.commands.execute({
+      commandId: "synthetic-calendar-task-create",
+      issuedAt: new Date().toISOString(),
+      name: "CreateTask",
+      payload: {
+        task: {
+          id: "synthetic-calendar-task",
+          title: "合成デモ: 週表示を確認",
+          state: "review",
+          project_id: "",
+        },
+      },
+      actor: { kind: "user" },
+      source: "main_ui",
+      expectedVersions: [],
+    });
+    if (receipt.status !== "applied") throw new Error(`Demo task create: ${receipt.status}`);
+    await window.api.entities.save("reference", {
+      id: "synthetic-calendar-task-ref",
+      subject: { type: "agent_session", id: session.id },
+      object: { type: "task", id: "synthetic-calendar-task" },
+      predicate: "worked_on",
+      layer: "operational",
+      status: "asserted",
+      origin: "user",
+    });
+  });
+  await panel().getByLabel("表示日").fill("2026-10-03");
+  await page.reload();
+  await page.getByText("Debrief", { exact: true }).first().click();
   await panel().getByLabel("表示日").fill("2026-10-03");
   await panel().getByRole("button", { name: "週", exact: true }).click();
   assert.equal(await panel().locator(".agent-log-block").count(), 5);
@@ -85,6 +131,19 @@ try {
   await panel().locator(".agent-log-block").filter({ hasText: "Codex" }).click();
   await panel().scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(output, "after-desktop.png") });
+  const detail = panel().getByRole("complementary", { name: "選択Sessionの詳細", exact: true });
+  await detail.getByText("成果の詳細", { exact: true }).click();
+  await detail.getByText("合成デモ: weekly-view.tsx", { exact: true }).waitFor();
+  await detail.getByText("関連タスクと報告", { exact: true }).click();
+  await detail.getByRole("button", { name: "Task: 合成デモ: 週表示を確認", exact: true }).waitFor();
+  await detail.getByText("変更したもの", { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, "after-desktop-outcome.png") });
+  await detail.getByRole("button", { name: "Task: 合成デモ: 週表示を確認", exact: true }).click();
+  const taskHeading = page.getByText("タスク詳細", { exact: true });
+  await taskHeading.waitFor();
+  await page.getByRole("button", { name: "閉じる", exact: true }).click();
+  await taskHeading.waitFor({ state: "detached" });
+  await panel().locator(".agent-log-block").filter({ hasText: "Codex" }).click();
   const canonical = await page.evaluate(() => window.api.entities.list("agent_session"));
   assert.equal(canonical.length, 5);
   assert.ok(

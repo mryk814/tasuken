@@ -33,6 +33,17 @@
   color: var(--color-text-secondary);
   font-variant-numeric: tabular-nums;
 }
+.agent-log-list-result {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.agent-log-detail a {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-top: var(--space-2);
+}
 .agent-log-panel.is-narrow .agent-log-body {
   min-height: 0;
 }
