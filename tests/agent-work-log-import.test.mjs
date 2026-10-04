@@ -10,6 +10,40 @@ const fixture = (name) =>
   );
 const parse = (value) => parseAgentWorkLog(JSON.stringify(value));
 
+test("selected Codex rollout JSONL imports visible messages without hooks or inferred completion", () => {
+  const raw = fs.readFileSync(
+    new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
+    "utf8",
+  );
+  const result = parseAgentWorkLog(raw);
+  assert.equal(result.observation.adapter, "codex-rollout/1");
+  assert.equal(result.status, "unknown");
+  assert.equal(result.request_events.length, 1);
+  assert.equal(result.response_checkpoints.length, 1);
+  assert.equal(result.intent.summary, "合成デモ: Activityを確認する");
+  assert.equal(result.outcome.summary, "合成デモ: 日次表示を確認した");
+  assert.doesNotMatch(JSON.stringify(result), /DO-NOT-IMPORT|reasoning|cwd|base_instructions/);
+  assert.deepEqual(parseAgentWorkLog(raw + raw.split("\n")[2] + "\n"), result);
+  assert.throws(() => parseAgentWorkLog(raw + "{broken"), /JSONL/);
+  assert.throws(() => parseAgentWorkLog(raw.replace("2026-10-03T00:01:00Z", "2026-10-03 00:01:00")), /時刻/);
+});
+
+test("selected Claude transcript keeps text only and rejects mixed sessions", () => {
+  const raw = fs.readFileSync(
+    new URL("../fixtures/agent-work-logs/claude-transcript.jsonl", import.meta.url),
+    "utf8",
+  );
+  const result = parseAgentWorkLog(raw);
+  assert.equal(result.client_kind, "claude_code");
+  assert.equal(result.observation.adapter, "claude-transcript/1");
+  assert.equal(result.status, "unknown");
+  assert.equal(result.request_events.length, 1);
+  assert.equal(result.response_checkpoints.length, 1);
+  assert.doesNotMatch(JSON.stringify(result), /DO-NOT-IMPORT|thinking|tool_result/);
+  const mixed = raw.replace('"sessionId":"synthetic-claude"', '"sessionId":"another-session"');
+  assert.throws(() => parseAgentWorkLog(mixed), /Session/);
+});
+
 test("five versioned adapters emit the existing Session contract without raw or hidden fields", () => {
   const expected = {
     codex: ["codex", "completed", 1, 1],

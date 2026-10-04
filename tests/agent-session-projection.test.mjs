@@ -5,10 +5,28 @@ import {
   agentSessionHasContent,
   agentSessionHookSourceApps,
   buildAgentSessionAssignmentOperations,
+  buildAgentSessionTaskOperations,
   buildAgentWorkProjection,
   groupAgentWorkProjection,
 } from "../src/renderer/src/features/workspace/domain-model/agentSessionProjection.ts";
 import { crossNavigation, toolNavigation } from "../src/renderer/src/pages/routes.ts";
+
+test("retrospective task association is idempotent and unlink preserves provenance", () => {
+  const create = buildAgentSessionTaskOperations("session", "task", [], true);
+  assert.equal(create.length, 1);
+  assert.equal(create[0].type, "reference");
+  assert.equal(create[0].entity.origin, "user");
+  const reference = create[0].entity;
+  assert.deepEqual(buildAgentSessionTaskOperations("session", "task", [reference], true), []);
+  const remove = buildAgentSessionTaskOperations("session", "task", [reference], false);
+  assert.equal(remove.length, 1);
+  assert.equal(remove[0].entity.id, reference.id);
+  assert.equal(remove[0].action, "remove");
+  assert.equal(remove[0].entity.status, "asserted");
+  assert.equal(remove[0].entity.origin, "user");
+  assert.equal(buildAgentSessionTaskOperations("session", "task", [], true).length, 1);
+  assert.deepEqual(buildAgentSessionTaskOperations("other", "task", [reference], false), []);
+});
 
 function domainFixture() {
   return {

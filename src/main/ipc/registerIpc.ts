@@ -227,6 +227,18 @@ export function registerIpc(
   notifyTaskProjectionChanged: (types: EntityType[]) => void = () => {},
 ): void {
   const screenRecordingSenderIds = new Set<number>();
+  service.initializeAgentLogSync(() => notifyEntitiesChanged(["ai_proposal"]));
+  ipcMain.handle(IPC.agentLogSetup, () => service.agentLogSetup());
+  ipcMain.handle(IPC.agentLogProbe, (_event, provider, root) =>
+    service.probeAgentLogSource(provider, root),
+  );
+  ipcMain.handle(IPC.agentLogConfigure, (_event, input) => service.configureAgentLogSource(input));
+  ipcMain.handle(IPC.agentLogRemove, (_event, id) => service.removeAgentLogSource(id));
+  ipcMain.handle(IPC.agentLogBackground, (_event, enabled) =>
+    service.setAgentLogBackground(enabled),
+  );
+  ipcMain.handle(IPC.agentLogSync, () => service.syncAgentLogs());
+  ipcMain.handle(IPC.agentLogCancel, () => service.cancelAgentLogSync());
   ipcMain.handle(
     IPC.agentWorkLogImport,
     async (_event, raw: string, repositoryContextIds: string[]) => {

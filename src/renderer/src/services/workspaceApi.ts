@@ -189,6 +189,33 @@ export const workspaceApi = {
   importAgentWorkLog(raw: string, repositoryContextIds: string[]) {
     return desktopApi().agentWorkLogs.import(raw, repositoryContextIds);
   },
+  agentLogSetup() {
+    return desktopApi().agentWorkLogs.setup();
+  },
+  canSyncAgentLogs() {
+    return typeof window.api?.agentWorkLogs?.setup === "function";
+  },
+  probeAgentLogSource(
+    service: import("../../../shared/agentLogSync").AgentLogService,
+    path: string,
+  ) {
+    return desktopApi().agentWorkLogs.probe(service, path);
+  },
+  configureAgentLogSource(input: import("../../../shared/agentLogSync").AgentLogSourceConfig) {
+    return desktopApi().agentWorkLogs.configure(input);
+  },
+  removeAgentLogSource(id: string) {
+    return desktopApi().agentWorkLogs.remove(id);
+  },
+  setAgentLogBackground(enabled: boolean) {
+    return desktopApi().agentWorkLogs.background(enabled);
+  },
+  syncAgentLogs() {
+    return desktopApi().agentWorkLogs.sync();
+  },
+  cancelAgentLogSync() {
+    return desktopApi().agentWorkLogs.cancel();
+  },
   pathForFile(file: File) {
     return desktopApi().files.pathForFile(file);
   },

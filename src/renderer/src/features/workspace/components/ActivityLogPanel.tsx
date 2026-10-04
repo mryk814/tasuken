@@ -5,6 +5,13 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import {
+  IconLink,
+  IconUnlink,
+  IconChevronLeft,
+  IconChevronRight,
+  IconFileImport,
+} from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { taskWorkPeriods } from "../../../../../shared/contracts/task/public";
@@ -27,6 +34,9 @@ import {
   ACTIVITY_TIMELINE_DAY_HEIGHT,
   ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
   buildActivityTimelineLayout,
+  agentSessionInterval,
+  agentDateText,
+  agentOutcomeDetails,
 } from "../lib/activityTimelineLayout";
 import {
   buildActivityTimelineBursts,
@@ -34,6 +44,7 @@ import {
 } from "../lib/activityTimelineBurst";
 import {
   buildAgentWorkProjection,
+  buildAgentSessionTaskOperations,
   type AgentWorkProjectionRow,
 } from "../domain-model/agentSessionProjection";
 import { themeColor } from "../lib/domain";
@@ -352,10 +363,45 @@ export function ActivityLogPanel({
   setToast,
   date,
   onDateChange,
+  saveEntities,
+  removeEntityQuiet,
+  onImport,
 }: Pick<PageProps, "data" | "domain" | "themes" | "openDrawer" | "setToast"> & {
+  saveEntities?: PageProps["saveEntities"];
+  removeEntityQuiet?: PageProps["removeEntityQuiet"];
+  onImport?(): void;
   date: string;
   onDateChange(date: string): void;
 }) {
+  const [taskToLink, setTaskToLink] = useState("");
+  const [savingLink, setSavingLink] = useState(false);
+  async function setTaskLink(sessionId: string, taskId: string, linked: boolean) {
+    if (!saveEntities || savingLink) return;
+    setSavingLink(true);
+    try {
+      const operations = buildAgentSessionTaskOperations(
+        sessionId,
+        taskId,
+        domain.references,
+        linked,
+      );
+      for (const operation of operations) {
+        if (operation.action === "remove") {
+          if (!removeEntityQuiet) throw new Error("関連付けの解除を利用できません。");
+          await removeEntityQuiet("reference", operation.entity.id);
+        } else await saveEntities([operation], "タスクに関連付けました。");
+      }
+      if (!linked && operations.length) setToast("関連付けを解除しました。", "success");
+      setTaskToLink("");
+    } catch (error) {
+      setToast(
+        error instanceof Error ? error.message : "関連付けを保存できませんでした。",
+        "danger",
+      );
+    } finally {
+      setSavingLink(false);
+    }
+  }
   const [directory, setDirectory] = useState("");
   const [publishOpen, setPublishOpen] = useState(false);
   const [autoExportTime, setAutoExportTime] = useState("");
@@ -518,7 +564,17 @@ export function ActivityLogPanel({
   const agentSessions = buildAgentWorkProjection(domain, {
     limit: Math.max(domain.agent_sessions.length, 1),
   });
-  const sessionContexts = buildDailyAgentSessionContexts(agentSessions, date, allEvents);
+  const dailySessionInterval = (session: AgentWorkProjectionRow["session"]) => {
+    const observed = agentSessionInterval(session);
+    const interval = activitySessionInterval({ ...session, ended_at: observed.end }, date);
+    return interval ? { ...interval, endLabel: observed.endLabel } : null;
+  };
+  const sessionContexts = buildDailyAgentSessionContexts(
+    agentSessions,
+    date,
+    allEvents,
+    dailySessionInterval,
+  );
   const sessionOriginIds = new Set(
     sessionContexts.flatMap(({ sessionRow }) =>
       [sessionRow.session.id, sessionRow.session.source_session_id].filter(
@@ -635,7 +691,7 @@ export function ActivityLogPanel({
     input,
     domain,
     projectActivitySessionLogEntries(
-      buildDailyAgentSessionContexts(agentSessions, date, []),
+      buildDailyAgentSessionContexts(agentSessions, date, [], dailySessionInterval),
       input.themes,
     ),
   );
@@ -687,6 +743,7 @@ export function ActivityLogPanel({
   function closeTimelineDetail() {
     const itemId = expandedTimelineItemId;
     setExpandedTimelineItemId("");
+    setTaskToLink("");
     requestAnimationFrame(() => activityEventButtonRefs.current[itemId]?.focus());
   }
 
@@ -811,9 +868,20 @@ export function ActivityLogPanel({
           <h2>
             Activity <span className="activity-count">{count}</span>
           </h2>
-          <p>1日の動きを時刻順に振り返ります。</p>
+          <p>人の活動と AI の作業を、同じ一日に。時刻は日本時間です。</p>
         </div>
         <div className="inline-actions">
+          {onImport && (
+            <Button
+              variant="secondary"
+              compact
+              onClick={onImport}
+              aria-label="AIの生ログを選んで取り込む"
+              title="AIの生ログを選んで取り込む"
+            >
+              <IconFileImport size={18} />
+            </Button>
+          )}
           {expanded && (
             <Button variant="secondary" compact onClick={() => setPublishOpen(true)}>
               公開用Markdown
@@ -821,6 +889,43 @@ export function ActivityLogPanel({
           )}
           {expanded && (
             <>
+              <Button
+                variant="secondary"
+                compact
+                aria-label="Activity の前日"
+                title="前日"
+                onClick={() =>
+                  onDateChange(
+                    agentDateText(
+                      new Date(new Date(`${date}T00:00:00+09:00`).getTime() - 86400000),
+                    ),
+                  )
+                }
+              >
+                <IconChevronLeft size={16} />
+              </Button>
+              <Button
+                variant="secondary"
+                compact
+                onClick={() => onDateChange(agentDateText(new Date()))}
+              >
+                今日
+              </Button>
+              <Button
+                variant="secondary"
+                compact
+                aria-label="Activity の翌日"
+                title="翌日"
+                onClick={() =>
+                  onDateChange(
+                    agentDateText(
+                      new Date(new Date(`${date}T00:00:00+09:00`).getTime() + 86400000),
+                    ),
+                  )
+                }
+              >
+                <IconChevronRight size={16} />
+              </Button>
               <input
                 type="date"
                 value={date}
@@ -888,243 +993,346 @@ export function ActivityLogPanel({
         (hasTimelineItems ? (
           calendarTimeline.length ? (
             <div className={`activity-calendar-layout${expandedTimelineItem ? " has-detail" : ""}`}>
-              <div
-                ref={activityCalendarRef}
-                className="activity-calendar"
-                aria-label="Activity の時刻カレンダー"
-                style={
-                  {
-                    "--activity-default-window-height": `${ACTIVITY_CALENDAR_WINDOW_HEIGHT}px`,
-                  } as CSSProperties
-                }
-              >
-                <div className="activity-calendar-day">
-                  <div className="activity-calendar-gutter" aria-hidden="true">
-                    {Array.from({ length: 25 }, (_, hour) => (
-                      <span
-                        key={hour}
-                        className="activity-calendar-hour-label"
-                        style={
-                          {
-                            "--activity-hour-top": `${hour * ACTIVITY_TIMELINE_PIXELS_PER_HOUR}px`,
-                          } as CSSProperties
-                        }
-                      >
-                        {String(hour).padStart(2, "0")}:00
-                      </span>
-                    ))}
-                  </div>
-                  <div
-                    className="activity-calendar-canvas"
-                    style={
-                      {
-                        "--activity-day-height": `${ACTIVITY_TIMELINE_DAY_HEIGHT}px`,
-                        "--activity-point-anchor-height": `${ACTIVITY_CALENDAR_POINT_MARK_HEIGHT}px`,
-                      } as CSSProperties
-                    }
-                  >
-                    {Array.from({ length: 25 }, (_, hour) => (
-                      <span
-                        key={`hour-${hour}`}
-                        className="activity-calendar-hour-line"
-                        aria-hidden="true"
-                        style={
-                          {
-                            "--activity-hour-top": `${hour * ACTIVITY_TIMELINE_PIXELS_PER_HOUR}px`,
-                          } as CSSProperties
-                        }
-                      />
-                    ))}
-                    {Array.from({ length: 24 }, (_, hour) => (
-                      <span
-                        key={`half-${hour}`}
-                        className="activity-calendar-half-hour-line"
-                        aria-hidden="true"
-                        style={
-                          {
-                            "--activity-hour-top": `${
-                              hour * ACTIVITY_TIMELINE_PIXELS_PER_HOUR +
-                              ACTIVITY_TIMELINE_PIXELS_PER_HOUR / 2
-                            }px`,
-                          } as CSSProperties
-                        }
-                      />
-                    ))}
-                    <ol className="activity-calendar-events" aria-label="Activity を時刻順に表示">
-                      {calendarTimeline.map((row) => {
-                        const event = row.item_type === "event" ? row.event : null;
-                        const calendarEvent =
-                          row.item_type === "calendar" ? row.calendar_event : null;
-                        const burst = row.item_type === "burst" ? row : null;
-                        const ref = event?.entity_ref || {};
-                        const entity = event ? findActivityEntity(domain, ref) : null;
-                        const sessionRow = row.item_type === "session" ? row.session_row : null;
-                        const session = sessionRow?.session || null;
-                        const eventActor = event ? actorLabel(event) : null;
-                        const burstEntityTitle = burst
-                          ? (() => {
-                              const refs = burst.events.map(
-                                (entry) =>
-                                  (
-                                    entry as {
-                                      event?: { entity_ref?: { type?: string; id?: string } };
-                                    }
-                                  ).event?.entity_ref || {},
-                              );
-                              const first = refs[0] || {};
-                              const sameEntity = refs.every(
-                                (candidate) =>
-                                  candidate.type === first.type && candidate.id === first.id,
-                              );
-                              if (!sameEntity || !first.type || !first.id) return "";
-                              const resolved = findActivityEntity(domain, first) as
-                                { title?: unknown; name?: unknown } | null | undefined;
-                              return String(resolved?.title || resolved?.name || "").trim();
-                            })()
-                          : "";
-                        const title = calendarEvent
-                          ? calendarEvent.title || "(予定)"
-                          : event
-                            ? eventTitle(event, ref, entity)
-                            : burst
-                              ? burstEntityTitle
-                                ? `${burstEntityTitle} · ${burst.events.length}件`
-                                : `${burst.events.length}件のActivity`
-                              : session?.intent.summary || session?.client_label || "AI セッション";
-                        const timeLabel = calendarEvent
-                          ? calendarEvent.isAllDay
-                            ? "終日"
-                            : `${localTime(row.start_at)}–${localTime(row.end_at)}`
-                          : session && sessionRow
-                            ? activitySessionTimeLabel({
-                                sessionRow,
-                                interval: { start_at: row.start_at, end_at: row.end_at },
-                              })
-                            : burst
-                              ? `${localTime(burst.events[0]?.start_at)}–${localTime(burst.events.at(-1)?.end_at)}`
-                              : event?.event_kind === "task_ai_work" ||
-                                  event?.event_kind === "focus_session"
-                                ? `${localTime(row.start_at)}–${event.metadata?.session_state === "active" ? "進行中" : localTime(row.end_at)}`
-                                : event?.local_time || localTime(row.start_at);
-                        const originText = calendarEvent
-                          ? calendarEvent.calendarName || "カレンダー"
-                          : event
-                            ? originLabel(event)
-                            : session
-                              ? agentSessionClientLabel(session)
-                              : burst
-                                ? burstOriginLabel(burst.origin)
-                                : "由来不明";
-                        const timeAnchors = burst
-                          ? burst.events.map((burstEvent) => ({
-                              id: burstEvent.id,
-                              offset: burstEvent.anchor_top - row.top,
-                              height: burstEvent.anchor_height,
-                            }))
-                          : "anchor_offset" in row && "anchor_height" in row
-                            ? [
-                                {
-                                  id: row.id,
-                                  offset: row.anchor_offset,
-                                  height: row.anchor_height,
-                                },
-                              ]
-                            : [];
-                        const laneGap = 4;
-                        const laneCount = Math.max(1, row.lane_count);
-                        const firstThemeId = row.theme_ids[0];
-                        const firstTheme = themes.find(
-                          (candidate) => candidate.id === firstThemeId,
-                        );
-                        const firstThemeIndex = themes.findIndex(
-                          (candidate) => candidate.id === firstThemeId,
-                        );
-                        const blockStyle = {
-                          "--activity-event-top": `${row.top}px`,
-                          "--activity-event-height": `${row.height}px`,
-                          "--activity-event-left": `calc(${(row.lane * 100) / laneCount}% + ${(row.lane * laneGap) / laneCount}px)`,
-                          "--activity-event-width": `calc(${100 / laneCount}% - ${((laneCount - 1) * laneGap) / laneCount}px)`,
-                          "--activity-theme-color": firstTheme
-                            ? `var(--color-${themeColor(firstTheme, Math.max(firstThemeIndex, 0))})`
-                            : "var(--color-text-tertiary)",
-                        } as CSSProperties;
-                        const compact = row.height < 56;
-                        const themeSummary = activityThemeSummary(row.theme_ids, themes);
-                        const isRange = timeAnchors.some((anchor) => anchor.height > 0);
-                        const sourceMarker = session
-                          ? agentSessionClientLabel(session)
-                          : event && isAiActivityEvent(event)
-                            ? "AI"
-                            : burst?.events.some(
-                                  (burstEvent) =>
-                                    burstEvent.item_type === "event" &&
-                                    isAiActivityEvent(burstEvent.event),
-                                )
-                              ? "AI含む"
-                              : null;
-                        return (
-                          <li
-                            key={row.id}
-                            className={`activity-calendar-event activity-timeline-row--${row.display_kind}${compact ? " is-compact" : ""}${isRange ? " is-range-event" : " is-point-event"}${calendarEvent ? " is-calendar" : ""}${expandedTimelineItemId === row.id ? " is-selected" : ""}`}
-                            style={blockStyle}
-                          >
-                            {timeAnchors.map((anchor) => (
+              {isNarrowActivity ? (
+                <ol className="activity-compact-list" aria-label="一日の Activity">
+                  {calendarTimeline.map((row) => {
+                    const sessionRow = row.item_type === "session" ? row.session_row : null;
+                    const event = row.item_type === "event" ? row.event : null;
+                    const title =
+                      sessionRow?.session.intent.summary ||
+                      (event
+                        ? eventTitle(
+                            event,
+                            event.entity_ref || {},
+                            findActivityEntity(domain, event.entity_ref || {}),
+                          )
+                        : row.item_type === "calendar"
+                          ? row.calendar_event.title
+                          : "まとめた活動");
+                    const origin = sessionRow
+                      ? agentSessionClientLabel(sessionRow.session)
+                      : event
+                        ? originLabel(event)
+                        : "活動";
+                    return (
+                      <li key={row.id}>
+                        <button
+                          type="button"
+                          disabled={row.item_type === "calendar"}
+                          ref={(element) => {
+                            activityEventButtonRefs.current[row.id] = element;
+                          }}
+                          aria-expanded={expandedTimelineItemId === row.id}
+                          onClick={() => {
+                            setTaskToLink("");
+                            setExpandedTimelineItemId(row.id);
+                          }}
+                        >
+                          <small>
+                            {sessionRow
+                              ? activitySessionTimeLabel({
+                                  sessionRow,
+                                  endLabel: agentSessionInterval(sessionRow.session).endLabel,
+                                  interval: { start_at: row.start_at, end_at: row.end_at },
+                                })
+                              : localTime(row.start_at)}{" "}
+                            · {origin}
+                          </small>
+                          <strong>{title}</strong>
+                          {sessionRow && (
+                            <>
+                              <span>{sessionRow.session.outcome?.summary || "成果は未記録"}</span>
+                              <small>
+                                {sessionRow.repositories.map((repo) => repo.label).join(" / ")}
+                              </small>
                               <span
-                                key={`anchor:${anchor.id}`}
-                                className={`activity-calendar-time-anchor${anchor.height <= 0 ? " is-point" : " is-range"}`}
-                                aria-hidden="true"
-                                style={
+                                aria-label={
+                                  sessionRow.tasks.length ? "タスクに関連付け済み" : "タスク未関連"
+                                }
+                                title={
+                                  sessionRow.tasks.length ? "タスクに関連付け済み" : "タスク未関連"
+                                }
+                              >
+                                {sessionRow.tasks.length ? (
+                                  <IconLink size={16} />
+                                ) : (
+                                  <IconUnlink size={16} />
+                                )}
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <div
+                  ref={activityCalendarRef}
+                  className="activity-calendar"
+                  aria-label="Activity の時刻カレンダー"
+                  style={
+                    {
+                      "--activity-default-window-height": `${ACTIVITY_CALENDAR_WINDOW_HEIGHT}px`,
+                    } as CSSProperties
+                  }
+                >
+                  <div className="activity-calendar-day">
+                    <div className="activity-calendar-gutter" aria-hidden="true">
+                      {Array.from({ length: 25 }, (_, hour) => (
+                        <span
+                          key={hour}
+                          className="activity-calendar-hour-label"
+                          style={
+                            {
+                              "--activity-hour-top": `${hour * ACTIVITY_TIMELINE_PIXELS_PER_HOUR}px`,
+                            } as CSSProperties
+                          }
+                        >
+                          {String(hour).padStart(2, "0")}:00
+                        </span>
+                      ))}
+                    </div>
+                    <div
+                      className="activity-calendar-canvas"
+                      style={
+                        {
+                          "--activity-day-height": `${ACTIVITY_TIMELINE_DAY_HEIGHT}px`,
+                          "--activity-point-anchor-height": `${ACTIVITY_CALENDAR_POINT_MARK_HEIGHT}px`,
+                        } as CSSProperties
+                      }
+                    >
+                      {Array.from({ length: 25 }, (_, hour) => (
+                        <span
+                          key={`hour-${hour}`}
+                          className="activity-calendar-hour-line"
+                          aria-hidden="true"
+                          style={
+                            {
+                              "--activity-hour-top": `${hour * ACTIVITY_TIMELINE_PIXELS_PER_HOUR}px`,
+                            } as CSSProperties
+                          }
+                        />
+                      ))}
+                      {Array.from({ length: 24 }, (_, hour) => (
+                        <span
+                          key={`half-${hour}`}
+                          className="activity-calendar-half-hour-line"
+                          aria-hidden="true"
+                          style={
+                            {
+                              "--activity-hour-top": `${
+                                hour * ACTIVITY_TIMELINE_PIXELS_PER_HOUR +
+                                ACTIVITY_TIMELINE_PIXELS_PER_HOUR / 2
+                              }px`,
+                            } as CSSProperties
+                          }
+                        />
+                      ))}
+                      <ol className="activity-calendar-events" aria-label="Activity を時刻順に表示">
+                        {calendarTimeline.map((row) => {
+                          const event = row.item_type === "event" ? row.event : null;
+                          const calendarEvent =
+                            row.item_type === "calendar" ? row.calendar_event : null;
+                          const burst = row.item_type === "burst" ? row : null;
+                          const ref = event?.entity_ref || {};
+                          const entity = event ? findActivityEntity(domain, ref) : null;
+                          const sessionRow = row.item_type === "session" ? row.session_row : null;
+                          const session = sessionRow?.session || null;
+                          const eventActor = event ? actorLabel(event) : null;
+                          const burstEntityTitle = burst
+                            ? (() => {
+                                const refs = burst.events.map(
+                                  (entry) =>
+                                    (
+                                      entry as {
+                                        event?: { entity_ref?: { type?: string; id?: string } };
+                                      }
+                                    ).event?.entity_ref || {},
+                                );
+                                const first = refs[0] || {};
+                                const sameEntity = refs.every(
+                                  (candidate) =>
+                                    candidate.type === first.type && candidate.id === first.id,
+                                );
+                                if (!sameEntity || !first.type || !first.id) return "";
+                                const resolved = findActivityEntity(domain, first) as
+                                  { title?: unknown; name?: unknown } | null | undefined;
+                                return String(resolved?.title || resolved?.name || "").trim();
+                              })()
+                            : "";
+                          const title = calendarEvent
+                            ? calendarEvent.title || "(予定)"
+                            : event
+                              ? eventTitle(event, ref, entity)
+                              : burst
+                                ? burstEntityTitle
+                                  ? `${burstEntityTitle} · ${burst.events.length}件`
+                                  : `${burst.events.length}件のActivity`
+                                : session?.intent.summary ||
+                                  session?.client_label ||
+                                  "AI セッション";
+                          const timeLabel = calendarEvent
+                            ? calendarEvent.isAllDay
+                              ? "終日"
+                              : `${localTime(row.start_at)}–${localTime(row.end_at)}`
+                            : session && sessionRow
+                              ? activitySessionTimeLabel({
+                                  sessionRow,
+                                  endLabel: agentSessionInterval(sessionRow.session).endLabel,
+                                  interval: { start_at: row.start_at, end_at: row.end_at },
+                                })
+                              : burst
+                                ? `${localTime(burst.events[0]?.start_at)}–${localTime(burst.events.at(-1)?.end_at)}`
+                                : event?.event_kind === "task_ai_work" ||
+                                    event?.event_kind === "focus_session"
+                                  ? `${localTime(row.start_at)}–${event.metadata?.session_state === "active" ? "進行中" : localTime(row.end_at)}`
+                                  : event?.local_time || localTime(row.start_at);
+                          const originText = calendarEvent
+                            ? calendarEvent.calendarName || "カレンダー"
+                            : event
+                              ? originLabel(event)
+                              : session
+                                ? agentSessionClientLabel(session)
+                                : burst
+                                  ? burstOriginLabel(burst.origin)
+                                  : "由来不明";
+                          const timeAnchors = burst
+                            ? burst.events.map((burstEvent) => ({
+                                id: burstEvent.id,
+                                offset: burstEvent.anchor_top - row.top,
+                                height: burstEvent.anchor_height,
+                              }))
+                            : "anchor_offset" in row && "anchor_height" in row
+                              ? [
                                   {
-                                    "--activity-anchor-offset": `${anchor.offset}px`,
-                                    "--activity-anchor-height": `${anchor.height}px`,
-                                  } as CSSProperties
-                                }
-                              />
-                            ))}
-                            {calendarEvent ? (
-                              <div
-                                className="activity-calendar-event-button is-calendar"
-                                aria-label={`${timeLabel}、予定、${originText}、${title}`}
-                              >
-                                <span className="activity-calendar-event-title">{title}</span>
-                                <span className="activity-calendar-event-source" aria-hidden="true">
-                                  予定
-                                </span>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                className="activity-calendar-event-button"
-                                ref={(element) => {
-                                  activityEventButtonRefs.current[row.id] = element;
-                                }}
-                                onClick={() =>
-                                  setExpandedTimelineItemId((current) =>
-                                    current === row.id ? "" : row.id,
+                                    id: row.id,
+                                    offset: row.anchor_offset,
+                                    height: row.anchor_height,
+                                  },
+                                ]
+                              : [];
+                          const laneGap = 4;
+                          const laneCount = Math.max(1, row.lane_count);
+                          const firstThemeId = row.theme_ids[0];
+                          const firstTheme = themes.find(
+                            (candidate) => candidate.id === firstThemeId,
+                          );
+                          const firstThemeIndex = themes.findIndex(
+                            (candidate) => candidate.id === firstThemeId,
+                          );
+                          const blockStyle = {
+                            "--activity-event-top": `${row.top}px`,
+                            "--activity-event-height": `${row.height}px`,
+                            "--activity-event-left": `calc(${(row.lane * 100) / laneCount}% + ${(row.lane * laneGap) / laneCount}px)`,
+                            "--activity-event-width": `calc(${100 / laneCount}% - ${((laneCount - 1) * laneGap) / laneCount}px)`,
+                            "--activity-theme-color": firstTheme
+                              ? `var(--color-${themeColor(firstTheme, Math.max(firstThemeIndex, 0))})`
+                              : "var(--color-text-tertiary)",
+                          } as CSSProperties;
+                          const compact = row.height < 56;
+                          const themeSummary = activityThemeSummary(row.theme_ids, themes);
+                          const isRange = timeAnchors.some((anchor) => anchor.height > 0);
+                          const sourceMarker = session
+                            ? agentSessionClientLabel(session)
+                            : event && isAiActivityEvent(event)
+                              ? "AI"
+                              : burst?.events.some(
+                                    (burstEvent) =>
+                                      burstEvent.item_type === "event" &&
+                                      isAiActivityEvent(burstEvent.event),
                                   )
-                                }
-                                aria-expanded={expandedTimelineItemId === row.id}
-                                aria-controls={`activity-timeline-detail-${row.id}`}
-                                aria-label={`${timeLabel}、${displayKindLabel(row.display_kind)}、${originText}、${themeSummary}、${title}`}
-                              >
-                                <span className="activity-calendar-event-title">{title}</span>
-                                {sourceMarker && (
+                                ? "AI含む"
+                                : null;
+                          return (
+                            <li
+                              key={row.id}
+                              className={`activity-calendar-event activity-timeline-row--${row.display_kind}${compact ? " is-compact" : ""}${isRange ? " is-range-event" : " is-point-event"}${calendarEvent ? " is-calendar" : ""}${expandedTimelineItemId === row.id ? " is-selected" : ""}`}
+                              style={blockStyle}
+                            >
+                              {timeAnchors.map((anchor) => (
+                                <span
+                                  key={`anchor:${anchor.id}`}
+                                  className={`activity-calendar-time-anchor${anchor.height <= 0 ? " is-point" : " is-range"}`}
+                                  aria-hidden="true"
+                                  style={
+                                    {
+                                      "--activity-anchor-offset": `${anchor.offset}px`,
+                                      "--activity-anchor-height": `${anchor.height}px`,
+                                    } as CSSProperties
+                                  }
+                                />
+                              ))}
+                              {calendarEvent ? (
+                                <div
+                                  className="activity-calendar-event-button is-calendar"
+                                  aria-label={`${timeLabel}、予定、${originText}、${title}`}
+                                >
+                                  <span className="activity-calendar-event-title">{title}</span>
                                   <span
                                     className="activity-calendar-event-source"
                                     aria-hidden="true"
                                   >
-                                    {sourceMarker}
+                                    予定
                                   </span>
-                                )}
-                              </button>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ol>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="activity-calendar-event-button"
+                                  ref={(element) => {
+                                    activityEventButtonRefs.current[row.id] = element;
+                                  }}
+                                  onClick={() => {
+                                    setTaskToLink("");
+                                    setExpandedTimelineItemId((current) =>
+                                      current === row.id ? "" : row.id,
+                                    );
+                                  }}
+                                  aria-expanded={expandedTimelineItemId === row.id}
+                                  aria-controls={`activity-timeline-detail-${row.id}`}
+                                  aria-label={`${timeLabel}、${displayKindLabel(row.display_kind)}、${originText}、${themeSummary}、${title}`}
+                                >
+                                  <span className="activity-calendar-event-title">{title}</span>
+                                  {sessionRow && (
+                                    <span
+                                      className="activity-session-task-marker"
+                                      title={
+                                        sessionRow.tasks.length
+                                          ? "タスクに関連付け済み"
+                                          : "タスク未関連"
+                                      }
+                                      aria-label={
+                                        sessionRow.tasks.length
+                                          ? "タスクに関連付け済み"
+                                          : "タスク未関連"
+                                      }
+                                    >
+                                      {sessionRow.tasks.length ? (
+                                        <IconLink size={14} />
+                                      ) : (
+                                        <IconUnlink size={14} />
+                                      )}
+                                    </span>
+                                  )}
+                                  {sourceMarker && (
+                                    <span
+                                      className="activity-calendar-event-source"
+                                      aria-hidden="true"
+                                    >
+                                      {sourceMarker}
+                                    </span>
+                                  )}
+                                </button>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
               {expandedTimelineItem && (
                 <>
                   {isNarrowActivity && (
@@ -1151,6 +1359,7 @@ export function ActivityLogPanel({
                         {expandedSession && expandedSessionRow
                           ? activitySessionTimeLabel({
                               sessionRow: expandedSessionRow,
+                              endLabel: agentSessionInterval(expandedSessionRow.session).endLabel,
                               interval: {
                                 start_at: expandedTimelineItem.start_at,
                                 end_at: expandedTimelineItem.end_at,
@@ -1271,29 +1480,110 @@ export function ActivityLogPanel({
                             </span>
                           </div>
                         )}
-                        {expandedSessionRow && expandedSessionRow.tasks.length > 0 && (
-                          <div className="activity-timeline-detail-section">
-                            <span>関連タスク</span>
+                        {expandedSessionRow && (
+                          <div className="activity-timeline-detail-section activity-session-task-links">
+                            <span>関連タスク {expandedSessionRow.tasks.length ? "" : "なし"}</span>
                             <span className="activity-timeline-detail-links">
-                              {expandedSessionRow.tasks.slice(0, 3).map((task) => (
-                                <Button
-                                  key={task.id}
-                                  variant="secondary"
-                                  compact
-                                  onClick={() =>
-                                    openDrawer({
-                                      type: "task",
-                                      mode: "edit",
-                                      entity: task as unknown as Record<string, unknown>,
-                                    })
-                                  }
-                                >
-                                  {task.title}
-                                </Button>
+                              {expandedSessionRow.tasks.map((task) => (
+                                <span key={task.id}>
+                                  <Button
+                                    variant="secondary"
+                                    compact
+                                    onClick={() =>
+                                      openDrawer({
+                                        type: "task",
+                                        mode: "edit",
+                                        entity: task as unknown as Record<string, unknown>,
+                                      })
+                                    }
+                                  >
+                                    {task.title}
+                                  </Button>
+                                  {removeEntityQuiet && (
+                                    <Button
+                                      variant="secondary"
+                                      compact
+                                      disabled={savingLink}
+                                      aria-label={`${task.title}との関連付けを解除`}
+                                      title="関連付けを解除"
+                                      onClick={() =>
+                                        void setTaskLink(expandedSession.id, task.id, false)
+                                      }
+                                    >
+                                      <IconUnlink size={16} />
+                                    </Button>
+                                  )}
+                                </span>
                               ))}
                             </span>
+                            {saveEntities && (
+                              <div className="inline-actions">
+                                <select
+                                  aria-label="関連付けるタスク"
+                                  value={taskToLink}
+                                  onChange={(event) => setTaskToLink(event.target.value)}
+                                >
+                                  <option value="">タスクを選ぶ</option>
+                                  {domain.tasks
+                                    .filter(
+                                      (task) =>
+                                        !expandedSessionRow.tasks.some(
+                                          (linked) => linked.id === task.id,
+                                        ),
+                                    )
+                                    .map((task) => (
+                                      <option key={task.id} value={task.id}>
+                                        {task.title}
+                                      </option>
+                                    ))}
+                                </select>
+                                <Button
+                                  variant="secondary"
+                                  compact
+                                  aria-label="選んだタスクに関連付ける"
+                                  title="関連付ける"
+                                  disabled={!taskToLink || savingLink}
+                                  onClick={() =>
+                                    void setTaskLink(expandedSession.id, taskToLink, true)
+                                  }
+                                >
+                                  <IconLink size={16} />
+                                </Button>
+                              </div>
+                            )}
+                            <small>関連付けはタスクの完了や成果の承認を意味しません。</small>
                           </div>
                         )}
+                        <div className="activity-timeline-detail-section activity-session-evidence">
+                          <span>
+                            {agentSessionInterval(expandedSession).endLabel}{" "}
+                            · 経過時間は実作業時間ではありません
+                          </span>
+                          <span>
+                            出典: {expandedSession.source_session_id || expandedSession.id} ·
+                            費用・実作業時間: 未収録
+                          </span>
+                        </div>
+                        <details className="activity-timeline-detail-section activity-session-outcome">
+                          <summary>成果の詳細</summary>
+                          {agentOutcomeDetails(expandedSession.outcome).map((section) => (
+                            <div key={section.label}>
+                              <strong>{section.label}</strong>
+                              <ul>
+                                {section.values.map((item, index) => (
+                                  <li key={index}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                          <strong>確認結果</strong>
+                          {!expandedSession.outcome?.verification.length && <span>未記録</span>}
+                          <ul>
+                            {expandedSession.outcome?.verification.map((item, index) => (
+                              <li key={index}>{item}</li>
+                            ))}
+                          </ul>
+                        </details>
                         {expandedRelatedSessionEvents.length > 0 && (
                           <div className="activity-timeline-detail-section">
                             <span>活動</span>

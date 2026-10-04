@@ -3499,11 +3499,29 @@ export class ApplicationCommandService {
               );
             }
           }
+          const historyRefresh =
+            ["codex", "claude_code"].includes(String(before.client_kind)) &&
+            currentProposal.source_app === `tasken-log-sync:${before.client_kind}` &&
+            Number(
+              (currentProposal.request as Record<string, unknown>)?.history_refresh_version,
+            ) === Number(before.version) &&
+            capturedAgentSessionIds.has(candidateEntity.id) &&
+            before.status === "unknown" &&
+            candidateEntity.status === "unknown" &&
+            ["codex-rollout/1", "claude-transcript/1"].includes(
+              String((before.observation as { adapter?: string })?.adapter),
+            ) &&
+            (before.observation as { mode?: string })?.mode === "history" &&
+            (candidateEntity.observation as { adapter?: string })?.adapter ===
+              (before.observation as { adapter?: string })?.adapter &&
+            (candidateEntity.observation as { mode?: string })?.mode === "history" &&
+            Date.parse(String(candidateEntity.ended_at)) >= Date.parse(String(before.ended_at));
           if (
-            before.status !== "active" ||
-            !["completed", "blocked", "abandoned", "unknown", "interrupted"].includes(
-              String(candidateEntity.status),
-            )
+            !historyRefresh &&
+            (before.status !== "active" ||
+              !["completed", "blocked", "abandoned", "unknown", "interrupted"].includes(
+                String(candidateEntity.status),
+              ))
           ) {
             throw new ApplicationCommandError(
               "INVALID_TRANSITION",

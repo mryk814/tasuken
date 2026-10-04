@@ -2923,6 +2923,7 @@ app.on("before-quit", (event) => {
   if (appQuitApproved) {
     sharedFolderSyncService?.stop();
     dailyContextAutoService?.stopDailyContextAuto();
+    dailyContextAutoService?.stopAgentLogSync();
     return;
   }
   event.preventDefault();

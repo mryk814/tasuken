@@ -30,6 +30,13 @@ const api: ResearchDeskApi = {
   },
   task: createTaskPreloadCapability(),
   agentWorkLogs: {
+    setup: () => ipcRenderer.invoke(IPC.agentLogSetup),
+    probe: (service, path) => ipcRenderer.invoke(IPC.agentLogProbe, service, path),
+    configure: (input) => ipcRenderer.invoke(IPC.agentLogConfigure, input),
+    remove: (id) => ipcRenderer.invoke(IPC.agentLogRemove, id),
+    background: (enabled) => ipcRenderer.invoke(IPC.agentLogBackground, enabled),
+    sync: () => ipcRenderer.invoke(IPC.agentLogSync),
+    cancel: () => ipcRenderer.invoke(IPC.agentLogCancel),
     import: (raw, repositoryContextIds) =>
       ipcRenderer.invoke(IPC.agentWorkLogImport, raw, repositoryContextIds),
   },
