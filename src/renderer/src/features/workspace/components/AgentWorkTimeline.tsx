@@ -29,6 +29,334 @@ import { ProposalDetail } from "./AiProposalPanel";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { SEMANTIC_ICONS } from "../../../pages/semanticIcons";
 import "./AgentWorkTimeline.css";
+import type {
+  AgentLogSetup,
+  AgentLogService,
+  AgentLogProbe,
+} from "../../../../../shared/agentLogSync";
+
+export function AgentLogSyncPanel() {
+  const desktop = workspaceApi.canSyncAgentLogs();
+  const [setup, setSetup] = useState<AgentLogSetup | null>(null);
+  const [service, setService] = useState<AgentLogService>("codex");
+  const [sourcePath, setSourcePath] = useState("");
+  const [probe, setProbe] = useState<AgentLogProbe | null>(null);
+  const [consent, setConsent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const sourceSetup = useRef<HTMLDetailsElement>(null);
+  const refresh = async () => {
+    const next = await workspaceApi.agentLogSetup();
+    setSetup(next);
+    return next;
+  };
+  const act = async (work: () => Promise<unknown>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await work();
+      await refresh();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+      try {
+        await refresh();
+      } catch {
+        /* Preserve the original error and form input. */
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    if (!desktop) return;
+    let live = true;
+    void workspaceApi
+      .agentLogSetup()
+      .then((next) => {
+        if (live) setSetup(next);
+      })
+      .catch((failure) => {
+        if (live) setError(String(failure));
+      });
+    return () => {
+      live = false;
+    };
+  }, [desktop]);
+  useEffect(() => {
+    if (!desktop || (!busy && !setup?.background && setup?.state !== "running")) return;
+    const timer = setInterval(() => {
+      void refresh().catch((failure) => setError(String(failure)));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [desktop, busy, setup?.background, setup?.state]);
+  const selectPath = (value: string) => {
+    setSourcePath(value);
+    setProbe(null);
+    setConsent(false);
+  };
+  const candidates = setup?.candidates.filter((candidate) => candidate.service === service) || [];
+  const selectedPath = sourcePath || candidates[0]?.path || "";
+  const stamp = (value: string | null) =>
+    value ? new Date(value).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }) + " JST" : "未確認";
+  return (
+    <details className="panel agent-log-sync">
+      <summary>
+        ログ同期{" "}
+        <small>
+          {setup?.state === "error"
+            ? "要確認"
+            : setup?.state === "running"
+              ? "収集中"
+              : setup?.sources.length
+                ? `${setup.sources.length}か所`
+                : "保存先を設定"}
+        </small>
+      </summary>
+      {!desktop ? (
+        <p>
+          ログの収集・保存先の設定は PC の Tasken
+          で行います。スマートフォンには取り込んだ記録が表示されます。
+        </p>
+      ) : (
+        <>
+          <p>
+            PC
+            に保存されたログの新規・変更を収集します。採用待ちの記録は既存の提案画面で確認できます。
+          </p>
+          {setup && (
+            <>
+              <div className="agent-log-sync-actions">
+                <Button
+                  disabled={busy || setup.state === "running" || !setup.sources.length}
+                  onClick={() => {
+                    setSetup({
+                      ...setup,
+                      state: "running",
+                      scanned: 0,
+                      queued: 0,
+                      unchanged: 0,
+                      deferred: 0,
+                    });
+                    void act(() => workspaceApi.syncAgentLogs());
+                  }}
+                >
+                  ログ同期
+                </Button>
+                {setup.state === "running" && (
+                  <Button onClick={() => void act(() => workspaceApi.cancelAgentLogSync())}>
+                    同期を停止
+                  </Button>
+                )}
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={setup.background}
+                    disabled={busy || !setup.sources.length}
+                    onChange={(event) => {
+                      const enabled = event.target.checked;
+                      setSetup({ ...setup, background: enabled });
+                      void act(() => workspaceApi.setAgentLogBackground(enabled));
+                    }}
+                  />
+                  Tasken 起動中に5分ごとに同期
+                </label>
+              </div>
+              <p role="status">
+                {setup.state === "running"
+                  ? "収集中"
+                  : setup.state === "cancelled"
+                    ? "停止しました。残りは次回に続きます。"
+                    : "同期状況"}{" "}
+                · 確認 {setup.scanned} · 新規・更新提案 {setup.queued} · 変更なし {setup.unchanged}{" "}
+                · 保留 {setup.deferred}
+              </p>
+              {setup.sources.length ? (
+                <ul className="agent-log-source-list">
+                  {setup.sources.map((source) => (
+                    <li key={source.id}>
+                      <strong>{source.service === "codex" ? "Codex" : "Claude Code"}</strong>
+                      <small>
+                        {source.path.split(/[\\/]/).filter(Boolean).slice(-2).join(" / ")}
+                      </small>
+                      <span>
+                        {source.message} · 最終確認 {stamp(source.lastScan)}
+                      </span>
+                      <details>
+                        <summary>保存先の場所</summary>
+                        <code>{source.path}</code>
+                      </details>
+                      <Button
+                        disabled={busy || setup.state === "running"}
+                        onClick={() => {
+                          setService(source.service);
+                          selectPath(source.path);
+                          if (sourceSetup.current) sourceSetup.current.open = true;
+                        }}
+                      >
+                        保存先を再確認
+                      </Button>
+                      <Button
+                        disabled={busy || setup.state === "running"}
+                        onClick={() => void act(() => workspaceApi.removeAgentLogSource(source.id))}
+                      >
+                        登録を解除
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>保存先はまだ登録されていません。</p>
+              )}
+              <details className="agent-log-source-setup" ref={sourceSetup}>
+                <summary>保存先を追加・再確認</summary>
+                <label>
+                  サービス
+                  <select
+                    aria-label="ログ収集サービス"
+                    value={service}
+                    onChange={(event) => {
+                      setService(event.target.value as AgentLogService);
+                      selectPath("");
+                    }}
+                  >
+                    <option value="codex">Codex</option>
+                    <option value="claude_code">Claude Code</option>
+                  </select>
+                </label>
+                <label>
+                  保存先候補
+                  <select
+                    aria-label="ログ保存先候補"
+                    value={
+                      sourcePath && !candidates.some((c) => c.path === sourcePath)
+                        ? "custom"
+                        : selectedPath
+                    }
+                    onChange={(event) =>
+                      selectPath(event.target.value === "custom" ? "" : event.target.value)
+                    }
+                  >
+                    {candidates.map((candidate) => (
+                      <option key={candidate.path} value={candidate.path}>
+                        {candidate.label}
+                      </option>
+                    ))}
+                    <option value="custom" disabled>
+                      指定したフォルダー
+                    </option>
+                  </select>
+                </label>
+                <div className="agent-log-sync-actions">
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      void act(async () => {
+                        const result =
+                          await workspaceApi.chooseDirectory("AI ログの保存フォルダーを選択");
+                        if (result.path) selectPath(result.path);
+                      })
+                    }
+                  >
+                    別の保存先を選ぶ
+                  </Button>
+                  <Button
+                    disabled={busy || !selectedPath}
+                    onClick={() =>
+                      void act(async () => {
+                        setProbe(await workspaceApi.probeAgentLogSource(service, selectedPath));
+                        setConsent(false);
+                      })
+                    }
+                  >
+                    場所を確認
+                  </Button>
+                </div>
+                <details>
+                  <summary>場所の詳細・WSL / 別プロファイル</summary>
+                  <label>
+                    フォルダーの場所
+                    <input
+                      aria-label="ログ保存先の場所"
+                      value={selectedPath}
+                      onChange={(event) => selectPath(event.target.value)}
+                    />
+                  </label>
+                  <p>
+                    標準候補はこの PC の環境変数に基づきます。WSL や
+                    portable、別のプロファイルは、その環境からアクセスできるログフォルダーを指定してください。WSL
+                    を起動したり、ドライブ全体を探したりはしません。
+                  </p>
+                  <p>
+                    Codex は CODEX_HOME / sessions（標準 ~/.codex/sessions）、Claude Code は
+                    CLAUDE_CONFIG_DIR / projects（標準
+                    ~/.claude/projects）。ほかのサービスはファイル取込を利用してください。
+                  </p>
+                </details>
+                {probe && (
+                  <div role="status">
+                    <strong>
+                      {probe.state === "ready"
+                        ? `${probe.count}件のログ候補`
+                        : probe.state === "empty"
+                          ? "ログなし"
+                          : probe.state === "missing"
+                            ? "保存先なし"
+                            : probe.state === "denied"
+                              ? "アクセスできません"
+                              : "確認できません"}
+                    </strong>
+                    <p>
+                      {probe.message} · 更新 {stamp(probe.lastUpdated)}
+                    </p>
+                  </div>
+                )}
+                <p>
+                  保存するのは時刻・サービス・Session ID
+                  と、依頼・回答の短い抜粋（各500文字以内・秘匿処理済み）です。生ログの全文は保存しません。提案と採用した記録は既存の共有同期設定に従います。
+                </p>
+                <pre className="agent-log-destination">{setup.destination}</pre>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={consent}
+                    disabled={!probe || !["ready", "empty"].includes(probe.state)}
+                    onChange={(event) => setConsent(event.target.checked)}
+                  />
+                  この保存内容と同期先を確認しました
+                </label>
+                <Button
+                  disabled={busy || !consent || !probe || !["ready", "empty"].includes(probe.state)}
+                  onClick={() =>
+                    void act(async () => {
+                      await workspaceApi.configureAgentLogSource({
+                        service,
+                        path: selectedPath,
+                        consent,
+                        destination: setup.destination,
+                      });
+                      setConsent(false);
+                      setProbe(null);
+                    })
+                  }
+                >
+                  この場所を登録
+                </Button>
+              </details>
+              {setup.errors.length > 0 && (
+                <ul role="alert">
+                  {setup.errors.map((issue, index) => (
+                    <li key={index}>{issue}</li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+          {error && <p role="alert">{error}</p>}
+        </>
+      )}
+    </details>
+  );
+}
 
 const CLIENTS = {
   codex: "Codex",
@@ -129,13 +457,10 @@ export function AgentWorkTimeline(
         {
           ...domain,
           agent_sessions: [
-            ...domain.agent_sessions,
-            ...pending
-              .filter(
-                (entry) =>
-                  !domain.agent_sessions.some((session) => session.id === entry.session.id),
-              )
-              .map((entry) => entry.session),
+            ...domain.agent_sessions.filter(
+              (session) => !pending.some((entry) => entry.session.id === session.id),
+            ),
+            ...pending.map((entry) => entry.session),
           ],
           references: [...domain.references, ...pending.flatMap((entry) => entry.references || [])],
         },

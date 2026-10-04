@@ -83,3 +83,10 @@ Debrief内の既存AI作業ログは、PCでは週／日カレンダー、狭い
 棒は開始〜終了／最終観測の経過区間であり、待機・背景処理・重複を含み得る。実働時間と費用はこの契約では取得していないため「未収録」とし、ゼロや経過時間を代入しない。最小クリック高は時間の長さを意味しない。
 Repository、Client、依頼、成果、残件、収録範囲は既存SessionとReferenceから読む。取込adapterと冪等性、Proposal採用の保存契約は変更しない。
 成果の詳細は既存outcomeの変更対象・判断・次の提案を折りたたみ表示する。関連Taskは既存Referenceの投影から開く。値がない成果やリンクを捏造しない。Client・Agent・Modelを別の項目として扱う。
+### AI ログ保存先の差分同期
+
+PC の保存先設定は userData/agent-log-sources/sources.json に置き、正本 Entity や共有同期へ保存しない。サービスを選択して候補を示す段階では走査しない。利用者が場所を確認し、時刻・Session ID・先頭依頼／最後の回答の各500文字以内の抜粋を保存すること、および現在の Tasken / 共有同期先を確認してから登録する。提案も共有同期設定の対象であり、生ログ全文を転送しない。同期先の変更後は再確認まで新規・変更の送信を止める。
+
+ファイルは読み取り専用のストリームとして解析し、選択したルートを越えるリンク・subagents を辿らない。128MB/file、8MB/line、10000 files、100000 entries、depth 6、512MB/run、120秒の上限を守る。途中の末尾は次回へ保留し、破損行の診断へ原文を含めない。mtime/size と正規化内容の digest により差分を判断し、指紋は提案の受領後に保存する。消えたログから Entity を削除しない。
+
+既存 Proposal の採用を使う。採用待ちの同一 source_session は変更を保留し、採用済みの native history/partial/unknown のみ capture + expected_version で更新提案を作る。source_app は tasken-log-sync:<client>、adapter は codex-rollout/1 または claude-transcript/1 に限定し、開始・意図・Client と既存 outcome の補足を保つ。終了の巻き戻し、完了化、版の競合は拒否する。Task/Reference の編集をこの経路へ加えない。定期同期は初期無効、明示有効時だけアプリ起動中に5分ごとで、常駐サービスやOSの自動起動を追加しない。

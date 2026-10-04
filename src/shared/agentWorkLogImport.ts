@@ -327,3 +327,100 @@ function nativeEnvelope(values: unknown[]) {
 }
 
 export type ImportedAgentWorkLog = ReturnType<typeof parseAgentWorkLog>;
+
+/** Bounded metadata projection for the PC collector; no transcript survives this boundary. */
+export function createNativeAgentLogAccumulator(service: "codex" | "claude_code") {
+  let source = "";
+  let version = "未記録";
+  let start = "";
+  let until = "";
+  let metaCount = 0;
+  let headerStart = "";
+  let first: { role: string; timestamp: string; text: string } | undefined;
+  let last: typeof first;
+  const stamp = (value: unknown) => {
+    if (typeof value !== "string" || !z.iso.datetime({ offset: true }).safeParse(value).success)
+      throw new Error("観測時刻にはタイムゾーン付きISO時刻が必要です。");
+    return date(value);
+  };
+  return {
+    add(value: unknown) {
+      const line = record(value);
+      if (
+        (service === "codex" && line.sessionId) ||
+        (service === "claude_code" && line.type === "session_meta")
+      )
+        throw new Error("選んだサービス以外のログが混在しています。");
+      if (line.timestamp) {
+        const at = stamp(line.timestamp);
+        if (!start || at < start) start = at;
+        if (!until || at > until) until = at;
+      }
+      if (service === "codex" && line.type === "session_meta") {
+        const header = record(line.payload);
+        if (++metaCount > 1) throw new Error("複数Sessionが混在しています。");
+        source = typeof header.id === "string" ? header.id : "";
+        if (header.cli_version !== undefined && typeof header.cli_version !== "string")
+          throw new Error("Client version の形式が不正です。");
+        version = String(header.cli_version || version).slice(0, 120);
+        headerStart = stamp(header.timestamp || line.timestamp);
+      }
+      if (service === "claude_code" && typeof line.sessionId === "string") {
+        if (source && source !== line.sessionId) throw new Error("複数Sessionが混在しています。");
+        source = line.sessionId;
+        if (line.version !== undefined && typeof line.version !== "string")
+          throw new Error("Client version の形式が不正です。");
+        if (line.version) version = line.version.slice(0, 120);
+      }
+      const message = record(service === "codex" ? line.payload : line.message);
+      const role = message.role;
+      if (role !== "user" && role !== "assistant") return;
+      if (
+        service === "codex"
+          ? line.type !== "response_item" ||
+            message.type !== "message" ||
+            message.channel === "analysis"
+          : line.type !== role || line.isMeta || line.isCompactSummary || line.isSidechain
+      )
+        return;
+      const content =
+        service === "codex" && Array.isArray(message.content)
+          ? message.content.flatMap((part) => {
+              const block = record(part);
+              return block.type === (role === "user" ? "input_text" : "output_text")
+                ? [{ type: "text", text: block.text }]
+                : [];
+            })
+          : message.content;
+      const text = visibleText(content);
+      if (
+        !text ||
+        (role === "user" &&
+          /^(?:# AGENTS\.md|<environment_context>|<user_instructions>|<system-reminder>|<local-command|<session-start-hook>)/.test(
+            text,
+          ))
+      )
+        return;
+      const entry = { role, timestamp: stamp(line.timestamp), text: text.slice(0, 500) };
+      if (role === "user" && (!first || entry.timestamp < first.timestamp)) first = entry;
+      if (role === "assistant" && (!last || entry.timestamp >= last.timestamp)) last = entry;
+    },
+    finish(): ImportedAgentWorkLog {
+      if (!source || !start || !until || (service === "codex" && metaCount !== 1))
+        throw new Error("選んだサービスのSession形式ではありません。");
+      const result = parseAgentWorkLog(
+        JSON.stringify({
+          schema: "tasken-ai-work-log/1",
+          adapter: service === "codex" ? "codex-rollout/1" : "claude-transcript/1",
+          client_version: version,
+          source_session: source,
+          started_at: service === "codex" ? headerStart : start,
+          observed_until: until,
+          coverage: "partial",
+          payload: [first, last].filter(Boolean),
+        }),
+      );
+      return { ...result, request_events: [], response_checkpoints: [] };
+    },
+  };
+}

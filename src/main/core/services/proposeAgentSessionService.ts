@@ -110,7 +110,36 @@ export class ProposeAgentSessionService {
         }
       }
       const current =
-        request.action === "finish" ? transaction.getEntity("agent_session", sessionId) : null;
+        request.action === "finish" || (request.action === "capture" && request.expected_version)
+          ? transaction.getEntity("agent_session", sessionId)
+          : null;
+      const refreshing = request.action === "capture" && request.expected_version !== undefined;
+      if (
+        refreshing &&
+        (!current ||
+          Number(current.version) !== request.expected_version ||
+          current.deleted_at ||
+          request.source_app !== `tasken-log-sync:${request.client_kind}` ||
+          !["codex", "claude_code"].includes(request.client_kind) ||
+          request.observation?.mode !== "history" ||
+          request.observation?.coverage !== "partial" ||
+          request.ended_at !== request.observation?.observed_until ||
+          current.client_kind !== request.client_kind ||
+          current.source_session_id !== request.source_session ||
+          current.status !== "unknown" ||
+          request.status !== "unknown" ||
+          !["codex-rollout/1", "claude-transcript/1"].includes(
+            request.observation?.adapter || "",
+          ) ||
+          (current.observation as { adapter?: string; mode?: string })?.adapter !==
+            request.observation?.adapter ||
+          (current.observation as { mode?: string })?.mode !== "history" ||
+          Date.parse(request.ended_at) < Date.parse(String(current.ended_at)))
+      )
+        throw new ProposeAgentSessionError(
+          "SESSION_CONFLICT",
+          "履歴ログの版または収録範囲が更新できません。再同期してください。",
+        );
       if (request.action === "finish") {
         if (!current) {
           throw new ProposeAgentSessionError(
@@ -141,7 +170,11 @@ export class ProposeAgentSessionService {
           );
         }
       }
-      if (request.action !== "finish" && transaction.getEntity("agent_session", sessionId)) {
+      if (
+        request.action !== "finish" &&
+        !refreshing &&
+        transaction.getEntity("agent_session", sessionId)
+      ) {
         throw new ProposeAgentSessionError(
           "SESSION_CONFLICT",
           "同じ source_session の Agent Session はすでに存在します。",
@@ -151,24 +184,35 @@ export class ProposeAgentSessionService {
 
       const session = normalizeAgentSession(
         request.action !== "finish"
-          ? {
-              id: sessionId,
-              started_at: request.started_at,
-              ended_at: request.action === "capture" ? request.ended_at : null,
-              status: request.action === "capture" ? request.status : "active",
-              client_kind: request.client_kind,
-              client_label: request.client_label || null,
-              agent_label: request.agent_label || null,
-              provider_label: request.provider_label || null,
-              model_label: request.model_label || null,
-              source_session_id: request.source_session,
-              ...(request.observation ? { observation: request.observation } : {}),
-              request_events: request.request_events || [],
-              response_checkpoints: request.response_checkpoints || [],
-              intent: request.intent,
-              outcome: request.action === "capture" ? request.outcome : null,
-              source: "ai_proposal",
-            }
+          ? refreshing && request.action === "capture"
+            ? {
+                ...current,
+                ended_at: request.ended_at,
+                status: "unknown",
+                observation: request.observation,
+                outcome: {
+                  ...(current!.outcome as Record<string, unknown>),
+                  summary: request.outcome.summary,
+                },
+              }
+            : {
+                id: sessionId,
+                started_at: request.started_at,
+                ended_at: request.action === "capture" ? request.ended_at : null,
+                status: request.action === "capture" ? request.status : "active",
+                client_kind: request.client_kind,
+                client_label: request.client_label || null,
+                agent_label: request.agent_label || null,
+                provider_label: request.provider_label || null,
+                model_label: request.model_label || null,
+                source_session_id: request.source_session,
+                ...(request.observation ? { observation: request.observation } : {}),
+                request_events: request.request_events || [],
+                response_checkpoints: request.response_checkpoints || [],
+                intent: request.intent,
+                outcome: request.action === "capture" ? request.outcome : null,
+                source: "ai_proposal",
+              }
           : {
               ...current,
               ended_at: request.ended_at,
@@ -177,7 +221,9 @@ export class ProposeAgentSessionService {
             },
       );
       const references =
-        request.action !== "finish" ? relationEntries(request, sessionId, proposalId) : [];
+        request.action !== "finish" && !refreshing
+          ? relationEntries(request, sessionId, proposalId)
+          : [];
       for (const reference of references) {
         if (!transaction.getEntity(reference.target_type, reference.target_id)) {
           throw new ProposeAgentSessionError(
@@ -208,6 +254,7 @@ export class ProposeAgentSessionService {
           source_session: request.source_session,
           request_digest: requestDigest,
           payload_digest: digest(payload),
+          ...(refreshing ? { history_refresh_version: request.expected_version } : {}),
         },
         status: "pending",
         received_at: receivedAt,

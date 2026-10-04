@@ -30,6 +30,13 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { AgentLogSync, agentLogCandidates } from "./agentLogSync";
+import type {
+  AgentLogSourceConfig,
+  AgentLogService,
+  AgentLogSetup,
+} from "../../shared/agentLogSync";
 
 import type {
   ArtifactFileImportRequest,
@@ -3710,6 +3717,94 @@ export class WorkspaceService {
     }
   }
 
+  private localAgentLogs?: AgentLogSync;
+  private agentLogDestination() {
+    const directory = String(this.repository.getPreference("sharedSyncDirectory") || "");
+    const enabled = Boolean(this.repository.getPreference("sharedSyncEnabled"));
+    if (enabled && !directory)
+      throw new Error("Tasken の共有同期先が未設定です。設定を確認してください。");
+    return `この PC の Tasken: ${this.userDataPath}${enabled ? `\n共有同期先: ${directory}` : "\n共有同期: 無効"}`;
+  }
+  initializeAgentLogSync(notify: () => void) {
+    this.localAgentLogs = new AgentLogSync(
+      path.join(this.userDataPath, "agent-log-sources"),
+      async (imported, destination) => {
+        if (destination !== this.agentLogDestination())
+          throw new Error("Tasken の保存先が変更されています。場所を再確認して登録してください。");
+        if (!this.taskenCoreClient?.proposeAgentSession)
+          throw new Error("Tasken Core に接続できません。");
+        const source_app = `tasken-log-sync:${imported.client_kind}`;
+        const pending = this.repository.list("ai_proposal").some((proposal) => {
+          const request = proposal.request as Record<string, unknown> | undefined;
+          return (
+            proposal.status === "pending" &&
+            proposal.source_app === source_app &&
+            request?.source_session === imported.source_session
+          );
+        });
+        if (pending) return "deferred";
+        const current = this.repository
+          .list("agent_session")
+          .find(
+            (session) =>
+              session.client_kind === imported.client_kind &&
+              session.source_session_id === imported.source_session &&
+              session.started_at === imported.started_at &&
+              (session.observation as { adapter?: string })?.adapter ===
+                imported.observation.adapter,
+          );
+        const result = await this.taskenCoreClient.proposeAgentSession({
+          ...imported,
+          action: "capture",
+          ...(current ? { expected_version: Number(current.version) } : {}),
+          idempotency_key: `local-log-v1:${createHash("sha256")
+            .update(JSON.stringify({ imported, version: current?.version || null }))
+            .digest("hex")}`,
+          caller: "Tasken local log sync",
+          source: "mcp",
+          source_app,
+          actor: { kind: "ai_agent" },
+        });
+        notify();
+        return result.status;
+      },
+    );
+    void this.localAgentLogs.load();
+  }
+  async agentLogSetup(): Promise<AgentLogSetup> {
+    if (!this.localAgentLogs) throw new Error("ログ同期を初期化できません。");
+    await this.localAgentLogs.load();
+    return {
+      ...this.localAgentLogs.status(),
+      destination: this.agentLogDestination(),
+      candidates: [
+        ...agentLogCandidates("codex", os.homedir(), process.env),
+        ...agentLogCandidates("claude_code", os.homedir(), process.env),
+      ],
+    };
+  }
+  probeAgentLogSource(service: AgentLogService, root: string) {
+    return this.localAgentLogs!.probe(service, root);
+  }
+  configureAgentLogSource(input: AgentLogSourceConfig) {
+    return this.localAgentLogs!.configure(input, this.agentLogDestination());
+  }
+  removeAgentLogSource(id: string) {
+    return this.localAgentLogs!.remove(id);
+  }
+  setAgentLogBackground(enabled: boolean) {
+    return this.localAgentLogs!.background(enabled);
+  }
+  syncAgentLogs() {
+    return this.localAgentLogs!.run();
+  }
+  cancelAgentLogSync() {
+    return this.localAgentLogs!.cancel();
+  }
+  stopAgentLogSync() {
+    this.localAgentLogs?.stop();
+  }
+
   /** User-selected, redacted text becomes a proposal through the existing Core. */
   async importAgentWorkLog(raw: string, repositoryContextIds: string[]) {
     const imported = parseAgentWorkLog(raw);
@@ -3729,7 +3824,9 @@ export class WorkspaceService {
       idempotency_key: `file-v1:${createHash("sha256").update(JSON.stringify({ imported, repositoryContextIds })).digest("hex")}`,
       caller: "Tasken file ingestion",
       source: "mcp",
-      source_app: `tasken-session-hook:${imported.client_kind}`,
+      source_app: ["codex-rollout/1", "claude-transcript/1"].includes(imported.observation.adapter)
+        ? `tasken-log-sync:${imported.client_kind}`
+        : `tasken-session-hook:${imported.client_kind}`,
       actor: { kind: "ai_agent" },
       repository_context_ids: repositoryContextIds,
     };

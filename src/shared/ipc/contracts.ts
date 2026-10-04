@@ -120,6 +120,13 @@ export type RecordingIndicatorCommand = "pause" | "resume" | "stop" | "discard";
 export const IPC = {
   workspaceLoad: "workspace:load",
   agentWorkLogImport: "agent-work-log:import",
+  agentLogSetup: "agent-log:setup",
+  agentLogProbe: "agent-log:probe",
+  agentLogConfigure: "agent-log:configure",
+  agentLogRemove: "agent-log:remove",
+  agentLogBackground: "agent-log:background",
+  agentLogSync: "agent-log:sync",
+  agentLogCancel: "agent-log:cancel",
   workspaceBootstrap: "workspace:bootstrap",
   workspaceMeta: "workspace:meta",
   mobileGatewayDiagnostics: "mobile-gateway:diagnostics",
@@ -776,6 +783,18 @@ export interface ResearchDeskApi {
     getMeta(): Promise<WorkspaceMeta>;
   };
   agentWorkLogs: {
+    setup(): Promise<import("../agentLogSync").AgentLogSetup>;
+    probe(
+      service: import("../agentLogSync").AgentLogService,
+      path: string,
+    ): Promise<import("../agentLogSync").AgentLogProbe>;
+    configure(
+      input: import("../agentLogSync").AgentLogSourceConfig,
+    ): Promise<import("../agentLogSync").AgentLogSyncStatus>;
+    remove(id: string): Promise<import("../agentLogSync").AgentLogSyncStatus>;
+    background(enabled: boolean): Promise<import("../agentLogSync").AgentLogSyncStatus>;
+    sync(): Promise<import("../agentLogSync").AgentLogSyncStatus>;
+    cancel(): Promise<import("../agentLogSync").AgentLogSyncStatus>;
     import(
       raw: string,
       repositoryContextIds: string[],

@@ -7,7 +7,7 @@ import { ActivityLogPanel } from "../components/ActivityLogPanel";
 import { TaskenDebriefPanel } from "../components/TaskenDebriefPanel";
 import { dailyReportDate, readTaskenDebrief } from "../lib/taskenDebrief";
 import type { PageProps } from "../types";
-import { AgentWorkTimeline } from "../components/AgentWorkTimeline";
+import { AgentWorkTimeline, AgentLogSyncPanel } from "../components/AgentWorkTimeline";
 
 export function DebriefPage(props: PageProps) {
   const { data, domain, themes, notes, setToast, openDrawer, openNoteForEditing } = props;
@@ -43,6 +43,7 @@ export function DebriefPage(props: PageProps) {
             setImporting(true);
           }}
         />
+        <AgentLogSyncPanel />
         <details
           className="debrief-tasken-activity"
           open={weeklyOpen}
