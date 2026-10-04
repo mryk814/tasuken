@@ -44,14 +44,14 @@ const expectedActivityRows = [
     theme: "llzo",
   },
   {
-    time: "08:30–11:00",
+    time: "08:30–11:00 (終了)",
     origin: "Codex",
     title: "集中実験と解析",
     source: "Codex",
     theme: "llzo",
   },
   {
-    time: "10:20–10:50",
+    time: "10:20–10:50 (終了)",
     origin: "Claude Code",
     title: "解析ノートの補助確認",
     source: "Claude Code",
@@ -65,14 +65,14 @@ const expectedActivityRows = [
     theme: "aluminum",
   },
   {
-    time: "13:30–15:00",
+    time: "13:30–15:00 (終了)",
     origin: "Codex",
     title: "製造条件の集中解析",
     source: "Codex",
     theme: "aluminum",
   },
   {
-    time: "14:10–14:40",
+    time: "14:10–14:40 (終了)",
     origin: "Cursor",
     title: "レビュー観点の補助解析",
     source: "Cursor",
@@ -230,7 +230,7 @@ function assertFixtureRowSources(rows) {
     assert.equal(
       matches.length,
       1,
-      `Fixture row must match time/origin/title exactly once: ${expected.time} / ${expected.origin} / ${expected.title}`,
+      `Fixture row must match time/origin/title exactly once: ${expected.time} / ${expected.origin} / ${expected.title}; received ${JSON.stringify(rows.map(({ time, origin, title }) => ({ time, origin, title })))}`,
     );
     const [row] = matches;
     assert.equal(
@@ -417,6 +417,7 @@ async function assertWorkLogDateRollover() {
   await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
   await page.clock.setFixedTime(now);
   await page.reload();
+  await open.waitFor();
 }
 
 try {
@@ -443,13 +444,8 @@ try {
   });
   await assertWorkLogDateRollover();
   await page.getByRole("button", { name: "Debrief", exact: true }).click();
-  const taskenActivity = page.locator("details").filter({
-    has: page.locator("summary").filter({ hasText: /^TaskenのActivity$/ }),
-  });
+  const taskenActivity = page.locator("#daily-activity");
   await taskenActivity.waitFor({ state: "visible" });
-  if (!(await taskenActivity.evaluate((details) => details.open))) {
-    await taskenActivity.locator("summary").click();
-  }
   const activityDate = taskenActivity.getByLabel("Activity対象日");
   await activityDate.waitFor();
   await activityDate.fill("2026-08-28");

@@ -33,6 +33,8 @@ NAS更新に必要な対象service・image・volume・writer停止・backup・�
 
 ## 統合候補の検証結果
 
+タグ作成前の既存 Activity Release smoke は、廃止された「TaskenのActivity」折りたたみを探して失敗した。検証先を現在の主画面 `#daily-activity` に合わせ、確定終了を示す時刻ラベルも期待値へ加えた。画面再読み込み後は Today の操作入口が再表示されるまで待つ。隔離実Electronの development 実行で、9件の時刻・出典・Theme色、5本の期間アンカーと7本の点アンカー、08–19時の初期範囲、詳細・Task編集・日跨ぎの入力保持・横幅の既存検証が成功した。画像は `output/playwright/activity-packaged-smoke/activity-development.png`。packaged app の検証は最終Releaseのゲートで実施する。
+
 初回統合候補 `3595b2fcb6458891c5a91ac49dfe2fc79d1938a9` でWindows quality（package / packaged MCPを含む）、Android quality、Android release signingの検証jobが成功した。恒久署名APKの生成・Release公開をこのCIの成功だけで完了扱いにはしない。
 
 統合境界のNode63テスト、typecheck、build、Android JVM testとdebug app/test APKの生成が成功。新しい空のAPI35 emulatorでRoom移行・Feed操作・offline幅の38テスト、UI tourの3テストが成功した。統合buildの保存先collectorは実Electronの1760px / 390pxで登録・同期・採用・同一Session更新・停止・再起動・欠損表示を確認した。画像は `output/playwright/agent-log-sync/`、Androidは `output/android-ui/` に保存して目視した。
