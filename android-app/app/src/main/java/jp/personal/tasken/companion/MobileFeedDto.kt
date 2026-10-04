@@ -25,6 +25,21 @@ data class MobileFeedLinkDto(
     val comment: String? = null,
 )
 
+/** 投稿への返信（自分のメモ・AIの返答）。Desktopの並び（古い順）のまま受け取る。 */
+@Serializable
+data class MobileFeedReplyDto(
+    val replyId: String,
+    /** `human`（自分）または `ai`。 */
+    val authorKind: String,
+    val authorLabel: String,
+    val createdAt: String,
+    val body: String,
+    /** まだDesktopへ届いていない自分の返信。端末の中だけの印で、契約には載らない。 */
+    @kotlinx.serialization.Transient val pending: Boolean = false,
+) {
+    val isHuman: Boolean get() = authorKind == "human"
+}
+
 @Serializable
 data class MobileFeedPostDto(
     val postId: String,
@@ -39,6 +54,10 @@ data class MobileFeedPostDto(
     val themeId: String? = null,
     val themeName: String? = null,
     val attachment: MobileFeedAttachmentDto? = null,
+    /** 自分が付けた反応（`bookmark` / `interesting`）。 */
+    val reactions: List<String> = emptyList(),
+    /** 返信（古い順）。 */
+    val replies: List<MobileFeedReplyDto> = emptyList(),
     val link: MobileFeedLinkDto? = null,
 ) {
     val createdInstant: Instant? get() = parseInstantOrNull(createdAt)
@@ -99,3 +118,130 @@ internal fun MobileFeedPostDto.toCacheEntity(
 )
 
 internal fun FeedCacheEntity.toPost(): MobileFeedPostDto = MobileFeedContract.decodePost(payloadJson)
+
+/* -------------------------------------------------------------------------
+ * Feedへの書き込み（反応・自分のメモとしての返信）。
+ * 端末の中へ先に保存して送り、応答を失っても同じcommandIdで再送する。
+ * ---------------------------------------------------------------------- */
+
+const val FEED_REACTION_BOOKMARK = "bookmark"
+const val FEED_REACTION_INTERESTING = "interesting"
+const val FEED_REPLY_MAX_LENGTH = 4000
+
+@Serializable
+data class MobileFeedActionDto(
+    /** `SetFeedReaction` または `PostFeedReply`。使わない項目は送らない。 */
+    val name: String,
+    val postId: String,
+    val kind: String? = null,
+    val on: Boolean? = null,
+    val replyId: String? = null,
+    val body: String? = null,
+)
+
+@Serializable
+data class MobileFeedActionEnvelopeDto(
+    val apiVersion: Int,
+    val schemaVersion: Int,
+    val requestId: String,
+    val commandId: String,
+    val idempotencyKey: String,
+    val clientDeviceId: String,
+    val issuedAt: String,
+    val action: MobileFeedActionDto,
+)
+
+@Serializable
+data class MobileFeedActionDataDto(val commandId: String, val status: String)
+
+@Serializable
+data class MobileFeedActionResponseDto(
+    val ok: Boolean,
+    val meta: MobileAttentionMetaDto,
+    val data: MobileFeedActionDataDto,
+)
+
+object MobileFeedActionContract {
+    private val json = Json {
+        ignoreUnknownKeys = false
+        isLenient = false
+        coerceInputValues = false
+        encodeDefaults = true
+        explicitNulls = false
+    }
+
+    fun encode(envelope: MobileFeedActionEnvelopeDto): String = json.encodeToString(envelope)
+
+    fun decodeEnvelope(payload: String): MobileFeedActionEnvelopeDto = json.decodeFromString(payload)
+
+    fun decodeResponse(payload: String): MobileFeedActionResponseDto = json.decodeFromString(payload)
+
+    fun requireReactionKind(kind: String) {
+        require(kind == FEED_REACTION_BOOKMARK || kind == FEED_REACTION_INTERESTING) { "未対応の反応です。" }
+    }
+
+    /** 返信の本文を整える。空や長すぎる返信は送らない。 */
+    fun normalizeReply(body: String): String {
+        val text = body.trim()
+        require(text.isNotEmpty()) { "返信を入力してください。" }
+        require(text.length <= FEED_REPLY_MAX_LENGTH) { "返信は${FEED_REPLY_MAX_LENGTH}文字以内で入力してください。" }
+        return text
+    }
+}
+
+/** 送信待ちの書き込みの結果。 */
+sealed interface MobileFeedActionResult {
+    /** 端末に保存した。Desktopへは送信済みか、接続できたときに送る。 */
+    data object Queued : MobileFeedActionResult
+
+    /** Desktopが受け付けなかった。送信待ちは外した。 */
+    data class Rejected(val message: String) : MobileFeedActionResult
+
+    /** 保存しなかった（権限がない・接続設定がない）。 */
+    data class Unavailable(val message: String) : MobileFeedActionResult
+}
+
+/**
+ * 保存済みの投稿へ、まだDesktopに届いていない書き込みを重ねる。
+ * 反応は付け外しを先に見せ、返信は「送信待ち」の印を付けて末尾に並べる。
+ */
+internal fun applyPendingFeedActions(
+    posts: List<MobileFeedPostDto>,
+    pending: List<MobileFeedActionEnvelopeDto>,
+): List<MobileFeedPostDto> {
+    if (pending.isEmpty()) return posts
+    val ordered = pending.sortedBy { it.issuedAt }
+    return posts.map { post ->
+        val mine = ordered.filter { it.action.postId == post.postId }
+        if (mine.isEmpty()) return@map post
+        val reactions = post.reactions.toMutableList()
+        val replies = post.replies.toMutableList()
+        for (envelope in mine) {
+            val action = envelope.action
+            when (action.name) {
+                "SetFeedReaction" -> {
+                    val kind = action.kind ?: continue
+                    if (action.on == true) {
+                        if (kind !in reactions) reactions += kind
+                    } else {
+                        reactions -= kind
+                    }
+                }
+                "PostFeedReply" -> {
+                    val replyId = action.replyId ?: continue
+                    if (replies.none { it.replyId == replyId }) {
+                        replies += MobileFeedReplyDto(
+                            replyId = replyId,
+                            authorKind = "human",
+                            authorLabel = "自分",
+                            createdAt = envelope.issuedAt,
+                            body = action.body.orEmpty(),
+                            pending = true,
+                        )
+                    }
+                }
+            }
+        }
+        post.copy(reactions = reactions, replies = replies)
+    }
+}

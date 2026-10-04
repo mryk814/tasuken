@@ -60,6 +60,33 @@ class MobileFeedGoldenTest {
     }
 
     @Test
+    fun carriesMyReactionsAndTheThreadInDesktopOrder() {
+        val posts = MobileFeedContract.decode(golden).data.posts.associateBy { it.postId }
+        val codex = posts.getValue("feed-post:p-codex")
+
+        assertEquals(setOf("bookmark", "interesting"), codex.reactions.toSet())
+        // 古い順。自分のメモ → AIの返答 → AIの返答。
+        assertEquals(
+            listOf("reply-self-1", "feed-answer:a-claude", "reply-ai-1"),
+            codex.replies.map { it.replyId },
+        )
+        assertTrue(codex.replies.first().isHuman)
+        assertFalse(codex.replies.last().isHuman)
+        assertTrue(codex.replies.none { it.pending })
+        assertTrue(posts.getValue("own-1").reactions.isEmpty())
+        assertTrue(posts.getValue("own-1").replies.isEmpty())
+    }
+
+    @Test
+    fun pendingFlagIsNeverPartOfTheContract() {
+        val reply = MobileFeedReplyDto("r", "human", "自分", "2026-10-04T10:00:00Z", "メモ", pending = true)
+        val post = MobileFeedContract.decode(golden).data.posts.first().copy(replies = listOf(reply))
+
+        // 端末の中だけの印は保存・送信に出ない。
+        assertFalse(MobileFeedContract.encodePost(post).contains("pending"))
+    }
+
+    @Test
     fun cachedPostRoundTripsThroughItsStoredPayload() {
         val post = MobileFeedContract.decode(golden).data.posts.first()
         val restored = post.toCacheEntity("server-1", 0, "2026-10-04T09:00:00Z").toPost()

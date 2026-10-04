@@ -436,6 +436,11 @@ internal fun TodayApp(
         onDispose { speechRecognizer.destroy() }
     }
 
+    // 反応・返信が受け付けられなかったときだけ知らせる（保存できたときは画面に出るので黙る）。
+    LaunchedEffect(todayViewModel) {
+        todayViewModel.feedMessages.collect { message -> snackbarHostState.showSnackbar(message) }
+    }
+
     LaunchedEffect(todayViewModel) {
         todayViewModel.taskCompletionFeedback.collectLatest { feedback ->
             hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -879,6 +884,8 @@ internal fun TodayApp(
                                 themes = themes,
                                 proposals = taskWorkProposals,
                                 feedPosts = feedPosts,
+                                onToggleFeedReaction = todayViewModel::toggleFeedReaction,
+                                onPostFeedReply = todayViewModel::postFeedReply,
                                 paneState = paneState,
                                 onRetry = todayViewModel::load,
                                 onRetryPairing = todayViewModel::retryPairing,
@@ -2012,6 +2019,10 @@ internal fun FeedListPane(
     onTaskSelected: (String) -> Unit,
     /** DesktopのFeed投稿（AIの投稿・自分の投稿）。タスクの動きと同じ流れに並べる。 */
     feedPosts: List<MobileFeedPostDto> = emptyList(),
+    /** 「おもしろい」「ブックマーク」の付け外し。 */
+    onToggleFeedReaction: (MobileFeedPostDto, String) -> Unit = { _, _ -> },
+    /** 返信（自分のメモ）を残す。 */
+    onPostFeedReply: (MobileFeedPostDto, String) -> Unit = { _, _ -> },
     attention: List<AttentionRow> = emptyList(),
     attentionCounts: MobileAttentionCountsDto? = null,
     attentionFetchedAt: String? = null,
@@ -2045,6 +2056,18 @@ internal fun FeedListPane(
         }
     // DesktopのFeedと同じく「すべて」と「対応待ち」を切り替える。AIの投稿も人の記録も同じ流れに置く。
     var onlyNeedsYou by rememberSaveable { mutableStateOf(false) }
+    var replyingToPostId by rememberSaveable { mutableStateOf<String?>(null) }
+    feedPosts.firstOrNull { it.postId == replyingToPostId }?.let { target ->
+        FeedReplySheet(
+            post = target,
+            onSend = { body ->
+                onPostFeedReply(target, body)
+                replyingToPostId = null
+            },
+            onDismiss = { replyingToPostId = null },
+            dictation = replyDictation,
+        )
+    }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -2173,6 +2196,8 @@ internal fun FeedListPane(
                                     isNew = isNew,
                                     highlighted = entry.post.taskId != null && entry.post.taskId == paneState.selectedTaskId,
                                     onOpenTask = onTaskSelected,
+                                    onToggleReaction = { kind -> onToggleFeedReaction(entry.post, kind) },
+                                    onReply = { replyingToPostId = entry.post.postId },
                                 )
                             }
                             is AiTimelineEntry.Proposal -> item(key = entry.key) {

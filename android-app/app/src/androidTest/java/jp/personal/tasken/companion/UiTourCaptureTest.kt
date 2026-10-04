@@ -118,6 +118,7 @@ class UiTourCaptureTest {
                                 createdAt = now.minusSeconds(120).toString(),
                                 body = listOf("今日は粘度の実験を進める。", "温度条件は明日決める。"),
                                 themeName = "触媒探索",
+                                reactions = listOf("bookmark"),
                             ),
                             MobileFeedPostDto(
                                 postId = "ai-1", authorKind = "ai", authorLabel = "Codex", topic = "insight",
@@ -126,6 +127,12 @@ class UiTourCaptureTest {
                                 taskId = "t3", taskTitle = "考察メモを見直す", themeName = "触媒探索",
                                 attachment = MobileFeedAttachmentDto("note_draft", "粘度測定は温度を先に揃える"),
                                 link = MobileFeedLinkDto("https://example.com/viscosity", "測定ガイド", null),
+                                reactions = listOf("interesting"),
+                                replies = listOf(
+                                    MobileFeedReplyDto("r1", "human", "自分", now.minusSeconds(300).toString(), "25℃で進める。40℃は来週。"),
+                                    MobileFeedReplyDto("r2", "ai", "Claude Code", now.minusSeconds(200).toString(), "標準条件なので問題ありません。"),
+                                    MobileFeedReplyDto("r3", "human", "自分", now.minusSeconds(5).toString(), "あとで資料も読む", pending = true),
+                                ),
                             ),
                         ),
                         paneState = TodayPaneState(),
@@ -145,7 +152,7 @@ class UiTourCaptureTest {
         capture("12-feed")
         step("13-feed-long-press") { composeRule.onNodeWithText(TITLES[3]).performTouchInput { longClick() } }
         back()
-        step("14-feed-needs-you") { composeRule.onNodeWithTag("feed-filter-needs-you").performClick() }
+        step("14-feed-reply-sheet") { composeRule.onNodeWithTag("feed-post-reply-own-1").performClick() }
     }
 
     private fun step(name: String, action: () -> Unit) {

@@ -28,6 +28,8 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -48,6 +50,7 @@ private const val MOBILE_GATEWAY_LOG_TAG = "TaskenMobileGateway"
 private val MOBILE_PROCESS_INSTANCE_ID = UUID.randomUUID().toString()
 private const val MOBILE_HUMAN_REVIEW_SCOPE = "mobile:human-review"
 private const val MOBILE_CONTEXT_READ_SCOPE = "mobile:context-read"
+private const val MOBILE_CAPTURE_WRITE_SCOPE = "mobile:capture-write"
 
 /** 要対応の取得上限。Desktop側の上限と同じ値を使う。 */
 private const val ATTENTION_PAGE_SIZE = 50
@@ -58,7 +61,7 @@ private fun aiReadyPatch(enabled: Boolean) = buildJsonObject { put("aiReady", en
 private val SUPPORTED_MOBILE_SCOPES = setOf(
     "mobile:read",
     "mobile:task-write",
-    "mobile:capture-write",
+    MOBILE_CAPTURE_WRITE_SCOPE,
     "mobile:proposal-review",
     MOBILE_HUMAN_REVIEW_SCOPE,
     MOBILE_CONTEXT_READ_SCOPE,
@@ -448,6 +451,20 @@ class AndroidMobileTaskRepository(
                     runCatching { cached.toPost() }
                         .onFailure { error ->
                             Log.w(MOBILE_GATEWAY_LOG_TAG, "Discarding an invalid cached feed post", error)
+                        }
+                        .getOrNull()
+                }
+        }
+
+    override fun observePendingFeedActions(): Flow<List<MobileFeedActionEnvelopeDto>> =
+        combine(dao.observeFeedPendingActions(), dao.observeSyncState()) { pending, syncState ->
+            val serverId = syncState?.serverId
+            pending
+                .filter { it.serverId == serverId }
+                .mapNotNull { row ->
+                    runCatching { MobileFeedActionContract.decodeEnvelope(row.envelopeJson) }
+                        .onFailure { error ->
+                            Log.w(MOBILE_GATEWAY_LOG_TAG, "Discarding an unreadable pending feed action", error)
                         }
                         .getOrNull()
                 }
@@ -1086,6 +1103,150 @@ class AndroidMobileTaskRepository(
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile attention refresh failed", error)
             false
         }
+    }
+
+    private val feedActionMutex = Mutex()
+
+    /** 反応・返信を書ける接続か。足りないときは保存せず、理由を返す。 */
+    private fun feedWriteBlocker(configuration: MobileGatewayConfiguration): String? = when {
+        configuration.origin.isBlank() || !configuration.paired -> "Desktopへ接続すると、反応と返信を使えます。"
+        MOBILE_CAPTURE_WRITE_SCOPE !in configuration.scopes ->
+            "この権限では書き込めません。Desktopで新しいコードを発行して再ペアリングしてください。"
+        else -> null
+    }
+
+    private suspend fun enqueueFeedAction(
+        postId: String,
+        dedupeKey: String?,
+        commandId: String,
+        action: MobileFeedActionDto,
+    ): MobileFeedActionResult {
+        val configuration = store.configuration()
+        feedWriteBlocker(configuration)?.let { return MobileFeedActionResult.Unavailable(it) }
+        val serverId = dao.syncState()?.serverId
+            ?: return MobileFeedActionResult.Unavailable("Taskを同期してから、反応と返信を使えます。")
+        val now = Instant.now().toString()
+        val envelope = MobileFeedActionEnvelopeDto(
+            apiVersion = TASKEN_MOBILE_API_VERSION,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+            requestId = UUID.randomUUID().toString(),
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = store.deviceId(),
+            issuedAt = now,
+            action = action,
+        )
+        dao.enqueueFeedAction(
+            FeedPendingActionEntity(
+                commandId = commandId,
+                serverId = serverId,
+                postId = postId,
+                dedupeKey = dedupeKey,
+                envelopeJson = MobileFeedActionContract.encode(envelope),
+                createdAt = now,
+            ),
+        )
+        // 送れなくても保存は済んでいる。接続できたときに同じcommandIdで送る。
+        runCatching { flushFeedActions() }
+            .onFailure { error ->
+                if (error is CancellationException) throw error
+                Log.w(MOBILE_GATEWAY_LOG_TAG, "Feed action flush failed", error)
+            }
+        return MobileFeedActionResult.Queued
+    }
+
+    override suspend fun enqueueFeedReaction(postId: String, kind: String, on: Boolean): MobileFeedActionResult {
+        MobileFeedActionContract.requireReactionKind(kind)
+        return enqueueFeedAction(
+            postId = postId,
+            dedupeKey = "reaction:$postId:$kind",
+            commandId = UUID.randomUUID().toString(),
+            action = MobileFeedActionDto(name = "SetFeedReaction", postId = postId, kind = kind, on = on),
+        )
+    }
+
+    override suspend fun enqueueFeedReply(postId: String, body: String): MobileFeedActionResult {
+        val text = try {
+            MobileFeedActionContract.normalizeReply(body)
+        } catch (error: IllegalArgumentException) {
+            return MobileFeedActionResult.Rejected(error.message ?: "返信を確認してください。")
+        }
+        // 返信IDとcommandIdは同じにする。応答を失った再送でも返信が増えない。
+        val replyId = UUID.randomUUID().toString()
+        return enqueueFeedAction(
+            postId = postId,
+            dedupeKey = null,
+            commandId = replyId,
+            action = MobileFeedActionDto(name = "PostFeedReply", postId = postId, replyId = replyId, body = text),
+        )
+    }
+
+    override suspend fun flushFeedActions(): List<String> = feedActionMutex.withLock {
+        val configuration = store.configuration()
+        val token = store.readToken()
+        val serverId = dao.syncState()?.serverId
+        if (configuration.origin.isBlank() || token == null || serverId == null) return emptyList()
+        if (feedWriteBlocker(configuration) != null) return emptyList()
+        val rejected = mutableListOf<String>()
+        var sentAny = false
+        for (row in dao.feedPendingActions(serverId)) {
+            val envelope = try {
+                MobileFeedActionContract.decodeEnvelope(row.envelopeJson)
+            } catch (error: Exception) {
+                Log.w(MOBILE_GATEWAY_LOG_TAG, "Dropping an unreadable pending feed action", error)
+                dao.deleteFeedPendingAction(row.commandId)
+                continue
+            }
+            val response = try {
+                gatewayRequest(
+                    origin = configuration.origin,
+                    path = "/v1/feed-actions",
+                    method = "POST",
+                    body = row.envelopeJson,
+                    accessToken = token,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                // 接続できない。残りも同じ順で、次に接続できたときに送る。
+                Log.w(MOBILE_GATEWAY_LOG_TAG, "Feed action could not reach the Desktop", error)
+                break
+            }
+            when {
+                response.status == 401 -> {
+                    if (isConfirmedGatewayUnauthorized(response, serverId)) store.clearTokenIfMatches(token)
+                    break
+                }
+                response.status == 200 -> {
+                    val decoded = MobileFeedActionContract.decodeResponse(response.body)
+                    if (decoded.meta.serverId != serverId || decoded.data.commandId != row.commandId) {
+                        Log.w(MOBILE_GATEWAY_LOG_TAG, "Feed action response does not match the request")
+                        break
+                    }
+                    dao.deleteFeedPendingAction(row.commandId)
+                    sentAny = true
+                }
+                response.status in setOf(400, 403, 404, 409) -> {
+                    val error = runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()
+                    if (error != null && error.meta.serverId != serverId) break
+                    val code = error?.error?.code
+                    if (code == "capability_unavailable") {
+                        // 常時稼働nodeなど、書き込み口を持たない接続先。入力は消さず、送れる接続先でまた送る。
+                        break
+                    }
+                    dao.deleteFeedPendingAction(row.commandId)
+                    rejected += when (code) {
+                        "not_found" -> "この投稿はDesktopで見つかりませんでした。"
+                        "idempotency_conflict" -> "同じ返信が別の内容で保存されています。"
+                        else -> error?.error?.message ?: "Desktopが受け付けませんでした。"
+                    }
+                }
+                else -> break
+            }
+        }
+        // 送れた分をDesktopの状態に合わせる（反応・返信が正本として戻ってくる）。
+        if (sentAny) runCatching { refreshFeed(configuration.origin, token) }
+        rejected
     }
 
     override suspend fun refreshFeed(): Boolean {

@@ -4,7 +4,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -40,7 +44,13 @@ class FeedPostsUiTest {
         ),
     )
 
-    private fun show(seenBefore: Instant? = now.minusSeconds(3600), onTask: (String) -> Unit = {}) {
+    private fun show(
+        seenBefore: Instant? = now.minusSeconds(3600),
+        onTask: (String) -> Unit = {},
+        feed: List<MobileFeedPostDto> = posts(),
+        onReaction: (MobileFeedPostDto, String) -> Unit = { _, _ -> },
+        onReply: (MobileFeedPostDto, String) -> Unit = { _, _ -> },
+    ) {
         composeRule.setContent {
             TaskenTheme {
                 Surface(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -49,7 +59,9 @@ class FeedPostsUiTest {
                         tasks = emptyList(),
                         themes = emptyList(),
                         proposals = emptyList(),
-                        feedPosts = posts(),
+                        feedPosts = feed,
+                        onToggleFeedReaction = onReaction,
+                        onPostFeedReply = onReply,
                         paneState = TodayPaneState(),
                         onRetry = {}, onRetryPairing = {}, onPair = { _, _ -> },
                         onTaskSelected = onTask,
@@ -90,6 +102,63 @@ class FeedPostsUiTest {
         // 広げると本文が伸びるので、閉じる操作の位置まで読み進める。
         composeRule.onNodeWithTag("ai-inbox-list").performScrollToNode(hasTestTag("feed-post-toggle-ai-1"))
         composeRule.onNodeWithText("閉じる").assertIsDisplayed()
+    }
+
+    @Test
+    fun tappingTheHeartAndTheBookmarkReportsWhichReactionWasMeant() {
+        val taps = mutableListOf<Pair<String, String>>()
+        show(onReaction = { post, kind -> taps += post.postId to kind })
+
+        composeRule.onNodeWithTag("feed-post-like-own-1").performClick()
+        composeRule.onNodeWithTag("feed-post-bookmark-own-1").performClick()
+
+        assertEquals(listOf("own-1" to "interesting", "own-1" to "bookmark"), taps)
+    }
+
+    @Test
+    fun anActiveReactionIsShownAsFilledAndCanBeUndone() {
+        val reacted = posts().map { if (it.postId == "own-1") it.copy(reactions = listOf("interesting")) else it }
+        show(feed = reacted)
+
+        composeRule.onNodeWithTag("feed-post-like-own-1").assertContentDescriptionEquals("おもしろいを外す")
+        composeRule.onNodeWithTag("feed-post-bookmark-own-1").assertContentDescriptionEquals("ブックマーク")
+    }
+
+    @Test
+    fun theReplyButtonOpensAMemoInputAndSendsTheTrimmedText() {
+        var sent: Pair<String, String>? = null
+        show(onReply = { post, body -> sent = post.postId to body })
+
+        composeRule.onNodeWithTag("feed-post-reply-own-1").performClick()
+        composeRule.onNodeWithText("返信は自分のメモとして残ります。").assertIsDisplayed()
+        composeRule.onNodeWithTag("feed-reply-send").assertIsNotEnabled()
+        composeRule.onNodeWithTag("feed-reply-input").performTextInput("  来週続きをやる  ")
+        composeRule.onNodeWithTag("feed-reply-send").assertIsEnabled().performClick()
+
+        assertEquals("own-1" to "  来週続きをやる  ".trim(), sent)
+        composeRule.onNodeWithTag("feed-reply-sheet").assertDoesNotExist()
+    }
+
+    @Test
+    fun theThreadShowsMyMemosAndAiAnswersAndMarksUnsentOnes() {
+        val threaded = posts().map {
+            if (it.postId != "own-1") it else it.copy(
+                replies = listOf(
+                    MobileFeedReplyDto("r1", "human", "自分", now.minusSeconds(50).toString(), "先に温度を見る"),
+                    MobileFeedReplyDto("r2", "ai", "Claude Code", now.minusSeconds(40).toString(), "25℃で問題ありません。"),
+                    MobileFeedReplyDto("r3", "human", "自分", now.toString(), "了解", pending = true),
+                ),
+            )
+        }
+        show(feed = threaded)
+
+        // 送信待ちの返信があるスレッドは、最初から開いて自分の返信が並んだことを見せる。
+        composeRule.onNodeWithText("先に温度を見る").assertIsDisplayed()
+        composeRule.onNodeWithText("25℃で問題ありません。").assertIsDisplayed()
+        composeRule.onNodeWithText("送信待ち").assertIsDisplayed()
+        composeRule.onNodeWithTag("feed-post-thread-toggle-own-1").performClick()
+        composeRule.onNodeWithText("先に温度を見る").assertDoesNotExist()
+        composeRule.onNodeWithText("返信 3件を見る").assertIsDisplayed()
     }
 
     @Test

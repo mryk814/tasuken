@@ -280,6 +280,21 @@ data class FeedCacheEntity(
     val fetchedAt: String,
 )
 
+/** まだDesktopへ届いていないFeedへの書き込み（反応・返信）。応答を失っても同じcommandIdで再送する。 */
+@Entity(
+    tableName = "feed_pending_action",
+    indices = [Index(value = ["serverId"])],
+)
+data class FeedPendingActionEntity(
+    @PrimaryKey val commandId: String,
+    val serverId: String,
+    val postId: String,
+    /** 同じ投稿・同じ種類の反応を1件にまとめる鍵。返信は `null`。 */
+    val dedupeKey: String?,
+    val envelopeJson: String,
+    val createdAt: String,
+)
+
 /** 送信中の回答。応答を失っても同じcommandIdで再送する（#601）。 */
 @Entity(
     tableName = "pending_agent_reply",
@@ -755,6 +770,28 @@ abstract class MobileLocalDao {
 
     @Query("DELETE FROM feed_cache WHERE serverId = :serverId")
     abstract suspend fun deleteFeed(serverId: String)
+
+    @Query("SELECT * FROM feed_pending_action ORDER BY createdAt ASC, commandId ASC")
+    abstract fun observeFeedPendingActions(): Flow<List<FeedPendingActionEntity>>
+
+    @Query("SELECT * FROM feed_pending_action WHERE serverId = :serverId ORDER BY createdAt ASC, commandId ASC")
+    abstract suspend fun feedPendingActions(serverId: String): List<FeedPendingActionEntity>
+
+    @Query("DELETE FROM feed_pending_action WHERE serverId = :serverId AND dedupeKey = :dedupeKey")
+    abstract suspend fun deleteFeedPendingByKey(serverId: String, dedupeKey: String)
+
+    @Query("DELETE FROM feed_pending_action WHERE commandId = :commandId")
+    abstract suspend fun deleteFeedPendingAction(commandId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun insertFeedPendingAction(action: FeedPendingActionEntity)
+
+    /** 反応は最後の1件だけを残す。返信（`dedupeKey == null`）は全部残す。 */
+    @Transaction
+    open suspend fun enqueueFeedAction(action: FeedPendingActionEntity) {
+        action.dedupeKey?.let { deleteFeedPendingByKey(action.serverId, it) }
+        insertFeedPendingAction(action)
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertFeedPosts(posts: List<FeedCacheEntity>)
@@ -2216,8 +2253,9 @@ abstract class MobileLocalDao {
         AttentionStateEntity::class,
         PendingAgentReplyEntity::class,
         FeedCacheEntity::class,
+        FeedPendingActionEntity::class,
     ],
-    version = 28,
+    version = 29,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -2260,8 +2298,16 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_25_26,
                     MIGRATION_26_27,
                     MIGRATION_27_28,
+                    MIGRATION_28_29,
             ).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_28_29 = object : Migration(28, 29) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS feed_pending_action (commandId TEXT NOT NULL PRIMARY KEY, serverId TEXT NOT NULL, postId TEXT NOT NULL, dedupeKey TEXT, envelopeJson TEXT NOT NULL, createdAt TEXT NOT NULL)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_feed_pending_action_serverId ON feed_pending_action (serverId)")
     }
 }
 

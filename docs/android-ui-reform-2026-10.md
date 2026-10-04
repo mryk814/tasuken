@@ -32,6 +32,18 @@ DesktopのFeed投稿は `GET /v1/feed`（`mobile:read`）でAndroidへ届く。�
 記事の草稿は題名だけ、外部リンクはURLと表題だけを流し、本文・根拠・画像・返信・反応は流さない。作業報告はこれまでどおりTaskの経路で届くため含めない。
 Androidは受け取った並びのまま `feed_cache` に置き換えて保存する（Room 27→28。Desktopで消した投稿は残らない）。取れなかったときと、この窓口を持たない古いDesktopのときは、保存済みの投稿をそのまま見せる。
 自分の投稿は「新着」にも未読の印にも数えない。リンクを開けるのはhttp(s)だけである。
+
+### 反応と返信（SNSとしての操作）
+
+投稿の下にXと同じ並びの行動バー（返信・おもしろい・ブックマーク）を置く。AIは交流相手として同じ流れに並び、特別な画面は作らない。
+
+- **反応**: おもしろい（ハート）とブックマーク。押すと触覚と弾む動きで返し、画面にはすぐ反映する。Desktopの `feed_reaction`（ID規則 `feed-reaction:<投稿>:<種類>`）へ保存する。同じ投稿・同じ種類は付け外しを繰り返しても増えない。
+- **返信**: 自分のメモとして残す（音声入力も使える）。端末が決めたIDで `feed_reply` に保存し、再送しても増えない。スレッドはAIの返答（Desktopの `feed_replies` Proposalや `ai` の返信）と同じ形で古い順に並べ、まだ届いていない返信には「送信待ち」を添える。
+- **オフライン**: 先に端末へ保存し（`feed_pending_action`、Room 28→29）、接続できたときに同じcommandIdで送る。反応は最後の1件だけを残す。Desktopが受け付けなかった（投稿が見つからない等）ときだけ理由を知らせて外す。書き込み口を持たない接続先（常時稼働node）では入力を消さずに保持する。
+- **権限**: `mobile:capture-write`（本人の入力と同じ権限）。既にペア済みの端末は再ペアリングしなくてよい。
+- **対象外**: AIへの返答依頼（`ai_requested_at`）、`hidden` / `known` の反応、投稿の削除・編集。AIへの返答依頼を足すときは、返信のアクションへ項目を足す形で拡張できる。
+- 互換性: `reactions` / `replies` を足したread modelは、同じ版のAndroidでだけ読める。Desktopだけを先に更新すると古いAPKはFeedを更新できず、保存済みの投稿を見せ続ける。
+
 契約は `contracts/mobile/v1/feed-response.golden.json` をDesktop（`tests/mobile-feed-golden.test.mjs`）とAndroid（`MobileFeedGoldenTest`）が共有する。
 
 ## 操作

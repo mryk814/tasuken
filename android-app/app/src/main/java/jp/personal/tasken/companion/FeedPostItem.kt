@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -18,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,7 +27,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -49,8 +56,16 @@ internal fun FeedPostItem(
     highlighted: Boolean,
     onOpenTask: ((String) -> Unit)?,
     modifier: Modifier = Modifier,
+    /** 「おもしろい」「ブックマーク」を付け外しする。 */
+    onToggleReaction: ((String) -> Unit)? = null,
+    /** 返信（自分のメモ）を書く入力を開く。 */
+    onReply: (() -> Unit)? = null,
 ) {
     var expanded by rememberSaveable(post.postId) { mutableStateOf(false) }
+    var threadOpen by rememberSaveable(post.postId) { mutableStateOf(false) }
+    // 送信待ちの返信が増えたら、自分の返信がスレッドに並んだことを見せる。
+    val pendingReplies = post.replies.count { it.pending }
+    LaunchedEffect(pendingReplies) { if (pendingReplies > 0) threadOpen = true }
     var overflowing by remember(post.postId) { mutableStateOf(false) }
     val context = LocalContext.current
     val taskId = post.taskId
@@ -116,6 +131,35 @@ internal fun FeedPostItem(
                 modifier = Modifier.testTag("feed-post-link-${post.postId}"),
             )
         }
+        if (onToggleReaction != null || onReply != null) {
+            FeedActionBar(
+                postId = post.postId,
+                replyCount = post.replies.size,
+                interesting = FEED_REACTION_INTERESTING in post.reactions,
+                bookmarked = FEED_REACTION_BOOKMARK in post.reactions,
+                onReply = onReply,
+                onToggleReaction = onToggleReaction,
+            )
+        }
+        if (post.replies.isNotEmpty()) {
+            Text(
+                if (threadOpen) "返信を閉じる" else "返信 ${post.replies.size}件を見る",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .heightIn(min = 32.dp)
+                    .clickable { threadOpen = !threadOpen }
+                    .testTag("feed-post-thread-toggle-${post.postId}"),
+            )
+            if (threadOpen) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.testTag("feed-post-thread-${post.postId}"),
+                ) {
+                    post.replies.forEach { reply -> FeedReplyItem(reply) }
+                }
+            }
+        }
         if (taskId != null || post.themeName != null) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -150,6 +194,140 @@ internal fun FeedPostItem(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * 投稿の下の行動バー（Xと同じ並び）。返信数・おもしろい・ブックマークを、押す前から状態が分かる形で置く。
+ * 押すと軽い触覚と、アイコンが弾む動きで付いたことを返す。
+ */
+@Composable
+private fun FeedActionBar(
+    postId: String,
+    replyCount: Int,
+    interesting: Boolean,
+    bookmarked: Boolean,
+    onReply: (() -> Unit)?,
+    onToggleReaction: ((String) -> Unit)?,
+) {
+    androidx.compose.foundation.layout.Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (onReply != null) {
+            FeedActionButton(
+                icon = R.drawable.ic_tabler_message_circle,
+                label = if (replyCount > 0) replyCount.toString() else null,
+                description = "返信を書く。返信${replyCount}件",
+                active = false,
+                onClick = onReply,
+                modifier = Modifier.testTag("feed-post-reply-$postId"),
+            )
+        }
+        if (onToggleReaction != null) {
+            FeedActionButton(
+                icon = if (interesting) R.drawable.ic_tabler_heart_filled else R.drawable.ic_tabler_heart,
+                label = null,
+                description = if (interesting) "おもしろいを外す" else "おもしろい",
+                active = interesting,
+                onClick = { onToggleReaction(FEED_REACTION_INTERESTING) },
+                modifier = Modifier.testTag("feed-post-like-$postId"),
+            )
+            FeedActionButton(
+                icon = if (bookmarked) R.drawable.ic_tabler_bookmark_filled else R.drawable.ic_tabler_bookmark,
+                label = null,
+                description = if (bookmarked) "ブックマークを外す" else "ブックマーク",
+                active = bookmarked,
+                onClick = { onToggleReaction(FEED_REACTION_BOOKMARK) },
+                modifier = Modifier.testTag("feed-post-bookmark-$postId"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FeedActionButton(
+    icon: Int,
+    label: String?,
+    description: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    // 付いた瞬間だけ少し弾む。外したときや再表示では動かさない。
+    val bounce = remember { androidx.compose.animation.core.Animatable(1f) }
+    var first by remember { mutableStateOf(true) }
+    LaunchedEffect(active) {
+        if (first) {
+            first = false
+        } else if (active) {
+            bounce.snapTo(0.7f)
+            bounce.animateTo(
+                1f,
+                androidx.compose.animation.core.spring(dampingRatio = 0.35f, stiffness = 500f),
+            )
+        }
+    }
+    val tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = description) {
+                haptics.performHapticFeedback(
+                    if (active) {
+                        androidx.compose.ui.hapticfeedback.HapticFeedbackType.ContextClick
+                    } else {
+                        androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm
+                    },
+                )
+                onClick()
+            }
+            .padding(horizontal = 12.dp)
+            .semantics { contentDescription = description; stateDescription = if (active) "付いています" else "付いていません" },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            painterResource(icon),
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier
+                .size(22.dp)
+                .graphicsLayer { scaleX = bounce.value; scaleY = bounce.value },
+        )
+        label?.let { Text(it, style = MaterialTheme.typography.labelLarge, color = tint) }
+    }
+}
+
+/** スレッドの1件。自分のメモもAIの返答も同じ形で並べ、届いていない返信だけ「送信待ち」を添える。 */
+@Composable
+private fun FeedReplyItem(reply: MobileFeedReplyDto) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        FeedAvatar(reply.authorLabel, Modifier.size(28.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(reply.authorLabel, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                parseInstantOrNull(reply.createdAt)?.let {
+                    Text(
+                        relativeTimeLabel(it),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (reply.pending) {
+                    Text(
+                        "送信待ち",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.testTag("feed-reply-pending-${reply.replyId}"),
+                    )
+                }
+            }
+            Text(reply.body, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
