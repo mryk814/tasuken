@@ -93,7 +93,7 @@ export function buildActivityTimelineLayout<T extends ActivityTimelineLayoutItem
       const parsedEnd = Date.parse(text(item.end_at));
       const isPoint = !Number.isFinite(parsedEnd) || parsedEnd <= start;
       const end = isPoint ? start : parsedEnd;
-      if (end <= bounds.start) return [];
+      if (end < bounds.start || (end === bounds.start && !isPoint)) return [];
 
       const clippedStart = Math.max(start, bounds.start);
       const clippedEnd = Math.min(end, bounds.end);

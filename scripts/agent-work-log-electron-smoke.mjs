@@ -67,6 +67,8 @@ try {
   );
   for (const name of ["codex", "claude", "copilot", "opencode", "deepseek"])
     await importFixture(name);
+  const toastClose = page.getByRole("button", { name: "閉じる", exact: true });
+  if (await toastClose.count()) await toastClose.click();
   await panel().getByLabel("表示日").fill("2026-10-03");
   await panel().getByRole("button", { name: "週", exact: true }).click();
   assert.equal(await panel().locator(".agent-log-block").count(), 5);
@@ -75,6 +77,11 @@ try {
   await panel().getByLabel("Clientで絞る").selectOption("");
   await panel().getByLabel("Repositoryで絞る").selectOption("synthetic-repository");
   assert.equal(await panel().locator(".agent-log-block").count(), 5);
+  await panel().getByRole("button", { name: "次の期間", exact: true }).click();
+  await panel().getByText("この期間のAI作業はありません。").waitFor();
+  await page.screenshot({ path: path.join(output, "after-desktop-empty.png") });
+  await panel().getByRole("button", { name: "前の期間", exact: true }).click();
+  assert.equal(await panel().getByLabel("表示日").inputValue(), "2026-10-03");
   await panel().locator(".agent-log-block").filter({ hasText: "Codex" }).click();
   await panel().scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(output, "after-desktop.png") });
@@ -97,7 +104,7 @@ try {
   });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await panel().getByLabel("表示日").fill("2026-10-03");
-  await panel().locator(".agent-log-block").filter({ hasText: "Codex" }).click();
+  await panel().locator(".agent-log-list-entry").filter({ hasText: "Codex" }).click();
   await page.getByRole("dialog", { name: "選択Sessionの詳細", exact: true }).waitFor();
   await page.screenshot({ path: path.join(output, "after-narrow-detail.png") });
   const narrowWidth = await page.evaluate(() => document.documentElement.clientWidth);
@@ -108,8 +115,17 @@ try {
     .getByRole("dialog", { name: "選択Sessionの詳細", exact: true })
     .waitFor({ state: "detached" });
   await page.screenshot({ path: path.join(output, "after-narrow-timeline.png") });
+  const unknown = panel().locator(".agent-log-list-entry").filter({ hasText: "OpenCode" });
+  assert.match(await unknown.innerText(), /終了未確認/);
+  assert.match(await unknown.innerText(), /最終観測/);
+  assert.doesNotMatch(await unknown.innerText(), /\(終了\)/);
+  await panel().getByRole("button", { name: "次の期間", exact: true }).click();
+  await panel().getByText("この期間のAI作業はありません。").waitFor();
+  await page.screenshot({ path: path.join(output, "after-narrow-empty.png") });
+  await panel().getByRole("button", { name: "前の期間", exact: true }).click();
+  assert.equal(await panel().getByLabel("Repositoryで絞る").inputValue(), "synthetic-repository");
   // Keyboard opens detail and native dialog returns focus after Escape.
-  const block = panel().locator(".agent-log-block").filter({ hasText: "Codex" });
+  const block = panel().locator(".agent-log-list-entry").filter({ hasText: "Codex" });
   await block.focus();
   await page.keyboard.press("Enter");
   await page.getByRole("dialog", { name: "選択Sessionの詳細", exact: true }).waitFor();
@@ -128,6 +144,7 @@ try {
     buffer: Buffer.from('{"schema":"unsupported"}'),
   });
   await dialog.getByRole("alert").waitFor();
+  await page.screenshot({ path: path.join(output, "after-narrow-error.png") });
   assert.equal(await dialog.getByRole("button", { name: "確認へ進む", exact: true }).count(), 0);
   await page.keyboard.press("Escape");
   await app.close();
