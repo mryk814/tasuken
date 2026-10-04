@@ -40,6 +40,7 @@
     "smoke:desktop": "npm run build && node scripts/run-electron-smoke.mjs",
     "smoke:desktop:focused": "node scripts/run-electron-smoke.mjs",
     "smoke:agent-work-logs": "node scripts/agent-work-log-electron-smoke.mjs",
+    "smoke:agent-log-sync": "node scripts/agent-log-sync-electron-smoke.mjs",
     "smoke:desktop:packaged": "node scripts/run-packaged-electron-smoke.mjs",
     "smoke:activity:packaged": "node scripts/activity-electron-smoke.mjs release/win-unpacked/Tasken.exe",
     "smoke:sketch:focused": "node scripts/sketch-toolbar-smoke.mjs",
