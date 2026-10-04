@@ -104,14 +104,21 @@ const STATUSES: Record<string, string> = {
 };
 
 export function AgentWorkTimeline(
-  props: PageProps & { date: string; onDateChange(date: string): void },
+  props: PageProps & {
+    date: string;
+    onDateChange(date: string): void;
+    importing?: boolean;
+    onImportingChange?(value: boolean): void;
+  },
 ) {
   const { domain, date, onDateChange } = props;
   const [mode, setMode] = useState<"day" | "week">("week");
   const [client, setClient] = useState("");
   const [repository, setRepository] = useState("");
   const [selected, setSelected] = useState("");
-  const [importing, setImporting] = useState(false);
+  const [localImporting, setLocalImporting] = useState(false);
+  const importing = props.importing ?? localImporting;
+  const setImporting = props.onImportingChange ?? setLocalImporting;
   const [narrow, setNarrow] = useState(false);
   const root = useRef<HTMLElement>(null);
   const detailDialog = useRef<HTMLDialogElement>(null);

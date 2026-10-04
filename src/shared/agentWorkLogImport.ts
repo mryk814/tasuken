@@ -8,6 +8,8 @@ export const AGENT_LOG_ADAPTERS = {
   "copilot-cli-hooks/1": "github_copilot",
   "opencode-export/1": "opencode",
   "deepseek-native/1": "deepseek_harness",
+  "codex-rollout/1": "codex",
+  "claude-transcript/1": "claude_code",
 } as const;
 
 const envelope = z
@@ -62,9 +64,25 @@ function visibleText(value: unknown): string {
 export function parseAgentWorkLog(raw: string) {
   if (typeof raw !== "string" || new TextEncoder().encode(raw).length > 2 * 1024 * 1024)
     throw new Error("取込ファイルは2MB以下のJSONにしてください。");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(raw);
+  } catch {
+    try {
+      decoded = raw
+        .split(/\r?\n/)
+        .filter((line) => line.trim())
+        .map((line) => JSON.parse(line));
+    } catch {
+      throw new Error("JSONLに壊れた行があります。書き込み終了後のログを選択してください。");
+    }
+  }
+  if (Array.isArray(decoded)) decoded = nativeEnvelope(decoded);
+  else if (record(decoded).type === "session_meta" || record(decoded).sessionId)
+    decoded = nativeEnvelope([decoded]);
   let input;
   try {
-    input = envelope.parse(JSON.parse(raw));
+    input = envelope.parse(decoded);
   } catch {
     throw new Error(
       "対応する版付きAI作業ログではありません。tasken-ai-work-log/1の形式を確認してください。",
@@ -108,7 +126,14 @@ export function parseAgentWorkLog(raw: string) {
           : "unknown";
   };
 
-  if (input.adapter === "opencode-export/1") {
+  if (input.adapter === "codex-rollout/1" || input.adapter === "claude-transcript/1") {
+    const messages = Array.isArray(input.payload) ? input.payload : [];
+    for (const message of messages) {
+      const entry = record(message);
+      if (entry.role !== "user" && entry.role !== "assistant") continue;
+      add(entry.role === "user" ? requests : responses, entry.timestamp, entry.text, entry.id);
+    }
+  } else if (input.adapter === "opencode-export/1") {
     const exported = record(input.payload);
     const info = record(exported.info);
     if (
@@ -228,6 +253,76 @@ export function parseAgentWorkLog(raw: string) {
       observed_until: until,
       mode: "history" as const,
     },
+  };
+}
+
+/** Selected native file only: never follow a path found inside a transcript. */
+function nativeEnvelope(values: unknown[]) {
+  if (!values.length || values.length > 20000)
+    throw new Error("JSONLは20000行以内のSessionを選択してください。");
+  const lines = values.map(record);
+  const meta = lines.filter((line) => line.type === "session_meta");
+  const codex = meta.length > 0;
+  if (meta.length > 1 || (codex && lines.some((line) => line.sessionId)))
+    throw new Error("複数Sessionが混在しています。Sessionごとのログを選択してください。");
+  const ids = new Set(lines.map((line) => line.sessionId).filter((id) => typeof id === "string"));
+  if (!codex && ids.size !== 1) throw new Error("対応する単一SessionのJSONLではありません。");
+  const header = codex ? record(meta[0].payload) : lines.find((line) => line.version) || {};
+  const source = codex ? header.id : [...ids][0];
+  const timestamp = (value: unknown) => {
+    if (typeof value !== "string" || !z.iso.datetime({ offset: true }).safeParse(value).success)
+      throw new Error("JSONLの観測時刻にはタイムゾーン付きISO時刻が必要です。");
+    return date(value);
+  };
+  const timestamps = lines
+    .filter((line) => line.timestamp)
+    .map((line) => timestamp(line.timestamp))
+    .sort();
+  if (!timestamps.length) throw new Error("JSONLに観測時刻がありません。");
+  const payload = lines.flatMap((line) => {
+    const message = codex ? record(line.payload) : record(line.message);
+    const role = message.role;
+    if (
+      codex
+        ? line.type !== "response_item" || message.type !== "message"
+        : !["user", "assistant"].includes(String(line.type)) ||
+          line.type !== role ||
+          line.isMeta ||
+          line.isCompactSummary ||
+          line.isSidechain
+    )
+      return [];
+    if (!["user", "assistant"].includes(String(role)) || message.channel === "analysis") return [];
+    const content =
+      codex && Array.isArray(message.content)
+        ? message.content.flatMap((part) => {
+            const block = record(part);
+            return block.type === (role === "user" ? "input_text" : "output_text")
+              ? [{ type: "text", text: block.text }]
+              : [];
+          })
+        : message.content;
+    const text = visibleText(content);
+    if (
+      !text ||
+      (role === "user" &&
+        /^(?:# AGENTS\.md|<environment_context>|<user_instructions>|<system-reminder>|<local-command|<session-start-hook>)/.test(
+          text,
+        ))
+    )
+      return [];
+    return [{ role, timestamp: line.timestamp, text, id: codex ? message.id : line.uuid }];
+  });
+  if (!payload.length) throw new Error("このJSONLには対応する依頼・回答の本文がありません。");
+  return {
+    schema: "tasken-ai-work-log/1",
+    adapter: codex ? "codex-rollout/1" : "claude-transcript/1",
+    client_version: header.cli_version || header.version || "未記録",
+    source_session: source,
+    started_at: codex ? timestamp(header.timestamp || meta[0].timestamp) : timestamps[0],
+    observed_until: timestamps.at(-1),
+    coverage: "partial",
+    payload,
   };
 }
 

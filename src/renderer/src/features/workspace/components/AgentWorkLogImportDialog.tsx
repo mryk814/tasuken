@@ -31,7 +31,8 @@ export function AgentWorkLogImportDialog({
     setBusy(true);
     setError("");
     try {
-      if (file.size > 2 * 1024 * 1024) throw new Error("2MB以下のJSONファイルを選択してください。");
+      if (file.size > 2 * 1024 * 1024)
+        throw new Error("2MB以下のJSON・JSONLファイルを選択してください。");
       const value = await file.text();
       setRaw(value);
       setPreview(parseAgentWorkLog(value));
@@ -77,20 +78,20 @@ export function AgentWorkLogImportDialog({
           <IconX size={18} aria-hidden="true" />
         </Button>
       </header>
-      <p>選択したJSONから依頼と回答を確認し、採用後にSessionへ保存します。</p>
+      <p>選んだログから依頼と回答を確認し、採用後に保存します。hooks の設定は不要です。</p>
       <label className="agent-log-file">
         <IconFileImport size={22} aria-hidden="true" />
-        版付きJSONを選択
+        JSON・JSONLを選択
         <input
           type="file"
-          accept=".json,application/json"
+          accept=".json,.jsonl,application/json,application/x-ndjson"
           disabled={busy}
           onChange={(event) => void read(event.target.files?.[0])}
           aria-describedby="agent-log-import-help"
         />
       </label>
       <small id="agent-log-import-help">
-        Codex · Claude Code · GitHub Copilot · OpenCode · DeepSeek harness
+        生ログ: Codex rollout・Claude Code transcript。ほかの provider は対応する版付きJSON。
       </small>
       {busy && <p role="status">読み込み・検証中…</p>}
       {error && (
@@ -107,8 +108,11 @@ export function AgentWorkLogImportDialog({
             <dd>{preview.outcome.summary}</dd>
             <dt>観測範囲</dt>
             <dd>
-              {new Date(preview.started_at).toLocaleString()} ～{" "}
-              {new Date(preview.ended_at).toLocaleString()}
+              {new Date(preview.started_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })} ～{" "}
+              {new Date(preview.observation.observed_until).toLocaleString("ja-JP", {
+                timeZone: "Asia/Tokyo",
+              })}{" "}
+              (日本時間・最終観測)
             </dd>
             <dt>収録</dt>
             <dd>
@@ -135,7 +139,12 @@ export function AgentWorkLogImportDialog({
       <details>
         <summary>対応形式と保存内容</summary>
         <p>
-          tasken-ai-work-log/1の依頼と回答だけを取り込みます。tool入出力・reasoning・添付は除外し、既知のcredential表記とローカルパスを伏せます。保存前に本文を確認してください。
+          Codex は sessions/YYYY/MM/DD の rollout-*.jsonl、Claude Code は projects 配下の Session
+          JSONL を選びます。保存先の変更やログ自動探索は行いません。2MB以内の単一Sessionが対象です。
+        </p>
+        <p>
+          依頼と回答の本文だけを取り込みます。tool入出力・推論・添付は除外し、既知のcredential表記とローカルパスを伏せます。保存前に本文を確認してください。版付き
+          tasken-ai-work-log/1 も利用できます。
         </p>
       </details>
     </dialog>

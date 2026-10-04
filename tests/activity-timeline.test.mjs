@@ -15,6 +15,19 @@ const {
   reviewableActivityEvents,
 } = await importBundled("src/renderer/src/features/workspace/lib/activityTimeline.ts");
 
+test("unknown-end point at JST midnight remains visible on its start day", () => {
+  assert.deepEqual(
+    activitySessionInterval(
+      { started_at: "2026-10-03T00:00:00+09:00", ended_at: "2026-10-03T00:00:00+09:00" },
+      "2026-10-03",
+    ),
+    {
+      start_at: "2026-10-02T15:00:00.000Z",
+      end_at: "2026-10-02T15:00:00.000Z",
+    },
+  );
+});
+
 test("Focus sessions replace their lifecycle events with one work period, preserving unrelated activity", () => {
   const note = {
     id: "focus-1",

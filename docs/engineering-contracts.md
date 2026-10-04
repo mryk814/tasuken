@@ -76,6 +76,8 @@
 
 ## AI作業ログの時間表示
 
+日次 Activity は人の活動と AI Session を同じ時刻軸で扱い、週表示は補助とする。タスク関連付けの追加／解除は reference の既存 mutation だけを使い、Session や Task の完了状態を変更しない。選択された Codex rollout／Claude transcript JSONL は本文だけを既存 Proposal の確認・採用へ通し、hooks・自動探索を前提にしない。生ログは partial/unknown とし、turn 終了を Session 完了へ変換しない。
+
 Debrief内の既存AI作業ログは、PCでは週／日カレンダー、狭い幅では日別リストで同じSessionを読む。従来のTasken Activityと同じJST（Asia/Tokyo）で日境界と時刻を統一し、ブラウザ／OSのタイムゾーンが違っても表示は変わらない。タイムゾーン名を画面に明示する。
 履歴取込は `observation.observed_until` を表示上限にする。終了未確認のSessionを現在まで伸ばしたり、終了済みと推定したりしない。観測情報も終了もないSessionは開始時点を示す。記録された進行中Sessionだけ現在まで表示できる。
 棒は開始〜終了／最終観測の経過区間であり、待機・背景処理・重複を含み得る。実働時間と費用はこの契約では取得していないため「未収録」とし、ゼロや経過時間を代入しない。最小クリック高は時間の長さを意味しない。

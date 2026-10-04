@@ -170,7 +170,7 @@ type CalendarSession = {
 };
 
 /** A span is observation evidence, never a measure of active work. */
-export function agentSessionInterval(session: CalendarSession, now: string) {
+export function agentSessionInterval(session: CalendarSession, now = new Date().toISOString()) {
   const start = Date.parse(session.started_at);
   const observed = session.observation?.observed_until;
   const recordedEnd = session.ended_at;

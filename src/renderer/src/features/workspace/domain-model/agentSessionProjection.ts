@@ -319,6 +319,64 @@ export function buildAgentSessionAssignmentOperations(
   });
 }
 
+export function buildAgentSessionTaskOperations(
+  sessionId: string,
+  taskId: string,
+  references: Reference[],
+  linked: boolean,
+): Array<SaveOperation | { action: "remove"; type: "reference"; entity: Reference }> {
+  if (!sessionId || !taskId) return [];
+  const matches = references.filter((reference) => {
+    try {
+      const value = normalizeReferenceAssertion(reference as unknown as Record<string, unknown>, {
+        legacyRead: true,
+      }) as unknown as {
+        subject: { type: string; id: string };
+        object: { type: string; id: string };
+        status: string;
+      };
+      const endpoints = [value.subject, value.object];
+      return (
+        value.status !== "superseded" &&
+        endpoints.some((entry) => entry.type === "agent_session" && entry.id === sessionId) &&
+        endpoints.some((entry) => entry.type === "task" && entry.id === taskId)
+      );
+    } catch {
+      return false;
+    }
+  });
+  if (!linked) {
+    return matches.map((reference) => ({
+      action: "remove",
+      type: "reference",
+      entity: reference,
+    }));
+  }
+  if (matches.length) return [];
+  const id = crypto.randomUUID();
+  return [
+    {
+      action: "save",
+      type: "reference",
+      entity: {
+        id,
+        assertion_id: id,
+        subject: { type: "agent_session", id: sessionId },
+        predicate: "worked_on",
+        object: { type: "task", id: taskId },
+        layer: "operational",
+        status: "asserted",
+        origin: "user",
+        recorded_at: new Date().toISOString(),
+        evidence_refs: [],
+        metadata: {},
+        confidence: null,
+        superseded_by_assertion_id: null,
+      },
+    },
+  ];
+}
+
 export function groupAgentWorkProjection(
   rows: AgentWorkProjectionRow[],
 ): AgentWorkProjectionGroup[] {

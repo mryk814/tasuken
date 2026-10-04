@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { IconArrowUpRight, IconNotes } from "@tabler/icons-react";
 
-import { todayIso } from "../../../utils/dataFormat.js";
+import { agentDateText } from "../lib/activityTimelineLayout";
 import { PageHeader } from "../components/common";
 import { ActivityLogPanel } from "../components/ActivityLogPanel";
 import { TaskenDebriefPanel } from "../components/TaskenDebriefPanel";
@@ -11,7 +11,9 @@ import { AgentWorkTimeline } from "../components/AgentWorkTimeline";
 
 export function DebriefPage(props: PageProps) {
   const { data, domain, themes, notes, setToast, openDrawer, openNoteForEditing } = props;
-  const [date, setDate] = useState(todayIso());
+  const [date, setDate] = useState(agentDateText(new Date()));
+  const [importing, setImporting] = useState(false);
+  const [weeklyOpen, setWeeklyOpen] = useState(false);
   const history = notes
     .flatMap((note) => {
       const reportDate = dailyReportDate(note);
@@ -25,18 +27,34 @@ export function DebriefPage(props: PageProps) {
   return (
     <div className="page debrief-page">
       <PageHeader route="debrief" />
-      <AgentWorkTimeline {...props} date={date} onDateChange={setDate} />
       <section className="debrief-current" aria-label="一日の記録">
-        <details className="debrief-tasken-activity">
-          <summary>TaskenのActivity</summary>
-          <ActivityLogPanel
-            data={data}
-            domain={domain}
-            themes={themes}
+        <ActivityLogPanel
+          data={data}
+          domain={domain}
+          themes={themes}
+          date={date}
+          onDateChange={setDate}
+          openDrawer={openDrawer}
+          setToast={setToast}
+          saveEntities={props.saveEntities}
+          removeEntityQuiet={props.removeEntityQuiet}
+          onImport={() => {
+            setWeeklyOpen(true);
+            setImporting(true);
+          }}
+        />
+        <details
+          className="debrief-tasken-activity"
+          open={weeklyOpen}
+          onToggle={(event) => setWeeklyOpen(event.currentTarget.open)}
+        >
+          <summary>AI の週次振り返り・ログ取り込み</summary>
+          <AgentWorkTimeline
+            {...props}
             date={date}
             onDateChange={setDate}
-            openDrawer={openDrawer}
-            setToast={setToast}
+            importing={importing}
+            onImportingChange={setImporting}
           />
         </details>
         <TaskenDebriefPanel

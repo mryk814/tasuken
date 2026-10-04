@@ -27,6 +27,7 @@ type ActivitySessionIntervalSource = {
 export type ActivitySessionInterval = {
   start_at: string;
   end_at: string;
+  endLabel?: string;
 };
 
 export type ActivitySessionLogEntry = {
@@ -140,7 +141,8 @@ export function activitySessionInterval(
     !Number.isFinite(dayStart) ||
     !Number.isFinite(sessionStart) ||
     sessionStart >= dayEnd ||
-    sessionEnd <= dayStart
+    sessionEnd < dayStart ||
+    (sessionEnd === dayStart && sessionEnd !== sessionStart)
   ) {
     return null;
   }
@@ -267,9 +269,16 @@ export function groupFocusSessionActivity<T extends FocusActivityEvent>(
 export function buildDailyAgentSessionContexts<
   TEvent extends ActivitySessionEvent,
   TRow extends ActivitySessionProjectionRow,
->(rows: TRow[], date: string, events: TEvent[]): DailyAgentSessionContext<TEvent, TRow>[] {
+>(
+  rows: TRow[],
+  date: string,
+  events: TEvent[],
+  intervalForSession?: (session: TRow["session"]) => ActivitySessionInterval | null,
+): DailyAgentSessionContext<TEvent, TRow>[] {
   const sessions = rows.flatMap((sessionRow) => {
-    const interval = activitySessionInterval(sessionRow.session, date);
+    const interval = intervalForSession
+      ? intervalForSession(sessionRow.session)
+      : activitySessionInterval(sessionRow.session, date);
     return interval ? [{ sessionRow, interval }] : [];
   });
   const sessionByOriginId = new Map<string, (typeof sessions)[number]>();
@@ -322,8 +331,12 @@ function activityLocalTime(value: string): string {
 }
 
 export function activitySessionTimeLabel(
-  context: Pick<DailyAgentSessionContext, "sessionRow" | "interval">,
+  context: Pick<DailyAgentSessionContext, "sessionRow" | "interval"> & { endLabel?: string },
 ): string {
+  const endLabel = context.endLabel || context.interval.endLabel;
+  if (endLabel) {
+    return `${activityLocalTime(context.interval.start_at)}–${activityLocalTime(context.interval.end_at)} (${endLabel})`;
+  }
   return context.sessionRow.session.ended_at
     ? `${activityLocalTime(context.interval.start_at)}–${activityLocalTime(context.interval.end_at)}`
     : `${activityLocalTime(context.interval.start_at)}–進行中`;
