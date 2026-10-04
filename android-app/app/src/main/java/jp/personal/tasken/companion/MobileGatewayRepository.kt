@@ -51,6 +51,7 @@ private const val MOBILE_CONTEXT_READ_SCOPE = "mobile:context-read"
 
 /** 要対応の取得上限。Desktop側の上限と同じ値を使う。 */
 private const val ATTENTION_PAGE_SIZE = 50
+private const val FEED_PAGE_SIZE = 50
 
 private fun aiReadyPatch(enabled: Boolean) = buildJsonObject { put("aiReady", enabled) }
 
@@ -435,6 +436,21 @@ class AndroidMobileTaskRepository(
                 fetchedAt = current?.fetchedAt,
                 serverId = serverId ?: "",
             )
+        }
+
+    /** 保存済みのFeed投稿。Desktopが返した並び（新しい順）をそのまま使う。 */
+    override fun observeCachedFeed(): Flow<List<MobileFeedPostDto>> =
+        combine(dao.observeFeed(), dao.observeSyncState()) { posts, syncState ->
+            val serverId = syncState?.serverId
+            posts
+                .filter { it.serverId == serverId }
+                .mapNotNull { cached ->
+                    runCatching { cached.toPost() }
+                        .onFailure { error ->
+                            Log.w(MOBILE_GATEWAY_LOG_TAG, "Discarding an invalid cached feed post", error)
+                        }
+                        .getOrNull()
+                }
         }
 
     override fun observeConflictCount(): Flow<Int> = outbox.observeConflictCount()
@@ -1068,6 +1084,51 @@ class AndroidMobileTaskRepository(
             throw error
         } catch (error: Exception) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile attention refresh failed", error)
+            false
+        }
+    }
+
+    override suspend fun refreshFeed(): Boolean {
+        val configuration = store.configuration()
+        val token = store.readToken()
+        if (configuration.origin.isBlank() || token == null) return false
+        return refreshFeed(configuration.origin, token)
+    }
+
+    private suspend fun refreshFeed(origin: String, accessToken: String): Boolean {
+        val expectedServerId = dao.syncState()?.serverId ?: return false
+        return try {
+            val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
+            val response = gatewayRequest(
+                origin = origin,
+                path = "/v1/feed?apiVersion=$TASKEN_MOBILE_API_VERSION" +
+                    "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId&limit=$FEED_PAGE_SIZE",
+                method = "GET",
+                body = null,
+                accessToken = accessToken,
+            )
+            if (response.status == 401) {
+                if (isConfirmedGatewayUnauthorized(response, expectedServerId)) {
+                    store.clearTokenIfMatches(accessToken)
+                }
+                return false
+            }
+            // このFeed窓口を持たない古いDesktopでは、取れなかったこととして保存済みの投稿を残す。
+            require(response.status == 200) { "Feed request failed with HTTP ${response.status}" }
+            val decoded = MobileFeedContract.decode(response.body)
+            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
+            val fetchedAt = Instant.now().toString()
+            dao.replaceFeed(
+                serverId = expectedServerId,
+                posts = decoded.data.posts.mapIndexed { position, post ->
+                    post.toCacheEntity(expectedServerId, position, fetchedAt)
+                },
+            )
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile feed refresh failed", error)
             false
         }
     }

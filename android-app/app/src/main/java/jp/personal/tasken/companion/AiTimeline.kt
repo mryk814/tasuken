@@ -49,6 +49,8 @@ import java.time.format.DateTimeFormatter
 internal sealed interface AiTimelineEntry {
     val key: String
     val at: Instant?
+    /** 自分が書いた投稿。新着の印や未読の数には数えない。 */
+    val isOwn: Boolean get() = false
 
     data class TaskActivity(val task: MobileTask, override val at: Instant?) : AiTimelineEntry {
         override val key: String get() = "timeline-task-${task.id}"
@@ -56,6 +58,12 @@ internal sealed interface AiTimelineEntry {
 
     data class Proposal(val proposal: MobileTaskWorkProposal, override val at: Instant?) : AiTimelineEntry {
         override val key: String get() = "proposal-${proposal.id}"
+    }
+
+    /** DesktopのFeed投稿（AIの投稿・自分の投稿）。 */
+    data class Post(val post: MobileFeedPostDto, override val at: Instant?) : AiTimelineEntry {
+        override val key: String get() = "feed-post-${post.postId}"
+        override val isOwn: Boolean get() = post.isHuman
     }
 }
 
@@ -66,6 +74,7 @@ internal fun parseInstantOrNull(value: String?): Instant? =
 internal fun buildAiTimeline(
     tasks: List<MobileTask>,
     proposals: List<MobileTaskWorkProposal>,
+    posts: List<MobileFeedPostDto> = emptyList(),
 ): List<AiTimelineEntry> {
     val taskEntries = tasks
         .filter { aiInboxSection(it.workState) != null }
@@ -73,12 +82,14 @@ internal fun buildAiTimeline(
     val proposalEntries = proposals.map {
         AiTimelineEntry.Proposal(it, parseInstantOrNull(it.reportedAt) ?: parseInstantOrNull(it.receivedAt))
     }
-    return (taskEntries + proposalEntries).sortedWith(
+    val postEntries = posts.map { AiTimelineEntry.Post(it, it.createdInstant) }
+    return (taskEntries + proposalEntries + postEntries).sortedWith(
         compareByDescending<AiTimelineEntry> { it.at != null }.thenByDescending { it.at },
     )
 }
 
-internal fun newestAiActivity(entries: List<AiTimelineEntry>): Instant? = entries.mapNotNull { it.at }.maxOrNull()
+internal fun newestAiActivity(entries: List<AiTimelineEntry>): Instant? =
+    entries.filterNot { it.isOwn }.mapNotNull { it.at }.maxOrNull()
 
 internal fun relativeTimeLabel(at: Instant, now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault()): String {
     val elapsed = Duration.between(at, now)
@@ -218,10 +229,12 @@ internal fun AiPost(
                         itemVerticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(author, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(verb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (verb.isNotBlank()) {
+                            Text(verb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         at?.let {
                             Text(
-                                "· ${relativeTimeLabel(it)}",
+                                (if (verb.isNotBlank()) "· " else "") + relativeTimeLabel(it),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

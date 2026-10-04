@@ -112,6 +112,22 @@ class UiTourCaptureTest {
                         tasks = tasks,
                         themes = THEMES,
                         proposals = emptyList(),
+                        feedPosts = listOf(
+                            MobileFeedPostDto(
+                                postId = "own-1", authorKind = "human", authorLabel = "自分", topic = "own_note",
+                                createdAt = now.minusSeconds(120).toString(),
+                                body = listOf("今日は粘度の実験を進める。", "温度条件は明日決める。"),
+                                themeName = "触媒探索",
+                            ),
+                            MobileFeedPostDto(
+                                postId = "ai-1", authorKind = "ai", authorLabel = "Codex", topic = "insight",
+                                createdAt = now.minusSeconds(900).toString(),
+                                body = listOf("温度を25℃に揃えると、粘度の再現性が上がりました。", "40℃は次回に回します。"),
+                                taskId = "t3", taskTitle = "考察メモを見直す", themeName = "触媒探索",
+                                attachment = MobileFeedAttachmentDto("note_draft", "粘度測定は温度を先に揃える"),
+                                link = MobileFeedLinkDto("https://example.com/viscosity", "測定ガイド", null),
+                            ),
+                        ),
                         paneState = TodayPaneState(),
                         onRetry = {},
                         onRetryPairing = {},

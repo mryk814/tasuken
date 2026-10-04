@@ -265,6 +265,21 @@ data class AttentionStateEntity(
     val fetchedAt: String,
 )
 
+/** Feedの投稿（Desktopが返した並びのまま）。読むだけで、Androidからは書かない。 */
+@Entity(
+    tableName = "feed_cache",
+    indices = [Index(value = ["serverId"])],
+)
+data class FeedCacheEntity(
+    @PrimaryKey val postId: String,
+    val serverId: String,
+    /** Desktopが返した並び（新しい順）。Android側で並べ替えない。 */
+    val position: Int,
+    /** 受け取った投稿全体。表示を増やしても取り直さずに済む。 */
+    val payloadJson: String,
+    val fetchedAt: String,
+)
+
 /** 送信中の回答。応答を失っても同じcommandIdで再送する（#601）。 */
 @Entity(
     tableName = "pending_agent_reply",
@@ -734,6 +749,25 @@ abstract class MobileLocalDao {
 
     @Query("SELECT * FROM attention_state LIMIT 1")
     abstract fun observeAttentionState(): Flow<AttentionStateEntity?>
+
+    @Query("SELECT * FROM feed_cache ORDER BY position ASC")
+    abstract fun observeFeed(): Flow<List<FeedCacheEntity>>
+
+    @Query("DELETE FROM feed_cache WHERE serverId = :serverId")
+    abstract suspend fun deleteFeed(serverId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertFeedPosts(posts: List<FeedCacheEntity>)
+
+    /**
+     * 取得できた投稿で置き換える。**部分更新にしない。**
+     * Desktopで消された投稿をここに残さない。
+     */
+    @Transaction
+    open suspend fun replaceFeed(serverId: String, posts: List<FeedCacheEntity>) {
+        deleteFeed(serverId)
+        if (posts.isNotEmpty()) upsertFeedPosts(posts)
+    }
 
     @Query("SELECT * FROM attention_state WHERE serverId = :serverId")
     abstract suspend fun attentionState(serverId: String): AttentionStateEntity?
@@ -2181,8 +2215,9 @@ abstract class MobileLocalDao {
         AttentionCacheEntity::class,
         AttentionStateEntity::class,
         PendingAgentReplyEntity::class,
+        FeedCacheEntity::class,
     ],
-    version = 27,
+    version = 28,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -2224,8 +2259,16 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_24_25,
                     MIGRATION_25_26,
                     MIGRATION_26_27,
+                    MIGRATION_27_28,
             ).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_27_28 = object : Migration(27, 28) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS feed_cache (postId TEXT NOT NULL PRIMARY KEY, serverId TEXT NOT NULL, position INTEGER NOT NULL, payloadJson TEXT NOT NULL, fetchedAt TEXT NOT NULL)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_feed_cache_serverId ON feed_cache (serverId)")
     }
 }
 

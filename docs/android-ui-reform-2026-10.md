@@ -27,8 +27,12 @@ AIを特別扱いせず、DesktopのFeedと同じ「読む面」として扱う�
 AI由来はこれまでの印（AiOriginMark）で示し、それ以上の強調はしない。
 投稿を長押しすると操作メニューを開ける。
 
-DesktopのFeed投稿（`feed_posts`）はまだAndroidへ届いていない。
-Androidで表示するには、mobile gatewayとローカル保存の追加が要るため、別の作業として扱う。
+DesktopのFeed投稿は `GET /v1/feed`（`mobile:read`）でAndroidへ届く。範囲はDesktopのFeed画面と同じ（削除されていない `feed_posts` Proposalと、自分の `feed_post`）で、新しい順に最大50件を返す。
+投稿者の判別規則は `src/shared/feedAuthors.mjs` をDesktopの画面とgatewayの射影が共有する。
+記事の草稿は題名だけ、外部リンクはURLと表題だけを流し、本文・根拠・画像・返信・反応は流さない。作業報告はこれまでどおりTaskの経路で届くため含めない。
+Androidは受け取った並びのまま `feed_cache` に置き換えて保存する（Room 27→28。Desktopで消した投稿は残らない）。取れなかったときと、この窓口を持たない古いDesktopのときは、保存済みの投稿をそのまま見せる。
+自分の投稿は「新着」にも未読の印にも数えない。リンクを開けるのはhttp(s)だけである。
+契約は `contracts/mobile/v1/feed-response.golden.json` をDesktop（`tests/mobile-feed-golden.test.mjs`）とAndroid（`MobileFeedGoldenTest`）が共有する。
 
 ## 操作
 

@@ -471,6 +471,8 @@ class TodayViewModel(
     val humanReviewState: StateFlow<HumanReviewUiState> = mutableHumanReviewState.asStateFlow()
     private val mutableAttention = MutableStateFlow<List<AttentionRow>>(emptyList())
     val attention: StateFlow<List<AttentionRow>> = mutableAttention.asStateFlow()
+    private val mutableFeedPosts = MutableStateFlow<List<MobileFeedPostDto>>(emptyList())
+    val feedPosts: StateFlow<List<MobileFeedPostDto>> = mutableFeedPosts.asStateFlow()
     private val mutableAttentionCounts = MutableStateFlow<MobileAttentionCountsDto?>(null)
     val attentionCounts: StateFlow<MobileAttentionCountsDto?> = mutableAttentionCounts.asStateFlow()
     private val mutableAttentionFetchedAt = MutableStateFlow<String?>(null)
@@ -493,6 +495,7 @@ class TodayViewModel(
     private var workReceiptLoadJob: Job? = null
     private var proposalRefreshJob: Job? = null
     private var attentionRefreshJob: Job? = null
+    private var feedRefreshJob: Job? = null
     private var cacheJob: Job? = null
     private var cacheDate: java.time.LocalDate? = null
     private var cachedGeneratedAt = ""
@@ -527,6 +530,11 @@ class TodayViewModel(
             viewModelScope.launch(ioDispatcher) {
                 offlineRepository.observeCachedTaskWorkProposals().collect { proposals ->
                     mutableTaskWorkProposals.value = proposals.toList()
+                }
+            }
+            viewModelScope.launch(ioDispatcher) {
+                offlineRepository.observeCachedFeed().collect { posts ->
+                    mutableFeedPosts.value = posts
                 }
             }
             viewModelScope.launch(ioDispatcher) {
@@ -596,6 +604,26 @@ class TodayViewModel(
         }
         refreshProposals(result !is MobileTodayResult.PairingRequired)
         refreshAttentionQueue(result !is MobileTodayResult.PairingRequired)
+        refreshFeedPosts(result !is MobileTodayResult.PairingRequired)
+    }
+
+    /**
+     * Feed投稿の取り直し。要対応とは独立に走らせ、失敗しても保存済みの投稿は保持する。
+     * 結果は保存済みの投稿の観測（observeCachedFeed）経由で画面へ届く。
+     */
+    private fun refreshFeedPosts(canConnect: Boolean) {
+        feedRefreshJob?.cancel()
+        val gateway = repository as? MobileGatewayRepository
+        if (!canConnect || gateway == null) return
+        feedRefreshJob = viewModelScope.launch(ioDispatcher) {
+            try {
+                gateway.refreshFeed()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // 取れなかったときは保存済みの投稿をそのまま見せる。
+            }
+        }
     }
 
     /**
@@ -666,6 +694,7 @@ class TodayViewModel(
 
     fun refreshAttention() {
         refreshAttentionQueue(canConnect = true)
+        refreshFeedPosts(canConnect = true)
     }
 
     fun replyToAgent(item: AttentionRow, choiceId: String?, body: String) {
@@ -1813,6 +1842,8 @@ interface MobileGatewayRepository : MobileTaskRepository {
         "このDesktopではWork Receipt判断を利用できません。",
     )
     suspend fun refreshAttention(): Boolean = false
+    /** Feed投稿の取り直し。窓口を持たないDesktopでは、保存済みの投稿を残して失敗を返す。 */
+    suspend fun refreshFeed(): Boolean = false
     suspend fun replyToAgent(
         item: AttentionRow,
         choiceId: String?,
@@ -1853,6 +1884,8 @@ interface MobileOfflineTaskRepository {
         kotlinx.coroutines.flow.flowOf(
             MobileAttentionSnapshot(items = emptyList(), counts = null, truncated = false, fetchedAt = null),
         )
+    /** 保存済みのFeed投稿（新しい順）。AIの投稿も自分の投稿も同じ流れで読む。 */
+    fun observeCachedFeed(): Flow<List<MobileFeedPostDto>> = kotlinx.coroutines.flow.flowOf(emptyList())
     /** 保存済みの要対応を一度だけ読む。新着の判定に使う（#601）。 */
     suspend fun cachedAttentionSnapshot(): MobileAttentionSnapshot =
         observeCachedAttention().first()

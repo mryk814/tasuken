@@ -258,6 +258,7 @@ internal fun TodayApp(
     val themeCatalogState by todayViewModel.themeCatalogState.collectAsState()
     val workReceiptDetailState by todayViewModel.workReceiptDetailState.collectAsState()
     val taskWorkProposals by todayViewModel.taskWorkProposals.collectAsState()
+    val feedPosts by todayViewModel.feedPosts.collectAsState()
     val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
     val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
     val humanReviewOnline by todayViewModel.humanReviewOnline.collectAsState()
@@ -308,7 +309,9 @@ internal fun TodayApp(
     val aiSeenStore = remember(context) { AiSeenStore(context) }
     var aiLastSeen by remember { mutableStateOf(aiSeenStore.lastSeenAt()) }
     var aiSeenBefore by remember { mutableStateOf(aiLastSeen) }
-    val newestAi = remember(allTasks, taskWorkProposals) { newestAiActivity(buildAiTimeline(allTasks, taskWorkProposals)) }
+    val newestAi = remember(allTasks, taskWorkProposals, feedPosts) {
+        newestAiActivity(buildAiTimeline(allTasks, taskWorkProposals, feedPosts))
+    }
     val onAiSection = paneState.activeSection == AppSection.Feed
     val aiUnseen = newestAi != null && aiLastSeen?.let { newestAi.isAfter(it) } != false
     LaunchedEffect(onAiSection) {
@@ -875,6 +878,7 @@ internal fun TodayApp(
                                 tasks = allTasks,
                                 themes = themes,
                                 proposals = taskWorkProposals,
+                                feedPosts = feedPosts,
                                 paneState = paneState,
                                 onRetry = todayViewModel::load,
                                 onRetryPairing = todayViewModel::retryPairing,
@@ -2006,6 +2010,8 @@ internal fun FeedListPane(
     onRetryPairing: () -> Unit,
     onPair: (String, String) -> Unit,
     onTaskSelected: (String) -> Unit,
+    /** DesktopのFeed投稿（AIの投稿・自分の投稿）。タスクの動きと同じ流れに並べる。 */
+    feedPosts: List<MobileFeedPostDto> = emptyList(),
     attention: List<AttentionRow> = emptyList(),
     attentionCounts: MobileAttentionCountsDto? = null,
     attentionFetchedAt: String? = null,
@@ -2140,23 +2146,35 @@ internal fun FeedListPane(
                     if (!onlyNeedsYou) item(key = "section-agent-counts") {
                         AiCountsStrip(counts = attentionCounts)
                     }
-                    val timeline = if (onlyNeedsYou) emptyList() else buildAiTimeline(tasks, proposals)
+                    val timeline = if (onlyNeedsYou) emptyList() else buildAiTimeline(tasks, proposals, feedPosts)
                     if (timeline.isNotEmpty()) {
                         item(key = "section-ai-timeline") {
                             AiSectionTitle("最近の動き")
                         }
                     }
+                    // 自分の投稿は新着に数えない（自分で書いたものを「新着」と呼ばない）。
+                    val others = timeline.filterNot { it.isOwn }
                     val hasNewAndOld = seenBefore != null &&
-                        timeline.any { it.at?.isAfter(seenBefore) == true } &&
-                        timeline.any { it.at?.isAfter(seenBefore) != true }
+                        others.any { it.at?.isAfter(seenBefore) == true } &&
+                        others.any { it.at?.isAfter(seenBefore) != true }
                     var dividerPlaced = false
                     for (entry in timeline) {
-                        val isNew = seenBefore != null && entry.at?.isAfter(seenBefore) == true
-                        if (hasNewAndOld && !isNew && !dividerPlaced) {
+                        val isNew = !entry.isOwn && seenBefore != null && entry.at?.isAfter(seenBefore) == true
+                        // 区切りは「新着」と「見た分」の境目に引く。自分の投稿はどちら側にも数えない。
+                        if (hasNewAndOld && !isNew && !entry.isOwn && !dividerPlaced) {
                             dividerPlaced = true
                             item(key = "ai-seen-divider") { AiSeenDivider(Modifier.testTag("ai-seen-divider")) }
                         }
                         when (entry) {
+                            is AiTimelineEntry.Post -> item(key = entry.key) {
+                                FeedPostItem(
+                                    post = entry.post,
+                                    at = entry.at,
+                                    isNew = isNew,
+                                    highlighted = entry.post.taskId != null && entry.post.taskId == paneState.selectedTaskId,
+                                    onOpenTask = onTaskSelected,
+                                )
+                            }
                             is AiTimelineEntry.Proposal -> item(key = entry.key) {
                                 val proposal = entry.proposal
                                 AiPost(
