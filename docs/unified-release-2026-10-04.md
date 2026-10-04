@@ -31,4 +31,16 @@ Room 27→28→29 は合成データまたは検証用DBコピーで確認する
 
 NAS更新に必要な対象service・image・volume・writer停止・backup・復元操作を確認し、PC / Android と同じ統合版で準備する。未保存入力と端末identityをoperator handoffで確認する。passwordが必要ならnative terminalでownerに操作を渡し、秘密を会話へ出さない。
 
-検証結果、最終SHA、実artifact、具体的配布手順は実行結果に合わせてこの文書を更新する。
+## 統合候補の検証結果
+
+初回統合候補 `3595b2fcb6458891c5a91ac49dfe2fc79d1938a9` でWindows quality（package / packaged MCPを含む）、Android quality、Android release signingの検証jobが成功した。恒久署名APKの生成・Release公開をこのCIの成功だけで完了扱いにはしない。
+
+統合境界のNode63テスト、typecheck、build、Android JVM testとdebug app/test APKの生成が成功。新しい空のAPI35 emulatorでRoom移行・Feed操作・offline幅の38テスト、UI tourの3テストが成功した。統合buildの保存先collectorは実Electronの1760px / 390pxで登録・同期・採用・同一Session更新・停止・再起動・欠損表示を確認した。画像は `output/playwright/agent-log-sync/`、Androidは `output/android-ui/` に保存して目視した。
+
+実HTTPのPC Gateway/Core/SQLiteと専用Android emulatorでFeed取得、反応、offline返信、PC再起動、応答消失時の同一commandId再送、書込み口なしでの保留と再開が成功した。AndroidのHTTP層がPOSTを自動再送する場合も、返信は重複しない。再現コマンドは次のとおり。実機や通常pairingを使わず、runnerが生成した合成tokenと一時DBだけを使う。
+
+```powershell
+rtk node scripts/run-electron-node.mjs tests/helpers/run-android-offline-journey.mjs emulator-5580 MobileFeedGatewayTest --feed
+```
+
+NAS SSHの接続とx86_64は確認した。Docker metadataの読み取りはsudo password待ちで未実施。サービス停止・本番データ変更はまだない。接続実機SC-51DにはTasken packageがなく、更新対象のFoldはoperator handoffで確認する。Release artifact、最終main/tag SHA、backupと配備結果は実行receiptで照合する。

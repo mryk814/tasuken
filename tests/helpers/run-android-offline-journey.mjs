@@ -5,7 +5,7 @@ import { createMobileOfflineGateway } from "./mobile-offline-gateway.mjs";
 
 // Usage: rtk node scripts/run-electron-node.mjs tests/helpers/run-android-offline-journey.mjs emulator-5556 TestClass[#method] ...
 const [serial, ...requestedTests] = process.argv.slice(2);
-const tests = requestedTests.filter((name) => !name.startsWith("--cleanup="));
+const tests = requestedTests.filter((name) => !name.startsWith("--cleanup=") && name !== "--feed");
 const cleanupTest = requestedTests
   .find((name) => name.startsWith("--cleanup="))
   ?.slice("--cleanup=".length);
@@ -51,7 +51,9 @@ async function adb(args, { cleanup = false } = {}) {
   });
 }
 
-const fixture = await createMobileOfflineGateway();
+const fixture = await createMobileOfflineGateway({
+  feedWritable: requestedTests.includes("--feed"),
+});
 let reverseAdded = false;
 let apksInstalled = false;
 const args = {
@@ -107,6 +109,8 @@ try {
       captures: snapshot.captures.length,
       events: snapshot.events.length,
       lostReceipts: snapshot.lostReceipts,
+      feedReactions: snapshot.feedReactions.length,
+      feedReplies: snapshot.feedReplies.length,
     }),
   );
 } finally {

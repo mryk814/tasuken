@@ -71,7 +71,11 @@ const {
 );
 
 /** A real Gateway/Core/SQLite route, with faults confined to a loopback test proxy. */
-export async function createMobileOfflineGateway({ scopes, organizer = null } = {}) {
+export async function createMobileOfflineGateway({
+  scopes,
+  organizer = null,
+  feedWritable = false,
+} = {}) {
   const directory = mkdtempSync(path.join(os.tmpdir(), "tasken-offline-journey-"));
   const serverId = `offline-${randomUUID()}`;
   const deviceId = `test-${randomUUID()}`;
@@ -86,6 +90,7 @@ export async function createMobileOfflineGateway({ scopes, organizer = null } = 
   let lostReceipts = 0;
   const seenCommands = [];
   let closed = false;
+  let feedWritesEnabled = feedWritable;
 
   async function startDesktop() {
     database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
@@ -110,6 +115,15 @@ export async function createMobileOfflineGateway({ scopes, organizer = null } = 
           workspaceService.adoptWorkLogOrganization(command, actor),
         changeLifecycle: (command, actor) =>
           workspaceService.changeWorkLogLifecycle(command, actor),
+      },
+      undefined,
+      {
+        feedWriter: feedWritesEnabled
+          ? {
+              save: (type, entity) => database.save(type, entity, { source: "mobile" }),
+              remove: (type, id) => database.remove(type, id),
+            }
+          : undefined,
       },
     );
     const state = {
@@ -169,10 +183,25 @@ export async function createMobileOfflineGateway({ scopes, organizer = null } = 
       receipts,
       seenCommands: [...seenCommands],
       lostReceipts,
+      feedReactions: database.list("feed_reaction", false),
+      feedReplies: database.list("feed_reply", false),
     };
   }
 
   async function control(action) {
+    if (action.seedFeed === true) {
+      database.save("ai_proposal", {
+        id: "fixture-feed",
+        source_app: "codex",
+        payload_type: "feed_posts",
+        status: "pending",
+        received_at: "2026-10-04T09:00:00.000Z",
+        payload: {
+          feed_posts: [{ action: "publish", topic: "insight", body: ["合成PC gatewayの投稿"] }],
+        },
+      });
+    }
+    if (Object.hasOwn(action, "feedWritable")) feedWritesEnabled = action.feedWritable === true;
     if (action.seedAiOrigin === true) {
       const origin = {
         schema: "tasken-ai-creation/v1",
@@ -407,7 +436,10 @@ export async function createMobileOfflineGateway({ scopes, organizer = null } = 
           const data = [];
           upstreamResponse.on("data", (chunk) => data.push(chunk));
           upstreamResponse.on("end", () => {
-            if (request.method === "POST" && request.url === "/v1/commands") {
+            if (
+              request.method === "POST" &&
+              ["/v1/commands", "/v1/feed-actions"].includes(request.url)
+            ) {
               const envelope = JSON.parse(body.toString());
               seenCommands.push(envelope);
               if (
