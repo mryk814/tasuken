@@ -487,7 +487,52 @@
 }
 
 .feed-needs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.feed-record-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-8);
+  min-height: var(--space-8);
+  margin-top: var(--space-2);
+  cursor: pointer;
+}
+
+.feed-needs-row > .feed-needs-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.feed-record-adoption {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex-basis: 100%;
+  font-size: var(--text-sm);
+}
+
+.feed-adoption-result,
+.feed-adoption-error {
+  flex-basis: 100%;
+  margin: var(--space-2) 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.feed-adoption-error {
+  color: var(--color-danger);
+}
+
+fieldset.feed-needs-detail {
+  margin: 0;
+  border: 0;
+  min-width: 0;
 }
 
 /* 行は選ぶだけ。決める操作は詳細ペインへ置く（判断は1か所）。 */
@@ -569,6 +614,7 @@
 /* 一覧が更新の入口を持つ。詳細の有無で位置が動かないよう見出しは常に出す。 */
 .feed-needs-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
@@ -612,6 +658,15 @@
 }
 
 @media (max-width: 1120px) {
+  .feed-record-check {
+    min-width: calc(var(--space-8) + var(--space-3));
+    min-height: calc(var(--space-8) + var(--space-3));
+  }
+
+  .feed-record-adoption button {
+    min-height: calc(var(--space-8) + var(--space-3));
+  }
+
   .feed-needs-panel.has-selection {
     display: flex;
     flex-direction: column;
