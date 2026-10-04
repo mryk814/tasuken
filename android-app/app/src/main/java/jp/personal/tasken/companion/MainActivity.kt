@@ -812,7 +812,7 @@ internal fun TodayApp(
                 active = paneState.activeSection,
                 onSelect = selectSection,
                 badge = sectionBadge,
-                header = { ComposeFab(onWrite = openCompose, onSpeak = openVoiceCompose, modifier = Modifier.padding(vertical = 8.dp)) },
+                header = { ComposeFab(onWrite = openCompose, onSpeak = openVoiceCompose, modifier = Modifier.padding(vertical = 8.dp), vertical = true) },
             )
         }
         Box(Modifier.weight(1f).fillMaxHeight()) {

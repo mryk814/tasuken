@@ -5,9 +5,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -28,7 +27,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -36,10 +34,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
@@ -59,55 +55,87 @@ internal fun Modifier.pressScale(interactionSource: MutableInteractionSource, pr
 }
 
 /**
- * 追加の入口を1つにまとめたボタン。押すと書く、長押しで話す。
- * 長押しは読み上げの操作一覧にも出し、隠れた機能にしない。
+ * 追加の入口。「書く（＋）」と「話す（マイク）」を1つの面に並べ、押す時点でどちらかを選ぶ。
+ * スマホでは横並び、Foldのレールでは縦並びにする。
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ComposeFab(
     onWrite: () -> Unit,
     onSpeak: () -> Unit,
     modifier: Modifier = Modifier,
+    vertical: Boolean = false,
 ) {
-    val interaction = remember { MutableInteractionSource() }
-    val haptics = LocalHapticFeedback.current
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(20.dp)
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
         shadowElevation = 6.dp,
+        modifier = modifier,
+    ) {
+        val write: @Composable () -> Unit = {
+            ComposeFabHalf(
+                icon = R.drawable.ic_tabler_plus,
+                description = "書いて追加",
+                onClick = onWrite,
+                modifier = Modifier.testTag("open-capture-action"),
+            )
+        }
+        val speak: @Composable () -> Unit = {
+            ComposeFabHalf(
+                icon = R.drawable.ic_tabler_microphone,
+                description = "話して追加",
+                onClick = onSpeak,
+                modifier = Modifier.testTag("open-voice-capture-action"),
+            )
+        }
+        val divider: @Composable () -> Unit = {
+            Box(
+                Modifier
+                    .then(if (vertical) Modifier.size(width = 32.dp, height = 1.dp) else Modifier.size(width = 1.dp, height = 32.dp))
+                    .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.35f)),
+            )
+        }
+        if (vertical) {
+            androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                write(); divider(); speak()
+            }
+        } else {
+            androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                write(); divider(); speak()
+            }
+        }
+    }
+}
+
+/** 追加ボタンの片側。押している間だけ少し沈み、押した瞬間に軽い触覚を返す。 */
+@Composable
+private fun ComposeFabHalf(
+    icon: Int,
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val haptics = LocalHapticFeedback.current
+    Box(
+        contentAlignment = Alignment.Center,
         modifier = modifier
-            .size(64.dp)
-            .pressScale(interaction, pressed = 0.9f)
-            .clip(shape)
-            .combinedClickable(
+            .size(60.dp)
+            .pressScale(interaction, pressed = 0.86f)
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(
                 interactionSource = interaction,
                 indication = androidx.compose.material3.ripple(),
                 role = Role.Button,
-                onClickLabel = "書いて追加",
-                onLongClickLabel = "話して追加",
-                onLongClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onSpeak()
-                },
-                onClick = onWrite,
-            )
-            .semantics {
-                contentDescription = "追加（長押しで話して追加）"
-                customActions = listOf(CustomAccessibilityAction("話して追加") { onSpeak(); true })
+                onClickLabel = description,
+            ) {
+                haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                onClick()
             }
-            .testTag("open-capture-action"),
+            .semantics { contentDescription = description },
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(painterResource(R.drawable.ic_tabler_plus), contentDescription = null, modifier = Modifier.size(28.dp))
-            // 長押しで話せることを小さく示す。
-            Icon(
-                painterResource(R.drawable.ic_tabler_microphone),
-                contentDescription = null,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 9.dp, bottom = 9.dp).size(14.dp).alpha(0.8f),
-            )
-        }
+        Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(26.dp))
     }
 }
 

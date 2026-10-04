@@ -132,9 +132,8 @@ class TodayOfflineUiTest {
         composeRule.onNodeWithText("今日やること").assertIsDisplayed()
         composeRule.onNodeWithText(task(0).title).assertIsDisplayed()
         composeRule.onNodeWithTag("open-capture-action").assertIsDisplayed()
-        // 追加の入口は1つ。長押しで話して追加できる。
-        composeRule.onNodeWithTag("open-capture-action")
-            .assert(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsActions.OnLongClick))
+        // 追加の入口は「書く」と「話す」を並べ、押す時点で選ぶ。
+        composeRule.onNodeWithTag("open-voice-capture-action").assertIsDisplayed()
         composeRule.onNodeWithTag("nav-tasks").assertIsDisplayed()
         composeRule.onNodeWithTag("nav-feed").assertIsDisplayed()
         composeRule.onNodeWithTag("nav-records").assertIsDisplayed()
