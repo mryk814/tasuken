@@ -1501,7 +1501,7 @@ class TodayViewModelFactory(
 }
 
 
-enum class AppSection { Today, Tasks, Ai }
+enum class AppSection { Today, Tasks, Feed, Records }
 enum class TaskListFilter { Open, Done, All }
 
 class TodayPaneState(

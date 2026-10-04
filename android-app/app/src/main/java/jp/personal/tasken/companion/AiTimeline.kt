@@ -1,7 +1,9 @@
 package jp.personal.tasken.companion
 
 import android.content.Context
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,12 +16,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -103,28 +113,44 @@ internal fun aiActivityVerb(section: AiInboxSection?): String = when (section) {
     null -> "更新しました"
 }
 
+/**
+ * 投稿者の丸。出所ごとに色と頭文字を変えて見分ける（DesktopのFeedと同じ考え方）。
+ * サービスのロゴは模さない。
+ */
 @Composable
-internal fun AiAvatar(modifier: Modifier = Modifier) {
+internal fun FeedAvatar(name: String, modifier: Modifier = Modifier) {
+    val palette = feedAvatarPalette()
+    val (container, content) = palette[Math.floorMod(name.hashCode(), palette.size)]
     Box(
-        modifier = modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primaryContainer),
+        modifier = modifier.size(40.dp).clip(CircleShape).background(container),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            painterResource(R.drawable.ic_tabler_sparkles),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(20.dp),
+        Text(
+            name.trim().firstOrNull()?.uppercase() ?: "?",
+            color = content,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
         )
     }
 }
 
+@Composable
+private fun feedAvatarPalette(): List<Pair<Color, Color>> {
+    val scheme = MaterialTheme.colorScheme
+    return listOf(
+        scheme.primaryContainer to scheme.onPrimaryContainer,
+        scheme.secondaryContainer to scheme.onSecondaryContainer,
+        scheme.tertiaryContainer to scheme.onTertiaryContainer,
+        scheme.surfaceContainerHighest to scheme.onSurface,
+    )
+}
+
 /**
- * タイムラインの1投稿。左にAI、右に「誰が・何をした・いつ」、本文、操作を置く。
- * 新着は左端の点と薄い下地で示し、色だけに頼らず「新着」と読み上げる。
+ * Feedの1投稿。左に投稿者、右に「誰が・何をした・いつ」、本文、操作を置く。
+ * 投稿の間は細い線だけで区切り、枠で囲まない。新着は左上の点と「新着」の語で示す。
+ * 長押しで操作メニューを開ける（[menu] がある場合）。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun AiPost(
     author: String,
@@ -134,59 +160,86 @@ internal fun AiPost(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     highlighted: Boolean = false,
+    menu: (@Composable ColumnScope.(close: () -> Unit) -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(if (onClick != null) Modifier.semantics { role = Role.Button }.clickable(onClick = onClick) else Modifier),
-        shape = RoundedCornerShape(12.dp),
-        color = when {
-            highlighted -> MaterialTheme.colorScheme.primaryContainer
-            isNew -> MaterialTheme.colorScheme.surfaceContainerLow
-            else -> MaterialTheme.colorScheme.surface
-        },
-        border = BorderStroke(1.dp, if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 12.dp, end = 14.dp, top = 12.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Box {
-                AiAvatar()
-                if (isNew) {
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                            .semantics { },
+    var menuOpen by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
+    Column(modifier = modifier.fillMaxWidth()) {
+        Box {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        when {
+                            highlighted -> MaterialTheme.colorScheme.secondaryContainer
+                            isNew -> MaterialTheme.colorScheme.surfaceContainerLow
+                            else -> Color.Transparent
+                        },
+                        RoundedCornerShape(12.dp),
                     )
-                }
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    itemVerticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(author, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(verb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    at?.let {
-                        Text(
-                            "· ${relativeTimeLabel(it)}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    .then(
+                        if (onClick != null || menu != null) {
+                            Modifier.semantics { role = Role.Button }.combinedClickable(
+                                onClick = { onClick?.invoke() },
+                                onLongClickLabel = if (menu != null) "操作メニュー" else null,
+                                onLongClick = if (menu != null) {
+                                    {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        menuOpen = true
+                                    }
+                                } else {
+                                    null
+                                },
+                            )
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .padding(start = 8.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box {
+                    FeedAvatar(author)
+                    if (isNew) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary),
                         )
                     }
-                    if (isNew) {
-                        Text("新着", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                    }
                 }
-                content()
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(author, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(verb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        at?.let {
+                            Text(
+                                "· ${relativeTimeLabel(it)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (isNew) {
+                            Text("新着", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    content()
+                }
+            }
+            if (menu != null) {
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    menu { menuOpen = false }
+                }
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = 60.dp))
     }
 }
 

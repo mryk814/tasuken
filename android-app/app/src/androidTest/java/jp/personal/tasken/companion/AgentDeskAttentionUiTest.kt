@@ -43,7 +43,7 @@ class AgentDeskAttentionUiTest {
     ) {
         composeRule.setContent {
             MaterialTheme {
-                AiInboxListPane(
+                FeedListPane(
                     uiState = cachedState(),
                     tasks = emptyList(),
                     themes = emptyList(),
@@ -170,7 +170,7 @@ class AgentDeskAttentionUiTest {
         val paneState = TodayPaneState()
         composeRule.setContent {
             MaterialTheme {
-                AiInboxListPane(
+                FeedListPane(
                     uiState = cachedState(),
                     tasks = emptyList(),
                     themes = emptyList(),
@@ -242,7 +242,7 @@ class AgentDeskAttentionUiTest {
         var selected: AttentionRow? = null
         composeRule.setContent {
             MaterialTheme {
-                AiInboxListPane(
+                FeedListPane(
                     uiState = cachedState(),
                     tasks = emptyList(),
                     themes = emptyList(),
@@ -339,7 +339,7 @@ class AgentDeskAttentionUiTest {
         var opened: AttentionRow? = null
         composeRule.setContent {
             MaterialTheme {
-                AiInboxListPane(
+                FeedListPane(
                     uiState = cachedState(),
                     tasks = emptyList(),
                     themes = emptyList(),
@@ -381,7 +381,7 @@ class AgentDeskAttentionUiTest {
         composeRule.setContent {
             MaterialTheme {
                 if (showingAgentDesk.value) {
-                    AiInboxListPane(
+                    FeedListPane(
                         uiState = cachedState(),
                         tasks = emptyList(),
                         themes = emptyList(),

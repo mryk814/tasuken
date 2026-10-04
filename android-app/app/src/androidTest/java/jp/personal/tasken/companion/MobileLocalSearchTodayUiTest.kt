@@ -26,7 +26,7 @@ class MobileLocalSearchTodayUiTest {
             } }
             CompositionLocalProvider(LocalContext provides isolated) { TaskenTheme { TodayApp(viewModel(factory = TodayViewModelFactory(repository))) } }
         }
-        compose.onNodeWithText("ToDo").performClick()
+        compose.onNodeWithTag("nav-tasks").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithTag("open-local-search").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("open-local-search").performClick()
         compose.onNodeWithTag("local-search-query").performTextReplacement("比較")
