@@ -1,6 +1,6 @@
 {
   "schema": "tasken-integration-manifest/v1",
-  "candidateBranch": "codex/komori-20261003-tasken-integration",
+  "candidateBranch": "codex/release-v0.1.74",
   "sourceCommit": "Resolve git rev-parse HEAD in this checkout; all components use that exact commit.",
   "publicBase": "a98f9955fb88140ac4b944ac9dfbdada3acb18b9",
   "inputs": {
@@ -11,33 +11,33 @@
   "components": [
     {
       "name": "Windows Desktop",
-      "candidateVersion": "0.1.74-ai-create.1",
+      "candidateVersion": "0.1.74",
       "build": "npm run build",
       "output": "out/",
-      "distribution": "Not built or distributed"
+      "distribution": "GitHub Actions Windows release for v0.1.74"
     },
     {
       "name": "Headless Core",
-      "candidateVersion": "0.1.74-ai-create.1",
+      "candidateVersion": "0.1.74",
       "build": "npm run build:core:headless",
       "output": "core-dist/",
       "distribution": "NAS image and rollout not performed"
     },
     {
       "name": "MCP bridge",
-      "candidateVersion": "0.1.74-ai-create.1",
+      "candidateVersion": "0.1.74",
       "build": "npm run build:mcp",
       "output": "mcp-dist/",
       "dependency": "Use with the matching Core commit"
     },
     {
       "name": "Android",
-      "candidateVersion": "0.1.71",
-      "versionCode": 65,
+      "candidateVersion": "0.1.74",
+      "versionCode": 66,
       "roomVersion": 27,
-      "build": "android-app/gradlew -p android-app assembleDebug",
-      "output": "android-app/app/build/outputs/apk/debug/app-debug.apk",
-      "distribution": "Debug QA only; production version/code and signed artifact remain to be selected before release"
+      "build": "Android release signing workflow on the release commit",
+      "output": "android-app/app/build/outputs/apk/release/app-release.apk",
+      "distribution": "Permanent signed APK for GitHub Release v0.1.74"
     }
   ],
   "dependencies": {
@@ -77,5 +77,5 @@
     "aiOrigin": "Mobile request header X-Tasken-Ai-Origin: 1",
     "agentSessions": "Today includeAgentSessions=true with mobile:read and mobile:context-read"
   },
-  "rollout": "Prepared only. No main merge, PR, Desktop install, physical Android install, NAS rollout, tag, release or workflow dispatch performed."
+  "rollout": "v0.1.74 release preparation authorized on 2026-10-04. Desktop/Android publication uses the same release commit. Desktop install, physical Android install and NAS rollout are outside this release."
 }
