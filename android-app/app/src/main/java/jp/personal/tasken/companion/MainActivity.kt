@@ -2113,10 +2113,13 @@ internal fun FeedListPane(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().testTag("ai-inbox-list"),
                     state = listState,
-                    contentPadding = PaddingValues(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    // 投稿は左右いっぱいに並べ、投稿どうしの空きは線だけにする。
+                    // 要対応のカードや見出しだけが、それぞれ左右12dpの余白を持つ。
+                    contentPadding = PaddingValues(bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
                     item(key = "section-attention") {
+                        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                         AgentAttentionHeader(
                             counts = attentionCounts,
                             fetchedAt = attentionFetchedAt,
@@ -2133,8 +2136,10 @@ internal fun FeedListPane(
                             notificationsEnabled = attentionNotificationsEnabled,
                             onToggleNotifications = onToggleAttentionNotifications,
                         )
+                        }
                     }
                     items(attention, key = { "attention-${it.attentionId}" }) { row ->
+                        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                         AgentAttentionCard(
                             row = row,
                             selected = selectedAttentionId == row.attentionId,
@@ -2146,10 +2151,12 @@ internal fun FeedListPane(
                             },
                             onOpenTask = { row.taskId?.let(onTaskSelected) },
                         )
+                        }
                     }
                     if (inlineTarget != null) {
                         val target = inlineTarget
                         item(key = "attention-reply") {
+                            Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                             AgentReplyEditor(
                                 row = target,
                                 body = paneState.attentionReplyBody,
@@ -2164,15 +2171,16 @@ internal fun FeedListPane(
                                 },
                                 dictation = replyDictation,
                             )
+                            }
                         }
                     }
                     if (!onlyNeedsYou) item(key = "section-agent-counts") {
-                        AiCountsStrip(counts = attentionCounts)
+                        Box(Modifier.padding(horizontal = 12.dp)) { AiCountsStrip(counts = attentionCounts) }
                     }
                     val timeline = if (onlyNeedsYou) emptyList() else buildAiTimeline(tasks, proposals, feedPosts)
                     if (timeline.isNotEmpty()) {
                         item(key = "section-ai-timeline") {
-                            AiSectionTitle("最近の動き")
+                            AiSectionTitle("最近の動き", Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp))
                         }
                     }
                     // 自分の投稿は新着に数えない（自分で書いたものを「新着」と呼ばない）。
@@ -2186,7 +2194,7 @@ internal fun FeedListPane(
                         // 区切りは「新着」と「見た分」の境目に引く。自分の投稿はどちら側にも数えない。
                         if (hasNewAndOld && !isNew && !entry.isOwn && !dividerPlaced) {
                             dividerPlaced = true
-                            item(key = "ai-seen-divider") { AiSeenDivider(Modifier.testTag("ai-seen-divider")) }
+                            item(key = "ai-seen-divider") { AiSeenDivider(Modifier.padding(horizontal = 16.dp).testTag("ai-seen-divider")) }
                         }
                         when (entry) {
                             is AiTimelineEntry.Post -> item(key = entry.key) {
@@ -2214,8 +2222,8 @@ internal fun FeedListPane(
                                     },
                                     modifier = Modifier.testTag("proposal-list-${proposal.id}"),
                                 ) {
-                                    Text(proposal.taskTitle, fontWeight = FontWeight.SemiBold)
-                                    proposal.summary?.let { Text(it, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                                    Text(proposal.taskTitle, style = FeedBodyStyle, fontWeight = FontWeight.SemiBold)
+                                    proposal.summary?.let { Text(it, style = FeedBodyStyle, maxLines = 3, overflow = TextOverflow.Ellipsis) }
                                     FlowRow(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -2252,11 +2260,11 @@ internal fun FeedListPane(
                                     },
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(task.title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                        Text(task.title, style = FeedBodyStyle, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                                         AiOriginMark(task.aiOrigin)
                                     }
                                     task.latestWorkReceipt?.summary?.let { summary ->
-                                        Text(summary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                        Text(summary, style = FeedBodyStyle, maxLines = 3, overflow = TextOverflow.Ellipsis)
                                     }
                                     FlowRow(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),

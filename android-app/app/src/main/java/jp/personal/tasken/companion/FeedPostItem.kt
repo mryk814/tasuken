@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -35,12 +38,17 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /** 長い投稿は先頭だけを見せ、読みたい人だけが広げる。固定の高さで切り捨てない。 */
 private const val FEED_COLLAPSED_LINES = 6
+
+/** Feedの本文。Xの一覧に近い15sp・行間21spで、日本語が詰まって読みにくくならない範囲に収める。 */
+internal val FeedBodyStyle = TextStyle(fontSize = 15.sp, lineHeight = 21.sp)
 
 /**
  * Feedの投稿1件（AIの投稿・自分の投稿）。
@@ -76,6 +84,7 @@ internal fun FeedPostItem(
         at = at,
         isNew = isNew,
         highlighted = highlighted,
+        bottomPadding = if (onToggleReaction != null || onReply != null) 0.dp else 12.dp,
         onClick = { expanded = !expanded },
         menu = if (taskId != null && onOpenTask != null || openLink != null) {
             { close ->
@@ -98,8 +107,9 @@ internal fun FeedPostItem(
         modifier = modifier.testTag("feed-post-${post.postId}"),
     ) {
         Text(
-            post.body.joinToString("\n\n"),
-            style = MaterialTheme.typography.bodyLarge,
+            // 段落は1行の改行で区切る（空行を挟まない）。Xの一覧と同じ密度で、行間は詰めすぎない。
+            post.body.joinToString("\n"),
+            style = FeedBodyStyle,
             maxLines = if (expanded) Int.MAX_VALUE else FEED_COLLAPSED_LINES,
             overflow = TextOverflow.Ellipsis,
             onTextLayout = { if (!expanded) overflowing = it.hasVisualOverflow },
@@ -107,11 +117,11 @@ internal fun FeedPostItem(
         if (overflowing || expanded) {
             Text(
                 if (expanded) "閉じる" else "もっと読む",
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
-                    .heightIn(min = 32.dp)
                     .clickable { expanded = !expanded }
+                    .padding(vertical = 2.dp)
                     .testTag("feed-post-toggle-${post.postId}"),
             )
         }
@@ -130,35 +140,6 @@ internal fun FeedPostItem(
                 onClick = openLink,
                 modifier = Modifier.testTag("feed-post-link-${post.postId}"),
             )
-        }
-        if (onToggleReaction != null || onReply != null) {
-            FeedActionBar(
-                postId = post.postId,
-                replyCount = post.replies.size,
-                interesting = FEED_REACTION_INTERESTING in post.reactions,
-                bookmarked = FEED_REACTION_BOOKMARK in post.reactions,
-                onReply = onReply,
-                onToggleReaction = onToggleReaction,
-            )
-        }
-        if (post.replies.isNotEmpty()) {
-            Text(
-                if (threadOpen) "返信を閉じる" else "返信 ${post.replies.size}件を見る",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .heightIn(min = 32.dp)
-                    .clickable { threadOpen = !threadOpen }
-                    .testTag("feed-post-thread-toggle-${post.postId}"),
-            )
-            if (threadOpen) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.testTag("feed-post-thread-${post.postId}"),
-                ) {
-                    post.replies.forEach { reply -> FeedReplyItem(reply) }
-                }
-            }
         }
         if (taskId != null || post.themeName != null) {
             FlowRow(
@@ -195,6 +176,35 @@ internal fun FeedPostItem(
                 }
             }
         }
+        if (onToggleReaction != null || onReply != null) {
+            FeedActionBar(
+                postId = post.postId,
+                replyCount = post.replies.size,
+                interesting = FEED_REACTION_INTERESTING in post.reactions,
+                bookmarked = FEED_REACTION_BOOKMARK in post.reactions,
+                onReply = onReply,
+                onToggleReaction = onToggleReaction,
+            )
+        }
+        if (post.replies.isNotEmpty()) {
+            Text(
+                if (threadOpen) "返信を閉じる" else "返信 ${post.replies.size}件を見る",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .heightIn(min = 28.dp)
+                    .clickable { threadOpen = !threadOpen }
+                    .testTag("feed-post-thread-toggle-${post.postId}"),
+            )
+            if (threadOpen) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 10.dp).testTag("feed-post-thread-${post.postId}"),
+                ) {
+                    post.replies.forEach { reply -> FeedReplyItem(reply) }
+                }
+            }
+        }
     }
 }
 
@@ -211,9 +221,10 @@ private fun FeedActionBar(
     onReply: (() -> Unit)?,
     onToggleReaction: ((String) -> Unit)?,
 ) {
+    // 左端の絵を本文の左端にそろえ、3つを幅いっぱいに均等に置く（Xの行動バーと同じ並び）。
     androidx.compose.foundation.layout.Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().offset(x = (-8).dp).padding(end = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onReply != null) {
@@ -274,8 +285,9 @@ private fun FeedActionButton(
     val tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         modifier = modifier
-            .heightIn(min = 48.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .heightIn(min = 44.dp)
+            .widthIn(min = 44.dp)
+            .clip(RoundedCornerShape(22.dp))
             .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = description) {
                 haptics.performHapticFeedback(
                     if (active) {
@@ -286,7 +298,7 @@ private fun FeedActionButton(
                 )
                 onClick()
             }
-            .padding(horizontal = 12.dp)
+            .padding(horizontal = 8.dp)
             .semantics { contentDescription = description; stateDescription = if (active) "付いています" else "付いていません" },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -296,10 +308,10 @@ private fun FeedActionButton(
             contentDescription = null,
             tint = tint,
             modifier = Modifier
-                .size(22.dp)
+                .size(20.dp)
                 .graphicsLayer { scaleX = bounce.value; scaleY = bounce.value },
         )
-        label?.let { Text(it, style = MaterialTheme.typography.labelLarge, color = tint) }
+        label?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = tint) }
     }
 }
 
@@ -307,8 +319,8 @@ private fun FeedActionButton(
 @Composable
 private fun FeedReplyItem(reply: MobileFeedReplyDto) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        FeedAvatar(reply.authorLabel, Modifier.size(28.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        FeedAvatar(reply.authorLabel, Modifier.size(24.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(reply.authorLabel, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                 parseInstantOrNull(reply.createdAt)?.let {
@@ -327,7 +339,7 @@ private fun FeedReplyItem(reply: MobileFeedReplyDto) {
                     )
                 }
             }
-            Text(reply.body, style = MaterialTheme.typography.bodyMedium)
+            Text(reply.body, style = TextStyle(fontSize = 14.sp, lineHeight = 20.sp))
         }
     }
 }
@@ -342,7 +354,7 @@ private fun FeedAttachmentCard(
 ) {
     val content: @Composable () -> Unit = {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -355,10 +367,11 @@ private fun FeedAttachmentCard(
             }
         }
     }
+    val outline = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     if (onClick != null) {
-        Surface(onClick = onClick, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier) { content() }
+        Surface(onClick = onClick, shape = RoundedCornerShape(12.dp), color = Color.Transparent, border = outline, modifier = modifier.fillMaxWidth().padding(top = 4.dp)) { content() }
     } else {
-        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier) { content() }
+        Surface(shape = RoundedCornerShape(12.dp), color = Color.Transparent, border = outline, modifier = modifier.fillMaxWidth().padding(top = 4.dp)) { content() }
     }
 }
 

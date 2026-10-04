@@ -39,6 +39,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.time.Duration
 import java.time.Instant
@@ -157,9 +158,11 @@ private fun feedAvatarPalette(): List<Pair<Color, Color>> {
 }
 
 /**
- * Feedの1投稿。左に投稿者、右に「誰が・何をした・いつ」、本文、操作を置く。
- * 投稿の間は細い線だけで区切り、枠で囲まない。新着は左上の点と「新着」の語で示す。
- * 長押しで操作メニューを開ける（[menu] がある場合）。
+ * Feedの1投稿。左に投稿者、右に「誰が・何をした・いつ」を1行で、その下に本文と操作を置く。
+ * 余白はXの一覧と同じ密度にそろえ、枠や角丸では囲まず、投稿の間は全幅の細い線だけで区切る。
+ * 新着は左上の点と薄い下地で示す。長押しで操作メニューを開ける（[menu] がある場合）。
+ *
+ * @param bottomPadding 本文の下の余白。行動バーを持つ投稿は、バー自身の余白に任せるため小さくする。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -171,6 +174,7 @@ internal fun AiPost(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     highlighted: Boolean = false,
+    bottomPadding: Dp = 12.dp,
     menu: (@Composable ColumnScope.(close: () -> Unit) -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
@@ -187,7 +191,6 @@ internal fun AiPost(
                             isNew -> MaterialTheme.colorScheme.surfaceContainerLow
                             else -> Color.Transparent
                         },
-                        RoundedCornerShape(12.dp),
                     )
                     .then(
                         if (onClick != null || menu != null) {
@@ -207,7 +210,7 @@ internal fun AiPost(
                             Modifier
                         },
                     )
-                    .padding(start = 8.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = bottomPadding),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box {
@@ -222,25 +225,30 @@ internal fun AiPost(
                         )
                     }
                 }
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                        itemVerticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(author, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    // 名前・種類・時刻は折り返さず1行に収める。長い名前だけを省略する。
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            author,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
                         if (verb.isNotBlank()) {
-                            Text(verb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(verb, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         }
                         at?.let {
                             Text(
                                 (if (verb.isNotBlank()) "· " else "") + relativeTimeLabel(it),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
                             )
                         }
                         if (isNew) {
-                            Text("新着", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            Text("新着", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, maxLines = 1)
                         }
                     }
                     content()
@@ -252,7 +260,8 @@ internal fun AiPost(
                 }
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = 60.dp))
+        // 全幅の細い線。左端のアバターの下まで引いて、投稿が詰まって見えないようにする。
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
@@ -316,8 +325,8 @@ private fun AiCountChip(text: String, active: Boolean) {
 internal fun AiSectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
-        modifier = modifier.padding(top = 12.dp, bottom = 2.dp),
-        style = MaterialTheme.typography.titleMedium,
+        modifier = modifier.padding(top = 8.dp, bottom = 0.dp),
+        style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.Bold,
     )
 }
