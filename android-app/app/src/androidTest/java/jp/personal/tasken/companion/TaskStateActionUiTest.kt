@@ -6,6 +6,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -177,7 +180,8 @@ class TaskStateActionUiTest {
             }
         }
 
-        composeRule.onNodeWithText("日付  未設定").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("task-date-chip").performScrollTo().assertIsDisplayed()
+        composeRule.onNode(hasText("未設定") and hasAnyAncestor(hasTestTag("task-date-chip"))).assertIsDisplayed()
         composeRule.onNodeWithText("今日の予定に追加").assertIsDisplayed().assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals(LocalDate.now(), submitted) }
     }

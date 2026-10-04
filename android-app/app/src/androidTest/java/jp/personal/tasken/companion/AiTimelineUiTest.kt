@@ -8,10 +8,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.time.Instant
@@ -36,7 +39,7 @@ class AiTimelineUiTest {
         composeRule.setContent {
             TaskenTheme {
                 Surface(Modifier.fillMaxSize().safeDrawingPadding()) {
-                    AiInboxListPane(
+                    FeedListPane(
                         uiState = TodayUiState.Success(tasks, now.toString()),
                         tasks = tasks,
                         themes = listOf(MobileTheme("catalyst", "触媒探索")),
@@ -55,17 +58,19 @@ class AiTimelineUiTest {
         }
         composeRule.onNodeWithText("対応待ち 1").assertIsDisplayed()
         composeRule.onNodeWithText("25℃と40℃のどちらで進めますか。").assertIsDisplayed()
-        composeRule.onNodeWithText("AIの動き").assertIsDisplayed()
+        composeRule.onNodeWithText("最近の動き").assertIsDisplayed()
         composeRule.onNodeWithText("8分前", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithTag("ai-seen-divider").assertIsDisplayed()
 
         // 新しい順：比較表（8分前）→ 提案（40分前）→ 取り込み（2時間前）→ 区切り → 文献（3日前）
         val newest = composeRule.onNodeWithText("触媒Aの比較表を作る").getBoundsInRoot().top
         val proposalTop = composeRule.onNodeWithText("考察メモを更新").getBoundsInRoot().top
-        val divider = composeRule.onNodeWithTag("ai-seen-divider").getBoundsInRoot().top
         assertTrue(newest < proposalTop)
-        assertTrue(proposalTop < divider)
         capture("01-ai-timeline")
+        composeRule.onNodeWithTag("ai-inbox-list").performScrollToNode(hasTestTag("ai-seen-divider"))
+        composeRule.onNodeWithTag("ai-seen-divider").assertIsDisplayed()
+        val divider = composeRule.onNodeWithTag("ai-seen-divider").getBoundsInRoot().top
+        assertTrue(composeRule.onNodeWithText("考察メモを更新").getBoundsInRoot().top < divider)
+        composeRule.onNodeWithTag("ai-inbox-list").performScrollToNode(hasText("触媒Aの比較表を作る"))
 
         composeRule.onNodeWithText("触媒Aの比較表を作る").performClick()
         assertEquals("t-new", opened)

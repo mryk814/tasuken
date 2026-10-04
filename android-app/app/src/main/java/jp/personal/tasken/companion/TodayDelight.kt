@@ -120,7 +120,8 @@ internal fun TodayProgressHeader(
             .padding(start = 16.dp, end = 12.dp, top = if (collapsed) 4.dp else 8.dp, bottom = 4.dp),
         verticalArrangement = Arrangement.spacedBy(if (collapsed) 4.dp else 6.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // 状態の札が出入りしても高さを変えない（一覧の位置を動かさず、誤タップを防ぐ）。
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 48.dp)) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 // 「今日やること」と日付は上部バーに置く。ここは残りの数から始める。
                 AnimatedContent(
@@ -143,12 +144,15 @@ internal fun TodayProgressHeader(
                     )
                 }
             }
-            TodaySyncPill(
-                cached = cached,
-                refreshing = refreshing,
-                generatedAt = generatedAt,
-                onClick = if (cached?.recovery == TodayUiState.CachedRecovery.RePair) onRetryPairing else onRetry,
-            )
+            // 正常な同期は上部の雲の印に任せる。端末保存だけの間は、理由と復旧をここにも残す。
+            if (cached != null) {
+                TodaySyncPill(
+                    cached = cached,
+                    refreshing = refreshing,
+                    generatedAt = generatedAt,
+                    onClick = if (cached.recovery == TodayUiState.CachedRecovery.RePair) onRetryPairing else onRetry,
+                )
+            }
         }
         if (progress.total > 0) {
             Box {
@@ -156,19 +160,18 @@ internal fun TodayProgressHeader(
                 CompletionBurst(celebrationEventId, Modifier.matchParentSize(), particles = 18, spread = 1.8f)
             }
         }
-        // 高さを固定し、同期状態が変わっても一覧の位置を動かさない（誤タップ防止）。
+        // 同期の理由がある時だけ文を出す。行の高さは1行に固定し、一覧の位置を動かさない（誤タップ防止）。
         Text(
             when {
                 cached != null -> cached.message
                 refreshing -> "PCの最新状態を確認しています"
-                collapsed -> ""
-                else -> "下へ引っぱると更新できます"
+                else -> ""
             },
             modifier = Modifier.fillMaxWidth(),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            minLines = if (collapsed) 1 else 2,
-            maxLines = if (collapsed) 1 else 2,
+            minLines = 1,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }

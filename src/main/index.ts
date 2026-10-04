@@ -2662,6 +2662,19 @@ async function startDesktopApp(): Promise<void> {
         return receipt;
       },
     },
+    // Androidからの反応・返信。Desktopの画面と同じEntity保存（feed_reaction / feed_reply）を使う。
+    feedWriter: {
+      save: (type, entity) => {
+        const saved = workspaceRepository.save(type, entity, { source: "mobile" });
+        notifyMainWindowRefresh({ type, entity: saved as never });
+        return saved;
+      },
+      remove: (type, id) => {
+        const removed = workspaceRepository.remove(type, id);
+        notifyMainWindowRefresh(removed ? { type, entity: removed as never } : undefined);
+        return removed;
+      },
+    },
     getCaptureOrganizer: () => captureOrganizerSettings.createOrganizer(),
     userDataPath: app.getPath("userData"),
     persistence: workspaceRepository,

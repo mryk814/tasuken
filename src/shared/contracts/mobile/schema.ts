@@ -1777,6 +1777,163 @@ export const mobileAttentionResponseSchema = z
   })
   .strict();
 
+/* ---------------------------------------------------------------------------
+ * Feed（読む面）
+ *
+ * Desktopが持つFeed投稿（AIの投稿・自分の投稿）をAndroidで読めるようにするread model。
+ * 作業報告はAgent Deskのread modelとTaskの経路で届くため、ここには含めない。
+ * 反応・返信・採用はこの版の対象外で、Androidは読むだけ。
+ * ------------------------------------------------------------------------- */
+
+export const mobileFeedTopicSchema = z.enum([
+  "work_report",
+  "insight",
+  "learning",
+  "reference",
+  "question",
+  "own_note",
+]);
+
+/** Androidが扱う反応。Desktopの `hidden` / `known` は読者の整理用で、この版では流さない。 */
+export const mobileFeedReactionKindSchema = z.enum(["bookmark", "interesting"]);
+
+/** 投稿への返信（自分のメモ・AIの返答）。Androidは並べ替えず、Desktopの並び（古い順）で受け取る。 */
+export const mobileFeedReplySchema = z
+  .object({
+    /** 返信Entityの正本ID。AIの返答Proposalでは `feed-answer:<proposalId>`。 */
+    replyId: z.string().trim().min(1).max(300),
+    authorKind: z.enum(["human", "ai"]),
+    authorLabel: z.string().trim().max(200),
+    createdAt: isoTimestampSchema,
+    body: z.string().max(4000),
+  })
+  .strict();
+
+export const mobileFeedPostSchema = z
+  .object({
+    /** 投稿の正本ID（Desktopの `feedPostId`）。 */
+    postId: z.string().trim().min(1).max(300),
+    /** 人（自分）かAIか。AIの特別な見せ方はせず、既存の印の判断だけに使う。 */
+    authorKind: z.enum(["human", "ai"]),
+    authorLabel: z.string().trim().max(200),
+    topic: mobileFeedTopicSchema,
+    createdAt: isoTimestampSchema,
+    /** 本文の段落。空の段落は含めない。 */
+    body: z.array(z.string().max(10000)).min(1).max(50),
+    taskId: taskIdSchema.nullable(),
+    taskTitle: z.string().trim().max(500).nullable(),
+    themeId: entityIdSchema.nullable(),
+    themeName: z.string().trim().max(200).nullable(),
+    /** 記事の草稿（採用前）またはNote参照の題名。本文はAndroidへ流さない。 */
+    attachment: z
+      .object({
+        kind: z.enum(["note_draft", "note"]),
+        title: z.string().trim().max(500),
+      })
+      .strict()
+      .nullable(),
+    /** 自分が付けた反応。 */
+    reactions: z.array(mobileFeedReactionKindSchema).max(2),
+    /** 返信（古い順）。 */
+    replies: z.array(mobileFeedReplySchema).max(50),
+    /** 外部の参考リンク。画像や図はこの版では流さない。 */
+    link: z
+      .object({
+        url: z.string().trim().min(1).max(2000),
+        label: z.string().trim().max(200).nullable(),
+        comment: z.string().trim().max(2000).nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+export const mobileFeedRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    limit: z
+      .number()
+      .int()
+      .positive()
+      .max(TASKEN_MOBILE_MAX_ITEMS)
+      .default(TASKEN_MOBILE_MAX_ITEMS),
+  })
+  .strict();
+
+export const mobileFeedResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        /** 新しい順。 */
+        posts: z.array(mobileFeedPostSchema).max(TASKEN_MOBILE_MAX_ITEMS),
+        truncated: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
+/**
+ * Feedへの書き込み。反応はIDが決まっているので連打・再送で増えず、
+ * 返信は端末が決めた `replyId` で保存する。同じ `replyId` の再送は同じ結果を返す。
+ * AIへ返答を依頼する経路は、この版では持たない。
+ */
+export const mobileFeedActionSchema = z.discriminatedUnion("name", [
+  z.strictObject({
+    name: z.literal("SetFeedReaction"),
+    postId: z.string().trim().min(1).max(200),
+    kind: mobileFeedReactionKindSchema,
+    on: z.boolean(),
+  }),
+  z.strictObject({
+    name: z.literal("PostFeedReply"),
+    replyId: entityIdSchema,
+    postId: z.string().trim().min(1).max(200),
+    body: z
+      .string()
+      .min(1)
+      .max(4000)
+      .refine((value) => Boolean(value.trim()) && isWellFormedUnicode(value)),
+  }),
+]);
+
+export const mobileFeedActionRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    commandId: entityIdSchema,
+    idempotencyKey: entityIdSchema,
+    clientDeviceId: entityIdSchema,
+    issuedAt: isoTimestampSchema,
+    action: mobileFeedActionSchema,
+  })
+  .strict()
+  .refine((value) => value.commandId === value.idempotencyKey, {
+    path: ["idempotencyKey"],
+    message: "commandIdとidempotencyKeyを一致させてください。",
+  });
+
+export const mobileFeedActionResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        commandId: entityIdSchema,
+        status: z.enum(["applied", "no_change"]),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type MobileFeedActionRequest = z.output<typeof mobileFeedActionRequestSchema>;
+export type MobileFeedPost = z.output<typeof mobileFeedPostSchema>;
+export type MobileFeedResponse = z.output<typeof mobileFeedResponseSchema>;
+
 /**
  * agentの質問への短い返答。Task本文は変えない。
  * 同じ質問への二度目の返答はconflictとして拒否される（Desktopと同じ）。

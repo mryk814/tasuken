@@ -471,6 +471,11 @@ class TodayViewModel(
     val humanReviewState: StateFlow<HumanReviewUiState> = mutableHumanReviewState.asStateFlow()
     private val mutableAttention = MutableStateFlow<List<AttentionRow>>(emptyList())
     val attention: StateFlow<List<AttentionRow>> = mutableAttention.asStateFlow()
+    private val mutableFeedPosts = MutableStateFlow<List<MobileFeedPostDto>>(emptyList())
+    val feedPosts: StateFlow<List<MobileFeedPostDto>> = mutableFeedPosts.asStateFlow()
+    private val mutableFeedMessages = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    /** 反応・返信が受け付けられなかった理由。一時的な通知として見せる。 */
+    val feedMessages: SharedFlow<String> = mutableFeedMessages.asSharedFlow()
     private val mutableAttentionCounts = MutableStateFlow<MobileAttentionCountsDto?>(null)
     val attentionCounts: StateFlow<MobileAttentionCountsDto?> = mutableAttentionCounts.asStateFlow()
     private val mutableAttentionFetchedAt = MutableStateFlow<String?>(null)
@@ -493,6 +498,7 @@ class TodayViewModel(
     private var workReceiptLoadJob: Job? = null
     private var proposalRefreshJob: Job? = null
     private var attentionRefreshJob: Job? = null
+    private var feedRefreshJob: Job? = null
     private var cacheJob: Job? = null
     private var cacheDate: java.time.LocalDate? = null
     private var cachedGeneratedAt = ""
@@ -528,6 +534,14 @@ class TodayViewModel(
                 offlineRepository.observeCachedTaskWorkProposals().collect { proposals ->
                     mutableTaskWorkProposals.value = proposals.toList()
                 }
+            }
+            viewModelScope.launch(ioDispatcher) {
+                // 保存済みの投稿に、まだ届いていない自分の反応・返信を重ねて見せる。
+                combine(
+                    offlineRepository.observeCachedFeed(),
+                    offlineRepository.observePendingFeedActions(),
+                ) { posts, pending -> applyPendingFeedActions(posts, pending) }
+                    .collect { posts -> mutableFeedPosts.value = posts }
             }
             viewModelScope.launch(ioDispatcher) {
                 offlineRepository.observeCachedAttention().collect { snapshot ->
@@ -596,6 +610,28 @@ class TodayViewModel(
         }
         refreshProposals(result !is MobileTodayResult.PairingRequired)
         refreshAttentionQueue(result !is MobileTodayResult.PairingRequired)
+        refreshFeedPosts(result !is MobileTodayResult.PairingRequired)
+    }
+
+    /**
+     * Feed投稿の取り直し。要対応とは独立に走らせ、失敗しても保存済みの投稿は保持する。
+     * 結果は保存済みの投稿の観測（observeCachedFeed）経由で画面へ届く。
+     */
+    private fun refreshFeedPosts(canConnect: Boolean) {
+        feedRefreshJob?.cancel()
+        val gateway = repository as? MobileGatewayRepository
+        if (!canConnect || gateway == null) return
+        feedRefreshJob = viewModelScope.launch(ioDispatcher) {
+            try {
+                // 溜まった反応・返信を先に送り、そのあとの取得で正本の状態に合わせる。
+                gateway.flushFeedActions().forEach { mutableFeedMessages.tryEmit(it) }
+                gateway.refreshFeed()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // 取れなかったときは保存済みの投稿をそのまま見せる。
+            }
+        }
     }
 
     /**
@@ -666,6 +702,46 @@ class TodayViewModel(
 
     fun refreshAttention() {
         refreshAttentionQueue(canConnect = true)
+        refreshFeedPosts(canConnect = true)
+    }
+
+    /** 投稿の「おもしろい」「ブックマーク」を付け外しする。画面にはすぐ反映し、Desktopへは送れたときに保存される。 */
+    fun toggleFeedReaction(post: MobileFeedPostDto, kind: String) {
+        val gateway = repository as? MobileGatewayRepository ?: return
+        val on = kind !in post.reactions
+        viewModelScope.launch(ioDispatcher) {
+            val result = try {
+                gateway.enqueueFeedReaction(post.postId, kind, on)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                MobileFeedActionResult.Unavailable("反応を保存できませんでした。")
+            }
+            reportFeedActionResult(result)
+        }
+    }
+
+    /** 自分のメモとして返信を残す。端末へ保存した時点で画面に並び、Desktopへは送れたときに保存される。 */
+    fun postFeedReply(post: MobileFeedPostDto, body: String) {
+        val gateway = repository as? MobileGatewayRepository ?: return
+        viewModelScope.launch(ioDispatcher) {
+            val result = try {
+                gateway.enqueueFeedReply(post.postId, body)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                MobileFeedActionResult.Unavailable("返信を保存できませんでした。")
+            }
+            reportFeedActionResult(result)
+        }
+    }
+
+    private fun reportFeedActionResult(result: MobileFeedActionResult) {
+        when (result) {
+            MobileFeedActionResult.Queued -> Unit
+            is MobileFeedActionResult.Rejected -> mutableFeedMessages.tryEmit(result.message)
+            is MobileFeedActionResult.Unavailable -> mutableFeedMessages.tryEmit(result.message)
+        }
     }
 
     fun replyToAgent(item: AttentionRow, choiceId: String?, body: String) {
@@ -1501,7 +1577,7 @@ class TodayViewModelFactory(
 }
 
 
-enum class AppSection { Today, Tasks, Ai }
+enum class AppSection { Today, Tasks, Feed, Records }
 enum class TaskListFilter { Open, Done, All }
 
 class TodayPaneState(
@@ -1813,6 +1889,18 @@ interface MobileGatewayRepository : MobileTaskRepository {
         "このDesktopではWork Receipt判断を利用できません。",
     )
     suspend fun refreshAttention(): Boolean = false
+    /** Feed投稿の取り直し。窓口を持たないDesktopでは、保存済みの投稿を残して失敗を返す。 */
+    suspend fun refreshFeed(): Boolean = false
+    /**
+     * Feedへの反応・返信を端末へ保存し、送れるなら送る。応答を失っても同じcommandIdで再送する。
+     * 保存できたときは [MobileFeedActionResult.Queued]（反応は画面にすぐ反映される）。
+     */
+    suspend fun enqueueFeedReaction(postId: String, kind: String, on: Boolean): MobileFeedActionResult =
+        MobileFeedActionResult.Unavailable("このDesktopでは反応を保存できません。")
+    suspend fun enqueueFeedReply(postId: String, body: String): MobileFeedActionResult =
+        MobileFeedActionResult.Unavailable("このDesktopでは返信を保存できません。")
+    /** 送信待ちを送る。受け付けられなかった分の理由を返す（成功・接続できなかった分は返さない）。 */
+    suspend fun flushFeedActions(): List<String> = emptyList()
     suspend fun replyToAgent(
         item: AttentionRow,
         choiceId: String?,
@@ -1853,6 +1941,11 @@ interface MobileOfflineTaskRepository {
         kotlinx.coroutines.flow.flowOf(
             MobileAttentionSnapshot(items = emptyList(), counts = null, truncated = false, fetchedAt = null),
         )
+    /** 保存済みのFeed投稿（新しい順）。AIの投稿も自分の投稿も同じ流れで読む。 */
+    fun observeCachedFeed(): Flow<List<MobileFeedPostDto>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    /** まだDesktopへ届いていないFeedへの書き込み。保存済みの投稿へ重ねて見せる。 */
+    fun observePendingFeedActions(): Flow<List<MobileFeedActionEnvelopeDto>> =
+        kotlinx.coroutines.flow.flowOf(emptyList())
     /** 保存済みの要対応を一度だけ読む。新着の判定に使う（#601）。 */
     suspend fun cachedAttentionSnapshot(): MobileAttentionSnapshot =
         observeCachedAttention().first()

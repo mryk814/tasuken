@@ -52,7 +52,8 @@ class TodayOfflineUiTest {
             }
         }
         composeRule.onNodeWithText("あと", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithText("最終同期", substring = true).assertIsDisplayed()
+        // 正常な同期は上部の雲の印に任せ、Todayの見出しには出さない。
+        composeRule.onNodeWithText("最終同期", substring = true).assertDoesNotExist()
         composeRule.onNodeWithTag("today-task-list").performScrollToNode(hasText(task(20).title))
         composeRule.runOnIdle {
             pane.selectedTaskId = "task-20"
@@ -63,7 +64,7 @@ class TodayOfflineUiTest {
         val scroll = pane.listScrollIndex to pane.listScrollOffset
         capture("01-saved")
         composeRule.runOnIdle { refreshing.value = true }
-        composeRule.onNodeWithText("PCと同期中").assertIsDisplayed()
+        composeRule.onNodeWithText("PCの最新状態を確認しています").assertIsDisplayed()
         assertEquals(bounds, composeRule.onNodeWithText(task(20).title).getBoundsInRoot())
         capture("02-refreshing")
         composeRule.runOnIdle {
@@ -131,11 +132,11 @@ class TodayOfflineUiTest {
         composeRule.onNodeWithText("今日やること").assertIsDisplayed()
         composeRule.onNodeWithText(task(0).title).assertIsDisplayed()
         composeRule.onNodeWithTag("open-capture-action").assertIsDisplayed()
-        // 追加の入口は1つ。長押しで話して追加できる。
-        composeRule.onNodeWithTag("open-capture-action")
-            .assert(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsActions.OnLongClick))
-        composeRule.onNodeWithText("ToDo").assertIsDisplayed()
-        composeRule.onNodeWithText("AI").assertIsDisplayed()
+        // 追加の入口は「書く」と「話す」を並べ、押す時点で選ぶ。
+        composeRule.onNodeWithTag("open-voice-capture-action").assertIsDisplayed()
+        composeRule.onNodeWithTag("nav-tasks").assertIsDisplayed()
+        composeRule.onNodeWithTag("nav-feed").assertIsDisplayed()
+        composeRule.onNodeWithTag("nav-records").assertIsDisplayed()
         capture("08-today-shell")
     }
 

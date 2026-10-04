@@ -805,6 +805,10 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     workReviews: "/v1/work-reviews",
     // #601: Agent Deskの要対応read modelと短い返答。
     attention: "/v1/attention",
+    // Feed投稿を読むread model（読むだけ）。
+    feed: "/v1/feed",
+    // Feed投稿への反応と、自分のメモとしての返信。
+    feedActions: "/v1/feed-actions",
     agentReplies: "/v1/agent-replies",
     taskContextPreview: "/v1/task-context-preview",
     taskDelegations: "/v1/task-delegations",

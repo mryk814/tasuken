@@ -3,6 +3,8 @@ export {
   MobileGatewayCoreUnavailableError,
   type MobileGatewayAgentReplyResult,
   type MobileGatewayAttentionRead,
+  type MobileGatewayFeedActionResult,
+  type MobileGatewayFeedRead,
   type MobileGatewayCorePort,
   type MobileGatewayWorkLogCommand,
   type MobileGatewayWorkLogCommandResult,
@@ -27,6 +29,11 @@ export {
   projectAttentionItems,
   projectAttentionQueue,
 } from "./attentionProjection.ts";
+export {
+  projectFeedPosts,
+  projectOwnFeedPosts,
+  projectProposalFeedPosts,
+} from "./feedProjection.ts";
 export {
   MobileGatewayClient,
   MobileGatewayClientError,
