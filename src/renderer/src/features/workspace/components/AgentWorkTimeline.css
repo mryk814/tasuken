@@ -3,6 +3,54 @@
   overflow: hidden;
   min-width: 0;
 }
+.agent-log-day-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+}
+.agent-log-list-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3);
+  text-align: left;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.agent-log-list-entry > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.agent-log-list-entry small {
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.agent-log-list-result {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.agent-log-detail a {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-top: var(--space-2);
+}
+.agent-log-panel.is-narrow .agent-log-body {
+  min-height: 0;
+}
+.agent-log-panel.is-narrow .agent-log-empty {
+  position: static;
+  padding: var(--space-4);
+}
 .agent-log-toolbar {
   display: flex;
   align-items: center;
@@ -137,11 +185,17 @@
 .agent-log-block strong {
   font-size: 11px;
   line-height: 1.3;
-  min-height: 1.3em;
+  flex-shrink: 0;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.agent-log-client {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-log-block > span > svg {
+  flex-shrink: 0;
 }
 .agent-log-block small {
   font-size: 10px;
@@ -349,4 +403,53 @@
     width: 100%;
     margin: 0;
   }
+}
+.agent-log-sync {
+  padding: var(--space-3);
+}
+.agent-log-sync > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.agent-log-sync small {
+  color: var(--color-text-secondary);
+  margin-left: var(--space-2);
+}
+.agent-log-sync p {
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.agent-log-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.agent-log-source-list {
+  display: grid;
+  gap: var(--space-3);
+  padding-left: var(--space-4);
+}
+.agent-log-source-list li {
+  display: grid;
+  gap: var(--space-1);
+}
+.agent-log-source-list code,
+.agent-log-destination {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+.agent-log-source-setup > * {
+  margin-top: var(--space-3);
+}
+.agent-log-source-setup label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.agent-log-source-setup input:not([type="checkbox"]) {
+  width: 100%;
+  min-width: 0;
 }

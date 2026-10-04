@@ -123,6 +123,7 @@ export const proposeAgentSessionRequestSchema = z.discriminatedUnion("action", [
       ...identity,
       ...relationTargets,
       action: z.literal("capture"),
+      expected_version: z.number().int().positive().optional(),
       started_at: timestamp,
       ended_at: timestamp,
       status: z.enum(["completed", "blocked", "abandoned", "unknown", "interrupted"]),

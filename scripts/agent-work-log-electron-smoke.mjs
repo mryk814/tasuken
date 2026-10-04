@@ -36,15 +36,18 @@ async function launch() {
   });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.getByText("Debrief", { exact: true }).first().click();
+  await page.getByText("AI の週次振り返り・ログ取り込み", { exact: true }).click();
   await page.getByRole("region", { name: "AI作業ログ", exact: true }).waitFor();
 }
 const panel = () => page.getByRole("region", { name: "AI作業ログ", exact: true });
-async function importFixture(name) {
-  await panel().getByRole("button", { name: "AI作業ログを取り込む", exact: true }).click();
+async function importFixture(name, extension = "json") {
+  if (extension === "jsonl")
+    await page.getByRole("button", { name: "AIの生ログを選んで取り込む", exact: true }).click();
+  else await panel().getByRole("button", { name: "AI作業ログを取り込む", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "AI作業ログを取り込む", exact: true });
   await dialog
     .locator('input[type="file"]')
-    .setInputFiles(path.resolve(`fixtures/agent-work-logs/${name}.json`));
+    .setInputFiles(path.resolve(`fixtures/agent-work-logs/${name}.${extension}`));
   await dialog.getByRole("button", { name: "確認へ進む", exact: true }).waitFor();
   await dialog.getByLabel("関連Repository").selectOption("synthetic-repository");
   await dialog.getByRole("button", { name: "確認へ進む", exact: true }).click();
@@ -67,6 +70,67 @@ try {
   );
   for (const name of ["codex", "claude", "copilot", "opencode", "deepseek"])
     await importFixture(name);
+  const toastClose = page.getByRole("status").getByRole("button", { name: "閉じる", exact: true });
+  if (await toastClose.count()) await toastClose.click();
+  await page.evaluate(async () => {
+    const sessions = await window.api.entities.list("agent_session");
+    const session = sessions.find((entry) => entry.client_kind === "codex");
+    await window.api.entities.save("agent_session", {
+      ...session,
+      agent_label: "合成デモ Agent",
+      model_label: "合成デモ Model",
+      outcome: {
+        ...session.outcome,
+        changed_items: ["合成デモ: weekly-view.tsx"],
+        decisions: ["終了未確認は最終観測まで表示"],
+        verification: ["合成デモ: focused tests passed"],
+        remaining_work: ["合成デモ: 実機確認"],
+        next_suggested_action: "合成デモ: 所有者による画面確認",
+      },
+    });
+    const receipt = await window.api.commands.execute({
+      commandId: "synthetic-calendar-task-create",
+      issuedAt: "2026-10-03T00:30:00Z",
+      name: "CreateTask",
+      payload: {
+        task: {
+          id: "synthetic-calendar-task",
+          title: "合成デモ: 週表示を確認",
+          state: "review",
+          project_id: "",
+        },
+      },
+      actor: { kind: "user" },
+      source: "main_ui",
+      expectedVersions: [],
+    });
+    if (receipt.status !== "applied") throw new Error(`Demo task create: ${receipt.status}`);
+    await window.api.entities.save("reference", {
+      id: "synthetic-calendar-task-ref",
+      subject: { type: "agent_session", id: session.id },
+      object: { type: "task", id: "synthetic-calendar-task" },
+      predicate: "worked_on",
+      layer: "operational",
+      status: "asserted",
+      origin: "user",
+    });
+    await window.api.entities.save("note", {
+      id: "synthetic-human-focus",
+      title: "合成デモ: 人の確認作業",
+      content: "合成デモ: 画面の読みやすさを確認した",
+      properties_json: {
+        document_role: "focus_session",
+        session_state: "ended",
+        started_at: "2026-10-03T00:15:00Z",
+        ended_at: "2026-10-03T00:45:00Z",
+        summary: "合成デモ: 人の確認作業",
+      },
+    });
+  });
+  await panel().getByLabel("表示日").fill("2026-10-03");
+  await page.reload();
+  await page.getByText("Debrief", { exact: true }).first().click();
+  await page.getByText("AI の週次振り返り・ログ取り込み", { exact: true }).click();
   await panel().getByLabel("表示日").fill("2026-10-03");
   await panel().getByRole("button", { name: "週", exact: true }).click();
   assert.equal(await panel().locator(".agent-log-block").count(), 5);
@@ -75,9 +139,27 @@ try {
   await panel().getByLabel("Clientで絞る").selectOption("");
   await panel().getByLabel("Repositoryで絞る").selectOption("synthetic-repository");
   assert.equal(await panel().locator(".agent-log-block").count(), 5);
+  await panel().getByRole("button", { name: "次の期間", exact: true }).click();
+  await panel().getByText("この期間のAI作業はありません。").waitFor();
+  await page.screenshot({ path: path.join(output, "after-desktop-empty.png") });
+  await panel().getByRole("button", { name: "前の期間", exact: true }).click();
+  assert.equal(await panel().getByLabel("表示日").inputValue(), "2026-10-03");
   await panel().locator(".agent-log-block").filter({ hasText: "Codex" }).click();
   await panel().scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(output, "after-desktop.png") });
+  const detail = panel().getByRole("complementary", { name: "選択Sessionの詳細", exact: true });
+  await detail.getByText("成果の詳細", { exact: true }).click();
+  await detail.getByText("合成デモ: weekly-view.tsx", { exact: true }).waitFor();
+  await detail.getByText("関連タスクと報告", { exact: true }).click();
+  await detail.getByRole("button", { name: "Task: 合成デモ: 週表示を確認", exact: true }).waitFor();
+  await detail.getByText("変更したもの", { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, "after-desktop-outcome.png") });
+  await detail.getByRole("button", { name: "Task: 合成デモ: 週表示を確認", exact: true }).click();
+  const taskHeading = page.getByText("タスク詳細", { exact: true });
+  await taskHeading.waitFor();
+  await page.locator(".drawer").getByRole("button", { name: "閉じる", exact: true }).click();
+  await taskHeading.waitFor({ state: "detached" });
+  await panel().locator(".agent-log-block").filter({ hasText: "Codex" }).click();
   const canonical = await page.evaluate(() => window.api.entities.list("agent_session"));
   assert.equal(canonical.length, 5);
   assert.ok(
@@ -90,14 +172,61 @@ try {
     /DO-NOT-READ|DO-NOT-IMPORT|transcriptPath|reasoning/,
   );
   await panel().getByRole("button", { name: "詳細を閉じる", exact: true }).click();
+  // Primary Activity uses the same saved sessions alongside human events.
+  await page.getByText("AI の週次振り返り・ログ取り込み", { exact: true }).click();
+  const daily = page.locator(".debrief-activity-panel");
+  await daily.getByLabel("Activity対象日").fill("2026-10-03");
+  await daily.getByRole("button", { name: /合成デモ: 人の確認作業/ }).waitFor();
+  await daily.getByLabel("Activity event type filter").selectOption("ai_work");
+  assert.equal(await daily.getByRole("button", { name: /合成デモ: 人の確認作業/ }).count(), 0);
+  await daily.getByLabel("Activity event type filter").selectOption("");
+  const dailyCodex = daily
+    .locator(".activity-calendar-event-button")
+    .filter({ has: page.locator('[aria-label="タスクに関連付け済み"]') });
+  await dailyCodex.click();
+  const dailyDetail = daily.getByRole("region", { name: "選択した Activity の詳細", exact: true });
+  await dailyDetail
+    .getByRole("button", { name: "合成デモ: 週表示を確認との関連付けを解除", exact: true })
+    .click();
+  await dailyDetail.getByText("関連タスク なし", { exact: true }).waitFor();
+  await dailyDetail.getByLabel("関連付けるタスク").selectOption("synthetic-calendar-task");
+  await dailyDetail.getByRole("button", { name: "選んだタスクに関連付ける", exact: true }).click();
+  await dailyDetail
+    .getByRole("button", { name: "合成デモ: 週表示を確認との関連付けを解除", exact: true })
+    .waitFor();
+  const savedTask = (await page.evaluate(() => window.api.entities.list("task"))).find(
+    (task) => task.id === "synthetic-calendar-task",
+  );
+  assert.equal(savedTask.state, "review");
+  await dailyDetail.getByText("成果の詳細", { exact: true }).click();
+  await dailyDetail.getByText("合成デモ: weekly-view.tsx", { exact: true }).waitFor();
+  const associationToast = page
+    .getByRole("status")
+    .getByRole("button", { name: "閉じる", exact: true });
+  while (await associationToast.count()) await associationToast.first().click();
+  await daily.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, "after-daily-desktop.png") });
+  await dailyDetail.getByRole("button", { name: "詳細を閉じる", exact: true }).click();
+  await daily.getByRole("button", { name: "Activity の前日", exact: true }).click();
+  assert.equal(await daily.getByLabel("Activity対象日").inputValue(), "2026-10-02");
+  await daily.getByRole("button", { name: "Activity の翌日", exact: true }).click();
+  assert.equal(await daily.getByLabel("Activity対象日").inputValue(), "2026-10-03");
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.setMinimumSize(0, 0);
     window.setContentSize(390, 844);
   });
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await daily.locator(".activity-compact-list button").filter({ hasText: "Codex" }).click();
+  const dailyDialog = page.getByRole("dialog", { name: "選択した Activity の詳細", exact: true });
+  await dailyDialog.waitFor();
+  await page.screenshot({ path: path.join(output, "after-daily-mobile-detail.png") });
+  await page.keyboard.press("Escape");
+  await dailyDialog.waitFor({ state: "detached" });
+  await page.screenshot({ path: path.join(output, "after-daily-mobile.png") });
+  await page.getByText("AI の週次振り返り・ログ取り込み", { exact: true }).click();
   await panel().getByLabel("表示日").fill("2026-10-03");
-  await panel().locator(".agent-log-block").filter({ hasText: "Codex" }).click();
+  await panel().locator(".agent-log-list-entry").filter({ hasText: "Codex" }).click();
   await page.getByRole("dialog", { name: "選択Sessionの詳細", exact: true }).waitFor();
   await page.screenshot({ path: path.join(output, "after-narrow-detail.png") });
   const narrowWidth = await page.evaluate(() => document.documentElement.clientWidth);
@@ -108,8 +237,17 @@ try {
     .getByRole("dialog", { name: "選択Sessionの詳細", exact: true })
     .waitFor({ state: "detached" });
   await page.screenshot({ path: path.join(output, "after-narrow-timeline.png") });
+  const unknown = panel().locator(".agent-log-list-entry").filter({ hasText: "OpenCode" });
+  assert.match(await unknown.innerText(), /終了未確認/);
+  assert.match(await unknown.innerText(), /最終観測/);
+  assert.doesNotMatch(await unknown.innerText(), /\(終了\)/);
+  await panel().getByRole("button", { name: "次の期間", exact: true }).click();
+  await panel().getByText("この期間のAI作業はありません。").waitFor();
+  await page.screenshot({ path: path.join(output, "after-narrow-empty.png") });
+  await panel().getByRole("button", { name: "前の期間", exact: true }).click();
+  assert.equal(await panel().getByLabel("Repositoryで絞る").inputValue(), "synthetic-repository");
   // Keyboard opens detail and native dialog returns focus after Escape.
-  const block = panel().locator(".agent-log-block").filter({ hasText: "Codex" });
+  const block = panel().locator(".agent-log-list-entry").filter({ hasText: "Codex" });
   await block.focus();
   await page.keyboard.press("Enter");
   await page.getByRole("dialog", { name: "選択Sessionの詳細", exact: true }).waitFor();
@@ -128,19 +266,39 @@ try {
     buffer: Buffer.from('{"schema":"unsupported"}'),
   });
   await dialog.getByRole("alert").waitFor();
+  await page.screenshot({ path: path.join(output, "after-narrow-error.png") });
   assert.equal(await dialog.getByRole("button", { name: "確認へ進む", exact: true }).count(), 0);
   await page.keyboard.press("Escape");
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].setContentSize(1760, 1024),
+  );
+  await importFixture("codex-rollout", "jsonl");
+  await importFixture("claude-transcript", "jsonl");
+  const withNative = await page.evaluate(() => window.api.entities.list("agent_session"));
+  assert.equal(withNative.length, 7);
+  assert.equal(
+    withNative.filter((session) => /rollout|transcript/.test(session.observation?.adapter || ""))
+      .length,
+    2,
+  );
+  assert.ok(
+    withNative
+      .filter((session) => /rollout|transcript/.test(session.observation?.adapter || ""))
+      .every(
+        (session) => session.status === "unknown" && session.observation.coverage === "partial",
+      ),
+  );
   await app.close();
   app = null;
   await launch();
-  assert.equal((await page.evaluate(() => window.api.entities.list("agent_session"))).length, 5);
+  assert.equal((await page.evaluate(() => window.api.entities.list("agent_session"))).length, 7);
   assert.equal(errors.length, 0, errors.join("\n"));
   fs.writeFileSync(
     path.join(output, "result.json"),
     JSON.stringify(
       {
         passed: true,
-        canonicalSessions: 5,
+        canonicalSessions: 7,
         clients: 5,
         width: narrowWidth,
         keyboard: true,

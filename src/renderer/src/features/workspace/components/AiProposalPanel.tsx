@@ -199,6 +199,10 @@ export function buildPreview(
       if (!session || !str(session.id)) throw new Error("Agent Session 本体がありません。");
       const action = str(entry.action);
       const duplicate = sessions.find((candidate) => candidate.id === session.id);
+      const historyVersion = Number(
+        (proposal.request as Record<string, unknown>)?.history_refresh_version || 0,
+      );
+      const refreshing = action === "capture" && historyVersion > 0;
       const references = Array.isArray(entry.references)
         ? (entry.references as Record<string, unknown>[])
         : [];
@@ -207,11 +211,13 @@ export function buildPreview(
           type: "agent_session" as const,
           entry: session,
           duplicate,
-          action: action === "finish" ? "merge" : "create",
+          action: action === "finish" || refreshing ? "merge" : "create",
           issues:
-            action === "finish" && !duplicate
-              ? ["終了対象の Agent Session が見つかりません。"]
-              : [],
+            refreshing && (!duplicate || Number(duplicate.version) !== historyVersion)
+              ? ["記録が変更されています。提案を閉じて再同期してください。"]
+              : action === "finish" && !duplicate
+                ? ["終了対象の Agent Session が見つかりません。"]
+                : [],
         },
         ...references.map((reference) => ({
           type: "reference" as const,

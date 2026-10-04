@@ -31,6 +31,107 @@ const { createTaskenCore, TaskenCoreHost, ApplicationCommandService } = await im
   pathToFileURL(bundlePath).href
 );
 
+for (const [clientKind, adapter] of [
+  ["codex", "codex-rollout/1"],
+  ["claude_code", "claude-transcript/1"],
+]) {
+  test(`${clientKind} native refresh updates one adopted session and rejects stale or unrelated captures`, async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-log-refresh-"));
+    const db = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
+    const host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(db) });
+    try {
+      await host.start();
+      const client = new TaskenCoreClient({ userDataPath: root });
+      const base = {
+        action: "capture",
+        caller: "Tasken local log sync",
+        source: "mcp",
+        source_app: `tasken-log-sync:${clientKind}`,
+        source_session: "synthetic-refresh",
+        actor: { kind: "ai_agent" },
+        client_kind: clientKind,
+        started_at: "2026-10-03T00:00:00Z",
+        ended_at: "2026-10-03T00:01:00Z",
+        status: "unknown",
+        agent_label: "retained agent label",
+        intent: { summary: "first request" },
+        outcome: { summary: "first answer", decisions: ["retained decision"] },
+        observation: {
+          schema_version: 1,
+          adapter,
+          client_version: "fixture",
+          coverage: "partial",
+          observed_until: "2026-10-03T00:01:00Z",
+          mode: "history",
+        },
+      };
+      const adopt = (result) => {
+        const proposal = db.get("ai_proposal", result.proposal_id);
+        const session = proposal.payload.agent_sessions[0].session;
+        const current = db.get("agent_session", session.id);
+        new ApplicationCommandService(db).execute({
+          commandId: `accept:${proposal.id}`,
+          name: "ApplyAiProposal",
+          payload: {
+            proposal: { ...proposal, status: "accepted" },
+            candidates: [{ type: "agent_session", entity: session }],
+          },
+          actor: { kind: "user" },
+          source: "main_ui",
+          issuedAt: new Date().toISOString(),
+          expectedVersions: [
+            { type: "ai_proposal", id: proposal.id, version: proposal.version },
+            ...(current
+              ? [{ type: "agent_session", id: current.id, version: current.version }]
+              : []),
+          ],
+        });
+        return db.get("agent_session", session.id);
+      };
+      const first = adopt(await client.proposeAgentSession({ ...base, idempotency_key: "first" }));
+      const changed = {
+        ...base,
+        idempotency_key: "changed",
+        expected_version: first.version,
+        ended_at: "2026-10-03T00:02:00Z",
+        outcome: { summary: "updated answer" },
+        observation: { ...base.observation, observed_until: "2026-10-03T00:02:00Z" },
+      };
+      const result = await client.proposeAgentSession(changed);
+      const updated = adopt(result);
+      assert.equal(updated.id, first.id);
+      assert.equal(updated.accepted_from_proposal_id, first.accepted_from_proposal_id);
+      assert.equal(db.list("agent_session").length, 1);
+      assert.equal(updated.outcome.summary, "updated answer");
+      assert.equal(updated.status, "unknown");
+      assert.deepEqual(updated.outcome.decisions, ["retained decision"]);
+      assert.equal(updated.agent_label, "retained agent label");
+      assert.equal((await client.proposeAgentSession(changed)).status, "duplicate");
+      await assert.rejects(client.proposeAgentSession({ ...changed, idempotency_key: "stale" }));
+      await assert.rejects(
+        client.proposeAgentSession({
+          ...changed,
+          expected_version: updated.version,
+          idempotency_key: "other-source",
+          source_app: `tasken-session-hook:${clientKind}`,
+        }),
+      );
+      await assert.rejects(
+        client.proposeAgentSession({
+          ...changed,
+          expected_version: updated.version,
+          idempotency_key: "completed",
+          status: "completed",
+        }),
+      );
+    } finally {
+      await host.stop();
+      db.db.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
 test("actual collector/Core: accept, duplicate, replay, resume, interruption and reordered checkpoints survive restart", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-agent-log-core-"));
   let db = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
