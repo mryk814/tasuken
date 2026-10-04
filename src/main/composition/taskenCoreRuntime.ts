@@ -403,6 +403,14 @@ export class TaskenCoreRuntime {
             queued: summary.queued,
           };
         },
+        readFeed: () => ({
+          proposals: this.persistence
+            .list("ai_proposal", false)
+            .filter((proposal) => proposal.payload_type === "feed_posts"),
+          feedPosts: this.persistence.list("feed_post", false),
+          tasks: this.persistence.list("task", false),
+          themes: this.persistence.list("theme", false),
+        }),
         getWorkReceipt: (id) => {
           const receipt = this.persistence.get("work_receipt", id, false);
           if (!receipt) return null;

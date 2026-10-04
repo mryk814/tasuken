@@ -13,6 +13,11 @@
 
 import { stableProposalEntityId } from "../../../../../shared/proposalAcceptance.mjs";
 import { feedPostTitleFromBody } from "../../../../../shared/feedPost.mjs";
+import {
+  FEED_AUTHOR_IDENTITIES,
+  authorIdForLabel as sharedAuthorIdForLabel,
+  feedPostIdForProposal as sharedFeedPostIdForProposal,
+} from "../../../../../shared/feedAuthors.mjs";
 import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 
 /** 実データの投稿に付く参照。fixtureでは未設定。 */
@@ -88,18 +93,23 @@ export interface FeedAuthor {
  * 頭文字と色で識別する（`docs/feed-usage-feedback-2026-09-22.md` §3）。
  * 同じ頭文字が並ぶと読めなくなるので、一文字では衝突する投稿者だけ二文字にする。
  */
+function author(id: FeedAuthorId, initial: string): FeedAuthor {
+  const identity = FEED_AUTHOR_IDENTITIES[id];
+  return { id, label: identity.label, kind: identity.kind as FeedAuthorKind, initial };
+}
+
 export const FEED_AUTHORS: Record<FeedAuthorId, FeedAuthor> = {
-  self: { id: "self", label: "自分", kind: "human", initial: "自" },
-  codex: { id: "codex", label: "Codex", kind: "ai", initial: "Cx" },
-  claude: { id: "claude", label: "Claude Code", kind: "ai", initial: "Cl" },
-  github_copilot: { id: "github_copilot", label: "GitHub Copilot", kind: "ai", initial: "Gh" },
-  cursor: { id: "cursor", label: "Cursor", kind: "ai", initial: "Cu" },
-  gemini: { id: "gemini", label: "Gemini", kind: "ai", initial: "Ge" },
-  deepseek: { id: "deepseek", label: "DeepSeek", kind: "ai", initial: "Ds" },
-  antigravity: { id: "antigravity", label: "Antigravity", kind: "ai", initial: "Ag" },
-  opencode: { id: "opencode", label: "OpenCode", kind: "ai", initial: "Oc" },
-  tasken: { id: "tasken", label: "Tasken", kind: "auto_record", initial: "T" },
-  external_ai: { id: "external_ai", label: "外部AI", kind: "ai", initial: "外" },
+  self: author("self", "自"),
+  codex: author("codex", "Cx"),
+  claude: author("claude", "Cl"),
+  github_copilot: author("github_copilot", "Gh"),
+  cursor: author("cursor", "Cu"),
+  gemini: author("gemini", "Ge"),
+  deepseek: author("deepseek", "Ds"),
+  antigravity: author("antigravity", "Ag"),
+  opencode: author("opencode", "Oc"),
+  tasken: author("tasken", "T"),
+  external_ai: author("external_ai", "外"),
 };
 
 /**
@@ -614,18 +624,7 @@ function topicOf(value: unknown): FeedPostKind {
 
 /** 出所の表示名から投稿者を決める。実在の名前を変えない。 */
 export function authorIdForLabel(label: string): FeedAuthorId {
-  const value = label.toLowerCase();
-  if (value.includes("codex")) return "codex";
-  if (value.includes("claude")) return "claude";
-  if (value.includes("copilot") || value.includes("github copilot")) return "github_copilot";
-  if (value.includes("cursor")) return "cursor";
-  if (value.includes("gemini")) return "gemini";
-  if (value.includes("deepseek")) return "deepseek";
-  if (value.includes("antigravity")) return "antigravity";
-  if (value.includes("opencode") || value.includes("open code")) return "opencode";
-  if (value.includes("tasken")) return "tasken";
-  if (!value) return "external_ai";
-  return "external_ai";
+  return sharedAuthorIdForLabel(label) as FeedAuthorId;
 }
 
 /**
@@ -1404,7 +1403,7 @@ export function readFeedLastSeen(): number | null {
 
 /** Proposalから決まる投稿のID。保存の前後で変わらない。 */
 export function feedPostIdForProposal(proposalId: string): string {
-  return `feed-post:${proposalId}`;
+  return sharedFeedPostIdForProposal(proposalId);
 }
 
 /** 次にFeedを開いたときに選んでおく投稿を預ける。 */

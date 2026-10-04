@@ -1777,6 +1777,89 @@ export const mobileAttentionResponseSchema = z
   })
   .strict();
 
+/* ---------------------------------------------------------------------------
+ * Feed（読む面）
+ *
+ * Desktopが持つFeed投稿（AIの投稿・自分の投稿）をAndroidで読めるようにするread model。
+ * 作業報告はAgent Deskのread modelとTaskの経路で届くため、ここには含めない。
+ * 反応・返信・採用はこの版の対象外で、Androidは読むだけ。
+ * ------------------------------------------------------------------------- */
+
+export const mobileFeedTopicSchema = z.enum([
+  "work_report",
+  "insight",
+  "learning",
+  "reference",
+  "question",
+  "own_note",
+]);
+
+export const mobileFeedPostSchema = z
+  .object({
+    /** 投稿の正本ID（Desktopの `feedPostId`）。 */
+    postId: z.string().trim().min(1).max(300),
+    /** 人（自分）かAIか。AIの特別な見せ方はせず、既存の印の判断だけに使う。 */
+    authorKind: z.enum(["human", "ai"]),
+    authorLabel: z.string().trim().max(200),
+    topic: mobileFeedTopicSchema,
+    createdAt: isoTimestampSchema,
+    /** 本文の段落。空の段落は含めない。 */
+    body: z.array(z.string().max(10000)).min(1).max(50),
+    taskId: taskIdSchema.nullable(),
+    taskTitle: z.string().trim().max(500).nullable(),
+    themeId: entityIdSchema.nullable(),
+    themeName: z.string().trim().max(200).nullable(),
+    /** 記事の草稿（採用前）またはNote参照の題名。本文はAndroidへ流さない。 */
+    attachment: z
+      .object({
+        kind: z.enum(["note_draft", "note"]),
+        title: z.string().trim().max(500),
+      })
+      .strict()
+      .nullable(),
+    /** 外部の参考リンク。画像や図はこの版では流さない。 */
+    link: z
+      .object({
+        url: z.string().trim().min(1).max(2000),
+        label: z.string().trim().max(200).nullable(),
+        comment: z.string().trim().max(2000).nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+export const mobileFeedRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    limit: z
+      .number()
+      .int()
+      .positive()
+      .max(TASKEN_MOBILE_MAX_ITEMS)
+      .default(TASKEN_MOBILE_MAX_ITEMS),
+  })
+  .strict();
+
+export const mobileFeedResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        /** 新しい順。 */
+        posts: z.array(mobileFeedPostSchema).max(TASKEN_MOBILE_MAX_ITEMS),
+        truncated: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type MobileFeedPost = z.output<typeof mobileFeedPostSchema>;
+export type MobileFeedResponse = z.output<typeof mobileFeedResponseSchema>;
+
 /**
  * agentの質問への短い返答。Task本文は変えない。
  * 同じ質問への二度目の返答はconflictとして拒否される（Desktopと同じ）。
