@@ -223,6 +223,132 @@ const configurationFailure = () =>
   new Error("AI整理の設定が無効です。プロバイダー・モデル・Azure接続先を確認してください。");
 const maxResponseBytes = 256 * 1024;
 
+/** 利用者へそのまま見せてよい（秘密・原文・provider応答を含まない）整理の失敗。 */
+export class CaptureOrganizerUserError extends Error {
+  readonly reason: "plan_limit" | "plan_not_eligible" | "reauth_required" | "monthly_limit";
+
+  constructor(message: string, reason: CaptureOrganizerUserError["reason"]) {
+    super(message);
+    this.name = "CaptureOrganizerUserError";
+    this.reason = reason;
+  }
+}
+
+/** ChatGPTの契約枠で推論するためのaccess token供給元。認証の詳細はadapter側に閉じる。 */
+export interface ChatGptTokenSource {
+  getAccessToken(): Promise<string>;
+  invalidateAccessToken(): void;
+  markReauthRequired(): void;
+}
+
+export interface CaptureOrganizerOptions {
+  chatgpt?: ChatGptTokenSource;
+  /** 従量APIへ送る直前に呼ぶ。上限超過なら CaptureOrganizerUserError を投げる。 */
+  beforeMeteredRequest?: () => void;
+}
+
+const planLimitError = () =>
+  new CaptureOrganizerUserError(
+    "ChatGPTの利用上限に達しました。ChatGPTの使用状況を確認してください。APIへは自動で切り替えていません。原文は保持されています。",
+    "plan_limit",
+  );
+const planNotEligibleError = () =>
+  new CaptureOrganizerUserError(
+    "このChatGPTアカウントでは契約枠を外部アプリで使えません。ChatGPTの契約を確認してください。原文は保持されています。",
+    "plan_not_eligible",
+  );
+const planReauthError = () =>
+  new CaptureOrganizerUserError(
+    "ChatGPTとの接続が切れました。Settingsの「入力のAI整理」で接続し直してください。原文は保持されています。",
+    "reauth_required",
+  );
+
+/** ChatGPT plan usageのAPI。AI provider endpointはこのmoduleだけに置く（embedded-ai-retirement監査）。 */
+export const CHATGPT_PLAN_API = {
+  resource: "https://api.openai.com/v1",
+  models: "https://api.openai.com/v1/models",
+  responses: "https://api.openai.com/v1/responses",
+} as const;
+const chatGptResponsesUrl = CHATGPT_PLAN_API.responses;
+
+/** Responses APIのSSEを上限付きで読み、response.completed の出力テキストを返す。 */
+async function readChatGptStream(response: Response): Promise<string> {
+  if (!response.body) throw failure();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let size = 0;
+  let buffer = "";
+  let deltas = "";
+  let completedText: string | null = null;
+  const handleEvent = (data: string) => {
+    if (!data || data === "[DONE]") return;
+    const event = JSON.parse(data) as {
+      type?: string;
+      delta?: string;
+      response?: {
+        status?: string;
+        error?: { code?: string } | null;
+        output?: { type?: string; content?: { type?: string; text?: string }[] }[];
+      };
+    };
+    if (event.type === "response.output_text.delta" && typeof event.delta === "string")
+      deltas += event.delta;
+    else if (event.type === "response.completed") {
+      if (event.response?.status && event.response.status !== "completed") throw failure();
+      const text = (event.response?.output ?? [])
+        .filter((item) => item.type === "message")
+        .flatMap((item) => item.content ?? [])
+        .filter((part) => part.type === "output_text" && typeof part.text === "string")
+        .map((part) => part.text)
+        .join("");
+      completedText = text || deltas;
+    } else if (event.type === "response.failed" || event.type === "error") {
+      const code = event.response?.error?.code ?? (event as { code?: string }).code;
+      throw chatGptCodeError(code);
+    } else if (event.type === "response.incomplete") throw failure();
+  };
+  try {
+    while (completedText === null) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxResponseBytes) throw failure();
+      buffer += decoder.decode(value, { stream: true });
+      let boundary: number;
+      while ((boundary = buffer.search(/\r?\n\r?\n/)) >= 0) {
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary).replace(/^\r?\n\r?\n/, "");
+        const data = block
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n");
+        handleEvent(data);
+        if (completedText !== null) break;
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  // response.completed を受け取るまで成功扱いにしない。
+  if (completedText === null) throw failure();
+  return completedText;
+}
+
+function chatGptCodeError(code: unknown): Error {
+  switch (code) {
+    case "subscription_sharing_usage_limit_exceeded":
+      return planLimitError();
+    case "subscription_sharing_user_not_eligible":
+      return planNotEligibleError();
+    case "subscription_sharing_invalid_user":
+      return planReauthError();
+    default:
+      return failure();
+  }
+}
+
 async function readResponse(response: Response): Promise<unknown> {
   if (
     !response.ok ||
@@ -280,6 +406,7 @@ const geminiResponseSchema = z.object({
 export function createCaptureOrganizerFromEnvironment(
   env: NodeJS.ProcessEnv = process.env,
   fetchImpl: typeof fetch = fetch,
+  options: CaptureOrganizerOptions = {},
 ): {
   organize(input: CaptureOrganizerInput): Promise<CaptureOrganizerBatch>;
   providerLabel: string;
@@ -295,12 +422,17 @@ export function createCaptureOrganizerFromEnvironment(
     .filter(Boolean)
     .slice(0, 100)
     .map((item) => item.slice(0, 100));
-  if (!provider || !model || !key) return null;
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}$/.test(model) || /[\r\n]/.test(key))
+  const chatgpt = provider === "chatgpt" ? options.chatgpt : undefined;
+  if (!provider || !model || (provider === "chatgpt" ? !chatgpt : !key)) return null;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}$/.test(model) || (key && /[\r\n]/.test(key)))
     throw configurationFailure();
   let url: string;
   let providerLabel: string;
   switch (provider) {
+    case "chatgpt":
+      url = chatGptResponsesUrl;
+      providerLabel = "ChatGPT";
+      break;
     case "openai":
       url = "https://api.openai.com/v1/chat/completions";
       providerLabel = "OpenAI";
@@ -350,6 +482,9 @@ export function createCaptureOrganizerFromEnvironment(
     name: string,
     images?: CaptureOrganizerInput["images"],
   ): Promise<unknown> {
+    if (chatgpt)
+      return requestChatGptJson(chatgpt, requestInstructions, content, schema, name, images);
+    options.beforeMeteredRequest?.();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);
     try {
@@ -415,6 +550,96 @@ export function createCaptureOrganizerFromEnvironment(
     } finally {
       clearTimeout(timer);
       controller.abort();
+    }
+  }
+
+  async function requestChatGptJson(
+    source: ChatGptTokenSource,
+    requestInstructions: string,
+    content: string,
+    schema: unknown,
+    name: string,
+    images?: CaptureOrganizerInput["images"],
+  ): Promise<unknown> {
+    const send = async (token: string, withFormat: boolean) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30_000);
+      try {
+        const response = await fetchImpl(chatGptResponsesUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            model,
+            input: [
+              { role: "system", content: requestInstructions },
+              {
+                role: "user",
+                content: [
+                  { type: "input_text", text: content },
+                  ...(images ?? []).map((image) => ({
+                    type: "input_image",
+                    image_url: `data:${image.media_type};base64,${image.data_base64}`,
+                  })),
+                ],
+              },
+            ],
+            ...(withFormat
+              ? { text: { format: { type: "json_schema", name, strict: true, schema } } }
+              : {}),
+            // ChatGPT plan usageの必須条件。
+            store: false,
+            stream: true,
+          }),
+          redirect: "error",
+          signal: controller.signal,
+        });
+        if (response.ok) return { text: await readChatGptStream(response) };
+        let error: { code?: string; param?: string } = {};
+        try {
+          const body = (await response.json()) as { error?: { code?: string; param?: string } };
+          error = body.error ?? {};
+        } catch {
+          /* Status alone decides. */
+        }
+        return { status: response.status, code: error.code, param: error.param };
+      } finally {
+        clearTimeout(timer);
+        controller.abort();
+      }
+    };
+    try {
+      let token = await source.getAccessToken();
+      let result = await send(token, true);
+      if ("status" in result && result.status === 401) {
+        // access tokenの期限切れかもしれないので1回だけ更新して再送する。
+        source.invalidateAccessToken();
+        token = await source.getAccessToken();
+        result = await send(token, true);
+        if ("status" in result && result.status === 401) {
+          if (result.code === "subscription_sharing_invalid_user") source.markReauthRequired();
+          throw planReauthError();
+        }
+      }
+      if (
+        "status" in result &&
+        result.code === "subscription_sharing_unsupported_capability" &&
+        (result.param ?? "").startsWith("text")
+      ) {
+        // 構造化出力が未対応のモデルでは形式指定だけを外す。内容はローカル検証で同じ契約を守る。
+        result = await send(token, false);
+      }
+      if ("status" in result) throw chatGptCodeError(result.code);
+      return JSON.parse(
+        result.text
+          .trim()
+          .replace(/^```(?:json)?\s*/i, "")
+          .replace(/```$/, ""),
+      );
+    } catch (error) {
+      if (error instanceof CaptureOrganizerUserError) throw error;
+      if (error instanceof Error && error.name === "ChatGptAccountError")
+        throw new CaptureOrganizerUserError(error.message, "reauth_required");
+      throw failure();
     }
   }
 
@@ -612,8 +837,9 @@ nextActions contains at most three explicitly stated future actions, otherwise a
             throw failure();
         }
         return batch;
-      } catch {
+      } catch (error) {
         // Never propagate provider payloads, credential-bearing URLs, input text, or validation details.
+        if (error instanceof CaptureOrganizerUserError) throw error;
         throw failure();
       }
     },

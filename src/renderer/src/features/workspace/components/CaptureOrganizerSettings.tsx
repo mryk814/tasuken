@@ -3,20 +3,29 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CAPTURE_ORGANIZER_PROVIDERS,
   CAPTURE_ORGANIZER_CHAT_MODELS,
+  CAPTURE_ORGANIZER_MONTHLY_LIMIT_MAX,
   type CaptureOrganizerProvider,
   type CaptureOrganizerSettingsState,
+  type ChatGptAccountState,
+  type ChatGptModelOption,
 } from "../../../../../shared/captureOrganizerSettings";
 import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
 import { Button, IntegrationStatus } from "./common";
 
 export function CaptureOrganizerSettings() {
   const [settings, setSettings] = useState<CaptureOrganizerSettingsState | null>(null);
-  const [provider, setProvider] = useState<CaptureOrganizerProvider>("openai");
+  const [provider, setProvider] = useState<CaptureOrganizerProvider>("chatgpt");
   const [model, setModel] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [vocabulary, setVocabulary] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [busy, setBusy] = useState<"loading" | "saving" | "testing" | "clearing" | null>("loading");
+  const [monthlyLimit, setMonthlyLimit] = useState("");
+  const [account, setAccount] = useState<ChatGptAccountState | null>(null);
+  const [models, setModels] = useState<ChatGptModelOption[] | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<
+    "loading" | "saving" | "testing" | "clearing" | "connecting" | "disconnecting" | null
+  >("loading");
   const [feedback, setFeedback] = useState<{ message: string; error: boolean } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -26,6 +35,7 @@ export function CaptureOrganizerSettings() {
     setModel(value.model);
     setEndpoint(value.endpoint);
     setVocabulary(value.vocabulary);
+    setMonthlyLimit(value.monthlyRequestLimit === null ? "" : String(value.monthlyRequestLimit));
     setApiKey("");
     setConfirmClear(false);
   }, []);
@@ -41,6 +51,33 @@ export function CaptureOrganizerSettings() {
       setBusy(null);
     }
   }
+
+  const loadModels = useCallback(async () => {
+    setModelsError(null);
+    try {
+      setModels(await captureOrganizerApi.chatGptModels());
+    } catch {
+      setModels(null);
+      setModelsError("モデル一覧を取得できませんでした。接続を確認して再読み込みしてください。");
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void captureOrganizerApi
+      .chatGptState()
+      .then((value) => {
+        if (cancelled) return;
+        setAccount(value);
+        if (value.status === "connected") void loadModels();
+      })
+      .catch(() => {
+        if (!cancelled) setAccount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadModels]);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,16 +101,26 @@ export function CaptureOrganizerSettings() {
     };
   }, [applySettings]);
 
+  const isChatGpt = provider === "chatgpt";
   const normalizedEndpoint = provider === "azure" ? endpoint.trim().replace(/\/$/, "") : "";
+  const trimmedLimit = monthlyLimit.trim();
+  const parsedLimit = trimmedLimit ? Number(trimmedLimit) : null;
+  const limitValid =
+    parsedLimit === null ||
+    (Number.isInteger(parsedLimit) &&
+      parsedLimit >= 1 &&
+      parsedLimit <= CAPTURE_ORGANIZER_MONTHLY_LIMIT_MAX);
   const canReuseKey = Boolean(
     settings?.hasApiKey &&
     settings.provider === provider &&
     normalizedEndpoint === settings.endpoint.replace(/\/$/, ""),
   );
-  const ready =
-    model.trim().length > 0 &&
-    (apiKey.trim().length > 0 || canReuseKey) &&
-    (provider !== "azure" || normalizedEndpoint.length > 0);
+  const ready = isChatGpt
+    ? model.trim().length > 0 && account?.status === "connected"
+    : model.trim().length > 0 &&
+      (apiKey.trim().length > 0 || canReuseKey) &&
+      (provider !== "azure" || normalizedEndpoint.length > 0) &&
+      limitValid;
   const changed =
     !settings ||
     settings.source !== "saved" ||
@@ -81,6 +128,7 @@ export function CaptureOrganizerSettings() {
     model.trim() !== settings.model ||
     normalizedEndpoint !== settings.endpoint.replace(/\/$/, "") ||
     vocabulary.trim() !== settings.vocabulary ||
+    (!isChatGpt && parsedLimit !== settings.monthlyRequestLimit) ||
     apiKey.length > 0;
   const modelChoices =
     provider === "opencode-zen" || provider === "opencode-go"
@@ -93,8 +141,51 @@ export function CaptureOrganizerSettings() {
       model: model.trim(),
       endpoint: normalizedEndpoint,
       vocabulary: vocabulary.trim(),
-      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+      ...(apiKey.trim() && !isChatGpt ? { apiKey: apiKey.trim() } : {}),
+      monthlyRequestLimit: isChatGpt ? null : parsedLimit,
     };
+  }
+
+  async function connectChatGpt() {
+    if (busy) return;
+    setBusy("connecting");
+    setFeedback(null);
+    setAccount((current) => (current ? { ...current, status: "connecting" } : current));
+    try {
+      const value = await captureOrganizerApi.chatGptConnect();
+      setAccount(value);
+      setFeedback({
+        message: "ChatGPTと接続しました。モデルを選んで保存してください。",
+        error: false,
+      });
+      await loadModels();
+    } catch (error) {
+      setAccount(await captureOrganizerApi.chatGptState().catch(() => null));
+      setFeedback({
+        message:
+          error instanceof Error && error.message
+            ? error.message.replace(/^Error invoking remote method [^:]+: (Error: )?/, "")
+            : "ChatGPTに接続できませんでした。もう一度お試しください。",
+        error: true,
+      });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function disconnectChatGpt() {
+    if (busy) return;
+    setBusy("disconnecting");
+    setFeedback(null);
+    try {
+      setAccount(await captureOrganizerApi.chatGptDisconnect());
+      setModels(null);
+      setFeedback({ message: "ChatGPTとの接続を解除しました。", error: false });
+    } catch {
+      setFeedback({ message: "接続を解除できませんでした。再試行してください。", error: true });
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function save() {
@@ -106,8 +197,9 @@ export function CaptureOrganizerSettings() {
       setFeedback({ message: "保存しました。次の入力整理から反映されます。", error: false });
     } catch {
       setFeedback({
-        message:
-          "設定を保存できませんでした。モデル・接続先・APIキーを確認して再試行してください。入力は保持しています。",
+        message: isChatGpt
+          ? "設定を保存できませんでした。ChatGPTとの接続とモデルを確認して再試行してください。入力は保持しています。"
+          : "設定を保存できませんでした。モデル・接続先・APIキー・月間上限を確認して再試行してください。入力は保持しています。",
         error: true,
       });
     } finally {
@@ -176,7 +268,18 @@ export function CaptureOrganizerSettings() {
                   ? "環境変数を使用"
                   : "未設定"
           }
-          tone={busy === "loading" ? "loading" : settings?.hasApiKey ? "normal" : "neutral"}
+          tone={
+            busy === "loading"
+              ? "loading"
+              : settings?.source === "saved" &&
+                  (settings.provider === "chatgpt"
+                    ? account?.status === "connected"
+                    : settings.hasApiKey)
+                ? "normal"
+                : settings?.source === "environment" && settings.hasApiKey
+                  ? "normal"
+                  : "neutral"
+          }
         />
       </div>
       <p className="field-help">
@@ -202,6 +305,7 @@ export function CaptureOrganizerSettings() {
                 setModel("");
                 setEndpoint("");
                 setApiKey("");
+                setMonthlyLimit("");
                 setFeedback(null);
                 setConfirmClear(false);
               }}
@@ -213,9 +317,80 @@ export function CaptureOrganizerSettings() {
               ))}
             </select>
           </label>
+          {isChatGpt && (
+            <div className="settings-detail-body" data-testid="chatgpt-account">
+              <p className="field-help">
+                ChatGPT Plus /
+                Proの契約に含まれる利用枠で整理します。APIキーと従量課金は不要です。上限に達しても有料APIへ自動では切り替えません。
+              </p>
+              {account?.status === "connected" ? (
+                <div className="settings-action-row">
+                  <IntegrationStatus
+                    label={`接続中：${account.email ?? "ChatGPT"}`}
+                    tone="normal"
+                  />
+                  <Button disabled={Boolean(busy)} onClick={() => void disconnectChatGpt()}>
+                    {busy === "disconnecting" ? "解除中…" : "接続を解除"}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  {account?.status === "reauth_required" && (
+                    <p className="form-error" role="alert">
+                      ChatGPTとの接続が切れました。もう一度接続してください。
+                    </p>
+                  )}
+                  {account && !account.secureStorageAvailable && (
+                    <p className="form-error">
+                      この環境では接続情報を安全に保存できません。OSの資格情報保護を利用できる環境で接続してください。
+                    </p>
+                  )}
+                  <div className="settings-action-row">
+                    <Button
+                      variant="primary"
+                      disabled={Boolean(busy) || !account || !account.secureStorageAvailable}
+                      onClick={() => void connectChatGpt()}
+                    >
+                      {busy === "connecting" ? "ブラウザで許可を待っています…" : "ChatGPTで続ける"}
+                    </Button>
+                    {busy === "connecting" && (
+                      <Button onClick={() => void captureOrganizerApi.chatGptCancel()}>
+                        やめる
+                      </Button>
+                    )}
+                  </div>
+                  <p className="field-help">
+                    ブラウザでChatGPTにログインして許可します。接続情報はこのDesktopで暗号化して保存し、同期・Export・外部AI連携には含めません。
+                  </p>
+                </>
+              )}
+            </div>
+          )}
           <label>
-            <span>{provider === "azure" ? "デプロイ名" : "モデルID"}</span>
-            {modelChoices ? (
+            <span>{provider === "azure" ? "デプロイ名" : isChatGpt ? "モデル" : "モデルID"}</span>
+            {isChatGpt ? (
+              <select
+                aria-label="入力整理のモデル"
+                value={model}
+                disabled={Boolean(busy) || account?.status !== "connected"}
+                onChange={(event) => {
+                  setModel(event.target.value);
+                  setFeedback(null);
+                }}
+              >
+                <option value="">
+                  {account?.status === "connected" ? "モデルを選ぶ" : "接続後に選べます"}
+                </option>
+                {model && !(models ?? []).some((item) => item.slug === model) && (
+                  <option value={model}>{model}</option>
+                )}
+                {(models ?? []).map((item) => (
+                  <option value={item.slug} key={item.slug}>
+                    {item.displayName}
+                  </option>
+                ))}
+              </select>
+            ) : modelChoices ? (
               <select
                 aria-label="入力整理のモデル"
                 value={model}
@@ -249,6 +424,14 @@ export function CaptureOrganizerSettings() {
               />
             )}
           </label>
+          {isChatGpt && modelsError && (
+            <div className="settings-action-row">
+              <p className="form-error">{modelsError}</p>
+              <Button disabled={Boolean(busy)} onClick={() => void loadModels()}>
+                再読み込み
+              </Button>
+            </div>
+          )}
           {provider === "azure" && (
             <label>
               <span>Azure接続先</span>
@@ -268,25 +451,51 @@ export function CaptureOrganizerSettings() {
               />
             </label>
           )}
-          <label>
-            <span>APIキー</span>
-            <input
-              type="password"
-              aria-label="入力整理のAPIキー"
-              value={apiKey}
-              autoComplete="new-password"
-              spellCheck={false}
-              placeholder={canReuseKey ? "設定済み・変更するときだけ入力" : "APIキーを入力"}
-              disabled={Boolean(busy)}
-              onChange={(event) => {
-                setApiKey(event.target.value);
-                setFeedback(null);
-              }}
-            />
-          </label>
-          <p className="field-help">
-            キーはこのDesktopで暗号化して保存します。接続確認はテスト用の短文を送信します（API利用料が発生する場合があります）。
-          </p>
+          {!isChatGpt && (
+            <>
+              <label>
+                <span>APIキー</span>
+                <input
+                  type="password"
+                  aria-label="入力整理のAPIキー"
+                  value={apiKey}
+                  autoComplete="new-password"
+                  spellCheck={false}
+                  placeholder={canReuseKey ? "設定済み・変更するときだけ入力" : "APIキーを入力"}
+                  disabled={Boolean(busy)}
+                  onChange={(event) => {
+                    setApiKey(event.target.value);
+                    setFeedback(null);
+                  }}
+                />
+              </label>
+              <p className="field-help">
+                キーはこのDesktopで暗号化して保存します。接続確認はテスト用の短文を送信します（API利用料が発生する場合があります）。
+              </p>
+              <label>
+                <span>月間の送信上限（回）</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={CAPTURE_ORGANIZER_MONTHLY_LIMIT_MAX}
+                  aria-label="入力整理の月間送信上限"
+                  value={monthlyLimit}
+                  placeholder="上限なし"
+                  disabled={Boolean(busy)}
+                  onChange={(event) => {
+                    setMonthlyLimit(event.target.value);
+                    setFeedback(null);
+                  }}
+                />
+              </label>
+              <p className={limitValid ? "field-help" : "form-error"}>
+                {limitValid
+                  ? `今月の送信：${settings.monthlyRequestCount}回。上限に達すると、その月はAPIへ送らずに止めます。`
+                  : `1〜${CAPTURE_ORGANIZER_MONTHLY_LIMIT_MAX}の整数を入力するか、空欄で上限なしにしてください。`}
+              </p>
+            </>
+          )}
           <label>
             <span>音声・固有語辞書</span>
             <textarea
@@ -305,7 +514,7 @@ export function CaptureOrganizerSettings() {
           <p className="field-help">
             音声認識で誤記されやすい語を1行に1語で指定します。入力整理の候補としてだけ使います。
           </p>
-          {!settings.secureStorageAvailable && (
+          {!isChatGpt && !settings.secureStorageAvailable && (
             <p className="form-error">
               この環境ではAPIキーを安全に保存できません。OSの資格情報保護を利用できる環境で設定してください。
             </p>
@@ -313,7 +522,12 @@ export function CaptureOrganizerSettings() {
           <div className="settings-action-row">
             <Button
               variant="primary"
-              disabled={Boolean(busy) || !ready || !changed || !settings.secureStorageAvailable}
+              disabled={
+                Boolean(busy) ||
+                !ready ||
+                !changed ||
+                (!isChatGpt && !settings.secureStorageAvailable)
+              }
               onClick={() => void save()}
             >
               {busy === "saving" ? "保存中…" : "設定を保存"}
