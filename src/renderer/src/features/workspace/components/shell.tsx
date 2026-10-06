@@ -412,9 +412,6 @@ export function Sidebar({
   activeFocus,
   openActiveFocus,
 }: SidebarProps) {
-  const inbox = domain.capture_entries.filter(
-    (e) => e.state === "untriaged" && e.kind !== "micro_memo",
-  ).length;
   const today = todayIso();
   const schedulesByOwner = new Map(
     domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]),
@@ -453,7 +450,6 @@ export function Sidebar({
   const countByRoute: Record<string, number> = {
     today: todayCount,
     todo: overdueTasks,
-    inbox,
     feed: proposalCount,
     debrief: debriefCount,
   };

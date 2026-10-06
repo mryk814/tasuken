@@ -38,7 +38,7 @@ export const useUiStore = create<UiState>((set) => ({
   activeThemeId: "",
   themeMode: "light",
   activeGroups: [],
-  inboxLane: "untriaged",
+  inboxLane: "micro",
   inboxRecorderRequested: false,
   toast: "",
   toastTone: "info",

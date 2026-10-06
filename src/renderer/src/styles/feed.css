@@ -1745,3 +1745,22 @@ fieldset.feed-needs-detail {
     border-radius: 0;
   }
 }
+
+/* Inbox廃止後に届いた未整理のメモの案内。押すとFeedの自分の投稿へ移す。 */
+.feed-capture-migration {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+  font-size: var(--text-sm);
+}
+
+.feed-capture-migration p {
+  margin: 0;
+}
