@@ -2,7 +2,7 @@ import {
   IconBulb,
   IconBrain,
   IconChecklist,
-  IconInbox,
+  IconNote,
   IconMessageCircle,
   IconNotes,
   IconPaperclip,
@@ -108,9 +108,11 @@ export const ROUTE_DEFINITIONS = {
   },
   inbox: {
     id: "inbox",
-    label: "Inbox",
-    description: "クイック記録を行の中で分類し、今日の作業やThemeへ接続します。",
-    icon: IconInbox,
+    // Inboxは廃止し（2026-10-06）、付箋メモの画面として残す。思いつきはFeedへ投稿する。
+    label: "付箋",
+    description:
+      "付箋メモを書き、色分け・表示・収納を管理します。未整理のメモはFeedの投稿へ移します。",
+    icon: IconNote,
     semanticRole: "hub",
     availability: "always",
     navigation: { group: "cross", order: 1 },

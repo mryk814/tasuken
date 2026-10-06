@@ -128,6 +128,16 @@
     },
     {
       "rule": "compatibility.consumer_added",
+      "source": "src/renderer/src/features/workspace/lib/captureToFeed.ts",
+      "target": "renderer-workspace-internals",
+      "reason": "#454 retires Inbox: untriaged captures move to own Feed posts through the existing Inbox Feed-triage save operations, without a second write path.",
+      "owner": "issue-454-capture-feed",
+      "issue": 454,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Move the capture-to-Feed triage into a public Feed/Capture capability when the Inbox page is removed."
+    },
+    {
+      "rule": "compatibility.consumer_added",
       "source": "tests/agent-work-log-core-e2e.test.mjs",
       "target": "workspace-repository",
       "reason": "#629 verifies capture replay and resumed generations against the real SQLite/Core acceptance path in a disposable database.",

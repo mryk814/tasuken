@@ -69,7 +69,7 @@ import {
   memoStickyColorOf,
   type MemoStickyColor,
 } from "../../../../../shared/memoPresentation";
-import { useUiStore } from "../../../stores/uiStore";
+import { useUiStore, type InboxLane } from "../../../stores/uiStore";
 import { createSketchDraft } from "../lib/sketch";
 import { captureFeedPost } from "../lib/feedPosts";
 import { buildLinkedArtifactOperationsFromPaths } from "../lib/artifactEntities";
@@ -352,7 +352,8 @@ export function InboxPage({
     [allMicroMemoRows, query],
   );
   // レーン選択はStore側に持ち、上部バーのMemoランチャーから開いたときも同じ面へ着地する（#299）。
-  const lane = useUiStore((state) => state.inboxLane);
+  // Inboxは廃止し、付箋メモの列だけを出す（2026-10-06）。未整理のメモはFeedの投稿へ移す。
+  const lane = "micro" as InboxLane;
   const setLane = useUiStore((state) => state.setInboxLane);
   const inboxRecorderRequested = useUiStore((state) => state.inboxRecorderRequested);
   const consumeInboxRecorderRequest = useUiStore((state) => state.consumeInboxRecorderRequest);
@@ -1084,42 +1085,21 @@ export function InboxPage({
           Memo
         </Button>
       </PageHeader>
-      <div className="hub-tabs inbox-tabs" aria-label="Inboxレーン">
-        <button
-          className={lane === "untriaged" ? "is-active" : ""}
-          aria-current={lane === "untriaged" ? "page" : undefined}
-          onClick={() => setLane("untriaged")}
-        >
-          未整理 <span>{allInboxRows.length}</span>
-        </button>
-        <button
-          className={lane === "processed" ? "is-active" : ""}
-          aria-current={lane === "processed" ? "page" : undefined}
-          onClick={() => setLane("processed")}
-        >
-          整理済み{" "}
-          <span>
-            {
-              v2.capture_entries.filter(
-                (entry) => entry.kind !== "micro_memo" && entry.state !== "untriaged",
-              ).length
-            }
-          </span>
-        </button>
-        <button
-          className={lane === "micro" ? "is-active" : ""}
-          aria-current={lane === "micro" ? "page" : undefined}
-          onClick={() => setLane("micro")}
-        >
-          付箋メモ <span>{allMicroMemoRows.length}</span>
-        </button>
-      </div>
+      {allInboxRows.length > 0 ? (
+        <p className="inbox-feed-notice" role="note">
+          未整理のメモが{allInboxRows.length}
+          件あります。Feedのホームからまとめて自分の投稿へ移せます。{" "}
+          <Button variant="ghost" compact onClick={() => navigate("feed")}>
+            Feedを開く
+          </Button>
+        </p>
+      ) : null}
       <label className="inbox-search">
         <IconSearch size={16} />
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Inboxを検索"
+          placeholder="付箋メモを検索"
         />
       </label>
       {lane === "untriaged" && selected.length > 0 && (
