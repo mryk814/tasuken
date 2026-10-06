@@ -352,7 +352,7 @@ export function InboxPage({
     [allMicroMemoRows, query],
   );
   // レーン選択はStore側に持ち、上部バーのMemoランチャーから開いたときも同じ面へ着地する（#299）。
-  // Inboxは廃止し、付箋メモの列だけを出す（2026-10-06）。未整理のメモはFeedの投稿へ移す。
+  // Inboxは廃止し、付箋メモの列だけを出す（2026-10-06）。未整理のメモはFeedのホームに並ぶ。
   const lane = "micro" as InboxLane;
   const setLane = useUiStore((state) => state.setInboxLane);
   const inboxRecorderRequested = useUiStore((state) => state.inboxRecorderRequested);
@@ -1087,8 +1087,8 @@ export function InboxPage({
       </PageHeader>
       {allInboxRows.length > 0 ? (
         <p className="inbox-feed-notice" role="note">
-          未整理のメモが{allInboxRows.length}
-          件あります。Feedのホームからまとめて自分の投稿へ移せます。{" "}
+          未整理のメモ{allInboxRows.length}
+          件は、Feedのホームに自分のメモとして並んでいます。そこから整理できます。{" "}
           <Button variant="ghost" compact onClick={() => navigate("feed")}>
             Feedを開く
           </Button>

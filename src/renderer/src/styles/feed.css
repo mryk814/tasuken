@@ -35,13 +35,15 @@
 /* 投稿の区切りは細い線だけ。カードへ分けない。Xの一覧に近い密度で並べる。
  * AIからの対応の投稿（.feed-attention-post）も同じ並びに置く。 */
 .feed-post,
-.feed-attention-post {
+.feed-attention-post,
+.feed-capture-post {
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .feed-post:last-child,
-.feed-attention-post:last-child {
+.feed-attention-post:last-child,
+.feed-capture-post:last-child {
   border-bottom: none;
 }
 
@@ -1551,7 +1553,8 @@ fieldset.feed-needs-detail {
   overflow-wrap: anywhere;
 }
 
-.feed-attention-foot {
+.feed-attention-foot,
+.feed-capture-post .feed-attention-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;

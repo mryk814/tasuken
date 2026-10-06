@@ -12,7 +12,6 @@ import {
 import { FeedArticleReader } from "../components/FeedArticleReader";
 import { FeedContextRail } from "../components/FeedContextRail";
 import { FeedStream } from "../components/FeedStream";
-import { buildCaptureToFeedOperations, untriagedCapturesForFeed } from "../lib/captureToFeed";
 import {
   FeedThreadPanel,
   type FeedPasteDraft,
@@ -251,26 +250,17 @@ export function FeedPage(props: PageProps) {
   const [arrivalsApplied, setArrivalsApplied] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  /** Inbox廃止後に届いた未整理のメモ（付箋メモを除く）。 */
+  /**
+   * 未整理のメモ（付箋メモを除く）。Inboxは廃止し、Androidの記録なども最初から
+   * ホームに自分のメモとして並べる。どうするか（Task化・Note化・削除）はメモを開いて決める。
+   */
   const pendingCaptures = useMemo(
-    () => untriagedCapturesForFeed(domain.capture_entries),
+    () =>
+      domain.capture_entries.filter(
+        (entry) => entry.state === "untriaged" && entry.kind !== "micro_memo",
+      ),
     [domain.capture_entries],
   );
-  /** 未整理のメモをまとめてFeedの自分の投稿へ移す。1回のtransactionで保存し、失敗時は何も変えない。 */
-  const moveCapturesToFeed = useCallback(async () => {
-    if (busy || pendingCaptures.length === 0) return;
-    setBusy(true);
-    try {
-      await saveEntities(
-        pendingCaptures.flatMap((entry) =>
-          buildCaptureToFeedOperations(entry, data.artifacts || []),
-        ),
-        `未整理のメモ${pendingCaptures.length}件をFeedの投稿に移しました。`,
-      );
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, data.artifacts, pendingCaptures, saveEntities]);
   const [copyBusy, setCopyBusy] = useState(false);
   const [draftAnswer, setDraftAnswer] = useState("");
   /** 報告の差し戻しメモ。失敗しても入力を消さない（design-guide §5）。 */
@@ -1724,6 +1714,39 @@ export function FeedPage(props: PageProps) {
     </fieldset>
   );
 
+  /** 未整理のメモを自分の投稿と同じ形で1件として描く。「整理する」でメモの詳細を開く。 */
+  const renderCapturePost = (entry: (typeof pendingCaptures)[number]) => (
+    <li className="feed-capture-post">
+      <div className="feed-post-body">
+        <span className="feed-avatar feed-avatar-human" aria-hidden="true">
+          私
+        </span>
+        <div className="feed-post-main">
+          <div className="feed-post-head">
+            <span className="feed-author-name">自分</span>
+            <time className="feed-post-time" dateTime={entry.captured_at}>
+              {feedTimeLabel(entry.captured_at)}
+            </time>
+            <span className="feed-post-kind">メモ</span>
+          </div>
+          <p className="feed-post-text">{entry.text}</p>
+          <div className="feed-attention-foot">
+            <span className="feed-post-meta">未整理</span>
+            <Button
+              variant="secondary"
+              compact
+              onClick={() =>
+                openDrawer({ type: "capture_entry", entity: entry as unknown as BaseRecord })
+              }
+            >
+              整理する
+            </Button>
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+
   /**
    * AIからの質問・成果の確認・変更案を、ホームの投稿と同じ形で1件として描く。
    * 種類は小さなラベルで示し、開くとその投稿の下で答える（対応待ちの一覧は持たない）。
@@ -1928,24 +1951,6 @@ export function FeedPage(props: PageProps) {
             </p>
           ) : null}
 
-          {/* Inboxは廃止した。Androidの記録などで届いた未整理のメモは、押すとFeedの自分の投稿へ移す。 */}
-          {tab === "home" && pendingCaptures.length > 0 ? (
-            <div className="feed-capture-migration" role="group" aria-label="未整理のメモ">
-              <p>
-                未整理のメモが{pendingCaptures.length}
-                件あります。記録した日時のまま、Feedの自分の投稿として並べられます。
-              </p>
-              <Button
-                variant="secondary"
-                compact
-                disabled={busy}
-                onClick={() => void moveCapturesToFeed()}
-              >
-                Feedの投稿に移す
-              </Button>
-            </div>
-          ) : null}
-
           {/* 自分の投稿欄。Feed専用の投稿へ保存し、Notesには残さない。実データ0件のfixture表示中も出す。初投稿で実データ表示へ切り替わる。 */}
           <form
             className="feed-compose"
@@ -1980,11 +1985,18 @@ export function FeedPage(props: PageProps) {
             <FeedStream
               interleaved={
                 tab === "home" && !authorFilter
-                  ? needsRows.map((item) => ({
-                      id: item.id,
-                      at: item.receivedAt ?? "",
-                      node: renderAttentionPost(item),
-                    }))
+                  ? [
+                      ...needsRows.map((item) => ({
+                        id: item.id,
+                        at: item.receivedAt ?? "",
+                        node: renderAttentionPost(item),
+                      })),
+                      ...pendingCaptures.map((entry) => ({
+                        id: `capture-${entry.id}`,
+                        at: entry.captured_at,
+                        node: renderCapturePost(entry),
+                      })),
+                    ]
                   : []
               }
               posts={shownPosts}

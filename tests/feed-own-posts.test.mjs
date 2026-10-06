@@ -3,7 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { build } from "esbuild";
 
 import {
   WorkspaceDatabase,
@@ -309,79 +308,4 @@ test("課題コメントは既存Feed投稿と返信だけを使い同じTaskへ
   const posts = buildOwnPosts({ feedPosts: [restored.root] });
   assert.equal(posts[0].taskId, "task-a");
   assert.equal(buildRepliesFromEntities({ replies: [restored.reply] })[0].replyTo, posts[0].id);
-});
-
-// Inbox廃止（2026-10-06）: 未整理のメモをFeedの自分の投稿へ移す操作。
-const captureToFeedBundle = await build({
-  entryPoints: ["src/renderer/src/features/workspace/lib/captureToFeed.ts"],
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  write: false,
-  logLevel: "silent",
-});
-const { buildCaptureToFeedOperations, untriagedCapturesForFeed } = await import(
-  `data:text/javascript;base64,${Buffer.from(captureToFeedBundle.outputFiles[0].text).toString("base64")}`
-);
-
-const capture = (id, extra = {}) => ({
-  id,
-  kind: "quick",
-  state: "untriaged",
-  text: "帰りにヨドバシで予備バッテリーを見る",
-  captured_at: "2026-10-05T12:34:00.000Z",
-  project_id: null,
-  ...extra,
-});
-
-test("only untriaged captures other than sticky memos move to Feed, oldest first", () => {
-  const rows = untriagedCapturesForFeed([
-    capture("b", { captured_at: "2026-10-05T13:00:00.000Z" }),
-    capture("sticky", { kind: "micro_memo" }),
-    capture("done", { state: "triaged" }),
-    capture("a", { captured_at: "2026-10-04T08:00:00.000Z" }),
-  ]);
-  assert.deepEqual(
-    rows.map((row) => row.id),
-    ["a", "b"],
-  );
-});
-
-test("a capture becomes an own Feed post at its captured time and is marked triaged", () => {
-  const artifacts = [
-    { id: "img", source_type: "capture_entry", source_id: "c1", media_kind: "image" },
-    { id: "voice", source_type: "capture_entry", source_id: "c1", media_kind: "audio" },
-    { id: "other", source_type: "capture_entry", source_id: "c2", media_kind: "image" },
-  ];
-  const operations = buildCaptureToFeedOperations(
-    capture("c1", { project_id: "theme-1" }),
-    artifacts,
-    "post-1",
-  );
-  const post = operations.find((op) => op.type === "feed_post");
-  assert.equal(post.entity.id, "post-1");
-  assert.equal(post.entity.published_at, "2026-10-05T12:34:00.000Z");
-  assert.match(post.entity.body_markdown, /予備バッテリー/);
-  assert.equal(post.entity.project_id, "theme-1");
-  const moved = operations.filter((op) => op.type === "artifact").map((op) => op.entity);
-  assert.deepEqual(
-    moved.map((artifact) => [artifact.id, artifact.source_type, artifact.source_id]),
-    [["img", "feed_post", "post-1"]],
-    "画像だけを投稿へ付け替え、音声はCaptureに残す",
-  );
-  const triaged = operations.find((op) => op.type === "capture_entry");
-  assert.ok(triaged, "Captureを整理済みにする");
-  assert.notEqual(triaged.entity.state, "untriaged");
-});
-
-test("a title that repeats the first line is not duplicated in the post body", () => {
-  const text = "温度依存の仮説、粘度より先に溶媒を疑う";
-  const [post] = buildCaptureToFeedOperations(capture("c3", { title: text, text }), [], "post-3");
-  assert.equal(post.entity.body_markdown, text);
-  const [titled] = buildCaptureToFeedOperations(
-    capture("c4", { title: "別の題名", text }),
-    [],
-    "post-4",
-  );
-  assert.equal(titled.entity.body_markdown, `別の題名\n${text}`);
 });
