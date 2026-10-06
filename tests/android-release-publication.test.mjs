@@ -45,8 +45,20 @@ test(
     const remote = path.join(directory, "remote.git");
     const source = path.join(directory, "source");
     const checkout = path.join(directory, "checkout");
+    // A runner can inherit an explicit tag refspec; --no-tags only disables automatic tags.
+    const gitEnvironment = {
+      ...process.env,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "remote.origin.fetch",
+      GIT_CONFIG_VALUE_0: "refs/tags/*:refs/tags/*",
+    };
     const git = (cwd, ...args) => {
-      const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+      const result = spawnSync("git", args, {
+        cwd,
+        env: gitEnvironment,
+        encoding: "utf8",
+        windowsHide: true,
+      });
       assert.equal(result.status, 0, result.stdout + result.stderr);
       return result.stdout.trim();
     };
@@ -63,7 +75,15 @@ test(
       git(source, "tag", "-a", "v0.1.76", "-m", "annotated release");
       git(source, "remote", "add", "origin", remote);
       git(source, "push", "origin", "main", "refs/tags/v0.1.76");
-      git(directory, "clone", "--no-tags", "--branch=main", remote, checkout);
+      git(directory, "init", checkout);
+      git(checkout, "remote", "add", "origin", remote);
+      git(checkout, "fetch", "--no-tags", "origin", "refs/heads/main:refs/remotes/origin/main");
+      git(checkout, "checkout", "--detach", "origin/main");
+      assert.equal(
+        git(checkout, "tag", "--list"),
+        "",
+        "Checkout setup must not import remote tags",
+      );
       git(checkout, "tag", "v0.1.76");
       const localTag = git(checkout, "rev-parse", "refs/tags/v0.1.76");
       assert.equal(git(checkout, "cat-file", "-t", "refs/tags/v0.1.76"), "commit");
