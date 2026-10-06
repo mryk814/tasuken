@@ -54,6 +54,8 @@ export interface TaskenDesktopCompositionOptions<
   workLogWriter?: ConstructorParameters<typeof TaskenCoreRuntime>[6];
   /** Androidからの反応・返信を保存する口（保存後のDesktop画面の更新も担う）。 */
   feedWriter?: NonNullable<ConstructorParameters<typeof TaskenCoreRuntime>[8]>["feedWriter"];
+  /** Androidからの続けること・手入れの記録を保存する口（#454）。 */
+  routineWriter?: NonNullable<ConstructorParameters<typeof TaskenCoreRuntime>[8]>["routineWriter"];
 }
 
 export function applyMcpPackageSmokeUserData(
@@ -126,7 +128,7 @@ export class TaskenDesktopComposition<
       createNoteProposalImagePort(options.userDataPath, createNativeImageDecoder(nativeImage)),
       options.workLogWriter,
       createCaptureImagePort(options.userDataPath, createNativeImageDecoder(nativeImage)),
-      { feedWriter: options.feedWriter },
+      { feedWriter: options.feedWriter, routineWriter: options.routineWriter },
     );
     const mobileState: MobileGatewayStatePort = {
       current: () => this.repository.mobileGatewayState(),

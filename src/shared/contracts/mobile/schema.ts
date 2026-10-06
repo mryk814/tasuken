@@ -1986,3 +1986,111 @@ export type MobileAttentionRequest = z.output<typeof mobileAttentionRequestSchem
 export type MobileAttentionResponse = z.output<typeof mobileAttentionResponseSchema>;
 export type MobileAgentReplyRequest = z.output<typeof mobileAgentReplyRequestSchema>;
 export type MobileAgentReplyResponse = z.output<typeof mobileAgentReplyResponseSchema>;
+
+/**
+ * 続けること（Habit）と手入れ（Maintenance）をAndroidのTodayへ出す読み出し（#454）。
+ * `date` は端末の今日（YYYY-MM-DD）。Habitは「今日N回・今週n/m回」だけを返し、連続日数や達成率は返さない。
+ * Maintenanceは目安が近い（7日以内）か過ぎた項目だけ。目安の超過はTaskの期限違反ではない。
+ */
+export const mobileRoutinesRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    date: localDateSchema,
+  })
+  .strict();
+
+export const mobileRoutineHabitSchema = z
+  .object({
+    habitId: z.string().trim().min(1).max(120),
+    title: z.string().trim().max(500),
+    scheduleLabel: z.string().trim().max(40),
+    todayCount: z.number().int().min(0).max(50),
+    weekCount: z.number().int().min(0),
+    weekTarget: z.number().int().min(1).max(7),
+    todayLabel: z.string().max(40),
+    weekLabel: z.string().max(40),
+    met: z.boolean(),
+  })
+  .strict();
+
+export const mobileRoutineMaintenanceSchema = z
+  .object({
+    maintenanceId: z.string().trim().min(1).max(120),
+    label: z.string().trim().max(500),
+    state: z.enum(["due_soon", "overdue"]),
+    dueLabel: z.string().max(60),
+    nextDueOn: localDateSchema,
+    lastPerformedOn: localDateSchema.nullable(),
+    intervalDays: z.number().int().min(1).max(3650).nullable(),
+  })
+  .strict();
+
+export const mobileRoutinesResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        date: localDateSchema,
+        habits: z.array(mobileRoutineHabitSchema).max(50),
+        maintenances: z.array(mobileRoutineMaintenanceSchema).max(50),
+      })
+      .strict(),
+  })
+  .strict();
+
+/**
+ * Habitの1回記録とMaintenanceの実施記録。Desktopと同じEntity（`habit_entry` / `maintenance_entry`）を
+ * 決まったIDで保存するので、応答を失った再送は記録を増やさない。
+ * Habitの `sequence` は、その日の何回目かを端末が読み出し結果（todayCount+1）から決める。
+ */
+export const mobileRoutineActionSchema = z.discriminatedUnion("name", [
+  z.strictObject({
+    name: z.literal("RecordHabitEntry"),
+    habitId: z.string().trim().min(1).max(120),
+    performedOn: localDateSchema,
+    sequence: z.number().int().min(1).max(50),
+  }),
+  z.strictObject({
+    name: z.literal("RecordMaintenance"),
+    maintenanceId: z.string().trim().min(1).max(120),
+    performedOn: localDateSchema,
+  }),
+]);
+
+export const mobileRoutineActionRequestSchema = z
+  .object({
+    apiVersion: apiVersionSchema,
+    schemaVersion: schemaVersionSchema,
+    requestId: requestIdSchema,
+    commandId: entityIdSchema,
+    idempotencyKey: entityIdSchema,
+    clientDeviceId: entityIdSchema,
+    issuedAt: isoTimestampSchema,
+    action: mobileRoutineActionSchema,
+  })
+  .strict()
+  .refine((value) => value.commandId === value.idempotencyKey, {
+    path: ["idempotencyKey"],
+    message: "commandIdとidempotencyKeyを一致させてください。",
+  });
+
+export const mobileRoutineActionResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    meta: mobileResponseMetaSchema,
+    data: z
+      .object({
+        commandId: entityIdSchema,
+        status: z.enum(["applied", "no_change"]),
+        /** Maintenanceを記録したときの次の目安。 */
+        nextDueOn: localDateSchema.nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type MobileRoutinesResponse = z.output<typeof mobileRoutinesResponseSchema>;
+export type MobileRoutineActionRequest = z.output<typeof mobileRoutineActionRequestSchema>;

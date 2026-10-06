@@ -5,6 +5,8 @@ export {
   type MobileGatewayAttentionRead,
   type MobileGatewayFeedActionResult,
   type MobileGatewayFeedRead,
+  type MobileGatewayRoutineActionResult,
+  type MobileGatewayRoutinesRead,
   type MobileGatewayCorePort,
   type MobileGatewayWorkLogCommand,
   type MobileGatewayWorkLogCommandResult,

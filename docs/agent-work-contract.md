@@ -284,12 +284,14 @@ AI活動                絞り込み
 
 Desktopと同じ導出を、Android用のread modelとして渡す。**Android側で状態を再導出しない。**
 
-| 経路                     | scope                  | 内容                                                                                                     |
-| ------------------------ | ---------------------- | -------------------------------------------------------------------------------------------------------- |
-| `GET /v1/attention`      | `mobile:read`          | `buildAttentionQueue` の結果と件数（要対応・作業中・開始待ち）。上限超過は `truncated`                   |
-| `POST /v1/agent-replies` | `mobile:human-review`  | 質問IDへの短い返答。Taskは変えず、回答Receiptだけを増やす                                                |
-| `GET /v1/feed`           | `mobile:read`          | Feed投稿（AIの投稿・自分の投稿）を、自分の反応と返信（古い順）を添えて新しい順に返す。作業報告は含めない |
-| `POST /v1/feed-actions`  | `mobile:capture-write` | 反応（おもしろい・ブックマーク）の付け外しと、自分のメモとしての返信。冪等。AIへの返答依頼は持たない     |
+| 経路                       | scope                  | 内容                                                                                                     |
+| -------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `GET /v1/attention`        | `mobile:read`          | `buildAttentionQueue` の結果と件数（要対応・作業中・開始待ち）。上限超過は `truncated`                   |
+| `POST /v1/agent-replies`   | `mobile:human-review`  | 質問IDへの短い返答。Taskは変えず、回答Receiptだけを増やす                                                |
+| `GET /v1/feed`             | `mobile:read`          | Feed投稿（AIの投稿・自分の投稿）を、自分の反応と返信（古い順）を添えて新しい順に返す。作業報告は含めない |
+| `POST /v1/feed-actions`    | `mobile:capture-write` | 反応（おもしろい・ブックマーク）の付け外しと、自分のメモとしての返信。冪等。AIへの返答依頼は持たない     |
+| `GET /v1/routines`         | `mobile:read`          | 続けること（一時停止中を除く）の「今日N回・今週n/m回」と、目安が近いか過ぎた手入れ（#454）               |
+| `POST /v1/routine-actions` | `mobile:capture-write` | 続けることの1回記録と手入れの実施記録。Desktopと同じEntityを決まったIDで保存し、再送で増やさない         |
 
 - 件数は**判断単位**で数える。同じTaskの独立した判断は2件、Taskに紐づかないProposalも1件。
 - 回答には `taskVersion`（競合検出）と `requestId`（回答対象）が必要。

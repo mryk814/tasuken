@@ -9,6 +9,7 @@ import { createMobileActivityReadPort } from "./mobileActivityReadPort.ts";
 import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentReadPort.ts";
 import { createMobileThemeContextReadPort } from "./mobileThemeContextReadPort.ts";
 import { createMobileFeedActionPort, type FeedWriterPort } from "./mobileFeedActionPort.ts";
+import { createMobileRoutinePort, type RoutineWriterPort } from "./mobileRoutinePort.ts";
 import { createMobileWorkLogPort, type WorkLogWriterPort } from "./mobileWorkLogPort.ts";
 import type { NoteProposalImagePort } from "../core/public.ts";
 import type { CaptureImagePort } from "../core/public.ts";
@@ -205,6 +206,7 @@ export class TaskenCoreRuntime {
   private readonly host: TaskenCoreHost;
   private readonly persistence: CorePersistence;
   private readonly feedWriter?: FeedWriterPort;
+  private readonly routineWriter?: RoutineWriterPort;
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
   private readonly taskContext: ReturnType<typeof createTaskenCore>["getTaskContext"];
   private readonly agentSessionContext: ReturnType<
@@ -237,10 +239,13 @@ export class TaskenCoreRuntime {
       executeAiTaskStart?: ExecuteApplicationCommand;
       /** Feedへの反応・返信の書き込み口。常時稼働nodeには渡さない。 */
       feedWriter?: FeedWriterPort;
+      /** 続けること・手入れの記録の書き込み口（#454）。常時稼働nodeには渡さない。 */
+      routineWriter?: RoutineWriterPort;
     } = {},
   ) {
     this.persistence = persistence;
     this.feedWriter = options.feedWriter;
+    this.routineWriter = options.routineWriter;
     this.executeApplicationCommand = executeApplicationCommand;
     const proposalAccess = options.proposalAccess || "full";
     // 常時稼働nodeでは、読み取りはそのままに書き込みだけを絞る。
@@ -375,6 +380,7 @@ export class TaskenCoreRuntime {
         getThemeContext: createMobileThemeContextReadPort(this.persistence),
         ...createMobileWorkLogPort(this.persistence, this.workLogWriter),
         ...createMobileFeedActionPort(this.persistence, this.feedWriter),
+        ...createMobileRoutinePort(this.persistence, this.routineWriter),
         status: async () => ({
           apiVersion: TASKEN_CORE_API_VERSION,
           capabilities: [
