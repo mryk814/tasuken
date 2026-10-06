@@ -57,7 +57,7 @@ export const AI_IMPORT_SCHEMA = `{
       "action": "create | merge | ignore",
       "reason": "候補にした理由、merge/ignoreの根拠",
       "title": "string 必須",
-      "theme": "既存Theme名。分からなければ空文字",
+      "theme": "既存Theme名または一意の識別子。分からなければ空文字",
       "kind": "task | milestone | period | waiting | reminder | idea",
       "status": "todo | doing | waiting | review | done | inbox",
       "priority": "normal | high",
@@ -71,7 +71,7 @@ export const AI_IMPORT_SCHEMA = `{
       "action": "create | merge | ignore",
       "reason": "候補にした理由、merge/ignoreの根拠",
       "title": "string 必須",
-      "theme": "既存Theme名。分からなければ空文字",
+      "theme": "既存Theme名または一意の識別子。分からなければ空文字",
       "note_type": "memo | report | prompt | decision | meeting | experiment | analysis | ai_chat | learning | reflection",
       "body": "string 必須",
       "source_url": "https/http URL または空文字"
@@ -84,7 +84,7 @@ export const AI_IMPORT_SCHEMA = `{
       "title": "string 必須",
       "url": "https/http/mailto URL",
       "link_type": "chatgpt | copilot | github | paper | notebook | document | other",
-      "theme": "既存Theme名。分からなければ空文字",
+      "theme": "既存Theme名または一意の識別子。分からなければ空文字",
       "description": "string"
     }
   ],
@@ -96,7 +96,7 @@ export const AI_IMPORT_SCHEMA = `{
       "node_type": "source | evidence | claim | question | decision | insight",
       "title": "string 必須",
       "body": "string",
-      "theme": "既存Theme名。分からなければ空文字",
+      "theme": "既存Theme名または一意の識別子。分からなければ空文字",
       "confidence": "low | medium | high",
       "status": "active | resolved | deprecated | rejected"
     }
@@ -156,7 +156,11 @@ function enumValue(value, allowed, fallback, issues, field) {
 function resolveTheme(themeValue, themes) {
   const normalized = text(themeValue);
   if (!normalized) return undefined;
-  return themes.find((theme) => theme.id === normalized || theme.name === normalized);
+  const existing = themes.find((theme) => theme.id === normalized || theme.name === normalized);
+  if (existing) return existing;
+  const code = normalized.toLowerCase();
+  const matches = themes.filter((theme) => text(theme.code).toLowerCase() === code);
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 function normalizeArray(payload, key) {

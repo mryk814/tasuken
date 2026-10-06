@@ -367,6 +367,8 @@ Task作業報告は既存TaskへのApplication Commandを提案する専用workf
 
 ## AI Import統合
 
+Themeの指定は既存のID・名前の一致を優先し、一致がなければ識別子（code）を前後空白・大小文字を無視して照合する。codeの一意性は保存時に強制していないため、codeに複数Themeが一致する場合は解決不能として候補をignoreにし、採用を許可しない。Mainも採用時に再検証し、同じIDのproject/theme投影だけを畳み、不明・曖昧な指定を別Themeや個人業務へ保存しない。空のcodeや複合表示ラベルは照合に使わない。
+
 既存のAI Importは`items`、`notes`、`links`を維持し、KnowledgeNodeは別セクションとして追加する。
 
 ```ts
