@@ -8,7 +8,10 @@ import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
 import type { CalendarService } from "../services/calendarService";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
 import { AiProposalAcceptanceService } from "../services/aiProposalAcceptanceService";
-import { agentSessionProposalAcceptanceCommand } from "../../shared/agentSessionProposalAcceptance";
+import {
+  agentSessionProposalAcceptanceCommand,
+  agentSessionProposalRejectionCommand,
+} from "../../shared/agentSessionProposalAcceptance";
 import type { MediaCaptureService } from "../services/mediaCaptureService";
 import type { FeedLinkPreviewService } from "../services/feedLinkPreviewService";
 import { parseBatchTranscriptionArtifactRequest } from "../../shared/batchTranscriptionIpc";
@@ -252,12 +255,22 @@ export function registerIpc(
       );
       notifyCommandApplied(receipt, -1);
     },
+    (proposalId) => {
+      const proposal = repository.get("ai_proposal", proposalId);
+      if (!proposal) return;
+      notifyCommandApplied(
+        aiProposalAcceptance.execute(
+          agentSessionProposalRejectionCommand(proposal, {
+            actor: { kind: "system", id: "agent-log-sync" },
+            source: "main_ui",
+            issuedAt: new Date().toISOString(),
+          }),
+        ),
+        -1,
+      );
+    },
   );
-  ipcMain.handle(IPC.agentLogAdoptPending, () => {
-    const result = service.adoptPendingAgentLogRecords();
-    notifyEntitiesChanged(["ai_proposal", "agent_session"]);
-    return result;
-  });
+
   ipcMain.handle(IPC.agentLogSetup, () => service.agentLogSetup());
   ipcMain.handle(IPC.agentLogProbe, (_event, provider, root) =>
     service.probeAgentLogSource(provider, root),

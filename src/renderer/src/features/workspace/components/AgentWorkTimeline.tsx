@@ -17,6 +17,10 @@ import {
 } from "../domain-model/agentSessionProjection";
 import type { AgentSession } from "../domain-model/types";
 import {
+  agentSessionHeading,
+  formatAgentActiveDuration,
+} from "../../../../../shared/agentWorkLogImport";
+import {
   agentDateText,
   agentSessionInterval,
   buildAgentDayLayout,
@@ -44,7 +48,6 @@ export function AgentLogSyncPanel() {
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [adoptResult, setAdoptResult] = useState("");
   const sourceSetup = useRef<HTMLDetailsElement>(null);
   const refresh = async () => {
     const next = await workspaceApi.agentLogSetup();
@@ -172,30 +175,11 @@ export function AgentLogSyncPanel() {
                 保留 {setup.deferred}
               </p>
               {setup.pendingRecords > 0 && (
-                <div className="agent-log-sync-pending" role="group" aria-label="採用待ちの記録">
-                  <p>
-                    以前の版で採用待ちのまま残った記録が {setup.pendingRecords}{" "}
-                    件あります。内容は変えずに、まとめてActivityの履歴へ入れられます。
-                  </p>
-                  <Button
-                    disabled={busy || setup.state === "running"}
-                    onClick={() =>
-                      void act(async () => {
-                        setAdoptResult("");
-                        const result = await workspaceApi.adoptPendingAgentLogRecords();
-                        setAdoptResult(
-                          result.failed
-                            ? `${result.accepted}件を履歴へ入れました。${result.failed}件は入れられませんでした（${result.messages.join(" / ")}）。`
-                            : `${result.accepted}件を履歴へ入れました。`,
-                        );
-                      })
-                    }
-                  >
-                    まとめて履歴へ入れる
-                  </Button>
-                </div>
+                <p className="agent-log-sync-pending" role="note">
+                  以前の版で採用待ちのまま残った記録が {setup.pendingRecords}{" "}
+                  件あります。次の「ログ同期」で読み直し、自分の会話は履歴へ入れ、subagentやレビュー用のthreadは取り下げます。
+                </p>
               )}
-              {adoptResult && <p role="status">{adoptResult}</p>}
               {setup.sources.length ? (
                 <ul className="agent-log-source-list">
                   {setup.sources.map((source) => (
@@ -338,7 +322,7 @@ export function AgentLogSyncPanel() {
                 )}
                 <p>
                   保存するのは時刻・サービス・Session ID
-                  と、依頼・回答の短い抜粋（各500文字以内・秘匿処理済み）です。生ログの全文は保存しません。提案と採用した記録は既存の共有同期設定に従います。
+                  と、会話名、AIが動いた時間、依頼の短い抜粋（最大5件・各200文字）と最後の回答（500文字以内）です（秘匿処理済み）。生ログの全文は保存しません。subagentやレビュー用のthreadは親の会話の一部として単独では取り込みません。取り込んだ記録は既存の共有同期設定に従います。
                 </p>
                 <pre className="agent-log-destination">{setup.destination}</pre>
                 <label>
@@ -551,17 +535,37 @@ export function AgentWorkTimeline(
             <IconX size={18} aria-hidden="true" />
           </Button>
         </header>
-        <h3>{CLIENTS[session.client_kind] || session.client_kind}</h3>
+        <h3>{agentSessionHeading(session.intent)}</h3>
+        <p className="agent-log-detail-client">
+          {CLIENTS[session.client_kind] || session.client_kind}
+        </p>
         <p className="agent-log-interval">
           <IconClock size={16} aria-hidden="true" />
           {intervalText(session, now)}
           <small>JST · 経過区間（待機・背景処理を含む）</small>
         </p>
         <dl>
-          <dt>実働時間 / 費用</dt>
-          <dd>未収録</dd>
+          <dt>AIが動いた時間</dt>
+          <dd>
+            {formatAgentActiveDuration(session.observation?.active_duration_ms) ?? "未収録"}
+            {session.observation?.active_duration_ms != null && (
+              <small>（clientが記録したターン処理時間の合計）</small>
+            )}
+          </dd>
           <dt>依頼</dt>
-          <dd>{session.intent.summary}</dd>
+          <dd>
+            {(session.request_events?.length ?? 0) > 1 ? (
+              <ol className="agent-log-requests">
+                {session.request_events!.map((event) => (
+                  <li key={`${event.observed_at}:${event.text.slice(0, 20)}`}>
+                    <time>{time(event.observed_at)}</time> {event.text}
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              session.intent.summary
+            )}
+          </dd>
           <dt>成果</dt>
           <dd>{session.outcome?.summary || "未記録"}</dd>
           <dt>残件</dt>
@@ -808,7 +812,7 @@ export function AgentWorkTimeline(
                       {CLIENTS[entry.row.session.client_kind]} ·{" "}
                       {STATUSES[entry.row.session.status]}
                     </span>
-                    <strong>{entry.row.session.intent.summary}</strong>
+                    <strong>{agentSessionHeading(entry.row.session.intent)}</strong>
                     <small className="agent-log-list-result">
                       成果: {entry.row.result || "未記録"}
                     </small>
@@ -816,7 +820,12 @@ export function AgentWorkTimeline(
                       {entry.row.repositories.map((repo) => repo.label).join(" / ") ||
                         "Repository未関連"}
                     </span>
-                    <small>{intervalText(entry.row.session, now)}</small>
+                    <small>
+                      {intervalText(entry.row.session, now)}
+                      {formatAgentActiveDuration(entry.row.session.observation?.active_duration_ms)
+                        ? ` · AI ${formatAgentActiveDuration(entry.row.session.observation?.active_duration_ms)}`
+                        : ""}
+                    </small>
                   </button>
                 </li>
               ))}
@@ -875,7 +884,7 @@ export function AgentWorkTimeline(
                             type="button"
                             className={`agent-log-block${selected === entry.id ? " is-selected" : ""}${session.status === "active" ? " is-live" : ""}`}
                             aria-pressed={selected === entry.id}
-                            aria-label={`${CLIENTS[session.client_kind]} ${time(session.started_at)} ${session.intent.summary} ${STATUSES[session.status]}`}
+                            aria-label={`${CLIENTS[session.client_kind]} ${time(session.started_at)} ${agentSessionHeading(session.intent)} ${STATUSES[session.status]}`}
                             title={`${entry.row.repositories.map((repo) => repo.label).join(" / ") || "Repository未関連"}\n${session.intent.summary}\n${intervalText(session, now)} · ${STATUSES[session.status]}`}
                             onClick={() => setSelected(entry.id)}
                             style={
@@ -894,7 +903,7 @@ export function AgentWorkTimeline(
                                 {CLIENTS[session.client_kind]}
                               </span>
                             </span>
-                            <strong>{session.intent.summary}</strong>
+                            <strong>{agentSessionHeading(session.intent)}</strong>
                             {entry.height >= 72 && (
                               <small>
                                 {entry.row.repositories.map((repo) => repo.label).join(" / ") ||

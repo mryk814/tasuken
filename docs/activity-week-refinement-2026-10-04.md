@@ -39,9 +39,13 @@ PC の Activity に「ログ同期」を置く。サービス（Codex / Claude C
 ログ同期の記録は、提案を作った直後に既存の `ApplyAiProposal` 経路でそのまま Agent Session として保存する（actor `system:agent-log-sync`）。保存先の登録時に本人が読み込み内容と保存先を確認して許可しているため、1件ずつの採用は求めない。これはAIによる書き込みではなく本人のローカルログの読み込みであり、AIのProposal既定（AGENTS.md）を広げるものではない。外部AIからの他の提案は従来どおり採用待ちとする。
 
 - 自動で保存できなかった記録や旧版で残った採用待ちは、接続hookの観測と同じく「受け身の観測」として扱い、対応待ちの件数・一覧に出さない（`isPassiveAgentSessionProposal`）。Debriefには観測として出る。
-- 「ログ同期」の欄に、旧版で採用待ちのまま残った件数と「まとめて履歴へ入れる」を出す。内容は変えず、1件の失敗で残りを止めない。
+- 「ログ同期」の欄に、旧版で採用待ちのまま残った件数を出す。一括採用はしない（大半がsubagentのthreadだったため）。次のログ同期で全ファイルを読み直し、自分の会話は採用待ちを先に履歴へ入れてから更新し、委任threadの採用待ちは取り下げる。
 - 依頼の要旨は、clientが付ける前置き（Codex IDE拡張の `# Context from my IDE setup … ## My request for Codex:`、Claude Code の `<ide_opened_file>` / `<ide_selection>` / `<system-reminder>`、slash command の包み）を外した本文にする（`userRequestText`）。前置きしかないメッセージは依頼として数えない。
-- parserの版（`NATIVE_AGENT_LOG_PARSER_VERSION`）をファイル指紋に含める。正規化を変えた版では、変更のないファイルも一度だけ読み直し、取り込み済みの Session は履歴の読み直し（版確認付き）で依頼の要旨も置き換える。読み直し以外の更新では、これまでどおり依頼の要旨を変えられない。
+- **委任thread**：Codexの `session_meta` で `thread_source` が `subagent` / `guardian_review`、または `parent_thread_id` を持つthread、Claude Codeで発言がすべてsidechainのファイル（`subagents/`）は、親の会話の一部として単独のSessionにしない。実測では本人のCodexログ1925件のうち約1550件がこれに当たった。
+- **見出し**：`intent.title` に、Codexの `session_index.jsonl` の `thread_name`、Claude Codeの `custom-title`（なければ `ai-title`）を入れる。無い場合と旧記録は、依頼の最初の一文を40字までに切って使う（AIで要約しない）。依頼の全文は `intent.summary` と詳細に残す。
+- **AIが動いた時間**：`observation.active_duration_ms` に、Codexは `task_complete` / `turn_aborted` の `duration_ms` の合計、Claude Codeは `cost-state` のAPI時間とツール時間の合計を入れる。clientの記録の合計であり、経過区間とは分けて表示し、実働時間・生産性とは呼ばない。記録が無ければ「未収録」。
+- **依頼の抜粋**：1セッションの依頼を時刻順に最大5件×200文字だけ残す（`request_events`）。回答の途中経過・tool出力は残さない。
+- parserの版（`NATIVE_AGENT_LOG_PARSER_VERSION`）をファイル指紋に含める。正規化を変えた版では、変更のないファイルも一度だけ読み直し、取り込み済みの Session は履歴の読み直し（版確認付き）で依頼の要旨・見出し・抜粋・AIが動いた時間も置き換える。読み直し以外の更新では、これまでどおり依頼の要旨を変えられない。
 
 定期同期は初期状態で無効。利用者が有効にしたときだけ Tasken 起動中に5分ごとに動く。取消は完了済み提案を保持し、未処理を次回へ残す。欠損フォルダー、権限不足、未対応形式、空、書込み途中、資源上限を区別する。ファイルごと128MB、1行8MB、保存先ごと10000ファイル・100000エントリ・深さ6、1回512MB・120秒を上限に、ストリーム処理する。未完の末尾は次回再読込し、削除・ローテーションで既存記録を消さない。指紋は100件ごとと終了時に保存し、異常終了後の未保存分はCoreの提案識別と採用待ちの保留により再処理する。スマートフォンは正規化済み記録を表示し、PC の場所設定は行わない。
 

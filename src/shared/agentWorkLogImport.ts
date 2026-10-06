@@ -32,9 +32,49 @@ const envelope = z
     started_at: z.iso.datetime({ offset: true }),
     observed_until: z.iso.datetime({ offset: true }),
     coverage: z.enum(["complete", "partial"]),
+    /** clientが付けた会話名（Codexのthread_name、Claude Codeのcustom-title / ai-title）。 */
+    title: z.string().trim().max(200).optional(),
+    /** clientが記録したターン処理時間の合計。 */
+    active_duration_ms: z
+      .number()
+      .int()
+      .min(0)
+      .max(30 * 24 * 60 * 60 * 1000)
+      .optional(),
     payload: z.unknown(),
   })
   .strict();
+
+/** 一覧に出す見出し。旧記録（titleなし）は依頼から作る。 */
+export function agentSessionHeading(intent: { summary: string; title?: string | null }): string {
+  return intent.title?.trim() || shortAgentSessionTitle(intent.summary);
+}
+
+/** AIが動いていた時間の表示。経過区間（開始〜最終観測）とは別に示す。 */
+export function formatAgentActiveDuration(ms: number | null | undefined): string | null {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return null;
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 1) return "1分未満";
+  if (minutes < 60) return `${minutes}分`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 ? `${hours}時間${minutes % 60}分` : `${hours}時間`;
+}
+
+/**
+ * 一覧の見出し用に、依頼の最初の一文を短くする。全文は詳細（intent.summary）に残す。
+ * AIで要約せず、文の切れ目と文字数だけで決める。
+ */
+export function shortAgentSessionTitle(text: string, max = 40): string {
+  const firstLine =
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) ?? "";
+  // 日本語の句点はその場で切り、英語の終止符は後ろが空白か行末のときだけ切る（"v1.2"等を切らない）。
+  const sentence = /^(.+?(?:[。！？]|[.!?](?=\s|$)))/u.exec(firstLine)?.[1] ?? firstLine;
+  const chars = [...sentence];
+  return chars.length > max ? `${chars.slice(0, max - 1).join("")}…` : sentence;
+}
 
 type RecordValue = Record<string, unknown>;
 function record(value: unknown): RecordValue {
@@ -238,7 +278,14 @@ export function parseAgentWorkLog(raw: string) {
     started_at: start,
     ended_at: terminalAt || until,
     status: finalStatus,
-    intent: { summary: requests[0]?.text || "依頼の記録なし" },
+    intent: {
+      summary: requests[0]?.text || "依頼の記録なし",
+      ...(input.title
+        ? { title: redactAgentText(input.title).trim().slice(0, 200) }
+        : requests[0]
+          ? { title: shortAgentSessionTitle(requests[0].text) }
+          : {}),
+    },
     outcome: {
       summary: responses.at(-1)?.text || "成果の記録なし",
       remaining_work: [] as string[],
@@ -252,13 +299,17 @@ export function parseAgentWorkLog(raw: string) {
       coverage: input.coverage,
       observed_until: until,
       mode: "history" as const,
+      ...(input.active_duration_ms !== undefined
+        ? { active_duration_ms: input.active_duration_ms }
+        : {}),
     },
   };
 }
 
 /**
  * 保存先のlogを読むparserの版。正規化を変えたら上げると、取り込み済みのファイルも次の同期で読み直す。
- * 2: Codex IDE拡張・Claude Codeの前置きを外して依頼本文だけを残す（#629）。
+ * 2: Codex IDE拡張・Claude Codeの前置きを外して依頼本文だけを残し、委任threadを除き、
+ *    会話名・AIが動いた時間・依頼の抜粋を加える（#629）。
  */
 export const NATIVE_AGENT_LOG_PARSER_VERSION = 2;
 
@@ -360,7 +411,13 @@ function nativeEnvelope(values: unknown[]) {
 
 export type ImportedAgentWorkLog = ReturnType<typeof parseAgentWorkLog>;
 
-/** Bounded metadata projection for the PC collector; no transcript survives this boundary. */
+/** 1セッションから残す依頼の抜粋の上限。全文やtool出力は残さない。 */
+export const NATIVE_REQUEST_EXCERPTS = { count: 5, chars: 200 } as const;
+
+/**
+ * Bounded metadata projection for the PC collector; no transcript survives this boundary.
+ * 残すのは依頼の短い抜粋（最大5件×200文字）、最後の回答（500文字）、会話名、ターン処理時間の合計だけ。
+ */
 export function createNativeAgentLogAccumulator(service: "codex" | "claude_code") {
   let source = "";
   let version = "未記録";
@@ -368,13 +425,23 @@ export function createNativeAgentLogAccumulator(service: "codex" | "claude_code"
   let until = "";
   let metaCount = 0;
   let headerStart = "";
-  let first: { role: string; timestamp: string; text: string } | undefined;
-  let last: typeof first;
+  let delegated = false;
+  let mainSeen = false;
+  let sidechainSeen = false;
+  let clientTitle = "";
+  let customTitle = "";
+  let activeMs = 0;
+  let activeSeen = false;
+  let claudeActiveMs: number | null = null;
+  const requests: Array<{ role: string; timestamp: string; text: string }> = [];
+  let last: { role: string; timestamp: string; text: string } | undefined;
   const stamp = (value: unknown) => {
     if (typeof value !== "string" || !z.iso.datetime({ offset: true }).safeParse(value).success)
       throw new Error("観測時刻にはタイムゾーン付きISO時刻が必要です。");
     return date(value);
   };
+  const duration = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
   return {
     add(value: unknown) {
       const line = record(value);
@@ -396,6 +463,26 @@ export function createNativeAgentLogAccumulator(service: "codex" | "claude_code"
           throw new Error("Client version の形式が不正です。");
         version = String(header.cli_version || version).slice(0, 120);
         headerStart = stamp(header.timestamp || line.timestamp);
+        // 親の会話から起動されたsubagent・レビュー用のthreadは、単独のSessionとして並べない。
+        delegated =
+          typeof header.parent_thread_id === "string" ||
+          header.thread_source === "subagent" ||
+          header.thread_source === "guardian_review";
+      }
+      if (service === "codex" && line.type === "event_msg") {
+        const event = record(line.payload);
+        if (event.type === "task_complete" || event.type === "turn_aborted") {
+          activeMs += duration(event.duration_ms);
+          activeSeen = true;
+        }
+      }
+      if (service === "claude_code") {
+        if (line.type === "custom-title" && typeof line.customTitle === "string")
+          customTitle = line.customTitle;
+        if (line.type === "ai-title" && typeof line.aiTitle === "string")
+          clientTitle = line.aiTitle;
+        if (line.type === "cost-state")
+          claudeActiveMs = duration(line.totalAPIDuration) + duration(line.totalToolDuration);
       }
       if (service === "claude_code" && typeof line.sessionId === "string") {
         if (source && source !== line.sessionId) throw new Error("複数Sessionが混在しています。");
@@ -407,6 +494,10 @@ export function createNativeAgentLogAccumulator(service: "codex" | "claude_code"
       const message = record(service === "codex" ? line.payload : line.message);
       const role = message.role;
       if (role !== "user" && role !== "assistant") return;
+      if (service === "claude_code" && line.type === role) {
+        if (line.isSidechain) sidechainSeen = true;
+        else mainSeen = true;
+      }
       if (
         service === "codex"
           ? line.type !== "response_item" ||
@@ -427,13 +518,35 @@ export function createNativeAgentLogAccumulator(service: "codex" | "claude_code"
       const visible = visibleText(content);
       const text = role === "user" ? userRequestText(visible) : visible;
       if (!text) return;
-      const entry = { role, timestamp: stamp(line.timestamp), text: text.slice(0, 500) };
-      if (role === "user" && (!first || entry.timestamp < first.timestamp)) first = entry;
-      if (role === "assistant" && (!last || entry.timestamp >= last.timestamp)) last = entry;
+      const at = stamp(line.timestamp);
+      if (role === "assistant") {
+        if (!last || at >= last.timestamp) last = { role, timestamp: at, text: text.slice(0, 500) };
+        return;
+      }
+      // 依頼は時刻順に先頭から数件だけ残す（同じ時刻・本文の重複は数えない）。
+      if (
+        requests.some((entry) => entry.timestamp === at && entry.text.startsWith(text.slice(0, 50)))
+      )
+        return;
+      requests.push({ role, timestamp: at, text: text.slice(0, NATIVE_REQUEST_EXCERPTS.chars) });
+      requests.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      if (requests.length > NATIVE_REQUEST_EXCERPTS.count) requests.pop();
     },
-    finish(): ImportedAgentWorkLog {
+    sourceSession(): string {
+      return source;
+    },
+    /** 単独のSessionとして取り込まない理由。null なら取り込む。 */
+    skipReason(): "delegated_thread" | null {
+      // Claude Codeのsubagentは親と同じsessionIdで別ファイルに書かれ、発言はすべてsidechainになる。
+      return delegated || (service === "claude_code" && sidechainSeen && !mainSeen)
+        ? "delegated_thread"
+        : null;
+    },
+    finish(options: { title?: string } = {}): ImportedAgentWorkLog {
       if (!source || !start || !until || (service === "codex" && metaCount !== 1))
         throw new Error("選んだサービスのSession形式ではありません。");
+      const title = (customTitle || options.title || clientTitle).trim().slice(0, 200);
+      const active = service === "codex" ? (activeSeen ? activeMs : null) : claudeActiveMs;
       const result = parseAgentWorkLog(
         JSON.stringify({
           schema: "tasken-ai-work-log/1",
@@ -443,10 +556,14 @@ export function createNativeAgentLogAccumulator(service: "codex" | "claude_code"
           started_at: service === "codex" ? headerStart : start,
           observed_until: until,
           coverage: "partial",
-          payload: [first, last].filter(Boolean),
+          ...(title ? { title } : {}),
+          ...(active !== null
+            ? { active_duration_ms: Math.min(active, 30 * 24 * 60 * 60 * 1000) }
+            : {}),
+          payload: [...requests, ...(last ? [last] : [])],
         }),
       );
-      return { ...result, request_events: [], response_checkpoints: [] };
+      return { ...result, response_checkpoints: [] };
     },
   };
 }

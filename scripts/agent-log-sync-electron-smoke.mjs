@@ -85,7 +85,10 @@ try {
     async () => (await window.api.entities.list("agent_session"))[0],
   );
   assert.equal(first.status, "unknown");
-  assert.deepEqual(first.request_events, []);
+  assert.deepEqual(
+    first.request_events.map((event) => event.text),
+    ["合成デモ: Activityを確認する"],
+  );
   assert.deepEqual(first.response_checkpoints, []);
   fs.appendFileSync(
     file,
@@ -133,7 +136,24 @@ try {
   await collector()
     .getByText(/変更なし 1/)
     .waitFor();
-  // 旧版で採用待ちのまま残った記録（ここでは手動取込で作る）をまとめて履歴へ入れる。
+  // subagentのthreadは親の会話の一部なので、単独のSessionとして増えない。
+  const subagent = fs
+    .readFileSync("fixtures/agent-work-logs/codex-rollout.jsonl", "utf8")
+    .replaceAll("synthetic-rollout", "synthetic-subagent")
+    .replace(
+      '"payload":{',
+      '"payload":{"thread_source":"subagent","parent_thread_id":"synthetic-rollout",',
+    );
+  fs.writeFileSync(path.join(logs, "rollout-subagent.jsonl"), subagent);
+  await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
+  await collector()
+    .getByText(/変更なし 2/)
+    .waitFor();
+  assert.equal(
+    await page.evaluate(async () => (await window.api.entities.list("agent_session")).length),
+    1,
+  );
+  // 旧版で残った採用待ち（ここでは手動取込で作る）は件数と案内だけを出し、対応待ちには並べない。
   const legacy = fs
     .readFileSync("fixtures/agent-work-logs/codex-rollout.jsonl", "utf8")
     .replaceAll("synthetic-rollout", "synthetic-legacy-pending");
@@ -143,15 +163,8 @@ try {
     .getByText(/採用待ちのまま残った記録が 1/)
     .waitFor();
   assert.equal(await page.locator(".feed-needs-row").count(), 0);
-  await collector().getByRole("group", { name: "採用待ちの記録" }).scrollIntoViewIfNeeded();
+  await collector().getByRole("note").scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(output, "desktop-legacy-pending.png") });
-  await collector().getByRole("button", { name: "まとめて履歴へ入れる", exact: true }).click();
-  await collector().getByText("1件を履歴へ入れました。", { exact: true }).waitFor();
-  assert.equal(await collector().getByRole("group", { name: "採用待ちの記録" }).count(), 0);
-  assert.equal(
-    await page.evaluate(async () => (await window.api.entities.list("agent_session")).length),
-    2,
-  );
   await collector().getByLabel("Tasken 起動中に5分ごとに同期").check();
   await collector().getByLabel("Tasken 起動中に5分ごとに同期").uncheck();
   await collector().getByText("保存先を追加・再確認", { exact: true }).click();
@@ -160,12 +173,12 @@ try {
   app = null;
   await launch();
   const persisted = await page.evaluate(() => window.api.entities.list("agent_session"));
-  assert.equal(persisted.length, 2);
-  assert.ok(persisted.some((session) => /差分/.test(session.outcome.summary)));
+  assert.equal(persisted.length, 1);
+  assert.match(persisted[0].outcome.summary, /差分/);
   await collector().locator(":scope > summary").click();
   await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
   await collector()
-    .getByText(/変更なし 1/)
+    .getByText(/変更なし 2/)
     .waitFor();
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setContentSize(390, 844),
@@ -186,7 +199,7 @@ try {
   await collector().getByText("保存先はまだ登録されていません。", { exact: true }).waitFor();
   assert.equal(
     await page.evaluate(async () => (await window.api.entities.list("agent_session")).length),
-    2,
+    1,
   );
   assert.deepEqual(errors, []);
   fs.writeFileSync(
@@ -196,7 +209,8 @@ try {
         passed: true,
         nativeSessions: 1,
         adoptedWithoutReview: true,
-        legacyPendingAdopted: 1,
+        delegatedThreadSkipped: true,
+        legacyPendingNoticed: 1,
         refreshedSameId: true,
         restart: true,
         widths: [1760, 390],

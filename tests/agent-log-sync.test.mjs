@@ -167,7 +167,12 @@ test("streaming difference sync preserves privacy, retries incomplete writes, su
     await sync.run();
     assert.equal(submitted.length, 1);
     assert.equal(submitted[0].status, "unknown");
-    assert.deepEqual(submitted[0].request_events, []);
+    // #629: 依頼は短い抜粋（最大5件×200文字）だけを残し、回答の途中経過は残さない。
+    assert.deepEqual(
+      submitted[0].request_events.map((event) => event.text),
+      ["合成デモ: Activityを確認する"],
+    );
+    assert.deepEqual(submitted[0].response_checkpoints, []);
     assert.doesNotMatch(JSON.stringify(submitted), /DO-NOT-IMPORT|cwd|reasoning/);
     await sync.run();
     assert.equal(submitted.length, 1);

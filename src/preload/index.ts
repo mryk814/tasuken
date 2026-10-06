@@ -37,7 +37,6 @@ const api: ResearchDeskApi = {
     background: (enabled) => ipcRenderer.invoke(IPC.agentLogBackground, enabled),
     sync: () => ipcRenderer.invoke(IPC.agentLogSync),
     cancel: () => ipcRenderer.invoke(IPC.agentLogCancel),
-    adoptPending: () => ipcRenderer.invoke(IPC.agentLogAdoptPending),
     import: (raw, repositoryContextIds) =>
       ipcRenderer.invoke(IPC.agentWorkLogImport, raw, repositoryContextIds),
   },

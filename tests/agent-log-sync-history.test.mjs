@@ -16,7 +16,7 @@ const bundle = await build({
  export { TaskenCoreHost } from './src/main/infrastructure/http/taskenCoreHost.ts';
  export { ApplicationCommandService } from './src/main/services/applicationCommandService.ts';
  export { agentSessionProposalAcceptanceCommand, isAgentLogSyncProposal } from './src/shared/agentSessionProposalAcceptance.ts';
- export { userRequestText, createNativeAgentLogAccumulator, NATIVE_AGENT_LOG_PARSER_VERSION } from './src/shared/agentWorkLogImport.ts';
+ export { userRequestText, createNativeAgentLogAccumulator, NATIVE_AGENT_LOG_PARSER_VERSION, shortAgentSessionTitle, agentSessionHeading, formatAgentActiveDuration } from './src/shared/agentWorkLogImport.ts';
  export { buildAttentionQueue, isPassiveAgentSessionProposal } from './src/shared/contracts/task/attentionQueue.ts';
 `,
     resolveDir: process.cwd(),
@@ -40,6 +40,9 @@ const {
   userRequestText,
   createNativeAgentLogAccumulator,
   NATIVE_AGENT_LOG_PARSER_VERSION,
+  shortAgentSessionTitle,
+  agentSessionHeading,
+  formatAgentActiveDuration,
   buildAttentionQueue,
   isPassiveAgentSessionProposal,
 } = await import(pathToFileURL(bundlePath).href);
@@ -301,4 +304,136 @@ test("acceptance builder refuses stale history refreshes and non-pending proposa
   assert.equal(command.name, "ApplyAiProposal");
   assert.equal(command.payload.proposal.status, "accepted");
   assert.deepEqual(command.expectedVersions, [{ type: "ai_proposal", id: "p", version: 1 }]);
+});
+
+const at = (minute) => `2026-10-04T13:${String(minute).padStart(2, "0")}:00Z`;
+const codexMeta = (payload = {}) => ({
+  type: "session_meta",
+  timestamp: at(0),
+  payload: { id: "codex-main", timestamp: at(0), cli_version: "1.0", ...payload },
+});
+const codexUser = (minute, text) => ({
+  type: "response_item",
+  timestamp: at(minute),
+  payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+});
+const codexAnswer = (minute, text) => ({
+  type: "response_item",
+  timestamp: at(minute),
+  payload: { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
+});
+
+test("subagent and review threads are not separate sessions", () => {
+  for (const meta of [
+    { thread_source: "subagent", parent_thread_id: "codex-main" },
+    { thread_source: "guardian_review" },
+    { parent_thread_id: "codex-main" },
+  ]) {
+    const accumulator = createNativeAgentLogAccumulator("codex");
+    accumulator.add(codexMeta({ id: "child", ...meta }));
+    accumulator.add(codexUser(1, "親から委任された作業"));
+    assert.equal(accumulator.skipReason(), "delegated_thread");
+    assert.equal(accumulator.sourceSession(), "child");
+  }
+  const user = createNativeAgentLogAccumulator("codex");
+  user.add(codexMeta({ thread_source: "user" }));
+  user.add(codexUser(1, "依頼"));
+  assert.equal(user.skipReason(), null);
+
+  // Claude Codeのsubagentファイルは発言がすべてsidechain。
+  const claudeSub = createNativeAgentLogAccumulator("claude_code");
+  claudeSub.add({
+    type: "user",
+    sessionId: "claude-1",
+    isSidechain: true,
+    timestamp: at(1),
+    message: { role: "user", content: "subagentへの指示" },
+  });
+  assert.equal(claudeSub.skipReason(), "delegated_thread");
+});
+
+test("titles come from the client, otherwise from the first sentence of the request", () => {
+  const named = createNativeAgentLogAccumulator("codex");
+  named.add(codexMeta());
+  named.add(codexUser(1, "長い依頼の本文です。続きの説明がたくさんあります。"));
+  named.add(codexAnswer(2, "やりました"));
+  assert.equal(named.finish({ title: "Activityの改善" }).intent.title, "Activityの改善");
+
+  const unnamed = createNativeAgentLogAccumulator("codex");
+  unnamed.add(codexMeta());
+  unnamed.add(codexUser(1, "長い依頼の本文です。続きの説明がたくさんあります。"));
+  const log = unnamed.finish();
+  assert.equal(log.intent.title, "長い依頼の本文です。");
+  assert.equal(log.intent.summary, "長い依頼の本文です。続きの説明がたくさんあります。");
+
+  const claude = createNativeAgentLogAccumulator("claude_code");
+  for (const line of [
+    { type: "ai-title", sessionId: "c", aiTitle: "AIが付けた題" },
+    { type: "custom-title", sessionId: "c", customTitle: "自分で付けた題" },
+    { type: "user", sessionId: "c", timestamp: at(1), message: { role: "user", content: "依頼" } },
+  ])
+    claude.add(line);
+  assert.equal(claude.finish().intent.title, "自分で付けた題");
+
+  assert.equal(shortAgentSessionTitle("a".repeat(60)), `${"a".repeat(39)}…`);
+  assert.equal(shortAgentSessionTitle("\n\n一行目\n二行目"), "一行目");
+  assert.equal(agentSessionHeading({ summary: "旧記録の依頼。詳細" }), "旧記録の依頼。");
+  assert.equal(agentSessionHeading({ summary: "x", title: "題" }), "題");
+});
+
+test("active time is the sum of client turn durations, separate from the wall-clock interval", () => {
+  const codex = createNativeAgentLogAccumulator("codex");
+  codex.add(codexMeta());
+  codex.add(codexUser(1, "依頼"));
+  codex.add({
+    type: "event_msg",
+    timestamp: at(5),
+    payload: { type: "task_complete", duration_ms: 240000 },
+  });
+  codex.add({
+    type: "event_msg",
+    timestamp: at(30),
+    payload: { type: "turn_aborted", duration_ms: 60000 },
+  });
+  assert.equal(codex.finish().observation.active_duration_ms, 300000);
+
+  const noTurns = createNativeAgentLogAccumulator("codex");
+  noTurns.add(codexMeta());
+  noTurns.add(codexUser(1, "依頼"));
+  assert.equal(noTurns.finish().observation.active_duration_ms, undefined);
+
+  const claude = createNativeAgentLogAccumulator("claude_code");
+  claude.add({
+    type: "user",
+    sessionId: "c",
+    timestamp: at(1),
+    message: { role: "user", content: "依頼" },
+  });
+  claude.add({
+    type: "cost-state",
+    sessionId: "c",
+    totalAPIDuration: 90000,
+    totalToolDuration: 30000,
+  });
+  assert.equal(claude.finish().observation.active_duration_ms, 120000);
+
+  assert.equal(formatAgentActiveDuration(300000), "5分");
+  assert.equal(formatAgentActiveDuration(20000), "1分未満");
+  assert.equal(formatAgentActiveDuration(5400000), "1時間30分");
+  assert.equal(formatAgentActiveDuration(null), null);
+});
+
+test("several requests in one session are kept as short excerpts", () => {
+  const accumulator = createNativeAgentLogAccumulator("codex");
+  accumulator.add(codexMeta());
+  for (let index = 1; index <= 7; index++)
+    accumulator.add(codexUser(index, `依頼${index} ${"x".repeat(300)}`));
+  const log = accumulator.finish();
+  assert.equal(log.request_events.length, 5);
+  assert.deepEqual(
+    log.request_events.map((event) => event.text.slice(0, 3)),
+    ["依頼1", "依頼2", "依頼3", "依頼4", "依頼5"],
+  );
+  assert.ok(log.request_events.every((event) => event.text.length <= 200));
+  assert.deepEqual(log.response_checkpoints, []);
 });

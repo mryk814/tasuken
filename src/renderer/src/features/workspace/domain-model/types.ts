@@ -48,6 +48,8 @@ export interface WorkingCopy {
 
 export interface AgentSessionIntent {
   summary: string;
+  /** 一覧の見出し（clientの会話名、または依頼の最初の一文）。旧記録には無い。 */
+  title?: string | null;
   requested_outcome?: string | null;
   boundary?: string | null;
 }
@@ -87,6 +89,8 @@ export interface AgentSession {
     coverage: "complete" | "partial";
     observed_until: string;
     mode: "history";
+    /** clientが記録したターン処理時間の合計（AIが動いていた時間の目安）。 */
+    active_duration_ms?: number | null;
   };
   client_label?: string | null;
   agent_label?: string | null;

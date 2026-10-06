@@ -16,6 +16,25 @@ function record(value: unknown): Row | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Row) : null;
 }
 
+/** 採用待ちのAgent Session Proposalを、内容を保存せずに閉じる（subagent threadの取り下げ等）。 */
+export function agentSessionProposalRejectionCommand(
+  proposal: Entity,
+  options: { actor: CommandActor; source: CommandEnvelope["source"]; issuedAt: string },
+): CommandEnvelope {
+  if (proposal.payload_type !== "agent_sessions" || proposal.status !== "pending")
+    throw new Error("採用待ちのAgent Session記録ではありません。");
+  const version = Number(proposal.version || 0);
+  return {
+    commandId: `${String(proposal.id)}:reject:v${version}`,
+    name: "ApplyAiProposal",
+    payload: { proposal: { ...proposal, status: "rejected" }, candidates: [] },
+    actor: options.actor,
+    source: options.source,
+    expectedVersions: [{ type: "ai_proposal", id: String(proposal.id), version }],
+    issuedAt: options.issuedAt,
+  };
+}
+
 /**
  * 採用待ちのAgent Session ProposalをそのままApplyAiProposalにする。
  * Rendererの「採用」と同じ候補（session本体と関連先）を同じ版確認で保存する。

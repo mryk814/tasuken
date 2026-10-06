@@ -145,6 +145,7 @@ function normalizeIntent(value) {
   if (!summary) throw new Error("agent_session.intent.summaryを入力してください。");
   return {
     summary,
+    title: text(value.title, 200) || null,
     requested_outcome: text(value.requested_outcome, 4000) || null,
     boundary: text(value.boundary, 4000) || null,
   };
@@ -192,6 +193,10 @@ export function normalizeAgentSession(input = {}) {
       coverage: value.coverage,
       observed_until: isoTimestamp(value.observed_until, "observation.observed_until", true),
       mode: "history",
+      active_duration_ms:
+        Number.isSafeInteger(value.active_duration_ms) && value.active_duration_ms >= 0
+          ? value.active_duration_ms
+          : null,
     };
   }
   normalized.request_events = checkpointList(

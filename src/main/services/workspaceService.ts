@@ -3731,8 +3731,21 @@ export class WorkspaceService {
    * そのまま履歴（Agent Session）へ入れる（#629）。`adopt` は既存のApplyAiProposal経路を使う。
    */
   private adoptAgentLogProposal?: (proposalId: string) => void;
-  initializeAgentLogSync(notify: () => void, adopt?: (proposalId: string) => void) {
+  initializeAgentLogSync(
+    notify: () => void,
+    adopt?: (proposalId: string) => void,
+    reject?: (proposalId: string) => void,
+  ) {
     this.adoptAgentLogProposal = adopt;
+    const pendingFor = (source_app: string, sourceSession: string) =>
+      this.repository.list("ai_proposal").filter((proposal) => {
+        const request = proposal.request as Record<string, unknown> | undefined;
+        return (
+          proposal.status === "pending" &&
+          proposal.source_app === source_app &&
+          request?.source_session === sourceSession
+        );
+      });
     this.localAgentLogs = new AgentLogSync(
       path.join(this.userDataPath, "agent-log-sources"),
       async (imported, destination) => {
@@ -3741,15 +3754,15 @@ export class WorkspaceService {
         if (!this.taskenCoreClient?.proposeAgentSession)
           throw new Error("Tasken Core に接続できません。");
         const source_app = `tasken-log-sync:${imported.client_kind}`;
-        const pending = this.repository.list("ai_proposal").some((proposal) => {
-          const request = proposal.request as Record<string, unknown> | undefined;
-          return (
-            proposal.status === "pending" &&
-            proposal.source_app === source_app &&
-            request?.source_session === imported.source_session
-          );
-        });
-        if (pending) return "deferred";
+        // 旧版で残った採用待ちは先に履歴へ入れ、その上で今回の内容へ更新する。
+        for (const proposal of pendingFor(source_app, imported.source_session)) {
+          try {
+            this.adoptAgentLogProposal?.(String(proposal.id));
+          } catch {
+            /* 採用できなければ今回は保留し、次回に再試行する。 */
+          }
+        }
+        if (pendingFor(source_app, imported.source_session).length) return "deferred";
         const current = this.repository
           .list("agent_session")
           .find(
@@ -3782,30 +3795,19 @@ export class WorkspaceService {
         notify();
         return result.status;
       },
+      (service, sourceSession) => {
+        const proposals = pendingFor(`tasken-log-sync:${service}`, sourceSession);
+        for (const proposal of proposals) {
+          try {
+            reject?.(String(proposal.id));
+          } catch {
+            /* 取り下げられなかった記録は受け身の観測として残り、対応待ちには数えない。 */
+          }
+        }
+        if (proposals.length) notify();
+      },
     );
     void this.localAgentLogs.load();
-  }
-
-  /** 採用待ちのまま残っているログ同期の記録を、まとめて履歴へ入れる。1件の失敗で残りを止めない。 */
-  adoptPendingAgentLogRecords(): { accepted: number; failed: number; messages: string[] } {
-    if (!this.adoptAgentLogProposal) throw new Error("ログ同期を初期化できません。");
-    const pending = this.repository
-      .list("ai_proposal")
-      .filter((proposal) => proposal.status === "pending" && isAgentLogSyncProposal(proposal))
-      .sort((left, right) =>
-        String(left.received_at || "").localeCompare(String(right.received_at || "")),
-      );
-    let accepted = 0;
-    const messages = new Set<string>();
-    for (const proposal of pending) {
-      try {
-        this.adoptAgentLogProposal(String(proposal.id));
-        accepted++;
-      } catch (error) {
-        messages.add(error instanceof Error ? error.message : String(error));
-      }
-    }
-    return { accepted, failed: pending.length - accepted, messages: [...messages].slice(0, 5) };
   }
 
   pendingAgentLogRecordCount(): number {

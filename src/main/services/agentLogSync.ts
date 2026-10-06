@@ -74,15 +74,43 @@ export class AgentLogSync {
     log: ImportedAgentWorkLog,
     destination: string,
   ) => Promise<"queued" | "duplicate" | "deferred">;
+  /** 単独のSessionにしない委任thread（subagent等）について、残っている採用待ちを取り下げる。 */
+  private readonly retract?: (service: AgentLogService, sourceSession: string) => void;
   constructor(
     directory: string,
     submit: (
       log: ImportedAgentWorkLog,
       destination: string,
     ) => Promise<"queued" | "duplicate" | "deferred">,
+    retract?: (service: AgentLogService, sourceSession: string) => void,
   ) {
     this.directory = directory;
     this.submit = submit;
+    this.retract = retract;
+  }
+  /** Codexの会話名（`<CODEX_HOME>/session_index.jsonl` の thread_name）。読めなければ空。 */
+  private async codexThreadNames(sessionsRoot: string, signal: AbortSignal) {
+    const names = new Map<string, string>();
+    if (path.basename(sessionsRoot) !== "sessions") return names;
+    const index = path.join(path.dirname(sessionsRoot), "session_index.jsonl");
+    try {
+      const stat = await fs.promises.stat(index);
+      if (!stat.isFile() || stat.size > 16 * 1024 * 1024) return names;
+      const raw = await fs.promises.readFile(index, { encoding: "utf8", signal });
+      for (const line of raw.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        try {
+          const entry = JSON.parse(line) as { id?: unknown; thread_name?: unknown };
+          if (typeof entry.id === "string" && typeof entry.thread_name === "string")
+            names.set(entry.id, entry.thread_name.slice(0, 200));
+        } catch {
+          /* A torn line while Codex writes; the next scan reads it. */
+        }
+      }
+    } catch {
+      /* Missing index: fall back to the request-derived title. */
+    }
+    return names;
   }
   async load() {
     if (this.loaded) return;
@@ -276,7 +304,12 @@ export class AgentLogSync {
       };
     }
   }
-  private async read(file: string, service: AgentLogService, signal: AbortSignal) {
+  private async read(
+    file: string,
+    service: AgentLogService,
+    signal: AbortSignal,
+    titles: Map<string, string>,
+  ) {
     const accumulator = createNativeAgentLogAccumulator(service);
     const stream = fs.createReadStream(file, {
       encoding: "utf8",
@@ -318,7 +351,10 @@ export class AgentLogSync {
         }
         if (!incomplete) accumulator.add(value);
       }
-      return { log: accumulator.finish(), incomplete };
+      if (accumulator.skipReason())
+        return { log: null, skipped: accumulator.sourceSession(), incomplete };
+      const source = accumulator.sourceSession();
+      return { log: accumulator.finish({ title: titles.get(source) }), skipped: null, incomplete };
     } finally {
       stream.destroy();
     }
@@ -349,6 +385,10 @@ export class AgentLogSync {
         let issues = 0;
         try {
           const files = await this.files(source.path, signal);
+          const titles =
+            source.service === "codex"
+              ? await this.codexThreadNames(source.path, signal)
+              : new Map<string, string>();
           for (const file of files) {
             signal.throwIfAborted();
             const key = digest(source.service + "\0" + file.file);
@@ -372,7 +412,19 @@ export class AgentLogSync {
             if (bytes > 512 * 1024 * 1024)
               throw new Error("1回512MBの上限です。次回同期で残りを読みます。");
             try {
-              const { log, incomplete } = await this.read(file.file, source.service, signal);
+              const { log, skipped, incomplete } = await this.read(
+                file.file,
+                source.service,
+                signal,
+                titles,
+              );
+              if (!log) {
+                // subagent・レビュー用threadは親の会話の一部。単独では並べず、旧版の採用待ちを取り下げる。
+                if (skipped) this.retract?.(source.service, skipped);
+                this.value.unchanged++;
+                if (!incomplete) this.fingerprints[key] = statKey;
+                continue;
+              }
               const contentKey = digest(
                 `${source.service}\0${log.source_session}\0${log.started_at}`,
               );
