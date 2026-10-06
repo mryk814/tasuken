@@ -54,11 +54,18 @@ git push origin vX.Y.Z
 手動で再実行する場合は、GitHub Actionsの`Windows release`から`vX.Y.Z`タグを指定する。
 
 Activity smokeは孤立userDataへ代表的な材料研究者の1日を作り、08:00–19:00のカレンダー、range・point、Theme色、AI source chip、詳細、Task編集導線、横方向のclipを確認する。成功時の`activity-packaged.png`（失敗時は`activity-failure.png`）は、GitHub Actionsの`activity-packaged-smoke-vX.Y.Z` artifactから確認できる。
+この画像artifactの転送は補助診断で、容量上限などによる転送失敗だけは非致命とする。packaged smokeを含む`release:check`の成功は必須。
 
 ## Release assets
 
 Androidは`Android release signing`をmainの対象commitで手動実行し、恒久署名jobのAPK artifactを取得する。
 APKのversionCode・versionName、証明書と既存端末の署名互換を確認し、同じReleaseへ`Tasken-Android-X.Y.Z.apk`とそのSHA-256を追加する。
+GitHub Releaseへ直接添付する場合は、Windows Release公開後に同じタグを`--ref`と`release_tag`へ指定して実行する。jobはタグ・package version・checkout commitの一致とmain到達を確認し、恒久署名APKをRelease assetへ転送して既存のWindows checksumを保持したまま`SHA256SUMS.txt`に追記する。この経路はActions artifact容量に依存しない。`release_tag`未指定の既存経路はAPK artifactを生成する。
+
+```bash
+gh workflow run android-release-signing.yml --ref vX.Y.Z -f release_tag=vX.Y.Z
+```
+
 端末更新はデータを保持する`adb -s <serial> install -r <apk>`で行い、アプリ削除やデータ消去を更新手順に含めない。
 
 GitHub Releaseには通常、以下が添付される。
