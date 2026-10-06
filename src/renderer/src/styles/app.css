@@ -13316,15 +13316,48 @@ kbd {
 .activity-calendar-layout {
   display: block;
 }
-.activity-compact-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.activity-compact-list button { width: 100%; min-height: 64px; display: grid; gap: 5px; text-align: left; padding: 12px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); color: var(--color-text); }
-.activity-compact-list strong, .activity-compact-list span { overflow-wrap: anywhere; }
-.activity-compact-list small { color: var(--color-text-tertiary); }
-.activity-session-task-marker { display: inline-flex; flex: 0 0 auto; position: relative; z-index: 1; }
+.activity-compact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.activity-compact-list button {
+  width: 100%;
+  min-height: 64px;
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.activity-compact-list strong,
+.activity-compact-list span {
+  overflow-wrap: anywhere;
+}
+.activity-compact-list small {
+  color: var(--color-text-tertiary);
+}
+.activity-session-task-marker {
+  display: inline-flex;
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
+}
 .activity-timeline-detail-section.activity-session-task-links,
 .activity-timeline-detail-section.activity-session-evidence,
-.activity-timeline-detail-section.activity-session-outcome { display: flex; flex-direction: column; gap: var(--space-2); }
-.activity-session-task-links select { max-width: 100%; }
+.activity-timeline-detail-section.activity-session-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.activity-session-task-links select {
+  max-width: 100%;
+}
 .activity-calendar-layout.has-detail {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem);
@@ -17185,4 +17218,11 @@ kbd {
 .ai-creation-source,
 .ai-creation-reason {
   color: var(--color-text-secondary);
+}
+
+/* Notesの一覧へmdファイルをドラッグしている間の目印。落とすとNoteとして取り込む。 */
+.notes-list-panel.is-markdown-drop {
+  outline: 2px dashed var(--color-accent);
+  outline-offset: -4px;
+  background: var(--color-accent-subtle-bg);
 }

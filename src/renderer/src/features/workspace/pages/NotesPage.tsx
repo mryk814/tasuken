@@ -61,7 +61,13 @@ import {
   themeColor,
   type NotesKind,
 } from "../lib/domain";
-import { str } from "../lib/format";
+import { str, uuid } from "../lib/format";
+import { buildSaveNoteOperations } from "../domain-model/persistence";
+import {
+  MARKDOWN_NOTE_IMPORT_LIMITS,
+  isMarkdownFileName,
+  markdownNoteFromFile,
+} from "../../../../../shared/markdownNoteImport";
 import {
   FEED_AUTHORS,
   authorIdForLabel,
@@ -296,6 +302,8 @@ export function NotesPage({
   const [query, setQuery] = useState("");
   // 切り離しウィンドウは対象Noteが決まっているので、選択をそこへ固定する（#290）。
   const [selectedId, setSelectedId] = useState<string | null>(detachedNoteId ?? null);
+  /** 一覧へmdファイルをドラッグしている間だけ目印を出す。 */
+  const [markdownDropActive, setMarkdownDropActive] = useState(false);
   const [dismissedEditorSelectionId, setDismissedEditorSelectionId] = useState<string | null>(null);
   // 別ウィンドウで開いているNote。正本はMainのwindow registryなので購読するだけ。
   const [openNoteWindowIds, setOpenNoteWindowIds] = useState<string[]>([]);
@@ -1434,6 +1442,55 @@ export function NotesPage({
     });
   }
 
+  /**
+   * 一覧へ落としたMarkdownファイルを1ファイル1件のNoteとして保存する。
+   * 題名はfrontmatterのtitle・先頭の見出し・ファイル名の順。保存は1回のtransactionで行い、失敗時は何も作らない。
+   */
+  async function importDroppedMarkdown(files: File[]) {
+    const markdownFiles = files.filter((file) => isMarkdownFileName(file.name));
+    if (!markdownFiles.length) {
+      setToast("取り込めるのは .md / .markdown のファイルです。", "warning");
+      return;
+    }
+    if (markdownFiles.length > MARKDOWN_NOTE_IMPORT_LIMITS.files) {
+      setToast(
+        `一度に取り込めるのは${MARKDOWN_NOTE_IMPORT_LIMITS.files}ファイルまでです。`,
+        "warning",
+      );
+      return;
+    }
+    const tooLarge = markdownFiles.find((file) => file.size > MARKDOWN_NOTE_IMPORT_LIMITS.bytes);
+    if (tooLarge) {
+      setToast(`${tooLarge.name} は2MBを超えるため取り込めません。`, "warning");
+      return;
+    }
+    const projectId = canonicalThemeId(activeTheme?.id, { defaultPersonal: true });
+    const notes = await Promise.all(
+      markdownFiles.map(async (file) => {
+        const { title, body } = markdownNoteFromFile(file.name, await file.text());
+        return {
+          id: uuid(),
+          project_id: projectId,
+          note_type: "note" as const,
+          content_format: "markdown" as const,
+          title,
+          body_markdown: body,
+        };
+      }),
+    );
+    try {
+      await saveEntities(
+        notes.flatMap((note) => buildSaveNoteOperations(note)),
+        notes.length === 1
+          ? `「${notes[0].title}」をNoteとして取り込みました。`
+          : `${notes.length}件のmdファイルをNoteとして取り込みました。`,
+      );
+      setSelectedId(notes[0].id);
+    } catch {
+      // saveEntities側のtoastで失敗を伝える。
+    }
+  }
+
   function addNote(noteType: "note" | "report" = "note") {
     openDrawer({
       type: "note",
@@ -2519,7 +2576,25 @@ export function NotesPage({
         }
       >
         {/* 切り離しウィンドウでは一覧を畳む。gridの列を保つため要素自体は残す（#290）。 */}
-        <section className="panel list-page notes-list-panel">
+        <section
+          className={`panel list-page notes-list-panel${markdownDropActive ? " is-markdown-drop" : ""}`}
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes("Files")) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            if (!markdownDropActive) setMarkdownDropActive(true);
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+              setMarkdownDropActive(false);
+          }}
+          onDrop={(event) => {
+            if (!event.dataTransfer.files.length) return;
+            event.preventDefault();
+            setMarkdownDropActive(false);
+            void importDroppedMarkdown(Array.from(event.dataTransfer.files));
+          }}
+        >
           {renderedRecords.map((record) => {
             const comments = record.comments as NoteComment[] | undefined;
             const url = str(record.source_url || record.url);
