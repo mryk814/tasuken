@@ -65,7 +65,11 @@ async function openMaintenanceSettings(page) {
   await page.waitForTimeout(400);
 }
 
+// Settingsの管理面（追加・履歴・削除）。
 const panel = (page) => page.locator(".maintenance-panel").first();
+// Todayでは「今日やること」の中にTaskと同じ行で並ぶ（2026-10-06）。
+const todayRow = (page) =>
+  page.locator(".today-routine-list .routine-row", { hasText: TARGET }).first();
 
 async function withApp(run) {
   const session = await launchApp();
@@ -79,7 +83,7 @@ async function withApp(run) {
 // 1. 未使用のTodayへ空の案内を常設しない。
 await withApp(async (page) => {
   await openToday(page);
-  if (await panel(page).count()) {
+  if (await page.locator(".today-routine-list .routine-row, .maintenance-panel").count()) {
     failures.push("手入れが無いのにTodayへ「手入れ」が出ています。");
   }
 
@@ -115,7 +119,7 @@ await withApp(async (page) => {
     failures.push("決めた次の目安が保存されていません。");
   }
   await openToday(page);
-  if (await panel(page).count()) {
+  if (await todayRow(page).count()) {
     failures.push("目安が遠いのにTodayへ「手入れ」が出ています。");
   }
 
@@ -192,13 +196,11 @@ await withApp(async (page) => {
   await manageRow3.locator("button", { hasText: "実施を記録" }).first().click();
   await page.waitForTimeout(1500);
   await openToday(page);
-  const todayPanel = panel(page);
-  if (!(await todayPanel.count())) {
-    failures.push("目安が近いのにTodayへ「手入れ」が出ません。");
+  if (!(await todayRow(page).count())) {
+    failures.push("目安が近いのにTodayへ「手入れ」の行が出ません。");
     return;
   }
-  const todayRow = todayPanel.locator(".maintenance-row").first();
-  if (!(await todayRow.locator(".maintenance-due").first().innerText()).includes("あと2日")) {
+  if (!(await todayRow(page).innerText()).includes("あと2日")) {
     failures.push("Todayの目安表示が「あと2日」ではありません。");
   }
   await page.screenshot({ path: `${OUT_DIR}/today-due-soon.png`, fullPage: true });
@@ -219,12 +221,7 @@ await withApp(async (page) => {
   await page.screenshot({ path: `${OUT_DIR}/settings-history.png`, fullPage: true });
 
   await openToday(page);
-  const overdueTodayRow = panel(page).locator(".maintenance-row").first();
-  if (
-    !(await overdueTodayRow.locator(".maintenance-due").first().innerText()).includes(
-      "過ぎています",
-    )
-  ) {
+  if (!(await todayRow(page).innerText()).includes("過ぎています")) {
     failures.push("目安を過ぎた状態がTodayに出ていません。");
   }
   const deadlinePanel = page.locator(".today-deadline-panel").first();
@@ -238,6 +235,14 @@ await withApp(async (page) => {
     failures.push("手入れの目安が期限として案内されています。");
   }
   await page.screenshot({ path: `${OUT_DIR}/today-overdue-no-deadline.png`, fullPage: true });
+
+  // 8b. Todayの行の丸を押すと今日やったと記録し、次の目安が先へ進んでTodayから外れる。
+  await page.getByRole("button", { name: `${TARGET} / ${ACTION}をやったと記録` }).click();
+  await page.waitForTimeout(1500);
+  if (await todayRow(page).count()) {
+    failures.push("Todayで記録しても手入れの行が残っています。");
+  }
+  await page.screenshot({ path: `${OUT_DIR}/today-recorded.png`, fullPage: true });
 });
 
 // 9. 再起動しても手入れと記録が残る。削除するとTodayから消え、元に戻すと戻る。
@@ -267,7 +272,7 @@ await withApp(async (page) => {
     .click();
   await page.waitForTimeout(1200);
   await openToday(page);
-  if (await panel(page).count()) {
+  if (await todayRow(page).count()) {
     failures.push("削除した手入れがTodayに残っています。");
   }
   const undo = page.locator(".toast button", { hasText: "元に戻す" }).first();

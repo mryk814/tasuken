@@ -100,6 +100,17 @@ function scheduleDate(schedule?: Schedule): string {
 }
 
 /** 今日期限 / 期限切れ。完了系には付けない。 */
+/** 続けること・手入れは個人業務として、個人業務Themeと同じ帯の色にする。 */
+function personalChipStyle(themes: PageProps["themes"]): React.CSSProperties {
+  const index = themes.findIndex((entry) => entry.id === PERSONAL_DEFAULT_THEME_ID);
+  return {
+    "--chip-color":
+      index >= 0
+        ? `var(--color-${themeColor(themes[index], index)})`
+        : "var(--color-border-strong)",
+  } as React.CSSProperties;
+}
+
 function dateUrgency(
   date: string | undefined | null,
   today: string,
@@ -1616,26 +1627,27 @@ export function TodayPage({
           onAdd={() => setShowAdd(true)}
           markDueToday={false}
         />
+        {/* 続けること・手入れはTaskと同じ行で並べる（2026-10-06）。無ければ何も出さない。 */}
+        <div className="today-task-list today-routine-list" style={personalChipStyle(themes)}>
+          <HabitPanel
+            data={data}
+            today={today}
+            saveEntities={saveEntities}
+            removeEntity={removeEntity}
+            setToast={setToast}
+            variant="rows"
+          />
+          <MaintenancePanel
+            data={data}
+            today={today}
+            saveEntities={saveEntities}
+            removeEntity={removeEntity}
+            removeEntityQuiet={removeEntityQuiet}
+            setToast={setToast}
+            variant="rows"
+          />
+        </div>
       </section>
-
-      {/* #454後半: 続けることの記録。Habitがある場合だけ現れる（空の設定案内を常設しない）。 */}
-      <HabitPanel
-        data={data}
-        today={today}
-        saveEntities={saveEntities}
-        removeEntity={removeEntity}
-        setToast={setToast}
-      />
-
-      {/* #454後半: 手入れの目安。目安が近い項目だけを小さく出す。 */}
-      <MaintenancePanel
-        data={data}
-        today={today}
-        saveEntities={saveEntities}
-        removeEntity={removeEntity}
-        removeEntityQuiet={removeEntityQuiet}
-        setToast={setToast}
-      />
 
       <section className="panel task-shelf-panel">
         <div className="section-heading">

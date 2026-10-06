@@ -2821,6 +2821,13 @@ textarea:hover {
   color: var(--color-danger-strong);
   font-weight: var(--weight-medium);
 }
+/* 続けること・手入れの行（2026-10-06）。Taskの行と同じ形で、テーマ色の帯は持たない。 */
+.today-routine-list:empty {
+  display: none;
+}
+.routine-row.is-done .today-task-title strong {
+  color: var(--color-text-secondary);
+}
 .today-row-spacer {
   width: 26px;
   height: 26px;
@@ -13316,15 +13323,48 @@ kbd {
 .activity-calendar-layout {
   display: block;
 }
-.activity-compact-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.activity-compact-list button { width: 100%; min-height: 64px; display: grid; gap: 5px; text-align: left; padding: 12px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); color: var(--color-text); }
-.activity-compact-list strong, .activity-compact-list span { overflow-wrap: anywhere; }
-.activity-compact-list small { color: var(--color-text-tertiary); }
-.activity-session-task-marker { display: inline-flex; flex: 0 0 auto; position: relative; z-index: 1; }
+.activity-compact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.activity-compact-list button {
+  width: 100%;
+  min-height: 64px;
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.activity-compact-list strong,
+.activity-compact-list span {
+  overflow-wrap: anywhere;
+}
+.activity-compact-list small {
+  color: var(--color-text-tertiary);
+}
+.activity-session-task-marker {
+  display: inline-flex;
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
+}
 .activity-timeline-detail-section.activity-session-task-links,
 .activity-timeline-detail-section.activity-session-evidence,
-.activity-timeline-detail-section.activity-session-outcome { display: flex; flex-direction: column; gap: var(--space-2); }
-.activity-session-task-links select { max-width: 100%; }
+.activity-timeline-detail-section.activity-session-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.activity-session-task-links select {
+  max-width: 100%;
+}
 .activity-calendar-layout.has-detail {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem);
