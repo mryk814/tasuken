@@ -31,14 +31,16 @@ export function normalizeReminderDateTime(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2})(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?$/);
+  const match = trimmed.match(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2})(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?$/,
+  );
   if (!match) return null;
   const time = normalizeStartTime(match[2]);
   return time ? `${match[1]}T${time}` : null;
 }
 
 export function normalizeReminderSettings(record: unknown): ReminderSettings {
-  const source = record && typeof record === "object" ? record as Record<string, unknown> : {};
+  const source = record && typeof record === "object" ? (record as Record<string, unknown>) : {};
   return {
     enabled: source.enabled !== false,
     activity_log_time: normalizeStartTime(source.activity_log_time),
@@ -46,7 +48,12 @@ export function normalizeReminderSettings(record: unknown): ReminderSettings {
 }
 
 export function findReminderSettingsView(views: BaseRecord[] = []): BaseRecord | null {
-  return views.find((view) => view.id === REMINDER_SETTINGS_VIEW_ID || view.view_type === "daily_reminder_settings") || null;
+  return (
+    views.find(
+      (view) =>
+        view.id === REMINDER_SETTINGS_VIEW_ID || view.view_type === "daily_reminder_settings",
+    ) || null
+  );
 }
 
 export function buildReminderSettingsView(settings: ReminderSettings): BaseRecord {
@@ -89,13 +96,46 @@ export function buildReminderAlerts({
   for (const waiting of waitings) {
     const at = normalizeReminderDateTime(waiting.check_reminder_at);
     if (!at || at > now || waiting.state === "received" || waiting.state === "cancelled") continue;
-    alerts.push({ id: `waiting:${waiting.id}`, type: "waiting", title: waiting.title, at, waiting });
+    alerts.push({
+      id: `waiting:${waiting.id}`,
+      type: "waiting",
+      title: waiting.title,
+      at,
+      waiting,
+    });
   }
 
   const activityLogAt = dailyReminderAt(today, normalizedSettings.activity_log_time);
   if (activityLogAt && activityLogAt <= now) {
-    alerts.push({ id: `activity-log:${today}`, type: "activity_log", title: "Activity Log", at: activityLogAt });
+    alerts.push({
+      id: `activity-log:${today}`,
+      type: "activity_log",
+      title: "Activity Log",
+      at: activityLogAt,
+    });
   }
 
   return alerts.sort((a, b) => a.at.localeCompare(b.at) || a.title.localeCompare(b.title, "ja"));
+}
+
+/** リマインダーの時刻を過ぎているか。時刻のない値・不正な値は過ぎていない扱い。 */
+export function isReminderDue(value: unknown, now: string): boolean {
+  const at = normalizeReminderDateTime(value);
+  return Boolean(at && at <= now);
+}
+
+/** 「あとで」の先送り。今からminutes分後の分単位の現地時刻（reminder_atの形式）を返す。 */
+export function snoozedReminderAt(minutes: number, base = new Date()): string {
+  return localDateTimeMinute(new Date(base.getTime() + minutes * 60_000));
+}
+
+/** 時刻を過ぎたTask・待ちのリマインダー（Activity Logの日次通知は含めない）。古い順。 */
+export function dueItemReminders(tasks: Task[], waitings: Waiting[], now: string): ReminderAlert[] {
+  return buildReminderAlerts({
+    tasks,
+    waitings,
+    settings: { enabled: true, activity_log_time: "" },
+    now,
+    today: now.slice(0, 10),
+  });
 }

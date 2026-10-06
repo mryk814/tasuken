@@ -4,6 +4,7 @@ import {
   IconArrowLeft,
   IconArrowRight,
   IconChevronDown,
+  IconBellRinging,
   IconCalendarCheck,
   IconKeyboard,
   IconLayoutSidebarLeftCollapse,
@@ -33,6 +34,8 @@ import { isPersonalDefaultTheme } from "../../../../../shared/personalTheme.mjs"
 import { themeColor } from "../lib/domain";
 import { buildDailyDebriefEvidence, findDailyDebriefNote } from "../lib/taskenDebrief";
 import { preloadWorkspacePage } from "../workspacePageLoaders";
+import { useReminderNow } from "./common";
+import { dueItemReminders } from "../lib/reminders";
 
 const taskenIconUrl = new URL("../../../../../../resources/icon.png", import.meta.url).href;
 
@@ -447,16 +450,20 @@ export function Sidebar({
     feed: proposalCount,
     debrief: debriefCount,
   };
+  // 時刻を過ぎたリマインダー。Todayに今日やることの数とは別のベル付きバッジで出す。
+  const reminderNow = useReminderNow();
+  const dueReminderCount = dueItemReminders(domain.tasks, domain.waitings, reminderNow).length;
   const renderNavButton = (id: string) => {
     const label = routeLabel(id);
     const count = countByRoute[id] || 0;
+    const alertCount = id === "today" ? dueReminderCount : 0;
     const NavIcon = routeIcon(id);
     return (
       <button
         key={id}
         className={route === id ? "is-active" : ""}
         aria-current={route === id ? "page" : undefined}
-        aria-label={label}
+        aria-label={alertCount ? label + "（時刻を過ぎたリマインダー" + alertCount + "件）" : label}
         title={collapsed ? label : undefined}
         onMouseEnter={() => preloadWorkspacePage(id)}
         onFocus={() => preloadWorkspacePage(id)}
@@ -464,6 +471,12 @@ export function Sidebar({
       >
         {NavIcon && <NavIcon className="nav-icon" size={17} stroke={1.8} aria-hidden="true" />}
         <span className="nav-label">{label}</span>
+        {alertCount > 0 && (
+          <span className="count is-alert">
+            <IconBellRinging size={11} aria-hidden="true" />
+            {alertCount}
+          </span>
+        )}
         {count > 0 && <span className="count">{count}</span>}
       </button>
     );

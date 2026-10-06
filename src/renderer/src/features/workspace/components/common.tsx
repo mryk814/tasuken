@@ -1,10 +1,33 @@
-import { IconAlertTriangle, IconCircle, IconCheck, IconChevronDown, IconInfoCircle, IconLoader2, IconX } from "@tabler/icons-react";
-import { type ButtonHTMLAttributes, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import {
+  IconAlertTriangle,
+  IconBellRinging,
+  IconCircle,
+  IconCheck,
+  IconChevronDown,
+  IconInfoCircle,
+  IconLoader2,
+  IconX,
+} from "@tabler/icons-react";
+import {
+  type ButtonHTMLAttributes,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 
 import { actionDefinition, type ActionId } from "../../../pages/semanticActions";
 import { routeDescription, routeIcon, routeLabel } from "../../../pages/routes";
 import type { BaseRecord, DrawerConfig, Theme } from "../types";
 import { statusTone, themeColor } from "../lib/domain";
+import {
+  dueItemReminders,
+  localDateTimeMinute,
+  snoozedReminderAt,
+  type ReminderAlert,
+} from "../lib/reminders";
+import type { Task, Waiting } from "../domain-model/types";
 import {
   PERSONAL_DEFAULT_THEME_ID,
   themePickerOptions,
@@ -20,19 +43,33 @@ export type IntegrationStatusTone = "normal" | "neutral" | "attention" | "error"
  * 接続系設定の状態表示を一つの意味契約へ揃える（#324 / #312）。
  * 正常状態は控えめにし、未設定はneutral、要確認・エラーだけを状態色で知らせる。
  */
-export function IntegrationStatus({ label, tone, detail }: { label: string; tone: IntegrationStatusTone; detail?: string }) {
-  const StatusIcon = tone === "normal"
-    ? IconCheck
-    : tone === "neutral"
-      ? IconCircle
-      : tone === "error"
-        ? IconX
-        : tone === "attention"
-          ? IconAlertTriangle
-          : IconLoader2;
+export function IntegrationStatus({
+  label,
+  tone,
+  detail,
+}: {
+  label: string;
+  tone: IntegrationStatusTone;
+  detail?: string;
+}) {
+  const StatusIcon =
+    tone === "normal"
+      ? IconCheck
+      : tone === "neutral"
+        ? IconCircle
+        : tone === "error"
+          ? IconX
+          : tone === "attention"
+            ? IconAlertTriangle
+            : IconLoader2;
   return (
     <span className={`integration-status integration-status-${tone}`} title={detail}>
-      <StatusIcon className={tone === "loading" ? "is-spinning" : undefined} size={14} stroke={1.9} aria-hidden="true" />
+      <StatusIcon
+        className={tone === "loading" ? "is-spinning" : undefined}
+        size={14}
+        stroke={1.9}
+        aria-hidden="true"
+      />
       <span>{label}</span>
     </span>
   );
@@ -49,7 +86,14 @@ export function Button({
   type = "button",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; compact?: boolean }) {
-  const classes = ["semantic-button", `semantic-button-${variant}`, compact ? "compact" : "", className].filter(Boolean).join(" ");
+  const classes = [
+    "semantic-button",
+    `semantic-button-${variant}`,
+    compact ? "compact" : "",
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
   return <button {...props} type={type} className={classes} />;
 }
 
@@ -132,7 +176,11 @@ export function PageInfo({ text }: { text: string }) {
       >
         <IconInfoCircle size={16} stroke={1.8} aria-hidden />
       </button>
-      {open && <span className="page-info-popover" id={id} role="note">{text}</span>}
+      {open && (
+        <span className="page-info-popover" id={id} role="note">
+          {text}
+        </span>
+      )}
     </span>
   );
 }
@@ -141,7 +189,13 @@ export function PageInfo({ text }: { text: string }) {
  * routeを渡すと画面名・用途説明・アイコンを単一のRouteDefinitionから取る（#301 / #312）。
  * titleを直接渡すのは、Theme詳細のように利用者データを見出しにする画面だけにする。
  */
-export function PageHeader({ route, title, subtitle, info, children }: {
+export function PageHeader({
+  route,
+  title,
+  subtitle,
+  info,
+  children,
+}: {
   route?: string;
   title?: string;
   subtitle?: string;
@@ -155,7 +209,9 @@ export function PageHeader({ route, title, subtitle, info, children }: {
     <header className="page-header">
       <div>
         <h1>
-          {HeadingIcon && <HeadingIcon className="page-header-icon" size={20} stroke={1.8} aria-hidden="true" />}
+          {HeadingIcon && (
+            <HeadingIcon className="page-header-icon" size={20} stroke={1.8} aria-hidden="true" />
+          )}
           {heading}
           {description && <PageInfo text={description} />}
         </h1>
@@ -170,7 +226,11 @@ export function PageHeader({ route, title, subtitle, info, children }: {
  * ツールバーの低頻度操作をまとめる共通メニュー（#300）。
  * 幅によって出し入れせず常設し、主要操作の位置が幅で入れ替わらないようにする。
  */
-export function ToolbarOverflow({ label, ariaLabel, children }: {
+export function ToolbarOverflow({
+  label,
+  ariaLabel,
+  children,
+}: {
   label: string;
   ariaLabel: string;
   children: ReactNode;
@@ -216,7 +276,7 @@ export function ToolbarOverflow({ label, ariaLabel, children }: {
           role="menu"
           aria-label={ariaLabel}
           onClick={(event) => {
-            if ((event.target as HTMLElement | null)?.closest("[role=\"menuitem\"]")) setOpen(false);
+            if ((event.target as HTMLElement | null)?.closest('[role="menuitem"]')) setOpen(false);
           }}
         >
           {children}
@@ -237,17 +297,35 @@ const STATUS_MARKS: Record<string, string> = {
   neutral: "•",
 };
 
-export function StatusBadge({ value, label, className = "" }: { value?: string; label?: ReactNode; className?: string }) {
+export function StatusBadge({
+  value,
+  label,
+  className = "",
+}: {
+  value?: string;
+  label?: ReactNode;
+  className?: string;
+}) {
   const tone = statusTone(value);
   return (
     <span className={`status-badge ${tone} ${className}`.trim()} data-status={tone}>
-      <span className="status-badge-mark" aria-hidden="true">{STATUS_MARKS[tone] || STATUS_MARKS.idle}</span>
+      <span className="status-badge-mark" aria-hidden="true">
+        {STATUS_MARKS[tone] || STATUS_MARKS.idle}
+      </span>
       <span>{label || value || "未設定"}</span>
     </span>
   );
 }
 
-export function Metric({ label, value, tone = "" }: { label: string; value: ReactNode; tone?: string }) {
+export function Metric({
+  label,
+  value,
+  tone = "",
+}: {
+  label: string;
+  value: ReactNode;
+  tone?: string;
+}) {
   return (
     <div className={`metric-card panel ${tone}`}>
       <span>{label}</span>
@@ -256,11 +334,23 @@ export function Metric({ label, value, tone = "" }: { label: string; value: Reac
   );
 }
 
-export function EmptyState({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
+export function EmptyState({
+  title,
+  action,
+  onAction,
+}: {
+  title: string;
+  action?: string;
+  onAction?: () => void;
+}) {
   return (
     <div className="empty-state">
       <strong>{title}</strong>
-      {action && onAction && <button className="secondary-button compact" onClick={onAction}>{action}</button>}
+      {action && onAction && (
+        <button className="secondary-button compact" onClick={onAction}>
+          {action}
+        </button>
+      )}
     </div>
   );
 }
@@ -297,7 +387,12 @@ export function ContextMenu({
   }, [onClose]);
 
   return (
-    <div className="context-menu" style={{ left, top }} role="menu" onContextMenu={(event) => event.preventDefault()}>
+    <div
+      className="context-menu"
+      style={{ left, top }}
+      role="menu"
+      onContextMenu={(event) => event.preventDefault()}
+    >
       {items.map((item) => (
         <button
           key={item.label}
@@ -340,7 +435,12 @@ export function SimpleRows({
 }
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <label>{label}{children}</label>;
+  return (
+    <label>
+      {label}
+      {children}
+    </label>
+  );
 }
 
 export function ThemeSelect({
@@ -361,7 +461,11 @@ export function ThemeSelect({
   onChange?: (value: string) => void;
 }) {
   const includeNone = allowNone ?? (!allowPersonal && !allowAll);
-  const defaultValue = allowAll ? "all" : allowPersonal ? PERSONAL_DEFAULT_THEME_ID : THEME_NONE_VALUE;
+  const defaultValue = allowAll
+    ? "all"
+    : allowPersonal
+      ? PERSONAL_DEFAULT_THEME_ID
+      : THEME_NONE_VALUE;
   const initialValue = value !== undefined && value !== null ? value : defaultValue;
   const [selected, setSelected] = useState(initialValue);
   const hiddenInputRef = useRef<HTMLInputElement | null>(null);
@@ -388,16 +492,22 @@ export function ThemeSelect({
           const theme = themes.find((candidate) => candidate.id === option.value);
           const isTheme = option.kind === "theme" && theme;
           return (
-          <button
-            key={`${option.kind}-${option.value}`}
-            type="button"
-            className={`theme-chip ${selected === option.value ? "is-selected" : ""}`}
-            style={isTheme ? { "--chip-color": `var(--color-${themeColor(theme, index)})` } as React.CSSProperties : undefined}
-            onClick={() => choose(option.value)}
-          >
-            {isTheme && <span className="chip-dot" />}
-            {option.label}
-          </button>
+            <button
+              key={`${option.kind}-${option.value}`}
+              type="button"
+              className={`theme-chip ${selected === option.value ? "is-selected" : ""}`}
+              style={
+                isTheme
+                  ? ({
+                      "--chip-color": `var(--color-${themeColor(theme, index)})`,
+                    } as React.CSSProperties)
+                  : undefined
+              }
+              onClick={() => choose(option.value)}
+            >
+              {isTheme && <span className="chip-dot" />}
+              {option.label}
+            </button>
           );
         })}
       </div>
@@ -432,7 +542,8 @@ export function ThemePickerSelect({
   className?: string;
 }) {
   const options = themePickerOptions(themes, { allowPersonal, allowNone });
-  const selected = value ?? (allowAll ? "all" : allowPersonal ? PERSONAL_DEFAULT_THEME_ID : THEME_NONE_VALUE);
+  const selected =
+    value ?? (allowAll ? "all" : allowPersonal ? PERSONAL_DEFAULT_THEME_ID : THEME_NONE_VALUE);
   return (
     <select
       className={className}
@@ -441,16 +552,35 @@ export function ThemePickerSelect({
       aria-label={ariaLabel}
     >
       {allowAll && <option value="all">{allLabel}</option>}
-      {options.map((option) => <option key={`${option.kind}-${option.value}`} value={option.value}>{option.label}</option>)}
+      {options.map((option) => (
+        <option key={`${option.kind}-${option.value}`} value={option.value}>
+          {option.label}
+        </option>
+      ))}
     </select>
   );
 }
 
-export function HubTabs({ tabs, route, navigate }: { tabs: readonly (readonly [string, string])[]; route: string; navigate: (id: string) => void }) {
+export function HubTabs({
+  tabs,
+  route,
+  navigate,
+}: {
+  tabs: readonly (readonly [string, string])[];
+  route: string;
+  navigate: (id: string) => void;
+}) {
   return (
     <nav className="hub-tabs" aria-label="サブナビゲーション">
       {tabs.map(([id, label]) => (
-        <button key={id} className={route === id ? "is-active" : ""} aria-current={route === id ? "page" : undefined} onClick={() => navigate(id)}>{label}</button>
+        <button
+          key={id}
+          className={route === id ? "is-active" : ""}
+          aria-current={route === id ? "page" : undefined}
+          onClick={() => navigate(id)}
+        >
+          {label}
+        </button>
       ))}
     </nav>
   );
@@ -462,5 +592,92 @@ export function DrawerHeader({ title, close }: { title: string; close: CloseDraw
       <strong>{title}</strong>
       <button onClick={() => close()}>閉じる</button>
     </div>
+  );
+}
+
+/** 現在時刻（分単位）。リマインダーの判定を開いたままでも進めるため、30秒ごとに見直す。 */
+export function useReminderNow(): string {
+  const [now, setNow] = useState(() => localDateTimeMinute());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(localDateTimeMinute()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
+}
+
+function reminderBannerTime(at: string, now: string): string {
+  return at.slice(0, 10) === now.slice(0, 10)
+    ? at.slice(11, 16)
+    : `${at.slice(5, 10).replace("-", "/")} ${at.slice(11, 16)}`;
+}
+
+/**
+ * 時刻を過ぎたリマインダーをページの上に目立たせて出す（2026-10-06、薄い時刻表示だけでは気づけないため）。
+ * 開く・1時間後に・解除をその場で選べる。保存は呼び出し側（各ページ）が既存の保存経路で行う。
+ */
+export function ReminderDueBanner({
+  tasks,
+  waitings,
+  onOpen,
+  onUpdate,
+}: {
+  tasks: Task[];
+  waitings: Waiting[];
+  onOpen(alert: ReminderAlert): void;
+  onUpdate(alert: ReminderAlert, reminderAt: string | null, message: string): Promise<void>;
+}) {
+  const now = useReminderNow();
+  const [busy, setBusy] = useState(false);
+  const due = dueItemReminders(tasks, waitings, now);
+  if (!due.length) return null;
+  const update = async (alert: ReminderAlert, value: string | null, message: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onUpdate(alert, value, message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section
+      className="reminder-due-banner"
+      aria-label={`時刻を過ぎたリマインダー ${due.length}件`}
+    >
+      <h2>
+        <IconBellRinging size={18} aria-hidden="true" />
+        リマインダー
+        <span className="reminder-due-count">{due.length}</span>
+      </h2>
+      <ul>
+        {due.map((alert) => (
+          <li key={alert.id}>
+            <time dateTime={alert.at}>{reminderBannerTime(alert.at, now)}</time>
+            <button type="button" className="reminder-due-title" onClick={() => onOpen(alert)}>
+              {alert.title}
+              {alert.type === "waiting" ? <small>待ち</small> : null}
+            </button>
+            <Button
+              variant="secondary"
+              compact
+              disabled={busy}
+              onClick={() =>
+                void update(alert, snoozedReminderAt(60), "リマインダーを1時間後にしました。")
+              }
+            >
+              1時間後に
+            </Button>
+            <Button
+              variant="ghost"
+              compact
+              disabled={busy}
+              onClick={() => void update(alert, null, "リマインダーを解除しました。")}
+            >
+              解除
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

@@ -14,7 +14,9 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 }
 
 const reminders = await importBundled("src/renderer/src/features/workspace/lib/reminders.ts");
@@ -60,7 +62,10 @@ test("reminder alerts include due tasks and waitings but skip completed states",
     today: "2026-07-05",
   });
 
-  assert.deepEqual(alerts.map((alert) => alert.id), ["task:due-task", "waiting:due-waiting"]);
+  assert.deepEqual(
+    alerts.map((alert) => alert.id),
+    ["task:due-task", "waiting:due-waiting"],
+  );
 });
 
 test("daily operation reminders only include Activity Log and can be switched off", () => {
@@ -75,7 +80,10 @@ test("daily operation reminders only include Activity Log and can be switched of
     today: "2026-07-05",
   });
 
-  assert.deepEqual(enabled.map((alert) => alert.id), ["activity-log:2026-07-05"]);
+  assert.deepEqual(
+    enabled.map((alert) => alert.id),
+    ["activity-log:2026-07-05"],
+  );
 
   const disabled = reminders.buildReminderAlerts({
     tasks: [task("due-task")],
@@ -103,18 +111,26 @@ test("reminder settings normalize persisted view data", () => {
   });
 });
 
-test("task reminders stay on tasks and surface as lightweight row metadata", () => {
-  const todaySource = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
+test("task reminders stay on tasks; due ones are raised above the page and on rows", () => {
+  const todaySource = readFileSync(
+    "src/renderer/src/features/workspace/pages/TodayPage.tsx",
+    "utf8",
+  );
   const drawerSource = [
     readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8"),
     readFileSync("src/renderer/src/features/workspace/components/drawerEntityFields.tsx", "utf8"),
   ].join("\n");
-  const reminderSource = readFileSync("src/renderer/src/features/workspace/lib/reminders.ts", "utf8");
+  const reminderSource = readFileSync(
+    "src/renderer/src/features/workspace/lib/reminders.ts",
+    "utf8",
+  );
 
   assert.doesNotMatch(todaySource, /buildReminderAlerts/);
   assert.match(todaySource, /reminderMeta/);
   assert.match(reminderSource, /daily-reminder-settings/);
-  assert.doesNotMatch(todaySource, /リマインダー/);
+  // 2026-10-06: 時刻を過ぎたら薄い時刻表示だけにせず、ページ上部の帯と行の印で知らせる。
+  assert.match(todaySource, /<ReminderDueBanner/);
+  assert.match(todaySource, /row-reminder-meta\$\{reminderDue \? " is-due" : ""\}/);
   assert.match(drawerSource, /name="reminder_at"/);
   assert.match(drawerSource, /name="check_reminder_at"/);
 });
@@ -134,4 +150,33 @@ test("due reminders are connected to native desktop notifications", () => {
   assert.match(mainSource, /new Notification\(/);
   assert.match(mainSource, /notification\.show\(\)/);
   assert.match(mainSource, /notifiedIds/);
+});
+
+test("due reminders are detected at the minute and shown above the page and on rows (2026-10-06)", () => {
+  const now = "2026-10-06T10:30";
+  assert.equal(reminders.isReminderDue("2026-10-06T10:30", now), true);
+  assert.equal(reminders.isReminderDue("2026-10-06T10:31", now), false);
+  assert.equal(reminders.isReminderDue("2026-10-05T23:59:00.000Z", now), true);
+  assert.equal(reminders.isReminderDue("", now), false);
+  assert.equal(reminders.isReminderDue("2026-10-06", now), false);
+
+  const due = reminders.dueItemReminders(
+    [
+      task("past", { reminder_at: "2026-10-06T09:00" }),
+      task("future", { reminder_at: "2026-10-06T12:00" }),
+      task("done", { reminder_at: "2026-10-06T08:00", state: "done" }),
+    ],
+    [{ id: "w", title: "返事待ち", state: "waiting", check_reminder_at: "2026-10-06T10:00" }],
+    now,
+  );
+  assert.deepEqual(
+    due.map((alert) => alert.id),
+    ["task:past", "waiting:w"],
+    "完了済みと未来の時刻は出さず、Activity Logの日次通知も混ぜない",
+  );
+});
+
+test("snooze moves the reminder an hour from now at minute precision", () => {
+  const base = new Date(2026, 9, 6, 23, 30, 45);
+  assert.equal(reminders.snoozedReminderAt(60, base), "2026-10-07T00:30");
 });

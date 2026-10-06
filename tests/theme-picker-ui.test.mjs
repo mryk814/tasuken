@@ -2,33 +2,51 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import {
-  PERSONAL_DEFAULT_THEME_ID,
-  themePickerOptions,
-} from "../src/shared/themeRef.mjs";
+import { PERSONAL_DEFAULT_THEME_ID, themePickerOptions } from "../src/shared/themeRef.mjs";
 
 const common = readFileSync("src/renderer/src/features/workspace/components/common.tsx", "utf8");
-const inlineAdd = readFileSync("src/renderer/src/features/workspace/components/InlineAddPanel.tsx", "utf8");
+const inlineAdd = readFileSync(
+  "src/renderer/src/features/workspace/components/InlineAddPanel.tsx",
+  "utf8",
+);
 
 test("canonical picker exposes personal and explicit none together", () => {
   const options = themePickerOptions(
-    [{ id: PERSONAL_DEFAULT_THEME_ID, name: "個人業務" }, { id: "theme-a", name: "A" }],
+    [
+      { id: PERSONAL_DEFAULT_THEME_ID, name: "個人業務" },
+      { id: "theme-a", name: "A" },
+    ],
     { allowPersonal: true, allowNone: true },
   );
   assert.deepEqual(options.slice(0, 2), [
-    { value: PERSONAL_DEFAULT_THEME_ID, label: "個人業務", kind: "personal", colorToken: "chart-6" },
+    {
+      value: PERSONAL_DEFAULT_THEME_ID,
+      label: "個人業務",
+      kind: "personal",
+      colorToken: "chart-6",
+    },
     { value: "", label: "Themeなし", kind: "none" },
   ]);
-  assert.equal(options.some((option) => option.value === "all"), false, "all is a filter projection, not Themeなし");
+  assert.equal(
+    options.some((option) => option.value === "all"),
+    false,
+    "all is a filter projection, not Themeなし",
+  );
 });
 
 test("ThemeSelect preserves explicit empty value and only defaults when omitted", () => {
-  assert.match(common, /useEffect, useId, useRef, useState/);
+  assert.match(common, /useEffect,\s*useId,\s*useRef,\s*useState/);
   assert.match(common, /themePickerOptions/);
   assert.match(common, /allowNone\?: boolean/);
   assert.match(common, /value !== undefined && value !== null \? value : defaultValue/);
-  assert.match(common, /<input ref=\{hiddenInputRef\} type="hidden" name=\{fieldName\} value=\{selected\}/);
-  assert.match(common, /function choose\(next: string\)[\s\S]*?hiddenInputRef\.current\.value = next/);
+  assert.match(
+    common,
+    /<input ref=\{hiddenInputRef\} type="hidden" name=\{fieldName\} value=\{selected\}/,
+  );
+  assert.match(
+    common,
+    /function choose\(next: string\)[\s\S]*?hiddenInputRef\.current\.value = next/,
+  );
   assert.match(common, /export function ThemePickerSelect/);
 });
 
