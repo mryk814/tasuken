@@ -28,6 +28,7 @@ import {
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { OpenDrawer, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
+import { todayTaskProgress } from "../domain-model/selectors";
 import { isPersonalDefaultTheme } from "../../../../../shared/personalTheme.mjs";
 import { themeColor } from "../lib/domain";
 import { buildDailyDebriefEvidence, findDailyDebriefNote } from "../lib/taskenDebrief";
@@ -419,17 +420,9 @@ export function Sidebar({
   const schedulesByOwner = new Map(
     domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]),
   );
-  const todayCount = domain.tasks.filter((t) => {
-    if (t.state === "done" || t.state === "cancelled") return false;
-    const s = schedulesByOwner.get(`task:${t.id}`);
-    return (
-      t.today_date === today ||
-      (s &&
-        (s.start_date === today ||
-          s.end_date === today ||
-          (s.start_date && s.end_date && s.start_date <= today && s.end_date >= today)))
-    );
-  }).length;
+  // Today画面の「今日やること」の見出し（あとN件）と同じ数え方にする。
+  const todayProgress = todayTaskProgress(domain, today);
+  const todayCount = todayProgress.total - todayProgress.done;
   const overdueTasks = domain.tasks.filter((t) => {
     if (t.state === "done" || t.state === "cancelled") return false;
     const s = schedulesByOwner.get(`task:${t.id}`);
