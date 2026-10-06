@@ -873,6 +873,13 @@ async function auditLivePost(page) {
     } else {
       await savedRow.click();
       await page.waitForTimeout(600);
+      // 一覧の行クリックは編集Drawerも開く。実効幅1680px以下ではDrawerが右詳細へ重なるため
+      // （docs/responsive-layout.md）、利用者と同じく閉じてから作成元の行を読む。
+      const editDrawerClose = page.locator(".drawer .drawer-header button", { hasText: "閉じる" });
+      if (await editDrawerClose.count()) {
+        await editDrawerClose.first().click();
+        await page.waitForTimeout(400);
+      }
       const originLine = page.locator(".note-origin-line").first();
       if (!(await originLine.count())) {
         failures.push("AIから保存したNoteに作成元の表示がありません。");
