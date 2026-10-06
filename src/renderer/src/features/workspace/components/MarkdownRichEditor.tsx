@@ -565,7 +565,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   const lastInternalMarkdown = useRef(markdown);
   const onImageUploadRef = useRef(onImageUpload);
   const onImagePreviewRef = useRef(onImagePreview);
-  const mountedRef = useRef(false);
+  const editedRef = useRef(false);
   const editorMarkdown = escapeAmbiguousMarkdownComparisons(markdown);
   const spellCheck = markdown.length < LONG_DOCUMENT_SPELLCHECK_LIMIT;
   onImageUploadRef.current = onImageUpload;
@@ -576,11 +576,13 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
     markdownSourceRef.current = {
       ownerKey,
       getMarkdown: () =>
-        normalizeRichEditorMarkdown(
-          restoreAmbiguousMarkdownComparisons(
-            editorRef.current?.getMarkdown() || lastInternalMarkdown.current,
-          ),
-        ),
+        !editedRef.current
+          ? lastInternalMarkdown.current
+          : normalizeRichEditorMarkdown(
+              restoreAmbiguousMarkdownComparisons(
+                editorRef.current?.getMarkdown() || lastInternalMarkdown.current,
+              ),
+            ),
     };
     return () => {
       markdownSourceRef.current = null;
@@ -684,15 +686,8 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
   );
 
   useEffect(() => {
-    mountedRef.current = false;
-    const timer = window.setTimeout(() => {
-      mountedRef.current = true;
-    }, 200);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
     if (markdown === lastInternalMarkdown.current) return;
+    editedRef.current = false;
     if (editorRef.current?.getMarkdown() !== editorMarkdown) {
       editorRef.current?.setMarkdown(editorMarkdown);
     }
@@ -1079,6 +1074,7 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
       className="note-live-editor-paste-scope"
       onKeyDownCapture={(event) => handleCalloutMarkerEnter(event, editorScopeRef.current)}
       onInputCapture={() => {
+        editedRef.current = true;
         markMermaidEditorInput();
         onDirty?.();
       }}
@@ -1089,12 +1085,14 @@ export const MarkdownRichEditor = memo(function MarkdownRichEditor({
         className="note-live-editor note-mdx-editor"
         contentEditableClassName="note-mdx-content markdown-preview"
         markdown={editorMarkdown}
-        onChange={(value) => {
+        trim={false}
+        onChange={(value, initialMarkdownNormalize) => {
+          if (initialMarkdownNormalize) return;
+          editedRef.current = true;
           const normalized = normalizeRichEditorMarkdown(
             restoreAmbiguousMarkdownComparisons(value),
           );
           lastInternalMarkdown.current = normalized;
-          if (!mountedRef.current && normalized === markdown) return;
           onChange(normalized);
         }}
         onError={({ error }) => {
