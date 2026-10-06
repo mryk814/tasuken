@@ -44,6 +44,7 @@ export function AgentLogSyncPanel() {
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [adoptResult, setAdoptResult] = useState("");
   const sourceSetup = useRef<HTMLDetailsElement>(null);
   const refresh = async () => {
     const next = await workspaceApi.agentLogSetup();
@@ -121,7 +122,7 @@ export function AgentLogSyncPanel() {
         <>
           <p>
             PC
-            に保存されたログの新規・変更を収集します。採用待ちの記録は既存の提案画面で確認できます。
+            に保存されたログの新規・変更を収集し、そのままActivityの履歴に入れます。対応待ちには並べません。
           </p>
           {setup && (
             <>
@@ -167,9 +168,34 @@ export function AgentLogSyncPanel() {
                   : setup.state === "cancelled"
                     ? "停止しました。残りは次回に続きます。"
                     : "同期状況"}{" "}
-                · 確認 {setup.scanned} · 新規・更新提案 {setup.queued} · 変更なし {setup.unchanged}{" "}
-                · 保留 {setup.deferred}
+                · 確認 {setup.scanned} · 新規・更新 {setup.queued} · 変更なし {setup.unchanged} ·
+                保留 {setup.deferred}
               </p>
+              {setup.pendingRecords > 0 && (
+                <div className="agent-log-sync-pending" role="group" aria-label="採用待ちの記録">
+                  <p>
+                    以前の版で採用待ちのまま残った記録が {setup.pendingRecords}{" "}
+                    件あります。内容は変えずに、まとめてActivityの履歴へ入れられます。
+                  </p>
+                  <Button
+                    disabled={busy || setup.state === "running"}
+                    onClick={() =>
+                      void act(async () => {
+                        setAdoptResult("");
+                        const result = await workspaceApi.adoptPendingAgentLogRecords();
+                        setAdoptResult(
+                          result.failed
+                            ? `${result.accepted}件を履歴へ入れました。${result.failed}件は入れられませんでした（${result.messages.join(" / ")}）。`
+                            : `${result.accepted}件を履歴へ入れました。`,
+                        );
+                      })
+                    }
+                  >
+                    まとめて履歴へ入れる
+                  </Button>
+                </div>
+              )}
+              {adoptResult && <p role="status">{adoptResult}</p>}
               {setup.sources.length ? (
                 <ul className="agent-log-source-list">
                   {setup.sources.map((source) => (

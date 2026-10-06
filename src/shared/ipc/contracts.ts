@@ -127,6 +127,7 @@ export const IPC = {
   agentLogBackground: "agent-log:background",
   agentLogSync: "agent-log:sync",
   agentLogCancel: "agent-log:cancel",
+  agentLogAdoptPending: "agent-log:adopt-pending",
   workspaceBootstrap: "workspace:bootstrap",
   workspaceMeta: "workspace:meta",
   mobileGatewayDiagnostics: "mobile-gateway:diagnostics",
@@ -795,6 +796,8 @@ export interface ResearchDeskApi {
     background(enabled: boolean): Promise<import("../agentLogSync").AgentLogSyncStatus>;
     sync(): Promise<import("../agentLogSync").AgentLogSyncStatus>;
     cancel(): Promise<import("../agentLogSync").AgentLogSyncStatus>;
+    /** 採用待ちのログ同期の記録をまとめて履歴へ入れる。 */
+    adoptPending(): Promise<{ accepted: number; failed: number; messages: string[] }>;
     import(
       raw: string,
       repositoryContextIds: string[],

@@ -71,14 +71,16 @@ function text(value: unknown): string {
 }
 
 /**
- * 外部AI clientの接続hookが送ったAgent Sessionの観測。
+ * 外部AI clientの接続hookが送ったAgent Sessionの観測と、利用者が登録した保存先から
+ * ログ同期で読み込んだ自分のSession履歴（#629）。
  * 判断待ちではなく観測なので、要対応の件数に数えない（Agent Deskの提案一覧と同じ扱い）。
  */
 export function isPassiveAgentSessionProposal(proposal: Record<string, unknown>): boolean {
+  const sourceApp = text(proposal.source_app);
   return (
     proposal.status === "pending" &&
     proposal.payload_type === "agent_sessions" &&
-    text(proposal.source_app).startsWith("tasken-session-hook:")
+    (sourceApp.startsWith("tasken-session-hook:") || sourceApp.startsWith("tasken-log-sync:"))
   );
 }
 

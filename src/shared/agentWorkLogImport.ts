@@ -256,6 +256,44 @@ export function parseAgentWorkLog(raw: string) {
   };
 }
 
+/**
+ * 保存先のlogを読むparserの版。正規化を変えたら上げると、取り込み済みのファイルも次の同期で読み直す。
+ * 2: Codex IDE拡張・Claude Codeの前置きを外して依頼本文だけを残す（#629）。
+ */
+export const NATIVE_AGENT_LOG_PARSER_VERSION = 2;
+
+const CLIENT_ONLY_MESSAGE =
+  /^(?:# AGENTS\.md|<environment_context>|<user_instructions>|<system-reminder>|<local-command|<session-start-hook>)/;
+
+/**
+ * clientが依頼の前後に付ける文脈（開いているファイル・選択範囲・指示ファイル）を外し、
+ * 利用者が書いた依頼だけを返す。依頼が残らないメッセージは空文字。
+ */
+export function userRequestText(text: string): string {
+  let value = text.trim();
+  // Codex IDE拡張: "# Context from my IDE setup: ... ## My request for Codex: <依頼>"
+  if (/^#\s*Context from my IDE setup:/i.test(value)) {
+    const marker = /##\s*My request for Codex:\s*/i.exec(value);
+    if (!marker) return "";
+    value = value.slice(marker.index + marker[0].length);
+  }
+  // Claude Code: IDEの添付・system reminderは依頼ではない。
+  value = value.replace(
+    /<(ide_opened_file|ide_selection|ide_diagnostics|system-reminder)>[\s\S]*?<\/\1>/g,
+    "",
+  );
+  // slash command は「/name args」として読む。
+  const command = /<command-name>\s*([^<]*?)\s*<\/command-name>/.exec(value);
+  if (command) {
+    const args = /<command-args>\s*([\s\S]*?)\s*<\/command-args>/.exec(value)?.[1] ?? "";
+    value = value.replace(/<command-(message|name|args)>[\s\S]*?<\/command-\1>/g, "");
+    value = `${command[1]} ${args}`.trim() + (value.trim() ? `\n${value.trim()}` : "");
+  }
+  value = value.trim();
+  if (!value || CLIENT_ONLY_MESSAGE.test(value)) return "";
+  return value;
+}
+
 /** Selected native file only: never follow a path found inside a transcript. */
 function nativeEnvelope(values: unknown[]) {
   if (!values.length || values.length > 20000)
@@ -302,15 +340,9 @@ function nativeEnvelope(values: unknown[]) {
               : [];
           })
         : message.content;
-    const text = visibleText(content);
-    if (
-      !text ||
-      (role === "user" &&
-        /^(?:# AGENTS\.md|<environment_context>|<user_instructions>|<system-reminder>|<local-command|<session-start-hook>)/.test(
-          text,
-        ))
-    )
-      return [];
+    const visible = visibleText(content);
+    const text = role === "user" ? userRequestText(visible) : visible;
+    if (!text) return [];
     return [{ role, timestamp: line.timestamp, text, id: codex ? message.id : line.uuid }];
   });
   if (!payload.length) throw new Error("このJSONLには対応する依頼・回答の本文がありません。");
@@ -392,15 +424,9 @@ export function createNativeAgentLogAccumulator(service: "codex" | "claude_code"
                 : [];
             })
           : message.content;
-      const text = visibleText(content);
-      if (
-        !text ||
-        (role === "user" &&
-          /^(?:# AGENTS\.md|<environment_context>|<user_instructions>|<system-reminder>|<local-command|<session-start-hook>)/.test(
-            text,
-          ))
-      )
-        return;
+      const visible = visibleText(content);
+      const text = role === "user" ? userRequestText(visible) : visible;
+      if (!text) return;
       const entry = { role, timestamp: stamp(line.timestamp), text: text.slice(0, 500) };
       if (role === "user" && (!first || entry.timestamp < first.timestamp)) first = entry;
       if (role === "assistant" && (!last || entry.timestamp >= last.timestamp)) last = entry;

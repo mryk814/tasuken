@@ -138,6 +138,16 @@
     },
     {
       "rule": "compatibility.consumer_added",
+      "source": "tests/agent-log-sync-history.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#629 verifies that log-sync captures are adopted and refreshed through the real SQLite/Core ApplyAiProposal path in a disposable database.",
+      "owner": "issue-629-ai-work-logs",
+      "issue": 629,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Use a public temporary SQLite fixture factory when the persistence composition provides one."
+    },
+    {
+      "rule": "compatibility.consumer_added",
       "source": "scripts/agent-work-log-electron-smoke.mjs",
       "target": "generic-entity-api",
       "reason": "#629 uses the existing entity API only to seed a synthetic Repository and inspect adopted Session records in isolated smoke userData. Production imports use the typed Core proposal path.",

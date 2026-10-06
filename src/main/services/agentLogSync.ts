@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createNativeAgentLogAccumulator,
+  NATIVE_AGENT_LOG_PARSER_VERSION,
   type ImportedAgentWorkLog,
 } from "../../shared/agentWorkLogImport.ts";
 import type {
@@ -351,7 +352,8 @@ export class AgentLogSync {
           for (const file of files) {
             signal.throwIfAborted();
             const key = digest(source.service + "\0" + file.file);
-            const statKey = `${file.size}:${file.mtime}`;
+            // parserの版を含める。正規化を変えた版では、変更のないファイルも一度だけ読み直す。
+            const statKey = `p${NATIVE_AGENT_LOG_PARSER_VERSION}:${file.size}:${file.mtime}`;
             this.value.scanned++;
             if (this.fingerprints[key] === statKey) {
               this.value.unchanged++;

@@ -1,4 +1,4 @@
-/** Synthetic folders only; actual source setup, Core adoption and refresh through Electron. */
+/** Synthetic folders only; actual source setup, direct history adoption (#629) and refresh through Electron. */
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -48,10 +48,17 @@ async function selectSession() {
   await timeline().getByLabel("表示日").fill("2026-10-03");
   await timeline().locator(".agent-log-block").first().click();
 }
-async function adopt() {
+/** #629: ログ同期の記録は採用待ちにせず履歴へ入る。採用ボタンも対応待ちも出ない。 */
+async function assertAdoptedWithoutReview() {
   const detail = timeline().getByRole("complementary", { name: "選択Sessionの詳細", exact: true });
-  await detail.getByRole("button", { name: "採用", exact: true }).click();
-  await detail.getByRole("button", { name: "採用", exact: true }).waitFor({ state: "detached" });
+  assert.equal(await detail.getByRole("button", { name: "採用", exact: true }).count(), 0);
+  const pending = await page.evaluate(async () =>
+    (await window.api.entities.list("ai_proposal")).filter(
+      (proposal) =>
+        proposal.status === "pending" && String(proposal.source_app).startsWith("tasken-log-sync:"),
+    ),
+  );
+  assert.deepEqual(pending, []);
 }
 try {
   await launch();
@@ -69,11 +76,11 @@ try {
   await collector().getByRole("button", { name: "この場所を登録", exact: true }).click();
   await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
   await collector()
-    .getByText(/新規・更新提案 1/)
+    .getByText(/新規・更新 1/)
     .waitFor();
   await selectSession();
   await page.screenshot({ path: path.join(output, "desktop-sync-proposal.png") });
-  await adopt();
+  await assertAdoptedWithoutReview();
   const first = await page.evaluate(
     async () => (await window.api.entities.list("agent_session"))[0],
   );
@@ -95,10 +102,10 @@ try {
   );
   await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
   await collector()
-    .getByText(/新規・更新提案 1/)
+    .getByText(/新規・更新 1/)
     .waitFor();
   await selectSession();
-  await adopt();
+  await assertAdoptedWithoutReview();
   const refreshed = await page.evaluate(() => window.api.entities.list("agent_session"));
   assert.equal(refreshed.length, 1);
   assert.equal(refreshed[0].id, first.id);
@@ -126,6 +133,25 @@ try {
   await collector()
     .getByText(/変更なし 1/)
     .waitFor();
+  // 旧版で採用待ちのまま残った記録（ここでは手動取込で作る）をまとめて履歴へ入れる。
+  const legacy = fs
+    .readFileSync("fixtures/agent-work-logs/codex-rollout.jsonl", "utf8")
+    .replaceAll("synthetic-rollout", "synthetic-legacy-pending");
+  await page.evaluate((raw) => window.api.agentWorkLogs.import(raw, []), legacy);
+  await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
+  await collector()
+    .getByText(/採用待ちのまま残った記録が 1/)
+    .waitFor();
+  assert.equal(await page.locator(".feed-needs-row").count(), 0);
+  await collector().getByRole("group", { name: "採用待ちの記録" }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, "desktop-legacy-pending.png") });
+  await collector().getByRole("button", { name: "まとめて履歴へ入れる", exact: true }).click();
+  await collector().getByText("1件を履歴へ入れました。", { exact: true }).waitFor();
+  assert.equal(await collector().getByRole("group", { name: "採用待ちの記録" }).count(), 0);
+  assert.equal(
+    await page.evaluate(async () => (await window.api.entities.list("agent_session")).length),
+    2,
+  );
   await collector().getByLabel("Tasken 起動中に5分ごとに同期").check();
   await collector().getByLabel("Tasken 起動中に5分ごとに同期").uncheck();
   await collector().getByText("保存先を追加・再確認", { exact: true }).click();
@@ -134,8 +160,8 @@ try {
   app = null;
   await launch();
   const persisted = await page.evaluate(() => window.api.entities.list("agent_session"));
-  assert.equal(persisted.length, 1);
-  assert.match(persisted[0].outcome.summary, /差分/);
+  assert.equal(persisted.length, 2);
+  assert.ok(persisted.some((session) => /差分/.test(session.outcome.summary)));
   await collector().locator(":scope > summary").click();
   await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
   await collector()
@@ -160,7 +186,7 @@ try {
   await collector().getByText("保存先はまだ登録されていません。", { exact: true }).waitFor();
   assert.equal(
     await page.evaluate(async () => (await window.api.entities.list("agent_session")).length),
-    1,
+    2,
   );
   assert.deepEqual(errors, []);
   fs.writeFileSync(
@@ -169,6 +195,8 @@ try {
       {
         passed: true,
         nativeSessions: 1,
+        adoptedWithoutReview: true,
+        legacyPendingAdopted: 1,
         refreshedSameId: true,
         restart: true,
         widths: [1760, 390],

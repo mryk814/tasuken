@@ -190,6 +190,8 @@ export class ProposeAgentSessionService {
                 ended_at: request.ended_at,
                 status: "unknown",
                 observation: request.observation,
+                // 履歴の読み直しでは、parserの正規化を直した依頼の要旨も置き換える（#629）。
+                intent: request.intent,
                 outcome: {
                   ...(current!.outcome as Record<string, unknown>),
                   summary: request.outcome.summary,

@@ -216,6 +216,9 @@ export const workspaceApi = {
   cancelAgentLogSync() {
     return desktopApi().agentWorkLogs.cancel();
   },
+  adoptPendingAgentLogRecords() {
+    return desktopApi().agentWorkLogs.adoptPending();
+  },
   pathForFile(file: File) {
     return desktopApi().files.pathForFile(file);
   },

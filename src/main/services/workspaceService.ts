@@ -73,6 +73,7 @@ import type {
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
 import { coreWriteProfile } from "../../shared/contracts/core/public.mjs";
 import { parseAgentWorkLog } from "../../shared/agentWorkLogImport";
+import { isAgentLogSyncProposal } from "../../shared/agentSessionProposalAcceptance";
 import type {
   ProposeAgentSessionRequest,
   ProposeAgentSessionResponse,
@@ -3725,7 +3726,13 @@ export class WorkspaceService {
       throw new Error("Tasken の共有同期先が未設定です。設定を確認してください。");
     return `この PC の Tasken: ${this.userDataPath}${enabled ? `\n共有同期先: ${directory}` : "\n共有同期: 無効"}`;
   }
-  initializeAgentLogSync(notify: () => void) {
+  /**
+   * 保存先を登録した時点で本人が読み込みを許可しているため、ログ同期の記録は採用待ちにせず
+   * そのまま履歴（Agent Session）へ入れる（#629）。`adopt` は既存のApplyAiProposal経路を使う。
+   */
+  private adoptAgentLogProposal?: (proposalId: string) => void;
+  initializeAgentLogSync(notify: () => void, adopt?: (proposalId: string) => void) {
+    this.adoptAgentLogProposal = adopt;
     this.localAgentLogs = new AgentLogSync(
       path.join(this.userDataPath, "agent-log-sources"),
       async (imported, destination) => {
@@ -3765,11 +3772,47 @@ export class WorkspaceService {
           source_app,
           actor: { kind: "ai_agent" },
         });
+        if (result.status === "queued" && this.adoptAgentLogProposal) {
+          try {
+            this.adoptAgentLogProposal(result.proposal_id);
+          } catch {
+            // 採用できなかった記録は受け身の観測として残る（対応待ちには数えない）。次の一括処理で再試行できる。
+          }
+        }
         notify();
         return result.status;
       },
     );
     void this.localAgentLogs.load();
+  }
+
+  /** 採用待ちのまま残っているログ同期の記録を、まとめて履歴へ入れる。1件の失敗で残りを止めない。 */
+  adoptPendingAgentLogRecords(): { accepted: number; failed: number; messages: string[] } {
+    if (!this.adoptAgentLogProposal) throw new Error("ログ同期を初期化できません。");
+    const pending = this.repository
+      .list("ai_proposal")
+      .filter((proposal) => proposal.status === "pending" && isAgentLogSyncProposal(proposal))
+      .sort((left, right) =>
+        String(left.received_at || "").localeCompare(String(right.received_at || "")),
+      );
+    let accepted = 0;
+    const messages = new Set<string>();
+    for (const proposal of pending) {
+      try {
+        this.adoptAgentLogProposal(String(proposal.id));
+        accepted++;
+      } catch (error) {
+        messages.add(error instanceof Error ? error.message : String(error));
+      }
+    }
+    return { accepted, failed: pending.length - accepted, messages: [...messages].slice(0, 5) };
+  }
+
+  pendingAgentLogRecordCount(): number {
+    return this.repository
+      .list("ai_proposal")
+      .filter((proposal) => proposal.status === "pending" && isAgentLogSyncProposal(proposal))
+      .length;
   }
   async agentLogSetup(): Promise<AgentLogSetup> {
     if (!this.localAgentLogs) throw new Error("ログ同期を初期化できません。");
@@ -3777,6 +3820,7 @@ export class WorkspaceService {
     return {
       ...this.localAgentLogs.status(),
       destination: this.agentLogDestination(),
+      pendingRecords: this.pendingAgentLogRecordCount(),
       candidates: [
         ...agentLogCandidates("codex", os.homedir(), process.env),
         ...agentLogCandidates("claude_code", os.homedir(), process.env),
