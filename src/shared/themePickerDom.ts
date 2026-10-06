@@ -44,7 +44,10 @@ export function createThemePicker({
     const dot = document.createElement("span");
     dot.className = "theme-picker-color";
     dot.setAttribute("aria-hidden", "true");
-    dot.style.setProperty("--theme-picker-color", option.colorToken ? `var(--color-${option.colorToken})` : "var(--color-border-strong)");
+    dot.style.setProperty(
+      "--theme-picker-color",
+      option.colorToken ? `var(--color-${option.colorToken})` : "var(--color-border-strong)",
+    );
     return dot;
   }
 
@@ -59,7 +62,10 @@ export function createThemePicker({
     value = next;
     expanded = false;
     render();
-    if (variant === "compact-popover") queueMicrotask(() => element.querySelector<HTMLButtonElement>(".theme-picker-trigger")?.focus());
+    if (variant === "compact-popover")
+      queueMicrotask(() =>
+        element.querySelector<HTMLButtonElement>(".theme-picker-trigger")?.focus(),
+      );
     onChange?.(value);
   }
 
@@ -82,7 +88,8 @@ export function createThemePicker({
     trigger.addEventListener("click", () => {
       expanded = !expanded;
       render();
-      if (expanded) element.querySelector<HTMLButtonElement>(".theme-picker-option.is-selected")?.focus();
+      if (expanded)
+        element.querySelector<HTMLButtonElement>(".theme-picker-option.is-selected")?.focus();
     });
     trigger.addEventListener("keydown", (event) => {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -118,7 +125,9 @@ export function createThemePicker({
           event.preventDefault();
           const buttons = [...element.querySelectorAll<HTMLButtonElement>(".theme-picker-option")];
           const index = buttons.indexOf(button);
-          buttons[(index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+          buttons[
+            (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length
+          ]?.focus();
         } else if (event.key === "Escape") {
           event.preventDefault();
           expanded = false;
@@ -137,18 +146,20 @@ export function createThemePicker({
       return;
     }
     element.setAttribute("role", "group");
-    element.replaceChildren(...options.map((option) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `theme-chip${option.value === value ? " is-selected" : ""}`;
-      button.append(colorDot(option), optionLabel(option));
-      button.setAttribute("aria-pressed", String(option.value === value));
-      button.disabled = disabled;
-      button.addEventListener("click", () => {
-        select(option.value);
-      });
-      return button;
-    }));
+    element.replaceChildren(
+      ...options.map((option) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `theme-chip${option.value === value ? " is-selected" : ""}`;
+        button.append(colorDot(option), optionLabel(option));
+        button.setAttribute("aria-pressed", String(option.value === value));
+        button.disabled = disabled;
+        button.addEventListener("click", () => {
+          select(option.value);
+        });
+        return button;
+      }),
+    );
   }
 
   return {
@@ -160,10 +171,28 @@ export function createThemePicker({
       render();
     },
     setOptions(next, nextValue) {
+      const resolvedValue =
+        nextValue && next.some((option) => option.value === nextValue)
+          ? nextValue
+          : next[0]?.value || "";
+      if (
+        element.children.length > 0 &&
+        resolvedValue === value &&
+        next.length === options.length &&
+        next.every((option, index) => {
+          const previous = options[index];
+          return (
+            option.value === previous.value &&
+            option.label === previous.label &&
+            option.kind === previous.kind &&
+            option.colorToken === previous.colorToken &&
+            option.unavailable === previous.unavailable
+          );
+        })
+      )
+        return;
       options = next;
-      value = nextValue && options.some((option) => option.value === nextValue)
-        ? nextValue
-        : options[0]?.value || "";
+      value = resolvedValue;
       render();
     },
   };

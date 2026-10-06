@@ -456,10 +456,10 @@
       }
 
       async function loadThemeOptions() {
+        const options = await window.todayMiniApi.listThemes();
         const selectedValue = addTaskThemePicker.getValue();
         const previousLabel = addTaskThemePicker.element.querySelector(".theme-picker-trigger")?.getAttribute("title")
           ?.replace(/（利用不可）$/, "");
-        const options = await window.todayMiniApi.listThemes();
         if (selectedValue && !options.some((option) => option.value === selectedValue)) {
           options.push({
             value: selectedValue,
