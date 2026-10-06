@@ -9,7 +9,7 @@
  * 2. Todayに「AIから届いたこと」のセクションが出ない（AIの対応はFeedに集約）
  * 3. 状態chipがTask詳細を開く
  * 4. ToDoの確認待ちの「Feedで確認」がFeedへ移動する
- * 5. Feedの「対応待ち」タブに要対応の一覧と「提案の確認」が出る
+ * 5. AIからの質問がFeedのホームに投稿として出る（対応待ちタブは廃止）
  * 6. 届いた情報が無いときもTodayにAIの見出しが出ない
  *
  *   npm run build && npm run audit:today-arrivals
@@ -186,29 +186,23 @@ async function runMainPhase() {
       await page.screenshot({ path: `${OUT_DIR}/today-arrival-handling.png`, fullPage: true });
     }
 
-    // --- Feedの「対応待ち」タブに要対応の一覧が出る（判断の採否も同じ面で行う） ---
+    // --- AIからの質問はFeedのホームに投稿として出る（対応待ちタブは2026-10-06に廃止） ---
     await nav(page, "Feed").click();
     await page.waitForTimeout(2500);
     if (!(await page.locator(".page.feed-page").count())) {
       throw new Error("Feedが表示されていません。");
     }
-    await page.locator("#feed-tab-needs").click();
+    await page.locator("#feed-tab-home").click();
     await page.waitForTimeout(1200);
-    if (!(await page.locator("#feed-panel-needs").count())) {
-      failures.push("Feedの「対応待ち」タブが開きません。");
+    if (await page.locator("#feed-tab-needs").count()) {
+      failures.push("Feedに「対応待ち」タブが残っています。");
     }
-    const needsText = squeeze(await page.locator("#feed-panel-needs").innerText());
-    if (!needsText.includes("回答待ち")) {
-      failures.push(`対応待ちに回答待ちが出ていません: ${needsText.slice(0, 160)}`);
+    const homeText = squeeze(await page.locator("#feed-panel-home").innerText());
+    if (!homeText.includes("回答待ち")) {
+      failures.push(`ホームに回答待ちの投稿が出ていません: ${homeText.slice(0, 160)}`);
     }
-    // 判断・変更案・確認待ちは同じ1本の一覧に出る。別の面へ分けない。
-    if (!(await page.locator("#feed-panel-needs .feed-needs-panel").count())) {
-      failures.push("対応待ちの一覧（判断と確認待ち）が出ていません。");
-    }
-    if (
-      (await page.locator("#feed-panel-needs .proposal-inbox-panel .proposal-list").count()) > 0
-    ) {
-      failures.push("判断の一覧が「提案の履歴」にも出ています（同じ報告の二重表示）。");
+    if (!(await page.locator("#feed-panel-home .feed-attention-post").count())) {
+      failures.push("ホームにAIからの対応の投稿が出ていません。");
     }
     await page.screenshot({ path: `${OUT_DIR}/today-arrivals.png`, fullPage: true });
 

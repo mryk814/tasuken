@@ -214,7 +214,6 @@ export function WorkspaceApp() {
   const setThemeMode = useUiStore((state) => state.setThemeMode);
   const activeGroups = useUiStore((state) => state.activeGroups);
   const setActiveGroups = useUiStore((state) => state.setActiveGroups);
-  const setInboxLane = useUiStore((state) => state.setInboxLane);
   // 衛星ウィンドウの開閉・表示対象はMainのRegistry／IPC通知を購読する（#327）。
   const [openStickyMemoIds, setOpenStickyMemoIds] = useState<string[]>([]);
   const [stickyMemoTargetIds, setStickyMemoTargetIds] = useState<string[]>([]);
@@ -429,7 +428,7 @@ export function WorkspaceApp() {
   useEffect(() => {
     const onHash = () => {
       const raw = location.hash.slice(1) || "today";
-      if (raw === "ai-io" || raw === "proposal-inbox") requestFeedTab("needs");
+      if (raw === "ai-io" || raw === "proposal-inbox") requestFeedTab("home");
       setRoute(normalizeRoute(raw));
     };
     onHash();
@@ -914,8 +913,8 @@ export function WorkspaceApp() {
       drawerGeneration.current += 1;
       setDrawer(null);
       setNotesEditorSelectionId(null);
-      // Agent Desk（ai-io）はFeedへ集約済み。旧URLからは対応待ちタブを開く。
-      if (next === "ai-io" || next === "proposal-inbox") requestFeedTab("needs");
+      // Agent Desk（ai-io）はFeedへ集約済み。旧URLからはホームを開く（対応待ちタブは2026-10-06に廃止）。
+      if (next === "ai-io" || next === "proposal-inbox") requestFeedTab("home");
       const normalized = normalizeRoute(next);
       location.hash = normalized;
       setRoute(normalized);
@@ -1113,10 +1112,9 @@ export function WorkspaceApp() {
       window.api?.app?.onOpenMemo?.(() => {
         location.hash = "inbox";
         setRoute("inbox");
-        setInboxLane("micro");
       }),
       window.api?.app?.onNavigate?.((next) => {
-        if (next === "ai-io" || next === "proposal-inbox") requestFeedTab("needs");
+        if (next === "ai-io" || next === "proposal-inbox") requestFeedTab("home");
         const normalized = normalizeRoute(next);
         location.hash = normalized;
         setRoute(normalized);
@@ -1125,7 +1123,7 @@ export function WorkspaceApp() {
     return () => {
       for (const unsubscribe of unsubscribers) unsubscribe?.();
     };
-  }, [detachedNoteId, loadState, setInboxLane, setRoute]);
+  }, [detachedNoteId, loadState, setRoute]);
 
   const saveEntity: SaveEntity = async (
     type,

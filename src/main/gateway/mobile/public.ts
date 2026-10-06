@@ -42,6 +42,10 @@ export {
 export { MOBILE_TASK_CONTEXT_INPUT, taskContextFingerprint } from "./taskContextPreview.ts";
 export {
   createCaptureOrganizerFromEnvironment,
+  CaptureOrganizerUserError,
+  CHATGPT_PLAN_API,
+  type CaptureOrganizerOptions,
+  type ChatGptTokenSource,
   type CaptureOrganizerBatch,
   type CaptureOrganizerInput,
   type CaptureOrganizerProposal,

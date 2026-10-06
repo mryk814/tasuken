@@ -44,6 +44,13 @@ const clientMetadata = {
       coverage: z.enum(["complete", "partial"]),
       observed_until: timestamp,
       mode: z.literal("history"),
+      /** clientが記録したターンの処理時間の合計（AIが動いていた時間の目安）。経過区間とは別。 */
+      active_duration_ms: z
+        .number()
+        .int()
+        .min(0)
+        .max(30 * 24 * 60 * 60 * 1000)
+        .optional(),
     })
     .strict()
     .optional(),
@@ -52,6 +59,8 @@ const clientMetadata = {
 const intent = z
   .object({
     summary: text(4000),
+    /** 一覧の見出し。clientが付けた会話名か、依頼の最初の一文を短くしたもの。 */
+    title: z.string().trim().max(200).optional(),
     requested_outcome: z.string().trim().max(4000).optional(),
     boundary: z.string().trim().max(4000).optional(),
   })

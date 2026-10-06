@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createNativeAgentLogAccumulator,
+  NATIVE_AGENT_LOG_PARSER_VERSION,
   type ImportedAgentWorkLog,
 } from "../../shared/agentWorkLogImport.ts";
 import type {
@@ -73,15 +74,43 @@ export class AgentLogSync {
     log: ImportedAgentWorkLog,
     destination: string,
   ) => Promise<"queued" | "duplicate" | "deferred">;
+  /** 単独のSessionにしない委任thread（subagent等）について、残っている採用待ちを取り下げる。 */
+  private readonly retract?: (service: AgentLogService, sourceSession: string) => void;
   constructor(
     directory: string,
     submit: (
       log: ImportedAgentWorkLog,
       destination: string,
     ) => Promise<"queued" | "duplicate" | "deferred">,
+    retract?: (service: AgentLogService, sourceSession: string) => void,
   ) {
     this.directory = directory;
     this.submit = submit;
+    this.retract = retract;
+  }
+  /** Codexの会話名（`<CODEX_HOME>/session_index.jsonl` の thread_name）。読めなければ空。 */
+  private async codexThreadNames(sessionsRoot: string, signal: AbortSignal) {
+    const names = new Map<string, string>();
+    if (path.basename(sessionsRoot) !== "sessions") return names;
+    const index = path.join(path.dirname(sessionsRoot), "session_index.jsonl");
+    try {
+      const stat = await fs.promises.stat(index);
+      if (!stat.isFile() || stat.size > 16 * 1024 * 1024) return names;
+      const raw = await fs.promises.readFile(index, { encoding: "utf8", signal });
+      for (const line of raw.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        try {
+          const entry = JSON.parse(line) as { id?: unknown; thread_name?: unknown };
+          if (typeof entry.id === "string" && typeof entry.thread_name === "string")
+            names.set(entry.id, entry.thread_name.slice(0, 200));
+        } catch {
+          /* A torn line while Codex writes; the next scan reads it. */
+        }
+      }
+    } catch {
+      /* Missing index: fall back to the request-derived title. */
+    }
+    return names;
   }
   async load() {
     if (this.loaded) return;
@@ -275,7 +304,12 @@ export class AgentLogSync {
       };
     }
   }
-  private async read(file: string, service: AgentLogService, signal: AbortSignal) {
+  private async read(
+    file: string,
+    service: AgentLogService,
+    signal: AbortSignal,
+    titles: Map<string, string>,
+  ) {
     const accumulator = createNativeAgentLogAccumulator(service);
     const stream = fs.createReadStream(file, {
       encoding: "utf8",
@@ -317,7 +351,10 @@ export class AgentLogSync {
         }
         if (!incomplete) accumulator.add(value);
       }
-      return { log: accumulator.finish(), incomplete };
+      if (accumulator.skipReason())
+        return { log: null, skipped: accumulator.sourceSession(), incomplete };
+      const source = accumulator.sourceSession();
+      return { log: accumulator.finish({ title: titles.get(source) }), skipped: null, incomplete };
     } finally {
       stream.destroy();
     }
@@ -348,10 +385,20 @@ export class AgentLogSync {
         let issues = 0;
         try {
           const files = await this.files(source.path, signal);
+          const titles =
+            source.service === "codex"
+              ? await this.codexThreadNames(source.path, signal)
+              : new Map<string, string>();
           for (const file of files) {
             signal.throwIfAborted();
             const key = digest(source.service + "\0" + file.file);
-            const statKey = `${file.size}:${file.mtime}`;
+            const sessionKey = `${key}:session`;
+            const titleFingerprint = (session: string) => digest(titles.get(session) ?? "");
+            // parserの版を含める。正規化を変えた版では、変更のないファイルも一度だけ読み直す。
+            // 会話名はrolloutとは別に更新されるため、そのSessionの見出しも指紋へ含める。
+            const statKeyFor = (session: string) =>
+              `p${NATIVE_AGENT_LOG_PARSER_VERSION}:${file.size}:${file.mtime}:${titleFingerprint(session)}`;
+            const statKey = statKeyFor(this.fingerprints[sessionKey] ?? "");
             this.value.scanned++;
             if (this.fingerprints[key] === statKey) {
               this.value.unchanged++;
@@ -370,7 +417,20 @@ export class AgentLogSync {
             if (bytes > 512 * 1024 * 1024)
               throw new Error("1回512MBの上限です。次回同期で残りを読みます。");
             try {
-              const { log, incomplete } = await this.read(file.file, source.service, signal);
+              const { log, skipped, incomplete } = await this.read(
+                file.file,
+                source.service,
+                signal,
+                titles,
+              );
+              if (!log) {
+                // subagent・レビュー用threadは親の会話の一部。単独では並べず、旧版の採用待ちを取り下げる。
+                if (skipped) this.retract?.(source.service, skipped);
+                this.value.unchanged++;
+                if (!incomplete) this.fingerprints[key] = statKey;
+                continue;
+              }
+              this.fingerprints[sessionKey] = log.source_session;
               const contentKey = digest(
                 `${source.service}\0${log.source_session}\0${log.started_at}`,
               );
@@ -396,7 +456,7 @@ export class AgentLogSync {
                 after.size === file.size &&
                 after.mtimeMs === file.mtime
               )
-                this.fingerprints[key] = statKey;
+                this.fingerprints[key] = statKeyFor(log.source_session);
               // Checkpoint in batches; rewriting a growing index for every small log is quadratic IO.
               if (this.value.scanned % 100 === 0) await this.persist();
             } catch (error) {

@@ -3478,27 +3478,6 @@ export class ApplicationCommandService {
           }
         }
         if (before) {
-          for (const field of [
-            "started_at",
-            "client_kind",
-            "client_label",
-            "agent_label",
-            "provider_label",
-            "model_label",
-            "source_session_id",
-            "intent",
-          ] as const) {
-            if (
-              JSON.stringify(before[field] ?? null) !==
-              JSON.stringify(candidateEntity[field] ?? null)
-            ) {
-              throw new ApplicationCommandError(
-                "INVALID_TRANSITION",
-                `Agent Session の ${field} は終了時に変更できません。`,
-                { id: candidateEntity.id },
-              );
-            }
-          }
           const historyRefresh =
             ["codex", "claude_code"].includes(String(before.client_kind)) &&
             currentProposal.source_app === `tasken-log-sync:${before.client_kind}` &&
@@ -3516,6 +3495,28 @@ export class ApplicationCommandService {
               (before.observation as { adapter?: string })?.adapter &&
             (candidateEntity.observation as { mode?: string })?.mode === "history" &&
             Date.parse(String(candidateEntity.ended_at)) >= Date.parse(String(before.ended_at));
+          // 履歴ログの読み直しだけは、parserの正規化を直した依頼の要旨を置き換えてよい（#629）。
+          for (const field of [
+            "started_at",
+            "client_kind",
+            "client_label",
+            "agent_label",
+            "provider_label",
+            "model_label",
+            "source_session_id",
+            ...(historyRefresh ? [] : (["intent"] as const)),
+          ] as const) {
+            if (
+              JSON.stringify(before[field] ?? null) !==
+              JSON.stringify(candidateEntity[field] ?? null)
+            ) {
+              throw new ApplicationCommandError(
+                "INVALID_TRANSITION",
+                `Agent Session の ${field} は終了時に変更できません。`,
+                { id: candidateEntity.id },
+              );
+            }
+          }
           if (
             !historyRefresh &&
             (before.status !== "active" ||

@@ -2,7 +2,7 @@ import {
   IconBulb,
   IconBrain,
   IconChecklist,
-  IconInbox,
+  IconNote,
   IconMessageCircle,
   IconNotes,
   IconPaperclip,
@@ -108,9 +108,11 @@ export const ROUTE_DEFINITIONS = {
   },
   inbox: {
     id: "inbox",
-    label: "Inbox",
-    description: "クイック記録を行の中で分類し、今日の作業やThemeへ接続します。",
-    icon: IconInbox,
+    // Inboxは廃止し（2026-10-06）、付箋メモの画面として残す。思いつきはFeedへ投稿する。
+    label: "Memo",
+    description:
+      "付箋メモを書き、色分け・表示・収納を管理します。未整理のメモはFeedのホームに並びます。",
+    icon: IconNote,
     semanticRole: "hub",
     availability: "always",
     navigation: { group: "cross", order: 1 },
@@ -120,7 +122,7 @@ export const ROUTE_DEFINITIONS = {
     id: "ai-io",
     label: "Agent Desk",
     description:
-      "任せた仕事の進み具合（対応待ち・作業中・開始待ち・最近の結果）を確認します。変更案の採否はFeedの「対応待ち」で行います。",
+      "任せた仕事の進み具合（要確認・作業中・開始待ち・最近の結果）を確認します。AIからの判断や変更案はFeedのホームに投稿として並び、そこで答えます。",
     icon: IconSparkles,
     semanticRole: "tool",
     availability: "always",

@@ -5,6 +5,43 @@ import path from "node:path";
 import test from "node:test";
 import { AgentLogSync, agentLogCandidates } from "../src/main/services/agentLogSync.ts";
 
+test("renaming a completed Codex thread updates its title without modifying its rollout", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-rename-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const source = path.join(root, "sessions");
+  await fs.mkdir(source);
+  const raw = await fs.readFile(
+    new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
+    "utf8",
+  );
+  await fs.writeFile(path.join(source, "rollout.jsonl"), raw);
+  const index = path.join(root, "session_index.jsonl");
+  const writeTitle = (title) =>
+    fs.writeFile(index, JSON.stringify({ id: "synthetic-rollout", thread_name: title }) + "\n");
+  await writeTitle("変更前");
+  const submitted = [];
+  const make = () =>
+    new AgentLogSync(path.join(root, "state"), async (log) => {
+      submitted.push(log);
+      return "queued";
+    });
+  let sync = make();
+  await sync.configure(
+    { service: "codex", path: source, consent: true, destination: "local" },
+    "local",
+  );
+  await sync.run();
+  assert.equal(submitted[0].intent.title, "変更前");
+  await writeTitle("変更後");
+  sync = make();
+  await sync.load();
+  await sync.run();
+  assert.equal(submitted.length, 2);
+  assert.equal(submitted[1].intent.title, "変更後");
+  await sync.run();
+  assert.equal(submitted.length, 2);
+});
+
 test("changed sessions, adoption deferral, cancellation and errors remain recoverable", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-sync-states-"));
   const submitted = [];
@@ -167,7 +204,12 @@ test("streaming difference sync preserves privacy, retries incomplete writes, su
     await sync.run();
     assert.equal(submitted.length, 1);
     assert.equal(submitted[0].status, "unknown");
-    assert.deepEqual(submitted[0].request_events, []);
+    // #629: 依頼は短い抜粋（最大5件×200文字）だけを残し、回答の途中経過は残さない。
+    assert.deepEqual(
+      submitted[0].request_events.map((event) => event.text),
+      ["合成デモ: Activityを確認する"],
+    );
+    assert.deepEqual(submitted[0].response_checkpoints, []);
     assert.doesNotMatch(JSON.stringify(submitted), /DO-NOT-IMPORT|cwd|reasoning/);
     await sync.run();
     assert.equal(submitted.length, 1);

@@ -8,4 +8,9 @@ export const captureOrganizerApi = {
   testConnection: (input: Parameters<typeof window.api.captureOrganizer.testConnection>[0]) =>
     window.api.captureOrganizer.testConnection(input),
   clearSettings: () => window.api.captureOrganizer.clearSettings(),
+  chatGptState: () => window.api.captureOrganizer.chatGptState(),
+  chatGptConnect: () => window.api.captureOrganizer.chatGptConnect(),
+  chatGptCancel: () => window.api.captureOrganizer.chatGptCancel(),
+  chatGptDisconnect: () => window.api.captureOrganizer.chatGptDisconnect(),
+  chatGptModels: () => window.api.captureOrganizer.chatGptModels(),
 };

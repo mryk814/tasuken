@@ -134,6 +134,11 @@ export const IPC = {
   captureOrganizerSaveSettings: "capture-organizer:save-settings",
   captureOrganizerTestConnection: "capture-organizer:test-connection",
   captureOrganizerClearSettings: "capture-organizer:clear-settings",
+  captureOrganizerChatGptState: "capture-organizer:chatgpt-state",
+  captureOrganizerChatGptConnect: "capture-organizer:chatgpt-connect",
+  captureOrganizerChatGptCancel: "capture-organizer:chatgpt-cancel",
+  captureOrganizerChatGptDisconnect: "capture-organizer:chatgpt-disconnect",
+  captureOrganizerChatGptModels: "capture-organizer:chatgpt-models",
   captureOrganizerOpenSaved: "capture-organizer:open-saved",
   taskSchedulePropose: "task-schedule:propose",
   mobileGatewayIssuePairing: "mobile-gateway:issue-pairing",
@@ -776,6 +781,11 @@ export interface ResearchDeskApi {
     clearSettings(): Promise<
       import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsState
     >;
+    chatGptState(): Promise<import("../captureOrganizerSettings.ts").ChatGptAccountState>;
+    chatGptConnect(): Promise<import("../captureOrganizerSettings.ts").ChatGptAccountState>;
+    chatGptCancel(): Promise<void>;
+    chatGptDisconnect(): Promise<import("../captureOrganizerSettings.ts").ChatGptAccountState>;
+    chatGptModels(): Promise<import("../captureOrganizerSettings.ts").ChatGptModelOption[]>;
   };
   workspace: {
     load(): Promise<Workspace>;

@@ -16,6 +16,11 @@ const api: ResearchDeskApi = {
     saveSettings: (input) => ipcRenderer.invoke(IPC.captureOrganizerSaveSettings, input),
     testConnection: (input) => ipcRenderer.invoke(IPC.captureOrganizerTestConnection, input),
     clearSettings: () => ipcRenderer.invoke(IPC.captureOrganizerClearSettings),
+    chatGptState: () => ipcRenderer.invoke(IPC.captureOrganizerChatGptState),
+    chatGptConnect: () => ipcRenderer.invoke(IPC.captureOrganizerChatGptConnect),
+    chatGptCancel: () => ipcRenderer.invoke(IPC.captureOrganizerChatGptCancel),
+    chatGptDisconnect: () => ipcRenderer.invoke(IPC.captureOrganizerChatGptDisconnect),
+    chatGptModels: () => ipcRenderer.invoke(IPC.captureOrganizerChatGptModels),
   },
   workspace: {
     load: () => ipcRenderer.invoke(IPC.workspaceLoad),

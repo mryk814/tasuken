@@ -73,6 +73,7 @@ import type {
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
 import { coreWriteProfile } from "../../shared/contracts/core/public.mjs";
 import { parseAgentWorkLog } from "../../shared/agentWorkLogImport";
+import { isAgentLogSyncProposal } from "../../shared/agentSessionProposalAcceptance";
 import type {
   ProposeAgentSessionRequest,
   ProposeAgentSessionResponse,
@@ -3725,7 +3726,26 @@ export class WorkspaceService {
       throw new Error("Tasken の共有同期先が未設定です。設定を確認してください。");
     return `この PC の Tasken: ${this.userDataPath}${enabled ? `\n共有同期先: ${directory}` : "\n共有同期: 無効"}`;
   }
-  initializeAgentLogSync(notify: () => void) {
+  /**
+   * 保存先を登録した時点で本人が読み込みを許可しているため、ログ同期の記録は採用待ちにせず
+   * そのまま履歴（Agent Session）へ入れる（#629）。`adopt` は既存のApplyAiProposal経路を使う。
+   */
+  private adoptAgentLogProposal?: (proposalId: string) => void;
+  initializeAgentLogSync(
+    notify: () => void,
+    adopt?: (proposalId: string) => void,
+    reject?: (proposalId: string) => void,
+  ) {
+    this.adoptAgentLogProposal = adopt;
+    const pendingFor = (source_app: string, sourceSession: string) =>
+      this.repository.list("ai_proposal").filter((proposal) => {
+        const request = proposal.request as Record<string, unknown> | undefined;
+        return (
+          proposal.status === "pending" &&
+          proposal.source_app === source_app &&
+          request?.source_session === sourceSession
+        );
+      });
     this.localAgentLogs = new AgentLogSync(
       path.join(this.userDataPath, "agent-log-sources"),
       async (imported, destination) => {
@@ -3734,15 +3754,15 @@ export class WorkspaceService {
         if (!this.taskenCoreClient?.proposeAgentSession)
           throw new Error("Tasken Core に接続できません。");
         const source_app = `tasken-log-sync:${imported.client_kind}`;
-        const pending = this.repository.list("ai_proposal").some((proposal) => {
-          const request = proposal.request as Record<string, unknown> | undefined;
-          return (
-            proposal.status === "pending" &&
-            proposal.source_app === source_app &&
-            request?.source_session === imported.source_session
-          );
-        });
-        if (pending) return "deferred";
+        // 旧版で残った採用待ちは先に履歴へ入れ、その上で今回の内容へ更新する。
+        for (const proposal of pendingFor(source_app, imported.source_session)) {
+          try {
+            this.adoptAgentLogProposal?.(String(proposal.id));
+          } catch {
+            /* 採用できなければ今回は保留し、次回に再試行する。 */
+          }
+        }
+        if (pendingFor(source_app, imported.source_session).length) return "deferred";
         const current = this.repository
           .list("agent_session")
           .find(
@@ -3765,11 +3785,36 @@ export class WorkspaceService {
           source_app,
           actor: { kind: "ai_agent" },
         });
+        if (result.status === "queued" && this.adoptAgentLogProposal) {
+          try {
+            this.adoptAgentLogProposal(result.proposal_id);
+          } catch {
+            // 採用できなかった記録は受け身の観測として残る（対応待ちには数えない）。次の一括処理で再試行できる。
+          }
+        }
         notify();
         return result.status;
       },
+      (service, sourceSession) => {
+        const proposals = pendingFor(`tasken-log-sync:${service}`, sourceSession);
+        for (const proposal of proposals) {
+          try {
+            reject?.(String(proposal.id));
+          } catch {
+            /* 取り下げられなかった記録は受け身の観測として残り、対応待ちには数えない。 */
+          }
+        }
+        if (proposals.length) notify();
+      },
     );
     void this.localAgentLogs.load();
+  }
+
+  pendingAgentLogRecordCount(): number {
+    return this.repository
+      .list("ai_proposal")
+      .filter((proposal) => proposal.status === "pending" && isAgentLogSyncProposal(proposal))
+      .length;
   }
   async agentLogSetup(): Promise<AgentLogSetup> {
     if (!this.localAgentLogs) throw new Error("ログ同期を初期化できません。");
@@ -3777,6 +3822,7 @@ export class WorkspaceService {
     return {
       ...this.localAgentLogs.status(),
       destination: this.agentLogDestination(),
+      pendingRecords: this.pendingAgentLogRecordCount(),
       candidates: [
         ...agentLogCandidates("codex", os.homedir(), process.env),
         ...agentLogCandidates("claude_code", os.homedir(), process.env),
