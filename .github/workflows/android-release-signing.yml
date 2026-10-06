@@ -143,6 +143,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Verify direct publication target
         if: inputs.release_tag != ''
@@ -155,9 +157,9 @@ jobs:
           if ($env:RELEASE_TAG -cne "v$version") {
             throw "Release tag must match package.json version."
           }
-          git fetch origin tag $env:RELEASE_TAG
+          git fetch --no-tags origin "refs/tags/$env:RELEASE_TAG"
           if ($LASTEXITCODE -ne 0) { throw "Release tag fetch failed." }
-          $tagCommit = git rev-parse "$env:RELEASE_TAG^{commit}"
+          $tagCommit = git rev-parse "FETCH_HEAD^{commit}"
           if ($LASTEXITCODE -ne 0) { throw "Release tag resolution failed." }
           $headCommit = git rev-parse HEAD
           if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $headCommit) {

@@ -61,10 +61,10 @@ Todayへの到達確認は、期限超過リマインダーの件数を含む読
 
 Androidは`Android release signing`をmainの対象commitで手動実行し、恒久署名jobのAPK artifactを取得する。
 APKのversionCode・versionName、証明書と既存端末の署名互換を確認し、同じReleaseへ`Tasken-Android-X.Y.Z.apk`とそのSHA-256を追加する。
-GitHub Releaseへ直接添付する場合は、Windows Release公開後に同じタグを`--ref`と`release_tag`へ指定して実行する。jobはタグ・package version・checkout commitの一致とmain到達を確認し、恒久署名APKをRelease assetへ転送して既存のWindows checksumを保持したまま`SHA256SUMS.txt`に追記する。この経路はActions artifact容量に依存しない。`release_tag`未指定の既存経路はAPK artifactを生成する。
+GitHub Releaseへ直接添付する場合は、Windows Release公開後にworkflowを`--ref main`で実行し、公開対象のタグを`release_tag`へ指定する。workflow定義はmainを使い、build jobは指定タグの変更しないソースをcheckoutする。jobはremote tagをローカルtagに上書きせず取得し、タグ・package version・checkout commitの一致とmain到達を確認する。恒久署名APKをRelease assetへ転送して既存のWindows checksumを保持したまま`SHA256SUMS.txt`に追記する。この経路はActions artifact容量に依存しない。`release_tag`未指定の既存経路は実行refをcheckoutしてAPK artifactを生成する。
 
 ```bash
-gh workflow run android-release-signing.yml --ref vX.Y.Z -f release_tag=vX.Y.Z
+gh workflow run android-release-signing.yml --ref main -f release_tag=vX.Y.Z
 ```
 
 端末更新はデータを保持する`adb -s <serial> install -r <apk>`で行い、アプリ削除やデータ消去を更新手順に含めない。

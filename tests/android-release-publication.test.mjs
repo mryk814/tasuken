@@ -32,6 +32,62 @@ const windowsLines = [
 const apkName = "Tasken-Android-0.1.76.apk";
 const apk = Buffer.from("isolated permanent signed APK fixture");
 
+test("Android publication checks out the immutable release tag from the dispatched workflow", () => {
+  const checkout = steps.find((step) => step.uses === "actions/checkout@v4");
+  assert.equal(checkout?.with?.ref, "${{ inputs.release_tag || github.ref }}");
+});
+
+test(
+  "Android verification fetches an annotated remote tag without replacing a checkout-created lightweight tag",
+  { skip: !powershell },
+  () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-android-tag-"));
+    const remote = path.join(directory, "remote.git");
+    const source = path.join(directory, "source");
+    const checkout = path.join(directory, "checkout");
+    const git = (cwd, ...args) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      return result.stdout.trim();
+    };
+    try {
+      git(directory, "init", "--bare", remote);
+      git(directory, "init", "--initial-branch=main", source);
+      git(source, "config", "user.name", "Release fixture");
+      git(source, "config", "user.email", "fixture@example.invalid");
+      git(source, "config", "commit.gpgsign", "false");
+      git(source, "config", "tag.gpgsign", "false");
+      fs.writeFileSync(path.join(source, "package.json"), JSON.stringify({ version: "0.1.76" }));
+      git(source, "add", "package.json");
+      git(source, "commit", "-m", "isolated release fixture");
+      git(source, "tag", "-a", "v0.1.76", "-m", "annotated release");
+      git(source, "remote", "add", "origin", remote);
+      git(source, "push", "origin", "main", "refs/tags/v0.1.76");
+      git(directory, "clone", "--no-tags", "--branch=main", remote, checkout);
+      git(checkout, "tag", "v0.1.76");
+      const localTag = git(checkout, "rev-parse", "refs/tags/v0.1.76");
+      assert.equal(git(checkout, "cat-file", "-t", "refs/tags/v0.1.76"), "commit");
+      assert.equal(git(source, "cat-file", "-t", "refs/tags/v0.1.76"), "tag");
+      const script = path.join(directory, "verify.ps1");
+      fs.writeFileSync(script, verify, "utf8");
+      const result = spawnSync(powershell, ["-NoProfile", "-NonInteractive", "-File", script], {
+        cwd: checkout,
+        encoding: "utf8",
+        env: { ...process.env, RELEASE_TAG: "v0.1.76" },
+        windowsHide: true,
+      });
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      assert.equal(
+        git(checkout, "rev-parse", "refs/tags/v0.1.76"),
+        localTag,
+        "The local lightweight tag must remain untouched",
+      );
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
+
 function run(scenario = "ok") {
   assert.equal(typeof verify, "string", "workflow must verify the direct publication target");
   assert.equal(
