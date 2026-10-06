@@ -109,7 +109,7 @@ export const ROUTE_DEFINITIONS = {
   inbox: {
     id: "inbox",
     // Inboxは廃止し（2026-10-06）、付箋メモの画面として残す。思いつきはFeedへ投稿する。
-    label: "付箋",
+    label: "Memo",
     description:
       "付箋メモを書き、色分け・表示・収納を管理します。未整理のメモはFeedの投稿へ移します。",
     icon: IconNote,
